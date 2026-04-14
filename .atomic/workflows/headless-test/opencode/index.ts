@@ -13,7 +13,7 @@ function extractResponseText(
 export default defineWorkflow<"opencode">({
   name: "headless-test",
   description:
-    "Test headless background stages: visible → [3 headless] → visible merge",
+    "Test headless background stages: visible → [3 headless] → visible merge → headless verdict",
 })
   .run(async (ctx) => {
     const prompt = ctx.inputs.prompt ?? "TypeScript";
@@ -97,7 +97,7 @@ export default defineWorkflow<"opencode">({
     ]);
 
     // ── Visible stage: merge results from background stages ──
-    await ctx.stage(
+    const mergeHandle = await ctx.stage(
       { name: "merge", description: "Combine background results" },
       {},
       { title: "merge" },
@@ -117,6 +117,27 @@ export default defineWorkflow<"opencode">({
           ],
         });
         s.save(result.data!);
+        return extractResponseText(result.data!.parts);
+      },
+    );
+
+    // ── Final headless stage: verify the orchestrator timer stays alive ──
+    await ctx.stage(
+      { name: "verdict", headless: true },
+      {},
+      { title: "verdict" },
+      async (s) => {
+        const result = await s.client.session.prompt({
+          sessionID: s.session.id,
+          parts: [
+            {
+              type: "text",
+              text: `Given this summary, write a one-sentence final verdict:\n\n${mergeHandle.result}`,
+            },
+          ],
+        });
+        s.save(result.data!);
+        return extractResponseText(result.data!.parts);
       },
     );
   })

@@ -10,6 +10,7 @@ import {
   buildEntries,
   buildPickerTheme,
   buildRows,
+  deduplicateByName,
   fuzzyMatch,
   isFieldValid,
   type PickerTheme,
@@ -46,7 +47,9 @@ async function press(
     await action(setup.mockInput);
     flushPendingInput(setup);
   });
-  await setup.renderOnce();
+  await act(async () => {
+    await setup.renderOnce();
+  });
 }
 
 // ─── Fixtures ─────────────────────────────────────
@@ -93,7 +96,7 @@ const TEST_LIGHT_BASE = {
   warning: "#df8e1d",
 };
 
-const TEST_THEME: PickerTheme = buildPickerTheme(TEST_DARK_BASE);
+const TEST_THEME: PickerTheme = buildPickerTheme(TEST_DARK_BASE, true);
 
 // A catalog with one workflow from each source plus a free-form one.
 const WORKFLOWS: WorkflowWithMetadata[] = [
@@ -173,7 +176,9 @@ async function renderPicker(
       kittyKeyboard: opts.kittyKeyboard ?? false,
     },
   );
-  await testSetup.renderOnce();
+  await act(async () => {
+    await testSetup!.renderOnce();
+  });
   return testSetup;
 }
 
@@ -298,6 +303,43 @@ describe("buildEntries", () => {
   });
 });
 
+describe("deduplicateByName", () => {
+  test("keeps higher-precedence source when names collide (builtin > local > global)", () => {
+    const workflows = [
+      makeWorkflow({ name: "shared", source: "global" }),
+      makeWorkflow({ name: "shared", source: "local" }),
+    ];
+    const result = deduplicateByName(workflows);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.source).toBe("local");
+  });
+
+  test("builtin wins over both local and global", () => {
+    const workflows = [
+      makeWorkflow({ name: "shared", source: "local" }),
+      makeWorkflow({ name: "shared", source: "builtin" }),
+      makeWorkflow({ name: "shared", source: "global" }),
+    ];
+    const result = deduplicateByName(workflows);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.source).toBe("builtin");
+  });
+
+  test("distinct names are all preserved", () => {
+    const workflows = [
+      makeWorkflow({ name: "a", source: "local" }),
+      makeWorkflow({ name: "b", source: "global" }),
+      makeWorkflow({ name: "c", source: "builtin" }),
+    ];
+    const result = deduplicateByName(workflows);
+    expect(result).toHaveLength(3);
+  });
+
+  test("empty input returns empty output", () => {
+    expect(deduplicateByName([])).toEqual([]);
+  });
+});
+
 describe("buildRows", () => {
   test("empty query inserts section headers for each source transition", () => {
     const entries = buildEntries("", WORKFLOWS);
@@ -324,15 +366,15 @@ describe("buildRows", () => {
 
 describe("buildPickerTheme", () => {
   test("produces distinct dark-mode info/mauve for Mocha base", () => {
-    const theme = buildPickerTheme(TEST_DARK_BASE);
+    const theme = buildPickerTheme(TEST_DARK_BASE, true);
     expect(theme.backgroundPanel).toBe("#181825");
     expect(theme.backgroundElement).toBe("#11111b");
     expect(theme.info).toBe("#89dceb");
     expect(theme.mauve).toBe("#cba6f7");
   });
 
-  test("produces light-mode values when base.bg is Latte base", () => {
-    const theme = buildPickerTheme(TEST_LIGHT_BASE);
+  test("produces light-mode values when isDark is false", () => {
+    const theme = buildPickerTheme(TEST_LIGHT_BASE, false);
     expect(theme.backgroundPanel).toBe("#e6e9ef");
     expect(theme.backgroundElement).toBe("#dce0e8");
     expect(theme.info).toBe("#04a5e5");
@@ -340,7 +382,7 @@ describe("buildPickerTheme", () => {
   });
 
   test("forwards base colors into matching theme slots", () => {
-    const theme = buildPickerTheme(TEST_DARK_BASE);
+    const theme = buildPickerTheme(TEST_DARK_BASE, true);
     expect(theme.background).toBe(TEST_DARK_BASE.bg);
     expect(theme.surface).toBe(TEST_DARK_BASE.surface);
     expect(theme.text).toBe(TEST_DARK_BASE.text);
@@ -679,21 +721,21 @@ describe("WorkflowPicker PROMPT keyboard", () => {
     expect(frame).toContain("empty-enum");
   });
 
-  test("ctrl+s with invalid required text field stays in PROMPT mode", async () => {
+  test("ctrl+d with invalid required text field stays in PROMPT mode", async () => {
     const setup = await renderAndEnterPrompt();
     // Nothing has been typed into the required text field — form invalid.
-    await press(setup, (i) => i.pressKey("s", { ctrl: true }));
+    await press(setup, (i) => i.pressKey("d", { ctrl: true }));
     const frame = setup.captureCharFrame();
     // Still on PROMPT mode, not CONFIRM.
     expect(frame).toContain("PROMPT");
     expect(frame).not.toContain("CONFIRM");
   });
 
-  test("ctrl+s with all required fields filled opens the confirm modal", async () => {
+  test("ctrl+d with all required fields filled opens the confirm modal", async () => {
     const setup = await renderAndEnterPrompt();
     // Fill the required text field "task".
     await press(setup, (i) => i.typeText("do something"));
-    await press(setup, (i) => i.pressKey("s", { ctrl: true }));
+    await press(setup, (i) => i.pressKey("d", { ctrl: true }));
     const frame = setup.captureCharFrame();
     expect(frame).toContain("CONFIRM");
     expect(frame).toContain("submit");
@@ -714,7 +756,7 @@ describe("WorkflowPicker PROMPT keyboard", () => {
     expect(frame).toContain("prompt");
   });
 
-  test("ctrl+s on free-form workflow with filled prompt opens confirm modal", async () => {
+  test("ctrl+d on free-form workflow with filled prompt opens confirm modal", async () => {
     const setup = await renderPicker();
     // Navigate to the freeform workflow (inputs: []).
     for (let i = 0; i < 3; i++) {
@@ -723,7 +765,7 @@ describe("WorkflowPicker PROMPT keyboard", () => {
     await press(setup, (i) => i.pressEnter());
     // Type into the DEFAULT_PROMPT_INPUT textarea.
     await press(setup, (i) => i.typeText("build a dashboard"));
-    await press(setup, (i) => i.pressKey("s", { ctrl: true }));
+    await press(setup, (i) => i.pressKey("d", { ctrl: true }));
     const frame = setup.captureCharFrame();
     expect(frame).toContain("CONFIRM");
     expect(frame).toContain("submit");
@@ -737,7 +779,7 @@ async function renderInConfirm(
 ) {
   const setup = await renderAndEnterPrompt(opts);
   await press(setup, (i) => i.typeText("task text"));
-  await press(setup, (i) => i.pressKey("s", { ctrl: true }));
+  await press(setup, (i) => i.pressKey("d", { ctrl: true }));
   return setup;
 }
 
@@ -891,7 +933,9 @@ describe("WorkflowPickerPanel class", () => {
       r.stdinParser?.flushTimeout?.(Number.POSITIVE_INFINITY);
       r.drainStdinParser?.();
     });
-    await coreSetup!.renderOnce();
+    await act(async () => {
+      await coreSetup!.renderOnce();
+    });
   }
 
   test("handleCancel: esc from PICK resolves selection with null", async () => {
@@ -913,9 +957,9 @@ describe("WorkflowPickerPanel class", () => {
     await pressOnCore(() => coreSetup!.mockInput.pressEnter());
     // PROMPT → fill the required text field.
     await pressOnCore(() => coreSetup!.mockInput.typeText("via class"));
-    // Ctrl-s → open CONFIRM modal.
+    // Ctrl-d → open CONFIRM modal.
     await pressOnCore(() =>
-      coreSetup!.mockInput.pressKey("s", { ctrl: true }),
+      coreSetup!.mockInput.pressKey("d", { ctrl: true }),
     );
     // y → submit.
     await pressOnCore(() => coreSetup!.mockInput.pressKey("y"));

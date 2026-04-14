@@ -606,6 +606,11 @@ export class HeadlessClaudeClientWrapper {
  * directly instead of tmux pane operations. Implements the same `query()`
  * interface as {@link ClaudeSessionWrapper} so workflow callbacks work
  * identically for headless and interactive stages.
+ *
+ * The `query()` method accepts the full Agent SDK parameter types —
+ * `prompt` can be a plain string or an `AsyncIterable<SDKUserMessage>`
+ * for multi-turn streaming, and `options` passes through SDK-level
+ * configuration (abort controllers, allowed tools, agents, etc.).
  */
 export class HeadlessClaudeSessionWrapper {
   readonly paneId = "";
@@ -615,10 +620,13 @@ export class HeadlessClaudeSessionWrapper {
     this.sessionId = sessionId;
   }
 
-  async query(prompt: string): Promise<ClaudeQueryResult> {
+  async query(
+    prompt: string | AsyncIterable<import("@anthropic-ai/claude-agent-sdk").SDKUserMessage>,
+    options?: import("@anthropic-ai/claude-agent-sdk").Options,
+  ): Promise<ClaudeQueryResult> {
     const { query } = await import("@anthropic-ai/claude-agent-sdk");
     let output = "";
-    for await (const msg of query({ prompt })) {
+    for await (const msg of query({ prompt, options })) {
       if (msg.type === "result") {
         // SDKResultSuccess has `result: string`, not `output`.
         output = String((msg as Record<string, unknown>).result ?? "");

@@ -10,7 +10,7 @@
  *               declared `WorkflowInput`). Free-form workflows fall back to
  *               a single `prompt` text field.
  *
- * Pressing ⌃s in the prompt phase validates required fields and opens a
+ * Pressing ⌃d in the prompt phase validates required fields and opens a
  * CONFIRM modal that shows the fully-composed shell command before
  * submission. y/↵ confirms, n/esc cancels back to the form.
  *
@@ -29,6 +29,7 @@
 import {
   createCliRenderer,
   type CliRenderer,
+  type KeyEvent,
   type TextareaRenderable,
 } from "@opentui/core";
 import {
@@ -36,7 +37,7 @@ import {
   useKeyboard,
   type Root,
 } from "@opentui/react";
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback, useContext, createContext, memo } from "react";
 import { useLatest } from "./hooks.ts";
 import { resolveTheme, type TerminalTheme } from "../runtime/theme.ts";
 import type { AgentType, WorkflowInput } from "../types.ts";
@@ -67,13 +68,12 @@ export interface PickerTheme {
   borderActive: string;
 }
 
-export function buildPickerTheme(base: TerminalTheme): PickerTheme {
+export function buildPickerTheme(base: TerminalTheme, isDark: boolean): PickerTheme {
   // For dark mode the prototype values track Catppuccin Mocha. For light
   // mode we derive muted variants from the base palette — the specific
   // extras (`info`, `mauve`, the three-level background ladder) have no
   // direct entries in `TerminalTheme`, so we pick close-enough Catppuccin
   // values to keep the picker visually consistent with the orchestrator.
-  const isDark = base.bg !== "#eff1f5";
   return {
     background: base.bg,
     backgroundPanel: isDark ? "#181825" : "#e6e9ef",
@@ -91,6 +91,17 @@ export function buildPickerTheme(base: TerminalTheme): PickerTheme {
     border: base.borderDim,
     borderActive: base.border,
   };
+}
+
+// ─── Theme Context ─────────────────────────────
+// Avoids drilling `theme` through every component in the tree.
+
+const PickerThemeContext = createContext<PickerTheme | null>(null);
+
+function usePickerTheme(): PickerTheme {
+  const theme = useContext(PickerThemeContext);
+  if (!theme) throw new Error("usePickerTheme must be used within a PickerThemeContext provider");
+  return theme;
 }
 
 // ─── Types ──────────────────────────────────────
@@ -115,6 +126,10 @@ const DEFAULT_PROMPT_INPUT: WorkflowInput = {
   placeholder: "describe your task…",
 };
 
+/** Stable single-element array for free-form workflows — avoids allocating
+ *  a new `[DEFAULT_PROMPT_INPUT]` on every useMemo recomputation. */
+const DEFAULT_FIELDS: WorkflowInput[] = [DEFAULT_PROMPT_INPUT];
+
 // ─── Helpers ────────────────────────────────────
 
 const SOURCE_DISPLAY: Record<Source, string> = {
@@ -133,6 +148,13 @@ const SOURCE_COLOR: Record<Source, keyof PickerTheme> = {
   local: "success",
   global: "mauve",
   builtin: "info",
+};
+
+/** Higher number wins when two workflows share a name. */
+const SOURCE_PRECEDENCE: Record<Source, number> = {
+  global: 0,
+  local: 1,
+  builtin: 2,
 };
 
 /**
@@ -175,13 +197,31 @@ type ListRow =
   | { kind: "section"; source: Source }
   | { kind: "entry"; entry: ListEntry };
 
+/**
+ * Deduplicate workflows by name using builtin > local > global precedence.
+ * When two workflows share a name, only the higher-precedence entry is kept.
+ */
+export function deduplicateByName(
+  workflows: WorkflowWithMetadata[],
+): WorkflowWithMetadata[] {
+  const byName = new Map<string, WorkflowWithMetadata>();
+  for (const wf of workflows) {
+    const existing = byName.get(wf.name);
+    if (!existing || SOURCE_PRECEDENCE[wf.source] > SOURCE_PRECEDENCE[existing.source]) {
+      byName.set(wf.name, wf);
+    }
+  }
+  return Array.from(byName.values());
+}
+
 export function buildEntries(
   query: string,
   workflows: WorkflowWithMetadata[],
 ): ListEntry[] {
+  const deduped = deduplicateByName(workflows);
   type Scored = { wf: WorkflowWithMetadata; score: number };
   const scored: Scored[] = [];
-  for (const wf of workflows) {
+  for (const wf of deduped) {
     const nameScore = fuzzyMatch(query, wf.name);
     const descScore = fuzzyMatch(query, wf.description);
     const best =
@@ -240,13 +280,12 @@ export function isFieldValid(field: WorkflowInput, value: string): boolean {
 
 // ─── Components ─────────────────────────────────
 
-function SectionLabel({
-  theme,
+const SectionLabel = memo(function SectionLabel({
   label,
 }: {
-  theme: PickerTheme;
   label: string;
 }) {
+  const theme = usePickerTheme();
   return (
     <box height={1} flexDirection="row">
       <text>
@@ -257,19 +296,18 @@ function SectionLabel({
       </text>
     </box>
   );
-}
+});
 
 function FilterBar({
-  theme,
   query,
   focused,
   onInput,
 }: {
-  theme: PickerTheme;
   query: string;
   focused: boolean;
   onInput: (value: string) => void;
 }) {
+  const theme = usePickerTheme();
   return (
     <box
       minHeight={3}
@@ -301,15 +339,28 @@ function FilterBar({
   );
 }
 
-function WorkflowList({
-  theme,
+const WorkflowList = memo(function WorkflowList({
   rows,
   focusedEntryIdx,
 }: {
-  theme: PickerTheme;
   rows: ListRow[];
   focusedEntryIdx: number;
 }) {
+  const theme = usePickerTheme();
+  // Pre-compute entry indices so the render pass is side-effect-free.
+  // Must live before any early return to satisfy the Rules of Hooks.
+  const entryIndexByRow = useMemo(() => {
+    const map = new Map<number, number>();
+    let counter = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      if (row && row.kind === "entry") {
+        map.set(i, counter++);
+      }
+    }
+    return map;
+  }, [rows]);
+
   if (rows.length === 0) {
     return (
       <box paddingLeft={2} paddingTop={2}>
@@ -320,18 +371,6 @@ function WorkflowList({
     );
   }
 
-  // Pre-compute entry indices so the render pass is side-effect-free.
-  const entryIndexByRow = useMemo(() => {
-    const map = new Map<number, number>();
-    let counter = 0;
-    for (let i = 0; i < rows.length; i++) {
-      if (rows[i]!.kind === "entry") {
-        map.set(i, counter++);
-      }
-    }
-    return map;
-  }, [rows]);
-
   return (
     <box flexDirection="column">
       {rows.map((row, i) => {
@@ -339,7 +378,7 @@ function WorkflowList({
           const src = row.source;
           return (
             <box
-              key={`s${i}`}
+              key={`section-${src}`}
               height={2}
               paddingTop={1}
               paddingLeft={2}
@@ -361,7 +400,7 @@ function WorkflowList({
 
         return (
           <box
-            key={`e${i}`}
+            key={`wf-${wf.name}`}
             height={1}
             flexDirection="row"
             backgroundColor={isFocused ? theme.border : "transparent"}
@@ -381,20 +420,21 @@ function WorkflowList({
       })}
     </box>
   );
-}
+});
 
-function ArgumentRow({
-  theme,
+const ArgumentRow = memo(function ArgumentRow({
   field,
 }: {
-  theme: PickerTheme;
   field: WorkflowInput;
 }) {
+  const theme = usePickerTheme();
   const isRequired = field.required ?? false;
   const tagCol = isRequired ? theme.warning : theme.textDim;
   const tagLabel = isRequired ? "required" : "optional";
-  const showEnumValues =
-    field.type === "enum" && field.values && field.values.length > 0;
+  const enumValues =
+    field.type === "enum" && field.values && field.values.length > 0
+      ? field.values
+      : null;
 
   return (
     <box flexDirection="column" paddingLeft={2} paddingRight={2}>
@@ -418,10 +458,10 @@ function ArgumentRow({
         </box>
       ) : null}
 
-      {showEnumValues ? (
+      {enumValues ? (
         <box height={1}>
           <text>
-            <span fg={theme.textDim}>{field.values!.join("  ·  ")}</span>
+            <span fg={theme.textDim}>{enumValues.join("  ·  ")}</span>
           </text>
         </box>
       ) : null}
@@ -429,17 +469,16 @@ function ArgumentRow({
       <box height={1} />
     </box>
   );
-}
+});
 
-function Preview({
-  theme,
+const Preview = memo(function Preview({
   wf,
 }: {
-  theme: PickerTheme;
   wf: WorkflowWithMetadata;
 }) {
-  const args: WorkflowInput[] =
-    wf.inputs.length > 0 ? [...wf.inputs] : [DEFAULT_PROMPT_INPUT];
+  const theme = usePickerTheme();
+  const args: readonly WorkflowInput[] =
+    wf.inputs.length > 0 ? wf.inputs : DEFAULT_FIELDS;
 
   return (
     <box
@@ -475,22 +514,21 @@ function Preview({
 
       <box height={2} />
 
-      <SectionLabel theme={theme} label="ARGUMENTS" />
+      <SectionLabel label="ARGUMENTS" />
       <box height={1} />
       {args.map((f) => (
-        <ArgumentRow key={f.name} theme={theme} field={f} />
+        <ArgumentRow key={f.name} field={f} />
       ))}
     </box>
   );
-}
+});
 
 function EmptyPreview({
-  theme,
   query,
 }: {
-  theme: PickerTheme;
   query: string;
 }) {
+  const theme = usePickerTheme();
   return (
     <box
       flexDirection="column"
@@ -529,20 +567,22 @@ function EmptyPreview({
 const TEXT_FIELD_LINES = 3;
 
 
+const NOOP_CHANGE_REF: React.RefObject<((value: string) => void) | null> = { current: null };
+
 function TextAreaContent({
-  theme,
   value,
   placeholder,
   focused,
   onChangeRef,
 }: {
-  theme: PickerTheme;
   value: string;
   placeholder: string;
   focused: boolean;
-  onChangeRef: React.RefObject<((value: string) => void) | null>;
+  onChangeRef?: React.RefObject<((value: string) => void) | null>;
 }) {
+  const theme = usePickerTheme();
   const ref = useRef<TextareaRenderable>(null);
+  const changeRef = onChangeRef ?? NOOP_CHANGE_REF;
 
   // Sync external value → textarea when it diverges (e.g. initial value).
   useEffect(() => {
@@ -556,12 +596,12 @@ function TextAreaContent({
     const ta = ref.current;
     if (!ta) return;
     ta.onContentChange = () => {
-      onChangeRef.current?.(ta.plainText);
+      changeRef.current?.(ta.plainText);
     };
     return () => {
       ta.onContentChange = undefined;
     };
-  }, [onChangeRef]);
+  }, [changeRef]);
 
   return (
     <textarea
@@ -581,18 +621,17 @@ function TextAreaContent({
 }
 
 function StringContent({
-  theme,
   value,
   placeholder,
   focused,
   onInput,
 }: {
-  theme: PickerTheme;
   value: string;
   placeholder: string;
   focused: boolean;
   onInput: (value: string) => void;
 }) {
+  const theme = usePickerTheme();
   return (
     <input
       value={value}
@@ -609,16 +648,15 @@ function StringContent({
 }
 
 function EnumContent({
-  theme,
   values,
   selected,
   focused,
 }: {
-  theme: PickerTheme;
   values: string[];
   selected: string;
   focused: boolean;
 }) {
+  const theme = usePickerTheme();
   return (
     <box height={1} flexDirection="row">
       {values.map((v, i) => {
@@ -652,21 +690,20 @@ function EnumContent({
   );
 }
 
-function Field({
-  theme,
+const Field = memo(function Field({
   field,
   value,
   focused,
-  onInput,
+  onFieldInput,
   onTextChangeRef,
 }: {
-  theme: PickerTheme;
   field: WorkflowInput;
   value: string;
   focused: boolean;
-  onInput: (value: string) => void;
-  onTextChangeRef: React.RefObject<((value: string) => void) | null>;
+  onFieldInput: (fieldName: string, value: string) => void;
+  onTextChangeRef?: React.RefObject<((value: string) => void) | null>;
 }) {
+  const theme = usePickerTheme();
   const borderCol = focused ? theme.primary : theme.border;
   const bgCol = focused ? theme.backgroundPanel : theme.backgroundElement;
 
@@ -675,6 +712,12 @@ function Field({
   const tagCol = field.required ? theme.warning : theme.textDim;
   const tagLabel = field.required ? "required" : "optional";
   const captionDesc = field.description ? "  ·  " + field.description : "";
+
+  // Bind the field name once so the parent doesn't need a per-field closure.
+  const onInput = useCallback(
+    (v: string) => onFieldInput(field.name, v),
+    [onFieldInput, field.name],
+  );
 
   return (
     <box flexDirection="column">
@@ -693,7 +736,6 @@ function Field({
       >
         {field.type === "text" ? (
           <TextAreaContent
-            theme={theme}
             value={value}
             placeholder={field.placeholder ?? ""}
             focused={focused}
@@ -701,7 +743,6 @@ function Field({
           />
         ) : field.type === "string" ? (
           <StringContent
-            theme={theme}
             value={value}
             placeholder={field.placeholder ?? ""}
             focused={focused}
@@ -709,7 +750,6 @@ function Field({
           />
         ) : field.type === "enum" ? (
           <EnumContent
-            theme={theme}
             values={field.values ?? []}
             selected={value}
             focused={focused}
@@ -729,10 +769,9 @@ function Field({
       <box height={1} />
     </box>
   );
-}
+});
 
 function InputPhase({
-  theme,
   workflow,
   agent,
   fields,
@@ -741,15 +780,15 @@ function InputPhase({
   onFieldInput,
   onTextChangeRef,
 }: {
-  theme: PickerTheme;
   workflow: WorkflowWithMetadata;
   agent: AgentType;
-  fields: WorkflowInput[];
+  fields: readonly WorkflowInput[];
   values: Record<string, string>;
   focusedFieldIdx: number;
   onFieldInput: (fieldName: string, value: string) => void;
   onTextChangeRef: React.RefObject<((value: string) => void) | null>;
 }) {
+  const theme = usePickerTheme();
   const isStructured = workflow.inputs.length > 0;
 
   return (
@@ -816,12 +855,15 @@ function InputPhase({
       {fields.map((f, i) => (
         <Field
           key={f.name}
-          theme={theme}
           field={f}
           value={values[f.name] ?? ""}
           focused={i === focusedFieldIdx}
-          onInput={(v) => onFieldInput(f.name, v)}
-          onTextChangeRef={onTextChangeRef}
+          onFieldInput={onFieldInput}
+          onTextChangeRef={
+            f.type === "text" && i === focusedFieldIdx
+              ? onTextChangeRef
+              : undefined
+          }
         />
       ))}
     </box>
@@ -829,14 +871,13 @@ function InputPhase({
 }
 
 function ConfirmModal({
-  theme,
   workflow,
   agent,
 }: {
-  theme: PickerTheme;
   workflow: WorkflowWithMetadata;
   agent: AgentType;
 }) {
+  const theme = usePickerTheme();
   return (
     <box
       position="absolute"
@@ -897,15 +938,27 @@ function ConfirmModal({
   );
 }
 
-// Stable hint arrays — no need for useMemo since they never change.
-const PICK_HINTS: { key: string; label: string; dim?: boolean }[] = [
+// Stable hint arrays — pre-built so they never create new references.
+type Hint = { key: string; label: string; dim?: boolean };
+
+const PICK_HINTS: Hint[] = [
   { key: "↑↓", label: "navigate" },
   { key: "↵", label: "select" },
   { key: "esc", label: "quit" },
 ];
-const CONFIRM_HINTS: { key: string; label: string; dim?: boolean }[] = [
+const CONFIRM_HINTS: Hint[] = [
   { key: "y", label: "submit" },
   { key: "n", label: "cancel" },
+];
+const PROMPT_HINTS_VALID: Hint[] = [
+  { key: "tab", label: "to navigate forward" },
+  { key: "shift+tab", label: "to navigate backward" },
+  { key: "ctrl+d", label: "to run" },
+];
+const PROMPT_HINTS_INVALID: Hint[] = [
+  { key: "tab", label: "to navigate forward" },
+  { key: "shift+tab", label: "to navigate backward" },
+  { key: "ctrl+d", label: "to run", dim: true },
 ];
 
 // Per-agent brand color used as the Header pill background.
@@ -915,19 +968,18 @@ const AGENT_PILL_COLOR: Record<AgentType, keyof PickerTheme> = {
   opencode: "mauve",
 };
 
-function Header({
-  theme,
+const Header = memo(function Header({
   phase,
   confirmOpen,
   selectedAgent,
   scopedCount,
 }: {
-  theme: PickerTheme;
   phase: Phase;
   confirmOpen: boolean;
   selectedAgent: AgentType;
   scopedCount: number;
 }) {
+  const theme = usePickerTheme();
   const phaseLabel = confirmOpen
     ? "confirm"
     : phase === "pick"
@@ -965,21 +1017,20 @@ function Header({
       </text>
     </box>
   );
-}
+});
 
-function Statusline({
-  theme,
+const Statusline = memo(function Statusline({
   phase,
   confirmOpen,
   hints,
   focusedWf,
 }: {
-  theme: PickerTheme;
   phase: Phase;
   confirmOpen: boolean;
   hints: { key: string; label: string; dim?: boolean }[];
   focusedWf: WorkflowWithMetadata | undefined;
 }) {
+  const theme = usePickerTheme();
   const modeLabel = confirmOpen
     ? "CONFIRM"
     : phase === "pick"
@@ -1033,6 +1084,175 @@ function Statusline({
       </box>
     </box>
   );
+});
+
+// ─── Keyboard hook ─────────────────────────────
+
+interface PickerKeyboardState {
+  entries: ListEntry[];
+  clampedEntryIdx: number;
+  savedEntryIdx: number;
+  focusedWf: WorkflowWithMetadata | undefined;
+  fieldValues: Record<string, string>;
+  isFormValid: boolean;
+  invalidFieldIndices: number[];
+  currentFields: readonly WorkflowInput[];
+  currentField: WorkflowInput | undefined;
+  phase: Phase;
+  confirmOpen: boolean;
+  onSubmit: (result: WorkflowPickerResult) => void;
+  onCancel: () => void;
+  setPhase: (p: Phase) => void;
+  setEntryIdx: React.Dispatch<React.SetStateAction<number>>;
+  setSavedEntryIdx: (i: number) => void;
+  setFieldValues: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  setFocusedFieldIdx: React.Dispatch<React.SetStateAction<number>>;
+  setConfirmOpen: (open: boolean) => void;
+}
+
+/**
+ * Encapsulates all keyboard handling for the picker's three phases
+ * (pick, prompt, confirm). Reads state through refs to avoid stale
+ * closures — useKeyboard captures the first callback identity.
+ */
+function usePickerKeyboard(state: PickerKeyboardState): void {
+  const onSubmitRef = useLatest(state.onSubmit);
+  const onCancelRef = useLatest(state.onCancel);
+  const entriesRef = useLatest(state.entries);
+  const entryIdxRef = useLatest(state.clampedEntryIdx);
+  const savedEntryIdxRef = useLatest(state.savedEntryIdx);
+  const focusedWfRef = useLatest(state.focusedWf);
+  const fieldValuesRef = useLatest(state.fieldValues);
+  const isFormValidRef = useLatest(state.isFormValid);
+  const invalidFieldIndicesRef = useLatest(state.invalidFieldIndices);
+  const currentFieldsRef = useLatest(state.currentFields);
+  const currentFieldRef = useLatest(state.currentField);
+  const phaseRef = useLatest(state.phase);
+  const confirmOpenRef = useLatest(state.confirmOpen);
+
+  const {
+    setPhase,
+    setEntryIdx,
+    setSavedEntryIdx,
+    setFieldValues,
+    setFocusedFieldIdx,
+    setConfirmOpen,
+  } = state;
+
+  const onConfirmKey = useCallback((key: KeyEvent) => {
+    key.stopPropagation();
+    if (key.name === "y" || key.name === "return") {
+      const wf = focusedWfRef.current;
+      if (!wf) return;
+      onSubmitRef.current({ workflow: wf, inputs: { ...fieldValuesRef.current } });
+      return;
+    }
+    if (key.name === "n" || key.name === "escape") {
+      setConfirmOpen(false);
+    }
+  }, []);
+
+  const onPickKey = useCallback((key: KeyEvent) => {
+    if (key.name === "escape") {
+      key.stopPropagation();
+      onCancelRef.current();
+      return;
+    }
+    if (key.name === "up" || (key.ctrl && key.name === "k")) {
+      key.stopPropagation();
+      setEntryIdx(Math.max(0, entryIdxRef.current - 1));
+      return;
+    }
+    if (key.name === "down" || (key.ctrl && key.name === "j")) {
+      key.stopPropagation();
+      setEntryIdx(Math.min(entriesRef.current.length - 1, entryIdxRef.current + 1));
+      return;
+    }
+    if (key.name === "return") {
+      key.stopPropagation();
+      const wf = focusedWfRef.current;
+      if (wf) {
+        const inputs: readonly WorkflowInput[] =
+          wf.inputs.length > 0
+            ? wf.inputs
+            : DEFAULT_FIELDS;
+        const initial: Record<string, string> = {};
+        for (const f of inputs) {
+          initial[f.name] =
+            f.default ??
+            (f.type === "enum" ? (f.values?.[0] ?? "") : "");
+        }
+        setFieldValues(initial);
+        setFocusedFieldIdx(0);
+        setSavedEntryIdx(entryIdxRef.current);
+        setPhase("prompt");
+      }
+    }
+  }, []);
+
+  const onPromptKey = useCallback((key: KeyEvent) => {
+    if (key.name === "escape") {
+      key.stopPropagation();
+      setEntryIdx(savedEntryIdxRef.current);
+      setPhase("pick");
+      return;
+    }
+    if (key.ctrl && key.name === "d") {
+      key.stopPropagation();
+      if (!isFormValidRef.current) {
+        const firstInvalid = invalidFieldIndicesRef.current[0];
+        if (firstInvalid !== undefined) setFocusedFieldIdx(firstInvalid);
+        return;
+      }
+      setConfirmOpen(true);
+      return;
+    }
+    if (key.name === "tab") {
+      key.stopPropagation();
+      setFocusedFieldIdx((i: number) => {
+        const len = currentFieldsRef.current.length;
+        if (len <= 1) return 0;
+        return key.shift ? (i - 1 + len) % len : (i + 1) % len;
+      });
+      return;
+    }
+    const field = currentFieldRef.current;
+    if (!field) return;
+
+    if (field.type === "enum") {
+      const values = field.values ?? [];
+      if (values.length === 0) return;
+      if (key.name === "left" || key.name === "right") {
+        key.stopPropagation();
+        setFieldValues((prev: Record<string, string>) => {
+          const cur = prev[field.name] ?? values[0] ?? "";
+          const idx = Math.max(0, values.indexOf(cur));
+          const delta = key.name === "left" ? -1 : 1;
+          const nextIdx = (idx + delta + values.length) % values.length;
+          return { ...prev, [field.name]: values[nextIdx] ?? "" };
+        });
+      }
+      return;
+    }
+
+    if (field.type === "string" && key.name === "return") {
+      key.stopPropagation();
+      setFocusedFieldIdx((i: number) =>
+        Math.min(currentFieldsRef.current.length - 1, i + 1),
+      );
+    }
+  }, []);
+
+  useKeyboard((key) => {
+    if (key.ctrl && key.name === "c") {
+      key.stopPropagation();
+      onCancelRef.current();
+      return;
+    }
+    if (confirmOpenRef.current) return onConfirmKey(key);
+    if (phaseRef.current === "pick") return onPickKey(key);
+    onPromptKey(key);
+  });
 }
 
 // ─── App ────────────────────────────────────────
@@ -1055,28 +1275,25 @@ export function WorkflowPicker({
   const [phase, setPhase] = useState<Phase>("pick");
   const [query, setQuery] = useState("");
   const [entryIdx, setEntryIdx] = useState(0);
+  const [savedEntryIdx, setSavedEntryIdx] = useState(0);
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
   const [focusedFieldIdx, setFocusedFieldIdx] = useState(0);
   const [confirmOpen, setConfirmOpen] = useState(false);
-
-  // Ref-based callback for textarea change notifications. The ref is
-  // stable across renders so the textarea effect doesn't re-attach.
-  const textChangeRef = useRef<((value: string) => void) | null>(null);
 
   const entries = useMemo(() => buildEntries(query, workflows), [query, workflows]);
   const rows = useMemo(() => buildRows(entries, query), [entries, query]);
 
   // Clamp index when the list shrinks (e.g. typing filters entries out).
-  useEffect(() => {
-    setEntryIdx((i) => Math.min(i, Math.max(0, entries.length - 1)));
-  }, [entries.length]);
+  // Derived during render — keyboard handlers read the clamped value via
+  // refs (useLatest) so no sync-back effect is needed.
+  const clampedEntryIdx = Math.min(entryIdx, Math.max(0, entries.length - 1));
 
-  const focusedWf = entries[entryIdx]?.workflow;
+  const focusedWf = entries[clampedEntryIdx]?.workflow;
 
-  const currentFields = useMemo<WorkflowInput[]>(
+  const currentFields = useMemo<readonly WorkflowInput[]>(
     () => focusedWf && focusedWf.inputs.length > 0
-      ? focusedWf.inputs.slice()
-      : [DEFAULT_PROMPT_INPUT],
+      ? focusedWf.inputs
+      : DEFAULT_FIELDS,
     [focusedWf],
   );
   const currentField = currentFields[focusedFieldIdx];
@@ -1084,7 +1301,8 @@ export function WorkflowPicker({
   const invalidFieldIndices = useMemo(() => {
     const out: number[] = [];
     for (let i = 0; i < currentFields.length; i++) {
-      const f = currentFields[i]!;
+      const f = currentFields[i];
+      if (!f) continue;
       const v = fieldValues[f.name] ?? "";
       if (!isFieldValid(f, v)) out.push(i);
     }
@@ -1092,15 +1310,15 @@ export function WorkflowPicker({
   }, [currentFields, fieldValues]);
   const isFormValid = invalidFieldIndices.length === 0;
 
-  // Wire the textarea change callback so field values stay in sync.
-  // The ref is written here (not in a child) so the parent state
-  // always reflects the latest textarea content.
-  const focusedField = currentField;
-  textChangeRef.current = focusedField
-    ? (text: string) => {
-        setFieldValues((prev) => ({ ...prev, [focusedField.name]: text }));
-      }
-    : null;
+  // Textarea change callback ref — useLatest keeps .current in sync
+  // each render so the textarea effect doesn't need to re-attach.
+  const textChangeRef = useLatest(
+    currentField
+      ? (text: string) => {
+          setFieldValues((prev) => ({ ...prev, [currentField.name]: text }));
+        }
+      : null,
+  );
 
   // Stable callback for field input — the setter is referentially stable.
   const onFieldInput = useCallback(
@@ -1108,224 +1326,101 @@ export function WorkflowPicker({
     [],
   );
 
-  // Stable refs for values read inside the keyboard handler,
-  // preventing stale closures when useKeyboard holds the first callback.
-  const entriesRef = useLatest(entries);
-  const focusedWfRef = useLatest(focusedWf);
-  const fieldValuesRef = useLatest(fieldValues);
-  const isFormValidRef = useLatest(isFormValid);
-  const invalidFieldIndicesRef = useLatest(invalidFieldIndices);
-  const currentFieldsRef = useLatest(currentFields);
-  const currentFieldRef = useLatest(currentField);
-  const phaseRef = useLatest(phase);
-  const confirmOpenRef = useLatest(confirmOpen);
-
-  useKeyboard((key) => {
-    if (key.ctrl && key.name === "c") {
-      key.stopPropagation();
-      onCancel();
-      return;
-    }
-
-    if (confirmOpenRef.current) {
-      // Consume all keys while the modal is open so focused fields
-      // behind the overlay never see them.
-      key.stopPropagation();
-      if (key.name === "y" || key.name === "return") {
-        const wf = focusedWfRef.current;
-        if (!wf) return;
-        onSubmit({ workflow: wf, inputs: { ...fieldValuesRef.current } });
-        return;
-      }
-      if (key.name === "n" || key.name === "escape") {
-        setConfirmOpen(false);
-        return;
-      }
-      return;
-    }
-
-    if (phaseRef.current === "pick") {
-      if (key.name === "escape") {
-        key.stopPropagation();
-        onCancel();
-        return;
-      }
-      if (key.name === "up" || (key.ctrl && key.name === "k")) {
-        key.stopPropagation();
-        setEntryIdx((i: number) => Math.max(0, i - 1));
-        return;
-      }
-      if (key.name === "down" || (key.ctrl && key.name === "j")) {
-        key.stopPropagation();
-        setEntryIdx((i: number) =>
-          Math.min(entriesRef.current.length - 1, i + 1),
-        );
-        return;
-      }
-      if (key.name === "return") {
-        key.stopPropagation();
-        const wf = focusedWfRef.current;
-        if (wf) {
-          const inputs: WorkflowInput[] =
-            wf.inputs.length > 0
-              ? [...wf.inputs]
-              : [DEFAULT_PROMPT_INPUT];
-          const initial: Record<string, string> = {};
-          for (const f of inputs) {
-            initial[f.name] =
-              f.default ??
-              (f.type === "enum" ? (f.values?.[0] ?? "") : "");
-          }
-          setFieldValues(initial);
-          setFocusedFieldIdx(0);
-          setPhase("prompt");
-        }
-        return;
-      }
-      // All other keys (typing, backspace, arrows) are handled by the
-      // native <input> component in the FilterBar.
-      return;
-    }
-
-    // ── PROMPT phase ──
-    if (key.name === "escape") {
-      key.stopPropagation();
-      setPhase("pick");
-      return;
-    }
-    if (key.ctrl && key.name === "s") {
-      key.stopPropagation();
-      if (!isFormValidRef.current) {
-        setFocusedFieldIdx(invalidFieldIndicesRef.current[0]!);
-        return;
-      }
-      setConfirmOpen(true);
-      return;
-    }
-    if (key.name === "tab") {
-      key.stopPropagation();
-      setFocusedFieldIdx((i: number) => {
-        const len = currentFieldsRef.current.length;
-        if (len <= 1) return 0;
-        return key.shift ? (i - 1 + len) % len : (i + 1) % len;
-      });
-      return;
-    }
-    const field = currentFieldRef.current;
-    if (!field) return;
-
-    // Enum fields use left/right to cycle values.
-    if (field.type === "enum") {
-      const values = field.values ?? [];
-      if (values.length === 0) return;
-      if (key.name === "left" || key.name === "right") {
-        key.stopPropagation();
-        setFieldValues((prev: Record<string, string>) => {
-          const cur = prev[field.name] ?? values[0] ?? "";
-          const idx = Math.max(0, values.indexOf(cur));
-          const delta = key.name === "left" ? -1 : 1;
-          const nextIdx = (idx + delta + values.length) % values.length;
-          return { ...prev, [field.name]: values[nextIdx] ?? "" };
-        });
-      }
-      return;
-    }
-
-    // For string fields, return advances focus to the next field
-    // (the native <input> fires onSubmit, but we handle it here so
-    // the focus-cycling logic stays in one place).
-    if (field.type === "string" && key.name === "return") {
-      key.stopPropagation();
-      setFocusedFieldIdx((i: number) =>
-        Math.min(currentFieldsRef.current.length - 1, i + 1),
-      );
-      return;
-    }
-    // All other keys for string/text fields (typing, backspace,
-    // arrows, undo/redo) are handled by native <input>/<textarea>.
+  usePickerKeyboard({
+    entries,
+    clampedEntryIdx,
+    savedEntryIdx,
+    focusedWf,
+    fieldValues,
+    isFormValid,
+    invalidFieldIndices,
+    currentFields,
+    currentField,
+    phase,
+    confirmOpen,
+    onSubmit,
+    onCancel,
+    setPhase,
+    setEntryIdx,
+    setSavedEntryIdx,
+    setFieldValues,
+    setFocusedFieldIdx,
+    setConfirmOpen,
   });
 
-  const pickHints = PICK_HINTS;
-  const confirmHints = CONFIRM_HINTS;
-  const promptHints = useMemo(() => [
-    { key: "tab", label: "to navigate forward" },
-    { key: "shift+tab", label: "to navigate backward" },
-    { key: "ctrl+s", label: "to run", dim: !isFormValid },
-  ], [isFormValid]);
-
   const hints = confirmOpen
-    ? confirmHints
+    ? CONFIRM_HINTS
     : phase === "pick"
-      ? pickHints
-      : promptHints;
+      ? PICK_HINTS
+      : isFormValid
+        ? PROMPT_HINTS_VALID
+        : PROMPT_HINTS_INVALID;
 
   return (
-    <box
-      position="relative"
-      width="100%"
-      height="100%"
-      flexDirection="column"
-      backgroundColor={theme.background}
-    >
-      <Header
-        theme={theme}
-        phase={phase}
-        confirmOpen={confirmOpen}
-        selectedAgent={agent}
-        scopedCount={workflows.length}
-      />
-
-      {phase === "pick" ? (
-        <box
-          flexGrow={1}
-          flexDirection="row"
-          paddingLeft={2}
-          paddingRight={2}
-          paddingTop={1}
-        >
-          <box width={36} flexDirection="column">
-            <FilterBar theme={theme} query={query} focused={phase === "pick"} onInput={setQuery} />
-            <box height={1} />
-            <WorkflowList
-              theme={theme}
-              rows={rows}
-              focusedEntryIdx={entryIdx}
-            />
-          </box>
-          <box width={1} backgroundColor={theme.border} />
-          <box flexGrow={1} flexDirection="column">
-            {focusedWf ? (
-              <Preview theme={theme} wf={focusedWf} />
-            ) : (
-              <EmptyPreview theme={theme} query={query} />
-            )}
-          </box>
-        </box>
-      ) : phase === "prompt" && focusedWf ? (
-        <InputPhase
-          theme={theme}
-          workflow={focusedWf}
-          agent={agent}
-          fields={currentFields}
-          values={fieldValues}
-          focusedFieldIdx={confirmOpen ? -1 : focusedFieldIdx}
-          onFieldInput={onFieldInput}
-          onTextChangeRef={textChangeRef}
+    <PickerThemeContext value={theme}>
+      <box
+        position="relative"
+        width="100%"
+        height="100%"
+        flexDirection="column"
+        backgroundColor={theme.background}
+      >
+        <Header
+          phase={phase}
+          confirmOpen={confirmOpen}
+          selectedAgent={agent}
+          scopedCount={workflows.length}
         />
-      ) : null}
 
-      <Statusline
-        theme={theme}
-        phase={phase}
-        confirmOpen={confirmOpen}
-        hints={hints}
-        focusedWf={focusedWf}
-      />
+        {phase === "pick" ? (
+          <box
+            flexGrow={1}
+            flexDirection="row"
+            paddingLeft={2}
+            paddingRight={2}
+            paddingTop={1}
+          >
+            <box width={36} flexDirection="column">
+              <FilterBar query={query} focused={phase === "pick"} onInput={setQuery} />
+              <box height={1} />
+              <WorkflowList
+                rows={rows}
+                focusedEntryIdx={clampedEntryIdx}
+              />
+            </box>
+            <box width={1} backgroundColor={theme.border} />
+            <box flexGrow={1} flexDirection="column">
+              {focusedWf ? (
+                <Preview wf={focusedWf} />
+              ) : (
+                <EmptyPreview query={query} />
+              )}
+            </box>
+          </box>
+        ) : phase === "prompt" && focusedWf ? (
+          <InputPhase
+            workflow={focusedWf}
+            agent={agent}
+            fields={currentFields}
+            values={fieldValues}
+            focusedFieldIdx={confirmOpen ? -1 : focusedFieldIdx}
+            onFieldInput={onFieldInput}
+            onTextChangeRef={textChangeRef}
+          />
+        ) : null}
 
-      {confirmOpen && focusedWf ? (
-        <ConfirmModal theme={theme} workflow={focusedWf} agent={agent} />
-      ) : null}
-    </box>
+        <Statusline
+          phase={phase}
+          confirmOpen={confirmOpen}
+          hints={hints}
+          focusedWf={focusedWf}
+        />
+
+        {confirmOpen && focusedWf ? (
+          <ConfirmModal workflow={focusedWf} agent={agent} />
+        ) : null}
+      </box>
+    </PickerThemeContext>
   );
 }
 
@@ -1359,7 +1454,8 @@ export class WorkflowPickerPanel {
       this.resolveSelection = resolve;
     });
 
-    const theme = buildPickerTheme(resolveTheme(renderer.themeMode));
+    const isDark = renderer.themeMode !== "light";
+    const theme = buildPickerTheme(resolveTheme(renderer.themeMode), isDark);
     this.root = createRoot(renderer);
     this.root.render(
       <ErrorBoundary
@@ -1441,7 +1537,9 @@ export class WorkflowPickerPanel {
     }
     try {
       this.renderer.destroy();
-    } catch {}
+    } catch (err) {
+      console.error("[WorkflowPickerPanel] destroy failed:", err);
+    }
   }
 
   private handleSubmit(result: WorkflowPickerResult): void {

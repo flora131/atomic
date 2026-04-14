@@ -78,8 +78,9 @@ Each of these is a `.ts` file using Atomic's [Workflow SDK](#workflow-sdk--build
       - [Saving Transcripts](#saving-transcripts)
       - [Per-Agent Session APIs](#per-agent-session-apis)
       - [Key Rules](#key-rules)
-    - [Deep Codebase Research](#deep-codebase-research)
+    - [Research Codebase](#research-codebase)
     - [Autonomous Execution (Ralph)](#autonomous-execution-ralph)
+    - [Deep Research Codebase](#deep-research-codebase)
     - [Containerized Execution](#containerized-execution)
     - [Specialized Sub-Agents](#specialized-sub-agents)
     - [Built-in Skills](#built-in-skills)
@@ -258,10 +259,10 @@ Here's one of the [canonical use cases](#what-you-can-build) — a team pipeline
 // .atomic/workflows/review-to-merge/claude/index.ts
 import { defineWorkflow } from "@bastani/atomic/workflows";
 
-export default defineWorkflow<"claude">({
+export default defineWorkflow({
   name: "review-to-merge",
   description: "Review → CI → PR → Notify → Approve → Merge",
-})
+}).for<"claude">()
   .run(async (ctx) => {
     // Step 1: Review the changes
     const review = await ctx.stage(
@@ -368,10 +369,11 @@ atomic workflow -n my-workflow -a claude "describe this project"
 // .atomic/workflows/my-workflow/claude/index.ts
 import { defineWorkflow } from "@bastani/atomic/workflows";
 
-export default defineWorkflow<"claude">({
+export default defineWorkflow({
   name: "my-workflow",
   description: "Two-session pipeline: describe -> summarize",
-})
+  inputs: [{ name: "prompt", type: "text", required: true, description: "task prompt" }],
+}).for<"claude">()
   .run(async (ctx) => {
     const prompt = ctx.inputs.prompt ?? "";
 
@@ -407,10 +409,11 @@ export default defineWorkflow<"claude">({
 ```ts
 import { defineWorkflow } from "@bastani/atomic/workflows";
 
-export default defineWorkflow<"claude">({
+export default defineWorkflow({
   name: "parallel-demo",
   description: "describe -> [summarize-a, summarize-b] -> merge",
-})
+  inputs: [{ name: "prompt", type: "text", required: true, description: "task prompt" }],
+}).for<"claude">()
   .run(async (ctx) => {
     const prompt = ctx.inputs.prompt ?? "";
 
@@ -458,7 +461,7 @@ Declare an `inputs` array on `defineWorkflow` and the CLI materialises one `--<f
 // .atomic/workflows/gen-spec/claude/index.ts
 import { defineWorkflow } from "@bastani/atomic/workflows";
 
-export default defineWorkflow<"claude">({
+export default defineWorkflow({
   name: "gen-spec",
   description: "Convert a research doc into an execution spec",
   inputs: [
@@ -483,7 +486,7 @@ export default defineWorkflow<"claude">({
       description: "extra guidance for the spec writer (optional)",
     },
   ],
-})
+}).for<"claude">()
   .run(async (ctx) => {
     // Read each declared field by name.
     const { research_doc, focus } = ctx.inputs;
@@ -520,12 +523,13 @@ atomic workflow -a claude
 Stages can run in **headless mode** (`headless: true`) — they execute the provider SDK in-process instead of spawning a tmux window. Headless stages are invisible in the workflow graph but tracked via a background task counter in the statusline. Use them for parallel data-gathering tasks that don't need a visible TUI.
 
 ```ts
-import { defineWorkflow } from "@bastani/atomic/workflows";
+import { defineWorkflow, extractAssistantText } from "@bastani/atomic/workflows";
 
-export default defineWorkflow<"claude">({
+export default defineWorkflow({
   name: "headless-demo",
   description: "seed -> [3 headless background] -> merge",
-})
+  inputs: [{ name: "prompt", type: "text", required: true, description: "task prompt" }],
+}).for<"claude">()
   .run(async (ctx) => {
     const prompt = ctx.inputs.prompt ?? "";
 
@@ -536,7 +540,7 @@ export default defineWorkflow<"claude">({
       async (s) => {
         const result = await s.session.query(prompt);
         s.save(s.sessionId);
-        return String(result.output ?? "");
+        return extractAssistantText(result, 0);
       },
     );
 
@@ -545,17 +549,17 @@ export default defineWorkflow<"claude">({
       ctx.stage({ name: "pros", headless: true }, {}, {}, async (s) => {
         const r = await s.session.query(`List 3 pros:\n\n${seed.result}`);
         s.save(s.sessionId);
-        return String(r.output ?? "");
+        return extractAssistantText(r, 0);
       }),
       ctx.stage({ name: "cons", headless: true }, {}, {}, async (s) => {
         const r = await s.session.query(`List 3 cons:\n\n${seed.result}`);
         s.save(s.sessionId);
-        return String(r.output ?? "");
+        return extractAssistantText(r, 0);
       }),
       ctx.stage({ name: "uses", headless: true }, {}, {}, async (s) => {
         const r = await s.session.query(`List 3 use cases:\n\n${seed.result}`);
         s.save(s.sessionId);
-        return String(r.output ?? "");
+        return extractAssistantText(r, 0);
       }),
     ]);
 
@@ -625,29 +629,29 @@ Use your workflow-creator skill to create a workflow that plans, implements, and
 
 #### WorkflowContext (`ctx`) — top-level orchestrator
 
-| Property                                       | Type                        | Description                                                                                                                                                                             |
-| ---------------------------------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ctx.inputs`                                   | `Record<string, string>`    | Structured inputs for this run. Free-form workflows store their positional prompt under `ctx.inputs.prompt`; workflows with a declared `inputs` schema store one key per declared field |
-| `ctx.agent`                                    | `AgentType`                 | Which agent is running (`"claude"`, `"copilot"`, `"opencode"`)                                                                                                                          |
-| `ctx.stage(opts, clientOpts, sessionOpts, fn)` | `Promise<SessionHandle<T>>` | Spawn a session — returns handle with `name`, `id`, `result`                                                                                                                            |
-| `ctx.transcript(ref)`                          | `Promise<Transcript>`       | Get a completed session's transcript (`{ path, content }`)                                                                                                                              |
-| `ctx.getMessages(ref)`                         | `Promise<SavedMessage[]>`   | Get a completed session's raw native messages                                                                                                                                           |
+| Property                                       | Type                        | Description                                                                                                                                                                                        |
+| ---------------------------------------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ctx.inputs`                                   | `{ [K in N]?: string }`     | Typed inputs for this run — only declared field names are valid keys. Accessing an undeclared field is a compile-time error. Workflows that need a prompt must declare it in their `inputs` schema |
+| `ctx.agent`                                    | `AgentType`                 | Which agent is running (`"claude"`, `"copilot"`, `"opencode"`)                                                                                                                                     |
+| `ctx.stage(opts, clientOpts, sessionOpts, fn)` | `Promise<SessionHandle<T>>` | Spawn a session — returns handle with `name`, `id`, `result`                                                                                                                                       |
+| `ctx.transcript(ref)`                          | `Promise<Transcript>`       | Get a completed session's transcript (`{ path, content }`)                                                                                                                                         |
+| `ctx.getMessages(ref)`                         | `Promise<SavedMessage[]>`   | Get a completed session's raw native messages                                                                                                                                                      |
 
 #### SessionContext (`s`) — inside each session callback
 
-| Property                                     | Type                        | Description                                                                                                                              |
-| -------------------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `s.client`                                   | `ProviderClient<A>`         | Pre-created SDK client (auto-managed by runtime)                                                                                         |
-| `s.session`                                  | `ProviderSession<A>`        | Pre-created provider session (auto-managed by runtime)                                                                                   |
-| `s.inputs`                                   | `Record<string, string>`    | Same inputs record as `ctx.inputs`, forwarded into every stage so session callbacks can read values without closing over the outer `ctx` |
-| `s.agent`                                    | `AgentType`                 | Which agent is running                                                                                                                   |
-| `s.paneId`                                   | `string`                    | tmux pane ID for this session                                                                                                            |
-| `s.sessionId`                                | `string`                    | Session UUID                                                                                                                             |
-| `s.sessionDir`                               | `string`                    | Path to this session's storage directory on disk                                                                                         |
-| `s.save(messages)`                           | `SaveTranscript`            | Save this session's output for subsequent sessions                                                                                       |
-| `s.transcript(ref)`                          | `Promise<Transcript>`       | Get a completed session's transcript                                                                                                     |
-| `s.getMessages(ref)`                         | `Promise<SavedMessage[]>`   | Get a completed session's raw native messages                                                                                            |
-| `s.stage(opts, clientOpts, sessionOpts, fn)` | `Promise<SessionHandle<T>>` | Spawn a nested sub-session (child in the graph)                                                                                          |
+| Property                                     | Type                        | Description                                                                                                                             |
+| -------------------------------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `s.client`                                   | `ProviderClient<A>`         | Pre-created SDK client (auto-managed by runtime)                                                                                        |
+| `s.session`                                  | `ProviderSession<A>`        | Pre-created provider session (auto-managed by runtime)                                                                                  |
+| `s.inputs`                                   | `{ [K in N]?: string }`     | Same typed inputs as `ctx.inputs`, forwarded into every stage so session callbacks can read values without closing over the outer `ctx` |
+| `s.agent`                                    | `AgentType`                 | Which agent is running                                                                                                                  |
+| `s.paneId`                                   | `string`                    | tmux pane ID for this session                                                                                                           |
+| `s.sessionId`                                | `string`                    | Session UUID                                                                                                                            |
+| `s.sessionDir`                               | `string`                    | Path to this session's storage directory on disk                                                                                        |
+| `s.save(messages)`                           | `SaveTranscript`            | Save this session's output for subsequent sessions                                                                                      |
+| `s.transcript(ref)`                          | `Promise<Transcript>`       | Get a completed session's transcript                                                                                                    |
+| `s.getMessages(ref)`                         | `Promise<SavedMessage[]>`   | Get a completed session's raw native messages                                                                                           |
+| `s.stage(opts, clientOpts, sessionOpts, fn)` | `Promise<SessionHandle<T>>` | Spawn a nested sub-session (child in the graph)                                                                                         |
 
 #### Session Options (`SessionRunOptions`)
 
@@ -691,9 +695,12 @@ The runtime auto-creates `s.client` and `s.session` — use them directly inside
 
 For the authoring walkthrough with worked examples, ask Atomic to use the `workflow-creator` skill or read the skill reference at `.agents/skills/workflow-creator/`.
 
+> [!TIP]
+> **Keeping workflows up to date:** When the Workflow SDK is updated (new return types, new options, deprecated patterns), you can ask the `workflow-creator` skill to migrate your existing workflows to the latest best practices. Just open your workflow file and ask: _"Update this workflow to use the latest SDK patterns."_ The skill stays current with the SDK and will apply the right changes automatically.
+
 </details>
 
-### Deep Codebase Research
+### Research Codebase
 
 The `/research-codebase` command dispatches **specialized sub-agents in parallel** to analyze your codebase:
 
@@ -752,7 +759,7 @@ Research outputs persist in your `research/` directory and specs persist in your
   <img src="assets/ralph-wiggum.jpg" alt="Ralph Wiggum" width="600">
 </p>
 
-The [Ralph Wiggum Method](https://ghuntley.com/ralph/) enables **multi-hour autonomous coding sessions**. After approving your spec, let Ralph work in the background while you focus on other tasks.
+The [Ralph Method](https://ghuntley.com/ralph/) enables **multi-hour autonomous coding sessions**. After approving your spec, let Ralph work in the background while you focus on other tasks.
 
 **How Ralph works:**
 
@@ -777,6 +784,21 @@ git worktree add ../my-project-ralph feature-branch
 cd ../my-project-ralph
 atomic workflow -n ralph -a claude "Build the auth module"
 ```
+
+### Deep Research Codebase
+
+Atomic also ships with `deep-research-codebase`, a built-in workflow that performs **multi-agent parallel research** across your codebase. While `/research-codebase` is a single-shot command, the `deep-research-codebase` workflow is a full multi-stage pipeline:
+
+1. **Scout** — A single agent scans the codebase structure and produces an architectural orientation
+2. **History** — A parallel agent surfaces prior research from `research/docs/`
+3. **Explorers** — Multiple parallel agents (count scaled by LOC) each investigate a partition of the codebase, writing findings to scratch files
+4. **Aggregator** — A final agent synthesizes all explorer reports + history into a dated research document at `research/docs/YYYY-MM-DD-<slug>.md`
+
+```bash
+atomic workflow -n deep-research-codebase -a claude "How does the authentication system work?"
+```
+
+The workflow produces a permanent research artifact that can be referenced by future runs, specs, or other workflows.
 
 ### Containerized Execution
 
@@ -1043,7 +1065,7 @@ atomic chat -a claude --verbose              # Forward --verbose to claude
 | `-n, --name <name>`  | Workflow name (matches directory under `.atomic/workflows/<name>/`)                               |
 | `-a, --agent <name>` | Agent: `claude`, `opencode`, `copilot`                                                            |
 | `--<field>=<value>`  | Structured input for workflows that declare an `inputs` schema (also accepts `--<field> <value>`) |
-| `[prompt...]`        | Positional prompt for free-form workflows (rejected on workflows with a declared schema)          |
+| `[prompt...]`        | Positional prompt — requires the workflow to declare a `prompt` input                             |
 
 The workflow command supports four invocation shapes:
 
@@ -1057,7 +1079,7 @@ atomic workflow list -a claude       # filter by agent
 #    and confirm with y/n
 atomic workflow -a claude
 
-# 3. Run a free-form workflow with a positional prompt
+# 3. Run a workflow with a positional prompt (workflow must declare a "prompt" input)
 atomic workflow -n ralph -a claude "build a REST API for user management"
 
 # 4. Run a structured-input workflow with one --<field> flag per declared input
@@ -1066,7 +1088,7 @@ atomic workflow -n gen-spec -a claude \
   --focus=standard
 ```
 
-Workflows that declare an `inputs: WorkflowInput[]` schema get CLI flag validation for free — missing required fields and invalid enum values are rejected before any tmux session is spawned, with error messages that spell out the expected flag set. Workflows that don't declare a schema still accept a single positional prompt, which the runtime stores under `ctx.inputs.prompt`. **Builtin workflows (like `ralph`) are reserved names** — a local or global workflow with the same name will not shadow a builtin at resolution time.
+Workflows that declare an `inputs: WorkflowInput[]` schema get CLI flag validation for free — missing required fields and invalid enum values are rejected before any tmux session is spawned, with error messages that spell out the expected flag set. Workflows that declare a `prompt` input accept a positional prompt on the command line, which the runtime stores under `ctx.inputs.prompt`. **Builtin workflows (like `ralph`) are reserved names** — a local or global workflow with the same name will not shadow a builtin at resolution time.
 
 #### `atomic completions` — Shell Completions
 

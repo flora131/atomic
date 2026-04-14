@@ -170,3 +170,61 @@ describe("WorkflowBuilder.compile()", () => {
     expect(() => builder.compile()).toThrow("has no run callback");
   });
 });
+
+describe("WorkflowBuilder.for()", () => {
+  test("returns the same builder instance (type-only narrowing)", () => {
+    const builder = defineWorkflow({ name: "test" });
+    const narrowed = builder.for<"copilot">();
+    // Same instance — .for() only changes the TypeScript type, not the value
+    expect(narrowed === (builder as unknown)).toBe(true);
+  });
+
+  test("chains with run and compile", () => {
+    const def = defineWorkflow({
+      name: "test",
+      inputs: [{ name: "greeting", type: "string" }],
+    })
+      .for<"copilot">()
+      .run(async () => {})
+      .compile();
+    expect(def.__brand).toBe("WorkflowDefinition");
+    expect(def.inputs[0]?.name).toBe("greeting");
+  });
+});
+
+describe("typed inputs (compile-time)", () => {
+  test("structured inputs restrict ctx.inputs keys", () => {
+    // This test validates that the type system correctly narrows
+    // ctx.inputs to only declared field names. The assertions below
+    // are runtime no-ops — the real check is that tsc compiles this
+    // file without errors (or produces errors only where expected).
+    defineWorkflow({
+      name: "typed-test",
+      inputs: [
+        { name: "greeting", type: "string", required: true },
+        { name: "style", type: "enum", values: ["formal", "casual"] },
+      ],
+    })
+      .for<"copilot">()
+      .run(async (ctx) => {
+        // Declared keys are valid
+        const _g: string | undefined = ctx.inputs.greeting;
+        const _s: string | undefined = ctx.inputs.style;
+        // Undeclared key — would be a compile error without @ts-expect-error
+        // @ts-expect-error — "prompt" is not a declared input
+        ctx.inputs.prompt;
+        expect(true).toBe(true);
+      })
+      .compile();
+  });
+
+  test("free-form workflows allow any key", () => {
+    defineWorkflow({ name: "freeform-test" })
+      .for<"copilot">()
+      .run(async (ctx) => {
+        const _p: string | undefined = ctx.inputs.prompt;
+        expect(true).toBe(true);
+      })
+      .compile();
+  });
+});

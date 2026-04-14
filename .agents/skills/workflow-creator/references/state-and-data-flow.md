@@ -114,13 +114,13 @@ Use closures and variables for state within a single session:
       );
 
       // Accumulate findings
-      const review = parseReviewResult(result.output);
+      const review = parseReviewResult(extractAssistantText(result, 0));
       if (review) {
         findings.push(...review.findings.map(f => f.title));
       }
 
       // Track clean streak
-      if (!hasActionableFindings(review, result.output)) {
+      if (!hasActionableFindings(review, extractAssistantText(result, 0))) {
         consecutiveClean++;
         if (consecutiveClean >= 2) break;
         continue;
@@ -129,7 +129,7 @@ Use closures and variables for state within a single session:
 
       // Apply fix
       const fixResult = await s.session.query(buildFixSpec(review, (ctx.inputs.prompt ?? "")));
-      priorOutput = fixResult.output;
+      priorOutput = extractAssistantText(fixResult, 0);
     }
 
     // All local state is available here

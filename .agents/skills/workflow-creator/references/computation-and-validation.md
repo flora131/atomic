@@ -34,11 +34,13 @@ Each SDK returns responses in different formats. Use helpers to extract text:
 
 ### Claude
 
-`s.session.query()` returns `{ output: string, delivered: boolean }` — the captured response text.
+`s.session.query()` returns `SessionMessage[]` — the native SDK transcript messages from this turn. Use `extractAssistantText()` to extract the plain text:
 
 ```ts
+import { extractAssistantText } from "@bastani/atomic/workflows";
+
 const result = await s.session.query("...");
-const text = result.output; // Already a string
+const text = extractAssistantText(result, 0); // Extract text from SessionMessage[]
 ```
 
 ### Copilot
@@ -212,7 +214,7 @@ ${implTranscript.content}
 Respond with JSON: { "correctness": N, "completeness": N, "style": N, "pass": boolean, "issues": [...] }`,
     );
 
-    const scores = parseJsonResponse(result.output);
+    const scores = parseJsonResponse(extractAssistantText(result, 0));
 
     if (!scores.pass) {
       await s.session.query(`Fix these quality issues:\n${scores.issues.join("\n")}`);

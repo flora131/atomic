@@ -4,7 +4,7 @@ This guide covers the basics of creating workflows with the `defineWorkflow().ru
 
 ## Quick-start example
 
-Use `defineWorkflow<"agent">().run(callback).compile()` to define your workflow. Inside the `.run()` callback, use `ctx.stage()` to spawn agent sessions dynamically. Each session gets its own tmux window and graph node. Use native TypeScript control flow (`for`, `if`, `Promise.all()`) for orchestration.
+Use `defineWorkflow({...}).for<"agent">().run(callback).compile()` to define your workflow. Inside the `.run()` callback, use `ctx.stage()` to spawn agent sessions dynamically. Each session gets its own tmux window and graph node. Use native TypeScript control flow (`for`, `if`, `Promise.all()`) for orchestration.
 
 The runtime manages the full session lifecycle automatically — it creates the client, creates the session, runs your callback, then cleans up. You never need to manually disconnect or stop anything.
 
@@ -12,15 +12,17 @@ The runtime manages the full session lifecycle automatically — it creates the 
 
 ```ts
 // .atomic/workflows/my-workflow/claude/index.ts
-import { defineWorkflow } from "@bastani/atomic/workflows";
+import { defineWorkflow, extractAssistantText } from "@bastani/atomic/workflows";
 
-export default defineWorkflow<"claude">({
+export default defineWorkflow({
     name: "my-workflow",
     description: "A two-session pipeline",
+    inputs: [
+      { name: "prompt", type: "text", required: true, description: "task to perform" },
+    ],
   })
+  .for<"claude">()
   .run(async (ctx) => {
-    // Free-form workflow: the positional CLI prompt lands under
-    // `inputs.prompt`. Destructure once and close over it in stages.
     const prompt = ctx.inputs.prompt ?? "";
 
     const describe = await ctx.stage(
@@ -55,10 +57,14 @@ export default defineWorkflow<"claude">({
 // .atomic/workflows/my-workflow/copilot/index.ts
 import { defineWorkflow } from "@bastani/atomic/workflows";
 
-export default defineWorkflow<"copilot">({
+export default defineWorkflow({
     name: "my-workflow",
     description: "A two-session pipeline",
+    inputs: [
+      { name: "prompt", type: "text", required: true, description: "task to perform" },
+    ],
   })
+  .for<"copilot">()
   .run(async (ctx) => {
     const prompt = ctx.inputs.prompt ?? "";
 
@@ -94,10 +100,14 @@ export default defineWorkflow<"copilot">({
 // .atomic/workflows/my-workflow/opencode/index.ts
 import { defineWorkflow } from "@bastani/atomic/workflows";
 
-export default defineWorkflow<"opencode">({
+export default defineWorkflow({
     name: "my-workflow",
     description: "A two-session pipeline",
+    inputs: [
+      { name: "prompt", type: "text", required: true, description: "task to perform" },
+    ],
   })
+  .for<"opencode">()
   .run(async (ctx) => {
     const prompt = ctx.inputs.prompt ?? "";
 
@@ -172,7 +182,7 @@ const result = await ctx.stage(
     // s.client, s.session, s.save(), s.transcript() all work identically
     const result = await s.session.query("Analyze the codebase.");
     s.save(s.sessionId);
-    return result.output;
+    return extractAssistantText(result, 0);
   },
 );
 // result.result contains the returned value
@@ -208,7 +218,7 @@ Headless stages are transparent to graph topology — `seed → [3 headless] →
 The `@bastani/atomic/workflows` package exports the workflow authoring primitives. For native SDK types and utilities, install and import from the provider packages directly.
 
 **Builder:**
-- `defineWorkflow` — entry point, accepts an optional type parameter (`"claude"`, `"copilot"`, `"opencode"`) for type narrowing; returns a chainable `WorkflowBuilder`
+- `defineWorkflow` — entry point; returns a chainable `WorkflowBuilder`. Use `.for<"agent">()` on the builder to narrow types to a specific provider.
 - `WorkflowBuilder` — the builder class (rarely needed directly)
 
 **Types** (import with `import type`):
@@ -223,12 +233,15 @@ The `@bastani/atomic/workflows` package exports the workflow authoring primitive
 - `StageSessionOptions<A>` — provider-specific session create options for `ctx.stage()` third argument
 - `ProviderClient<A>` — the `s.client` type, resolved by agent type
 - `ProviderSession<A>` — the `s.session` type, resolved by agent type
-- `ClaudeSessionWrapper` — Atomic wrapper for Claude sessions (exposes `s.session.query()`)
+- `ClaudeSessionWrapper` — Atomic wrapper for Claude sessions (exposes `s.session.query()`, which returns `SessionMessage[]`)
 - `ClaudeQueryDefaults` — per-stage query defaults (timeouts, poll interval) for Claude sessions
 - `SessionRef` — `string | SessionHandle<unknown>` for transcript/message lookups
 - `WorkflowContext` — top-level context passed to `.run()` callback
 - `WorkflowOptions` — `{ name, description? }` workflow metadata
 - `WorkflowDefinition` — sealed output of `.compile()`
+
+**Response utilities:**
+- `extractAssistantText(messages, afterIndex)` — extract plain text from the `SessionMessage[]` returned by `s.session.query()` for Claude; use `extractAssistantText(result, 0)` to get the full assistant response text
 
 **Validation helpers:**
 - `validateClaudeWorkflow` — static validation for Claude workflow source files; warns on direct `createClaudeSession` or `claudeQuery` usage
@@ -251,7 +264,7 @@ The Atomic runtime provides `s.client` and `s.session` with types resolved from 
 |-------|------|-------------|
 | `client` | `ProviderClient<A>` | Pre-created SDK client (auto-managed by runtime) |
 | `session` | `ProviderSession<A>` | Pre-created provider session (auto-managed by runtime) |
-| `inputs` | `Record<string, string>` | Structured inputs for this run. Free-form workflows read `s.inputs.prompt`; structured workflows read their declared field names. See `workflow-inputs.md`. |
+| `inputs` | `{ [K in N]?: string }` | Typed inputs for this run — only declared field names are valid keys. Accessing an undeclared field is a compile-time error. See `workflow-inputs.md`. |
 | `agent` | `AgentType` | Which agent is running |
 | `transcript(ref)` | `(ref: SessionRef) => Promise<Transcript>` | Get prior session's transcript as `{ path, content }` |
 | `getMessages(ref)` | `(ref: SessionRef) => Promise<SavedMessage[]>` | Get prior session's raw native messages |
@@ -286,4 +299,4 @@ Both include `helpers/` directories with SDK-agnostic logic (prompt builders, pa
 
 ## Type safety
 
-The SDK is typed with **no `unknown` or `any`**. `SessionContext` fields are precisely typed, and native provider types may appear inside Atomic generic aliases and runtime values — if you need to name those types in your own code, import them from the provider SDK directly. Use `import type` for type-only imports. Use the `defineWorkflow<"agent">()` type parameter to narrow `s.client` and `s.session` to the correct provider types.
+The SDK is typed with **no `unknown` or `any`**. `SessionContext` fields are precisely typed, and native provider types may appear inside Atomic generic aliases and runtime values — if you need to name those types in your own code, import them from the provider SDK directly. Use `import type` for type-only imports. Use `.for<"agent">()` to narrow `s.client` and `s.session` to the correct provider types. Declare `inputs` inline so TypeScript enforces typed access on `ctx.inputs`.

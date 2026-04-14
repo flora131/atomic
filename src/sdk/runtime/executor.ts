@@ -80,7 +80,12 @@ const AGENT_CLI: Record<
       "--allow-dangerously-skip-permissions",
       "--dangerously-skip-permissions",
     ],
-    envVars: {},
+    envVars: {
+      // Enables session_state_changed events in the session JSONL transcript,
+      // which the idle detection in claude.ts watches for to know when the
+      // agent has finished processing a prompt.
+      CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: "1",
+    },
   },
 };
 

@@ -16,6 +16,8 @@ Prefer inter-session control flow when you want the workflow graph to reflect wh
 Run a triage session first, then branch at the `.run()` level to spawn a purpose-built session for each outcome. Every branch appears as a distinct node in the graph:
 
 ```ts
+import { extractAssistantText } from "@bastani/atomic/workflows";
+
 .run(async (ctx) => {
   // Step 1: Classify the request
   const triage = await ctx.stage({ name: "triage" }, {}, {}, async (s) => {
@@ -23,7 +25,7 @@ Run a triage session first, then branch at the `.run()` level to spawn a purpose
       `Classify this as "bug", "feature", or "question": ${(ctx.inputs.prompt ?? "")}`,
     );
     s.save(s.sessionId);
-    return result.output.toLowerCase();
+    return extractAssistantText(result, 0).toLowerCase();
   });
 
   const classification = triage.result;
@@ -53,13 +55,15 @@ Run a triage session first, then branch at the `.run()` level to spawn a purpose
 When the branching logic is simple and you want the agent to retain full context across both the triage and the action, do it all inside a single session callback:
 
 ```ts
+import { extractAssistantText } from "@bastani/atomic/workflows";
+
 .run(async (ctx) => {
   await ctx.stage({ name: "triage-and-act" }, {}, {}, async (s) => {
     const triageResult = await s.session.query(
       `Classify this as "bug", "feature", or "question": ${(ctx.inputs.prompt ?? "")}`,
     );
 
-    const classification = triageResult.output.toLowerCase();
+    const classification = extractAssistantText(triageResult, 0).toLowerCase();
 
     if (classification.includes("bug")) {
       await s.session.query("Diagnose and fix the bug described above.");
@@ -81,6 +85,8 @@ When the branching logic is simple and you want the agent to retain full context
 Each iteration spawns its own session, so the graph shows exactly how many passes ran:
 
 ```ts
+import { extractAssistantText } from "@bastani/atomic/workflows";
+
 .run(async (ctx) => {
   const MAX_ITERATIONS = 5;
 
@@ -88,7 +94,7 @@ Each iteration spawns its own session, so the graph shows exactly how many passe
     const iteration = await ctx.stage({ name: `refine-${i}` }, {}, {}, async (s) => {
       const result = await s.session.query(`Iteration ${i}: Improve the implementation.`);
       s.save(s.sessionId);
-      return result.output;
+      return extractAssistantText(result, 0);
     });
 
     if (iteration.result.includes("LGTM") || iteration.result.includes("no issues")) {
@@ -103,6 +109,8 @@ Each iteration spawns its own session, so the graph shows exactly how many passe
 When the agent must remember every prior iteration's output to make progress, keep the loop inside one session:
 
 ```ts
+import { extractAssistantText } from "@bastani/atomic/workflows";
+
 .run(async (ctx) => {
   await ctx.stage({ name: "iterative-refinement" }, {}, {}, async (s) => {
     const MAX_ITERATIONS = 5;
@@ -110,7 +118,7 @@ When the agent must remember every prior iteration's output to make progress, ke
     for (let i = 0; i < MAX_ITERATIONS; i++) {
       const result = await s.session.query(`Iteration ${i + 1}: Improve the implementation.`);
 
-      if (result.output.includes("LGTM") || result.output.includes("no issues")) {
+      if (extractAssistantText(result, 0).includes("LGTM") || extractAssistantText(result, 0).includes("no issues")) {
         break;
       }
     }
@@ -125,6 +133,8 @@ When the agent must remember every prior iteration's output to make progress, ke
 The inter-session pattern is the right fit here: every review and every fix becomes its own graph node, so the executed path is fully visible. This is the production-grade approach with consecutive clean-pass detection:
 
 ```ts
+import { extractAssistantText } from "@bastani/atomic/workflows";
+
 .run(async (ctx) => {
   const MAX_CYCLES = 10;
   const CLEAN_THRESHOLD = 2;
@@ -135,7 +145,7 @@ The inter-session pattern is the right fit here: every review and every fix beco
     const review = await ctx.stage({ name: `review-${cycle}` }, {}, {}, async (s) => {
       const result = await s.session.query(buildReviewPrompt((ctx.inputs.prompt ?? "")));
       s.save(s.sessionId);
-      return result.output;
+      return extractAssistantText(result, 0);
     });
 
     const reviewRaw = review.result;
@@ -292,12 +302,14 @@ Each iteration's stages form a natural chain because each `await` follows the pr
 Headless stages (`{ headless: true }`) are **invisible in the workflow graph** — they don't consume or update the execution frontier. This means they don't affect the parent-child edges inferred for visible stages.
 
 ```ts
+import { extractAssistantText } from "@bastani/atomic/workflows";
+
 // ✅ Graph renders: seed → merge (headless stages are transparent)
 .run(async (ctx) => {
   const seed = await ctx.stage({ name: "seed" }, {}, {}, async (s) => {
     const result = await s.session.query("Describe the project.");
     s.save(s.sessionId);
-    return result.output;
+    return extractAssistantText(result, 0);
   });
 
   // Three parallel headless stages — invisible in the graph
@@ -305,17 +317,17 @@ Headless stages (`{ headless: true }`) are **invisible in the workflow graph** �
     ctx.stage({ name: "gather-a", headless: true }, {}, {}, async (s) => {
       const result = await s.session.query(`List 3 pros:\n\n${seed.result}`);
       s.save(s.sessionId);
-      return result.output;
+      return extractAssistantText(result, 0);
     }),
     ctx.stage({ name: "gather-b", headless: true }, {}, {}, async (s) => {
       const result = await s.session.query(`List 3 cons:\n\n${seed.result}`);
       s.save(s.sessionId);
-      return result.output;
+      return extractAssistantText(result, 0);
     }),
     ctx.stage({ name: "gather-c", headless: true }, {}, {}, async (s) => {
       const result = await s.session.query(`List 3 uses:\n\n${seed.result}`);
       s.save(s.sessionId);
-      return result.output;
+      return extractAssistantText(result, 0);
     }),
   ]);
 
@@ -417,12 +429,14 @@ async function retryWithBackoff<T>(
 Combine loops, conditionals, and inter-session data passing. Session callbacks return typed values via `SessionHandle<T>.result`, and `s.transcript(handle)` accepts a prior `SessionHandle` to read another session's saved output:
 
 ```ts
+import { extractAssistantText } from "@bastani/atomic/workflows";
+
 .run(async (ctx) => {
   // Step 1: Analyse — result is available as a typed handle
   const analysisHandle = await ctx.stage({ name: "analyze" }, {}, {}, async (s) => {
     const result = await s.session.query(`Analyse the task: ${(ctx.inputs.prompt ?? "")}`);
     s.save(s.sessionId);
-    return result.output;
+    return extractAssistantText(result, 0);
   });
 
   const isComplex = analysisHandle.result.includes("complex");
@@ -439,7 +453,7 @@ Combine loops, conditionals, and inter-session data passing. Session callbacks r
           : "Continue improving the implementation.",
       );
       s.save(s.sessionId);
-      return result.output;
+      return extractAssistantText(result, 0);
     });
 
     if (impl.result.includes("all tests pass")) {

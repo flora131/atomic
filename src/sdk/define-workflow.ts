@@ -2,7 +2,8 @@
  * Workflow Builder — defines a workflow with a single `.run()` entry point.
  *
  * Usage:
- *   defineWorkflow<"copilot">({ name: "my-workflow", description: "..." })
+ *   defineWorkflow({ name: "my-workflow", inputs: [...] })
+ *     .for<"copilot">()
  *     .run(async (ctx) => {
  *       await ctx.stage({ name: "research" }, {}, {}, async (s) => { ... });
  *       await ctx.stage({ name: "plan" }, {}, {}, async (s) => { ... });
@@ -58,14 +59,40 @@ function validateWorkflowInput(input: WorkflowInput, workflowName: string): void
  * Chainable workflow builder. Records the run callback,
  * then .compile() seals it into a WorkflowDefinition.
  */
-export class WorkflowBuilder<A extends AgentType = AgentType> {
+export class WorkflowBuilder<A extends AgentType = AgentType, N extends string = string> {
   /** @internal Brand for detection across package boundaries */
   readonly __brand = "WorkflowBuilder" as const;
   private readonly options: WorkflowOptions;
-  private runFn: ((ctx: WorkflowContext<A>) => Promise<void>) | null = null;
+  private runFn: ((ctx: WorkflowContext<A, N>) => Promise<void>) | null = null;
 
   constructor(options: WorkflowOptions) {
     this.options = options;
+  }
+
+  /**
+   * Narrow the agent type for this workflow while preserving typed inputs.
+   *
+   * Use `.for<"copilot">()` **before** `.run()` instead of passing the
+   * agent as a type parameter to `defineWorkflow`. This allows TypeScript
+   * to infer input names from the `inputs` array AND narrow the agent
+   * type for `stage()` callbacks.
+   *
+   * @example
+   * ```typescript
+   * defineWorkflow({
+   *   name: "my-workflow",
+   *   inputs: [{ name: "greeting", type: "string" }],
+   * })
+   *   .for<"copilot">()
+   *   .run(async (ctx) => {
+   *     ctx.inputs.greeting; // ✓ typed
+   *     ctx.inputs.prompt;   // ✗ compile error
+   *   })
+   *   .compile();
+   * ```
+   */
+  for<B extends AgentType>(): WorkflowBuilder<B, N> {
+    return this as unknown as WorkflowBuilder<B, N>;
   }
 
   /**
@@ -76,7 +103,7 @@ export class WorkflowBuilder<A extends AgentType = AgentType> {
    * reading completed session outputs. Use native TypeScript control flow
    * (loops, conditionals, `Promise.all()`) for orchestration.
    */
-  run(fn: (ctx: WorkflowContext<A>) => Promise<void>): this {
+  run(fn: (ctx: WorkflowContext<A, N>) => Promise<void>): this {
     if (this.runFn) {
       throw new Error("run() can only be called once per workflow.");
     }
@@ -93,7 +120,7 @@ export class WorkflowBuilder<A extends AgentType = AgentType> {
    * After calling compile(), the returned object is consumed by the
    * Atomic CLI runtime.
    */
-  compile(): WorkflowDefinition<A> {
+  compile(): WorkflowDefinition<A, N> {
     if (!this.runFn) {
       throw new Error(
         `Workflow "${this.options.name}" has no run callback. ` +
@@ -133,45 +160,36 @@ export class WorkflowBuilder<A extends AgentType = AgentType> {
 /**
  * Entry point for defining a workflow.
  *
- * Pass a type parameter to narrow all context types to a specific agent:
+ * Write the `inputs` array inline so TypeScript infers literal field
+ * names and enforces them on `ctx.inputs`. Use `.for<Agent>()` to
+ * narrow the agent type while keeping typed inputs:
  *
  * @example
  * ```typescript
  * import { defineWorkflow } from "@bastani/atomic/workflows";
  *
- * export default defineWorkflow<"copilot">({
+ * export default defineWorkflow({
  *   name: "hello",
  *   description: "Two-session demo",
+ *   inputs: [
+ *     { name: "greeting", type: "string", required: true },
+ *   ],
  * })
+ *   .for<"copilot">()
  *   .run(async (ctx) => {
- *     const describe = await ctx.stage(
- *       { name: "describe" },
- *       {},
- *       {},
- *       async (s) => {
- *         // s.client: CopilotClient, s.session: CopilotSession
- *         await s.session.send({ prompt: s.inputs.prompt ?? "" });
- *         s.save(await s.session.getMessages());
- *       },
- *     );
- *     await ctx.stage(
- *       { name: "summarize" },
- *       {},
- *       {},
- *       async (s) => {
- *         const research = await s.transcript(describe);
- *         // ...
- *       },
- *     );
+ *     ctx.inputs.greeting; // ✓ string | undefined
+ *     ctx.inputs.prompt;   // ✗ compile error — not declared
  *   })
  *   .compile();
  * ```
  */
-export function defineWorkflow<A extends AgentType = AgentType>(
-  options: WorkflowOptions,
-): WorkflowBuilder<A> {
+export function defineWorkflow<
+  const I extends readonly WorkflowInput[] = readonly WorkflowInput[],
+>(
+  options: WorkflowOptions<I>,
+): WorkflowBuilder<AgentType, I[number]["name"]> {
   if (!options.name || options.name.trim() === "") {
     throw new Error("Workflow name is required.");
   }
-  return new WorkflowBuilder<A>(options);
+  return new WorkflowBuilder<AgentType, I[number]["name"]>(options);
 }

@@ -74,11 +74,15 @@ function getAssistantText(messages: SessionEvent[]): string {
     .join("\n\n");
 }
 
-export default defineWorkflow<"copilot">({
+export default defineWorkflow({
   name: "ralph",
   description:
     "Plan → orchestrate → review → debug loop with bounded iteration",
+  inputs: [
+    { name: "prompt", type: "text", required: true, description: "task prompt" },
+  ],
 })
+  .for<"copilot">()
   .run(async (ctx) => {
     const userPromptText = ctx.inputs.prompt ?? "";
     let debuggerReport = "";

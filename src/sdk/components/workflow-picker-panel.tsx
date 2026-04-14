@@ -591,18 +591,14 @@ function TextAreaContent({
     }
   }, [value]);
 
-  // Report changes back to parent via onContentChange.
-  useEffect(() => {
-    const ta = ref.current;
-    if (!ta) return;
-    ta.onContentChange = () => {
-      changeRef.current?.(ta.plainText);
-    };
-    return () => {
-      ta.onContentChange = undefined;
-    };
-  }, [changeRef]);
-
+  // Wire onContentChange as a prop so the reconciler sets it during the
+  // commit phase (via the constructor and setProperty's default branch),
+  // guaranteeing it is active before the textarea can receive key events.
+  // The previous useEffect approach deferred setup as a passive effect
+  // (ConcurrentRoot schedules these via setTimeout) — creating a window
+  // where keystrokes reached the focused textarea before the listener
+  // existed, silently dropping content-change notifications and leaving
+  // fieldValues stale.
   return (
     <textarea
       ref={ref}
@@ -616,6 +612,9 @@ function TextAreaContent({
       placeholderColor={theme.textDim}
       wrapMode="word"
       flexGrow={1}
+      onContentChange={() => {
+        changeRef.current?.(ref.current?.plainText ?? "");
+      }}
     />
   );
 }

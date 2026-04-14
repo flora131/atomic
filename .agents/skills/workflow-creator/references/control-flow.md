@@ -287,6 +287,63 @@ In iterative loops each stage is naturally the successor of the last because `aw
 
 Each iteration's stages form a natural chain because each `await` follows the previous one. Conditional stages fit in seamlessly — the graph reflects whatever path was actually executed.
 
+### Headless (background) stages: transparent to graph topology
+
+Headless stages (`{ headless: true }`) are **invisible in the workflow graph** — they don't consume or update the execution frontier. This means they don't affect the parent-child edges inferred for visible stages.
+
+```ts
+// ✅ Graph renders: seed → merge (headless stages are transparent)
+.run(async (ctx) => {
+  const seed = await ctx.stage({ name: "seed" }, {}, {}, async (s) => {
+    const result = await s.session.query("Describe the project.");
+    s.save(s.sessionId);
+    return result.output;
+  });
+
+  // Three parallel headless stages — invisible in the graph
+  const [a, b, c] = await Promise.all([
+    ctx.stage({ name: "gather-a", headless: true }, {}, {}, async (s) => {
+      const result = await s.session.query(`List 3 pros:\n\n${seed.result}`);
+      s.save(s.sessionId);
+      return result.output;
+    }),
+    ctx.stage({ name: "gather-b", headless: true }, {}, {}, async (s) => {
+      const result = await s.session.query(`List 3 cons:\n\n${seed.result}`);
+      s.save(s.sessionId);
+      return result.output;
+    }),
+    ctx.stage({ name: "gather-c", headless: true }, {}, {}, async (s) => {
+      const result = await s.session.query(`List 3 uses:\n\n${seed.result}`);
+      s.save(s.sessionId);
+      return result.output;
+    }),
+  ]);
+
+  // Visible merge stage — chains from "seed" in the graph (not from headless stages)
+  await ctx.stage({ name: "merge" }, {}, {}, async (s) => {
+    await s.session.query(
+      `Combine:\n\n## Pros\n${a.result}\n\n## Cons\n${b.result}\n\n## Uses\n${c.result}`,
+    );
+    s.save(s.sessionId);
+  });
+})
+```
+
+**Key behaviors:**
+- Headless stages don't produce graph nodes — they are tracked by a background task counter in the statusline instead
+- The execution frontier is not updated when a headless stage spawns or settles, so the next visible stage chains from the last visible stage
+- Headless stages still participate in `Promise.all()` — the merge stage correctly awaits all three before running
+- Return values (`handle.result`) and transcript access (`s.transcript(handle)`) work identically
+
+**When to use headless vs. visible parallel stages:**
+
+| Concern | Use visible (`headless: false`) | Use headless (`headless: true`) |
+|---|---|---|
+| User needs to see the work | Yes — each stage gets a tmux window | No — tracked by counter only |
+| Debugging/monitoring | Yes — visible in graph + pane preview | No — errors tracked but no TUI |
+| Data-gathering/analysis | Possible but clutters the graph | Ideal — keeps graph clean |
+| Infrastructure discovery | Clutters graph for support work | Ideal — Ralph uses this pattern |
+
 ### Note on data flow vs. topology
 
 Graph topology (parent-child edges) is inferred from control flow. Data flow between sessions is separate: use `s.transcript(handle)` to read a prior session's saved output. The two concerns are independent — you do not need explicit dependency declarations to access another session's transcript; you just need that session's `await` to have completed before you read it.

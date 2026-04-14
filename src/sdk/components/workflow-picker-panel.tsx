@@ -30,6 +30,7 @@ import {
   createCliRenderer,
   type CliRenderer,
   type KeyEvent,
+  type ScrollBoxRenderable,
   type TextareaRenderable,
 } from "@opentui/core";
 import {
@@ -42,6 +43,11 @@ import { useLatest } from "./hooks.ts";
 import { resolveTheme, type TerminalTheme } from "../runtime/theme.ts";
 import type { AgentType, WorkflowInput } from "../types.ts";
 import type { WorkflowWithMetadata } from "../runtime/discovery.ts";
+import {
+  DEFAULT_PROMPT_FIELDS,
+  isFreeformPromptSchema,
+  normalizePickerInputs,
+} from "../workflow-inputs.ts";
 import { ErrorBoundary } from "./error-boundary.tsx";
 
 // ─── Theme ──────────────────────────────────────
@@ -116,19 +122,6 @@ export interface WorkflowPickerResult {
   /** Populated form values, one per declared input (or { prompt } for free-form). */
   inputs: Record<string, string>;
 }
-
-/** Fallback field used when a workflow has no structured input schema. */
-const DEFAULT_PROMPT_INPUT: WorkflowInput = {
-  name: "prompt",
-  type: "text",
-  required: true,
-  description: "what do you want this workflow to do?",
-  placeholder: "describe your task…",
-};
-
-/** Stable single-element array for free-form workflows — avoids allocating
- *  a new `[DEFAULT_PROMPT_INPUT]` on every useMemo recomputation. */
-const DEFAULT_FIELDS: WorkflowInput[] = [DEFAULT_PROMPT_INPUT];
 
 // ─── Helpers ────────────────────────────────────
 
@@ -477,8 +470,7 @@ const Preview = memo(function Preview({
   wf: WorkflowWithMetadata;
 }) {
   const theme = usePickerTheme();
-  const args: readonly WorkflowInput[] =
-    wf.inputs.length > 0 ? wf.inputs : DEFAULT_FIELDS;
+  const args = normalizePickerInputs(wf.inputs);
 
   return (
     <box
@@ -690,12 +682,14 @@ function EnumContent({
 }
 
 const Field = memo(function Field({
+  id,
   field,
   value,
   focused,
   onFieldInput,
   onTextChangeRef,
 }: {
+  id?: string;
   field: WorkflowInput;
   value: string;
   focused: boolean;
@@ -719,7 +713,7 @@ const Field = memo(function Field({
   );
 
   return (
-    <box flexDirection="column">
+    <box id={id} flexDirection="column">
       <box
         border
         borderStyle="rounded"
@@ -788,7 +782,55 @@ function InputPhase({
   onTextChangeRef: React.RefObject<((value: string) => void) | null>;
 }) {
   const theme = usePickerTheme();
-  const isStructured = workflow.inputs.length > 0;
+  const isStructured = !isFreeformPromptSchema(workflow.inputs);
+  const scrollboxRef = useRef<ScrollBoxRenderable>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+
+  // Auto-scroll to keep the focused field visible.
+  // Sync scrollTop immediately so the visibility check below
+  // marks the field as visible on the same render pass.
+  useEffect(() => {
+    const sb = scrollboxRef.current;
+    const field = fields[focusedFieldIdx];
+    if (!sb || !field) return;
+    sb.scrollChildIntoView(`field-${field.name}`);
+    setScrollTop(sb.scrollTop);
+  }, [focusedFieldIdx, fields]);
+
+  // Sync scrollTop on every OpenTUI render frame via renderBefore.
+  // This replaces a polling timer — it fires at the renderer's native
+  // frame rate so the focused field defocuses within one frame of
+  // scrolling out of view, preventing the terminal cursor from
+  // bleeding into the fixed header above.
+  const syncScrollFrame = useCallback(function (this: unknown) {
+    const sb = scrollboxRef.current;
+    if (!sb) return;
+    setScrollTop((prev) => {
+      const cur = sb.scrollTop;
+      return cur !== prev ? cur : prev;
+    });
+  }, []);
+
+  // The bordered content box (where the cursor lives) must be fully
+  // inside the viewport. If even one row is clipped the field loses
+  // focus so the cursor can never land in a clipped row.
+  const isFocusedFieldVisible = useMemo(() => {
+    const sb = scrollboxRef.current;
+    if (!sb) return true;
+    const vpH = sb.viewport.height;
+    if (vpH <= 0) return true;
+    let y = 0;
+    for (let i = 0; i < fields.length; i++) {
+      const f = fields[i]!;
+      const inputH = f.type === "text" ? TEXT_FIELD_LINES + 2 : 3;
+      if (i === focusedFieldIdx) {
+        return y >= scrollTop && y + inputH <= scrollTop + vpH;
+      }
+      // Caption row (1) + spacer row (1) below the bordered box.
+      y += inputH + 2;
+    }
+    return true;
+  }, [fields, focusedFieldIdx, scrollTop]);
 
   return (
     <box
@@ -839,7 +881,7 @@ function InputPhase({
       <box flexDirection="row" height={1}>
         <text>
           <span fg={theme.textDim}>
-            <strong>{isStructured ? "INPUTS" : "PROMPT"}</strong>
+            <strong>INPUTS</strong>
           </span>
         </text>
         <box flexGrow={1} />
@@ -851,20 +893,48 @@ function InputPhase({
       </box>
       <box height={1} />
 
-      {fields.map((f, i) => (
-        <Field
-          key={f.name}
-          field={f}
-          value={values[f.name] ?? ""}
-          focused={i === focusedFieldIdx}
-          onFieldInput={onFieldInput}
-          onTextChangeRef={
-            f.type === "text" && i === focusedFieldIdx
-              ? onTextChangeRef
-              : undefined
-          }
-        />
-      ))}
+      <scrollbox
+        ref={scrollboxRef}
+        scrollY
+        viewportCulling
+        flexGrow={1}
+        renderBefore={syncScrollFrame}
+        style={{
+          rootOptions: {
+            backgroundColor: "transparent",
+            border: false,
+          },
+          contentOptions: {
+            flexDirection: "column",
+          },
+          verticalScrollbarOptions: {
+            showArrows: false,
+            trackOptions: {
+              foregroundColor: theme.border,
+              backgroundColor: theme.backgroundElement,
+            },
+          },
+        }}
+      >
+        {fields.map((f, i) => {
+          const active = i === focusedFieldIdx && isFocusedFieldVisible;
+          return (
+            <Field
+              key={f.name}
+              id={`field-${f.name}`}
+              field={f}
+              value={values[f.name] ?? ""}
+              focused={active}
+              onFieldInput={onFieldInput}
+              onTextChangeRef={
+                f.type === "text" && active
+                  ? onTextChangeRef
+                  : undefined
+              }
+            />
+          );
+        })}
+      </scrollbox>
     </box>
   );
 }
@@ -1171,10 +1241,7 @@ function usePickerKeyboard(state: PickerKeyboardState): void {
       key.stopPropagation();
       const wf = focusedWfRef.current;
       if (wf) {
-        const inputs: readonly WorkflowInput[] =
-          wf.inputs.length > 0
-            ? wf.inputs
-            : DEFAULT_FIELDS;
+        const inputs = normalizePickerInputs(wf.inputs);
         const initial: Record<string, string> = {};
         for (const f of inputs) {
           initial[f.name] =
@@ -1290,9 +1357,10 @@ export function WorkflowPicker({
   const focusedWf = entries[clampedEntryIdx]?.workflow;
 
   const currentFields = useMemo<readonly WorkflowInput[]>(
-    () => focusedWf && focusedWf.inputs.length > 0
-      ? focusedWf.inputs
-      : DEFAULT_FIELDS,
+    () =>
+      focusedWf
+        ? normalizePickerInputs(focusedWf.inputs)
+        : DEFAULT_PROMPT_FIELDS,
     [focusedWf],
   );
   const currentField = currentFields[focusedFieldIdx];

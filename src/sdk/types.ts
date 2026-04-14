@@ -175,7 +175,7 @@ export interface WorkflowInput {
   /** Default value pre-filled into the field. Enums use this to pick their initial value. */
   default?: string;
   /** Allowed values — required when `type` is `"enum"`. */
-  values?: string[];
+  values?: readonly string[];
 }
 
 // ─── Core types ─────────────────────────────────────────────────────────────
@@ -254,7 +254,7 @@ export interface SessionRunOptions {
  * Created by `ctx.stage(opts, clientOpts, sessionOpts, fn)` — the callback
  * receives this as its argument with pre-initialized `client` and `session`.
  */
-export interface SessionContext<A extends AgentType = AgentType> {
+export interface SessionContext<A extends AgentType = AgentType, N extends string = string> {
   /** Provider-specific SDK client (auto-created by runtime) */
   client: ProviderClient<A>;
   /** Provider-specific session (auto-created by runtime) */
@@ -263,12 +263,12 @@ export interface SessionContext<A extends AgentType = AgentType> {
    * Structured inputs for this workflow run. Populated from CLI flags
    * (`--<name>=<value>`) or the interactive picker.
    *
-   * Free-form workflows (no declared `inputs` schema) receive their
-   * single positional prompt under the `prompt` key — so
-   * `s.inputs.prompt` is the canonical way to read the user's prompt
-   * regardless of whether the workflow is structured or free-form.
+   * When the workflow declares an `inputs` schema, only the declared
+   * field names are valid keys — accessing undeclared fields is a
+   * compile-time error. Free-form workflows (no declared schema)
+   * allow any key, including the conventional `prompt` key.
    */
-  inputs: Record<string, string>;
+  inputs: { [K in N]?: string };
   /** Which agent is running */
   agent: A;
   /**
@@ -301,7 +301,7 @@ export interface SessionContext<A extends AgentType = AgentType> {
     options: SessionRunOptions,
     clientOpts: StageClientOptions<A>,
     sessionOpts: StageSessionOptions<A>,
-    run: (ctx: SessionContext<A>) => Promise<T>,
+    run: (ctx: SessionContext<A, N>) => Promise<T>,
   ): Promise<SessionHandle<T>>;
 }
 
@@ -309,17 +309,17 @@ export interface SessionContext<A extends AgentType = AgentType> {
  * Top-level context provided to the workflow's `.run()` callback.
  * Does not have session-specific fields (paneId, save, etc.).
  */
-export interface WorkflowContext<A extends AgentType = AgentType> {
+export interface WorkflowContext<A extends AgentType = AgentType, N extends string = string> {
   /**
    * Structured inputs for this workflow run. Populated from CLI flags
    * (`--<name>=<value>`) or the interactive picker.
    *
-   * Free-form workflows (no declared `inputs` schema) receive their
-   * single positional prompt under the `prompt` key — so
-   * `ctx.inputs.prompt` is the canonical way to read the user's prompt
-   * regardless of whether the workflow is structured or free-form.
+   * When the workflow declares an `inputs` schema, only the declared
+   * field names are valid keys — accessing undeclared fields is a
+   * compile-time error. Free-form workflows (no declared schema)
+   * allow any key, including the conventional `prompt` key.
    */
-  inputs: Record<string, string>;
+  inputs: { [K in N]?: string };
   /** Which agent is running */
   agent: A;
   /**
@@ -332,7 +332,7 @@ export interface WorkflowContext<A extends AgentType = AgentType> {
     options: SessionRunOptions,
     clientOpts: StageClientOptions<A>,
     sessionOpts: StageSessionOptions<A>,
-    run: (ctx: SessionContext<A>) => Promise<T>,
+    run: (ctx: SessionContext<A, N>) => Promise<T>,
   ): Promise<SessionHandle<T>>;
   /**
    * Get a completed session's transcript as rendered text.
@@ -349,7 +349,9 @@ export interface WorkflowContext<A extends AgentType = AgentType> {
 /**
  * Options for defining a workflow.
  */
-export interface WorkflowOptions {
+export interface WorkflowOptions<
+  I extends readonly WorkflowInput[] = readonly WorkflowInput[],
+> {
   /** Unique workflow name */
   name: string;
   /** Human-readable description */
@@ -359,19 +361,22 @@ export interface WorkflowOptions {
    * `--<name>` flag per entry and the interactive picker renders one form
    * field per entry. Leave unset to keep the workflow free-form (a single
    * positional prompt argument).
+   *
+   * Write the array inline so TypeScript can infer literal input names
+   * and enforce them on `ctx.inputs`.
    */
-  inputs?: WorkflowInput[];
+  inputs?: I;
 }
 
 /**
  * A compiled workflow definition — the sealed output of defineWorkflow().compile().
  */
-export interface WorkflowDefinition<A extends AgentType = AgentType> {
+export interface WorkflowDefinition<A extends AgentType = AgentType, N extends string = string> {
   readonly __brand: "WorkflowDefinition";
   readonly name: string;
   readonly description: string;
   /** Declared input schema — empty array for free-form workflows. */
   readonly inputs: readonly WorkflowInput[];
   /** The workflow's entry point. Called by the executor with a WorkflowContext. */
-  readonly run: (ctx: WorkflowContext<A>) => Promise<void>;
+  readonly run: (ctx: WorkflowContext<A, N>) => Promise<void>;
 }

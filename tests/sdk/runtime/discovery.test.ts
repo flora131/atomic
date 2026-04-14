@@ -389,7 +389,7 @@ export default defineWorkflow({ name: "report-test" })
 });
 
 describe("loadWorkflowsMetadata", () => {
-  test("materializes the default prompt field for free-form workflows", async () => {
+  test("preserves empty inputs for workflows with no declared inputs", async () => {
     const workflowDir = join(
       tempDir,
       ".atomic",
@@ -415,14 +415,6 @@ export default defineWorkflow({ name: "picker-freeform" })
     );
 
     expect(metadata).toHaveLength(1);
-    expect(metadata[0]!.inputs).toEqual([
-      {
-        name: "prompt",
-        type: "text",
-        required: true,
-        description: "what do you want this workflow to do?",
-        placeholder: "describe your task…",
-      },
-    ]);
+    expect(metadata[0]!.inputs).toEqual([]);
   });
 });

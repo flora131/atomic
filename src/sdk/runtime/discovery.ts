@@ -13,7 +13,6 @@ import { readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import ignore from "ignore";
 import type { AgentType, WorkflowInput } from "../types.ts";
-import { normalizePickerInputs } from "../workflow-inputs.ts";
 import { WorkflowLoader } from "./loader.ts";
 
 export interface DiscoveredWorkflow {
@@ -312,7 +311,7 @@ export async function loadWorkflowsMetadata(
       return {
         ...wf,
         description: loaded.value.definition.description,
-        inputs: normalizePickerInputs(loaded.value.definition.inputs),
+        inputs: loaded.value.definition.inputs,
       };
     }),
   );

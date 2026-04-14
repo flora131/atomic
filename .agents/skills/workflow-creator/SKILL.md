@@ -97,9 +97,16 @@ Workflow quality depends on two disciplines: **prompt engineering** (crafting cl
 A workflow is a TypeScript file with a single `.run()` callback that orchestrates agent sessions dynamically. Inside the callback, `ctx.stage()` spawns sessions — each gets its own tmux window and graph node (unless running in headless mode). Native TypeScript handles all control flow: loops, conditionals, `Promise.all()`, `try`/`catch`.
 
 ```ts
-import { defineWorkflow } from "@bastani/atomic/workflows";
+import { defineWorkflow, extractAssistantText } from "@bastani/atomic/workflows";
 
-export default defineWorkflow<"claude">({ name: "my-workflow", description: "..." })
+export default defineWorkflow({
+    name: "my-workflow",
+    description: "...",
+    inputs: [
+      { name: "prompt", type: "text", required: true, description: "task to perform" },
+    ],
+  })
+  .for<"claude">()
   .run(async (ctx) => {
     const step1 = await ctx.stage({ name: "step-1" }, {}, {}, async (s) => { /* s.client, s.session */ });
     await ctx.stage({ name: "step-2" }, {}, {}, async (s) => { /* s.client, s.session */ });
@@ -121,7 +128,7 @@ await ctx.stage(
   async (s) => {
     const result = await s.session.query("Analyze the codebase structure.");
     s.save(s.sessionId);
-    return result.output;
+    return extractAssistantText(result, 0);
   },
 );
 ```
@@ -182,23 +189,23 @@ Workflow files live at `.atomic/workflows/<name>/<agent>/index.ts`. Discovery so
 | `WorkflowContext` (`ctx`) | `.run(async (ctx) => ...)` | No | Orchestration: spawn sessions, read transcripts, read `ctx.inputs` |
 | `SessionContext` (`s`) | `ctx.stage(opts, clientOpts, sessionOpts, async (s) => ...)` | Yes | Agent work: use `s.client` and `s.session` for SDK calls, save output |
 
-Both contexts expose `inputs: Record<string, string>`, `stage()`, `transcript()`, and `getMessages()`. See `references/getting-started.md` for the full `SessionContext` field reference.
+Both contexts expose typed `inputs` (keys restricted to declared input names), `stage()`, `transcript()`, and `getMessages()`. See `references/getting-started.md` for the full `SessionContext` field reference.
 
 ### Declared inputs: one API, three invocation surfaces
 
-Workflows receive user data exclusively through `ctx.inputs` (and `s.inputs` inside stage callbacks). You have two choices:
+Workflows receive user data exclusively through `ctx.inputs` (and `s.inputs` inside stage callbacks).
 
-**Free-form** — no schema. The positional CLI prompt lands under `ctx.inputs.prompt`. Read via `ctx.inputs.prompt ?? ""`.
+Declare `inputs: WorkflowInput[]` inline on `defineWorkflow()`. TypeScript infers literal field names from the array and restricts `ctx.inputs` to only those keys — accessing an undeclared field is a **compile-time error**. The CLI materializes one `--<field>=<value>` flag per entry, validates required fields + enum membership before launching, and the picker renders a form. Three field types: `string` (single-line), `text` (multi-line), `enum` (fixed set).
 
-**Structured** — declare `inputs: WorkflowInput[]` on `defineWorkflow`. The CLI materializes one `--<field>=<value>` flag per entry, validates required fields + enum membership before launching, and the picker renders a form. Three field types: `string` (single-line), `text` (multi-line), `enum` (fixed set).
+Workflows that accept a free-form prompt should declare it explicitly: `{ name: "prompt", type: "text", required: true }`.
 
-**Load `references/workflow-inputs.md`** for the full schema shape, validation rules, free-form-vs-structured decision guide, picker semantics, and invocation cheat sheet.
+**Load `references/workflow-inputs.md`** for the full schema shape, validation rules, picker semantics, and invocation cheat sheet.
 
 ### Invocation surfaces
 
 | Surface | Command | When |
 |---|---|---|
-| Named, free-form | `atomic workflow -n hello -a claude "fix the bug"` | Scripted runs; prompt lands in `ctx.inputs.prompt` |
+| Named, with prompt | `atomic workflow -n hello -a claude "fix the bug"` | Scripted runs; requires the workflow to declare a `prompt` input |
 | Named, structured | `atomic workflow -n gen-spec -a claude --research_doc=notes.md` | Scripted structured runs |
 | Interactive picker | `atomic workflow -a claude` | Discovery; shows fuzzy list + form |
 | List | `atomic workflow -l` | Browse everything by source |
@@ -274,13 +281,13 @@ Then apply **design advisory checks** — these catch architectural and prompt q
 
 ### 2. Choose the Target Agent
 
-Pass a type parameter to `defineWorkflow<"agent">()` to narrow all context types and get correct `s.client`/`s.session` types:
+Use `.for<"agent">()` on the builder to narrow all context types and get correct `s.client`/`s.session` types. Call `.for()` **before** `.run()`:
 
-| Agent | Type Parameter | Primary Session API |
+| Agent | Builder Chain | Primary Session API |
 |-------|---------------|---------------------|
-| Claude | `defineWorkflow<"claude">` | `s.session.query(prompt)` — sends prompt to the Claude TUI pane |
-| Copilot | `defineWorkflow<"copilot">` | `s.session.send({ prompt })` — fire-and-forget; use `sendAndWait({ prompt }, timeoutMs)` only when the user explicitly requests timeout-based waiting |
-| OpenCode | `defineWorkflow<"opencode">` | `s.client.session.prompt({ sessionID: s.session.id, parts: [...] })` |
+| Claude | `defineWorkflow({...}).for<"claude">()` | `s.session.query(prompt)` — sends prompt to the Claude TUI pane |
+| Copilot | `defineWorkflow({...}).for<"copilot">()` | `s.session.send({ prompt })` — fire-and-forget; use `sendAndWait({ prompt }, timeoutMs)` only when the user explicitly requests timeout-based waiting |
+| OpenCode | `defineWorkflow({...}).for<"opencode">()` | `s.client.session.prompt({ sessionID: s.session.id, parts: [...] })` |
 
 The runtime manages client/session lifecycle automatically. For native SDK types and advanced APIs, import directly from the provider packages (`@github/copilot-sdk`, `@anthropic-ai/claude-agent-sdk`, `@opencode-ai/sdk/v2`).
 
@@ -309,7 +316,7 @@ Per-SDK cheat sheet:
 | Save output | `s.save(s.sessionId)` | `s.save(await s.session.getMessages())` | `s.save(result.data!)` |
 | Timeout | Per-query defaults via sessionOpts | N/A (`send` has no timeout; `sendAndWait` accepts optional timeout, default 60s) | N/A |
 | Context model | Tmux pane (accumulates across turns) | Fresh per `ctx.stage()` | Fresh per `ctx.stage()` |
-| Extract text | `result.output` (string) | `getAssistantText(messages)` (see `failure-modes.md` F1) | `extractResponseText(result.data!.parts)` (see `failure-modes.md` F3) |
+| Extract text | `extractAssistantText(result, 0)` (uses `SessionMessage[]`) | `getAssistantText(messages)` (see `failure-modes.md` F1) | `extractResponseText(result.data!.parts)` (see `failure-modes.md` F3) |
 
 The SDK ships two builtin workflows as production reference implementations:
 - **`ralph`** — iterative plan → orchestrate → review → debug loop (all 3 SDKs)
@@ -326,7 +333,7 @@ bun typecheck
 ### 5. Test the Workflow
 
 ```bash
-# Free-form workflow
+# Workflow with a declared prompt input
 atomic workflow -n <workflow-name> -a <agent> "<your prompt>"
 
 # Structured workflow

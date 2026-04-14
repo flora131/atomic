@@ -18,14 +18,14 @@ import { defineWorkflow } from "@bastani/atomic/workflows";
   await ctx.stage(
     { name: "implement", description: "Implement the feature" },
     {}, // clientOpts: chatFlags and readyTimeoutMs go here
-    {}, // sessionOpts: query defaults (timeoutMs, pollIntervalMs, etc.) go here
+    {}, // sessionOpts: query defaults (pollIntervalMs, readyTimeoutMs, etc.) go here
     async (s) => {
       // s.client — Claude CLI wrapper (already started by runtime)
       // s.session — session wrapper (ready to accept queries via s.session.query())
 
       // Send queries — Claude maintains conversation context across calls
+      // Returns SessionMessage[] (native SDK type from @anthropic-ai/claude-agent-sdk)
       const result = await s.session.query((s.inputs.prompt ?? ""));
-      // result.output contains the captured response text
 
       // Save transcript
       s.save(s.sessionId);
@@ -44,26 +44,32 @@ Client options (2nd arg to `ctx.stage()`):
 - `readyTimeoutMs` — timeout waiting for TUI readiness (default: 30s)
 
 Session options (3rd arg to `ctx.stage()`), applied as defaults to every `s.session.query()` call:
-- `timeoutMs` — timeout waiting for Claude to finish responding (default: 300s)
 - `pollIntervalMs` — polling interval (default: 2000ms)
 - `submitPresses` — C-m presses per submit round (default: 1)
 - `maxSubmitRounds` — max submit rounds (default: 6)
 - `readyTimeoutMs` — timeout waiting for pane readiness before sending (default: 30s)
+
+No manual timeout is needed — idle detection watches for the pane prompt to return, and the session transcript is used to extract the response text.
 
 ### Basic usage with `s.session.query()`
 
 ```ts
 import { defineWorkflow } from "@bastani/atomic/workflows";
 
-export default defineWorkflow<"claude">({ name: "implement" })
+export default defineWorkflow({
+    name: "implement",
+    inputs: [{ name: "prompt", type: "text", required: true, description: "task prompt" }],
+  })
+  .for<"claude">()
   .run(async (ctx) => {
     await ctx.stage(
       { name: "implement", description: "Implement the feature" },
       {},
       {},
       async (s) => {
-        const result = await s.session.query((s.inputs.prompt ?? ""));
-        // result.output contains the captured response text
+        const messages = await s.session.query((s.inputs.prompt ?? ""));
+        // messages is SessionMessage[] — native SDK type
+        // Use extractAssistantText(messages, 0) to get the text response
         s.save(s.sessionId);
       },
     );
@@ -71,7 +77,7 @@ export default defineWorkflow<"claude">({ name: "implement" })
   .compile();
 ```
 
-`s.session.query(prompt)` sends text to the Claude pane, verifies delivery, retries if needed, and waits for output stabilization. Returns `{ output: string }`.
+`s.session.query(prompt)` sends text to the Claude pane, verifies delivery, retries if needed, and waits for output stabilization. Returns `SessionMessage[]` (the native transcript messages from this turn, imported from `@anthropic-ai/claude-agent-sdk`). Use `extractAssistantText(messages, 0)` to extract the plain text response.
 
 ### Multi-turn conversations
 
@@ -183,43 +189,72 @@ const result = query({ prompt: "Continue...", options: { resume: sessionId } });
 const result = query({ prompt: "Try a different approach", options: { resume: sessionId, forkSession: true } });
 ```
 
-### Sub-agent delegation via `s.session.query()`
+### Sub-agent delegation
 
-Invoke named sub-agents by prefixing the prompt with `@"agent-name (agent)"`. The agent must be defined in `.claude/agents/`:
+For stages that call a single sub-agent, use `--agent` (interactive) or the SDK `agent` option (headless) to route all prompts through that agent. The agent must be defined in `.claude/agents/` or `.agents/skills/`.
+
+**Interactive stages** — pass `--agent` via `chatFlags` in client opts (2nd arg):
 
 ```ts
 .run(async (ctx) => {
-  await ctx.stage({ name: "plan-and-implement" }, {}, {}, async (s) => {
-    // Delegate to the "planner" agent
-    await s.session.query(`@"planner (agent)" Create a plan for: ${(s.inputs.prompt ?? "")}`);
-
-    // Delegate to the "orchestrator" agent
-    await s.session.query(`@"orchestrator (agent)" Execute the plan above.`);
-
-    s.save(s.sessionId);
-  });
+  await ctx.stage(
+    { name: "plan" },
+    { chatFlags: ["--agent", "planner", "--allow-dangerously-skip-permissions", "--dangerously-skip-permissions"] },
+    {},
+    async (s) => {
+      await s.session.query(`Create a plan for: ${(s.inputs.prompt ?? "")}`);
+      s.save(s.sessionId);
+    },
+  );
 })
 ```
 
-### Headless mode (background stages)
-
-Claude headless stages use the Agent SDK's `query()` API directly in-process instead of automating a tmux pane. Set `headless: true` in the stage options:
+**Headless stages** — pass `agent` via SDK options in the `query()` call:
 
 ```ts
+.run(async (ctx) => {
+  const handle = await ctx.stage(
+    { name: "locate", headless: true },
+    {}, {},
+    async (s) => {
+      const result = await s.session.query(
+        "Find all API endpoint files",
+        { agent: "codebase-locator", permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true },
+      );
+      s.save(s.sessionId);
+      return extractAssistantText(result, 0);
+    },
+  );
+})
+```
+
+> **Note:** The `@"agent-name (agent)"` prompt prefix is for multi-agent conversations in a single stage where you switch between agents mid-session. For single-agent stages, prefer `--agent` (interactive) or the `agent` SDK option (headless) as shown above.
+
+### Headless mode (background stages)
+
+Claude headless stages use the Agent SDK's `query()` API directly in-process instead of automating a tmux pane. Set `headless: true` in the stage options. SDK options like `agent`, `permissionMode`, and `allowDangerouslySkipPermissions` can be passed directly in the `query()` call:
+
+```ts
+import { defineWorkflow, extractAssistantText } from "@bastani/atomic/workflows";
+
+// ...
 await ctx.stage(
   { name: "background-analysis", headless: true },
   {}, {},
   async (s) => {
-    // s.session.query() works identically — the runtime uses
-    // HeadlessClaudeSessionWrapper which calls the Agent SDK directly
-    const result = await s.session.query("Analyze the codebase.");
+    const result = await s.session.query(
+      "Analyze the codebase.",
+      { agent: "codebase-analyzer", permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true },
+    );
     s.save(s.sessionId);
-    return result.output;
+    return extractAssistantText(result, 0);
   },
 );
 ```
 
-The callback interface is identical to interactive stages. Internally, the runtime uses `HeadlessClaudeClientWrapper` (no-op start/stop) and `HeadlessClaudeSessionWrapper` (calls `query()` from `@anthropic-ai/claude-agent-sdk` directly). No tmux pane is created, and the stage is invisible in the workflow graph.
+The callback interface is identical to interactive stages — `s.session.query()` returns `SessionMessage[]` in both cases. Internally, the runtime uses `HeadlessClaudeSessionWrapper` which calls `query()` from `@anthropic-ai/claude-agent-sdk` directly. No tmux pane is created, and the stage is invisible in the workflow graph.
+
+**Design principle:** Never create custom message types. All provider return types are native SDK types — `SessionMessage[]` for Claude, `SessionEvent[]` for Copilot, `SessionPromptResponse` for OpenCode. Use `extractAssistantText()` to extract plain text from Claude's `SessionMessage[]`.
 
 ## Copilot SDK
 
@@ -230,7 +265,11 @@ Copilot uses a client-server architecture. The runtime auto-creates a `CopilotCl
 ```ts
 import { defineWorkflow } from "@bastani/atomic/workflows";
 
-export default defineWorkflow<"copilot">({ name: "implement" })
+export default defineWorkflow({
+    name: "implement",
+    inputs: [{ name: "prompt", type: "text", required: true, description: "task prompt" }],
+  })
+  .for<"copilot">()
   .run(async (ctx) => {
     await ctx.stage(
       { name: "implement" },
@@ -563,7 +602,11 @@ OpenCode uses a client-server model. The runtime auto-creates an `OpencodeClient
 ```ts
 import { defineWorkflow } from "@bastani/atomic/workflows";
 
-export default defineWorkflow<"opencode">({ name: "implement" })
+export default defineWorkflow({
+    name: "implement",
+    inputs: [{ name: "prompt", type: "text", required: true, description: "task prompt" }],
+  })
+  .for<"opencode">()
   .run(async (ctx) => {
     await ctx.stage(
       { name: "implement" },

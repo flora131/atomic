@@ -16,7 +16,7 @@ function getAssistantText(messages: SessionEvent[]): string {
 export default defineWorkflow<"copilot">({
   name: "headless-test",
   description:
-    "Test headless background stages: visible → [3 headless] → visible merge",
+    "Test headless background stages: visible → [3 headless] → visible merge → headless verdict",
 })
   .run(async (ctx) => {
     const prompt = ctx.inputs.prompt ?? "TypeScript";
@@ -80,7 +80,7 @@ export default defineWorkflow<"copilot">({
     ]);
 
     // ── Visible stage: merge results from background stages ──
-    await ctx.stage(
+    const mergeHandle = await ctx.stage(
       { name: "merge", description: "Combine background results" },
       {},
       {},
@@ -93,7 +93,24 @@ export default defineWorkflow<"copilot">({
             `## Use Cases\n${usesHandle.result}`,
           ].join("\n\n"),
         });
-        s.save(await s.session.getMessages());
+        const messages = await s.session.getMessages();
+        s.save(messages);
+        return getAssistantText(messages);
+      },
+    );
+
+    // ── Final headless stage: verify the orchestrator timer stays alive ──
+    await ctx.stage(
+      { name: "verdict", headless: true },
+      {},
+      {},
+      async (s) => {
+        await s.session.send({
+          prompt: `Given this summary, write a one-sentence final verdict:\n\n${mergeHandle.result}`,
+        });
+        const messages = await s.session.getMessages();
+        s.save(messages);
+        return getAssistantText(messages);
       },
     );
   })

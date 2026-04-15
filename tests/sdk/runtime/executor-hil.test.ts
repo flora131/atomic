@@ -1,5 +1,10 @@
 import { test, expect, describe } from "bun:test";
-import { wrapCopilotSend, watchOpencodeStreamForHIL } from "../../../src/sdk/runtime/executor.ts";
+import {
+  wrapCopilotSend,
+  watchOpencodeStreamForHIL,
+  watchCopilotPaneForHIL,
+  COPILOT_HIL_PATTERN,
+} from "../../../src/sdk/runtime/executor.ts";
 import type { CopilotSendSessionSurface } from "../../../src/sdk/runtime/executor.ts";
 
 // ---------------------------------------------------------------------------
@@ -42,93 +47,24 @@ function makeMockSession() {
 // ---------------------------------------------------------------------------
 
 describe("wrapCopilotSend", () => {
-  test("resolves immediately when session.idle fires with no HIL pending", async () => {
+  test("resolves when session.idle fires", async () => {
     const { session, emit } = makeMockSession();
-    const hilCalls: boolean[] = [];
     const nativeSend = async (_opts: string) => "msg-1";
 
-    const wrappedSend = wrapCopilotSend(session, nativeSend, (w) => hilCalls.push(w));
+    const wrappedSend = wrapCopilotSend(session, nativeSend);
 
     const sendPromise = wrappedSend("hello");
     emit("session.idle");
     const result = await sendPromise;
 
     expect(result).toBe("msg-1");
-    expect(hilCalls).toEqual([]);
-  });
-
-  test("calls onHIL(true) when user_input.requested fires", async () => {
-    const { session, emit } = makeMockSession();
-    const hilCalls: boolean[] = [];
-    const nativeSend = async (_opts: string) => "msg-2";
-
-    const wrappedSend = wrapCopilotSend(session, nativeSend, (w) => hilCalls.push(w));
-    const sendPromise = wrappedSend("hello");
-
-    emit("user_input.requested");
-    expect(hilCalls).toEqual([true]);
-
-    // HIL is pending — emit idle should NOT resolve yet
-    emit("session.idle");
-
-    // Still not resolved — emit user_input.completed and then idle
-    emit("user_input.completed");
-    expect(hilCalls).toEqual([true, false]);
-
-    emit("session.idle");
-    const result = await sendPromise;
-    expect(result).toBe("msg-2");
-  });
-
-  test("does not resolve session.idle while HIL is pending", async () => {
-    const { session, emit } = makeMockSession();
-    let resolved = false;
-    const nativeSend = async (_opts: string) => "x";
-
-    const wrappedSend = wrapCopilotSend(session, nativeSend, () => {});
-    wrappedSend("q").then(() => { resolved = true; });
-
-    // Simulate HIL request fires, then idle fires (should NOT resolve)
-    emit("user_input.requested");
-    emit("session.idle");
-
-    // Give microtasks a chance to run
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(resolved).toBe(false);
-
-    // User answers, then idle fires again — should resolve now
-    emit("user_input.completed");
-    emit("session.idle");
-
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(resolved).toBe(true);
-  });
-
-  test("calls onHIL(false) when user_input.completed fires", async () => {
-    const { session, emit } = makeMockSession();
-    const hilCalls: boolean[] = [];
-    const nativeSend = async (_opts: string) => "msg-3";
-
-    const wrappedSend = wrapCopilotSend(session, nativeSend, (w) => hilCalls.push(w));
-    const sendPromise = wrappedSend("hi");
-
-    emit("user_input.requested");
-    emit("user_input.completed");
-    expect(hilCalls).toEqual([true, false]);
-
-    emit("session.idle");
-    await sendPromise;
   });
 
   test("rejects when session.error fires", async () => {
     const { session, emit } = makeMockSession();
-    const nativeSend = async (_opts: string) => "msg-4";
+    const nativeSend = async (_opts: string) => "msg-2";
 
-    const wrappedSend = wrapCopilotSend(session, nativeSend, () => {});
+    const wrappedSend = wrapCopilotSend(session, nativeSend);
     const sendPromise = wrappedSend("hello");
 
     emit("session.error", { message: "something went wrong" });
@@ -138,9 +74,9 @@ describe("wrapCopilotSend", () => {
 
   test("rejects with default message when session.error data is missing", async () => {
     const { session, emit } = makeMockSession();
-    const nativeSend = async (_opts: string) => "msg-5";
+    const nativeSend = async (_opts: string) => "msg-3";
 
-    const wrappedSend = wrapCopilotSend(session, nativeSend, () => {});
+    const wrappedSend = wrapCopilotSend(session, nativeSend);
     const sendPromise = wrappedSend("hello");
 
     emit("session.error");
@@ -148,47 +84,37 @@ describe("wrapCopilotSend", () => {
     await expect(sendPromise).rejects.toThrow("Copilot session error");
   });
 
-  test("cleans up all listeners after resolution", async () => {
+  test("cleans up listeners after resolution", async () => {
     const { session, emit, handlerCount } = makeMockSession();
-    const nativeSend = async (_opts: string) => "msg-6";
+    const nativeSend = async (_opts: string) => "msg-4";
 
-    const wrappedSend = wrapCopilotSend(session, nativeSend, () => {});
+    const wrappedSend = wrapCopilotSend(session, nativeSend);
     const sendPromise = wrappedSend("hello");
 
-    // Listeners should be registered before send resolves
     expect(handlerCount("session.idle")).toBe(1);
     expect(handlerCount("session.error")).toBe(1);
-    expect(handlerCount("user_input.requested")).toBe(1);
-    expect(handlerCount("user_input.completed")).toBe(1);
 
     emit("session.idle");
     await sendPromise;
 
-    // All listeners should be cleaned up after resolution
     expect(handlerCount("session.idle")).toBe(0);
     expect(handlerCount("session.error")).toBe(0);
-    expect(handlerCount("user_input.requested")).toBe(0);
-    expect(handlerCount("user_input.completed")).toBe(0);
   });
 
-  test("cleans up all listeners after error rejection", async () => {
+  test("cleans up listeners after error rejection", async () => {
     const { session, emit, handlerCount } = makeMockSession();
-    const nativeSend = async (_opts: string) => "msg-7";
+    const nativeSend = async (_opts: string) => "msg-5";
 
-    const wrappedSend = wrapCopilotSend(session, nativeSend, () => {});
+    const wrappedSend = wrapCopilotSend(session, nativeSend);
     const sendPromise = wrappedSend("hello");
 
-    // Listeners registered before error fires
     expect(handlerCount("session.idle")).toBe(1);
 
     emit("session.error", { message: "oops" });
     await sendPromise.catch(() => {});
 
-    // All listeners cleaned up after error
     expect(handlerCount("session.idle")).toBe(0);
     expect(handlerCount("session.error")).toBe(0);
-    expect(handlerCount("user_input.requested")).toBe(0);
-    expect(handlerCount("user_input.completed")).toBe(0);
   });
 
   test("passes the correct options to nativeSend", async () => {
@@ -196,10 +122,10 @@ describe("wrapCopilotSend", () => {
     let capturedOpts: unknown;
     const nativeSend = async (opts: { prompt: string }) => {
       capturedOpts = opts;
-      return "msg-8";
+      return "msg-6";
     };
 
-    const wrappedSend = wrapCopilotSend(session, nativeSend, () => {});
+    const wrappedSend = wrapCopilotSend(session, nativeSend);
     const sendPromise = wrappedSend({ prompt: "test message" });
 
     emit("session.idle");
@@ -331,5 +257,61 @@ describe("watchOpencodeStreamForHIL", () => {
     await watchOpencodeStreamForHIL(stream, sessionId, (w) => hilCalls.push(w));
 
     expect(hilCalls).toEqual([true, false]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// COPILOT_HIL_PATTERN
+// ---------------------------------------------------------------------------
+
+describe("COPILOT_HIL_PATTERN", () => {
+  test("matches 'Copilot is requesting information'", () => {
+    expect(COPILOT_HIL_PATTERN.test("Copilot is requesting information")).toBe(true);
+  });
+
+  test("matches 'requesting information' (case-insensitive)", () => {
+    expect(COPILOT_HIL_PATTERN.test("Requesting Information")).toBe(true);
+  });
+
+  test("matches 'ctrl+d decline' footer hint", () => {
+    expect(COPILOT_HIL_PATTERN.test("Enter accept · ctrl+d decline · Esc cancel")).toBe(true);
+  });
+
+  test("does not match normal agent output", () => {
+    expect(COPILOT_HIL_PATTERN.test("Creating file worker-b-start.txt")).toBe(false);
+  });
+
+  test("does not match empty string", () => {
+    expect(COPILOT_HIL_PATTERN.test("")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// watchCopilotPaneForHIL
+// ---------------------------------------------------------------------------
+
+describe("watchCopilotPaneForHIL", () => {
+  test("exits immediately when already aborted", async () => {
+    const hilCalls: boolean[] = [];
+    const ac = new AbortController();
+    ac.abort();
+
+    await watchCopilotPaneForHIL("fake-pane", ac.signal, (w) => hilCalls.push(w), 50);
+
+    expect(hilCalls).toEqual([]);
+  });
+
+  test("stops polling when abort signal fires", async () => {
+    const ac = new AbortController();
+    const start = Date.now();
+
+    // Abort after 100ms
+    setTimeout(() => ac.abort(), 100);
+
+    await watchCopilotPaneForHIL("fake-pane", ac.signal, () => {}, 50);
+
+    const elapsed = Date.now() - start;
+    // Should stop within a reasonable time after abort (not stuck polling)
+    expect(elapsed).toBeLessThan(500);
   });
 });

@@ -85,13 +85,18 @@ import {
 // until Claude reports idle or a result (success, error_max_turns, etc.).
 
 export default defineWorkflow({
-    name: "deep-research-codebase",
-    description:
-      "Deterministic deep codebase research: scout → LOC-driven parallel explorers → aggregator",
-    inputs: [
-      { name: "prompt", type: "text", required: true, description: "research question" },
-    ],
-  })
+  name: "deep-research-codebase",
+  description:
+    "Deterministic deep codebase research: scout → LOC-driven parallel explorers → aggregator",
+  inputs: [
+    {
+      name: "prompt",
+      type: "text",
+      required: true,
+      description: "research question",
+    },
+  ],
+})
   .for<"claude">()
   .run(async (ctx) => {
     // Destructure once so every stage below can close over a bare
@@ -115,7 +120,8 @@ export default defineWorkflow({
       ctx.stage(
         {
           name: "codebase-scout",
-          description: "Map codebase, count LOC, partition for parallel explorers",
+          description:
+            "Map codebase, count LOC, partition for parallel explorers",
         },
         {},
         {},
@@ -175,29 +181,28 @@ export default defineWorkflow({
       ctx.stage(
         {
           name: "research-history",
-          description: "Surface prior research via research-locator + research-analyzer",
+          description:
+            "Surface prior research via research-locator + research-analyzer",
         },
-        {},
+        {
+          chatFlags: [
+            "--allow-dangerously-skip-permissions",
+            "--dangerously-skip-permissions",
+          ],
+        },
         {},
         async (s) => {
           // Dispatches codebase-research-locator → codebase-research-analyzer
           // over the project's research/ directory and outputs a ≤400-word
           // synthesis as prose (no file write — consumed via transcript).
-          await s.session.query(
-            buildHistoryPrompt({ question: prompt, root }),
-          );
+          await s.session.query(buildHistoryPrompt({ question: prompt, root }));
           s.save(s.sessionId);
         },
       ),
     ]);
 
-    const {
-      partitions,
-      explorerCount,
-      scratchDir,
-      totalLoc,
-      totalFiles,
-    } = scout.result;
+    const { partitions, explorerCount, scratchDir, totalLoc, totalFiles } =
+      scout.result;
 
     // Pull both scout transcripts ONCE at the workflow level so every
     // explorer + the aggregator can embed them in their prompts. Both
@@ -229,9 +234,16 @@ export default defineWorkflow({
             name: `explorer-${i}`,
             description: `Explore ${partition
               .map((u) => u.path)
-              .join(", ")} (${partition.reduce((s, u) => s + u.fileCount, 0)} files)`,
+              .join(
+                ", ",
+              )} (${partition.reduce((s, u) => s + u.fileCount, 0)} files)`,
           },
-          {},
+          {
+            chatFlags: [
+              "--allow-dangerously-skip-permissions",
+              "--dangerously-skip-permissions",
+            ],
+          },
           {},
           async (s) => {
             await s.session.query(
@@ -278,9 +290,15 @@ export default defineWorkflow({
     await ctx.stage(
       {
         name: "aggregator",
-        description: "Synthesize explorer findings + history into final research doc",
+        description:
+          "Synthesize explorer findings + history into final research doc",
       },
-      {},
+      {
+        chatFlags: [
+          "--allow-dangerously-skip-permissions",
+          "--dangerously-skip-permissions",
+        ],
+      },
       {},
       async (s) => {
         await s.session.query(

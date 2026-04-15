@@ -79,7 +79,12 @@ export default defineWorkflow({
   description:
     "Plan → orchestrate → review → debug loop with bounded iteration",
   inputs: [
-    { name: "prompt", type: "text", required: true, description: "task prompt" },
+    {
+      name: "prompt",
+      type: "text",
+      required: true,
+      description: "task prompt",
+    },
   ],
 })
   .for<"copilot">()
@@ -162,9 +167,12 @@ export default defineWorkflow({
       ]);
 
       const discoveryContext = [
-        "### Infrastructure Files (codebase-locator)\n\n" + locatorResult.result,
-        "### Infrastructure Analysis (codebase-analyzer)\n\n" + analyzerResult.result,
-        "### Build & Test Patterns (codebase-pattern-finder)\n\n" + patternResult.result,
+        "### Infrastructure Files (codebase-locator)\n\n" +
+          locatorResult.result,
+        "### Infrastructure Analysis (codebase-analyzer)\n\n" +
+          analyzerResult.result,
+        "### Build & Test Patterns (codebase-pattern-finder)\n\n" +
+          patternResult.result,
       ].join("\n\n---\n\n");
 
       // ── Review (two parallel passes) ──────────────────────────────────

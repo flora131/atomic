@@ -20,25 +20,62 @@ import { z } from "zod";
 
 /** Zod schema for a single review finding. */
 export const ReviewFindingSchema = z.object({
-  title: z.string().describe("Brief title prefixed with priority, e.g. '[P0] Missing null check'"),
-  body: z.string().describe("Detailed explanation of the issue, its impact, and a suggested fix"),
-  confidence_score: z.number().min(0).max(1).optional().describe("Confidence in the finding (0.0–1.0)"),
-  priority: z.number().int().min(0).max(3).optional().describe("Severity: 0=P0 critical, 1=P1 important, 2=P2 moderate, 3=P3 minor"),
-  code_location: z.object({
-    absolute_file_path: z.string().describe("Absolute path to the file containing the issue"),
-    line_range: z.object({
-      start: z.number().int().describe("Start line number"),
-      end: z.number().int().describe("End line number"),
-    }),
-  }).optional().describe("Location of the issue in the codebase"),
+  title: z
+    .string()
+    .describe(
+      "Brief title prefixed with priority, e.g. '[P0] Missing null check'",
+    ),
+  body: z
+    .string()
+    .describe(
+      "Detailed explanation of the issue, its impact, and a suggested fix",
+    ),
+  confidence_score: z
+    .number()
+    .min(0)
+    .max(1)
+    .optional()
+    .describe("Confidence in the finding (0.0–1.0)"),
+  priority: z
+    .number()
+    .int()
+    .min(0)
+    .max(3)
+    .optional()
+    .describe(
+      "Severity: 0=P0 critical, 1=P1 important, 2=P2 moderate, 3=P3 minor",
+    ),
+  code_location: z
+    .object({
+      absolute_file_path: z
+        .string()
+        .describe("Absolute path to the file containing the issue"),
+      line_range: z.object({
+        start: z.number().int().describe("Start line number"),
+        end: z.number().int().describe("End line number"),
+      }),
+    })
+    .optional()
+    .describe("Location of the issue in the codebase"),
 });
 
 /** Zod schema for the full structured review output. */
 export const ReviewResultSchema = z.object({
-  findings: z.array(ReviewFindingSchema).describe("List of review findings, ordered by priority"),
-  overall_correctness: z.string().describe("'patch is correct' or 'patch is incorrect'"),
-  overall_explanation: z.string().describe("Summary of overall quality and correctness"),
-  overall_confidence_score: z.number().min(0).max(1).optional().describe("Overall confidence in the review (0.0–1.0)"),
+  findings: z
+    .array(ReviewFindingSchema)
+    .describe("List of review findings, ordered by priority"),
+  overall_correctness: z
+    .string()
+    .describe("'patch is correct' or 'patch is incorrect'"),
+  overall_explanation: z
+    .string()
+    .describe("Summary of overall quality and correctness"),
+  overall_confidence_score: z
+    .number()
+    .min(0)
+    .max(1)
+    .optional()
+    .describe("Overall confidence in the review (0.0–1.0)"),
 });
 
 /** JSON Schema derived from the Zod schema — used by Claude and OpenCode SDKs. */
@@ -67,8 +104,10 @@ export function mergeReviewResults(
   const rawCombined = [a.raw, b.raw].filter(Boolean).join("\n\n---\n\n");
 
   // Resolve: prefer structured output, fall back to text parsing
-  const parsedA = a.structured ?? (a.raw.trim() ? parseReviewResult(a.raw) : null);
-  const parsedB = b.structured ?? (b.raw.trim() ? parseReviewResult(b.raw) : null);
+  const parsedA =
+    a.structured ?? (a.raw.trim() ? parseReviewResult(a.raw) : null);
+  const parsedB =
+    b.structured ?? (b.raw.trim() ? parseReviewResult(b.raw) : null);
 
   if (!parsedA && !parsedB) {
     return { structured: null, raw: rawCombined };
@@ -96,7 +135,9 @@ export function mergeReviewResults(
   return {
     structured: {
       findings: [...findingsA, ...findingsB],
-      overall_correctness: isIncorrect ? "patch is incorrect" : "patch is correct",
+      overall_correctness: isIncorrect
+        ? "patch is incorrect"
+        : "patch is correct",
       overall_explanation: explanations.join(" | "),
       overall_confidence_score:
         confidences.length > 0 ? Math.max(...confidences) : undefined,
@@ -117,9 +158,13 @@ export interface PlannerContext {
 }
 
 /**
- * Build the planner prompt. The first iteration decomposes the original spec;
- * subsequent iterations decompose the work needed to resolve the debugger
+ * Build the planner prompt. The first iteration authors an RFC from the
+ * original spec; subsequent iterations revise the RFC using the debugger
  * report from the previous loop iteration.
+ *
+ * The planner's deliverable is a filled-in Technical Design Document / RFC
+ * rendered as markdown text
+ * consumes the RFC as design context
  */
 export function buildPlannerPrompt(
   spec: string,
@@ -128,18 +173,23 @@ export function buildPlannerPrompt(
   const debuggerReport = context.debuggerReport?.trim() ?? "";
   const isReplan = context.iteration > 1 && debuggerReport.length > 0;
 
-  if (isReplan) {
-    return `# Re-Planning (Iteration ${context.iteration})
+  const header = isReplan
+    ? `# Technical Design Revision (Iteration ${context.iteration})
 
-The previous Ralph iteration produced an implementation that the reviewer
-flagged as incomplete or incorrect. The debugger investigated and produced
-the report below. Use it to re-plan.
+The previous iteration's implementation was flagged by the reviewer, and the
+debugger investigated. Revise the RFC so it reflects the corrected approach.`
+    : `# Technical Design (Iteration 1)
 
-## Original Specification
+Author a Technical Design Document / RFC for the specification below.`;
+
+  const specBlock = `## Original Specification
 
 <specification>
 ${spec}
-</specification>
+</specification>`;
+
+  const debuggerBlock = isReplan
+    ? `
 
 ## Debugger Report (authoritative)
 
@@ -147,82 +197,110 @@ ${spec}
 ${debuggerReport}
 </debugger_report>
 
-## Your Task
+### Revision Focus
 
-Decompose the work needed to resolve every issue in the debugger report into
-an ordered task list, then persist them via TaskCreate.
+Fold every issue in the debugger report into the revised RFC:
 
-<instructions>
-1. Treat the debugger report as authoritative. Every "Issue Identified" must
-   map to at least one task. Every "Suggested Plan Adjustment" must appear as
-   (or be subsumed by) a task.
-2. Drop any work from the original specification that is already complete and
-   unaffected by the report.
-3. Order tasks by priority: P0 fixes first, then dependent work, then
-   validation/tests.
-4. Optimize for parallel execution — minimize blockedBy dependencies.
-5. After creating all tasks via TaskCreate, call TaskList to verify.
-</instructions>
+- **Section 5 (Detailed Design)** — specify the corrected approach. Every
+  "Issue Identified" in the report should map to a concrete design change.
+- **Section 6 (Alternatives Considered)** — if the root cause points to a
+  better option than the one previously chosen, promote it and demote the
+  current choice to "rejected" with the new rejection reason.
+- **Section 8 (Migration, Rollout, and Testing)** — add validation steps
+  that would have caught the regression.
+- **Section 9 (Open Questions / Unresolved Issues)** — surface any
+  uncertainty the debugger flagged as unresolved.`
+    : "";
 
-<constraints>
-- All tasks start as "pending".
-- blockedBy must reference IDs that exist in the task list.
-- Do not split fixes that touch the same file across multiple tasks unless they are truly independent.
-</constraints>`;
-  }
+  return `${header}
 
-  // Initial iteration
-  return `# Planning (Iteration 1)
+${specBlock}${debuggerBlock}
 
-You are a task decomposition engine.
+${
+  isReplan
+    ? `## Step 1: Author a Revised RFC
 
-<specification>
-${spec}
-</specification>
+This is a re-plan iteration — the debugger report above MUST be folded into
+the design. Always author a revised RFC here, even if the original
+specification was a file path. If the spec is a path, Read the file first to
+get the original design, then produce a revised RFC that incorporates the
+debugger findings. Do NOT short-circuit to just the path on re-plan.`
+    : `## Step 1: Spec Path Short-Circuit (do this FIRST)
 
-<instructions>
-Decompose the specification above into an ordered list of implementation tasks
-and persist them via TaskCreate.
+The specification above may be either a **file path** to an existing spec
+document, or **raw prose** describing a feature.
 
-1. Read the specification and identify every distinct deliverable.
-2. Order tasks by priority: foundational/infrastructure first, then features,
-   then tests, then polish.
-3. Analyze technical dependencies between tasks.
-4. After creating all tasks via TaskCreate, call TaskList to verify.
-</instructions>
+Before doing anything else, determine which case you're in:
 
-<constraints>
-- All tasks start as "pending".
-- blockedBy must only reference IDs that exist in the task list.
-- Optimize for parallel execution — minimize unnecessary dependencies.
-</constraints>`;
+- If the specification looks like a path (ends in \`.md\`, \`.txt\`, \`.rst\`,
+  or similar; starts with \`/\`, \`./\`, or \`~/\`; or contains \`/\` and no
+  line breaks), attempt to Read it.
+- If the Read succeeds, the user has already authored a spec file — there is
+  **nothing to draft**. Resolve the path to an absolute path (via Bash
+  \`realpath <path>\` or equivalent) and output ONLY that absolute path as
+  your final message. Emit nothing else: no RFC, no summary, no commentary.
+  The orchestrator will read the file itself.
+- If Read fails, or the specification is clearly inline prose (multiple
+  sentences, paragraph structure, no file extension), proceed to Step 2 and
+  author the full RFC below.
+
+Do NOT author an RFC when the user has already provided a spec file — just
+forward the path. Duplicating the spec wastes tokens and introduces drift.`
 }
 
+## Step 2: Author the RFC${isReplan ? " (revision)" : " (only if Step 1 did not short-circuit)"}
+
+1. **Investigate first.** Use Grep/Glob/Read to ground the RFC in the actual
+   codebase — the services, modules, data models, and external integrations
+   this feature will touch. Use Bash for metadata:
+   - \`git config user.name\` → Author(s)
+   - \`date '+%Y-%m-%d'\` → Created / Last Updated
+2. **Render the RFC template below as your final message.** Preserve every
+   section header verbatim and the metadata table exactly. Replace each
+   \`_Instruction:_\` italicized block and each \`> **Example:**\` blockquote
+   with real, feature-specific content — the templates are authoring guides,
+   not final copy.
+3. **Diagrams are load-bearing.** Section 4.1 MUST include a Mermaid System
+   Architecture diagram grounded in the real components this feature touches.
+4. **Non-goals matter.** Section 3.2 prevents scope creep. Always fill it in
+   with explicit exclusions — do not leave it generic.
+5. **Alternatives must be real.** Section 6 must list at least two concrete
+   alternatives (not strawmen) with honest pros, cons, and rejection reasons.
+6. **Surface uncertainty.** Put unresolved decisions in Section 9 with an
+   owner placeholder (e.g., \`[OWNER: infra team]\`) — do not paper over gaps
+   with vague language.
+
+## Constraints
+
+- Output nothing else after the RFC (or path) — no meta-commentary, no
+  summary. The document (or path) stands on its own.
+- Match depth to stakes: a greenfield service warrants deep sections 5-7; a
+  small refactor can abbreviate them, but every section header must be present.`;
+}
 // ============================================================================
 // ORCHESTRATOR
 // ============================================================================
 
 export interface OrchestratorContext {
   /**
-   * Trailing commentary from the planner's last assistant message, if any.
-   * The Copilot and OpenCode workflows create a fresh session for each
-   * sub-agent, so the planner's in-session output is NOT automatically
-   * visible to the orchestrator — only what the planner persisted via
-   * `TaskCreate`. Forward the planner's final text here so the orchestrator
-   * sees any caveats, risks, or execution hints that didn't fit into task
-   * bodies.
+   * The planner's final assistant message. Under the RFC-based Ralph flow,
+   * this is the authoritative design input — either an absolute path to a
+   * pre-existing spec file or an inline RFC markdown document. The
+   * orchestrator decomposes it into the task list using its SDK-specific
+   * task-persistence tool (`TaskCreate` / `sql` / `todowrite`).
    */
   plannerNotes?: string;
 }
 
 /**
- * Build the orchestrator prompt. The orchestrator retrieves the planner's
- * task list, validates the dependency graph, and spawns parallel workers.
+ * Build the orchestrator prompt. The orchestrator decomposes the planner's
+ * design output (a spec path or inline RFC) into a task list using its
+ * SDK-specific task-persistence tool, validates the dependency graph, and
+ * spawns parallel workers.
  *
- * @param spec - The original user specification. Required because the
- *   orchestrator runs in a fresh session on Copilot/OpenCode and needs the
- *   end-user goal to resolve ambiguous tasks.
- * @param context - Optional planner handoff context (trailing commentary).
+ * @param spec - The user's original specification. Used as context/fallback
+ *   when the planner output is missing or ambiguous.
+ * @param context - Planner handoff (the spec path or RFC markdown).
  */
 export function buildOrchestratorPrompt(
   spec: string,
@@ -231,73 +309,105 @@ export function buildOrchestratorPrompt(
   const plannerNotes = context.plannerNotes?.trim() ?? "";
   const plannerSection =
     plannerNotes.length > 0
-      ? `## Planner Notes (trailing commentary)
-
-The planner produced the notes below alongside the task list. They capture
-caveats, risks, or execution hints that did not fit into individual task
-bodies. Treat them as guidance, not as task definitions.
-
-<planner_notes>
+      ? `<planner_output>
 ${plannerNotes}
-</planner_notes>
+</planner_output>`
+      : `<planner_output>
+(empty — fall back to the Original User Specification below)
+</planner_output>`;
 
-`
-      : "";
+  return `You are the workflow orchestrator. You run a three-phase loop:
 
-  return `You are an orchestrator managing a set of implementation tasks.
+1. **Decompose** the design document into a task list.
+2. **Execute** the tasks by spawning parallel worker sub-agents.
+3. **Report** completion status.
 
-## Original User Specification
+## Design Input (authoritative)
+
+The planner produced the output below. It is in **one of two formats**:
+- **A file path** (single line, ends in \`.md\`/\`.txt\`/similar, or starts
+  with \`/\` / \`./\` / \`~/\`). Read the file to get the spec — its contents
+  are what you decompose.
+- **An inline RFC markdown document** (multi-section, starts with a metadata
+  table or \`# ... Technical Design Document\` header). Decompose it directly.
+
+${plannerSection}
+
+## Original User Specification (context / fallback)
 
 <specification>
 ${spec}
 </specification>
 
-${plannerSection}## Retrieve Task List
+## Phase 1: Decompose the Spec into a Task List
 
-Start by retrieving the current task list using your TaskList tool. The
-planner has already created all tasks; you MUST retrieve them before any
-execution.
+Read the spec (from the path or the inline RFC) and decompose it into an
+ordered, parallelism-friendly list of implementation tasks. For each task,
+derive:
 
-## Dependency Graph Integrity Check
+- A short **gerund subject** (e.g., "Implementing auth middleware").
+- An **actionable description** (5-10 words, imperative, specific).
+- A **blockedBy / dependency list** (IDs of tasks that must complete first).
 
-BEFORE executing any tasks, validate the dependency graph:
+**Decomposition guidelines:**
 
-1. For each task, check that every ID in its "blockedBy" array corresponds to
-   an actual task ID in the list.
-2. If a blockedBy reference points to a task ID that does NOT exist, that
-   reference is a **dangling dependency** caused by data corruption during
-   planning.
-3. **Remove dangling dependencies**: Drop any blockedBy entry that references
-   a non-existent task ID. The task is still valid — only the corrupted
-   reference should be removed.
-4. After cleanup, re-evaluate which tasks are ready.
+1. **Maximize parallelism.** Tasks with empty dependencies form the first
+   wave and run concurrently. Split independent work streams into separate
+   tasks rather than chaining them.
+2. **Compartmentalize.** Each task should be self-contained — minimize
+   shared state and file conflicts. Prefer tasks that touch distinct
+   modules/files.
+3. **Dependencies only when truly necessary.** Every unnecessary dependency
+   reduces throughput. Ask: "Can this genuinely not start without the
+   blocked task?"
+4. **Start with foundations.** Setup, schema, and shared utilities come
+   before feature code. Tests come after the code they cover.
+5. **Match sections to task categories.** RFC Section 5 (Detailed Design)
+   typically yields 60-80% of tasks. Sections 8.3 (Test Plan) and 7
+   (Cross-Cutting) yield validation and infra tasks.
+
+### Persist the Task List
+
+Persist every task using task management tools and encode dependencies. Use your task tools to better manage the status of tasks and mark tasks as complete when their work is done.
+
+## Phase 2: Dependency Graph Integrity Check
+
+BEFORE executing any tasks, validate the graph you just persisted:
+
+1. For each task, check that every dependency reference points to a task ID
+   that actually exists.
+2. Any reference to a non-existent task ID is a **dangling dependency** —
+   drop it. The task itself is still valid; only the corrupted reference
+   is removed.
+3. Re-evaluate readiness after cleanup.
 
 This step is critical. Dangling dependencies will permanently block tasks.
 
-## Dependency Rules
+## Phase 3: Execute
+
+### Readiness Rules
 
 A task is READY only when:
-1. Its status is "pending"
-2. ALL tasks in its "blockedBy" array are "completed"
+1. Its status is \`pending\`.
+2. ALL tasks it depends on are \`completed\`.
 
 Do NOT spawn a worker for a task whose dependencies are not yet completed.
 
-## Instructions
+### Execution Loop
 
-1. **Retrieve the task list** via TaskList. This is your source of truth.
-2. **Validate the dependency graph** as above. Remove dangling dependencies.
-3. **Identify ready tasks**: pending tasks whose blockedBy is fully completed.
-4. **Spawn parallel workers**: for each ready task, spawn a worker via the
-   Task tool with a focused prompt containing the task description, context
-   from completed dependencies, and instructions to implement and test.
-5. **Monitor completions**: as workers finish, mark tasks completed and spawn
-   the newly-unblocked tasks immediately.
-6. **Continue until ALL tasks are complete.** Do NOT stop early.
-7. **Report a summary** when finished, listing each task and its final status.
+1. **Identify all ready tasks** — pending tasks whose dependencies are
+   completed.
+2. **Spawn parallel workers** — for each ready task, dispatch a worker
+   sub-agent (via \`Agent\`/\`Task\`/\`agent\` tool) with a focused prompt
+   containing: the task subject + description, relevant context from the
+   spec/RFC, and instructions to implement and test.
+3. **Monitor completions** — as workers finish, mark tasks \`completed\` and
+   spawn newly-unblocked tasks IMMEDIATELY.
+4. **Continue until ALL tasks are \`completed\` or \`error\`.** Do NOT stop
+   early.
+5. **Report a summary** when finished: each task and its final status.
 
-## IMPORTANT
-
-Spawn ALL ready tasks in parallel — do not serialize when multiple tasks are
+Spawn ALL ready tasks in parallel — do not serialize when multiple are
 ready simultaneously.
 
 ## Error Handling
@@ -306,29 +416,31 @@ When a worker task FAILS:
 
 1. **Diagnose** the error.
 2. **Retry with fix**: spawn a new worker with the error context included.
-3. **Retry limit**: up to 3 retries per task. After that, mark it as "error".
+3. **Retry limit**: up to 3 retries per task. After that, mark it \`error\`.
 4. **Continue regardless**: do NOT stop. Execute all other unblocked tasks.
-5. **Unblocked tasks proceed**: only direct dependents of an "error" task
+5. **Unblocked tasks proceed**: only direct dependents of an \`error\` task
    should be skipped.
 
-NEVER mark tasks as "blocked-by-failure" and stop. Complete as much work as
+NEVER mark tasks "blocked-by-failure" and stop. Complete as much work as
 possible.
 
 ## Task Status Protocol
 
-Update task statuses **immediately** at every transition via TaskUpdate.
+Update statuses **immediately** at every transition via task tool.
 
 ### Required update sequence per task
 
-1. **IMMEDIATELY BEFORE spawning** a worker for a task → mark "in_progress".
-2. **IMMEDIATELY AFTER** the worker returns → mark "completed" or "error".
+1. **IMMEDIATELY BEFORE spawning** a worker → mark \`in_progress\`.
+2. **IMMEDIATELY AFTER** the worker returns → mark \`completed\` or
+   \`error\`.
 
 ### Timing rules
 
-- Update status in the same turn as the event that triggered it. Never batch.
-- When multiple workers complete in parallel, issue a SEPARATE update for
-  each.
-- Mark previous tasks "completed" before marking new ones "in_progress".`;
+- Update status in the same turn as the triggering event. Never batch.
+- When multiple workers complete in parallel, issue a SEPARATE update per
+  task.
+- Mark previous tasks \`completed\` before marking new ones
+  \`in_progress\`.`;
 }
 
 // ============================================================================
@@ -526,8 +638,7 @@ export function buildReviewPrompt(
 ): string {
   const { changeset } = context;
   const hasChanges =
-    changeset.diffStat.length > 0 ||
-    changeset.uncommitted.length > 0;
+    changeset.diffStat.length > 0 || changeset.uncommitted.length > 0;
   const hasErrors = changeset.errors.length > 0;
 
   // ── Changeset section ──────────────────────────────────────────────────
@@ -537,9 +648,7 @@ export function buildReviewPrompt(
   if (hasChanges || hasErrors) {
     const parts: string[] = [];
 
-    parts.push(
-      `## Branch Changeset (relative to \`${changeset.baseBranch}\`)`,
-    );
+    parts.push(`## Branch Changeset (relative to \`${changeset.baseBranch}\`)`);
 
     // Surface git errors first — the agent needs to know the data is partial
     if (hasErrors) {
@@ -576,14 +685,7 @@ export function buildReviewPrompt(
     }
 
     if (changeset.diffStat.length > 0) {
-      parts.push(
-        "",
-        "### Diff Summary",
-        "",
-        "```",
-        changeset.diffStat,
-        "```",
-      );
+      parts.push("", "### Diff Summary", "", "```", changeset.diffStat, "```");
     }
 
     if (changeset.uncommitted.length > 0) {
@@ -802,10 +904,20 @@ ${trimmed}
       );
     }
     if (changeset.nameStatus.length > 0) {
-      parts.push(`Changed files (relative to \`${changeset.baseBranch}\`):`, "```", changeset.nameStatus, "```");
+      parts.push(
+        `Changed files (relative to \`${changeset.baseBranch}\`):`,
+        "```",
+        changeset.nameStatus,
+        "```",
+      );
     }
     if (changeset.uncommitted.length > 0) {
-      parts.push(`Uncommitted (\`git status -s\`):`, "```", changeset.uncommitted, "```");
+      parts.push(
+        `Uncommitted (\`git status -s\`):`,
+        "```",
+        changeset.uncommitted,
+        "```",
+      );
     }
     changesetSection = parts.join("\n");
   } else {

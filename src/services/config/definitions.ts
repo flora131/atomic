@@ -36,7 +36,9 @@ export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
       "--allow-dangerously-skip-permissions",
       "--dangerously-skip-permissions",
     ],
-    env_vars: {},
+    env_vars: {
+      CLAUDE_CODE_NO_FLICKER: "1",
+    },
     folder: ".claude",
     install_url: "https://code.claude.com/docs/en/setup",
     exclude: [".DS_Store", "settings.json"],

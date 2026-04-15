@@ -128,6 +128,54 @@ fi
 
 echo "✓ Atomic CLI installed (${ATOMIC_SPEC})"
 
+# ─── Ensure UTF-8 locale for proper Unicode/ASCII art rendering ───────────
+# Agent CLIs (e.g. Copilot) emit Unicode box-drawing / figlet characters.
+# Without a UTF-8 locale the output is garbled when spawned as a Bun
+# subprocess inside the devcontainer.
+if command -v locale-gen >/dev/null 2>&1; then
+    locale-gen en_US.UTF-8 >/dev/null 2>&1 || true
+fi
+
+cat > /etc/profile.d/atomic-locale.sh <<'LOCALE_EOF'
+export LANG="${LANG:-en_US.UTF-8}"
+export LC_ALL="${LC_ALL:-en_US.UTF-8}"
+LOCALE_EOF
+chmod 644 /etc/profile.d/atomic-locale.sh
+
+# Non-login bash shells
+if [ -f /etc/bash.bashrc ] && ! grep -q 'atomic-locale' /etc/bash.bashrc 2>/dev/null; then
+    cat >> /etc/bash.bashrc <<'BASHRC_LOCALE_EOF'
+
+# atomic-locale: ensure UTF-8 for agent CLI Unicode rendering
+export LANG="${LANG:-en_US.UTF-8}"
+export LC_ALL="${LC_ALL:-en_US.UTF-8}"
+BASHRC_LOCALE_EOF
+fi
+
+# Non-login zsh shells
+if [ -f /etc/zsh/zshrc ] && ! grep -q 'atomic-locale' /etc/zsh/zshrc 2>/dev/null; then
+    cat >> /etc/zsh/zshrc <<'ZSHRC_LOCALE_EOF'
+
+# atomic-locale: ensure UTF-8 for agent CLI Unicode rendering
+export LANG="${LANG:-en_US.UTF-8}"
+export LC_ALL="${LC_ALL:-en_US.UTF-8}"
+ZSHRC_LOCALE_EOF
+fi
+
+# Fish shells
+if [ -d /etc/fish/conf.d ]; then
+    cat > /etc/fish/conf.d/atomic-locale.fish <<'FISH_LOCALE_EOF'
+# atomic-locale: ensure UTF-8 for agent CLI Unicode rendering
+if not set -q LANG
+    set -gx LANG en_US.UTF-8
+end
+if not set -q LC_ALL
+    set -gx LC_ALL en_US.UTF-8
+end
+FISH_LOCALE_EOF
+    chmod 644 /etc/fish/conf.d/atomic-locale.fish
+fi
+
 # ─── Install global CLI tools via bun ──────────────────────────────────────
 # Use bun (already installed) with --trust to allow postinstall lifecycle
 # scripts (e.g. playwright browser downloads).

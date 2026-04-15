@@ -1,33 +1,19 @@
+/** Target LOC per explorer sub-agent. */
+const LOC_PER_EXPLORER = 2_500;
+
 /**
  * Determine how many parallel explorer sub-agents to spawn for the
  * deep-research-codebase workflow, based on lines of code in the codebase.
  *
- * The heuristic balances coverage against coordination overhead:
- *   - Too few explorers leave parts of the codebase under-investigated.
- *   - Too many explorers flood the aggregator with redundant findings,
- *     burn tokens on coordination, and exhaust tmux/process budgets.
- *
- * Tier choices were anchored to the rough sizes of common project shapes:
- *
- *   <    5,000 LOC →  2 explorers   scripts, single-purpose tools
- *   <   25,000 LOC →  3 explorers   small libraries, CLI utilities
- *   <  100,000 LOC →  5 explorers   medium applications
- *   <  500,000 LOC →  7 explorers   large applications, small monorepos
- *   <2,000,000 LOC →  9 explorers   large monorepos
- *   ≥2,000,000 LOC → 12 explorers   massive monorepos (hard cap)
- *
- * The hard cap of 12 prevents runaway parallelism: each explorer is a
- * Claude tmux pane plus an LLM session, so the cost grows linearly in
- * tokens, processes, and walltime as well as in aggregator context.
+ * Scales linearly: one explorer per `LOC_PER_EXPLORER` (2.5K) lines of code,
+ * with a floor of 2 for tiny or empty codebases. The actual number of
+ * spawned explorers is still bounded by the number of partition units
+ * the scout finds (see `partitionUnits` in ./scout.ts), so we never get
+ * more explorers than the natural granularity of the codebase allows.
  */
 export function calculateExplorerCount(loc: number): number {
   if (!Number.isFinite(loc) || loc <= 0) return 2;
-  if (loc < 5_000) return 2;
-  if (loc < 25_000) return 3;
-  if (loc < 100_000) return 5;
-  if (loc < 500_000) return 7;
-  if (loc < 2_000_000) return 9;
-  return 12;
+  return Math.max(2, Math.ceil(loc / LOC_PER_EXPLORER));
 }
 
 /** Human-readable rationale for the heuristic decision — surfaced in logs/prompts. */

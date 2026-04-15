@@ -85,6 +85,7 @@ const AGENT_CLI: Record<
       // which the idle detection in claude.ts watches for to know when the
       // agent has finished processing a prompt.
       CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: "1",
+      CLAUDE_CODE_NO_FLICKER: "1",
     },
   },
 };

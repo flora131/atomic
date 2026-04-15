@@ -66,7 +66,8 @@ async function queryWithStructuredOutput(
         msg.subtype === "success" &&
         (msg as Record<string, unknown>).structured_output
       ) {
-        structured = (msg as Record<string, unknown>).structured_output as ReviewResult;
+        structured = (msg as Record<string, unknown>)
+          .structured_output as ReviewResult;
       }
     }
   }
@@ -82,7 +83,12 @@ export default defineWorkflow({
   description:
     "Plan → orchestrate → review → debug loop with bounded iteration",
   inputs: [
-    { name: "prompt", type: "text", required: true, description: "task prompt" },
+    {
+      name: "prompt",
+      type: "text",
+      required: true,
+      description: "task prompt",
+    },
   ],
 })
   .for<"claude">()
@@ -92,28 +98,40 @@ export default defineWorkflow({
 
     for (let iteration = 1; iteration <= MAX_LOOPS; iteration++) {
       // ── Plan ────────────────────────────────────────────────────────────
-      await ctx.stage(
+      const planner = await ctx.stage(
         { name: `planner-${iteration}` },
-        { chatFlags: ["--agent", "planner", "--allow-dangerously-skip-permissions", "--dangerously-skip-permissions"] },
+        { chatFlags: ["--agent", "planner", "--permission-mode", "dontAsk"] },
         {},
         async (s) => {
-          await s.session.query(
+          const result = await s.session.query(
             buildPlannerPrompt(prompt, {
               iteration,
               debuggerReport: debuggerReport || undefined,
             }),
           );
           s.save(s.sessionId);
+          return extractAssistantText(result, 0);
         },
       );
 
       // ── Orchestrate ─────────────────────────────────────────────────────
       await ctx.stage(
         { name: `orchestrator-${iteration}` },
-        { chatFlags: ["--agent", "orchestrator", "--allow-dangerously-skip-permissions", "--dangerously-skip-permissions"] },
+        {
+          chatFlags: [
+            "--agent",
+            "orchestrator",
+            "--permission-mode",
+            "dontAsk",
+          ],
+        },
         {},
         async (s) => {
-          await s.session.query(buildOrchestratorPrompt(prompt));
+          await s.session.query(
+            buildOrchestratorPrompt(prompt, {
+              plannerNotes: planner.result,
+            }),
+          );
           s.save(s.sessionId);
         },
       );
@@ -128,10 +146,10 @@ export default defineWorkflow({
           {},
           {},
           async (s) => {
-            const result = await s.session.query(
-              discoveryPrompts.locator,
-              { agent: "codebase-locator", permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true },
-            );
+            const result = await s.session.query(discoveryPrompts.locator, {
+              agent: "codebase-locator",
+              permissionMode: "dontAsk",
+            });
             s.save(s.sessionId);
             return extractAssistantText(result, 0);
           },
@@ -141,10 +159,10 @@ export default defineWorkflow({
           {},
           {},
           async (s) => {
-            const result = await s.session.query(
-              discoveryPrompts.analyzer,
-              { agent: "codebase-analyzer", permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true },
-            );
+            const result = await s.session.query(discoveryPrompts.analyzer, {
+              agent: "codebase-analyzer",
+              permissionMode: "dontAsk",
+            });
             s.save(s.sessionId);
             return extractAssistantText(result, 0);
           },
@@ -156,7 +174,10 @@ export default defineWorkflow({
           async (s) => {
             const result = await s.session.query(
               discoveryPrompts.patternFinder,
-              { agent: "codebase-pattern-finder", permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true },
+              {
+                agent: "codebase-pattern-finder",
+                permissionMode: "dontAsk",
+              },
             );
             s.save(s.sessionId);
             return extractAssistantText(result, 0);
@@ -165,9 +186,12 @@ export default defineWorkflow({
       ]);
 
       const discoveryContext = [
-        "### Infrastructure Files (codebase-locator)\n\n" + locatorResult.result,
-        "### Infrastructure Analysis (codebase-analyzer)\n\n" + analyzerResult.result,
-        "### Build & Test Patterns (codebase-pattern-finder)\n\n" + patternResult.result,
+        "### Infrastructure Files (codebase-locator)\n\n" +
+          locatorResult.result,
+        "### Infrastructure Analysis (codebase-analyzer)\n\n" +
+          analyzerResult.result,
+        "### Build & Test Patterns (codebase-pattern-finder)\n\n" +
+          patternResult.result,
       ].join("\n\n---\n\n");
 
       // ── Review (two parallel passes) ────────────────────────────────────
@@ -178,26 +202,16 @@ export default defineWorkflow({
       });
 
       const [reviewA, reviewB] = await Promise.all([
-        ctx.stage(
-          { name: `reviewer-${iteration}-a` },
-          {},
-          {},
-          async (s) => {
-            const result = await queryWithStructuredOutput(reviewPrompt);
-            s.save(s.sessionId);
-            return result;
-          },
-        ),
-        ctx.stage(
-          { name: `reviewer-${iteration}-b` },
-          {},
-          {},
-          async (s) => {
-            const result = await queryWithStructuredOutput(reviewPrompt);
-            s.save(s.sessionId);
-            return result;
-          },
-        ),
+        ctx.stage({ name: `reviewer-${iteration}-a` }, {}, {}, async (s) => {
+          const result = await queryWithStructuredOutput(reviewPrompt);
+          s.save(s.sessionId);
+          return result;
+        }),
+        ctx.stage({ name: `reviewer-${iteration}-b` }, {}, {}, async (s) => {
+          const result = await queryWithStructuredOutput(reviewPrompt);
+          s.save(s.sessionId);
+          return result;
+        }),
       ]);
 
       const merged = mergeReviewResults(reviewA.result, reviewB.result);
@@ -211,7 +225,9 @@ export default defineWorkflow({
       if (iteration < MAX_LOOPS) {
         const debugger_ = await ctx.stage(
           { name: `debugger-${iteration}` },
-          { chatFlags: ["--agent", "debugger", "--allow-dangerously-skip-permissions", "--dangerously-skip-permissions"] },
+          {
+            chatFlags: ["--agent", "debugger", "--permission-mode", "dontAsk"],
+          },
           {},
           async (s) => {
             const result = await s.session.query(

@@ -556,42 +556,56 @@ function EmptyPreview({
 
 const TEXT_FIELD_LINES = 3;
 
-
-const NOOP_CHANGE_REF: React.RefObject<((value: string) => void) | null> = { current: null };
-
 function TextAreaContent({
   value,
   placeholder,
   focused,
-  onChangeRef,
+  onInput,
 }: {
   value: string;
   placeholder: string;
   focused: boolean;
-  onChangeRef?: React.RefObject<((value: string) => void) | null>;
+  onInput: (value: string) => void;
 }) {
   const theme = usePickerTheme();
-  const ref = useRef<TextareaRenderable>(null);
-  const changeRef = onChangeRef ?? NOOP_CHANGE_REF;
+  const instanceRef = useRef<TextareaRenderable | null>(null);
+  const onInputRef = useLatest(onInput);
+  const lastTextRef = useRef(value);
 
-  // Sync external value → textarea when it diverges (e.g. initial value).
+  const refCallback = useCallback((instance: TextareaRenderable | null) => {
+    instanceRef.current = instance;
+  }, []);
+
+  // Sync external value → textarea when it diverges (e.g. initial value
+  // or reset after phase transition).
   useEffect(() => {
-    if (ref.current && ref.current.plainText !== value) {
-      ref.current.setText(value);
+    if (instanceRef.current && instanceRef.current.plainText !== value) {
+      instanceRef.current.setText(value);
+      lastTextRef.current = value;
     }
   }, [value]);
 
-  // Wire onContentChange as a prop so the reconciler sets it during the
-  // commit phase (via the constructor and setProperty's default branch),
-  // guaranteeing it is active before the textarea can receive key events.
-  // The previous useEffect approach deferred setup as a passive effect
-  // (ConcurrentRoot schedules these via setTimeout) — creating a window
-  // where keystrokes reached the focused textarea before the listener
-  // existed, silently dropping content-change notifications and leaving
-  // fieldValues stale.
+  // Detect text changes after each keypress. The native Zig edit buffer's
+  // "content-changed" event is unreliable for propagating to the JS
+  // _contentChangeListener in certain installed environments. Instead,
+  // we hook into useKeyboard (which fires before the textarea processes
+  // the key) and defer the read with queueMicrotask so the textarea has
+  // processed the keystroke by the time we read plainText.
+  useKeyboard(useCallback(() => {
+    queueMicrotask(() => {
+      const inst = instanceRef.current;
+      if (!inst) return;
+      const current = inst.plainText;
+      if (current !== lastTextRef.current) {
+        lastTextRef.current = current;
+        onInputRef.current(current);
+      }
+    });
+  }, []));
+
   return (
     <textarea
-      ref={ref}
+      ref={refCallback}
       initialValue={value}
       placeholder={placeholder}
       focused={focused}
@@ -602,9 +616,6 @@ function TextAreaContent({
       placeholderColor={theme.textDim}
       wrapMode="word"
       flexGrow={1}
-      onContentChange={() => {
-        changeRef.current?.(ref.current?.plainText ?? "");
-      }}
     />
   );
 }
@@ -685,14 +696,12 @@ const Field = memo(function Field({
   value,
   focused,
   onFieldInput,
-  onTextChangeRef,
 }: {
   id?: string;
   field: WorkflowInput;
   value: string;
   focused: boolean;
   onFieldInput: (fieldName: string, value: string) => void;
-  onTextChangeRef?: React.RefObject<((value: string) => void) | null>;
 }) {
   const theme = usePickerTheme();
   const borderCol = focused ? theme.primary : theme.border;
@@ -730,7 +739,7 @@ const Field = memo(function Field({
             value={value}
             placeholder={field.placeholder ?? ""}
             focused={focused}
-            onChangeRef={onTextChangeRef}
+            onInput={onInput}
           />
         ) : field.type === "string" ? (
           <StringContent
@@ -769,7 +778,6 @@ function InputPhase({
   values,
   focusedFieldIdx,
   onFieldInput,
-  onTextChangeRef,
 }: {
   workflow: WorkflowWithMetadata;
   agent: AgentType;
@@ -777,7 +785,6 @@ function InputPhase({
   values: Record<string, string>;
   focusedFieldIdx: number;
   onFieldInput: (fieldName: string, value: string) => void;
-  onTextChangeRef: React.RefObject<((value: string) => void) | null>;
 }) {
   const theme = usePickerTheme();
   const isStructured = workflow.inputs.length > 0;
@@ -924,11 +931,6 @@ function InputPhase({
               value={values[f.name] ?? ""}
               focused={active}
               onFieldInput={onFieldInput}
-              onTextChangeRef={
-                f.type === "text" && active
-                  ? onTextChangeRef
-                  : undefined
-              }
             />
           );
         })}
@@ -1371,16 +1373,6 @@ export function WorkflowPicker({
   }, [currentFields, fieldValues]);
   const isFormValid = invalidFieldIndices.length === 0;
 
-  // Textarea change callback ref — useLatest keeps .current in sync
-  // each render so the textarea effect doesn't need to re-attach.
-  const textChangeRef = useLatest(
-    currentField
-      ? (text: string) => {
-          setFieldValues((prev) => ({ ...prev, [currentField.name]: text }));
-        }
-      : null,
-  );
-
   // Stable callback for field input — the setter is referentially stable.
   const onFieldInput = useCallback(
     (name: string, v: string) => setFieldValues((prev) => ({ ...prev, [name]: v })),
@@ -1466,7 +1458,6 @@ export function WorkflowPicker({
             values={fieldValues}
             focusedFieldIdx={confirmOpen ? -1 : focusedFieldIdx}
             onFieldInput={onFieldInput}
-            onTextChangeRef={textChangeRef}
           />
         ) : null}
 

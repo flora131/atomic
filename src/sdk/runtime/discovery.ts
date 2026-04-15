@@ -2,10 +2,13 @@
  * Workflow discovery — finds workflow definitions from disk.
  *
  * Workflows are discovered from:
- *   1. .atomic/workflows/<name>/<agent>/index.ts (project-local)
- *   2. ~/.atomic/workflows/<name>/<agent>/index.ts (global)
+ *   1. src/sdk/workflows/builtin/<name>/<agent>/index.ts (SDK-shipped builtins)
+ *   2. .atomic/workflows/<name>/<agent>/index.ts (project-local)
+ *   3. ~/.atomic/workflows/<name>/<agent>/index.ts (global)
  *
- * Project-local workflows take precedence over global ones with the same name.
+ * All three sources use the same scanning function (`discoverFromBaseDir`)
+ * so registration is uniform. Builtin names are reserved — project-local
+ * and global workflows with the same name are dropped during merge.
  */
 
 import { join } from "node:path";
@@ -77,7 +80,7 @@ async function loadWorkflowsGitignore(workflowsDir: string): Promise<ignore.Igno
  */
 async function discoverFromBaseDir(
   baseDir: string,
-  source: "local" | "global",
+  source: "local" | "global" | "builtin",
   agentFilter?: AgentType,
 ): Promise<DiscoveredWorkflow[]> {
   const workflows: DiscoveredWorkflow[] = [];
@@ -91,7 +94,11 @@ async function discoverFromBaseDir(
     return workflows;
   }
 
-  const ig = await loadWorkflowsGitignore(baseDir);
+  // Builtin workflows live inside the SDK source tree — skip .gitignore
+  // handling to avoid writing files into node_modules or the SDK dir.
+  const ig = source === "builtin"
+    ? ignore()
+    : await loadWorkflowsGitignore(baseDir);
 
   for (const wfEntry of workflowEntries) {
     if (!wfEntry.isDirectory()) continue;
@@ -141,41 +148,6 @@ const BUILTIN_WORKFLOWS_DIR = join(
 );
 
 /**
- * Discover built-in workflows shipped as SDK modules.
- *
- * Scans `src/sdk/workflows/builtin/<name>/<agent>/index.ts` for known
- * workflow directories. Returns entries with `source: "builtin"`.
- */
-async function discoverBuiltinWorkflows(
-  agentFilter?: AgentType,
-): Promise<DiscoveredWorkflow[]> {
-  const results: DiscoveredWorkflow[] = [];
-  const agents = agentFilter ? [agentFilter] : AGENTS;
-
-  let workflowEntries;
-  try {
-    workflowEntries = await readdir(BUILTIN_WORKFLOWS_DIR, { withFileTypes: true });
-  } catch {
-    return results;
-  }
-
-  const workflowNames = workflowEntries
-    .filter((d) => d.isDirectory())
-    .map((d) => d.name);
-
-  for (const name of workflowNames) {
-    for (const agent of agents) {
-      const indexPath = join(BUILTIN_WORKFLOWS_DIR, name, agent, "index.ts");
-      if (await Bun.file(indexPath).exists()) {
-        results.push({ name, agent, path: indexPath, source: "builtin" });
-      }
-    }
-  }
-
-  return results;
-}
-
-/**
  * Discover all available workflows from built-in, global, and local sources.
  * Optionally filter by agent.
  *
@@ -221,7 +193,7 @@ export async function discoverWorkflows(
   // reserved by a builtin `ralph` for claude, even when the discovery
   // call was filtered to copilot.
   const [allBuiltins, globalResults, localResults] = await Promise.all([
-    discoverBuiltinWorkflows(),
+    discoverFromBaseDir(BUILTIN_WORKFLOWS_DIR, "builtin"),
     discoverFromBaseDir(globalDir, "global", agentFilter),
     discoverFromBaseDir(localDir, "local", agentFilter),
   ]);

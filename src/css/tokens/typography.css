@@ -1,0 +1,28 @@
+/*
+ * Typography Tokens
+ *
+ * WHY: Three font families create clear hierarchy — FinancierDisplay (serif)
+ * for editorial headings gives an art-gallery feel, Unica77 (sans) for body
+ * text provides Swiss-style readability, and Pitch Sans (monospace-inflected)
+ * for nav gives a distinctive, slightly technical edge.
+ *
+ * NOTE: These are the original site's custom fonts. They'll fall back to
+ * system sans-serif/serif if not available, which is intentional — the layout
+ * still works because sizing is set in px, not em relative to the font.
+ */
+:root {
+  --font-body: "Unica77", sans-serif;
+  --font-nav: "Pitch Sans", sans-serif;
+  --font-heading: "FinancierDisplay", serif;
+
+  --text-base: 16px;
+  --text-sm: 13.6px;   /* matches original site's nav/filter size */
+  --text-md: 18px;
+  --text-lg: 24px;
+  --text-xl: 40px;
+  --text-hero: 64px;   /* Library heading */
+
+  --leading-tight: 1.3;    /* headings, card titles */
+  --leading-normal: 1.65;  /* body text — generous for readability */
+  --leading-relaxed: 1.8;  /* long-form bio text */
+}

@@ -1,0 +1,35 @@
+/*
+ * State Styles — Hover, focus, active, loading
+ *
+ * WHY: Focus ring uses ocean-light at 50% opacity — visible enough for
+ * accessibility but harmonizes with the Big Sur color palette rather
+ * than using browser-default blue outlines.
+ */
+
+/* Global focus indicator — ocean-blue ring for a11y */
+:focus-visible {
+  outline: 2px solid rgba(107, 157, 191, 0.5);
+  outline-offset: 2px;
+}
+
+/* Loading shimmer for lazy images */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.img-loading {
+  background: linear-gradient(90deg, #E8E5E3 25%, #F0EDEB 50%, #E8E5E3 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* Fade in for loaded images */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.img-loaded {
+  animation: fadeIn 0.3s ease-out;
+}

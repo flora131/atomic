@@ -1,0 +1,42 @@
+/*
+ * Filter Bar — Category filter buttons
+ *
+ * WHY: Pill-shaped buttons (radius-pill: 9999px) match macOS Big Sur's
+ * rounded segmented controls. Active state uses ocean-deep for clear
+ * selection. Hover lifts inactive buttons 1px for subtle physical feedback.
+ */
+
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  justify-content: center;
+  padding: 0 var(--space-lg);
+  margin-bottom: var(--space-xl);
+}
+
+.filter-btn {
+  padding: var(--space-sm) 14px;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-nav);
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  cursor: pointer;
+  min-height: 44px;
+  transition: all var(--duration-fast) ease;
+}
+
+.filter-btn:hover:not(.active) {
+  background: var(--ocean-foam);
+  border-color: var(--ocean-mist);
+  transform: translateY(-1px);
+}
+
+.filter-btn.active {
+  background: var(--ocean-deep);
+  color: var(--bg-surface);
+  border-color: var(--ocean-deep);
+}

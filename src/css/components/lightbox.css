@@ -1,0 +1,67 @@
+/*
+ * Lightbox — Artwork detail view with heavy frosted glass backdrop
+ *
+ * WHY: The lightbox uses the heaviest glass setting (blur 40px, saturate 200%)
+ * to create a dramatic depth-of-field effect. The page content becomes an
+ * abstract color wash behind the focused artwork — like looking through
+ * frosted gallery glass. This is the most "Big Sur" moment in the entire site.
+ */
+
+.lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  /* Heavy frosted glass — 40px blur creates depth-of-field backdrop */
+  background: rgba(30, 40, 50, 0.4);
+  backdrop-filter: var(--glass-heavy);
+  -webkit-backdrop-filter: var(--glass-heavy);
+
+  animation: fadeIn 0.3s ease-out;
+}
+
+.lightbox-image {
+  max-width: 90vw;
+  max-height: 85vh;
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xl);
+  object-fit: contain;
+}
+
+.lightbox-close {
+  position: absolute;
+  top: var(--space-lg);
+  right: var(--space-lg);
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: #fff;
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--duration-fast) ease;
+}
+
+.lightbox-close:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.lightbox-title {
+  position: absolute;
+  bottom: var(--space-xl);
+  left: 50%;
+  transform: translateX(-50%);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: var(--text-lg);
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}

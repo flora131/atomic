@@ -1,0 +1,152 @@
+/*
+ * Navbar — Frosted Glass Navigation
+ *
+ * WHY: The navbar uses backdrop-filter: blur(20px) + saturate(180%) to create
+ * the signature Big Sur frosted glass effect. Content scrolls behind the navbar
+ * and blurs through the translucent background, just like macOS window chrome.
+ * The subtle white border-bottom enhances the glass edge illusion.
+ */
+
+.navbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  height: var(--navbar-height);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-lg);
+
+  /* Frosted glass: translucent bg + blur creates vibrancy material */
+  background: var(--bg-nav);
+  backdrop-filter: var(--glass-medium);
+  -webkit-backdrop-filter: var(--glass-medium);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.3); /* glass edge highlight */
+
+  font-family: var(--font-nav);
+  text-transform: uppercase;
+  font-size: var(--text-base);
+}
+
+.navbar-link {
+  color: var(--text-primary);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-sm);
+  transition: color var(--duration-fast) ease,
+              background-color var(--duration-fast) ease;
+}
+
+.navbar-link:hover {
+  color: var(--ocean-deep);
+  background: rgba(27, 58, 75, 0.08);
+}
+
+.navbar-link.active {
+  color: var(--ocean-deep);
+  font-weight: 600;
+}
+
+.navbar-newsletter {
+  background-color: var(--ocean-deep);
+  color: #fff;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-pill);
+  font-weight: 500;
+  text-decoration: none;
+  box-shadow: var(--shadow-sm);
+  transition: background-color var(--duration-fast) ease,
+              transform var(--duration-fast) ease,
+              box-shadow var(--duration-fast) ease;
+}
+
+.navbar-newsletter:hover {
+  background-color: var(--ocean-mid);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.navbar-newsletter:active {
+  background-color: #153040;
+  transform: translateY(0);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Mobile hamburger menu (<=768px) */
+.navbar-hamburger {
+  display: none;
+  width: 44px;
+  height: 44px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: var(--space-sm);
+  position: absolute;
+  right: var(--space-md);
+  top: 50%;
+  transform: translateY(-50%);
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 5px;
+}
+
+.navbar-hamburger span {
+  display: block;
+  width: 22px;
+  height: 2px;
+  background: var(--text-primary);
+  border-radius: 1px;
+  transition: transform var(--duration-fast) ease, opacity var(--duration-fast) ease;
+}
+
+.navbar-hamburger.open span:nth-child(1) {
+  transform: translateY(7px) rotate(45deg);
+}
+
+.navbar-hamburger.open span:nth-child(2) {
+  opacity: 0;
+}
+
+.navbar-hamburger.open span:nth-child(3) {
+  transform: translateY(-7px) rotate(-45deg);
+}
+
+@media (max-width: 768px) {
+  .navbar {
+    justify-content: flex-start;
+    padding-left: var(--space-md);
+    flex-wrap: wrap;
+    height: auto;
+    min-height: var(--navbar-height);
+  }
+
+  .navbar-hamburger {
+    display: flex;
+  }
+
+  .navbar-link,
+  .navbar-newsletter {
+    display: none;
+  }
+
+  .navbar.mobile-open .navbar-link,
+  .navbar.mobile-open .navbar-newsletter {
+    display: inline-flex;
+    width: 100%;
+    justify-content: center;
+    padding: var(--space-md);
+  }
+
+  .navbar.mobile-open {
+    background: var(--bg-nav);
+    backdrop-filter: var(--glass-medium);
+    -webkit-backdrop-filter: var(--glass-medium);
+    padding-bottom: var(--space-md);
+  }
+}

@@ -1,0 +1,73 @@
+/*
+ * Artwork Card — Real images, frosted glass surface
+ *
+ * WHY: Cards use padding-bottom: 100% for a perfect 1:1 aspect ratio
+ * container, with images absolutely positioned inside. This prevents layout
+ * shift as images load. The frosted glass background shows through before
+ * the image arrives, matching Big Sur's translucent surface aesthetic.
+ *
+ * HOW: Hover lifts the card UP (translateY, not scale) to create physical
+ * depth, while the image inside does a subtle 1.03x Ken Burns zoom —
+ * two independent motions that feel rich without being distracting.
+ */
+
+.artwork-card-link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.artwork-card-sizer {
+  position: relative;
+  width: 100%;
+  padding-bottom: 100%; /* 1:1 aspect ratio via padding trick */
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+
+  /* Frosted glass card surface — visible before image loads */
+  background: var(--bg-elevated);
+  backdrop-filter: var(--glass-light);
+  -webkit-backdrop-filter: var(--glass-light);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+
+  /* Dual-layer shadow creates Big Sur floating depth */
+  box-shadow: var(--shadow-md);
+  transition: transform var(--duration-normal) var(--ease-out),
+              box-shadow var(--duration-normal) var(--ease-out);
+}
+
+.artwork-card-sizer:hover {
+  transform: translateY(-4px); /* lift up, not scale — feels physical */
+  box-shadow: var(--shadow-lg);
+}
+
+/* Image fills the 1:1 sizer via absolute positioning + object-fit: cover */
+.artwork-card-sizer img,
+.artwork-card-sizer video {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 50%;
+  border-radius: var(--radius-md);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.05); /* subtle inner edge */
+  transition: transform var(--duration-slow) var(--ease-out);
+}
+
+.artwork-card-link:hover .artwork-card-sizer img {
+  transform: scale(1.03); /* Ken Burns zoom within clipped frame */
+}
+
+.artwork-card-title {
+  font-size: var(--text-md);
+  font-family: var(--font-body);
+  font-weight: 500;
+  color: var(--text-primary);
+  text-align: left;
+  padding: var(--space-md);
+  margin: var(--space-sm) 0 0;
+  line-height: var(--leading-tight);
+}

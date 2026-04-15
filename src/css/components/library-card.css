@@ -1,0 +1,102 @@
+/*
+ * Library Section + Cards
+ *
+ * WHY: Library cards use a colored left border (--category-color) for
+ * at-a-glance category identification without overwhelming the clean
+ * frosted glass aesthetic. The color is desaturated to stay cohesive.
+ * Each card lifts on hover (translateY) matching the art card behavior.
+ */
+
+.library-section {
+  padding: var(--space-2xl) var(--grid-side-padding);
+  margin-top: var(--navbar-height);
+}
+
+.library-heading {
+  font-family: var(--font-heading);
+  font-size: var(--text-hero);
+  font-weight: 300;
+  text-transform: none;
+  text-align: center;
+  color: var(--ocean-deep);
+  margin-bottom: var(--space-lg);
+}
+
+.library-intro {
+  font-family: var(--font-body);
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  text-align: center;
+  max-width: 640px;
+  margin: 0 auto var(--space-xl);
+  line-height: var(--leading-normal);
+}
+
+.library-intro a {
+  color: var(--text-link);
+  text-decoration: underline;
+}
+
+/* Library Cards Grid */
+.library-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--grid-gap);
+  max-width: var(--container-width);
+  margin: 0 auto;
+  padding: 0 var(--grid-side-padding);
+}
+
+.timeline-item {
+  display: block;
+  padding: var(--space-lg);
+  border-radius: var(--radius-lg);
+  text-decoration: none;
+  color: inherit;
+  text-align: left;
+
+  /* FROSTED GLASS */
+  background: var(--bg-elevated);
+  backdrop-filter: var(--glass-light);
+  -webkit-backdrop-filter: var(--glass-light);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-left: 3px solid var(--category-color, var(--ocean-mist));
+
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--duration-normal) var(--ease-out),
+              box-shadow var(--duration-normal) var(--ease-out);
+}
+
+.timeline-item:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md);
+}
+
+.timeline-item h3 {
+  font-family: var(--font-body);
+  font-size: var(--text-md);
+  font-weight: 600;
+  margin: 0 0 var(--space-sm);
+  color: var(--text-primary);
+}
+
+.timeline-item .instructor {
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-sm);
+}
+
+.timeline-item .description {
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  line-height: var(--leading-normal);
+}
+
+@media (max-width: 980px) {
+  .library-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 768px) {
+  .library-grid { grid-template-columns: 1fr; }
+  .library-heading { font-size: var(--text-xl); }
+}

@@ -1,0 +1,28 @@
+/* ===== Gallery Grid — Responsive 3-column ===== */
+
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(3, var(--grid-column));
+  gap: var(--grid-gap);
+  padding: var(--space-xl) var(--grid-side-padding);
+  max-width: var(--container-width);
+  margin: 0 auto;
+  margin-top: var(--navbar-height);
+}
+
+/* Tablet: 2 columns */
+@media (max-width: 980px) {
+  .gallery-grid {
+    grid-template-columns: repeat(2, 1fr);
+    padding: var(--space-xl) var(--space-lg);
+  }
+}
+
+/* Mobile: 1 column */
+@media (max-width: 768px) {
+  .gallery-grid {
+    grid-template-columns: 1fr;
+    max-width: 400px;
+    padding: var(--space-xl) var(--space-md);
+  }
+}

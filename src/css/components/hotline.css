@@ -1,0 +1,13 @@
+/* ===== 24-Hour Hotline — Delphi iframe embed ===== */
+
+.hotline-section {
+  margin-top: var(--navbar-height);
+  width: 100%;
+  height: calc(100vh - var(--navbar-height));
+}
+
+.hotline-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+}

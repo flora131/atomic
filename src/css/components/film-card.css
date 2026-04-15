@@ -1,0 +1,88 @@
+/*
+ * Film Section + Cards
+ *
+ * WHY: Film cards use full-bleed images (no padding-bottom aspect trick)
+ * because poster dimensions vary. The frosted glass title bar at the bottom
+ * (--bg-elevated + glass-light) lets the poster art bleed to the edge while
+ * keeping text readable — a direct nod to Big Sur's translucent sidebars.
+ */
+
+.film-section {
+  padding: var(--space-2xl) var(--grid-side-padding);
+  margin-top: var(--navbar-height);
+}
+
+.film-intro {
+  font-family: var(--font-body);
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  max-width: 720px;
+  margin: 0 auto var(--space-xl);
+  text-align: center;
+  line-height: var(--leading-normal);
+}
+
+.film-intro strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.film-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--grid-gap);
+  max-width: var(--container-width);
+  margin: 0 auto;
+  padding: 0 var(--grid-side-padding);
+}
+
+.film-card {
+  display: block;
+  text-decoration: none;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-md);
+  transition: transform 0.4s var(--ease-out),
+              box-shadow 0.4s var(--ease-out);
+}
+
+.film-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lg);
+}
+
+.film-card-image {
+  position: relative;
+  overflow: hidden;
+}
+
+.film-card-image img {
+  width: 100%;
+  height: auto;
+  display: block;
+  transition: transform var(--duration-slow) var(--ease-out);
+}
+
+.film-card:hover .film-card-image img {
+  transform: scale(1.03);
+}
+
+.film-card-title {
+  font-family: var(--font-body);
+  font-size: var(--text-md);
+  font-weight: 500;
+  color: var(--text-primary);
+  padding: var(--space-md);
+  margin: 0;
+  background: var(--bg-elevated);
+  backdrop-filter: var(--glass-light);
+  -webkit-backdrop-filter: var(--glass-light);
+}
+
+@media (max-width: 980px) {
+  .film-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 768px) {
+  .film-grid { grid-template-columns: 1fr; }
+}

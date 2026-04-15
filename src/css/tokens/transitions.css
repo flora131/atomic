@@ -1,0 +1,13 @@
+/*
+ * Transition Tokens
+ *
+ * WHY: The custom ease-out curve (0.25, 0.46, 0.45, 0.94) decelerates gently,
+ * giving hover lifts and card transforms a natural, physical feel — elements
+ * "settle" into position like objects coming to rest, not snapping mechanically.
+ */
+:root {
+  --ease-out: cubic-bezier(0.25, 0.46, 0.45, 0.94); /* gentle deceleration */
+  --duration-fast: 0.2s;   /* instant feedback: button press, link hover */
+  --duration-normal: 0.35s; /* card lifts, shadow transitions */
+  --duration-slow: 0.6s;   /* Ken Burns zoom on artwork images */
+}

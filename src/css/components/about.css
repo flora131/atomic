@@ -1,0 +1,108 @@
+/*
+ * About Section — Photo + Bio + Social Links
+ *
+ * WHY: The bio text sits inside a frosted glass card (--bg-elevated + glass-light)
+ * to create a "floating panel" effect over the warm background. Social links
+ * use individual frosted glass buttons with hover lift, consistent with the
+ * card interaction pattern used throughout the site.
+ */
+
+.about-section {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: var(--space-2xl) var(--grid-side-padding);
+  margin-top: var(--navbar-height);
+}
+
+/* REAL PROFILE PHOTO */
+.about-image {
+  width: 100%;
+  max-width: 736px;
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  object-fit: cover;
+  display: block;
+  margin-bottom: var(--space-xl);
+}
+
+.about-text {
+  background: var(--bg-elevated);
+  backdrop-filter: var(--glass-light);
+  -webkit-backdrop-filter: var(--glass-light);
+  border-radius: var(--radius-lg);
+  padding: var(--space-xl);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+
+.about-text p {
+  font-family: var(--font-body);
+  font-size: var(--text-md);
+  line-height: var(--leading-normal);
+  color: var(--text-primary);
+  margin: 0 0 var(--space-md);
+}
+
+.about-text p:last-child {
+  margin-bottom: 0;
+}
+
+.about-text a {
+  color: var(--text-link);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.about-text a:hover {
+  color: var(--ocean-mid);
+}
+
+/* Social Links Grid */
+.social-links {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-md);
+  margin-top: var(--space-xl);
+}
+
+.social-link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  min-height: 44px;
+  border-radius: var(--radius-lg);
+  text-decoration: none;
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  color: var(--ocean-deep);
+
+  /* FROSTED GLASS */
+  background: var(--bg-elevated);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+
+  transition: all var(--duration-normal) var(--ease-out);
+}
+
+.social-link:hover {
+  background: var(--ocean-foam);
+  border-color: var(--ocean-mist);
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md);
+}
+
+.social-link:active {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.social-link i {
+  font-size: 18px;
+  width: 24px;
+  text-align: center;
+}
+
+@media (max-width: 768px) {
+  .social-links { grid-template-columns: repeat(2, 1fr); }
+}

@@ -1,0 +1,16 @@
+/* ===== Spacing Tokens ===== */
+:root {
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+
+  /* Layout */
+  --container-width: 1200px;
+  --navbar-height: 64px;
+  --grid-gap: 24px;
+  --grid-column: 376px;
+  --grid-side-padding: 48px;
+}

@@ -1,0 +1,62 @@
+/*
+ * Color Tokens — Big Sur Art Theme
+ *
+ * WHY: The palette draws from Big Sur's coastal landscape — ocean blues for
+ * interactive elements, warm sand/cliff tones for grounding, and translucent
+ * whites for the frosted glass (vibrancy) effect that defines macOS Big Sur.
+ *
+ * HOW: Foundation colors use warm off-whites (not pure white) to feel organic.
+ * --bg-elevated uses rgba transparency so backdrop-filter can blur through it,
+ * creating the signature frosted glass surface. --bg-nav is slightly more
+ * opaque (0.72) to ensure navbar text stays readable over varied content.
+ */
+:root {
+  /* Foundation — warm off-whites avoid sterile feel, mimic gallery walls */
+  --bg-primary: #E8E5E3;
+  --bg-surface: #F8F6F3;
+  --bg-elevated: rgba(255, 255, 255, 0.55); /* translucent for glass effect */
+  --bg-nav: rgba(248, 246, 244, 0.72);      /* more opaque for readability */
+
+  /* Ocean Blues — 5-stop ramp from deep to foam, inspired by Big Sur coast */
+  --ocean-deep: #1B3A4B;
+  --ocean-mid: #3D6B8E;
+  --ocean-light: #6B9DBF;
+  --ocean-mist: #A8C8DC;
+  --ocean-foam: #D4E6F0;
+
+  /* Warm Earth — grounding tones from Big Sur cliffs and sand */
+  --sand-warm: #C4A882;
+  --sand-light: #DDD0BE;
+  --cliff-warm: #8B7355;
+
+  /* Text — near-black for body, mid-gray for secondary, deep ocean for links */
+  --text-primary: #2A2A2A;
+  --text-secondary: #5A5A5A;
+  --text-link: #1B3A4B;
+
+  /* Library Category Colors — intentionally desaturated to avoid overwhelming the content */
+  --cat-history: #D4845A;
+  --cat-science: #5A9DB8;
+  --cat-biology: #6BA88A;
+  --cat-story: #B87AA8;
+  --cat-architecture: #7B6BAD;
+  --cat-design: #C76B7B;
+  --cat-art: #C9A050;
+  --cat-tools: #6B6B6B;
+  --cat-film: #6B73AD;
+  --cat-typography: #5AADAD;
+  --cat-anatomy: #C7607B;
+  --cat-color: #5AAD6B;
+  --cat-dance: #AD7BAD;
+  --cat-music: #7BA8AD;
+  --cat-philosophy: #8B7B6B;
+  --cat-ai: #5A8BB8;
+  --cat-computer-science: #6B8BAD;
+  --cat-drawing: #AD8B5A;
+  --cat-game-design: #7BAD7B;
+  --cat-buckhouse: #AD6B5A;
+  --cat-jobs: #5A7BAD;
+
+  /* Background Gradient */
+  --gradient-sky: linear-gradient(180deg, #D4E6F0 0%, #E8E5E3 100%);
+}

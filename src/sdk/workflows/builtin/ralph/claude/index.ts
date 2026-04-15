@@ -98,19 +98,25 @@ export default defineWorkflow({
 
     for (let iteration = 1; iteration <= MAX_LOOPS; iteration++) {
       // ── Plan ────────────────────────────────────────────────────────────
-      const planner = await ctx.stage(
+      await ctx.stage(
         { name: `planner-${iteration}` },
-        { chatFlags: ["--agent", "planner", "--permission-mode", "dontAsk"] },
+        {
+          chatFlags: [
+            "--agent",
+            "planner",
+            "--allow-dangerously-skip-permissions",
+            "--dangerously-skip-permissions",
+          ],
+        },
         {},
         async (s) => {
-          const result = await s.session.query(
+          await s.session.query(
             buildPlannerPrompt(prompt, {
               iteration,
               debuggerReport: debuggerReport || undefined,
             }),
           );
           s.save(s.sessionId);
-          return extractAssistantText(result, 0);
         },
       );
 
@@ -121,17 +127,13 @@ export default defineWorkflow({
           chatFlags: [
             "--agent",
             "orchestrator",
-            "--permission-mode",
-            "dontAsk",
+            "--allow-dangerously-skip-permissions",
+            "--dangerously-skip-permissions",
           ],
         },
         {},
         async (s) => {
-          await s.session.query(
-            buildOrchestratorPrompt(prompt, {
-              plannerNotes: planner.result,
-            }),
-          );
+          await s.session.query(buildOrchestratorPrompt(prompt));
           s.save(s.sessionId);
         },
       );
@@ -148,7 +150,8 @@ export default defineWorkflow({
           async (s) => {
             const result = await s.session.query(discoveryPrompts.locator, {
               agent: "codebase-locator",
-              permissionMode: "dontAsk",
+              permissionMode: "bypassPermissions",
+              allowDangerouslySkipPermissions: true,
             });
             s.save(s.sessionId);
             return extractAssistantText(result, 0);
@@ -161,7 +164,8 @@ export default defineWorkflow({
           async (s) => {
             const result = await s.session.query(discoveryPrompts.analyzer, {
               agent: "codebase-analyzer",
-              permissionMode: "dontAsk",
+              permissionMode: "bypassPermissions",
+              allowDangerouslySkipPermissions: true,
             });
             s.save(s.sessionId);
             return extractAssistantText(result, 0);
@@ -176,7 +180,8 @@ export default defineWorkflow({
               discoveryPrompts.patternFinder,
               {
                 agent: "codebase-pattern-finder",
-                permissionMode: "dontAsk",
+                permissionMode: "bypassPermissions",
+                allowDangerouslySkipPermissions: true,
               },
             );
             s.save(s.sessionId);
@@ -226,7 +231,12 @@ export default defineWorkflow({
         const debugger_ = await ctx.stage(
           { name: `debugger-${iteration}` },
           {
-            chatFlags: ["--agent", "debugger", "--permission-mode", "dontAsk"],
+            chatFlags: [
+              "--agent",
+              "debugger",
+              "--allow-dangerously-skip-permissions",
+              "--dangerously-skip-permissions",
+            ],
           },
           {},
           async (s) => {

@@ -113,6 +113,7 @@ coveragePathIgnorePatterns = [
   "vendor/**",
   "generated/**",
   ".atomic/**",
+  "**/.atomic/**",
   ".claude/**",
   ".github/**",
   ".opencode/**",
@@ -124,5 +125,9 @@ coveragePathIgnorePatterns = [
   "research/**",
   "devcontainer-features/**",
   "docs/**",
+  # Static site assets (design-driven portfolio, not part of core app)
+  "src/css/**",
+  "src/js/**",
+  "preview/**",
 ]
 

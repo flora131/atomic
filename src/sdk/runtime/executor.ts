@@ -487,6 +487,125 @@ function resolveRef(ref: SessionRef): string {
   return typeof ref === "string" ? ref : ref.name;
 }
 
+/**
+ * Minimal Copilot session surface required by `wrapCopilotSend()`.
+ * Uses a generic `on` signature to remain compatible with both the real
+ * CopilotSession and lightweight test mocks.
+ */
+export interface CopilotSendSessionSurface {
+  on(eventType: string, handler: (event: { data?: unknown }) => void): () => void;
+}
+
+/**
+ * Wraps a Copilot session's `send()` to block until `session.idle` fires,
+ * while also detecting human-in-the-loop (HIL) states via
+ * `user_input.requested` / `user_input.completed` events.
+ *
+ * When `user_input.requested` fires, `onHIL(true)` is called and the idle
+ * resolution is deferred — a second `session.idle` following user input is
+ * skipped if HIL is still pending. Only when `session.idle` fires with no
+ * pending HIL does the wrapper resolve and clean up all listeners.
+ *
+ * Exported for unit testing.
+ */
+export function wrapCopilotSend<O, R>(
+  session: CopilotSendSessionSurface,
+  nativeSend: (options: O) => Promise<R>,
+  onHIL: (waiting: boolean) => void,
+): (options: O) => Promise<R> {
+  return async (options: O): Promise<R> => {
+    let hilPending = false;
+    const idle = new Promise<void>((resolve, reject) => {
+      let unsubIdle: (() => void) | undefined;
+      let unsubError: (() => void) | undefined;
+      let unsubHILRequested: (() => void) | undefined;
+      let unsubHILCompleted: (() => void) | undefined;
+      const cleanup = () => {
+        unsubIdle?.();
+        unsubError?.();
+        unsubHILRequested?.();
+        unsubHILCompleted?.();
+      };
+      const subscribeIdle = () => {
+        unsubIdle?.();
+        unsubIdle = session.on("session.idle", () => {
+          if (hilPending) {
+            subscribeIdle();
+            return;
+          }
+          cleanup();
+          resolve();
+        });
+      };
+      unsubHILRequested = session.on("user_input.requested", () => {
+        hilPending = true;
+        onHIL(true);
+      });
+      unsubHILCompleted = session.on("user_input.completed", () => {
+        hilPending = false;
+        onHIL(false);
+      });
+      unsubError = session.on("session.error", (event) => {
+        cleanup();
+        const data = event.data as { message?: string } | undefined;
+        reject(new Error(data?.message ?? "Copilot session error"));
+      });
+      subscribeIdle();
+    });
+    const result = await nativeSend(options);
+    await idle;
+    return result;
+  };
+}
+
+/**
+ * Minimal shape of an event as produced by the OpenCode v2 SDK event stream.
+ * Using a structural interface rather than the SDK's generated union type keeps
+ * this helper independently unit-testable with plain objects.
+ *
+ * `sessionID` is optional because many OpenCode event types (e.g.
+ * `file.edited`, `session.compacted`) carry properties without that field.
+ * The `watchOpencodeStreamForHIL` implementation guards with a runtime check.
+ */
+export interface OpenCodeHILEvent {
+  type: string;
+  properties: { sessionID?: string; [key: string]: unknown };
+}
+
+/**
+ * Consume an OpenCode SSE event stream and call `onHIL` whenever the session
+ * with `sessionId` enters or exits a human-in-the-loop (HIL) state:
+ *
+ *   - `question.asked`    → `onHIL(true)`   (agent awaiting user input)
+ *   - `question.replied`  → `onHIL(false)`  (user answered, agent resumes)
+ *   - `question.rejected` → `onHIL(false)`  (user dismissed, agent resumes)
+ *
+ * Events for other sessions are silently ignored.  The function returns when
+ * the stream is exhausted (i.e. the server closes the connection).
+ *
+ * Exported for unit testing.
+ */
+export async function watchOpencodeStreamForHIL(
+  stream: AsyncIterable<OpenCodeHILEvent>,
+  sessionId: string,
+  onHIL: (waiting: boolean) => void,
+): Promise<void> {
+  for await (const event of stream) {
+    if (
+      event.type === "question.asked" &&
+      event.properties.sessionID === sessionId
+    ) {
+      onHIL(true);
+    } else if (
+      (event.type === "question.replied" ||
+        event.type === "question.rejected") &&
+      event.properties.sessionID === sessionId
+    ) {
+      onHIL(false);
+    }
+  }
+}
+
 // ============================================================================
 // Shared transcript / message readers
 // ============================================================================
@@ -583,6 +702,7 @@ async function initProviderClientAndSession<A extends AgentType>(
   clientOpts: StageClientOptions<A>,
   sessionOpts: StageSessionOptions<A>,
   headless = false,
+  onHIL?: (waiting: boolean) => void,
 ): Promise<{
   client: ProviderClient<A>;
   session: ProviderSession<A>;
@@ -649,11 +769,7 @@ async function initProviderClientAndSession<A extends AgentType>(
       const claudeSessionOpts = sessionOpts as StageSessionOptions<"claude">;
       const client = new ClaudeClientWrapper(paneId, claudeClientOpts);
       await client.start();
-      const session = new ClaudeSessionWrapper(
-        paneId,
-        sessionId,
-        claudeSessionOpts,
-      );
+      const session = new ClaudeSessionWrapper(paneId, sessionId, claudeSessionOpts, onHIL);
       return { client, session } as Result;
     }
     default:
@@ -911,6 +1027,17 @@ function createSessionRunner(
       const transcriptFn = createTranscriptReader(shared.completedRegistry);
       const getMessagesFn = createMessagesReader(shared.completedRegistry);
 
+      // ── HIL (human-in-the-loop) callback ──
+      // Unified callback passed to provider-specific HIL detection so that any
+      // provider can signal when the agent is waiting for user input or has
+      // resumed processing. Both `name` and `shared.panel` are guaranteed to
+      // be in scope here: `name` is validated above and `shared.panel` is
+      // always present on the shared runner state.
+      const onHIL = (waiting: boolean) => {
+        if (waiting) shared.panel.sessionAwaitingInput(name);
+        else shared.panel.sessionResumed(name);
+      };
+
       // ── 12. Auto-create provider client and session ──
       const {
         client: providerClient,
@@ -924,6 +1051,7 @@ function createSessionRunner(
         clientOpts,
         sessionOpts,
         isHeadless,
+        onHIL,
       );
 
       // ── 12a. Copilot: wrap send() to await session.idle ──
@@ -941,32 +1069,27 @@ function createSessionRunner(
       if (shared.agent === "copilot") {
         const copilotSession = providerSession as ProviderSession<"copilot">;
         const nativeSend = copilotSession.send.bind(copilotSession);
-        copilotSession.send = async (options) => {
-          // Register listeners BEFORE sending to avoid a race where the
-          // agent finishes before the listener is attached. Listen for
-          // both idle (success) and error (failure) so we never hang if
-          // the session errors without reaching idle.
-          const idle = new Promise<void>((resolve, reject) => {
-            let unsubIdle: (() => void) | undefined;
-            let unsubError: (() => void) | undefined;
-            const cleanup = () => {
-              unsubIdle?.();
-              unsubError?.();
-            };
-            unsubIdle = copilotSession.on("session.idle", () => {
-              cleanup();
-              resolve();
-            });
-            unsubError = copilotSession.on("session.error", (event) => {
-              cleanup();
-              const data = event.data as { message?: string } | undefined;
-              reject(new Error(data?.message ?? "Copilot session error"));
-            });
-          });
-          const messageId = await nativeSend(options);
-          await idle;
-          return messageId;
-        };
+        copilotSession.send = wrapCopilotSend(copilotSession, nativeSend, onHIL);
+      }
+
+      // ── 12b. OpenCode: background SSE event subscription for HIL detection ──
+      // The OpenCode SDK exposes a server-sent events stream via `client.event.subscribe()`.
+      // We listen for `question.asked` (agent awaiting user input) and `question.replied` /
+      // `question.rejected` (user responded, agent resumes) events filtered to this session.
+      // The loop runs in the background — errors are swallowed so a stream disconnect never
+      // crashes the stage.
+      if (shared.agent === "opencode") {
+        const ocClient = providerClient as ProviderClient<"opencode">;
+        const ocSession = providerSession as ProviderSession<"opencode">;
+        const ocSessionId = ocSession.id;
+        (async () => {
+          const { stream } = await ocClient.event.subscribe();
+          await watchOpencodeStreamForHIL(stream, ocSessionId, onHIL);
+        })().catch((err) => {
+          console.warn(
+            `[opencode] HIL event stream disconnected for session ${ocSessionId}: ${errorMessage(err)}`,
+          );
+        });
       }
 
       // ── 13. Construct SessionContext ──

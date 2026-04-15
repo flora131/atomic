@@ -125,6 +125,75 @@ describe("NodeCard", () => {
     expect(frame).toContain("focused-node");
   });
 
+  test("awaiting_input node renders 'waiting for response' text", async () => {
+    const store = new PanelStore();
+    const node = makeLayoutNode({
+      name: "hil-node",
+      status: "awaiting_input",
+      startedAt: Date.now() - 5000,
+    });
+
+    testSetup = await testRender(
+      <TestProviders store={store}>
+        <NodeCard node={node} focused={false} pulsePhase={0} displayH={6} />
+      </TestProviders>,
+      { width: 60, height: 12 },
+    );
+    await testSetup.renderOnce();
+    const frame = testSetup.captureCharFrame();
+    expect(frame).toContain("hil-node");
+    expect(frame).toContain("waiting for response");
+  });
+
+  test("awaiting_input node renders '↵ enter to respond' hint", async () => {
+    const store = new PanelStore();
+    const node = makeLayoutNode({
+      name: "hil-node",
+      status: "awaiting_input",
+      startedAt: Date.now() - 5000,
+    });
+
+    testSetup = await testRender(
+      <TestProviders store={store}>
+        <NodeCard node={node} focused={false} pulsePhase={0} displayH={6} />
+      </TestProviders>,
+      { width: 60, height: 12 },
+    );
+    await testSetup.renderOnce();
+    const frame = testSetup.captureCharFrame();
+    expect(frame).toContain("enter to respond");
+  });
+
+  test("awaiting_input node at different pulse phases renders without error", async () => {
+    const store = new PanelStore();
+    const node = makeLayoutNode({
+      name: "hil-pulse",
+      status: "awaiting_input",
+      startedAt: Date.now(),
+    });
+
+    // Phase 0
+    testSetup = await testRender(
+      <TestProviders store={store}>
+        <NodeCard node={node} focused={false} pulsePhase={0} displayH={6} />
+      </TestProviders>,
+      { width: 60, height: 12 },
+    );
+    await testSetup.renderOnce();
+    expect(testSetup.captureCharFrame()).toContain("hil-pulse");
+    testSetup.renderer.destroy();
+
+    // Phase 16 (half cycle)
+    testSetup = await testRender(
+      <TestProviders store={store}>
+        <NodeCard node={node} focused={true} pulsePhase={16} displayH={6} />
+      </TestProviders>,
+      { width: 60, height: 12 },
+    );
+    await testSetup.renderOnce();
+    expect(testSetup.captureCharFrame()).toContain("hil-pulse");
+  });
+
   test("running node at different pulse phases renders without error", async () => {
     const store = new PanelStore();
     const node = makeLayoutNode({ name: "pulse-test", status: "running", startedAt: Date.now() });

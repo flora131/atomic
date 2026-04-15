@@ -715,6 +715,94 @@ describe("PanelStore", () => {
     });
   });
 
+  // ── awaitingInput ──────────────────────────────────────────────────────────
+
+  describe("awaitingInput", () => {
+    beforeEach(() => {
+      store.setWorkflowInfo("wf", "claude", [{ name: "worker", parents: [] }], "prompt");
+      store.startSession("worker");
+    });
+
+    test("changes status to awaiting_input when session is running", () => {
+      store.awaitingInput("worker");
+      const s = store.sessions.find((s) => s.name === "worker")!;
+      expect(s.status).toBe("awaiting_input");
+    });
+
+    test("bumps version by exactly 1", () => {
+      const before = store.version;
+      store.awaitingInput("worker");
+      expect(store.version).toBe(before + 1);
+    });
+
+    test("notifies subscribed listeners", () => {
+      const listener = mock(() => {});
+      store.subscribe(listener);
+      store.awaitingInput("worker");
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    test("does not change status when session is not running (pending)", () => {
+      store.setWorkflowInfo("wf2", "claude", [{ name: "idle", parents: [] }], "prompt");
+      const before = store.version;
+      store.awaitingInput("idle");
+      const s = store.sessions.find((s) => s.name === "idle")!;
+      expect(s.status).toBe("pending");
+      expect(store.version).toBe(before);
+    });
+
+    test("does not emit when session not found", () => {
+      const before = store.version;
+      store.awaitingInput("nonexistent");
+      expect(store.version).toBe(before);
+    });
+  });
+
+  // ── resumeSession ──────────────────────────────────────────────────────────
+
+  describe("resumeSession", () => {
+    beforeEach(() => {
+      store.setWorkflowInfo("wf", "claude", [{ name: "worker", parents: [] }], "prompt");
+      store.startSession("worker");
+      store.awaitingInput("worker");
+    });
+
+    test("changes status back to running when session is awaiting_input", () => {
+      store.resumeSession("worker");
+      const s = store.sessions.find((s) => s.name === "worker")!;
+      expect(s.status).toBe("running");
+    });
+
+    test("bumps version by exactly 1", () => {
+      const before = store.version;
+      store.resumeSession("worker");
+      expect(store.version).toBe(before + 1);
+    });
+
+    test("notifies subscribed listeners", () => {
+      const listener = mock(() => {});
+      store.subscribe(listener);
+      store.resumeSession("worker");
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    test("does not change status when session is not awaiting_input (running)", () => {
+      store.setWorkflowInfo("wf2", "claude", [{ name: "active", parents: [] }], "prompt");
+      store.startSession("active");
+      const before = store.version;
+      store.resumeSession("active");
+      const s = store.sessions.find((s) => s.name === "active")!;
+      expect(s.status).toBe("running");
+      expect(store.version).toBe(before);
+    });
+
+    test("does not emit when session not found", () => {
+      const before = store.version;
+      store.resumeSession("nonexistent");
+      expect(store.version).toBe(before);
+    });
+  });
+
   // ── setViewMode ────────────────────────────────────────────────────────────
 
   describe("setViewMode", () => {

@@ -63,7 +63,7 @@ export default defineWorkflow({
         async (s) => {
           const result = await s.client.session.prompt({
             sessionID: s.session.id,
-            parts: [{ type: "text", text: buildWorkerAPrompt() }],
+            parts: [{ type: "text", text: buildWorkerAPrompt("question") }],
           });
           s.save(result.data!);
           return extractResponseText(result.data!.parts);
@@ -76,7 +76,7 @@ export default defineWorkflow({
         async (s) => {
           const result = await s.client.session.prompt({
             sessionID: s.session.id,
-            parts: [{ type: "text", text: buildWorkerBPrompt() }],
+            parts: [{ type: "text", text: buildWorkerBPrompt("question") }],
           });
           s.save(result.data!);
           return extractResponseText(result.data!.parts);
@@ -92,7 +92,7 @@ export default defineWorkflow({
       async (s) => {
         const result = await s.client.session.prompt({
           sessionID: s.session.id,
-          parts: [{ type: "text", text: buildSummarizerPrompt() }],
+          parts: [{ type: "text", text: buildSummarizerPrompt("question") }],
         });
         s.save(result.data!);
         return extractResponseText(result.data!.parts);

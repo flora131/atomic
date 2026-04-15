@@ -62,7 +62,7 @@ export default defineWorkflow({
         {},
         {},
         async (s) => {
-          await s.session.send({ prompt: buildWorkerAPrompt() });
+          await s.session.send({ prompt: buildWorkerAPrompt("ask_user") });
           const messages = await s.session.getMessages();
           s.save(messages);
           return getAssistantText(messages);
@@ -73,7 +73,7 @@ export default defineWorkflow({
         {},
         {},
         async (s) => {
-          await s.session.send({ prompt: buildWorkerBPrompt() });
+          await s.session.send({ prompt: buildWorkerBPrompt("ask_user") });
           const messages = await s.session.getMessages();
           s.save(messages);
           return getAssistantText(messages);
@@ -87,7 +87,7 @@ export default defineWorkflow({
       {},
       {},
       async (s) => {
-        await s.session.send({ prompt: buildSummarizerPrompt() });
+        await s.session.send({ prompt: buildSummarizerPrompt("ask_user") });
         const messages = await s.session.getMessages();
         s.save(messages);
         return getAssistantText(messages);

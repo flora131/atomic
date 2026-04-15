@@ -48,7 +48,7 @@ export default defineWorkflow({
         {},
         {},
         async (s) => {
-          const result = await s.session.query(buildWorkerAPrompt());
+          const result = await s.session.query(buildWorkerAPrompt("AskUserQuestion"));
           s.save(s.sessionId);
           return extractAssistantText(result, 0);
         },
@@ -58,7 +58,7 @@ export default defineWorkflow({
         {},
         {},
         async (s) => {
-          const result = await s.session.query(buildWorkerBPrompt());
+          const result = await s.session.query(buildWorkerBPrompt("AskUserQuestion"));
           s.save(s.sessionId);
           return extractAssistantText(result, 0);
         },
@@ -71,7 +71,7 @@ export default defineWorkflow({
       {},
       {},
       async (s) => {
-        const result = await s.session.query(buildSummarizerPrompt());
+        const result = await s.session.query(buildSummarizerPrompt("AskUserQuestion"));
         s.save(s.sessionId);
         return extractAssistantText(result, 0);
       },

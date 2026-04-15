@@ -1133,24 +1133,29 @@ function createSessionRunner(
         }
       }
 
-      // ── 12b. OpenCode: background SSE event subscription for HIL detection ──
-      // The OpenCode SDK exposes a server-sent events stream via `client.event.subscribe()`.
-      // We listen for `question.asked` (agent awaiting user input) and `question.replied` /
-      // `question.rejected` (user responded, agent resumes) events filtered to this session.
-      // The loop runs in the background — errors are swallowed so a stream disconnect never
-      // crashes the stage.
+      // ── 12b. OpenCode: SSE event stream for HIL detection ──
+      //
+      // `client.event.subscribe()` yields `question.asked`, `question.replied`,
+      // and `question.rejected` events in real time.  The subscription is
+      // **awaited** before the stage callback runs so the stream is guaranteed
+      // to be open when the first prompt fires.
       if (shared.agent === "opencode") {
         const ocClient = providerClient as ProviderClient<"opencode">;
         const ocSession = providerSession as ProviderSession<"opencode">;
         const ocSessionId = ocSession.id;
-        (async () => {
+
+        try {
           const { stream } = await ocClient.event.subscribe();
-          await watchOpencodeStreamForHIL(stream, ocSessionId, onHIL);
-        })().catch((err) => {
+          watchOpencodeStreamForHIL(stream, ocSessionId, onHIL).catch((err) => {
+            console.warn(
+              `[opencode] HIL event stream disconnected for session ${ocSessionId}: ${errorMessage(err)}`,
+            );
+          });
+        } catch (err) {
           console.warn(
-            `[opencode] HIL event stream disconnected for session ${ocSessionId}: ${errorMessage(err)}`,
+            `[opencode] HIL event stream failed to subscribe for session ${ocSessionId}: ${errorMessage(err)}`,
           );
-        });
+        }
       }
 
       // ── 13. Construct SessionContext ──

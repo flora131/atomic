@@ -4,6 +4,12 @@
  * Every prompt constrains the agent to write ONLY inside `/tmp/hil-test/`
  * and explicitly asks a user question so we can observe the
  * running → awaiting_input → running → complete status transitions.
+ *
+ * Each builder accepts an optional `questionTool` parameter — the name of
+ * the agent-specific tool that must be used to ask the user a question
+ * (e.g. `"question"` for OpenCode, `"AskUserQuestion"` for Claude,
+ * `"ask_user"` for Copilot).  When provided the prompt explicitly tells
+ * the model to invoke that tool rather than printing the question as text.
  */
 
 const SANDBOX_RULE = `
@@ -12,6 +18,12 @@ CRITICAL RULES:
 - Do NOT modify any files in the current working directory or repository.
 - Create /tmp/hil-test/ if it does not already exist.
 `.trim();
+
+/** Build a tool-use instruction for the question step. */
+function questionInstruction(questionTool?: string): string {
+  if (!questionTool) return "";
+  return `\n   You MUST use the \`${questionTool}\` tool to ask the question. Do NOT just print it as text.`;
+}
 
 export function buildSetupPrompt(): string {
   return `
@@ -31,7 +43,7 @@ That's it. Do NOT do anything else.
 `.trim();
 }
 
-export function buildWorkerAPrompt(): string {
+export function buildWorkerAPrompt(questionTool?: string): string {
   return `
 You are Worker A in a test workflow.
 
@@ -44,7 +56,7 @@ Do the following steps IN ORDER — do not skip any step:
    - The current date and time
 
 2. IMPORTANT: Now you MUST ask the user a question. Ask them:
-   "Worker A checking in — what color theme should this project use? (e.g. dark, light, solarized)"
+   "Worker A checking in — what color theme should this project use? (e.g. dark, light, solarized)"${questionInstruction(questionTool)}
    Wait for their response before continuing.
 
 3. After the user responds, write a file /tmp/hil-test/worker-a-done.txt containing:
@@ -56,7 +68,7 @@ That's it. Do NOT do anything else.
 `.trim();
 }
 
-export function buildWorkerBPrompt(): string {
+export function buildWorkerBPrompt(questionTool?: string): string {
   return `
 You are Worker B in a test workflow.
 
@@ -69,7 +81,7 @@ Do the following steps IN ORDER — do not skip any step:
    - The current date and time
 
 2. IMPORTANT: Now you MUST ask the user a question. Ask them:
-   "Worker B here — what name should we give to the test project? (e.g. Phoenix, Atlas, Nova)"
+   "Worker B here — what name should we give to the test project? (e.g. Phoenix, Atlas, Nova)"${questionInstruction(questionTool)}
    Wait for their response before continuing.
 
 3. After the user responds, write a file /tmp/hil-test/worker-b-done.txt containing:
@@ -81,7 +93,7 @@ That's it. Do NOT do anything else.
 `.trim();
 }
 
-export function buildSummarizerPrompt(): string {
+export function buildSummarizerPrompt(questionTool?: string): string {
   return `
 You are the Summarizer — the final stage of a test workflow.
 
@@ -92,7 +104,7 @@ Do the following steps IN ORDER — do not skip any step:
 1. Read ALL files in /tmp/hil-test/ to see what the previous stages produced.
 
 2. IMPORTANT: Now you MUST ask the user a question. Ask them:
-   "I've reviewed all outputs from the previous stages. Any final notes to include in the summary?"
+   "I've reviewed all outputs from the previous stages. Any final notes to include in the summary?"${questionInstruction(questionTool)}
    Wait for their response before continuing.
 
 3. After the user responds, write a file /tmp/hil-test/summary.txt containing:

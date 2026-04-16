@@ -54,6 +54,11 @@ export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
         destination: ".claude/settings.json",
         merge: true,
       },
+      {
+        source: ".claude/settings.json",
+        destination: "~/.claude/settings.json",
+        merge: true,
+      },
     ],
   },
   opencode: {

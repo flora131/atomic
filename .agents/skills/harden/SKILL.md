@@ -1,6 +1,7 @@
 ---
 name: harden
-description: Improve interface resilience through better error handling, i18n support, text overflow handling, and edge case management. Makes interfaces robust and production-ready. Use when the user asks to harden, make production-ready, handle edge cases, add error states, or fix overflow and i18n issues.
+description: "Make interfaces production-ready: error handling, empty states, onboarding flows, i18n, text overflow, and edge case management. Use when the user asks to harden, make production-ready, handle edge cases, add error states, design empty states, improve onboarding, or fix overflow and i18n issues."
+version: 2.1.1
 user-invocable: true
 argument-hint: "[target]"
 ---
@@ -223,6 +224,40 @@ t('items', { count }) // Handles complex plural rules
 - Fallbacks for unsupported CSS
 - Feature detection (not browser detection)
 - Test in target browsers
+
+### Onboarding & First-Run Experience
+
+Production-ready features work for first-time users, not just power users. Design the paths that get new users to value:
+
+**Empty states**: Every zero-data screen needs:
+- What will appear here (description or illustration)
+- Why it matters to the user
+- Clear CTA to create the first item or start from a template
+- Visual interest (not just blank space with "No items yet")
+
+Empty state types to handle:
+- **First use**: emphasize value, provide templates
+- **User cleared**: light touch, easy to recreate
+- **No results**: suggest a different query, offer to clear filters
+- **No permissions**: explain why, how to get access
+
+**First-run experience**: Get users to their "aha moment" as quickly as possible.
+- Show, don't tell -- working examples over descriptions
+- Progressive disclosure -- teach one thing at a time, not everything upfront
+- Make onboarding optional -- let experienced users skip
+- Provide smart defaults so required setup is minimal
+
+**Feature discovery**: Teach features when users need them, not upfront.
+- Contextual tooltips at point of use (brief, dismissable, one-time)
+- Badges or indicators on new or unused features
+- Celebrate activation events quietly (a toast, not a modal)
+
+**NEVER**:
+- Force long onboarding before users can touch the product
+- Show the same tooltip repeatedly (track and respect dismissals)
+- Block the entire UI during a guided tour
+- Create separate tutorial modes disconnected from the real product
+- Design empty states that just say "No items" with no next action
 
 ### Input Validation & Sanitization
 

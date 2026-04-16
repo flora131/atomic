@@ -179,7 +179,7 @@ Note: Remember that npm publishing with provenance does NOT require a token. Tha
    - typescript-expert
    - typescript-react-reviewer
    - opentui
-   - frontend-design
+   - impeccable
    - test-driven-development
 3. Ask for clarity if you unsure about a change. The developer is your best friend and oftentimes can clarify intent.
 

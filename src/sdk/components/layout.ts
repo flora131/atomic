@@ -152,7 +152,8 @@ export function computeLayout(sessions: SessionData[]): LayoutResult {
 
   const rowH: Record<number, number> = {};
   for (const n of Object.values(map)) {
-    rowH[n.depth] = Math.max(rowH[n.depth] ?? 0, NODE_H);
+    const nodeHeight = n.status === "awaiting_input" ? 6 : NODE_H;
+    rowH[n.depth] = Math.max(rowH[n.depth] ?? 0, nodeHeight);
   }
 
   function yAt(d: number): number {

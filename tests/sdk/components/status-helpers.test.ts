@@ -39,6 +39,10 @@ describe("statusColor", () => {
     expect(statusColor("error", mockTheme)).toBe(mockTheme.error);
   });
 
+  test("returns info color for awaiting_input", () => {
+    expect(statusColor("awaiting_input", mockTheme)).toBe(mockTheme.info);
+  });
+
   test("returns textDim for unknown status", () => {
     expect(statusColor("unknown", mockTheme)).toBe(mockTheme.textDim);
   });
@@ -61,6 +65,10 @@ describe("statusLabel", () => {
     expect(statusLabel("error")).toBe("failed");
   });
 
+  test("returns 'input needed' for awaiting_input", () => {
+    expect(statusLabel("awaiting_input")).toBe("input needed");
+  });
+
   test("returns raw status for unknown status", () => {
     expect(statusLabel("custom")).toBe("custom");
   });
@@ -81,6 +89,10 @@ describe("statusIcon", () => {
 
   test("returns X for error", () => {
     expect(statusIcon("error")).toBe("✗");
+  });
+
+  test("returns '?' for awaiting_input", () => {
+    expect(statusIcon("awaiting_input")).toBe("?");
   });
 
   test("returns empty circle for unknown status", () => {

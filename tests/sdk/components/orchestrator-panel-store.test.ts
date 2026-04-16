@@ -216,4 +216,128 @@ describe("PanelStore", () => {
       expect(store.version).toBe(before + 1);
     });
   });
+
+  describe("awaitingInput", () => {
+    beforeEach(() => {
+      store.setWorkflowInfo("wf", "claude", [{ name: "s1", parents: [] }], "p");
+    });
+
+    test("transitions session from running to awaiting_input", () => {
+      store.startSession("s1");
+      store.awaitingInput("s1");
+      const s = store.sessions.find((s) => s.name === "s1")!;
+      expect(s.status).toBe("awaiting_input");
+    });
+
+    test("emits and increments version when transitioning from running", () => {
+      store.startSession("s1");
+      const before = store.version;
+      let called = 0;
+      store.subscribe(() => { called++; });
+      store.awaitingInput("s1");
+      expect(store.version).toBe(before + 1);
+      expect(called).toBe(1);
+    });
+
+    test("does NOT transition session from pending status", () => {
+      // s1 is still in pending status (startSession not called)
+      store.awaitingInput("s1");
+      const s = store.sessions.find((s) => s.name === "s1")!;
+      expect(s.status).toBe("pending");
+    });
+
+    test("does NOT transition session from complete status", () => {
+      store.startSession("s1");
+      store.completeSession("s1");
+      store.awaitingInput("s1");
+      const s = store.sessions.find((s) => s.name === "s1")!;
+      expect(s.status).toBe("complete");
+    });
+
+    test("does NOT transition session from error status", () => {
+      store.startSession("s1");
+      store.failSession("s1", "boom");
+      store.awaitingInput("s1");
+      const s = store.sessions.find((s) => s.name === "s1")!;
+      expect(s.status).toBe("error");
+    });
+
+    test("does NOT emit when session not found", () => {
+      let called = 0;
+      store.subscribe(() => { called++; });
+      store.awaitingInput("nonexistent");
+      expect(called).toBe(0);
+    });
+
+    test("does NOT emit when session is not in running state", () => {
+      // pending — no transition
+      let called = 0;
+      store.subscribe(() => { called++; });
+      store.awaitingInput("s1");
+      expect(called).toBe(0);
+    });
+  });
+
+  describe("resumeSession", () => {
+    beforeEach(() => {
+      store.setWorkflowInfo("wf", "claude", [{ name: "s1", parents: [] }], "p");
+      store.startSession("s1");
+      store.awaitingInput("s1");
+    });
+
+    test("transitions session from awaiting_input back to running", () => {
+      store.resumeSession("s1");
+      const s = store.sessions.find((s) => s.name === "s1")!;
+      expect(s.status).toBe("running");
+    });
+
+    test("emits and increments version when transitioning from awaiting_input", () => {
+      const before = store.version;
+      let called = 0;
+      store.subscribe(() => { called++; });
+      store.resumeSession("s1");
+      expect(store.version).toBe(before + 1);
+      expect(called).toBe(1);
+    });
+
+    test("does NOT transition session from running status", () => {
+      // Put it back to running first, then call resumeSession
+      store.resumeSession("s1"); // awaiting_input → running
+      store.resumeSession("s1"); // running → should be a no-op
+      const s = store.sessions.find((s) => s.name === "s1")!;
+      expect(s.status).toBe("running");
+    });
+
+    test("does NOT transition session from pending status", () => {
+      store.setWorkflowInfo("wf", "claude", [{ name: "s2", parents: [] }], "p");
+      store.resumeSession("s2"); // s2 is pending
+      const s = store.sessions.find((s) => s.name === "s2")!;
+      expect(s.status).toBe("pending");
+    });
+
+    test("does NOT transition session from complete status", () => {
+      store.resumeSession("s1"); // back to running
+      store.completeSession("s1");
+      store.resumeSession("s1");
+      const s = store.sessions.find((s) => s.name === "s1")!;
+      expect(s.status).toBe("complete");
+    });
+
+    test("does NOT emit when session not found", () => {
+      let called = 0;
+      store.subscribe(() => { called++; });
+      store.resumeSession("nonexistent");
+      expect(called).toBe(0);
+    });
+
+    test("does NOT emit when session is not in awaiting_input state", () => {
+      // session is currently awaiting_input; resume it to get to running
+      store.resumeSession("s1"); // now running
+      // call resumeSession again — no-op since status is running
+      let called = 0;
+      store.subscribe(() => { called++; });
+      store.resumeSession("s1");
+      expect(called).toBe(0);
+    });
+  });
 });

@@ -21,6 +21,7 @@ export const NodeCard = React.memo(function NodeCard({
   const sc = statusColor(node.status, theme);
   const isPending = node.status === "pending";
   const isRunning = node.status === "running";
+  const isAwaitingInput = node.status === "awaiting_input";
 
   // Border: running nodes smoothly pulse, others show status color
   let borderCol: string;
@@ -29,6 +30,11 @@ export const NodeCard = React.memo(function NodeCard({
     borderCol = focused
       ? lerpColor(theme.warning, "#ffffff", 0.2)
       : lerpColor(theme.border, theme.warning, t);
+  } else if (isAwaitingInput) {
+    const t = (Math.sin((pulsePhase / 32) * Math.PI * 2 - Math.PI / 2) + 1) / 2;
+    borderCol = focused
+      ? lerpColor(theme.info, "#ffffff", 0.2)
+      : lerpColor(theme.border, theme.info, t);
   } else if (isPending) {
     borderCol = focused ? sc : theme.borderActive;
   } else {
@@ -64,6 +70,16 @@ export const NodeCard = React.memo(function NodeCard({
       <box alignItems="center">
         <text fg={durCol}>{duration}</text>
       </box>
+      {isAwaitingInput && (
+        <>
+          <box alignItems="center">
+            <text fg={theme.info}>waiting for response</text>
+          </box>
+          <box alignItems="center">
+            <text fg={theme.textDim}>↵ enter to respond</text>
+          </box>
+        </>
+      )}
     </box>
   );
 });

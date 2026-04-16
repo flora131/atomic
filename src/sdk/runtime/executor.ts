@@ -33,7 +33,10 @@ import type {
   ProviderClient,
   ProviderSession,
 } from "../types.ts";
-import { isValidAgent, type ProviderOverrides } from "../../services/config/definitions.ts";
+import {
+  isValidAgent,
+  type ProviderOverrides,
+} from "../../services/config/definitions.ts";
 import { getProviderOverrides } from "../../services/config/atomic-config.ts";
 import { ensureDir } from "../../services/system/copy.ts";
 import type { SessionEvent } from "@github/copilot-sdk";
@@ -63,13 +66,7 @@ const AGENT_CLI: Record<
 > = {
   copilot: {
     cmd: "copilot",
-    chatFlags: [
-      "--add-dir",
-      ".",
-      "--yolo",
-      "--experimental",
-      "--no-auto-update",
-    ],
+    chatFlags: ["--add-dir", ".", "--yolo", "--experimental"],
     envVars: {
       COPILOT_ALLOW_ALL: "true",
     },
@@ -190,7 +187,11 @@ function buildPaneCommand(
   port: number,
   overrides: ProviderOverrides = {},
 ): { command: string; envVars: Record<string, string> } {
-  const { cmd, chatFlags: defaultFlags, envVars: defaultEnvVars } = AGENT_CLI[agent];
+  const {
+    cmd,
+    chatFlags: defaultFlags,
+    envVars: defaultEnvVars,
+  } = AGENT_CLI[agent];
   const chatFlags = overrides.chatFlags ?? defaultFlags;
   const envVars = overrides.envVars
     ? { ...defaultEnvVars, ...overrides.envVars }

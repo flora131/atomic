@@ -1,14 +1,8 @@
-/*
- * Border Radius Tokens
- *
- * WHY: Big Sur introduced generously rounded corners across the OS — window
- * chrome uses ~16px radius. We match that with --radius-lg for cards/modals,
- * creating visual harmony with the native OS aesthetic.
- */
 :root {
-  --radius-sm: 8px;       /* tags, badges */
-  --radius-md: 12px;      /* images within cards */
-  --radius-lg: 16px;      /* cards, modals — matches Big Sur window chrome */
-  --radius-xl: 20px;      /* hero images, profile photos */
-  --radius-pill: 9999px;  /* CTAs, filter buttons — fully rounded capsule */
+  --r-sm:    8px;     /* thumbnails inside cards */
+  --r-md:    16px;    /* cards */
+  --r-lg:    24px;    /* large panels, lightbox, profile photo */
+  --r-xl:    28px;    /* hero containers */
+  --r-pill:  9999px;  /* tags, category badges, social links */
+  --r-nav:   10px;    /* nav hover pills */
 }

@@ -1,152 +1,168 @@
-/*
- * Navbar — Frosted Glass Navigation
- *
- * WHY: The navbar uses backdrop-filter: blur(20px) + saturate(180%) to create
- * the signature Big Sur frosted glass effect. Content scrolls behind the navbar
- * and blurs through the translucent background, just like macOS window chrome.
- * The subtle white border-bottom enhances the glass edge illusion.
- */
-
+/* ── Navbar ───────────────────────────────────────────────────
+ * Fixed frosted-glass bar. Frosted glass is restricted to this
+ * component and the lightbox — not on every surface.
+ * ─────────────────────────────────────────────────────────── */
 .navbar {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
-  z-index: 1000;
-  height: var(--navbar-height);
+  height: var(--nav-height);
+  z-index: 100;
+  background: var(--surface-nav);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-bottom: 1px solid var(--border-nav);
+  box-shadow: var(--shadow-nav);
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: var(--space-lg);
-
-  /* Frosted glass: translucent bg + blur creates vibrancy material */
-  background: var(--bg-nav);
-  backdrop-filter: var(--glass-medium);
-  -webkit-backdrop-filter: var(--glass-medium);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.3); /* glass edge highlight */
-
-  font-family: var(--font-nav);
-  text-transform: uppercase;
-  font-size: var(--text-base);
+  padding: 0 var(--sp-xl);
 }
 
-.navbar-link {
-  color: var(--text-primary);
-  text-decoration: none;
+.navbar-inner {
+  width: 100%;
+  max-width: var(--container);
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* ── Nav links (left group) ──────────────────────────────── */
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-xs);
+  list-style: none;
+}
+
+.nav-link {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-xs);
-  padding: var(--space-sm) var(--space-md);
-  border-radius: var(--radius-sm);
-  transition: color var(--duration-fast) ease,
-              background-color var(--duration-fast) ease;
+  gap: 0.3em;
+  padding: 6px 10px;
+  border-radius: var(--r-nav);
+  font-family: var(--font-ui);
+  font-size: var(--text-nav);
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: background var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out);
 }
 
-.navbar-link:hover {
-  color: var(--ocean-deep);
-  background: rgba(27, 58, 75, 0.08);
+.nav-link:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text-primary);
 }
 
-.navbar-link.active {
-  color: var(--ocean-deep);
+.nav-link.active {
+  color: var(--text-primary);
   font-weight: 600;
 }
 
-.navbar-newsletter {
-  background-color: var(--ocean-deep);
-  color: #fff;
-  padding: var(--space-sm) var(--space-md);
-  border-radius: var(--radius-pill);
+/* ── Newsletter pill (right) ─────────────────────────────── */
+.nav-newsletter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  padding: 6px 14px;
+  border-radius: var(--r-nav);
+  background: var(--border-subtle);
+  font-family: var(--font-ui);
+  font-size: var(--text-nav);
   font-weight: 500;
+  color: var(--text-secondary);
   text-decoration: none;
-  box-shadow: var(--shadow-sm);
-  transition: background-color var(--duration-fast) ease,
-              transform var(--duration-fast) ease,
-              box-shadow var(--duration-fast) ease;
+  transition: background var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out);
 }
 
-.navbar-newsletter:hover {
-  background-color: var(--ocean-mid);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
+.nav-newsletter:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--text-primary);
 }
 
-.navbar-newsletter:active {
-  background-color: #153040;
-  transform: translateY(0);
-  box-shadow: var(--shadow-sm);
-}
-
-/* Mobile hamburger menu (<=768px) */
-.navbar-hamburger {
+/* ── Hamburger button (mobile only) ─────────────────────── */
+.nav-hamburger {
   display: none;
-  width: 44px;
-  height: 44px;
-  border: none;
-  background: none;
-  cursor: pointer;
-  padding: var(--space-sm);
-  position: absolute;
-  right: var(--space-md);
-  top: 50%;
-  transform: translateY(-50%);
   flex-direction: column;
   justify-content: center;
-  align-items: center;
   gap: 5px;
+  width: 32px;
+  height: 32px;
+  padding: 4px;
+  border-radius: var(--r-nav);
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
 }
 
-.navbar-hamburger span {
+.nav-hamburger:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.nav-hamburger-bar {
   display: block;
-  width: 22px;
+  width: 100%;
   height: 2px;
   background: var(--text-primary);
-  border-radius: 1px;
-  transition: transform var(--duration-fast) ease, opacity var(--duration-fast) ease;
+  border-radius: 2px;
+  transition: transform 200ms ease, opacity 200ms ease;
 }
 
-.navbar-hamburger.open span:nth-child(1) {
+/* Hamburger → X transform when open */
+.nav-hamburger[aria-expanded="true"] .nav-hamburger-bar:nth-child(1) {
   transform: translateY(7px) rotate(45deg);
 }
-
-.navbar-hamburger.open span:nth-child(2) {
+.nav-hamburger[aria-expanded="true"] .nav-hamburger-bar:nth-child(2) {
   opacity: 0;
 }
-
-.navbar-hamburger.open span:nth-child(3) {
+.nav-hamburger[aria-expanded="true"] .nav-hamburger-bar:nth-child(3) {
   transform: translateY(-7px) rotate(-45deg);
 }
 
+/* ── Mobile drawer ───────────────────────────────────────── */
+.nav-drawer {
+  display: none;
+  position: fixed;
+  top: var(--nav-height);
+  left: 0;
+  right: 0;
+  background: var(--surface-nav);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-bottom: 1px solid var(--border-nav);
+  box-shadow: var(--shadow-nav);
+  flex-direction: column;
+  padding: var(--sp-md) var(--sp-xl);
+  gap: var(--sp-xs);
+  z-index: 99;
+  /* TODO: slide-down animation */
+}
+
+.nav-drawer.open {
+  display: flex;
+}
+
+.nav-drawer .nav-link {
+  min-height: 48px;
+  font-size: var(--text-body);
+  padding: 12px 16px;
+}
+
+/* ── Responsive ──────────────────────────────────────────── */
 @media (max-width: 768px) {
-  .navbar {
-    justify-content: flex-start;
-    padding-left: var(--space-md);
-    flex-wrap: wrap;
-    height: auto;
-    min-height: var(--navbar-height);
-  }
-
-  .navbar-hamburger {
-    display: flex;
-  }
-
-  .navbar-link,
-  .navbar-newsletter {
+  .nav-links {
     display: none;
   }
 
-  .navbar.mobile-open .navbar-link,
-  .navbar.mobile-open .navbar-newsletter {
-    display: inline-flex;
-    width: 100%;
-    justify-content: center;
-    padding: var(--space-md);
+  .nav-newsletter {
+    display: none;
   }
 
-  .navbar.mobile-open {
-    background: var(--bg-nav);
-    backdrop-filter: var(--glass-medium);
-    -webkit-backdrop-filter: var(--glass-medium);
-    padding-bottom: var(--space-md);
+  .nav-hamburger {
+    display: flex;
   }
 }

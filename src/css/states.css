@@ -1,35 +1,65 @@
-/*
- * State Styles — Hover, focus, active, loading
- *
- * WHY: Focus ring uses ocean-light at 50% opacity — visible enough for
- * accessibility but harmonizes with the Big Sur color palette rather
- * than using browser-default blue outlines.
- */
-
-/* Global focus indicator — ocean-blue ring for a11y */
-:focus-visible {
-  outline: 2px solid rgba(107, 157, 191, 0.5);
-  outline-offset: 2px;
-}
-
-/* Loading shimmer for lazy images */
-@keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
-}
-
-.img-loading {
-  background: linear-gradient(90deg, #E8E5E3 25%, #F0EDEB 50%, #E8E5E3 75%);
+/* ── Loading skeleton ──────────────────────────────────────── */
+.loading .card-img,
+.loading .skeleton-line {
+  background: linear-gradient(
+    90deg,
+    #f0ece6 25%,
+    #e8e2da 50%,
+    #f0ece6 75%
+  );
   background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
+  animation: shimmer 1.4s ease infinite;
+  border-radius: var(--r-sm);
 }
 
-/* Fade in for loaded images */
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+.skeleton-line {
+  height: 1em;
+  width: 100%;
+  margin-bottom: var(--sp-sm);
 }
 
-.img-loaded {
-  animation: fadeIn 0.3s ease-out;
+.skeleton-line.short {
+  width: 60%;
+}
+
+/* ── Focus styles ──────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 3px;
+}
+
+/* ── Active nav link ───────────────────────────────────────── */
+.nav-link.active {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* ── Active filter pill ────────────────────────────────────── */
+.filter-btn[aria-pressed="true"] {
+  background: var(--surface-card);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-badge);
+  border: 1px solid var(--border-card);
+}
+
+/* ── Hover spring on cards ─────────────────────────────────── */
+.artwork-card:hover,
+.film-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-hover);
+}
+
+/* ── Library card mild hover ───────────────────────────────── */
+.library-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-hover);
+}
+
+/* ── Hover — pause breathing ────────────────────────────────── */
+/* Pausing the subtle scale animation on hover prevents it from fighting the
+ * hover lift transform, which would produce a jittery combined transform.
+ * The card "holds still" while the user decides whether to click. */
+.artwork-card:hover .breathing,
+.film-card:hover .breathing-film {
+  animation-play-state: paused;
 }

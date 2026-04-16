@@ -1,69 +1,31 @@
 /**
- * Application entry point.
- * Imports all modules and wires the SPA together.
+ * main.js — entry point.
+ * Initializes all modules after the DOM is ready.
+ * Order matters: router must be initialized before section modules.
  */
-import { artworks } from './data/artworks.js';
-import { films } from './data/films.js';
-import { libraryItems } from './data/library-items.js';
-import { createNavbar } from './Navbar.js';
-import { createGalleryGrid } from './GalleryGrid.js';
-import { createHotlineEmbed } from './HotlineEmbed.js';
-import { createLibrarySection } from './LibrarySection.js';
-import { createFilmSection } from './FilmSection.js';
-import { createAboutSection } from './AboutSection.js';
-import { createFooter } from './Footer.js';
-import { initRouter, navigate } from './router.js';
 
-/** All unique library filter categories derived from item data */
-const ALL_CATEGORIES = [
-  'AI', 'Anatomy', 'Architecture', 'Art', 'Biology', 'Buckhouse',
-  'Color', 'Computer Science', 'Dance', 'Design', 'Drawing', 'Film',
-  'Game Design', 'History', 'Jobs', 'Music', 'Philosophy', 'Science',
-  'Story', 'Tools', 'Typography',
-];
+import { initRouter } from "./router.js";
+import { initNavbar } from "./Navbar.js";
+import { initGalleryGrid } from "./GalleryGrid.js";
+import { initLightbox } from "./Lightbox.js";
+import { initFilmSection } from "./FilmSection.js";
+import { initLibrarySection } from "./LibrarySection.js";
+import { initAboutSection } from "./AboutSection.js";
+import { initHotlineEmbed } from "./HotlineEmbed.js";
 
-// TODO: Implement full app initialization with DOM mounting and route transitions
-export function initApp() {
-  const app = document.getElementById('app') || document.body;
+document.addEventListener("DOMContentLoaded", () => {
+  // Foundation
+  initRouter();
+  initNavbar();
+  initLightbox();
 
-  const navbar = createNavbar();
-  app.appendChild(navbar);
+  // Section content
+  initGalleryGrid();
+  initFilmSection();
+  initLibrarySection();
+  initAboutSection();
+  initHotlineEmbed();
 
-  const main = document.createElement('main');
-  main.id = 'main-content';
-  app.appendChild(main);
-
-  const footer = createFooter();
-  app.appendChild(footer);
-
-  initRouter({
-    '#/': () => {
-      main.innerHTML = '';
-      main.appendChild(createGalleryGrid(artworks));
-    },
-    '#/design': () => {
-      main.innerHTML = '';
-      main.appendChild(createHotlineEmbed());
-    },
-    '#/library': () => {
-      main.innerHTML = '';
-      main.appendChild(createLibrarySection(libraryItems, ALL_CATEGORIES));
-    },
-    '#/film': () => {
-      main.innerHTML = '';
-      main.appendChild(createFilmSection(films));
-    },
-    '#/about': () => {
-      main.innerHTML = '';
-      main.appendChild(createAboutSection());
-    },
-    '#/art/*': () => {
-      // TODO: Implement individual artwork detail view
-      main.innerHTML = '';
-    },
-  });
-}
-
-export { artworks, films, libraryItems, navigate };
-
-export default initApp;
+  // TODO: initParallax() — requestAnimationFrame loop for scroll parallax at 0.4× rate
+  // TODO: initBackdropFilterObserver() — add/remove backdrop-filter class as cards enter viewport
+});

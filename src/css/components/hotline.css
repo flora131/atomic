@@ -1,13 +1,60 @@
-/* ===== 24-Hour Hotline — Delphi iframe embed ===== */
-
-.hotline-section {
-  margin-top: var(--navbar-height);
-  width: 100%;
-  height: calc(100vh - var(--navbar-height));
+/* ── 24-Hour Hotline section ───────────────────────────────── */
+.hotline-container {
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  background: var(--surface-card);
+  box-shadow: var(--shadow-card);
+  margin-top: var(--sp-2xl);
+  position: relative;
 }
 
-.hotline-iframe {
+/* Delphi page-embed mount — iframe is injected by embed.delphi.ai/bundle.js.
+   Delphi sets inline width/height from window.delphi.page.container; we keep
+   the wrapper styling (radius, shadow) and let the injected iframe fill it. */
+.hotline-delphi {
+  display: block;
+  width: 100%;
+  min-height: 600px;
+}
+
+.hotline-delphi iframe {
+  display: block;
   width: 100%;
   height: 100%;
-  border: none;
+  border: 0;
+}
+
+/* Loader anchor — never visible, just a DOM marker for the Delphi loader. */
+#delphi-page-script {
+  display: none;
+}
+
+/* Failure fallback — shown when the Delphi loader fails or is blocked. */
+.hotline-fallback {
+  display: none;
+  padding: var(--sp-3xl) var(--sp-xl);
+  text-align: center;
+  font-family: var(--font-ui);
+  color: var(--text-secondary);
+}
+
+.hotline-fallback.visible {
+  display: block;
+}
+
+.hotline-fallback a {
+  color: var(--accent-gold);
+}
+
+/* ── Mobile — full-bleed ─────────────────────────────────── */
+@media (max-width: 768px) {
+  .hotline-container {
+    border-radius: 0;
+    margin-left: calc(-1 * var(--sp-xl));
+    margin-right: calc(-1 * var(--sp-xl));
+  }
+
+  .hotline-delphi {
+    min-height: 80vh;
+  }
 }

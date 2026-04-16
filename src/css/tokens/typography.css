@@ -1,28 +1,37 @@
 /*
- * Typography Tokens
- *
- * WHY: Three font families create clear hierarchy — FinancierDisplay (serif)
- * for editorial headings gives an art-gallery feel, Unica77 (sans) for body
- * text provides Swiss-style readability, and Pitch Sans (monospace-inflected)
- * for nav gives a distinctive, slightly technical edge.
- *
- * NOTE: These are the original site's custom fonts. They'll fall back to
- * system sans-serif/serif if not available, which is intentional — the layout
- * still works because sizing is set in px, not em relative to the font.
+ * FinancierDisplay is loaded from the same CDN path the original site uses.
+ * Falls back to Georgia — both are editorial serifs. Inter is intentionally
+ * absent: it is the AI monoculture fallback and was banned in the critique.
  */
+@font-face {
+  font-family: "FinancierDisplay";
+  src: url("https://jamesbuckhouse.com/fonts/FinancierDisplay-Regular.woff2") format("woff2");
+  font-weight: 300;
+  font-display: swap;
+}
+
 :root {
-  --font-body: "Unica77", sans-serif;
-  --font-nav: "Pitch Sans", sans-serif;
-  --font-heading: "FinancierDisplay", serif;
+  /* ── Font families ─────────────────────────────────────────── */
+  --font-display:  "FinancierDisplay", "Georgia", serif;
+  --font-ui:       "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont,
+                   "Segoe UI", Roboto, sans-serif;
+  --font-mono:     "SF Mono", "Menlo", monospace;
 
-  --text-base: 16px;
-  --text-sm: 13.6px;   /* matches original site's nav/filter size */
-  --text-md: 18px;
-  --text-lg: 24px;
-  --text-xl: 40px;
-  --text-hero: 64px;   /* Library heading */
+  /* ── Type scale ───────────────────────────────────────────── */
+  --text-hero:     clamp(3rem, 7vw, 6rem);      /* weight 300 — FinancierDisplay */
+  --text-section:  clamp(1.75rem, 3vw, 2.5rem); /* weight 300 — FinancierDisplay */
+  --text-h3:       1.125rem;                    /* 18px, weight 600, --font-ui */
+  --text-body:     1rem;                        /* 16px, weight 400 */
+  --text-caption:  0.875rem;                    /* 14px */
+  --text-nav:      0.9375rem;                   /* 15px, weight 500 */
+  --text-tag:      0.8125rem;                   /* 13px, weight 500 */
 
-  --leading-tight: 1.3;    /* headings, card titles */
-  --leading-normal: 1.65;  /* body text — generous for readability */
-  --leading-relaxed: 1.8;  /* long-form bio text */
+  /* ── Tracking ─────────────────────────────────────────────── */
+  --tracking-display: -0.02em;
+  --tracking-tight:   -0.01em;
+
+  /* ── Line heights ─────────────────────────────────────────── */
+  --leading-tight:   1.1;
+  --leading-normal:  1.5;
+  --leading-relaxed: 1.7;
 }

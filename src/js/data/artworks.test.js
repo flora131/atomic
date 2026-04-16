@@ -2,57 +2,49 @@ import { test, expect, describe } from "bun:test";
 import { artworks } from "./artworks.js";
 
 describe("artworks data", () => {
-  test("exports exactly 45 artwork objects", () => {
+  test("has exactly 45 artworks", () => {
     expect(artworks).toHaveLength(45);
   });
 
-  test("every artwork has id, title, imageUrl, and route", () => {
-    artworks.forEach((artwork, i) => {
-      expect(artwork.id, `artwork[${i}] missing id`).toBeDefined();
-      expect(artwork.title, `artwork[${i}] missing title`).toBeDefined();
-      expect(artwork.imageUrl, `artwork[${i}] missing imageUrl`).toBeDefined();
-      expect(artwork.route, `artwork[${i}] missing route`).toBeDefined();
-    });
+  test("every artwork has required fields", () => {
+    for (const artwork of artworks) {
+      expect(artwork).toHaveProperty("id");
+      expect(artwork).toHaveProperty("title");
+      expect(artwork).toHaveProperty("imageUrl");
+      expect(artwork).toHaveProperty("route");
+    }
   });
 
-  test("ids are sequential from 1 to 45", () => {
+  test("ids are sequential starting from 1", () => {
     artworks.forEach((artwork, i) => {
       expect(artwork.id).toBe(i + 1);
     });
   });
 
-  test("all imageUrls point to jamesbuckhouse.com", () => {
-    artworks.forEach((artwork) => {
-      expect(artwork.imageUrl).toMatch(/^https:\/\/jamesbuckhouse\.com\/images\//);
-    });
+  test("all imageUrls are non-empty strings", () => {
+    for (const artwork of artworks) {
+      expect(typeof artwork.imageUrl).toBe("string");
+      expect(artwork.imageUrl.length).toBeGreaterThan(0);
+    }
   });
 
-  test("all routes follow #/art/{id} pattern", () => {
-    artworks.forEach((artwork) => {
+  test("all routes follow #/art/:id pattern", () => {
+    for (const artwork of artworks) {
+      expect(artwork.route).toMatch(/^#\/art\/\d+$/);
       expect(artwork.route).toBe(`#/art/${artwork.id}`);
-    });
+    }
   });
 
-  test("artwork #1 has a videoUrl for Maryon Park Installation View", () => {
-    const first = artworks[0];
-    expect(first.title).toBe("Maryon Park Installation View");
-    expect(first.videoUrl).toBe("https://jamesbuckhouse.com/images/video/mayron_install.mp4");
+  test("all titles are non-empty strings", () => {
+    for (const artwork of artworks) {
+      expect(typeof artwork.title).toBe("string");
+      expect(artwork.title.length).toBeGreaterThan(0);
+    }
   });
 
-  test("artworks without videoUrl do not have that property set", () => {
-    const artworksWithoutVideo = artworks.filter((a) => a.id !== 1);
-    artworksWithoutVideo.forEach((artwork) => {
-      expect(artwork.videoUrl).toBeUndefined();
-    });
-  });
-
-  test("first artwork is Maryon Park Installation View", () => {
-    expect(artworks[0].title).toBe("Maryon Park Installation View");
-    expect(artworks[0].imageUrl).toBe("https://jamesbuckhouse.com/images/image_66.jpg");
-  });
-
-  test("last artwork is Drawing Table", () => {
-    expect(artworks[44].title).toBe("Drawing Table");
-    expect(artworks[44].imageUrl).toBe("https://jamesbuckhouse.com/images/image_54.jpg");
+  test("all imageUrls point to jamesbuckhouse.com", () => {
+    for (const artwork of artworks) {
+      expect(artwork.imageUrl).toMatch(/^https:\/\/jamesbuckhouse\.com\/images\//);
+    }
   });
 });

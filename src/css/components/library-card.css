@@ -1,102 +1,101 @@
-/*
- * Library Section + Cards
- *
- * WHY: Library cards use a colored left border (--category-color) for
- * at-a-glance category identification without overwhelming the clean
- * frosted glass aesthetic. The color is desaturated to stay cohesive.
- * Each card lifts on hover (translateY) matching the art card behavior.
- */
-
-.library-section {
-  padding: var(--space-2xl) var(--grid-side-padding);
-  margin-top: var(--navbar-height);
-}
-
-.library-heading {
-  font-family: var(--font-heading);
-  font-size: var(--text-hero);
-  font-weight: 300;
-  text-transform: none;
-  text-align: center;
-  color: var(--ocean-deep);
-  margin-bottom: var(--space-lg);
-}
-
-.library-intro {
-  font-family: var(--font-body);
-  font-size: var(--text-md);
-  color: var(--text-secondary);
-  text-align: center;
-  max-width: 640px;
-  margin: 0 auto var(--space-xl);
-  line-height: var(--leading-normal);
-}
-
-.library-intro a {
-  color: var(--text-link);
-  text-decoration: underline;
-}
-
-/* Library Cards Grid */
+/* ── Library card ─────────────────────────────────────────────
+ * Text-only cards. Category indicator is a pill badge in the
+ * upper-right corner — NOT a border-left stripe (banned anti-pattern).
+ * ─────────────────────────────────────────────────────────── */
 .library-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--grid-gap);
-  max-width: var(--container-width);
-  margin: 0 auto;
-  padding: 0 var(--grid-side-padding);
-}
-
-.timeline-item {
-  display: block;
-  padding: var(--space-lg);
-  border-radius: var(--radius-lg);
-  text-decoration: none;
-  color: inherit;
-  text-align: left;
-
-  /* FROSTED GLASS */
-  background: var(--bg-elevated);
-  backdrop-filter: var(--glass-light);
-  -webkit-backdrop-filter: var(--glass-light);
-  border: 1px solid rgba(255, 255, 255, 0.35);
-  border-left: 3px solid var(--category-color, var(--ocean-mist));
-
-  box-shadow: var(--shadow-sm);
-  transition: transform var(--duration-normal) var(--ease-out),
-              box-shadow var(--duration-normal) var(--ease-out);
-}
-
-.timeline-item:hover {
-  transform: translateY(-3px);
-  box-shadow: var(--shadow-md);
-}
-
-.timeline-item h3 {
-  font-family: var(--font-body);
-  font-size: var(--text-md);
-  font-weight: 600;
-  margin: 0 0 var(--space-sm);
-  color: var(--text-primary);
-}
-
-.timeline-item .instructor {
-  font-size: var(--text-base);
-  color: var(--text-secondary);
-  margin-bottom: var(--space-sm);
-}
-
-.timeline-item .description {
-  font-size: var(--text-base);
-  color: var(--text-secondary);
-  line-height: var(--leading-normal);
-}
-
-@media (max-width: 980px) {
-  .library-grid { grid-template-columns: repeat(2, 1fr); }
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--card-gap);
+  margin-top: var(--sp-xl);
 }
 
 @media (max-width: 768px) {
-  .library-grid { grid-template-columns: 1fr; }
-  .library-heading { font-size: var(--text-xl); }
+  .library-grid {
+    grid-template-columns: 1fr;
+  }
 }
+
+.library-card {
+  position: relative;
+  background: var(--surface-card);
+  border-radius: var(--r-md);
+  border: 1px solid var(--border-card);
+  box-shadow: var(--shadow-card);
+  padding: var(--sp-xl);
+  transition: transform var(--dur-normal) var(--ease-spring),
+              box-shadow var(--dur-normal) var(--ease-std);
+}
+
+/* ── Category pill badge (upper-right) ─────────────────────── */
+.library-card-badge {
+  position: absolute;
+  top: var(--sp-md);
+  right: var(--sp-md);
+  font-family: var(--font-ui);
+  font-size: var(--text-tag);
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  box-shadow: var(--shadow-badge);
+  /* color and background-color are set inline by JS via category */
+}
+
+/* ── Card content ──────────────────────────────────────────── */
+.library-card-title {
+  font-family: var(--font-display);
+  font-size: var(--text-h3);
+  font-weight: 300;
+  letter-spacing: var(--tracking-tight);
+  color: var(--text-primary);
+  margin-bottom: var(--sp-sm);
+  padding-right: var(--sp-3xl); /* leave room for badge */
+  line-height: var(--leading-normal);
+}
+
+.library-card-description {
+  font-family: var(--font-ui);
+  font-size: var(--text-caption);
+  line-height: var(--leading-relaxed);
+  color: var(--text-secondary);
+  margin-bottom: var(--sp-sm);
+}
+
+.library-card-instructor {
+  font-family: var(--font-ui);
+  font-size: var(--text-tag);
+  color: var(--text-tertiary);
+  margin-bottom: var(--sp-md);
+}
+
+.library-card-link {
+  display: inline-block;
+  font-family: var(--font-ui);
+  font-size: var(--text-caption);
+  font-weight: 500;
+  color: var(--accent-gold);
+  text-decoration: none;
+  padding: 4px 12px;
+  border-radius: var(--r-pill);
+  /* background is set inline by JS to rgba(categoryColor, 0.10) */
+  transition: opacity var(--dur-fast) var(--ease-std);
+}
+
+.library-card-link:hover {
+  opacity: 0.8;
+}
+
+/* ── Empty state ───────────────────────────────────────────── */
+.library-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: var(--sp-3xl) var(--sp-xl);
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+}
+
+.library-empty[hidden] {
+  display: none;
+}
+
+/* TODO: tune library-card hover shadow depth */

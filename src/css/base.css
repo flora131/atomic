@@ -1,54 +1,143 @@
-/* ===== Base — Reset, body, typography defaults ===== */
-
-*,
-*::before,
-*::after {
+/* ── Reset ─────────────────────────────────────────────────── */
+*, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 
+/* ── Body ──────────────────────────────────────────────────── */
 html {
+  font-size: 16px;
   scroll-behavior: smooth;
-  -webkit-text-size-adjust: 100%;
 }
 
 body {
-  background-color: var(--bg-primary);
-  color: var(--text-primary);
-  font-family: var(--font-body);
-  font-size: var(--text-base);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
   line-height: var(--leading-normal);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  color: var(--text-primary);
+  background-color: var(--bg-mesh-end); /* fallback for ::before */
+  overflow-x: hidden;
+  min-height: 100vh;
+  padding-top: var(--nav-height);
+}
+
+/* ── Gradient mesh background (compositor-safe) ──────────────
+ * Uses transform: translateX() on a wide ::before pseudo-element
+ * instead of animating background-position (which triggers paint).
+ * This keeps the animation entirely on the compositor thread at 60fps.
+ * ────────────────────────────────────────────────────────────── */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: -100%;
+  width: 300%;
+  background: linear-gradient(
+    135deg,
+    var(--bg-mesh-start) 0%,
+    var(--bg-mesh-mid) 40%,
+    var(--bg-mesh-end) 80%,
+    var(--bg-mesh-start) 100%
+  );
+  animation: meshDrift var(--dur-mesh) ease infinite;
+  will-change: transform;
+  z-index: -1;
+  pointer-events: none;
+}
+
+@keyframes meshDrift {
+  0%   { transform: translateX(0); }
+  50%  { transform: translateX(33.33%); }
+  100% { transform: translateX(0); }
+}
+
+/* ── Typography defaults ───────────────────────────────────── */
+h1, h2, h3 {
+  font-family: var(--font-display);
+  font-weight: 300;
+  letter-spacing: var(--tracking-display);
+  line-height: var(--leading-tight);
+  color: var(--text-primary);
+}
+
+h1 { font-size: var(--text-section); }
+h2 { font-size: var(--text-h3); }
+h3 { font-size: var(--text-h3); font-family: var(--font-ui); font-weight: 600; }
+
+a {
+  color: var(--accent-blue);
+  text-decoration: underline;
+}
+
+a:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 3px;
+  border-radius: 3px;
 }
 
 img {
-  display: block;
   max-width: 100%;
-  height: auto;
-}
-
-a {
-  color: inherit;
-  text-decoration: none;
+  display: block;
 }
 
 button {
-  font: inherit;
   cursor: pointer;
+  border: none;
+  background: none;
+  font-family: var(--font-ui);
 }
 
-h1, h2, h3, h4, h5, h6 {
-  font-weight: 400;
-  line-height: var(--leading-tight);
+/* ── Container ─────────────────────────────────────────────── */
+.container {
+  max-width: var(--container);
+  margin: 0 auto;
+  padding: 0 var(--sp-xl);
 }
 
-/* Section visibility for SPA routing */
+/* ── Section shell ─────────────────────────────────────────── */
 .section {
   display: none;
+  min-height: calc(100vh - var(--nav-height));
+  padding: var(--sp-section) var(--sp-xl);
+  max-width: var(--container);
+  margin: 0 auto;
 }
 
 .section.active {
   display: block;
+}
+
+/* ── 404 not-found ─────────────────────────────────────────── */
+.not-found {
+  display: none;
+  min-height: calc(100vh - var(--nav-height));
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: var(--sp-section) var(--sp-xl);
+}
+
+.not-found.active {
+  display: flex;
+}
+
+.not-found h1 {
+  font-size: var(--text-section);
+  margin-bottom: var(--sp-lg);
+}
+
+/* ── prefers-reduced-motion ────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  body::before {
+    animation: none;
+  }
+
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 150ms !important;
+  }
 }

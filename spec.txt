@@ -1,0 +1,48 @@
+Clone jamesbuckhouse.com and restylize it with a macOS Big Sur aesthetic.
+Preserve ALL original content: every film, artwork, library item, image URL,
+title, date, and link must carry over exactly. Only the visual language changes.
+
+## Big Sur Visual Language (Apple, macOS 11)
+
+- **Materials**: Frosted-glass surfaces (backdrop-filter: blur(20-40px) +
+  saturate(180%)) for the navbar and any overlay panels. Semi-translucent
+  whites/grays over content, not opaque.
+- **Depth**: Layered elevation with soft, diffuse shadows
+  (0 20px 40px rgba(0,0,0,0.08)). Nothing flat — everything floats.
+- **Radii**: Generous, Apple-scale — 16-24px on cards, 12px on buttons,
+  28px+ on hero containers (continuous corner curvature feel).
+- **Color**: Soft gradient backgrounds inspired by Big Sur wallpapers
+  (warm dusk peaches into lavender into deep blue). Avoid pure #fff or #000.
+  Use off-whites (#fafafa) and warm blacks (#1d1d1f).
+- **Typography**: SF Pro / Inter. Large, confident headings (SF Pro Display
+  weight 600-700, -0.02em tracking). Body copy in SF Pro Text. Generous
+  line-height (1.5-1.7).
+- **Spacing**: Airy. Big breathing room. Apple-product-page generosity —
+  120px+ section padding on desktop.
+
+## Motion & Liveness
+
+- **Scroll-driven parallax** on hero images and artwork cards: images
+  translateY at 0.3x-0.6x scroll speed.
+- **Spring physics** on hover (cubic-bezier(0.34, 1.56, 0.64, 1)) for
+  cards and buttons — subtle lift (translateY(-4px)) + shadow expansion.
+- **Live breathing** on artwork/film poster images: a very slow
+  (8-12s infinite) scale(1.0 -> 1.03) ease-in-out to make statics feel alive.
+- **Staggered reveals** on scroll — grid items fade+rise into view with
+  60-80ms stagger, IntersectionObserver-driven.
+- **Smooth route transitions** — crossfade + slight scale when navigating
+  between sections. No hard cuts.
+- **Lightbox with spring open/close** — scale from thumbnail bounds
+  (FLIP-style) with backdrop blur ramp-in.
+- **Gradient mesh background** that slowly drifts (CSS @keyframes, 30s+)
+  behind the hero, evoking the Big Sur dusk wallpaper.
+
+## Constraints
+
+- Use real image URLs from jamesbuckhouse.com. Never substitute placeholders.
+- Respect prefers-reduced-motion — disable breathing and parallax when set.
+- Must hit 60fps on a 2020 MacBook Air (transform/opacity only, no
+  layout-triggering properties in animations).
+- Plain HTML/CSS/JS (matches the existing scaffold). No React.
+- Dark mode isn't required, but the palette should feel like late-afternoon
+  Big Sur light — warm, cinematic.

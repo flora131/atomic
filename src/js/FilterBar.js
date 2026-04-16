@@ -1,29 +1,49 @@
+import { filterTags } from "./data/library-items.js";
+
 /**
- * FilterBar component.
- * Creates a row of filter category buttons for the library section.
+ * Renders the filter bar pill buttons and manages active state.
+ *
+ * @param {HTMLElement} container - element to render buttons into
+ * @param {(tag: string) => void} onFilter - called with the active tag when selection changes
  */
+export function initFilterBar(container, onFilter) {
+  let activeTag = "All";
 
-// TODO: Implement active button state and multi-select support
-export function createFilterBar(categories, onFilter) {
-  const bar = document.createElement('div');
-  bar.className = 'filter-bar';
+  filterTags.forEach((tag) => {
+    const btn = document.createElement("button");
+    btn.className = "filter-btn";
+    btn.type = "button";
+    btn.textContent = tag;
+    btn.setAttribute("aria-pressed", tag === "All" ? "true" : "false");
 
-  const allCategories = ['All', ...categories];
+    btn.addEventListener("click", () => {
+      if (activeTag === tag) return; // already active
 
-  allCategories.forEach((category) => {
-    const btn = document.createElement('button');
-    btn.className = 'filter-btn';
-    btn.textContent = category;
-    btn.dataset.category = category;
+      // Deactivate previous
+      container.querySelector(`[aria-pressed="true"]`)?.setAttribute("aria-pressed", "false");
 
-    btn.addEventListener('click', () => {
-      onFilter(category);
+      activeTag = tag;
+      btn.setAttribute("aria-pressed", "true");
+      onFilter(tag);
     });
 
-    bar.appendChild(btn);
+    container.appendChild(btn);
   });
 
-  return bar;
+  // Expose a way for the empty-state clear link to reset to All
+  container.dataset.filterBarReady = "true";
 }
 
-export default createFilterBar;
+/**
+ * Reset the filter bar to "All" from outside (e.g. empty-state clear link).
+ * @param {HTMLElement} container
+ * @param {(tag: string) => void} onFilter
+ */
+export function resetFilterBar(container, onFilter) {
+  container.querySelector(`[aria-pressed="true"]`)?.setAttribute("aria-pressed", "false");
+  const allBtn = container.querySelector(".filter-btn");
+  if (allBtn) {
+    allBtn.setAttribute("aria-pressed", "true");
+    onFilter("All");
+  }
+}

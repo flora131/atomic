@@ -1,28 +1,11 @@
 /*
- * Shadow & Glass Tokens — Big Sur Elevation System
- *
- * WHY: Big Sur's design language uses dual-layer shadows to create convincing
- * floating depth — a soft ambient layer plus a tighter contact shadow.
- * This mimics how real objects cast both diffuse and sharp shadows.
- *
- * HOW: Each shadow level doubles the blur radius of the previous.
- * Glass tokens combine blur() with saturate() — the saturation boost
- * makes frosted glass feel vibrant rather than washed out, matching
- * macOS vibrancy materials.
+ * All shadow colors are warm-tinted (rgb 60,40,20) rather than neutral black,
+ * matching the overall Big Sur dusk palette warmth.
  */
 :root {
-  /* Dual-layer shadows: ambient spread + tight contact shadow */
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.04),
-               0 1px 2px rgba(0, 0, 0, 0.03);
-  --shadow-md: 0 8px 32px rgba(0, 0, 0, 0.08),
-               0 2px 8px rgba(0, 0, 0, 0.04);
-  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.12),
-               0 4px 12px rgba(0, 0, 0, 0.06);
-  --shadow-xl: 0 24px 64px rgba(0, 0, 0, 0.16),
-               0 8px 24px rgba(0, 0, 0, 0.08);
-
-  /* Frosted glass — blur + saturate creates macOS vibrancy material effect */
-  --glass-light: blur(12px) saturate(150%);   /* cards, surfaces */
-  --glass-medium: blur(20px) saturate(180%);  /* navbar */
-  --glass-heavy: blur(40px) saturate(200%);   /* lightbox backdrop */
+  --shadow-card:   0 2px 12px rgba(60, 40, 20, 0.06), 0 1px 3px rgba(60, 40, 20, 0.04);
+  --shadow-hover:  0 16px 40px rgba(60, 40, 20, 0.11), 0 4px 12px rgba(60, 40, 20, 0.07);
+  --shadow-nav:    0 1px 20px rgba(60, 40, 20, 0.09);
+  --shadow-modal:  0 40px 80px rgba(0, 0, 0, 0.20), 0 8px 24px rgba(0, 0, 0, 0.10);
+  --shadow-badge:  0 1px 4px rgba(0, 0, 0, 0.12);
 }

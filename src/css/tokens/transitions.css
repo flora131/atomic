@@ -1,13 +1,20 @@
-/*
- * Transition Tokens
- *
- * WHY: The custom ease-out curve (0.25, 0.46, 0.45, 0.94) decelerates gently,
- * giving hover lifts and card transforms a natural, physical feel — elements
- * "settle" into position like objects coming to rest, not snapping mechanically.
- */
+/* ── Easing tokens ─────────────────────────────────────────────
+ * --ease-spring: overshoots past 1.0 (y=1.56 control point) to produce a
+ *   natural bounce. Used on card hover lift — signals physical responsiveness.
+ * --ease-out: aggressive deceleration feels "expensive" (fast start, slow settle).
+ *   Used for section entrances and reveals.
+ * ─────────────────────────────────────────────────────────── */
 :root {
-  --ease-out: cubic-bezier(0.25, 0.46, 0.45, 0.94); /* gentle deceleration */
-  --duration-fast: 0.2s;   /* instant feedback: button press, link hover */
-  --duration-normal: 0.35s; /* card lifts, shadow transitions */
-  --duration-slow: 0.6s;   /* Ken Burns zoom on artwork images */
+  --ease-spring:  cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-out:     cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in:      cubic-bezier(0.4, 0, 1, 1);
+  --ease-std:     ease;
+
+  --dur-fast:     150ms;
+  --dur-normal:   300ms;
+  --dur-slow:     500ms;
+  --dur-breath:   10s;
+  --dur-film-breath: 9s;
+  --dur-mesh:     32s;
+  --dur-route:    300ms;
 }

@@ -1,67 +1,119 @@
-/*
- * Lightbox — Artwork detail view with heavy frosted glass backdrop
+/* ── Lightbox ─────────────────────────────────────────────────
+ * Frosted glass backdrop + spring FLIP animation panel.
+ * Frosted glass is intentionally used here (and navbar) — nowhere else.
  *
- * WHY: The lightbox uses the heaviest glass setting (blur 40px, saturate 200%)
- * to create a dramatic depth-of-field effect. The page content becomes an
- * abstract color wash behind the focused artwork — like looking through
- * frosted gallery glass. This is the most "Big Sur" moment in the entire site.
- */
+ * FLIP sequence (enforced in Lightbox.js):
+ *  1. Pause breathing + force scale(1.0) on clicked card → flush styles
+ *  2. Measure card getBoundingClientRect()
+ *  3. Animate panel from card bounds to center via transform only
+ *  4. On close: reverse FLIP, then restore animation-play-state: running
+ * ─────────────────────────────────────────────────────────── */
 
-.lightbox-overlay {
+.lightbox {
+  display: none;
   position: fixed;
   inset: 0;
-  z-index: 2000;
-  display: flex;
+  z-index: 200;
   align-items: center;
   justify-content: center;
-
-  /* Heavy frosted glass — 40px blur creates depth-of-field backdrop */
-  background: rgba(30, 40, 50, 0.4);
-  backdrop-filter: var(--glass-heavy);
-  -webkit-backdrop-filter: var(--glass-heavy);
-
-  animation: fadeIn 0.3s ease-out;
 }
 
-.lightbox-image {
-  max-width: 90vw;
-  max-height: 85vh;
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-xl);
+.lightbox.open {
+  display: flex;
+}
+
+/* Frosted backdrop */
+.lightbox-backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--surface-overlay);
+  backdrop-filter: blur(40px) saturate(200%);
+  -webkit-backdrop-filter: blur(40px) saturate(200%);
+}
+
+/* Panel — FLIP target */
+.lightbox-panel {
+  position: relative;
+  z-index: 1;
+  border-radius: var(--r-lg);
+  background: var(--surface-lightbox);
+  box-shadow: var(--shadow-modal);
+  max-width: min(90vw, 900px);
+  max-height: 90vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.lightbox-img {
+  width: 100%;
+  height: auto;
+  max-height: 75vh;
   object-fit: contain;
+  border-radius: var(--r-md);
+  display: block;
 }
 
+.lightbox-caption {
+  padding: var(--sp-md) var(--sp-lg);
+  font-family: var(--font-display);
+  font-size: var(--text-h3);
+  font-weight: 300;
+  color: var(--text-primary);
+}
+
+/* Close button */
 .lightbox-close {
   position: absolute;
-  top: var(--space-lg);
-  right: var(--space-lg);
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
+  top: var(--sp-md);
+  right: var(--sp-md);
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-pill);
+  background: rgba(0, 0, 0, 0.10);
   border: none;
-  background: rgba(255, 255, 255, 0.2);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  color: #fff;
-  font-size: 20px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background var(--duration-fast) ease;
+  font-size: 1.125rem;
+  color: var(--text-primary);
+  transition: background var(--dur-fast) var(--ease-out);
 }
 
 .lightbox-close:hover {
-  background: rgba(255, 255, 255, 0.35);
+  background: rgba(0, 0, 0, 0.18);
 }
 
-.lightbox-title {
+/* Navigation arrows */
+.lightbox-prev,
+.lightbox-next {
   position: absolute;
-  bottom: var(--space-xl);
-  left: 50%;
-  transform: translateX(-50%);
-  color: #fff;
-  font-family: var(--font-body);
-  font-size: var(--text-lg);
-  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--r-pill);
+  background: rgba(255, 255, 255, 0.80);
+  box-shadow: var(--shadow-card);
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  color: var(--text-primary);
+  transition: background var(--dur-fast) var(--ease-out);
 }
+
+.lightbox-prev { left: var(--sp-md); }
+.lightbox-next { right: var(--sp-md); }
+
+.lightbox-prev:hover,
+.lightbox-next:hover {
+  background: rgba(255, 255, 255, 0.95);
+}
+
+/* TODO: implement FLIP keyframe in JS — no CSS transition needed on panel itself */
+/* TODO: add keyboard ArrowLeft/ArrowRight navigation in Lightbox.js */

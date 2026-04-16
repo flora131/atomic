@@ -1,42 +1,28 @@
-/*
- * Main CSS Entry Point — Big Sur Art Theme
- *
- * Import order follows atomic design methodology:
- * 1. Tokens — design primitives (colors, spacing, shadows, radii, type, transitions)
- * 2. Base — reset + global defaults
- * 3. Components — self-contained UI pieces (navbar, cards, lightbox, etc.)
- * 4. Utilities — reusable helper classes (.glass, .sr-only, .container)
- * 5. States — interactive states (focus, loading shimmer, fade-in)
- *
- * This cascade ensures tokens are available everywhere, base resets come first,
- * and state overrides win over component defaults.
- */
+/* ── Design tokens — must be imported before everything else ── */
+@import "./tokens/colors.css";
+@import "./tokens/typography.css";
+@import "./tokens/spacing.css";
+@import "./tokens/radii.css";
+@import "./tokens/shadows.css";
+@import "./tokens/transitions.css";
 
-/* Tokens */
-@import url('./tokens/colors.css');
-@import url('./tokens/radii.css');
-@import url('./tokens/shadows.css');
-@import url('./tokens/spacing.css');
-@import url('./tokens/typography.css');
-@import url('./tokens/transitions.css');
+/* ── Reset + body + mesh background ────────────────────────── */
+@import "./base.css";
 
-/* Base */
-@import url('./base.css');
+/* ── Utility classes ────────────────────────────────────────── */
+@import "./utilities.css";
 
-/* Components */
-@import url('./components/navbar.css');
-@import url('./components/artwork-card.css');
-@import url('./components/gallery-grid.css');
-@import url('./components/library-card.css');
-@import url('./components/filter-bar.css');
-@import url('./components/film-card.css');
-@import url('./components/about.css');
-@import url('./components/lightbox.css');
-@import url('./components/hotline.css');
-@import url('./components/footer.css');
+/* ── Interaction states ─────────────────────────────────────── */
+@import "./states.css";
 
-/* Utilities */
-@import url('./utilities.css');
-
-/* States */
-@import url('./states.css');
+/* ── Components ─────────────────────────────────────────────── */
+@import "./components/navbar.css";
+@import "./components/gallery-grid.css";
+@import "./components/artwork-card.css";
+@import "./components/film-card.css";
+@import "./components/library-card.css";
+@import "./components/filter-bar.css";
+@import "./components/lightbox.css";
+@import "./components/about.css";
+@import "./components/hotline.css";
+@import "./components/footer.css";

@@ -1,29 +1,45 @@
+import { films } from "./data/films.js";
+import { createFilmCard } from "./FilmCard.js";
+
 /**
- * FilmSection component.
- * Creates the film section with introductory paragraph and film poster grid.
+ * Renders the film intro paragraph and all 12 film cards.
+ * Sets up IntersectionObserver for staggered scroll reveals.
  */
-import { createFilmCard } from './FilmCard.js';
+export function initFilmSection() {
+  const section = document.getElementById("section-film");
+  if (!section) return;
 
-// TODO: Implement responsive grid layout matching the design spec
-export function createFilmSection(films) {
-  const section = document.createElement('section');
-  section.className = 'film-section';
+  // Intro paragraph — verbatim from the design brief (markup preserved)
+  const intro = section.querySelector(".film-section-intro");
+  if (intro) {
+    intro.innerHTML = `I got my start lensing shots, crafting character arcs, and punching up story
+      for some of the biggest franchises in popular entertainment, including
+      <strong>Shrek</strong>, <strong>Madagascar</strong>, and <strong>The Matrix</strong>
+      trilogies. Today I collaborate with some of Hollywood's best directors, producers,
+      writers, and showrunners to create new stories and new experiences for stage,
+      screen, and stream.`;
+  }
 
-  const intro = document.createElement('p');
-  intro.className = 'film-intro';
-  intro.innerHTML = 'I got my start lensing shots, crafting character arcs, and punching up story for some of the biggest franchises in popular entertainment, including <strong>Shrek</strong>, <strong>Madagascar</strong>, and <strong>The Matrix</strong> trilogies. Today I collaborate with some of Hollywood\'s best directors, producers, writers, and showrunners to create new stories and new experiences for stage, screen, and stream.';
-  section.appendChild(intro);
+  const grid = section.querySelector(".film-grid");
+  if (!grid) return;
 
-  const grid = document.createElement('div');
-  grid.className = 'film-grid';
-
-  films.forEach((film) => {
-    const card = createFilmCard(film);
+  films.forEach((film, index) => {
+    const card = createFilmCard(film, index);
     grid.appendChild(card);
   });
 
-  section.appendChild(grid);
-  return section;
-}
+  // IntersectionObserver — staggered scroll reveals
+  const observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("revealed");
+          observer.unobserve(entry.target);
+        }
+      });
+    },
+    { threshold: 0.1 }
+  );
 
-export default createFilmSection;
+  grid.querySelectorAll(".film-card").forEach((card) => observer.observe(card));
+}

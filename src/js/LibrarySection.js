@@ -1,37 +1,63 @@
+import { libraryItems } from "./data/library-items.js";
+import { createLibraryCard } from "./LibraryCard.js";
+import { initFilterBar, resetFilterBar } from "./FilterBar.js";
+
 /**
- * LibrarySection component.
- * Creates the library section with heading, intro text, filter bar, and item cards.
+ * Renders library heading, intro, filter bar, and all cards.
+ * Manages filter logic and empty state.
  */
-import { createFilterBar } from './FilterBar.js';
-import { createLibraryCard } from './LibraryCard.js';
+export function initLibrarySection() {
+  const section = document.getElementById("section-library");
+  if (!section) return;
 
-// TODO: Implement filtering logic to show/hide cards based on selected category
-export function createLibrarySection(items, categories) {
-  const section = document.createElement('section');
-  section.className = 'library-section';
+  const filterBarEl = section.querySelector(".filter-bar");
+  const grid = section.querySelector(".library-grid");
+  const emptyState = section.querySelector(".library-empty");
+  if (!filterBarEl || !grid || !(filterBarEl instanceof HTMLElement)) return;
 
-  const heading = document.createElement('h1');
-  heading.textContent = 'Library';
-  section.appendChild(heading);
-
-  const intro = document.createElement('p');
-  intro.textContent = 'I put together this small athenaeum of courses and resources collected from across the internet. Some of these I\'ve created, others are from other people.';
-  section.appendChild(intro);
-
-  const filterBar = createFilterBar(categories, (selectedCategory) => {
-    // TODO: filter card visibility based on selectedCategory
+  // Render all cards initially
+  let cardEls = libraryItems.map((item, index) => {
+    const card = createLibraryCard(item, index);
+    grid.appendChild(card);
+    return { item, card };
   });
-  section.appendChild(filterBar);
 
-  const cardList = document.createElement('div');
-  cardList.className = 'library-card-list';
-  items.forEach((item) => {
-    const card = createLibraryCard(item);
-    cardList.appendChild(card);
+  // IntersectionObserver — staggered scroll reveals
+  const observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("revealed");
+          observer.unobserve(entry.target);
+        }
+      });
+    },
+    { threshold: 0.05 }
+  );
+
+  cardEls.forEach(({ card }) => observer.observe(card));
+
+  // Filter logic
+  const applyFilter = (tag) => {
+    let visibleCount = 0;
+    cardEls.forEach(({ item, card }) => {
+      const visible = tag === "All" || item.category === tag;
+      card.hidden = !visible;
+      if (visible) visibleCount++;
+    });
+
+    // Empty state
+    if (emptyState) {
+      emptyState.hidden = visibleCount > 0;
+    }
+  };
+
+  initFilterBar(filterBarEl, applyFilter);
+
+  // Empty-state clear link
+  const clearLink = emptyState?.querySelector(".filter-clear");
+  clearLink?.addEventListener("click", (e) => {
+    e.preventDefault();
+    resetFilterBar(filterBarEl, applyFilter);
   });
-  section.appendChild(cardList);
-
-  return section;
 }
-
-export default createLibrarySection;

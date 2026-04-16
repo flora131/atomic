@@ -1,61 +1,90 @@
 /**
- * Hash-based client-side router.
- * Supports hash routes like #/, #/design, #/library, #/film, #/about, #/art/{id}.
- */
-
-/** @type {Map<string, () => void>} */
-let routeMap = new Map();
-
-/**
- * Match a hash path against registered route patterns.
- * Supports exact matches and simple wildcard prefix matches (e.g. '#/art/').
+ * Hash-based router.
+ * Maps hash routes to section IDs and handles show/hide with crossfade transitions.
  *
- * @param {string} hash - The current location.hash value
- * @returns {(() => void) | undefined} The matched route handler, if any
+ * Routes:
+ *   #/          → #section-art
+ *   #/design    → #section-design
+ *   #/library   → #section-library
+ *   #/film      → #section-film
+ *   #/about     → #section-about
+ *   #/art/:id   → opens lightbox (delegated to GalleryGrid/Lightbox)
+ *   <unknown>   → #section-not-found
  */
-function matchRoute(hash) {
-  if (routeMap.has(hash)) {
-    return routeMap.get(hash);
-  }
 
-  // Try prefix matches for parameterized routes (e.g. #/art/1)
-  for (const [pattern, handler] of routeMap.entries()) {
-    if (pattern.endsWith('*') && hash.startsWith(pattern.slice(0, -1))) {
-      return handler;
-    }
-  }
+/** @type {Record<string, string>} hash → section element ID */
+const ROUTES = {
+  "#/":        "section-art",
+  "#/design":  "section-design",
+  "#/library": "section-library",
+  "#/film":    "section-film",
+  "#/about":   "section-about",
+};
 
-  return undefined;
+/** Callbacks registered by other modules to be notified of route changes */
+const listeners = /** @type {Array<(route: string) => void>} */ ([]);
+
+/** @param {(route: string) => void} fn */
+export function onRouteChange(fn) {
+  listeners.push(fn);
 }
 
-// TODO: Implement full route parameter extraction and middleware support
-/**
- * Initialize the router with a map of hash routes to handler functions.
- *
- * @param {{ [route: string]: () => void }} routes - Route pattern to handler map
- */
-export function initRouter(routes) {
-  routeMap = new Map(Object.entries(routes));
-
-  const handleHashChange = () => {
-    const hash = window.location.hash || '#/';
-    const handler = matchRoute(hash);
-    if (handler) {
-      handler();
-    }
-  };
-
-  window.addEventListener('hashchange', handleHashChange);
-  handleHashChange();
-}
-
-/**
- * Programmatically navigate to a given hash route.
- *
- * @param {string} hash - The hash route to navigate to (e.g. '#/library')
- */
+/** Navigate to a hash route programmatically */
 export function navigate(hash) {
   window.location.hash = hash;
 }
 
-export default { initRouter, navigate };
+/** Show the correct section based on current window.location.hash */
+function applyRoute() {
+  const hash = window.location.hash || "#/";
+
+  // Deactivate all sections
+  document.querySelectorAll(".section, .not-found").forEach((el) => {
+    el.classList.remove("active", "section-enter");
+  });
+
+  if (hash.startsWith("#/art/")) {
+    // Lightbox route: keep art section visible, notify listeners
+    const artSection = document.getElementById("section-art");
+    if (artSection) {
+      artSection.classList.add("active");
+    }
+    listeners.forEach((fn) => fn(hash));
+    return;
+  }
+
+  const sectionId = ROUTES[hash];
+  if (sectionId) {
+    const el = document.getElementById(sectionId);
+    if (el) {
+      el.classList.add("active");
+      // requestAnimationFrame ensures the browser commits the "active" class
+      // in one paint frame before "section-enter" is added in the next.
+      // Without the rAF split, both classes would land in the same style recalc
+      // and the CSS animation would have no "from" state to animate from.
+      requestAnimationFrame(() => {
+        el.classList.add("section-enter");
+      });
+    }
+  } else {
+    // 404 — unrecognized route
+    const notFound = document.getElementById("section-not-found");
+    if (notFound) {
+      notFound.classList.add("active");
+    }
+  }
+
+  listeners.forEach((fn) => fn(hash));
+}
+
+/** Initialize router — call once on DOMContentLoaded */
+export function initRouter() {
+  window.addEventListener("hashchange", applyRoute);
+
+  // Default to #/ if no hash present
+  if (!window.location.hash || window.location.hash === "#") {
+    window.location.hash = "#/";
+  }
+
+  applyRoute();
+}

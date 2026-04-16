@@ -1,17 +1,19 @@
-/*
- * Footer — Mist-fade gradient
- *
- * WHY: Instead of a hard divider line, the footer uses a barely-visible
- * gradient (4% ocean-deep opacity) that fades in from transparent —
- * like coastal mist settling at the bottom of the page. Subtle but
- * effective at signaling content end without visual weight.
- */
-
+/* ── Footer ────────────────────────────────────────────────── */
 .footer {
-  padding: var(--space-2xl);
-  background: linear-gradient(180deg, transparent 0%, rgba(27, 58, 75, 0.04) 100%);
+  margin-top: var(--sp-section);
+  padding: var(--sp-2xl) var(--sp-xl);
+  border-top: 1px solid var(--border-subtle);
+  font-family: var(--font-ui);
+  font-size: var(--text-caption);
+  color: var(--text-tertiary);
   text-align: center;
+}
+
+.footer a {
+  color: var(--text-tertiary);
+  text-decoration: underline;
+}
+
+.footer a:hover {
   color: var(--text-secondary);
-  font-family: var(--font-body);
-  font-size: 14px;
 }

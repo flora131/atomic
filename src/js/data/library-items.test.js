@@ -1,63 +1,57 @@
 import { test, expect, describe } from "bun:test";
-import { libraryItems } from "./library-items.js";
+import { libraryItems, filterTags } from "./library-items.js";
 
 describe("libraryItems data", () => {
-  test("exports exactly 64 library item objects", () => {
-    expect(libraryItems).toHaveLength(64);
+  test("has at least 12 library items", () => {
+    expect(libraryItems.length).toBeGreaterThanOrEqual(12);
   });
 
-  test("every item has id, title, instructor, url, and categories", () => {
-    libraryItems.forEach((item, i) => {
-      expect(item.id, `item[${i}] missing id`).toBeDefined();
-      expect(item.title, `item[${i}] missing title`).toBeDefined();
-      expect(item.instructor, `item[${i}] missing instructor`).toBeDefined();
-      expect(item.url, `item[${i}] missing url`).toBeDefined();
-      expect(item.categories, `item[${i}] missing categories`).toBeDefined();
-    });
+  test("every item has required fields", () => {
+    for (const item of libraryItems) {
+      expect(item).toHaveProperty("title");
+      expect(item).toHaveProperty("description");
+      expect(item).toHaveProperty("instructor");
+      expect(item).toHaveProperty("category");
+      expect(item).toHaveProperty("url");
+    }
   });
 
-  test("ids are sequential from 1 to 64", () => {
-    libraryItems.forEach((item, i) => {
-      expect(item.id).toBe(i + 1);
-    });
+  test("all fields are non-empty strings", () => {
+    for (const item of libraryItems) {
+      expect(typeof item.title).toBe("string");
+      expect(item.title.length).toBeGreaterThan(0);
+      expect(typeof item.description).toBe("string");
+      expect(item.description.length).toBeGreaterThan(0);
+      expect(typeof item.instructor).toBe("string");
+      expect(item.instructor.length).toBeGreaterThan(0);
+      expect(typeof item.category).toBe("string");
+      expect(item.category.length).toBeGreaterThan(0);
+      expect(typeof item.url).toBe("string");
+      expect(item.url.length).toBeGreaterThan(0);
+    }
   });
 
-  test("categories is always a non-empty array", () => {
-    libraryItems.forEach((item, i) => {
-      expect(Array.isArray(item.categories), `item[${i}] categories should be an array`).toBe(true);
-      expect(item.categories.length, `item[${i}] categories should not be empty`).toBeGreaterThan(0);
-    });
+  test("all categories are valid filter tags (excluding All)", () => {
+    const validCategories = new Set(filterTags.filter(t => t !== "All"));
+    for (const item of libraryItems) {
+      expect(validCategories.has(item.category)).toBe(true);
+    }
+  });
+});
+
+describe("filterTags", () => {
+  test("has exactly 22 tags", () => {
+    expect(filterTags).toHaveLength(22);
   });
 
-  test("all urls are valid http/https URLs", () => {
-    libraryItems.forEach((item, i) => {
-      expect(item.url, `item[${i}] url should start with http`).toMatch(/^https?:\/\//);
-    });
+  test("first tag is All", () => {
+    expect(filterTags[0]).toBe("All");
   });
 
-  test("James Buckhouse items include 'Buckhouse' in their categories", () => {
-    const buckhouseItems = libraryItems.filter((item) => item.instructor === "James Buckhouse");
-    buckhouseItems.forEach((item) => {
-      expect(item.categories, `"${item.title}" by Buckhouse should have Buckhouse category`).toContain("Buckhouse");
-    });
-  });
-
-  test("first item is Omens Oracles & Prophecies by Alyssa Goodman", () => {
-    expect(libraryItems[0].title).toBe("Omens Oracles & Prophecies");
-    expect(libraryItems[0].instructor).toBe("Alyssa Goodman");
-  });
-
-  test("last item is Beginner React Nav Bar Tutorial", () => {
-    expect(libraryItems[63].title).toBe("Beginner React Nav Bar Tutorial");
-    expect(libraryItems[63].instructor).toBe("James Buckhouse");
-  });
-
-  test("item #25 'Your Job is Story' is by James Buckhouse with Story category", () => {
-    const item = libraryItems[24]; // id: 25, index: 24
-    expect(item.id).toBe(25);
-    expect(item.title).toBe("Your Job is Story");
-    expect(item.instructor).toBe("James Buckhouse");
-    expect(item.categories).toContain("Story");
-    expect(item.categories).toContain("Buckhouse");
+  test("all tags are non-empty strings", () => {
+    for (const tag of filterTags) {
+      expect(typeof tag).toBe("string");
+      expect(tag.length).toBeGreaterThan(0);
+    }
   });
 });

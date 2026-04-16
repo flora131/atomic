@@ -1,26 +1,43 @@
 /**
- * FilmCard component.
- * Creates a single film poster card linking to IMDB.
+ * Factory for a single film card DOM element.
+ *
+ * @param {{ title: string, posterUrl: string, imdbUrl: string }} film
+ * @param {number} index - position in grid (stagger delay)
+ * @returns {HTMLAnchorElement}
  */
+export function createFilmCard(film, index) {
+  const card = document.createElement("a");
+  card.className = "film-card reveal-ready";
+  card.href = film.imdbUrl;
+  card.target = "_blank";
+  card.rel = "noopener noreferrer";
+  card.setAttribute("aria-label", `${film.title} on IMDB`);
 
-// TODO: Implement hover effects and accessibility attributes
-export function createFilmCard(film) {
-  const a = document.createElement('a');
-  a.href = film.imdbUrl;
-  a.className = 'film-card';
-  a.target = '_blank';
-  a.rel = 'noopener noreferrer';
+  // Stagger delay
+  card.style.transitionDelay = `${index * 60}ms`;
 
-  const img = document.createElement('img');
+  const img = document.createElement("img");
+  img.className = "film-card-poster breathing-film";
   img.src = film.posterUrl;
-  img.alt = `${film.title} poster`;
-  a.appendChild(img);
+  img.alt = film.title;
+  img.loading = "lazy";
+  img.decoding = "async";
 
-  const title = document.createElement('h3');
+  img.addEventListener("load", () => {
+    card.classList.remove("loading");
+  }, { once: true });
+
+  img.addEventListener("error", () => {
+    card.classList.remove("loading");
+  }, { once: true });
+
+  // Apply loading state until image loads
+  card.classList.add("loading");
+
+  const title = document.createElement("h3");
+  title.className = "film-card-title";
   title.textContent = film.title;
-  a.appendChild(title);
 
-  return a;
+  card.append(img, title);
+  return card;
 }
-
-export default createFilmCard;

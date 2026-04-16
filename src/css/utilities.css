@@ -1,11 +1,4 @@
-/*
- * Utility Classes
- *
- * Reusable helpers: .sr-only for accessibility, .glass for the Big Sur
- * frosted surface anywhere, .container for max-width centering.
- */
-
-/* Visually hidden (screen reader only) */
+/* ── Screen-reader only ─────────────────────────────────────── */
 .sr-only {
   position: absolute;
   width: 1px;
@@ -18,17 +11,98 @@
   border: 0;
 }
 
-/* Frosted glass surface */
-.glass {
-  background: var(--bg-elevated);
-  backdrop-filter: var(--glass-light);
-  -webkit-backdrop-filter: var(--glass-light);
-  border: 1px solid rgba(255, 255, 255, 0.35);
+/* ── Scroll reveal ───────────────────────────────────────────
+ * JS sets .reveal-ready on elements before they enter the viewport.
+ * IntersectionObserver then adds .revealed to trigger the transition.
+ * ─────────────────────────────────────────────────────────── */
+.reveal-ready {
+  opacity: 0;
+  transform: translateY(20px);
 }
 
-/* Container */
-.container {
-  max-width: var(--container-width);
-  margin: 0 auto;
-  padding: 0 var(--grid-side-padding);
+.revealed {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 400ms var(--ease-out), transform 400ms var(--ease-out);
+}
+
+/* ── Breathing animation ─────────────────────────────────────
+ * Applied to <img> elements directly (not containers) to avoid
+ * layout recalculation. Paused on hover via artwork-card.css.
+ * ─────────────────────────────────────────────────────────── */
+.breathing {
+  animation: breathe var(--dur-breath) ease-in-out infinite;
+  will-change: transform;
+}
+
+.breathing-film {
+  animation: breathe var(--dur-film-breath) ease-in-out infinite;
+  will-change: transform;
+}
+
+@keyframes breathe {
+  0%, 100% { transform: scale(1.0); }
+  50%       { transform: scale(1.03); }
+}
+
+/* ── Shimmer skeleton ────────────────────────────────────────
+ * Applied to image containers while the src loads.
+ * ─────────────────────────────────────────────────────────── */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    #f0ece6 25%,
+    #e8e2da 50%,
+    #f0ece6 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease infinite;
+}
+
+@keyframes shimmer {
+  to { background-position: -200% 0; }
+}
+
+/* ── Parallax layer ──────────────────────────────────────────
+ * JS drives transform: translateY() via requestAnimationFrame.
+ * ─────────────────────────────────────────────────────────── */
+.parallax {
+  will-change: transform;
+}
+
+/* ── Route transition ─────────────────────────────────────── */
+.section-enter {
+  animation: sectionEnter var(--dur-route) var(--ease-out) forwards;
+}
+
+@keyframes sectionEnter {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ── Reduced motion overrides ───────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .breathing,
+  .breathing-film {
+    animation: none;
+  }
+
+  .reveal-ready {
+    opacity: 1;
+    transform: none;
+  }
+
+  .revealed {
+    transition: none;
+  }
+
+  .parallax {
+    will-change: auto;
+  }
 }

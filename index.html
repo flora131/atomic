@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="James Buckhouse — Design Partner at Sequoia Capital. Portfolio of art, film, and design." />
+  <title>James Buckhouse</title>
+
+  <!-- Design system: tokens + components -->
+  <link rel="stylesheet" href="/src/css/main.css" />
+
+  <!-- Preconnect for external image origin -->
+  <link rel="preconnect" href="https://jamesbuckhouse.com" />
+</head>
+<body>
+
+  <!-- ── Navbar ──────────────────────────────────────────────── -->
+  <header id="navbar" class="navbar" role="banner"></header>
+  <!-- JS (Navbar.js) renders nav-links and hamburger into #navbar -->
+
+  <main id="main-content">
+
+    <!-- ── Art Gallery (#/) ─────────────────────────────────── -->
+    <section id="section-art" class="section" aria-label="Art gallery">
+      <div class="gallery-grid" role="list" aria-label="Artworks">
+        <!-- 45 artwork cards rendered by GalleryGrid.js -->
+      </div>
+    </section>
+
+    <!-- ── 24-Hour Hotline (#/design) ───────────────────────── -->
+    <section id="section-design" class="section" aria-label="24-Hour Design Hotline">
+      <h1>24-Hour Hotline</h1>
+      <div class="hotline-container">
+        <!-- Delphi page-embed mount points (iframe injected by embed.delphi.ai/bundle.js) -->
+        <section id="delphi-container" class="hotline-delphi" aria-label="24-Hour Design Hotline conversation"></section>
+        <div id="delphi-page-script"></div>
+        <div class="hotline-fallback" role="status">
+          <p>
+            The hotline is also available directly at
+            <a href="https://jamesbuckhouse.substack.com/" target="_blank" rel="noopener noreferrer">
+              jamesbuckhouse.substack.com
+            </a>.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Library (#/library) ──────────────────────────────── -->
+    <section id="section-library" class="section" aria-label="Library">
+      <h1>Library</h1>
+      <p class="library-intro">
+        I put together this small athenaeum of courses and resources collected from across the internet.
+        Some of these I've created, others are from other people.
+      </p>
+      <p class="library-suggest">
+        <a
+          href="https://airtable.com/appqB1VAs2ZN5Df6j/pagOX4Og9v5aytpYf/form"
+          target="_blank"
+          rel="noopener noreferrer"
+        >Please suggest a new course or resource.</a>
+      </p>
+
+      <!-- Filter pills — rendered by FilterBar.js -->
+      <div class="filter-bar" role="group" aria-label="Filter by category"></div>
+
+      <!-- Library cards — rendered by LibrarySection.js -->
+      <div class="library-grid" role="list" aria-label="Library items"></div>
+
+      <!-- Empty state — shown by JS when filter returns 0 results -->
+      <div class="library-empty" role="status" hidden>
+        <p>Nothing here yet — <a href="#" class="filter-clear">clear filter</a></p>
+      </div>
+    </section>
+
+    <!-- ── Film (#/film) ─────────────────────────────────────── -->
+    <section id="section-film" class="section" aria-label="Film">
+      <h1>Film</h1>
+      <!-- Intro paragraph rendered by FilmSection.js -->
+      <p class="film-section-intro"></p>
+
+      <!-- Film cards — rendered by FilmSection.js -->
+      <div class="film-grid" role="list" aria-label="Films"></div>
+    </section>
+
+    <!-- ── About (#/about) ───────────────────────────────────── -->
+    <section id="section-about" class="section" aria-label="About James Buckhouse">
+      <h1>Buckhouse</h1>
+      <div class="about-layout">
+        <!-- Profile photo — src set by AboutSection.js -->
+        <img
+          class="about-photo"
+          src=""
+          alt="James Buckhouse"
+          width="320"
+          height="320"
+        />
+
+        <div class="about-content">
+          <!-- Bio HTML injected by AboutSection.js -->
+          <p class="about-bio"></p>
+
+          <!-- Social links rendered by AboutSection.js -->
+          <ul class="about-social" aria-label="Social links"></ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── 404 / Not Found ───────────────────────────────────── -->
+    <section id="section-not-found" class="not-found" aria-label="Page not found">
+      <h1>Nothing here.</h1>
+      <a href="#/">← Back to the gallery</a>
+    </section>
+
+  </main>
+
+  <!-- Lightbox — rendered into <body> by Lightbox.js -->
+
+  <!-- ES module entry point -->
+  <script type="module" src="/src/js/main.js"></script>
+
+</body>
+</html>

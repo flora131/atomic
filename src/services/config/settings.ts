@@ -14,7 +14,7 @@ import { homedir } from "node:os";
 import { SETTINGS_SCHEMA_URL } from "./settings-schema.ts";
 import { ensureDir } from "../system/copy.ts";
 import { errorMessage } from "../../sdk/errors.ts";
-import type { AgentKey, SourceControlType } from "./definitions.ts";
+import type { AgentKey, ProviderOverrides, SourceControlType } from "./definitions.ts";
 
 export interface TrustedPathEntry {
   workspacePath: string;
@@ -28,6 +28,7 @@ interface AtomicSettings {
   lastUpdated?: string;
   trustedPaths?: TrustedPathEntry[];
   telemetryEnabled?: boolean;
+  providers?: Partial<Record<AgentKey, ProviderOverrides>>;
 }
 
 /** Runtime guard for parsed JSON to ensure it's a plain object. */

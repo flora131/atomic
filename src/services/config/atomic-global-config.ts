@@ -1,10 +1,11 @@
-import { copyFile, lstat, readdir, rm, rmdir } from "node:fs/promises";
+import { lstat, readdir, rm, rmdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 
 import { AGENT_CONFIG, getAgentKeys, type AgentKey } from "./index.ts";
-import { mergeJsonFile } from "../../lib/merge.ts";
-import { copyDir, ensureDir, pathExists } from "../system/copy.ts";
+import { syncJsonFile } from "../../lib/merge.ts";
+import { createCommonIgnoreFilter } from "../../lib/common-ignore.ts";
+import { copyDir, ensureDir, pathExists, shouldExclude } from "../system/copy.ts";
 
 
 const ATOMIC_HOME_DIR = join(homedir(), ".atomic");
@@ -117,15 +118,7 @@ async function collectManagedTreeEntries(
       ? join(relativeDir, entry.name)
       : entry.name;
 
-    if (exclude.includes(entry.name)) {
-      continue;
-    }
-
-    const normalizedRelativePath = relativePath.replace(/\\/g, "/");
-    if (exclude.some((excluded) =>
-      normalizedRelativePath === excluded.replace(/\\/g, "/") ||
-      normalizedRelativePath.startsWith(`${excluded.replace(/\\/g, "/")}/`)
-    )) {
+    if (shouldExclude(relativePath, entry.name, [...exclude])) {
       continue;
     }
 
@@ -174,14 +167,7 @@ async function syncManagedGlobalFile(
   sourcePath: string,
   destinationPath: string,
 ): Promise<void> {
-  await ensureDir(resolve(destinationPath, ".."));
-
-  if (await pathExists(destinationPath)) {
-    await mergeJsonFile(sourcePath, destinationPath);
-    return;
-  }
-
-  await copyFile(sourcePath, destinationPath);
+  await syncJsonFile(sourcePath, destinationPath);
 }
 
 /**
@@ -264,10 +250,11 @@ export async function syncAtomicGlobalAgentConfigs(
     const destinationFolder = getAtomicManagedAgentDir(agentKey, baseDir);
     await ensureDir(destinationFolder);
 
+    const ignoreFilter = createCommonIgnoreFilter();
     for (const subdirectory of GLOBAL_SYNC_SUBDIRECTORIES) {
       const sourceSubdir = join(sourceFolder, subdirectory);
       if (await pathExists(sourceSubdir)) {
-        await copyDir(sourceSubdir, join(destinationFolder, subdirectory));
+        await copyDir(sourceSubdir, join(destinationFolder, subdirectory), { ignoreFilter });
       }
     }
 

@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { readdir } from "node:fs/promises";
-import { copyFile, pathExists, ensureDir } from "../../../services/system/copy.ts";
-import { getOppositeScriptExtension } from "../../../services/system/detect.ts";
+import { copyDir, pathExists, ensureDir } from "../../../services/system/copy.ts";
+import { createCommonIgnoreFilter } from "../../../lib/common-ignore.ts";
 import {
   SCM_SKILLS_BY_TYPE,
   type AgentKey,
@@ -50,37 +50,6 @@ export async function reconcileScmVariants(options: ReconcileScmVariantsOptions)
   }
 }
 
-interface CopyDirPreservingOptions {
-  exclude?: string[];
-}
-
-async function copyDirPreserving(
-  src: string,
-  dest: string,
-  options: CopyDirPreservingOptions = {}
-): Promise<void> {
-  const { exclude = [] } = options;
-
-  await ensureDir(dest);
-
-  const entries = await readdir(src, { withFileTypes: true });
-  const oppositeExt = getOppositeScriptExtension();
-
-  for (const entry of entries) {
-    const srcPath = join(src, entry.name);
-    const destPath = join(dest, entry.name);
-
-    if (exclude.includes(entry.name)) continue;
-    if (entry.name.endsWith(oppositeExt)) continue;
-
-    if (entry.isDirectory()) {
-      await copyDirPreserving(srcPath, destPath, options);
-    } else {
-      await copyFile(srcPath, destPath);
-    }
-  }
-}
-
 export interface SyncProjectScmSkillsOptions {
   scmType: SourceControlType;
   sourceSkillsDir: string;
@@ -106,7 +75,7 @@ export async function syncProjectScmSkills(options: SyncProjectScmSkillsOptions)
 
     const srcPath = join(sourceSkillsDir, entry.name);
     const destPath = join(targetSkillsDir, entry.name);
-    await copyDirPreserving(srcPath, destPath);
+    await copyDir(srcPath, destPath, { ignoreFilter: createCommonIgnoreFilter() });
     copiedCount += 1;
   }
 

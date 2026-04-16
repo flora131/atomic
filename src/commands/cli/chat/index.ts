@@ -17,6 +17,8 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { mkdir, writeFile, rm } from "node:fs/promises";
 import { AGENT_CONFIG, type AgentKey } from "../../../services/config/index.ts";
+import { getProviderOverrides } from "../../../services/config/atomic-config.ts";
+import { ensureProjectSetup } from "../init/index.ts";
 import { COLORS } from "../../../theme/colors.ts";
 import { isCommandInstalled } from "../../../services/system/detect.ts";
 import {
@@ -66,12 +68,21 @@ export function getAgentDisplayName(agentType: AgentType): string {
 /**
  * Build the argv array for spawning the agent CLI.
  *
- * Starts with the agent's default chat_flags, then appends any
- * extra args the user passed after `-a <agent>`.
+ * Starts with the agent's default chat_flags (or replaces them entirely
+ * when the user sets `chatFlags` in `.atomic/settings.json`), then
+ * appends any extra args the user passed after `-a <agent>`.
  */
-export function buildAgentArgs(agentType: AgentType, passthroughArgs: string[] = []): string[] {
+export async function buildAgentArgs(
+  agentType: AgentType,
+  passthroughArgs: string[] = [],
+  projectRoot: string = process.cwd(),
+): Promise<string[]> {
   const config = AGENT_CONFIG[agentType];
-  return [...config.chat_flags, ...passthroughArgs];
+  const overrides = await getProviderOverrides(agentType, projectRoot);
+
+  const flags = overrides.chatFlags ?? [...config.chat_flags];
+
+  return [...flags, ...passthroughArgs];
 }
 
 function generateChatId(): string {
@@ -172,10 +183,14 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
 
   await ensureAtomicGlobalAgentConfigs(configRoot);
 
+  // ── Preflight: project setup (onboarding files, skills, trusted workspace) ──
+  await ensureProjectSetup(agentType, projectRoot);
+
   // ── Build argv ──
-  const args = buildAgentArgs(agentType, passthroughArgs);
+  const args = await buildAgentArgs(agentType, passthroughArgs, projectRoot);
   const cmd = [config.cmd, ...args];
-  const envVars = config.env_vars;
+  const overrides = await getProviderOverrides(agentType, projectRoot);
+  const envVars = { ...config.env_vars, ...overrides.envVars };
 
   // ── No TTY: tmux attach requires a real terminal ──
   if (!process.stdin.isTTY) {

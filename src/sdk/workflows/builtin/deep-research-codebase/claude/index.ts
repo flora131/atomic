@@ -17,11 +17,14 @@
  *                     │
  *                     ▼
  *   ┌──────────────────────────────────────────────────┐
- *   │  explorer-1   explorer-2   ...   explorer-N      │   (Promise.all)
+ *   │  explorer-1   explorer-2   ...   explorer-N      │   (Promise.all, headless)
  *   └──────────────────────────────────────────────────┘
  *                     │
  *                     ▼
  *                aggregator
+ *
+ * Explorers run headless (in-process, no tmux window) — they are transparent
+ * to the graph, so the visible topology is: [scout, history] → aggregator.
  *
  * Stage 1a — codebase-scout
  *   Pure-TypeScript: lists files (git ls-files), counts LOC (batched wc -l),
@@ -211,9 +214,10 @@ export default defineWorkflow({
     const scoutOverview = (await ctx.transcript(scout)).content;
     const historyOverview = (await ctx.transcript(history)).content;
 
-    // ── Stage 2: parallel explorers ────────────────────────────────────────
-    // Each explorer is a separate tmux pane / Claude session, running
-    // concurrently via Promise.all. Each one receives:
+    // ── Stage 2: parallel headless explorers ─────────────────────────────────
+    // Each explorer runs headless (in-process, no tmux pane) via Promise.all.
+    // They are invisible in the workflow graph but tracked by the background
+    // task counter in the statusline. Each one receives:
     //   - the original research question (top + bottom of prompt)
     //   - the scout's architectural overview
     //   - its OWN partition (never the full file list)
@@ -232,6 +236,7 @@ export default defineWorkflow({
         return ctx.stage(
           {
             name: `explorer-${i}`,
+            headless: true,
             description: `Explore ${partition
               .map((u) => u.path)
               .join(

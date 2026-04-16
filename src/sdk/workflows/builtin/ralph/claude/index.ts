@@ -7,15 +7,18 @@
  *   - {@link MAX_LOOPS} iterations have completed, OR
  *   - Two parallel reviewer passes both return zero findings.
  *
- * The reviewer stages use the Claude Agent SDK's structured output
- * (`outputFormat`) to guarantee the review result matches the
- * {@link ReviewResultSchema} — no manual JSON parsing required.
+ * The reviewer stages run the `reviewer` sub-agent in a visible TUI via the
+ * `--agent reviewer` chatFlag, then parse the JSON review out of the
+ * assistant text with {@link parseReviewResult}. The prompt enumerates the
+ * {@link ReviewResultSchema} fields so the model emits matching JSON. We
+ * deliberately avoid invoking the Claude Agent SDK's `query()` from inside a
+ * non-headless stage — that would spawn a TUI pane that goes unused while
+ * the SDK runs in-process (see workflow-creator skill, failure-modes F17).
  *
  * Run: atomic workflow -n ralph -a claude "<your spec>"
  */
 
 import { defineWorkflow, extractAssistantText } from "../../../index.ts";
-import { query as claudeSdkQuery } from "@anthropic-ai/claude-agent-sdk";
 
 import {
   buildPlannerPrompt,
@@ -24,10 +27,8 @@ import {
   buildReviewPrompt,
   buildDebuggerReportPrompt,
   extractMarkdownBlock,
-  filterActionable,
+  parseReviewResult,
   mergeReviewResults,
-  REVIEW_RESULT_JSON_SCHEMA,
-  type ReviewResult,
   type StructuredReviewResult,
 } from "../helpers/prompts.ts";
 import { hasActionableFindings } from "../helpers/review.ts";
@@ -41,41 +42,13 @@ const MAX_LOOPS = 10;
 // timeout is needed.
 
 /**
- * Run the Claude Agent SDK's `query()` with structured output and collect
- * the result. Returns a {@link StructuredReviewResult} with the SDK-validated
- * structured output (when available) and the raw text fallback.
+ * Extract a {@link StructuredReviewResult} from the reviewer TUI's assistant
+ * text. {@link parseReviewResult} tolerates surrounding prose and fenced
+ * code blocks; the prompt instructs the model to emit JSON matching
+ * {@link ReviewResultSchema}.
  */
-async function queryWithStructuredOutput(
-  prompt: string,
-): Promise<StructuredReviewResult> {
-  let structured: ReviewResult | null = null;
-  let raw = "";
-
-  for await (const msg of claudeSdkQuery({
-    prompt,
-    options: {
-      outputFormat: {
-        type: "json_schema",
-        schema: REVIEW_RESULT_JSON_SCHEMA,
-      },
-    },
-  })) {
-    if (msg.type === "result") {
-      raw = String((msg as Record<string, unknown>).result ?? "");
-      if (
-        msg.subtype === "success" &&
-        (msg as Record<string, unknown>).structured_output
-      ) {
-        structured = (msg as Record<string, unknown>)
-          .structured_output as ReviewResult;
-      }
-    }
-  }
-
-  return {
-    structured: structured ? filterActionable(structured) : null,
-    raw,
-  };
+function extractReview(rawText: string): StructuredReviewResult {
+  return { structured: parseReviewResult(rawText), raw: rawText };
 }
 
 export default defineWorkflow({
@@ -206,17 +179,34 @@ export default defineWorkflow({
         discoveryContext,
       });
 
+      const reviewerChatFlags = [
+        "--agent",
+        "reviewer",
+        "--allow-dangerously-skip-permissions",
+        "--dangerously-skip-permissions",
+      ];
+
       const [reviewA, reviewB] = await Promise.all([
-        ctx.stage({ name: `reviewer-${iteration}-a` }, {}, {}, async (s) => {
-          const result = await queryWithStructuredOutput(reviewPrompt);
-          s.save(s.sessionId);
-          return result;
-        }),
-        ctx.stage({ name: `reviewer-${iteration}-b` }, {}, {}, async (s) => {
-          const result = await queryWithStructuredOutput(reviewPrompt);
-          s.save(s.sessionId);
-          return result;
-        }),
+        ctx.stage(
+          { name: `reviewer-${iteration}-a` },
+          { chatFlags: reviewerChatFlags },
+          {},
+          async (s) => {
+            const result = await s.session.query(reviewPrompt);
+            s.save(s.sessionId);
+            return extractReview(extractAssistantText(result, 0));
+          },
+        ),
+        ctx.stage(
+          { name: `reviewer-${iteration}-b` },
+          { chatFlags: reviewerChatFlags },
+          {},
+          async (s) => {
+            const result = await s.session.query(reviewPrompt);
+            s.save(s.sessionId);
+            return extractReview(extractAssistantText(result, 0));
+          },
+        ),
       ]);
 
       const merged = mergeReviewResults(reviewA.result, reviewB.result);

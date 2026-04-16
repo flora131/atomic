@@ -18,11 +18,14 @@
  *                     │
  *                     ▼
  *   ┌──────────────────────────────────────────────────┐
- *   │  explorer-1   explorer-2   ...   explorer-N      │   (Promise.all)
+ *   │  explorer-1   explorer-2   ...   explorer-N      │   (Promise.all, headless)
  *   └──────────────────────────────────────────────────┘
  *                     │
  *                     ▼
  *                aggregator
+ *
+ * Explorers run headless (in-process, no tmux window) — they are transparent
+ * to the graph, so the visible topology is: [scout, history] → aggregator.
  *
  * Copilot-specific concerns baked in:
  *
@@ -177,12 +180,13 @@ export default defineWorkflow({
     const scoutOverview = (await ctx.transcript(scout)).content;
     const historyOverview = (await ctx.transcript(history)).content;
 
-    // ── Stage 2: parallel explorers ────────────────────────────────────────
-    // Each explorer is a separate Copilot session, running concurrently via
-    // Promise.all. Because the session is fresh (F5), every piece of context
-    // it needs — question, architectural orientation, historical context,
-    // partition assignment, scratch path — is injected into the first prompt
-    // via buildExplorerPromptGeneric.
+    // ── Stage 2: parallel headless explorers ─────────────────────────────────
+    // Each explorer runs headless (in-process, no tmux pane) via Promise.all.
+    // They are invisible in the workflow graph but tracked by the background
+    // task counter in the statusline. Because each session is fresh (F5),
+    // every piece of context it needs — question, architectural orientation,
+    // historical context, partition assignment, scratch path — is injected
+    // into the first prompt via buildExplorerPromptGeneric.
     const explorerHandles = await Promise.all(
       partitions.map((partition, idx) => {
         const i = idx + 1;
@@ -190,6 +194,7 @@ export default defineWorkflow({
         return ctx.stage(
           {
             name: `explorer-${i}`,
+            headless: true,
             description: `Explore ${partition
               .map((u) => u.path)
               .join(", ")} (${partition.reduce((s, u) => s + u.fileCount, 0)} files)`,

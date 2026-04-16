@@ -1,7 +1,7 @@
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { AGENT_CONFIG, type AgentKey } from "../../../services/config/index.ts";
-import { copyFile, pathExists, ensureDir } from "../../../services/system/copy.ts";
-import { mergeJsonFile } from "../../../lib/merge.ts";
+import { pathExists } from "../../../services/system/copy.ts";
+import { syncJsonFile } from "../../../lib/merge.ts";
 
 export async function applyManagedOnboardingFiles(
   agentKey: AgentKey,
@@ -17,13 +17,7 @@ export async function applyManagedOnboardingFiles(
     }
 
     const destinationPath = join(projectRoot, managedFile.destination);
-    await ensureDir(dirname(destinationPath));
-
-    if (managedFile.merge && (await pathExists(destinationPath))) {
-      await mergeJsonFile(sourcePath, destinationPath);
-    } else {
-      await copyFile(sourcePath, destinationPath);
-    }
+    await syncJsonFile(sourcePath, destinationPath, managedFile.merge);
   }
 }
 

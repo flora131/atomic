@@ -2,7 +2,8 @@
  * Utilities for merging JSON configuration files
  */
 
-import { resolve } from "node:path";
+import { resolve, dirname } from "node:path";
+import { ensureDir, pathExists, copyFile } from "../services/system/copy.ts";
 
 type McpConfig = Record<string, unknown>;
 
@@ -48,4 +49,30 @@ export async function mergeJsonFile(
   }
 
   await Bun.write(destPath, JSON.stringify(mergedConfig, null, 2) + "\n");
+}
+
+/**
+ * Sync a JSON file from source to destination.
+ *
+ * - Creates the destination's parent directory if needed
+ * - When the destination exists and `merge` is true (the default),
+ *   merges via {@link mergeJsonFile} (source keys win, server maps
+ *   are merged individually)
+ * - Otherwise copies the source as-is
+ *
+ * This is the single entry-point for the merge-or-copy pattern used
+ * by both project-level onboarding and global config sync.
+ */
+export async function syncJsonFile(
+  srcPath: string,
+  destPath: string,
+  merge: boolean = true,
+): Promise<void> {
+  await ensureDir(dirname(destPath));
+
+  if (merge && (await pathExists(destPath))) {
+    await mergeJsonFile(srcPath, destPath);
+  } else {
+    await copyFile(srcPath, destPath);
+  }
 }

@@ -5,6 +5,7 @@
 import { readdir, mkdir, stat, readFile } from "node:fs/promises";
 import { mkdirSync } from "node:fs";
 import { join, extname, relative, resolve } from "node:path";
+import type { Ignore } from "ignore";
 import { getOppositeScriptExtension } from "./detect.ts";
 import {
   assertPathWithinRoot,
@@ -77,6 +78,8 @@ export function isPathSafe(basePath: string, targetPath: string): boolean {
 interface CopyOptions {
   /** Paths to exclude (relative to source root or base names) */
   exclude?: string[];
+  /** Gitignore-style filter for common junk patterns (via the `ignore` package) */
+  ignoreFilter?: Ignore;
   /** Whether to skip scripts for the opposite platform */
   skipOppositeScripts?: boolean;
 }
@@ -158,20 +161,28 @@ async function copySymlinkAsFileWithOverwriteOption(
  * Check if a path should be excluded based on exclusion rules.
  * Uses normalized paths (forward slashes) to ensure consistent matching
  * on both Windows and Unix systems.
+ *
+ * When an {@link Ignore} filter is provided, gitignore-style glob patterns
+ * are evaluated first so common junk files (.DS_Store, node_modules, etc.)
+ * are filtered automatically without polluting the explicit `exclude` list.
  */
 export function shouldExclude(
   relativePath: string,
   name: string,
-  exclude: string[]
+  exclude: string[],
+  ignoreFilter?: Ignore,
 ): boolean {
+  const normalizedPath = normalizePath(relativePath);
+
+  // Gitignore-style patterns take precedence
+  if (ignoreFilter?.ignores(normalizedPath)) {
+    return true;
+  }
+
   // Check if the name matches any exclusion
   if (exclude.includes(name)) {
     return true;
   }
-
-  // Normalize the relative path for cross-platform comparison
-  // This ensures Windows backslash paths match forward-slash exclusion patterns
-  const normalizedPath = normalizePath(relativePath);
 
   // Check if the relative path starts with any exclusion
   for (const ex of exclude) {
@@ -205,7 +216,7 @@ async function copyDirInternal(
   overwriteExisting: boolean = true,
 ): Promise<void> {
   try {
-    const { exclude = [], skipOppositeScripts = true } = options;
+    const { exclude = [], ignoreFilter, skipOppositeScripts = true } = options;
     const root = rootSrc ?? src;
     const destinationRoot = rootDest ?? dest;
 
@@ -245,7 +256,7 @@ async function copyDirInternal(
       }
 
       // Check if this path should be excluded
-      if (shouldExclude(relativePath, entry.name, exclude)) {
+      if (shouldExclude(relativePath, entry.name, exclude, ignoreFilter)) {
         continue;
       }
 

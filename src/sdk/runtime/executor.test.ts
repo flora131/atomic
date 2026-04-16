@@ -4,6 +4,8 @@ import {
   hasContent,
   escBash,
   escPwsh,
+  watchCopilotSessionForHIL,
+  type CopilotHILSessionSurface,
 } from "./executor.ts";
 import type { SavedMessage } from "../types.ts";
 import type { SessionEvent } from "@github/copilot-sdk";
@@ -378,5 +380,147 @@ describe("escPwsh", () => {
 
   test("handles combined special characters", () => {
     expect(escPwsh('$`"\0')).toBe('`$```"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// watchCopilotSessionForHIL — event-driven HIL detection via tool.execution_*
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal mock of the Copilot session surface that records handlers by event
+ * type and lets tests dispatch synthetic events.  Mirrors the structural
+ * `on()` contract of `CopilotHILSessionSurface`.
+ */
+function makeMockCopilotSession(): CopilotHILSessionSurface & {
+  dispatch: (type: string, data: unknown) => void;
+  handlerCount: (type: string) => number;
+} {
+  const handlers = new Map<string, Set<(event: { data?: unknown }) => void>>();
+  return {
+    on(eventType, handler) {
+      let set = handlers.get(eventType);
+      if (!set) {
+        set = new Set();
+        handlers.set(eventType, set);
+      }
+      set.add(handler);
+      return () => {
+        set!.delete(handler);
+      };
+    },
+    dispatch(type, data) {
+      const set = handlers.get(type);
+      if (set) for (const h of set) h({ data });
+    },
+    handlerCount(type) {
+      return handlers.get(type)?.size ?? 0;
+    },
+  };
+}
+
+describe("watchCopilotSessionForHIL", () => {
+  test("fires onHIL(true) on ask_user start and onHIL(false) on matching complete", () => {
+    const session = makeMockCopilotSession();
+    const calls: boolean[] = [];
+    const unsubscribe = watchCopilotSessionForHIL(session, (w) =>
+      calls.push(w),
+    );
+
+    session.dispatch("tool.execution_start", {
+      toolName: "ask_user",
+      toolCallId: "tc-1",
+    });
+    expect(calls).toEqual([true]);
+
+    session.dispatch("tool.execution_complete", { toolCallId: "tc-1" });
+    expect(calls).toEqual([true, false]);
+
+    unsubscribe();
+  });
+
+  test("ignores tool.execution_start for non-ask_user tools", () => {
+    const session = makeMockCopilotSession();
+    const calls: boolean[] = [];
+    const unsubscribe = watchCopilotSessionForHIL(session, (w) =>
+      calls.push(w),
+    );
+
+    session.dispatch("tool.execution_start", {
+      toolName: "edit_file",
+      toolCallId: "tc-2",
+    });
+    session.dispatch("tool.execution_complete", { toolCallId: "tc-2" });
+    expect(calls).toEqual([]);
+
+    unsubscribe();
+  });
+
+  test("ignores complete events for toolCallIds it did not mark active", () => {
+    const session = makeMockCopilotSession();
+    const calls: boolean[] = [];
+    const unsubscribe = watchCopilotSessionForHIL(session, (w) =>
+      calls.push(w),
+    );
+
+    // complete arrives for a tool we never started (e.g. another tool's id)
+    session.dispatch("tool.execution_complete", { toolCallId: "tc-unknown" });
+    expect(calls).toEqual([]);
+
+    unsubscribe();
+  });
+
+  test("only fires onHIL(false) after the last overlapping ask_user completes", () => {
+    const session = makeMockCopilotSession();
+    const calls: boolean[] = [];
+    const unsubscribe = watchCopilotSessionForHIL(session, (w) =>
+      calls.push(w),
+    );
+
+    session.dispatch("tool.execution_start", {
+      toolName: "ask_user",
+      toolCallId: "tc-a",
+    });
+    session.dispatch("tool.execution_start", {
+      toolName: "ask_user",
+      toolCallId: "tc-b",
+    });
+    // onHIL(true) fires exactly once on the first start
+    expect(calls).toEqual([true]);
+
+    session.dispatch("tool.execution_complete", { toolCallId: "tc-a" });
+    // still one active — must not fire onHIL(false) yet
+    expect(calls).toEqual([true]);
+
+    session.dispatch("tool.execution_complete", { toolCallId: "tc-b" });
+    expect(calls).toEqual([true, false]);
+
+    unsubscribe();
+  });
+
+  test("skips ask_user start events that are missing a toolCallId", () => {
+    const session = makeMockCopilotSession();
+    const calls: boolean[] = [];
+    const unsubscribe = watchCopilotSessionForHIL(session, (w) =>
+      calls.push(w),
+    );
+
+    session.dispatch("tool.execution_start", { toolName: "ask_user" });
+    expect(calls).toEqual([]);
+
+    unsubscribe();
+  });
+
+  test("unsubscribe removes both listeners", () => {
+    const session = makeMockCopilotSession();
+    const unsubscribe = watchCopilotSessionForHIL(session, () => {});
+
+    expect(session.handlerCount("tool.execution_start")).toBe(1);
+    expect(session.handlerCount("tool.execution_complete")).toBe(1);
+
+    unsubscribe();
+
+    expect(session.handlerCount("tool.execution_start")).toBe(0);
+    expect(session.handlerCount("tool.execution_complete")).toBe(0);
   });
 });

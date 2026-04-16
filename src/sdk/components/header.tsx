@@ -19,7 +19,7 @@ export function Header() {
   const storeVersion = useStoreVersion(store);
 
   const counts = useMemo(() => {
-    const c: Record<SessionStatus, number> = { complete: 0, running: 0, pending: 0, error: 0 };
+    const c: Record<SessionStatus, number> = { complete: 0, running: 0, pending: 0, error: 0, awaiting_input: 0 };
     for (const s of store.sessions) c[s.status]++;
     return c;
   }, [storeVersion]);
@@ -50,6 +50,7 @@ export function Header() {
       <box flexGrow={1} justifyContent="flex-end" flexDirection="row" gap={2}>
         <CountBadge color={theme.success} icon={"\u2713"} count={counts.complete} />
         <CountBadge color={theme.warning} icon={"\u25CF"} count={counts.running} />
+        <CountBadge color={theme.info} icon={"?"} count={counts.awaiting_input} />
         <CountBadge color={theme.textDim} icon={"\u25CB"} count={counts.pending} />
         <CountBadge color={theme.error} icon={"\u2717"} count={counts.error} />
       </box>

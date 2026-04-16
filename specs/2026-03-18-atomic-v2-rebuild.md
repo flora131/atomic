@@ -660,7 +660,7 @@ Workflow-specific state (task lists, progress tracking) is managed via local var
 
 **Current skill inventory** (~12 skills mirrored across providers):
 - `create-spec`, `research-codebase`, `testing-anti-patterns`, `init`, `explain-code`
-- `frontend-design`, `prompt-engineer`, `playwright-cli`
+- `impeccable`, `prompt-engineer`, `playwright-cli`
 - `gh-commit`, `gh-create-pr`, `sl-commit`, `sl-submit-diff`
 
 #### 5.5.2 Ralph as an Async Function
@@ -1082,18 +1082,18 @@ function getVisibleToolCalls(toolCalls: ToolCallEntry[]) {
 
 **State flow**: `agent.start` → creates entry in `foregroundAgents` or `backgroundAgents` map → `tool.start`/`tool.complete` events append to the agent's `toolCalls` array → `agent.complete` sets status to `"completed"`. The `AgentPart` subscribes to the agent's state via selector and re-renders on tool call changes.
 
-> **Implementation note**: All UI components in §5.6 — including sub-agent trees, dialogs, footer, and part renderers — should follow the `frontend-design` skill guidelines for visual design decisions (typography, color, spacing, motion). Reference that skill when implementing any frontend element to ensure production-grade, distinctive rendering that avoids generic aesthetics.
+> **Implementation note**: All UI components in §5.6 — including sub-agent trees, dialogs, footer, and part renderers — should follow the `impeccable` skill guidelines for visual design decisions (typography, color, spacing, motion). Reference that skill when implementing any frontend element to ensure production-grade, distinctive rendering that avoids generic aesthetics.
 
 #### 5.6.10 UI Design Reference
 
-All frontend rendering decisions — component styling, color palette, typography, motion/animation, spatial composition — must follow the **`frontend-design` skill** (see `~/.claude/skills/frontend-design/`). This skill enforces:
+All frontend rendering decisions — component styling, color palette, typography, motion/animation, spatial composition — must follow the **`impeccable` skill** (see `.agents/skills/impeccable/`). This skill enforces:
 
 - **Distinctive aesthetics**: No generic AI-slop defaults (Inter, Roboto, purple gradients). Commit to a bold, cohesive visual direction.
 - **Catppuccin-aligned palette**: The existing gradient system (§5.6.1) uses Catppuccin color stops; extend this to status indicators, tree connectors, and dialog chrome.
 - **Motion with purpose**: Use animation for high-impact moments (stream start, agent spawn, task completion) rather than scattered micro-interactions.
 - **TUI-appropriate density**: Terminal UIs demand efficient use of space. Tree connectors (`├─`, `└─`, `│`, `╰`) and status icons (`●`, `✓`) are preferred over padding-heavy layouts.
 
-When implementing any component from §5.6, invoke the `frontend-design` skill for design-quality guidance before writing rendering code.
+When implementing any component from §5.6, invoke the `impeccable` skill for design-quality guidance before writing rendering code.
 
 ### 5.7 Services (Spec 06)
 

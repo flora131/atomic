@@ -99,7 +99,9 @@ Claude maintains conversation context across calls within the same pane. Call `s
 
 ### Advanced: Claude Agent SDK `query()` API
 
-For programmatic control beyond tmux automation, the Claude Agent SDK provides `query()`:
+For programmatic control beyond tmux automation, the Claude Agent SDK provides `query()`. **Do not call it from inside a non-headless `ctx.stage()`** — that spawns a TUI in a tmux pane that goes unused while the SDK runs in-process (see `failure-modes.md` §F17). Either set `headless: true` on the stage and pass SDK options through `s.session.query(prompt, options)` (the headless wrapper forwards them to `query()`), or use the interactive TUI route below with `chatFlags: ["--agent", "<name>", ...]` plus `s.session.query(prompt)`.
+
+The example below is reference for the SDK option surface — in real workflow code, prefer `s.session.query()` so the runtime, not your callback, decides which transport to use:
 
 ```ts
 import { query } from "@anthropic-ai/claude-agent-sdk";

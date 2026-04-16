@@ -46,6 +46,7 @@ Silent failures are catalogued first below. Loud failures are grouped at the end
 | [F14](#f14-forgetting-to-await-ctxstage) | Forgetting to `await` `ctx.stage()` | all | silent |
 | [F15](#f15-using-a-pending-sessionhandle-before-completion) | Using a pending `SessionHandle` before completion | all | silent |
 | [F16](#f16-headless-stage-errors-are-invisible-in-the-graph) | Headless stage errors are invisible in the graph | all | silent |
+| [F17](#f17-claude-importing-sdk-query-inside-a-non-headless-stage) | Claude: importing the SDK `query()` inside a non-headless stage (anti-pattern) | Claude | silent |
 
 ---
 
@@ -713,6 +714,144 @@ full error for each failed headless stage.
 
 ---
 
+## F17. Claude: importing the SDK `query()` inside a non-headless stage
+
+**Symptom.** A reviewer / extractor / structured-output stage shows up in
+the workflow graph as a tmux pane, but the pane sits idle on the Claude
+welcome screen for the entire stage duration. The stage still produces a
+result — but the visible session never moved. CPU and token cost double:
+two Claude processes ran, one in the pane (idle) and one in-process (the
+SDK call that actually did the work).
+
+**Root cause.** The stage was registered without `headless: true`, so the
+runtime spawned an interactive Claude TUI in a tmux pane and bound
+`s.session` to it. The callback ignored that and called
+`query()` from `@anthropic-ai/claude-agent-sdk` directly:
+
+```ts
+import { query } from "@anthropic-ai/claude-agent-sdk";
+// ...
+ctx.stage({ name: "review" }, {}, {}, async (s) => {
+  for await (const msg of query({ prompt, options: { outputFormat: ... } })) { /* ... */ }
+});
+```
+
+That import bypasses `s.session` entirely. The runtime cannot route the
+SDK call through the TUI it just started, so:
+
+1. The visible pane never receives a prompt — the user sees a blank Claude
+   session in the graph.
+2. A second Claude process spins up in the orchestrator process to service
+   the SDK call. Both processes count against rate limits and token spend.
+3. Idle detection on the pane never fires because no prompt was ever sent;
+   the runtime relies on session-state events that won't arrive, and stage
+   completion happens only because the callback returned (not because the
+   pane finished work).
+
+The runtime exposes exactly two routes for an SDK feature:
+
+| You want to use… | Stage shape | Code in callback |
+|---|---|---|
+| `outputFormat`, custom `agents`, `maxBudgetUsd`, etc. **without** a visible pane | `{ headless: true }` | `s.session.query(prompt, sdkOptions)` — wraps `HeadlessClaudeSessionWrapper.query()` which forwards `options` to the SDK |
+| The visible TUI with a sub-agent | omit `headless` and pass `chatFlags: ["--agent", "<name>", ...]` | `s.session.query(prompt)` — sends through tmux send-keys |
+
+The one option that does **not** exist is "visible pane + in-process SDK call".
+That combination is always wrong — pick one route or the other.
+
+**Affected SDKs.** Claude only. Copilot and OpenCode don't expose a
+parallel "import the bare SDK" foot-gun in this codebase.
+
+### ❌ Wrong — visible pane + bypassed-SDK call
+
+```ts
+import { query as claudeSdkQuery } from "@anthropic-ai/claude-agent-sdk";
+
+await ctx.stage({ name: "review" }, {}, {}, async (s) => {
+  // Visible TUI was started, but we're ignoring it.
+  for await (const msg of claudeSdkQuery({
+    prompt: reviewPrompt,
+    options: {
+      outputFormat: { type: "json_schema", schema: REVIEW_SCHEMA },
+    },
+  })) {
+    if (msg.type === "result") { /* ... */ }
+  }
+  s.save(s.sessionId);
+});
+```
+
+### ✅ Right (a) — visible TUI with sub-agent + chatFlags
+
+When you want the user to watch the review happen, run the sub-agent in
+the pane via `--agent` and parse JSON out of the assistant text. The
+prompt should enumerate the schema fields so the model emits matching
+JSON; a tolerant parser (last-fenced-block + last-balanced-object
+fallback, F8) handles any prose the model adds:
+
+```ts
+await ctx.stage(
+  { name: "review" },
+  { chatFlags: ["--agent", "reviewer", "--allow-dangerously-skip-permissions", "--dangerously-skip-permissions"] },
+  {},
+  async (s) => {
+    const messages = await s.session.query(reviewPrompt);
+    s.save(s.sessionId);
+    return parseReviewResult(extractAssistantText(messages, 0));
+  },
+);
+```
+
+This is the pattern used by `src/sdk/workflows/builtin/ralph/claude/index.ts`
+for its planner, orchestrator, reviewer, and debugger stages.
+
+### ✅ Right (b) — headless stage with SDK options via `s.session.query()`
+
+When you don't need the pane (e.g. background data gathering), set
+`headless: true` and pass SDK options as the second argument to
+`s.session.query()`. The runtime uses `HeadlessClaudeSessionWrapper`,
+which calls the SDK's `query()` in-process and exposes the full options
+surface (`agent`, `outputFormat`, `permissionMode`, `maxBudgetUsd`, etc.):
+
+```ts
+await ctx.stage(
+  { name: "review", headless: true },
+  {}, {},
+  async (s) => {
+    const messages = await s.session.query(reviewPrompt, {
+      agent: "reviewer",
+      permissionMode: "bypassPermissions",
+      allowDangerouslySkipPermissions: true,
+    });
+    s.save(s.sessionId);
+    return extractAssistantText(messages, 0);
+  },
+);
+```
+
+> **Note on `--json-schema`.** The CLI's `--json-schema` flag requires
+> `-p` (print mode) and therefore can't be passed via `chatFlags` to the
+> interactive TUI. If you need SDK-validated structured output, use route
+> (b) — set `headless: true` and pass `outputFormat: { type: "json_schema", schema }`
+> in the `s.session.query()` options. Pair (a)'s visible TUI with a
+> tolerant JSON parser instead. (Note: `s.session.query()`'s headless
+> wrapper currently returns `SessionMessage[]` and discards the SDK
+> result event's `structured_output` field — for now, parse JSON out of
+> the assistant text either way.)
+
+**Detection.**
+1. Grep your workflow for `from "@anthropic-ai/claude-agent-sdk"` —
+   `query`, `tool`, `createSdkMcpServer` and similar imports inside a
+   `.run()` callback are the smell. Workflow code should import from
+   `@bastani/atomic/workflows` and access the SDK exclusively through
+   `s.client` and `s.session`.
+2. Watch the workflow run. If a visible pane shows the Claude welcome
+   screen for the entire duration of a stage and never receives a prompt,
+   you have F17.
+3. Cost monitoring. F17 roughly doubles the Claude process count — if
+   stage spend looks 2× a single run, audit imports.
+
+---
+
 ## Design checklist
 
 Before shipping a multi-session workflow, walk the list:
@@ -729,3 +868,4 @@ Before shipping a multi-session workflow, walk the list:
 - [ ] `SessionHandle` values are only used after the promise resolves (F15)
 - [ ] If provider-level resume/fork is used at all, it stays within the same agent role (F12)
 - [ ] Headless stage callbacks include descriptive error context so failures can be diagnosed without a graph node (F16)
+- [ ] Claude stages never import `query` (or other entry points) from `@anthropic-ai/claude-agent-sdk` directly — go through `s.session.query()` so the runtime routes to the TUI (interactive) or the SDK (headless) consistently (F17)

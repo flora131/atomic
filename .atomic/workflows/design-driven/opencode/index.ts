@@ -1,6 +1,12 @@
 /**
- * Design-Driven workflow for Claude Code — a generalized "Coding Backwards"
+ * Design-Driven workflow for OpenCode — a generalized "Coding Backwards"
  * frontend implementation pipeline.
+ *
+ * Mirrors the Claude variant but adapted for the OpenCode SDK's session
+ * model: `client.session.prompt({ sessionID, parts, agent?, format? })`,
+ * native `format: { type: "json_schema" }` structured output, and inline
+ * `agent` selection on each prompt call (rather than Claude's `@agent`
+ * syntax or Copilot's per-stage agent config).
  *
  * Works with any design source: live websites, screenshots, Figma references,
  * written design briefs, or aesthetic descriptions. The agent makes judgment
@@ -9,18 +15,21 @@
  *
  * Stages:
  *   1. Design Discovery     — Analyze whatever references are provided
- *   2. Design Critique       — Evaluate and produce transformation requirements
- *   3. Architecture Plan     — "Coding Backwards" Step 1: Write the DESIGN.md
- *   4. Scaffold              — "Coding Backwards" Step 2: Create skeleton files
- *   5. Progressive Build     — "Coding Backwards" Step 3: Iterative implementation (TODO: add a --interactive flag that shows the user the playwright views if they want to see how each component is being built))
- *   6. Visual Analysis        — Ralph-style bounded loop: visual analysis + dual code reviewers + debugger
- *   7. Documentation         — Code comments and final screenshot 
+ *   2. Design Critique      — Evaluate and produce transformation requirements
+ *   3. Architecture Plan    — "Coding Backwards" Step 1: Write the DESIGN.md
+ *   4. Scaffold             — "Coding Backwards" Step 2: Create skeleton files
+ *   5. Progressive Build    — "Coding Backwards" Step 3: Iterative implementation
+ *                              (TODO: add a --interactive flag that shows the
+ *                               user the playwright views if they want to see
+ *                               how each component is being built)
+ *   6. Visual Analysis      — Ralph-style bounded loop: visual analysis + dual
+ *                              code reviewers + debugger
+ *   7. Documentation        — Code comments and final screenshot
  *
- * Run: atomic workflow -n coding-backwards-design -a claude "<your spec>"
+ * Run: atomic workflow -n coding-backwards-design -a opencode "<your spec>"
  */
 
 import { defineWorkflow } from "@bastani/atomic/workflows";
-import { query as claudeSdkQuery } from "@anthropic-ai/claude-agent-sdk";
 import {
   buildInfraDiscoveryPrompts,
   buildReviewPrompt,
@@ -38,6 +47,9 @@ import { captureBranchChangeset } from "../../../../src/sdk/workflows/builtin/ra
 const MAX_QA_LOOPS = 5;
 
 // ── Component plan structured output for parallel builds ─────────
+// OpenCode accepts raw JSON Schema objects in `format.schema`, so we
+// define the schema as a flat JSON Schema (no `name`/`strict` wrapper
+// like Claude's outputFormat).
 interface ComponentInfo {
   name: string;
   files: string[];
@@ -54,107 +66,70 @@ interface ComponentPlan {
 }
 
 const COMPONENT_PLAN_JSON_SCHEMA = {
-  name: "component_plan",
-  description: "Components organized by implementation priority phase",
-  strict: true,
-  schema: {
-    type: "object",
-    properties: {
-      phases: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            priority: { type: "string" },
-            components: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  name: { type: "string" },
-                  files: {
-                    type: "array",
-                    items: { type: "string" },
-                  },
-                  description: { type: "string" },
+  type: "object",
+  properties: {
+    phases: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          priority: { type: "string" },
+          components: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                name: { type: "string" },
+                files: {
+                  type: "array",
+                  items: { type: "string" },
                 },
-                required: ["name", "files", "description"],
-                additionalProperties: false,
+                description: { type: "string" },
               },
+              required: ["name", "files", "description"],
+              additionalProperties: false,
             },
           },
-          required: ["priority", "components"],
-          additionalProperties: false,
         },
+        required: ["priority", "components"],
+        additionalProperties: false,
       },
     },
-    required: ["phases"],
-    additionalProperties: false,
   },
+  required: ["phases"],
+  additionalProperties: false,
 };
 
-async function queryWithComponentPlan(
-  prompt: string,
-): Promise<ComponentPlan | null> {
-  let structured: ComponentPlan | null = null;
-  for await (const msg of claudeSdkQuery({
-    prompt,
-    options: {
-      outputFormat: {
-        type: "json_schema",
-        schema: COMPONENT_PLAN_JSON_SCHEMA,
-      },
-    },
-  })) {
-    if (msg.type === "result") {
-      if (
-        msg.subtype === "success" &&
-        (msg as Record<string, unknown>).structured_output
-      ) {
-        structured = (msg as Record<string, unknown>)
-          .structured_output as ComponentPlan;
-      }
-    }
+/** Concatenate the text-typed parts of an OpenCode response. */
+function extractResponseText(
+  parts: Array<{ type: string; [key: string]: unknown }>,
+): string {
+  return parts
+    .filter((p) => p.type === "text")
+    .map((p) => (p as { type: string; text: string }).text)
+    .join("\n");
+}
+
+/**
+ * Extract a {@link StructuredReviewResult} from an OpenCode prompt response.
+ * Prefers the SDK's `info.structured_output` field; falls back to raw text.
+ */
+function extractReview(data: {
+  info?: Record<string, unknown>;
+  parts: Array<{ type: string; [key: string]: unknown }>;
+}): StructuredReviewResult {
+  const raw = extractResponseText(data.parts);
+  const structuredOutput = data.info?.structured_output;
+  if (structuredOutput && typeof structuredOutput === "object") {
+    return {
+      structured: filterActionable(structuredOutput as ReviewResult),
+      raw,
+    };
   }
-  return structured;
+  return { structured: null, raw };
 }
 
-async function queryWithStructuredOutput(
-  prompt: string,
-): Promise<StructuredReviewResult> {
-  let structured: ReviewResult | null = null;
-  let raw = "";
-  for await (const msg of claudeSdkQuery({
-    prompt,
-    options: {
-      outputFormat: {
-        type: "json_schema",
-        schema: REVIEW_RESULT_JSON_SCHEMA,
-      },
-    },
-  })) {
-    if (msg.type === "result") {
-      raw = String((msg as Record<string, unknown>).output ?? "");
-      if (
-        msg.subtype === "success" &&
-        (msg as Record<string, unknown>).structured_output
-      ) {
-        structured = (msg as Record<string, unknown>)
-          .structured_output as ReviewResult;
-      }
-    }
-  }
-  return {
-    structured: structured ? filterActionable(structured) : null,
-    raw,
-  };
-}
-
-function asAgentCall(agentName: string, prompt: string): string {
-  return `@"${agentName} (agent)" ${prompt}`;
-}
-
-export default defineWorkflow<"claude">({
+export default defineWorkflow<"opencode">({
   name: "coding-backwards-design",
   description:
     "Design-driven frontend implementation using the Coding Backwards methodology: design discovery, critique, readme-first architecture, scaffolding, progressive build, and visual QA with a Ralph-style review loop.",
@@ -206,10 +181,14 @@ export default defineWorkflow<"claude">({
           "Analyze design references and extract all content, structure, and visual details into a structured design brief.",
       },
       {},
-      {},
+      { title: "design-discovery" },
       async (s) => {
-        await s.session.query(
-          `You are an expert design analyst. Your job is to produce a COMPLETE design brief by analyzing the provided references.
+        const result = await s.client.session.prompt({
+          sessionID: s.session.id,
+          parts: [
+            {
+              type: "text",
+              text: `You are an expert design analyst. Your job is to produce a COMPLETE design brief by analyzing the provided references.
 
 You have access to the \`/playwright-cli\` skill for browser automation — use it for any live URLs or Figma links below.
 
@@ -270,8 +249,10 @@ CRITICAL RULES:
 - Do NOT invent or fabricate any content. Only record what actually exists in the references.
 - Every image URL must be real and working. If you cannot extract an image URL, note that explicitly.
 - If a reference is inaccessible, document what you can observe and note the gap.`,
-        );
-        s.save(s.sessionId);
+            },
+          ],
+        });
+        s.save(result.data!);
       },
     );
 
@@ -288,11 +269,15 @@ CRITICAL RULES:
           "Critique the design brief against the target specification and produce transformation requirements.",
       },
       {},
-      {},
+      { title: "design-critique" },
       async (s) => {
         const discoveryTranscript = await s.transcript(discovery);
-        await s.session.query(
-          `Read the design brief at ${discoveryTranscript.path}.
+        const result = await s.client.session.prompt({
+          sessionID: s.session.id,
+          parts: [
+            {
+              type: "text",
+              text: `Read the design brief at ${discoveryTranscript.path}.
 
 ## Specification
 
@@ -323,8 +308,10 @@ Your critique must produce CONCRETE transformation requirements:
 5. **Visual Identity**: Specific design tokens (colors, radii, shadows, fonts, transitions) needed.
 
 CRITICAL: If the design involves displaying images or artwork from references, the critique must make clear that ALL such content uses real image URLs/sources, never colored placeholder divs. Real content is the hero — the design must frame and enhance it.`,
-        );
-        s.save(s.sessionId);
+            },
+          ],
+        });
+        s.save(result.data!);
       },
     );
 
@@ -341,12 +328,16 @@ CRITICAL: If the design involves displaying images or artwork from references, t
           "Write the architectural plan (DESIGN.md) as if the project is already finished.",
       },
       {},
-      {},
+      { title: "architecture-plan" },
       async (s) => {
         const discoveryTranscript = await s.transcript(discovery);
         const critiqueTranscript = await s.transcript(critique);
-        await s.session.query(
-          `Read the design brief at ${discoveryTranscript.path} and the critique at ${critiqueTranscript.path}.
+        const result = await s.client.session.prompt({
+          sessionID: s.session.id,
+          parts: [
+            {
+              type: "text",
+              text: `Read the design brief at ${discoveryTranscript.path} and the critique at ${critiqueTranscript.path}.
 
 Do NOT write any application code yet.
 
@@ -388,8 +379,10 @@ The choice of technology, file structure, and architecture is YOURS based on wha
 - A complex app might need a framework with routing
 
 Choose what fits. The README should justify the choice.`,
-        );
-        s.save(s.sessionId);
+            },
+          ],
+        });
+        s.save(result.data!);
       },
     );
 
@@ -406,12 +399,16 @@ Choose what fits. The README should justify the choice.`,
           "Create scaffold files with real content wired in, following the architecture plan.",
       },
       {},
-      {},
+      { title: "scaffold" },
       async (s) => {
         const discoveryTranscript = await s.transcript(discovery);
         const planTranscript = await s.transcript(architecturePlan);
-        await s.session.query(
-          `Read the DESIGN.md referenced in ${planTranscript.path} and the design brief at ${discoveryTranscript.path}.
+        const result = await s.client.session.prompt({
+          sessionID: s.session.id,
+          parts: [
+            {
+              type: "text",
+              text: `Read the DESIGN.md referenced in ${planTranscript.path} and the design brief at ${discoveryTranscript.path}.
 
 Create all the scaffold files as specified in DESIGN.md. This is "Coding Backwards" Step 2: create every file with its structure, real content, and clear TODOs for visual implementation.
 
@@ -431,8 +428,10 @@ After creating all files, verify that:
 - The dev server can start successfully
 - Real content is wired in (no empty image sources, no lorem ipsum where real text exists)
 - The file structure matches DESIGN.md`,
-        );
-        s.save(s.sessionId);
+            },
+          ],
+        });
+        s.save(result.data!);
       },
     );
 
@@ -445,7 +444,6 @@ After creating all files, verify that:
     // correctness before advancing to the next priority level.
     // ──────────────────────────────────────────────────────────────
 
-
     // ── 5a: Extract structured component plan ────────────────────
     const componentPlan = await ctx.stage(
       {
@@ -454,11 +452,15 @@ After creating all files, verify that:
           "Extract structured component build plan from DESIGN.md",
       },
       {},
-      {},
+      { title: "component-plan" },
       async (s) => {
         const scaffoldTranscript = await s.transcript(scaffold);
-        const plan = await queryWithComponentPlan(
-          `Read the DESIGN.md in the project root and the scaffold transcript at ${scaffoldTranscript.path}.
+        const result = await s.client.session.prompt({
+          sessionID: s.session.id,
+          parts: [
+            {
+              type: "text",
+              text: `Read the DESIGN.md in the project root and the scaffold transcript at ${scaffoldTranscript.path}.
 
 Extract a structured implementation plan organized by priority phase (P0, P1, P2, P3).
 
@@ -472,9 +474,22 @@ IMPORTANT:
 - Files listed for one component must NOT overlap with files for another component in the SAME phase. If two components share a file, group them as one component.
 - Foundation work (P0) like design tokens, base styles, and utility classes should be a SINGLE component since they form an interdependent foundation.
 - Order phases strictly: P0, P1, P2, P3.`,
-        );
-        s.save(s.sessionId);
-        return plan;
+            },
+          ],
+          format: {
+            type: "json_schema" as const,
+            schema: COMPONENT_PLAN_JSON_SCHEMA,
+          },
+        });
+        s.save(result.data!);
+
+        const structuredOutput = (
+          result.data!.info as Record<string, unknown> | undefined
+        )?.structured_output;
+        if (structuredOutput && typeof structuredOutput === "object") {
+          return structuredOutput as ComponentPlan;
+        }
+        return null;
       },
     );
 
@@ -497,10 +512,14 @@ IMPORTANT:
               description: `Implement ${component.name} (${phase.priority})`,
             },
             {},
-            {},
+            { title: `build-${phase.priority}-${component.name}` },
             async (s) => {
-              await s.session.query(
-                `Read DESIGN.md and the relevant source files: ${component.files.join(", ")}.
+              const result = await s.client.session.prompt({
+                sessionID: s.session.id,
+                parts: [
+                  {
+                    type: "text",
+                    text: `Read DESIGN.md and the relevant source files: ${component.files.join(", ")}.
 
 Implement the **${component.name}** component for priority phase **${phase.priority}**.
 
@@ -513,8 +532,10 @@ ${component.description}
 - ONLY modify files for this component: ${component.files.join(", ")}. Do NOT modify other files.
 - If images or external content fail to load, investigate the cause (CORS, hotlinking, broken URL). Fix it — never use placeholders.
 - Do NOT start or stop the dev server. A separate verification stage handles that.`,
-              );
-              s.save(s.sessionId);
+                  },
+                ],
+              });
+              s.save(result.data!);
             },
           ),
         ),
@@ -527,13 +548,15 @@ ${component.description}
           description: `Playwright verification of all ${phase.priority} components`,
         },
         {},
-        {},
+        { title: `verify-${phase.priority}` },
         async (s) => {
-          const componentNames = components
-            .map((c) => c.name)
-            .join(", ");
-          await s.session.query(
-            `You have access to the \`/playwright-cli\` skill for browser automation.
+          const componentNames = components.map((c) => c.name).join(", ");
+          const result = await s.client.session.prompt({
+            sessionID: s.session.id,
+            parts: [
+              {
+                type: "text",
+                text: `You have access to the \`/playwright-cli\` skill for browser automation.
 
 Start the dev server: ${devCommand}
 
@@ -587,8 +610,10 @@ After visual verification passes, run anti-pattern detection:
    \`bunx impeccable live stop\`
 
 When finished, STOP the dev server (kill the background shell).`,
-          );
-          s.save(s.sessionId);
+              },
+            ],
+          });
+          s.save(result.data!);
         },
       );
     }
@@ -626,10 +651,14 @@ When finished, STOP the dev server (kill the background shell).`,
             description: `Apply fixes from debugger report (iteration ${iteration})`,
           },
           {},
-          {},
+          { title: `fix-${iteration}` },
           async (s) => {
-            await s.session.query(
-              `You have access to the \`/playwright-cli\` skill for browser automation.
+            const result = await s.client.session.prompt({
+              sessionID: s.session.id,
+              parts: [
+                {
+                  type: "text",
+                  text: `You have access to the \`/playwright-cli\` skill for browser automation.
 
 You have the following debugger report identifying issues to fix:
 
@@ -648,8 +677,10 @@ Fix each issue identified in the debugger report. For each issue:
 After all fixes are applied and verified, STOP the dev server.
 
 CRITICAL: Do NOT introduce new bugs while fixing existing ones. If a fix changes behavior in one area, verify that other areas still work correctly.`,
-            );
-            s.save(s.sessionId);
+                },
+              ],
+            });
+            s.save(result.data!);
           },
         );
       }
@@ -665,40 +696,49 @@ CRITICAL: Do NOT introduce new bugs while fixing existing ones. If a fix changes
           ctx.stage(
             { name: `infra-locate-${iteration}`, headless: true },
             {},
-            {},
+            { title: `infra-locate-${iteration}` },
             async (s) => {
-              const result = await s.session.query(
-                asAgentCall("codebase-locator", discoveryPrompts.locator),
-              );
-              s.save(s.sessionId);
-              return String(result.output ?? "");
+              const result = await s.client.session.prompt({
+                sessionID: s.session.id,
+                parts: [
+                  { type: "text", text: discoveryPrompts.locator },
+                ],
+                agent: "codebase-locator",
+              });
+              s.save(result.data!);
+              return extractResponseText(result.data!.parts);
             },
           ),
           ctx.stage(
             { name: `infra-analyze-${iteration}`, headless: true },
             {},
-            {},
+            { title: `infra-analyze-${iteration}` },
             async (s) => {
-              const result = await s.session.query(
-                asAgentCall("codebase-analyzer", discoveryPrompts.analyzer),
-              );
-              s.save(s.sessionId);
-              return String(result.output ?? "");
+              const result = await s.client.session.prompt({
+                sessionID: s.session.id,
+                parts: [
+                  { type: "text", text: discoveryPrompts.analyzer },
+                ],
+                agent: "codebase-analyzer",
+              });
+              s.save(result.data!);
+              return extractResponseText(result.data!.parts);
             },
           ),
           ctx.stage(
             { name: `infra-patterns-${iteration}`, headless: true },
             {},
-            {},
+            { title: `infra-patterns-${iteration}` },
             async (s) => {
-              const result = await s.session.query(
-                asAgentCall(
-                  "codebase-pattern-finder",
-                  discoveryPrompts.patternFinder,
-                ),
-              );
-              s.save(s.sessionId);
-              return String(result.output ?? "");
+              const result = await s.client.session.prompt({
+                sessionID: s.session.id,
+                parts: [
+                  { type: "text", text: discoveryPrompts.patternFinder },
+                ],
+                agent: "codebase-pattern-finder",
+              });
+              s.save(result.data!);
+              return extractResponseText(result.data!.parts);
             },
           ),
           // ── Visual Analysis ──────────────────────────────────────
@@ -709,10 +749,14 @@ CRITICAL: Do NOT introduce new bugs while fixing existing ones. If a fix changes
           ctx.stage(
             { name: `visual-analysis-${iteration}` },
             {},
-            {},
+            { title: `visual-analysis-${iteration}` },
             async (s) => {
-              const result = await queryWithStructuredOutput(
-                `You are a visual QA analyst. Your job is to verify the rendered frontend against its design specification and produce structured review findings.
+              const result = await s.client.session.prompt({
+                sessionID: s.session.id,
+                parts: [
+                  {
+                    type: "text",
+                    text: `You are a visual QA analyst. Your job is to verify the rendered frontend against its design specification and produce structured review findings.
 
 You have access to the \`/playwright-cli\` skill for browser automation.
 
@@ -788,9 +832,20 @@ Produce your findings as a structured review result. Each finding must include:
 Set overall_correctness to "patch is incorrect" if ANY P0 or P1 finding exists.
 
 When finished, STOP the dev server.`,
+                  },
+                ],
+                format: {
+                  type: "json_schema" as const,
+                  schema: REVIEW_RESULT_JSON_SCHEMA,
+                },
+              });
+              s.save(result.data!);
+              return extractReview(
+                result.data! as {
+                  info?: Record<string, unknown>;
+                  parts: Array<{ type: string; [key: string]: unknown }>;
+                },
               );
-              s.save(s.sessionId);
-              return result;
             },
           ),
         ]);
@@ -827,27 +882,34 @@ When finished, STOP the dev server.`,
           : discoveryContext,
       });
 
+      const reviewStage = async (name: string) =>
+        ctx.stage(
+          { name },
+          {},
+          { title: name },
+          async (s) => {
+            const result = await s.client.session.prompt({
+              sessionID: s.session.id,
+              parts: [{ type: "text", text: reviewPrompt }],
+              agent: "reviewer",
+              format: {
+                type: "json_schema" as const,
+                schema: REVIEW_RESULT_JSON_SCHEMA,
+              },
+            });
+            s.save(result.data!);
+            return extractReview(
+              result.data! as {
+                info?: Record<string, unknown>;
+                parts: Array<{ type: string; [key: string]: unknown }>;
+              },
+            );
+          },
+        );
+
       const [reviewA, reviewB] = await Promise.all([
-        ctx.stage(
-          { name: `reviewer-${iteration}-a` },
-          {},
-          {},
-          async (s) => {
-            const result = await queryWithStructuredOutput(reviewPrompt);
-            s.save(s.sessionId);
-            return result;
-          },
-        ),
-        ctx.stage(
-          { name: `reviewer-${iteration}-b` },
-          {},
-          {},
-          async (s) => {
-            const result = await queryWithStructuredOutput(reviewPrompt);
-            s.save(s.sessionId);
-            return result;
-          },
-        ),
+        reviewStage(`reviewer-${iteration}-a`),
+        reviewStage(`reviewer-${iteration}-b`),
       ]);
 
       // Merge all three review sources: visual analysis + reviewer A + reviewer B
@@ -859,7 +921,7 @@ When finished, STOP the dev server.`,
       const parsed = merged.structured;
       const reviewRaw = merged.raw;
 
-      // Both reviewers agree the code is clean → done
+      // All three review sources agree the code is clean → done
       if (!hasActionableFindings(parsed, reviewRaw)) break;
 
       // ── Debug (only if another iteration is allowed) ────────────
@@ -867,19 +929,23 @@ When finished, STOP the dev server.`,
         const debugger_ = await ctx.stage(
           { name: `debugger-${iteration}` },
           {},
-          {},
+          { title: `debugger-${iteration}` },
           async (s) => {
-            const result = await s.session.query(
-              asAgentCall(
-                "debugger",
-                buildDebuggerReportPrompt(parsed, reviewRaw, {
-                  iteration,
-                  changeset,
-                }),
-              ),
-            );
-            s.save(s.sessionId);
-            return result.output;
+            const result = await s.client.session.prompt({
+              sessionID: s.session.id,
+              parts: [
+                {
+                  type: "text",
+                  text: buildDebuggerReportPrompt(parsed, reviewRaw, {
+                    iteration,
+                    changeset,
+                  }),
+                },
+              ],
+              agent: "debugger",
+            });
+            s.save(result.data!);
+            return extractResponseText(result.data!.parts);
           },
         );
 
@@ -900,10 +966,14 @@ When finished, STOP the dev server.`,
           "Add code documentation and capture final screenshot.",
       },
       {},
-      {},
+      { title: "documentation" },
       async (s) => {
-        await s.session.query(
-          `Start the dev server: ${devCommand}
+        const result = await s.client.session.prompt({
+          sessionID: s.session.id,
+          parts: [
+            {
+              type: "text",
+              text: `Start the dev server: ${devCommand}
 
 ### 1. Code Documentation
 Go through the implemented source files and add concise comments where the reasoning isn't self-evident:
@@ -921,8 +991,10 @@ Write a brief summary to stdout describing:
 - Any known limitations or areas for future improvement
 
 When finished, STOP the dev server.`,
-        );
-        s.save(s.sessionId);
+            },
+          ],
+        });
+        s.save(result.data!);
       },
     );
   })

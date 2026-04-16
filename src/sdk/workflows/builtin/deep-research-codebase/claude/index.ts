@@ -187,12 +187,7 @@ export default defineWorkflow({
           description:
             "Surface prior research via research-locator + research-analyzer",
         },
-        {
-          chatFlags: [
-            "--allow-dangerously-skip-permissions",
-            "--dangerously-skip-permissions",
-          ],
-        },
+        {},
         {},
         async (s) => {
           // Dispatches codebase-research-locator → codebase-research-analyzer
@@ -243,12 +238,7 @@ export default defineWorkflow({
                 ", ",
               )} (${partition.reduce((s, u) => s + u.fileCount, 0)} files)`,
           },
-          {
-            chatFlags: [
-              "--allow-dangerously-skip-permissions",
-              "--dangerously-skip-permissions",
-            ],
-          },
+          {},
           {},
           async (s) => {
             await s.session.query(
@@ -298,12 +288,7 @@ export default defineWorkflow({
         description:
           "Synthesize explorer findings + history into final research doc",
       },
-      {
-        chatFlags: [
-          "--allow-dangerously-skip-permissions",
-          "--dangerously-skip-permissions",
-        ],
-      },
+      {},
       {},
       async (s) => {
         await s.session.query(

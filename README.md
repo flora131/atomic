@@ -51,7 +51,7 @@ atomic workflow -n review-to-merge -a claude
 atomic workflow -n ux-personas -a claude
 ```
 
-Each of these is a `.ts` file using Atomic's [Workflow SDK](#workflow-sdk--build-your-own-deterministic-harness). See [Build a Workflow](#5-build-a-workflow) for a working example, or read the full SDK reference below.
+Each of these is a `.ts` file using Atomic's [Workflow SDK](#workflow-sdk--build-your-own-deterministic-harness). See [Build a Workflow](#4-build-a-workflow) for a working example, or read the full SDK reference below.
 
 ---
 
@@ -64,10 +64,9 @@ Each of these is a `.ts` file using Atomic's [Workflow SDK](#workflow-sdk--build
   - [Quick Start](#quick-start)
     - [Prerequisites](#prerequisites)
     - [1. Install](#1-install)
-    - [2. Initialize Your Project](#2-initialize-your-project)
-    - [3. Generate Context Files](#3-generate-context-files)
-    - [4. Managing Sessions](#4-managing-sessions)
-    - [5. Build a Workflow](#5-build-a-workflow)
+    - [2. Generate Context Files](#2-generate-context-files)
+    - [3. Managing Sessions](#3-managing-sessions)
+    - [4. Build a Workflow](#4-build-a-workflow)
   - [Core Features](#core-features)
     - [Multi-Agent Support](#multi-agent-support)
     - [Workflow SDK — Build Your Own Deterministic Harness](#workflow-sdk--build-your-own-deterministic-harness)
@@ -88,7 +87,6 @@ Each of these is a `.ts` file using Atomic's [Workflow SDK](#workflow-sdk--build
   - [Commands Reference](#commands-reference)
     - [CLI Commands](#cli-commands)
       - [Global Flags](#global-flags)
-      - [`atomic init` Flags](#atomic-init-flags)
       - [`atomic session` Subcommands](#atomic-session-subcommands)
       - [`atomic chat` Flags](#atomic-chat-flags)
       - [`atomic workflow` Flags](#atomic-workflow-flags)
@@ -189,16 +187,7 @@ irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1 | iex
 > 4. Remove legacy skill directories: `rm -rf ~/.copilot/skills ~/.opencode/skills`
 > 5. Re-install using any of the install options above
 
-### 2. Initialize Your Project
-
-```bash
-cd your-project
-atomic init
-```
-
-Select your coding agent and source control system when prompted. The CLI configures your project automatically.
-
-### 3. Generate Context Files
+### 2. Generate Context Files
 
 Start a chat session and run `/init` to generate `CLAUDE.md` and `AGENTS.md`:
 
@@ -212,7 +201,7 @@ atomic chat -a <claude|opencode|copilot>
 
 This explores your codebase using sub-agents and generates documentation that gives coding agents the context they need.
 
-### 4. Managing Sessions
+### 3. Managing Sessions
 
 Atomic runs every chat and workflow session inside [tmux](https://github.com/tmux/tmux) on a dedicated socket, isolated from any personal tmux sessions you may have running. Use the built-in `session` commands to manage them:
 
@@ -242,7 +231,7 @@ Session names follow a predictable pattern:
 
 > **Tip:** If your terminal disconnects or you accidentally close the window, your session is still alive — just run `atomic session connect <session-name>` to pick up where you left off.
 
-### 5. Build a Workflow
+### 4. Build a Workflow
 
 Every team has a process. Atomic lets you encode it as TypeScript — chain agent sessions together, pass transcripts between them, and run the whole thing from the CLI.
 
@@ -989,7 +978,6 @@ During `atomic chat`, there is no Atomic-owned TUI — `atomic chat -a <agent>` 
 
 | Command                         | Description                                                           |
 | ------------------------------- | --------------------------------------------------------------------- |
-| `atomic init`                   | Interactive project setup (agent selection, SCM choice, config sync)  |
 | `atomic chat`                   | Spawn the native agent CLI inside a tmux/psmux session                |
 | `atomic workflow`               | Run a multi-session agent workflow with the Atomic orchestrator panel |
 | `atomic workflow list`          | List available workflows, grouped by source                           |
@@ -1007,19 +995,6 @@ These flags are available on all commands:
 | `-y, --yes`     | Auto-confirm all prompts (non-interactive) |
 | `--no-banner`   | Skip ASCII banner display                  |
 | `-v, --version` | Show version number                        |
-
-#### `atomic init` Flags
-
-| Flag                 | Description                                       |
-| -------------------- | ------------------------------------------------- |
-| `-a, --agent <name>` | Pre-select agent: `claude`, `opencode`, `copilot` |
-| `-s, --scm <name>`   | Pre-select SCM: `github`, `sapling`               |
-
-```bash
-atomic init                              # Interactive setup
-atomic init -a claude -s github          # Pre-select agent and SCM
-atomic init --yes                        # Auto-confirm all prompts
-```
 
 #### `atomic session` Subcommands
 
@@ -1127,7 +1102,7 @@ Native slash commands like `/help`, `/clear`, `/compact`, `/model`, `/theme`, `/
 
 ### `.atomic/settings.json`
 
-Created automatically during `atomic init`. Resolution order:
+Resolution order:
 
 1. Local: `.atomic/settings.json`
 2. Global: `~/.atomic/settings.json`
@@ -1150,7 +1125,7 @@ Created automatically during `atomic init`. Resolution order:
 | `version`      | number | Config schema version (currently `1`)                                                                     |
 | `scm`          | string | Source control: `github` or `sapling`                                                                     |
 | `lastUpdated`  | string | ISO 8601 timestamp of the last update                                                                     |
-| `trustedPaths` | array  | Workspaces that have completed provider onboarding via `atomic init`; atomic skips re-prompting for these |
+| `trustedPaths` | array  | Workspaces that have completed provider onboarding; atomic skips re-prompting for these |
 
 > **Note:** Model selection and reasoning effort are managed by each underlying agent CLI (e.g. Claude Code's `/model`), not by Atomic itself. Atomic's chat command spawns the agent's native TUI — use the agent's own controls to pick a model or adjust reasoning effort.
 
@@ -1319,22 +1294,6 @@ $env:GITHUB_TOKEN='ghp_...'; irm https://raw.githubusercontent.com/flora131/atom
 
 </details>
 
-<details>
-<summary>Source control selection</summary>
-
-During `atomic init`, you'll select your source control system:
-
-| SCM Type              | CLI Tool | Code Review       | Use Case          |
-| --------------------- | -------- | ----------------- | ----------------- |
-| GitHub / Git          | `git`    | Pull Requests     | Most projects     |
-| Sapling + Phabricator | `sl`     | Phabricator Diffs | Stacked workflows |
-
-**Sapling + Phabricator:** Ensure `.arcconfig` exists in your repo root. Use `/sl-commit` and `/sl-submit-diff`.
-
-**Windows note:** Sapling templates use the full path `& 'C:\Program Files\Sapling\sl.exe'` to avoid conflicts with PowerShell's `sl` alias.
-
-</details>
-
 ---
 
 ## Updating & Uninstalling
@@ -1387,7 +1346,7 @@ Remove-Item -Path ".atomic" -Recurse -Force
 <details>
 <summary>Clean up global config files</summary>
 
-> **Warning:** This deletes Atomic's global settings and cached agent configs. You'll need to re-run `atomic init` in your projects after this.
+> **Warning:** This deletes Atomic's global settings and cached agent configs.
 
 **macOS / Linux:**
 
@@ -1422,13 +1381,6 @@ git config --global user.email "you@example.com"
 <summary>Windows command resolution</summary>
 
 If agents fail to spawn on Windows, ensure the agent CLI is in your PATH. Atomic uses `Bun.which()` which handles `.cmd`, `.exe`, and `.bat` extensions automatically.
-
-</details>
-
-<details>
-<summary>Generating CLAUDE.md / AGENTS.md</summary>
-
-`atomic init` does **not** create these files. Run `/init` inside a chat session to generate them.
 
 </details>
 

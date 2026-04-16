@@ -9,7 +9,7 @@
 [![Bun](https://img.shields.io/badge/Bun-Runtime-f9f1e1?logo=bun&logoColor=black)](./package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-Atomic is an open-source **TypeScript SDK** for building **any harness you want** around your coding agent — **Claude Code**, **OpenCode**, or **GitHub Copilot CLI**. Chain sessions into pipelines, add human-in-the-loop approval gates, plug in CI and notifications, dispatch **12 specialized sub-agents**, and tap **58 built-in skills** — then ship it as TypeScript your whole team runs.
+Atomic is an open-source **TypeScript SDK** for building **any harness you want** around your coding agent — **Claude Code**, **OpenCode**, or **GitHub Copilot CLI**. Chain sessions into pipelines, add human-in-the-loop approval gates, plug in CI and notifications, dispatch **12 specialized sub-agents**, and tap **55 built-in skills** — then ship it as TypeScript your whole team runs.
 
 > Define how your agent works. Start for yourself, scale to your team.
 
@@ -858,7 +858,7 @@ Use `/agents` in any chat session to see all available sub-agents.
 
 ### Built-in Skills
 
-Skills are structured capability modules that give agents best practices and reusable workflows for specific tasks. Atomic ships 58 skills across eight categories; each lives at `.agents/skills/<name>/SKILL.md` and is auto-invoked when the agent detects a relevant trigger.
+Skills are structured capability modules that give agents best practices and reusable workflows for specific tasks. Atomic ships 55 skills across eight categories; each lives at `.agents/skills/<name>/SKILL.md` and is auto-invoked when the agent detects a relevant trigger.
 
 **Development workflows:**
 
@@ -899,25 +899,21 @@ Skills are structured capability modules that give agents best practices and reu
 | `bun`                       | Build, test, deploy with Bun (runtime, package manager, bundler, tests) |
 | `opentui`                   | Build terminal UIs with OpenTUI (core, React, Solid reconcilers)        |
 
-**Frontend design & UI polish** — used by `frontend-design` and invoked individually for targeted refinement:
+**Frontend design & UI polish** — used by `impeccable` and invoked individually for targeted refinement:
 
-| Skill                                          | Description                                                         |
-| ---------------------------------------------- | ------------------------------------------------------------------- |
-| `frontend-design`                              | Create distinctive, production-grade frontend interfaces            |
-| `teach-impeccable`                             | One-time setup that gathers design context for a project            |
-| `polish`                                       | Final quality pass on alignment, spacing, consistency               |
-| `critique`                                     | UX evaluation with quantitative scoring and persona testing         |
-| `audit`                                        | Accessibility, performance, theming, responsive, anti-pattern audit |
-| `normalize`                                    | Realign UI to match design system standards                         |
-| `extract`                                      | Consolidate reusable components and design tokens into your system  |
-| `arrange` / `typeset` / `colorize`             | Layout, typography, and color refinement                            |
-| `adapt`                                        | Responsive design: breakpoints, fluid layouts, touch targets        |
-| `animate` / `delight`                          | Add motion, micro-interactions, and personality                     |
-| `clarify`                                      | Improve UX copy, error messages, microcopy, labels                  |
-| `distill` / `quieter` / `bolder` / `overdrive` | Simplify, tone down, amplify, or push designs to their limit        |
-| `harden`                                       | Error handling, i18n, overflow, edge-case resilience                |
-| `optimize`                                     | Diagnose and fix loading, rendering, animation, bundle-size issues  |
-| `onboard`                                      | Design onboarding flows, empty states, first-run experiences        |
+| Skill                                          | Description                                                                    |
+| ---------------------------------------------- | ------------------------------------------------------------------------------ |
+| `impeccable`                                   | Create distinctive, production-grade frontend interfaces                       |
+| `polish`                                       | Final quality pass on alignment, spacing, consistency                          |
+| `critique`                                     | UX evaluation with quantitative scoring and persona testing                    |
+| `audit`                                        | Accessibility, performance, theming, responsive, anti-pattern audit            |
+| `layout` / `typeset` / `colorize`              | Layout, typography, and color refinement                                       |
+| `adapt`                                        | Responsive design: breakpoints, fluid layouts, touch targets                   |
+| `animate` / `delight`                          | Add motion, micro-interactions, and personality                                |
+| `clarify`                                      | Improve UX copy, error messages, microcopy, labels                             |
+| `distill` / `quieter` / `bolder` / `overdrive` | Simplify, tone down, amplify, or push designs to their limit                   |
+| `harden`                                       | Error handling, onboarding, empty states, i18n, overflow, edge-case resilience |
+| `optimize`                                     | Diagnose and fix loading, rendering, animation, bundle-size issues             |
 
 **Evaluation:**
 
@@ -1425,7 +1421,7 @@ If agents fail to spawn on Windows, ensure the agent CLI is in your PATH. Atomic
 | **Data Flow**            | Manual — copy output between steps           | Controlled transcript passing via `ctx.transcript()` and `ctx.getMessages()`                        |
 | **Agent Support**        | GitHub Copilot CLI                           | Claude Code + OpenCode + Copilot CLI — switch with a flag                                           |
 | **Sub-Agents**           | Single general-purpose agent                 | 12 specialized sub-agents with scoped tools and isolated contexts                                   |
-| **Skills**               | Not available                                | 58 built-in skills (development, design, docs, agent architecture)                                  |
+| **Skills**               | Not available                                | 55 built-in skills (development, design, docs, agent architecture)                                  |
 | **Autonomous Execution** | Not available                                | Ralph — multi-hour autonomous sessions with plan/implement/review/debug loop                        |
 | **Execution Guarantees** | Non-deterministic                            | Deterministic — strict step ordering, frozen definitions, controlled transcript access              |
 | **Isolation**            | Not addressed                                | Devcontainer features for containerized execution                                                   |
@@ -1448,7 +1444,7 @@ If agents fail to spawn on Windows, ensure the agent CLI is in your PATH. Atomic
 | **Execution Model**     | DAG-based with conditional edges                | Deterministic — strict step ordering, frozen definitions, controlled transcript passing       |
 | **Parallelism**         | Via LangGraph branch nodes                      | Native parallel sessions via `Promise.all()` with `ctx.session()` in isolated context windows |
 | **Sub-Agents**          | Researcher, coder, reporter nodes               | 12 specialized sub-agents with scoped tools (planner, worker, reviewer, debugger, etc.)       |
-| **Skills**              | Not available                                   | 58 built-in skills auto-invoked by context                                                    |
+| **Skills**              | Not available                                   | 55 built-in skills auto-invoked by context                                                    |
 | **Isolation**           | Sandbox containers                              | Devcontainer features + git worktrees                                                         |
 | **Interface**           | Web UI (Streamlit)                              | Terminal chat with tmux-based session management                                              |
 | **Autonomous**          | Not available                                   | Ralph — bounded iteration with plan/implement/review/debug loop                               |
@@ -1473,7 +1469,7 @@ If agents fail to spawn on Windows, ensure the agent CLI is in your PATH. Atomic
 | **Data Flow**             | In-context within a single conversation                                                      | Controlled transcript passing via `ctx.transcript()` and `ctx.getMessages()`                                                                 |
 | **Self-Improvement**      | Closed learning loop — auto-creates skills from experience, persistent user model via Honcho | Skills authored by developers; memory via CLAUDE.md / AGENTS.md context files                                                                |
 | **Sub-Agents**            | `delegate_task` spawns isolated subagents                                                    | 12 specialized sub-agents with scoped tools and model tiers (Opus, Sonnet, Haiku)                                                            |
-| **Skills**                | 40+ tools + community Skills Hub (agentskills.io)                                            | 58 built-in skills (development, design, docs, agent architecture)                                                                           |
+| **Skills**                | 40+ tools + community Skills Hub (agentskills.io)                                            | 55 built-in skills (development, design, docs, agent architecture)                                                                           |
 | **Interface**             | Terminal TUI + multi-platform messaging gateway (Telegram, Discord, Slack, WhatsApp, etc.)   | Terminal chat with tmux-based session management                                                                                             |
 | **Isolation**             | Six terminal backends (local, Docker, SSH, Daytona, Singularity, Modal)                      | Devcontainer features + git worktrees                                                                                                        |
 | **Autonomous Execution**  | Cron scheduler with inactivity-based timeouts                                                | Ralph — bounded iteration with plan/implement/review/debug loop                                                                              |

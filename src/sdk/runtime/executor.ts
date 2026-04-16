@@ -504,12 +504,12 @@ export interface CopilotSendSessionSurface {
  * session emits `session.idle` (turn complete) or `session.error`.
  *
  * HIL detection for Copilot is handled separately by
- * `watchCopilotPaneForHIL()`, which polls the tmux pane for the CLI's
- * user-input prompt.  The Copilot SDK only broadcasts
- * `user_input.requested` events when `requestUserInput: true` is sent
- * during session creation (requires an `onUserInputRequest` handler),
- * which we intentionally omit so the CLI handles user input locally in
- * the tmux pane.
+ * `watchCopilotSessionForHIL()`, which subscribes to the session's
+ * `tool.execution_start` / `tool.execution_complete` events for the
+ * `ask_user` built-in tool.  Those events fire regardless of whether
+ * an `onUserInputRequest` handler is registered, so we can detect HIL
+ * via native SDK events while the CLI continues to handle user input
+ * locally in the tmux pane.
  *
  * Exported for unit testing.
  */
@@ -590,64 +590,65 @@ export async function watchOpencodeStreamForHIL(
 }
 
 /**
- * Regex that matches the Copilot CLI's user-input prompt header.
- * The CLI prints "Copilot is requesting information" (or similar) when the
- * `ask_user` tool fires.  We also match the standard @clack/prompts footer
- * hint ("ctrl+d decline") which is always present on input dialogs.
- *
- * Exported for unit testing.
+ * Minimal Copilot session surface required by `watchCopilotSessionForHIL()`.
+ * A structural `on()` signature keeps this helper independently unit-testable
+ * with plain objects and compatible with both the real CopilotSession and
+ * test mocks.
  */
-export const COPILOT_HIL_PATTERN =
-  /requesting information|ctrl\+d decline/i;
+export interface CopilotHILSessionSurface {
+  on(
+    eventType: string,
+    handler: (event: { data?: unknown }) => void,
+  ): () => void;
+}
 
 /**
- * Poll a Copilot tmux pane for human-in-the-loop indicators.
+ * Subscribe to a Copilot session's tool-execution events to track HIL state
+ * for the `ask_user` built-in tool:
  *
- * The Copilot CLI handles `ask_user` locally in the tmux pane when no
- * `onUserInputRequest` SDK handler is registered.  In that case the SDK
- * never receives `user_input.requested` / `user_input.completed` events.
- * This poller fills the gap by reading the visible pane content at a
- * regular interval and checking for the CLI's user-input prompt pattern.
+ *   - `tool.execution_start`    with `toolName === "ask_user"` → `onHIL(true)`
+ *   - `tool.execution_complete` with matching `toolCallId`     → `onHIL(false)`
  *
- * Calls `onHIL(true)` when the pattern first appears and `onHIL(false)`
- * when it disappears.  Only fires on state transitions to avoid redundant
- * callbacks.  Returns when the `AbortSignal` is aborted.
+ * These events fire regardless of whether an `onUserInputRequest` handler is
+ * registered, so we can detect HIL without providing one — letting the CLI
+ * keep its native tmux-pane dialog.
+ *
+ * Overlapping `ask_user` invocations are tracked by `toolCallId` so
+ * `onHIL(false)` only fires after the last active request resolves.
+ *
+ * Returns an unsubscribe function that removes both listeners.
  *
  * Exported for unit testing.
  */
-export async function watchCopilotPaneForHIL(
-  paneId: string,
-  signal: AbortSignal,
+export function watchCopilotSessionForHIL(
+  session: CopilotHILSessionSurface,
   onHIL: (waiting: boolean) => void,
-  pollMs = 1500,
-): Promise<void> {
-  let wasHIL = false;
-
-  while (!signal.aborted) {
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, pollMs);
-      // If abort fires mid-sleep, resolve early so we exit immediately.
-      const onAbort = () => {
-        clearTimeout(timer);
-        resolve();
-      };
-      signal.addEventListener("abort", onAbort, { once: true });
-    });
-
-    if (signal.aborted) break;
-
-    try {
-      const visible = tmux.capturePaneVisible(paneId);
-      const isHIL = COPILOT_HIL_PATTERN.test(visible);
-      if (isHIL !== wasHIL) {
-        onHIL(isHIL);
-        wasHIL = isHIL;
-      }
-    } catch {
-      // Pane may have been destroyed — just stop watching.
-      break;
+): () => void {
+  const active = new Set<string>();
+  const unsubStart = session.on("tool.execution_start", (event) => {
+    const data = event.data as
+      | { toolName?: string; toolCallId?: string }
+      | undefined;
+    if (data?.toolName === "ask_user" && data.toolCallId) {
+      const wasEmpty = active.size === 0;
+      active.add(data.toolCallId);
+      if (wasEmpty) onHIL(true);
     }
-  }
+  });
+  const unsubComplete = session.on("tool.execution_complete", (event) => {
+    const data = event.data as { toolCallId?: string } | undefined;
+    if (
+      data?.toolCallId &&
+      active.delete(data.toolCallId) &&
+      active.size === 0
+    ) {
+      onHIL(false);
+    }
+  });
+  return () => {
+    unsubStart();
+    unsubComplete();
+  };
 }
 
 // ============================================================================
@@ -1110,27 +1111,22 @@ function createSessionRunner(
       // Compatible with sendAndWait(): the SDK's _dispatchEvent broadcasts
       // to all handlers (typed + wildcard), so both this wrapper's listener
       // and sendAndWait's internal wildcard handler observe the same event.
-      // AbortController for background HIL watchers that need explicit cleanup.
-      // Aborted in the `finally` block so the poller stops when the stage ends.
-      let hilAbort: AbortController | undefined;
+      // Unsubscribe fn for the Copilot HIL event listeners; invoked in the
+      // `finally` block so the handlers are removed when the stage ends.
+      let hilUnsubscribe: (() => void) | undefined;
 
       if (shared.agent === "copilot") {
         const copilotSession = providerSession as ProviderSession<"copilot">;
         const nativeSend = copilotSession.send.bind(copilotSession);
         copilotSession.send = wrapCopilotSend(copilotSession, nativeSend);
 
-        // Copilot HIL detection via tmux pane polling.
+        // Copilot HIL detection via native SDK events.
         //
-        // The Copilot SDK only broadcasts `user_input.requested` events when
-        // `requestUserInput: true` is sent during session.create — which
-        // requires an `onUserInputRequest` handler that takes over user-input
-        // presentation from the CLI.  We intentionally omit it so the CLI
-        // keeps its native tmux-pane dialog.  Instead, we poll the visible
-        // pane content for the CLI's user-input prompt pattern.
-        if (!isHeadless) {
-          hilAbort = new AbortController();
-          watchCopilotPaneForHIL(paneId, hilAbort.signal, onHIL).catch(() => {});
-        }
+        // `tool.execution_start` / `tool.execution_complete` fire for the
+        // `ask_user` built-in tool regardless of whether `onUserInputRequest`
+        // is registered, so we can detect HIL via the SDK's event stream and
+        // still let the CLI render its native tmux-pane dialog.
+        hilUnsubscribe = watchCopilotSessionForHIL(copilotSession, onHIL);
       }
 
       // ── 12b. OpenCode: SSE event stream for HIL detection ──
@@ -1207,7 +1203,7 @@ function createSessionRunner(
         throw error;
       } finally {
         // ── 14a. Stop background HIL watcher (if any) ──
-        hilAbort?.abort();
+        hilUnsubscribe?.();
 
         // ── 14b. Auto-cleanup provider resources ──
         await cleanupProvider(

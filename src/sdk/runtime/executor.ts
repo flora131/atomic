@@ -487,6 +487,170 @@ function resolveRef(ref: SessionRef): string {
   return typeof ref === "string" ? ref : ref.name;
 }
 
+/**
+ * Minimal Copilot session surface required by `wrapCopilotSend()`.
+ * Uses a generic `on` signature to remain compatible with both the real
+ * CopilotSession and lightweight test mocks.
+ */
+export interface CopilotSendSessionSurface {
+  on(eventType: string, handler: (event: { data?: unknown }) => void): () => void;
+}
+
+/**
+ * Wraps a Copilot session's `send()` to block until `session.idle` fires.
+ *
+ * Copilot's `send()` is fire-and-forget — it returns immediately after
+ * queuing the message.  This wrapper blocks the returned promise until the
+ * session emits `session.idle` (turn complete) or `session.error`.
+ *
+ * HIL detection for Copilot is handled separately by
+ * `watchCopilotSessionForHIL()`, which subscribes to the session's
+ * `tool.execution_start` / `tool.execution_complete` events for the
+ * `ask_user` built-in tool.  Those events fire regardless of whether
+ * an `onUserInputRequest` handler is registered, so we can detect HIL
+ * via native SDK events while the CLI continues to handle user input
+ * locally in the tmux pane.
+ *
+ * Exported for unit testing.
+ */
+export function wrapCopilotSend<O, R>(
+  session: CopilotSendSessionSurface,
+  nativeSend: (options: O) => Promise<R>,
+): (options: O) => Promise<R> {
+  return async (options: O): Promise<R> => {
+    const idle = new Promise<void>((resolve, reject) => {
+      let unsubIdle: (() => void) | undefined;
+      let unsubError: (() => void) | undefined;
+      const cleanup = () => {
+        unsubIdle?.();
+        unsubError?.();
+      };
+      unsubIdle = session.on("session.idle", () => {
+        cleanup();
+        resolve();
+      });
+      unsubError = session.on("session.error", (event) => {
+        cleanup();
+        const data = event.data as { message?: string } | undefined;
+        reject(new Error(data?.message ?? "Copilot session error"));
+      });
+    });
+    const result = await nativeSend(options);
+    await idle;
+    return result;
+  };
+}
+
+/**
+ * Minimal shape of an event as produced by the OpenCode v2 SDK event stream.
+ * Using a structural interface rather than the SDK's generated union type keeps
+ * this helper independently unit-testable with plain objects.
+ *
+ * `sessionID` is optional because many OpenCode event types (e.g.
+ * `file.edited`, `session.compacted`) carry properties without that field.
+ * The `watchOpencodeStreamForHIL` implementation guards with a runtime check.
+ */
+export interface OpenCodeHILEvent {
+  type: string;
+  properties: { sessionID?: string; [key: string]: unknown };
+}
+
+/**
+ * Consume an OpenCode SSE event stream and call `onHIL` whenever the session
+ * with `sessionId` enters or exits a human-in-the-loop (HIL) state:
+ *
+ *   - `question.asked`    → `onHIL(true)`   (agent awaiting user input)
+ *   - `question.replied`  → `onHIL(false)`  (user answered, agent resumes)
+ *   - `question.rejected` → `onHIL(false)`  (user dismissed, agent resumes)
+ *
+ * Events for other sessions are silently ignored.  The function returns when
+ * the stream is exhausted (i.e. the server closes the connection).
+ *
+ * Exported for unit testing.
+ */
+export async function watchOpencodeStreamForHIL(
+  stream: AsyncIterable<OpenCodeHILEvent>,
+  sessionId: string,
+  onHIL: (waiting: boolean) => void,
+): Promise<void> {
+  for await (const event of stream) {
+    if (
+      event.type === "question.asked" &&
+      event.properties.sessionID === sessionId
+    ) {
+      onHIL(true);
+    } else if (
+      (event.type === "question.replied" ||
+        event.type === "question.rejected") &&
+      event.properties.sessionID === sessionId
+    ) {
+      onHIL(false);
+    }
+  }
+}
+
+/**
+ * Minimal Copilot session surface required by `watchCopilotSessionForHIL()`.
+ * A structural `on()` signature keeps this helper independently unit-testable
+ * with plain objects and compatible with both the real CopilotSession and
+ * test mocks.
+ */
+export interface CopilotHILSessionSurface {
+  on(
+    eventType: string,
+    handler: (event: { data?: unknown }) => void,
+  ): () => void;
+}
+
+/**
+ * Subscribe to a Copilot session's tool-execution events to track HIL state
+ * for the `ask_user` built-in tool:
+ *
+ *   - `tool.execution_start`    with `toolName === "ask_user"` → `onHIL(true)`
+ *   - `tool.execution_complete` with matching `toolCallId`     → `onHIL(false)`
+ *
+ * These events fire regardless of whether an `onUserInputRequest` handler is
+ * registered, so we can detect HIL without providing one — letting the CLI
+ * keep its native tmux-pane dialog.
+ *
+ * Overlapping `ask_user` invocations are tracked by `toolCallId` so
+ * `onHIL(false)` only fires after the last active request resolves.
+ *
+ * Returns an unsubscribe function that removes both listeners.
+ *
+ * Exported for unit testing.
+ */
+export function watchCopilotSessionForHIL(
+  session: CopilotHILSessionSurface,
+  onHIL: (waiting: boolean) => void,
+): () => void {
+  const active = new Set<string>();
+  const unsubStart = session.on("tool.execution_start", (event) => {
+    const data = event.data as
+      | { toolName?: string; toolCallId?: string }
+      | undefined;
+    if (data?.toolName === "ask_user" && data.toolCallId) {
+      const wasEmpty = active.size === 0;
+      active.add(data.toolCallId);
+      if (wasEmpty) onHIL(true);
+    }
+  });
+  const unsubComplete = session.on("tool.execution_complete", (event) => {
+    const data = event.data as { toolCallId?: string } | undefined;
+    if (
+      data?.toolCallId &&
+      active.delete(data.toolCallId) &&
+      active.size === 0
+    ) {
+      onHIL(false);
+    }
+  });
+  return () => {
+    unsubStart();
+    unsubComplete();
+  };
+}
+
 // ============================================================================
 // Shared transcript / message readers
 // ============================================================================
@@ -583,6 +747,7 @@ async function initProviderClientAndSession<A extends AgentType>(
   clientOpts: StageClientOptions<A>,
   sessionOpts: StageSessionOptions<A>,
   headless = false,
+  onHIL?: (waiting: boolean) => void,
 ): Promise<{
   client: ProviderClient<A>;
   session: ProviderSession<A>;
@@ -649,11 +814,7 @@ async function initProviderClientAndSession<A extends AgentType>(
       const claudeSessionOpts = sessionOpts as StageSessionOptions<"claude">;
       const client = new ClaudeClientWrapper(paneId, claudeClientOpts);
       await client.start();
-      const session = new ClaudeSessionWrapper(
-        paneId,
-        sessionId,
-        claudeSessionOpts,
-      );
+      const session = new ClaudeSessionWrapper(paneId, sessionId, claudeSessionOpts, onHIL);
       return { client, session } as Result;
     }
     default:
@@ -911,6 +1072,17 @@ function createSessionRunner(
       const transcriptFn = createTranscriptReader(shared.completedRegistry);
       const getMessagesFn = createMessagesReader(shared.completedRegistry);
 
+      // ── HIL (human-in-the-loop) callback ──
+      // Unified callback passed to provider-specific HIL detection so that any
+      // provider can signal when the agent is waiting for user input or has
+      // resumed processing. Both `name` and `shared.panel` are guaranteed to
+      // be in scope here: `name` is validated above and `shared.panel` is
+      // always present on the shared runner state.
+      const onHIL = (waiting: boolean) => {
+        if (waiting) shared.panel.sessionAwaitingInput(name);
+        else shared.panel.sessionResumed(name);
+      };
+
       // ── 12. Auto-create provider client and session ──
       const {
         client: providerClient,
@@ -924,6 +1096,7 @@ function createSessionRunner(
         clientOpts,
         sessionOpts,
         isHeadless,
+        onHIL,
       );
 
       // ── 12a. Copilot: wrap send() to await session.idle ──
@@ -938,35 +1111,47 @@ function createSessionRunner(
       // Compatible with sendAndWait(): the SDK's _dispatchEvent broadcasts
       // to all handlers (typed + wildcard), so both this wrapper's listener
       // and sendAndWait's internal wildcard handler observe the same event.
+      // Unsubscribe fn for the Copilot HIL event listeners; invoked in the
+      // `finally` block so the handlers are removed when the stage ends.
+      let hilUnsubscribe: (() => void) | undefined;
+
       if (shared.agent === "copilot") {
         const copilotSession = providerSession as ProviderSession<"copilot">;
         const nativeSend = copilotSession.send.bind(copilotSession);
-        copilotSession.send = async (options) => {
-          // Register listeners BEFORE sending to avoid a race where the
-          // agent finishes before the listener is attached. Listen for
-          // both idle (success) and error (failure) so we never hang if
-          // the session errors without reaching idle.
-          const idle = new Promise<void>((resolve, reject) => {
-            let unsubIdle: (() => void) | undefined;
-            let unsubError: (() => void) | undefined;
-            const cleanup = () => {
-              unsubIdle?.();
-              unsubError?.();
-            };
-            unsubIdle = copilotSession.on("session.idle", () => {
-              cleanup();
-              resolve();
-            });
-            unsubError = copilotSession.on("session.error", (event) => {
-              cleanup();
-              const data = event.data as { message?: string } | undefined;
-              reject(new Error(data?.message ?? "Copilot session error"));
-            });
+        copilotSession.send = wrapCopilotSend(copilotSession, nativeSend);
+
+        // Copilot HIL detection via native SDK events.
+        //
+        // `tool.execution_start` / `tool.execution_complete` fire for the
+        // `ask_user` built-in tool regardless of whether `onUserInputRequest`
+        // is registered, so we can detect HIL via the SDK's event stream and
+        // still let the CLI render its native tmux-pane dialog.
+        hilUnsubscribe = watchCopilotSessionForHIL(copilotSession, onHIL);
+      }
+
+      // ── 12b. OpenCode: SSE event stream for HIL detection ──
+      //
+      // `client.event.subscribe()` yields `question.asked`, `question.replied`,
+      // and `question.rejected` events in real time.  The subscription is
+      // **awaited** before the stage callback runs so the stream is guaranteed
+      // to be open when the first prompt fires.
+      if (shared.agent === "opencode") {
+        const ocClient = providerClient as ProviderClient<"opencode">;
+        const ocSession = providerSession as ProviderSession<"opencode">;
+        const ocSessionId = ocSession.id;
+
+        try {
+          const { stream } = await ocClient.event.subscribe();
+          watchOpencodeStreamForHIL(stream, ocSessionId, onHIL).catch((err) => {
+            console.warn(
+              `[opencode] HIL event stream disconnected for session ${ocSessionId}: ${errorMessage(err)}`,
+            );
           });
-          const messageId = await nativeSend(options);
-          await idle;
-          return messageId;
-        };
+        } catch (err) {
+          console.warn(
+            `[opencode] HIL event stream failed to subscribe for session ${ocSessionId}: ${errorMessage(err)}`,
+          );
+        }
       }
 
       // ── 13. Construct SessionContext ──
@@ -1017,7 +1202,10 @@ function createSessionRunner(
         if (!isHeadless) shared.panel.sessionError(name, message);
         throw error;
       } finally {
-        // ── 14a. Auto-cleanup provider resources ──
+        // ── 14a. Stop background HIL watcher (if any) ──
+        hilUnsubscribe?.();
+
+        // ── 14b. Auto-cleanup provider resources ──
         await cleanupProvider(
           shared.agent,
           providerClient,

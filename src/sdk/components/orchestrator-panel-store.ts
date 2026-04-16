@@ -90,6 +90,22 @@ export class PanelStore {
     this.emit();
   }
 
+  awaitingInput(name: string): void {
+    const session = this.sessions.find((s) => s.name === name);
+    if (session && session.status === "running") {
+      session.status = "awaiting_input";
+      this.emit();
+    }
+  }
+
+  resumeSession(name: string): void {
+    const session = this.sessions.find((s) => s.name === name);
+    if (session && session.status === "awaiting_input") {
+      session.status = "running";
+      this.emit();
+    }
+  }
+
   addSession(session: SessionData): void {
     this.sessions.push(session);
     this.emit();

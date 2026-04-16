@@ -100,7 +100,7 @@ export function SessionGraphPanel() {
 
   // Pulse animation for running nodes — paused when nothing is running
   const hasRunning = useMemo(
-    () => store.sessions.some((s) => s.status === "running"),
+    () => store.sessions.some((s) => s.status === "running" || s.status === "awaiting_input"),
     [storeVersion],
   );
   const [pulsePhase, setPulsePhase] = useState(0);

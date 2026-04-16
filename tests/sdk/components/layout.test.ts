@@ -152,6 +152,37 @@ describe("computeLayout", () => {
     expect(result.rowH[2]).toBe(NODE_H);
   });
 
+  test("awaiting_input node gets height 6 in rowH", () => {
+    const sessions: SessionData[] = [
+      { name: "s1", status: "awaiting_input" as const, parents: [], startedAt: null, endedAt: null },
+    ];
+    const result = computeLayout(sessions);
+    expect(result.rowH[0]).toBe(6);
+  });
+
+  test("awaiting_input node height overrides normal NODE_H for its row", () => {
+    const sessions: SessionData[] = [
+      { name: "parent", status: "running" as const, parents: [], startedAt: null, endedAt: null },
+      { name: "child", status: "awaiting_input" as const, parents: ["parent"], startedAt: null, endedAt: null },
+    ];
+    const result = computeLayout(sessions);
+    // parent depth 0 should be NODE_H
+    expect(result.rowH[0]).toBe(NODE_H);
+    // child depth 1 should be 6 (awaiting_input height)
+    expect(result.rowH[1]).toBe(6);
+  });
+
+  test("non-awaiting_input node at same depth as awaiting_input gets height 6 via max", () => {
+    const sessions: SessionData[] = [
+      { name: "root", status: "running" as const, parents: [], startedAt: null, endedAt: null },
+      { name: "normal", status: "running" as const, parents: ["root"], startedAt: null, endedAt: null },
+      { name: "hil", status: "awaiting_input" as const, parents: ["root"], startedAt: null, endedAt: null },
+    ];
+    const result = computeLayout(sessions);
+    // depth 1 has both a normal (NODE_H) and hil (6) — row should be 6
+    expect(result.rowH[1]).toBe(6);
+  });
+
   test("deep tree with three levels", () => {
     const result = computeLayout([
       makeSession("a"),

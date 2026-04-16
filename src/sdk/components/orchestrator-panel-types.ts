@@ -1,6 +1,6 @@
 // ─── Orchestrator Panel Types ─────────────────────
 
-export type SessionStatus = "pending" | "running" | "complete" | "error";
+export type SessionStatus = "pending" | "running" | "complete" | "error" | "awaiting_input";
 
 export type ViewMode = "graph" | "attached";
 

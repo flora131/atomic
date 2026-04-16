@@ -111,6 +111,14 @@ export class OrchestratorPanel {
     this.store.failSession(name, message);
   }
 
+  sessionAwaitingInput(name: string): void {
+    this.store.awaitingInput(name);
+  }
+
+  sessionResumed(name: string): void {
+    this.store.resumeSession(name);
+  }
+
   /** Dynamically add a new session node to the graph UI. */
   addSession(name: string, parents: string[]): void {
     this.store.addSession({

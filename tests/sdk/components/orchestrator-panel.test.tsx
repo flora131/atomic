@@ -98,6 +98,21 @@ describe("OrchestratorPanel", () => {
     panel = null;
   });
 
+  test("sessionAwaitingInput does not throw", async () => {
+    const { panel: p } = await createPanel();
+    p.showWorkflowInfo("wf", "claude", [{ name: "s1", parents: [] }], "p");
+    p.sessionStart("s1");
+    expect(() => p.sessionAwaitingInput("s1")).not.toThrow();
+  });
+
+  test("sessionResumed does not throw", async () => {
+    const { panel: p } = await createPanel();
+    p.showWorkflowInfo("wf", "claude", [{ name: "s1", parents: [] }], "p");
+    p.sessionStart("s1");
+    p.sessionAwaitingInput("s1");
+    expect(() => p.sessionResumed("s1")).not.toThrow();
+  });
+
   test("full lifecycle: create → workflow → start → complete → destroy", async () => {
     const { panel: p } = await createPanel();
     p.showWorkflowInfo("lifecycle-test", "copilot", [

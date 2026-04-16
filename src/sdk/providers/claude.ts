@@ -241,6 +241,114 @@ function resolveSessionDir(cwd: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// HIL detection helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true if the most recent assistant message contains an
+ * `AskUserQuestion` tool_use block that has not yet been resolved
+ * by a corresponding `tool_result` in a subsequent user message.
+ *
+ * Pure function — no side effects, safe to call from a watch loop.
+ *
+ * Exported as `_hasUnresolvedHILTool` for unit testing.
+ */
+export function _hasUnresolvedHILTool(messages: SessionMessage[]): boolean {
+  const resolvedIds = new Set<string>();
+
+  for (const msg of messages) {
+    if (msg.type !== "user") continue;
+    const content = (msg.message as { content: unknown })?.content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content) {
+      if (block.type === "tool_result" && block.tool_use_id) {
+        resolvedIds.add(block.tool_use_id);
+      }
+    }
+  }
+
+  for (const msg of [...messages].reverse()) {
+    if (msg.type !== "assistant") continue;
+    const content = (msg.message as { content: unknown })?.content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content) {
+      if (
+        block.type === "tool_use" &&
+        block.name === "AskUserQuestion" &&
+        block.id &&
+        !resolvedIds.has(block.id)
+      ) {
+        return true;
+      }
+    }
+    break;
+  }
+
+  return false;
+}
+
+/**
+ * Core HIL watcher loop — pure logic, dependency-injected for testability.
+ *
+ * Iterates an async iterable of "file change" events (each event triggers a
+ * transcript read via `readMessages`). Calls `onHIL(true)` when
+ * `_hasUnresolvedHILTool` first returns true, `onHIL(false)` when it returns
+ * false after having been true. The `wasHIL` guard prevents redundant
+ * callbacks on repeated events with the same HIL state.  Read errors from
+ * `readMessages` are swallowed so a single corrupt JSONL write doesn't kill
+ * the watcher.
+ *
+ * Exported as `_runHILWatcher` for unit testing (event source and message
+ * reader are injected rather than hard-coded to `fs.watch` / `getSessionMessages`).
+ */
+export async function _runHILWatcher(
+  events: AsyncIterable<unknown>,
+  readMessages: () => Promise<SessionMessage[]>,
+  onHIL: (waiting: boolean) => void,
+): Promise<void> {
+  let wasHIL = false;
+
+  for await (const _event of events) {
+    try {
+      const msgs = await readMessages();
+      const isHIL = _hasUnresolvedHILTool(msgs);
+      if (isHIL !== wasHIL) {
+        onHIL(isHIL);
+        wasHIL = isHIL;
+      }
+    } catch {
+      // Transcript read failed — skip this event, try again on next write
+    }
+  }
+}
+
+/**
+ * Watch the Claude session JSONL transcript for `AskUserQuestion` HIL events.
+ *
+ * Uses `fs/promises` `watch()` (inotify/kqueue in Bun) on the session file.
+ * On each write, re-reads messages via `getSessionMessages()` and calls
+ * `onHIL(true)` when an unresolved `AskUserQuestion` appears or
+ * `onHIL(false)` when it is resolved. Only fires on state transitions to
+ * avoid redundant callbacks.
+ *
+ * The loop exits when the provided `AbortSignal` is aborted (e.g. session
+ * becomes idle). Individual read errors are silently swallowed so a single
+ * corrupt write doesn't kill the watcher.
+ */
+async function watchTranscriptForHIL(
+  sessionId: string,
+  signal: AbortSignal,
+  onHIL: (waiting: boolean) => void,
+): Promise<void> {
+  const jsonlPath = `${resolveSessionDir(process.cwd())}/${sessionId}.jsonl`;
+  await _runHILWatcher(
+    watch(jsonlPath, { signal }),
+    () => getSessionMessages(sessionId, { dir: process.cwd(), includeSystemMessages: true }),
+    onHIL,
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -268,9 +376,12 @@ async function waitForIdle(
   transcriptBeforeCount: number,
   beforeContent: string,
   pollIntervalMs: number,
+  onHIL?: (waiting: boolean) => void,
 ): Promise<SessionMessage[]> {
   // Give Claude time to start processing before first poll
   await Bun.sleep(3_000);
+
+  let hilActive = false;
 
   while (true) {
     const currentContent = normalizeTmuxLines(capturePaneScrollback(paneId));
@@ -279,13 +390,37 @@ async function waitForIdle(
     if (currentContent !== beforeContent) {
       const visible = capturePaneVisible(paneId);
       if (paneLooksReady(visible) && !paneHasActiveTask(visible)) {
-        // Pane is idle — return transcript messages from this turn
+        // Pane looks idle — but it might be waiting for user input (HIL).
+        // Check the transcript for an unresolved AskUserQuestion before
+        // treating this as a true completion.
         if (claudeSessionId) {
           try {
             const msgs = await getSessionMessages(claudeSessionId, {
               dir: process.cwd(),
               includeSystemMessages: true,
             });
+
+            if (_hasUnresolvedHILTool(msgs)) {
+              // Agent is blocked on user input — signal HIL and keep waiting
+              if (!hilActive && onHIL) {
+                onHIL(true);
+                hilActive = true;
+              }
+              await Bun.sleep(pollIntervalMs);
+              continue;
+            }
+
+            // HIL was active but is now resolved — signal resumption
+            if (hilActive && onHIL) {
+              onHIL(false);
+              hilActive = false;
+              // Agent may still be processing after HIL resolution — keep
+              // polling instead of returning immediately
+              await Bun.sleep(pollIntervalMs);
+              continue;
+            }
+
+            // Truly idle — return transcript messages from this turn
             if (msgs.length > transcriptBeforeCount) {
               return msgs.slice(transcriptBeforeCount);
             }
@@ -294,6 +429,13 @@ async function waitForIdle(
           }
         }
         return [];
+      } else if (hilActive) {
+        // Pane is active again (user responded, agent resumed processing).
+        // Clear HIL state.
+        if (onHIL) {
+          onHIL(false);
+          hilActive = false;
+        }
       }
     }
 
@@ -318,6 +460,12 @@ export interface ClaudeQueryOptions {
   maxSubmitRounds?: number;
   /** Timeout in ms waiting for pane to be ready before sending (default: 30s) */
   readyTimeoutMs?: number;
+  /**
+   * Called when the agent's human-in-the-loop state changes.
+   * `waiting=true`  → AskUserQuestion is pending (agent blocked on user input).
+   * `waiting=false` → AskUserQuestion was resolved (agent resumed processing).
+   */
+  onHIL?: (waiting: boolean) => void;
 }
 
 /**
@@ -386,6 +534,7 @@ export async function claudeQuery(options: ClaudeQueryOptions): Promise<SessionM
     submitPresses = 1,
     maxSubmitRounds = 6,
     readyTimeoutMs = 30_000,
+    onHIL,
   } = options;
 
   const paneState = initializedPanes.get(paneId);
@@ -485,12 +634,17 @@ export async function claudeQuery(options: ClaudeQueryOptions): Promise<SessionM
   // Interactive Claude Code sessions don't write idle/result events to the
   // JSONL. The pane prompt indicator is the only reliable idle signal.
   // Once idle, output is extracted from the transcript when available.
-  return waitForIdle(
+  //
+  // HIL detection is integrated into waitForIdle — when the pane looks idle
+  // but the transcript has an unresolved AskUserQuestion, the function
+  // calls onHIL(true) and keeps waiting instead of returning prematurely.
+  return await waitForIdle(
     paneId,
     claudeSessionId,
     transcriptBeforeCount,
     beforeContent,
     pollIntervalMs,
+    onHIL,
   );
 }
 
@@ -550,15 +704,18 @@ export class ClaudeSessionWrapper {
   readonly paneId: string;
   readonly sessionId: string;
   private readonly defaults: ClaudeQueryDefaults;
+  private readonly onHIL: ((waiting: boolean) => void) | undefined;
 
   constructor(
     paneId: string,
     sessionId: string,
     defaults: ClaudeQueryDefaults = {},
+    onHIL?: (waiting: boolean) => void,
   ) {
     this.paneId = paneId;
     this.sessionId = sessionId;
     this.defaults = defaults;
+    this.onHIL = onHIL;
   }
 
   /** Send a prompt to Claude and wait for the response. */
@@ -571,6 +728,7 @@ export class ClaudeSessionWrapper {
       prompt,
       ...this.defaults,
       ...opts,
+      onHIL: this.onHIL,
     });
   }
 

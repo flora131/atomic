@@ -18,6 +18,7 @@
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { ALL_SCM_SKILLS } from "../config/index.ts";
+import { createCommonIgnoreFilter } from "../../lib/common-ignore.ts";
 import { copyDir, pathExists } from "./copy.ts";
 
 /**
@@ -64,10 +65,11 @@ export async function installGlobalSkills(): Promise<void> {
 
   // Build the exclusion list from SCM skill names
   const exclude = [...SCM_SKILL_SET];
+  const ignoreFilter = createCommonIgnoreFilter();
 
   await Promise.all(
     SKILL_DEST_DIRS.map((rel) =>
-      copyDir(src, join(home, rel), { exclude }),
+      copyDir(src, join(home, rel), { exclude, ignoreFilter }),
     ),
   );
 }

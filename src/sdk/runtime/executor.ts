@@ -33,7 +33,11 @@ import type {
   ProviderClient,
   ProviderSession,
 } from "../types.ts";
-import { isValidAgent } from "../../services/config/definitions.ts";
+import {
+  isValidAgent,
+  type ProviderOverrides,
+} from "../../services/config/definitions.ts";
+import { getProviderOverrides } from "../../services/config/atomic-config.ts";
 import { ensureDir } from "../../services/system/copy.ts";
 import type { SessionEvent } from "@github/copilot-sdk";
 import type { SessionPromptResponse } from "@opencode-ai/sdk/v2";
@@ -62,13 +66,7 @@ const AGENT_CLI: Record<
 > = {
   copilot: {
     cmd: "copilot",
-    chatFlags: [
-      "--add-dir",
-      ".",
-      "--yolo",
-      "--experimental",
-      "--no-auto-update",
-    ],
+    chatFlags: ["--add-dir", ".", "--yolo", "--experimental"],
     envVars: {
       COPILOT_ALLOW_ALL: "true",
     },
@@ -85,7 +83,6 @@ const AGENT_CLI: Record<
       // which the idle detection in claude.ts watches for to know when the
       // agent has finished processing a prompt.
       CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: "1",
-      CLAUDE_CODE_NO_FLICKER: "1",
     },
   },
 };
@@ -110,7 +107,11 @@ export { errorMessage } from "../errors.ts";
 function isValidSavedMessage(msg: unknown): msg is SavedMessage {
   if (!msg || typeof msg !== "object") return false;
   const m = msg as Record<string, unknown>;
-  return m.provider === "copilot" || m.provider === "opencode" || m.provider === "claude";
+  return (
+    m.provider === "copilot" ||
+    m.provider === "opencode" ||
+    m.provider === "claude"
+  );
 }
 
 export interface WorkflowRunOptions {
@@ -184,15 +185,28 @@ async function getRandomPort(): Promise<number> {
 function buildPaneCommand(
   agent: AgentType,
   port: number,
+  overrides: ProviderOverrides = {},
 ): { command: string; envVars: Record<string, string> } {
-  const { cmd, chatFlags, envVars } = AGENT_CLI[agent];
+  const {
+    cmd,
+    chatFlags: defaultFlags,
+    envVars: defaultEnvVars,
+  } = AGENT_CLI[agent];
+  const chatFlags = overrides.chatFlags ?? defaultFlags;
+  const envVars = overrides.envVars
+    ? { ...defaultEnvVars, ...overrides.envVars }
+    : defaultEnvVars;
 
   switch (agent) {
     case "copilot":
       return {
-        command: [cmd, "--ui-server", "--port", String(port), ...chatFlags].join(
-          " ",
-        ),
+        command: [
+          cmd,
+          "--ui-server",
+          "--port",
+          String(port),
+          ...chatFlags,
+        ].join(" "),
         envVars,
       };
     case "opencode":
@@ -286,7 +300,9 @@ export function escPwsh(s: string): string {
  * structured inputs are optional, so a corrupt payload must never
  * prevent free-form workflows from running.
  */
-export function parseInputsEnv(raw: string | undefined): Record<string, string> {
+export function parseInputsEnv(
+  raw: string | undefined,
+): Record<string, string> {
   if (!raw) return {};
   try {
     const decoded = Buffer.from(raw, "base64").toString("utf-8");
@@ -487,8 +503,7 @@ function createTranscriptReader(
     const refName = resolveRef(ref);
     const prev = completedRegistry.get(refName);
     if (!prev) {
-      const available =
-        [...completedRegistry.keys()].join(", ") || "(none)";
+      const available = [...completedRegistry.keys()].join(", ") || "(none)";
       throw new Error(
         `No transcript for "${refName}". Available: ${available}`,
       );
@@ -510,11 +525,8 @@ function createMessagesReader(
     const refName = resolveRef(ref);
     const prev = completedRegistry.get(refName);
     if (!prev) {
-      const available =
-        [...completedRegistry.keys()].join(", ") || "(none)";
-      throw new Error(
-        `No messages for "${refName}". Available: ${available}`,
-      );
+      const available = [...completedRegistry.keys()].join(", ") || "(none)";
+      throw new Error(`No messages for "${refName}". Available: ${available}`);
     }
     const filePath = join(prev.sessionDir, "messages.json");
     const raw = await Bun.file(filePath).text();
@@ -542,6 +554,8 @@ interface SharedRunnerState {
    * specifically via `ctx.inputs.prompt` for the free-form case.
    */
   inputs: Record<string, string>;
+  /** User-configured provider overrides (global + local merged). */
+  providerOverrides: ProviderOverrides;
   panel: OrchestratorPanel;
   /** Sessions that have been spawned (for name uniqueness + cleanup). */
   activeRegistry: Map<string, ActiveSession>;
@@ -615,7 +629,10 @@ async function initProviderClientAndSession<A extends AgentType>(
       }
       const { createOpencodeClient } = await import("@opencode-ai/sdk/v2");
       const ocClientOpts = clientOpts as StageClientOptions<"opencode">;
-      const client = createOpencodeClient({ ...ocClientOpts, baseUrl: serverUrl });
+      const client = createOpencodeClient({
+        ...ocClientOpts,
+        baseUrl: serverUrl,
+      });
       const sessionResult = await client.session.create(ocSessionOpts);
       await client.tui.selectSession({ sessionID: sessionResult.data!.id });
       return { client, session: sessionResult.data! } as Result;
@@ -632,7 +649,11 @@ async function initProviderClientAndSession<A extends AgentType>(
       const claudeSessionOpts = sessionOpts as StageSessionOptions<"claude">;
       const client = new ClaudeClientWrapper(paneId, claudeClientOpts);
       await client.start();
-      const session = new ClaudeSessionWrapper(paneId, sessionId, claudeSessionOpts);
+      const session = new ClaudeSessionWrapper(
+        paneId,
+        sessionId,
+        claudeSessionOpts,
+      );
       return { client, session } as Result;
     }
     default:
@@ -661,12 +682,16 @@ async function cleanupProvider<A extends AgentType>(
       try {
         await session.disconnect();
       } catch (e) {
-        console.warn(`[cleanup] copilot session disconnect failed: ${errorMessage(e)}`);
+        console.warn(
+          `[cleanup] copilot session disconnect failed: ${errorMessage(e)}`,
+        );
       }
       try {
         await client.stop();
       } catch (e) {
-        console.warn(`[cleanup] copilot client stop failed: ${errorMessage(e)}`);
+        console.warn(
+          `[cleanup] copilot client stop failed: ${errorMessage(e)}`,
+        );
       }
       break;
     }
@@ -756,12 +781,12 @@ function createSessionRunner(
     let panelSessionAdded = false;
 
     try {
-
       // ── 6. Allocate port ──
       const port = await getRandomPort();
       const { command: paneCmd, envVars: paneEnvVars } = buildPaneCommand(
         shared.agent,
         port,
+        shared.providerOverrides,
       );
 
       // ── 7. Create tmux window or headless execution ──
@@ -818,16 +843,13 @@ function createSessionRunner(
         arg: SessionEvent[] | SessionPromptResponse | string,
       ): Promise<SavedMessage[]> {
         if (typeof arg === "string") {
-          const { getSessionMessages, listSessions } = await import(
-            "@anthropic-ai/claude-agent-sdk"
-          );
+          const { getSessionMessages, listSessions } =
+            await import("@anthropic-ai/claude-agent-sdk");
           const dir = process.cwd();
           const sessions = await listSessions({ dir });
 
           const newSessions = knownClaudeSessionIds
-            ? sessions.filter(
-                (s) => !knownClaudeSessionIds!.has(s.sessionId),
-              )
+            ? sessions.filter((s) => !knownClaudeSessionIds!.has(s.sessionId))
             : sessions.filter(
                 (s) => s.lastModified >= claudeSessionStartedAfter,
               );
@@ -890,16 +912,19 @@ function createSessionRunner(
       const getMessagesFn = createMessagesReader(shared.completedRegistry);
 
       // ── 12. Auto-create provider client and session ──
-      const { client: providerClient, session: providerSession, cleanup: providerCleanup } =
-        await initProviderClientAndSession(
-          shared.agent,
-          serverUrl,
-          paneId,
-          sessionId,
-          clientOpts,
-          sessionOpts,
-          isHeadless,
-        );
+      const {
+        client: providerClient,
+        session: providerSession,
+        cleanup: providerCleanup,
+      } = await initProviderClientAndSession(
+        shared.agent,
+        serverUrl,
+        paneId,
+        sessionId,
+        clientOpts,
+        sessionOpts,
+        isHeadless,
+      );
 
       // ── 12a. Copilot: wrap send() to await session.idle ──
       // Copilot's send() is fire-and-forget — it returns immediately after
@@ -924,7 +949,10 @@ function createSessionRunner(
           const idle = new Promise<void>((resolve, reject) => {
             let unsubIdle: (() => void) | undefined;
             let unsubError: (() => void) | undefined;
-            const cleanup = () => { unsubIdle?.(); unsubError?.(); };
+            const cleanup = () => {
+              unsubIdle?.();
+              unsubError?.();
+            };
             unsubIdle = copilotSession.on("session.idle", () => {
               cleanup();
               resolve();
@@ -984,16 +1012,18 @@ function createSessionRunner(
         callbackResult = await run(ctx);
         if (pendingSaves.length > 0) await Promise.all(pendingSaves);
       } catch (error) {
-        const message =
-          errorMessage(error);
-        await Bun.write(join(sessionDir, "error.txt"), message).catch(
-          () => {},
-        );
+        const message = errorMessage(error);
+        await Bun.write(join(sessionDir, "error.txt"), message).catch(() => {});
         if (!isHeadless) shared.panel.sessionError(name, message);
         throw error;
       } finally {
         // ── 14a. Auto-cleanup provider resources ──
-        await cleanupProvider(shared.agent, providerClient, providerSession, paneId);
+        await cleanupProvider(
+          shared.agent,
+          providerClient,
+          providerSession,
+          paneId,
+        );
         if (providerCleanup) {
           try {
             providerCleanup();
@@ -1067,7 +1097,9 @@ export async function runOrchestrator(): Promise<void> {
   const tmuxSessionName = process.env.ATOMIC_WF_TMUX!;
   const rawAgent = process.env.ATOMIC_WF_AGENT!;
   if (!isValidAgent(rawAgent)) {
-    throw new Error(`Invalid ATOMIC_WF_AGENT: "${rawAgent}". Expected one of: copilot, opencode, claude`);
+    throw new Error(
+      `Invalid ATOMIC_WF_AGENT: "${rawAgent}". Expected one of: copilot, opencode, claude`,
+    );
   }
   const agent: AgentType = rawAgent;
   // ATOMIC_WF_INPUTS carries the full input payload. Free-form
@@ -1084,6 +1116,7 @@ export async function runOrchestrator(): Promise<void> {
 
   process.chdir(cwd);
 
+  const providerOverrides = await getProviderOverrides(agent, cwd);
   const sessionsBaseDir = join(getSessionsBaseDir(), workflowRunId);
   await ensureDir(sessionsBaseDir);
 
@@ -1114,6 +1147,7 @@ export async function runOrchestrator(): Promise<void> {
     sessionsBaseDir,
     agent,
     inputs,
+    providerOverrides,
     panel,
     activeRegistry: new Map(),
     completedRegistry: new Map(),
@@ -1204,4 +1238,3 @@ export async function runOrchestrator(): Promise<void> {
     process.off("SIGINT", signalHandler);
   }
 }
-

@@ -41,6 +41,35 @@
         },
         "additionalProperties": false
       }
+    },
+    "providers": {
+      "type": "object",
+      "description": "Per-provider overrides for chatFlags and envVars. chatFlags replaces built-in defaults entirely when set; envVars are merged on top of defaults (user values win on conflict). Local .atomic/settings.json takes precedence over global ~/.atomic/settings.json.",
+      "properties": {
+        "claude": { "$ref": "#/$defs/providerOverrides" },
+        "opencode": { "$ref": "#/$defs/providerOverrides" },
+        "copilot": { "$ref": "#/$defs/providerOverrides" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "providerOverrides": {
+      "type": "object",
+      "description": "Override settings for a single provider.",
+      "properties": {
+        "chatFlags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "CLI flags that replace the provider's default chat flags entirely when set."
+        },
+        "envVars": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Environment variables merged on top of the provider's defaults (user values win on conflict)."
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false

@@ -9,7 +9,7 @@
 
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
-import { type SourceControlType } from "./index.ts";
+import { type SourceControlType, type AgentKey, type ProviderOverrides } from "./index.ts";
 import { SETTINGS_SCHEMA_URL } from "./settings-schema.ts";
 import { ensureDir } from "../system/copy.ts";
 
@@ -26,6 +26,8 @@ export interface AtomicConfig {
   scm?: SourceControlType;
   /** Timestamp of last init */
   lastUpdated?: string;
+  /** Per-provider overrides for chatFlags and envVars */
+  providers?: Partial<Record<AgentKey, ProviderOverrides>>;
 }
 
 type JsonRecord = Record<string, unknown>;
@@ -47,6 +49,41 @@ async function readJsonFile(path: string): Promise<JsonRecord | null> {
   }
 }
 
+function pickProviderOverrides(raw: unknown): ProviderOverrides | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+  const result: ProviderOverrides = {};
+
+  if (Array.isArray(obj.chatFlags) && obj.chatFlags.every((f): f is string => typeof f === "string")) {
+    result.chatFlags = obj.chatFlags;
+  }
+  if (obj.envVars && typeof obj.envVars === "object" && !Array.isArray(obj.envVars)) {
+    const envVars: Record<string, string> = {};
+    for (const [k, v] of Object.entries(obj.envVars)) {
+      if (typeof v === "string") envVars[k] = v;
+    }
+    if (Object.keys(envVars).length > 0) result.envVars = envVars;
+  }
+
+  return Object.keys(result).length > 0 ? result : null;
+}
+
+const VALID_AGENT_KEYS = new Set<string>(["claude", "opencode", "copilot"]);
+
+function pickProviders(raw: unknown): Partial<Record<AgentKey, ProviderOverrides>> | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+  const result: Partial<Record<AgentKey, ProviderOverrides>> = {};
+
+  for (const [key, value] of Object.entries(obj)) {
+    if (!VALID_AGENT_KEYS.has(key)) continue;
+    const overrides = pickProviderOverrides(value);
+    if (overrides) result[key as AgentKey] = overrides;
+  }
+
+  return Object.keys(result).length > 0 ? result : null;
+}
+
 function pickAtomicConfig(record: JsonRecord | null): AtomicConfig | null {
   if (!record) return null;
 
@@ -59,7 +96,40 @@ function pickAtomicConfig(record: JsonRecord | null): AtomicConfig | null {
   if (typeof scm === "string") config.scm = scm as SourceControlType;
   if (typeof lastUpdated === "string") config.lastUpdated = lastUpdated;
 
+  const providers = pickProviders(record.providers);
+  if (providers) config.providers = providers;
+
   return Object.keys(config).length > 0 ? config : null;
+}
+
+/**
+ * Merge two ProviderOverrides, with `over` taking precedence.
+ * - chatFlags: later config replaces earlier
+ * - envVars: merged, later values win on conflict
+ */
+function mergeProviderOverrides(
+  base: ProviderOverrides | undefined,
+  over: ProviderOverrides | undefined,
+): ProviderOverrides | undefined {
+  if (!base && !over) return undefined;
+  if (!base) return over;
+  if (!over) return base;
+
+  const result: ProviderOverrides = {};
+
+  // chatFlags: later replaces earlier entirely
+  if (over.chatFlags !== undefined) {
+    result.chatFlags = over.chatFlags;
+  } else if (base.chatFlags !== undefined) {
+    result.chatFlags = base.chatFlags;
+  }
+
+  // envVars: merged, later wins on conflict
+  if (base.envVars || over.envVars) {
+    result.envVars = { ...base.envVars, ...over.envVars };
+  }
+
+  return Object.keys(result).length > 0 ? result : undefined;
 }
 
 function mergeConfigs(...configs: Array<AtomicConfig | null>): AtomicConfig | null {
@@ -69,6 +139,14 @@ function mergeConfigs(...configs: Array<AtomicConfig | null>): AtomicConfig | nu
     if (config.version !== undefined) merged.version = config.version;
     if (config.scm !== undefined) merged.scm = config.scm;
     if (config.lastUpdated !== undefined) merged.lastUpdated = config.lastUpdated;
+
+    if (config.providers) {
+      if (!merged.providers) merged.providers = {};
+      for (const [key, overrides] of Object.entries(config.providers)) {
+        const agentKey = key as AgentKey;
+        merged.providers[agentKey] = mergeProviderOverrides(merged.providers[agentKey], overrides);
+      }
+    }
   }
   return Object.keys(merged).length > 0 ? merged : null;
 }
@@ -120,4 +198,20 @@ export async function saveAtomicConfig(
 export async function getSelectedScm(projectDir: string): Promise<SourceControlType | null> {
   const config = await readAtomicConfig(projectDir);
   return config?.scm ?? null;
+}
+
+/**
+ * Resolve provider overrides from global + local settings (local wins).
+ *
+ * Returns `{ chatFlags, envVars }` that are meant to be layered on top
+ * of the provider's hardcoded defaults:
+ * - `chatFlags`: when set, replaces the provider's default chat_flags entirely
+ * - `envVars`: merged on top of the provider's default env_vars (user values win)
+ */
+export async function getProviderOverrides(
+  agentKey: AgentKey,
+  projectDir: string,
+): Promise<ProviderOverrides> {
+  const config = await readAtomicConfig(projectDir);
+  return config?.providers?.[agentKey] ?? {};
 }

@@ -25,6 +25,7 @@ import {
   ensureDir,
   pathExists,
 } from "./copy.ts";
+import { createCommonIgnoreFilter } from "../../lib/common-ignore.ts";
 
 /**
  * Locate the package root by walking up from this module. Both in installed
@@ -72,7 +73,7 @@ export async function installGlobalAgents(): Promise<void> {
       continue;
     }
 
-    await copyDir(src, dest);
+    await copyDir(src, dest, { ignoreFilter: createCommonIgnoreFilter() });
   }
 
   // Surface skipped sources via a non-fatal thrown error only if ALL sources

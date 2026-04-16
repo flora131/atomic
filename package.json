@@ -45,7 +45,9 @@
     "assets/settings.schema.json",
     ".agents/skills",
     ".claude/agents",
+    ".claude/settings.json",
     ".opencode/agents",
+    ".opencode/opencode.json",
     ".github/agents",
     ".github/lsp.json"
   ],

@@ -1,67 +1,63 @@
 /**
  * deep-research-codebase / claude
  *
- * A deterministically-orchestrated, distributed version of the
- * `research-codebase` skill. The research-codebase skill spawns
- * codebase-locator / codebase-analyzer / codebase-pattern-finder /
- * codebase-research-locator / codebase-research-analyzer /
- * codebase-online-researcher sub-agents on the fly via LLM judgment;
- * this workflow spawns the same agents on a deterministic schedule
- * driven by the codebase's lines of code.
+ * A deterministically-orchestrated, distributed codebase researcher built on
+ * the Claude Agent SDK's native sub-agent dispatch. Specialist sub-agents
+ * (codebase-locator / codebase-pattern-finder / codebase-analyzer /
+ * codebase-online-researcher / codebase-research-locator /
+ * codebase-research-analyzer) are spawned as separate headless `ctx.stage()`
+ * calls — each binds the SDK's `agent` option to the desired specialist
+ * instead of relying on a coordinator agent that dispatches them via the
+ * `@"name (agent)"` prompt syntax.
+ *
+ * Why SDK primitives instead of in-prompt orchestration:
+ *
+ *   • Each specialist runs in an ISOLATED conversation. The locator's giant
+ *     file index doesn't pollute the analyzer's context window, and the
+ *     online-researcher doesn't see the analyzer's reasoning at all. This is
+ *     `multi-agent-patterns` swarm-style isolation, not orchestrator-style.
+ *
+ *   • There is no orchestrator turn whose context grows linearly with the
+ *     number of specialists. Token cost per partition is bounded by the four
+ *     specialists' independent prompts — adding more partitions scales
+ *     cleanly because every fan-out is a fresh session.
+ *
+ *   • Failure of one specialist does not abort the partition mid-thought —
+ *     the runtime fails the stage, but its siblings' outputs are still on
+ *     disk and the aggregator can continue with whatever completed.
+ *
+ *   • The synthesis step that combines specialist outputs is plain TypeScript
+ *     (`renderExplorerMarkdown` in helpers/scratch.ts) — no extra LLM call
+ *     just to concatenate four markdown sections.
  *
  * Topology:
  *
- *           ┌─→ codebase-scout
+ *           ┌─→ codebase-scout (visible)
  *   parent ─┤
- *           └─→ research-history
- *                     │
- *                     ▼
- *   ┌──────────────────────────────────────────────────┐
- *   │  explorer-1   explorer-2   ...   explorer-N      │   (Promise.all, headless)
- *   └──────────────────────────────────────────────────┘
- *                     │
- *                     ▼
- *                aggregator
+ *           └─→ history-locator → history-analyzer (headless)
+ *                                       │
+ *                                       ▼
+ *   ┌──────────────────────────────────────────────────────────────────────┐
+ *   │  Per-partition (Promise.all over partitions, all stages headless):    │
+ *   │                                                                       │
+ *   │     locator-i      ∥   pattern-finder-i        (Layer 1, parallel)    │
+ *   │            │                                                          │
+ *   │            ▼                                                          │
+ *   │     analyzer-i     ∥   online-researcher-i     (Layer 2, parallel)    │
+ *   │            │                                                          │
+ *   │            ▼                                                          │
+ *   │     deterministic write to scratch file (TS helper, no LLM)           │
+ *   └──────────────────────────────────────────────────────────────────────┘
+ *                                       │
+ *                                       ▼
+ *                                  aggregator (visible)
  *
- * Explorers run headless (in-process, no tmux window) — they are transparent
- * to the graph, so the visible topology is: [scout, history] → aggregator.
- *
- * Stage 1a — codebase-scout
- *   Pure-TypeScript: lists files (git ls-files), counts LOC (batched wc -l),
- *   renders a depth-bounded ASCII tree, and bin-packs directories into N
- *   partitions where N is determined by the LOC heuristic. Then makes one
- *   short LLM call to produce an architectural orientation that primes the
- *   downstream explorers. Returns structured data via `handle.result` and
- *   the agent's prose via `ctx.transcript(handle)`.
- *
- * Stage 1b — research-history (parallel sibling of scout)
- *   Dispatches the codebase-research-locator and codebase-research-analyzer
- *   sub-agents over the project's existing research/ directory to surface
- *   prior decisions, completed investigations, and unresolved questions.
- *   Output is consumed via session transcript (≤400 words) and feeds into
- *   the aggregator as supplementary context.
- *
- * Stage 2 — explorer-1..N (parallel; depends on scout + history)
- *   Each explorer is a coordinator that dispatches specialized sub-agents
- *   over its assigned partition (single LOC-balanced slice of the codebase):
- *     - codebase-locator       → finds relevant files in the partition
- *     - codebase-analyzer      → documents how the most relevant files work
- *     - codebase-pattern-finder → finds existing pattern examples
- *     - codebase-online-researcher → (conditional) external library docs
- *   The explorer never reads files directly — it orchestrates specialists
- *   and writes a synthesized findings document to a known scratch path.
- *
- * Stage 3 — aggregator
- *   Reads each explorer's scratch file by path (file-based handoff to keep
- *   the aggregator's own context lean — we deliberately do NOT inline N
- *   transcripts into the prompt). Folds in the research-history overview
- *   as supplementary context. Synthesizes a single research document at
- *   research/docs/YYYY-MM-DD-<slug>.md.
- *
- * Context-engineering decisions are documented at each stage below.
+ * Specialist stages run headless (in-process via the Agent SDK's `query()`),
+ * so they are transparent to the workflow graph. The visible nodes are just:
+ *   parent → [codebase-scout] → aggregator
  */
 
-import { defineWorkflow } from "../../../index.ts";
+import { defineWorkflow, extractAssistantText } from "../../../index.ts";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
@@ -76,21 +72,31 @@ import {
 } from "../helpers/heuristic.ts";
 import {
   buildAggregatorPrompt,
-  buildExplorerPrompt,
-  buildHistoryPrompt,
+  buildAnalyzerPrompt,
+  buildHistoryAnalyzerPrompt,
+  buildHistoryLocatorPrompt,
+  buildLocatorPrompt,
+  buildOnlineResearcherPrompt,
+  buildPatternFinderPrompt,
   buildScoutPrompt,
   slugifyPrompt,
 } from "../helpers/prompts.ts";
+import { writeExplorerScratchFile } from "../helpers/scratch.ts";
 
-// ── Idle detection ─────────────────────────────────────────────────────────
-// Completion is detected by watching the session JSONL file for idle and result
-// events from Claude's own SDK — no manual timeout is needed. The loop runs
-// until Claude reports idle or a result (success, error_max_turns, etc.).
+/**
+ * Shared SDK options for every sub-agent dispatch. `permissionMode` +
+ * `allowDangerouslySkipPermissions` are required so the headless sub-agents
+ * can use Read/Grep/Glob/Bash without prompting (we are running unattended).
+ */
+const SUBAGENT_OPTS = {
+  permissionMode: "bypassPermissions",
+  allowDangerouslySkipPermissions: true,
+} as const;
 
 export default defineWorkflow({
   name: "deep-research-codebase",
   description:
-    "Deterministic deep codebase research: scout → LOC-driven parallel explorers → aggregator",
+    "Deterministic deep codebase research: scout → per-partition specialist sub-agents → aggregator",
   inputs: [
     {
       name: "prompt",
@@ -102,34 +108,29 @@ export default defineWorkflow({
 })
   .for<"claude">()
   .run(async (ctx) => {
-    // Destructure once so every stage below can close over a bare
-    // `prompt` string without re-reaching into ctx.inputs.
     const prompt = ctx.inputs.prompt ?? "";
     const root = getCodebaseRoot();
     const startedAt = new Date();
     const isoDate = startedAt.toISOString().slice(0, 10);
     const slug = slugifyPrompt(prompt);
 
-    // ── Stages 1a + 1b: codebase-scout ∥ research-history ──────────────────
-    // Run the codebase scout (deterministic compute + brief LLM orientation)
-    // in parallel with the research-history scout (sub-agent dispatch over
-    // the project's prior research docs). Both must complete before any
-    // explorer starts, since:
-    //   - explorers depend on `scout.result.partitions`
-    //   - aggregator depends on the history transcript
-    // Promise.all gives us the cleanest auto-inferred graph topology:
-    // parent → [scout, history] → [explorer-1..N] → aggregator.
-    const [scout, history] = await Promise.all([
+    // ── Stage 1a: codebase-scout (visible) ‖ Stage 1b: research-history pipeline (headless) ──
+    //
+    // Both pipelines are independent of each other and must complete before
+    // any explorer fan-out — explorers depend on `scout.result.partitions`
+    // and the aggregator embeds the history overview as supplementary
+    // context. We wrap the history sub-pipeline (locator → analyzer) in an
+    // IIFE so Promise.all sees it as a single awaitable.
+    const [scout, historyOverview] = await Promise.all([
       ctx.stage(
         {
           name: "codebase-scout",
           description:
-            "Map codebase, count LOC, partition for parallel explorers",
+            "Map codebase, count LOC, partition for parallel specialists",
         },
         {},
         {},
         async (s) => {
-          // 1. Deterministic scouting.
           const data = scoutCodebase(root);
           if (data.units.length === 0) {
             throw new Error(
@@ -138,13 +139,10 @@ export default defineWorkflow({
             );
           }
 
-          // 2. Heuristic decides explorer count (capped by available units).
           const targetCount = calculateExplorerCount(data.totalLoc);
           const partitions = partitionUnits(data.units, targetCount);
           const actualCount = partitions.length;
 
-          // 3. Scratch directory for explorer outputs (timestamped to avoid
-          //    collisions across runs).
           const scratchDir = path.join(
             root,
             "research",
@@ -153,10 +151,6 @@ export default defineWorkflow({
           );
           await mkdir(scratchDir, { recursive: true });
 
-          // 4. Short LLM call: architectural orientation for downstream
-          //    explorers. The prompt explicitly forbids the agent from
-          //    answering the research question — its only job here is to
-          //    orient.
           await s.session.query(
             buildScoutPrompt({
               question: prompt,
@@ -181,100 +175,209 @@ export default defineWorkflow({
           };
         },
       ),
-      ctx.stage(
-        {
-          name: "research-history",
-          description:
-            "Surface prior research via research-locator + research-analyzer",
-        },
-        {},
-        {},
-        async (s) => {
-          // Dispatches codebase-research-locator → codebase-research-analyzer
-          // over the project's research/ directory and outputs a ≤400-word
-          // synthesis as prose (no file write — consumed via transcript).
-          await s.session.query(buildHistoryPrompt({ question: prompt, root }));
-          s.save(s.sessionId);
-        },
-      ),
+      // Research-history pipeline: locator → analyzer, both headless. The
+      // analyzer needs the locator's verbatim output, so this is sequential
+      // INSIDE the IIFE while remaining parallel TO the codebase scout.
+      (async (): Promise<string> => {
+        const historyLocator = await ctx.stage(
+          {
+            name: "history-locator",
+            headless: true,
+            description: "Locate prior research docs (codebase-research-locator)",
+          },
+          {},
+          {},
+          async (s) => {
+            const result = await s.session.query(
+              buildHistoryLocatorPrompt({ question: prompt, root }),
+              { agent: "codebase-research-locator", ...SUBAGENT_OPTS },
+            );
+            s.save(s.sessionId);
+            return extractAssistantText(result, 0);
+          },
+        );
+
+        const historyAnalyzer = await ctx.stage(
+          {
+            name: "history-analyzer",
+            headless: true,
+            description: "Synthesize prior research (codebase-research-analyzer)",
+          },
+          {},
+          {},
+          async (s) => {
+            const result = await s.session.query(
+              buildHistoryAnalyzerPrompt({
+                question: prompt,
+                locatorOutput: historyLocator.result,
+                root,
+              }),
+              { agent: "codebase-research-analyzer", ...SUBAGENT_OPTS },
+            );
+            s.save(s.sessionId);
+            return extractAssistantText(result, 0);
+          },
+        );
+
+        return historyAnalyzer.result;
+      })(),
     ]);
 
     const { partitions, explorerCount, scratchDir, totalLoc, totalFiles } =
       scout.result;
 
-    // Pull both scout transcripts ONCE at the workflow level so every
-    // explorer + the aggregator can embed them in their prompts. Both
-    // stages have already completed by this point (we're past Promise.all),
-    // so these reads are safe (F13).
+    // Pull the scout transcript ONCE so every per-partition specialist can
+    // embed the architectural orientation in its prompt. The scout has
+    // completed by the time we get here (we're past Promise.all), so this
+    // read is safe (failure-modes F13).
     const scoutOverview = (await ctx.transcript(scout)).content;
-    const historyOverview = (await ctx.transcript(history)).content;
 
-    // ── Stage 2: parallel headless explorers ─────────────────────────────────
-    // Each explorer runs headless (in-process, no tmux pane) via Promise.all.
-    // They are invisible in the workflow graph but tracked by the background
-    // task counter in the statusline. Each one receives:
-    //   - the original research question (top + bottom of prompt)
-    //   - the scout's architectural overview
-    //   - its OWN partition (never the full file list)
-    //   - the absolute path to its scratch file
+    // ── Stage 2: per-partition specialist fan-out ─────────────────────────
     //
-    // Information flow choices:
-    //   • We deliberately do not pass other explorers' work — they run in
-    //     parallel and forward-only data flow is enforced by the runtime
-    //     (F13). Cross-cutting happens in the aggregator.
-    //   • We pass the partition via closure capture, not by parsing
-    //     scout transcripts — strongly typed and lossless.
+    // Per partition i:
+    //   Layer 1 (parallel):  locator-i     ∥  pattern-finder-i
+    //   Layer 2 (parallel):  analyzer-i    ∥  online-researcher-i   ← depend on locator-i
+    //   Synthesis (deterministic TS):      renderExplorerMarkdown → scratch file
+    //
+    // All N partitions run as parallel branches of the outer Promise.all.
+    // Sub-agent stages are headless: invisible in the graph and bounded only
+    // by SDK concurrency. Information flow is forward-only and all context
+    // each specialist needs (research question, scope, scout overview, and —
+    // for layer 2 — locator output) is injected into the first prompt.
     const explorerHandles = await Promise.all(
-      partitions.map((partition, idx) => {
+      partitions.map(async (partition, idx) => {
         const i = idx + 1;
         const scratchPath = path.join(scratchDir, `explorer-${i}.md`);
-        return ctx.stage(
-          {
-            name: `explorer-${i}`,
-            headless: true,
-            description: `Explore ${partition
-              .map((u) => u.path)
-              .join(
-                ", ",
-              )} (${partition.reduce((s, u) => s + u.fileCount, 0)} files)`,
-          },
-          {},
-          {},
-          async (s) => {
-            await s.session.query(
-              buildExplorerPrompt({
-                question: prompt,
-                index: i,
-                total: explorerCount,
-                partition,
-                scoutOverview,
-                scratchPath,
-                root,
-              }),
-            );
-            s.save(s.sessionId);
 
-            // Returning structured metadata lets the aggregator stage reach
-            // each explorer's scratch path without re-parsing transcripts.
-            return { index: i, scratchPath, partition };
-          },
-        );
+        // Layer 1: locator + pattern-finder run independently.
+        const [locator, patternFinder] = await Promise.all([
+          ctx.stage(
+            {
+              name: `locator-${i}`,
+              headless: true,
+              description: `codebase-locator over partition ${i}`,
+            },
+            {},
+            {},
+            async (s) => {
+              const result = await s.session.query(
+                buildLocatorPrompt({
+                  question: prompt,
+                  partition,
+                  root,
+                  scoutOverview,
+                  index: i,
+                  total: explorerCount,
+                }),
+                { agent: "codebase-locator", ...SUBAGENT_OPTS },
+              );
+              s.save(s.sessionId);
+              return extractAssistantText(result, 0);
+            },
+          ),
+          ctx.stage(
+            {
+              name: `pattern-finder-${i}`,
+              headless: true,
+              description: `codebase-pattern-finder over partition ${i}`,
+            },
+            {},
+            {},
+            async (s) => {
+              const result = await s.session.query(
+                buildPatternFinderPrompt({
+                  question: prompt,
+                  partition,
+                  root,
+                  scoutOverview,
+                  index: i,
+                  total: explorerCount,
+                }),
+                { agent: "codebase-pattern-finder", ...SUBAGENT_OPTS },
+              );
+              s.save(s.sessionId);
+              return extractAssistantText(result, 0);
+            },
+          ),
+        ]);
+
+        const locatorOutput = locator.result;
+        const patternsOutput = patternFinder.result;
+
+        // Layer 2: analyzer + online-researcher both consume locator output.
+        const [analyzer, onlineResearcher] = await Promise.all([
+          ctx.stage(
+            {
+              name: `analyzer-${i}`,
+              headless: true,
+              description: `codebase-analyzer over partition ${i}`,
+            },
+            {},
+            {},
+            async (s) => {
+              const result = await s.session.query(
+                buildAnalyzerPrompt({
+                  question: prompt,
+                  partition,
+                  locatorOutput,
+                  root,
+                  scoutOverview,
+                  index: i,
+                  total: explorerCount,
+                }),
+                { agent: "codebase-analyzer", ...SUBAGENT_OPTS },
+              );
+              s.save(s.sessionId);
+              return extractAssistantText(result, 0);
+            },
+          ),
+          ctx.stage(
+            {
+              name: `online-researcher-${i}`,
+              headless: true,
+              description: `codebase-online-researcher over partition ${i}`,
+            },
+            {},
+            {},
+            async (s) => {
+              const result = await s.session.query(
+                buildOnlineResearcherPrompt({
+                  question: prompt,
+                  partition,
+                  locatorOutput,
+                  root,
+                  index: i,
+                  total: explorerCount,
+                }),
+                { agent: "codebase-online-researcher", ...SUBAGENT_OPTS },
+              );
+              s.save(s.sessionId);
+              return extractAssistantText(result, 0);
+            },
+          ),
+        ]);
+
+        // Deterministic synthesis — no fifth LLM call just to concatenate.
+        await writeExplorerScratchFile(scratchPath, {
+          index: i,
+          total: explorerCount,
+          partition,
+          locatorOutput,
+          patternsOutput,
+          analyzerOutput: analyzer.result,
+          onlineOutput: onlineResearcher.result,
+        });
+
+        return { index: i, scratchPath, partition };
       }),
     );
 
-    // ── Stage 3: aggregator ────────────────────────────────────────────────
-    // Synthesizes explorer findings into the final research document at
-    // research/docs/YYYY-MM-DD-<slug>.md.
+    // ── Stage 3: aggregator (visible) ─────────────────────────────────────
     //
-    // Information flow choice:
-    //   • The aggregator reads explorer findings via FILE PATHS, not by
-    //     embedding all N transcripts in its prompt. This keeps its
-    //     context lean (filesystem-context skill) and lets the agent
-    //     selectively re-read source files when explorers contradict
-    //     each other.
-    //   • The aggregator only sees the scout overview (short) plus a
-    //     manifest of explorer scratch paths — token cost stays roughly
-    //     constant in N rather than growing linearly.
+    // Reads each partition's deterministic scratch file by PATH so the
+    // aggregator's own context stays bounded by N filenames + the short
+    // scout/history overviews — not by N inlined transcripts (filesystem-
+    // context skill).
     const finalPath = path.join(
       root,
       "research",
@@ -286,7 +389,7 @@ export default defineWorkflow({
       {
         name: "aggregator",
         description:
-          "Synthesize explorer findings + history into final research doc",
+          "Synthesize partition findings + history into final research doc",
       },
       {},
       {},
@@ -297,7 +400,7 @@ export default defineWorkflow({
             totalLoc,
             totalFiles,
             explorerCount,
-            explorerFiles: explorerHandles.map((h) => h.result),
+            explorerFiles: explorerHandles,
             finalPath,
             scoutOverview,
             historyOverview,

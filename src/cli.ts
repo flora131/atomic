@@ -13,6 +13,7 @@
  *   atomic workflow session connect <id>      Attach to a session
  *   atomic session list                       List all running sessions
  *   atomic session connect [id]               Interactive session picker
+ *   atomic session kill [id]                  Kill a session (or all when no id)
  *   atomic config set <key> <value>           Set configuration value
  *   atomic --version                          Show version
  *   atomic --help                             Show help
@@ -77,6 +78,22 @@ function addSessionSubcommand(parent: Command, scope: "chat" | "workflow" | "all
             }
         });
 
+    sessionCmd
+        .command("kill")
+        .description("Kill a running session (omit id to kill all)")
+        .argument("[session_id]", "Session name to kill (omit to kill all)")
+        .option(
+            "-a, --agent <name>",
+            `Filter by agent backend (${Object.keys(AGENT_CONFIG).join(", ")}); repeatable`,
+            collectAgent,
+            [] as string[],
+        )
+        .action(async (sessionId, localOpts) => {
+            const { sessionKillCommand } = await import("./commands/cli/session.ts");
+            const exitCode = await sessionKillCommand(sessionId, localOpts.agent, scope);
+            process.exit(exitCode);
+        });
+
     return sessionCmd;
 }
 
@@ -131,7 +148,8 @@ Examples:
   $ atomic chat -a opencode                         Start OpenCode interactively
   $ atomic chat -a claude "fix the bug"             Claude with initial prompt
   $ atomic chat session list                        List running sessions
-  $ atomic chat session connect <id>                Attach to a session`,
+  $ atomic chat session connect <id>                Attach to a session
+  $ atomic chat session kill [id]                   Kill a chat session (or all)`,
         )
         .action(async (localOpts, cmd) => {
             const validAgents = Object.keys(AGENT_CONFIG);
@@ -201,7 +219,8 @@ Examples:
   $ atomic workflow -n gen-spec -a claude --research_doc=notes.md --focus=standard
                                                     Run a structured-input workflow
   $ atomic workflow session list                    List running sessions
-  $ atomic workflow session connect <id>            Attach to a session`,
+  $ atomic workflow session connect <id>            Attach to a session
+  $ atomic workflow session kill [id]               Kill a workflow session (or all)`,
         )
         .action(async (localOpts, cmd) => {
             const { workflowCommand } = await import("./commands/cli/workflow.ts");

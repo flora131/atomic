@@ -7,7 +7,7 @@
  * tmux directly.
  */
 
-import { select, isCancel, cancel } from "@clack/prompts";
+import { select, confirm, isCancel, cancel } from "@clack/prompts";
 import { createPainter, type PaletteKey } from "../../theme/colors.ts";
 import {
   listSessions as _listSessions,
@@ -18,6 +18,7 @@ import {
   switchClient as _switchClient,
   spawnMuxAttach as _spawnMuxAttach,
   detachAndAttachAtomic as _detachAndAttachAtomic,
+  killSession as _killSession,
   SOCKET_NAME,
 } from "../../sdk/workflows/index.ts";
 import type { TmuxSession, SessionType } from "../../sdk/runtime/tmux.ts";
@@ -36,8 +37,11 @@ export interface SessionDeps {
   switchClient: (name: string) => void;
   spawnMuxAttach: (name: string) => Subprocess;
   detachAndAttachAtomic: (name: string) => void;
+  killSession: (name: string) => void;
   /** Prompt function for the session picker — defaults to @clack/prompts select. */
   select: typeof select;
+  /** Prompt function for yes/no confirmations — defaults to @clack/prompts confirm. */
+  confirm: typeof confirm;
   isCancel: typeof isCancel;
 }
 
@@ -51,7 +55,9 @@ const defaultDeps: SessionDeps = {
   switchClient: _switchClient,
   spawnMuxAttach: _spawnMuxAttach,
   detachAndAttachAtomic: _detachAndAttachAtomic,
+  killSession: _killSession,
   select,
+  confirm,
   isCancel,
 };
 
@@ -262,4 +268,114 @@ export async function sessionPickerCommand(agents: string[] = [], scope: Session
   }
 
   return sessionConnectCommand(selected as string, deps);
+}
+
+// ─── Session kill command ────────────────────────────────────────────────────
+
+/**
+ * Kill a named session or all sessions matching the given scope and agents.
+ *
+ * - If `sessionId` is provided: confirm and kill that one session.
+ * - If `sessionId` is omitted: confirm and kill all sessions in scope.
+ */
+export async function sessionKillCommand(
+  sessionId: string | undefined,
+  agents: string[] = [],
+  scope: SessionScope = "all",
+  deps: SessionDeps = defaultDeps,
+): Promise<number> {
+  const paint = createPainter();
+
+  if (!deps.isTmuxInstalled()) {
+    process.stdout.write(
+      "\n  " + paint("text", "no sessions running", { bold: true }) +
+      "\n\n  " + paint("dim", "tmux is not installed") + "\n\n",
+    );
+    return 0;
+  }
+
+  // ── Named kill path ───────────────────────────────────────────────────────
+  if (sessionId !== undefined) {
+    const inScope = filterByScope(deps.listSessions(), scope);
+    const target = inScope.find((s) => s.name === sessionId);
+
+    if (!target) {
+      const scopeLabel = scope === "all" ? "" : ` in ${scope} scope`;
+      process.stderr.write(
+        paint("error", `Error: session '${sessionId}' not found${scopeLabel}.`) + "\n",
+      );
+      if (inScope.length > 0) {
+        process.stderr.write(
+          "\n" + paint("dim", "Available sessions:") + "\n",
+        );
+        for (const s of inScope) {
+          process.stderr.write(
+            "  " + paint("dim", "○") + " " + paint("text", s.name) + "\n",
+          );
+        }
+        process.stderr.write("\n");
+      }
+      return 1;
+    }
+
+    const answer = await deps.confirm({
+      message: `Kill session '${sessionId}'?`,
+      initialValue: false,
+    });
+
+    if (deps.isCancel(answer)) {
+      cancel("Cancelled.");
+      return 0;
+    }
+
+    if (answer === true) {
+      deps.killSession(sessionId);
+      process.stdout.write(
+        "\n  " + paint("success", "✓") + " killed " + paint("text", sessionId) + "\n\n",
+      );
+      return 0;
+    }
+
+    // answer === false
+    process.stdout.write(
+      "\n  " + paint("dim", "Cancelled.") + "\n\n",
+    );
+    return 0;
+  }
+
+  // ── Kill-all path ─────────────────────────────────────────────────────────
+  const targets = filterByAgent(filterByScope(deps.listSessions(), scope), agents);
+
+  if (targets.length === 0) {
+    process.stdout.write(renderSessionList([]));
+    return 0;
+  }
+
+  const noun = targets.length === 1 ? "session" : "sessions";
+  const scopePrefix = scope === "all" ? "" : `${scope} `;
+  const answer = await deps.confirm({
+    message: `Kill all ${targets.length} ${scopePrefix}${noun}?`,
+    initialValue: false,
+  });
+
+  if (deps.isCancel(answer)) {
+    cancel("Cancelled.");
+    return 0;
+  }
+
+  if (answer === true) {
+    for (const t of targets) {
+      deps.killSession(t.name);
+    }
+    process.stdout.write(
+      "\n  " + paint("success", "✓") + " killed " + paint("text", String(targets.length)) + " " + paint("dim", noun) + "\n\n",
+    );
+    return 0;
+  }
+
+  // answer === false
+  process.stdout.write(
+    "\n  " + paint("dim", "Cancelled.") + "\n\n",
+  );
+  return 0;
 }

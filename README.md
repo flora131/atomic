@@ -220,6 +220,12 @@ atomic session connect <session-name>
 
 # Interactive session picker (fuzzy-search)
 atomic session connect
+
+# Kill a session by name (prompts for confirmation)
+atomic session kill <session-name>
+
+# Kill all sessions in scope (prompts for confirmation)
+atomic session kill
 ```
 
 Session names follow a predictable pattern:
@@ -979,6 +985,7 @@ During `atomic chat`, there is no Atomic-owned TUI — `atomic chat -a <agent>` 
 | `atomic workflow list`          | List available workflows, grouped by source                           |
 | `atomic session list`           | List all running sessions on the atomic tmux socket                   |
 | `atomic session connect [name]` | Attach to a session (interactive picker when no name given)           |
+| `atomic session kill [name]`    | Kill a session by name, or all sessions when no name is given         |
 | `atomic completions <shell>`    | Output shell completion script (bash, zsh, fish, powershell)          |
 | `atomic config set <k> <v>`     | Set configuration values (currently supports `telemetry`)             |
 
@@ -1000,12 +1007,15 @@ The `session` command is available at three levels — scoped or global:
 | ---------------------------------------- | ----------------------------------------------------- |
 | `atomic session list`                    | List all running sessions                             |
 | `atomic session connect [name]`          | Attach to a session (interactive picker when no name) |
+| `atomic session kill [name]`             | Kill a session, or all sessions when no name is given |
 | `atomic chat session list`               | List running chat sessions only                       |
 | `atomic chat session connect [name]`     | Attach to a chat session                              |
+| `atomic chat session kill [name]`        | Kill a chat session, or all chat sessions             |
 | `atomic workflow session list`           | List running workflow sessions only                   |
 | `atomic workflow session connect [name]` | Attach to a workflow session                          |
+| `atomic workflow session kill [name]`    | Kill a workflow session, or all workflow sessions     |
 
-Both `list` and `connect` accept `-a <agent>` (repeatable) to filter by agent backend.
+`list`, `connect`, and `kill` all accept `-a <agent>` (repeatable) to filter by agent backend. `kill` prompts for confirmation before terminating sessions.
 
 ```bash
 atomic session list                      # All sessions
@@ -1013,6 +1023,9 @@ atomic session list -a claude            # Only Claude sessions
 atomic session connect my-session        # Attach by name
 atomic session connect                   # Interactive picker
 atomic chat session list -a copilot      # Chat sessions for Copilot only
+atomic session kill my-session           # Kill one session by name
+atomic session kill                      # Kill all sessions (with confirmation)
+atomic workflow session kill -a claude   # Kill all Claude workflow sessions
 ```
 
 #### `atomic chat` Flags

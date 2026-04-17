@@ -96,6 +96,7 @@ Register-ArgumentCompleter -Native -CommandName atomic -ScriptBlock {
                             $completions = @(
                                 @{ text = 'list';    tip = 'List running sessions' }
                                 @{ text = 'connect'; tip = 'Attach to a running session' }
+                                @{ text = 'kill';    tip = 'Kill a running session (omit id to kill all)' }
                             )
                         } else {
                             $completions = @(
@@ -125,6 +126,7 @@ Register-ArgumentCompleter -Native -CommandName atomic -ScriptBlock {
                             $completions = @(
                                 @{ text = 'list';    tip = 'List running sessions' }
                                 @{ text = 'connect'; tip = 'Attach to a running session' }
+                                @{ text = 'kill';    tip = 'Kill a running session (omit id to kill all)' }
                             )
                         } else {
                             $completions = @(
@@ -139,6 +141,7 @@ Register-ArgumentCompleter -Native -CommandName atomic -ScriptBlock {
                         $completions = @(
                             @{ text = 'list';    tip = 'List running sessions' }
                             @{ text = 'connect'; tip = 'Attach to a running session' }
+                            @{ text = 'kill';    tip = 'Kill a running session (omit id to kill all)' }
                         )
                     } else {
                         $completions = @(

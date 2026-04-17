@@ -58,7 +58,7 @@ _atomic_completions() {
                 COMPREPLY=( $(compgen -W "session -a --agent -h --help" -- "$cur") )
             elif [[ "$cmd2" == "session" ]]; then
                 if [[ -z "$cmd3" ]]; then
-                    COMPREPLY=( $(compgen -W "list connect -h --help" -- "$cur") )
+                    COMPREPLY=( $(compgen -W "list connect kill -h --help" -- "$cur") )
                 else
                     COMPREPLY=( $(compgen -W "-a --agent -h --help" -- "$cur") )
                 fi
@@ -71,7 +71,7 @@ _atomic_completions() {
                 COMPREPLY=( $(compgen -W "-a --agent -h --help" -- "$cur") )
             elif [[ "$cmd2" == "session" ]]; then
                 if [[ -z "$cmd3" ]]; then
-                    COMPREPLY=( $(compgen -W "list connect -h --help" -- "$cur") )
+                    COMPREPLY=( $(compgen -W "list connect kill -h --help" -- "$cur") )
                 else
                     COMPREPLY=( $(compgen -W "-a --agent -h --help" -- "$cur") )
                 fi
@@ -79,7 +79,7 @@ _atomic_completions() {
             ;;
         session)
             if [[ -z "$cmd2" ]]; then
-                COMPREPLY=( $(compgen -W "list connect -h --help" -- "$cur") )
+                COMPREPLY=( $(compgen -W "list connect kill -h --help" -- "$cur") )
             else
                 COMPREPLY=( $(compgen -W "-a --agent -h --help" -- "$cur") )
             fi

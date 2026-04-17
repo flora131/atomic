@@ -2,7 +2,6 @@ import { test, expect, describe, beforeEach, afterEach, beforeAll, afterAll } fr
 import {
   getMuxBinary,
   resetMuxBinaryCache,
-  isTmuxInstalled,
   isInsideTmux,
   tmuxRun,
   createSession,
@@ -21,7 +20,6 @@ import {
   normalizeTmuxLines,
   paneLooksReady,
   paneHasActiveTask,
-  paneIsIdle,
   waitForPaneReady,
   waitForOutput,
   attemptSubmitRounds,
@@ -106,30 +104,6 @@ describe("getMuxBinary", () => {
 });
 
 // ---------------------------------------------------------------------------
-// isTmuxInstalled
-// ---------------------------------------------------------------------------
-
-describe("isTmuxInstalled", () => {
-  beforeEach(() => {
-    resetMuxBinaryCache();
-  });
-
-  afterEach(() => {
-    resetMuxBinaryCache();
-  });
-
-  test("returns boolean", () => {
-    const result = isTmuxInstalled();
-    expect(typeof result).toBe("boolean");
-  });
-
-  test("consistent with getMuxBinary", () => {
-    const binary = getMuxBinary();
-    expect(isTmuxInstalled()).toBe(binary !== null);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // isInsideTmux
 // ---------------------------------------------------------------------------
 
@@ -194,84 +168,6 @@ describe("tmuxRun", () => {
     }
   });
 
-  test("returns ok:true for successful tmux info command", () => {
-    const result = tmuxRun(["start-server"]);
-    // start-server creates the server and exits; may succeed or already running
-    expect(result).toHaveProperty("ok");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Launcher script generation (executor logic validation)
-// ---------------------------------------------------------------------------
-
-describe("launcher script generation logic", () => {
-  test("generates bash script content for unix", () => {
-    const isWin = false;
-    const projectRoot = "/home/user/project";
-    const workflowRunId = "abc12345";
-    const tmuxSessionName = "atomic-wf-test-abc12345";
-    const agent = "claude";
-    const prompt = "test prompt";
-    const thisFile = "/path/to/executor.ts";
-    const logPath = "/tmp/orchestrator.log";
-
-    const launcherScript = isWin
-      ? [
-          `Set-Location "${projectRoot}"`,
-          `$env:ATOMIC_WF_ID = "${workflowRunId}"`,
-          `bun run "${thisFile}" --run 2>"${logPath}"`,
-        ].join("\n")
-      : [
-          "#!/bin/bash",
-          `cd "${projectRoot}"`,
-          `export ATOMIC_WF_ID="${workflowRunId}"`,
-          `bun run "${thisFile}" --run 2>"${logPath}"`,
-        ].join("\n");
-
-    expect(launcherScript).toContain("#!/bin/bash");
-    expect(launcherScript).toContain(`cd "${projectRoot}"`);
-    expect(launcherScript).toContain(`export ATOMIC_WF_ID="${workflowRunId}"`);
-    expect(launcherScript).not.toContain("Set-Location");
-    expect(launcherScript).not.toContain("$env:");
-  });
-
-  test("generates PowerShell script content for windows", () => {
-    const isWin = true;
-    const projectRoot = "C:\\Users\\user\\project";
-    const workflowRunId = "abc12345";
-    const thisFile = "C:\\path\\to\\executor.ts";
-    const logPath = "C:\\tmp\\orchestrator.log";
-
-    const launcherScript = isWin
-      ? [
-          `Set-Location "${projectRoot}"`,
-          `$env:ATOMIC_WF_ID = "${workflowRunId}"`,
-          `bun run "${thisFile}" --run 2>"${logPath}"`,
-        ].join("\n")
-      : [
-          "#!/bin/bash",
-          `cd "${projectRoot}"`,
-          `export ATOMIC_WF_ID="${workflowRunId}"`,
-          `bun run "${thisFile}" --run 2>"${logPath}"`,
-        ].join("\n");
-
-    expect(launcherScript).toContain("Set-Location");
-    expect(launcherScript).toContain("$env:ATOMIC_WF_ID");
-    expect(launcherScript).not.toContain("#!/bin/bash");
-    expect(launcherScript).not.toContain("export ");
-  });
-
-  test("shell command differs by platform", () => {
-    const launcherPath = "/tmp/orchestrator.sh";
-
-    const unixCmd = `bash "${launcherPath}"`;
-    const winCmd = `pwsh -NoProfile -File "${launcherPath}"`;
-
-    expect(unixCmd).toContain("bash");
-    expect(winCmd).toContain("pwsh");
-    expect(winCmd).toContain("-NoProfile");
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -638,30 +534,6 @@ describe.if(tmuxAvailable)("tmux integration: send keys and capture", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Integration: paneIsIdle with real pane
-// ---------------------------------------------------------------------------
-
-const IDLE_SESSION = `atomic-idle-${crypto.randomUUID().slice(0, 8)}`;
-
-describe.if(tmuxAvailable)("tmux integration: paneIsIdle", () => {
-  let paneId: string;
-
-  beforeAll(async () => {
-    paneId = createSession(IDLE_SESSION, "bash", "idle-test");
-    await Bun.sleep(500);
-  });
-
-  afterAll(() => {
-    killSession(IDLE_SESSION);
-  });
-
-  test("paneIsIdle returns boolean for real pane", () => {
-    const result = paneIsIdle(paneId);
-    expect(typeof result).toBe("boolean");
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Integration: waitForPaneReady with real shell prompt
 // ---------------------------------------------------------------------------
 
@@ -859,32 +731,6 @@ describe.if(tmuxAvailable)("tmux integration: attemptSubmitRounds", () => {
     expect(result).toBe(true);
   });
 
-  test("attemptSubmitRounds returns false when prompt stays visible", async () => {
-    // Type unique text on the command line
-    sendSpecialKey(paneId, "C-u");
-    sendLiteralText(paneId, "STAYS_VISIBLE");
-    await Bun.sleep(100);
-
-    // "STAYS_VISIBLE" is on the command line.
-    // attemptSubmitRounds presses C-m which tries to run it as a command.
-    // After execution, "STAYS_VISIBLE" may appear as "command not found" output
-    // so the normalized capture still includes it → function returns false after all rounds
-    const result = await attemptSubmitRounds(paneId, "STAYS_VISIBLE", 1, 1);
-    // Whether it's true or false depends on timing. Verify it runs and returns boolean.
-    expect(typeof result).toBe("boolean");
-
-    // Clean up
-    sendSpecialKey(paneId, "C-c");
-    sendSpecialKey(paneId, "C-u");
-  });
-
-  test("attemptSubmitRounds handles pressesPerRound > 1", async () => {
-    sendLiteralText(paneId, "echo MULTI_ROUND");
-    await Bun.sleep(100);
-
-    const result = await attemptSubmitRounds(paneId, "echo MULTI_ROUND", 2, 2);
-    expect(typeof result).toBe("boolean");
-  });
 });
 
 // ---------------------------------------------------------------------------

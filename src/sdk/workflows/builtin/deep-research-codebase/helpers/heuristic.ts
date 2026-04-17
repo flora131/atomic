@@ -1,11 +1,11 @@
 /** Target LOC per explorer sub-agent. */
-const LOC_PER_EXPLORER = 2_500;
+const LOC_PER_EXPLORER = 5_000;
 
 /**
  * Determine how many parallel explorer sub-agents to spawn for the
  * deep-research-codebase workflow, based on lines of code in the codebase.
  *
- * Scales linearly: one explorer per `LOC_PER_EXPLORER` (2.5K) lines of code,
+ * Scales linearly: one explorer per `LOC_PER_EXPLORER` (5K) lines of code,
  * with a floor of 2 for tiny or empty codebases. The actual number of
  * spawned explorers is still bounded by the number of partition units
  * the scout finds (see `partitionUnits` in ./scout.ts), so we never get

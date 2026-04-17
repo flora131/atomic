@@ -1,20 +1,40 @@
 /**
  * Prompt builders for the deep-research-codebase workflow.
  *
+ * Each builder produces a focused, single-responsibility prompt for one
+ * specialist sub-agent. The sub-agents themselves are dispatched as separate
+ * `ctx.stage(...)` calls via the provider SDK's native `agent` parameter
+ * (Claude SDK options, Copilot sessionOpts, OpenCode session.prompt). Because
+ * each sub-agent already carries a detailed system prompt in `.claude/agents/`,
+ * `.opencode/agents/`, and `.github/agents/`, these user-prompts are intentionally
+ * short — they only supply the topic, the scope, and the output shape the
+ * downstream synthesizer expects.
+ *
  * Context-engineering principles applied throughout:
- *   - Position-aware placement: the research question is repeated at the
- *     TOP and BOTTOM of every prompt (recall is 85-95% at the edges and
- *     drops to 76-82% in the middle — see context-fundamentals).
- *   - Informativity over exhaustiveness: each explorer prompt contains
- *     only that explorer's partition, never the full file list.
- *   - Explicit trailing commentary (F6): every prompt asks the agent to
- *     produce a short text summary AFTER any tool/file output, so the
- *     transcript is not empty when downstream stages read it.
- *   - File-based handoff (filesystem-context skill): explorer findings
- *     are written to disk and the aggregator reads them by path, instead
- *     of inlining N transcripts into the aggregator's prompt.
- *   - Documentarian role: every prompt explicitly forbids critique or
- *     improvement suggestions; we are recording what exists.
+ *
+ *   • Position-aware framing: the research question is repeated at the TOP
+ *     and BOTTOM of every prompt. Long-context recall is strongest at the
+ *     edges of the context window (see `context-fundamentals`).
+ *
+ *   • Informativity over exhaustiveness: each per-partition prompt embeds
+ *     ONLY that partition's directories — never the full file list. This
+ *     keeps token cost roughly constant in N rather than O(N²).
+ *
+ *   • Forward-only data flow: the analyzer prompt embeds the locator's
+ *     output verbatim; the online-researcher prompt does the same. No
+ *     sub-agent has to re-discover what its sibling already produced.
+ *
+ *   • Trailing-prose guarantee (failure-modes F6): every prompt asks for a
+ *     short prose recap as the final assistant turn so downstream stages
+ *     reading via `transcript()` never get an empty string when the agent
+ *     ends on a tool call.
+ *
+ *   • Documentarian framing: every prompt explicitly forbids critique or
+ *     improvement suggestions. We are recording what EXISTS.
+ *
+ *   • File-based handoff (filesystem-context skill): explorer findings are
+ *     written deterministically to a scratch file by TypeScript (no extra
+ *     LLM "synthesizer" stage) and the aggregator reads them by path.
  */
 
 import path from "node:path";
@@ -24,6 +44,11 @@ const DOCUMENTARIAN_DISCLAIMER =
   "You are a documentarian, not a critic. Document what EXISTS — do not " +
   "propose improvements, identify issues, or suggest refactors. Focus on " +
   "concrete file paths, line numbers, and how things actually work.";
+
+const TRAILING_PROSE_REMINDER =
+  "End your turn with a short prose paragraph summarising what you produced. " +
+  "Do NOT end the turn on a tool call — downstream stages read your assistant " +
+  "transcript and will see nothing if the final message is a tool invocation.";
 
 /** Slugify the user's prompt for use in the final research filename. */
 export function slugifyPrompt(prompt: string): string {
@@ -38,8 +63,31 @@ export function slugifyPrompt(prompt: string): string {
   return slug || "research";
 }
 
+/** Render a partition's directory list as absolute paths with file/LOC counts. */
+function renderPartitionAssignment(
+  partition: PartitionUnit[],
+  root: string,
+): string {
+  return partition
+    .map((u) => {
+      const abs = path.join(root, u.path);
+      return `  - \`${abs}/\` (${u.fileCount} files, ${u.loc.toLocaleString()} LOC)`;
+    })
+    .join("\n");
+}
+
+/** Comma-separated absolute directory list (for inline grep/glob scope hints). */
+function renderPartitionDirsAbs(
+  partition: PartitionUnit[],
+  root: string,
+): string {
+  return partition
+    .map((u) => `\`${path.join(root, u.path)}\``)
+    .join(", ");
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Stage 1 — codebase-scout
+// Stage 1a — codebase-scout (single LLM orientation call)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function buildScoutPrompt(opts: {
@@ -69,9 +117,9 @@ export function buildScoutPrompt(opts: {
     ``,
     `- Total source files: ${opts.totalFiles.toLocaleString()}`,
     `- Total LOC: ${opts.totalLoc.toLocaleString()}`,
-    `- Explorers to spawn: ${opts.explorerCount} (chosen by LOC heuristic)`,
+    `- Partitions to investigate: ${opts.explorerCount} (chosen by LOC heuristic)`,
     ``,
-    `Pre-computed partition assignments (${opts.explorerCount} explorers):`,
+    `Pre-computed partition assignments (${opts.explorerCount} partitions):`,
     partitionPreview,
     ``,
     `Compact directory tree (depth 3, ≤200 entries):`,
@@ -82,8 +130,7 @@ export function buildScoutPrompt(opts: {
     ``,
     `<TASK>`,
     `Read the tree above and produce a brief architectural orientation that`,
-    `will help the ${opts.explorerCount} parallel explorer sub-agents understand the`,
-    `layout BEFORE they dive into their assigned partitions.`,
+    `the downstream specialist sub-agents will use to anchor their searches.`,
     ``,
     `Cover, in ≤300 words:`,
     `  1. The repo's overall shape (monorepo vs single package, polyglot or not)`,
@@ -92,16 +139,15 @@ export function buildScoutPrompt(opts: {
     `  4. Where entry points or main modules likely live`,
     ``,
     `Do NOT attempt to answer the research question yet — your job is`,
-    `orientation for downstream explorers, not investigation. You may use`,
-    `Read/Glob/Grep sparingly to verify your guesses about a few key files,`,
+    `orientation for downstream specialists, not investigation. You may use`,
+    `Read/Glob/Grep sparingly to verify guesses about a few key files,`,
     `but keep the output short.`,
     `</TASK>`,
     ``,
     `<CONSTRAINTS>`,
     DOCUMENTARIAN_DISCLAIMER,
     `Stay under 300 words. No bullet lists longer than 5 items.`,
-    `End with a short prose paragraph (NOT a tool call) so this transcript`,
-    `has content for downstream stages to read.`,
+    TRAILING_PROSE_REMINDER,
     `</CONSTRAINTS>`,
     ``,
     `<RESEARCH_QUESTION_REMINDER>`,
@@ -111,32 +157,29 @@ export function buildScoutPrompt(opts: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Stage 2 — explorer-N
+// Stage 2 — per-partition specialist sub-agents
 // ─────────────────────────────────────────────────────────────────────────────
+//
+// Four specialists run per partition, dispatched as separate headless stages
+// via the provider SDK's native `agent` parameter. Two layers of parallelism:
+//
+//   Layer 1 (independent searches):   locator   ∥  pattern-finder
+//   Layer 2 (depend on locator):      analyzer  ∥  online-researcher
+//
+// The deterministic synthesis step (helpers/scratch.ts) then concatenates
+// the four outputs into the explorer scratch file the aggregator will read.
 
-export function buildExplorerPrompt(opts: {
+/** codebase-locator — find files in the partition relevant to the question. */
+export function buildLocatorPrompt(opts: {
   question: string;
+  partition: PartitionUnit[];
+  root: string;
+  scoutOverview: string;
   index: number;
   total: number;
-  partition: PartitionUnit[];
-  scoutOverview: string;
-  scratchPath: string;
-  root: string;
 }): string {
-  const assignmentLines = opts.partition
-    .map((u) => {
-      const abs = path.join(opts.root, u.path);
-      return `  - \`${abs}/\` (${u.fileCount} files, ${u.loc.toLocaleString()} LOC)`;
-    })
-    .join("\n");
-
-  // Comma-separated absolute dir list — used in subagent dispatch prompts as
-  // an unambiguous scope constraint that the locator/pattern-finder can pass
-  // straight to Glob.
-  const dirListAbs = opts.partition
-    .map((u) => `\`${path.join(opts.root, u.path)}\``)
-    .join(", ");
-
+  const assignment = renderPartitionAssignment(opts.partition, opts.root);
+  const dirsAbs = renderPartitionDirsAbs(opts.partition, opts.root);
   const orientation =
     opts.scoutOverview.trim().length > 0
       ? opts.scoutOverview.trim()
@@ -147,143 +190,58 @@ export function buildExplorerPrompt(opts: {
     opts.question,
     `</RESEARCH_QUESTION>`,
     ``,
-    `<YOUR_IDENTITY>`,
-    `You are explorer ${opts.index} of ${opts.total}. You are a COORDINATOR — your`,
-    `job is to dispatch specialized research sub-agents and synthesize their`,
-    `findings. You do NOT use Read/Glob/Grep yourself; you orchestrate the`,
-    `specialists. The codebase has been partitioned across ${opts.total} parallel`,
-    `explorers — you are responsible for your assigned slice. Other explorers`,
-    `are simultaneously covering the rest.`,
-    `</YOUR_IDENTITY>`,
+    `<MISSION>`,
+    `You are the codebase-locator for partition ${opts.index} of ${opts.total} in a`,
+    `deep-research workflow. Find every file inside the SCOPE below that`,
+    `relates to the research question, and return a categorized index.`,
+    `</MISSION>`,
     ``,
     `<ARCHITECTURAL_ORIENTATION>`,
-    `The codebase scout produced this overview to help you orient before dispatch:`,
-    ``,
     orientation,
     `</ARCHITECTURAL_ORIENTATION>`,
     ``,
-    `<YOUR_ASSIGNMENT>`,
-    `Your assigned directories (DO NOT search outside these — other explorers`,
-    `cover the rest):`,
+    `<SCOPE>`,
+    `Search ONLY within these directories. Other partitions cover the rest of`,
+    `the codebase — do NOT wander outside your scope:`,
     ``,
-    assignmentLines,
-    `</YOUR_ASSIGNMENT>`,
+    assignment,
     ``,
-    `<RESEARCH_PROTOCOL>`,
-    `Execute these steps IN ORDER. Each numbered step must complete before the`,
-    `next begins. Use the exact \`@"name (agent)"\` dispatch syntax shown below.`,
-    ``,
-    `── STEP 1 — Locate relevant files (codebase-locator) ──`,
-    ``,
-    `Dispatch the codebase-locator. Constrain it strictly to your assigned dirs:`,
-    ``,
-    `  @"codebase-locator (agent)" CRITICAL: search ONLY within these directories`,
-    `  (do not search elsewhere): ${dirListAbs}.`,
-    ``,
-    `  Find files in those directories that relate to this research question:`,
-    `  "${opts.question}"`,
-    ``,
-    `  Categorize results by purpose: implementation, tests, types, config,`,
-    `  examples, docs. Return absolute paths grouped by category.`,
-    ``,
-    `── STEP 2 — Analyze the most relevant files (codebase-analyzer) ──`,
-    ``,
-    `Pick the 5-10 most relevant IMPLEMENTATION files from STEP 1's output and`,
-    `dispatch the codebase-analyzer:`,
-    ``,
-    `  @"codebase-analyzer (agent)" Document how the following files work as`,
-    `  they relate to the research question "${opts.question}":`,
-    `  <list the files you picked, one per line>`,
-    ``,
-    `  Cover control flow, data flow, key abstractions, and any external`,
-    `  dependencies. Use file:line references throughout. Do NOT critique or`,
-    `  suggest improvements — describe what exists.`,
-    ``,
-    `── STEP 3 — Find existing patterns (codebase-pattern-finder) ──`,
-    ``,
-    `Dispatch the pattern-finder, scoped to your dirs:`,
-    ``,
-    `  @"codebase-pattern-finder (agent)" CRITICAL: search ONLY within these`,
-    `  directories: ${dirListAbs}.`,
-    ``,
-    `  Find existing code patterns related to "${opts.question}" inside those`,
-    `  directories. Return concrete code snippets with file:line references.`,
-    ``,
-    `── STEP 4 — External documentation research (CONDITIONAL) ──`,
-    ``,
-    `ONLY run this step IF Step 2 surfaced external library or dependency`,
-    `usage that is CENTRAL to answering the research question. Otherwise SKIP.`,
-    ``,
-    `If applicable, dispatch:`,
-    ``,
-    `  @"codebase-online-researcher (agent)" Research the documentation for`,
-    `  <library/dependency name> as it relates to: "${opts.question}".`,
-    ``,
-    `  Return links and concrete findings. The agent should follow the`,
-    `  token-efficient fetch order described in its instructions.`,
-    ``,
-    `── STEP 5 — Synthesize and write findings ──`,
-    ``,
-    `Combine the outputs from Steps 1-4 into a single markdown document and`,
-    `use the Write tool to write it to:`,
-    ``,
-    `  ${opts.scratchPath}`,
-    ``,
-    `Use the OUTPUT_FORMAT below.`,
-    ``,
-    `── STEP 6 — Brief summary ──`,
-    ``,
-    `As your final response (after the Write tool call), output a 2-3 sentence`,
-    `prose summary of what you found. This is REQUIRED so the aggregator can`,
-    `index your report and the transcript is not empty.`,
-    `</RESEARCH_PROTOCOL>`,
+    `(Quick comma-separated form for tool args: ${dirsAbs})`,
+    `</SCOPE>`,
     ``,
     `<OUTPUT_FORMAT>`,
-    `The file at \`${opts.scratchPath}\` must be a markdown document with these`,
-    `sections, in this order. Each section should reflect what the corresponding`,
-    `sub-agent returned:`,
+    `Return a markdown report with this exact structure:`,
     ``,
-    `# Explorer ${opts.index} Findings`,
+    `### Implementation`,
+    `- \`<absolute path>\` — 1-line note on relevance`,
     ``,
-    `## Scope`,
-    `One-line description of which directories you covered.`,
+    `### Tests`,
+    `- ...`,
     ``,
-    `## Overview`,
-    `1-2 paragraph synthesis of all sub-agent findings as they relate to the`,
-    `research question.`,
+    `### Types / Interfaces`,
+    `- ...`,
     ``,
-    `## Files in Scope`,
-    `From codebase-locator (Step 1). Categorized list with absolute paths.`,
+    `### Configuration`,
+    `- ...`,
     ``,
-    `## How It Works`,
-    `From codebase-analyzer (Step 2). Control flow, data flow, key abstractions,`,
-    `with file:line references throughout.`,
+    `### Examples / Fixtures`,
+    `- ...`,
     ``,
-    `## Patterns`,
-    `From codebase-pattern-finder (Step 3). Concrete code examples with`,
-    `file:line refs.`,
+    `### Documentation`,
+    `- ...`,
     ``,
-    `## External References`,
-    `From codebase-online-researcher (Step 4) — INCLUDE ONLY if Step 4 ran.`,
-    `Otherwise omit this section. Include links the online researcher returned.`,
+    `### Notable Clusters`,
+    `- \`<absolute dir>/\` — N files, why it's a cluster`,
     ``,
-    `## Cross-References`,
-    `Files OUTSIDE your assigned directories that other explorers should check,`,
-    `with a 1-line note on why each is relevant.`,
-    ``,
-    `## File Index`,
-    `Bulleted list of every file the sub-agents touched, each with a 1-line`,
-    `description of what's in it.`,
+    `Omit any section that has no entries (do not write "(none)" placeholders).`,
+    `Use ABSOLUTE paths. Do NOT read file contents — your job is location only.`,
     `</OUTPUT_FORMAT>`,
     ``,
     `<CONSTRAINTS>`,
     DOCUMENTARIAN_DISCLAIMER,
-    `Use file:line references throughout — concrete, not abstract.`,
-    `Do NOT investigate directories outside your assignment, even via sub-agents.`,
-    `Do NOT skip Steps 1-3 or 5-6. Step 4 is the only optional step.`,
-    `Do NOT use Read/Glob/Grep directly — coordinate via sub-agents only.`,
-    `End your turn with the required 2-3 sentence prose summary AFTER writing`,
-    `the file (do not end on a tool call).`,
+    `Restrict every grep/glob to the SCOPE above.`,
+    `Do not analyse implementations — siblings (analyzer, pattern-finder) cover that.`,
+    TRAILING_PROSE_REMINDER,
     `</CONSTRAINTS>`,
     ``,
     `<RESEARCH_QUESTION_REMINDER>`,
@@ -292,291 +250,64 @@ export function buildExplorerPrompt(opts: {
   ].join("\n");
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Stage 1b — research-history (parallel sibling of codebase-scout)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * The research-history scout dispatches specialized sub-agents to surface
- * historical context from the project's `research/` directory:
- *   - codebase-research-locator → finds prior research docs about the topic
- *   - codebase-research-analyzer → extracts key insights from the most
- *     relevant docs
- *
- * Output is consumed via session transcript (not file write) — kept short
- * (≤400 words) so the aggregator can embed it cheaply.
- */
-export function buildHistoryPrompt(opts: {
+/** codebase-pattern-finder — surface concrete reusable code patterns. */
+export function buildPatternFinderPrompt(opts: {
   question: string;
+  partition: PartitionUnit[];
   root: string;
-}): string {
-  return [
-    `<RESEARCH_QUESTION>`,
-    opts.question,
-    `</RESEARCH_QUESTION>`,
-    ``,
-    `<YOUR_IDENTITY>`,
-    `You are the research-history scout for the deep-research-codebase`,
-    `workflow. You run in parallel with the codebase-scout. Your job is to`,
-    `surface relevant historical context from the project's existing research`,
-    `directory using specialized sub-agents — NOT to investigate the live`,
-    `codebase (the explorers will do that).`,
-    `</YOUR_IDENTITY>`,
-    ``,
-    `<RESEARCH_PROTOCOL>`,
-    `Execute these steps in order:`,
-    ``,
-    `── STEP 1 — Locate prior research documents ──`,
-    ``,
-    `Dispatch the research-locator sub-agent:`,
-    ``,
-    `  @"codebase-research-locator (agent)" Locate research documents related`,
-    `  to: "${opts.question}". Search the \`${path.join(opts.root, "research")}\``,
-    `  directory and any sibling research directories. Return categorized`,
-    `  document paths (docs/, tickets/, notes/, etc.) with 1-line summaries.`,
-    ``,
-    `If no research/ directory exists or no relevant docs are found, note`,
-    `that explicitly and SKIP STEP 2.`,
-    ``,
-    `── STEP 2 — Extract insights from the most relevant documents ──`,
-    ``,
-    `Pick the 3-5 MOST relevant documents from STEP 1 and dispatch the`,
-    `research-analyzer:`,
-    ``,
-    `  @"codebase-research-analyzer (agent)" Extract key insights from these`,
-    `  documents as they relate to the research question "${opts.question}":`,
-    `  <list the doc paths you picked>`,
-    ``,
-    `  Filter out noise. Focus on prior decisions, completed investigations,`,
-    `  and unresolved questions that bear on the current research question.`,
-    ``,
-    `── STEP 3 — Synthesize ──`,
-    ``,
-    `Output a 200-400 word synthesis of historical context as your final`,
-    `prose response. Cover:`,
-    `  - Key prior decisions on related topics`,
-    `  - Past investigations and their conclusions`,
-    `  - Open questions from prior research`,
-    `  - Document paths the aggregator should reference (with brief notes)`,
-    ``,
-    `If no relevant history exists, output a single sentence saying so.`,
-    ``,
-    `Do NOT write any files — your output is consumed via session transcript.`,
-    `</RESEARCH_PROTOCOL>`,
-    ``,
-    `<CONSTRAINTS>`,
-    DOCUMENTARIAN_DISCLAIMER,
-    `Stay under 400 words total in your final synthesis.`,
-    `Do NOT investigate live source files — that's the explorers' job.`,
-    `End with the prose synthesis (do not end on a tool call).`,
-    `</CONSTRAINTS>`,
-    ``,
-    `<RESEARCH_QUESTION_REMINDER>`,
-    opts.question,
-    `</RESEARCH_QUESTION_REMINDER>`,
-  ].join("\n");
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Generic variants (Copilot / OpenCode)
-// ─────────────────────────────────────────────────────────────────────────────
-//
-// The Claude variants above use `@"name (agent)"` sub-agent dispatch, which is
-// a Claude-specific feature. Copilot and OpenCode sessions are bound to a
-// single agent for the lifetime of the session, so replicating the specialist
-// pattern would require spawning separate child sessions for each specialist —
-// a linear blow-up in session count that is not worth the context-isolation
-// benefit for a partition-scoped explorer.
-//
-// Instead, these generic variants guide a single default-agent session through
-// the same conceptual steps (locate → analyze → patterns → synthesize) using
-// its own built-in file tools. The graph topology remains identical to the
-// Claude version: scout ∥ history → explorer-1..N → aggregator.
-
-/**
- * Generic explorer prompt (Copilot / OpenCode). Drives a single default-agent
- * session through the locate → analyze → patterns → synthesize sequence using
- * built-in tools directly, instead of Claude's sub-agent dispatch.
- */
-export function buildExplorerPromptGeneric(opts: {
-  question: string;
+  scoutOverview: string;
   index: number;
   total: number;
-  partition: PartitionUnit[];
-  scoutOverview: string;
-  historyOverview: string;
-  scratchPath: string;
-  root: string;
 }): string {
-  const assignmentLines = opts.partition
-    .map((u) => {
-      const abs = path.join(opts.root, u.path);
-      return `  - \`${abs}/\` (${u.fileCount} files, ${u.loc.toLocaleString()} LOC)`;
-    })
-    .join("\n");
-
-  const dirListAbs = opts.partition
-    .map((u) => `\`${path.join(opts.root, u.path)}\``)
-    .join(", ");
-
+  const assignment = renderPartitionAssignment(opts.partition, opts.root);
+  const dirsAbs = renderPartitionDirsAbs(opts.partition, opts.root);
   const orientation =
     opts.scoutOverview.trim().length > 0
       ? opts.scoutOverview.trim()
       : "(scout overview unavailable — proceed without)";
 
-  const history =
-    opts.historyOverview.trim().length > 0
-      ? opts.historyOverview.trim()
-      : "(no historical research surfaced)";
-
   return [
     `<RESEARCH_QUESTION>`,
     opts.question,
     `</RESEARCH_QUESTION>`,
     ``,
-    `<YOUR_IDENTITY>`,
-    `You are explorer ${opts.index} of ${opts.total} in a deep-research workflow.`,
-    `The codebase has been partitioned across ${opts.total} parallel explorers —`,
-    `you are responsible for ONE assigned slice. Other explorers are`,
-    `simultaneously investigating the rest. You are a documentarian, not a`,
-    `critic: record what EXISTS, do not propose improvements.`,
-    ``,
-    `Your session is fresh — it was created specifically for this task. Every`,
-    `piece of context you need is in this prompt; nothing carries over from the`,
-    `scout or from other explorers. Treat this prompt as your complete briefing.`,
-    `</YOUR_IDENTITY>`,
+    `<MISSION>`,
+    `You are the codebase-pattern-finder for partition ${opts.index} of ${opts.total}.`,
+    `Find concrete code patterns inside the SCOPE that demonstrate how the`,
+    `topic of the research question is currently expressed in the codebase.`,
+    `Return runnable-looking snippets, not abstract descriptions.`,
+    `</MISSION>`,
     ``,
     `<ARCHITECTURAL_ORIENTATION>`,
-    `The codebase scout produced this overview to help you orient:`,
-    ``,
     orientation,
     `</ARCHITECTURAL_ORIENTATION>`,
     ``,
-    `<HISTORICAL_CONTEXT>`,
-    `Prior research surfaced by the research-history scout (supplementary —`,
-    `live findings you produce below take precedence):`,
+    `<SCOPE>`,
+    assignment,
     ``,
-    history,
-    `</HISTORICAL_CONTEXT>`,
-    ``,
-    `<YOUR_ASSIGNMENT>`,
-    `Your assigned directories (DO NOT search outside these — other explorers`,
-    `cover the rest):`,
-    ``,
-    assignmentLines,
-    `</YOUR_ASSIGNMENT>`,
-    ``,
-    `<RESEARCH_PROTOCOL>`,
-    `Execute these steps IN ORDER using your built-in file tools (read, grep,`,
-    `glob, shell). Each step must complete before the next begins.`,
-    ``,
-    `── STEP 1 — Locate relevant files ──`,
-    ``,
-    `Use grep / glob to find files within ONLY these directories:`,
-    `${dirListAbs}`,
-    ``,
-    `that relate to the research question. CRITICAL: restrict every search to`,
-    `the directories listed above — do not wander into the rest of the codebase.`,
-    ``,
-    `Categorize what you find by purpose:`,
-    `  - Implementation (core logic)`,
-    `  - Tests (unit / integration / e2e)`,
-    `  - Types / interfaces`,
-    `  - Configuration`,
-    `  - Examples / fixtures`,
-    `  - Documentation`,
-    ``,
-    `Record absolute paths grouped by category. Do NOT read file contents yet.`,
-    ``,
-    `── STEP 2 — Analyze the most relevant implementation files ──`,
-    ``,
-    `Pick the 5-10 MOST relevant implementation files from STEP 1 and read them`,
-    `in full. For each file, document:`,
-    `  - Its role (what it does, why it exists)`,
-    `  - Key abstractions, types, and functions with \`file.ts:line\` references`,
-    `  - Control flow and data flow as they relate to the research question`,
-    `  - External dependencies it uses (libraries, other modules)`,
-    ``,
-    `Use file:line references throughout — never abstract descriptions.`,
-    ``,
-    `── STEP 3 — Find existing patterns ──`,
-    ``,
-    `Search (within your assigned directories only) for concrete code patterns`,
-    `related to the research question. Return snippets with \`file.ts:line\``,
-    `references so the aggregator can cite them directly.`,
-    ``,
-    `── STEP 4 — External documentation (CONDITIONAL) ──`,
-    ``,
-    `ONLY run this step IF Step 2 surfaced external library usage that is`,
-    `CENTRAL to answering the research question. Otherwise skip it entirely.`,
-    ``,
-    `If applicable, use your web-fetch / web-search tools to pull focused`,
-    `documentation excerpts for the relevant library, tied back to how your`,
-    `assigned files use it. Return links and concrete findings only — no`,
-    `general tutorials.`,
-    ``,
-    `── STEP 5 — Synthesize and write findings ──`,
-    ``,
-    `Combine the outputs from Steps 1-4 into a single markdown document and`,
-    `write it to this path using your write / edit tool:`,
-    ``,
-    `  ${opts.scratchPath}`,
-    ``,
-    `Use the OUTPUT_FORMAT below. This file is the ONLY way your findings`,
-    `reach the aggregator — be complete and precise.`,
-    ``,
-    `── STEP 6 — Brief prose summary (REQUIRED) ──`,
-    ``,
-    `AFTER writing the file, output a 2-3 sentence prose summary as your final`,
-    `textual response. This is required for two reasons:`,
-    `  1. The aggregator uses it as an index of your report`,
-    `  2. If your session ends on a tool call with no trailing prose, the`,
-    `     downstream handoff will be empty and the aggregator will miss your`,
-    `     contribution entirely.`,
-    `</RESEARCH_PROTOCOL>`,
+    `(Quick comma-separated form for tool args: ${dirsAbs})`,
+    `</SCOPE>`,
     ``,
     `<OUTPUT_FORMAT>`,
-    `The file at \`${opts.scratchPath}\` must be a markdown document with these`,
-    `sections, in this order:`,
+    `For each distinct pattern you find, output:`,
     ``,
-    `# Explorer ${opts.index} Findings`,
+    `#### Pattern: <short name>`,
+    `**Where:** \`<absolute path>:<line>\``,
+    `**What:** 1-sentence description.`,
+    "```<language>",
+    `<5-30 lines of actual code from the file>`,
+    "```",
+    `**Variations / call-sites:** other \`file.ts:line\` references using the same pattern.`,
     ``,
-    `## Scope`,
-    `One-line description of which directories you covered.`,
-    ``,
-    `## Overview`,
-    `1-2 paragraph synthesis of your findings as they relate to the research`,
-    `question.`,
-    ``,
-    `## Files in Scope`,
-    `From Step 1. Categorized list with absolute paths.`,
-    ``,
-    `## How It Works`,
-    `From Step 2. Control flow, data flow, key abstractions, with \`file.ts:line\``,
-    `references throughout.`,
-    ``,
-    `## Patterns`,
-    `From Step 3. Concrete code examples with \`file.ts:line\` references.`,
-    ``,
-    `## External References`,
-    `From Step 4 — INCLUDE ONLY if Step 4 ran. Otherwise omit this section.`,
-    ``,
-    `## Cross-References`,
-    `Files OUTSIDE your assigned directories that other explorers should check,`,
-    `with a 1-line note on why each is relevant.`,
-    ``,
-    `## File Index`,
-    `Bulleted list of every file you touched, each with a 1-line description.`,
+    `Aim for 3-7 distinct patterns. Skip anything tangential to the question.`,
     `</OUTPUT_FORMAT>`,
     ``,
     `<CONSTRAINTS>`,
     DOCUMENTARIAN_DISCLAIMER,
-    `Use file:line references throughout — concrete, not abstract.`,
-    `Do NOT investigate directories outside your assignment.`,
-    `Do NOT skip Steps 1-3 or 5-6. Step 4 is the only optional step.`,
-    `End your turn with the required 2-3 sentence prose summary AFTER writing`,
-    `the file — do NOT end on a tool call, or your findings will be lost to the`,
-    `aggregator.`,
+    `Restrict every grep/glob to the SCOPE above.`,
+    `Quote code verbatim — never paraphrase a snippet.`,
+    `Use file:line references for every claim.`,
+    TRAILING_PROSE_REMINDER,
     `</CONSTRAINTS>`,
     ``,
     `<RESEARCH_QUESTION_REMINDER>`,
@@ -585,13 +316,198 @@ export function buildExplorerPromptGeneric(opts: {
   ].join("\n");
 }
 
-/**
- * Generic research-history prompt (Copilot / OpenCode). A single default-agent
- * session searches the project's research/ directory using its own file tools,
- * instead of dispatching Claude's codebase-research-locator / analyzer
- * sub-agents.
- */
-export function buildHistoryPromptGeneric(opts: {
+/** codebase-analyzer — document HOW the most relevant impl files work. */
+export function buildAnalyzerPrompt(opts: {
+  question: string;
+  partition: PartitionUnit[];
+  locatorOutput: string;
+  root: string;
+  scoutOverview: string;
+  index: number;
+  total: number;
+}): string {
+  const assignment = renderPartitionAssignment(opts.partition, opts.root);
+  const orientation =
+    opts.scoutOverview.trim().length > 0
+      ? opts.scoutOverview.trim()
+      : "(scout overview unavailable — proceed without)";
+  const locator =
+    opts.locatorOutput.trim().length > 0
+      ? opts.locatorOutput.trim()
+      : "(locator returned no files — analyse the partition directly)";
+
+  return [
+    `<RESEARCH_QUESTION>`,
+    opts.question,
+    `</RESEARCH_QUESTION>`,
+    ``,
+    `<MISSION>`,
+    `You are the codebase-analyzer for partition ${opts.index} of ${opts.total}.`,
+    `The codebase-locator (your sibling) has already enumerated the files in`,
+    `your partition that touch this topic. Your job is to read the 5-10 MOST`,
+    `relevant IMPLEMENTATION files and document how they actually work, with`,
+    `precise \`file.ts:line\` references throughout.`,
+    `</MISSION>`,
+    ``,
+    `<ARCHITECTURAL_ORIENTATION>`,
+    orientation,
+    `</ARCHITECTURAL_ORIENTATION>`,
+    ``,
+    `<SCOPE>`,
+    assignment,
+    `</SCOPE>`,
+    ``,
+    `<LOCATOR_FINDINGS>`,
+    `Verbatim output from the codebase-locator sibling for this partition —`,
+    `pick the implementation files to read from the "Implementation" section:`,
+    ``,
+    locator,
+    `</LOCATOR_FINDINGS>`,
+    ``,
+    `<METHOD>`,
+    `1. From the locator findings above, choose 5-10 implementation files most`,
+    `   central to the research question. Prefer files that look like the`,
+    `   primary entry points or data-flow hubs.`,
+    `2. Read each chosen file in full (no offset / no limit).`,
+    `3. For each file, document:`,
+    `     • Its role (1 sentence)`,
+    `     • Key exported symbols with \`file.ts:line\` refs`,
+    `     • Control flow tied to the research question`,
+    `     • Data flow (what comes in, what goes out, where state lives)`,
+    `     • External dependencies it imports (libraries, sibling modules)`,
+    `4. After per-file documentation, write a short cross-cutting synthesis`,
+    `   (≤200 words) describing how these files compose to address the topic.`,
+    `5. List any files OUTSIDE this partition that you noticed are referenced`,
+    `   from your reads (so the aggregator can stitch findings across`,
+    `   partitions). One file per line: \`<absolute path>\` — 1-line reason.`,
+    `</METHOD>`,
+    ``,
+    `<OUTPUT_FORMAT>`,
+    `Use this structure (omit empty sections):`,
+    ``,
+    `### Files Analysed`,
+    `<bullet list of the 5-10 files you read, absolute paths>`,
+    ``,
+    `### Per-File Notes`,
+    `#### \`<absolute path>\``,
+    `- **Role:** ...`,
+    `- **Key symbols:** \`name\` (\`file.ts:line\`), ...`,
+    `- **Control flow:** ...`,
+    `- **Data flow:** ...`,
+    `- **Dependencies:** ...`,
+    ``,
+    `### Cross-Cutting Synthesis`,
+    `<≤200 words on how these files compose to address the topic>`,
+    ``,
+    `### Out-of-Partition References`,
+    `- \`<absolute path>\` — 1-line note on why it matters`,
+    `</OUTPUT_FORMAT>`,
+    ``,
+    `<CONSTRAINTS>`,
+    DOCUMENTARIAN_DISCLAIMER,
+    `Use file:line references for every concrete claim — never abstract prose.`,
+    `Read files in full; do not paginate via offset/limit unless a file is enormous.`,
+    `Do NOT analyse files outside your partition — only LIST them as cross-refs.`,
+    TRAILING_PROSE_REMINDER,
+    `</CONSTRAINTS>`,
+    ``,
+    `<RESEARCH_QUESTION_REMINDER>`,
+    opts.question,
+    `</RESEARCH_QUESTION_REMINDER>`,
+  ].join("\n");
+}
+
+/** codebase-online-researcher — focused external doc fetch when libs are central. */
+export function buildOnlineResearcherPrompt(opts: {
+  question: string;
+  partition: PartitionUnit[];
+  locatorOutput: string;
+  root: string;
+  index: number;
+  total: number;
+}): string {
+  const assignment = renderPartitionAssignment(opts.partition, opts.root);
+  const locator =
+    opts.locatorOutput.trim().length > 0
+      ? opts.locatorOutput.trim()
+      : "(locator returned no files)";
+
+  return [
+    `<RESEARCH_QUESTION>`,
+    opts.question,
+    `</RESEARCH_QUESTION>`,
+    ``,
+    `<MISSION>`,
+    `You are the codebase-online-researcher for partition ${opts.index} of ${opts.total}.`,
+    `Decide whether external library / framework documentation is CENTRAL to`,
+    `answering the research question for this partition. If yes, fetch focused`,
+    `excerpts and tie them back to the partition's files. If no, output a`,
+    `single-line "(no external research applicable)" and stop.`,
+    `</MISSION>`,
+    ``,
+    `<SCOPE>`,
+    assignment,
+    `</SCOPE>`,
+    ``,
+    `<LOCATOR_FINDINGS>`,
+    `Use this list to identify which third-party libraries / frameworks the`,
+    `partition imports. If nothing relevant surfaces, return early.`,
+    ``,
+    locator,
+    `</LOCATOR_FINDINGS>`,
+    ``,
+    `<METHOD>`,
+    `1. Skim the locator output and any package manifests in the partition`,
+    `   (package.json, go.mod, requirements.txt, Cargo.toml, etc.) to identify`,
+    `   external dependencies that are LIKELY central to the research question.`,
+    `2. If none qualify, output exactly:`,
+    `     (no external research applicable)`,
+    `   and end the turn with a one-sentence prose explanation of why.`,
+    `3. If at least one qualifies, follow the token-efficient fetch order from`,
+    `   your system prompt (llms.txt → Markdown for Agents → playwright-cli)`,
+    `   to pull focused documentation excerpts.`,
+    `4. For each library you researched, return:`,
+    `     • Library name + version (if discoverable)`,
+    `     • Key doc URLs you fetched`,
+    `     • The specific behavior that bears on the research question`,
+    `     • Where in the partition that behavior is exercised (\`file.ts:line\`)`,
+    `</METHOD>`,
+    ``,
+    `<OUTPUT_FORMAT>`,
+    `If you skipped:`,
+    ``,
+    `(no external research applicable)`,
+    ``,
+    `<one-sentence justification>`,
+    ``,
+    `If you researched, repeat per library:`,
+    ``,
+    `#### <Library> (vX.Y)`,
+    `**Docs:** <url>, <url>`,
+    `**Relevant behaviour:** ...`,
+    `**Where used:** \`<absolute path>:<line>\` — 1-line note`,
+    `</OUTPUT_FORMAT>`,
+    ``,
+    `<CONSTRAINTS>`,
+    DOCUMENTARIAN_DISCLAIMER,
+    `Skipping is the correct answer when nothing is central — do NOT pad with`,
+    `tutorials or general guides.`,
+    `Quote URLs verbatim. Do NOT invent or paraphrase doc URLs.`,
+    TRAILING_PROSE_REMINDER,
+    `</CONSTRAINTS>`,
+    ``,
+    `<RESEARCH_QUESTION_REMINDER>`,
+    opts.question,
+    `</RESEARCH_QUESTION_REMINDER>`,
+  ].join("\n");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stage 1b — research-history specialists
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** codebase-research-locator — find prior research docs about the topic. */
+export function buildHistoryLocatorPrompt(opts: {
   question: string;
   root: string;
 }): string {
@@ -602,60 +518,108 @@ export function buildHistoryPromptGeneric(opts: {
     opts.question,
     `</RESEARCH_QUESTION>`,
     ``,
-    `<YOUR_IDENTITY>`,
-    `You are the research-history scout for the deep-research-codebase`,
-    `workflow. You run in parallel with the codebase-scout. Your job is to`,
-    `surface relevant historical context from the project's existing research`,
-    `directory (${researchDir}) — NOT to investigate the live codebase (the`,
-    `explorers will do that).`,
-    `</YOUR_IDENTITY>`,
+    `<MISSION>`,
+    `You are the codebase-research-locator. Surface prior research documents`,
+    `about this topic from the project's research/ directory so the analyzer`,
+    `(your sibling) can extract insights from them.`,
+    `</MISSION>`,
     ``,
-    `<RESEARCH_PROTOCOL>`,
-    `Execute these steps in order using your built-in file tools (read, grep,`,
-    `glob, shell):`,
+    `<SCOPE>`,
+    `Primary: \`${researchDir}/\` (and standard subdirs: docs/, tickets/, notes/).`,
+    `Secondary: any sibling research directories under \`${opts.root}\` that match`,
+    `\`*research*\`, \`*adr*\`, \`*rfc*\`, or \`specs\`.`,
     ``,
-    `── STEP 1 — Locate prior research documents ──`,
+    `If no research directory exists at all, return a single section:`,
     ``,
-    `Search \`${researchDir}\` (and any sibling research directories that exist)`,
-    `for documents related to the research question. Look for:`,
-    `  - Research docs (research/docs/, research/*.md)`,
-    `  - Decision records / ADRs`,
-    `  - Tickets, notes, or RFCs about related topics`,
+    `### No Prior Research`,
+    `(briefly note what you checked)`,
+    `</SCOPE>`,
     ``,
-    `If no research/ directory exists at all, note that explicitly and SKIP`,
-    `to the final synthesis step with a single-sentence "no history" output.`,
+    `<OUTPUT_FORMAT>`,
+    `Group by document type. Within each group, sort newest first by filename.`,
     ``,
-    `── STEP 2 — Extract insights from the most relevant documents ──`,
+    `### Docs`,
+    `- \`<absolute path>\` — 1-line title-derived summary`,
     ``,
-    `Pick the 3-5 MOST relevant documents from STEP 1 and read them. For each,`,
-    `extract:`,
-    `  - Prior decisions that bear on the current question`,
-    `  - Completed investigations and their conclusions`,
-    `  - Open questions or unresolved threads`,
+    `### Tickets`,
+    `- ...`,
     ``,
-    `Filter out noise — skip anything that isn't directly relevant.`,
+    `### Notes`,
+    `- ...`,
     ``,
-    `── STEP 3 — Synthesize ──`,
+    `### Specs / ADRs / RFCs`,
+    `- ...`,
     ``,
-    `Output a 200-400 word synthesis of historical context as your final`,
-    `prose response. Cover:`,
-    `  - Key prior decisions on related topics`,
-    `  - Past investigations and their conclusions`,
-    `  - Open questions from prior research`,
-    `  - Document paths the aggregator should reference (with brief notes)`,
-    ``,
-    `If no relevant history exists, output a single sentence saying so.`,
-    ``,
-    `Do NOT write any files — your output is consumed via session transcript.`,
-    `Your final assistant message must contain the synthesis as prose. If you`,
-    `end on a tool call with no trailing text, the aggregator will see nothing.`,
-    `</RESEARCH_PROTOCOL>`,
+    `Omit empty sections.`,
+    `</OUTPUT_FORMAT>`,
     ``,
     `<CONSTRAINTS>`,
     DOCUMENTARIAN_DISCLAIMER,
-    `Stay under 400 words total in your final synthesis.`,
+    `Do NOT read file contents in depth — your sibling does that.`,
     `Do NOT investigate live source files — that's the explorers' job.`,
-    `End with the prose synthesis (do not end on a tool call).`,
+    TRAILING_PROSE_REMINDER,
+    `</CONSTRAINTS>`,
+    ``,
+    `<RESEARCH_QUESTION_REMINDER>`,
+    opts.question,
+    `</RESEARCH_QUESTION_REMINDER>`,
+  ].join("\n");
+}
+
+/** codebase-research-analyzer — synthesize insights from located research docs. */
+export function buildHistoryAnalyzerPrompt(opts: {
+  question: string;
+  locatorOutput: string;
+  root: string;
+}): string {
+  const locator =
+    opts.locatorOutput.trim().length > 0
+      ? opts.locatorOutput.trim()
+      : "(no prior research surfaced)";
+
+  return [
+    `<RESEARCH_QUESTION>`,
+    opts.question,
+    `</RESEARCH_QUESTION>`,
+    ``,
+    `<MISSION>`,
+    `You are the codebase-research-analyzer. Extract HIGH-VALUE insights from`,
+    `the prior research documents your sibling located, and produce a tight`,
+    `synthesis the aggregator can fold in as supplementary context.`,
+    `</MISSION>`,
+    ``,
+    `<LOCATOR_FINDINGS>`,
+    locator,
+    `</LOCATOR_FINDINGS>`,
+    ``,
+    `<METHOD>`,
+    `1. Pick the 3-5 MOST relevant documents from the locator output.`,
+    `2. Read each in full.`,
+    `3. For each, capture:`,
+    `     • Prior decisions on related topics (and what was actually shipped)`,
+    `     • Completed investigations and their conclusions`,
+    `     • Open questions / unresolved threads still in flight`,
+    `4. Filter aggressively — drop tangential mentions and outdated context.`,
+    `5. Synthesize into a single ≤400-word block. Cite document paths inline.`,
+    `</METHOD>`,
+    ``,
+    `<OUTPUT_FORMAT>`,
+    `### Documents Reviewed`,
+    `- \`<absolute path>\` — 1-line takeaway`,
+    ``,
+    `### Synthesis`,
+    `<≤400 words covering decisions, conclusions, and open questions, with`,
+    `inline path citations like (\`research/docs/2025-…md\`)>`,
+    ``,
+    `If no relevant prior research exists, output a single sentence saying so.`,
+    `</OUTPUT_FORMAT>`,
+    ``,
+    `<CONSTRAINTS>`,
+    DOCUMENTARIAN_DISCLAIMER,
+    `Stay under 400 words in the Synthesis section.`,
+    `Do NOT investigate live source files — that's the explorers' job.`,
+    `Do NOT write any new files — your output is consumed via session transcript.`,
+    TRAILING_PROSE_REMINDER,
     `</CONSTRAINTS>`,
     ``,
     `<RESEARCH_QUESTION_REMINDER>`,
@@ -685,7 +649,7 @@ export function buildAggregatorPrompt(opts: {
   const explorerSummary = opts.explorerFiles
     .map((e) => {
       const dirs = e.partition.map((u) => `\`${u.path}/\``).join(", ");
-      return `- **Explorer ${e.index}** → \`${e.scratchPath}\`\n  Covered: ${dirs}`;
+      return `- **Partition ${e.index}** → \`${e.scratchPath}\`\n  Covered: ${dirs}`;
     })
     .join("\n");
 
@@ -704,54 +668,50 @@ export function buildAggregatorPrompt(opts: {
     opts.question,
     `</RESEARCH_QUESTION>`,
     ``,
-    `<YOUR_IDENTITY>`,
-    `You are the aggregator. ${opts.explorerCount} parallel explorer sub-agents`,
-    `have completed their investigations of the codebase`,
-    `(${opts.totalLoc.toLocaleString()} LOC across ${opts.totalFiles.toLocaleString()} source files),`,
-    `and a parallel research-history scout has surveyed the project's prior`,
-    `research documents. Each explorer wrote a detailed findings file. Your`,
-    `job is to synthesize these findings — together with historical context —`,
-    `into a single comprehensive research document that answers the question.`,
-    `</YOUR_IDENTITY>`,
+    `<MISSION>`,
+    `You are the aggregator. ${opts.explorerCount} parallel partitions of the`,
+    `codebase (${opts.totalLoc.toLocaleString()} LOC across ${opts.totalFiles.toLocaleString()} source files)`,
+    `have each been investigated by four specialist sub-agents — codebase-locator,`,
+    `codebase-pattern-finder, codebase-analyzer, and codebase-online-researcher`,
+    `— dispatched directly via the agent SDK. The deterministic synthesis step`,
+    `wrote one markdown findings file per partition. A separate research-history`,
+    `pipeline (codebase-research-locator → codebase-research-analyzer) surveyed`,
+    `the project's prior research documents. Your job: synthesise everything`,
+    `into a single comprehensive research document.`,
+    `</MISSION>`,
     ``,
     `<ARCHITECTURAL_ORIENTATION>`,
     orientation,
     `</ARCHITECTURAL_ORIENTATION>`,
     ``,
     `<HISTORICAL_CONTEXT>`,
-    `The research-history scout dispatched codebase-research-locator and`,
-    `codebase-research-analyzer over the project's research/ directory. Their`,
-    `synthesis (use as supplementary context — live findings take precedence):`,
+    `Use as supplementary context — live findings take precedence:`,
     ``,
     history,
     `</HISTORICAL_CONTEXT>`,
     ``,
     `<EXPLORER_REPORTS>`,
-    `Read each explorer's findings file in full. Each file has the same`,
-    `structure (Scope / Overview / Files in Scope / How It Works / Patterns /`,
-    `External References / Cross-References / File Index). The findings`,
-    `inside each file were produced by codebase-locator, codebase-analyzer,`,
-    `codebase-pattern-finder, and (sometimes) codebase-online-researcher`,
-    `sub-agents — they are LIVE evidence and take precedence over history.`,
+    `Each file below has the same structure (Scope / Files in Scope / How It`,
+    `Works / Patterns / External References / Out-of-Partition References).`,
+    `These are LIVE evidence from the specialist sub-agents and take precedence`,
+    `over historical context.`,
     ``,
     explorerSummary,
     `</EXPLORER_REPORTS>`,
     ``,
-    `<TASK>`,
-    `1. Read EVERY explorer findings file in full, one at a time, using the`,
-    `   Read tool with no offset or limit.`,
-    `2. Synthesize the findings into a unified research document.`,
-    `3. Cross-reference: identify connections between findings from different`,
-    `   explorers, especially via the "Cross-References" sections.`,
-    `4. Integrate historical context where it adds value — but live findings`,
-    `   from the explorers are the primary source of truth. If history and`,
-    `   live findings disagree, trust the live findings.`,
-    `5. Resolve any remaining contradictions by re-reading the underlying`,
-    `   source files directly.`,
-    `6. Write the final research document to: \`${opts.finalPath}\``,
-    `7. After writing the file, output a ≤200-word executive summary as your`,
+    `<METHOD>`,
+    `1. Read EVERY explorer findings file in full using the Read tool with no`,
+    `   offset or limit — these are not optional.`,
+    `2. Cross-reference: stitch findings together across partitions using each`,
+    `   file's "Out-of-Partition References" section.`,
+    `3. Resolve contradictions by re-reading the underlying source files`,
+    `   directly — do not paper over disagreements.`,
+    `4. Integrate historical context where it adds value, but trust live`,
+    `   findings when they conflict with history.`,
+    `5. Write the final research document to: \`${opts.finalPath}\``,
+    `6. After writing the file, output a ≤200-word executive summary as your`,
     `   final prose response so this transcript has content.`,
-    `</TASK>`,
+    `</METHOD>`,
     ``,
     `<OUTPUT_FORMAT>`,
     `The file at \`${opts.finalPath}\` must follow this structure:`,
@@ -786,27 +746,26 @@ export function buildAggregatorPrompt(opts: {
     `...`,
     ``,
     `## Architecture & Patterns`,
-    `Cross-cutting patterns observed across multiple components.`,
+    `Cross-cutting patterns observed across multiple partitions.`,
     ``,
     `## Code References`,
     `- \`path/to/file.ts:123\` — what's there`,
     ``,
     `## Historical Context (from research/)`,
-    `Relevant insights from prior research documents, with paths. Omit this`,
-    `section entirely if the research-history scout found nothing.`,
+    `Relevant insights from prior research, with paths. Omit if no history.`,
     ``,
     `## Open Questions`,
     `Areas needing further investigation.`,
     ``,
     `## Methodology`,
-    `Generated by the deep-research-codebase workflow with ${opts.explorerCount} parallel`,
-    `explorers covering ${opts.totalFiles.toLocaleString()} source files`,
-    `(${opts.totalLoc.toLocaleString()} LOC). Each explorer dispatched the`,
-    `codebase-locator, codebase-analyzer, codebase-pattern-finder, and (when`,
-    `applicable) codebase-online-researcher sub-agents over its assigned`,
-    `partition. A parallel research-history scout dispatched`,
-    `codebase-research-locator and codebase-research-analyzer over the`,
-    `project's prior research documents.`,
+    `Generated by the deep-research-codebase workflow with ${opts.explorerCount} partitions`,
+    `covering ${opts.totalFiles.toLocaleString()} source files (${opts.totalLoc.toLocaleString()} LOC).`,
+    `Each partition was investigated by four specialist sub-agents dispatched`,
+    `directly via the provider SDK's native agent parameter:`,
+    `codebase-locator, codebase-pattern-finder, codebase-analyzer, and`,
+    `codebase-online-researcher. A separate research-history pipeline ran`,
+    `codebase-research-locator → codebase-research-analyzer over the project's`,
+    `prior research documents.`,
     "```",
     `</OUTPUT_FORMAT>`,
     ``,
@@ -814,7 +773,7 @@ export function buildAggregatorPrompt(opts: {
     DOCUMENTARIAN_DISCLAIMER,
     `Prefer concrete file:line references over abstract descriptions.`,
     `Do NOT skim explorer reports — read each one in full.`,
-    `If two explorers contradict each other, re-read the underlying source files.`,
+    `If two partitions contradict each other, re-read the underlying source files.`,
     `End with the required ≤200-word executive summary AFTER writing the file.`,
     `</CONSTRAINTS>`,
     ``,

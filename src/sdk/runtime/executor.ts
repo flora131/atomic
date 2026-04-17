@@ -17,6 +17,7 @@
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { writeFile } from "node:fs/promises";
+import { statSync } from "node:fs";
 import type {
   WorkflowDefinition,
   WorkflowContext,
@@ -180,6 +181,73 @@ async function getRandomPort(): Promise<number> {
   throw new Error(
     `Failed to acquire a random port after ${MAX_RETRIES} attempts (last: ${lastPort})`,
   );
+}
+
+/**
+ * Resolve a non-JS Copilot CLI binary on PATH.
+ *
+ * Under Bun, `@github/copilot-sdk` spawns its bundled JS entry via `node`
+ * (see `getNodeExecPath` in the SDK). If `node` isn't installed — common in
+ * minimal containers — the spawn fails silently with ENOENT and the SDK's
+ * write to the child's stdin surfaces as "Cannot call write after a stream
+ * was destroyed" from vscode-jsonrpc. Pointing the SDK at a standalone
+ * `copilot` binary (the npm-installed ELF executable) sidesteps the
+ * node-vs-bun problem because the SDK execs it directly when the path does
+ * not end in `.js`.
+ *
+ * Returns undefined if no suitable binary is found.
+ */
+export function discoverCopilotBinary(): string | undefined {
+  const pathVar = process.env.PATH;
+  if (!pathVar) return undefined;
+  const exe = process.platform === "win32" ? "copilot.exe" : "copilot";
+  const sep = process.platform === "win32" ? ";" : ":";
+  for (const dir of pathVar.split(sep)) {
+    if (!dir) continue;
+    const candidate = join(dir, exe);
+    if (candidate.endsWith(".js")) continue;
+    try {
+      if (statSync(candidate).isFile()) return candidate;
+    } catch {}
+  }
+  return undefined;
+}
+
+/**
+ * True when we need to override the SDK's default CLI path — i.e. running
+ * under Bun, the user hasn't set COPILOT_CLI_PATH, and `node` is not
+ * available to execute the SDK's bundled JS entry.
+ */
+export function shouldOverrideCopilotCliPath(): boolean {
+  if (!process.versions.bun) return false;
+  if (process.env.COPILOT_CLI_PATH) return false;
+  return discoverCopilotBinary() !== undefined && !isNodeOnPath();
+}
+
+function isNodeOnPath(): boolean {
+  const pathVar = process.env.PATH;
+  if (!pathVar) return false;
+  const exe = process.platform === "win32" ? "node.exe" : "node";
+  const sep = process.platform === "win32" ? ";" : ":";
+  for (const dir of pathVar.split(sep)) {
+    if (!dir) continue;
+    try {
+      if (statSync(join(dir, exe)).isFile()) return true;
+    } catch {}
+  }
+  return false;
+}
+
+/**
+ * Set safe env defaults for the orchestrator process before any SDK is
+ * loaded. Must be called exactly once, as early as possible — headless
+ * Copilot stages spawn the CLI as a subprocess and inherit this env.
+ */
+export function applyContainerEnvDefaults(): void {
+  if (shouldOverrideCopilotCliPath()) {
+    const bin = discoverCopilotBinary();
+    if (bin) process.env.COPILOT_CLI_PATH = bin;
+  }
 }
 
 function buildPaneCommand(

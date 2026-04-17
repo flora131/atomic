@@ -1,10 +1,16 @@
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe, beforeEach, afterEach } from "bun:test";
+import { mkdtempSync, writeFileSync, chmodSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   renderMessagesToText,
   hasContent,
   escBash,
   escPwsh,
   watchCopilotSessionForHIL,
+  shouldOverrideCopilotCliPath,
+  discoverCopilotBinary,
+  applyContainerEnvDefaults,
   type CopilotHILSessionSurface,
 } from "./executor.ts";
 import type { SavedMessage } from "../types.ts";
@@ -522,5 +528,85 @@ describe("watchCopilotSessionForHIL", () => {
 
     expect(session.handlerCount("tool.execution_start")).toBe(0);
     expect(session.handlerCount("tool.execution_complete")).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Copilot CLI path discovery (Bun-without-node containers)
+// ---------------------------------------------------------------------------
+
+describe("discoverCopilotBinary / shouldOverrideCopilotCliPath", () => {
+  let sandbox: string;
+  let savedPath: string | undefined;
+  let savedCliPath: string | undefined;
+
+  beforeEach(() => {
+    sandbox = mkdtempSync(join(tmpdir(), "atomic-cli-probe-"));
+    savedPath = process.env.PATH;
+    savedCliPath = process.env.COPILOT_CLI_PATH;
+    delete process.env.COPILOT_CLI_PATH;
+  });
+
+  afterEach(() => {
+    if (savedPath === undefined) delete process.env.PATH;
+    else process.env.PATH = savedPath;
+    if (savedCliPath === undefined) delete process.env.COPILOT_CLI_PATH;
+    else process.env.COPILOT_CLI_PATH = savedCliPath;
+    rmSync(sandbox, { recursive: true, force: true });
+  });
+
+  function putExe(dir: string, name: string, contents = "#!/bin/sh\necho $0"): string {
+    const p = join(dir, name);
+    writeFileSync(p, contents);
+    chmodSync(p, 0o755);
+    return p;
+  }
+
+  test("finds an executable 'copilot' on PATH", () => {
+    const bin = putExe(sandbox, "copilot");
+    process.env.PATH = sandbox;
+    expect(discoverCopilotBinary()).toBe(bin);
+  });
+
+  test("returns undefined when no copilot on PATH", () => {
+    process.env.PATH = sandbox;
+    expect(discoverCopilotBinary()).toBeUndefined();
+  });
+
+  test("shouldOverrideCopilotCliPath: false when COPILOT_CLI_PATH is user-set", () => {
+    putExe(sandbox, "copilot");
+    process.env.PATH = sandbox;
+    process.env.COPILOT_CLI_PATH = "/somewhere/else/copilot";
+    expect(shouldOverrideCopilotCliPath()).toBe(false);
+  });
+
+  test("shouldOverrideCopilotCliPath: false when node is also on PATH (SDK default works)", () => {
+    putExe(sandbox, "copilot");
+    putExe(sandbox, "node");
+    process.env.PATH = sandbox;
+    expect(shouldOverrideCopilotCliPath()).toBe(false);
+  });
+
+  test("shouldOverrideCopilotCliPath: true when bun + copilot but no node", () => {
+    putExe(sandbox, "copilot");
+    process.env.PATH = sandbox;
+    // We're running this test under Bun, so process.versions.bun is set
+    expect(!!process.versions.bun).toBe(true);
+    expect(shouldOverrideCopilotCliPath()).toBe(true);
+  });
+
+  test("applyContainerEnvDefaults sets COPILOT_CLI_PATH when override is needed", () => {
+    const bin = putExe(sandbox, "copilot");
+    process.env.PATH = sandbox;
+    applyContainerEnvDefaults();
+    expect(process.env.COPILOT_CLI_PATH).toBe(bin);
+  });
+
+  test("applyContainerEnvDefaults does NOT overwrite user-set COPILOT_CLI_PATH", () => {
+    putExe(sandbox, "copilot");
+    process.env.PATH = sandbox;
+    process.env.COPILOT_CLI_PATH = "/custom/copilot";
+    applyContainerEnvDefaults();
+    expect(process.env.COPILOT_CLI_PATH).toBe("/custom/copilot");
   });
 });

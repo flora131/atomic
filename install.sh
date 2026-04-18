@@ -210,24 +210,48 @@ install_atomic() {
     run_step "Installing @bastani/atomic" bun install -g "$PACKAGE"
 }
 
+# Write the cached-source snippet to `rc`, migrating any legacy
+# `eval "$(atomic completions <shell>)"` block to the faster file-based
+# form. Sourcing a local file skips the bun runtime cold start that an
+# `eval` incurs on every shell spawn.
+install_rc_snippet() {
+    local rc=$1 shell_name=$2
+    local marker='# Atomic CLI completions (cached)'
+
+    # Strip legacy eval-based snippet (both the comment and eval line).
+    # Portable in-place sed across GNU and BSD: use a .bak suffix.
+    if [[ -f "$rc" ]] && grep -qF 'eval "$(atomic completions' "$rc"; then
+        sed -i.atomic.bak \
+            -e '/^# Atomic CLI completions$/d' \
+            -e '/^eval "\$(atomic completions [a-z]*)"$/d' \
+            "$rc"
+        rm -f "$rc.atomic.bak"
+    fi
+
+    if ! grep -qF "$marker" "$rc" 2>/dev/null; then
+        {
+            printf '\n%s\n' "$marker"
+            printf '[ -f "$HOME/.atomic/completions/atomic.%s" ] && source "$HOME/.atomic/completions/atomic.%s"\n' \
+                "$shell_name" "$shell_name"
+        } >> "$rc"
+    fi
+}
+
 install_completions() {
     local shell_name
     shell_name=$(basename "${SHELL:-}")
+    local cache_dir="$HOME/.atomic/completions"
 
     case "$shell_name" in
         bash)
-            local rc="$HOME/.bashrc"
-            local marker='atomic completions bash'
-            if ! grep -qF "$marker" "$rc" 2>/dev/null; then
-                printf '\n# Atomic CLI completions\neval "$(atomic completions bash)"\n' >> "$rc"
-            fi
+            mkdir -p "$cache_dir"
+            atomic completions bash > "$cache_dir/atomic.bash"
+            install_rc_snippet "$HOME/.bashrc" bash
             ;;
         zsh)
-            local rc="$HOME/.zshrc"
-            local marker='atomic completions zsh'
-            if ! grep -qF "$marker" "$rc" 2>/dev/null; then
-                printf '\n# Atomic CLI completions\neval "$(atomic completions zsh)"\n' >> "$rc"
-            fi
+            mkdir -p "$cache_dir"
+            atomic completions zsh > "$cache_dir/atomic.zsh"
+            install_rc_snippet "$HOME/.zshrc" zsh
             ;;
         fish)
             local dir="$HOME/.config/fish/completions"
@@ -240,11 +264,57 @@ install_completions() {
     esac
 }
 
+# Cache the GitHub MCP token once per day so `gh auth token` isn't
+# forked on every shell spawn. Uses bash/zsh-specific syntax, so we
+# only install it for those shells.
+install_gh_token_cache() {
+    local shell_name
+    shell_name=$(basename "${SHELL:-}")
+
+    local rc
+    case "$shell_name" in
+        bash) rc="$HOME/.bashrc" ;;
+        zsh)  rc="$HOME/.zshrc"  ;;
+        *)    return 0           ;;  # silently skip other shells
+    esac
+
+    mkdir -p "$HOME/.atomic"
+    cat > "$HOME/.atomic/gh-token-cache.sh" <<'EOF'
+# Atomic: cache `gh auth token` for 24h to avoid shelling out on every
+# shell spawn. Refreshes the cache lazily when it's missing or stale.
+load_github_token() {
+  [[ -n "$GITHUB_PERSONAL_ACCESS_TOKEN" ]] && return 0
+  command -v gh >/dev/null 2>&1 || return 0
+
+  local cache="${XDG_CACHE_HOME:-$HOME/.cache}/gh-auth-token"
+  local tok
+
+  if [[ -s "$cache" && -n "$(find "$cache" -mmin -1440 2>/dev/null)" ]]; then
+    export GITHUB_PERSONAL_ACCESS_TOKEN="$(<"$cache")"
+  elif tok=$(gh auth token 2>/dev/null); then
+    mkdir -p "${cache%/*}"
+    (umask 077; printf '%s' "$tok" > "$cache")
+    export GITHUB_PERSONAL_ACCESS_TOKEN="$tok"
+  fi
+}
+
+load_github_token
+EOF
+
+    local marker='# Atomic CLI gh auth token cache'
+    if ! grep -qF "$marker" "$rc" 2>/dev/null; then
+        {
+            printf '\n%s\n' "$marker"
+            printf '[ -f "$HOME/.atomic/gh-token-cache.sh" ] && source "$HOME/.atomic/gh-token-cache.sh"\n'
+        } >> "$rc"
+    fi
+}
+
 # ── Main ────────────────────────────────────────────────────────────────────
 
 main() {
     # Count upcoming steps so the progress bar is honest.
-    STEP_TOTAL=2  # atomic install + completions
+    STEP_TOTAL=3  # atomic install + completions + gh token cache
     if ! command -v bun >/dev/null 2>&1; then
         STEP_TOTAL=$((STEP_TOTAL + 1))  # bun install
     fi
@@ -264,6 +334,11 @@ main() {
     # Best-effort: don't fail the install if completions can't be set up
     if ! run_step "Installing shell completions" install_completions; then
         warn "Could not detect shell — install completions manually: atomic completions --help"
+    fi
+
+    # Best-effort: gh token caching speeds up shell startup for MCP users
+    if ! run_step "Installing gh auth token cache" install_gh_token_cache; then
+        warn "Could not install gh auth token cache"
     fi
 
     printf '\n  %s✓%s %sAtomic installed successfully%s\n\n' \

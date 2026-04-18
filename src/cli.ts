@@ -269,6 +269,17 @@ Examples:
             process.exit(exitCode);
         });
 
+    // ── Internal: footer renderer (spawned inside agent tmux windows) ──────
+    program
+        .command("_footer", { hidden: true })
+        .description("Internal: render the attached-mode footer for an agent window")
+        .requiredOption("--name <name>", "Agent window name")
+        .action(async (opts: { name: string }) => {
+            const { footerCommand } = await import("./commands/cli/footer.tsx");
+            const exitCode = await footerCommand(opts.name);
+            process.exit(exitCode);
+        });
+
     // ── Completions command ────────────────────────────────────────────────
     program
         .command("completions")
@@ -318,7 +329,8 @@ async function main(): Promise<void> {
             argv.includes("-v") ||
             argv.includes("--help") ||
             argv.includes("-h") ||
-            argv[0] === "completions";
+            argv[0] === "completions" ||
+            argv[0] === "_footer";
 
         if (!isInfoCommand) {
             const { autoSyncIfStale } = await import("./services/system/auto-sync.ts");

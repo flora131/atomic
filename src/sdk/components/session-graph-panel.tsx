@@ -18,18 +18,7 @@ import {
   useRef,
   useContext,
 } from "react";
-import {
-  tmuxRun,
-  TMUX_DEFAULT_STATUS_LEFT,
-  TMUX_DEFAULT_STATUS_LEFT_LENGTH,
-  TMUX_DEFAULT_STATUS_RIGHT,
-  TMUX_DEFAULT_STATUS_RIGHT_LENGTH,
-  TMUX_ATTACHED_STATUS_RIGHT,
-  TMUX_ATTACHED_STATUS_RIGHT_LENGTH,
-  TMUX_ATTACHED_WINDOW_FMT,
-  TMUX_ATTACHED_WINDOW_STYLE,
-  TMUX_ATTACHED_WINDOW_CURRENT_STYLE,
-} from "../runtime/tmux.ts";
+import { tmuxRun } from "../runtime/tmux.ts";
 import {
   useStore,
   useGraphTheme,
@@ -394,47 +383,17 @@ export function SessionGraphPanel() {
   }, [tmuxSession, hasStartedAgent]);
 
   // ── Tmux status bar sync ──────────────────────────────
-  // Attached mode: use tmux's native window list to show agent names
-  // (the current window is highlighted automatically by tmux).
-  // Graph mode: restore the minimal defaults.
+  // The workflow owns its footer: the tmux status bar is hidden for this
+  // session so the React-rendered Statusline is the single source of truth
+  // in both graph and attached modes. Scoped via `-t <tmuxSession>` so other
+  // sessions on the atomic socket (e.g. chat) keep the tmux.conf defaults.
   useEffect(() => {
-    if (store.viewMode === "attached") {
-      tmuxRun(["set", "-g", "status-left", " "]);
-      tmuxRun(["set", "-g", "status-left-length", "1"]);
-      tmuxRun(["set", "-g", "status-right", TMUX_ATTACHED_STATUS_RIGHT]);
-      tmuxRun(["set", "-g", "status-right-length", TMUX_ATTACHED_STATUS_RIGHT_LENGTH]);
-      tmuxRun(["set", "-g", "window-status-format", TMUX_ATTACHED_WINDOW_FMT]);
-      tmuxRun(["set", "-g", "window-status-current-format", TMUX_ATTACHED_WINDOW_FMT]);
-      tmuxRun(["set", "-g", "window-status-style", TMUX_ATTACHED_WINDOW_STYLE]);
-      tmuxRun(["set", "-g", "window-status-current-style", TMUX_ATTACHED_WINDOW_CURRENT_STYLE]);
-      tmuxRun(["set", "-g", "window-status-separator", ""]);
-    } else {
-      tmuxRun(["set", "-g", "status-left", TMUX_DEFAULT_STATUS_LEFT]);
-      tmuxRun(["set", "-g", "status-left-length", TMUX_DEFAULT_STATUS_LEFT_LENGTH]);
-      tmuxRun(["set", "-g", "status-right", TMUX_DEFAULT_STATUS_RIGHT]);
-      tmuxRun(["set", "-g", "status-right-length", TMUX_DEFAULT_STATUS_RIGHT_LENGTH]);
-      tmuxRun(["set", "-gu", "window-status-format"]);
-      tmuxRun(["set", "-gu", "window-status-current-format"]);
-      tmuxRun(["set", "-gu", "window-status-style"]);
-      tmuxRun(["set", "-gu", "window-status-current-style"]);
-      tmuxRun(["set", "-gu", "window-status-separator"]);
-    }
-  }, [store.viewMode]);
-
-  // Restore default tmux status bar on unmount
-  useEffect(() => {
+    const s = tmuxSession;
+    tmuxRun(["set", "-t", s, "status", "off"]);
     return () => {
-      tmuxRun(["set", "-g", "status-left", TMUX_DEFAULT_STATUS_LEFT]);
-      tmuxRun(["set", "-g", "status-left-length", TMUX_DEFAULT_STATUS_LEFT_LENGTH]);
-      tmuxRun(["set", "-g", "status-right", TMUX_DEFAULT_STATUS_RIGHT]);
-      tmuxRun(["set", "-g", "status-right-length", TMUX_DEFAULT_STATUS_RIGHT_LENGTH]);
-      tmuxRun(["set", "-gu", "window-status-format"]);
-      tmuxRun(["set", "-gu", "window-status-current-format"]);
-      tmuxRun(["set", "-gu", "window-status-style"]);
-      tmuxRun(["set", "-gu", "window-status-current-style"]);
-      tmuxRun(["set", "-gu", "window-status-separator"]);
+      tmuxRun(["set", "-tu", s, "status"]);
     };
-  }, []);
+  }, [tmuxSession]);
 
   return (
     <box width="100%" height="100%" flexDirection="column" backgroundColor={theme.background}>
@@ -499,7 +458,7 @@ export function SessionGraphPanel() {
       {/* Compact agent switcher overlay */}
       {switcherOpen ? <CompactSwitcher selectedIndex={switcherSel} /> : null}
 
-      <Statusline focusedNode={focused} attachMsg={attachMsg} />
+      <Statusline attachMsg={attachMsg} />
     </box>
   );
 }

@@ -114,8 +114,6 @@ coveragePathIgnorePatterns = [
   "vendor/**",
   "generated/**",
   ".atomic/**",
-  # Global workflow templates resolved outside the project root (e.g. ~/.atomic)
-  "../.atomic/**",
   ".claude/**",
   ".github/**",
   ".opencode/**",

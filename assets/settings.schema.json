@@ -22,26 +22,6 @@
       "format": "date-time",
       "description": "ISO 8601 timestamp of the last configuration update."
     },
-    "trustedPaths": {
-      "type": "array",
-      "description": "Globally trusted workspaces that have completed provider onboarding through 'atomic init'.",
-      "items": {
-        "type": "object",
-        "required": ["workspacePath", "provider"],
-        "properties": {
-          "workspacePath": {
-            "type": "string",
-            "description": "Absolute path to the initialized workspace."
-          },
-          "provider": {
-            "type": "string",
-            "enum": ["claude", "opencode", "copilot"],
-            "description": "Provider initialized for the trusted workspace."
-          }
-        },
-        "additionalProperties": false
-      }
-    },
     "providers": {
       "type": "object",
       "description": "Per-provider overrides for chatFlags and envVars. chatFlags replaces built-in defaults entirely when set; envVars are merged on top of defaults (user values win on conflict). Local .atomic/settings.json takes precedence over global ~/.atomic/settings.json.",

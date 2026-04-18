@@ -18,7 +18,6 @@ import {
 } from "../../../services/config/index.ts";
 import { pathExists } from "../../../services/system/copy.ts";
 import { getConfigRoot } from "../../../services/config/config-path.ts";
-import { getTemplateAgentFolder } from "../../../services/config/atomic-global-config.ts";
 import { upsertTrustedWorkspacePath } from "../../../services/config/settings.ts";
 import { applyManagedOnboardingFiles } from "./onboarding.ts";
 import { installLocalScmSkills, syncProjectScmSkills } from "./scm.ts";
@@ -86,11 +85,12 @@ export async function ensureProjectSetup(
             cwd: projectRoot,
           });
         } else {
-          // Source checkout: copy from bundled templates
-          const templateFolder = getTemplateAgentFolder(agentKey);
+          // Source checkout (e.g. `bun run dev`): copy from the canonical
+          // `.agents/skills` directory so prompt edits in-repo flow through
+          // to the target project without needing a publish or git push.
           await syncProjectScmSkills({
             scmType: detectedScm,
-            sourceSkillsDir: join(configRoot, templateFolder, "skills"),
+            sourceSkillsDir: join(configRoot, ".agents", "skills"),
             targetSkillsDir: join(
               projectRoot,
               AGENT_CONFIG[agentKey].folder,

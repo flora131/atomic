@@ -1,14 +1,10 @@
 /** @jsxImportSource @opentui/react */
 
 import { useStore, useGraphTheme, useStoreVersion } from "./orchestrator-panel-contexts.ts";
-import { statusIcon, statusColor } from "./status-helpers.ts";
-import type { LayoutNode } from "./layout.ts";
 
 export function Statusline({
-  focusedNode,
   attachMsg,
 }: {
-  focusedNode: LayoutNode | undefined;
   attachMsg: string;
 }) {
   const store = useStore();
@@ -23,19 +19,6 @@ export function Statusline({
           <strong>GRAPH</strong>
         </text>
       </box>
-
-      {/* Focused node info */}
-      {focusedNode ? (
-        <box backgroundColor="transparent" paddingLeft={1} alignItems="center">
-          <text>
-            <span fg={statusColor(focusedNode.status, theme)}>{statusIcon(focusedNode.status)} </span>
-            <span fg={theme.text}>{focusedNode.name}</span>
-            {focusedNode.error ? (
-              <span fg={theme.error}> {"\u00B7"} {focusedNode.error}</span>
-            ) : null}
-          </text>
-        </box>
-      ) : null}
 
       {store.backgroundTaskCount > 0 ? (
         <box backgroundColor="transparent" paddingLeft={1} alignItems="center">

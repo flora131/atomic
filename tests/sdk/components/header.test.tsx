@@ -87,6 +87,21 @@ describe("Header", () => {
     expect(frame).toContain("\u2713");
   });
 
+  test("shows tmux session name next to badge", async () => {
+    const store = new PanelStore();
+    store.setWorkflowInfo("wf", "claude", [{ name: "s1", parents: [] }], "p");
+
+    testSetup = await testRender(
+      <TestProviders store={store} tmuxSession="atomic-abc123">
+        <Header />
+      </TestProviders>,
+      { width: 80, height: 5 },
+    );
+    await testSetup.renderOnce();
+    const frame = testSetup.captureCharFrame();
+    expect(frame).toContain("atomic-abc123");
+  });
+
   test("shows error count when sessions have errors", async () => {
     const store = new PanelStore();
     store.setWorkflowInfo("wf", "claude", [{ name: "s1", parents: [] }], "p");

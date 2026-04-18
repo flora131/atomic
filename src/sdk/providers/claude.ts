@@ -18,7 +18,6 @@
  */
 
 import {
-  listSessions,
   getSessionMessages,
   query as sdkQuery,
   type SessionMessage,
@@ -39,6 +38,9 @@ import {
   attemptSubmitRounds,
 } from "../runtime/tmux.ts";
 import { watch } from "node:fs/promises";
+import { existsSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 
 // ---------------------------------------------------------------------------
 // Session tracking — ensures createClaudeSession is called before claudeQuery
@@ -46,10 +48,24 @@ import { watch } from "node:fs/promises";
 
 /** Per-pane state for Claude sessions. */
 interface PaneState {
-  /** Claude Code's own session ID. Resolved after the first query is sent. */
-  claudeSessionId: string | undefined;
-  /** Session IDs that existed before this pane's Claude instance started. */
-  knownSessionIds: Set<string>;
+  /**
+   * Claude Code's session ID. Pre-generated via `crypto.randomUUID()` in
+   * `createClaudeSession` and passed to `claude --session-id <UUID>` on the
+   * first query, so we know the JSONL filename without polling.
+   */
+  claudeSessionId: string;
+  /** Whether the `claude` CLI has been spawned in this pane yet. */
+  claudeStarted: boolean;
+  /** CLI flags to pass to `claude` when it is spawned on the first query. */
+  chatFlags: string[];
+  /** Timeout in ms waiting for Claude TUI / JSONL file on first spawn. */
+  readyTimeoutMs: number;
+  /**
+   * Workflow session directory (`~/.atomic/sessions/<runId>/<name>-<sid>`).
+   * The first prompt is persisted here as `prompt.txt` so it appears in the
+   * session log alongside `messages.json`, `metadata.json`, etc.
+   */
+  sessionDir: string;
 }
 
 const initializedPanes = new Map<string, PaneState>();
@@ -75,6 +91,11 @@ const DEFAULT_CHAT_FLAGS = [
 export interface ClaudeSessionOptions {
   /** tmux pane ID where Claude should be started */
   paneId: string;
+  /**
+   * Workflow session directory. The first prompt is written here as
+   * `prompt.txt` and Claude is told to read from that path.
+   */
+  sessionDir: string;
   /** CLI flags to pass to the `claude` command (default: ["--allow-dangerously-skip-permissions", "--dangerously-skip-permissions"]) */
   chatFlags?: string[];
   /** Timeout in ms waiting for Claude TUI to be ready (default: 30s) */
@@ -82,11 +103,16 @@ export interface ClaudeSessionOptions {
 }
 
 /**
- * Start Claude Code in a tmux pane with configurable CLI flags.
+ * Initialize per-pane Claude state. Does NOT spawn the `claude` CLI — the
+ * pane is left as a bare shell. The CLI is spawned lazily on the first
+ * `claudeQuery()` call, with the prompt baked into the spawn command:
+ *
+ *     claude [chatFlags] --session-id <UUID> 'Read the prompt in <tmpfile>'
+ *
+ * Pre-generating the session UUID here lets the first query pass it to the
+ * CLI, so we know the JSONL filename up front and can skip discovery polling.
  *
  * Must be called before any `claudeQuery()` calls targeting the same pane.
- * The pane should be a bare shell — `createClaudeSession` sends the `claude`
- * command with the given flags and waits for the TUI to become ready.
  *
  * @example
  * ```typescript
@@ -108,94 +134,89 @@ export interface ClaudeSessionOptions {
 export async function createClaudeSession(options: ClaudeSessionOptions): Promise<void> {
   const {
     paneId,
+    sessionDir,
     chatFlags = DEFAULT_CHAT_FLAGS,
     readyTimeoutMs = 30_000,
   } = options;
 
-  // Snapshot existing Claude sessions BEFORE starting, so we can identify the
-  // new session later by diffing against this set. The directory may not exist
-  // on first run — that's fine, the known set is just empty.
-  let knownSessionIds = new Set<string>();
-  try {
-    const existing = await listSessions({ dir: process.cwd() });
-    knownSessionIds = new Set(existing.map((s) => s.sessionId));
-  } catch {
-    // No session directory yet — all sessions will be "new"
-  }
-
-  const cmd = ["claude", ...chatFlags].join(" ");
-  await sendKeysAndSubmit(paneId, cmd);
-
-  // Give the shell time to exec before polling for TUI readiness
-  await Bun.sleep(1_000);
-  await waitForPaneReady(paneId, readyTimeoutMs);
-
-  // Verify Claude TUI actually rendered — a bare shell or crash won't show
-  // the expected prompt/task indicators
-  const visible = capturePaneVisible(paneId);
-  if (!paneLooksReady(visible) && !paneHasActiveTask(visible)) {
-    throw new Error(
-      "createClaudeSession() timed out waiting for the Claude TUI to start. " +
-      "Verify the `claude` command is installed and the flags are valid.",
-    );
-  }
-
-  // Session ID is resolved lazily in claudeQuery — Claude doesn't write its
-  // session file until it receives the first message.
   initializedPanes.set(paneId, {
-    claudeSessionId: undefined,
-    knownSessionIds,
+    claudeSessionId: randomUUID(),
+    claudeStarted: false,
+    chatFlags,
+    readyTimeoutMs,
+    sessionDir,
   });
 }
 
 /**
- * Find a session ID that isn't in the known set.
- * Returns `undefined` if no new session exists yet.
+ * Spawn `claude` in the pane with the prompt baked in via the Read tool.
+ *
+ * The prompt is written to `${sessionDir}/prompt.txt` so it persists in the
+ * workflow's session log alongside `messages.json`, `metadata.json`, etc.
+ * The argv prompt is `Read the prompt in <path>`, so Claude's first action
+ * is a Read tool call against that file. This sidesteps shell-escaping and
+ * ARG_MAX entirely — the prompt bytes never traverse the shell parser or
+ * the kernel argv cap.
  */
-async function findNewSessionId(
-  knownSessionIds: Set<string>,
-  cwd: string,
-): Promise<string | undefined> {
-  try {
-    const sessions = await listSessions({ dir: cwd });
-    return sessions.find((s) => !knownSessionIds.has(s.sessionId))?.sessionId;
-  } catch {
-    return undefined;
-  }
+async function spawnClaudeWithPrompt(
+  paneId: string,
+  prompt: string,
+  chatFlags: string[],
+  sessionId: string,
+  sessionDir: string,
+  readyTimeoutMs: number,
+): Promise<void> {
+  const promptFile = join(sessionDir, "prompt.txt");
+  writeFileSync(promptFile, prompt, "utf-8");
+
+  // sessionDir is the workflow's `${name}-${sessionId}` directory under
+  // ~/.atomic/sessions — slug-based, so single-quoting is sufficient on
+  // POSIX and PowerShell alike.
+  const argvPrompt = `'Read the prompt in ${promptFile}'`;
+  const cmd = [
+    "claude",
+    ...chatFlags,
+    "--session-id",
+    sessionId,
+    argvPrompt,
+  ].join(" ");
+
+  await sendKeysAndSubmit(paneId, cmd);
+
+  // SDK-native readiness signal: wait for Claude to create its JSONL file
+  // at the known UUID path. No pane scraping, no paneLooksReady check.
+  await waitForSessionFileAt(sessionId, readyTimeoutMs);
 }
 
 /**
- * Watch for a new Claude session JSONL file to appear on disk.
+ * Wait for Claude's JSONL session file at a known UUID-named path to exist.
  *
- * Uses the `fs/promises` `watch()` async iterator (backed by inotify/kqueue
- * in Bun — OS-native, no polling) for instant notification when Claude writes
- * its session file. A `Bun.sleep`-based polling loop runs concurrently to
- * handle the case where the session directory doesn't exist yet (first run).
- *
- * An `AbortController` coordinates the timeout and cleanup across both
- * watchers — whichever detects the session first wins the `Promise.race`,
- * and the abort signal tears down the other.
+ * Because we pass `--session-id <UUID>` to the spawn, the file's exact path
+ * is deterministic — we just need to wait for it to appear. Uses `fs.watch`
+ * for instant OS-native notification (inotify/kqueue in Bun) racing against
+ * a polling fallback that handles the case where the session directory
+ * doesn't exist yet on first run.
  */
-async function waitForSessionFile(
-  knownSessionIds: Set<string>,
+async function waitForSessionFileAt(
+  sessionId: string,
   timeoutMs: number,
-): Promise<string> {
-  const cwd = process.cwd();
-  const sessionDir = resolveSessionDir(cwd);
+): Promise<void> {
+  const sessionDir = resolveSessionDir(process.cwd());
+  const targetPath = `${sessionDir}/${sessionId}.jsonl`;
+
+  if (existsSync(targetPath)) return;
+
   const ac = new AbortController();
   const timeout = setTimeout(() => ac.abort(), timeoutMs);
 
   try {
-    return await Promise.race([
-      // fs.watch — instant OS-native notification (inotify/kqueue in Bun)
-      (async (): Promise<string> => {
+    await Promise.race([
+      // fs.watch — instant OS-native notification when Claude writes the file
+      (async (): Promise<void> => {
         try {
-          for await (const event of watch(sessionDir, {
-            signal: ac.signal,
-          })) {
-            if (event.filename?.endsWith(".jsonl")) {
-              const id = await findNewSessionId(knownSessionIds, cwd);
-              if (id) return id;
+          for await (const event of watch(sessionDir, { signal: ac.signal })) {
+            if (event.filename === `${sessionId}.jsonl` && existsSync(targetPath)) {
+              return;
             }
           }
         } catch (e: unknown) {
@@ -203,14 +224,13 @@ async function waitForSessionFile(
           // Directory doesn't exist yet — let polling handle it
         }
         // Park this branch so polling can win the race
-        return new Promise<string>(() => {});
+        return new Promise<void>(() => {});
       })(),
 
       // Polling fallback — handles directory-not-yet-created case
-      (async (): Promise<string> => {
+      (async (): Promise<void> => {
         while (!ac.signal.aborted) {
-          const id = await findNewSessionId(knownSessionIds, cwd);
-          if (id) return id;
+          if (existsSync(targetPath)) return;
           await Bun.sleep(500);
         }
         throw new DOMException("Aborted", "AbortError");
@@ -219,7 +239,7 @@ async function waitForSessionFile(
   } catch (e: unknown) {
     if (e instanceof DOMException && e.name === "AbortError") {
       throw new Error(
-        "Timed out waiting for Claude to write its session file. " +
+        `Timed out waiting for Claude session file at ${targetPath}. ` +
         "Verify the `claude` command started successfully.",
       );
     }
@@ -320,32 +340,6 @@ export async function _runHILWatcher(
       // Transcript read failed — skip this event, try again on next write
     }
   }
-}
-
-/**
- * Watch the Claude session JSONL transcript for `AskUserQuestion` HIL events.
- *
- * Uses `fs/promises` `watch()` (inotify/kqueue in Bun) on the session file.
- * On each write, re-reads messages via `getSessionMessages()` and calls
- * `onHIL(true)` when an unresolved `AskUserQuestion` appears or
- * `onHIL(false)` when it is resolved. Only fires on state transitions to
- * avoid redundant callbacks.
- *
- * The loop exits when the provided `AbortSignal` is aborted (e.g. session
- * becomes idle). Individual read errors are silently swallowed so a single
- * corrupt write doesn't kill the watcher.
- */
-async function watchTranscriptForHIL(
-  sessionId: string,
-  signal: AbortSignal,
-  onHIL: (waiting: boolean) => void,
-): Promise<void> {
-  const jsonlPath = `${resolveSessionDir(process.cwd())}/${sessionId}.jsonl`;
-  await _runHILWatcher(
-    watch(jsonlPath, { signal }),
-    () => getSessionMessages(sessionId, { dir: process.cwd(), includeSystemMessages: true }),
-    onHIL,
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -545,19 +539,28 @@ export async function claudeQuery(options: ClaudeQueryOptions): Promise<SessionM
     );
   }
 
-  const normalizedPrompt = normalizeTmuxCapture(prompt).slice(0, 100);
   const dir = process.cwd();
-  let { claudeSessionId } = paneState;
+  const claudeSessionId = paneState.claudeSessionId;
 
-  // Step 1: Wait for pane readiness before sending
-  await waitForPaneReady(paneId, readyTimeoutMs);
-
-  // ── Transcript snapshot (before send) ──
-  // Must be taken BEFORE sending so we get an accurate baseline. On the
-  // first query the session ID is unknown (Claude hasn't written its file
-  // yet), so transcriptBeforeCount stays 0 and we extract all messages.
-  let transcriptBeforeCount = 0;
-  if (claudeSessionId) {
+  // ── First query: spawn `claude --session-id <UUID> 'Read the prompt in <path>'`.
+  // The prompt is delivered via Claude's Read tool on its first turn — no
+  // paste-buffer, no submit retries. Subsequent queries fall through to the
+  // existing paste-buffer flow against the now-running TUI.
+  if (!paneState.claudeStarted) {
+    await spawnClaudeWithPrompt(
+      paneId,
+      prompt,
+      paneState.chatFlags,
+      claudeSessionId,
+      paneState.sessionDir,
+      paneState.readyTimeoutMs,
+    );
+    paneState.claudeStarted = true;
+  } else {
+    // ── Transcript snapshot (before send) ──
+    // Taken BEFORE sending so we get an accurate baseline for slicing the
+    // returned messages to just this turn.
+    let transcriptBeforeCount = 0;
     try {
       const msgs = await getSessionMessages(claudeSessionId, {
         dir,
@@ -567,82 +570,77 @@ export async function claudeQuery(options: ClaudeQueryOptions): Promise<SessionM
     } catch {
       // Best-effort — 0 means we scan all messages (correct, slightly less efficient)
     }
-  }
 
-  const beforeContent = normalizeTmuxLines(capturePaneScrollback(paneId));
+    const beforeContent = normalizeTmuxLines(capturePaneScrollback(paneId));
+    const normalizedPrompt = normalizeTmuxCapture(prompt).slice(0, 100);
 
-  // Step 2: Send text via paste buffer (atomic, handles large prompts)
-  sendViaPasteBuffer(paneId, prompt);
-  await Bun.sleep(150);
+    // Step 1: Wait for pane readiness before sending
+    await waitForPaneReady(paneId, readyTimeoutMs);
 
-  // Step 3: Submit with per-round capture verification
-  let delivered = await attemptSubmitRounds(paneId, normalizedPrompt, maxSubmitRounds, submitPresses);
+    // Step 2: Send text via paste buffer (atomic, handles large prompts)
+    sendViaPasteBuffer(paneId, prompt);
+    await Bun.sleep(150);
 
-  // Step 4: Adaptive retry — clear line, re-type, re-submit
-  if (!delivered) {
-    const visibleCapture = capturePaneVisible(paneId);
-    const visibleNorm = normalizeTmuxCapture(visibleCapture);
+    // Step 3: Submit with per-round capture verification
+    let delivered = await attemptSubmitRounds(paneId, normalizedPrompt, maxSubmitRounds, submitPresses);
 
-    // Only retry if text is still visible and pane is idle (not mid-task)
-    if (visibleNorm.includes(normalizedPrompt) && !paneHasActiveTask(visibleCapture) && paneLooksReady(visibleCapture)) {
-      sendSpecialKey(paneId, "C-u");
-      await Bun.sleep(80);
-      sendViaPasteBuffer(paneId, prompt);
-      await Bun.sleep(120);
-      delivered = await attemptSubmitRounds(paneId, normalizedPrompt, maxSubmitRounds, submitPresses);
-    }
-  }
+    // Step 4: Adaptive retry — clear line, re-type, re-submit
+    if (!delivered) {
+      const visibleCapture = capturePaneVisible(paneId);
+      const visibleNorm = normalizeTmuxCapture(visibleCapture);
 
-  // Step 5: Final fallback — double C-m nudge + post-submit verification
-  if (!delivered) {
-    sendSpecialKey(paneId, "C-m");
-    await Bun.sleep(120);
-    sendSpecialKey(paneId, "C-m");
-    await Bun.sleep(300);
-
-    const verifyCapture = capturePaneVisible(paneId);
-    if (paneHasActiveTask(verifyCapture)) {
-      delivered = true;
-    } else {
-      delivered = !normalizeTmuxCapture(verifyCapture).includes(normalizedPrompt);
+      // Only retry if text is still visible and pane is idle (not mid-task)
+      if (visibleNorm.includes(normalizedPrompt) && !paneHasActiveTask(visibleCapture) && paneLooksReady(visibleCapture)) {
+        sendSpecialKey(paneId, "C-u");
+        await Bun.sleep(80);
+        sendViaPasteBuffer(paneId, prompt);
+        await Bun.sleep(120);
+        delivered = await attemptSubmitRounds(paneId, normalizedPrompt, maxSubmitRounds, submitPresses);
+      }
     }
 
-    // One more attempt if text is still stuck
+    // Step 5: Final fallback — double C-m nudge + post-submit verification
     if (!delivered) {
       sendSpecialKey(paneId, "C-m");
-      await Bun.sleep(150);
+      await Bun.sleep(120);
       sendSpecialKey(paneId, "C-m");
+      await Bun.sleep(300);
+
+      const verifyCapture = capturePaneVisible(paneId);
+      if (paneHasActiveTask(verifyCapture)) {
+        delivered = true;
+      } else {
+        delivered = !normalizeTmuxCapture(verifyCapture).includes(normalizedPrompt);
+      }
+
+      // One more attempt if text is still stuck
+      if (!delivered) {
+        sendSpecialKey(paneId, "C-m");
+        await Bun.sleep(150);
+        sendSpecialKey(paneId, "C-m");
+      }
     }
+
+    // Wait for response completion via pane idle + transcript read.
+    // HIL detection is integrated into waitForIdle.
+    return await waitForIdle(
+      paneId,
+      claudeSessionId,
+      transcriptBeforeCount,
+      beforeContent,
+      pollIntervalMs,
+      onHIL,
+    );
   }
 
-  // ── Resolve session ID (after send, first query only) ──
-  // Claude doesn't write its session file until it receives the first message.
-  if (!claudeSessionId) {
-    try {
-      claudeSessionId = await waitForSessionFile(
-        paneState.knownSessionIds,
-        readyTimeoutMs,
-      );
-      paneState.claudeSessionId = claudeSessionId;
-    } catch {
-      // Session file not found — output will fall back to pane content
-    }
-  }
-
-  // Step 6: Wait for response completion via pane capture
-  //
-  // Interactive Claude Code sessions don't write idle/result events to the
-  // JSONL. The pane prompt indicator is the only reliable idle signal.
-  // Once idle, output is extracted from the transcript when available.
-  //
-  // HIL detection is integrated into waitForIdle — when the pane looks idle
-  // but the transcript has an unresolved AskUserQuestion, the function
-  // calls onHIL(true) and keeps waiting instead of returning prematurely.
+  // First-query path: wait for Claude to finish the response. The prompt
+  // file lives in the workflow's session dir as `prompt.txt` and is kept
+  // as part of the session log — no cleanup needed.
   return await waitForIdle(
     paneId,
     claudeSessionId,
-    transcriptBeforeCount,
-    beforeContent,
+    0,
+    "",
     pollIntervalMs,
     onHIL,
   );
@@ -674,19 +672,23 @@ export interface ClaudeQueryDefaults {
 export class ClaudeClientWrapper {
   readonly paneId: string;
   private readonly opts: { chatFlags?: string[]; readyTimeoutMs?: number };
+  private readonly sessionDir: string;
 
   constructor(
     paneId: string,
     opts: { chatFlags?: string[]; readyTimeoutMs?: number } = {},
+    sessionDir: string,
   ) {
     this.paneId = paneId;
     this.opts = opts;
+    this.sessionDir = sessionDir;
   }
 
   /** Start the Claude CLI in the tmux pane. Called by the runtime during init. */
   async start(): Promise<void> {
     await createClaudeSession({
       paneId: this.paneId,
+      sessionDir: this.sessionDir,
       chatFlags: this.opts.chatFlags,
       readyTimeoutMs: this.opts.readyTimeoutMs,
     });

@@ -71,6 +71,21 @@ describe("Statusline", () => {
     expect(frame).not.toContain("my-workflow");
   });
 
+  test("shows background task count when greater than zero", async () => {
+    const store = new PanelStore();
+    store.incrementBackgroundTasks();
+    store.incrementBackgroundTasks();
+    testSetup = await testRender(
+      <TestProviders store={store}>
+        <Statusline attachMsg="" />
+      </TestProviders>,
+      { width: 80, height: 5 },
+    );
+    await testSetup.renderOnce();
+    const frame = testSetup.captureCharFrame();
+    expect(frame).toContain("2 background");
+  });
+
   test("shows quit option", async () => {
     const store = new PanelStore();
     testSetup = await testRender(

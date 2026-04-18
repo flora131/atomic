@@ -1073,20 +1073,16 @@ Resolution order:
   "$schema": "https://raw.githubusercontent.com/flora131/atomic/main/assets/settings.schema.json",
   "version": 1,
   "scm": "github",
-  "lastUpdated": "2026-04-09T12:00:00.000Z",
-  "trustedPaths": [
-    { "workspacePath": "/home/you/project", "provider": "claude" }
-  ]
+  "lastUpdated": "2026-04-09T12:00:00.000Z"
 }
 ```
 
-| Field          | Type   | Description                                                                             |
-| -------------- | ------ | --------------------------------------------------------------------------------------- |
-| `$schema`      | string | JSON Schema URL for editor autocomplete                                                 |
-| `version`      | number | Config schema version (currently `1`)                                                   |
-| `scm`          | string | Source control: `github` or `sapling`                                                   |
-| `lastUpdated`  | string | ISO 8601 timestamp of the last update                                                   |
-| `trustedPaths` | array  | Workspaces that have completed provider onboarding; atomic skips re-prompting for these |
+| Field         | Type   | Description                               |
+| ------------- | ------ | ----------------------------------------- |
+| `$schema`     | string | JSON Schema URL for editor autocomplete   |
+| `version`     | number | Config schema version (currently `1`)     |
+| `scm`         | string | Source control: `github` or `sapling`     |
+| `lastUpdated` | string | ISO 8601 timestamp of the last update     |
 
 > Model selection and reasoning effort are managed by each underlying agent CLI (e.g. Claude Code's `/model`), not Atomic. Atomic's chat command spawns the agent's native TUI — use the agent's own controls.
 

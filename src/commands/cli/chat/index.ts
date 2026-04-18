@@ -183,7 +183,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
 
   await ensureAtomicGlobalAgentConfigs(configRoot);
 
-  // ── Preflight: project setup (onboarding files, skills, trusted workspace) ──
+  // ── Preflight: project setup (onboarding files, skills) ──
   await ensureProjectSetup(agentType, projectRoot);
 
   // ── Build argv ──

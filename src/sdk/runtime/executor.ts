@@ -17,6 +17,7 @@
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { writeFile } from "node:fs/promises";
+import { statSync, accessSync, constants as fsConstants } from "node:fs";
 import type {
   WorkflowDefinition,
   WorkflowContext,
@@ -180,6 +181,117 @@ async function getRandomPort(): Promise<number> {
   throw new Error(
     `Failed to acquire a random port after ${MAX_RETRIES} attempts (last: ${lastPort})`,
   );
+}
+
+/**
+ * Resolve a non-JS Copilot CLI binary on PATH.
+ *
+ * Under Bun, `@github/copilot-sdk` spawns its bundled JS entry via `node`
+ * (see `getNodeExecPath` in the SDK). If `node` isn't installed — common in
+ * minimal containers — the spawn fails silently with ENOENT and the SDK's
+ * write to the child's stdin surfaces as "Cannot call write after a stream
+ * was destroyed" from vscode-jsonrpc. Pointing the SDK at a standalone
+ * `copilot` binary (the npm-installed ELF executable) sidesteps the
+ * node-vs-bun problem because the SDK execs it directly when the path does
+ * not end in `.js`.
+ *
+ * Returns undefined if no suitable binary is found.
+ */
+export function discoverCopilotBinary(): string | undefined {
+  const pathVar = process.env.PATH;
+  if (!pathVar) return undefined;
+  // Windows: only `copilot.exe` is probed. Bun's global install writes a
+  // real `.exe` shim, so this covers the Bun-container scenario this guard
+  // exists for. Pre-existing npm-installed shims (`copilot.cmd`/`.ps1`)
+  // aren't handled — the entire override is gated on `process.versions.bun`.
+  const exe = process.platform === "win32" ? "copilot.exe" : "copilot";
+  const sep = process.platform === "win32" ? ";" : ":";
+  for (const dir of pathVar.split(sep)) {
+    if (!dir) continue;
+    const candidate = join(dir, exe);
+    if (!isExecutableFile(candidate)) continue;
+    return candidate;
+  }
+  return undefined;
+}
+
+/**
+ * True when we need to override the SDK's default CLI path — i.e. running
+ * under Bun, the user hasn't set COPILOT_CLI_PATH, and `node` is not
+ * available to execute the SDK's bundled JS entry.
+ *
+ * Pure predicate on the current env; safe to call repeatedly.
+ */
+export function shouldOverrideCopilotCliPath(): boolean {
+  if (!process.versions.bun) return false;
+  if (process.env.COPILOT_CLI_PATH) return false;
+  if (isNodeOnPath()) return false;
+  return discoverCopilotBinary() !== undefined;
+}
+
+function isExecutableFile(path: string): boolean {
+  try {
+    if (!statSync(path).isFile()) return false;
+    if (process.platform === "win32") return true;
+    accessSync(path, fsConstants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isNodeOnPath(): boolean {
+  const pathVar = process.env.PATH;
+  if (!pathVar) return false;
+  const exe = process.platform === "win32" ? "node.exe" : "node";
+  const sep = process.platform === "win32" ? ";" : ":";
+  for (const dir of pathVar.split(sep)) {
+    if (!dir) continue;
+    if (isExecutableFile(join(dir, exe))) return true;
+  }
+  return false;
+}
+
+/**
+ * Set safe env defaults for the orchestrator process before any SDK is
+ * loaded. Idempotent — subsequent calls no-op once `COPILOT_CLI_PATH`
+ * is set. Call as early as possible so headless Copilot subprocesses
+ * inherit the resolved env.
+ */
+export function applyContainerEnvDefaults(): void {
+  if (!process.versions.bun) return;
+  if (process.env.COPILOT_CLI_PATH) return;
+  if (isNodeOnPath()) return;
+  const bin = discoverCopilotBinary();
+  if (bin) process.env.COPILOT_CLI_PATH = bin;
+}
+
+/** Percent of the agent window's vertical space allocated to the React footer pane. */
+const FOOTER_PANE_PERCENT = 5;
+
+/**
+ * Split the agent window so the top pane runs the agent CLI and the bottom
+ * pane runs the React footer (via `atomic _footer`). Allocating a percentage
+ * of the vertical layout — rather than an absolute cell count — lets tmux
+ * enforce its minimum-pane-size constraints and keeps the split readable on
+ * both tall and short terminals.
+ *
+ * Resolves the CLI entrypoint relative to this file (executor.ts lives at
+ * src/sdk/runtime/, so ../../cli.ts is the CLI). `process.argv[1]` points
+ * to executor-entry.ts here — a separate process that has no `_footer`
+ * subcommand — so we can't use it.
+ */
+function spawnAttachedFooter(windowName: string, paneId: string): void {
+  const runtime = process.execPath;
+  if (!runtime) return;
+  const cliPath = join(import.meta.dir, "..", "..", "cli.ts");
+  const cmd = `"${escBash(runtime)}" "${escBash(cliPath)}" _footer --name "${escBash(windowName)}"`;
+  tmux.tmuxRun([
+    "split-window",
+    "-t", paneId,
+    "-v", "-l", `${FOOTER_PANE_PERCENT}%`, "-d",
+    cmd,
+  ]);
 }
 
 function buildPaneCommand(
@@ -566,6 +678,16 @@ export interface OpenCodeHILEvent {
  * Events for other sessions are silently ignored.  The function returns when
  * the stream is exhausted (i.e. the server closes the connection).
  *
+ * NOTE: OpenCode does not emit any bus event for MCP-server-initiated
+ * elicitation requests — its MCP client never registers an
+ * `ElicitRequestSchema` handler, so such requests are auto-rejected by the
+ * MCP SDK at the protocol layer before reaching any OpenCode-level code.
+ * As a result, the workflow UI **cannot** mark an OpenCode session as
+ * "awaiting input" for MCP elicitation; this is an upstream limitation that
+ * Atomic cannot work around.  If a future OpenCode release surfaces MCP
+ * elicitation as a bus event, extend the switch below (or add a sibling
+ * watcher) to map it onto `onHIL`.
+ *
  * Exported for unit testing.
  */
 export async function watchOpencodeStreamForHIL(
@@ -648,6 +770,50 @@ export function watchCopilotSessionForHIL(
   return () => {
     unsubStart();
     unsubComplete();
+  };
+}
+
+/**
+ * Subscribe to a Copilot session's elicitation events to track HIL state for
+ * `session.ui.elicitation()`, `session.ui.select()`, `session.ui.input()`, and
+ * MCP-server-initiated elicitation requests:
+ *
+ *   - `elicitation.requested`  → `onHIL(true)`  (set transitions empty→non-empty)
+ *   - `elicitation.completed`  → `onHIL(false)` (set transitions non-empty→empty)
+ *
+ * Overlapping elicitation requests are tracked by `requestId` so
+ * `onHIL(false)` only fires after the last in-flight request completes.
+ *
+ * Returns an unsubscribe function that removes both listeners.
+ *
+ * Exported for unit testing.
+ */
+export function watchCopilotSessionForElicitation(
+  session: CopilotHILSessionSurface,
+  onHIL: (waiting: boolean) => void,
+): () => void {
+  const active = new Set<string>();
+  const unsubRequested = session.on("elicitation.requested", (event) => {
+    const data = event.data as { requestId?: string } | undefined;
+    if (data?.requestId) {
+      const wasEmpty = active.size === 0;
+      active.add(data.requestId);
+      if (wasEmpty) onHIL(true);
+    }
+  });
+  const unsubCompleted = session.on("elicitation.completed", (event) => {
+    const data = event.data as { requestId?: string } | undefined;
+    if (
+      data?.requestId &&
+      active.delete(data.requestId) &&
+      active.size === 0
+    ) {
+      onHIL(false);
+    }
+  });
+  return () => {
+    unsubRequested();
+    unsubCompleted();
   };
 }
 
@@ -744,6 +910,7 @@ async function initProviderClientAndSession<A extends AgentType>(
   serverUrl: string,
   paneId: string,
   sessionId: string,
+  sessionDir: string,
   clientOpts: StageClientOptions<A>,
   sessionOpts: StageSessionOptions<A>,
   headless = false,
@@ -812,7 +979,7 @@ async function initProviderClientAndSession<A extends AgentType>(
       }
       const claudeClientOpts = clientOpts as StageClientOptions<"claude">;
       const claudeSessionOpts = sessionOpts as StageSessionOptions<"claude">;
-      const client = new ClaudeClientWrapper(paneId, claudeClientOpts);
+      const client = new ClaudeClientWrapper(paneId, claudeClientOpts, sessionDir);
       await client.start();
       const session = new ClaudeSessionWrapper(paneId, sessionId, claudeSessionOpts, onHIL);
       return { client, session } as Result;
@@ -973,6 +1140,8 @@ function createSessionRunner(
         );
         shared.activeRegistry.set(name, { name, paneId, done: donePromise });
 
+        spawnAttachedFooter(name, paneId);
+
         serverUrl = await waitForServer(shared.agent, port, paneId);
 
         shared.panel.addSession(name, graphParents);
@@ -1093,6 +1262,7 @@ function createSessionRunner(
         serverUrl,
         paneId,
         sessionId,
+        sessionDir,
         clientOpts,
         sessionOpts,
         isHeadless,
@@ -1114,6 +1284,7 @@ function createSessionRunner(
       // Unsubscribe fn for the Copilot HIL event listeners; invoked in the
       // `finally` block so the handlers are removed when the stage ends.
       let hilUnsubscribe: (() => void) | undefined;
+      let copilotElicitationUnsubscribe: (() => void) | undefined;
 
       if (shared.agent === "copilot") {
         const copilotSession = providerSession as ProviderSession<"copilot">;
@@ -1127,6 +1298,19 @@ function createSessionRunner(
         // is registered, so we can detect HIL via the SDK's event stream and
         // still let the CLI render its native tmux-pane dialog.
         hilUnsubscribe = watchCopilotSessionForHIL(copilotSession, onHIL);
+
+        // Copilot elicitation HIL detection via native SDK events.
+        //
+        // `elicitation.requested` / `elicitation.completed` fire when the
+        // agent calls `session.ui.elicitation()`, `session.ui.select()`,
+        // `session.ui.input()`, or an MCP server issues an elicitation
+        // request.  These events are distinct from the `ask_user` tool and
+        // require a separate watcher so the UI can show the "waiting for
+        // response" indicator in all HIL scenarios.
+        copilotElicitationUnsubscribe = watchCopilotSessionForElicitation(
+          copilotSession,
+          onHIL,
+        );
       }
 
       // ── 12b. OpenCode: SSE event stream for HIL detection ──
@@ -1204,6 +1388,7 @@ function createSessionRunner(
       } finally {
         // ── 14a. Stop background HIL watcher (if any) ──
         hilUnsubscribe?.();
+        copilotElicitationUnsubscribe?.();
 
         // ── 14b. Auto-cleanup provider resources ──
         await cleanupProvider(

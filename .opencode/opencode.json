@@ -2,9 +2,12 @@
   "$schema": "https://opencode.ai/config.json",
   "permission": "allow",
   "mcp": {
-    "gh_grep": {
+    "github": {
       "type": "remote",
-      "url": "https://mcp.grep.app"
+      "url": "https://api.githubcopilot.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${env:GITHUB_PERSONAL_ACCESS_TOKEN}"
+      }
     }
   }
 }

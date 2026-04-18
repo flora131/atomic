@@ -1,10 +1,17 @@
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe, beforeEach, afterEach } from "bun:test";
+import { mkdtempSync, writeFileSync, chmodSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   renderMessagesToText,
   hasContent,
   escBash,
   escPwsh,
   watchCopilotSessionForHIL,
+  watchCopilotSessionForElicitation,
+  shouldOverrideCopilotCliPath,
+  discoverCopilotBinary,
+  applyContainerEnvDefaults,
   type CopilotHILSessionSurface,
 } from "./executor.ts";
 import type { SavedMessage } from "../types.ts";
@@ -522,5 +529,289 @@ describe("watchCopilotSessionForHIL", () => {
 
     expect(session.handlerCount("tool.execution_start")).toBe(0);
     expect(session.handlerCount("tool.execution_complete")).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// watchCopilotSessionForElicitation — HIL detection via elicitation events
+// ---------------------------------------------------------------------------
+
+describe("watchCopilotSessionForElicitation", () => {
+  test("fires onHIL(true) on elicitation.requested event", () => {
+    const session = makeMockCopilotSession();
+    const calls: boolean[] = [];
+    const unsubscribe = watchCopilotSessionForElicitation(session, (w) =>
+      calls.push(w),
+    );
+
+    session.dispatch("elicitation.requested", { requestId: "req-1" });
+    expect(calls).toEqual([true]);
+
+    unsubscribe();
+  });
+
+  test("fires onHIL(false) on elicitation.completed with matching requestId", () => {
+    const session = makeMockCopilotSession();
+    const calls: boolean[] = [];
+    const unsubscribe = watchCopilotSessionForElicitation(session, (w) =>
+      calls.push(w),
+    );
+
+    session.dispatch("elicitation.requested", { requestId: "req-1" });
+    expect(calls).toEqual([true]);
+
+    session.dispatch("elicitation.completed", { requestId: "req-1" });
+    expect(calls).toEqual([true, false]);
+
+    unsubscribe();
+  });
+
+  test("only fires onHIL(true) once and onHIL(false) only after last overlapping request completes", () => {
+    const session = makeMockCopilotSession();
+    const calls: boolean[] = [];
+    const unsubscribe = watchCopilotSessionForElicitation(session, (w) =>
+      calls.push(w),
+    );
+
+    session.dispatch("elicitation.requested", { requestId: "req-a" });
+    session.dispatch("elicitation.requested", { requestId: "req-b" });
+    // onHIL(true) fires exactly once on the first request
+    expect(calls).toEqual([true]);
+
+    session.dispatch("elicitation.completed", { requestId: "req-a" });
+    // req-b still active — must not fire onHIL(false) yet
+    expect(calls).toEqual([true]);
+
+    session.dispatch("elicitation.completed", { requestId: "req-b" });
+    expect(calls).toEqual([true, false]);
+
+    unsubscribe();
+  });
+
+  test("ignores elicitation.completed for an unknown requestId", () => {
+    const session = makeMockCopilotSession();
+    const calls: boolean[] = [];
+    const unsubscribe = watchCopilotSessionForElicitation(session, (w) =>
+      calls.push(w),
+    );
+
+    session.dispatch("elicitation.completed", { requestId: "req-unknown" });
+    expect(calls).toEqual([]);
+
+    unsubscribe();
+  });
+
+  test("ignores elicitation.requested payload without a requestId", () => {
+    const session = makeMockCopilotSession();
+    const calls: boolean[] = [];
+    const unsubscribe = watchCopilotSessionForElicitation(session, (w) =>
+      calls.push(w),
+    );
+
+    session.dispatch("elicitation.requested", {});
+    expect(calls).toEqual([]);
+
+    unsubscribe();
+  });
+
+  test("unsubscribe removes both elicitation listeners and subsequent events are not received", () => {
+    const session = makeMockCopilotSession();
+    const calls: boolean[] = [];
+    const unsubscribe = watchCopilotSessionForElicitation(session, (w) =>
+      calls.push(w),
+    );
+
+    expect(session.handlerCount("elicitation.requested")).toBe(1);
+    expect(session.handlerCount("elicitation.completed")).toBe(1);
+
+    unsubscribe();
+
+    expect(session.handlerCount("elicitation.requested")).toBe(0);
+    expect(session.handlerCount("elicitation.completed")).toBe(0);
+
+    // Events fired after unsubscribe must not reach the original handler
+    session.dispatch("elicitation.requested", { requestId: "req-post" });
+    session.dispatch("elicitation.completed", { requestId: "req-post" });
+    expect(calls).toEqual([]);
+  });
+
+  test("MCP-initiated elicitation (non-empty elicitationSource) triggers onHIL(true) and onHIL(false) same as agent-initiated", () => {
+    const session = makeMockCopilotSession();
+    const calls: boolean[] = [];
+    const unsubscribe = watchCopilotSessionForElicitation(session, (w) =>
+      calls.push(w),
+    );
+
+    // Simulate MCP-initiated elicitation with a non-empty elicitationSource
+    session.dispatch("elicitation.requested", {
+      requestId: "req-mcp-1",
+      elicitationSource: "mcp-server://my-tool",
+      message: "Please provide your API key",
+    });
+    expect(calls).toEqual([true]);
+
+    session.dispatch("elicitation.completed", {
+      requestId: "req-mcp-1",
+      action: "accept",
+    });
+    expect(calls).toEqual([true, false]);
+
+    unsubscribe();
+  });
+
+  test("calling unsubscribe twice does not throw", () => {
+    const session = makeMockCopilotSession();
+    const unsubscribe = watchCopilotSessionForElicitation(session, () => {});
+
+    unsubscribe();
+    // Second call must be safe — no throw, no error
+    expect(() => unsubscribe()).not.toThrow();
+  });
+
+  test("ask_user watcher and elicitation watcher on same session track HIL independently", () => {
+    const session = makeMockCopilotSession();
+    const hilCalls: boolean[] = [];
+    const elicitationCalls: boolean[] = [];
+
+    const unsubHIL = watchCopilotSessionForHIL(session, (w) =>
+      hilCalls.push(w),
+    );
+    const unsubElicitation = watchCopilotSessionForElicitation(session, (w) =>
+      elicitationCalls.push(w),
+    );
+
+    // Fire an ask_user event — only the HIL watcher should see it
+    session.dispatch("tool.execution_start", {
+      toolName: "ask_user",
+      toolCallId: "tc-concurrent",
+    });
+    expect(hilCalls).toEqual([true]);
+    expect(elicitationCalls).toEqual([]);
+
+    // Fire an elicitation event — only the elicitation watcher should see it
+    session.dispatch("elicitation.requested", {
+      requestId: "req-concurrent",
+    });
+    expect(hilCalls).toEqual([true]);
+    expect(elicitationCalls).toEqual([true]);
+
+    // Complete the ask_user — only HIL watcher fires false
+    session.dispatch("tool.execution_complete", { toolCallId: "tc-concurrent" });
+    expect(hilCalls).toEqual([true, false]);
+    expect(elicitationCalls).toEqual([true]);
+
+    // Complete the elicitation — only elicitation watcher fires false
+    session.dispatch("elicitation.completed", { requestId: "req-concurrent" });
+    expect(hilCalls).toEqual([true, false]);
+    expect(elicitationCalls).toEqual([true, false]);
+
+    unsubHIL();
+    unsubElicitation();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Copilot CLI path discovery (Bun-without-node containers)
+// ---------------------------------------------------------------------------
+
+describe("discoverCopilotBinary / shouldOverrideCopilotCliPath", () => {
+  let sandbox: string;
+  let savedPath: string | undefined;
+  let savedCliPath: string | undefined;
+
+  beforeEach(() => {
+    sandbox = mkdtempSync(join(tmpdir(), "atomic-cli-probe-"));
+    savedPath = process.env.PATH;
+    savedCliPath = process.env.COPILOT_CLI_PATH;
+    delete process.env.COPILOT_CLI_PATH;
+  });
+
+  afterEach(() => {
+    if (savedPath === undefined) delete process.env.PATH;
+    else process.env.PATH = savedPath;
+    if (savedCliPath === undefined) delete process.env.COPILOT_CLI_PATH;
+    else process.env.COPILOT_CLI_PATH = savedCliPath;
+    rmSync(sandbox, { recursive: true, force: true });
+  });
+
+  function putExe(dir: string, name: string, contents = "#!/bin/sh\necho $0"): string {
+    const p = join(dir, name);
+    writeFileSync(p, contents);
+    chmodSync(p, 0o755);
+    return p;
+  }
+
+  test("finds an executable 'copilot' on PATH", () => {
+    const bin = putExe(sandbox, "copilot");
+    process.env.PATH = sandbox;
+    expect(discoverCopilotBinary()).toBe(bin);
+  });
+
+  test("returns undefined when no copilot on PATH", () => {
+    process.env.PATH = sandbox;
+    expect(discoverCopilotBinary()).toBeUndefined();
+  });
+
+  test("returns undefined when PATH is unset", () => {
+    delete process.env.PATH;
+    expect(discoverCopilotBinary()).toBeUndefined();
+  });
+
+  test("returns undefined when PATH is empty", () => {
+    process.env.PATH = "";
+    expect(discoverCopilotBinary()).toBeUndefined();
+  });
+
+  test("skips non-executable files named 'copilot' on Unix", () => {
+    if (process.platform === "win32") return;
+    const p = join(sandbox, "copilot");
+    writeFileSync(p, "not executable");
+    chmodSync(p, 0o644);
+    process.env.PATH = sandbox;
+    expect(discoverCopilotBinary()).toBeUndefined();
+  });
+
+  test("shouldOverrideCopilotCliPath: false when COPILOT_CLI_PATH is user-set", () => {
+    putExe(sandbox, "copilot");
+    process.env.PATH = sandbox;
+    process.env.COPILOT_CLI_PATH = "/somewhere/else/copilot";
+    expect(shouldOverrideCopilotCliPath()).toBe(false);
+  });
+
+  test("shouldOverrideCopilotCliPath: false when node is also on PATH (SDK default works)", () => {
+    putExe(sandbox, "copilot");
+    putExe(sandbox, "node");
+    process.env.PATH = sandbox;
+    expect(shouldOverrideCopilotCliPath()).toBe(false);
+  });
+
+  test("shouldOverrideCopilotCliPath: true when bun + copilot but no node", () => {
+    putExe(sandbox, "copilot");
+    // Sandboxing PATH to a dir without `node` is what makes this test
+    // deterministic regardless of the host's installed toolchain.
+    process.env.PATH = sandbox;
+    // We're running this test under Bun, so process.versions.bun is set
+    expect(!!process.versions.bun).toBe(true);
+    expect(shouldOverrideCopilotCliPath()).toBe(true);
+  });
+
+  test("shouldOverrideCopilotCliPath: false when PATH is unset", () => {
+    delete process.env.PATH;
+    expect(shouldOverrideCopilotCliPath()).toBe(false);
+  });
+
+  test("applyContainerEnvDefaults sets COPILOT_CLI_PATH when override is needed", () => {
+    const bin = putExe(sandbox, "copilot");
+    process.env.PATH = sandbox;
+    applyContainerEnvDefaults();
+    expect(process.env.COPILOT_CLI_PATH).toBe(bin);
+  });
+
+  test("applyContainerEnvDefaults does NOT overwrite user-set COPILOT_CLI_PATH", () => {
+    putExe(sandbox, "copilot");
+    process.env.PATH = sandbox;
+    process.env.COPILOT_CLI_PATH = "/custom/copilot";
+    applyContainerEnvDefaults();
+    expect(process.env.COPILOT_CLI_PATH).toBe("/custom/copilot");
   });
 });

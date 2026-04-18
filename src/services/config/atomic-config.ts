@@ -9,7 +9,7 @@
 
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
-import { type SourceControlType, type AgentKey, type ProviderOverrides } from "./index.ts";
+import { type AgentKey, type ProviderOverrides } from "./index.ts";
 import { SETTINGS_SCHEMA_URL } from "./settings-schema.ts";
 import { ensureDir } from "../system/copy.ts";
 
@@ -22,8 +22,6 @@ const SETTINGS_FILENAME = "settings.json";
 export interface AtomicConfig {
   /** Version of config schema */
   version?: number;
-  /** Selected source control type */
-  scm?: SourceControlType;
   /** Timestamp of last init */
   lastUpdated?: string;
   /** Per-provider overrides for chatFlags and envVars */
@@ -89,11 +87,9 @@ function pickAtomicConfig(record: JsonRecord | null): AtomicConfig | null {
 
   const config: AtomicConfig = {};
   const version = record.version;
-  const scm = record.scm;
   const lastUpdated = record.lastUpdated;
 
   if (typeof version === "number") config.version = version;
-  if (typeof scm === "string") config.scm = scm as SourceControlType;
   if (typeof lastUpdated === "string") config.lastUpdated = lastUpdated;
 
   const providers = pickProviders(record.providers);
@@ -137,7 +133,6 @@ function mergeConfigs(...configs: Array<AtomicConfig | null>): AtomicConfig | nu
   for (const config of configs) {
     if (!config) continue;
     if (config.version !== undefined) merged.version = config.version;
-    if (config.scm !== undefined) merged.scm = config.scm;
     if (config.lastUpdated !== undefined) merged.lastUpdated = config.lastUpdated;
 
     if (config.providers) {
@@ -190,14 +185,6 @@ export async function saveAtomicConfig(
 
   await ensureDir(dirname(localPath));
   await Bun.write(localPath, JSON.stringify(nextSettings, null, 2) + "\n");
-}
-
-/**
- * Get selected SCM using local override + global fallback.
- */
-export async function getSelectedScm(projectDir: string): Promise<SourceControlType | null> {
-  const config = await readAtomicConfig(projectDir);
-  return config?.scm ?? null;
 }
 
 /**

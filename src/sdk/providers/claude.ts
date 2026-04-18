@@ -342,32 +342,6 @@ export async function _runHILWatcher(
   }
 }
 
-/**
- * Watch the Claude session JSONL transcript for `AskUserQuestion` HIL events.
- *
- * Uses `fs/promises` `watch()` (inotify/kqueue in Bun) on the session file.
- * On each write, re-reads messages via `getSessionMessages()` and calls
- * `onHIL(true)` when an unresolved `AskUserQuestion` appears or
- * `onHIL(false)` when it is resolved. Only fires on state transitions to
- * avoid redundant callbacks.
- *
- * The loop exits when the provided `AbortSignal` is aborted (e.g. session
- * becomes idle). Individual read errors are silently swallowed so a single
- * corrupt write doesn't kill the watcher.
- */
-async function watchTranscriptForHIL(
-  sessionId: string,
-  signal: AbortSignal,
-  onHIL: (waiting: boolean) => void,
-): Promise<void> {
-  const jsonlPath = `${resolveSessionDir(process.cwd())}/${sessionId}.jsonl`;
-  await _runHILWatcher(
-    watch(jsonlPath, { signal }),
-    () => getSessionMessages(sessionId, { dir: process.cwd(), includeSystemMessages: true }),
-    onHIL,
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

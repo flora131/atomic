@@ -1,10 +1,6 @@
 {
-  "name": "Atomic + Copilot CLI (sandboxed)",
-  "build": {
-    "dockerfile": "../Dockerfile.sandbox",
-    "context": "..",
-    "args": { "AGENT_NAME": "copilot" }
-  },
+  "name": "Atomic + Copilot CLI",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
   "features": {
     "ghcr.io/devcontainers/features/common-utils": {},
     "ghcr.io/flora131/atomic/copilot:1": {},
@@ -23,7 +19,8 @@
     }
   ],
   "remoteEnv": {
-    "GH_TOKEN": "${localEnv:GH_TOKEN}"
+    "GH_TOKEN": "${localEnv:GH_TOKEN}",
+    "GITHUB_PERSONAL_ACCESS_TOKEN": "${localEnv:GITHUB_PERSONAL_ACCESS_TOKEN}"
   },
   "customizations": {
     "vscode": {

@@ -650,6 +650,16 @@ export interface OpenCodeHILEvent {
  * Events for other sessions are silently ignored.  The function returns when
  * the stream is exhausted (i.e. the server closes the connection).
  *
+ * NOTE: OpenCode does not emit any bus event for MCP-server-initiated
+ * elicitation requests — its MCP client never registers an
+ * `ElicitRequestSchema` handler, so such requests are auto-rejected by the
+ * MCP SDK at the protocol layer before reaching any OpenCode-level code.
+ * As a result, the workflow UI **cannot** mark an OpenCode session as
+ * "awaiting input" for MCP elicitation; this is an upstream limitation that
+ * Atomic cannot work around.  If a future OpenCode release surfaces MCP
+ * elicitation as a bus event, extend the switch below (or add a sibling
+ * watcher) to map it onto `onHIL`.
+ *
  * Exported for unit testing.
  */
 export async function watchOpencodeStreamForHIL(
@@ -732,6 +742,50 @@ export function watchCopilotSessionForHIL(
   return () => {
     unsubStart();
     unsubComplete();
+  };
+}
+
+/**
+ * Subscribe to a Copilot session's elicitation events to track HIL state for
+ * `session.ui.elicitation()`, `session.ui.select()`, `session.ui.input()`, and
+ * MCP-server-initiated elicitation requests:
+ *
+ *   - `elicitation.requested`  → `onHIL(true)`  (set transitions empty→non-empty)
+ *   - `elicitation.completed`  → `onHIL(false)` (set transitions non-empty→empty)
+ *
+ * Overlapping elicitation requests are tracked by `requestId` so
+ * `onHIL(false)` only fires after the last in-flight request completes.
+ *
+ * Returns an unsubscribe function that removes both listeners.
+ *
+ * Exported for unit testing.
+ */
+export function watchCopilotSessionForElicitation(
+  session: CopilotHILSessionSurface,
+  onHIL: (waiting: boolean) => void,
+): () => void {
+  const active = new Set<string>();
+  const unsubRequested = session.on("elicitation.requested", (event) => {
+    const data = event.data as { requestId?: string } | undefined;
+    if (data?.requestId) {
+      const wasEmpty = active.size === 0;
+      active.add(data.requestId);
+      if (wasEmpty) onHIL(true);
+    }
+  });
+  const unsubCompleted = session.on("elicitation.completed", (event) => {
+    const data = event.data as { requestId?: string } | undefined;
+    if (
+      data?.requestId &&
+      active.delete(data.requestId) &&
+      active.size === 0
+    ) {
+      onHIL(false);
+    }
+  });
+  return () => {
+    unsubRequested();
+    unsubCompleted();
   };
 }
 
@@ -1198,6 +1252,7 @@ function createSessionRunner(
       // Unsubscribe fn for the Copilot HIL event listeners; invoked in the
       // `finally` block so the handlers are removed when the stage ends.
       let hilUnsubscribe: (() => void) | undefined;
+      let copilotElicitationUnsubscribe: (() => void) | undefined;
 
       if (shared.agent === "copilot") {
         const copilotSession = providerSession as ProviderSession<"copilot">;
@@ -1211,6 +1266,19 @@ function createSessionRunner(
         // is registered, so we can detect HIL via the SDK's event stream and
         // still let the CLI render its native tmux-pane dialog.
         hilUnsubscribe = watchCopilotSessionForHIL(copilotSession, onHIL);
+
+        // Copilot elicitation HIL detection via native SDK events.
+        //
+        // `elicitation.requested` / `elicitation.completed` fire when the
+        // agent calls `session.ui.elicitation()`, `session.ui.select()`,
+        // `session.ui.input()`, or an MCP server issues an elicitation
+        // request.  These events are distinct from the `ask_user` tool and
+        // require a separate watcher so the UI can show the "waiting for
+        // response" indicator in all HIL scenarios.
+        copilotElicitationUnsubscribe = watchCopilotSessionForElicitation(
+          copilotSession,
+          onHIL,
+        );
       }
 
       // ── 12b. OpenCode: SSE event stream for HIL detection ──
@@ -1288,6 +1356,7 @@ function createSessionRunner(
       } finally {
         // ── 14a. Stop background HIL watcher (if any) ──
         hilUnsubscribe?.();
+        copilotElicitationUnsubscribe?.();
 
         // ── 14b. Auto-cleanup provider resources ──
         await cleanupProvider(

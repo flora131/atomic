@@ -4,20 +4,10 @@
  * Copies bundled agent skills from the installed package into the
  * provider-native global skill roots, mirroring the merge-copy approach
  * used by {@link installGlobalAgents} for agent configs.
- *
- * Previously this ran `npx skills add <repo>` at runtime, which cloned
- * the entire git repo on every version bump.  Now the skills ship inside
- * the npm package (`.agents/skills/`) and are copied locally — no network
- * required, no `npx`/`bunx` dependency.
- *
- * SCM-variant skills (gh-commit, gh-create-pr, sl-commit, sl-submit-diff)
- * are excluded from the global install; `atomic init` installs them
- * per-project based on the user's selected SCM + active agent.
  */
 
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { ALL_SCM_SKILLS } from "../config/index.ts";
 import { createCommonIgnoreFilter } from "../../lib/common-ignore.ts";
 import { copyDir, pathExists } from "./copy.ts";
 
@@ -47,12 +37,8 @@ const SKILL_DEST_DIRS = [
   ".claude/skills",
 ] as const;
 
-/** The set of SCM skill names to exclude from global installation. */
-const SCM_SKILL_SET = new Set<string>(ALL_SCM_SKILLS);
-
 /**
- * Copy bundled skills to the global skill directories, excluding
- * SCM-variant skills that are installed per-project by `atomic init`.
+ * Copy bundled skills to the global skill directories.
  */
 export async function installGlobalSkills(): Promise<void> {
   const src = join(packageRoot(), ".agents", "skills");
@@ -62,14 +48,11 @@ export async function installGlobalSkills(): Promise<void> {
   }
 
   const home = homeRoot();
-
-  // Build the exclusion list from SCM skill names
-  const exclude = [...SCM_SKILL_SET];
   const ignoreFilter = createCommonIgnoreFilter();
 
   await Promise.all(
     SKILL_DEST_DIRS.map((rel) =>
-      copyDir(src, join(home, rel), { exclude, ignoreFilter }),
+      copyDir(src, join(home, rel), { ignoreFilter }),
     ),
   );
 }

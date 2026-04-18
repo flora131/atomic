@@ -2,9 +2,6 @@
  * Agent configuration definitions for atomic CLI
  */
 
-import { stat } from "node:fs/promises";
-import { join } from "node:path";
-
 export interface AgentConfig {
   /** Display name for the agent */
   name: string;
@@ -115,96 +112,4 @@ export function getAgentConfig(key: AgentKey): AgentConfig {
 
 export function getAgentKeys(): AgentKey[] {
   return [...AGENT_KEYS];
-}
-
-/**
- * Source Control Management (SCM) configuration definitions
- */
-
-/** SCM keys for iteration */
-const SCM_KEYS = ["github", "sapling"] as const;
-
-/** Supported source control types — derived from SCM_KEYS tuple. */
-export type SourceControlType = (typeof SCM_KEYS)[number];
-
-export interface ScmConfig {
-  /** Display name for prompts */
-  displayName: string;
-  /** Primary CLI tool (git or sl) */
-  cliTool: string;
-  /** Code review system (github, phabricator) */
-  reviewSystem: string;
-  /** Directory marker used to detect this SCM in a repo (e.g. `.git`, `.sl`) */
-  detectDir: string;
-}
-
-export const SCM_CONFIG: Record<SourceControlType, ScmConfig> = {
-  github: {
-    displayName: "GitHub / Git",
-    cliTool: "git",
-    reviewSystem: "github",
-    detectDir: ".git",
-  },
-  sapling: {
-    displayName: "Sapling + Phabricator",
-    cliTool: "sl",
-    reviewSystem: "phabricator",
-    detectDir: ".sl",
-  },
-};
-
-/**
- * SCM-variant skill names, grouped by source control type.
- *
- * These are the skills that `installGlobalSkills` removes from the global
- * scope after the initial install, and that `installLocalScmSkills`
- * re-installs per-project based on the user's selected SCM. Passed to
- * `npx skills add --skill <name>` as explicit names (the skills CLI does
- * not support glob patterns like `gh-*`).
- */
-export const SCM_SKILLS_BY_TYPE: Record<SourceControlType, readonly string[]> =
-  {
-    github: ["gh-commit", "gh-create-pr"],
-    sapling: ["sl-commit", "sl-submit-diff"],
-  };
-
-/** Flat list of every SCM-variant skill across all source control types. */
-export const ALL_SCM_SKILLS: readonly string[] = [
-  ...SCM_SKILLS_BY_TYPE.github,
-  ...SCM_SKILLS_BY_TYPE.sapling,
-];
-
-/**
- * Get all SCM keys for iteration
- */
-export function getScmKeys(): SourceControlType[] {
-  return [...SCM_KEYS];
-}
-
-/**
- * Check if a string is a valid SCM type
- */
-export function isValidScm(key: string): key is SourceControlType {
-  return key in SCM_CONFIG;
-}
-
-/**
- * Detect the SCM type by looking for marker directories in `projectRoot`.
- *
- * Checks each {@link ScmConfig.detectDir} (e.g. `.git`, `.sl`) and returns
- * the first match. Returns `null` when no known marker is found.
- */
-export async function detectScmType(
-  projectRoot: string,
-): Promise<SourceControlType | null> {
-  for (const key of getScmKeys()) {
-    const markerPath = join(projectRoot, SCM_CONFIG[key].detectDir);
-    try {
-      await stat(markerPath);
-      return key;
-    } catch {
-      // marker not found — try next
-    }
-  }
-  return null;
 }

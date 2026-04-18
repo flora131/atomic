@@ -6,6 +6,7 @@
  *   atomic workflow -n <name> -a <agent> <prompt>  free-form workflow
  *   atomic workflow -n <name> -a <agent> --<field>=<value> ...
  *                                                  structured-input workflow
+ *   atomic workflow -n <name> -a <agent> -d <args> run detached (background)
  *   atomic workflow list [-a <agent>]              list discoverable workflows
  */
 
@@ -175,6 +176,12 @@ export async function workflowCommand(options: {
   agent?: string;
   list?: boolean;
   /**
+   * When true, create the tmux session and return immediately without
+   * attaching. Callers can use `atomic workflow session connect <id>`
+   * to attach later. Useful for scripting / background automation.
+   */
+  detach?: boolean;
+  /**
    * Everything commander parked in `cmd.args` — a mix of positional
    * prompt tokens and unknown `--<name>` flags that the
    * {@link parsePassthroughArgs} helper splits apart.
@@ -190,6 +197,23 @@ export async function workflowCommand(options: {
 }): Promise<number> {
   const passthroughArgs = options.passthroughArgs ?? [];
   const cwd = options.cwd;
+
+  // `ATOMIC_AGENT` is set by `atomic chat` and `atomic workflow` on the tmux
+  // session they create, so every pane in that session inherits it. Its
+  // presence is a reliable signal that this command is being invoked from
+  // inside an atomic-managed session (i.e., the caller is an agent running
+  // in a chat or a workflow pane rather than a plain shell). We use that in
+  // two places:
+  //   1. If `-a` was omitted, fall back to ATOMIC_AGENT so agents don't have
+  //      to pass their own provider back to themselves.
+  //   2. Force `detach = true`, because attaching from inside the atomic
+  //      socket would `switch-client` the caller's own terminal onto the new
+  //      session — i.e., the agent would hijack the user's view. Detach is
+  //      always the safe choice here; the CLI prints attach hints so the
+  //      user can switch to the workflow whenever they want.
+  const atomicAgentEnv = process.env.ATOMIC_AGENT;
+  const insideAtomicSession = atomicAgentEnv !== undefined && atomicAgentEnv !== "";
+  const detach = insideAtomicSession ? true : (options.detach ?? false);
 
   // ── List mode ──
   // `merge: false` keeps local and global entries independent so the
@@ -211,7 +235,11 @@ export async function workflowCommand(options: {
   }
 
   // ── Agent validation (required for every non-list branch) ──
-  if (!options.agent) {
+  // Explicit `-a` wins; otherwise fall back to the ATOMIC_AGENT env var so
+  // workflows launched from inside an atomic chat/workflow session don't
+  // need to re-specify the provider they're already running under.
+  const agentInput = options.agent ?? atomicAgentEnv;
+  if (!agentInput) {
     console.error(
       `${COLORS.red}Error: Missing agent. Use -a <agent>.${COLORS.reset}`,
     );
@@ -219,14 +247,14 @@ export async function workflowCommand(options: {
   }
 
   const validAgents = Object.keys(AGENT_CONFIG);
-  if (!validAgents.includes(options.agent)) {
+  if (!validAgents.includes(agentInput)) {
     console.error(
-      `${COLORS.red}Error: Unknown agent '${options.agent}'.${COLORS.reset}`,
+      `${COLORS.red}Error: Unknown agent '${agentInput}'.${COLORS.reset}`,
     );
     console.error(`Valid agents: ${validAgents.join(", ")}`);
     return 1;
   }
-  const agent = options.agent as AgentKey;
+  const agent = agentInput as AgentKey;
 
   // ── Preflight checks (shared between picker and named modes) ──
   const preflightCode = await runPrereqChecks(agent);
@@ -234,11 +262,11 @@ export async function workflowCommand(options: {
 
   // ── Picker mode: -a <agent>, no -n ──
   if (!options.name) {
-    return runPickerMode(agent, passthroughArgs, cwd);
+    return runPickerMode(agent, passthroughArgs, cwd, detach);
   }
 
   // ── Named mode: -n <name> -a <agent> [args...] ──
-  return runNamedMode(options.name, agent, passthroughArgs, cwd);
+  return runNamedMode(options.name, agent, passthroughArgs, cwd, detach);
 }
 
 // ─── Shared helpers ─────────────────────────────────────────────────────────
@@ -313,6 +341,7 @@ async function runLoadedWorkflow(args: {
   agent: AgentKey;
   inputs: Record<string, string>;
   workflowFile: string;
+  detach: boolean;
 }): Promise<number> {
   try {
     await executeWorkflow({
@@ -320,6 +349,7 @@ async function runLoadedWorkflow(args: {
       agent: args.agent,
       inputs: args.inputs,
       workflowFile: args.workflowFile,
+      detach: args.detach,
     });
     return 0;
   } catch (error) {
@@ -341,6 +371,7 @@ async function runPickerMode(
   agent: AgentKey,
   passthroughArgs: string[],
   cwd: string | undefined,
+  detach: boolean,
 ): Promise<number> {
   if (passthroughArgs.length > 0) {
     console.error(
@@ -386,7 +417,7 @@ async function runPickerMode(
     return 0;
   }
 
-  return runResolvedSelection(result.workflow, agent, result.inputs);
+  return runResolvedSelection(result.workflow, agent, result.inputs, detach);
 }
 
 /**
@@ -399,6 +430,7 @@ async function runResolvedSelection(
   workflow: WorkflowWithMetadata,
   agent: AgentKey,
   inputs: Record<string, string>,
+  detach: boolean,
 ): Promise<number> {
   const loaded = await WorkflowLoader.loadWorkflow(workflow, {
     warn(warnings) {
@@ -417,6 +449,7 @@ async function runResolvedSelection(
     agent,
     inputs,
     workflowFile: workflow.path,
+    detach,
   });
 }
 
@@ -427,6 +460,7 @@ async function runNamedMode(
   agent: AgentKey,
   passthroughArgs: string[],
   cwd: string | undefined,
+  detach: boolean,
 ): Promise<number> {
   // Find the workflow
   const discovered = await findWorkflow(name, agent, cwd);
@@ -517,6 +551,7 @@ async function runNamedMode(
       agent,
       inputs: resolvedInputs,
       workflowFile: discovered.path,
+      detach,
     });
   }
 
@@ -543,6 +578,7 @@ async function runNamedMode(
     agent,
     inputs,
     workflowFile: discovered.path,
+    detach,
   });
 }
 

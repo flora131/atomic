@@ -174,13 +174,19 @@ function captureOutput(): CapturedOutput {
 // so the env var must already be set by the time workflow.ts gets imported.
 
 let originalNoColor: string | undefined;
+let originalAtomicAgent: string | undefined;
 beforeAll(() => {
   originalNoColor = process.env.NO_COLOR;
   process.env.NO_COLOR = "1";
+  // Snapshot once so tests can freely set/unset ATOMIC_AGENT without
+  // leaking into unrelated suites in the same bun-test process.
+  originalAtomicAgent = process.env.ATOMIC_AGENT;
 });
 afterAll(() => {
   if (originalNoColor === undefined) delete process.env.NO_COLOR;
   else process.env.NO_COLOR = originalNoColor;
+  if (originalAtomicAgent === undefined) delete process.env.ATOMIC_AGENT;
+  else process.env.ATOMIC_AGENT = originalAtomicAgent;
 });
 
 // ─── Temp workspace plumbing ────────────────────────────────────────────────
@@ -192,6 +198,12 @@ let tempDir: string;
 
 beforeEach(async () => {
   tempDir = await mkdtemp(join(tmpdir(), "atomic-workflow-cmd-test-"));
+  // Clear ATOMIC_AGENT by default — `workflowCommand` falls back to this
+  // env var when `-a` is omitted, and we don't want the ambient env (e.g.
+  // a developer running tests from inside an atomic chat pane) to silently
+  // change the agent any given test sees. Tests that need it explicitly
+  // set it themselves.
+  delete process.env.ATOMIC_AGENT;
   // Reset every mock to its default pass-through / no-op so tests are
   // independent — no leftover state from prior overrides. `mockClear` wipes
   // call history; `mockImplementation` replaces the queued implementation
@@ -634,6 +646,41 @@ describe("workflowCommand named-mode success paths", () => {
     expect(executeWorkflowMock.mock.calls[0]![0].inputs).toEqual({});
   });
 
+  test("detach flag is threaded through to the executor", async () => {
+    await writeCompiledWorkflow({ name: "detached", agent: "copilot" });
+
+    const cap = captureOutput();
+    const code = await workflowCommand({
+      name: "detached",
+      agent: "copilot",
+      detach: true,
+      passthroughArgs: ["run", "in", "bg"],
+      cwd: tempDir,
+    });
+    cap.restore();
+
+    expect(code).toBe(0);
+    expect(executeWorkflowMock).toHaveBeenCalledTimes(1);
+    expect(executeWorkflowMock.mock.calls[0]![0].detach).toBe(true);
+  });
+
+  test("detach defaults to false when not provided", async () => {
+    await writeCompiledWorkflow({ name: "default-attach", agent: "copilot" });
+
+    const cap = captureOutput();
+    const code = await workflowCommand({
+      name: "default-attach",
+      agent: "copilot",
+      passthroughArgs: [],
+      cwd: tempDir,
+    });
+    cap.restore();
+
+    expect(code).toBe(0);
+    expect(executeWorkflowMock).toHaveBeenCalledTimes(1);
+    expect(executeWorkflowMock.mock.calls[0]![0].detach).toBe(false);
+  });
+
   test("structured workflow resolves flags and calls executor with merged inputs", async () => {
     await writeCompiledWorkflow({
       name: "struct-run",
@@ -711,6 +758,105 @@ export default defineWorkflow({
 
     expect(code).toBe(1);
     expect(cap.stderr).toContain("raw string failure");
+  });
+});
+
+// ─── ATOMIC_AGENT env var inference ────────────────────────────────────────
+
+describe("workflowCommand ATOMIC_AGENT inference", () => {
+  // Top-level beforeEach already clears ATOMIC_AGENT; tests that need it
+  // set it explicitly and rely on the next test's clear to reset.
+
+  test("infers -a from ATOMIC_AGENT when omitted", async () => {
+    // Agents spawned inside an atomic chat/workflow pane inherit
+    // ATOMIC_AGENT. Re-passing their own provider back through `-a` is
+    // boilerplate we can eliminate.
+    await writeCompiledWorkflow({ name: "inferred", agent: "claude" });
+    process.env.ATOMIC_AGENT = "claude";
+
+    const cap = captureOutput();
+    const code = await workflowCommand({
+      name: "inferred",
+      // no agent passed
+      passthroughArgs: ["go"],
+      cwd: tempDir,
+    });
+    cap.restore();
+
+    expect(code).toBe(0);
+    expect(executeWorkflowMock).toHaveBeenCalledTimes(1);
+    expect(executeWorkflowMock.mock.calls[0]![0].agent).toBe("claude");
+  });
+
+  test("forces detach=true when ATOMIC_AGENT is set", async () => {
+    // Attaching from inside the atomic socket would switch-client the
+    // caller's own terminal onto the new workflow session — hijacking the
+    // very pane the agent is running in. Force detach so the command
+    // returns immediately and the caller can attach on their own terms.
+    await writeCompiledWorkflow({ name: "auto-detach", agent: "copilot" });
+    process.env.ATOMIC_AGENT = "copilot";
+
+    const cap = captureOutput();
+    const code = await workflowCommand({
+      name: "auto-detach",
+      agent: "copilot",
+      // detach intentionally omitted
+      passthroughArgs: [],
+      cwd: tempDir,
+    });
+    cap.restore();
+
+    expect(code).toBe(0);
+    expect(executeWorkflowMock.mock.calls[0]![0].detach).toBe(true);
+  });
+
+  test("explicit -a wins over ATOMIC_AGENT", async () => {
+    // Users running on Claude who want to invoke a Copilot workflow must
+    // be able to override — the env var is a fallback, not a pin.
+    await writeCompiledWorkflow({ name: "override", agent: "copilot" });
+    process.env.ATOMIC_AGENT = "claude";
+
+    const cap = captureOutput();
+    const code = await workflowCommand({
+      name: "override",
+      agent: "copilot",
+      passthroughArgs: [],
+      cwd: tempDir,
+    });
+    cap.restore();
+
+    expect(code).toBe(0);
+    expect(executeWorkflowMock.mock.calls[0]![0].agent).toBe("copilot");
+  });
+
+  test("no ATOMIC_AGENT + no -a still errors", async () => {
+    // Baseline: outside an atomic session, `-a` is still required.
+    const cap = captureOutput();
+    const code = await workflowCommand({
+      name: "anything",
+      cwd: tempDir,
+    });
+    cap.restore();
+
+    expect(code).toBe(1);
+    expect(cap.stderr).toContain("Missing agent");
+  });
+
+  test("empty ATOMIC_AGENT is treated as unset", async () => {
+    // Shells sometimes export empty strings; don't let that poison the
+    // agent fallback with an empty value that fails validation with a
+    // misleading "unknown agent ''" message.
+    process.env.ATOMIC_AGENT = "";
+
+    const cap = captureOutput();
+    const code = await workflowCommand({
+      name: "anything",
+      cwd: tempDir,
+    });
+    cap.restore();
+
+    expect(code).toBe(1);
+    expect(cap.stderr).toContain("Missing agent");
   });
 });
 

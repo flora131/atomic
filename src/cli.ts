@@ -204,6 +204,7 @@ Examples:
         .description("Run a multi-session agent workflow")
         .option("-n, --name <name>", "Workflow name (matches directory under .atomic/workflows/<name>/)")
         .option("-a, --agent <name>", `Agent to use (${agentChoices})`)
+        .option("-d, --detach", "Start the workflow in the background without attaching (auto-enabled when launched from inside an atomic chat/workflow session to avoid hijacking it). Attach later with 'atomic workflow session connect <id>'.")
         .allowUnknownOption()
         .allowExcessArguments(true)
         .enablePositionalOptions()
@@ -218,6 +219,7 @@ Examples:
   $ atomic workflow -n ralph -a claude "fix bug"    Run a free-form workflow
   $ atomic workflow -n gen-spec -a claude --research_doc=notes.md --focus=standard
                                                     Run a structured-input workflow
+  $ atomic workflow -n ralph -a claude -d "fix bug" Run detached in the background
   $ atomic workflow session list                    List running sessions
   $ atomic workflow session connect <id>            Attach to a session
   $ atomic workflow session kill [id]               Kill a workflow session (or all)`,
@@ -227,6 +229,7 @@ Examples:
             const exitCode = await workflowCommand({
                 name: localOpts.name,
                 agent: localOpts.agent,
+                detach: localOpts.detach,
                 passthroughArgs: cmd.args,
             });
             process.exit(exitCode);

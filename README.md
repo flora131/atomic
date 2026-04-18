@@ -216,6 +216,15 @@ atomic session kill <name>       # kill one (or all, with confirmation)
 
 Session names follow `atomic-chat-<id>` or `atomic-wf-<workflow>-<id>`. Scope with `atomic chat session …` or `atomic workflow session …`.
 
+Need a workflow to run in the background while you do something else? Pass `-d` / `--detach`:
+
+```bash
+atomic workflow -n ralph -a claude -d "build the auth module"   # returns immediately
+atomic workflow session connect atomic-wf-claude-ralph-<id>      # attach later
+```
+
+Detached mode is what you want for scripted / CI automation and long-running tasks — the orchestrator keeps running on the atomic tmux socket regardless of your terminal.
+
 ---
 
 ## Why Atomic
@@ -973,10 +982,11 @@ atomic chat -a claude --verbose              # forward --verbose to claude
 | -------------------- | ------------------------------------------------------------------------------------------------- |
 | `-n, --name <name>`  | Workflow name (matches directory under `.atomic/workflows/<name>/`)                               |
 | `-a, --agent <name>` | Agent: `claude`, `opencode`, `copilot`                                                            |
+| `-d, --detach`       | Start the workflow in the background without attaching — ideal for scripted / CI runs; attach later with `atomic workflow session connect <name>` |
 | `--<field>=<value>`  | Structured input for workflows that declare an `inputs` schema (also accepts `--<field> <value>`) |
 | `[prompt...]`        | Positional prompt — requires the workflow to declare a `prompt` input                             |
 
-Four invocation shapes:
+Five invocation shapes:
 
 ```bash
 # 1. List every workflow available, grouped by source
@@ -993,6 +1003,10 @@ atomic workflow -n ralph -a claude "build a REST API for user management"
 atomic workflow -n gen-spec -a claude \
   --research_doc=research/docs/2026-04-11-auth.md \
   --focus=standard
+
+# 5. Run detached — orchestrator runs in the background; prints the session name
+#    and returns immediately. Attach any time with `atomic workflow session connect`.
+atomic workflow -n ralph -a claude -d "build a REST API for user management"
 ```
 
 Workflows that declare `inputs: WorkflowInput[]` get CLI flag validation for free. **Builtin workflows (e.g. `ralph`) are reserved** — a local/global workflow with the same name will not shadow a builtin.

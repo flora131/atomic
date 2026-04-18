@@ -1,8 +1,13 @@
 /** @jsxImportSource @opentui/react */
 
-import { useMemo } from "react";
+import { useContext, useMemo } from "react";
 import type { SessionStatus } from "./orchestrator-panel-types.ts";
-import { useStore, useGraphTheme, useStoreVersion } from "./orchestrator-panel-contexts.ts";
+import {
+  useStore,
+  useGraphTheme,
+  useStoreVersion,
+  TmuxSessionContext,
+} from "./orchestrator-panel-contexts.ts";
 
 function CountBadge({ color, icon, count }: { color: string; icon: string; count: number }) {
   if (count <= 0) return null;
@@ -16,6 +21,7 @@ function CountBadge({ color, icon, count }: { color: string; icon: string; count
 export function Header() {
   const store = useStore();
   const theme = useGraphTheme();
+  const tmuxSession = useContext(TmuxSessionContext);
   const storeVersion = useStoreVersion(store);
 
   const counts = useMemo(() => {
@@ -46,6 +52,14 @@ export function Header() {
           <strong>{badgeText}</strong>
         </span>
       </text>
+
+      {tmuxSession ? (
+        <box paddingLeft={1} alignItems="center">
+          <text fg={theme.text}>
+            <strong>{tmuxSession}</strong>
+          </text>
+        </box>
+      ) : null}
 
       <box flexGrow={1} justifyContent="flex-end" flexDirection="row" gap={2}>
         <CountBadge color={theme.success} icon={"\u2713"} count={counts.complete} />

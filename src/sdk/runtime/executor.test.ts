@@ -573,6 +573,25 @@ describe("discoverCopilotBinary / shouldOverrideCopilotCliPath", () => {
     expect(discoverCopilotBinary()).toBeUndefined();
   });
 
+  test("returns undefined when PATH is unset", () => {
+    delete process.env.PATH;
+    expect(discoverCopilotBinary()).toBeUndefined();
+  });
+
+  test("returns undefined when PATH is empty", () => {
+    process.env.PATH = "";
+    expect(discoverCopilotBinary()).toBeUndefined();
+  });
+
+  test("skips non-executable files named 'copilot' on Unix", () => {
+    if (process.platform === "win32") return;
+    const p = join(sandbox, "copilot");
+    writeFileSync(p, "not executable");
+    chmodSync(p, 0o644);
+    process.env.PATH = sandbox;
+    expect(discoverCopilotBinary()).toBeUndefined();
+  });
+
   test("shouldOverrideCopilotCliPath: false when COPILOT_CLI_PATH is user-set", () => {
     putExe(sandbox, "copilot");
     process.env.PATH = sandbox;
@@ -589,10 +608,17 @@ describe("discoverCopilotBinary / shouldOverrideCopilotCliPath", () => {
 
   test("shouldOverrideCopilotCliPath: true when bun + copilot but no node", () => {
     putExe(sandbox, "copilot");
+    // Sandboxing PATH to a dir without `node` is what makes this test
+    // deterministic regardless of the host's installed toolchain.
     process.env.PATH = sandbox;
     // We're running this test under Bun, so process.versions.bun is set
     expect(!!process.versions.bun).toBe(true);
     expect(shouldOverrideCopilotCliPath()).toBe(true);
+  });
+
+  test("shouldOverrideCopilotCliPath: false when PATH is unset", () => {
+    delete process.env.PATH;
+    expect(shouldOverrideCopilotCliPath()).toBe(false);
   });
 
   test("applyContainerEnvDefaults sets COPILOT_CLI_PATH when override is needed", () => {

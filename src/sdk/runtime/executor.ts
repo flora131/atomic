@@ -17,7 +17,7 @@
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { writeFile } from "node:fs/promises";
-import { statSync } from "node:fs";
+import { statSync, accessSync, constants as fsConstants } from "node:fs";
 import type {
   WorkflowDefinition,
   WorkflowContext,
@@ -200,15 +200,17 @@ async function getRandomPort(): Promise<number> {
 export function discoverCopilotBinary(): string | undefined {
   const pathVar = process.env.PATH;
   if (!pathVar) return undefined;
+  // Windows: only `copilot.exe` is probed. Bun's global install writes a
+  // real `.exe` shim, so this covers the Bun-container scenario this guard
+  // exists for. Pre-existing npm-installed shims (`copilot.cmd`/`.ps1`)
+  // aren't handled — the entire override is gated on `process.versions.bun`.
   const exe = process.platform === "win32" ? "copilot.exe" : "copilot";
   const sep = process.platform === "win32" ? ";" : ":";
   for (const dir of pathVar.split(sep)) {
     if (!dir) continue;
     const candidate = join(dir, exe);
-    if (candidate.endsWith(".js")) continue;
-    try {
-      if (statSync(candidate).isFile()) return candidate;
-    } catch {}
+    if (!isExecutableFile(candidate)) continue;
+    return candidate;
   }
   return undefined;
 }
@@ -217,11 +219,25 @@ export function discoverCopilotBinary(): string | undefined {
  * True when we need to override the SDK's default CLI path — i.e. running
  * under Bun, the user hasn't set COPILOT_CLI_PATH, and `node` is not
  * available to execute the SDK's bundled JS entry.
+ *
+ * Pure predicate on the current env; safe to call repeatedly.
  */
 export function shouldOverrideCopilotCliPath(): boolean {
   if (!process.versions.bun) return false;
   if (process.env.COPILOT_CLI_PATH) return false;
-  return discoverCopilotBinary() !== undefined && !isNodeOnPath();
+  if (isNodeOnPath()) return false;
+  return discoverCopilotBinary() !== undefined;
+}
+
+function isExecutableFile(path: string): boolean {
+  try {
+    if (!statSync(path).isFile()) return false;
+    if (process.platform === "win32") return true;
+    accessSync(path, fsConstants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function isNodeOnPath(): boolean {
@@ -231,23 +247,23 @@ function isNodeOnPath(): boolean {
   const sep = process.platform === "win32" ? ";" : ":";
   for (const dir of pathVar.split(sep)) {
     if (!dir) continue;
-    try {
-      if (statSync(join(dir, exe)).isFile()) return true;
-    } catch {}
+    if (isExecutableFile(join(dir, exe))) return true;
   }
   return false;
 }
 
 /**
  * Set safe env defaults for the orchestrator process before any SDK is
- * loaded. Must be called exactly once, as early as possible — headless
- * Copilot stages spawn the CLI as a subprocess and inherit this env.
+ * loaded. Idempotent — subsequent calls no-op once `COPILOT_CLI_PATH`
+ * is set. Call as early as possible so headless Copilot subprocesses
+ * inherit the resolved env.
  */
 export function applyContainerEnvDefaults(): void {
-  if (shouldOverrideCopilotCliPath()) {
-    const bin = discoverCopilotBinary();
-    if (bin) process.env.COPILOT_CLI_PATH = bin;
-  }
+  if (!process.versions.bun) return;
+  if (process.env.COPILOT_CLI_PATH) return;
+  if (isNodeOnPath()) return;
+  const bin = discoverCopilotBinary();
+  if (bin) process.env.COPILOT_CLI_PATH = bin;
 }
 
 function buildPaneCommand(

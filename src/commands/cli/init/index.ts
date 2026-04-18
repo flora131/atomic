@@ -1,5 +1,5 @@
 /**
- * Automatic project setup — replaces the interactive `atomic init` command.
+ * Automatic project setup.
  *
  * Applies onboarding files (MCP configs, settings). Called transparently
  * during `atomic chat` preflight so users never need to think about

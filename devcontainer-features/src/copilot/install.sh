@@ -2,7 +2,7 @@
 #-------------------------------------------------------------------------------------------------------------
 # Installs the Atomic CLI globally via bun from the npm registry.
 # Config data, agent config syncing, tooling and SDK installation are all
-# handled on first `atomic init` / `atomic chat` run via auto-init.
+# handled on first `atomic chat` run via auto-init.
 #
 # NOTE: This script is duplicated across claude, copilot, and opencode features.
 #       Keep all three copies in sync when making changes.

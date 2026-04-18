@@ -349,7 +349,7 @@ if (-not $ok) {
 Write-Host ""
 Write-Host "  ${C_GREEN}✓${C_RESET} ${C_BOLD}Atomic installed successfully${C_RESET}"
 Write-Host ""
-Write-Host "    Get started:  ${C_CYAN}atomic init${C_RESET}"
+Write-Host "    Get started:  ${C_CYAN}atomic chat -a <agent>${C_RESET}"
 Write-Host ""
 Write-Host "    ${C_DIM}Tooling deps and skills are synced silently on first launch.${C_RESET}"
 Write-Host "    ${C_DIM}To upgrade later: bun update -g @bastani/atomic${C_RESET}"

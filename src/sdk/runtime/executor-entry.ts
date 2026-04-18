@@ -8,7 +8,9 @@
  * library module that can be safely re-exported from the SDK barrel.
  */
 
-import { runOrchestrator } from "./executor.ts";
+import { runOrchestrator, applyContainerEnvDefaults } from "./executor.ts";
+
+applyContainerEnvDefaults();
 
 runOrchestrator().catch((err) => {
   console.error("Fatal:", err);

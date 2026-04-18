@@ -343,7 +343,7 @@ main() {
 
     printf '\n  %s✓%s %sAtomic installed successfully%s\n\n' \
         "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_RESET"
-    printf '    Get started:  %satomic init%s\n\n' "$C_CYAN" "$C_RESET"
+    printf '    Get started:  %satomic chat -a <agent>%s\n\n' "$C_CYAN" "$C_RESET"
     printf '    %sTooling deps and skills are synced silently on first launch.%s\n' \
         "$C_DIM" "$C_RESET"
     printf '    %sTo upgrade later: bun update -g @bastani/atomic%s\n\n' \

@@ -88,13 +88,7 @@ export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
     install_url:
       "https://github.com/github/copilot-cli?tab=readme-ov-file#installation",
     exclude: ["workflows", "dependabot.yml"],
-    onboarding_files: [
-      {
-        source: ".mcp.json",
-        destination: ".mcp.json",
-        merge: true,
-      },
-    ],
+    onboarding_files: [],
   },
 };
 

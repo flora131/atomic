@@ -8,6 +8,7 @@ import {
   escBash,
   escPwsh,
   watchCopilotSessionForHIL,
+  watchCopilotSessionForElicitation,
   shouldOverrideCopilotCliPath,
   discoverCopilotBinary,
   applyContainerEnvDefaults,
@@ -528,6 +529,184 @@ describe("watchCopilotSessionForHIL", () => {
 
     expect(session.handlerCount("tool.execution_start")).toBe(0);
     expect(session.handlerCount("tool.execution_complete")).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// watchCopilotSessionForElicitation — HIL detection via elicitation events
+// ---------------------------------------------------------------------------
+
+describe("watchCopilotSessionForElicitation", () => {
+  test("fires onHIL(true) on elicitation.requested event", () => {
+    const session = makeMockCopilotSession();
+    const calls: boolean[] = [];
+    const unsubscribe = watchCopilotSessionForElicitation(session, (w) =>
+      calls.push(w),
+    );
+
+    session.dispatch("elicitation.requested", { requestId: "req-1" });
+    expect(calls).toEqual([true]);
+
+    unsubscribe();
+  });
+
+  test("fires onHIL(false) on elicitation.completed with matching requestId", () => {
+    const session = makeMockCopilotSession();
+    const calls: boolean[] = [];
+    const unsubscribe = watchCopilotSessionForElicitation(session, (w) =>
+      calls.push(w),
+    );
+
+    session.dispatch("elicitation.requested", { requestId: "req-1" });
+    expect(calls).toEqual([true]);
+
+    session.dispatch("elicitation.completed", { requestId: "req-1" });
+    expect(calls).toEqual([true, false]);
+
+    unsubscribe();
+  });
+
+  test("only fires onHIL(true) once and onHIL(false) only after last overlapping request completes", () => {
+    const session = makeMockCopilotSession();
+    const calls: boolean[] = [];
+    const unsubscribe = watchCopilotSessionForElicitation(session, (w) =>
+      calls.push(w),
+    );
+
+    session.dispatch("elicitation.requested", { requestId: "req-a" });
+    session.dispatch("elicitation.requested", { requestId: "req-b" });
+    // onHIL(true) fires exactly once on the first request
+    expect(calls).toEqual([true]);
+
+    session.dispatch("elicitation.completed", { requestId: "req-a" });
+    // req-b still active — must not fire onHIL(false) yet
+    expect(calls).toEqual([true]);
+
+    session.dispatch("elicitation.completed", { requestId: "req-b" });
+    expect(calls).toEqual([true, false]);
+
+    unsubscribe();
+  });
+
+  test("ignores elicitation.completed for an unknown requestId", () => {
+    const session = makeMockCopilotSession();
+    const calls: boolean[] = [];
+    const unsubscribe = watchCopilotSessionForElicitation(session, (w) =>
+      calls.push(w),
+    );
+
+    session.dispatch("elicitation.completed", { requestId: "req-unknown" });
+    expect(calls).toEqual([]);
+
+    unsubscribe();
+  });
+
+  test("ignores elicitation.requested payload without a requestId", () => {
+    const session = makeMockCopilotSession();
+    const calls: boolean[] = [];
+    const unsubscribe = watchCopilotSessionForElicitation(session, (w) =>
+      calls.push(w),
+    );
+
+    session.dispatch("elicitation.requested", {});
+    expect(calls).toEqual([]);
+
+    unsubscribe();
+  });
+
+  test("unsubscribe removes both elicitation listeners and subsequent events are not received", () => {
+    const session = makeMockCopilotSession();
+    const calls: boolean[] = [];
+    const unsubscribe = watchCopilotSessionForElicitation(session, (w) =>
+      calls.push(w),
+    );
+
+    expect(session.handlerCount("elicitation.requested")).toBe(1);
+    expect(session.handlerCount("elicitation.completed")).toBe(1);
+
+    unsubscribe();
+
+    expect(session.handlerCount("elicitation.requested")).toBe(0);
+    expect(session.handlerCount("elicitation.completed")).toBe(0);
+
+    // Events fired after unsubscribe must not reach the original handler
+    session.dispatch("elicitation.requested", { requestId: "req-post" });
+    session.dispatch("elicitation.completed", { requestId: "req-post" });
+    expect(calls).toEqual([]);
+  });
+
+  test("MCP-initiated elicitation (non-empty elicitationSource) triggers onHIL(true) and onHIL(false) same as agent-initiated", () => {
+    const session = makeMockCopilotSession();
+    const calls: boolean[] = [];
+    const unsubscribe = watchCopilotSessionForElicitation(session, (w) =>
+      calls.push(w),
+    );
+
+    // Simulate MCP-initiated elicitation with a non-empty elicitationSource
+    session.dispatch("elicitation.requested", {
+      requestId: "req-mcp-1",
+      elicitationSource: "mcp-server://my-tool",
+      message: "Please provide your API key",
+    });
+    expect(calls).toEqual([true]);
+
+    session.dispatch("elicitation.completed", {
+      requestId: "req-mcp-1",
+      action: "accept",
+    });
+    expect(calls).toEqual([true, false]);
+
+    unsubscribe();
+  });
+
+  test("calling unsubscribe twice does not throw", () => {
+    const session = makeMockCopilotSession();
+    const unsubscribe = watchCopilotSessionForElicitation(session, () => {});
+
+    unsubscribe();
+    // Second call must be safe — no throw, no error
+    expect(() => unsubscribe()).not.toThrow();
+  });
+
+  test("ask_user watcher and elicitation watcher on same session track HIL independently", () => {
+    const session = makeMockCopilotSession();
+    const hilCalls: boolean[] = [];
+    const elicitationCalls: boolean[] = [];
+
+    const unsubHIL = watchCopilotSessionForHIL(session, (w) =>
+      hilCalls.push(w),
+    );
+    const unsubElicitation = watchCopilotSessionForElicitation(session, (w) =>
+      elicitationCalls.push(w),
+    );
+
+    // Fire an ask_user event — only the HIL watcher should see it
+    session.dispatch("tool.execution_start", {
+      toolName: "ask_user",
+      toolCallId: "tc-concurrent",
+    });
+    expect(hilCalls).toEqual([true]);
+    expect(elicitationCalls).toEqual([]);
+
+    // Fire an elicitation event — only the elicitation watcher should see it
+    session.dispatch("elicitation.requested", {
+      requestId: "req-concurrent",
+    });
+    expect(hilCalls).toEqual([true]);
+    expect(elicitationCalls).toEqual([true]);
+
+    // Complete the ask_user — only HIL watcher fires false
+    session.dispatch("tool.execution_complete", { toolCallId: "tc-concurrent" });
+    expect(hilCalls).toEqual([true, false]);
+    expect(elicitationCalls).toEqual([true]);
+
+    // Complete the elicitation — only elicitation watcher fires false
+    session.dispatch("elicitation.completed", { requestId: "req-concurrent" });
+    expect(hilCalls).toEqual([true, false]);
+    expect(elicitationCalls).toEqual([true, false]);
+
+    unsubHIL();
+    unsubElicitation();
   });
 });
 

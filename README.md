@@ -67,6 +67,7 @@ Each of these is a `.ts` file using Atomic's [Workflow SDK](#workflow-sdk--build
     - [2. Generate Context Files](#2-generate-context-files)
     - [3. Managing Sessions](#3-managing-sessions)
     - [4. Build a Workflow](#4-build-a-workflow)
+  - [Security: Workflow Permissions Model](#security-workflow-permissions-model)
   - [Core Features](#core-features)
     - [Multi-Agent Support](#multi-agent-support)
     - [Workflow SDK — Build Your Own Deterministic Harness](#workflow-sdk--build-your-own-deterministic-harness)
@@ -241,6 +242,9 @@ Session names follow a predictable pattern:
 
 Every team has a process. Atomic lets you encode it as TypeScript — chain agent sessions together, pass transcripts between them, and run the whole thing from the CLI.
 
+> [!WARNING]
+> By default, workflows disable all agent permission checks so pipelines can run without blocking on interactive prompts. You can adjust this per-project via `ProviderOverrides` in `.atomic/settings.json`. See [Security: Workflow Permissions Model](#security-workflow-permissions-model) for details.
+
 Create a workflow project, install the SDK, and add your workflow file:
 
 ```bash
@@ -330,6 +334,21 @@ atomic workflow -n review-to-merge -a claude
 This single file demonstrates multi-step pipelines, parallel stages (`Promise.all`), transcript passing between sessions, external API calls (`fetch`), and human-in-the-loop approval — all in plain TypeScript. Swap `-a claude` for `-a opencode` or `-a copilot` to run the same harness on a different agent. See [Workflow SDK — Build Your Own Harness](#workflow-sdk--build-your-own-deterministic-harness) for the full API and more examples.
 
 > **Want something that works out of the box?** Atomic ships with `ralph`, a built-in workflow that plans, implements, reviews, and debugs autonomously — see [Autonomous Execution (Ralph)](#autonomous-execution-ralph).
+
+---
+
+## Security: Workflow Permissions Model
+
+> [!CAUTION]
+> **Atomic workflows run coding agents with all permission checks disabled.** The agent can read, write, and delete files, execute arbitrary shell commands, and make network requests — without prompting for approval. This is required for automated pipelines to run without blocking on interactive prompts. **Run workflows in a [devcontainer](#containerized-execution), not on your host machine.**
+
+| Agent | How permissions are bypassed | Key flags / settings |
+| --- | --- | --- |
+| **Claude Code** | CLI flags disable the interactive permission prompt entirely | `--dangerously-skip-permissions` |
+| **GitHub Copilot CLI** | CLI flag enables auto-execution; SDK auto-approves all tool requests | `--yolo`, `COPILOT_ALLOW_ALL=true`, `onPermissionRequest: approveAll` |
+| **OpenCode** | Permissions are handled programmatically through the event stream | Permission requests are auto-replied via SSE events |
+
+These defaults are configured in `src/services/config/definitions.ts` and `src/sdk/runtime/executor.ts`. You can override them per-project via `ProviderOverrides` in `.atomic/settings.json`, where `chatFlags` replaces the defaults entirely and `envVars` are merged. See [Containerized Execution](#containerized-execution) for devcontainer setup, isolation levels, and per-agent examples.
 
 ---
 

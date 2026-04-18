@@ -4,7 +4,6 @@ import { test, expect, describe, afterEach } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
 import { PanelStore } from "../../../src/sdk/components/orchestrator-panel-store.ts";
 import { Statusline } from "../../../src/sdk/components/statusline.tsx";
-import type { LayoutNode } from "../../../src/sdk/components/layout.ts";
 import { TestProviders } from "./test-helpers.tsx";
 
 let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;
@@ -14,27 +13,12 @@ afterEach(() => {
   testSetup = null;
 });
 
-function makeLayoutNode(overrides: Partial<LayoutNode> = {}): LayoutNode {
-  return {
-    name: "node",
-    status: "pending",
-    parents: [],
-    startedAt: null,
-    endedAt: null,
-    children: [],
-    depth: 0,
-    x: 0,
-    y: 0,
-    ...overrides,
-  };
-}
-
 describe("Statusline", () => {
   test("renders GRAPH badge", async () => {
     const store = new PanelStore();
     testSetup = await testRender(
       <TestProviders store={store}>
-        <Statusline focusedNode={undefined} attachMsg="" />
+        <Statusline attachMsg="" />
       </TestProviders>,
       { width: 80, height: 5 },
     );
@@ -47,7 +31,7 @@ describe("Statusline", () => {
     const store = new PanelStore();
     testSetup = await testRender(
       <TestProviders store={store}>
-        <Statusline focusedNode={undefined} attachMsg="" />
+        <Statusline attachMsg="" />
       </TestProviders>,
       { width: 80, height: 5 },
     );
@@ -61,7 +45,7 @@ describe("Statusline", () => {
     const store = new PanelStore();
     testSetup = await testRender(
       <TestProviders store={store}>
-        <Statusline focusedNode={undefined} attachMsg={"\u2192 worker-1"} />
+        <Statusline attachMsg={"\u2192 worker-1"} />
       </TestProviders>,
       { width: 80, height: 5 },
     );
@@ -70,56 +54,28 @@ describe("Statusline", () => {
     expect(frame).toContain("worker-1");
   });
 
-  test("shows focused node info", async () => {
+  test("does not render focused node info", async () => {
     const store = new PanelStore();
-    const node = makeLayoutNode({ name: "my-session", status: "running" });
+    store.workflowName = "my-workflow";
+    store.setWorkflowInfo("my-workflow", "claude", [{ name: "worker-1", parents: [] }], "p");
+    store.startSession("worker-1");
     testSetup = await testRender(
       <TestProviders store={store}>
-        <Statusline focusedNode={node} attachMsg="" />
-      </TestProviders>,
-      { width: 80, height: 5 },
-    );
-    await testSetup.renderOnce();
-    const frame = testSetup.captureCharFrame();
-    expect(frame).toContain("my-session");
-    // Status is shown as an icon (●) rather than text label in the redesigned statusline
-    expect(frame).toContain("\u25CF");
-  });
-
-  test("shows error info for errored focused node", async () => {
-    const store = new PanelStore();
-    const node = makeLayoutNode({ name: "broken", status: "error", error: "timeout exceeded" });
-    testSetup = await testRender(
-      <TestProviders store={store}>
-        <Statusline focusedNode={node} attachMsg="" />
+        <Statusline attachMsg="" />
       </TestProviders>,
       { width: 120, height: 5 },
     );
     await testSetup.renderOnce();
     const frame = testSetup.captureCharFrame();
-    expect(frame).toContain("broken");
-    expect(frame).toContain("timeout exceeded");
+    expect(frame).not.toContain("worker-1");
+    expect(frame).not.toContain("my-workflow");
   });
 
-  test("shows quit option when completion is reached", async () => {
-    const store = new PanelStore();
-    store.markCompletionReached();
-    testSetup = await testRender(
-      <TestProviders store={store}>
-        <Statusline focusedNode={undefined} attachMsg="" />
-      </TestProviders>,
-      { width: 80, height: 5 },
-    );
-    await testSetup.renderOnce();
-    const frame = testSetup.captureCharFrame();
-    expect(frame).toContain("quit");
-  });
-
-  test("shows quit option regardless of completion state", async () => {
+  test("shows quit option", async () => {
     const store = new PanelStore();
     testSetup = await testRender(
       <TestProviders store={store}>
-        <Statusline focusedNode={undefined} attachMsg="" />
+        <Statusline attachMsg="" />
       </TestProviders>,
       { width: 80, height: 5 },
     );

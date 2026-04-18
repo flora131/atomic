@@ -1,8 +1,9 @@
 {
   "mcpServers": {
-    "gh_grep": {
+    "github": {
       "type": "http",
-      "url": "https://mcp.grep.app"
+      "url": "https://api.githubcopilot.com/mcp",
+      "headers": { "Authorization": "Bearer YOUR_GITHUB_PAT" }
     }
   }
 }

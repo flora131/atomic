@@ -56,6 +56,7 @@ import {
 import { OrchestratorPanel } from "./panel.tsx";
 import { GraphFrontierTracker } from "./graph-inference.ts";
 import { errorMessage } from "../errors.ts";
+import { createPainter } from "../../theme/colors.ts";
 
 /** Maximum time (ms) to wait for an agent's server to become reachable. */
 const SERVER_WAIT_TIMEOUT_MS = 60_000;
@@ -131,6 +132,13 @@ export interface WorkflowRunOptions {
   workflowFile: string;
   /** Project root (defaults to cwd) */
   projectRoot?: string;
+  /**
+   * When true, create the tmux session and return immediately instead
+   * of attaching. The orchestrator keeps running in the background on
+   * the atomic tmux socket; users can attach later with
+   * `atomic workflow session connect <name>`.
+   */
+  detach?: boolean;
 }
 
 interface SessionResult {
@@ -452,6 +460,7 @@ export async function executeWorkflow(
     inputs = {},
     workflowFile,
     projectRoot = process.cwd(),
+    detach = false,
   } = options;
 
   const workflowRunId = generateId();
@@ -507,6 +516,14 @@ export async function executeWorkflow(
   tmux.createSession(tmuxSessionName, shellCmd, "orchestrator");
   tmux.setSessionEnv(tmuxSessionName, "ATOMIC_AGENT", agent);
 
+  if (detach) {
+    // Session is already running detached on the atomic socket (tmux
+    // new-session -d). Print connection hints and return so the caller
+    // can exit cleanly without blocking on the orchestrator.
+    printDetachedBanner(tmuxSessionName);
+    return;
+  }
+
   if (tmux.isInsideAtomicSocket()) {
     // Already on the atomic server — just switch to the new session.
     tmux.switchClient(tmuxSessionName);
@@ -518,6 +535,25 @@ export async function executeWorkflow(
     const attachProc = spawnMuxAttach(tmuxSessionName);
     await attachProc.exited;
   }
+}
+
+/**
+ * Print a short banner telling the user the workflow is running in the
+ * background and how to attach to it. Written to stdout so scripts can
+ * capture the session name with a simple redirect.
+ */
+function printDetachedBanner(tmuxSessionName: string): void {
+  const paint = createPainter();
+  process.stdout.write(
+    "\n" +
+      "  " + paint("success", "✓") + " " + paint("text", "workflow started in background", { bold: true }) + "\n" +
+      "  " + paint("dim", "session: ") + paint("accent", tmuxSessionName) + "\n" +
+      "\n" +
+      "  " + paint("dim", "attach: ") + paint("accent", `atomic workflow session connect ${tmuxSessionName}`) + "\n" +
+      "  " + paint("dim", "list:   ") + paint("accent", "atomic workflow session list") + "\n" +
+      "  " + paint("dim", "kill:   ") + paint("accent", `atomic workflow session kill ${tmuxSessionName}`) + "\n" +
+      "\n",
+  );
 }
 
 /**

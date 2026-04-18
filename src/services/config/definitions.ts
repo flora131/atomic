@@ -17,7 +17,7 @@ export interface AgentConfig {
   install_url: string;
   /** Paths to exclude when copying (relative to folder) */
   exclude: string[];
-  /** Project files managed by `atomic init` for provider onboarding */
+  /** Project files applied during `atomic chat` preflight for provider onboarding */
   onboarding_files: Array<{
     source: string;
     destination: string;

@@ -12,7 +12,6 @@ Register-ArgumentCompleter -Native -CommandName atomic -ScriptBlock {
         Where-Object { $_ -ne '' }
 
     $agents  = @('claude', 'opencode', 'copilot')
-    $scms    = @('github', 'sapling')
     $shells  = @('bash', 'zsh', 'fish', 'powershell')
 
     # Parse command chain, skipping flags and their values
@@ -23,7 +22,7 @@ Register-ArgumentCompleter -Native -CommandName atomic -ScriptBlock {
         $t = $tokens[$i]
         if ($skipNext) { $skipNext = $false; continue }
         if ($t -match '^-') {
-            if ($t -match '^(-a|--agent|-s|--scm|-n|--name)$') { $skipNext = $true }
+            if ($t -match '^(-a|--agent|-n|--name)$') { $skipNext = $true }
             $prevToken = $t
             continue
         }
@@ -47,19 +46,6 @@ Register-ArgumentCompleter -Native -CommandName atomic -ScriptBlock {
         }
         return
     }
-    if ($prevFullToken -match '^(-s|--scm)$' -or $lastToken -match '^(-s|--scm)$') {
-        if ($lastToken -match '^(-s|--scm)$') {
-            $scms | ForEach-Object {
-                [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
-            }
-            return
-        }
-        $scms | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
-            [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
-        }
-        return
-    }
-
     $completions = @()
 
     switch ($cmds.Count) {
@@ -80,8 +66,6 @@ Register-ArgumentCompleter -Native -CommandName atomic -ScriptBlock {
                     $completions = @(
                         @{ text = '-a';      tip = 'Agent to configure' }
                         @{ text = '--agent'; tip = 'Agent to configure' }
-                        @{ text = '-s';      tip = 'Source control system' }
-                        @{ text = '--scm';   tip = 'Source control system' }
                     )
                 }
                 'chat' {

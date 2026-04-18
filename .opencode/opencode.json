@@ -5,7 +5,9 @@
     "github": {
       "type": "remote",
       "url": "https://api.githubcopilot.com/mcp",
-      "headers": { "Authorization": "Bearer YOUR_GITHUB_PAT" }
+      "headers": {
+        "Authorization": "Bearer ${env:GITHUB_PERSONAL_ACCESS_TOKEN}"
+      }
     }
   }
 }

@@ -8,7 +8,6 @@ export const zshCompletionScript = `
 
 _atomic() {
     local -a agents=('claude' 'opencode' 'copilot')
-    local -a scms=('github' 'sapling')
 
     _arguments -C \\
         '(-y --yes)'{-y,--yes}'[Auto-confirm all prompts]' \\
@@ -35,7 +34,6 @@ _atomic() {
                 init)
                     _arguments \\
                         '(-a --agent)'{-a,--agent}'[Agent to configure]:agent:(claude opencode copilot)' \\
-                        '(-s --scm)'{-s,--scm}'[Source control system]:scm:(github sapling)' \\
                         '(-h --help)'{-h,--help}'[Show help]'
                     ;;
                 chat)

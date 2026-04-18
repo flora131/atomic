@@ -11,7 +11,6 @@ complete -c atomic -f
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
 set -l agents claude opencode copilot
-set -l scms github sapling
 
 # Condition helpers — true when the command line matches a specific depth.
 # "__fish_seen_subcommand_from X" is true once token X has appeared.
@@ -36,7 +35,7 @@ function __atomic_using_cmd
                     set idx (math $idx + 1)
                     # Skip flag value for known value-flags
                     switch $tokens[(math $idx - 1)]
-                        case -a --agent -s --scm -n --name
+                        case -a --agent -n --name
                             set idx (math $idx + 1)
                     end
                 case '*'
@@ -78,7 +77,6 @@ complete -c atomic -n __atomic_no_subcommand -a completions -d 'Output shell com
 # ── init ────────────────────────────────────────────────────────────────────
 
 complete -c atomic -n '__atomic_using_cmd init' -s a -l agent -d 'Agent to configure' -r -a "$agents"
-complete -c atomic -n '__atomic_using_cmd init' -s s -l scm -d 'Source control system' -r -a "$scms"
 
 # ── chat ────────────────────────────────────────────────────────────────────
 

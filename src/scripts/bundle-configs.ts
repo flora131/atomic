@@ -25,14 +25,6 @@ const HOME = homedir();
 /** Source repo for the global skills install. */
 const SKILLS_REPO = "https://github.com/flora131/atomic.git";
 
-/** Skills excluded from the global install (VCS-specific commit/PR helpers). */
-const EXCLUDED_SKILLS = [
-  "gh-commit",
-  "gh-create-pr",
-  "sl-commit",
-  "sl-submit-diff",
-];
-
 /** Agent CLI flags accepted by `bunx skills`. */
 const AGENT_FLAGS = ["claude-code", "opencode", "github-copilot"];
 
@@ -62,11 +54,7 @@ async function installGlobalSkills(): Promise<void> {
   console.log("Installing global skills…");
 
   const agentArgs = AGENT_FLAGS.flatMap((a) => ["-a", a]);
-
   await $`bunx skills add ${SKILLS_REPO} --skill "*" -g ${agentArgs} -y`;
-
-  const removeArgs = EXCLUDED_SKILLS.flatMap((s) => ["--skill", s]);
-  await $`bunx skills remove ${removeArgs} -g ${agentArgs} -y`;
 }
 
 async function copyBundledAgents(): Promise<void> {

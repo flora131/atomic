@@ -10,7 +10,6 @@ _atomic_completions() {
 
     local commands="init chat workflow session config completions"
     local agents="claude opencode copilot"
-    local scms="github sapling"
     local global_opts="-y --yes --no-banner -v --version -h --help"
 
     # Walk the words to find the command chain (skip flags and their values)
@@ -19,8 +18,8 @@ _atomic_completions() {
     while [[ $i -lt $cword ]]; do
         local w="\${words[$i]}"
         case "$w" in
-            -a|--agent|-s|--scm|-n|--name) (( i++ )) ;;  # skip flag value
-            -*)                            ;;              # skip other flags
+            -a|--agent|-n|--name) (( i++ )) ;;  # skip flag value
+            -*)                   ;;              # skip other flags
             *)
                 if [[ -z "$cmd1" ]]; then cmd1="$w"
                 elif [[ -z "$cmd2" ]]; then cmd2="$w"
@@ -37,10 +36,6 @@ _atomic_completions() {
             COMPREPLY=( $(compgen -W "$agents" -- "$cur") )
             return
             ;;
-        -s|--scm)
-            COMPREPLY=( $(compgen -W "$scms" -- "$cur") )
-            return
-            ;;
     esac
 
     # Top-level (no subcommand yet)
@@ -51,7 +46,7 @@ _atomic_completions() {
 
     case "$cmd1" in
         init)
-            COMPREPLY=( $(compgen -W "-a --agent -s --scm -h --help" -- "$cur") )
+            COMPREPLY=( $(compgen -W "-a --agent -h --help" -- "$cur") )
             ;;
         chat)
             if [[ -z "$cmd2" ]]; then

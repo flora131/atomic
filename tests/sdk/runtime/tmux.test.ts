@@ -2,6 +2,7 @@ import { test, expect, describe, beforeEach, afterEach, beforeAll, afterAll } fr
 import {
   getMuxBinary,
   resetMuxBinaryCache,
+  isTmuxInstalled,
   isInsideTmux,
   tmuxRun,
   createSession,
@@ -20,6 +21,7 @@ import {
   normalizeTmuxLines,
   paneLooksReady,
   paneHasActiveTask,
+  paneIsIdle,
   waitForPaneReady,
   waitForOutput,
   attemptSubmitRounds,
@@ -100,6 +102,25 @@ describe("getMuxBinary", () => {
     // After reset, the next call re-resolves (doesn't throw, returns consistent result)
     const result = getMuxBinary();
     expect(typeof result === "string" || result === null).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isTmuxInstalled
+// ---------------------------------------------------------------------------
+
+describe("isTmuxInstalled", () => {
+  beforeEach(() => {
+    resetMuxBinaryCache();
+  });
+
+  afterEach(() => {
+    resetMuxBinaryCache();
+  });
+
+  test("returns boolean consistent with getMuxBinary", () => {
+    const binary = getMuxBinary();
+    expect(isTmuxInstalled()).toBe(binary !== null);
   });
 });
 
@@ -530,6 +551,30 @@ describe.if(tmuxAvailable)("tmux integration: send keys and capture", () => {
   test("capturePaneScrollback uses default lines parameter", () => {
     const scrollback = capturePaneScrollback(paneId);
     expect(typeof scrollback).toBe("string");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Integration: paneIsIdle with real pane
+// ---------------------------------------------------------------------------
+
+const IDLE_SESSION = `atomic-idle-${crypto.randomUUID().slice(0, 8)}`;
+
+describe.if(tmuxAvailable)("tmux integration: paneIsIdle", () => {
+  let paneId: string;
+
+  beforeAll(async () => {
+    paneId = createSession(IDLE_SESSION, "bash", "idle-test");
+    await Bun.sleep(500);
+  });
+
+  afterAll(() => {
+    killSession(IDLE_SESSION);
+  });
+
+  test("returns boolean for a real pane", () => {
+    const result = paneIsIdle(paneId);
+    expect(typeof result).toBe("boolean");
   });
 });
 

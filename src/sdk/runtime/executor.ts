@@ -1659,10 +1659,14 @@ function createSessionRunner(
       // session id. This is what workflows pass to `s.save(s.sessionId)`
       // to disambiguate their own transcript when several sessions run
       // in parallel under the same workflow.
-      const providerSessionId = resolveProviderSessionId(
-        shared.agent,
-        providerSession,
-      );
+      //
+      // Exposed as a getter (not a snapshot) because headless Claude stages
+      // don't know their SDK-assigned `session_id` until the first `query()`
+      // completes — `HeadlessClaudeSessionWrapper._lastSessionId` starts empty
+      // and is populated when the SDK emits a `result` event. A snapshot
+      // captured at stage creation would leave `s.sessionId === ""` forever,
+      // so `s.save(s.sessionId)` would always throw "empty Claude session id"
+      // even though the query completed successfully.
       const ctx: SessionContext = {
         client: providerClient,
         session: providerSession,
@@ -1670,7 +1674,9 @@ function createSessionRunner(
         agent: shared.agent,
         sessionDir,
         paneId,
-        sessionId: providerSessionId,
+        get sessionId() {
+          return resolveProviderSessionId(shared.agent, providerSession);
+        },
         save,
         transcript: transcriptFn,
         getMessages: getMessagesFn,

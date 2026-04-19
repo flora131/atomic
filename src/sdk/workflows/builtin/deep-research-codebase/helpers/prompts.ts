@@ -37,7 +37,6 @@
  *     LLM "synthesizer" stage) and the aggregator reads them by path.
  */
 
-import path from "node:path";
 import type { PartitionUnit } from "./scout.ts";
 
 const DOCUMENTARIAN_DISCLAIMER =
@@ -63,27 +62,19 @@ export function slugifyPrompt(prompt: string): string {
   return slug || "research";
 }
 
-/** Render a partition's directory list as absolute paths with file/LOC counts. */
-function renderPartitionAssignment(
-  partition: PartitionUnit[],
-  root: string,
-): string {
+/** Render a partition's directory list as repo-relative paths with file/LOC counts. */
+function renderPartitionAssignment(partition: PartitionUnit[]): string {
   return partition
-    .map((u) => {
-      const abs = path.join(root, u.path);
-      return `  - \`${abs}/\` (${u.fileCount} files, ${u.loc.toLocaleString()} LOC)`;
-    })
+    .map(
+      (u) =>
+        `  - \`${u.path}/\` (${u.fileCount} files, ${u.loc.toLocaleString()} LOC)`,
+    )
     .join("\n");
 }
 
-/** Comma-separated absolute directory list (for inline grep/glob scope hints). */
-function renderPartitionDirsAbs(
-  partition: PartitionUnit[],
-  root: string,
-): string {
-  return partition
-    .map((u) => `\`${path.join(root, u.path)}\``)
-    .join(", ");
+/** Comma-separated repo-relative directory list (for inline grep/glob scope hints). */
+function renderPartitionDirs(partition: PartitionUnit[]): string {
+  return partition.map((u) => `\`${u.path}/\``).join(", ");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -173,13 +164,12 @@ export function buildScoutPrompt(opts: {
 export function buildLocatorPrompt(opts: {
   question: string;
   partition: PartitionUnit[];
-  root: string;
   scoutOverview: string;
   index: number;
   total: number;
 }): string {
-  const assignment = renderPartitionAssignment(opts.partition, opts.root);
-  const dirsAbs = renderPartitionDirsAbs(opts.partition, opts.root);
+  const assignment = renderPartitionAssignment(opts.partition);
+  const dirs = renderPartitionDirs(opts.partition);
   const orientation =
     opts.scoutOverview.trim().length > 0
       ? opts.scoutOverview.trim()
@@ -206,14 +196,14 @@ export function buildLocatorPrompt(opts: {
     ``,
     assignment,
     ``,
-    `(Quick comma-separated form for tool args: ${dirsAbs})`,
+    `(Quick comma-separated form for tool args: ${dirs})`,
     `</SCOPE>`,
     ``,
     `<OUTPUT_FORMAT>`,
     `Return a markdown report with this exact structure:`,
     ``,
     `### Implementation`,
-    `- \`<absolute path>\` — 1-line note on relevance`,
+    `- \`<repo-relative path>\` — 1-line note on relevance`,
     ``,
     `### Tests`,
     `- ...`,
@@ -231,10 +221,10 @@ export function buildLocatorPrompt(opts: {
     `- ...`,
     ``,
     `### Notable Clusters`,
-    `- \`<absolute dir>/\` — N files, why it's a cluster`,
+    `- \`<repo-relative dir>/\` — N files, why it's a cluster`,
     ``,
     `Omit any section that has no entries (do not write "(none)" placeholders).`,
-    `Use ABSOLUTE paths. Do NOT read file contents — your job is location only.`,
+    `Use repo-relative paths. Do NOT read file contents — your job is location only.`,
     `</OUTPUT_FORMAT>`,
     ``,
     `<CONSTRAINTS>`,
@@ -254,13 +244,12 @@ export function buildLocatorPrompt(opts: {
 export function buildPatternFinderPrompt(opts: {
   question: string;
   partition: PartitionUnit[];
-  root: string;
   scoutOverview: string;
   index: number;
   total: number;
 }): string {
-  const assignment = renderPartitionAssignment(opts.partition, opts.root);
-  const dirsAbs = renderPartitionDirsAbs(opts.partition, opts.root);
+  const assignment = renderPartitionAssignment(opts.partition);
+  const dirs = renderPartitionDirs(opts.partition);
   const orientation =
     opts.scoutOverview.trim().length > 0
       ? opts.scoutOverview.trim()
@@ -285,14 +274,14 @@ export function buildPatternFinderPrompt(opts: {
     `<SCOPE>`,
     assignment,
     ``,
-    `(Quick comma-separated form for tool args: ${dirsAbs})`,
+    `(Quick comma-separated form for tool args: ${dirs})`,
     `</SCOPE>`,
     ``,
     `<OUTPUT_FORMAT>`,
     `For each distinct pattern you find, output:`,
     ``,
     `#### Pattern: <short name>`,
-    `**Where:** \`<absolute path>:<line>\``,
+    `**Where:** \`<repo-relative path>:<line>\``,
     `**What:** 1-sentence description.`,
     "```<language>",
     `<5-30 lines of actual code from the file>`,
@@ -321,12 +310,11 @@ export function buildAnalyzerPrompt(opts: {
   question: string;
   partition: PartitionUnit[];
   locatorOutput: string;
-  root: string;
   scoutOverview: string;
   index: number;
   total: number;
 }): string {
-  const assignment = renderPartitionAssignment(opts.partition, opts.root);
+  const assignment = renderPartitionAssignment(opts.partition);
   const orientation =
     opts.scoutOverview.trim().length > 0
       ? opts.scoutOverview.trim()
@@ -379,17 +367,17 @@ export function buildAnalyzerPrompt(opts: {
     `   (≤200 words) describing how these files compose to address the topic.`,
     `5. List any files OUTSIDE this partition that you noticed are referenced`,
     `   from your reads (so the aggregator can stitch findings across`,
-    `   partitions). One file per line: \`<absolute path>\` — 1-line reason.`,
+    `   partitions). One file per line: \`<repo-relative path>\` — 1-line reason.`,
     `</METHOD>`,
     ``,
     `<OUTPUT_FORMAT>`,
     `Use this structure (omit empty sections):`,
     ``,
     `### Files Analysed`,
-    `<bullet list of the 5-10 files you read, absolute paths>`,
+    `<bullet list of the 5-10 files you read, repo-relative paths>`,
     ``,
     `### Per-File Notes`,
-    `#### \`<absolute path>\``,
+    `#### \`<repo-relative path>\``,
     `- **Role:** ...`,
     `- **Key symbols:** \`name\` (\`file.ts:line\`), ...`,
     `- **Control flow:** ...`,
@@ -400,7 +388,7 @@ export function buildAnalyzerPrompt(opts: {
     `<≤200 words on how these files compose to address the topic>`,
     ``,
     `### Out-of-Partition References`,
-    `- \`<absolute path>\` — 1-line note on why it matters`,
+    `- \`<repo-relative path>\` — 1-line note on why it matters`,
     `</OUTPUT_FORMAT>`,
     ``,
     `<CONSTRAINTS>`,
@@ -422,11 +410,10 @@ export function buildOnlineResearcherPrompt(opts: {
   question: string;
   partition: PartitionUnit[];
   locatorOutput: string;
-  root: string;
   index: number;
   total: number;
 }): string {
-  const assignment = renderPartitionAssignment(opts.partition, opts.root);
+  const assignment = renderPartitionAssignment(opts.partition);
   const locator =
     opts.locatorOutput.trim().length > 0
       ? opts.locatorOutput.trim()
@@ -485,7 +472,7 @@ export function buildOnlineResearcherPrompt(opts: {
     `#### <Library> (vX.Y)`,
     `**Docs:** <url>, <url>`,
     `**Relevant behaviour:** ...`,
-    `**Where used:** \`<absolute path>:<line>\` — 1-line note`,
+    `**Where used:** \`<repo-relative path>:<line>\` — 1-line note`,
     `</OUTPUT_FORMAT>`,
     ``,
     `<CONSTRAINTS>`,
@@ -509,10 +496,7 @@ export function buildOnlineResearcherPrompt(opts: {
 /** codebase-research-locator — find prior research docs about the topic. */
 export function buildHistoryLocatorPrompt(opts: {
   question: string;
-  root: string;
 }): string {
-  const researchDir = path.join(opts.root, "research");
-
   return [
     `<RESEARCH_QUESTION>`,
     opts.question,
@@ -525,8 +509,8 @@ export function buildHistoryLocatorPrompt(opts: {
     `</MISSION>`,
     ``,
     `<SCOPE>`,
-    `Primary: \`${researchDir}/\` (and standard subdirs: docs/, tickets/, notes/).`,
-    `Secondary: any sibling research directories under \`${opts.root}\` that match`,
+    `Primary: \`research/\` (and standard subdirs: docs/, tickets/, notes/).`,
+    `Secondary: any sibling research directories at the repository root that match`,
     `\`*research*\`, \`*adr*\`, \`*rfc*\`, or \`specs\`.`,
     ``,
     `If no research directory exists at all, return a single section:`,
@@ -539,7 +523,7 @@ export function buildHistoryLocatorPrompt(opts: {
     `Group by document type. Within each group, sort newest first by filename.`,
     ``,
     `### Docs`,
-    `- \`<absolute path>\` — 1-line title-derived summary`,
+    `- \`<repo-relative path>\` — 1-line title-derived summary`,
     ``,
     `### Tickets`,
     `- ...`,
@@ -570,7 +554,6 @@ export function buildHistoryLocatorPrompt(opts: {
 export function buildHistoryAnalyzerPrompt(opts: {
   question: string;
   locatorOutput: string;
-  root: string;
 }): string {
   const locator =
     opts.locatorOutput.trim().length > 0
@@ -605,7 +588,7 @@ export function buildHistoryAnalyzerPrompt(opts: {
     ``,
     `<OUTPUT_FORMAT>`,
     `### Documents Reviewed`,
-    `- \`<absolute path>\` — 1-line takeaway`,
+    `- \`<repo-relative path>\` — 1-line takeaway`,
     ``,
     `### Synthesis`,
     `<≤400 words covering decisions, conclusions, and open questions, with`,

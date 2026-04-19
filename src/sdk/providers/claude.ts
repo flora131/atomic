@@ -122,9 +122,11 @@ function buildWorkflowHookCommand(subcommand: string, extraArgs: readonly string
  *     `~/.atomic/claude-hil/<session_id>` so `watchHILMarker` can fire
  *     `onHIL(true)` — the node card flips to the blue "awaiting_input" pulse.
  *   - `PostToolUse` / `PostToolUseFailure` matched on `AskUserQuestion`:
- *     remove the HIL marker. Byte-identical commands rely on Claude Code's
- *     hook deduplication so a failed-then-retried question clears the marker
- *     exactly once.
+ *     remove the HIL marker. Claude Code fires exactly one of these per
+ *     tool invocation (PostToolUse on success, PostToolUseFailure in the
+ *     catch path — see `src/services/tools/toolExecution.ts` in the CLI
+ *     source), so registering the same command on both guarantees the
+ *     marker clears regardless of which completion path the tool takes.
  *
  * Built once at module load. Contains no single quotes (JSON syntax doesn't
  * produce them and paths rarely do), so POSIX single-quoting at the spawn

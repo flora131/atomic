@@ -65,9 +65,9 @@ export async function claudeAskHookCommand(mode: ClaudeAskHookMode): Promise<num
   const markerPath = path.join(hil, payload.session_id);
 
   if (mode === "enter") {
-    // Direct write — tmp+rename would deliver an inotify event whose filename
-    // is `<session_id>.tmp`, which would miss the watcher's filename match.
-    // See the same rationale in claude-stop-hook.ts (marker write).
+    // Direct write (Bun.write is a single open+write, not tmp+rename) — keeps
+    // the inotify sequence to one IN_CREATE event per enter, simplifying the
+    // watcher's state machine. See claude-stop-hook.ts for the same rationale.
     await Bun.write(markerPath, raw);
   } else {
     try {

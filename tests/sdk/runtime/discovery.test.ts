@@ -416,5 +416,116 @@ export default defineWorkflow({ name: "picker-freeform" })
 
     expect(metadata).toHaveLength(1);
     expect(metadata[0]!.inputs).toEqual([]);
+    expect(metadata[0]!.status.kind).toBe("ok");
+  });
+
+  test("returns incompatible status when minSDKVersion exceeds current", async () => {
+    // The core promise of minSDKVersion: a workflow that opts in to a
+    // future SDK release surfaces in the picker/list as a visible
+    // "update required" row instead of silently disappearing.
+    const workflowDir = join(
+      tempDir,
+      ".atomic",
+      "workflows",
+      "future-wf",
+      "copilot",
+    );
+    await mkdir(workflowDir, { recursive: true });
+    await writeFile(
+      join(workflowDir, "index.ts"),
+      `
+import { defineWorkflow } from "${join(process.cwd(), "src/sdk/workflows/index.ts")}";
+
+export default defineWorkflow({
+  name: "future-wf",
+  minSDKVersion: "99.0.0",
+})
+  .run(async () => {})
+  .compile();
+`,
+    );
+
+    const discovered = await discoverWorkflows(tempDir, "copilot");
+    const metadata = await loadWorkflowsMetadata(
+      discovered.filter((wf) => wf.name === "future-wf"),
+    );
+
+    expect(metadata).toHaveLength(1);
+    const status = metadata[0]!.status;
+    expect(status.kind).toBe("incompatible");
+    if (status.kind === "incompatible") {
+      expect(status.requiredVersion).toBe("99.0.0");
+      expect(status.currentVersion).toMatch(/^\d+\.\d+\.\d+/);
+    }
+  });
+
+  test("returns error status instead of dropping workflows that fail to load", async () => {
+    // Broken workflows used to vanish silently from discovery — this
+    // test guards the new surface-failure contract so the picker can
+    // render a "✗ broken" row with the loader message attached.
+    const workflowDir = join(
+      tempDir,
+      ".atomic",
+      "workflows",
+      "uncompiled-wf",
+      "copilot",
+    );
+    await mkdir(workflowDir, { recursive: true });
+    await writeFile(
+      join(workflowDir, "index.ts"),
+      `
+import { defineWorkflow } from "${join(process.cwd(), "src/sdk/workflows/index.ts")}";
+
+export default defineWorkflow({ name: "uncompiled-wf" })
+  .run(async () => {});
+// intentionally missing .compile()
+`,
+    );
+
+    const discovered = await discoverWorkflows(tempDir, "copilot");
+    const metadata = await loadWorkflowsMetadata(
+      discovered.filter((wf) => wf.name === "uncompiled-wf"),
+    );
+
+    expect(metadata).toHaveLength(1);
+    const status = metadata[0]!.status;
+    expect(status.kind).toBe("error");
+    if (status.kind === "error") {
+      expect(status.message).toMatch(/not compiled/);
+    }
+  });
+
+  test("keeps ok status for workflows with a satisfied minSDKVersion", async () => {
+    // 0.0.0 is below any real release — the loader should accept it
+    // without routing through the incompatible branch.
+    const workflowDir = join(
+      tempDir,
+      ".atomic",
+      "workflows",
+      "satisfied-wf",
+      "copilot",
+    );
+    await mkdir(workflowDir, { recursive: true });
+    await writeFile(
+      join(workflowDir, "index.ts"),
+      `
+import { defineWorkflow } from "${join(process.cwd(), "src/sdk/workflows/index.ts")}";
+
+export default defineWorkflow({
+  name: "satisfied-wf",
+  minSDKVersion: "0.0.0",
+})
+  .run(async () => {})
+  .compile();
+`,
+    );
+
+    const discovered = await discoverWorkflows(tempDir, "copilot");
+    const metadata = await loadWorkflowsMetadata(
+      discovered.filter((wf) => wf.name === "satisfied-wf"),
+    );
+
+    expect(metadata).toHaveLength(1);
+    expect(metadata[0]!.status.kind).toBe("ok");
   });
 });

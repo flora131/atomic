@@ -6,6 +6,7 @@
  *   atomic workflow -n <name> -a <agent> <prompt>  free-form workflow
  *   atomic workflow -n <name> -a <agent> --<field>=<value> ...
  *                                                  structured-input workflow
+ *   atomic workflow -n <name> -a <agent> -d <args> run detached (background)
  *   atomic workflow list [-a <agent>]              list discoverable workflows
  */
 
@@ -26,6 +27,7 @@ import type {
   AgentType,
   DiscoveredWorkflow,
   WorkflowInput,
+  WorkflowMetadataStatus,
   WorkflowWithMetadata,
 } from "../../sdk/workflows/index.ts";
 import { WorkflowPickerPanel } from "../../sdk/components/workflow-picker-panel.tsx";
@@ -175,6 +177,12 @@ export async function workflowCommand(options: {
   agent?: string;
   list?: boolean;
   /**
+   * When true, create the tmux session and return immediately without
+   * attaching. Callers can use `atomic workflow session connect <id>`
+   * to attach later. Useful for scripting / background automation.
+   */
+  detach?: boolean;
+  /**
    * Everything commander parked in `cmd.args` — a mix of positional
    * prompt tokens and unknown `--<name>` flags that the
    * {@link parsePassthroughArgs} helper splits apart.
@@ -191,6 +199,23 @@ export async function workflowCommand(options: {
   const passthroughArgs = options.passthroughArgs ?? [];
   const cwd = options.cwd;
 
+  // `ATOMIC_AGENT` is set by `atomic chat` and `atomic workflow` on the tmux
+  // session they create, so every pane in that session inherits it. Its
+  // presence is a reliable signal that this command is being invoked from
+  // inside an atomic-managed session (i.e., the caller is an agent running
+  // in a chat or a workflow pane rather than a plain shell). We use that in
+  // two places:
+  //   1. If `-a` was omitted, fall back to ATOMIC_AGENT so agents don't have
+  //      to pass their own provider back to themselves.
+  //   2. Force `detach = true`, because attaching from inside the atomic
+  //      socket would `switch-client` the caller's own terminal onto the new
+  //      session — i.e., the agent would hijack the user's view. Detach is
+  //      always the safe choice here; the CLI prints attach hints so the
+  //      user can switch to the workflow whenever they want.
+  const atomicAgentEnv = process.env.ATOMIC_AGENT;
+  const insideAtomicSession = atomicAgentEnv !== undefined && atomicAgentEnv !== "";
+  const detach = insideAtomicSession ? true : (options.detach ?? false);
+
   // ── List mode ──
   // `merge: false` keeps local and global entries independent so the
   // list can show both copies of a non-reserved name when they coexist
@@ -203,15 +228,22 @@ export async function workflowCommand(options: {
       options.agent as AgentType | undefined,
       { merge: false },
     );
-    // Filter out workflows that fail to load (type errors, missing
-    // .compile(), etc.) so the list only shows workflows ready to run.
+    // Keep workflows that failed to load in the list — their status is
+    // surfaced inline as a "needs update" or "broken" tag so the user
+    // can see that a workflow still exists on disk even after an SDK
+    // bump invalidated it. Silent filtering was the original cause of
+    // the "workflow vanished after upgrade" report.
     const workflows = await loadWorkflowsMetadata(discovered);
     process.stdout.write(renderWorkflowList(workflows));
     return 0;
   }
 
   // ── Agent validation (required for every non-list branch) ──
-  if (!options.agent) {
+  // Explicit `-a` wins; otherwise fall back to the ATOMIC_AGENT env var so
+  // workflows launched from inside an atomic chat/workflow session don't
+  // need to re-specify the provider they're already running under.
+  const agentInput = options.agent ?? atomicAgentEnv;
+  if (!agentInput) {
     console.error(
       `${COLORS.red}Error: Missing agent. Use -a <agent>.${COLORS.reset}`,
     );
@@ -219,14 +251,14 @@ export async function workflowCommand(options: {
   }
 
   const validAgents = Object.keys(AGENT_CONFIG);
-  if (!validAgents.includes(options.agent)) {
+  if (!validAgents.includes(agentInput)) {
     console.error(
-      `${COLORS.red}Error: Unknown agent '${options.agent}'.${COLORS.reset}`,
+      `${COLORS.red}Error: Unknown agent '${agentInput}'.${COLORS.reset}`,
     );
     console.error(`Valid agents: ${validAgents.join(", ")}`);
     return 1;
   }
-  const agent = options.agent as AgentKey;
+  const agent = agentInput as AgentKey;
 
   // ── Preflight checks (shared between picker and named modes) ──
   const preflightCode = await runPrereqChecks(agent);
@@ -234,11 +266,11 @@ export async function workflowCommand(options: {
 
   // ── Picker mode: -a <agent>, no -n ──
   if (!options.name) {
-    return runPickerMode(agent, passthroughArgs, cwd);
+    return runPickerMode(agent, passthroughArgs, cwd, detach);
   }
 
   // ── Named mode: -n <name> -a <agent> [args...] ──
-  return runNamedMode(options.name, agent, passthroughArgs, cwd);
+  return runNamedMode(options.name, agent, passthroughArgs, cwd, detach);
 }
 
 // ─── Shared helpers ─────────────────────────────────────────────────────────
@@ -313,6 +345,7 @@ async function runLoadedWorkflow(args: {
   agent: AgentKey;
   inputs: Record<string, string>;
   workflowFile: string;
+  detach: boolean;
 }): Promise<number> {
   try {
     await executeWorkflow({
@@ -320,6 +353,7 @@ async function runLoadedWorkflow(args: {
       agent: args.agent,
       inputs: args.inputs,
       workflowFile: args.workflowFile,
+      detach: args.detach,
     });
     return 0;
   } catch (error) {
@@ -341,6 +375,7 @@ async function runPickerMode(
   agent: AgentKey,
   passthroughArgs: string[],
   cwd: string | undefined,
+  detach: boolean,
 ): Promise<number> {
   if (passthroughArgs.length > 0) {
     console.error(
@@ -386,7 +421,7 @@ async function runPickerMode(
     return 0;
   }
 
-  return runResolvedSelection(result.workflow, agent, result.inputs);
+  return runResolvedSelection(result.workflow, agent, result.inputs, detach);
 }
 
 /**
@@ -399,6 +434,7 @@ async function runResolvedSelection(
   workflow: WorkflowWithMetadata,
   agent: AgentKey,
   inputs: Record<string, string>,
+  detach: boolean,
 ): Promise<number> {
   const loaded = await WorkflowLoader.loadWorkflow(workflow, {
     warn(warnings) {
@@ -417,6 +453,7 @@ async function runResolvedSelection(
     agent,
     inputs,
     workflowFile: workflow.path,
+    detach,
   });
 }
 
@@ -427,6 +464,7 @@ async function runNamedMode(
   agent: AgentKey,
   passthroughArgs: string[],
   cwd: string | undefined,
+  detach: boolean,
 ): Promise<number> {
   // Find the workflow
   const discovered = await findWorkflow(name, agent, cwd);
@@ -443,9 +481,13 @@ async function runNamedMode(
       `  ~/.atomic/workflows/${name}/${agent}/index.ts ${COLORS.dim}(global)${COLORS.reset}`,
     );
 
-    const available = await loadWorkflowsMetadata(
-      await discoverWorkflows(cwd, agent),
-    );
+    // Only suggest runnable alternatives — broken/incompatible workflows
+    // are visible via `atomic workflow -l` where their status is surfaced;
+    // listing them here would mask the real problem (the name the user
+    // typed does not exist) behind a dead-end suggestion.
+    const available = (
+      await loadWorkflowsMetadata(await discoverWorkflows(cwd, agent))
+    ).filter((w) => w.status.kind === "ok");
     if (available.length > 0) {
       console.error(`\nAvailable ${agent} workflows:`);
       for (const wf of available) {
@@ -517,6 +559,7 @@ async function runNamedMode(
       agent,
       inputs: resolvedInputs,
       workflowFile: discovered.path,
+      detach,
     });
   }
 
@@ -543,6 +586,7 @@ async function runNamedMode(
     agent,
     inputs,
     workflowFile: discovered.path,
+    detach,
   });
 }
 
@@ -573,6 +617,29 @@ const SOURCE_COLORS: Record<DiscoveredWorkflow["source"], PaletteKey> = {
 };
 
 /**
+ * Per-row status badge shown in `atomic workflow -l` output. `ok` rows
+ * render with no badge (the list is already dense; flagging only
+ * non-ok rows keeps the happy path untouched). Incompatible rows
+ * include the required version so the user can compare at a glance;
+ * error rows stay terse and defer detail to `atomic workflow -n
+ * <name>` which surfaces the structured loader message.
+ */
+function renderStatusBadge(
+  paint: ReturnType<typeof createPainter>,
+  status: WorkflowMetadataStatus,
+): string {
+  if (status.kind === "ok") return "";
+  if (status.kind === "incompatible") {
+    return (
+      "  " +
+      paint("warning", "⚠ needs v" + status.requiredVersion) +
+      paint("dim", `  (installed v${status.currentVersion})`)
+    );
+  }
+  return "  " + paint("error", "✗ broken");
+}
+
+/**
  * Render `atomic workflow --list` output as a printable string.
  *
  * Three-level hierarchy: source → provider → workflow name.
@@ -599,7 +666,7 @@ const SOURCE_COLORS: Record<DiscoveredWorkflow["source"], PaletteKey> = {
  * Exported for testing — the pure-function shape makes coverage for the
  * renderer trivial without spinning up a full CLI invocation.
  */
-export function renderWorkflowList(workflows: DiscoveredWorkflow[]): string {
+export function renderWorkflowList(workflows: WorkflowWithMetadata[]): string {
   const paint = createPainter();
   const lines: string[] = [];
 
@@ -617,9 +684,11 @@ export function renderWorkflowList(workflows: DiscoveredWorkflow[]): string {
     return lines.join("\n") + "\n";
   }
 
-  // Group by source → agent → sorted names. This gives the renderer O(1)
-  // lookups at both nesting levels and keeps the output deterministic.
-  type ByAgent = Map<AgentType, string[]>;
+  // Group by source → agent → sorted entries. Entries carry the full
+  // metadata (name + status) so the row renderer can append a status
+  // badge to non-ok rows without another lookup.
+  type EntrySummary = { name: string; status: WorkflowMetadataStatus };
+  type ByAgent = Map<AgentType, EntrySummary[]>;
   const bySource = new Map<DiscoveredWorkflow["source"], ByAgent>();
   for (const wf of workflows) {
     let byAgent = bySource.get(wf.source);
@@ -627,13 +696,13 @@ export function renderWorkflowList(workflows: DiscoveredWorkflow[]): string {
       byAgent = new Map();
       bySource.set(wf.source, byAgent);
     }
-    const names = byAgent.get(wf.agent) ?? [];
-    names.push(wf.name);
-    byAgent.set(wf.agent, names);
+    const entries = byAgent.get(wf.agent) ?? [];
+    entries.push({ name: wf.name, status: wf.status });
+    byAgent.set(wf.agent, entries);
   }
   for (const byAgent of bySource.values()) {
-    for (const names of byAgent.values()) {
-      names.sort((a, b) => a.localeCompare(b));
+    for (const entries of byAgent.values()) {
+      entries.sort((a, b) => a.name.localeCompare(b.name));
     }
   }
 
@@ -666,8 +735,8 @@ export function renderWorkflowList(workflows: DiscoveredWorkflow[]): string {
     );
 
     for (const agent of AGENT_ORDER) {
-      const names = byAgent.get(agent);
-      if (!names || names.length === 0) continue;
+      const entries = byAgent.get(agent);
+      if (!entries || entries.length === 0) continue;
 
       // Provider heading: bold accent blue — a clearly different layer from
       // both the semantic source heading above and the neutral entries below.
@@ -676,8 +745,14 @@ export function renderWorkflowList(workflows: DiscoveredWorkflow[]): string {
         "    " + paint("accent", AGENT_DISPLAY_NAMES[agent], { bold: true }),
       );
 
-      for (const name of names) {
-        lines.push("      " + paint("text", name));
+      for (const entry of entries) {
+        // Dim the name on non-ok rows so the eye lands on the status
+        // badge rather than the workflow name — the badge is where the
+        // actionable info lives, and the name is already unrunnable.
+        const nameCol: PaletteKey = entry.status.kind === "ok" ? "text" : "dim";
+        lines.push(
+          "      " + paint(nameCol, entry.name) + renderStatusBadge(paint, entry.status),
+        );
       }
     }
   }

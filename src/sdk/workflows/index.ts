@@ -105,6 +105,7 @@ export {
 export type {
   DiscoveredWorkflow,
   WorkflowWithMetadata,
+  WorkflowMetadataStatus,
 } from "../runtime/discovery.ts";
 
 // Runtime — workflow loader pipeline

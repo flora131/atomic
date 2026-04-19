@@ -241,11 +241,21 @@ atomic workflow -n gen-spec -a claude \
 
 # Structured, long-form flag value (= form)
 atomic workflow -n gen-spec -a claude --focus standard --research_doc notes.md
+
+# Detached (background) — starts the orchestrator on the atomic tmux
+# socket and returns immediately. The command prints the session name
+# and hints for attaching later. Use this for scripted / CI runs where
+# the caller shouldn't block on the TUI.
+atomic workflow -n hello -a claude -d "hello world"
+atomic workflow session connect atomic-wf-claude-hello-<id>   # attach later
 ```
 
 Both `--flag=value` and `--flag value` forms are accepted. Short flags
 (`-x value`) are NOT parsed as structured inputs — only long-form
 `--<name>` flags resolve against the schema.
+
+The `-d` / `--detach` flag composes with any named shape (positional
+prompt, structured flags) and is independent of the inputs schema.
 
 ## Pitfalls
 

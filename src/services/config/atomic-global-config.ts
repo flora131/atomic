@@ -330,8 +330,8 @@ export async function hasAtomicGlobalAgentConfigs(
 }
 
 /**
- * Verify-and-repair entrypoint for user-facing commands (`atomic init`,
- * `atomic chat`). If every bundled agent file is present at its
+ * Verify-and-repair entrypoint for user-facing commands (`atomic chat`).
+ * If every bundled agent file is present at its
  * destination, returns immediately without touching disk. Otherwise
  * runs a merge re-sync, which fills the missing files from the local
  * config data dir while leaving user-added files alone.

@@ -234,17 +234,90 @@ function Install-Completions {
     if (-not (Test-Path $profileDir)) {
         New-Item -ItemType Directory -Path $profileDir -Force | Out-Null
     }
-    $marker = 'atomic completions powershell'
-    if ((Test-Path $PROFILE) -and (Select-String -Path $PROFILE -Pattern ([regex]::Escape($marker)) -Quiet)) {
+
+    # Cache the script to disk once; $PROFILE dot-sources it on shell
+    # start. Avoids spawning the bun runtime per-session just to print
+    # a static string, which `| Invoke-Expression` forces every time.
+    $cacheDir = Join-Path $HOME ".atomic\completions"
+    if (-not (Test-Path $cacheDir)) {
+        New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
+    }
+    $scriptPath = Join-Path $cacheDir "atomic.ps1"
+    atomic completions powershell | Out-File -FilePath $scriptPath -Encoding utf8
+
+    $marker = '# Atomic CLI completions (cached)'
+
+    # Strip legacy pipe-to-Invoke-Expression snippet if present.
+    if ((Test-Path $PROFILE) -and
+        (Select-String -Path $PROFILE -Pattern 'atomic completions powershell \| Invoke-Expression' -Quiet)) {
+        $filtered = Get-Content $PROFILE | Where-Object {
+            $_ -notmatch '^# Atomic CLI completions$' -and
+            $_ -notmatch 'atomic completions powershell \| Invoke-Expression'
+        }
+        Set-Content -Path $PROFILE -Value $filtered
+    }
+
+    if ((Test-Path $PROFILE) -and
+        (Select-String -Path $PROFILE -Pattern ([regex]::Escape($marker)) -Quiet)) {
         return  # already installed
     }
-    Add-Content -Path $PROFILE -Value "`n# Atomic CLI completions`natomic completions powershell | Invoke-Expression"
+    Add-Content -Path $PROFILE -Value "`n$marker`nif (Test-Path `"$scriptPath`") { . `"$scriptPath`" }"
+}
+
+# Cache the GitHub MCP token once per day so `gh auth token` isn't
+# forked on every shell spawn. Mirrors the bash/zsh helper installed
+# by install.sh.
+function Install-GhTokenCache {
+    $cacheDir = Join-Path $HOME ".atomic"
+    if (-not (Test-Path $cacheDir)) {
+        New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
+    }
+    $scriptPath = Join-Path $cacheDir "gh-token-cache.ps1"
+
+    $helperBody = @'
+# Atomic: cache `gh auth token` for 24h to avoid shelling out on every
+# shell spawn. Refreshes the cache lazily when it's missing or stale.
+function Set-GitHubToken {
+    if ($env:GITHUB_PERSONAL_ACCESS_TOKEN) { return }
+    if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { return }
+
+    $cache = Join-Path $HOME '.atomic\gh-auth-token'
+    if ((Test-Path $cache) -and
+        ((Get-Date) - (Get-Item $cache).LastWriteTime).TotalMinutes -lt 1440) {
+        $env:GITHUB_PERSONAL_ACCESS_TOKEN = [System.IO.File]::ReadAllText($cache).Trim()
+        return
+    }
+
+    $tok = & gh auth token 2>$null
+    if ($LASTEXITCODE -eq 0 -and $tok) {
+        New-Item -ItemType Directory -Force -Path (Split-Path $cache) | Out-Null
+        [System.IO.File]::WriteAllText($cache, $tok.Trim())
+        $env:GITHUB_PERSONAL_ACCESS_TOKEN = $tok.Trim()
+    }
+}
+
+Set-GitHubToken
+'@
+
+    Set-Content -Path $scriptPath -Value $helperBody -Encoding utf8
+
+    $profileDir = Split-Path $PROFILE -Parent
+    if (-not (Test-Path $profileDir)) {
+        New-Item -ItemType Directory -Path $profileDir -Force | Out-Null
+    }
+
+    $marker = '# Atomic CLI gh auth token cache'
+    if ((Test-Path $PROFILE) -and
+        (Select-String -Path $PROFILE -Pattern ([regex]::Escape($marker)) -Quiet)) {
+        return
+    }
+    Add-Content -Path $PROFILE -Value "`n$marker`nif (Test-Path `"$scriptPath`") { . `"$scriptPath`" }"
 }
 
 # ── Main ────────────────────────────────────────────────────────────────────
 
 # Count upcoming steps so the progress bar is honest.
-$script:StepTotal = 2  # atomic install + completions
+$script:StepTotal = 3  # atomic install + completions + gh token cache
 if (-not (Get-Command bun -ErrorAction SilentlyContinue)) {
     $script:StepTotal++
 }
@@ -267,10 +340,16 @@ if (-not $ok) {
     Write-Warn "Could not install PowerShell completions — run: atomic completions powershell | Invoke-Expression"
 }
 
+# Best-effort: gh token caching speeds up shell startup for MCP users
+$ok = Invoke-Step -Label "Installing gh auth token cache" -Action { Install-GhTokenCache }
+if (-not $ok) {
+    Write-Warn "Could not install gh auth token cache"
+}
+
 Write-Host ""
 Write-Host "  ${C_GREEN}✓${C_RESET} ${C_BOLD}Atomic installed successfully${C_RESET}"
 Write-Host ""
-Write-Host "    Get started:  ${C_CYAN}atomic init${C_RESET}"
+Write-Host "    Get started:  ${C_CYAN}atomic chat -a <agent>${C_RESET}"
 Write-Host ""
 Write-Host "    ${C_DIM}Tooling deps and skills are synced silently on first launch.${C_RESET}"
 Write-Host "    ${C_DIM}To upgrade later: bun update -g @bastani/atomic${C_RESET}"

@@ -155,29 +155,9 @@ describe("paneHasActiveTask", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Combined idle detection logic
+// Note: the old "idle detection (paneLooksReady && !paneHasActiveTask)" section
+// has been removed. Idle detection in waitForIdle now uses fs.watch on the
+// ~/.atomic/claude-stop/ marker directory (see tests/sdk/providers/claude-wait-for-idle.test.ts).
+// paneLooksReady and paneHasActiveTask are still used for delivery verification
+// in the claudeQuery retry loop, so their individual tests above are retained.
 // ---------------------------------------------------------------------------
-
-describe("idle detection (paneLooksReady && !paneHasActiveTask)", () => {
-  test("idle when prompt visible and no active task", () => {
-    const capture = "❯ ";
-    expect(paneLooksReady(capture) && !paneHasActiveTask(capture)).toBe(true);
-  });
-
-  test("not idle when prompt visible but agent is working", () => {
-    // Claude shows prompt character even while streaming with "esc to interrupt"
-    const capture = [
-      "Reading src/index.ts",
-      "  esc to interrupt",
-      "❯ ",
-    ].join("\n");
-    expect(paneLooksReady(capture)).toBe(true);
-    expect(paneHasActiveTask(capture)).toBe(true);
-    expect(paneLooksReady(capture) && !paneHasActiveTask(capture)).toBe(false);
-  });
-
-  test("not idle when no prompt visible", () => {
-    const capture = "Processing something without a prompt";
-    expect(paneLooksReady(capture) && !paneHasActiveTask(capture)).toBe(false);
-  });
-});

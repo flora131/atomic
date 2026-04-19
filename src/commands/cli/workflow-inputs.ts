@@ -15,7 +15,7 @@
 import { COLORS, createPainter } from "../../theme/colors.ts";
 import { AGENT_CONFIG, type AgentKey } from "../../services/config/index.ts";
 import {
-  findWorkflow,
+  findWorkflow as _findWorkflow,
   WorkflowLoader,
 } from "../../sdk/workflows/index.ts";
 import type { WorkflowInput } from "../../sdk/workflows/index.ts";
@@ -150,6 +150,21 @@ export interface WorkflowInputsOptions {
 }
 
 /**
+ * Deps for `workflowInputsCommand`. Injected so tests can drive every
+ * branch (unknown agent / missing workflow / load failure / success)
+ * without the SDK's real filesystem-dependent discovery.
+ */
+export interface WorkflowInputsDeps {
+  findWorkflow: typeof _findWorkflow;
+  loadWorkflow: typeof WorkflowLoader.loadWorkflow;
+}
+
+const defaultDeps: WorkflowInputsDeps = {
+  findWorkflow: _findWorkflow,
+  loadWorkflow: WorkflowLoader.loadWorkflow,
+};
+
+/**
  * Resolve the workflow, then either print its input schema (success)
  * or print an error and return a non-zero exit code. The json branch
  * also writes errors as JSON so an agent can parse a single envelope
@@ -157,6 +172,7 @@ export interface WorkflowInputsOptions {
  */
 export async function workflowInputsCommand(
   options: WorkflowInputsOptions,
+  deps: WorkflowInputsDeps = defaultDeps,
 ): Promise<number> {
   const format: WorkflowInputsFormat = options.format ?? "json";
 
@@ -169,7 +185,7 @@ export async function workflowInputsCommand(
   }
   const agent = options.agent as AgentKey;
 
-  const discovered = await findWorkflow(options.name, agent, options.cwd);
+  const discovered = await deps.findWorkflow(options.name, agent, options.cwd);
   if (!discovered) {
     return reportError(
       format,
@@ -177,7 +193,7 @@ export async function workflowInputsCommand(
     );
   }
 
-  const loaded = await WorkflowLoader.loadWorkflow(discovered);
+  const loaded = await deps.loadWorkflow(discovered);
   if (!loaded.ok) {
     return reportError(format, loaded.message);
   }

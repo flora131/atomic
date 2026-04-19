@@ -298,6 +298,153 @@ describe("workflowStatusCommand", () => {
     }
   });
 
+  test("text format: empty list prints the 'no workflows running' hint", async () => {
+    const { deps } = makeDeps(tmpDir);
+    const cap = captureStdout();
+    try {
+      const code = await workflowStatusCommand({ format: "text" }, deps);
+      expect(code).toBe(0);
+      expect(cap.read()).toContain("no workflows running");
+    } finally {
+      cap.restore();
+    }
+  });
+
+  test("text format: renders a workflow list with indicator, id, and status", async () => {
+    const { deps, mocks } = makeDeps(tmpDir);
+    mocks.listSessions.mockReturnValue([
+      tmuxSession("atomic-wf-claude-ralph-abcd1234"),
+    ]);
+    mocks.readSnapshot.mockResolvedValue(
+      snapshotOf("ralph", "claude", [panelSession("orchestrator", "running")]),
+    );
+    const cap = captureStdout();
+    try {
+      const code = await workflowStatusCommand({ format: "text" }, deps);
+      expect(code).toBe(0);
+      const out = cap.read();
+      expect(out).toContain("atomic-wf-claude-ralph-abcd1234");
+      expect(out).toContain("in_progress");
+      expect(out).toContain("ralph");
+      // singular noun when list has exactly one workflow
+      expect(out).toContain("1");
+    } finally {
+      cap.restore();
+    }
+  });
+
+  test("text format: list uses '(no snapshot)' placeholder when workflowName is empty", async () => {
+    const { deps, mocks } = makeDeps(tmpDir);
+    mocks.listSessions.mockReturnValue([
+      tmuxSession("atomic-wf-claude-ralph-abcd1234"),
+    ]);
+    mocks.readSnapshot.mockResolvedValue(null);
+    const cap = captureStdout();
+    try {
+      const code = await workflowStatusCommand({ format: "text" }, deps);
+      expect(code).toBe(0);
+      expect(cap.read()).toContain("(no snapshot)");
+    } finally {
+      cap.restore();
+    }
+  });
+
+  test("text format: single-report render includes workflow, stages, fatal error, and updatedAt", async () => {
+    const { deps, mocks } = makeDeps(tmpDir);
+    mocks.listSessions.mockReturnValue([
+      tmuxSession("atomic-wf-claude-ralph-abcd1234"),
+    ]);
+    mocks.readSnapshot.mockResolvedValue(
+      snapshotOf(
+        "ralph",
+        "claude",
+        [
+          panelSession("orchestrator", "error", { error: "stage boom" }),
+        ],
+        { fatalError: "the whole thing" },
+      ),
+    );
+    const cap = captureStdout();
+    try {
+      const code = await workflowStatusCommand(
+        { format: "text", id: "atomic-wf-claude-ralph-abcd1234" },
+        deps,
+      );
+      expect(code).toBe(0);
+      const out = cap.read();
+      expect(out).toContain("atomic-wf-claude-ralph-abcd1234");
+      expect(out).toContain("workflow:");
+      expect(out).toContain("ralph");
+      expect(out).toContain("stages:");
+      expect(out).toContain("orchestrator");
+      expect(out).toContain("stage boom");
+      expect(out).toContain("the whole thing");
+      expect(out).toContain("updated:");
+    } finally {
+      cap.restore();
+    }
+  });
+
+  test("text format: unknown id writes 'not found' to stderr and returns 1", async () => {
+    const { deps } = makeDeps(tmpDir);
+    const errChunks: string[] = [];
+    const origErr = process.stderr.write;
+    process.stderr.write = ((c: string | Uint8Array) => {
+      errChunks.push(typeof c === "string" ? c : new TextDecoder().decode(c));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      const code = await workflowStatusCommand(
+        { format: "text", id: "atomic-wf-claude-ralph-deadbeef" },
+        deps,
+      );
+      expect(code).toBe(1);
+      expect(errChunks.join("")).toContain("not found");
+    } finally {
+      process.stderr.write = origErr;
+    }
+  });
+
+  test("reports zero workflows when tmux is not installed", async () => {
+    const { deps, mocks } = makeDeps(tmpDir);
+    mocks.isTmuxInstalled.mockReturnValue(false);
+    const cap = captureStdout();
+    try {
+      const code = await workflowStatusCommand({ format: "json" }, deps);
+      expect(code).toBe(0);
+      const parsed = JSON.parse(cap.read());
+      expect(parsed).toEqual({ workflows: [] });
+    } finally {
+      cap.restore();
+    }
+  });
+
+  test("text format: tmux not installed prints the 'no sessions running' hint", async () => {
+    const { deps, mocks } = makeDeps(tmpDir);
+    mocks.isTmuxInstalled.mockReturnValue(false);
+    const cap = captureStdout();
+    try {
+      const code = await workflowStatusCommand({ format: "text" }, deps);
+      expect(code).toBe(0);
+      expect(cap.read()).toContain("tmux is not installed");
+    } finally {
+      cap.restore();
+    }
+  });
+
+  test("defaults format to 'json' when omitted", async () => {
+    const { deps } = makeDeps(tmpDir);
+    const cap = captureStdout();
+    try {
+      const code = await workflowStatusCommand({}, deps);
+      expect(code).toBe(0);
+      // JSON parses cleanly
+      JSON.parse(cap.read());
+    } finally {
+      cap.restore();
+    }
+  });
+
   afterAll(async () => {
     if (tmpDir) await rm(tmpDir, { recursive: true, force: true });
   });

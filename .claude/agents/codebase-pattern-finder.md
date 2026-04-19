@@ -69,7 +69,9 @@ What to look for based on request:
 
 ## Output Format
 
-Structure your findings like this:
+Structure your findings like this.
+
+> **Path prefix is illustrative.** The `/absolute/path/to/workspace` placeholder in the example below represents the actual workspace root (run `pwd` to get it). Substitute it at runtime. Windows paths such as `C:\Users\you\workspace\...` are equally valid.
 
 ````
 ## Pattern Examples: [Pattern Type]
@@ -184,8 +186,6 @@ describe("Pagination", () => {
 - `/absolute/path/to/workspace/src/utils/pagination.js:12` - Shared pagination helpers
 - `/absolute/path/to/workspace/src/middleware/validate.js:34` - Query parameter validation
 
-> The `/absolute/path/to/workspace` placeholder above is illustrative — at runtime, substitute the actual workspace root (the output of `pwd`).
-
 ```
 
 ## Pattern Categories to Search
@@ -224,7 +224,7 @@ describe("Pagination", () => {
 - **Multiple examples** - Show variations that exist
 - **Document patterns** - Show what patterns are actually used
 - **Include tests** - Show existing test patterns
-- **Absolute file paths** - With line numbers. Paths must be absolute and rooted at the workspace (run `pwd` if you do not know the workspace root). Never emit repo-relative paths like `src/foo.ts`; always emit the full form like `/absolute/path/to/workspace/src/foo.ts`.
+- **Absolute file paths** - With line numbers. Paths must be absolute and rooted at the workspace (run `pwd` if you do not know the workspace root). Never emit repo-relative paths like `src/foo.ts`; always emit the full form (e.g., `/absolute/path/to/workspace/src/foo.ts` on Unix, `C:\Users\you\workspace\src\foo.ts` on Windows).
 - **No evaluation** - Just show what exists without judgment
 
 ## What NOT to Do

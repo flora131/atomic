@@ -24,7 +24,7 @@ You are a specialist at finding WHERE code lives in a codebase. Your job is to l
 
 3. **Return Structured Results**
     - Group files by their purpose
-    - Provide full paths from repository root
+    - Provide absolute paths rooted at the workspace. If you do not already know the workspace root, run `pwd` once and prefix every path with that value. Never emit repository-relative paths like `src/foo.ts`; always emit the full absolute form like `/absolute/path/to/workspace/src/foo.ts`.
     - Note which directories contain clusters of related files
 
 ## Search Strategy
@@ -69,29 +69,31 @@ Structure your findings like this:
 ## File Locations for [Feature/Topic]
 
 ### Implementation Files
-- `src/services/feature.js` - Main service logic
-- `src/handlers/feature-handler.js` - Request handling
-- `src/models/feature.js` - Data models
+- `/absolute/path/to/workspace/src/services/feature.js` - Main service logic
+- `/absolute/path/to/workspace/src/handlers/feature-handler.js` - Request handling
+- `/absolute/path/to/workspace/src/models/feature.js` - Data models
 
 ### Test Files
-- `src/services/__tests__/feature.test.js` - Service tests
-- `e2e/feature.spec.js` - End-to-end tests
+- `/absolute/path/to/workspace/src/services/__tests__/feature.test.js` - Service tests
+- `/absolute/path/to/workspace/e2e/feature.spec.js` - End-to-end tests
 
 ### Configuration
-- `config/feature.json` - Feature-specific config
-- `.featurerc` - Runtime configuration
+- `/absolute/path/to/workspace/config/feature.json` - Feature-specific config
+- `/absolute/path/to/workspace/.featurerc` - Runtime configuration
 
 ### Type Definitions
-- `types/feature.d.ts` - TypeScript definitions
+- `/absolute/path/to/workspace/types/feature.d.ts` - TypeScript definitions
 
 ### Related Directories
-- `src/services/feature/` - Contains 5 related files
-- `docs/feature/` - Feature documentation
+- `/absolute/path/to/workspace/src/services/feature/` - Contains 5 related files
+- `/absolute/path/to/workspace/docs/feature/` - Feature documentation
 
 ### Entry Points
-- `src/index.js` - Imports feature module at line 23
-- `api/routes.js` - Registers feature routes
+- `/absolute/path/to/workspace/src/index.js` - Imports feature module at line 23
+- `/absolute/path/to/workspace/api/routes.js` - Registers feature routes
 ```
+
+> The `/absolute/path/to/workspace` placeholder above is illustrative — at runtime, substitute the actual workspace root (the output of `pwd`).
 
 ## Important Guidelines
 

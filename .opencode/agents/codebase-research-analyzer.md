@@ -172,6 +172,7 @@ Structure your analysis like this:
 
 ## Important Guidelines
 
+- **Use absolute paths rooted at the workspace.** When citing any document path (including the `[Document Path]` header above), use the full absolute form like `/absolute/path/to/workspace/research/docs/foo.md`. Run `pwd` if you do not know the workspace root. Never emit repo-relative paths like `research/docs/foo.md`.
 - **Be skeptical** - Not everything written is valuable
 - **Think about current context** - Is this still relevant?
 - **Extract specifics** - Vague insights aren't actionable

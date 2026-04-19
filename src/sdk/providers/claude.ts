@@ -1077,7 +1077,7 @@ export class HeadlessClaudeSessionWrapper {
 
     let sdkSessionId = "";
     try {
-      for await (const msg of sdkQuery({ prompt, options: headlessSdkOpts })) {
+      for await (const msg of sdkQuery({ prompt, options: options ?? {} })) {
         if (msg.type === "result") {
           sdkSessionId = String(
             (msg as Record<string, unknown>).session_id ?? "",
@@ -1088,11 +1088,16 @@ export class HeadlessClaudeSessionWrapper {
       const detail = err instanceof Error ? err.message : String(err);
       throw new Error(`Claude SDK query failed: ${detail}`);
     }
-    if (sdkSessionId) {
-      this._lastSessionId = sdkSessionId;
-      return getSessionMessages(sdkSessionId, { dir: process.cwd() });
+    if (!sdkSessionId) {
+      throw new Error(
+        "Claude SDK query completed without a `result` message — " +
+          "likely a stream idle timeout, aborted request, or upstream API error. " +
+          "Set CLAUDE_ENABLE_STREAM_WATCHDOG=1 (and tune CLAUDE_STREAM_IDLE_TIMEOUT_MS / " +
+          "API_TIMEOUT_MS) so the CLI surfaces a concrete failure instead of exiting silently.",
+      );
     }
-    return [];
+    this._lastSessionId = sdkSessionId;
+    return getSessionMessages(sdkSessionId, { dir: process.cwd() });
   }
 
   async disconnect(): Promise<void> {}

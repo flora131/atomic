@@ -82,7 +82,7 @@ const DEFAULT_CHAT_FLAGS = [
 ];
 
 /**
- * Build the shell command Claude Code runs from the injected Stop hook.
+ * Build the shell command Claude Code runs from an injected workflow hook.
  *
  * - **Published install** (`import.meta.dir` under `node_modules`): resolve
  *   `atomic` via the user's PATH. That's the binary they installed, and
@@ -95,33 +95,82 @@ const DEFAULT_CHAT_FLAGS = [
  * The dev-detection heuristic (`node_modules` in `import.meta.dir`) is the
  * same one used by `src/services/system/auto-sync.ts:50`.
  */
-function buildWorkflowStopHookCommand(): string {
+function buildWorkflowHookCommand(subcommand: string, extraArgs: readonly string[] = []): string {
   if (import.meta.dir.includes("node_modules")) {
-    return "atomic _claude-stop-hook";
+    return ["atomic", subcommand, ...extraArgs].join(" ");
   }
   const runtime = process.execPath;
   const cliPath = join(import.meta.dir, "..", "..", "cli.ts");
-  return `"${escBash(runtime)}" "${escBash(cliPath)}" _claude-stop-hook`;
+  return [
+    `"${escBash(runtime)}"`,
+    `"${escBash(cliPath)}"`,
+    subcommand,
+    ...extraArgs,
+  ].join(" ");
 }
 
 /**
  * Inline settings injected via `claude --settings <json>` on every workflow
- * spawn. Registers the workflow Stop hook that delivers follow-up prompts
- * without relying on `.claude/settings.json` — so the hook fires only for
- * workflow-spawned Claude sessions, not when a user runs `claude` manually.
+ * spawn. Registers the workflow-owned hooks without relying on
+ * `.claude/settings.json` — so the hooks fire only for workflow-spawned
+ * Claude sessions, not when a user runs `claude` manually.
+ *
+ * Registered hooks:
+ *   - `Stop`: deliver queued follow-up prompts via `{decision:"block"}` and
+ *     write an idle-marker file that `waitForIdle` watches.
+ *   - `PreToolUse` matched on `AskUserQuestion`: write
+ *     `~/.atomic/claude-hil/<session_id>` so `watchHILMarker` can fire
+ *     `onHIL(true)` — the node card flips to the blue "awaiting_input" pulse.
+ *   - `PostToolUse` / `PostToolUseFailure` matched on `AskUserQuestion`:
+ *     remove the HIL marker. Byte-identical commands rely on Claude Code's
+ *     hook deduplication so a failed-then-retried question clears the marker
+ *     exactly once.
  *
  * Built once at module load. Contains no single quotes (JSON syntax doesn't
  * produce them and paths rarely do), so POSIX single-quoting at the spawn
  * site is sufficient shell escaping.
  */
-const WORKFLOW_STOP_HOOK_SETTINGS = JSON.stringify({
+const WORKFLOW_HOOK_SETTINGS = JSON.stringify({
   hooks: {
     Stop: [
       {
         hooks: [
           {
             type: "command",
-            command: buildWorkflowStopHookCommand(),
+            command: buildWorkflowHookCommand("_claude-stop-hook"),
+          },
+        ],
+      },
+    ],
+    PreToolUse: [
+      {
+        matcher: "AskUserQuestion",
+        hooks: [
+          {
+            type: "command",
+            command: buildWorkflowHookCommand("_claude-ask-hook", ["enter"]),
+          },
+        ],
+      },
+    ],
+    PostToolUse: [
+      {
+        matcher: "AskUserQuestion",
+        hooks: [
+          {
+            type: "command",
+            command: buildWorkflowHookCommand("_claude-ask-hook", ["exit"]),
+          },
+        ],
+      },
+    ],
+    PostToolUseFailure: [
+      {
+        matcher: "AskUserQuestion",
+        hooks: [
+          {
+            type: "command",
+            command: buildWorkflowHookCommand("_claude-ask-hook", ["exit"]),
           },
         ],
       },
@@ -226,7 +275,7 @@ async function spawnClaudeWithPrompt(
     // last-wins semantics shadow any user-provided --settings, making this
     // non-overridable by `.atomic/settings.json` chatFlags overrides.
     "--settings",
-    `'${WORKFLOW_STOP_HOOK_SETTINGS}'`,
+    `'${WORKFLOW_HOOK_SETTINGS}'`,
     "--session-id",
     sessionId,
     argvPrompt,
@@ -316,49 +365,6 @@ function resolveSessionDir(cwd: string): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Returns true if the most recent assistant message contains an
- * `AskUserQuestion` tool_use block that has not yet been resolved
- * by a corresponding `tool_result` in a subsequent user message.
- *
- * Pure function — no side effects, safe to call from a watch loop.
- *
- * Exported as `_hasUnresolvedHILTool` for unit testing.
- */
-export function _hasUnresolvedHILTool(messages: SessionMessage[]): boolean {
-  const resolvedIds = new Set<string>();
-
-  for (const msg of messages) {
-    if (msg.type !== "user") continue;
-    const content = (msg.message as { content: unknown })?.content;
-    if (!Array.isArray(content)) continue;
-    for (const block of content) {
-      if (block.type === "tool_result" && block.tool_use_id) {
-        resolvedIds.add(block.tool_use_id);
-      }
-    }
-  }
-
-  for (const msg of [...messages].reverse()) {
-    if (msg.type !== "assistant") continue;
-    const content = (msg.message as { content: unknown })?.content;
-    if (!Array.isArray(content)) continue;
-    for (const block of content) {
-      if (
-        block.type === "tool_use" &&
-        block.name === "AskUserQuestion" &&
-        block.id &&
-        !resolvedIds.has(block.id)
-      ) {
-        return true;
-      }
-    }
-    break;
-  }
-
-  return false;
-}
-
-/**
  * Returns true when the most recent assistant message in the transcript
  * ended with `stop_reason: "tool_use"` — i.e. the agent stopped the current
  * API response to call a tool but has not yet produced its post-tool answer.
@@ -389,118 +395,49 @@ export function _isMidAgentLoop(messages: SessionMessage[]): boolean {
 }
 
 /**
- * Core HIL watcher loop — pure logic, dependency-injected for testability.
+ * Watch `~/.atomic/claude-hil/` for this session's marker file and fire
+ * `onHIL(true|false)` on create/unlink. Returns when `signal` is aborted.
  *
- * Iterates an async iterable of "file change" events (each event triggers a
- * transcript read via `readMessages`). Calls `onHIL(true)` when
- * `_hasUnresolvedHILTool` first returns true, `onHIL(false)` when it returns
- * false after having been true. The `wasHIL` guard prevents redundant
- * callbacks on repeated events with the same HIL state.  Read errors from
- * `readMessages` are swallowed so a single corrupt JSONL write doesn't kill
- * the watcher.
- *
- * Exported as `_runHILWatcher` for unit testing (event source and message
- * reader are injected rather than hard-coded to `fs.watch` / `getSessionMessages`).
- */
-export async function _runHILWatcher(
-  events: AsyncIterable<unknown>,
-  readMessages: () => Promise<SessionMessage[]>,
-  onHIL: (waiting: boolean) => void,
-): Promise<void> {
-  let wasHIL = false;
-
-  for await (const _event of events) {
-    try {
-      const msgs = await readMessages();
-      const isHIL = _hasUnresolvedHILTool(msgs);
-      if (isHIL !== wasHIL) {
-        onHIL(isHIL);
-        wasHIL = isHIL;
-      }
-    } catch {
-      // Transcript read failed — skip this event, try again on next write
-    }
-  }
-}
-
-/**
- * Path helpers for the transcript JSONL written by Claude Code.
- * @internal Exported for tests.
- */
-export function transcriptDir(): string {
-  return resolveSessionDir(process.cwd());
-}
-
-/** @internal Exported for tests. */
-export function transcriptPath(claudeSessionId: string): string {
-  return join(transcriptDir(), `${claudeSessionId}.jsonl`);
-}
-
-/**
- * Watch this session's transcript JSONL and call `onHIL` on every HIL-state
- * transition — independently of the Stop hook.
- *
- * Why not piggyback on the Stop hook? `AskUserQuestion` is a deferred tool
- * (`shouldDefer: true`, see Claude Code's
- * `src/tools/AskUserQuestionTool/AskUserQuestionTool.tsx`). While the question
- * is pending, Claude's agent loop blocks on the tool with
- * `needsFollowUp === true`, so `handleStopHooks` never runs
- * (`src/query.ts`: `if (!needsFollowUp)`). A watcher tied to the Stop-hook
- * marker would sleep through the entire HIL window and only wake up after
- * the user has already answered.
- *
- * Watches the parent session directory rather than the file itself so the
- * attach is safe before Claude has created the JSONL on first query. Events
- * are filtered by `<sessionId>.jsonl`. Returns when `signal` is aborted.
+ * The marker is written by the `_claude-ask-hook enter` subcommand from
+ * Claude Code's `PreToolUse` hook (matched on `AskUserQuestion`) and removed
+ * by `_claude-ask-hook exit` from `PostToolUse` / `PostToolUseFailure`. That
+ * makes the signal deterministic and independent of Claude Code's batched
+ * JSONL flush timing, which used to hide the HIL window entirely when
+ * tool_use and tool_result landed in the same file write.
  *
  * @internal Exported for tests.
  */
-export async function watchTranscriptForHIL(
+export async function watchHILMarker(
   claudeSessionId: string,
   onHIL: (waiting: boolean) => void,
   signal: AbortSignal,
 ): Promise<void> {
-  const dir = transcriptDir();
+  const { hil: dir } = claudeHookDirs();
+  const target = join(dir, claudeSessionId);
 
-  const readMessages = async (): Promise<SessionMessage[]> => {
-    try {
-      return await getSessionMessages(claudeSessionId, {
-        dir: process.cwd(),
-        includeSystemMessages: true,
-      });
-    } catch {
-      return [];
-    }
-  };
+  await mkdir(dir, { recursive: true });
 
   let wasHIL = false;
-  const check = async (): Promise<void> => {
-    const msgs = await readMessages();
-    const isHIL = _hasUnresolvedHILTool(msgs);
+  const emit = (isHIL: boolean): void => {
     if (isHIL !== wasHIL) {
       onHIL(isHIL);
       wasHIL = isHIL;
     }
   };
 
-  await mkdir(dir, { recursive: true });
-
-  // Attach the watcher BEFORE the initial check so any events that arrive
-  // during the check are buffered by the iterator instead of being lost.
+  // Attach the watcher BEFORE the initial existsSync so any event that fires
+  // during the check is buffered by the iterator instead of being dropped.
   const watcher = watch(dir, { signal });
 
-  // Initial check: closes the race where the JSONL already contains an
-  // unresolved AskUserQuestion by the time this watcher attaches (resumed
-  // session, slow attach, etc.).
-  await check();
+  // Initial existsSync: handles resumed sessions whose PreToolUse marker was
+  // already on disk before the watcher attached.
+  if (existsSync(target)) emit(true);
 
   try {
     for await (const _event of watcher) {
-      // We intentionally don't filter by `_event.filename`. On Linux, writes
-      // can deliver events with unrelated or `.tmp` basenames, and Bun's
-      // fs.watch behavior varies across OSes; `getSessionMessages` is keyed
-      // by `claudeSessionId` so a cheap re-read is authoritative.
-      await check();
+      // Don't trust event.filename — Bun/Linux deliver inconsistent basenames
+      // across OSes and write patterns. Disk existence is authoritative.
+      emit(existsSync(target));
     }
   } catch (e: unknown) {
     if (!(e instanceof Error && e.name === "AbortError")) {
@@ -589,6 +526,24 @@ async function clearStaleQueue(claudeSessionId: string): Promise<void> {
   await mkdir(queueDir(), { recursive: true });
   try {
     await unlink(queuePath(claudeSessionId));
+  } catch (e: unknown) {
+    if (!(e instanceof Error && "code" in e && (e as NodeJS.ErrnoException).code === "ENOENT")) {
+      throw e;
+    }
+  }
+}
+
+/**
+ * Remove a stale HIL marker left over from a prior turn (e.g. the ask-hook
+ * process was SIGKILL'd between PreToolUse and PostToolUse). Without this,
+ * `watchHILMarker`'s initial `existsSync` would spuriously fire `onHIL(true)`
+ * at the start of a fresh turn. Ignores ENOENT.
+ */
+async function clearStaleHILMarker(claudeSessionId: string): Promise<void> {
+  const { hil } = claudeHookDirs();
+  await mkdir(hil, { recursive: true });
+  try {
+    await unlink(join(hil, claudeSessionId));
   } catch (e: unknown) {
     if (!(e instanceof Error && "code" in e && (e as NodeJS.ErrnoException).code === "ENOENT")) {
       throw e;
@@ -862,9 +817,12 @@ export async function claudeQuery(options: ClaudeQueryOptions): Promise<SessionM
   const claudeSessionId = paneState.claudeSessionId;
 
   // Clear stale marker AND stale queue entry before submitting so the
-  // Stop-hook for the previous turn (if any) cannot race this one.
+  // Stop-hook for the previous turn (if any) cannot race this one. The HIL
+  // marker is cleared too so a crashed ask-hook process from turn N-1 can't
+  // make `watchHILMarker`'s initial existsSync spuriously fire onHIL(true).
   await clearStaleMarker(claudeSessionId);
   await clearStaleQueue(claudeSessionId);
+  await clearStaleHILMarker(claudeSessionId);
 
   let transcriptBeforeCount = 0;
   let spawnPromptFile: string | undefined;
@@ -906,29 +864,27 @@ export async function claudeQuery(options: ClaudeQueryOptions): Promise<SessionM
       paneState.claudeStarted = true;
     }
 
-    // HIL detection runs in parallel with idle detection. The Stop hook
-    // (which drives waitForIdle) doesn't fire while `AskUserQuestion` is
-    // pending, so we watch the transcript JSONL directly for HIL transitions.
+    // HIL detection runs in parallel with idle detection. The
+    // PreToolUse/PostToolUse/PostToolUseFailure hooks on `AskUserQuestion`
+    // write/remove `~/.atomic/claude-hil/<session_id>`; we watch that dir
+    // for create/unlink events so HIL state is deterministic and immune to
+    // Claude Code's batched JSONL flush timing.
     const hilAc = new AbortController();
     if (onHIL) {
-      void watchTranscriptForHIL(claudeSessionId, onHIL, hilAc.signal).catch(
-        () => {
-          // Best-effort — never fail the query over HIL detection.
-        },
-      );
+      void watchHILMarker(claudeSessionId, onHIL, hilAc.signal).catch(() => {
+        // Best-effort — never fail the query over HIL detection.
+      });
     }
 
     try {
       return await waitForIdle(claudeSessionId, transcriptBeforeCount);
     } finally {
       hilAc.abort();
-      // Safety: waitForIdle only returns at true turn-idle (no unresolved
-      // AskUserQuestion by Claude's own `!needsFollowUp` gate). If the
-      // transcript watcher missed the final tool_result flush due to
-      // Claude's batched JSONL writes, the UI could be stuck on
-      // awaiting_input. `resumeSession` in the panel store is idempotent
-      // (no-op when the session isn't in awaiting_input), so this is
-      // always safe.
+      // Safety: waitForIdle only returns at true turn-idle. If the ask-hook
+      // process crashed mid-turn and left the marker on disk, the UI could
+      // be stuck on awaiting_input. `resumeSession` in the panel store is
+      // idempotent (no-op when the session isn't in awaiting_input), so
+      // this is always safe.
       onHIL?.(false);
     }
   } finally {

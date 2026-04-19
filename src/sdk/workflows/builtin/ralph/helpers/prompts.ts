@@ -47,9 +47,9 @@ export const ReviewFindingSchema = z.object({
     ),
   code_location: z
     .object({
-      absolute_file_path: z
+      file_path: z
         .string()
-        .describe("Absolute path to the file containing the issue"),
+        .describe("Repo-relative path to the file containing the issue"),
       line_range: z.object({
         start: z.number().int().describe("Start line number"),
         end: z.number().int().describe("End line number"),
@@ -583,7 +583,7 @@ export interface ReviewFinding {
   confidence_score?: number;
   priority?: number;
   code_location?: {
-    absolute_file_path: string;
+    file_path: string;
     line_range: { start: number; end: number };
   };
 }
@@ -817,7 +817,7 @@ ${outputSection}
   - \`body\`: What's wrong, why it matters, and how to fix it
   - \`priority\`: 0 = P0 critical, 1 = P1 important, 2 = P2 moderate, 3 = P3 minor
   - \`confidence_score\`: 0.0 – 1.0, how confident you are this is a real issue
-  - \`code_location\`: absolute file path and line range (when applicable)
+  - \`code_location\`: repo-relative file path and line range (when applicable)
 
 - **overall_correctness**: Set to \`"patch is incorrect"\` whenever there is at
   least one P0 or P1 finding (including incomplete tasks). Use
@@ -869,7 +869,7 @@ export function buildDebuggerReportPrompt(
       .map((f, i) => {
         const pri = f.priority !== undefined ? `P${f.priority}` : "P2";
         const loc = f.code_location
-          ? `${f.code_location.absolute_file_path}:${f.code_location.line_range.start}-${f.code_location.line_range.end}`
+          ? `${f.code_location.file_path}:${f.code_location.line_range.start}-${f.code_location.line_range.end}`
           : "unspecified";
         return `### Finding ${i + 1}: [${pri}] ${f.title}
 - **Location:** ${loc}
@@ -947,7 +947,7 @@ ${changesetSection}
 For each finding:
 1. Locate the relevant code (LSP / grep / Read).
 2. Identify the **root cause**, not just the symptom.
-3. List the absolute file paths that must change.
+3. List the repo-relative file paths that must change.
 4. Note constraints, pitfalls, or invariants the next planner must respect.
 
 ## Output Format
@@ -961,7 +961,7 @@ No prose before or after the block. Use this exact section structure:
 ## Issues Identified
 - [P<priority>] <one-line issue summary>
   - **Root cause:** <one or two sentences>
-  - **Files:** <abs/path/file.ext, abs/path/other.ext>
+  - **Files:** <path/to/file.ext, path/to/other.ext>
   - **Fix approach:** <imperative description>
 
 ## Suggested Plan Adjustments

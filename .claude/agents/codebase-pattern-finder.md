@@ -75,7 +75,7 @@ Structure your findings like this:
 ## Pattern Examples: [Pattern Type]
 
 ### Pattern 1: [Descriptive Name]
-**Found in**: `src/api/users.js:45-67`
+**Found in**: `/absolute/path/to/workspace/src/api/users.js:45-67`
 **Used for**: User listing with pagination
 
 ```javascript
@@ -113,7 +113,7 @@ router.get('/users', async (req, res) => {
 
 ### Pattern 2: [Alternative Approach]
 
-**Found in**: `src/api/products.js:89-120`
+**Found in**: `/absolute/path/to/workspace/src/api/products.js:89-120`
 **Used for**: Product listing with cursor-based pagination
 
 ```javascript
@@ -152,7 +152,7 @@ router.get("/products", async (req, res) => {
 
 ### Testing Patterns
 
-**Found in**: `tests/api/pagination.test.js:15-45`
+**Found in**: `/absolute/path/to/workspace/tests/api/pagination.test.js:15-45`
 
 ```javascript
 describe("Pagination", () => {
@@ -181,8 +181,10 @@ describe("Pagination", () => {
 
 ### Related Utilities
 
-- `src/utils/pagination.js:12` - Shared pagination helpers
-- `src/middleware/validate.js:34` - Query parameter validation
+- `/absolute/path/to/workspace/src/utils/pagination.js:12` - Shared pagination helpers
+- `/absolute/path/to/workspace/src/middleware/validate.js:34` - Query parameter validation
+
+> The `/absolute/path/to/workspace` placeholder above is illustrative — at runtime, substitute the actual workspace root (the output of `pwd`).
 
 ```
 
@@ -222,7 +224,7 @@ describe("Pagination", () => {
 - **Multiple examples** - Show variations that exist
 - **Document patterns** - Show what patterns are actually used
 - **Include tests** - Show existing test patterns
-- **Full file paths** - With line numbers
+- **Absolute file paths** - With line numbers. Paths must be absolute and rooted at the workspace (run `pwd` if you do not know the workspace root). Never emit repo-relative paths like `src/foo.ts`; always emit the full form like `/absolute/path/to/workspace/src/foo.ts`.
 - **No evaluation** - Just show what exists without judgment
 
 ## What NOT to Do

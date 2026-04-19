@@ -42,7 +42,10 @@ import { useState, useEffect, useMemo, useRef, useCallback, useContext, createCo
 import { useLatest } from "./hooks.ts";
 import { resolveTheme, type TerminalTheme } from "../runtime/theme.ts";
 import type { AgentType, WorkflowInput } from "../types.ts";
-import type { WorkflowWithMetadata } from "../runtime/discovery.ts";
+import type {
+  WorkflowWithMetadata,
+  WorkflowMetadataStatus,
+} from "../runtime/discovery.ts";
 import { ErrorBoundary } from "./error-boundary.tsx";
 
 // ─── Theme ──────────────────────────────────────
@@ -258,6 +261,38 @@ export function buildRows(entries: ListEntry[], query: string): ListRow[] {
   return rows;
 }
 
+// ─── Status helpers ─────────────────────────────
+// Non-ok entries stay visible in the picker so the user sees that a
+// workflow from an older SDK release (or one with a load error) still
+// exists on disk — the previous behaviour silently dropped them, which
+// made user/global workflows appear to vanish after an atomic upgrade.
+
+/** Unicode glyph that prefixes a non-ok entry and heads its preview. */
+const STATUS_ICON: Record<WorkflowMetadataStatus["kind"], string> = {
+  ok: " ",
+  incompatible: "⚠",
+  error: "✗",
+};
+
+/** Compact single-word label used in list rows and the bottom hint. */
+const STATUS_LABEL: Record<WorkflowMetadataStatus["kind"], string> = {
+  ok: "",
+  incompatible: "update",
+  error: "broken",
+};
+
+/** Map each status kind to its semantic palette slot. */
+const STATUS_COLOR: Record<WorkflowMetadataStatus["kind"], keyof PickerTheme> = {
+  ok: "success",
+  incompatible: "warning",
+  error: "error",
+};
+
+/** Non-ok rows are inert — Enter / run commands must not transition the picker. */
+function isRunnable(wf: WorkflowWithMetadata): boolean {
+  return wf.status.kind === "ok";
+}
+
 // ─── Validation ─────────────────────────────────
 
 export function isFieldValid(field: WorkflowInput, value: string): boolean {
@@ -385,6 +420,24 @@ const WorkflowList = memo(function WorkflowList({
         const entryIdx = entryIndexByRow.get(i) ?? -1;
         const isFocused = entryIdx === focusedEntryIdx;
         const wf = row.entry.workflow;
+        const statusKind = wf.status.kind;
+        const runnable = statusKind === "ok";
+        // Status indicator sits between the focus marker and the name so
+        // every row shares a 4-character gutter — ok rows render a blank
+        // gutter, so the list stays visually flush while non-ok rows
+        // always occupy a fixed slot (no layout jitter when filtering).
+        const statusIcon = STATUS_ICON[statusKind];
+        const statusCol = theme[STATUS_COLOR[statusKind]];
+        // Non-ok rows fade the name so the "diagnostic, not selectable"
+        // read is immediate even when the user hasn't reached the row
+        // yet — the eye catches the warning glyph + dim text together.
+        const nameCol = runnable
+          ? isFocused
+            ? theme.text
+            : theme.textMuted
+          : isFocused
+            ? theme.textMuted
+            : theme.textDim;
 
         return (
           <box
@@ -399,7 +452,10 @@ const WorkflowList = memo(function WorkflowList({
               <span fg={isFocused ? theme.primary : theme.textDim}>
                 {isFocused ? "▸ " : "  "}
               </span>
-              <span fg={isFocused ? theme.text : theme.textMuted}>
+              <span fg={statusCol}>
+                {statusIcon + " "}
+              </span>
+              <span fg={nameCol}>
                 {wf.name}
               </span>
             </text>
@@ -459,6 +515,59 @@ const ArgumentRow = memo(function ArgumentRow({
   );
 });
 
+/**
+ * Diagnostic block for non-ok workflows. Replaces the description +
+ * arguments sections in the preview pane so the user sees *why* a row
+ * is inert and what to do about it, instead of an empty-looking panel.
+ */
+const StatusDiagnostic = memo(function StatusDiagnostic({
+  status,
+}: {
+  status: Exclude<WorkflowMetadataStatus, { kind: "ok" }>;
+}) {
+  const theme = usePickerTheme();
+  const color = theme[STATUS_COLOR[status.kind]];
+  const icon = STATUS_ICON[status.kind];
+
+  // Headline + sub-copy split: the headline is terse (three words) so
+  // it reads at a glance even on a narrow right pane; the sub-copy
+  // explains *why* and the third paragraph tells the user what to do.
+  const headline =
+    status.kind === "incompatible"
+      ? "update required"
+      : "failed to load";
+  const detail =
+    status.kind === "incompatible"
+      ? `Needs Atomic v${status.requiredVersion}. Installed: v${status.currentVersion}.`
+      : status.message;
+  const remediation =
+    status.kind === "incompatible"
+      ? "Update Atomic, or re-save the workflow against the current SDK."
+      : "Open the workflow file and fix the error above.";
+
+  return (
+    <box flexDirection="column">
+      <text>
+        <span fg={color}>
+          <strong>{icon + " " + headline}</strong>
+        </span>
+      </text>
+
+      <box height={1} />
+
+      <text>
+        <span fg={theme.textMuted}>{detail}</span>
+      </text>
+
+      <box height={1} />
+
+      <text>
+        <span fg={theme.textDim}>{remediation}</span>
+      </text>
+    </box>
+  );
+});
+
 const Preview = memo(function Preview({
   wf,
 }: {
@@ -466,6 +575,7 @@ const Preview = memo(function Preview({
 }) {
   const theme = usePickerTheme();
   const args = wf.inputs;
+  const status = wf.status;
 
   return (
     <box
@@ -493,21 +603,27 @@ const Preview = memo(function Preview({
 
       <box height={2} />
 
-      <text>
-        <span fg={theme.textMuted}>
-          {wf.description || "(no description)"}
-        </span>
-      </text>
-
-      {args.length > 0 && (
+      {status.kind === "ok" ? (
         <>
-          <box height={2} />
-          <SectionLabel label="ARGUMENTS" />
-          <box height={1} />
-          {args.map((f) => (
-            <ArgumentRow key={f.name} field={f} />
-          ))}
+          <text>
+            <span fg={theme.textMuted}>
+              {wf.description || "(no description)"}
+            </span>
+          </text>
+
+          {args.length > 0 && (
+            <>
+              <box height={2} />
+              <SectionLabel label="ARGUMENTS" />
+              <box height={1} />
+              {args.map((f) => (
+                <ArgumentRow key={f.name} field={f} />
+              ))}
+            </>
+          )}
         </>
+      ) : (
+        <StatusDiagnostic status={status} />
       )}
     </box>
   );
@@ -1022,6 +1138,14 @@ const PICK_HINTS: Hint[] = [
   { key: "↵", label: "select" },
   { key: "esc", label: "quit" },
 ];
+// Shown instead of PICK_HINTS when the focused row is non-ok — the dim
+// `↵ unavailable` reads immediately as "this row is navigable but not
+// runnable", which matches the muted row colour and preview diagnostic.
+const PICK_HINTS_UNAVAILABLE: Hint[] = [
+  { key: "↑↓", label: "navigate" },
+  { key: "↵", label: "unavailable", dim: true },
+  { key: "esc", label: "quit" },
+];
 const CONFIRM_HINTS: Hint[] = [
   { key: "y", label: "submit" },
   { key: "n", label: "cancel" },
@@ -1134,7 +1258,26 @@ const Statusline = memo(function Statusline({
       {focusedWf ? (
         <box paddingLeft={1} paddingRight={1} alignItems="center">
           <text>
-            <span fg={theme.text}>{focusedWf.name}</span>
+            {focusedWf.status.kind !== "ok" ? (
+              <span fg={theme[STATUS_COLOR[focusedWf.status.kind]]}>
+                {STATUS_ICON[focusedWf.status.kind] + " "}
+              </span>
+            ) : null}
+            <span
+              fg={
+                focusedWf.status.kind === "ok" ? theme.text : theme.textMuted
+              }
+            >
+              {focusedWf.name}
+            </span>
+            {focusedWf.status.kind !== "ok" ? (
+              <>
+                <span fg={theme.textDim}>{"  ·  "}</span>
+                <span fg={theme[STATUS_COLOR[focusedWf.status.kind]]}>
+                  {STATUS_LABEL[focusedWf.status.kind]}
+                </span>
+              </>
+            ) : null}
           </text>
         </box>
       ) : null}
@@ -1247,7 +1390,10 @@ function usePickerKeyboard(state: PickerKeyboardState): void {
     if (key.name === "return") {
       key.stopPropagation();
       const wf = focusedWfRef.current;
-      if (wf) {
+      // Silently swallow Enter on incompatible / broken entries — the
+      // preview pane already explains the failure; advancing into the
+      // prompt phase would be misleading since the workflow can't run.
+      if (wf && isRunnable(wf)) {
         const initial: Record<string, string> = {};
         for (const f of wf.inputs) {
           initial[f.name] =
@@ -1408,10 +1554,13 @@ export function WorkflowPicker({
     setConfirmOpen,
   });
 
+  const focusedIsRunnable = focusedWf ? isRunnable(focusedWf) : true;
   const hints = confirmOpen
     ? CONFIRM_HINTS
     : phase === "pick"
-      ? PICK_HINTS
+      ? focusedIsRunnable
+        ? PICK_HINTS
+        : PICK_HINTS_UNAVAILABLE
       : isFormValid
         ? PROMPT_HINTS_VALID
         : PROMPT_HINTS_INVALID;

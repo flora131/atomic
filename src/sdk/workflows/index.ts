@@ -35,7 +35,6 @@ export type {
   OpencodeSession,
   ClaudeClientWrapper,
   ClaudeSessionWrapper,
-  ClaudeQueryDefaults,
 } from "../types.ts";
 
 // Re-export native SDK types for convenience

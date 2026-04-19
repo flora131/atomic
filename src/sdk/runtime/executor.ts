@@ -558,17 +558,36 @@ function printDetachedBanner(tmuxSessionName: string): void {
   );
 }
 
-/**
- * Small buffer (ms) subtracted from `Date.now()` when recording the Claude
- * session start timestamp.  Protects against fast sequential runs where
- * the system clock granularity could cause a just-created session's
- * `lastModified` to fall slightly before our recorded timestamp.
- */
-const CLAUDE_SESSION_TIMESTAMP_BUFFER_MS = 100;
-
 // ============================================================================
 // Session execution helpers
 // ============================================================================
+
+/**
+ * Resolve the provider-specific session identifier for use as
+ * `SessionContext.sessionId`:
+ *   - Claude interactive: `ClaudeSessionWrapper.sessionId` — the Claude UUID
+ *     set when `createClaudeSession` ran.
+ *   - Claude headless: `HeadlessClaudeSessionWrapper.sessionId` — the SDK
+ *     `session_id` from the most recently completed `query()` (empty string
+ *     until the first query returns).
+ *   - Copilot: `CopilotSession.sessionId`.
+ *   - OpenCode: `Session.id`.
+ *
+ * Returns an empty string for unknown shapes rather than throwing so
+ * early-init readers of `s.sessionId` (e.g. logging) don't crash.
+ */
+function resolveProviderSessionId(
+  agent: AgentType,
+  providerSession: unknown,
+): string {
+  if (!providerSession || typeof providerSession !== "object") return "";
+  const obj = providerSession as Record<string, unknown>;
+  if (agent === "opencode") {
+    return typeof obj["id"] === "string" ? (obj["id"] as string) : "";
+  }
+  // claude and copilot both expose `sessionId` as a string.
+  return typeof obj["sessionId"] === "string" ? (obj["sessionId"] as string) : "";
+}
 
 /** Type guard for objects with a string `content` property (Copilot assistant.message data). */
 export function hasContent(value: unknown): value is { content: string } {
@@ -580,56 +599,281 @@ export function hasContent(value: unknown): value is { content: string } {
   );
 }
 
-export function renderMessagesToText(messages: SavedMessage[]): string {
-  return messages
-    .map((m) => {
-      switch (m.provider) {
-        case "copilot": {
-          if (m.data.type !== "assistant.message") return "";
-          // SessionEvent["data"] for assistant.message has a typed `content: string`
-          return hasContent(m.data.data) ? m.data.data.content : "";
+/**
+ * Character budget cap for tool-call `input` payloads embedded in the
+ * transcript. Tool call arguments can grow (diffs, large SQL strings, whole
+ * files passed inline), and the transcript's primary consumer is a
+ * downstream LLM that must `Read` this file as context for its own turn —
+ * so we cap the per-call JSON at a predictable size. The suffix
+ * `[+N chars]` preserves the dropped length for humans reviewing the file.
+ *
+ * Tool _results_ are intentionally NOT included in the transcript. File
+ * contents, shell output, and search results inflate the transcript
+ * dramatically and lead to context rot on the next stage. A reader (human
+ * or model) can still reconstruct what the tool returned by looking at
+ * the assistant's subsequent text — which is the whole point of the
+ * assistant summarising its own work.
+ */
+const TRANSCRIPT_TOOL_INPUT_BUDGET = 800;
+
+function truncateForTranscript(text: string, max: number): string {
+  if (text.length <= max) return text;
+  return text.slice(0, max) + ` … [+${text.length - max} chars]`;
+}
+
+/** Render a tool_use `input` object as a JSON-ish block, capped to budget. */
+function renderToolInput(input: unknown): string {
+  let json: string;
+  try {
+    json = JSON.stringify(input, null, 2);
+  } catch {
+    json = String(input);
+  }
+  return truncateForTranscript(json, TRANSCRIPT_TOOL_INPUT_BUDGET);
+}
+
+/**
+ * Render a Claude transcript as readable Markdown.
+ *
+ * Captures the user/agent interaction chronologically:
+ *   - User messages (string content)                  → `### User`
+ *   - Assistant text blocks                           → `### Assistant`
+ *   - Assistant `tool_use` blocks                     → `**→ \`Name\`**` + JSON input
+ *
+ * Intentionally omitted:
+ *   - `tool_result` blocks — their payloads (file contents, shell output,
+ *     stringified diffs) dominate the transcript and lead to context rot on
+ *     the next stage. The assistant's subsequent text response already
+ *     summarises what the tool returned; re-including the raw output
+ *     duplicates that information at high token cost.
+ *   - `thinking` blocks — verbose internal reasoning rarely useful when the
+ *     transcript is re-ingested as context elsewhere.
+ *   - `system` / `summary` / other non-message types.
+ */
+function renderClaudeTranscript(
+  messages: ReadonlyArray<{ type: string; message: unknown }>,
+): string {
+  const sections: string[] = [];
+
+  for (const msg of messages) {
+    if (msg.type !== "user" && msg.type !== "assistant") continue;
+
+    // `message` shape is one of:
+    //   - a plain string (legacy path),
+    //   - `{ role, content: string }` (API-style plain text turn),
+    //   - `{ role, content: Block[] }` (tool-use / tool-result turns).
+    // Normalise the first two into a single string; handle the third below.
+    const rawMessage = msg.message;
+    let plainText: string | null = null;
+    let arrayContent: unknown[] | null = null;
+
+    if (typeof rawMessage === "string") {
+      plainText = rawMessage;
+    } else if (rawMessage && typeof rawMessage === "object") {
+      const content = (rawMessage as { content?: unknown }).content;
+      if (typeof content === "string") {
+        plainText = content;
+      } else if (Array.isArray(content)) {
+        arrayContent = content;
+      }
+    }
+
+    if (plainText !== null) {
+      const trimmed = plainText.trim();
+      if (trimmed) {
+        const header = msg.type === "user" ? "### User" : "### Assistant";
+        sections.push(`${header}\n\n${trimmed}`);
+      }
+      continue;
+    }
+
+    if (arrayContent === null) continue;
+    const content = arrayContent;
+
+    if (msg.type === "assistant") {
+      // Group all blocks from a single assistant message under one header
+      // so text and tool calls read as one coherent turn.
+      const parts: string[] = [];
+      for (const block of content) {
+        if (!block || typeof block !== "object") continue;
+        const b = block as Record<string, unknown>;
+        if (b["type"] === "text" && typeof b["text"] === "string") {
+          const txt = (b["text"] as string).trim();
+          if (txt) parts.push(txt);
+        } else if (b["type"] === "tool_use") {
+          const name =
+            typeof b["name"] === "string" ? (b["name"] as string) : "tool";
+          const input = renderToolInput(b["input"]);
+          parts.push(`**→ \`${name}\`**\n\n\`\`\`json\n${input}\n\`\`\``);
         }
-        case "opencode": {
-          // Part is a discriminated union; filter to TextPart which has { type: "text", text: string }
-          return m.data.parts
-            .filter(
-              (p): p is Extract<typeof p, { type: "text" }> =>
-                p.type === "text",
-            )
-            .map((p) => p.text)
-            .join("\n");
-        }
-        case "claude": {
-          if (m.data.type !== "assistant") return "";
-          const msg = m.data.message;
-          if (typeof msg === "string") return msg;
-          if (msg && typeof msg === "object" && "content" in msg) {
-            const { content } = msg as { content: unknown };
-            if (typeof content === "string") return content;
-            // Claude messages often have mixed content arrays (text +
-            // tool_use + thinking blocks). Filter for text blocks instead
-            // of requiring ALL blocks to be text — the old isTextBlockArray
-            // check caused a JSON.stringify fallback that embedded raw
-            // message objects into downstream prompts.
-            if (Array.isArray(content)) {
-              const textParts = content
-                .filter(
-                  (b): b is { type: "text"; text: string } =>
-                    typeof b === "object" &&
-                    b !== null &&
-                    b.type === "text" &&
-                    typeof b.text === "string",
-                )
-                .map((b) => b.text);
-              if (textParts.length > 0) return textParts.join("\n");
-            }
-          }
-          return "";
+        // Skip "thinking" blocks.
+      }
+      if (parts.length > 0) {
+        sections.push(`### Assistant\n\n${parts.join("\n\n")}`);
+      }
+      continue;
+    }
+
+    // msg.type === "user" with array content — usually a batch of tool_results
+    // responding to the previous assistant turn's tool_use blocks. We skip
+    // the tool_result payloads entirely (see function docstring for why) and
+    // only surface any inline `text` blocks, which is where a real follow-up
+    // user turn would land.
+    for (const block of content) {
+      if (!block || typeof block !== "object") continue;
+      const b = block as Record<string, unknown>;
+      if (b["type"] === "text" && typeof b["text"] === "string") {
+        const txt = (b["text"] as string).trim();
+        if (txt) sections.push(`### User\n\n${txt}`);
+      }
+    }
+  }
+
+  return sections.join("\n\n");
+}
+
+/**
+ * Render a Copilot transcript as readable Markdown.
+ *
+ * Preserves the existing `assistant.message → content` extraction and adds
+ * `user.message` rendering plus any `toolCalls` attached to an assistant
+ * message. All other event types (`session.start`, `session.idle`, plain
+ * telemetry, etc.) are skipped.
+ */
+function renderCopilotTranscript(
+  events: ReadonlyArray<{ type?: unknown; data?: unknown }>,
+): string {
+  const sections: string[] = [];
+
+  for (const evt of events) {
+    if (evt.type === "assistant.message") {
+      const data = evt.data;
+      if (!hasContent(data)) continue;
+      const parts: string[] = [];
+      const text = data.content.trim();
+      if (text) parts.push(text);
+
+      // toolCalls is an array on `assistant.message` data when present.
+      const toolCalls = (data as Record<string, unknown>)["toolCalls"];
+      if (Array.isArray(toolCalls)) {
+        for (const call of toolCalls) {
+          if (!call || typeof call !== "object") continue;
+          const c = call as Record<string, unknown>;
+          const name =
+            typeof c["name"] === "string"
+              ? (c["name"] as string)
+              : typeof c["toolName"] === "string"
+                ? (c["toolName"] as string)
+                : "tool";
+          const args = c["arguments"] ?? c["input"] ?? c["parameters"];
+          parts.push(
+            `**→ \`${name}\`**\n\n\`\`\`json\n${renderToolInput(args)}\n\`\`\``,
+          );
         }
       }
-    })
-    .filter((txt): txt is string => typeof txt === "string" && txt.length > 0)
-    .join("\n\n");
+
+      if (parts.length > 0) {
+        sections.push(`### Assistant\n\n${parts.join("\n\n")}`);
+      }
+      continue;
+    }
+
+    if (evt.type === "user.message") {
+      const data = evt.data;
+      if (hasContent(data)) {
+        const text = data.content.trim();
+        if (text) sections.push(`### User\n\n${text}`);
+      }
+    }
+    // All other event types are intentionally skipped.
+  }
+
+  return sections.join("\n\n");
+}
+
+/**
+ * Render an OpenCode prompt response as readable Markdown.
+ *
+ * OpenCode hands us `{ info, parts }`; `parts` is a discriminated union where
+ * `text` parts carry the assistant reply and `tool` parts carry tool
+ * invocations. `reasoning` and `subtask` parts are internal and omitted.
+ */
+function renderOpencodeTranscript(response: {
+  parts?: ReadonlyArray<{ type?: unknown; text?: unknown } & Record<string, unknown>>;
+}): string {
+  if (!response.parts) return "";
+  const parts: string[] = [];
+  for (const part of response.parts) {
+    if (!part || typeof part !== "object") continue;
+    if (part.type === "text" && typeof part.text === "string") {
+      const txt = part.text.trim();
+      if (txt) parts.push(txt);
+    } else if (part.type === "tool") {
+      const name =
+        typeof part["tool"] === "string"
+          ? (part["tool"] as string)
+          : typeof part["name"] === "string"
+            ? (part["name"] as string)
+            : "tool";
+      const state = part["state"];
+      const args =
+        state && typeof state === "object"
+          ? (state as Record<string, unknown>)["input"] ??
+            (state as Record<string, unknown>)["args"]
+          : undefined;
+      parts.push(
+        `**→ \`${name}\`**\n\n\`\`\`json\n${renderToolInput(args)}\n\`\`\``,
+      );
+      // Tool outputs are intentionally omitted — see the comment on
+      // `TRANSCRIPT_TOOL_INPUT_BUDGET` for the context-rot rationale.
+    }
+  }
+  if (parts.length === 0) return "";
+  return `### Assistant\n\n${parts.join("\n\n")}`;
+}
+
+export function renderMessagesToText(messages: SavedMessage[]): string {
+  // Claude messages already come in as a flat chronological list — render
+  // the whole slice at once so the helper can cross-reference tool_use_ids
+  // against tool_result blocks. Copilot and OpenCode keep their existing
+  // per-message rendering.
+  const sections: string[] = [];
+  const claudeBatch: Array<{ type: string; message: unknown }> = [];
+
+  const flushClaude = (): void => {
+    if (claudeBatch.length === 0) return;
+    const rendered = renderClaudeTranscript(claudeBatch);
+    if (rendered) sections.push(rendered);
+    claudeBatch.length = 0;
+  };
+
+  for (const m of messages) {
+    if (m.provider === "claude") {
+      claudeBatch.push(
+        m.data as unknown as { type: string; message: unknown },
+      );
+      continue;
+    }
+    flushClaude();
+    if (m.provider === "copilot") {
+      const rendered = renderCopilotTranscript([
+        m.data as unknown as { type?: unknown; data?: unknown },
+      ]);
+      if (rendered) sections.push(rendered);
+    } else if (m.provider === "opencode") {
+      const rendered = renderOpencodeTranscript(
+        m.data as unknown as {
+          parts?: ReadonlyArray<
+            { type?: unknown; text?: unknown } & Record<string, unknown>
+          >;
+        },
+      );
+      if (rendered) sections.push(rendered);
+    }
+  }
+  flushClaude();
+
+  return sections.join("\n\n");
 }
 
 /** Resolve a SessionRef (string or SessionHandle) to the session name. */
@@ -962,8 +1206,6 @@ async function initProviderClientAndSession<A extends AgentType>(
   agent: A,
   serverUrl: string,
   paneId: string,
-  sessionId: string,
-  sessionDir: string,
   clientOpts: StageClientOptions<A>,
   sessionOpts: StageSessionOptions<A>,
   headless = false,
@@ -1046,16 +1288,26 @@ async function initProviderClientAndSession<A extends AgentType>(
     case "claude": {
       if (headless) {
         // Headless Claude stages use the Agent SDK directly — no tmux pane.
+        // Each query gets its own SDK-assigned session_id; the wrapper
+        // tracks the latest one and exposes it as `sessionId`.
         const client = new HeadlessClaudeClientWrapper();
         await client.start();
-        const session = new HeadlessClaudeSessionWrapper(sessionId);
-        return { client, session } as Result;
+        const session = new HeadlessClaudeSessionWrapper();
+        // Cast through `unknown` — `HeadlessClaudeClientWrapper` intentionally
+        // omits the interactive-only fields (`paneId`, `sessionDir`, etc.)
+        // that `ClaudeClientWrapper` has; both satisfy the same runtime
+        // contract used by workflow code.
+        return { client, session } as unknown as Result;
       }
       const claudeClientOpts = clientOpts as StageClientOptions<"claude">;
-      const claudeSessionOpts = sessionOpts as StageSessionOptions<"claude">;
-      const client = new ClaudeClientWrapper(paneId, claudeClientOpts, sessionDir);
-      await client.start();
-      const session = new ClaudeSessionWrapper(paneId, sessionId, claudeSessionOpts, onHIL);
+      const client = new ClaudeClientWrapper(paneId, claudeClientOpts);
+      // `start()` now returns the Claude session UUID, which we pass through
+      // to the session wrapper so `s.sessionId` is the Claude UUID (not the
+      // atomic short ID). This fixes the parallel-workflow bug where save
+      // used to look up "the newest Claude session globally" and could
+      // attribute one branch's transcript to another.
+      const claudeSessionId = await client.start();
+      const session = new ClaudeSessionWrapper(paneId, claudeSessionId, onHIL);
       return { client, session } as Result;
     }
     default:
@@ -1103,7 +1355,13 @@ async function cleanupProvider<A extends AgentType>(
     case "claude":
       // Headless Claude stages have no tmux pane to clear.
       if (!paneId.startsWith("headless-")) {
-        clearClaudeSession(paneId);
+        try {
+          await clearClaudeSession(paneId);
+        } catch (e) {
+          console.warn(
+            `[cleanup] claude session clear failed: ${errorMessage(e)}`,
+          );
+        }
       }
       break;
     default:
@@ -1230,49 +1488,29 @@ function createSessionRunner(
       const messagesPath = join(sessionDir, "messages.json");
       const inboxPath = join(sessionDir, "inbox.md");
 
-      // ── 11. Claude session snapshot (for identifying new sessions later) ──
-      let knownClaudeSessionIds: Set<string> | undefined;
-      if (shared.agent === "claude") {
-        const { listSessions } = await import("@anthropic-ai/claude-agent-sdk");
-        const existing = await listSessions({ dir: process.cwd() });
-        knownClaudeSessionIds = new Set(existing.map((s) => s.sessionId));
-      }
-      const claudeSessionStartedAfter =
-        shared.agent === "claude"
-          ? Date.now() - CLAUDE_SESSION_TIMESTAMP_BUFFER_MS
-          : 0;
-
       // ── Message wrapping (Claude/Copilot/OpenCode) ──
       async function wrapMessages(
         arg: SessionEvent[] | SessionPromptResponse | string,
       ): Promise<SavedMessage[]> {
         if (typeof arg === "string") {
-          const { getSessionMessages, listSessions } =
-            await import("@anthropic-ai/claude-agent-sdk");
-          const dir = process.cwd();
-          const sessions = await listSessions({ dir });
-
-          const newSessions = knownClaudeSessionIds
-            ? sessions.filter((s) => !knownClaudeSessionIds!.has(s.sessionId))
-            : sessions.filter(
-                (s) => s.lastModified >= claudeSessionStartedAfter,
-              );
-
-          const candidates = newSessions.sort(
-            (a, b) => b.lastModified - a.lastModified,
-          );
-
-          const candidate = candidates[0];
-          if (!candidate) {
+          // `arg` is the Claude session UUID — either `s.sessionId` from an
+          // interactive `ClaudeSessionWrapper` (set at `createClaudeSession`
+          // time) or the SDK-emitted `session_id` tracked inside
+          // `HeadlessClaudeSessionWrapper.query`. Using it directly removes
+          // the "pick the globally newest Claude session" heuristic that
+          // misattributed transcripts across parallel branches.
+          if (!arg) {
             throw new Error(
-              `wrapMessages: no new Claude session found for ${dir}`,
+              "wrapMessages: empty Claude session id. Call s.save(s.sessionId) " +
+              "only after a successful s.session.query() (headless wrappers " +
+              "only know their session_id once a query completes).",
             );
           }
-
-          const msgs: SessionMessage[] = await getSessionMessages(
-            candidate.sessionId,
-            { dir },
-          );
+          const { getSessionMessages } =
+            await import("@anthropic-ai/claude-agent-sdk");
+          const msgs: SessionMessage[] = await getSessionMessages(arg, {
+            dir: process.cwd(),
+          });
           return msgs.map((m) => ({ provider: "claude" as const, data: m }));
         }
 
@@ -1335,8 +1573,6 @@ function createSessionRunner(
         shared.agent,
         serverUrl,
         paneId,
-        sessionId,
-        sessionDir,
         clientOpts,
         sessionOpts,
         isHeadless,
@@ -1417,6 +1653,16 @@ function createSessionRunner(
       // structured workflows read their declared fields the same way.
       // A single uniform access pattern means workflow code never has
       // to branch on "is this workflow structured or free-form".
+      //
+      // `s.sessionId` is the provider-specific session identifier — the
+      // Claude session UUID, the Copilot session id, or the OpenCode
+      // session id. This is what workflows pass to `s.save(s.sessionId)`
+      // to disambiguate their own transcript when several sessions run
+      // in parallel under the same workflow.
+      const providerSessionId = resolveProviderSessionId(
+        shared.agent,
+        providerSession,
+      );
       const ctx: SessionContext = {
         client: providerClient,
         session: providerSession,
@@ -1424,7 +1670,7 @@ function createSessionRunner(
         agent: shared.agent,
         sessionDir,
         paneId,
-        sessionId,
+        sessionId: providerSessionId,
         save,
         transcript: transcriptFn,
         getMessages: getMessagesFn,

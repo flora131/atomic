@@ -14,6 +14,9 @@ import { AGENT_CONFIG, type AgentKey } from "../../services/config/index.ts";
 import { COLORS, createPainter, type PaletteKey } from "../../theme/colors.ts";
 import { isCommandInstalled } from "../../services/system/detect.ts";
 import { ensureTmuxInstalled, ensureBunInstalled } from "../../lib/spawn.ts";
+import { ensureProjectSetup } from "./init/index.ts";
+import { ensureAtomicGlobalAgentConfigs } from "../../services/config/atomic-global-config.ts";
+import { getConfigRoot } from "../../services/config/config-path.ts";
 import {
   isTmuxInstalled,
   discoverWorkflows,
@@ -263,6 +266,13 @@ export async function workflowCommand(options: {
   // ── Preflight checks (shared between picker and named modes) ──
   const preflightCode = await runPrereqChecks(agent);
   if (preflightCode !== 0) return preflightCode;
+
+  // ── Preflight: global config sync + project onboarding files ──
+  // Mirrors `atomic chat` so workflow runs see the same MCP configs,
+  // agent settings, and global agent folders the chat command auto-heals.
+  const projectRoot = cwd ?? process.cwd();
+  await ensureAtomicGlobalAgentConfigs(getConfigRoot());
+  await ensureProjectSetup(agent, projectRoot);
 
   // ── Picker mode: -a <agent>, no -n ──
   if (!options.name) {

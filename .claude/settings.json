@@ -21,17 +21,5 @@
     "kotlin-lsp@claude-plugins-official": true,
     "swift-lsp@claude-plugins-official": true,
     "lua-lsp@claude-plugins-official": true
-  },
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "atomic _claude-stop-hook"
-          }
-        ]
-      }
-    ]
   }
 }

@@ -347,6 +347,21 @@ Examples:
             process.exit(exitCode);
         });
 
+    // ── Internal: Claude AskUserQuestion hook handler ─────────────────────
+    program
+        .command("_claude-ask-hook", { hidden: true })
+        .description("Internal: Claude Code AskUserQuestion hook handler — writes/removes HIL marker")
+        .argument("<mode>", "enter (PreToolUse) or exit (PostToolUse / PostToolUseFailure)")
+        .action(async (mode: string) => {
+            if (mode !== "enter" && mode !== "exit") {
+                console.error(`[claude-ask-hook] Invalid mode: ${mode}`);
+                process.exit(0);
+            }
+            const { claudeAskHookCommand } = await import("./commands/cli/claude-ask-hook.ts");
+            const exitCode = await claudeAskHookCommand(mode);
+            process.exit(exitCode);
+        });
+
     // ── Completions command ────────────────────────────────────────────────
     program
         .command("completions")
@@ -398,7 +413,8 @@ async function main(): Promise<void> {
             argv.includes("-h") ||
             argv[0] === "completions" ||
             argv[0] === "_footer" ||
-            argv[0] === "_claude-stop-hook";
+            argv[0] === "_claude-stop-hook" ||
+            argv[0] === "_claude-ask-hook";
 
         if (!isInfoCommand) {
             const { autoSyncIfStale } = await import("./services/system/auto-sync.ts");

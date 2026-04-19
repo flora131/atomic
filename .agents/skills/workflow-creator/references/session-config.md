@@ -19,16 +19,12 @@ await ctx.stage({ name: "..." }, {
 
 ### Session options (`sessionOpts` — 3rd arg to `ctx.stage()`)
 
-These are `ClaudeQueryDefaults` and set defaults for every `s.session.query()`
-call inside the callback. The available fields are: `pollIntervalMs`,
-`submitPresses`, `maxSubmitRounds`, `readyTimeoutMs`. Note that `timeoutMs` no
-longer exists — idle detection is automatic (pane capture for interactive
-stages, SDK streaming for headless stages).
+Claude has **no per-session options** — the type is `Record<string, never>` and the 3rd arg must be `{}`. Interactive delivery is driven entirely by the CLI's Stop hook; idle detection is automatic (pane capture for interactive stages, SDK streaming for headless stages).
+
+If you want to configure agent/permission/tools behavior for a **headless** Claude stage, pass those fields as the second argument to `s.session.query(prompt, options)` — they flow through as `Partial<SDKOptions>` to the Agent SDK (see the headless example below).
 
 ```ts
-await ctx.stage({ name: "..." }, {}, {
-  pollIntervalMs: 1_000,         // Poll interval for output
-}, async (s) => {
+await ctx.stage({ name: "..." }, {}, {}, async (s) => {
   await s.session.query((ctx.inputs.prompt ?? ""));
   s.save(s.sessionId);
 });
@@ -103,7 +99,7 @@ const result = query({
 the pane ID from `s.paneId` automatically. Call it inside the stage callback:
 
 ```ts
-import { extractAssistantText } from "@anthropic-ai/claude-agent-sdk";
+import { extractAssistantText } from "@bastani/atomic/workflows";
 
 await ctx.stage({ name: "..." }, {}, {}, async (s) => {
   const result = await s.session.query("Your prompt");
@@ -112,9 +108,6 @@ await ctx.stage({ name: "..." }, {}, {}, async (s) => {
   s.save(s.sessionId);
 });
 ```
-
-The query defaults (poll interval, submit presses, etc.) can be configured via
-`sessionOpts` as shown above.
 
 For **headless stages**, SDK options (such as `permissionMode`, `agent`,
 `allowDangerouslySkipPermissions`) can be passed directly as the second

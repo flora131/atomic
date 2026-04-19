@@ -190,7 +190,15 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   const args = await buildAgentArgs(agentType, passthroughArgs, projectRoot);
   const cmd = [config.cmd, ...args];
   const overrides = await getProviderOverrides(agentType, projectRoot);
-  const envVars = { ...config.env_vars, ...overrides.envVars };
+  // ATOMIC_AGENT must be baked into the launcher env so the agent CLI
+  // (and anything it spawns) can read it. `setSessionEnv` below only
+  // affects processes spawned *after* the initial command, so it cannot
+  // populate the env of the agent CLI that `new-session` kicks off.
+  const envVars = {
+    ...config.env_vars,
+    ...overrides.envVars,
+    ATOMIC_AGENT: agentType,
+  };
 
   // ── No TTY: tmux attach requires a real terminal ──
   if (!process.stdin.isTTY) {

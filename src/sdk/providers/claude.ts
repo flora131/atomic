@@ -37,10 +37,11 @@ import {
   waitForPaneReady,
   attemptSubmitRounds,
 } from "../runtime/tmux.ts";
-import { watch } from "node:fs/promises";
+import { watch, unlink, mkdir } from "node:fs/promises";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import os from "node:os";
 
 // ---------------------------------------------------------------------------
 // Session tracking — ensures createClaudeSession is called before claudeQuery
@@ -346,95 +347,161 @@ export async function _runHILWatcher(
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Path of the directory where the claude-stop-hook writes marker files.
+ * Each Claude turn creates `~/.atomic/claude-stop/<session_id>` atomically
+ * via rename, which triggers the `fs.watch` event in `waitForIdle`.
+ *
+ * @internal Exported for unit tests.
+ */
+export function markerDir(): string {
+  return join(os.homedir(), ".atomic", "claude-stop");
+}
+
+/**
+ * Return the marker file path for a given Claude session ID.
+ *
+ * @internal Exported for unit tests.
+ */
+export function markerPath(claudeSessionId: string): string {
+  return join(markerDir(), claudeSessionId);
+}
+
+/**
+ * Ensure the marker directory exists and remove any stale marker left from a
+ * previous turn of this session. Call this BEFORE submitting the prompt so
+ * the subsequent `waitForIdle` watch loop doesn't fire on a stale file.
+ *
+ * Ignores ENOENT on `unlink` — the file simply doesn't exist yet.
+ */
+async function clearStaleMarker(claudeSessionId: string): Promise<void> {
+  await mkdir(markerDir(), { recursive: true });
+  try {
+    await unlink(markerPath(claudeSessionId));
+  } catch (e: unknown) {
+    // ENOENT is expected — ignore it; rethrow anything else
+    if (!(e instanceof Error && "code" in e && (e as NodeJS.ErrnoException).code === "ENOENT")) {
+      throw e;
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
-// Idle detection via pane capture
+// Idle detection via marker file watch
 // ---------------------------------------------------------------------------
 
 /**
- * Wait for the Claude session to become idle by polling the tmux pane.
+ * Wait for the Claude session to become idle using `fs.watch` on the
+ * `~/.atomic/claude-stop/` marker directory.
  *
- * Interactive Claude Code sessions don't write idle or result events to the
- * JSONL session file (those only flow through the SDK streaming output for
- * headless consumers). The pane prompt indicator is the only reliable idle
- * signal for interactive sessions.
+ * When Claude finishes a turn, the `atomic _claude-stop-hook` Stop hook writes
+ * `~/.atomic/claude-stop/<session_id>` atomically (tmp file + rename).  The
+ * rename triggers an OS-native `fs.watch` event on the parent directory —
+ * far more reliable than polling tmux pane glyphs, which vary between Claude
+ * Code versions.
  *
- * Once idle is detected, assistant output is extracted from the session
- * transcript via `getSessionMessages()` rather than scraping the pane —
- * the transcript has structured content blocks, not terminal escape codes.
+ * Algorithm:
+ * 1. Watch the marker directory for events whose `filename` matches
+ *    `claudeSessionId`.
+ * 2. On a matching event, read the session transcript via
+ *    `getSessionMessages` and test `_hasUnresolvedHILTool`.
+ *    - If unresolved HIL: call `onHIL(true)`, unlink the marker (so the next
+ *      turn's hook can fire again), and continue watching.
+ *    - If no unresolved HIL after a prior HIL: call `onHIL(false)`.
+ *    - If truly idle: slice messages from `transcriptBeforeCount` and return.
+ * 3. Clean up the `fs.watch` watcher on any exit path via AbortController.
  *
- * No timeout is imposed. The loop runs until the pane shows the idle prompt.
+ * The function signature is intentionally identical to the previous polling
+ * implementation so all callers remain unchanged.
+ *
+ * @param paneId           - tmux pane (kept in signature for caller compat; not used here)
+ * @param claudeSessionId  - Claude's session UUID (used to identify marker file)
+ * @param transcriptBeforeCount - number of messages in transcript before this turn
+ * @param beforeContent    - (unused) pane content before send; kept for compat
+ * @param pollIntervalMs   - (unused) kept for compat; watch is event-driven
+ * @param onHIL            - optional callback for HIL state changes
  */
-async function waitForIdle(
-  paneId: string,
+/**
+ * @internal Exported for unit tests.
+ */
+export async function waitForIdle(
+  _paneId: string,
   claudeSessionId: string | undefined,
   transcriptBeforeCount: number,
-  beforeContent: string,
-  pollIntervalMs: number,
+  _beforeContent: string,
+  _pollIntervalMs: number,
   onHIL?: (waiting: boolean) => void,
 ): Promise<SessionMessage[]> {
-  // Give Claude time to start processing before first poll
-  await Bun.sleep(3_000);
+  // Without a session ID we cannot watch the marker directory — return empty.
+  if (!claudeSessionId) {
+    return [];
+  }
+
+  const dir = markerDir();
+  const sessionId = claudeSessionId;
+  const ac = new AbortController();
 
   let hilActive = false;
 
-  while (true) {
-    const currentContent = normalizeTmuxLines(capturePaneScrollback(paneId));
+  try {
+    for await (const event of watch(dir, { signal: ac.signal })) {
+      // Filter: only care about events for our session's marker file
+      if (event.filename !== sessionId) continue;
 
-    // Must have new content compared to before we sent
-    if (currentContent !== beforeContent) {
-      const visible = capturePaneVisible(paneId);
-      if (paneLooksReady(visible) && !paneHasActiveTask(visible)) {
-        // Pane looks idle — but it might be waiting for user input (HIL).
-        // Check the transcript for an unresolved AskUserQuestion before
-        // treating this as a true completion.
-        if (claudeSessionId) {
-          try {
-            const msgs = await getSessionMessages(claudeSessionId, {
-              dir: process.cwd(),
-              includeSystemMessages: true,
-            });
-
-            if (_hasUnresolvedHILTool(msgs)) {
-              // Agent is blocked on user input — signal HIL and keep waiting
-              if (!hilActive && onHIL) {
-                onHIL(true);
-                hilActive = true;
-              }
-              await Bun.sleep(pollIntervalMs);
-              continue;
-            }
-
-            // HIL was active but is now resolved — signal resumption
-            if (hilActive && onHIL) {
-              onHIL(false);
-              hilActive = false;
-              // Agent may still be processing after HIL resolution — keep
-              // polling instead of returning immediately
-              await Bun.sleep(pollIntervalMs);
-              continue;
-            }
-
-            // Truly idle — return transcript messages from this turn
-            if (msgs.length > transcriptBeforeCount) {
-              return msgs.slice(transcriptBeforeCount);
-            }
-          } catch {
-            // Transcript read failed — return empty
-          }
-        }
-        return [];
-      } else if (hilActive) {
-        // Pane is active again (user responded, agent resumed processing).
-        // Clear HIL state.
-        if (onHIL) {
-          onHIL(false);
-          hilActive = false;
-        }
+      // Marker appeared — read transcript
+      let msgs: SessionMessage[];
+      try {
+        msgs = await getSessionMessages(sessionId, {
+          dir: process.cwd(),
+          includeSystemMessages: true,
+        });
+      } catch {
+        // Transcript read failed — wait for the next marker event
+        continue;
       }
-    }
 
-    await Bun.sleep(pollIntervalMs);
+      if (_hasUnresolvedHILTool(msgs)) {
+        // Agent is blocked on user input (HIL).
+        if (!hilActive) {
+          onHIL?.(true);
+          hilActive = true;
+        }
+        // Remove the marker so the Stop hook can write a new one after the
+        // user responds and Claude finishes its next turn.
+        try {
+          await unlink(markerPath(sessionId));
+        } catch {
+          // ENOENT is fine — ignore
+        }
+        // Continue watching for the next marker event
+        continue;
+      }
+
+      // No unresolved HIL — if we were in HIL state, signal resolution.
+      if (hilActive) {
+        onHIL?.(false);
+        hilActive = false;
+      }
+
+      // Truly idle — return transcript messages produced during this turn.
+      const result = msgs.length > transcriptBeforeCount
+        ? msgs.slice(transcriptBeforeCount)
+        : [];
+
+      ac.abort();
+      return result;
+    }
+  } catch (e: unknown) {
+    // AbortError is expected when we call ac.abort() to stop watching.
+    if (e instanceof Error && e.name === "AbortError") {
+      // Normal exit — return value was already set and returned above.
+      // If we somehow reach here without returning, fall through to [].
+    } else {
+      throw e;
+    }
   }
+
+  return [];
 }
 
 // ---------------------------------------------------------------------------
@@ -541,6 +608,11 @@ export async function claudeQuery(options: ClaudeQueryOptions): Promise<SessionM
 
   const dir = process.cwd();
   const claudeSessionId = paneState.claudeSessionId;
+
+  // ── Clear any stale marker left from a previous turn before submitting. ──
+  // This ensures `waitForIdle`'s watch loop doesn't fire on the marker written
+  // by the Stop hook at the end of the LAST turn instead of the current one.
+  await clearStaleMarker(claudeSessionId);
 
   // ── First query: spawn `claude --session-id <UUID> 'Read the prompt in <path>'`.
   // The prompt is delivered via Claude's Read tool on its first turn — no

@@ -82,7 +82,9 @@ Use grep/glob for exact matches:
 
 ## Output Format
 
-Structure your analysis like this:
+Structure your analysis like this.
+
+> **Path prefix is illustrative.** The `/absolute/path/to/workspace` placeholder in the example below represents the actual workspace root (run `pwd` to get it). Substitute it at runtime. Windows paths such as `C:\Users\you\workspace\...` are equally valid.
 
 ```
 ## Analysis: [Feature/Component Name]
@@ -134,12 +136,10 @@ Structure your analysis like this:
 - Failed webhooks logged to `/absolute/path/to/workspace/logs/webhook-errors.log`
 ```
 
-> The `/absolute/path/to/workspace` placeholder above is illustrative — at runtime, substitute the actual workspace root (the output of `pwd`).
-
 ## Important Guidelines
 
 - **Always include file:line references** for claims
-- **Use absolute paths rooted at the workspace.** Every `file.ts:line` reference must be an absolute path (run `pwd` if you do not know the workspace root). Never emit repo-relative paths like `api/routes.js:45`; always emit the full form like `/absolute/path/to/workspace/api/routes.js:45`.
+- **Use absolute paths rooted at the workspace.** Every `file.ts:line` reference must be an absolute path (run `pwd` if you do not know the workspace root). Never emit repo-relative paths like `api/routes.js:45`; always emit the full form (e.g., `/absolute/path/to/workspace/api/routes.js:45` on Unix, `C:\Users\you\workspace\api\routes.js:45` on Windows).
 - **Read files thoroughly** before making statements
 - **Trace actual code paths** don't assume
 - **Focus on "how"** not "what" or "why"

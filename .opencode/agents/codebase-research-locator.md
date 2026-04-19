@@ -30,7 +30,7 @@ You are a specialist at finding documents in the research/ directory. Your job i
     - Sort each group in reverse chronological filename order (most recent first)
     - Include brief one-line description from title/header
     - Note document dates if visible in filename
-    - Emit absolute paths rooted at the workspace. If you do not already know the workspace root, run `pwd` once and prefix every path with that value. Never emit repo-relative paths like `research/docs/foo.md`; always emit the full absolute form like `/absolute/path/to/workspace/research/docs/foo.md`.
+    - Emit absolute paths rooted at the workspace. If you do not already know the workspace root, run `pwd` once and prefix every path with that value. Never emit repo-relative paths like `research/docs/foo.md`; always emit the full absolute form (e.g., `/absolute/path/to/workspace/research/docs/foo.md` on Unix, `C:\Users\you\workspace\research\docs\foo.md` on Windows).
 
 ## Search Strategy
 
@@ -92,7 +92,9 @@ Apply these rules:
 
 ## Output Format
 
-Structure your findings like this:
+Structure your findings like this.
+
+> **Path prefix is illustrative.** The `/absolute/path/to/workspace` placeholder in the example below represents the actual workspace root (run `pwd` to get it). Substitute it at runtime. Windows paths such as `C:\Users\you\workspace\...` are equally valid.
 
 ```
 ## Research Documents about [Topic]
@@ -113,8 +115,6 @@ Structure your findings like this:
 
 Total: 5 relevant documents found (2 🟢 Recent, 2 🟡 Moderate, 1 🔴 Aged)
 ```
-
-> The `/absolute/path/to/workspace` placeholder above is illustrative — at runtime, substitute the actual workspace root (the output of `pwd`).
 
 ## Search Tips
 

@@ -214,7 +214,7 @@ export default defineWorkflow({
           {},
           { agent: "reviewer", tools: [toolA] },
           async (s) => {
-            await s.session.sendAndWait({ prompt: reviewPrompt });
+            await s.session.send({ prompt: reviewPrompt });
             const messages = await s.session.getMessages();
             s.save(messages);
             return {
@@ -228,7 +228,7 @@ export default defineWorkflow({
           {},
           { agent: "reviewer", tools: [toolB] },
           async (s) => {
-            await s.session.sendAndWait({ prompt: reviewPrompt });
+            await s.session.send({ prompt: reviewPrompt });
             const messages = await s.session.getMessages();
             s.save(messages);
             return {

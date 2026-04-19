@@ -26,7 +26,6 @@ You are a specialist at finding documents in the research/ directory. Your job i
     - Sort each group in reverse chronological filename order (most recent first)
     - Include brief one-line description from title/header
     - Note document dates if visible in filename
-    - Emit absolute paths rooted at the workspace. If you do not already know the workspace root, run `pwd` once and prefix every path with that value. Never emit repo-relative paths like `research/docs/foo.md`; always emit the full absolute form (e.g., `/absolute/path/to/workspace/research/docs/foo.md` on Unix, `C:\Users\you\workspace\research\docs\foo.md` on Windows).
 
 ## Search Strategy
 
@@ -88,26 +87,24 @@ Apply these rules:
 
 ## Output Format
 
-Structure your findings like this.
-
-> **Path prefix is illustrative.** The `/absolute/path/to/workspace` placeholder in the example below represents the actual workspace root (run `pwd` to get it). Substitute it at runtime. Windows paths such as `C:\Users\you\workspace\...` are equally valid.
+Structure your findings like this:
 
 ```
 ## Research Documents about [Topic]
 
 ### Related Tickets
-- 🟢 `/absolute/path/to/workspace/research/tickets/2026-03-10-1234-implement-api-rate-limiting.md` - Implement rate limiting for API
-- 🟡 `/absolute/path/to/workspace/research/tickets/2025-12-15-1235-rate-limit-configuration-design.md` - Rate limit configuration design
+- 🟢 `research/tickets/2026-03-10-1234-implement-api-rate-limiting.md` - Implement rate limiting for API
+- 🟡 `research/tickets/2025-12-15-1235-rate-limit-configuration-design.md` - Rate limit configuration design
 
 ### Related Documents
-- 🟢 `/absolute/path/to/workspace/research/docs/2026-03-16-api-performance.md` - Contains section on rate limiting impact
-- 🔴 `/absolute/path/to/workspace/research/docs/2025-01-15-rate-limiting-approaches.md` - Research on different rate limiting strategies *(potentially superseded by 2026-03-16 doc)*
+- 🟢 `research/docs/2026-03-16-api-performance.md` - Contains section on rate limiting impact
+- 🔴 `research/docs/2025-01-15-rate-limiting-approaches.md` - Research on different rate limiting strategies *(potentially superseded by 2026-03-16 doc)*
 
 ### Related Specs
-- 🟢 `/absolute/path/to/workspace/specs/2026-03-20-api-rate-limiting.md` - Formal rate limiting implementation spec
+- 🟢 `specs/2026-03-20-api-rate-limiting.md` - Formal rate limiting implementation spec
 
 ### Related Discussions
-- 🟡 `/absolute/path/to/workspace/research/notes/2026-01-10-rate-limiting-team-discussion.md` - Transcript of team discussion about rate limiting
+- 🟡 `research/notes/2026-01-10-rate-limiting-team-discussion.md` - Transcript of team discussion about rate limiting
 
 Total: 5 relevant documents found (2 🟢 Recent, 2 🟡 Moderate, 1 🔴 Aged)
 ```

@@ -25,6 +25,7 @@ import {
   type Options as SDKOptions,
 } from "@anthropic-ai/claude-agent-sdk";
 import { sendKeysAndSubmit } from "../runtime/tmux.ts";
+import { escBash } from "../runtime/executor.ts";
 import { watch, unlink, mkdir, writeFile } from "node:fs/promises";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -79,6 +80,54 @@ const DEFAULT_CHAT_FLAGS = [
   "--allow-dangerously-skip-permissions",
   "--dangerously-skip-permissions",
 ];
+
+/**
+ * Build the shell command Claude Code runs from the injected Stop hook.
+ *
+ * - **Published install** (`import.meta.dir` under `node_modules`): resolve
+ *   `atomic` via the user's PATH. That's the binary they installed, and
+ *   relying on PATH is robust across shells and platforms.
+ * - **Dev** (source checkout): re-invoke THIS repo's `src/cli.ts` using the
+ *   same Bun runtime that's executing us, so edits to the hook logic are
+ *   picked up without rebuilding or re-linking. Mirrors the
+ *   `spawnAttachedFooter` pattern in `src/sdk/runtime/executor.ts:293-303`.
+ *
+ * The dev-detection heuristic (`node_modules` in `import.meta.dir`) is the
+ * same one used by `src/services/system/auto-sync.ts:50`.
+ */
+function buildWorkflowStopHookCommand(): string {
+  if (import.meta.dir.includes("node_modules")) {
+    return "atomic _claude-stop-hook";
+  }
+  const runtime = process.execPath;
+  const cliPath = join(import.meta.dir, "..", "..", "cli.ts");
+  return `"${escBash(runtime)}" "${escBash(cliPath)}" _claude-stop-hook`;
+}
+
+/**
+ * Inline settings injected via `claude --settings <json>` on every workflow
+ * spawn. Registers the workflow Stop hook that delivers follow-up prompts
+ * without relying on `.claude/settings.json` — so the hook fires only for
+ * workflow-spawned Claude sessions, not when a user runs `claude` manually.
+ *
+ * Built once at module load. Contains no single quotes (JSON syntax doesn't
+ * produce them and paths rarely do), so POSIX single-quoting at the spawn
+ * site is sufficient shell escaping.
+ */
+const WORKFLOW_STOP_HOOK_SETTINGS = JSON.stringify({
+  hooks: {
+    Stop: [
+      {
+        hooks: [
+          {
+            type: "command",
+            command: buildWorkflowStopHookCommand(),
+          },
+        ],
+      },
+    ],
+  },
+});
 
 // ---------------------------------------------------------------------------
 // createClaudeSession
@@ -173,6 +222,11 @@ async function spawnClaudeWithPrompt(
   const cmd = [
     "claude",
     ...chatFlags,
+    // Workflow-owned Stop hook. Placed AFTER chatFlags so commander's
+    // last-wins semantics shadow any user-provided --settings, making this
+    // non-overridable by `.atomic/settings.json` chatFlags overrides.
+    "--settings",
+    `'${WORKFLOW_STOP_HOOK_SETTINGS}'`,
     "--session-id",
     sessionId,
     argvPrompt,

@@ -646,6 +646,23 @@ describe("WorkflowPicker PROMPT keyboard", () => {
     expect(frame).toContain("hello");
   });
 
+  test("bracketed paste in a text field propagates to onSubmit without further keystrokes", async () => {
+    // Bracketed pastes bypass useKeyboard, so this regression-pins the
+    // textarea's onPaste handler — without it, pasted content never
+    // reaches onFieldInput and the submitted payload would be empty.
+    let result: WorkflowPickerResult | null = null;
+    const setup = await renderAndEnterPrompt({
+      onSubmit: (r) => {
+        result = r;
+      },
+    });
+    await press(setup, (i) => i.pasteBracketedText("pasted task body"));
+    await press(setup, (i) => i.pressKey("d", { ctrl: true }));
+    await press(setup, (i) => i.pressKey("y"));
+    expect(result).not.toBeNull();
+    expect(result!.inputs.task).toContain("pasted task body");
+  });
+
   test("return in a text field inserts a newline", async () => {
     const setup = await renderAndEnterPrompt();
     await press(setup, (i) => i.typeText("line1"));

@@ -172,6 +172,7 @@ function fakeDefinition(
     name,
     description,
     inputs,
+    minSDKVersion: null,
     run: async () => {},
   } as WorkflowDefinition;
 }

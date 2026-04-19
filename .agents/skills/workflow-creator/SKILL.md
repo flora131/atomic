@@ -218,6 +218,28 @@ Any of the named shapes above (positional or structured) accepts `-d` / `--detac
 
 **Builtin workflows are reserved** — local/global workflows cannot shadow them. Pick distinct names.
 
+### Declaring SDK compatibility (`minSDKVersion`)
+
+Opt-in version gate for workflows that depend on a specific SDK release. **Default is unset — do not add it to new workflows unless you have a concrete reason.**
+
+```ts
+defineWorkflow({
+  name: "uses-new-api",
+  minSDKVersion: "0.6.0", // refuse to load on older CLI
+})
+```
+
+| Behaviour | Unset (default) | Set to a version newer than the installed CLI |
+|---|---|---|
+| Loader | Always loads | Refuses to load, returns `IncompatibleSDKError` |
+| `atomic workflow -l` | Normal row | `⚠ needs v<X> (installed v<Y>)` — dim name, visible |
+| Picker | Normal row | `⚠ update required` glyph + preview explains the gap; Enter is disabled |
+| `atomic workflow -n <name>` | Runs | Errors with an upgrade hint, non-zero exit |
+
+When to set it: the workflow calls into a newly-added SDK surface (new `stage()` option, new helper export, new provider method) that older installs don't ship. Omit it for workflows that use only stable APIs — most workflows qualify.
+
+The point of the field is to convert a silent "workflow vanished after upgrade" failure into a visible, actionable row the user can fix. See `references/discovery-and-verification.md` for semver semantics and the visible-diagnostic contract.
+
 ### Structural Rules
 
 Hard constraints enforced by the builder, loader, and runtime:

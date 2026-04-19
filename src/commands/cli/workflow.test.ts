@@ -6,7 +6,10 @@ import {
   renderWorkflowList,
 } from "./workflow.ts";
 import type { WorkflowInput } from "../../sdk/workflows/index.ts";
-import type { DiscoveredWorkflow } from "../../sdk/workflows/index.ts";
+import type {
+  DiscoveredWorkflow,
+  WorkflowWithMetadata,
+} from "../../sdk/workflows/index.ts";
 
 // ─── Colour handling ────────────────────────────────────────────────────────
 // The renderer emits ANSI sequences when the host terminal claims truecolor
@@ -190,12 +193,16 @@ function wf(
   name: string,
   agent: DiscoveredWorkflow["agent"],
   source: DiscoveredWorkflow["source"],
-): DiscoveredWorkflow {
+  status: WorkflowWithMetadata["status"] = { kind: "ok" },
+): WorkflowWithMetadata {
   return {
     name,
     agent,
     source,
     path: `/tmp/fake/${source}/${name}/${agent}/index.ts`,
+    description: "",
+    inputs: [],
+    status,
   };
 }
 
@@ -216,7 +223,7 @@ describe("renderWorkflowList", () => {
   });
 
   test("groups entries by source → provider and sorts names", () => {
-    const workflows: DiscoveredWorkflow[] = [
+    const workflows: WorkflowWithMetadata[] = [
       wf("zebra", "claude", "local"),
       wf("apple", "claude", "local"),
       wf("middle", "opencode", "local"),

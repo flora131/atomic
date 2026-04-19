@@ -38,6 +38,26 @@ export class InvalidWorkflowError extends Error {
   }
 }
 
+/**
+ * Thrown when a workflow declares a `minSDKVersion` newer than the
+ * bundled CLI. Carries both versions so the CLI can render an
+ * actionable "update atomic or re-save the workflow" hint rather than
+ * a generic load error.
+ */
+export class IncompatibleSDKError extends Error {
+  constructor(
+    public readonly path: string,
+    public readonly requiredVersion: string,
+    public readonly currentVersion: string,
+  ) {
+    super(
+      `${path} requires Atomic SDK v${requiredVersion}, but v${currentVersion} is installed.\n` +
+      `  Update Atomic, or re-save the workflow against the current SDK.`,
+    );
+    this.name = "IncompatibleSDKError";
+  }
+}
+
 /** Extract a human-readable message from an unknown thrown value. */
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

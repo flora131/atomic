@@ -50,6 +50,7 @@ coveragePathIgnorePatterns = [
   "src/services/telemetry/**",
   # Config I/O
   "src/services/config/atomic-config.ts",
+  "src/services/config/atomic-global-config.ts",
   "src/services/config/config-path.ts",
   "src/services/config/definitions.ts",
   "src/services/config/mcp-config.ts",

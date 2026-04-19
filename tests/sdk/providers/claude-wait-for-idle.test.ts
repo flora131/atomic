@@ -1,12 +1,13 @@
 /**
  * Tests for the `waitForIdle` marker-file flow in claude.ts.
  *
- * `waitForIdle` watches ~/.atomic/claude-stop/ via fs.watch and fires when a
+ * `waitForIdle` watches ~/.atomic/claude-stop/ via fs.watch and returns when a
  * marker file named `<claudeSessionId>` appears. On marker appearance it reads
- * the session transcript and checks `_hasUnresolvedHILTool`:
- *   - HIL unresolved → call onHIL(true), delete marker, keep watching
- *   - HIL resolved after prior HIL → call onHIL(false), return sliced messages
- *   - No HIL → return sliced messages
+ * the session transcript, optionally polls it for mid-loop flush races, and
+ * returns the sliced tail produced by the current turn.
+ *
+ * HIL detection is out of scope for this function — see
+ * `watchTranscriptForHIL` and its own test file.
  *
  * Strategy:
  * - mock.module "@anthropic-ai/claude-agent-sdk" to control getSessionMessages
@@ -148,12 +149,8 @@ describe("waitForIdle — marker-file flow", () => {
     // Start waitForIdle watching; write the marker shortly after to simulate
     // the stop-hook firing.
     const idlePromise = waitForIdle(
-      "pane-0",        // _paneId (unused)
       sessionId,       // claudeSessionId
       2,               // transcriptBeforeCount (2 messages existed before)
-      "",              // _beforeContent (unused)
-      2000,            // _pollIntervalMs (unused)
-      undefined,       // onHIL
     );
 
     // Give the watcher a tick to set up, then write the marker
@@ -166,125 +163,6 @@ describe("waitForIdle — marker-file flow", () => {
     expect(result).toHaveLength(2);
     expect(result[0]?.uuid).toBe("u2");
     expect(result[1]?.uuid).toBe("a2");
-  });
-
-  // -------------------------------------------------------------------------
-  // 2. No session ID → returns empty immediately
-  // -------------------------------------------------------------------------
-
-  test("returns empty array immediately when claudeSessionId is undefined", async () => {
-    const result = await waitForIdle(
-      "pane-0",
-      undefined,  // no session id
-      0,
-      "",
-      2000,
-      undefined,
-    );
-    expect(result).toEqual([]);
-  });
-
-  // -------------------------------------------------------------------------
-  // 3. HIL gating — two markers required
-  // -------------------------------------------------------------------------
-
-  test("calls onHIL(true) on first marker with unresolved HIL, then onHIL(false) and returns on second marker", async () => {
-    const toolUseId = randomUUID();
-
-    // First transcript read: has an unresolved AskUserQuestion tool
-    const messagesWithHIL: SessionMessage[] = [
-      {
-        type: "assistant",
-        uuid: "a1",
-        session_id: sessionId,
-        message: {
-          role: "assistant",
-          content: [
-            {
-              type: "tool_use",
-              id: toolUseId,
-              name: "AskUserQuestion",
-              input: { question: "What is your name?" },
-            },
-          ],
-        },
-        parent_tool_use_id: null,
-      },
-    ];
-
-    // Second transcript read: HIL resolved (user answered, assistant replied)
-    const messagesResolved: SessionMessage[] = [
-      ...messagesWithHIL,
-      {
-        type: "user",
-        uuid: "u2",
-        session_id: sessionId,
-        message: {
-          role: "user",
-          content: [
-            {
-              type: "tool_result",
-              tool_use_id: toolUseId,
-              content: "Alice",
-            },
-          ],
-        },
-        parent_tool_use_id: null,
-      },
-      {
-        type: "assistant",
-        uuid: "a2",
-        session_id: sessionId,
-        message: {
-          role: "assistant",
-          content: [{ type: "text", text: "Hello Alice!" }],
-        },
-        parent_tool_use_id: null,
-      },
-    ];
-
-    sessionMessageQueue.push(messagesWithHIL);   // first marker read
-    sessionMessageQueue.push(messagesResolved);  // second marker read
-
-    const hilCalls: Array<boolean> = [];
-    const onHIL = (waiting: boolean): void => { hilCalls.push(waiting); };
-
-    await mkdir(markerDir(), { recursive: true });
-
-    const idlePromise = waitForIdle(
-      "pane-0",
-      sessionId,
-      0,            // transcriptBeforeCount — all messages are "new"
-      "",
-      2000,
-      onHIL,
-    );
-
-    // First marker — triggers HIL state
-    await Bun.sleep(80);
-    await writeMarker(sessionId);
-
-    // Wait for onHIL(true) to be called before writing the second marker
-    // Poll briefly (up to 1 s)
-    for (let i = 0; i < 100; i++) {
-      if (hilCalls.length >= 1) break;
-      await Bun.sleep(10);
-    }
-
-    expect(hilCalls).toEqual([true]);
-
-    // waitForIdle deletes the marker after the HIL event; write a second one
-    // to simulate the stop-hook firing after the user responds
-    await Bun.sleep(50);
-    await writeMarker(sessionId);
-
-    const result = await idlePromise;
-
-    // onHIL(false) should have been called to signal HIL resolution
-    expect(hilCalls).toEqual([true, false]);
-
-    // All 3 messages in resolved transcript are "new" (transcriptBeforeCount=0)
-    expect(result).toHaveLength(messagesResolved.length);
   });
 
   // -------------------------------------------------------------------------
@@ -348,13 +226,20 @@ describe("waitForIdle — marker-file flow", () => {
   // -------------------------------------------------------------------------
 
   test("returns empty slice when transcript has no new messages beyond baseline", async () => {
-    // Transcript read returns exactly as many messages as before — no new ones
+    // Transcript read returns exactly as many messages as before — no new ones.
+    // Baseline is 1, transcript has 1 (an assistant message with end_turn),
+    // so the slice is empty. The assistant's stop_reason must be terminal
+    // (not "tool_use") or `_isMidAgentLoop` would keep watching.
     const messages: SessionMessage[] = [
       {
-        type: "user",
-        uuid: "u1",
+        type: "assistant",
+        uuid: "a1",
         session_id: sessionId,
-        message: { role: "user", content: "hi" },
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "hi" }],
+          stop_reason: "end_turn",
+        },
         parent_tool_use_id: null,
       },
     ];
@@ -364,12 +249,8 @@ describe("waitForIdle — marker-file flow", () => {
     await mkdir(markerDir(), { recursive: true });
 
     const idlePromise = waitForIdle(
-      "pane-0",
       sessionId,
       1,    // same count as transcript length → nothing new
-      "",
-      2000,
-      undefined,
     );
 
     await Bun.sleep(80);
@@ -381,7 +262,115 @@ describe("waitForIdle — marker-file flow", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 6. Cleanup — no unhandled rejection when watcher is aborted via return
+  // 5b. Async-flush race — Claude Code buffers the final assistant message
+  //     for ~100ms after firing the Stop hook. `waitForIdle` must poll the
+  //     transcript on a single marker event rather than wait for a second
+  //     one (Stop only fires once per agent loop).
+  // -------------------------------------------------------------------------
+
+  test("polls the transcript on one marker event when the final assistant message hasn't flushed yet", async () => {
+    // First transcript read: mid-loop (last assistant stopped on tool_use
+    // because the post-tool `assistant[text]` hasn't been flushed to disk).
+    const midLoopMessages: SessionMessage[] = [
+      {
+        type: "assistant",
+        uuid: "a-mid",
+        session_id: sessionId,
+        message: {
+          role: "assistant",
+          content: [
+            { type: "tool_use", id: "tu-x", name: "Read", input: { path: "/x" } },
+          ],
+          stop_reason: "tool_use",
+        },
+        parent_tool_use_id: null,
+      },
+    ];
+
+    // Subsequent reads: the buffered `assistant[text]` has now hit disk.
+    const finalMessages: SessionMessage[] = [
+      ...midLoopMessages,
+      {
+        type: "user",
+        uuid: "u-result",
+        session_id: sessionId,
+        message: {
+          role: "user",
+          content: [
+            { type: "tool_result", tool_use_id: "tu-x", content: "file body" },
+          ],
+        },
+        parent_tool_use_id: null,
+      },
+      {
+        type: "assistant",
+        uuid: "a-final",
+        session_id: sessionId,
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "Here's what I found" }],
+          stop_reason: "end_turn",
+        },
+        parent_tool_use_id: null,
+      },
+    ];
+
+    // First poll sees mid-loop; every subsequent poll returns the full
+    // transcript. `waitForIdle` should return the full one on retry.
+    sessionMessageQueue.push(midLoopMessages);
+    for (let i = 0; i < 20; i++) sessionMessageQueue.push(finalMessages);
+
+    await mkdir(markerDir(), { recursive: true });
+
+    const idlePromise = waitForIdle(sessionId, 0);
+
+    // Fire the single Stop event. No second marker is ever written — the
+    // mid-loop recovery must come from polling the transcript on disk.
+    await Bun.sleep(80);
+    await writeMarker(sessionId);
+
+    const result = await idlePromise;
+
+    expect(result.at(-1)?.uuid).toBe("a-final");
+    expect(result).toHaveLength(3);
+  });
+
+  // -------------------------------------------------------------------------
+  // 6. Race fix — marker already on disk when waitForIdle is called.
+  // -------------------------------------------------------------------------
+
+  test("resolves immediately when the marker already exists at call time", async () => {
+    // Simulates the race where the Stop hook fires between clearStaleMarker()
+    // and waitForIdle()'s watcher attach: the marker is on disk but no
+    // further fs.watch events will be emitted.
+    const messages: SessionMessage[] = [
+      {
+        type: "assistant",
+        uuid: "a1",
+        session_id: sessionId,
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "done" }],
+        },
+        parent_tool_use_id: null,
+      },
+    ];
+
+    sessionMessageQueue.push(messages);
+
+    await mkdir(markerDir(), { recursive: true });
+    // Write the marker BEFORE starting waitForIdle — no watch event will
+    // fire for this file because it's already there.
+    await writeMarker(sessionId);
+
+    const result = await waitForIdle(sessionId, 0);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.uuid).toBe("a1");
+  });
+
+  // -------------------------------------------------------------------------
+  // 7. Cleanup — no unhandled rejection when watcher is aborted via return
   // -------------------------------------------------------------------------
 
   test("resolves cleanly without throwing when marker appears (abort path exercised)", async () => {
@@ -402,14 +391,7 @@ describe("waitForIdle — marker-file flow", () => {
 
     await mkdir(markerDir(), { recursive: true });
 
-    const idlePromise = waitForIdle(
-      "pane-0",
-      sessionId,
-      0,
-      "",
-      2000,
-      undefined,
-    );
+    const idlePromise = waitForIdle(sessionId, 0);
 
     await Bun.sleep(80);
     await writeMarker(sessionId);

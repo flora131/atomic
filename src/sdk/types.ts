@@ -22,7 +22,6 @@ import type {
 import type {
   ClaudeClientWrapper,
   ClaudeSessionWrapper,
-  ClaudeQueryDefaults,
 } from "./providers/claude.ts";
 
 /** Supported agent types */
@@ -44,7 +43,7 @@ type ClientOptionsMap = {
  * Maps each agent to the session create options the user passes to `ctx.stage()`.
  * - OpenCode: `client.session.create()` body params
  * - Copilot: `client.createSession()` config (onPermissionRequest defaults to approveAll)
- * - Claude: `claudeQuery()` defaults for subsequent queries
+ * - Claude: no per-session options — delivery is driven entirely by Stop hooks.
  */
 type SessionOptionsMap = {
   opencode: {
@@ -53,7 +52,7 @@ type SessionOptionsMap = {
     workspaceID?: string;
   };
   copilot: Partial<CopilotSessionConfig>;
-  claude: ClaudeQueryDefaults;
+  claude: Record<string, never>;
 };
 
 /** Maps each agent to the `s.client` type provided in the stage callback. */
@@ -92,7 +91,6 @@ export type {
   OpencodeSession,
   ClaudeClientWrapper,
   ClaudeSessionWrapper,
-  ClaudeQueryDefaults,
 };
 
 // ─── Validation ─────────────────────────────────────────────────────────────

@@ -189,7 +189,7 @@ export default defineWorkflow({
           {},
           async (s) => {
             const result = await s.session.query(
-              buildHistoryLocatorPrompt({ question: prompt, root }),
+              buildHistoryLocatorPrompt({ question: prompt }),
               { agent: "codebase-research-locator", ...SUBAGENT_OPTS },
             );
             s.save(s.sessionId);
@@ -210,7 +210,6 @@ export default defineWorkflow({
               buildHistoryAnalyzerPrompt({
                 question: prompt,
                 locatorOutput: historyLocator.result,
-                root,
               }),
               { agent: "codebase-research-analyzer", ...SUBAGENT_OPTS },
             );
@@ -264,7 +263,6 @@ export default defineWorkflow({
                 buildLocatorPrompt({
                   question: prompt,
                   partition,
-                  root,
                   scoutOverview,
                   index: i,
                   total: explorerCount,
@@ -288,7 +286,6 @@ export default defineWorkflow({
                 buildPatternFinderPrompt({
                   question: prompt,
                   partition,
-                  root,
                   scoutOverview,
                   index: i,
                   total: explorerCount,
@@ -320,7 +317,6 @@ export default defineWorkflow({
                   question: prompt,
                   partition,
                   locatorOutput,
-                  root,
                   scoutOverview,
                   index: i,
                   total: explorerCount,
@@ -345,7 +341,6 @@ export default defineWorkflow({
                   question: prompt,
                   partition,
                   locatorOutput,
-                  root,
                   index: i,
                   total: explorerCount,
                 }),

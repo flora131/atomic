@@ -221,34 +221,11 @@ The practical implication: **don't name a new workflow `ralph` or
 `deep-research-codebase`**. Pick a distinct name and you'll never hit
 this.
 
-## Invocation cheat sheet
+## Invocation details
 
-```bash
-# List everything, grouped by source
-atomic workflow list
-
-# Launch the picker for a pinned agent
-atomic workflow -a claude
-
-# Free-form, positional prompt
-atomic workflow -n hello -a claude "hello world"
-
-# Structured, one flag per field
-atomic workflow -n gen-spec -a claude \
-  --research_doc=research/docs/2026-04-11-auth.md \
-  --focus=standard \
-  --notes="pay special attention to session token storage"
-
-# Structured, long-form flag value (= form)
-atomic workflow -n gen-spec -a claude --focus standard --research_doc notes.md
-
-# Detached (background) — starts the orchestrator on the atomic tmux
-# socket and returns immediately. The command prints the session name
-# and hints for attaching later. Use this for scripted / CI runs where
-# the caller shouldn't block on the TUI.
-atomic workflow -n hello -a claude -d "hello world"
-atomic workflow session connect atomic-wf-claude-hello-<id>   # attach later
-```
+See SKILL.md §"Invocation surfaces" for the table of every top-level
+command. This section only covers the flag-parsing nuances specific to
+structured inputs.
 
 Both `--flag=value` and `--flag value` forms are accepted. Short flags
 (`-x value`) are NOT parsed as structured inputs — only long-form
@@ -256,6 +233,12 @@ Both `--flag=value` and `--flag value` forms are accepted. Short flags
 
 The `-d` / `--detach` flag composes with any named shape (positional
 prompt, structured flags) and is independent of the inputs schema.
+
+```bash
+# Structured, both flag forms work identically
+atomic workflow -n gen-spec -a claude --focus=standard --research_doc=notes.md
+atomic workflow -n gen-spec -a claude --focus standard --research_doc notes.md
+```
 
 ## Pitfalls
 

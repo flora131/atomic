@@ -195,23 +195,9 @@ The callback interface is identical to interactive stages. The only differences:
 - Background stages are tracked by a counter in the orchestrator statusline
 
 **Common pattern — visible seed, parallel headless gather, visible merge:**
-
-```ts
-const seed = await ctx.stage({ name: "seed" }, {}, {}, async (s) => { /* ... */ });
-
-const [a, b, c] = await Promise.all([
-  ctx.stage({ name: "gather-a", headless: true }, {}, {}, async (s) => { /* ... */ }),
-  ctx.stage({ name: "gather-b", headless: true }, {}, {}, async (s) => { /* ... */ }),
-  ctx.stage({ name: "gather-c", headless: true }, {}, {}, async (s) => { /* ... */ }),
-]);
-
-await ctx.stage({ name: "merge" }, {}, {}, async (s) => {
-  await s.session.query(`Merge:\n${a.result}\n${b.result}\n${c.result}`);
-  s.save(s.sessionId);
-});
-```
-
-Headless stages are transparent to graph topology — `seed → [3 headless] → merge` renders as `seed → merge` in the graph.
+see `control-flow.md` §"Headless stages: transparent to graph topology" for
+the canonical example. Headless stages are transparent to graph topology —
+`seed → [3 headless] → merge` renders as `seed → merge` in the graph.
 
 ## SDK exports
 
@@ -277,6 +263,7 @@ The Atomic runtime provides `s.client` and `s.session` with types resolved from 
 
 | File | Topic |
 |---|---|
+| `failure-modes.md` | 16 catalogued silent + loud failures with wrong-vs-right patterns and a pre-ship design checklist — **read before shipping any multi-session workflow** |
 | `workflow-inputs.md` | Declaring the `inputs: WorkflowInput[]` schema, the free-form vs structured decision, CLI flag + picker invocation surfaces, builtin protection |
 | `agent-sessions.md` | Creating agent sessions with SDK calls per provider |
 | `computation-and-validation.md` | Deterministic computation, parsing, validation inside `run()` |
@@ -284,6 +271,7 @@ The Atomic runtime provides `s.client` and `s.session` with types resolved from 
 | `control-flow.md` | Loops, conditionals, early termination in plain TypeScript |
 | `state-and-data-flow.md` | Data flow between sessions, transcripts, persistence |
 | `session-config.md` | Per-SDK session configuration: model, tools, permissions, hooks |
+| `running-workflows.md` | How to **run** (not author) an existing workflow on the user's behalf — invocation recipe, input discovery, status monitoring, teardown |
 | `discovery-and-verification.md` | Workflow file discovery, validation, TypeScript config |
 
 ## Builtin reference implementations
@@ -292,9 +280,10 @@ The SDK ships two builtin workflows that demonstrate production patterns for all
 
 - **`ralph`** (`src/sdk/workflows/builtin/ralph/`) — iterative plan → orchestrate → review → debug loop with consecutive clean-pass detection, shared helpers for prompts/parsing/git, and cross-SDK adaptation
 - **`deep-research-codebase`** (`src/sdk/workflows/builtin/deep-research-codebase/`) — deterministic codebase scout → LOC-based heuristic explorer partitioning → parallel explorers → aggregator with file-based handoffs and context-aware prompt engineering
-- **`headless-test`** (`.atomic/workflows/headless-test/`) — demonstrates the visible → [parallel headless] → visible merge pattern (all 3 SDKs)
 
 Both include `helpers/` directories with SDK-agnostic logic (prompt builders, parsers, heuristics) and per-agent `index.ts` files showing how the same workflow topology adapts to Claude, Copilot, and OpenCode.
+
+For a minimal headless example (not a builtin — it lives as a local workflow in this repo), see `.atomic/workflows/headless-test/` — demonstrates the visible → [parallel headless] → visible merge pattern for all three SDKs.
 
 ## Type safety
 

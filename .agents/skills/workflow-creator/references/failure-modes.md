@@ -104,8 +104,8 @@ function getAssistantText(messages: SessionEvent[]): string {
 }
 ```
 
-**Detection.** Log the returned text length after every `runAgent` call
-during development. An empty or surprisingly short string for a stage
+**Detection.** Log the returned text length after every `getAssistantText`
+call during development. An empty or surprisingly short string for a stage
 that clearly ran is the signature.
 
 ---
@@ -239,18 +239,45 @@ mode does NOT apply to `s.session.query()`.)
 ### ❌ Wrong
 
 ```ts
-await runAgent("planner", buildPlannerPrompt((ctx.inputs.prompt ?? "")));
+await ctx.stage({ name: "planner" }, {}, { agent: "planner" }, async (s) => {
+  await s.session.send({ prompt: buildPlannerPrompt((ctx.inputs.prompt ?? "")) });
+  s.save(await s.session.getMessages());
+});
 // orchestrator is a fresh session — it has no idea what the planner produced
-await runAgent("orchestrator", buildOrchestratorPrompt());
+await ctx.stage({ name: "orchestrator" }, {}, { agent: "orchestrator" }, async (s) => {
+  await s.session.send({ prompt: buildOrchestratorPrompt() });
+  s.save(await s.session.getMessages());
+});
 ```
 
 ### ✅ Right — explicit handoff
 
 ```ts
-const plannerNotes = await runAgent("planner", buildPlannerPrompt((ctx.inputs.prompt ?? "")));
-await runAgent(
-  "orchestrator",
-  buildOrchestratorPrompt((ctx.inputs.prompt ?? ""), { plannerNotes }),
+const plannerHandle = await ctx.stage(
+  { name: "planner" },
+  {},
+  { agent: "planner" },
+  async (s) => {
+    await s.session.send({ prompt: buildPlannerPrompt((ctx.inputs.prompt ?? "")) });
+    const messages = await s.session.getMessages();
+    s.save(messages);
+    return getAssistantText(messages); // see F1 for getAssistantText
+  },
+);
+
+await ctx.stage(
+  { name: "orchestrator" },
+  {},
+  { agent: "orchestrator" },
+  async (s) => {
+    await s.session.send({
+      prompt: buildOrchestratorPrompt(
+        (ctx.inputs.prompt ?? ""),
+        { plannerNotes: plannerHandle.result },
+      ),
+    });
+    s.save(await s.session.getMessages());
+  },
 );
 ```
 
@@ -508,9 +535,7 @@ to "be safe", you want `send`.
 
 ---
 
-## F11. ~~Manual Claude session initialization~~ (resolved by runtime)
-
-No longer a failure mode. The runtime now auto-initializes `s.client` and `s.session` before the callback runs — just use `s.session.query()` directly.
+## F11. ~~Manual Claude session initialization~~ — resolved, no longer applies.
 
 ---
 

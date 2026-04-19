@@ -4,12 +4,14 @@ Deterministic computation — validation, data transforms, file I/O, API calls �
 
 ## Inline computation
 
-Any TypeScript code inside a session callback that doesn't call an SDK prompt function is deterministic computation:
+Any TypeScript code inside a session callback that doesn't call an SDK prompt function is deterministic computation. Prefer handle-based lookups (`s.getMessages(plannerHandle)`) over string names when a handle is in scope — it preserves type information and survives stage renames:
 
 ```ts
+const plannerHandle = await ctx.stage({ name: "planner" }, {}, {}, async (s) => { /* ... */ });
+
 await ctx.stage({ name: "validate-and-fix", description: "Validate, then fix if needed" }, {}, {}, async (s) => {
-  // Step 1: Deterministic — parse prior session's output
-  const messages = await s.getMessages("planner");
+  // Step 1: Deterministic — parse prior session's output (handle-based lookup)
+  const messages = await s.getMessages(plannerHandle);
   const planText = extractText(messages);
   const plan = JSON.parse(planText);
 

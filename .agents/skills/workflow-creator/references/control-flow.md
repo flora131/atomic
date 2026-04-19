@@ -176,7 +176,13 @@ import { extractAssistantText } from "@bastani/atomic/workflows";
 
 ### Same pattern with Copilot
 
+Copilot lacks a built-in text extractor — define `getAssistantText` as a
+helper in your workflow (canonical definition in `failure-modes.md` §F1)
+and import it from a sibling file:
+
 ```ts
+import { getAssistantText } from "../helpers/parsers.ts"; // see failure-modes.md §F1
+
 .run(async (ctx) => {
   const MAX_CYCLES = 10;
   let consecutiveClean = 0;
@@ -186,7 +192,7 @@ import { extractAssistantText } from "@bastani/atomic/workflows";
       await s.session.send({
         prompt: buildReviewPrompt((ctx.inputs.prompt ?? "")),
       });
-      const reviewRaw = getAssistantText(await s.session.getMessages()); // see failure-modes.md §F1
+      const reviewRaw = getAssistantText(await s.session.getMessages());
 
       s.save(await s.session.getMessages());
       return reviewRaw;
@@ -252,7 +258,7 @@ Sessions passed to `Promise.all([...])` branch from the same parent and run conc
 A stage awaited after a `Promise.all` resolves automatically receives all parallel stages as parents — the graph draws a merge node:
 
 ```ts
-// ✅ Graph infers: orchestrator → A → [B, C] → D (fan-in merge)
+// ✅ Graph infers: A → [B, C] → D (fan-in merge)
 .run(async (ctx) => {
   await ctx.stage({ name: "A" }, {}, {}, async (s) => { /* ... */ });
 

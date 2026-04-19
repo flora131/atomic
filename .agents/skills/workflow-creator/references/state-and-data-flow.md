@@ -148,10 +148,6 @@ import { readFile, writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 
 .run(async (ctx) => {
-  await ctx.stage({ name: "plan" }, {}, {}, async (s) => {
-    // ... plan session ...
-  });
-
   const planHandle = await ctx.stage({ name: "plan" }, {}, {}, async (s) => {
     // Write artifacts to session directory
     const artifactDir = join(s.sessionDir, "artifacts");

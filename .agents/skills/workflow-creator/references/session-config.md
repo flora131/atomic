@@ -30,9 +30,19 @@ await ctx.stage({ name: "..." }, {}, {}, async (s) => {
 });
 ```
 
-### `query()` options
+### `query()` options (reference for `s.session.query()` sdkOptions)
+
+**This block is a reference cheatsheet for the SDK option shape — it is
+not valid workflow code.** Do not import `query` from
+`@anthropic-ai/claude-agent-sdk` inside a `ctx.stage()` callback (see
+`failure-modes.md` §F17). In a **headless** stage, pass these options as
+the second argument to `s.session.query(prompt, sdkOptions)` — the runtime
+forwards them to the Agent SDK. In an **interactive** stage, the options
+are silently ignored; drive behaviour via `chatFlags` in `clientOpts`
+instead.
 
 ```ts
+// ❌ Reference only — do not call query() like this from a workflow.
 import { query } from "@anthropic-ai/claude-agent-sdk";
 
 const result = query({
@@ -218,8 +228,13 @@ await ctx.stage({ name: "plan" }, {}, {
     onErrorOccurred: (event) => { /* error handling */ },
   },
 
-  // Advanced
-  infiniteSessions: true,             // Auto-manage context via compaction
+  // Advanced — auto-manage context via compaction. Pass an InfiniteSessionConfig,
+  // not a boolean. See docs/copilot-cli/sdk.md for the full threshold surface.
+  infiniteSessions: {
+    enabled: true,
+    backgroundCompactionThreshold: 0.8, // start compacting at 80% window usage
+    bufferExhaustionThreshold: 0.95,    // block at 95% until compaction completes
+  },
 }, async (s) => {
   await s.session.send({ prompt: (ctx.inputs.prompt ?? "") });
   s.save(await s.session.getMessages());

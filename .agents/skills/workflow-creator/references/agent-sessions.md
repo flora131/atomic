@@ -95,42 +95,60 @@ Claude maintains conversation context across calls within the same pane. Call `s
 })
 ```
 
-### Advanced: Claude Agent SDK `query()` API
+### Advanced: Claude Agent SDK `query()` option surface (reference only)
 
-For programmatic control beyond tmux automation, the Claude Agent SDK provides `query()`. **Do not call it from inside a non-headless `ctx.stage()`** — that spawns a TUI in a tmux pane that goes unused while the SDK runs in-process (see `failure-modes.md` §F17). Either set `headless: true` on the stage and pass SDK options through `s.session.query(prompt, options)` (the headless wrapper forwards them to `query()`), or use the interactive TUI route below with `chatFlags: ["--agent", "<name>", ...]` plus `s.session.query(prompt)`.
+**Do not import `query` from `@anthropic-ai/claude-agent-sdk` inside a `ctx.stage()` callback.** In a non-headless stage it double-spawns Claude (idle TUI pane + in-process SDK call) — see `failure-modes.md` §F17. In a headless stage it bypasses the runtime's wiring. Always go through `s.session.query()`; the runtime forwards options to the SDK for headless stages and routes the interactive TUI for non-headless stages.
 
-The example below is reference for the SDK option surface — in real workflow code, prefer `s.session.query()` so the runtime, not your callback, decides which transport to use:
+Two correct routes:
+
+1. **Headless + SDK options** — `s.session.query(prompt, sdkOptions)` inside `{ headless: true }`.
+2. **Interactive TUI + `--agent`** — `chatFlags: ["--agent", "<name>", ...]` in `clientOpts`.
+
+The snippet below is a **reference cheatsheet for the SDK option shape only** — it is *not* valid workflow code. Use it to learn what `sdkOptions` accepts when passed as the second argument to `s.session.query()` in a headless stage:
 
 ```ts
+// ❌ Do not call query() like this from a workflow. Reference-only to show
+//    which options are available when you pass them to s.session.query().
 import { query } from "@anthropic-ai/claude-agent-sdk";
 
-.run(async (ctx) => {
-  await ctx.stage({ name: "implement" }, {}, {}, async (s) => {
-    const result = query({
-      prompt: (s.inputs.prompt ?? ""),
-      options: {
-        model: "claude-opus-4-6",
-        effort: "high",
-        maxTurns: 50,
-        maxBudgetUsd: 5.0,
-        permissionMode: "acceptEdits",
-        allowedTools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"],
-        disallowedTools: ["AskUserQuestion"],
-        systemPrompt: "You are a senior engineer...",
-        outputFormat: {
-          type: "json_schema",
-          schema: { type: "object", properties: { tasks: { type: "array", items: { type: "string" } } } },
-        },
-        agents: {
-          reviewer: { description: "Review code changes", prompt: "You are a code reviewer..." },
-        },
-      },
-    });
-    for await (const message of result) {
-      // Process streaming messages
-    }
+query({
+  prompt: "...",
+  options: {
+    model: "claude-opus-4-6",
+    effort: "high",
+    maxTurns: 50,
+    maxBudgetUsd: 5.0,
+    permissionMode: "acceptEdits",
+    allowedTools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"],
+    disallowedTools: ["AskUserQuestion"],
+    systemPrompt: "You are a senior engineer...",
+    outputFormat: {
+      type: "json_schema",
+      schema: { type: "object", properties: { tasks: { type: "array", items: { type: "string" } } } },
+    },
+    agents: {
+      reviewer: { description: "Review code changes", prompt: "You are a code reviewer..." },
+    },
+  },
+});
+```
+
+The ✅ equivalent in a real workflow:
+
+```ts
+await ctx.stage({ name: "implement", headless: true }, {}, {}, async (s) => {
+  const messages = await s.session.query(s.inputs.prompt ?? "", {
+    model: "claude-opus-4-6",
+    permissionMode: "acceptEdits",
+    allowedTools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"],
+    outputFormat: {
+      type: "json_schema",
+      schema: { type: "object", properties: { tasks: { type: "array", items: { type: "string" } } } },
+    },
   });
-})
+  s.save(s.sessionId);
+  return extractAssistantText(messages, 0);
+});
 ```
 
 Key `query()` options:
@@ -155,38 +173,62 @@ Key `query()` options:
 
 ### Subagents
 
-Claude supports parallel subagents via the `agents` option (a `Record<string, AgentDefinition>` keyed by agent name):
+Claude supports parallel subagents via the `agents` option (a
+`Record<string, AgentDefinition>` keyed by agent name). In a workflow,
+pass the option through `s.session.query(prompt, sdkOptions)` in a
+**headless** stage — see §F17 for why the raw SDK `query()` import is
+an anti-pattern:
 
 ```ts
-const agents = {
-  worker: {
-    description: "Implement a single task",
-    prompt: "You are a task implementer...",
-    tools: ["Read", "Write", "Edit", "Bash"],
+await ctx.stage(
+  { name: "implement-and-review", headless: true },
+  {}, {},
+  async (s) => {
+    const messages = await s.session.query(
+      "Implement and review the feature",
+      {
+        agents: {
+          worker: {
+            description: "Implement a single task",
+            prompt: "You are a task implementer...",
+            tools: ["Read", "Write", "Edit", "Bash"],
+          },
+          reviewer: {
+            description: "Review code changes",
+            prompt: "You are a code reviewer...",
+            tools: ["Read", "Grep", "Glob"],
+          },
+        },
+      },
+    );
+    s.save(s.sessionId);
+    return extractAssistantText(messages, 0);
   },
-  reviewer: {
-    description: "Review code changes",
-    prompt: "You are a code reviewer...",
-    tools: ["Read", "Grep", "Glob"],
-  },
-};
-
-const result = query({
-  prompt: "Implement and review the feature",
-  options: { agents },
-});
+);
 ```
 
 ### Session continuity
 
-Resume or fork prior sessions:
+Resume or fork prior sessions through `s.session.query()` in a headless
+stage (same reasoning as Subagents above — never import `query` directly):
 
 ```ts
 // Resume a session (continues the same conversation)
-const result = query({ prompt: "Continue...", options: { resume: sessionId } });
+await ctx.stage({ name: "continue", headless: true }, {}, {}, async (s) => {
+  const messages = await s.session.query("Continue...", { resume: sessionId });
+  s.save(s.sessionId);
+  return extractAssistantText(messages, 0);
+});
 
 // Fork a session (creates a new branch from the session's history)
-const result = query({ prompt: "Try a different approach", options: { resume: sessionId, forkSession: true } });
+await ctx.stage({ name: "fork", headless: true }, {}, {}, async (s) => {
+  const messages = await s.session.query(
+    "Try a different approach",
+    { resume: sessionId, forkSession: true },
+  );
+  s.save(s.sessionId);
+  return extractAssistantText(messages, 0);
+});
 ```
 
 ### Sub-agent delegation
@@ -323,33 +365,40 @@ sub-agents that hallucinate, repeat work, or drop requirements silently.
 **Treat this section as load-bearing**, not decorative. If you skip it, your
 workflow will ship broken in subtle, non-deterministic ways.
 
-#### The three session lifecycle states
+#### Session lifecycle states
 
-Every Copilot session is always in exactly one of these states, and the
+For normal workflow authoring, use the **3-state rubric** from SKILL.md:
+`Fresh` / `Continued` / `Closed`. Every new `ctx.stage()` call is fresh; if
+you need full history, prefer another turn inside the same stage callback.
+
+Copilot also exposes an advanced `Resumed` state at the provider level. Each
 state determines what context the model sees on its next turn:
 
 | State | How you get there | Context available | Action needed |
 |---|---|---|---|
-| **Fresh** | `client.createSession(...)` | **None** — empty conversation | You MUST inject everything the agent needs in the first prompt |
+| **Fresh** | `client.createSession(...)` (what `ctx.stage()` does) | **None** — empty conversation | You MUST inject everything the agent needs in the first prompt |
 | **Continued** | Same session, additional `send` calls | All prior turns in this session | Nothing — but watch total token usage |
-| **Resumed** | `client.resumeSession(sessionId)` | All persisted turns from the prior session of the SAME agent | Nothing — full history is reattached |
-| **Closed** | `session.disconnect()` or `client.stop()` | **Gone** from the live client; persisted on disk if the host enables it | Either resume by ID (same agent) or start fresh and re-inject context |
+| **Resumed** *(advanced)* | `client.resumeSession(sessionId)` | All persisted turns from the prior session of the SAME agent | Nothing — full history is reattached. Use only for same-role continuation |
+| **Closed** | `session.disconnect()` or `client.stop()` (auto-handled by runtime after the stage callback returns) | **Gone** from the live client; persisted on disk if the host enables it | Either resume by ID (same agent) or start fresh and re-inject context |
 
 The failure mode: you close a session, create a new one, and assume the new
 one "remembers" the previous conversation. It doesn't. `client` is just the
-transport — each session is a fully independent conversation.
-
-For normal workflow authoring, the key rule is simpler than the full lifecycle
-table: **every new `ctx.stage()` call is fresh**. If you need full history,
-prefer another turn inside the same stage callback. Resume/fork APIs are
-provider-specific escape hatches, not the default stage-to-stage handoff path.
+transport — each session is a fully independent conversation. Resume/fork
+APIs are provider-specific escape hatches, not the default stage-to-stage
+handoff path.
 
 ```ts
-// Buggy — the orchestrator session is fresh and knows NOTHING about
-// what the planner just produced, because createSession() started a
-// brand-new conversation.
-await runAgent("planner", buildPlannerPrompt((ctx.inputs.prompt ?? "")));
-await runAgent("orchestrator", buildOrchestratorPrompt());
+// Buggy — the orchestrator stage is fresh and knows NOTHING about what
+// the planner just produced, because each ctx.stage() starts a brand-new
+// conversation for Copilot.
+await ctx.stage({ name: "planner" }, {}, { agent: "planner" }, async (s) => {
+  await s.session.send({ prompt: buildPlannerPrompt((ctx.inputs.prompt ?? "")) });
+  s.save(await s.session.getMessages());
+});
+await ctx.stage({ name: "orchestrator" }, {}, { agent: "orchestrator" }, async (s) => {
+  await s.session.send({ prompt: buildOrchestratorPrompt() });
+  s.save(await s.session.getMessages());
+});
 // ↑ orchestrator only sees buildOrchestratorPrompt() — no planner output,
 //   no original user spec, no context.
 ```
@@ -361,22 +410,37 @@ mutually exclusive — ralph uses (1) + (2) together as belt-and-braces.
 
 **1. Explicit prompt handoff** — capture the prior session's last assistant
 message and inject it (or a summary) into the next session's first prompt.
-Simplest and most common fix:
+Simplest and most common fix. Use `ctx.stage()` — the runtime auto-creates
+and cleans up each session, so never call `client.createSession()` directly
+(see Structural Rule 7 in SKILL.md):
 
 ```ts
-async function runAgent(agent: string, prompt: string): Promise<string> {
-  const session = await client.createSession({ agent, onPermissionRequest: approveAll });
-  await session.send({ prompt });
-  const messages = await session.getMessages();
-  await session.disconnect();
-  return getAssistantText(messages); // concatenate every top-level turn — see failure-modes.md §F1
-}
-
 // Correct — forward the planner's output into the orchestrator prompt
-const plannerNotes = await runAgent("planner", buildPlannerPrompt((ctx.inputs.prompt ?? "")));
-await runAgent(
-  "orchestrator",
-  buildOrchestratorPrompt((ctx.inputs.prompt ?? ""), { plannerNotes }),
+const plannerHandle = await ctx.stage(
+  { name: "planner" },
+  {},
+  { agent: "planner" },
+  async (s) => {
+    await s.session.send({ prompt: buildPlannerPrompt((ctx.inputs.prompt ?? "")) });
+    const messages = await s.session.getMessages();
+    s.save(messages);
+    return getAssistantText(messages); // see failure-modes.md §F1 for getAssistantText
+  },
+);
+
+await ctx.stage(
+  { name: "orchestrator" },
+  {},
+  { agent: "orchestrator" },
+  async (s) => {
+    await s.session.send({
+      prompt: buildOrchestratorPrompt(
+        (ctx.inputs.prompt ?? ""),
+        { plannerNotes: plannerHandle.result },
+      ),
+    });
+    s.save(await s.session.getMessages());
+  },
 );
 ```
 
@@ -653,21 +717,59 @@ substitute the OpenCode API equivalents:
 **Multi-agent handoff example (applies the same pattern as Copilot):**
 
 ```ts
-// Buggy — orchestrator session is fresh; it has no idea what the planner
-// produced because we created a brand-new session for it.
-await runAgent("planner-1", "planner", buildPlannerPrompt((ctx.inputs.prompt ?? "")));
-await runAgent("orchestrator-1", "orchestrator", buildOrchestratorPrompt());
+// Buggy — orchestrator stage is fresh; it has no idea what the planner
+// produced because each ctx.stage() starts a brand-new session.
+await ctx.stage({ name: "planner" }, {}, { title: "planner" }, async (s) => {
+  const result = await s.client.session.prompt({
+    sessionID: s.session.id,
+    parts: [{ type: "text", text: buildPlannerPrompt((ctx.inputs.prompt ?? "")) }],
+    agent: "planner",
+  });
+  s.save(result.data!);
+});
+await ctx.stage({ name: "orchestrator" }, {}, { title: "orchestrator" }, async (s) => {
+  await s.client.session.prompt({
+    sessionID: s.session.id,
+    parts: [{ type: "text", text: buildOrchestratorPrompt() }],
+    agent: "orchestrator",
+  });
+  s.save(/* ... */);
+});
 
 // Correct — capture planner output and forward it into orchestrator prompt
-const plannerNotes = await runAgent(
-  "planner-1",
-  "planner",
-  buildPlannerPrompt((ctx.inputs.prompt ?? "")),
+const plannerHandle = await ctx.stage(
+  { name: "planner" },
+  {},
+  { title: "planner" },
+  async (s) => {
+    const result = await s.client.session.prompt({
+      sessionID: s.session.id,
+      parts: [{ type: "text", text: buildPlannerPrompt((ctx.inputs.prompt ?? "")) }],
+      agent: "planner",
+    });
+    s.save(result.data!);
+    return extractResponseText(result.data!.parts); // see failure-modes.md §F3
+  },
 );
-await runAgent(
-  "orchestrator-1",
-  "orchestrator",
-  buildOrchestratorPrompt((ctx.inputs.prompt ?? ""), { plannerNotes }),
+
+await ctx.stage(
+  { name: "orchestrator" },
+  {},
+  { title: "orchestrator" },
+  async (s) => {
+    const result = await s.client.session.prompt({
+      sessionID: s.session.id,
+      parts: [{
+        type: "text",
+        text: buildOrchestratorPrompt(
+          (ctx.inputs.prompt ?? ""),
+          { plannerNotes: plannerHandle.result },
+        ),
+      }],
+      agent: "orchestrator",
+    });
+    s.save(result.data!);
+  },
 );
 ```
 

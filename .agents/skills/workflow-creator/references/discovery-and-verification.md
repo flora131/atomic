@@ -164,7 +164,7 @@ discovery but marked **incompatible** — it never silently vanishes:
 |---|---|
 | `WorkflowLoader.loadWorkflow()` | Returns `{ ok: false, stage: "load", error: IncompatibleSDKError }` carrying `requiredVersion` + `currentVersion` |
 | `loadWorkflowsMetadata()` | Yields an entry with `status: { kind: "incompatible", requiredVersion, currentVersion, message }` |
-| `atomic workflow -l` | Row is dimmed, with an inline `⚠ needs v<X> (installed v<Y>)` badge after the name |
+| `atomic workflow list` | Row is dimmed, with an inline `⚠ needs v<X> (installed v<Y>)` badge after the name |
 | `atomic workflow -a <agent>` picker | Row shows a `⚠` gutter glyph; preview pane explains the version gap and remediation; Enter does not advance to the prompt phase; bottom hint dims `↵ select` to `↵ unavailable` |
 | `atomic workflow -n <name> -a <agent>` | Exits non-zero, prints the `IncompatibleSDKError` message (`requires Atomic SDK v<X>, but v<Y> is installed. Update Atomic, or re-save the workflow against the current SDK.`) |
 

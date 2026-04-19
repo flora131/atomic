@@ -6,8 +6,8 @@
  * the session transcript, optionally polls it for mid-loop flush races, and
  * returns the sliced tail produced by the current turn.
  *
- * HIL detection is out of scope for this function — see
- * `watchTranscriptForHIL` and its own test file.
+ * HIL detection is out of scope for this function — see `watchHILMarker`
+ * and its own test file.
  *
  * Strategy:
  * - mock.module "@anthropic-ai/claude-agent-sdk" to control getSessionMessages
@@ -45,7 +45,6 @@ import {
   waitForIdle,
   markerDir,
   markerPath,
-  _hasUnresolvedHILTool,
 } from "../../../src/sdk/providers/claude.ts";
 import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -166,63 +165,7 @@ describe("waitForIdle — marker-file flow", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 4. Verify _hasUnresolvedHILTool is used correctly (unit test of helper)
-  // -------------------------------------------------------------------------
-
-  test("_hasUnresolvedHILTool returns false for an empty transcript", () => {
-    expect(_hasUnresolvedHILTool([])).toBe(false);
-  });
-
-  test("_hasUnresolvedHILTool returns true when AskUserQuestion has no matching tool_result", () => {
-    const msgs: SessionMessage[] = [
-      {
-        type: "assistant",
-        uuid: "a1",
-        session_id: "s1",
-        message: {
-          role: "assistant",
-          content: [
-            { type: "tool_use", id: "tool-1", name: "AskUserQuestion", input: {} },
-          ],
-        },
-        parent_tool_use_id: null,
-      },
-    ];
-    expect(_hasUnresolvedHILTool(msgs)).toBe(true);
-  });
-
-  test("_hasUnresolvedHILTool returns false when AskUserQuestion has a matching tool_result", () => {
-    const msgs: SessionMessage[] = [
-      {
-        type: "assistant",
-        uuid: "a1",
-        session_id: "s1",
-        message: {
-          role: "assistant",
-          content: [
-            { type: "tool_use", id: "tool-1", name: "AskUserQuestion", input: {} },
-          ],
-        },
-        parent_tool_use_id: null,
-      },
-      {
-        type: "user",
-        uuid: "u1",
-        session_id: "s1",
-        message: {
-          role: "user",
-          content: [
-            { type: "tool_result", tool_use_id: "tool-1", content: "answer" },
-          ],
-        },
-        parent_tool_use_id: null,
-      },
-    ];
-    expect(_hasUnresolvedHILTool(msgs)).toBe(false);
-  });
-
-  // -------------------------------------------------------------------------
-  // 5. Transcript slicing — transcriptBeforeCount applied correctly
+  // 4. Transcript slicing — transcriptBeforeCount applied correctly
   // -------------------------------------------------------------------------
 
   test("returns empty slice when transcript has no new messages beyond baseline", async () => {

@@ -214,7 +214,7 @@ redefining the canonical version of a workflow in a way that confuses
 teammates or breaks automation.
 
 You'll still see shadowed local/global workflows in
-`atomic workflow -l` output so the collision is visible, but running
+`atomic workflow list` output so the collision is visible, but running
 `atomic workflow -n ralph -a claude` will always land on the builtin.
 
 The practical implication: **don't name a new workflow `ralph` or
@@ -225,7 +225,7 @@ this.
 
 ```bash
 # List everything, grouped by source
-atomic workflow -l
+atomic workflow list
 
 # Launch the picker for a pinned agent
 atomic workflow -a claude

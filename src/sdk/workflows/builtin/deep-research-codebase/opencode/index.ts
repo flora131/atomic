@@ -163,7 +163,6 @@ export default defineWorkflow({
                   type: "text",
                   text: buildHistoryLocatorPrompt({
                     question: prompt,
-                    root,
                   }),
                 },
               ],
@@ -191,7 +190,6 @@ export default defineWorkflow({
                   text: buildHistoryAnalyzerPrompt({
                     question: prompt,
                     locatorOutput: historyLocator.result,
-                    root,
                   }),
                 },
               ],
@@ -236,7 +234,6 @@ export default defineWorkflow({
                     text: buildLocatorPrompt({
                       question: prompt,
                       partition,
-                      root,
                       scoutOverview,
                       index: i,
                       total: explorerCount,
@@ -266,7 +263,6 @@ export default defineWorkflow({
                     text: buildPatternFinderPrompt({
                       question: prompt,
                       partition,
-                      root,
                       scoutOverview,
                       index: i,
                       total: explorerCount,
@@ -304,7 +300,6 @@ export default defineWorkflow({
                       question: prompt,
                       partition,
                       locatorOutput,
-                      root,
                       scoutOverview,
                       index: i,
                       total: explorerCount,
@@ -335,7 +330,6 @@ export default defineWorkflow({
                       question: prompt,
                       partition,
                       locatorOutput,
-                      root,
                       index: i,
                       total: explorerCount,
                     }),

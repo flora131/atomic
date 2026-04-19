@@ -277,13 +277,19 @@ export async function sessionPickerCommand(agents: string[] = [], scope: Session
  *
  * - If `sessionId` is provided: confirm and kill that one session.
  * - If `sessionId` is omitted: confirm and kill all sessions in scope.
+ *
+ * Pass `yes: true` (the `-y/--yes` flag on the CLI) to skip the
+ * confirmation prompt — useful for orchestrating agents that need to
+ * tear down a workflow session non-interactively.
  */
 export async function sessionKillCommand(
   sessionId: string | undefined,
   agents: string[] = [],
   scope: SessionScope = "all",
   deps: SessionDeps = defaultDeps,
+  options: { yes?: boolean } = {},
 ): Promise<number> {
+  const skipConfirm = options.yes === true;
   const paint = createPainter();
 
   if (!deps.isTmuxInstalled()) {
@@ -318,10 +324,12 @@ export async function sessionKillCommand(
       return 1;
     }
 
-    const answer = await deps.confirm({
-      message: `Kill session '${sessionId}'?`,
-      initialValue: false,
-    });
+    const answer = skipConfirm
+      ? true
+      : await deps.confirm({
+          message: `Kill session '${sessionId}'?`,
+          initialValue: false,
+        });
 
     if (deps.isCancel(answer)) {
       cancel("Cancelled.");
@@ -353,10 +361,12 @@ export async function sessionKillCommand(
 
   const noun = targets.length === 1 ? "session" : "sessions";
   const scopePrefix = scope === "all" ? "" : `${scope} `;
-  const answer = await deps.confirm({
-    message: `Kill all ${targets.length} ${scopePrefix}${noun}?`,
-    initialValue: false,
-  });
+  const answer = skipConfirm
+    ? true
+    : await deps.confirm({
+        message: `Kill all ${targets.length} ${scopePrefix}${noun}?`,
+        initialValue: false,
+      });
 
   if (deps.isCancel(answer)) {
     cancel("Cancelled.");

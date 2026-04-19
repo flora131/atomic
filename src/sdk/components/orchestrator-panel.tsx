@@ -11,7 +11,7 @@ import { deriveGraphTheme } from "./graph-theme.ts";
 import type { GraphTheme } from "./graph-theme.ts";
 import { PanelStore } from "./orchestrator-panel-store.ts";
 import { StoreContext, ThemeContext, TmuxSessionContext } from "./orchestrator-panel-contexts.ts";
-import type { PanelSession, PanelOptions } from "./orchestrator-panel-types.ts";
+import type { PanelSession, PanelOptions, SessionData } from "./orchestrator-panel-types.ts";
 import { SessionGraphPanel } from "./session-graph-panel.tsx";
 import { ErrorBoundary } from "./error-boundary.tsx";
 
@@ -178,5 +178,40 @@ export class OrchestratorPanel {
     try {
       this.renderer.destroy();
     } catch {}
+  }
+
+  /**
+   * Subscribe to store mutations. Returned function unsubscribes.
+   *
+   * Used by the orchestrator process to mirror the in-memory panel
+   * state to a `status.json` file on disk so out-of-process consumers
+   * (e.g. `atomic workflow status`) can read the live workflow state.
+   */
+  subscribe(fn: () => void): () => void {
+    return this.store.subscribe(fn);
+  }
+
+  /**
+   * Read-only snapshot of the fields needed by the on-disk status
+   * writer. Defined here (not in PanelStore) because the store keeps
+   * full mutable references; this projection drops the renderer-only
+   * promise resolvers and version counter.
+   */
+  getSnapshot(): {
+    workflowName: string;
+    agent: string;
+    prompt: string;
+    fatalError: string | null;
+    completionReached: boolean;
+    sessions: readonly SessionData[];
+  } {
+    return {
+      workflowName: this.store.workflowName,
+      agent: this.store.agent,
+      prompt: this.store.prompt,
+      fatalError: this.store.fatalError,
+      completionReached: this.store.completionReached,
+      sessions: this.store.sessions,
+    };
   }
 }

@@ -9,11 +9,13 @@
  *   atomic chat session list                  List running chat/workflow sessions
  *   atomic chat session connect <id>          Attach to a session
  *   atomic workflow list                      List available workflows
+ *   atomic workflow inputs <name> -a <agent>  Print a workflow's input schema (JSON)
+ *   atomic workflow status [<id>]             Query workflow status (JSON)
  *   atomic workflow session list              List running sessions
  *   atomic workflow session connect <id>      Attach to a session
  *   atomic session list                       List all running sessions
  *   atomic session connect [id]               Interactive session picker
- *   atomic session kill [id]                  Kill a session (or all when no id)
+ *   atomic session kill [id] [-y]             Kill a session (or all when no id); -y skips prompt
  *   atomic config set <key> <value>           Set configuration value
  *   atomic --version                          Show version
  *   atomic --help                             Show help
@@ -88,9 +90,16 @@ function addSessionSubcommand(parent: Command, scope: "chat" | "workflow" | "all
             collectAgent,
             [] as string[],
         )
+        .option("-y, --yes", "Skip the confirmation prompt (for non-interactive callers like agents)")
         .action(async (sessionId, localOpts) => {
             const { sessionKillCommand } = await import("./commands/cli/session.ts");
-            const exitCode = await sessionKillCommand(sessionId, localOpts.agent, scope);
+            const exitCode = await sessionKillCommand(
+                sessionId,
+                localOpts.agent,
+                scope,
+                undefined,
+                { yes: localOpts.yes === true },
+            );
             process.exit(exitCode);
         });
 
@@ -220,9 +229,12 @@ Examples:
   $ atomic workflow -n gen-spec -a claude --research_doc=notes.md --focus=standard
                                                     Run a structured-input workflow
   $ atomic workflow -n ralph -a claude -d "fix bug" Run detached in the background
+  $ atomic workflow inputs <name> -a claude         Print a workflow's input schema (JSON)
+  $ atomic workflow status                          List status for all running workflows
+  $ atomic workflow status <id>                     Query a single workflow's status
   $ atomic workflow session list                    List running sessions
   $ atomic workflow session connect <id>            Attach to a session
-  $ atomic workflow session kill [id]               Kill a workflow session (or all)`,
+  $ atomic workflow session kill [id] -y            Kill a workflow session (or all), no prompt`,
         )
         .action(async (localOpts, cmd) => {
             const { workflowCommand } = await import("./commands/cli/workflow.ts");
@@ -245,6 +257,48 @@ Examples:
             const exitCode = await workflowCommand({
                 list: true,
                 agent: localOpts.agent,
+            });
+            process.exit(exitCode);
+        });
+
+    // Workflow inputs subcommand: atomic workflow inputs <name> -a <agent>
+    // Exposes the declared input schema so an orchestrating agent can build
+    // a valid `atomic workflow -n ...` invocation without reading source.
+    workflowCmd
+        .command("inputs")
+        .description("Print a workflow's declared input schema (JSON by default)")
+        .argument("<name>", "Workflow name")
+        .requiredOption("-a, --agent <name>", `Agent backend (${agentChoices})`)
+        .option("--format <format>", "Output format: json | text", "json")
+        .action(async (name, localOpts) => {
+            const { workflowInputsCommand } = await import(
+                "./commands/cli/workflow-inputs.ts"
+            );
+            const exitCode = await workflowInputsCommand({
+                name,
+                agent: localOpts.agent,
+                format: localOpts.format === "text" ? "text" : "json",
+            });
+            process.exit(exitCode);
+        });
+
+    // Workflow status subcommand: atomic workflow status [<id>]
+    // Returns one of in_progress | error | completed | needs_review.
+    // Defaults to JSON so agents can parse it without screen-scraping.
+    workflowCmd
+        .command("status")
+        .description(
+            "Query workflow status (in_progress, error, completed, needs_review)",
+        )
+        .argument("[session_id]", "Workflow tmux session id (omit to list all)")
+        .option("--format <format>", "Output format: json | text", "json")
+        .action(async (sessionId, localOpts) => {
+            const { workflowStatusCommand } = await import(
+                "./commands/cli/workflow-status.ts"
+            );
+            const exitCode = await workflowStatusCommand({
+                id: sessionId,
+                format: localOpts.format === "text" ? "text" : "json",
             });
             process.exit(exitCode);
         });

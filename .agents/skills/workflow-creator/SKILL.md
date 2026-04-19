@@ -1,6 +1,6 @@
 ---
 name: workflow-creator
-description: Create multi-agent workflows for Atomic CLI using defineWorkflow().run().compile() with ctx.stage() for session orchestration across Claude, Copilot, and OpenCode SDKs, AND invoke existing workflows on behalf of the user. Use whenever the user wants to create, edit, debug, or RUN workflows ("run the ralph workflow", "kick off deep-research-codebase", "start the gen-spec workflow"), build agent pipelines, define multi-stage automations, set up review loops, declare workflow inputs, run background/headless stages, or mentions .atomic/workflows/, defineWorkflow, ctx.stage, ctx.inputs, headless, background stages, the atomic workflow picker, or `atomic workflow -n`.
+description: Create multi-agent workflows for Atomic CLI using defineWorkflow().run().compile() with ctx.stage() for session orchestration across Claude, Copilot, and OpenCode SDKs, AND invoke, monitor, and tear down existing workflows on behalf of the user. Use whenever the user wants to create, edit, debug, or RUN workflows ("run the ralph workflow", "kick off deep-research-codebase", "start the gen-spec workflow"), check on a running workflow ("is it done yet?", "what's the status?", "did it error out?"), kill a workflow or session, build agent pipelines, define multi-stage automations, set up review loops, declare workflow inputs, run background/headless stages, or mentions .atomic/workflows/, defineWorkflow, ctx.stage, ctx.inputs, headless, background stages, the atomic workflow picker, `atomic workflow -n`, `atomic workflow inputs`, `atomic workflow status`, or `atomic session kill`.
 ---
 
 # Workflow Creator
@@ -208,7 +208,10 @@ Workflows that accept a free-form prompt should declare it explicitly: `{ name: 
 | Named, with prompt | `atomic workflow -n hello -a claude "fix the bug"` | Scripted runs; requires the workflow to declare a `prompt` input |
 | Named, structured | `atomic workflow -n gen-spec -a claude --research_doc=notes.md` | Scripted structured runs |
 | Interactive picker | `atomic workflow -a claude` | Discovery; shows fuzzy list + form |
-| List | `atomic workflow -l` | Browse everything by source |
+| List | `atomic workflow list` | Browse everything by source |
+| Inspect inputs | `atomic workflow inputs <name> -a claude` | Print a workflow's input schema as JSON — agents use this instead of reading source |
+| Status (one or all) | `atomic workflow status [<session-id>]` | Query state — `in_progress`, `error`, `completed`, `needs_review` (HIL pause). JSON by default |
+| Kill non-interactively | `atomic session kill <id> -y` | Tear down a workflow/chat session without the confirmation prompt — the form agents use |
 | Detached (background) | `atomic workflow -n ralph -a claude -d "..."` | Scripted/CI runs where the caller shouldn't block on the TUI — the orchestrator keeps running on the atomic tmux socket; attach later with `atomic workflow session connect <name>` |
 
 Any of the named shapes above (positional or structured) accepts `-d` / `--detach` to run without attaching. Use it when you're automating from a script and want the CLI to return as soon as the session is spawned.
@@ -398,9 +401,18 @@ Once you've confirmed the workflow exists, you need to know two things about its
 1. **Does it declare a `prompt` input?** If so, it's free-form — you pass a positional string.
 2. **Does it declare structured inputs?** If so, you pass `--<field>=<value>` flags, one per required field.
 
-Read the workflow file at `.atomic/workflows/<name>/<agent>/index.ts` and inspect the `inputs` array. The `atomic workflow list` output is good for discovery but doesn't print the full schema — for accurate field types, requireds, and enum values, read the source.
+**Use `atomic workflow inputs <name> -a <agent>` to get the schema.** This prints a JSON envelope with every field's `name`, `type`, `required`, `default`, `description`, and (for enums) `values` — exactly what AskUserQuestion needs. The `freeform: true` flag tells you whether the workflow takes a positional prompt vs. structured flags, with a synthetic `prompt` field included so the JSON shape is uniform either way.
 
-Once you know the schema, use the **AskUserQuestion tool** to collect any values the user hasn't already provided in their message. One question per missing input field. For enum fields, pass the declared `values` as multiple-choice options so the user sees exactly what's allowed. Keep questions tight and purposeful — if the user's message already answers a question, don't ask it again.
+```bash
+atomic workflow inputs gen-spec -a claude
+# {"workflow":"gen-spec","agent":"claude","freeform":false,
+#  "inputs":[{"name":"research_doc","type":"string","required":true,...},
+#            {"name":"focus","type":"enum","values":["minimal","standard","exhaustive"],"default":"standard"}]}
+```
+
+Why this command instead of reading the source file: `inputs` is the contract the CLI actually validates against. It survives refactors, handles built-in workflows that aren't in the project tree, and never falls out of sync with the runtime. Reading TypeScript source is a fallback for the rare case where the command can't resolve the workflow.
+
+Once you have the schema, use the **AskUserQuestion tool** to collect any values the user hasn't already provided in their message. One question per missing input field. For enum fields, pass the declared `values` as multiple-choice options so the user sees exactly what's allowed. Keep questions tight and purposeful — if the user's message already answers a question, don't ask it again.
 
 Skip AskUserQuestion entirely when:
 - The user already supplied every required value in their message ("run ralph on 'add OAuth to the API'" — the prompt is right there).
@@ -413,12 +425,45 @@ Skip AskUserQuestion entirely when:
    - Exact match in the list → continue.
    - Close match → confirm via AskUserQuestion before proceeding.
    - No match → tell the user what's available and offer to author it (see previous section). If they decline, stop.
-3. **Discover the inputs schema** — read the workflow source file and inspect `inputs`.
+3. **Discover the inputs schema** — run `atomic workflow inputs <name> -a <agent>` and parse the JSON.
 4. **Ask for missing inputs** — use AskUserQuestion, one question per unanswered required field. Enums become multiple-choice.
 5. **Invoke** — build one of these commands:
    - Free-form: `atomic workflow -n <name> "<prompt>"`
    - Structured: `atomic workflow -n <name> --<field1>=<value1> --<field2>=<value2>`
 6. **Report the session name** the CLI printed and tell the user: "attach any time with `atomic workflow session connect <session>` — or `atomic workflow session list` to see what's running."
+
+### Monitoring a running workflow
+
+Detached workflows return immediately with a session name; the actual work runs in the background on the atomic tmux socket. Use `atomic workflow status` to check whether the workflow is still running, has completed, errored out, or paused for human input — without attaching to its TUI.
+
+```bash
+atomic workflow status atomic-wf-claude-gen-spec-a1b2c3d4
+# {"id":"atomic-wf-claude-gen-spec-a1b2c3d4","overall":"in_progress","alive":true,
+#  "sessions":[{"name":"orchestrator","status":"running",...}],...}
+```
+
+Four overall states the agent must handle distinctly:
+
+| Status | Meaning | What you should do |
+|---|---|---|
+| `in_progress` | The orchestrator is running and no stage is paused | Wait, or report progress to the user |
+| `needs_review` | At least one stage is paused for human input (HIL) — Copilot `ask_user`, OpenCode `question.asked`, Copilot/MCP elicitation | **Surface this to the user immediately** — they need to attach with `atomic workflow session connect <id>` to respond, otherwise the workflow stalls indefinitely |
+| `completed` | Workflow finished successfully | Report success and summarize the output |
+| `error` | Fatal error or a stage failed | Report the `fatalError` field and offer to investigate logs |
+
+`needs_review` outranks `completed` so a HIL pause near the end is never reported as done while still waiting on a human. A dead orchestrator with a stale snapshot is automatically downgraded to `error`.
+
+Omit the id to list every running workflow at once: `atomic workflow status`. Useful when checking on multiple parallel runs, or when the user just asks "what's running?".
+
+### Cleaning up sessions
+
+When the user is done with a workflow — or you launched one detached and it's no longer needed — tear it down with `-y` so no confirmation prompt blocks you:
+
+```bash
+atomic session kill atomic-wf-claude-gen-spec-a1b2c3d4 -y
+```
+
+The `-y` flag is mandatory for agent use. Without it, the CLI calls `@clack/prompts confirm`, which expects a TTY and will hang indefinitely in a non-interactive context. Same flag works for `atomic workflow session kill` and `atomic chat session kill`. Without an id, `kill -y` tears down every in-scope session — only do that when the user has asked to stop everything.
 
 ### Worked examples
 
@@ -428,10 +473,10 @@ Skip AskUserQuestion entirely when:
 
 1. Run `atomic workflow list`. Output includes `gen-spec` under local. Good.
 2. Target resolved exactly: `gen-spec`.
-3. Read the workflow source → inputs are `research_doc` (required string — already given), `focus` (required enum of `minimal|standard|exhaustive`, no default), `notes` (optional text).
+3. Run `atomic workflow inputs gen-spec -a claude`. Parse the JSON: `research_doc` (required string — already given), `focus` (required enum of `minimal|standard|exhaustive`, default `standard`), `notes` (optional text).
 4. Ask via AskUserQuestion once: "What focus level for the spec?" with choices `minimal`, `standard`, `exhaustive`. User picks `standard`. Skip `notes` since it's optional.
 5. Run: `atomic workflow -n gen-spec --research_doc=research/docs/2026-04-11-auth.md --focus=standard`
-6. The CLI prints a session name like `atomic-wf-claude-gen-spec-a1b2c3d4`. Tell the user: "Started in the background. Attach with `atomic workflow session connect atomic-wf-claude-gen-spec-a1b2c3d4` or check progress with `atomic workflow session list`."
+6. The CLI prints a session name like `atomic-wf-claude-gen-spec-a1b2c3d4`. Tell the user: "Started in the background. Attach with `atomic workflow session connect atomic-wf-claude-gen-spec-a1b2c3d4`, check progress with `atomic workflow status atomic-wf-claude-gen-spec-a1b2c3d4`, or stop it with `atomic session kill atomic-wf-claude-gen-spec-a1b2c3d4 -y`."
 
 **Example B — workflow does not exist**
 
@@ -448,6 +493,9 @@ Skip AskUserQuestion entirely when:
 
 - **Skipping `atomic workflow list`** — leads to guessing and `workflow not found` errors. It's a one-line command; always run it.
 - **Inventing a workflow name** — if it's not in the list, it doesn't exist. Say so and offer to author it.
+- **Reading the workflow source file to discover inputs** — use `atomic workflow inputs <name> -a <agent>` instead. JSON, no TS parsing required, always in sync with the runtime. Source-file reads are a fallback, not a default.
 - **Asking everything at once** — let AskUserQuestion drive one question per field. Enum fields are multiple-choice, not free text.
 - **Re-asking what the user already said** — read their message first.
-- **Forgetting to report the session name** — the user needs it to reattach.
+- **Forgetting to report the session name** — the user needs it to reattach and to query status later.
+- **Leaving `needs_review` unreported** — when `atomic workflow status` returns `needs_review`, surface it to the user right away. The workflow is blocked on human input and will sit forever otherwise.
+- **Calling `session kill` without `-y`** — the prompt hangs in a non-interactive context. Always pass `-y` from an agent.

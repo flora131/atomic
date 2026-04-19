@@ -112,9 +112,13 @@ describe("renderMessagesToText", () => {
 
   // --- Copilot ---
 
-  test("extracts content from a copilot assistant.message event", () => {
-    const messages: SavedMessage[] = [makeCopilotAssistantEvent("Hello from Copilot")];
-    expect(renderMessagesToText(messages)).toBe("Hello from Copilot");
+  test("renders a copilot assistant.message under an Assistant header", () => {
+    const messages: SavedMessage[] = [
+      makeCopilotAssistantEvent("Hello from Copilot"),
+    ];
+    expect(renderMessagesToText(messages)).toBe(
+      "### Assistant\n\nHello from Copilot",
+    );
   });
 
   test("skips copilot non-assistant events (session.start)", () => {
@@ -122,26 +126,30 @@ describe("renderMessagesToText", () => {
     expect(renderMessagesToText(messages)).toBe("");
   });
 
-  test("only includes copilot assistant.message events when mixed with other event types", () => {
+  test("only renders copilot assistant.message events when mixed with other event types", () => {
     const messages: SavedMessage[] = [
       makeCopilotSessionStartEvent(),
       makeCopilotAssistantEvent("First response"),
       makeCopilotSessionStartEvent(),
       makeCopilotAssistantEvent("Second response"),
     ];
-    expect(renderMessagesToText(messages)).toBe("First response\n\nSecond response");
+    expect(renderMessagesToText(messages)).toBe(
+      "### Assistant\n\nFirst response\n\n### Assistant\n\nSecond response",
+    );
   });
 
   // --- OpenCode ---
 
-  test("joins opencode text parts with newlines", () => {
+  test("renders opencode text parts under an Assistant header", () => {
     const messages: SavedMessage[] = [
       makeOpenCodeMessage([
         { type: "text", text: "Line one" },
         { type: "text", text: "Line two" },
       ]),
     ];
-    expect(renderMessagesToText(messages)).toBe("Line one\nLine two");
+    expect(renderMessagesToText(messages)).toBe(
+      "### Assistant\n\nLine one\n\nLine two",
+    );
   });
 
   test("filters out non-text parts from opencode messages", () => {
@@ -162,24 +170,32 @@ describe("renderMessagesToText", () => {
         { type: "subtask", text: "" },
       ]),
     ];
-    expect(renderMessagesToText(messages)).toBe("The answer is 42");
+    expect(renderMessagesToText(messages)).toBe(
+      "### Assistant\n\nThe answer is 42",
+    );
   });
 
   // --- Claude ---
 
-  test("returns string message from claude assistant with plain string message", () => {
-    const messages: SavedMessage[] = [makeClaudeMessage("assistant", "Plain string output")];
-    expect(renderMessagesToText(messages)).toBe("Plain string output");
+  test("renders a claude assistant string message under an Assistant header", () => {
+    const messages: SavedMessage[] = [
+      makeClaudeMessage("assistant", "Plain string output"),
+    ];
+    expect(renderMessagesToText(messages)).toBe(
+      "### Assistant\n\nPlain string output",
+    );
   });
 
-  test("returns content when claude assistant message is an object with content string", () => {
+  test("renders claude assistant message with content as string under an Assistant header", () => {
     const messages: SavedMessage[] = [
       makeClaudeMessage("assistant", { content: "Content field string" }),
     ];
-    expect(renderMessagesToText(messages)).toBe("Content field string");
+    expect(renderMessagesToText(messages)).toBe(
+      "### Assistant\n\nContent field string",
+    );
   });
 
-  test("joins text blocks when claude assistant message has content as text block array", () => {
+  test("joins claude text blocks with a double newline under a single Assistant header", () => {
     const messages: SavedMessage[] = [
       makeClaudeMessage("assistant", {
         content: [
@@ -188,48 +204,176 @@ describe("renderMessagesToText", () => {
         ],
       }),
     ];
-    expect(renderMessagesToText(messages)).toBe("Block one\nBlock two");
+    expect(renderMessagesToText(messages)).toBe(
+      "### Assistant\n\nBlock one\n\nBlock two",
+    );
   });
 
-  test("skips claude user messages", () => {
-    const messages: SavedMessage[] = [makeClaudeMessage("user", "user prompt")];
-    expect(renderMessagesToText(messages)).toBe("");
+  test("renders a claude user string message under a User header", () => {
+    const messages: SavedMessage[] = [
+      makeClaudeMessage("user", "user prompt"),
+    ];
+    expect(renderMessagesToText(messages)).toBe("### User\n\nuser prompt");
   });
 
   test("skips claude system messages", () => {
-    const messages: SavedMessage[] = [makeClaudeMessage("system", "system instructions")];
+    const messages: SavedMessage[] = [
+      makeClaudeMessage("system", "system instructions"),
+    ];
     expect(renderMessagesToText(messages)).toBe("");
   });
 
-  test("returns empty string for claude assistant with unknown message shape", () => {
+  test("returns empty string for a claude assistant message with an unknown content shape", () => {
     const unknownMsg = { weird: "shape", count: 99 };
-    const messages: SavedMessage[] = [makeClaudeMessage("assistant", unknownMsg)];
+    const messages: SavedMessage[] = [
+      makeClaudeMessage("assistant", unknownMsg),
+    ];
     expect(renderMessagesToText(messages)).toBe("");
   });
 
-  test("extracts text blocks from mixed claude content array (text + tool_use)", () => {
+  test("renders tool_use blocks inline with text under a single Assistant header", () => {
     const messages: SavedMessage[] = [
       makeClaudeMessage("assistant", {
         content: [
           { type: "text", text: "I'll read the file" },
-          { type: "tool_use", id: "tu-1", name: "Read", input: { path: "/tmp/foo" } },
+          {
+            type: "tool_use",
+            id: "tu-1",
+            name: "Read",
+            input: { path: "/tmp/foo" },
+          },
           { type: "text", text: "Here's what I found" },
         ],
       }),
     ];
-    expect(renderMessagesToText(messages)).toBe("I'll read the file\nHere's what I found");
+    expect(renderMessagesToText(messages)).toBe(
+      [
+        "### Assistant",
+        "",
+        "I'll read the file",
+        "",
+        "**→ `Read`**",
+        "",
+        "```json",
+        "{\n  \"path\": \"/tmp/foo\"\n}",
+        "```",
+        "",
+        "Here's what I found",
+      ].join("\n"),
+    );
+  });
+
+  test("skips claude `thinking` blocks in the rendered transcript", () => {
+    const messages: SavedMessage[] = [
+      makeClaudeMessage("assistant", {
+        content: [
+          { type: "thinking", thinking: "internal reasoning…", signature: "sig" },
+          { type: "text", text: "Public answer" },
+        ],
+      }),
+    ];
+    expect(renderMessagesToText(messages)).toBe(
+      "### Assistant\n\nPublic answer",
+    );
+  });
+
+  test("omits `tool_result` payloads entirely — only the call and subsequent assistant turns survive", () => {
+    const big = "x".repeat(5_000);
+    const messages: SavedMessage[] = [
+      makeClaudeMessage("assistant", {
+        content: [
+          {
+            type: "tool_use",
+            id: "tu-42",
+            name: "Read",
+            input: { file_path: "/tmp/note.md" },
+          },
+        ],
+      }),
+      makeClaudeMessage("user", {
+        content: [
+          { type: "tool_result", tool_use_id: "tu-42", content: big },
+        ],
+      }),
+      makeClaudeMessage("assistant", {
+        content: [{ type: "text", text: "Done." }],
+      }),
+    ];
+    const rendered = renderMessagesToText(messages);
+
+    // The tool call itself is present, with its input JSON.
+    expect(rendered).toContain("**→ `Read`**");
+    expect(rendered).toContain("/tmp/note.md");
+
+    // The follow-up assistant turn is present.
+    expect(rendered).toContain("### Assistant\n\nDone.");
+
+    // The tool_result payload is completely absent — not truncated, not
+    // labelled, not present in any form. This is the context-rot guard:
+    // even a 5_000-char result must not leak into the transcript.
+    expect(rendered).not.toContain("xxxxx");
+    expect(rendered).not.toContain("← `Read` result");
+    expect(rendered).not.toContain("← `Read`");
+  });
+
+  test("truncates very long tool_use `input` payloads with a `[+N chars]` suffix", () => {
+    const bigCommand = "echo " + "a".repeat(5_000);
+    const messages: SavedMessage[] = [
+      makeClaudeMessage("assistant", {
+        content: [
+          {
+            type: "tool_use",
+            id: "tu-big",
+            name: "Bash",
+            input: { command: bigCommand },
+          },
+        ],
+      }),
+    ];
+    const rendered = renderMessagesToText(messages);
+    expect(rendered).toContain("**→ `Bash`**");
+    // Input budget is 800 chars of JSON — the long command must be truncated.
+    expect(rendered).toContain("chars]");
+    expect(rendered.length).toBeLessThan(bigCommand.length);
+  });
+
+  test("skips a user message whose only content is `tool_result` blocks", () => {
+    const messages: SavedMessage[] = [
+      makeClaudeMessage("user", {
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "tu-a",
+            content: "would-be-noisy output",
+          },
+        ],
+      }),
+    ];
+    expect(renderMessagesToText(messages)).toBe("");
   });
 
   // --- Mixed providers ---
 
-  test("joins messages from mixed providers with double newlines", () => {
+  test("joins messages from mixed providers with double newlines and provider-appropriate headers", () => {
     const messages: SavedMessage[] = [
       makeCopilotAssistantEvent("Copilot says hello"),
       makeOpenCodeMessage([{ type: "text", text: "OpenCode says hello" }]),
       makeClaudeMessage("assistant", "Claude says hello"),
     ];
     expect(renderMessagesToText(messages)).toBe(
-      "Copilot says hello\n\nOpenCode says hello\n\nClaude says hello",
+      [
+        "### Assistant",
+        "",
+        "Copilot says hello",
+        "",
+        "### Assistant",
+        "",
+        "OpenCode says hello",
+        "",
+        "### Assistant",
+        "",
+        "Claude says hello",
+      ].join("\n"),
     );
   });
 
@@ -239,7 +383,9 @@ describe("renderMessagesToText", () => {
       makeCopilotAssistantEvent("Only one has content"),
       makeOpenCodeMessage([{ type: "reasoning", text: "ignored" }]),
     ];
-    expect(renderMessagesToText(messages)).toBe("Only one has content");
+    expect(renderMessagesToText(messages)).toBe(
+      "### Assistant\n\nOnly one has content",
+    );
   });
 });
 

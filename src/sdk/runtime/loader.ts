@@ -12,10 +12,17 @@
 
 import type { WorkflowDefinition, AgentType } from "../types.ts";
 import type { DiscoveredWorkflow } from "./discovery.ts";
-import { errorMessage, WorkflowNotCompiledError, InvalidWorkflowError } from "../errors.ts";
+import {
+  errorMessage,
+  WorkflowNotCompiledError,
+  InvalidWorkflowError,
+  IncompatibleSDKError,
+} from "../errors.ts";
 import { validateCopilotWorkflow } from "../providers/copilot.ts";
 import { validateOpenCodeWorkflow } from "../providers/opencode.ts";
 import { validateClaudeWorkflow } from "../providers/claude.ts";
+import { satisfiesMinVersion } from "./version-compat.ts";
+import { VERSION } from "../../version.ts";
 
 export namespace WorkflowLoader {
   // ---------------------------------------------------------------------------
@@ -180,9 +187,29 @@ export namespace WorkflowLoader {
         };
       }
 
+      const def = definition as WorkflowDefinition;
+
+      // Refuse workflows whose declared minSDKVersion is newer than the
+      // bundled CLI — the workflow author opted in to a version gate
+      // exactly so the loader could surface a clear upgrade hint
+      // instead of letting a shape-drift error bubble up at run time.
+      if (!satisfiesMinVersion(VERSION, def.minSDKVersion)) {
+        const err = new IncompatibleSDKError(
+          validated.path,
+          def.minSDKVersion ?? "",
+          VERSION,
+        );
+        return {
+          ok: false,
+          stage: "load",
+          error: err,
+          message: err.message,
+        };
+      }
+
       return {
         ok: true,
-        value: { ...validated, definition: definition as WorkflowDefinition },
+        value: { ...validated, definition: def },
       };
     } catch (error) {
       return {

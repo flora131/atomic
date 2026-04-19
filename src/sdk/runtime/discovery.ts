@@ -17,6 +17,7 @@ import { homedir } from "node:os";
 import ignore from "ignore";
 import type { AgentType, WorkflowInput } from "../types.ts";
 import { WorkflowLoader } from "./loader.ts";
+import { IncompatibleSDKError } from "../errors.ts";
 
 export interface DiscoveredWorkflow {
   name: string;
@@ -249,46 +250,119 @@ export async function findWorkflow(
 }
 
 /**
+ * Load status for a {@link WorkflowWithMetadata} entry.
+ *
+ * - `ok`            — the workflow compiled cleanly and is ready to run.
+ * - `incompatible`  — the workflow declared a `minSDKVersion` newer
+ *                     than the bundled CLI. The CLI renders it with an
+ *                     "update required" badge so users see the mismatch
+ *                     rather than a silent disappearance.
+ * - `error`         — any other load failure (syntax error, missing
+ *                     `.compile()`, invalid default export, etc.).
+ *                     Rendered with a "failed to load" badge plus the
+ *                     underlying message.
+ */
+export type WorkflowMetadataStatus =
+  | { kind: "ok" }
+  | {
+      kind: "incompatible";
+      requiredVersion: string;
+      currentVersion: string;
+      message: string;
+    }
+  | {
+      kind: "error";
+      stage: "resolve" | "validate" | "load";
+      message: string;
+    };
+
+/**
  * A discovered workflow enriched with the metadata the picker needs to
- * render it: the human description and the declared input schema.
+ * render it: the human description, the declared input schema, and the
+ * load status.
  *
  * Populated by {@link loadWorkflowsMetadata}, which runs each discovered
- * workflow through {@link WorkflowLoader.loadWorkflow} and extracts just
- * the display-relevant fields — the full compiled definition is
- * discarded after extraction so re-imports during execution are cheap.
+ * workflow through {@link WorkflowLoader.loadWorkflow} and extracts the
+ * display-relevant fields — the full compiled definition is discarded
+ * after extraction so re-imports during execution are cheap.
+ *
+ * Broken entries still materialise with empty `description` / `inputs`
+ * and a non-`ok` {@link status}, so the picker can render them as
+ * visible "update required" / "failed to load" rows instead of
+ * silently omitting them (the previous behaviour, which made user and
+ * global workflows vanish whenever the base SDK shape drifted between
+ * releases).
  */
 export interface WorkflowWithMetadata extends DiscoveredWorkflow {
-  /** Workflow description, empty string when none was declared. */
+  /** Workflow description, empty string when none was declared or the workflow failed to load. */
   description: string;
-  /** Picker-ready input schema; free-form workflows materialize a prompt field. */
+  /** Picker-ready input schema; empty for free-form or failed-to-load workflows. */
   inputs: readonly WorkflowInput[];
+  /** Load outcome — non-`ok` entries are rendered as visible diagnostics in the picker/list. */
+  status: WorkflowMetadataStatus;
 }
 
 /**
- * Load metadata (description + picker-ready inputs) for a batch of discovered workflows.
+ * Load metadata (description + picker-ready inputs + status) for a batch
+ * of discovered workflows.
  *
- * Workflows that fail to import are **skipped silently** so one broken
- * entry can never prevent the picker from rendering. Callers that need
- * to surface load errors (e.g. `atomic workflow -n broken`) should use
- * {@link WorkflowLoader.loadWorkflow} directly — that path produces
- * structured error reports.
+ * **Failed workflows are kept in the returned list**, not dropped. Each
+ * broken entry carries a {@link WorkflowMetadataStatus} explaining the
+ * failure so the picker and `atomic workflow -l` can surface it as an
+ * actionable diagnostic. This is the only way end users discover that a
+ * workflow from an older SDK release has gone incompatible after an
+ * `atomic` upgrade — silent filtering would leave them with a missing
+ * entry and no breadcrumb.
+ *
+ * Callers that want to execute a workflow should still route through
+ * {@link WorkflowLoader.loadWorkflow} — this function throws away the
+ * compiled definition so re-running the loader on a confirmed pick is
+ * unavoidable.
  */
 export async function loadWorkflowsMetadata(
   discovered: DiscoveredWorkflow[],
 ): Promise<WorkflowWithMetadata[]> {
-  const results = await Promise.all(
-    discovered.map(async (wf): Promise<WorkflowWithMetadata | null> => {
+  return Promise.all(
+    discovered.map(async (wf): Promise<WorkflowWithMetadata> => {
       const loaded = await WorkflowLoader.loadWorkflow(wf);
-      if (!loaded.ok) return null;
+      if (loaded.ok) {
+        return {
+          ...wf,
+          description: loaded.value.definition.description,
+          inputs: loaded.value.definition.inputs,
+          status: { kind: "ok" },
+        };
+      }
+
+      // Incompatible SDK version is a first-class status so the UI can
+      // show a dedicated "update required" hint. Every other failure
+      // maps to a generic `error` variant — the picker renders the
+      // message but doesn't try to interpret it further.
+      if (loaded.error instanceof IncompatibleSDKError) {
+        return {
+          ...wf,
+          description: "",
+          inputs: [],
+          status: {
+            kind: "incompatible",
+            requiredVersion: loaded.error.requiredVersion,
+            currentVersion: loaded.error.currentVersion,
+            message: loaded.message,
+          },
+        };
+      }
+
       return {
         ...wf,
-        description: loaded.value.definition.description,
-        inputs: loaded.value.definition.inputs,
+        description: "",
+        inputs: [],
+        status: {
+          kind: "error",
+          stage: loaded.stage,
+          message: loaded.message,
+        },
       };
     }),
-  );
-  return results.filter(
-    (r): r is WorkflowWithMetadata => r !== null,
   );
 }
 

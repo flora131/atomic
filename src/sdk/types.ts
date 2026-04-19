@@ -366,6 +366,22 @@ export interface WorkflowOptions<
    * and enforce them on `ctx.inputs`.
    */
   inputs?: I;
+  /**
+   * Minimum Atomic CLI version this workflow is known to work with.
+   *
+   * When set, the CLI refuses to load the workflow on an older install
+   * and surfaces an actionable "update required" entry in the picker
+   * and `atomic workflow -l` output instead of silently dropping it.
+   *
+   * Leave unset (the default) to opt out entirely — the workflow will
+   * be treated as compatible with every CLI version. Use this when you
+   * consume a new SDK feature (new provider API, a new field on the
+   * stage options, etc.) that older installs can't honour.
+   *
+   * Accepts `MAJOR.MINOR.PATCH` with an optional numeric prerelease
+   * (`0.6.0`, `0.6.0-0`). Invalid strings are ignored.
+   */
+  minSDKVersion?: string;
 }
 
 /**
@@ -377,6 +393,11 @@ export interface WorkflowDefinition<A extends AgentType = AgentType, N extends s
   readonly description: string;
   /** Declared input schema — empty array for free-form workflows. */
   readonly inputs: readonly WorkflowInput[];
+  /**
+   * Minimum Atomic SDK version required. `null` when the workflow
+   * declared no requirement — treated as compatible with every CLI.
+   */
+  readonly minSDKVersion: string | null;
   /** The workflow's entry point. Called by the executor with a WorkflowContext. */
   readonly run: (ctx: WorkflowContext<A, N>) => Promise<void>;
 }

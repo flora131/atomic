@@ -64,6 +64,7 @@ function makeWorkflow(
     source: "local",
     description: "",
     inputs: [],
+    status: { kind: "ok" },
     ...overrides,
   };
 }
@@ -577,6 +578,116 @@ describe("WorkflowPicker PICK keyboard", () => {
     const frame = setup.captureCharFrame();
     expect(frame).toContain("PICK");
   });
+
+  test("enter on an incompatible workflow does not transition", async () => {
+    // Non-ok entries stay visible so the user can *see* the failure —
+    // but the picker must refuse to advance into the prompt phase,
+    // because there's no runnable definition on the other side.
+    const workflows = [
+      makeWorkflow({
+        name: "needs-update",
+        source: "local",
+        status: {
+          kind: "incompatible",
+          requiredVersion: "99.0.0",
+          currentVersion: "0.5.0",
+          message: "needs newer SDK",
+        },
+      }),
+    ];
+    let submitted = false;
+    const setup = await renderPicker({
+      workflows,
+      onSubmit: () => {
+        submitted = true;
+      },
+    });
+    await press(setup, (i) => i.pressEnter());
+    const frame = setup.captureCharFrame();
+    // Still on the picker — no PROMPT transition, no submission.
+    expect(frame).toContain("PICK");
+    expect(frame).not.toContain("PROMPT");
+    expect(submitted).toBe(false);
+  });
+
+  test("enter on a broken workflow does not transition", async () => {
+    const workflows = [
+      makeWorkflow({
+        name: "broken-wf",
+        source: "local",
+        status: { kind: "error", stage: "load", message: "syntax error" },
+      }),
+    ];
+    let submitted = false;
+    const setup = await renderPicker({
+      workflows,
+      onSubmit: () => {
+        submitted = true;
+      },
+    });
+    await press(setup, (i) => i.pressEnter());
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("PICK");
+    expect(submitted).toBe(false);
+  });
+});
+
+describe("WorkflowPicker status rendering", () => {
+  test("incompatible entry shows a warning glyph and 'update required' preview", async () => {
+    const workflows = [
+      makeWorkflow({
+        name: "future-wf",
+        source: "local",
+        status: {
+          kind: "incompatible",
+          requiredVersion: "99.0.0",
+          currentVersion: "0.5.21-0",
+          message: "requires 99.0.0",
+        },
+      }),
+    ];
+    const setup = await renderPicker({ workflows });
+    const frame = setup.captureCharFrame();
+    // Warning glyph gutter + actionable preview copy.
+    expect(frame).toContain("⚠");
+    expect(frame).toContain("update required");
+    expect(frame).toContain("99.0.0");
+  });
+
+  test("broken entry shows an error glyph and 'failed to load' preview", async () => {
+    const workflows = [
+      makeWorkflow({
+        name: "broken-wf",
+        source: "local",
+        status: {
+          kind: "error",
+          stage: "load",
+          message: "unique-diagnostic-marker",
+        },
+      }),
+    ];
+    const setup = await renderPicker({ workflows });
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("✗");
+    expect(frame).toContain("failed to load");
+    // The underlying loader message is surfaced in the preview so
+    // users don't have to guess what went wrong.
+    expect(frame).toContain("unique-diagnostic-marker");
+  });
+
+  test("status hint dims the select label to 'unavailable' on non-ok rows", async () => {
+    const workflows = [
+      makeWorkflow({
+        name: "broken-only",
+        source: "local",
+        status: { kind: "error", stage: "load", message: "oops" },
+      }),
+    ];
+    const setup = await renderPicker({ workflows });
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("unavailable");
+    expect(frame).not.toContain("↵ select");
+  });
 });
 
 // ─── Keyboard: PROMPT phase ───────────────────────
@@ -644,6 +755,23 @@ describe("WorkflowPicker PROMPT keyboard", () => {
     await press(setup, (i) => i.typeText("hello"));
     const frame = setup.captureCharFrame();
     expect(frame).toContain("hello");
+  });
+
+  test("bracketed paste in a text field propagates to onSubmit without further keystrokes", async () => {
+    // Bracketed pastes bypass useKeyboard, so this regression-pins the
+    // textarea's onPaste handler — without it, pasted content never
+    // reaches onFieldInput and the submitted payload would be empty.
+    let result: WorkflowPickerResult | null = null;
+    const setup = await renderAndEnterPrompt({
+      onSubmit: (r) => {
+        result = r;
+      },
+    });
+    await press(setup, (i) => i.pasteBracketedText("pasted task body"));
+    await press(setup, (i) => i.pressKey("d", { ctrl: true }));
+    await press(setup, (i) => i.pressKey("y"));
+    expect(result).not.toBeNull();
+    expect(result!.inputs.task).toContain("pasted task body");
   });
 
   test("return in a text field inserts a newline", async () => {

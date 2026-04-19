@@ -1,10 +1,6 @@
 {
-  "name": "Atomic + OpenCode (sandboxed)",
-  "build": {
-    "dockerfile": "../Dockerfile.sandbox",
-    "context": "..",
-    "args": { "AGENT_NAME": "opencode" }
-  },
+  "name": "Atomic + OpenCode",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
   "features": {
     "ghcr.io/devcontainers/features/common-utils": {},
     "ghcr.io/flora131/atomic/opencode:1": {},
@@ -22,6 +18,9 @@
       "type": "bind"
     }
   ],
+  "remoteEnv": {
+    "GITHUB_PERSONAL_ACCESS_TOKEN": "${localEnv:GITHUB_PERSONAL_ACCESS_TOKEN}"
+  },
   "customizations": {
     "vscode": {
       "extensions": ["shd101wyy.markdown-preview-enhanced", "sst-dev.opencode"]

@@ -711,4 +711,47 @@ describe("sessionKillCommand", () => {
       process.stdout.write = origWrite;
     }
   });
+
+  // (l) -y on named kill: skip prompt and kill immediately
+  test("yes flag skips the prompt for a named kill and calls killSession", async () => {
+    const now = new Date().toISOString();
+    tmuxMocks.listSessions.mockReturnValue([
+      { name: "target-session", windows: 1, created: now, attached: false, type: "chat" as const },
+    ]);
+    const origWrite = process.stdout.write;
+    process.stdout.write = (() => true) as typeof process.stdout.write;
+    try {
+      const code = await sessionKillCommand(
+        "target-session",
+        [],
+        "all",
+        makeDeps(),
+        { yes: true },
+      );
+      expect(code).toBe(0);
+      expect(tmuxMocks.confirm).not.toHaveBeenCalled();
+      expect(tmuxMocks.killSession).toHaveBeenCalledWith("target-session");
+    } finally {
+      process.stdout.write = origWrite;
+    }
+  });
+
+  // (m) -y on kill-all: skip prompt and kill every in-scope session
+  test("yes flag skips the prompt for kill-all and kills every in-scope session", async () => {
+    const now = new Date().toISOString();
+    tmuxMocks.listSessions.mockReturnValue([
+      { name: "session-a", windows: 1, created: now, attached: false, type: "chat" as const, agent: "claude" },
+      { name: "session-b", windows: 1, created: now, attached: false, type: "workflow" as const, agent: "opencode" },
+    ]);
+    const origWrite = process.stdout.write;
+    process.stdout.write = (() => true) as typeof process.stdout.write;
+    try {
+      const code = await sessionKillCommand(undefined, [], "all", makeDeps(), { yes: true });
+      expect(code).toBe(0);
+      expect(tmuxMocks.confirm).not.toHaveBeenCalled();
+      expect(tmuxMocks.killSession).toHaveBeenCalledTimes(2);
+    } finally {
+      process.stdout.write = origWrite;
+    }
+  });
 });

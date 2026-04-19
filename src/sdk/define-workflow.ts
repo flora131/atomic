@@ -152,6 +152,7 @@ export class WorkflowBuilder<A extends AgentType = AgentType, N extends string =
       name: this.options.name,
       description: this.options.description ?? "",
       inputs,
+      minSDKVersion: this.options.minSDKVersion ?? null,
       run: runFn,
     };
   }

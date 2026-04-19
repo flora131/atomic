@@ -738,6 +738,21 @@ export interface ClaudeQueryDefaults {
 }
 
 /**
+ * Merge two `disallowedTools` lists, preserving caller entries and appending
+ * any extras that aren't already present. Exported for unit testing.
+ */
+export function mergeDisallowedTools(
+  existing: string[] | undefined,
+  extras: string[],
+): string[] {
+  const merged = [...(existing ?? [])];
+  for (const tool of extras) {
+    if (!merged.includes(tool)) merged.push(tool);
+  }
+  return merged;
+}
+
+/**
  * Synthetic client wrapper for Claude stages.
  * Auto-starts the Claude CLI in the tmux pane during `start()`.
  */
@@ -855,8 +870,18 @@ export class HeadlessClaudeSessionWrapper {
       ...sdkOpts
     } = options ?? {};
 
+    // Auto-deny the `AskUserQuestion` tool in headless runs. Without this, the
+    // agent can call it and the SDK query will sit blocked forever since no
+    // human is attached to answer.
+    const headlessSdkOpts: SDKOptions = {
+      ...sdkOpts,
+      disallowedTools: mergeDisallowedTools(sdkOpts.disallowedTools, [
+        "AskUserQuestion",
+      ]),
+    };
+
     let sdkSessionId = "";
-    for await (const msg of sdkQuery({ prompt, options: sdkOpts })) {
+    for await (const msg of sdkQuery({ prompt, options: headlessSdkOpts })) {
       if (msg.type === "result") {
         sdkSessionId = String((msg as Record<string, unknown>).session_id ?? "");
       }

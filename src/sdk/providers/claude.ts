@@ -369,6 +369,92 @@ export async function _runHILWatcher(
   }
 }
 
+/**
+ * Path helpers for the transcript JSONL written by Claude Code.
+ * @internal Exported for tests.
+ */
+export function transcriptDir(): string {
+  return resolveSessionDir(process.cwd());
+}
+
+/** @internal Exported for tests. */
+export function transcriptPath(claudeSessionId: string): string {
+  return join(transcriptDir(), `${claudeSessionId}.jsonl`);
+}
+
+/**
+ * Watch this session's transcript JSONL and call `onHIL` on every HIL-state
+ * transition — independently of the Stop hook.
+ *
+ * Why not piggyback on the Stop hook? `AskUserQuestion` is a deferred tool
+ * (`shouldDefer: true`, see Claude Code's
+ * `src/tools/AskUserQuestionTool/AskUserQuestionTool.tsx`). While the question
+ * is pending, Claude's agent loop blocks on the tool with
+ * `needsFollowUp === true`, so `handleStopHooks` never runs
+ * (`src/query.ts`: `if (!needsFollowUp)`). A watcher tied to the Stop-hook
+ * marker would sleep through the entire HIL window and only wake up after
+ * the user has already answered.
+ *
+ * Watches the parent session directory rather than the file itself so the
+ * attach is safe before Claude has created the JSONL on first query. Events
+ * are filtered by `<sessionId>.jsonl`. Returns when `signal` is aborted.
+ *
+ * @internal Exported for tests.
+ */
+export async function watchTranscriptForHIL(
+  claudeSessionId: string,
+  onHIL: (waiting: boolean) => void,
+  signal: AbortSignal,
+): Promise<void> {
+  const dir = transcriptDir();
+
+  const readMessages = async (): Promise<SessionMessage[]> => {
+    try {
+      return await getSessionMessages(claudeSessionId, {
+        dir: process.cwd(),
+        includeSystemMessages: true,
+      });
+    } catch {
+      return [];
+    }
+  };
+
+  let wasHIL = false;
+  const check = async (): Promise<void> => {
+    const msgs = await readMessages();
+    const isHIL = _hasUnresolvedHILTool(msgs);
+    if (isHIL !== wasHIL) {
+      onHIL(isHIL);
+      wasHIL = isHIL;
+    }
+  };
+
+  await mkdir(dir, { recursive: true });
+
+  // Attach the watcher BEFORE the initial check so any events that arrive
+  // during the check are buffered by the iterator instead of being lost.
+  const watcher = watch(dir, { signal });
+
+  // Initial check: closes the race where the JSONL already contains an
+  // unresolved AskUserQuestion by the time this watcher attaches (resumed
+  // session, slow attach, etc.).
+  await check();
+
+  try {
+    for await (const _event of watcher) {
+      // We intentionally don't filter by `_event.filename`. On Linux, writes
+      // can deliver events with unrelated or `.tmp` basenames, and Bun's
+      // fs.watch behavior varies across OSes; `getSessionMessages` is keyed
+      // by `claudeSessionId` so a cheap re-read is authoritative.
+      await check();
+    }
+  } catch (e: unknown) {
+    if (!(e instanceof Error && e.name === "AbortError")) {
+      throw e;
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -490,6 +576,11 @@ export async function releaseClaudeSession(claudeSessionId: string): Promise<voi
  * `fs.watch` event on the parent directory — far more reliable than polling
  * tmux pane glyphs, which vary between Claude Code versions.
  *
+ * This function is strictly about *idle detection*. HIL is detected separately
+ * by {@link watchTranscriptForHIL}; the Stop hook does not fire while
+ * `AskUserQuestion` is pending (the agent loop blocks on deferred tools), so
+ * mixing the two would silently miss the HIL window.
+ *
  * Algorithm:
  * 1. Attach the directory watcher, then check for the marker file on disk —
  *    this closes the race where the Stop hook fires between prompt submission
@@ -497,17 +588,12 @@ export async function releaseClaudeSession(claudeSessionId: string): Promise<voi
  * 2. On any event, re-check the marker file on disk (we intentionally do NOT
  *    filter by `event.filename`, because on Linux a write can deliver multiple
  *    events with varying filenames and editor tools may race us).
- * 3. Read the session transcript via `getSessionMessages` and test
- *    `_hasUnresolvedHILTool`:
- *    - If unresolved HIL: call `onHIL(true)`, unlink the marker (so the next
- *      turn's hook can fire again), and continue watching.
- *    - If no unresolved HIL after a prior HIL: call `onHIL(false)`.
- *    - If truly idle: slice messages from `transcriptBeforeCount` and return.
+ * 3. Read the session transcript via `getSessionMessages` and slice messages
+ *    from `transcriptBeforeCount`.
  * 4. Clean up the `fs.watch` watcher on any exit path via AbortController.
  *
  * @param claudeSessionId       - Claude's session UUID (used to identify marker file)
  * @param transcriptBeforeCount - number of messages in transcript before this turn
- * @param onHIL                 - optional callback for HIL state changes
  */
 /** Safety timeout so the workflow's next stage still fires if the Stop hook
  * never runs (misconfigured settings, killed Claude process, etc.). 15 min
@@ -520,7 +606,6 @@ const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 export async function waitForIdle(
   claudeSessionId: string,
   transcriptBeforeCount: number,
-  onHIL?: (waiting: boolean) => void,
 ): Promise<SessionMessage[]> {
 
   const dir = markerDir();
@@ -528,8 +613,6 @@ export async function waitForIdle(
   const target = markerPath(sessionId);
   const ac = new AbortController();
   const timeout = setTimeout(() => ac.abort(), IDLE_TIMEOUT_MS);
-
-  let hilActive = false;
 
   // Process a marker that has appeared on disk. Returns a tuple:
   //   [resolved, result] — when resolved=true, waitForIdle should return.
@@ -548,19 +631,6 @@ export async function waitForIdle(
     let msgs = await readMessages();
     if (msgs === null) {
       // Transcript read failed — keep watching; the next event will retry.
-      return [false, []];
-    }
-
-    if (_hasUnresolvedHILTool(msgs)) {
-      if (!hilActive) {
-        onHIL?.(true);
-        hilActive = true;
-      }
-      try {
-        await unlink(target);
-      } catch {
-        // ENOENT is fine.
-      }
       return [false, []];
     }
 
@@ -590,11 +660,6 @@ export async function waitForIdle(
       // Whether we recovered or ran out of budget, fall through — returning
       // what we have beats hanging forever if the writer really did drop a
       // message (e.g. max-tokens collapse, abort mid-stream).
-    }
-
-    if (hilActive) {
-      onHIL?.(false);
-      hilActive = false;
     }
 
     const sliced = msgs.length > transcriptBeforeCount
@@ -787,9 +852,31 @@ export async function claudeQuery(options: ClaudeQueryOptions): Promise<SessionM
       paneState.claudeStarted = true;
     }
 
-    // Wait for response completion via the Stop-hook marker file.
-    // HIL detection is integrated into waitForIdle.
-    return await waitForIdle(claudeSessionId, transcriptBeforeCount, onHIL);
+    // HIL detection runs in parallel with idle detection. The Stop hook
+    // (which drives waitForIdle) doesn't fire while `AskUserQuestion` is
+    // pending, so we watch the transcript JSONL directly for HIL transitions.
+    const hilAc = new AbortController();
+    if (onHIL) {
+      void watchTranscriptForHIL(claudeSessionId, onHIL, hilAc.signal).catch(
+        () => {
+          // Best-effort — never fail the query over HIL detection.
+        },
+      );
+    }
+
+    try {
+      return await waitForIdle(claudeSessionId, transcriptBeforeCount);
+    } finally {
+      hilAc.abort();
+      // Safety: waitForIdle only returns at true turn-idle (no unresolved
+      // AskUserQuestion by Claude's own `!needsFollowUp` gate). If the
+      // transcript watcher missed the final tool_result flush due to
+      // Claude's batched JSONL writes, the UI could be stuck on
+      // awaiting_input. `resumeSession` in the panel store is idempotent
+      // (no-op when the session isn't in awaiting_input), so this is
+      // always safe.
+      onHIL?.(false);
+    }
   } finally {
     if (spawnPromptFile) {
       try {

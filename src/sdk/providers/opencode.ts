@@ -55,8 +55,8 @@ export async function withHeadlessOpencodeEnv<T>(
     headlessEnvPrior = process.env.OPENCODE_CLIENT;
   }
   headlessEnvDepth++;
-  process.env.OPENCODE_CLIENT = HEADLESS_OPENCODE_CLIENT_ID;
   try {
+    process.env.OPENCODE_CLIENT = HEADLESS_OPENCODE_CLIENT_ID;
     return await fn();
   } finally {
     headlessEnvDepth--;

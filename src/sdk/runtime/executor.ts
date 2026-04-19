@@ -53,6 +53,7 @@ import {
   HeadlessClaudeClientWrapper,
   HeadlessClaudeSessionWrapper,
 } from "../providers/claude.ts";
+import { withHeadlessOpencodeEnv } from "../providers/opencode.ts";
 import { OrchestratorPanel } from "./panel.tsx";
 import { GraphFrontierTracker } from "./graph-inference.ts";
 import { buildSnapshot, writeSnapshot } from "./status-writer.ts";
@@ -933,6 +934,21 @@ interface SharedRunnerState {
 }
 
 /**
+ * Append tool names to a Copilot `excludedTools` list without duplicating
+ * entries the caller already supplied. Exported for unit testing.
+ */
+export function mergeExcludedTools(
+  existing: string[] | undefined,
+  extras: string[],
+): string[] {
+  const merged = [...(existing ?? [])];
+  for (const tool of extras) {
+    if (!merged.includes(tool)) merged.push(tool);
+  }
+  return merged;
+}
+
+/**
  * Create the provider-specific client and session for a stage.
  * Called by the session runner after server readiness is confirmed.
  *
@@ -975,10 +991,22 @@ async function initProviderClientAndSession<A extends AgentType>(
         ? new CopilotClient({ ...copilotClientOpts })
         : new CopilotClient({ ...copilotClientOpts, cliUrl: serverUrl });
       await client.start();
-      const session = await client.createSession({
+      // In headless stages, add `ask_user` to the session's excludedTools so
+      // the agent cannot call the interactive question tool — there is no
+      // human attached to answer and the SDK would otherwise sit blocked.
+      const sessionConfig = {
         onPermissionRequest: approveAll,
         ...copilotSessionOpts,
-      });
+        ...(headless
+          ? {
+              excludedTools: mergeExcludedTools(
+                copilotSessionOpts.excludedTools,
+                ["ask_user"],
+              ),
+            }
+          : {}),
+      };
+      const session = await client.createSession(sessionConfig);
       if (!headless) {
         await client.setForegroundSessionId(session.sessionId);
       }
@@ -988,13 +1016,22 @@ async function initProviderClientAndSession<A extends AgentType>(
       const ocSessionOpts = sessionOpts as StageSessionOptions<"opencode">;
       if (headless) {
         const { createOpencode } = await import("@opencode-ai/sdk/v2");
-        const oc = await createOpencode({ port: 0 });
-        const sessionResult = await oc.client.session.create(ocSessionOpts);
-        return {
-          client: oc.client,
-          session: sessionResult.data!,
-          cleanup: () => oc.server.close(),
-        } as Result;
+        // Scope OPENCODE_CLIENT=sdk around the SDK spawn so the subprocess
+        // inherits it at fork time. OpenCode only registers its interactive
+        // `question` tool when OPENCODE_CLIENT is "app"/"cli"/"desktop", so
+        // identifying as "sdk" keeps the tool out of the registry entirely
+        // — otherwise an unattended stage can hang forever on question.asked
+        // (the tool's execute calls Question.ask directly and never consults
+        // the session permission ruleset).
+        return await withHeadlessOpencodeEnv(async () => {
+          const oc = await createOpencode({ port: 0 });
+          const sessionResult = await oc.client.session.create(ocSessionOpts);
+          return {
+            client: oc.client,
+            session: sessionResult.data!,
+            cleanup: () => oc.server.close(),
+          } as Result;
+        });
       }
       const { createOpencodeClient } = await import("@opencode-ai/sdk/v2");
       const ocClientOpts = clientOpts as StageClientOptions<"opencode">;

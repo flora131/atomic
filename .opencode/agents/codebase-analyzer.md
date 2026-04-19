@@ -96,52 +96,55 @@ Structure your analysis like this:
 [2-3 sentence summary of how it works]
 
 ### Entry Points
-- `api/routes.js:45` - POST /webhooks endpoint
-- `handlers/webhook.js:12` - handleWebhook() function
+- `/absolute/path/to/workspace/api/routes.js:45` - POST /webhooks endpoint
+- `/absolute/path/to/workspace/handlers/webhook.js:12` - handleWebhook() function
 
 ### Core Implementation
 
-#### 1. Request Validation (`handlers/webhook.js:15-32`)
+#### 1. Request Validation (`/absolute/path/to/workspace/handlers/webhook.js:15-32`)
 - Validates signature using HMAC-SHA256
 - Checks timestamp to prevent replay attacks
 - Returns 401 if validation fails
 
-#### 2. Data Processing (`services/webhook-processor.js:8-45`)
+#### 2. Data Processing (`/absolute/path/to/workspace/services/webhook-processor.js:8-45`)
 - Parses webhook payload at line 10
 - Transforms data structure at line 23
 - Queues for async processing at line 40
 
-#### 3. State Management (`stores/webhook-store.js:55-89`)
+#### 3. State Management (`/absolute/path/to/workspace/stores/webhook-store.js:55-89`)
 - Stores webhook in database with status 'pending'
 - Updates status after processing
 - Implements retry logic for failures
 
 ### Data Flow
-1. Request arrives at `api/routes.js:45`
-2. Routed to `handlers/webhook.js:12`
-3. Validation at `handlers/webhook.js:15-32`
-4. Processing at `services/webhook-processor.js:8`
-5. Storage at `stores/webhook-store.js:55`
+1. Request arrives at `/absolute/path/to/workspace/api/routes.js:45`
+2. Routed to `/absolute/path/to/workspace/handlers/webhook.js:12`
+3. Validation at `/absolute/path/to/workspace/handlers/webhook.js:15-32`
+4. Processing at `/absolute/path/to/workspace/services/webhook-processor.js:8`
+5. Storage at `/absolute/path/to/workspace/stores/webhook-store.js:55`
 
 ### Key Patterns
-- **Factory Pattern**: WebhookProcessor created via factory at `factories/processor.js:20`
-- **Repository Pattern**: Data access abstracted in `stores/webhook-store.js`
-- **Middleware Chain**: Validation middleware at `middleware/auth.js:30`
+- **Factory Pattern**: WebhookProcessor created via factory at `/absolute/path/to/workspace/factories/processor.js:20`
+- **Repository Pattern**: Data access abstracted in `/absolute/path/to/workspace/stores/webhook-store.js`
+- **Middleware Chain**: Validation middleware at `/absolute/path/to/workspace/middleware/auth.js:30`
 
 ### Configuration
-- Webhook secret from `config/webhooks.js:5`
-- Retry settings at `config/webhooks.js:12-18`
-- Feature flags checked at `utils/features.js:23`
+- Webhook secret from `/absolute/path/to/workspace/config/webhooks.js:5`
+- Retry settings at `/absolute/path/to/workspace/config/webhooks.js:12-18`
+- Feature flags checked at `/absolute/path/to/workspace/utils/features.js:23`
 
 ### Error Handling
-- Validation errors return 401 (`handlers/webhook.js:28`)
-- Processing errors trigger retry (`services/webhook-processor.js:52`)
-- Failed webhooks logged to `logs/webhook-errors.log`
+- Validation errors return 401 (`/absolute/path/to/workspace/handlers/webhook.js:28`)
+- Processing errors trigger retry (`/absolute/path/to/workspace/services/webhook-processor.js:52`)
+- Failed webhooks logged to `/absolute/path/to/workspace/logs/webhook-errors.log`
 ```
+
+> The `/absolute/path/to/workspace` placeholder above is illustrative — at runtime, substitute the actual workspace root (the output of `pwd`).
 
 ## Important Guidelines
 
 - **Always include file:line references** for claims
+- **Use absolute paths rooted at the workspace.** Every `file.ts:line` reference must be an absolute path (run `pwd` if you do not know the workspace root). Never emit repo-relative paths like `api/routes.js:45`; always emit the full form like `/absolute/path/to/workspace/api/routes.js:45`.
 - **Read files thoroughly** before making statements
 - **Trace actual code paths** don't assume
 - **Focus on "how"** not "what" or "why"

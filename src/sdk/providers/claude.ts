@@ -351,15 +351,19 @@ export async function _runHILWatcher(
  * Path of the directory where the claude-stop-hook writes marker files.
  * Each Claude turn creates `~/.atomic/claude-stop/<session_id>` atomically
  * via rename, which triggers the `fs.watch` event in `waitForIdle`.
+ *
+ * @internal Exported for unit tests.
  */
-function markerDir(): string {
+export function markerDir(): string {
   return join(os.homedir(), ".atomic", "claude-stop");
 }
 
 /**
  * Return the marker file path for a given Claude session ID.
+ *
+ * @internal Exported for unit tests.
  */
-function markerPath(claudeSessionId: string): string {
+export function markerPath(claudeSessionId: string): string {
   return join(markerDir(), claudeSessionId);
 }
 
@@ -417,7 +421,10 @@ async function clearStaleMarker(claudeSessionId: string): Promise<void> {
  * @param pollIntervalMs   - (unused) kept for compat; watch is event-driven
  * @param onHIL            - optional callback for HIL state changes
  */
-async function waitForIdle(
+/**
+ * @internal Exported for unit tests.
+ */
+export async function waitForIdle(
   _paneId: string,
   claudeSessionId: string | undefined,
   transcriptBeforeCount: number,

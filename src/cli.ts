@@ -283,6 +283,16 @@ Examples:
             process.exit(exitCode);
         });
 
+    // ── Internal: Claude Stop hook handler ────────────────────────────────
+    program
+        .command("_claude-stop-hook", { hidden: true })
+        .description("Internal: Claude Code Stop hook handler — writes a marker file for idle detection")
+        .action(async () => {
+            const { claudeStopHookCommand } = await import("./commands/cli/claude-stop-hook.ts");
+            const exitCode = await claudeStopHookCommand();
+            process.exit(exitCode);
+        });
+
     // ── Completions command ────────────────────────────────────────────────
     program
         .command("completions")
@@ -333,7 +343,8 @@ async function main(): Promise<void> {
             argv.includes("--help") ||
             argv.includes("-h") ||
             argv[0] === "completions" ||
-            argv[0] === "_footer";
+            argv[0] === "_footer" ||
+            argv[0] === "_claude-stop-hook";
 
         if (!isInfoCommand) {
             const { autoSyncIfStale } = await import("./services/system/auto-sync.ts");

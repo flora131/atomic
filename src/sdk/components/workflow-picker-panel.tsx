@@ -572,6 +572,21 @@ function TextAreaContent({
   const onInputRef = useLatest(onInput);
   const lastTextRef = useRef(value);
 
+  // Read plainText on the next microtask so the textarea has applied the
+  // keystroke/paste before we observe its content, then fire onInput if
+  // it changed.
+  const flushPending = useCallback(() => {
+    queueMicrotask(() => {
+      const inst = instanceRef.current;
+      if (!inst) return;
+      const current = inst.plainText;
+      if (current !== lastTextRef.current) {
+        lastTextRef.current = current;
+        onInputRef.current(current);
+      }
+    });
+  }, []);
+
   const refCallback = useCallback((instance: TextareaRenderable | null) => {
     instanceRef.current = instance;
   }, []);
@@ -585,23 +600,14 @@ function TextAreaContent({
     }
   }, [value]);
 
-  // Detect text changes after each keypress. The native Zig edit buffer's
-  // "content-changed" event is unreliable for propagating to the JS
-  // _contentChangeListener in certain installed environments. Instead,
-  // we hook into useKeyboard (which fires before the textarea processes
-  // the key) and defer the read with queueMicrotask so the textarea has
+  // flushPending fires on each keystroke via useKeyboard; onPaste handles
+  // bracketed pastes (which don't fire keydown). The native Zig edit
+  // buffer's "content-changed" event is unreliable for propagating to the
+  // JS _contentChangeListener in certain installed environments, so we
+  // hook into useKeyboard (which fires before the textarea processes the
+  // key) and defer the read with queueMicrotask so the textarea has
   // processed the keystroke by the time we read plainText.
-  useKeyboard(useCallback(() => {
-    queueMicrotask(() => {
-      const inst = instanceRef.current;
-      if (!inst) return;
-      const current = inst.plainText;
-      if (current !== lastTextRef.current) {
-        lastTextRef.current = current;
-        onInputRef.current(current);
-      }
-    });
-  }, []));
+  useKeyboard(flushPending);
 
   return (
     <textarea
@@ -616,6 +622,7 @@ function TextAreaContent({
       placeholderColor={theme.textDim}
       wrapMode="word"
       flexGrow={1}
+      onPaste={flushPending}
     />
   );
 }

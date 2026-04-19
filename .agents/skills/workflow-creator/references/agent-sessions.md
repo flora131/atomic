@@ -6,7 +6,7 @@ Each `ctx.stage()` call inside a workflow's `.run()` callback creates an isolate
 
 ## Claude Agent SDK
 
-Claude runs as a full interactive TUI in a tmux pane. The runtime auto-starts the Claude CLI (via `s.client`) and creates a session wrapper (`s.session`) before the callback runs. Pass CLI flags via `clientOpts` (2nd arg) and query defaults via `sessionOpts` (3rd arg).
+Claude runs as a full interactive TUI in a tmux pane. The runtime auto-starts the Claude CLI (via `s.client`) and creates a session wrapper (`s.session`) before the callback runs. Pass CLI flags via `clientOpts` (2nd arg). Claude has **no per-session options** — the 3rd arg must be `{}`.
 
 ### Session lifecycle
 
@@ -18,7 +18,7 @@ import { defineWorkflow } from "@bastani/atomic/workflows";
   await ctx.stage(
     { name: "implement", description: "Implement the feature" },
     {}, // clientOpts: chatFlags and readyTimeoutMs go here
-    {}, // sessionOpts: query defaults (pollIntervalMs, readyTimeoutMs, etc.) go here
+    {}, // sessionOpts: must be {} for Claude — no per-session options exist
     async (s) => {
       // s.client — Claude CLI wrapper (already started by runtime)
       // s.session — session wrapper (ready to accept queries via s.session.query())
@@ -43,11 +43,9 @@ Client options (2nd arg to `ctx.stage()`):
 - `chatFlags` — CLI flags (default: `["--allow-dangerously-skip-permissions", "--dangerously-skip-permissions"]`)
 - `readyTimeoutMs` — timeout waiting for TUI readiness (default: 30s)
 
-Session options (3rd arg to `ctx.stage()`), applied as defaults to every `s.session.query()` call:
-- `pollIntervalMs` — polling interval (default: 2000ms)
-- `submitPresses` — C-m presses per submit round (default: 1)
-- `maxSubmitRounds` — max submit rounds (default: 6)
-- `readyTimeoutMs` — timeout waiting for pane readiness before sending (default: 30s)
+Session options (3rd arg to `ctx.stage()`): **none**. The Claude session wrapper takes no configuration — interactive delivery is driven entirely by the CLI's Stop hook, and idle detection watches the Stop-hook marker automatically. Pass `{}`.
+
+For **headless Claude** (`headless: true` in `stageOpts`), `s.session.query(prompt, options)` forwards its second argument as `Partial<SDKOptions>` to the Agent SDK — that's where you pass `agent`, `permissionMode`, `allowDangerouslySkipPermissions`, etc. (see the headless example further down).
 
 No manual timeout is needed — idle detection watches for the pane prompt to return, and the session transcript is used to extract the response text.
 
@@ -292,30 +290,27 @@ export default defineWorkflow({
 
 ### `send` vs `sendAndWait`: choosing the right method
 
-**Default to `send`** for all Copilot workflow stages. `send` dispatches the
-prompt and returns the `messageId` immediately — no timeout to guess, no
-constants to tune, no risk of aborting a long-running agent mid-work.
+**Always use `send`** for Copilot workflow stages. Inside a stage callback the
+Atomic runtime wraps `s.session.send()` so the returned promise only resolves
+when the session emits `session.idle` — the same semantics as Claude's
+`query()` and OpenCode's `session.prompt()`. The wrapper has **no timeout**,
+so long-running planners and reviewers are safe. This is different from the
+raw Copilot SDK, where `send` is fire-and-forget; the wrapper is installed
+per-stage by the runtime (`wrapCopilotSend` in `src/sdk/runtime/executor.ts`).
 
 ```ts
-// Default pattern — clean, no timeout guessing
+// Default pattern — blocks until the agent is idle, no timeout
 await s.session.send({ prompt });
+const messages = await s.session.getMessages(); // safe to read now
 ```
 
-**Use `sendAndWait` only when the user explicitly requests timeout-based
-waiting.** `sendAndWait` blocks until the session emits `session.idle` or the
-timeout fires. If you must use it, ask the user for a reasonable timeout. If
-they aren't sure, default to **5 minutes** (300 000 ms).
-
-```ts
-// Only when the user explicitly wants timeout-gated waiting
-const SEND_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes default; ask the user
-await s.session.sendAndWait({ prompt }, SEND_TIMEOUT_MS);
-```
-
-**Why not `sendAndWait` by default?** The 60-second default timeout is almost
-never correct for real agent work — planners, reviewers, and orchestrators
-routinely exceed it. Guessing large timeouts (30-60 min) adds messy constants
-and still risks aborting work prematurely. `send` avoids the problem entirely.
+**Do not use `sendAndWait` in Atomic workflows.** It keeps the SDK's native
+60-second default timeout, which is almost never enough for real agent work —
+planners, reviewers, and orchestrators routinely exceed it, and the throw
+propagates out of `run()` and halts the whole workflow (see
+`failure-modes.md` §F10). `send` already blocks until idle with no timeout,
+so `sendAndWait` buys you nothing but a failure mode. If you think you need
+it, you almost certainly want `send`.
 
 ### Critical pitfall: session lifecycle controls what context is available
 

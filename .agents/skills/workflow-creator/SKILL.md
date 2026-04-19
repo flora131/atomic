@@ -232,7 +232,7 @@ defineWorkflow({
 | Behaviour | Unset (default) | Set to a version newer than the installed CLI |
 |---|---|---|
 | Loader | Always loads | Refuses to load, returns `IncompatibleSDKError` |
-| `atomic workflow -l` | Normal row | `⚠ needs v<X> (installed v<Y>)` — dim name, visible |
+| `atomic workflow list` | Normal row | `⚠ needs v<X> (installed v<Y>)` — dim name, visible |
 | Picker | Normal row | `⚠ update required` glyph + preview explains the gap; Enter is disabled |
 | `atomic workflow -n <name>` | Runs | Errors with an upgrade hint, non-zero exit |
 
@@ -314,7 +314,7 @@ Use `.for<"agent">()` on the builder to narrow all context types and get correct
 | Agent | Builder Chain | Primary Session API |
 |-------|---------------|---------------------|
 | Claude | `defineWorkflow({...}).for<"claude">()` | `s.session.query(prompt)` — sends prompt to the Claude TUI pane |
-| Copilot | `defineWorkflow({...}).for<"copilot">()` | `s.session.send({ prompt })` — fire-and-forget; use `sendAndWait({ prompt }, timeoutMs)` only when the user explicitly requests timeout-based waiting |
+| Copilot | `defineWorkflow({...}).for<"copilot">()` | `s.session.send({ prompt })` — the runtime wraps `send` to block until `session.idle` with no timeout (see `failure-modes.md` §F10); do not use `sendAndWait` in Atomic workflows |
 | OpenCode | `defineWorkflow({...}).for<"opencode">()` | `s.client.session.prompt({ sessionID: s.session.id, parts: [...] })` |
 
 The runtime manages client/session lifecycle automatically. For native SDK types and advanced APIs, import directly from the provider packages (`@github/copilot-sdk`, `@anthropic-ai/claude-agent-sdk`, `@opencode-ai/sdk/v2`).

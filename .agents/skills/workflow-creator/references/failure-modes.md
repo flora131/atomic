@@ -485,19 +485,26 @@ log the length. A 0-length or JSON-that-isn't-prose signature = F9.
 subsequent `ctx.stage()` call never executes — the throw propagates out of
 `run()` and halts the workflow.
 
-**Fix.** Use `send` instead of `sendAndWait` — it has no timeout and avoids
-the problem entirely. Only use `sendAndWait` when the user explicitly
-requests timeout-based waiting, and always pass an explicit timeout (default
-to 5 minutes if the user is unsure).
+**Root cause.** The raw Copilot SDK's `sendAndWait(options, timeout?)`
+defaults to a 60-second timeout that throws on expiry. Real agent work
+(planners, reviewers, orchestrators) routinely exceeds this.
+
+**Fix.** Use `send` instead. Inside an Atomic stage the runtime wraps
+`s.session.send()` so it blocks until `session.idle` with **no timeout** —
+the same blocking semantics as Claude's `query()` and OpenCode's
+`session.prompt()`. The wrapper lives in `wrapCopilotSend`
+(`src/sdk/runtime/executor.ts`) and is installed per-stage.
 
 ```ts
-// Default pattern — no timeout, no risk
+// Correct: send() in an Atomic stage blocks until idle, no timeout.
 await s.session.send({ prompt });
-
-// Only when the user explicitly wants timeout-gated waiting
-const SEND_TIMEOUT_MS = 5 * 60 * 1000; // ask the user for a value
-await s.session.sendAndWait({ prompt }, SEND_TIMEOUT_MS);
+const messages = await s.session.getMessages(); // safe to read
 ```
+
+**Do not reach for `sendAndWait` with a larger explicit timeout.** `send`
+already waits for idle; `sendAndWait` just adds a throw-on-timeout failure
+mode on top. If you catch yourself writing `sendAndWait(..., 5 * 60 * 1000)`
+to "be safe", you want `send`.
 
 ---
 

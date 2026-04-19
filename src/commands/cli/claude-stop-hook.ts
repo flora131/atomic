@@ -60,12 +60,13 @@ function isClaudeStopHookPayload(value: unknown): value is ClaudeStopHookPayload
  *
  * Exported so tests and `src/sdk/providers/claude.ts` share one source of truth.
  */
-export function claudeHookDirs(): { marker: string; queue: string; release: string } {
+export function claudeHookDirs(): { marker: string; queue: string; release: string; hil: string } {
   const base = path.join(os.homedir(), ".atomic");
   return {
     marker: path.join(base, "claude-stop"),
     queue: path.join(base, "claude-queue"),
     release: path.join(base, "claude-release"),
+    hil: path.join(base, "claude-hil"),
   };
 }
 

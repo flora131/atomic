@@ -589,11 +589,7 @@ function TextAreaContent({
 
   const refCallback = useCallback((instance: TextareaRenderable | null) => {
     instanceRef.current = instance;
-    // Bracketed-paste events don't fire keydown, so subscribing to
-    // onPaste ensures pasted content propagates without requiring a
-    // follow-up keystroke to trigger the keydown-polling path below.
-    if (instance) instance.onPaste = flushPending;
-  }, [flushPending]);
+  }, []);
 
   // Sync external value → textarea when it diverges (e.g. initial value
   // or reset after phase transition).
@@ -604,11 +600,12 @@ function TextAreaContent({
     }
   }, [value]);
 
-  // Detect text changes after each keypress. The native Zig edit buffer's
-  // "content-changed" event is unreliable for propagating to the JS
-  // _contentChangeListener in certain installed environments. Instead,
-  // we hook into useKeyboard (which fires before the textarea processes
-  // the key) and defer the read with queueMicrotask so the textarea has
+  // flushPending fires on each keystroke via useKeyboard; onPaste handles
+  // bracketed pastes (which don't fire keydown). The native Zig edit
+  // buffer's "content-changed" event is unreliable for propagating to the
+  // JS _contentChangeListener in certain installed environments, so we
+  // hook into useKeyboard (which fires before the textarea processes the
+  // key) and defer the read with queueMicrotask so the textarea has
   // processed the keystroke by the time we read plainText.
   useKeyboard(flushPending);
 
@@ -625,6 +622,7 @@ function TextAreaContent({
       placeholderColor={theme.textDim}
       wrapMode="word"
       flexGrow={1}
+      onPaste={flushPending}
     />
   );
 }

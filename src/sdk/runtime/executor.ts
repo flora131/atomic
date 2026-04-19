@@ -55,6 +55,7 @@ import {
 } from "../providers/claude.ts";
 import { OrchestratorPanel } from "./panel.tsx";
 import { GraphFrontierTracker } from "./graph-inference.ts";
+import { buildSnapshot, writeSnapshot } from "./status-writer.ts";
 import { errorMessage } from "../errors.ts";
 import { createPainter } from "../../theme/colors.ts";
 
@@ -1533,11 +1534,47 @@ export async function runOrchestrator(): Promise<void> {
     tmuxSession: tmuxSessionName,
   });
 
+  // Mirror panel-store mutations to <sessionDir>/status.json so
+  // out-of-process consumers (e.g. `atomic workflow status`) can read
+  // the live workflow state without IPC into the orchestrator.
+  // Writes are debounced via a "pending" flag so a burst of mutations
+  // collapses into a single file write.
+  let snapshotPending = false;
+  const persistSnapshot = (): void => {
+    if (snapshotPending) return;
+    snapshotPending = true;
+    queueMicrotask(() => {
+      snapshotPending = false;
+      const snap = panel.getSnapshot();
+      void writeSnapshot(
+        sessionsBaseDir,
+        buildSnapshot({
+          workflowRunId,
+          tmuxSession: tmuxSessionName,
+          ...snap,
+        }),
+      );
+    });
+  };
+  const unsubscribePanel = panel.subscribe(persistSnapshot);
+  // Seed an initial snapshot so the file exists before any session starts.
+  persistSnapshot();
+
   // Idempotent shutdown guard
   let shutdownCalled = false;
   const shutdown = (exitCode = 0) => {
     if (shutdownCalled) return;
     shutdownCalled = true;
+    unsubscribePanel();
+    // Final snapshot reflecting terminal state (completed/error/aborted).
+    void writeSnapshot(
+      sessionsBaseDir,
+      buildSnapshot({
+        workflowRunId,
+        tmuxSession: tmuxSessionName,
+        ...panel.getSnapshot(),
+      }),
+    );
     panel.destroy();
     try {
       tmux.killSession(tmuxSessionName);

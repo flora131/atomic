@@ -572,9 +572,28 @@ function TextAreaContent({
   const onInputRef = useLatest(onInput);
   const lastTextRef = useRef(value);
 
+  // Read plainText on the next microtask so the textarea has applied the
+  // keystroke/paste before we observe its content, then fire onInput if
+  // it changed.
+  const flushPending = useCallback(() => {
+    queueMicrotask(() => {
+      const inst = instanceRef.current;
+      if (!inst) return;
+      const current = inst.plainText;
+      if (current !== lastTextRef.current) {
+        lastTextRef.current = current;
+        onInputRef.current(current);
+      }
+    });
+  }, []);
+
   const refCallback = useCallback((instance: TextareaRenderable | null) => {
     instanceRef.current = instance;
-  }, []);
+    // Bracketed-paste events don't fire keydown, so subscribing to
+    // onPaste ensures pasted content propagates without requiring a
+    // follow-up keystroke to trigger the keydown-polling path below.
+    if (instance) instance.onPaste = flushPending;
+  }, [flushPending]);
 
   // Sync external value → textarea when it diverges (e.g. initial value
   // or reset after phase transition).
@@ -591,17 +610,7 @@ function TextAreaContent({
   // we hook into useKeyboard (which fires before the textarea processes
   // the key) and defer the read with queueMicrotask so the textarea has
   // processed the keystroke by the time we read plainText.
-  useKeyboard(useCallback(() => {
-    queueMicrotask(() => {
-      const inst = instanceRef.current;
-      if (!inst) return;
-      const current = inst.plainText;
-      if (current !== lastTextRef.current) {
-        lastTextRef.current = current;
-        onInputRef.current(current);
-      }
-    });
-  }, []));
+  useKeyboard(flushPending);
 
   return (
     <textarea

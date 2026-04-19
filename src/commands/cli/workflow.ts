@@ -27,6 +27,7 @@ import type {
   AgentType,
   DiscoveredWorkflow,
   WorkflowInput,
+  WorkflowMetadataStatus,
   WorkflowWithMetadata,
 } from "../../sdk/workflows/index.ts";
 import { WorkflowPickerPanel } from "../../sdk/components/workflow-picker-panel.tsx";
@@ -227,8 +228,11 @@ export async function workflowCommand(options: {
       options.agent as AgentType | undefined,
       { merge: false },
     );
-    // Filter out workflows that fail to load (type errors, missing
-    // .compile(), etc.) so the list only shows workflows ready to run.
+    // Keep workflows that failed to load in the list — their status is
+    // surfaced inline as a "needs update" or "broken" tag so the user
+    // can see that a workflow still exists on disk even after an SDK
+    // bump invalidated it. Silent filtering was the original cause of
+    // the "workflow vanished after upgrade" report.
     const workflows = await loadWorkflowsMetadata(discovered);
     process.stdout.write(renderWorkflowList(workflows));
     return 0;
@@ -477,9 +481,13 @@ async function runNamedMode(
       `  ~/.atomic/workflows/${name}/${agent}/index.ts ${COLORS.dim}(global)${COLORS.reset}`,
     );
 
-    const available = await loadWorkflowsMetadata(
-      await discoverWorkflows(cwd, agent),
-    );
+    // Only suggest runnable alternatives — broken/incompatible workflows
+    // are visible via `atomic workflow -l` where their status is surfaced;
+    // listing them here would mask the real problem (the name the user
+    // typed does not exist) behind a dead-end suggestion.
+    const available = (
+      await loadWorkflowsMetadata(await discoverWorkflows(cwd, agent))
+    ).filter((w) => w.status.kind === "ok");
     if (available.length > 0) {
       console.error(`\nAvailable ${agent} workflows:`);
       for (const wf of available) {
@@ -609,6 +617,29 @@ const SOURCE_COLORS: Record<DiscoveredWorkflow["source"], PaletteKey> = {
 };
 
 /**
+ * Per-row status badge shown in `atomic workflow -l` output. `ok` rows
+ * render with no badge (the list is already dense; flagging only
+ * non-ok rows keeps the happy path untouched). Incompatible rows
+ * include the required version so the user can compare at a glance;
+ * error rows stay terse and defer detail to `atomic workflow -n
+ * <name>` which surfaces the structured loader message.
+ */
+function renderStatusBadge(
+  paint: ReturnType<typeof createPainter>,
+  status: WorkflowMetadataStatus,
+): string {
+  if (status.kind === "ok") return "";
+  if (status.kind === "incompatible") {
+    return (
+      "  " +
+      paint("warning", "⚠ needs v" + status.requiredVersion) +
+      paint("dim", `  (installed v${status.currentVersion})`)
+    );
+  }
+  return "  " + paint("error", "✗ broken");
+}
+
+/**
  * Render `atomic workflow --list` output as a printable string.
  *
  * Three-level hierarchy: source → provider → workflow name.
@@ -635,7 +666,7 @@ const SOURCE_COLORS: Record<DiscoveredWorkflow["source"], PaletteKey> = {
  * Exported for testing — the pure-function shape makes coverage for the
  * renderer trivial without spinning up a full CLI invocation.
  */
-export function renderWorkflowList(workflows: DiscoveredWorkflow[]): string {
+export function renderWorkflowList(workflows: WorkflowWithMetadata[]): string {
   const paint = createPainter();
   const lines: string[] = [];
 
@@ -653,9 +684,11 @@ export function renderWorkflowList(workflows: DiscoveredWorkflow[]): string {
     return lines.join("\n") + "\n";
   }
 
-  // Group by source → agent → sorted names. This gives the renderer O(1)
-  // lookups at both nesting levels and keeps the output deterministic.
-  type ByAgent = Map<AgentType, string[]>;
+  // Group by source → agent → sorted entries. Entries carry the full
+  // metadata (name + status) so the row renderer can append a status
+  // badge to non-ok rows without another lookup.
+  type EntrySummary = { name: string; status: WorkflowMetadataStatus };
+  type ByAgent = Map<AgentType, EntrySummary[]>;
   const bySource = new Map<DiscoveredWorkflow["source"], ByAgent>();
   for (const wf of workflows) {
     let byAgent = bySource.get(wf.source);
@@ -663,13 +696,13 @@ export function renderWorkflowList(workflows: DiscoveredWorkflow[]): string {
       byAgent = new Map();
       bySource.set(wf.source, byAgent);
     }
-    const names = byAgent.get(wf.agent) ?? [];
-    names.push(wf.name);
-    byAgent.set(wf.agent, names);
+    const entries = byAgent.get(wf.agent) ?? [];
+    entries.push({ name: wf.name, status: wf.status });
+    byAgent.set(wf.agent, entries);
   }
   for (const byAgent of bySource.values()) {
-    for (const names of byAgent.values()) {
-      names.sort((a, b) => a.localeCompare(b));
+    for (const entries of byAgent.values()) {
+      entries.sort((a, b) => a.name.localeCompare(b.name));
     }
   }
 
@@ -702,8 +735,8 @@ export function renderWorkflowList(workflows: DiscoveredWorkflow[]): string {
     );
 
     for (const agent of AGENT_ORDER) {
-      const names = byAgent.get(agent);
-      if (!names || names.length === 0) continue;
+      const entries = byAgent.get(agent);
+      if (!entries || entries.length === 0) continue;
 
       // Provider heading: bold accent blue — a clearly different layer from
       // both the semantic source heading above and the neutral entries below.
@@ -712,8 +745,14 @@ export function renderWorkflowList(workflows: DiscoveredWorkflow[]): string {
         "    " + paint("accent", AGENT_DISPLAY_NAMES[agent], { bold: true }),
       );
 
-      for (const name of names) {
-        lines.push("      " + paint("text", name));
+      for (const entry of entries) {
+        // Dim the name on non-ok rows so the eye lands on the status
+        // badge rather than the workflow name — the badge is where the
+        // actionable info lives, and the name is already unrunnable.
+        const nameCol: PaletteKey = entry.status.kind === "ok" ? "text" : "dim";
+        lines.push(
+          "      " + paint(nameCol, entry.name) + renderStatusBadge(paint, entry.status),
+        );
       }
     }
   }

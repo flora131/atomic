@@ -300,7 +300,11 @@ describe("workflowCommand --list", () => {
     expect(cap.stdout).not.toContain("copilot-only");
   });
 
-  test("excludes workflows missing .compile() from the list", async () => {
+  test("shows workflows missing .compile() with a broken marker", async () => {
+    // Broken workflows used to vanish from the list silently. Surfacing
+    // them with a visible "✗ broken" badge is the remediation for the
+    // "my workflow disappeared after upgrading" class of bug reports —
+    // the user can now see the file still exists and needs a fix.
     await writeCompiledWorkflow({ name: "good", agent: "copilot" });
     await writeCompiledWorkflow({
       name: "not-compiled",
@@ -324,10 +328,11 @@ export default defineWorkflow({ name: "not-compiled" })
 
     expect(code).toBe(0);
     expect(cap.stdout).toContain("good");
-    expect(cap.stdout).not.toContain("not-compiled");
+    expect(cap.stdout).toContain("not-compiled");
+    expect(cap.stdout).toContain("✗ broken");
   });
 
-  test("excludes workflows with type errors from the list", async () => {
+  test("shows workflows with type errors with a broken marker", async () => {
     await writeCompiledWorkflow({ name: "valid", agent: "copilot" });
     await writeCompiledWorkflow({
       name: "broken-syntax",
@@ -345,7 +350,8 @@ export default defineWorkflow({ name: "not-compiled" })
 
     expect(code).toBe(0);
     expect(cap.stdout).toContain("valid");
-    expect(cap.stdout).not.toContain("broken-syntax");
+    expect(cap.stdout).toContain("broken-syntax");
+    expect(cap.stdout).toContain("✗ broken");
   });
 
   test("renders the empty state when no workflows exist and no agent filter is set", async () => {

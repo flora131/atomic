@@ -24,24 +24,13 @@ import {
   type SDKUserMessage,
   type Options as SDKOptions,
 } from "@anthropic-ai/claude-agent-sdk";
-import {
-  sendViaPasteBuffer,
-  sendSpecialKey,
-  sendKeysAndSubmit,
-  capturePaneVisible,
-  capturePaneScrollback,
-  normalizeTmuxCapture,
-  normalizeTmuxLines,
-  paneLooksReady,
-  paneHasActiveTask,
-  waitForPaneReady,
-  attemptSubmitRounds,
-} from "../runtime/tmux.ts";
-import { watch, unlink, mkdir } from "node:fs/promises";
+import { sendKeysAndSubmit } from "../runtime/tmux.ts";
+import { watch, unlink, mkdir, writeFile } from "node:fs/promises";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import os from "node:os";
+import { claudeHookDirs } from "../../commands/cli/claude-stop-hook.ts";
 
 // ---------------------------------------------------------------------------
 // Session tracking — ensures createClaudeSession is called before claudeQuery
@@ -61,21 +50,27 @@ interface PaneState {
   chatFlags: string[];
   /** Timeout in ms waiting for Claude TUI / JSONL file on first spawn. */
   readyTimeoutMs: number;
-  /**
-   * Workflow session directory (`~/.atomic/sessions/<runId>/<name>-<sid>`).
-   * The first prompt is persisted here as `prompt.txt` so it appears in the
-   * session log alongside `messages.json`, `metadata.json`, etc.
-   */
-  sessionDir: string;
 }
 
 const initializedPanes = new Map<string, PaneState>();
 
 /**
- * Remove a pane from the initialized map, freeing memory.
- * Call when a Claude session is killed or no longer needed.
+ * Remove a pane from the initialized map and signal the currently-blocked
+ * Stop hook that the session is over, so Claude stops promptly instead of
+ * waiting out the hook's safety timeout.
+ *
+ * Called by the runtime when a Claude stage is being torn down. Idempotent.
  */
-export function clearClaudeSession(paneId: string): void {
+export async function clearClaudeSession(paneId: string): Promise<void> {
+  const state = initializedPanes.get(paneId);
+  if (state) {
+    try {
+      await releaseClaudeSession(state.claudeSessionId);
+    } catch {
+      // Best-effort — if release fails the hook will still exit on its
+      // own safety timeout.
+    }
+  }
   initializedPanes.delete(paneId);
 }
 
@@ -92,11 +87,6 @@ const DEFAULT_CHAT_FLAGS = [
 export interface ClaudeSessionOptions {
   /** tmux pane ID where Claude should be started */
   paneId: string;
-  /**
-   * Workflow session directory. The first prompt is written here as
-   * `prompt.txt` and Claude is told to read from that path.
-   */
-  sessionDir: string;
   /** CLI flags to pass to the `claude` command (default: ["--allow-dangerously-skip-permissions", "--dangerously-skip-permissions"]) */
   chatFlags?: string[];
   /** Timeout in ms waiting for Claude TUI to be ready (default: 30s) */
@@ -132,48 +122,54 @@ export interface ClaudeSessionOptions {
  * });
  * ```
  */
-export async function createClaudeSession(options: ClaudeSessionOptions): Promise<void> {
+export async function createClaudeSession(options: ClaudeSessionOptions): Promise<string> {
   const {
     paneId,
-    sessionDir,
     chatFlags = DEFAULT_CHAT_FLAGS,
     readyTimeoutMs = 30_000,
   } = options;
 
+  const claudeSessionId = randomUUID();
   initializedPanes.set(paneId, {
-    claudeSessionId: randomUUID(),
+    claudeSessionId,
     claudeStarted: false,
     chatFlags,
     readyTimeoutMs,
-    sessionDir,
   });
+  return claudeSessionId;
+}
+
+/**
+ * Build the short, single-line natural-language prompt we send to Claude
+ * (either as spawn argv or as a follow-up message). Claude's first action
+ * is then a Read tool call against `promptFile` — which sidesteps shell
+ * escaping, ARG_MAX, and tmux paste-buffer flakiness for large prompts.
+ *
+ * The session dir and filename are slug-based (`prompt-<N>.txt` under
+ * `~/.atomic/sessions/...`), so they never contain shell-special characters.
+ */
+function readPromptInstruction(promptFile: string): string {
+  return `Read ${promptFile} and follow the instructions inside.`;
 }
 
 /**
  * Spawn `claude` in the pane with the prompt baked in via the Read tool.
  *
- * The prompt is written to `${sessionDir}/prompt.txt` so it persists in the
- * workflow's session log alongside `messages.json`, `metadata.json`, etc.
- * The argv prompt is `Read the prompt in <path>`, so Claude's first action
- * is a Read tool call against that file. This sidesteps shell-escaping and
- * ARG_MAX entirely — the prompt bytes never traverse the shell parser or
- * the kernel argv cap.
+ * The prompt is already written to `promptFile` by the caller. The spawn
+ * argv is `'Read the prompt in <path>'`, so Claude's first action is a Read
+ * tool call against that file.
  */
 async function spawnClaudeWithPrompt(
   paneId: string,
-  prompt: string,
+  promptFile: string,
   chatFlags: string[],
   sessionId: string,
-  sessionDir: string,
   readyTimeoutMs: number,
 ): Promise<void> {
-  const promptFile = join(sessionDir, "prompt.txt");
-  writeFileSync(promptFile, prompt, "utf-8");
-
   // sessionDir is the workflow's `${name}-${sessionId}` directory under
   // ~/.atomic/sessions — slug-based, so single-quoting is sufficient on
   // POSIX and PowerShell alike.
-  const argvPrompt = `'Read the prompt in ${promptFile}'`;
+  const argvPrompt = `'${readPromptInstruction(promptFile)}'`;
   const cmd = [
     "claude",
     ...chatFlags,
@@ -309,6 +305,36 @@ export function _hasUnresolvedHILTool(messages: SessionMessage[]): boolean {
 }
 
 /**
+ * Returns true when the most recent assistant message in the transcript
+ * ended with `stop_reason: "tool_use"` — i.e. the agent stopped the current
+ * API response to call a tool but has not yet produced its post-tool answer.
+ *
+ * Claude Code's Stop hook fires each time Claude "finishes responding",
+ * which includes intermediate tool-use responses in a multi-step agent
+ * loop (not just the final `end_turn`). If we return from `waitForIdle`
+ * on the first Stop event, we capture the transcript mid-loop — the
+ * final assistant text block is still being generated and won't be on
+ * disk yet, so `inbox.md` drops the actual answer.
+ *
+ * We keep watching until we see an assistant message with a terminal
+ * stop_reason (`end_turn`, `max_tokens`, `stop_sequence`, `refusal`),
+ * which is the real end of the turn.
+ *
+ * Exported as `_isMidAgentLoop` for unit testing.
+ */
+export function _isMidAgentLoop(messages: SessionMessage[]): boolean {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg?.type !== "assistant") continue;
+    const inner = msg.message as { stop_reason?: unknown } | null;
+    const stopReason = inner?.stop_reason;
+    return stopReason === "tool_use";
+  }
+  // No assistant message yet — treat as mid-loop so we wait for one.
+  return true;
+}
+
+/**
  * Core HIL watcher loop — pure logic, dependency-injected for testability.
  *
  * Iterates an async iterable of "file change" events (each event triggers a
@@ -349,13 +375,13 @@ export async function _runHILWatcher(
 
 /**
  * Path of the directory where the claude-stop-hook writes marker files.
- * Each Claude turn creates `~/.atomic/claude-stop/<session_id>` atomically
- * via rename, which triggers the `fs.watch` event in `waitForIdle`.
+ * Each Claude turn creates `~/.atomic/claude-stop/<session_id>` which
+ * triggers the `fs.watch` event in `waitForIdle`.
  *
  * @internal Exported for unit tests.
  */
 export function markerDir(): string {
-  return join(os.homedir(), ".atomic", "claude-stop");
+  return claudeHookDirs().marker;
 }
 
 /**
@@ -365,6 +391,35 @@ export function markerDir(): string {
  */
 export function markerPath(claudeSessionId: string): string {
   return join(markerDir(), claudeSessionId);
+}
+
+/**
+ * Directory where the workflow runtime writes queued follow-up prompts that
+ * `atomic _claude-stop-hook` picks up and feeds back to Claude as
+ * `{decision:"block", reason:<prompt>}`. @internal Exported for unit tests.
+ */
+export function queueDir(): string {
+  return claudeHookDirs().queue;
+}
+
+/** Return the queue file path for a given Claude session ID. @internal */
+export function queuePath(claudeSessionId: string): string {
+  return join(queueDir(), claudeSessionId);
+}
+
+/**
+ * Directory where the runtime writes session-release signals. When the Stop
+ * hook sees `~/.atomic/claude-release/<session_id>` it exits 0 without
+ * emitting a block decision — the signal used by `clearClaudeSession` to
+ * tell Claude it's safe to actually stop. @internal Exported for unit tests.
+ */
+export function releaseDir(): string {
+  return claudeHookDirs().release;
+}
+
+/** Return the release file path for a given Claude session ID. @internal */
+export function releasePath(claudeSessionId: string): string {
+  return join(releaseDir(), claudeSessionId);
 }
 
 /**
@@ -386,6 +441,42 @@ async function clearStaleMarker(claudeSessionId: string): Promise<void> {
   }
 }
 
+/**
+ * Ensure the queue directory exists and remove any stale entry from a prior
+ * turn so the Stop hook doesn't race on it. Ignores ENOENT.
+ */
+async function clearStaleQueue(claudeSessionId: string): Promise<void> {
+  await mkdir(queueDir(), { recursive: true });
+  try {
+    await unlink(queuePath(claudeSessionId));
+  } catch (e: unknown) {
+    if (!(e instanceof Error && "code" in e && (e as NodeJS.ErrnoException).code === "ENOENT")) {
+      throw e;
+    }
+  }
+}
+
+/**
+ * Write the next prompt to the session queue file. The currently-running
+ * Stop hook process (blocked on poll from the previous turn) picks it up,
+ * emits `{decision:"block", reason:<prompt>}` on stdout, and Claude feeds
+ * it back as the next user message — no tmux keystrokes required.
+ */
+async function enqueuePrompt(claudeSessionId: string, prompt: string): Promise<void> {
+  await mkdir(queueDir(), { recursive: true });
+  await writeFile(queuePath(claudeSessionId), prompt, "utf-8");
+}
+
+/**
+ * Signal the Stop hook's blocking wait that this session is done. Called
+ * during session teardown so the final hook invocation exits 0 promptly.
+ * Safe to call more than once.
+ */
+export async function releaseClaudeSession(claudeSessionId: string): Promise<void> {
+  await mkdir(releaseDir(), { recursive: true });
+  await writeFile(releasePath(claudeSessionId), "");
+}
+
 // ---------------------------------------------------------------------------
 // Idle detection via marker file watch
 // ---------------------------------------------------------------------------
@@ -395,110 +486,159 @@ async function clearStaleMarker(claudeSessionId: string): Promise<void> {
  * `~/.atomic/claude-stop/` marker directory.
  *
  * When Claude finishes a turn, the `atomic _claude-stop-hook` Stop hook writes
- * `~/.atomic/claude-stop/<session_id>` atomically (tmp file + rename).  The
- * rename triggers an OS-native `fs.watch` event on the parent directory —
- * far more reliable than polling tmux pane glyphs, which vary between Claude
- * Code versions.
+ * `~/.atomic/claude-stop/<session_id>`. The write triggers an OS-native
+ * `fs.watch` event on the parent directory — far more reliable than polling
+ * tmux pane glyphs, which vary between Claude Code versions.
  *
  * Algorithm:
- * 1. Watch the marker directory for events whose `filename` matches
- *    `claudeSessionId`.
- * 2. On a matching event, read the session transcript via
- *    `getSessionMessages` and test `_hasUnresolvedHILTool`.
+ * 1. Attach the directory watcher, then check for the marker file on disk —
+ *    this closes the race where the Stop hook fires between prompt submission
+ *    and watcher attach.
+ * 2. On any event, re-check the marker file on disk (we intentionally do NOT
+ *    filter by `event.filename`, because on Linux a write can deliver multiple
+ *    events with varying filenames and editor tools may race us).
+ * 3. Read the session transcript via `getSessionMessages` and test
+ *    `_hasUnresolvedHILTool`:
  *    - If unresolved HIL: call `onHIL(true)`, unlink the marker (so the next
  *      turn's hook can fire again), and continue watching.
  *    - If no unresolved HIL after a prior HIL: call `onHIL(false)`.
  *    - If truly idle: slice messages from `transcriptBeforeCount` and return.
- * 3. Clean up the `fs.watch` watcher on any exit path via AbortController.
+ * 4. Clean up the `fs.watch` watcher on any exit path via AbortController.
  *
- * The function signature is intentionally identical to the previous polling
- * implementation so all callers remain unchanged.
- *
- * @param paneId           - tmux pane (kept in signature for caller compat; not used here)
- * @param claudeSessionId  - Claude's session UUID (used to identify marker file)
+ * @param claudeSessionId       - Claude's session UUID (used to identify marker file)
  * @param transcriptBeforeCount - number of messages in transcript before this turn
- * @param beforeContent    - (unused) pane content before send; kept for compat
- * @param pollIntervalMs   - (unused) kept for compat; watch is event-driven
- * @param onHIL            - optional callback for HIL state changes
+ * @param onHIL                 - optional callback for HIL state changes
  */
+/** Safety timeout so the workflow's next stage still fires if the Stop hook
+ * never runs (misconfigured settings, killed Claude process, etc.). 15 min
+ * covers any reasonable single-turn run without hanging forever. */
+const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
+
 /**
  * @internal Exported for unit tests.
  */
 export async function waitForIdle(
-  _paneId: string,
-  claudeSessionId: string | undefined,
+  claudeSessionId: string,
   transcriptBeforeCount: number,
-  _beforeContent: string,
-  _pollIntervalMs: number,
   onHIL?: (waiting: boolean) => void,
 ): Promise<SessionMessage[]> {
-  // Without a session ID we cannot watch the marker directory — return empty.
-  if (!claudeSessionId) {
-    return [];
-  }
 
   const dir = markerDir();
   const sessionId = claudeSessionId;
+  const target = markerPath(sessionId);
   const ac = new AbortController();
+  const timeout = setTimeout(() => ac.abort(), IDLE_TIMEOUT_MS);
 
   let hilActive = false;
 
-  try {
-    for await (const event of watch(dir, { signal: ac.signal })) {
-      // Filter: only care about events for our session's marker file
-      if (event.filename !== sessionId) continue;
+  // Process a marker that has appeared on disk. Returns a tuple:
+  //   [resolved, result] — when resolved=true, waitForIdle should return.
+  const readMessages = async (): Promise<SessionMessage[] | null> => {
+    try {
+      return await getSessionMessages(sessionId, {
+        dir: process.cwd(),
+        includeSystemMessages: true,
+      });
+    } catch {
+      return null;
+    }
+  };
 
-      // Marker appeared — read transcript
-      let msgs: SessionMessage[];
+  const handleMarker = async (): Promise<[boolean, SessionMessage[]]> => {
+    let msgs = await readMessages();
+    if (msgs === null) {
+      // Transcript read failed — keep watching; the next event will retry.
+      return [false, []];
+    }
+
+    if (_hasUnresolvedHILTool(msgs)) {
+      if (!hilActive) {
+        onHIL?.(true);
+        hilActive = true;
+      }
       try {
-        msgs = await getSessionMessages(sessionId, {
-          dir: process.cwd(),
-          includeSystemMessages: true,
-        });
+        await unlink(target);
       } catch {
-        // Transcript read failed — wait for the next marker event
-        continue;
+        // ENOENT is fine.
       }
+      return [false, []];
+    }
 
-      if (_hasUnresolvedHILTool(msgs)) {
-        // Agent is blocked on user input (HIL).
-        if (!hilActive) {
-          onHIL?.(true);
-          hilActive = true;
-        }
-        // Remove the marker so the Stop hook can write a new one after the
-        // user responds and Claude finishes its next turn.
-        try {
-          await unlink(markerPath(sessionId));
-        } catch {
-          // ENOENT is fine — ignore
-        }
-        // Continue watching for the next marker event
-        continue;
+    // The Stop hook fires only once per agent loop completion (when there
+    // are no more tool_use blocks to resolve — see Claude Code's
+    // `src/query/stopHooks.ts` / `query.ts`: `if (!needsFollowUp)`). But
+    // Claude Code writes to the JSONL transcript asynchronously via
+    // `enqueueWrite()` with a batched ~100ms flush, so the final
+    // `assistant[text]` message can still be in the page-cache when our
+    // marker watcher fires. Reading the transcript at that moment races
+    // the writer and returns a prefix ending at `user[tool_result]`.
+    //
+    // Because no further marker events are coming, we can't just "keep
+    // watching the marker dir". Instead, poll the transcript file directly
+    // until it either settles on a terminal stop_reason or the poll budget
+    // expires. The budget covers Claude Code's flush interval plus headroom
+    // for slow disks and buffered `fs/promises` writes.
+    if (_isMidAgentLoop(msgs)) {
+      const pollIntervalMs = 50;
+      const pollBudgetMs = 3_000;
+      const start = Date.now();
+      while (_isMidAgentLoop(msgs) && Date.now() - start < pollBudgetMs) {
+        await Bun.sleep(pollIntervalMs);
+        const next = await readMessages();
+        if (next) msgs = next;
       }
+      // Whether we recovered or ran out of budget, fall through — returning
+      // what we have beats hanging forever if the writer really did drop a
+      // message (e.g. max-tokens collapse, abort mid-stream).
+    }
 
-      // No unresolved HIL — if we were in HIL state, signal resolution.
-      if (hilActive) {
-        onHIL?.(false);
-        hilActive = false;
+    if (hilActive) {
+      onHIL?.(false);
+      hilActive = false;
+    }
+
+    const sliced = msgs.length > transcriptBeforeCount
+      ? msgs.slice(transcriptBeforeCount)
+      : [];
+    return [true, sliced];
+  };
+
+  try {
+    // Attach the watcher FIRST; fs.watch returns an iterable whose underlying
+    // inotify/FSEvent subscription is live from this point on.
+    const watcher = watch(dir, { signal: ac.signal });
+
+    // Close the race: if the Stop hook fired between clearStaleMarker() and
+    // the watcher attach above, the marker is already on disk and no further
+    // events will be emitted. Handle it synchronously.
+    if (existsSync(target)) {
+      const [done, result] = await handleMarker();
+      if (done) {
+        ac.abort();
+        return result;
       }
+    }
 
-      // Truly idle — return transcript messages produced during this turn.
-      const result = msgs.length > transcriptBeforeCount
-        ? msgs.slice(transcriptBeforeCount)
-        : [];
+    for await (const _event of watcher) {
+      // We don't trust event.filename — on Linux, a tmp+rename write emits
+      // events with the `.tmp` basename, and other files in the marker dir
+      // can race us. The marker file's existence on disk is authoritative.
+      if (!existsSync(target)) continue;
 
-      ac.abort();
-      return result;
+      const [done, result] = await handleMarker();
+      if (done) {
+        ac.abort();
+        return result;
+      }
     }
   } catch (e: unknown) {
-    // AbortError is expected when we call ac.abort() to stop watching.
-    if (e instanceof Error && e.name === "AbortError") {
-      // Normal exit — return value was already set and returned above.
-      // If we somehow reach here without returning, fall through to [].
-    } else {
+    // AbortError is expected when we call ac.abort() to stop watching, or
+    // when the safety timeout fires.
+    if (!(e instanceof Error && e.name === "AbortError")) {
       throw e;
     }
+  } finally {
+    clearTimeout(timeout);
   }
 
   return [];
@@ -513,14 +653,6 @@ export interface ClaudeQueryOptions {
   paneId: string;
   /** The prompt to send */
   prompt: string;
-  /** Polling interval in ms (default: 2000) */
-  pollIntervalMs?: number;
-  /** Number of C-m presses per submit round (default: 1 for Claude) */
-  submitPresses?: number;
-  /** Max submit rounds if text isn't consumed (default: 6) */
-  maxSubmitRounds?: number;
-  /** Timeout in ms waiting for pane to be ready before sending (default: 30s) */
-  readyTimeoutMs?: number;
   /**
    * Called when the agent's human-in-the-loop state changes.
    * `waiting=true`  → AskUserQuestion is pending (agent blocked on user input).
@@ -567,14 +699,23 @@ export function extractAssistantText(
 /**
  * Send a prompt to a Claude Code interactive session running in a tmux pane.
  *
- * Flow (hardened from OMX's sendToWorker):
- * 1. Wait for pane readiness with exponential backoff
- * 2. Capture pane content before sending
- * 3. Send literal text via `send-keys -l --`
- * 4. Submit with C-m rounds and per-round capture verification
- * 5. Adaptive retry: clear line (C-u), re-type, re-submit
- * 6. Post-submit verification via active-task detection
- * 7. Wait for response by polling for output stabilization + prompt return
+ * First query and follow-up queries use different delivery channels:
+ *
+ *   - **First query**: stages the prompt in a tmp file and spawns
+ *     `claude --session-id <UUID> 'Read the prompt in <path>'` into the
+ *     empty pane. Claude's first action is a Read tool call, which
+ *     sidesteps ARG_MAX on the spawn argv.
+ *
+ *   - **Follow-up query**: writes the prompt to
+ *     `~/.atomic/claude-queue/<session_id>`. The Stop hook from the
+ *     previous turn is blocked in a poll loop there; it reads the queue
+ *     entry and emits `{"decision":"block","reason":<prompt>}` on stdout,
+ *     which Claude Code feeds back as the next user message. No tmux
+ *     keystrokes, no paste-buffer dance, no pane-state polling — the
+ *     whole delivery rides Claude's own continuation API.
+ *
+ * Both paths converge on `waitForIdle`, which watches the Stop-hook marker
+ * file for this session and returns the transcript slice for the turn.
  *
  * @example
  * ```typescript
@@ -588,15 +729,7 @@ export function extractAssistantText(
  * ```
  */
 export async function claudeQuery(options: ClaudeQueryOptions): Promise<SessionMessage[]> {
-  const {
-    paneId,
-    prompt,
-    pollIntervalMs = 2_000,
-    submitPresses = 1,
-    maxSubmitRounds = 6,
-    readyTimeoutMs = 30_000,
-    onHIL,
-  } = options;
+  const { paneId, prompt, onHIL } = options;
 
   const paneState = initializedPanes.get(paneId);
   if (!paneState) {
@@ -609,133 +742,68 @@ export async function claudeQuery(options: ClaudeQueryOptions): Promise<SessionM
   const dir = process.cwd();
   const claudeSessionId = paneState.claudeSessionId;
 
-  // ── Clear any stale marker left from a previous turn before submitting. ──
-  // This ensures `waitForIdle`'s watch loop doesn't fire on the marker written
-  // by the Stop hook at the end of the LAST turn instead of the current one.
+  // Clear stale marker AND stale queue entry before submitting so the
+  // Stop-hook for the previous turn (if any) cannot race this one.
   await clearStaleMarker(claudeSessionId);
+  await clearStaleQueue(claudeSessionId);
 
-  // ── First query: spawn `claude --session-id <UUID> 'Read the prompt in <path>'`.
-  // The prompt is delivered via Claude's Read tool on its first turn — no
-  // paste-buffer, no submit retries. Subsequent queries fall through to the
-  // existing paste-buffer flow against the now-running TUI.
-  if (!paneState.claudeStarted) {
-    await spawnClaudeWithPrompt(
-      paneId,
-      prompt,
-      paneState.chatFlags,
-      claudeSessionId,
-      paneState.sessionDir,
-      paneState.readyTimeoutMs,
-    );
-    paneState.claudeStarted = true;
-  } else {
-    // ── Transcript snapshot (before send) ──
-    // Taken BEFORE sending so we get an accurate baseline for slicing the
-    // returned messages to just this turn.
-    let transcriptBeforeCount = 0;
-    try {
-      const msgs = await getSessionMessages(claudeSessionId, {
-        dir,
-        includeSystemMessages: true,
-      });
-      transcriptBeforeCount = msgs.length;
-    } catch {
-      // Best-effort — 0 means we scan all messages (correct, slightly less efficient)
-    }
+  let transcriptBeforeCount = 0;
+  let spawnPromptFile: string | undefined;
 
-    const beforeContent = normalizeTmuxLines(capturePaneScrollback(paneId));
-    const normalizedPrompt = normalizeTmuxCapture(prompt).slice(0, 100);
-
-    // Step 1: Wait for pane readiness before sending
-    await waitForPaneReady(paneId, readyTimeoutMs);
-
-    // Step 2: Send text via paste buffer (atomic, handles large prompts)
-    sendViaPasteBuffer(paneId, prompt);
-    await Bun.sleep(150);
-
-    // Step 3: Submit with per-round capture verification
-    let delivered = await attemptSubmitRounds(paneId, normalizedPrompt, maxSubmitRounds, submitPresses);
-
-    // Step 4: Adaptive retry — clear line, re-type, re-submit
-    if (!delivered) {
-      const visibleCapture = capturePaneVisible(paneId);
-      const visibleNorm = normalizeTmuxCapture(visibleCapture);
-
-      // Only retry if text is still visible and pane is idle (not mid-task)
-      if (visibleNorm.includes(normalizedPrompt) && !paneHasActiveTask(visibleCapture) && paneLooksReady(visibleCapture)) {
-        sendSpecialKey(paneId, "C-u");
-        await Bun.sleep(80);
-        sendViaPasteBuffer(paneId, prompt);
-        await Bun.sleep(120);
-        delivered = await attemptSubmitRounds(paneId, normalizedPrompt, maxSubmitRounds, submitPresses);
-      }
-    }
-
-    // Step 5: Final fallback — double C-m nudge + post-submit verification
-    if (!delivered) {
-      sendSpecialKey(paneId, "C-m");
-      await Bun.sleep(120);
-      sendSpecialKey(paneId, "C-m");
-      await Bun.sleep(300);
-
-      const verifyCapture = capturePaneVisible(paneId);
-      if (paneHasActiveTask(verifyCapture)) {
-        delivered = true;
-      } else {
-        delivered = !normalizeTmuxCapture(verifyCapture).includes(normalizedPrompt);
+  try {
+    if (paneState.claudeStarted) {
+      // Follow-up query: snapshot the transcript length so waitForIdle can
+      // slice out the messages produced by THIS turn, then enqueue the
+      // prompt for the Stop hook to pick up.
+      try {
+        const msgs = await getSessionMessages(claudeSessionId, {
+          dir,
+          includeSystemMessages: true,
+        });
+        transcriptBeforeCount = msgs.length;
+      } catch {
+        // Best-effort — 0 means we scan all messages (correct, slightly less efficient)
       }
 
-      // One more attempt if text is still stuck
-      if (!delivered) {
-        sendSpecialKey(paneId, "C-m");
-        await Bun.sleep(150);
-        sendSpecialKey(paneId, "C-m");
-      }
+      await enqueuePrompt(claudeSessionId, prompt);
+    } else {
+      // First query: spawn claude with the prompt baked into argv via the
+      // Read-tool indirection. The tmp file only has to live long enough
+      // for Claude's first Read tool call, so we delete it once waitForIdle
+      // returns (the turn is complete by then).
+      spawnPromptFile = join(
+        os.tmpdir(),
+        `atomic-claude-prompt-${claudeSessionId}-${randomUUID()}.txt`,
+      );
+      writeFileSync(spawnPromptFile, prompt, "utf-8");
+
+      await spawnClaudeWithPrompt(
+        paneId,
+        spawnPromptFile,
+        paneState.chatFlags,
+        claudeSessionId,
+        paneState.readyTimeoutMs,
+      );
+      paneState.claudeStarted = true;
     }
 
-    // Wait for response completion via pane idle + transcript read.
+    // Wait for response completion via the Stop-hook marker file.
     // HIL detection is integrated into waitForIdle.
-    return await waitForIdle(
-      paneId,
-      claudeSessionId,
-      transcriptBeforeCount,
-      beforeContent,
-      pollIntervalMs,
-      onHIL,
-    );
+    return await waitForIdle(claudeSessionId, transcriptBeforeCount, onHIL);
+  } finally {
+    if (spawnPromptFile) {
+      try {
+        await unlink(spawnPromptFile);
+      } catch {
+        // ENOENT / already removed is fine.
+      }
+    }
   }
-
-  // First-query path: wait for Claude to finish the response. The prompt
-  // file lives in the workflow's session dir as `prompt.txt` and is kept
-  // as part of the session log — no cleanup needed.
-  return await waitForIdle(
-    paneId,
-    claudeSessionId,
-    0,
-    "",
-    pollIntervalMs,
-    onHIL,
-  );
 }
 
 // ---------------------------------------------------------------------------
 // Synthetic wrappers — uniform s.client / s.session API for Claude stages
 // ---------------------------------------------------------------------------
-
-/**
- * Default query options the user can set per-stage via the `sessionOpts` arg.
- * These become defaults for every `s.session.query()` call within that stage.
- */
-export interface ClaudeQueryDefaults {
-  /** Polling interval in ms (default: 2000) */
-  pollIntervalMs?: number;
-  /** Number of C-m presses per submit round (default: 1) */
-  submitPresses?: number;
-  /** Max submit rounds if text isn't consumed (default: 6) */
-  maxSubmitRounds?: number;
-  /** Timeout in ms waiting for pane to be ready before sending (default: 30s) */
-  readyTimeoutMs?: number;
-}
 
 /**
  * Synthetic client wrapper for Claude stages.
@@ -744,23 +812,26 @@ export interface ClaudeQueryDefaults {
 export class ClaudeClientWrapper {
   readonly paneId: string;
   private readonly opts: { chatFlags?: string[]; readyTimeoutMs?: number };
-  private readonly sessionDir: string;
 
   constructor(
     paneId: string,
     opts: { chatFlags?: string[]; readyTimeoutMs?: number } = {},
-    sessionDir: string,
   ) {
     this.paneId = paneId;
     this.opts = opts;
-    this.sessionDir = sessionDir;
   }
 
-  /** Start the Claude CLI in the tmux pane. Called by the runtime during init. */
-  async start(): Promise<void> {
-    await createClaudeSession({
+  /**
+   * Start the Claude CLI in the tmux pane. Returns the Claude session UUID
+   * so the caller can pass it to `ClaudeSessionWrapper` (and thus expose it
+   * as `s.sessionId` to workflows). This is the UUID used by Claude Code to
+   * name its JSONL transcript file and to key the Stop-hook marker — workflows
+   * pass it to `s.save(s.sessionId)` so the save path reads the correct
+   * transcript even when many Claude sessions run in parallel.
+   */
+  async start(): Promise<string> {
+    return await createClaudeSession({
       paneId: this.paneId,
-      sessionDir: this.sessionDir,
       chatFlags: this.opts.chatFlags,
       readyTimeoutMs: this.opts.readyTimeoutMs,
     });
@@ -777,31 +848,34 @@ export class ClaudeClientWrapper {
 export class ClaudeSessionWrapper {
   readonly paneId: string;
   readonly sessionId: string;
-  private readonly defaults: ClaudeQueryDefaults;
   private readonly onHIL: ((waiting: boolean) => void) | undefined;
 
   constructor(
     paneId: string,
     sessionId: string,
-    defaults: ClaudeQueryDefaults = {},
     onHIL?: (waiting: boolean) => void,
   ) {
     this.paneId = paneId;
     this.sessionId = sessionId;
-    this.defaults = defaults;
     this.onHIL = onHIL;
   }
 
-  /** Send a prompt to Claude and wait for the response. */
+  /**
+   * Send a prompt to Claude and wait for the response.
+   *
+   * The `_options` parameter exists for signature compatibility with
+   * {@link HeadlessClaudeSessionWrapper.query} (which forwards SDK options
+   * like `agent`, `permissionMode`, etc. to the Agent SDK). In the
+   * interactive pane path these options don't apply — we're driving the
+   * `claude` CLI binary, not the SDK — so they are silently ignored.
+   */
   async query(
     prompt: string,
-    opts?: Partial<ClaudeQueryDefaults & SDKOptions>,
+    _options?: Partial<SDKOptions>,
   ): Promise<SessionMessage[]> {
     return claudeQuery({
       paneId: this.paneId,
       prompt,
-      ...this.defaults,
-      ...opts,
       onHIL: this.onHIL,
     });
   }
@@ -819,7 +893,15 @@ export class ClaudeSessionWrapper {
  * Used when `options.headless` is true in `ctx.stage()`.
  */
 export class HeadlessClaudeClientWrapper {
-  async start(): Promise<void> {}
+  /**
+   * Headless Claude stages don't pre-allocate a session — each `query()` call
+   * to {@link HeadlessClaudeSessionWrapper} spawns a fresh Agent SDK run that
+   * emits its own `session_id`. We still return an empty string here so the
+   * method signature matches {@link ClaudeClientWrapper.start}.
+   */
+  async start(): Promise<string> {
+    return "";
+  }
   async stop(): Promise<void> {}
 }
 
@@ -836,33 +918,31 @@ export class HeadlessClaudeClientWrapper {
  */
 export class HeadlessClaudeSessionWrapper {
   readonly paneId = "";
-  readonly sessionId: string;
+  /**
+   * The Claude session UUID of the most recently completed `query()`. Exposed
+   * via `s.sessionId` so workflows can pass it to `s.save(s.sessionId)` and
+   * have the save path read the correct transcript, even when several headless
+   * Claude stages run in parallel (each call gets its own SDK-assigned UUID).
+   */
+  private _lastSessionId: string = "";
 
-  constructor(sessionId: string) {
-    this.sessionId = sessionId;
+  get sessionId(): string {
+    return this._lastSessionId;
   }
 
   async query(
     prompt: string | AsyncIterable<SDKUserMessage>,
-    options?: Partial<ClaudeQueryDefaults & SDKOptions>,
+    options?: Partial<SDKOptions>,
   ): Promise<SessionMessage[]> {
-    // Strip query-defaults fields; the rest are SDK options
-    const {
-      pollIntervalMs: _a,
-      submitPresses: _b,
-      maxSubmitRounds: _c,
-      readyTimeoutMs: _d,
-      ...sdkOpts
-    } = options ?? {};
-
     let sdkSessionId = "";
-    for await (const msg of sdkQuery({ prompt, options: sdkOpts })) {
+    for await (const msg of sdkQuery({ prompt, options: options ?? {} })) {
       if (msg.type === "result") {
         sdkSessionId = String((msg as Record<string, unknown>).session_id ?? "");
       }
     }
     // Read the transcript to return native SessionMessage[]
     if (sdkSessionId) {
+      this._lastSessionId = sdkSessionId;
       return getSessionMessages(sdkSessionId, { dir: process.cwd() });
     }
     return [];

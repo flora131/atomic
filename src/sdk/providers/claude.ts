@@ -429,6 +429,12 @@ export async function watchHILMarker(
   // during the check is buffered by the iterator instead of being dropped.
   const watcher = watch(dir, { signal });
 
+  // Polling fallback: Bun/inotify can drop events under heavy fs load, which
+  // would leave the UI stuck on (or off) the blue "awaiting_input" pulse.
+  // A cheap periodic existsSync guarantees eventual consistency. `emit` is
+  // guarded by `wasHIL` so the interval is idempotent w.r.t. the watcher.
+  const poll = setInterval(() => emit(existsSync(target)), 250);
+
   // Initial existsSync: handles resumed sessions whose PreToolUse marker was
   // already on disk before the watcher attached.
   if (existsSync(target)) emit(true);
@@ -443,6 +449,8 @@ export async function watchHILMarker(
     if (!(e instanceof Error && e.name === "AbortError")) {
       throw e;
     }
+  } finally {
+    clearInterval(poll);
   }
 }
 

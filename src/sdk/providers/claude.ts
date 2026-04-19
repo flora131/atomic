@@ -596,7 +596,7 @@ export async function releaseClaudeSession(claudeSessionId: string): Promise<voi
  * tmux pane glyphs, which vary between Claude Code versions.
  *
  * This function is strictly about *idle detection*. HIL is detected separately
- * by {@link watchTranscriptForHIL}; the Stop hook does not fire while
+ * by {@link watchHILMarker}; the Stop hook does not fire while
  * `AskUserQuestion` is pending (the agent loop blocks on deferred tools), so
  * mixing the two would silently miss the HIL window.
  *

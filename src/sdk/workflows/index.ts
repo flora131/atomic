@@ -64,7 +64,6 @@ export {
   createPane,
   sendLiteralText,
   sendSpecialKey,
-  sendKeysAndSubmit,
   capturePane,
   capturePaneVisible,
   capturePaneScrollback,
@@ -82,15 +81,9 @@ export {
   setSessionEnv,
   getSessionEnv,
   parseSessionName,
-  waitForOutput,
   tmuxRun,
   normalizeTmuxCapture,
   normalizeTmuxLines,
-  paneLooksReady,
-  paneHasActiveTask,
-  paneIsIdle,
-  waitForPaneReady,
-  attemptSubmitRounds,
 } from "../runtime/tmux.ts";
 
 // Runtime — workflow discovery

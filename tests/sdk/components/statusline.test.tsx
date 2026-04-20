@@ -79,7 +79,7 @@ describe("Statusline", () => {
       <TestProviders store={store}>
         <Statusline attachMsg="" />
       </TestProviders>,
-      { width: 80, height: 5 },
+      { width: 120, height: 5 },
     );
     await testSetup.renderOnce();
     const frame = testSetup.captureCharFrame();
@@ -97,5 +97,19 @@ describe("Statusline", () => {
     await testSetup.renderOnce();
     const frame = testSetup.captureCharFrame();
     expect(frame).toContain("quit");
+  });
+
+  test("shows ctrl+b d detach hint", async () => {
+    const store = new PanelStore();
+    testSetup = await testRender(
+      <TestProviders store={store}>
+        <Statusline attachMsg="" />
+      </TestProviders>,
+      { width: 120, height: 5 },
+    );
+    await testSetup.renderOnce();
+    const frame = testSetup.captureCharFrame();
+    expect(frame).toContain("ctrl+b d");
+    expect(frame).toContain("detach");
   });
 });

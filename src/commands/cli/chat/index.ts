@@ -39,6 +39,7 @@ import {
   spawnMuxAttach,
   switchClient,
 } from "../../../sdk/workflows/index.ts";
+import { spawnAttachedFooter } from "../../../sdk/runtime/attached-footer.ts";
 import { ensureTmuxInstalled } from "../../../lib/spawn.ts";
 
 // ============================================================================
@@ -241,8 +242,14 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
 
   // ── Create session on the atomic socket and attach ──
   try {
-    createSession(windowName, shellCmd, undefined, projectRoot);
+    const paneId = createSession(windowName, shellCmd, undefined, projectRoot);
     setSessionEnv(windowName, "ATOMIC_AGENT", agentType);
+
+    // Split the pane so the agent CLI runs on top and the React footer
+    // (provider pill + window name) runs in a 5% bottom pane. Matches
+    // the workflow-window layout, minus the keyboard hints (chat sessions
+    // only host a single agent, so ctrl+g / ctrl+\ navigation is moot).
+    spawnAttachedFooter(windowName, paneId, agentType);
 
     if (isInsideAtomicSocket()) {
       // Already on the atomic server — just switch to the new session.

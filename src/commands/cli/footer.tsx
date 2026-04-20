@@ -20,6 +20,7 @@ import {
   type GraphTheme,
 } from "../../sdk/components/graph-theme.ts";
 import { AttachedStatusline } from "../../sdk/components/attached-statusline.tsx";
+import type { AgentType } from "../../sdk/types.ts";
 
 const PARENT_WATCHDOG_MS = 2000;
 
@@ -58,7 +59,15 @@ const EXIT_SIGNALS: NodeJS.Signals[] =
     ? ["SIGTERM", "SIGINT", "SIGBREAK", "SIGHUP"]
     : ["SIGHUP", "SIGTERM", "SIGINT", "SIGPIPE"];
 
-function FooterShell({ name, theme }: { name: string; theme: GraphTheme }) {
+function FooterShell({
+  name,
+  theme,
+  agentType,
+}: {
+  name: string;
+  theme: GraphTheme;
+  agentType?: AgentType;
+}) {
   const renderer = useRenderer();
 
   useEffect(() => {
@@ -101,17 +110,22 @@ function FooterShell({ name, theme }: { name: string; theme: GraphTheme }) {
       justifyContent="flex-end"
       backgroundColor={theme.background}
     >
-      <AttachedStatusline name={name} theme={theme} />
+      <AttachedStatusline name={name} theme={theme} agentType={agentType} />
     </box>
   );
 }
 
-export async function footerCommand(name: string): Promise<number> {
+export async function footerCommand(
+  name: string,
+  agentType?: AgentType,
+): Promise<number> {
   const renderer = await createCliRenderer({
     exitOnCtrlC: false,
   });
   const theme = deriveGraphTheme(resolveTheme(renderer.themeMode));
-  createRoot(renderer).render(<FooterShell name={name} theme={theme} />);
+  createRoot(renderer).render(
+    <FooterShell name={name} theme={theme} agentType={agentType} />,
+  );
 
   await new Promise<void>(() => {});
   return 0;

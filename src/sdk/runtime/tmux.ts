@@ -21,6 +21,11 @@ export const SOCKET_NAME = "atomic";
 /** Path to the bundled tmux config (shared by tmux and psmux). */
 const CONFIG_PATH = join(import.meta.dir, "tmux.conf");
 
+/** Path to the bundled Ctrl+C debounce script (TypeScript, run via bun
+ *  so the same file handles Linux, macOS, and Windows without shell
+ *  dialect gymnastics). Referenced from tmux.conf. */
+const CC_DEBOUNCE_PATH = join(import.meta.dir, "cc-debounce.ts");
+
 /** Discriminated result from a tmux command execution. */
 export type TmuxResult =
   | { ok: true; stdout: string }
@@ -204,6 +209,14 @@ export function createSession(
   // Reload config into the running server so keybindings are always current
   // (tmux only loads -f on first server start; source-file updates a running server).
   tmuxRun(["source-file", CONFIG_PATH]);
+  // Expose the bun binary and debounce-script paths as server-wide user
+  // options so tmux.conf's Ctrl+C binding can invoke them without
+  // hardcoding an install path or relying on the user's PATH — which
+  // tmux's run-shell does not always inherit in full, especially on
+  // Windows psmux. `process.execPath` is the exact bun interpreter
+  // currently running atomic, guaranteeing it's executable.
+  tmuxRun(["set-option", "-g", "@atomic-bun", process.execPath]);
+  tmuxRun(["set-option", "-g", "@atomic-cc-debounce", CC_DEBOUNCE_PATH]);
   return paneId || tmux(["list-panes", "-t", sessionName, "-F", "#{pane_id}"]).split("\n")[0]!;
 }
 
@@ -251,6 +264,19 @@ export function createPane(sessionName: string, command: string): string {
     "-P", "-F", "#{pane_id}",
     command,
   ]);
+}
+
+/**
+ * Replace the running command in an existing pane with a new one.
+ *
+ * `-k` kills whatever is currently running in the pane (e.g. a still-initializing
+ * shell) before tmux spawns the new command. Because tmux execs the command
+ * itself rather than forwarding keystrokes through a shell line editor, there
+ * is no shell-ready race and no ZLE TCSAFLUSH drop — callers can invoke this
+ * immediately after pane creation without waiting for a prompt to appear.
+ */
+export function respawnPane(paneId: string, command: string): void {
+  tmuxExec(["respawn-pane", "-k", "-t", paneId, command]);
 }
 
 // ---------------------------------------------------------------------------
@@ -303,29 +329,6 @@ export function sendViaPasteBuffer(paneId: string, text: string): void {
  */
 export function sendSpecialKey(paneId: string, key: string): void {
   tmuxExec(["send-keys", "-t", paneId, key]);
-}
-
-/**
- * Send literal text and submit with C-m (carriage return).
- * Uses C-m instead of Enter for raw-mode TUI compatibility.
- *
- * @param presses - Number of C-m presses (default: 1)
- * @param delayMs - Delay between presses in ms (default: 100)
- */
-export async function sendKeysAndSubmit(
-  paneId: string,
-  text: string,
-  presses = 1,
-  delayMs = 100
-): Promise<void> {
-  sendLiteralText(paneId, text);
-
-  for (let i = 0; i < presses; i++) {
-    if (i > 0 && delayMs > 0) {
-      await Bun.sleep(delayMs);
-    }
-    sendSpecialKey(paneId, "C-m");
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -655,159 +658,3 @@ export function normalizeTmuxLines(text: string): string {
     .trim();
 }
 
-/** Split capture into cleaned, non-empty lines. */
-function toPaneLines(captured: string): string[] {
-  return captured
-    .split("\n")
-    .map((l) => l.replace(/\r/g, "").trimEnd())
-    .filter((l) => l.trim() !== "");
-}
-
-// ---------------------------------------------------------------------------
-// Pane state detection (ported from oh-my-codex's tmux-hook-engine.ts)
-// ---------------------------------------------------------------------------
-
-/** Returns true when the pane is still bootstrapping (loading/initializing). */
-function paneIsBootstrapping(lines: string[]): boolean {
-  return lines.some(
-    (line) =>
-      /\b(loading|initializing|starting up)\b/i.test(line) ||
-      /\bmodel:\s*loading\b/i.test(line) ||
-      /\bconnecting\s+to\b/i.test(line),
-  );
-}
-
-/**
- * Returns true when the pane shows an agent prompt ready for input.
- * Detects Claude Code (❯), Codex (›), and generic (>) prompts.
- */
-export function paneLooksReady(captured: string): boolean {
-  const content = captured.trimEnd();
-  if (content === "") return false;
-
-  const lines = toPaneLines(content);
-  if (paneIsBootstrapping(lines)) return false;
-
-  if (lines.some((line) => /^\s*[›>❯]\s*/u.test(line))) return true;
-  if (lines.some((line) => /\bhow can i help(?: you)?\b/i.test(line))) return true;
-
-  return false;
-}
-
-/**
- * Returns true when the agent has an active task in progress.
- * Checks last 40 lines for known busy indicators.
- */
-export function paneHasActiveTask(captured: string): boolean {
-  const tail = toPaneLines(captured)
-    .map((line) => line.trim())
-    .slice(-40);
-
-  return tail.some((l) =>
-    /\b\d+\s+background terminal running\b/i.test(l) ||
-    /esc to interrupt/i.test(l) ||
-    /\bbackground terminal running\b/i.test(l) ||
-    /^[·✻]\s+[A-Za-z][A-Za-z0-9''-]*(?:\s+[A-Za-z][A-Za-z0-9''-]*){0,3}(?:…|\.{3})$/u.test(l),
-  );
-}
-
-/**
- * Returns true when the pane is idle — showing a prompt and not processing.
- * Uses visible-only capture to avoid stale scrollback matches.
- */
-export function paneIsIdle(paneId: string): boolean {
-  const visible = capturePaneVisible(paneId);
-  return paneLooksReady(visible) && !paneHasActiveTask(visible);
-}
-
-// ---------------------------------------------------------------------------
-// Readiness wait
-// ---------------------------------------------------------------------------
-
-/**
- * Wait for the pane to be idle (prompt visible, no active task) with
- * exponential backoff. Returns the time spent waiting (ms).
- */
-export async function waitForPaneReady(paneId: string, timeoutMs: number = 30_000): Promise<number> {
-  const startedAt = Date.now();
-  let delayMs = 150;
-  const maxDelayMs = 8_000;
-
-  while (Date.now() - startedAt < timeoutMs) {
-    if (paneIsIdle(paneId)) return Date.now() - startedAt;
-
-    const remaining = timeoutMs - (Date.now() - startedAt);
-    if (remaining <= 0) break;
-    await Bun.sleep(Math.min(delayMs, remaining));
-    delayMs = Math.min(maxDelayMs, delayMs * 2);
-  }
-
-  return Date.now() - startedAt;
-}
-
-// ---------------------------------------------------------------------------
-// Submit rounds with per-round verification
-// ---------------------------------------------------------------------------
-
-/**
- * Attempt to submit by pressing C-m, verifying after each round.
- * Returns true as soon as the trigger text disappears from the visible
- * capture or an active task is detected.
- */
-export async function attemptSubmitRounds(
-  paneId: string,
-  normalizedPrompt: string,
-  rounds: number,
-  pressesPerRound: number = 1,
-): Promise<boolean> {
-  const presses = Math.max(1, Math.floor(pressesPerRound));
-
-  for (let round = 0; round < rounds; round++) {
-    await Bun.sleep(100);
-
-    for (let press = 0; press < presses; press++) {
-      sendSpecialKey(paneId, "C-m");
-      if (press < presses - 1) await Bun.sleep(200);
-    }
-
-    await Bun.sleep(140);
-
-    const visible = capturePaneVisible(paneId);
-    if (!normalizeTmuxCapture(visible).includes(normalizedPrompt)) return true;
-    if (paneHasActiveTask(visible)) return true;
-
-    await Bun.sleep(140);
-  }
-
-  return false;
-}
-
-// ---------------------------------------------------------------------------
-// Output waiting
-// ---------------------------------------------------------------------------
-
-/**
- * Wait for a pattern to appear in a tmux pane's output.
- * Polls the pane content at the given interval until the pattern matches
- * or the timeout is reached.
- *
- * @returns The full pane content when the pattern was found
- */
-export async function waitForOutput(
-  paneId: string,
-  pattern: RegExp,
-  options: { timeoutMs?: number; pollIntervalMs?: number } = {}
-): Promise<string> {
-  const { timeoutMs = 30_000, pollIntervalMs = 500 } = options;
-  const deadline = Date.now() + timeoutMs;
-
-  while (Date.now() < deadline) {
-    const content = capturePane(paneId);
-    if (pattern.test(content)) {
-      return content;
-    }
-    await Bun.sleep(pollIntervalMs);
-  }
-
-  throw new Error(`Timed out waiting for pattern ${pattern} in pane ${paneId}`);
-}

@@ -19,6 +19,7 @@ const mockTheme: GraphTheme = {
   error: "#ff2244",
   warning: "#ffaa00",
   info: "#00aaff",
+  mauve: "#cc88ff",
   border: "#334455",
   borderActive: "#aabbcc",
 };

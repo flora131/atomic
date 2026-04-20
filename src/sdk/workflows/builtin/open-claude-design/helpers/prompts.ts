@@ -14,7 +14,12 @@
  *     never regular NL conversation, for user decisions.
  */
 
-import { IMPECCABLE_BANS } from "./constants.ts";
+import {
+  DESIGN_DONTS,
+  IMPECCABLE_BANS,
+  IMPECCABLE_SCAN_CMD,
+  REFLEX_FONTS,
+} from "./constants.ts";
 import type { ImportContext } from "./import.ts";
 import type { DesignSystemData } from "./design-system.ts";
 
@@ -32,8 +37,33 @@ const HIL_INSTRUCTION =
   "the user for decisions. Do not proceed without the user's explicit " +
   "response via this tool.";
 
-function renderBans(): string {
-  return IMPECCABLE_BANS.map((ban) => `- ${ban}`).join("\n");
+/** Shell string for the `impeccable detect` CLI, e.g. for inlining in prompts. */
+const SCAN_COMMAND_STR = IMPECCABLE_SCAN_CMD.join(" ");
+
+/**
+ * Render the full set of design rules — absolute bans, banned reflex fonts,
+ * and non-ban DON'Ts — into a single self-contained block. The agent MUST
+ * receive this content directly in the prompt because `/impeccable` skill
+ * loading is best-effort and not guaranteed.
+ */
+function renderDesignRules(): string {
+  const bans = IMPECCABLE_BANS.map(
+    (ban) => `- **${ban.rule}**\n  ${ban.detail}`,
+  ).join("\n");
+  const fonts = REFLEX_FONTS.map((f) => `\`${f}\``).join(", ");
+  const donts = DESIGN_DONTS.map((d) => `- ${d}`).join("\n");
+  return [
+    `### Absolute Bans (NEVER acceptable — rewrite the element entirely)`,
+    bans,
+    ``,
+    `### Banned Reflex Fonts (training-data defaults that create monoculture)`,
+    `Every one of the following is banned. Do not use any of them, and do not`,
+    `simply pick your second-favorite — look beyond this list.`,
+    fonts,
+    ``,
+    `### Design DON'Ts (AI-fingerprint patterns from 2024-2025)`,
+    donts,
+  ].join("\n");
 }
 
 // ============================================================================
@@ -300,10 +330,21 @@ using the codebase analysis below.
     `- <Component> (<variants>)`,
     ``,
     `## Anti-Patterns (from impeccable)`,
-    `- NO side-stripe borders`,
-    `- NO gradient text`,
-    `- NO AI color palette`,
-    `- NO reflex fonts`,
+    `### Absolute Bans`,
+    `- NO side-stripe borders (border-left/right > 1px as accent, any color)`,
+    `- NO gradient text (background-clip: text with gradient)`,
+    ``,
+    `### Banned Reflex Fonts`,
+    `- Every font in the impeccable reflex-fonts list is banned (Inter, DM Sans,`,
+    `  Fraunces, Playfair Display, IBM Plex, Space Grotesk, Plus Jakarta Sans,`,
+    `  Outfit, Instrument Sans/Serif, Lora, Crimson*, Newsreader, Syne,`,
+    `  Cormorant*, Space Mono, DM Serif Display/Text).`,
+    ``,
+    `### Design DON'Ts`,
+    `- NO AI color palette (cyan-on-dark, purple-to-blue, neon-on-dark)`,
+    `- NO pure #000 or #fff — tint toward the brand hue`,
+    `- NO cards-in-cards, identical card grids, or hero-metric template`,
+    `- NO animated layout properties; transform/opacity only; no bounce/elastic`,
     ``,
     `## Brand Context (from .impeccable.md)`,
     `[Embedded if available]`,
@@ -313,7 +354,7 @@ using the codebase analysis below.
     `<CONSTRAINTS>`,
     `- Use AskUserQuestion for EVERY decision point (Steps 1-3, 5).`,
     `- Do NOT skip any step or auto-approve on the user's behalf.`,
-    `- Include the Anti-Patterns section with all impeccable bans.`,
+    `- Include the full Anti-Patterns section (absolute bans + reflex fonts + DON'Ts).`,
     `- If no existing tokens are found, propose reasonable defaults and confirm with user.`,
     TRAILING_PROSE_REMINDER,
     `</CONSTRAINTS>`,
@@ -478,7 +519,9 @@ colors, and states (default, hover, active, disabled, etc.).`,
     ``,
     `<GENERATION_INSTRUCTIONS>`,
     ``,
-    `1. Load the /impeccable skill context for design quality guidelines.`,
+    `1. The design rules below are INLINED and authoritative — you do not need`,
+    `   to load the /impeccable skill for correctness. If /impeccable is`,
+    `   available it is optional supplementary context only.`,
     `2. ${opts.outputType === "wireframe" ? "Run /shape first to produce a design brief, then generate based on that brief." : "Generate the design directly based on the design request and design system."}`,
     `3. Write all generated files to: \`${opts.outputDir}/\``,
     `   - \`${opts.outputDir}/index.html\` — Main HTML file`,
@@ -486,15 +529,16 @@ colors, and states (default, hover, active, disabled, etc.).`,
     `   - \`${opts.outputDir}/script.js\` — All JavaScript (if needed)`,
     `4. Apply ALL design system tokens from the <DESIGN_SYSTEM> section above.`,
     `   Use CSS custom properties for every color, font, and spacing value.`,
-    `5. Follow ALL impeccable DON'T guidelines and absolute bans.`,
+    `5. Follow ALL design rules below — absolute bans, banned fonts, DON'Ts.`,
+    `6. Your output WILL be scanned with \`${SCAN_COMMAND_STR} ${opts.outputDir}\``,
+    `   before export. Any finding from the scanner blocks export, so avoid`,
+    `   the banned patterns preemptively rather than risk a rework loop.`,
     ``,
     `</GENERATION_INSTRUCTIONS>`,
     ``,
-    `<ABSOLUTE_BANS>`,
-    `These anti-patterns are BANNED. Do not use them under any circumstances:`,
-    ``,
-    renderBans(),
-    `</ABSOLUTE_BANS>`,
+    `<DESIGN_RULES>`,
+    renderDesignRules(),
+    `</DESIGN_RULES>`,
     ``,
     `<QUALITY_REQUIREMENTS>`,
     `- Semantic HTML (proper heading hierarchy, landmarks, ARIA where needed)`,
@@ -609,17 +653,17 @@ export function buildCritiquePrompt(opts: {
     `1. Read all three design files in full.`,
     `2. Check design system compliance: are Design.md tokens actually used?`,
     `3. Check visual hierarchy, layout balance, and information architecture.`,
-    `4. Check for AI slop anti-patterns:`,
-    renderBans(),
+    `4. Check every rule below. Each violation is a P0 finding:`,
+    renderDesignRules(),
     `5. Check accessibility basics (contrast, semantic HTML, ARIA).`,
     `6. Check responsiveness (media queries, flexible layouts).`,
     `7. Address any specific points from the user feedback above.`,
     ``,
-    `**Assessment B — Automated scanning:**`,
-    `Run this command if the \`impeccable\` CLI is available:`,
-    `\`npx impeccable --json ${opts.designDir}\``,
-    `If it returns exit code 2, parse the JSON findings.`,
-    `If it's not available, skip this assessment.`,
+    `**Assessment B — Automated scanning (informational):**`,
+    `Note: the orchestrator runs \`${SCAN_COMMAND_STR} ${opts.designDir}\``,
+    `deterministically after this stage, and its findings gate the export. You`,
+    `do not need to run the scanner yourself, but if you do, treat any finding`,
+    `(non-empty JSON array) as a P0 issue to remove.`,
     ``,
     `</CRITIQUE_METHOD>`,
     ``,
@@ -719,6 +763,7 @@ export function buildApplyChangesPrompt(opts: {
   userFeedback: string;
   critiqueOutput: string;
   screenshotOutput: string;
+  scanFindings: string;
   iteration: number;
 }): string {
   return [
@@ -754,30 +799,40 @@ export function buildApplyChangesPrompt(opts: {
     opts.screenshotOutput.trim() || "(no visual validation performed)",
     `</VISUAL_VALIDATION>`,
     ``,
+    `<SCANNER_FINDINGS>`,
+    `The \`${SCAN_COMMAND_STR}\` scanner produced the following findings against`,
+    `the current design. Every one of these MUST be removed — the scanner will`,
+    `run again before export and any remaining finding blocks handoff.`,
+    ``,
+    opts.scanFindings.trim() || "(no scanner findings — clean on this dimension)",
+    `</SCANNER_FINDINGS>`,
+    ``,
     `<CHANGE_PRIORITY>`,
     `Apply changes in this priority order:`,
-    `1. User feedback — the user's requests take highest priority`,
-    `2. P0 critique findings — critical issues that must be fixed`,
-    `3. P1 critique findings — important issues`,
-    `4. Visual validation issues — rendering problems`,
-    `5. P2 critique findings — moderate issues (if time permits)`,
-    `6. Skip P3 findings — they are informational only`,
+    `1. Scanner findings — deterministic bans that gate export`,
+    `2. User feedback — the user's requests take next priority`,
+    `3. P0 critique findings — critical issues that must be fixed`,
+    `4. P1 critique findings — important issues`,
+    `5. Visual validation issues — rendering problems`,
+    `6. P2 critique findings — moderate issues (if time permits)`,
+    `7. Skip P3 findings — they are informational only`,
     `</CHANGE_PRIORITY>`,
     ``,
-    `<ABSOLUTE_BANS>`,
-    `These anti-patterns are BANNED. Remove them if found, never introduce them:`,
+    `<DESIGN_RULES>`,
+    `The following rules are inlined and authoritative — do not introduce any`,
+    `of these patterns while fixing other issues. Loading the /impeccable skill`,
+    `is optional supplementary context only.`,
     ``,
-    renderBans(),
-    `</ABSOLUTE_BANS>`,
+    renderDesignRules(),
+    `</DESIGN_RULES>`,
     ``,
     `<INSTRUCTIONS>`,
-    `1. Load the /impeccable skill for design quality guidelines.`,
-    `2. Read the current design files.`,
-    `3. Plan your changes based on the priority order above.`,
-    `4. Apply changes by editing the files in place.`,
-    `5. Ensure all design system tokens from Design.md are still used correctly.`,
-    `6. Do NOT remove functionality that was working correctly.`,
-    `7. After making changes, briefly summarize what you changed and why.`,
+    `1. Read the current design files.`,
+    `2. Plan your changes based on the priority order above.`,
+    `3. Apply changes by editing the files in place.`,
+    `4. Ensure all design system tokens from Design.md are still used correctly.`,
+    `5. Do NOT remove functionality that was working correctly.`,
+    `6. After making changes, briefly summarize what you changed and why.`,
     `</INSTRUCTIONS>`,
     ``,
     `<CONSTRAINTS>`,
@@ -790,6 +845,68 @@ export function buildApplyChangesPrompt(opts: {
     `<DESIGN_REQUEST_REMINDER>`,
     opts.prompt,
     `</DESIGN_REQUEST_REMINDER>`,
+  ].join("\n");
+}
+
+/**
+ * Phase 4 — visible: final deterministic gate. Runs when the post-loop
+ * scanner still reports findings. The agent MUST remove every one before
+ * export; no ambiguity, no negotiation, no new features.
+ */
+export function buildForcedFixPrompt(opts: {
+  designDir: string;
+  designSystem: DesignSystemData;
+  scanFindings: string;
+}): string {
+  return [
+    `<TASK>`,
+    `The deterministic scanner \`${SCAN_COMMAND_STR}\` still reports banned`,
+    `anti-patterns in the design files. Export is BLOCKED until every one of`,
+    `them is removed. This is a forced-fix pass — make the minimal edits`,
+    `needed to eliminate the findings; do not refactor, restyle, or add`,
+    `features.`,
+    `</TASK>`,
+    ``,
+    `<DESIGN_LOCATION>`,
+    `Edit these files in place:`,
+    `- \`${opts.designDir}/index.html\``,
+    `- \`${opts.designDir}/styles.css\``,
+    `- \`${opts.designDir}/script.js\``,
+    `</DESIGN_LOCATION>`,
+    ``,
+    `<DESIGN_SYSTEM>`,
+    opts.designSystem.raw,
+    `</DESIGN_SYSTEM>`,
+    ``,
+    `<SCANNER_FINDINGS>`,
+    opts.scanFindings.trim() ||
+      "(no findings provided — if you see this, the orchestrator is buggy)",
+    `</SCANNER_FINDINGS>`,
+    ``,
+    `<DESIGN_RULES>`,
+    renderDesignRules(),
+    `</DESIGN_RULES>`,
+    ``,
+    `<INSTRUCTIONS>`,
+    `1. For each finding, open the cited file and remove the banned pattern.`,
+    `2. For side-stripe borders: delete the rule entirely and rewrite the`,
+    `   element with a different structure (full border, background tint,`,
+    `   leading icon/number, or no indicator). Do NOT swap to inset shadow.`,
+    `3. For gradient text: replace with a solid color from the design system.`,
+    `4. For overused/reflex fonts: pick a distinctive replacement that fits`,
+    `   the brand voice and is NOT in the banned-fonts list. Update every`,
+    `   reference to the old font family.`,
+    `5. For AI color-palette findings: re-pick from the Design.md tokens.`,
+    `6. Do NOT introduce new banned patterns while fixing these.`,
+    `7. After editing, briefly list each finding and the file:line you fixed.`,
+    `</INSTRUCTIONS>`,
+    ``,
+    `<CONSTRAINTS>`,
+    `- Edit files in place — do not create new files.`,
+    `- Keep the design system tokens from Design.md intact.`,
+    `- Do NOT alter working functionality, content, or copy.`,
+    TRAILING_PROSE_REMINDER,
+    `</CONSTRAINTS>`,
   ].join("\n");
 }
 

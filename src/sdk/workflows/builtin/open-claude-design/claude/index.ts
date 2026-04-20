@@ -66,6 +66,11 @@ import {
 import { isRefinementComplete } from "../helpers/validation.ts";
 import { writeHandoffBundle } from "../helpers/export.ts";
 import {
+  hasBlockingFindings,
+  renderScanFindings,
+  runImpeccableScan,
+} from "../helpers/scan.ts";
+import {
   buildDesignLocatorPrompt,
   buildDesignAnalyzerPrompt,
   buildDesignPatternPrompt,
@@ -77,6 +82,7 @@ import {
   buildCritiquePrompt,
   buildScreenshotValidationPrompt,
   buildApplyChangesPrompt,
+  buildForcedFixPrompt,
   buildExportPrompt,
 } from "../helpers/prompts.ts";
 
@@ -373,7 +379,18 @@ export default defineWorkflow({
         ),
       ]);
 
-      // Step 3: Apply changes based on feedback + critique
+      // Step 3: Deterministic scan — surface banned anti-patterns to the
+      // agent so apply-changes can fix them alongside user feedback. No LLM
+      // call; runs the `impeccable detect` CLI directly.
+      const scan = await runImpeccableScan(designDir);
+      const scanFindings =
+        scan.available && scan.findings.length > 0
+          ? renderScanFindings(scan.findings)
+          : scan.available
+            ? ""
+            : `(scanner unavailable: ${scan.reason} — proceed without scan input)`;
+
+      // Step 4: Apply changes based on feedback + critique + scanner findings
       await ctx.stage(
         {
           name: `apply-changes-${iteration}`,
@@ -390,12 +407,60 @@ export default defineWorkflow({
               userFeedback: feedback.result,
               critiqueOutput: critiqueResult.result,
               screenshotOutput: screenshotResult.result,
+              scanFindings,
               iteration,
             }),
           );
           s.save(s.sessionId);
         },
       );
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // Hard enforcement gate — runs before export, independent of the
+    // refinement loop's exit condition. Guarantees no design ships with
+    // scanner findings even if the user approved early or MAX_REFINEMENTS
+    // was reached with the agent still introducing banned patterns.
+    // ══════════════════════════════════════════════════════════════════════
+
+    const preExportScan = await runImpeccableScan(designDir);
+    if (hasBlockingFindings(preExportScan)) {
+      // TS narrowing: hasBlockingFindings guarantees available === true
+      const findings = (
+        preExportScan as Extract<typeof preExportScan, { available: true }>
+      ).findings;
+      const findingsText = renderScanFindings(findings);
+
+      await ctx.stage(
+        {
+          name: "forced-fix",
+          description: "Remove banned anti-patterns before export",
+        },
+        {},
+        {},
+        async (s) => {
+          await s.session.query(
+            buildForcedFixPrompt({
+              designDir,
+              designSystem,
+              scanFindings: findingsText,
+            }),
+          );
+          s.save(s.sessionId);
+        },
+      );
+
+      const rescan = await runImpeccableScan(designDir);
+      if (hasBlockingFindings(rescan)) {
+        const remaining = (
+          rescan as Extract<typeof rescan, { available: true }>
+        ).findings;
+        throw new Error(
+          `open-claude-design: export blocked — ${remaining.length} ` +
+            `banned anti-pattern(s) remain after forced fix:\n` +
+            renderScanFindings(remaining),
+        );
+      }
     }
 
     // ══════════════════════════════════════════════════════════════════════

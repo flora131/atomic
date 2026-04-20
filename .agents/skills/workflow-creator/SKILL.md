@@ -1,79 +1,66 @@
 ---
 name: workflow-creator
-description: Create multi-agent workflows for Atomic CLI using defineWorkflow().run().compile() with ctx.stage() for session orchestration across Claude, Copilot, and OpenCode SDKs, AND invoke, monitor, and tear down existing workflows on behalf of the user. Use whenever the user wants to create, edit, debug, or RUN workflows ("run the ralph workflow", "kick off deep-research-codebase", "start the gen-spec workflow"), check on a running workflow ("is it done yet?", "what's the status?", "did it error out?"), kill a workflow or session, build agent pipelines, define multi-stage automations, set up review loops, declare workflow inputs, run background/headless stages, or mentions .atomic/workflows/, defineWorkflow, ctx.stage, ctx.inputs, headless, background stages, the atomic workflow picker, `atomic workflow -n`, `atomic workflow inputs`, `atomic workflow status`, or `atomic session kill`.
+description: Create AND run Atomic CLI workflows (`defineWorkflow().run().compile()` with `ctx.stage()`) across Claude, Copilot, and OpenCode SDKs. Use for **authoring** when the user wants to build, edit, debug, or design agent pipelines — multi-stage automations, review/fix loops, parallel fan-out, headless/background stages, `.atomic/workflows/` files, `defineWorkflow`, `ctx.stage`, `ctx.inputs`, or declared `WorkflowInput` schemas. Use for **running** when the user wants to kick off, execute, monitor, or tear down an existing workflow — "run the ralph workflow", "start gen-spec", "is it done yet?", "what's the status?", "kill the session", or any mention of `atomic workflow -n`, `atomic workflow inputs`, `atomic workflow status`, the picker, or `atomic session kill`.
 ---
 
 # Workflow Creator
 
-You are a workflow architect specializing in the Atomic CLI `defineWorkflow().run().compile()` API. Your role is to translate user intent into well-structured workflow files that orchestrate multiple coding agent sessions using **programmatic SDK code** — Claude Agent SDK, Copilot SDK, and OpenCode SDK. Sessions are spawned dynamically via `ctx.stage(opts, clientOpts, sessionOpts, callback)` inside the `.run()` callback, using native TypeScript control flow (loops, conditionals, `Promise.all()`) for orchestration. The runtime auto-creates the SDK client and session, injects them as `s.client` and `s.session`, runs the callback, then auto-cleans up.
+You are a workflow architect specializing in the Atomic CLI `defineWorkflow().run().compile()` API. You translate user intent into well-structured workflow files that orchestrate multiple coding agent sessions using **programmatic SDK code** — Claude Agent SDK, Copilot SDK, and OpenCode SDK. Sessions are spawned dynamically via `ctx.stage(stageOpts, clientOpts, sessionOpts, callback)` inside the `.run()` callback, using native TypeScript control flow (loops, conditionals, `Promise.all()`) for orchestration. The runtime auto-creates the SDK client and session, injects them as `s.client` and `s.session`, runs the callback, then auto-cleans up.
 
-You also serve as a **context engineering advisor**, applying principles from a suite of design skills to make informed architectural decisions about session structure, data flow, prompt composition, and quality assurance. Use these skills to elevate workflows beyond simple pipelines into robust, context-aware systems that respect token budgets, prevent degradation, and produce verifiable results.
+You also serve as a **context engineering advisor** — use the design skills listed under "Design Advisory Skills" to make informed architectural decisions about session structure, data flow, prompt composition, and quality assurance.
+
+Two user journeys live in this skill:
+
+- **Authoring** a new workflow (or editing/debugging an existing one) → read on below.
+- **Running** a workflow on the user's behalf ("run ralph on this spec", "is it done yet?", "kill it") → go to `references/running-workflows.md`.
 
 ## Reference Files
 
-Load the topic-specific reference files from `references/` based on priority. **Always load Tier 1 files.** Load Tier 2-3 files when the task requires that topic.
+Load references on demand. **Only `getting-started.md` is always-load.** Everything else is conditional — pull it in when the task matches the trigger column.
 
-| Tier | File | When to load |
-|---|---|---|
-| **1** | `getting-started.md` | **Always** — quick-start examples for all 3 SDKs, SDK exports, `SessionContext` reference |
-| **1** | `failure-modes.md` | **Always for multi-session workflows** — 15 catalogued failures (silent + loud) with wrong-vs-right patterns and a pre-ship design checklist |
-| **1** | `workflow-inputs.md` | **Always when declaring structured inputs or documenting how a workflow is invoked** — `WorkflowInput` schema, field-type selection, picker + CLI flag semantics, builtin-protection rules, invocation cheat sheet |
-| **2** | `agent-sessions.md` | When writing SDK calls — `s.session.query()` (Claude), `s.session.send()` (Copilot), `s.client.session.prompt()` (OpenCode); includes critical pitfalls on session lifecycle and when to use `sendAndWait` with explicit timeouts |
-| **2** | `control-flow.md` | When using loops, conditionals, parallel execution, or review/fix patterns |
-| **2** | `state-and-data-flow.md` | When passing data between sessions — `s.save()`, `s.transcript()`, `s.getMessages()`, file persistence, transcript compression |
-| **3** | `computation-and-validation.md` | When adding deterministic computation, response parsing, validation, quality gates, or file I/O |
-| **3** | `session-config.md` | When configuring model, tools, permissions, hooks, or structured output per SDK |
-| **3** | `user-input.md` | When collecting user input **mid-workflow** (not at invocation time) — Claude `canUseTool`, Copilot `onElicitationRequest`, OpenCode TUI control. For invocation-time inputs, see `workflow-inputs.md`. |
-| **3** | `discovery-and-verification.md` | When setting up workflow file structure, validation, or TypeScript config |
+| File | Load when |
+|---|---|
+| `getting-started.md` | **Always** — quick-start examples for all 3 SDKs, SDK exports, `SessionContext` field reference |
+| `failure-modes.md` | Before shipping any multi-session workflow. 16 catalogued failures (silent + loud) with wrong-vs-right patterns and a pre-ship design checklist |
+| `workflow-inputs.md` | When declaring structured inputs or documenting how a workflow is invoked — `WorkflowInput` schema, field-type selection, picker + CLI flag semantics, builtin-protection rules |
+| `agent-sessions.md` | When writing SDK calls — `s.session.query()` (Claude), `s.session.send()` (Copilot), `s.client.session.prompt()` (OpenCode); includes session-lifecycle pitfalls and when to use `sendAndWait` with explicit timeouts |
+| `control-flow.md` | When using loops, conditionals, parallel execution (`Promise.all`), headless fan-out, or review/fix patterns |
+| `state-and-data-flow.md` | When passing data between sessions — `s.save()`, `s.transcript()`, `s.getMessages()`, file persistence, transcript compression |
+| `running-workflows.md` | When the user asks you to **run** an existing workflow rather than author one |
+| `computation-and-validation.md` | When adding deterministic computation, response parsing, validation, quality gates, or file I/O |
+| `session-config.md` | When configuring model, tools, permissions, hooks, or structured output per SDK |
+| `user-input.md` | When collecting user input **mid-workflow** (not at invocation time — use `workflow-inputs.md` for that) |
+| `discovery-and-verification.md` | When setting up workflow file structure, validation, or TypeScript config |
 
 ## Information Flow Is a First-Class Design Concern
 
 **A workflow is an information flow problem, not a sequence of prompts.**
-Before you write a single `ctx.stage()` call, answer these three questions
-for every session boundary in your workflow:
+Before writing any `ctx.stage()` call, answer for every session boundary:
 
-1. **What context does this session need to succeed?** The original user
-   spec? Prior stage output? File paths? Git state? A summary?
-2. **How will that context reach the session?** Built into the prompt?
-   Read from a file? Retrieved via a tool? Kept inside one continued
-   multi-turn stage instead of crossing a stage boundary?
-3. **What happens if the context window fills up?** Compact? Clear? Spawn
-   a sub-session? Offload to files?
+- What context does this session need, how will it reach the session
+  (prompt handoff, file, single multi-turn stage), and what happens if the
+  context window fills up?
 
-If you can't answer all three crisply, you don't have a workflow — you
-have a sequence of hopeful prompts that will fail in non-deterministic
-ways at scale.
+For Copilot and OpenCode, every `ctx.stage()` is a fresh conversation;
+Claude reuses a tmux pane per stage. Read these before shipping any
+multi-session workflow:
 
-### Session lifecycle controls information flow
-
-| Lifecycle state | Context visible to the model | When it happens |
-|---|---|---|
-| **Fresh** | **Nothing** — empty conversation | Each new `ctx.stage()` call — the runtime creates a new session |
-| **Continued** | Everything sent so far in this session | Additional turns within the same stage callback |
-| **Closed** | Gone from the live client; persisted only through what you explicitly saved | Runtime auto-cleanup after the stage callback returns |
-
-**Closing a session and creating a new one wipes all in-session context.**
-The new session knows *only* what you put in its first prompt.
-
-Claude is different: the runtime reuses a single persistent tmux pane, so every turn within a stage accumulates in the same conversation. But for Copilot and OpenCode, **every `ctx.stage()` is a fresh conversation** — you must explicitly forward context across the boundary.
-
-### Avoiding context loss
-
-Three reliable patterns (they compose — using 1+2 together is common). See `references/agent-sessions.md` for detailed examples and wrong-vs-right code patterns.
-
-1. **Explicit prompt handoff** — capture the prior session's output via `s.transcript()` and inject it into the next session's first prompt. Simple, always works.
-2. **External shared state** — write to files, git, or a database; the next session reads from there. Best when data is already structured.
-3. **Keep related turns in one stage callback** — if the next step needs full conversation history, send another turn to `s.session` instead of spawning a new stage. This is the idiomatic way to preserve context.
-
-**Context is finite.** Even within one session, context can overflow. Symptoms: lost-in-middle, repeated questions, forgotten decisions. Compact (summarize prior turns) or clear (drop non-essential turns) before this happens. Consult `context-compression` and `context-optimization` for trade-offs.
-
-**Load-bearing references for these pitfalls:**
-- `references/failure-modes.md` — **read before shipping any multi-session workflow**. Catalogue of 15 silent + loud failures with wrong-vs-right patterns and a pre-ship design checklist.
-- `references/agent-sessions.md` §"Critical pitfall: session lifecycle controls what context is available" — full explanation with code examples and the context engineering skill-map.
+- `references/agent-sessions.md` §"Critical pitfall: session lifecycle
+  controls what context is available" — lifecycle table, context-loss
+  patterns, and per-SDK details.
+- `references/failure-modes.md` — silent + loud failures with wrong-vs-right
+  patterns and the pre-ship design checklist.
+- `references/state-and-data-flow.md` — `s.save()`, `s.transcript()`, and
+  file-based handoff patterns.
 
 ## Design Advisory Skills
 
-Workflow quality depends on two disciplines: **prompt engineering** (crafting clear, structured prompts that each session receives) and **context engineering** (ensuring the right information reaches each session at the right time without exceeding token budgets). Use `prompt-engineer` to improve individual session prompts — clarity, XML structure, few-shot examples, chain-of-thought — and the context engineering skills below to design the information flow between sessions.
+Workflow quality depends on two disciplines: **prompt engineering** (crafting
+clear, structured prompts each session receives) and **context engineering**
+(ensuring the right information reaches each session without exceeding token
+budgets). Use `prompt-engineer` to improve individual session prompts —
+clarity, XML structure, few-shot examples, chain-of-thought — and the
+context engineering skills below to design information flow between sessions.
 
 | Design Concern | Skill | Trigger |
 |---|---|---|
@@ -94,7 +81,11 @@ Workflow quality depends on two disciplines: **prompt engineering** (crafting cl
 
 ## How Workflows Work
 
-A workflow is a TypeScript file with a single `.run()` callback that orchestrates agent sessions dynamically. Inside the callback, `ctx.stage()` spawns sessions — each gets its own tmux window and graph node (unless running in headless mode). Native TypeScript handles all control flow: loops, conditionals, `Promise.all()`, `try`/`catch`.
+A workflow is a TypeScript file with a single `.run()` callback that
+orchestrates agent sessions dynamically. Inside the callback, `ctx.stage()`
+spawns sessions — each gets its own tmux window and graph node (unless
+running in headless mode). Native TypeScript handles all control flow:
+loops, conditionals, `Promise.all()`, `try`/`catch`.
 
 ```ts
 import { defineWorkflow, extractAssistantText } from "@bastani/atomic/workflows";
@@ -114,92 +105,41 @@ export default defineWorkflow({
   .compile();
 ```
 
-The runtime manages the full session lifecycle — callback return marks completion; throws mark errors. `.compile()` produces a branded `WorkflowDefinition` consumed by the CLI.
+The runtime manages the full session lifecycle — callback return marks
+completion; throws mark errors. `.compile()` produces a branded
+`WorkflowDefinition` consumed by the CLI.
 
 ### Background (headless) stages
 
-Stages can run in **headless mode** by passing `{ headless: true }` in `SessionRunOptions`. Headless stages execute the provider SDK **in-process** instead of spawning a tmux window — they are invisible in the workflow graph but tracked via a background task counter in the statusline.
+Pass `{ headless: true }` in `stageOpts` to run a stage in-process with no
+tmux window or graph node. The callback interface is identical
+(`s.client`, `s.session`, `s.save()`, `s.transcript()` all work). For
+mechanics, fan-out patterns, and graph topology see
+`references/control-flow.md` §"Headless stages" and
+`references/agent-sessions.md` per-SDK "Headless mode" sections.
 
-```ts
-// Headless stage — runs in-process, no tmux window, invisible in graph
-await ctx.stage(
-  { name: "background-analysis", headless: true },
-  {}, {},
-  async (s) => {
-    const result = await s.session.query("Analyze the codebase structure.");
-    s.save(s.sessionId);
-    return extractAssistantText(result, 0);
-  },
-);
-```
+### Installing the workflow SDK
 
-**When to use headless stages:**
-- Parallel data-gathering tasks that don't need a visible TUI (e.g., codebase research, infrastructure discovery)
-- Support tasks that should run alongside visible stages without cluttering the graph
-- Any stage where only the result matters, not the live TUI interaction
-
-**How they work per provider:**
-- **Claude**: Uses the Agent SDK `query()` API directly in-process (no tmux pane)
-- **Copilot**: SDK spawns its own CLI subprocess internally (no tmux pane needed)
-- **OpenCode**: Uses `createOpencode()` to start both server and client in-process
-
-**Key behaviors:**
-- The callback interface is **identical** to interactive stages — `s.client`, `s.session`, `s.save()`, `s.transcript()` all work the same way
-- Headless stages are **transparent to graph topology** — they don't consume or update the execution frontier, so `visible → [3 headless] → visible` renders as `visible → visible` in the graph
-- Errors in headless stages still fail the workflow — they are tracked and recorded identically to interactive stages
-- The `paneId` for headless stages is a virtual identifier: `headless-<name>-<sessionId>`
-
-**Common pattern — fan-out with headless background stages:**
-
-```ts
-// Visible stage seeds context
-const seed = await ctx.stage({ name: "seed" }, {}, {}, async (s) => { /* ... */ });
-
-// Three parallel headless stages gather data in the background
-const [a, b, c] = await Promise.all([
-  ctx.stage({ name: "gather-a", headless: true }, {}, {}, async (s) => { /* ... */ }),
-  ctx.stage({ name: "gather-b", headless: true }, {}, {}, async (s) => { /* ... */ }),
-  ctx.stage({ name: "gather-c", headless: true }, {}, {}, async (s) => { /* ... */ }),
-]);
-
-// Visible stage merges background results
-await ctx.stage({ name: "merge" }, {}, {}, async (s) => {
-  await s.session.query(`Merge:\n${a.result}\n${b.result}\n${c.result}`);
-  s.save(s.sessionId);
-});
-```
-
-See `references/control-flow.md` for full headless pattern details and `references/agent-sessions.md` for per-SDK headless session behavior.
-
-Workflows are SDK-specific. User-created workflows live in a project with `@bastani/atomic` installed as a dependency, along with the native agent SDK(s) for the provider(s) you target. Install only the SDK(s) you need:
-
-```bash
-bun add @bastani/atomic                    # Workflow SDK
-bun add @anthropic-ai/claude-agent-sdk    # For Claude workflows
-bun add @github/copilot-sdk               # For Copilot workflows
-bun add @opencode-ai/sdk                  # For OpenCode workflows
-```
-
-Workflow files live at `.atomic/workflows/<name>/<agent>/index.ts`. Discovery sources: **Local** (`.atomic/workflows/`), **Global** (`~/.atomic/workflows/`), and **Built-in** (SDK-shipped). Built-in names (`ralph`, `deep-research-codebase`) are **reserved** — any local/global workflow with the same name is dropped before resolution. Among non-reserved names, local takes precedence over global. See `references/discovery-and-verification.md` for full discovery paths and validation.
+Install `@bastani/atomic` plus the native SDK(s) you target
+(`@anthropic-ai/claude-agent-sdk`, `@github/copilot-sdk`,
+`@opencode-ai/sdk`). Workflow files live at
+`.atomic/workflows/<name>/<agent>/index.ts`. Full paths, precedence, and
+reserved built-in names live in `references/discovery-and-verification.md`.
 
 ### Two context levels
 
-| Context | Available in | Has `client`/`session`/`save`? | Purpose |
-|---------|-------------|-------------------------------|---------|
-| `WorkflowContext` (`ctx`) | `.run(async (ctx) => ...)` | No | Orchestration: spawn sessions, read transcripts, read `ctx.inputs` |
-| `SessionContext` (`s`) | `ctx.stage(opts, clientOpts, sessionOpts, async (s) => ...)` | Yes | Agent work: use `s.client` and `s.session` for SDK calls, save output |
+`WorkflowContext` (`ctx`) drives orchestration in `.run()`; `SessionContext`
+(`s`) drives agent work inside each stage callback. Full field reference in
+`references/getting-started.md` §"`SessionContext` reference".
 
-Both contexts expose typed `inputs` (keys restricted to declared input names), `stage()`, `transcript()`, and `getMessages()`. See `references/getting-started.md` for the full `SessionContext` field reference.
+### Declared inputs
 
-### Declared inputs: one API, three invocation surfaces
-
-Workflows receive user data exclusively through `ctx.inputs` (and `s.inputs` inside stage callbacks).
-
-Declare `inputs: WorkflowInput[]` inline on `defineWorkflow()`. TypeScript infers literal field names from the array and restricts `ctx.inputs` to only those keys — accessing an undeclared field is a **compile-time error**. The CLI materializes one `--<field>=<value>` flag per entry, validates required fields + enum membership before launching, and the picker renders a form. Three field types: `string` (single-line), `text` (multi-line), `enum` (fixed set).
-
-Workflows that accept a free-form prompt should declare it explicitly: `{ name: "prompt", type: "text", required: true }`.
-
-**Load `references/workflow-inputs.md`** for the full schema shape, validation rules, picker semantics, and invocation cheat sheet.
+Workflows receive user data exclusively through `ctx.inputs` / `s.inputs`,
+declared inline as `inputs: WorkflowInput[]` on `defineWorkflow()`.
+TypeScript restricts `ctx.inputs` to declared keys (undeclared access is a
+compile-time error). Load `references/workflow-inputs.md` for schema shape,
+field types (`string` / `text` / `enum`), validation rules, picker
+semantics, and the "declare your prompt input explicitly" pattern.
 
 ### Invocation surfaces
 
@@ -214,13 +154,15 @@ Workflows that accept a free-form prompt should declare it explicitly: `{ name: 
 | Kill non-interactively | `atomic session kill <id> -y` | Tear down a workflow/chat session without the confirmation prompt — the form agents use |
 | Detached (background) | `atomic workflow -n ralph -a claude -d "..."` | Scripted/CI runs where the caller shouldn't block on the TUI — the orchestrator keeps running on the atomic tmux socket; attach later with `atomic workflow session connect <name>` |
 
-Any of the named shapes above (positional or structured) accepts `-d` / `--detach` to run without attaching. Use it when you're automating from a script and want the CLI to return as soon as the session is spawned.
-
-**Builtin workflows are reserved** — local/global workflows cannot shadow them. Pick distinct names.
+Any of the named shapes above (positional or structured) accepts
+`-d` / `--detach` to run without attaching. Use it when you're automating
+from a script and want the CLI to return as soon as the session is spawned.
 
 ### Declaring SDK compatibility (`minSDKVersion`)
 
-Opt-in version gate for workflows that depend on a specific SDK release. **Default is unset — do not add it to new workflows unless you have a concrete reason.**
+Opt-in version gate for workflows that depend on a specific SDK release.
+**Default is unset — do not add it to new workflows unless you have a
+concrete reason.**
 
 ```ts
 defineWorkflow({
@@ -229,20 +171,17 @@ defineWorkflow({
 })
 ```
 
-| Behaviour | Unset (default) | Set to a version newer than the installed CLI |
-|---|---|---|
-| Loader | Always loads | Refuses to load, returns `IncompatibleSDKError` |
-| `atomic workflow list` | Normal row | `⚠ needs v<X> (installed v<Y>)` — dim name, visible |
-| Picker | Normal row | `⚠ update required` glyph + preview explains the gap; Enter is disabled |
-| `atomic workflow -n <name>` | Runs | Errors with an upgrade hint, non-zero exit |
+When set to a version newer than the installed CLI, the workflow refuses to
+load and surfaces a visible row in `atomic workflow list` and the picker
+(rather than silently vanishing). Set it only when the workflow calls a
+newly-added SDK surface (new `stage()` option, new helper export, new
+provider method); omit it for workflows on stable APIs. Full semver
+semantics and the visible-diagnostic contract live in
+`references/discovery-and-verification.md`.
 
-When to set it: the workflow calls into a newly-added SDK surface (new `stage()` option, new helper export, new provider method) that older installs don't ship. Omit it for workflows that use only stable APIs — most workflows qualify.
+## Structural Rules (hard constraints)
 
-The point of the field is to convert a silent "workflow vanished after upgrade" failure into a visible, actionable row the user can fix. See `references/discovery-and-verification.md` for semver semantics and the visible-diagnostic contract.
-
-### Structural Rules
-
-Hard constraints enforced by the builder, loader, and runtime:
+Enforced by the builder, loader, and runtime:
 
 1. **`.run()` required** — the builder must have a `.run(async (ctx) => { ... })` call.
 2. **`.compile()` required** — the chain must end with `.compile()`.
@@ -269,10 +208,14 @@ Every workflow pattern maps directly to TypeScript code:
 | Return data from session | `const h = await ctx.stage(opts, {}, {}, async (s) => { return value; }); h.result` |
 | Data flow between sessions | `s.save()` to persist → `s.transcript(handle)` or `s.transcript("name")` to retrieve |
 | Deterministic computation (no LLM) | Plain TypeScript inside `.run()` or inside a session callback |
-| Subagent orchestration | Claude: `@"agent (agent)"` prefix in prompt; Copilot: `{ agent: "name" }` in sessionOpts; OpenCode: `agent` param in `s.client.session.prompt()` |
+| Subagent orchestration | Claude: `--agent` via `chatFlags` (interactive) or `agent` SDK option (headless); Copilot: `{ agent: "name" }` in sessionOpts; OpenCode: `agent` param in `s.client.session.prompt()` |
 | Per-session configuration | Pass `clientOpts` (2nd arg) and `sessionOpts` (3rd arg) to `ctx.stage()` |
 
-For full pattern examples with code, see `references/control-flow.md` (loops, conditionals, review/fix, graph topology), `references/state-and-data-flow.md` (data passing, file coordination, transcript compression), and `references/computation-and-validation.md` (parsing, validation, quality gates).
+For full pattern examples with code, see `references/control-flow.md`
+(loops, conditionals, review/fix, graph topology, headless fan-out),
+`references/state-and-data-flow.md` (data passing, file coordination,
+transcript compression), and `references/computation-and-validation.md`
+(parsing, validation, quality gates).
 
 ## Authoring Process
 
@@ -292,24 +235,16 @@ Map the user's intent to sessions and patterns:
 | Does the workflow need user input? | SDK-specific user input APIs (see `references/user-input.md`) |
 | Do any steps need a specific model? | SDK-specific session config (see `references/session-config.md`) |
 
-Then apply **design advisory checks** — these catch architectural and prompt quality issues before you write code:
-
-| Design Question | If Yes → Consult |
-|-----------------|------------------|
-| Do session prompts need to be clear, structured, or include examples? | `prompt-engineer` — use XML tags, chain-of-thought, few-shot examples, explicit output format |
-| Is this task actually viable for agent automation? | `project-development` — validate task-model fit before building |
-| Could any single session exceed context limits? | `context-fundamentals` — budget tokens; split into sub-sessions if needed |
-| Do loops accumulate state that degrades over iterations? | `context-degradation` — add compaction triggers; detect lost-in-middle risk |
-| Are large transcripts passed between sessions? | `context-compression` — summarize at boundaries; preserve key decisions and file paths |
-| Should this be one session or many? | `multi-agent-patterns` — choose coordination topology based on task decomposability |
-| Do sessions coordinate via shared files? | `filesystem-context` — use scratch pads, dynamic loading, file-based handoffs |
-| Does the workflow need automated quality checks? | `evaluation` + `advanced-evaluation` — design rubrics; mitigate judge bias |
-| Does the workflow expose custom tools to agents? | `tool-design` — consolidate tools; write unambiguous descriptions |
-| Does the workflow need cross-run knowledge retention? | `memory-systems` — choose persistence layer based on retrieval needs |
+Then walk the **Design Advisory Skills** table above (§"Design Advisory
+Skills") — for each row whose trigger applies to your workflow, pull that
+skill in *before* writing code. Catching architectural and prompt-quality
+issues at design time is far cheaper than catching them in the first failed
+end-to-end run.
 
 ### 2. Choose the Target Agent
 
-Use `.for<"agent">()` on the builder to narrow all context types and get correct `s.client`/`s.session` types. Call `.for()` **before** `.run()`:
+Use `.for<"agent">()` on the builder to narrow all context types and get
+correct `s.client`/`s.session` types. Call `.for()` **before** `.run()`:
 
 | Agent | Builder Chain | Primary Session API |
 |-------|---------------|---------------------|
@@ -317,9 +252,13 @@ Use `.for<"agent">()` on the builder to narrow all context types and get correct
 | Copilot | `defineWorkflow({...}).for<"copilot">()` | `s.session.send({ prompt })` — the runtime wraps `send` to block until `session.idle` with no timeout (see `failure-modes.md` §F10); do not use `sendAndWait` in Atomic workflows |
 | OpenCode | `defineWorkflow({...}).for<"opencode">()` | `s.client.session.prompt({ sessionID: s.session.id, parts: [...] })` |
 
-The runtime manages client/session lifecycle automatically. For native SDK types and advanced APIs, import directly from the provider packages (`@github/copilot-sdk`, `@anthropic-ai/claude-agent-sdk`, `@opencode-ai/sdk/v2`).
+The runtime manages client/session lifecycle automatically. For native SDK
+types and advanced APIs, import directly from the provider packages
+(`@github/copilot-sdk`, `@anthropic-ai/claude-agent-sdk`, `@opencode-ai/sdk/v2`).
 
-For cross-agent support, create one workflow file per agent under `.atomic/workflows/<name>/<agent>/index.ts`. Use shared helper modules for SDK-agnostic logic in a sibling `helpers/` directory:
+For cross-agent support, create one workflow file per agent under
+`.atomic/workflows/<name>/<agent>/index.ts`. Use shared helper modules for
+SDK-agnostic logic in a sibling `helpers/` directory:
 
 ```
 .atomic/workflows/<name>/
@@ -334,23 +273,20 @@ For cross-agent support, create one workflow file per agent under `.atomic/workf
 
 ### 3. Write the Workflow File
 
-**Load `references/getting-started.md`** for complete quick-start examples for all three SDKs with correct save patterns, response extraction, and timeout handling.
+Write the workflow file using the SDK-specific patterns. See
+`references/getting-started.md` for full quick-start examples for all 3
+SDKs (send/save/extract patterns, idle handling), and
+`references/agent-sessions.md` for per-SDK API details and lifecycle
+caveats.
 
-Per-SDK cheat sheet:
+The SDK ships two builtin workflows in `src/sdk/workflows/builtin/` as
+production reference implementations across all 3 SDKs:
+- **`ralph`** — iterative plan → orchestrate → review → debug loop.
+- **`deep-research-codebase`** — deterministic scout → parallel explorers →
+  aggregator.
 
-| Concern | Claude | Copilot | OpenCode |
-|---------|--------|---------|----------|
-| Send prompt | `s.session.query(prompt)` | `s.session.send({ prompt })` | `s.client.session.prompt({ sessionID: s.session.id, parts: [{ type: "text", text: prompt }] })` |
-| Save output | `s.save(s.sessionId)` | `s.save(await s.session.getMessages())` | `s.save(result.data!)` |
-| Timeout | Per-query defaults via sessionOpts | N/A (`send` has no timeout; `sendAndWait` accepts optional timeout, default 60s) | N/A |
-| Context model | Tmux pane (accumulates across turns) | Fresh per `ctx.stage()` | Fresh per `ctx.stage()` |
-| Extract text | `extractAssistantText(result, 0)` (uses `SessionMessage[]`) | `getAssistantText(messages)` (see `failure-modes.md` F1) | `extractResponseText(result.data!.parts)` (see `failure-modes.md` F3) |
-
-The SDK ships two builtin workflows as production reference implementations:
-- **`ralph`** — iterative plan → orchestrate → review → debug loop (all 3 SDKs)
-- **`deep-research-codebase`** — deterministic scout → parallel explorers → aggregator (all 3 SDKs)
-
-Both live in `src/sdk/workflows/builtin/` and demonstrate real patterns including shared helpers, context-aware prompt building, deterministic heuristics, and cross-SDK adaptation.
+They demonstrate shared helpers, context-aware prompt building, deterministic
+heuristics, and cross-SDK adaptation.
 
 ### 4. Type-Check the Workflow
 
@@ -377,147 +313,22 @@ atomic workflow -a <agent>
 atomic workflow -n <workflow-name> -a <agent> -d "<your prompt>"
 ```
 
-## Running a Workflow on Behalf of the User
+## Running an Existing Workflow
 
-When the user asks you to **run** (or "kick off" / "start" / "execute") a workflow — *not* author one — your job is to translate their request into a single `atomic workflow` invocation and run it. This section is the playbook for that flow. It is different from the authoring playbook above: the workflow already exists on disk; you just need to invoke it correctly.
+If the user asks you to **run** (or "kick off" / "start" / "execute") a
+workflow — not author one — the workflow already exists on disk and you
+just need to invoke it correctly. That's a different playbook from
+authoring.
 
-### You don't need to pass `-a` or `-d`
+**Read `references/running-workflows.md`.** It covers:
 
-When you (the agent) are running inside an atomic chat or workflow pane, the CLI reads `$ATOMIC_AGENT` from your environment and:
-
-- Fills in `-a <agent>` automatically if you don't pass it.
-- Forces detached mode on, so launching a workflow never takes over your pane.
-
-The practical result: your command is just `atomic workflow -n <name> <inputs>`. No provider flag, no detach flag, no chance of the orchestrator hijacking your terminal. The CLI prints the session name and returns immediately; you relay that name to the user.
-
-Override only when the user explicitly asks for a different provider (e.g. "run it on Copilot") — pass `-a copilot` and the CLI will honor it over the env var.
-
-### Always list first
-
-**Before anything else, run `atomic workflow list`.** (Optionally filter with `-a <agent>` if the user's pinned to one — usually unnecessary.) This is a cheap, read-only call that tells you three things in one shot:
-
-- Whether the workflow the user named actually exists.
-- What other workflows are available (so you can suggest close matches on a typo).
-- Source + metadata for every discoverable workflow (local vs. global vs. builtin).
-
-Skipping this step is how you end up guessing a name, typing it into `atomic workflow -n <name>`, and getting a `workflow not found` error you could have predicted. List first, decide second, run third.
-
-If the user's request is ambiguous ("run the research one"), the list output is also how you show them the candidates so they can pick — present the matching names and ask with AskUserQuestion.
-
-### If the workflow doesn't exist: offer to create it
-
-When the listed workflows don't include what the user asked for:
-
-1. **Tell the user explicitly** — "I don't see a `<name>` workflow in `.atomic/workflows/` or `~/.atomic/workflows/`. Available: \<short list from `atomic workflow list`>."
-2. **Check for typos first** — if one of the listed names is a close match, surface it via AskUserQuestion ("Did you mean `<close-match>`?") before offering to author anything.
-3. **Offer to create it** — ask with AskUserQuestion: "Want me to create a `<name>` workflow first?" with choices `Yes, create it` / `No, pick from the list` / `No, cancel`.
-4. **If yes → switch modes** — hand off to the authoring flow in the [Authoring Process](#authoring-process) section above (Steps 1-5). Interview the user for intent, write the file at `.atomic/workflows/<name>/<agent>/index.ts`, typecheck it, *then* come back to this runner section and invoke it. Do not skip the typecheck — an uncompiled workflow won't run.
-5. **If no → stop** — don't fabricate a command that will fail. Let the user redirect you.
-
-Never invent a workflow name or silently fall back to a different workflow. If the thing the user asked for doesn't exist, the correct answer is to say so and offer concrete next steps.
-
-### Collecting inputs with AskUserQuestion
-
-Once you've confirmed the workflow exists, you need to know two things about its invocation shape:
-
-1. **Does it declare a `prompt` input?** If so, it's free-form — you pass a positional string.
-2. **Does it declare structured inputs?** If so, you pass `--<field>=<value>` flags, one per required field.
-
-**Use `atomic workflow inputs <name> -a <agent>` to get the schema.** This prints a JSON envelope with every field's `name`, `type`, `required`, `default`, `description`, and (for enums) `values` — exactly what AskUserQuestion needs. The `freeform: true` flag tells you whether the workflow takes a positional prompt vs. structured flags, with a synthetic `prompt` field included so the JSON shape is uniform either way.
-
-```bash
-atomic workflow inputs gen-spec -a claude
-# {"workflow":"gen-spec","agent":"claude","freeform":false,
-#  "inputs":[{"name":"research_doc","type":"string","required":true,...},
-#            {"name":"focus","type":"enum","values":["minimal","standard","exhaustive"],"default":"standard"}]}
-```
-
-Why this command instead of reading the source file: `inputs` is the contract the CLI actually validates against. It survives refactors, handles built-in workflows that aren't in the project tree, and never falls out of sync with the runtime. Reading TypeScript source is a fallback for the rare case where the command can't resolve the workflow.
-
-Once you have the schema, use the **AskUserQuestion tool** to collect any values the user hasn't already provided in their message. One question per missing input field. For enum fields, pass the declared `values` as multiple-choice options so the user sees exactly what's allowed. Keep questions tight and purposeful — if the user's message already answers a question, don't ask it again.
-
-Skip AskUserQuestion entirely when:
-- The user already supplied every required value in their message ("run ralph on 'add OAuth to the API'" — the prompt is right there).
-- The workflow declares no required inputs and needs no prompt.
-
-### End-to-end recipe
-
-1. **List available workflows** — run `atomic workflow list`. Always. This is your ground truth.
-2. **Resolve the target**:
-   - Exact match in the list → continue.
-   - Close match → confirm via AskUserQuestion before proceeding.
-   - No match → tell the user what's available and offer to author it (see previous section). If they decline, stop.
-3. **Discover the inputs schema** — run `atomic workflow inputs <name> -a <agent>` and parse the JSON.
-4. **Ask for missing inputs** — use AskUserQuestion, one question per unanswered required field. Enums become multiple-choice.
-5. **Invoke** — build one of these commands:
-   - Free-form: `atomic workflow -n <name> "<prompt>"`
-   - Structured: `atomic workflow -n <name> --<field1>=<value1> --<field2>=<value2>`
-6. **Report the session name** the CLI printed and tell the user: "attach any time with `atomic workflow session connect <session>` — or `atomic workflow session list` to see what's running."
-
-### Monitoring a running workflow
-
-Detached workflows return immediately with a session name; the actual work runs in the background on the atomic tmux socket. Use `atomic workflow status` to check whether the workflow is still running, has completed, errored out, or paused for human input — without attaching to its TUI.
-
-```bash
-atomic workflow status atomic-wf-claude-gen-spec-a1b2c3d4
-# {"id":"atomic-wf-claude-gen-spec-a1b2c3d4","overall":"in_progress","alive":true,
-#  "sessions":[{"name":"orchestrator","status":"running",...}],...}
-```
-
-Four overall states the agent must handle distinctly:
-
-| Status | Meaning | What you should do |
-|---|---|---|
-| `in_progress` | The orchestrator is running and no stage is paused | Wait, or report progress to the user |
-| `needs_review` | At least one stage is paused for human input (HIL) — Copilot `ask_user`, OpenCode `question.asked`, Copilot/MCP elicitation | **Surface this to the user immediately** — they need to attach with `atomic workflow session connect <id>` to respond, otherwise the workflow stalls indefinitely |
-| `completed` | Workflow finished successfully | Report success and summarize the output |
-| `error` | Fatal error or a stage failed | Report the `fatalError` field and offer to investigate logs |
-
-`needs_review` outranks `completed` so a HIL pause near the end is never reported as done while still waiting on a human. A dead orchestrator with a stale snapshot is automatically downgraded to `error`.
-
-Omit the id to list every running workflow at once: `atomic workflow status`. Useful when checking on multiple parallel runs, or when the user just asks "what's running?".
-
-### Cleaning up sessions
-
-When the user is done with a workflow — or you launched one detached and it's no longer needed — tear it down with `-y` so no confirmation prompt blocks you:
-
-```bash
-atomic session kill atomic-wf-claude-gen-spec-a1b2c3d4 -y
-```
-
-The `-y` flag is mandatory for agent use. Without it, the CLI calls `@clack/prompts confirm`, which expects a TTY and will hang indefinitely in a non-interactive context. Same flag works for `atomic workflow session kill` and `atomic chat session kill`. Without an id, `kill -y` tears down every in-scope session — only do that when the user has asked to stop everything.
-
-### Worked examples
-
-**Example A — workflow exists, structured inputs**
-
-> **User:** "run gen-spec on research/docs/2026-04-11-auth.md"
-
-1. Run `atomic workflow list`. Output includes `gen-spec` under local. Good.
-2. Target resolved exactly: `gen-spec`.
-3. Run `atomic workflow inputs gen-spec -a claude`. Parse the JSON: `research_doc` (required string — already given), `focus` (required enum of `minimal|standard|exhaustive`, default `standard`), `notes` (optional text).
-4. Ask via AskUserQuestion once: "What focus level for the spec?" with choices `minimal`, `standard`, `exhaustive`. User picks `standard`. Skip `notes` since it's optional.
-5. Run: `atomic workflow -n gen-spec --research_doc=research/docs/2026-04-11-auth.md --focus=standard`
-6. The CLI prints a session name like `atomic-wf-claude-gen-spec-a1b2c3d4`. Tell the user: "Started in the background. Attach with `atomic workflow session connect atomic-wf-claude-gen-spec-a1b2c3d4`, check progress with `atomic workflow status atomic-wf-claude-gen-spec-a1b2c3d4`, or stop it with `atomic session kill atomic-wf-claude-gen-spec-a1b2c3d4 -y`."
-
-**Example B — workflow does not exist**
-
-> **User:** "run the security-audit workflow on src/auth"
-
-1. Run `atomic workflow list`. Available: `ralph`, `deep-research-codebase`, `gen-spec`, `review-to-merge`. No `security-audit`.
-2. Tell the user: "I don't see a `security-audit` workflow. Available: ralph, deep-research-codebase, gen-spec, review-to-merge."
-3. Ask via AskUserQuestion: "Want me to create a `security-audit` workflow first?" with choices `Yes, create it`, `No, use one of the existing workflows`, `No, cancel`.
-4. If **Yes**: switch to the Authoring Process — interview the user for what the workflow should do, draft it, typecheck, *then* return here and invoke it.
-5. If **No, use existing**: ask which one via AskUserQuestion over the listed options, then continue from step 3 of the recipe.
-6. If **Cancel**: stop, no command runs.
-
-### Common mistakes to avoid
-
-- **Skipping `atomic workflow list`** — leads to guessing and `workflow not found` errors. It's a one-line command; always run it.
-- **Inventing a workflow name** — if it's not in the list, it doesn't exist. Say so and offer to author it.
-- **Reading the workflow source file to discover inputs** — use `atomic workflow inputs <name> -a <agent>` instead. JSON, no TS parsing required, always in sync with the runtime. Source-file reads are a fallback, not a default.
-- **Asking everything at once** — let AskUserQuestion drive one question per field. Enum fields are multiple-choice, not free text.
-- **Re-asking what the user already said** — read their message first.
-- **Forgetting to report the session name** — the user needs it to reattach and to query status later.
-- **Leaving `needs_review` unreported** — when `atomic workflow status` returns `needs_review`, surface it to the user right away. The workflow is blocked on human input and will sit forever otherwise.
-- **Calling `session kill` without `-y`** — the prompt hangs in a non-interactive context. Always pass `-y` from an agent.
+- Why you don't usually need `-a` or `-d` (env-driven auto-detach).
+- Why you must run `atomic workflow list` first.
+- How to handle missing workflows (offer to author, not fabricate).
+- Using `atomic workflow inputs <name> -a <agent>` to discover the schema
+  and drive AskUserQuestion.
+- The six-step invocation recipe.
+- Monitoring with `atomic workflow status` — and why `needs_review` must be
+  surfaced immediately.
+- Tearing down with `atomic session kill -y` (the `-y` is mandatory).
+- Worked examples for "workflow exists" and "workflow doesn't exist".

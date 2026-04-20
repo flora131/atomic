@@ -24,7 +24,7 @@ import {
   type SDKUserMessage,
   type Options as SDKOptions,
 } from "@anthropic-ai/claude-agent-sdk";
-import { sendKeysAndSubmit, waitForPaneReady } from "../runtime/tmux.ts";
+import { respawnPane } from "../runtime/tmux.ts";
 import { escBash } from "../runtime/executor.ts";
 import { watch, unlink, mkdir, writeFile } from "node:fs/promises";
 import { existsSync, writeFileSync } from "node:fs";
@@ -283,15 +283,12 @@ async function spawnClaudeWithPrompt(
     argvPrompt,
   ].join(" ");
 
-  // Wait for the pane's shell to finish init and activate its line editor
-  // (starship `❯` / bare zsh `>`). Sending keys before this point lets zsh's
-  // TCSAFLUSH on ZLE startup discard the buffered `\r`, so the command ends
-  // up displayed at the prompt but never submitted. This wait was dropped in
-  // eca267b0 alongside the post-submit pane-scrape — we only needed to drop
-  // the latter.
-  await waitForPaneReady(paneId, readyTimeoutMs);
-
-  await sendKeysAndSubmit(paneId, cmd);
+  // Replace the pane's shell with `claude` directly. tmux execs the command
+  // itself, so there's no shell line editor to race with — the previous
+  // approach keystroked into a zsh that hadn't finished ZLE init yet, and
+  // zsh's TCSAFLUSH during startup would discard the buffered `\r`, leaving
+  // the command typed at the prompt but never submitted.
+  respawnPane(paneId, cmd);
 
   // SDK-native readiness signal: wait for Claude to create its JSONL file
   // at the known UUID path.
@@ -994,7 +991,7 @@ export class ClaudeSessionWrapper {
    * Send a prompt to Claude and wait for the response.
    *
    * The `_options` parameter exists for signature compatibility with
-   * {@link HeadlessClaudeSessionWrapper.query} (which forwards SDK options
+   * {@link HeadlessClaudeSessionWrapper#query} (which forwards SDK options
    * like `agent`, `permissionMode`, etc. to the Agent SDK). In the
    * interactive pane path these options don't apply — we're driving the
    * `claude` CLI binary, not the SDK — so they are silently ignored.
@@ -1027,7 +1024,7 @@ export class HeadlessClaudeClientWrapper {
    * Headless Claude stages don't pre-allocate a session — each `query()` call
    * to {@link HeadlessClaudeSessionWrapper} spawns a fresh Agent SDK run that
    * emits its own `session_id`. We still return an empty string here so the
-   * method signature matches {@link ClaudeClientWrapper.start}.
+   * method signature matches {@link ClaudeClientWrapper#start}.
    */
   async start(): Promise<string> {
     return "";
@@ -1077,7 +1074,7 @@ export class HeadlessClaudeSessionWrapper {
 
     let sdkSessionId = "";
     try {
-      for await (const msg of sdkQuery({ prompt, options: headlessSdkOpts })) {
+      for await (const msg of sdkQuery({ prompt, options: options ?? {} })) {
         if (msg.type === "result") {
           sdkSessionId = String(
             (msg as Record<string, unknown>).session_id ?? "",
@@ -1088,11 +1085,16 @@ export class HeadlessClaudeSessionWrapper {
       const detail = err instanceof Error ? err.message : String(err);
       throw new Error(`Claude SDK query failed: ${detail}`);
     }
-    if (sdkSessionId) {
-      this._lastSessionId = sdkSessionId;
-      return getSessionMessages(sdkSessionId, { dir: process.cwd() });
+    if (!sdkSessionId) {
+      throw new Error(
+        "Claude SDK query completed without a `result` message — " +
+          "likely a stream idle timeout, aborted request, or upstream API error. " +
+          "Set CLAUDE_ENABLE_STREAM_WATCHDOG=1 (and tune CLAUDE_STREAM_IDLE_TIMEOUT_MS / " +
+          "API_TIMEOUT_MS) so the CLI surfaces a concrete failure instead of exiting silently.",
+      );
     }
-    return [];
+    this._lastSessionId = sdkSessionId;
+    return getSessionMessages(sdkSessionId, { dir: process.cwd() });
   }
 
   async disconnect(): Promise<void> {}

@@ -67,6 +67,8 @@ coveragePathIgnorePatterns = [
   # SDK: non-testable runtime modules (require running agent CLIs, terminals, filesystems)
   "src/sdk/define-workflow.ts",
   "src/sdk/providers/**",
+  "src/sdk/runtime/attached-footer.ts",
+  "src/sdk/runtime/cc-debounce.ts",
   "src/sdk/runtime/discovery.ts",
   "src/sdk/runtime/executor.ts",
   "src/sdk/runtime/panel.tsx",

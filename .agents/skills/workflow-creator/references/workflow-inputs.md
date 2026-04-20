@@ -89,6 +89,18 @@ The nullish coalescing on `notes` handles the optional field case —
 declared-but-unset inputs resolve to `undefined` unless they have a
 `default`.
 
+**Style convention.** Inside a stage callback, both `s.inputs.<name>` and
+`ctx.inputs.<name>` resolve to the same value. Either of these patterns
+works:
+
+- **Destructure once at the top of `.run()`** so each stage closes over a
+  bare local. Best when many stages reference the same input.
+- **Inline access** with `(s.inputs.<name> ?? "")` at each call site. Best
+  for short workflows or when each stage uses a different field.
+
+Pick whichever reads cleaner for your workflow. Examples in other reference
+files use the inline form for brevity in focused snippets.
+
 ## Declaring an input schema
 
 Pass an `inputs` array to `defineWorkflow({ ... })`. Each entry is a
@@ -205,50 +217,15 @@ because the form teaches the schema as the user fills it in.
 
 ## Builtin protection
 
-Builtin workflows (the ones shipped inside the SDK — currently `ralph`
-and `deep-research-codebase`) are **reserved**. A local or global
-workflow with the same name will not shadow the builtin at resolution
-time — the runtime drops user-defined workflows with reserved names
-before any precedence merge. This prevents a user from accidentally
-redefining the canonical version of a workflow in a way that confuses
-teammates or breaks automation.
+Builtin names (`ralph`, `deep-research-codebase`) are reserved — pick
+distinct names for your workflows. Full precedence + shadowing rules
+live in `discovery-and-verification.md`.
 
-You'll still see shadowed local/global workflows in
-`atomic workflow list` output so the collision is visible, but running
-`atomic workflow -n ralph -a claude` will always land on the builtin.
+## Invocation details
 
-The practical implication: **don't name a new workflow `ralph` or
-`deep-research-codebase`**. Pick a distinct name and you'll never hit
-this.
-
-## Invocation cheat sheet
-
-```bash
-# List everything, grouped by source
-atomic workflow list
-
-# Launch the picker for a pinned agent
-atomic workflow -a claude
-
-# Free-form, positional prompt
-atomic workflow -n hello -a claude "hello world"
-
-# Structured, one flag per field
-atomic workflow -n gen-spec -a claude \
-  --research_doc=research/docs/2026-04-11-auth.md \
-  --focus=standard \
-  --notes="pay special attention to session token storage"
-
-# Structured, long-form flag value (= form)
-atomic workflow -n gen-spec -a claude --focus standard --research_doc notes.md
-
-# Detached (background) — starts the orchestrator on the atomic tmux
-# socket and returns immediately. The command prints the session name
-# and hints for attaching later. Use this for scripted / CI runs where
-# the caller shouldn't block on the TUI.
-atomic workflow -n hello -a claude -d "hello world"
-atomic workflow session connect atomic-wf-claude-hello-<id>   # attach later
-```
+See SKILL.md §"Invocation surfaces" for the table of every top-level
+command. This section only covers the flag-parsing nuances specific to
+structured inputs.
 
 Both `--flag=value` and `--flag value` forms are accepted. Short flags
 (`-x value`) are NOT parsed as structured inputs — only long-form
@@ -256,6 +233,12 @@ Both `--flag=value` and `--flag value` forms are accepted. Short flags
 
 The `-d` / `--detach` flag composes with any named shape (positional
 prompt, structured flags) and is independent of the inputs schema.
+
+```bash
+# Structured, both flag forms work identically
+atomic workflow -n gen-spec -a claude --focus=standard --research_doc=notes.md
+atomic workflow -n gen-spec -a claude --focus standard --research_doc notes.md
+```
 
 ## Pitfalls
 

@@ -331,9 +331,12 @@ Examples:
         .command("_footer", { hidden: true })
         .description("Internal: render the attached-mode footer for an agent window")
         .requiredOption("--name <name>", "Agent window name")
-        .action(async (opts: { name: string }) => {
+        .option("--agent <agent>", "Agent type — renders provider pill in the footer")
+        .action(async (opts: { name: string; agent?: string }) => {
             const { footerCommand } = await import("./commands/cli/footer.tsx");
-            const exitCode = await footerCommand(opts.name);
+            const { isValidAgent } = await import("./services/config/definitions.ts");
+            const agentType = opts.agent && isValidAgent(opts.agent) ? opts.agent : undefined;
+            const exitCode = await footerCommand(opts.name, agentType);
             process.exit(exitCode);
         });
 

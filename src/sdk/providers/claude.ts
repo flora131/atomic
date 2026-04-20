@@ -24,7 +24,7 @@ import {
   type SDKUserMessage,
   type Options as SDKOptions,
 } from "@anthropic-ai/claude-agent-sdk";
-import { sendKeysAndSubmit, waitForPaneReady } from "../runtime/tmux.ts";
+import { respawnPane } from "../runtime/tmux.ts";
 import { escBash } from "../runtime/executor.ts";
 import { watch, unlink, mkdir, writeFile } from "node:fs/promises";
 import { existsSync, writeFileSync } from "node:fs";
@@ -283,15 +283,12 @@ async function spawnClaudeWithPrompt(
     argvPrompt,
   ].join(" ");
 
-  // Wait for the pane's shell to finish init and activate its line editor
-  // (starship `❯` / bare zsh `>`). Sending keys before this point lets zsh's
-  // TCSAFLUSH on ZLE startup discard the buffered `\r`, so the command ends
-  // up displayed at the prompt but never submitted. This wait was dropped in
-  // eca267b0 alongside the post-submit pane-scrape — we only needed to drop
-  // the latter.
-  await waitForPaneReady(paneId, readyTimeoutMs);
-
-  await sendKeysAndSubmit(paneId, cmd);
+  // Replace the pane's shell with `claude` directly. tmux execs the command
+  // itself, so there's no shell line editor to race with — the previous
+  // approach keystroked into a zsh that hadn't finished ZLE init yet, and
+  // zsh's TCSAFLUSH during startup would discard the buffered `\r`, leaving
+  // the command typed at the prompt but never submitted.
+  respawnPane(paneId, cmd);
 
   // SDK-native readiness signal: wait for Claude to create its JSONL file
   // at the known UUID path.

@@ -14,6 +14,7 @@ export interface GraphTheme {
   error: string;
   warning: string;
   info: string;
+  mauve: string;
   border: string;
   borderActive: string;
 }
@@ -30,6 +31,7 @@ export function deriveGraphTheme(t: TerminalTheme): GraphTheme {
     error: t.error,
     warning: t.warning,
     info: t.accent,
+    mauve: t.mauve,
     border: t.borderDim,
     borderActive: t.border,
   };

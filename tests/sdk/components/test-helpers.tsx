@@ -20,6 +20,7 @@ export const TEST_THEME: GraphTheme = {
   error: "#f38ba8",
   warning: "#f9e2af",
   info: "#89b4fa",
+  mauve: "#cba6f7",
   border: "#585b70",
   borderActive: "#6c7086",
 };

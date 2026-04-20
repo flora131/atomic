@@ -13,10 +13,10 @@ afterEach(() => {
 });
 
 describe("AttachedStatusline", () => {
-  test("renders window name badge and keyboard hints", async () => {
+  test("renders window name badge and navigation hints (workflow variant)", async () => {
     testSetup = await testRender(
       <AttachedStatusline name="worker-1" theme={TEST_THEME} />,
-      { width: 80, height: 3 },
+      { width: 120, height: 3 },
     );
     await testSetup.renderOnce();
     const frame = testSetup.captureCharFrame();
@@ -25,5 +25,30 @@ describe("AttachedStatusline", () => {
     expect(frame).toContain("graph");
     expect(frame).toContain("ctrl+\\");
     expect(frame).toContain("next");
+    // Detach hint lives in the orchestrator-window Statusline only; keeping
+    // it out of every agent pane avoids duplicating the same reminder on
+    // every footer.
+    expect(frame).not.toContain("ctrl+b d");
+    expect(frame).not.toContain("detach");
+  });
+
+  test("renders uppercase agent pill, pane name, and quit/detach hints (chat variant)", async () => {
+    testSetup = await testRender(
+      <AttachedStatusline
+        name="atomic-chat-copilot-abcd1234"
+        theme={TEST_THEME}
+        agentType="copilot"
+      />,
+      { width: 120, height: 3 },
+    );
+    await testSetup.renderOnce();
+    const frame = testSetup.captureCharFrame();
+    expect(frame).toContain("COPILOT");
+    expect(frame).toContain("atomic-chat-copilot-abcd1234");
+    expect(frame).toContain("q quit");
+    expect(frame).toContain("ctrl+b d");
+    expect(frame).toContain("detach");
+    expect(frame).not.toContain("ctrl+g");
+    expect(frame).not.toContain("ctrl+\\");
   });
 });

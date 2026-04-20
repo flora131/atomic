@@ -51,6 +51,9 @@ export function Statusline({
             <span fg={theme.text}>/</span>
             <span fg={theme.textMuted}> stages</span>
             <span fg={theme.textDim}> {"\u00B7"} </span>
+            <span fg={theme.text}>ctrl+b d</span>
+            <span fg={theme.textMuted}> detach</span>
+            <span fg={theme.textDim}> {"\u00B7"} </span>
             <span fg={theme.text}>q</span>
             <span fg={theme.textMuted}> quit</span>
           </text>

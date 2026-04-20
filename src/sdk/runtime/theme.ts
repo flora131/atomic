@@ -25,6 +25,7 @@ export interface TerminalTheme {
   success: string;
   error: string;
   warning: string;
+  mauve: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -43,6 +44,7 @@ const CATPPUCCIN_MOCHA: TerminalTheme = {
   success: "#a6e3a1",    // Green
   error: "#f38ba8",      // Red
   warning: "#f9e2af",    // Yellow
+  mauve: "#cba6f7",      // Mauve
 };
 
 // ---------------------------------------------------------------------------
@@ -61,6 +63,7 @@ const CATPPUCCIN_LATTE: TerminalTheme = {
   success: "#40a02b",    // Green
   error: "#d20f39",      // Red
   warning: "#df8e1d",    // Yellow
+  mauve: "#8839ef",      // Mauve
 };
 
 // ---------------------------------------------------------------------------

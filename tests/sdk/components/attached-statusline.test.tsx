@@ -32,7 +32,7 @@ describe("AttachedStatusline", () => {
     expect(frame).not.toContain("detach");
   });
 
-  test("renders uppercase agent pill, pane name, and quit/detach hints (chat variant)", async () => {
+  test("renders uppercase agent pill, pane name, and detach hint (chat variant)", async () => {
     testSetup = await testRender(
       <AttachedStatusline
         name="atomic-chat-copilot-abcd1234"
@@ -45,7 +45,7 @@ describe("AttachedStatusline", () => {
     const frame = testSetup.captureCharFrame();
     expect(frame).toContain("COPILOT");
     expect(frame).toContain("atomic-chat-copilot-abcd1234");
-    expect(frame).toContain("q quit");
+    expect(frame).not.toContain("q quit");
     expect(frame).toContain("ctrl+b d");
     expect(frame).toContain("detach");
     expect(frame).not.toContain("ctrl+g");

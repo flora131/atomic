@@ -12,7 +12,7 @@
  *     only, not duplicated into every agent pane footer.
  *   - Chat (agentType set): the provider name becomes the left pill
  *     (CLAUDE / COPILOT / OPENCODE, colored to match the workflow
- *     picker); right side shows pane name · q quit · ctrl+b d detach
+ *     picker); right side shows pane name · ctrl+b d detach
  *     (tmux's default detach binding — spelled out because many Atomic
  *     users have never used tmux directly).
  */
@@ -53,9 +53,6 @@ export function AttachedStatusline({
         <box paddingRight={2} alignItems="center">
           <text>
             <span fg={theme.textMuted}>{name}</span>
-            <span fg={theme.textDim}>{" " + DOT + " "}</span>
-            <span fg={theme.text}>q</span>
-            <span fg={theme.textMuted}> quit</span>
             <span fg={theme.textDim}>{" " + DOT + " "}</span>
             <span fg={theme.text}>ctrl+b d</span>
             <span fg={theme.textMuted}> detach</span>

@@ -17,8 +17,11 @@ import { join } from "node:path";
 import type { AgentType } from "../types.ts";
 import { tmuxRun } from "./tmux.ts";
 
-/** Percent of the agent window's vertical space allocated to the footer pane. */
-const FOOTER_PANE_PERCENT = 5;
+/**
+ * Rows reserved for the footer pane. Matches the single-row height of
+ * `AttachedStatusline` so the agent pane absorbs all remaining space.
+ */
+const FOOTER_PANE_LINES = 1;
 
 /** Escape a string for safe interpolation inside a bash double-quoted string. */
 function escBash(s: string): string {
@@ -40,10 +43,24 @@ export function spawnAttachedFooter(
   const cmd =
     `"${escBash(runtime)}" "${escBash(cliPath)}" _footer ` +
     `--name "${escBash(windowName)}"${agentFlag}`;
-  tmuxRun([
+  const split = tmuxRun([
     "split-window",
     "-t", paneId,
-    "-v", "-l", `${FOOTER_PANE_PERCENT}%`, "-d",
+    "-v", "-l", String(FOOTER_PANE_LINES), "-d",
+    "-P", "-F", "#{pane_id}",
     cmd,
+  ]);
+  if (!split.ok) return;
+  const footerPaneId = split.stdout.trim();
+  if (!footerPaneId) return;
+  // Pin the footer to FOOTER_PANE_LINES on every resize so the agent pane
+  // absorbs all new space. Tmux's default proportional redistribution
+  // would otherwise grow the footer on larger windows. Window-scoped
+  // (`-w`) so other windows (e.g. the orchestrator graph) are unaffected.
+  tmuxRun([
+    "set-hook",
+    "-w", "-t", footerPaneId,
+    "window-resized",
+    `resize-pane -t ${footerPaneId} -y ${FOOTER_PANE_LINES}`,
   ]);
 }

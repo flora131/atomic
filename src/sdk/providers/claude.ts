@@ -994,7 +994,7 @@ export class ClaudeSessionWrapper {
    * Send a prompt to Claude and wait for the response.
    *
    * The `_options` parameter exists for signature compatibility with
-   * {@link HeadlessClaudeSessionWrapper.query} (which forwards SDK options
+   * {@link HeadlessClaudeSessionWrapper#query} (which forwards SDK options
    * like `agent`, `permissionMode`, etc. to the Agent SDK). In the
    * interactive pane path these options don't apply — we're driving the
    * `claude` CLI binary, not the SDK — so they are silently ignored.
@@ -1027,7 +1027,7 @@ export class HeadlessClaudeClientWrapper {
    * Headless Claude stages don't pre-allocate a session — each `query()` call
    * to {@link HeadlessClaudeSessionWrapper} spawns a fresh Agent SDK run that
    * emits its own `session_id`. We still return an empty string here so the
-   * method signature matches {@link ClaudeClientWrapper.start}.
+   * method signature matches {@link ClaudeClientWrapper#start}.
    */
   async start(): Promise<string> {
     return "";

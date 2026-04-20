@@ -14,6 +14,7 @@ const fakeTheme: TerminalTheme = {
   success: "#a6e3a1",
   error: "#f38ba8",
   warning: "#f9e2af",
+  mauve: "#cba6f7",
 };
 
 describe("deriveGraphTheme", () => {
@@ -81,6 +82,11 @@ describe("deriveGraphTheme", () => {
     expect(gt.borderActive).toBe(fakeTheme.border);
   });
 
+  test("maps mauve from theme mauve", () => {
+    const gt = deriveGraphTheme(fakeTheme);
+    expect(gt.mauve).toBe(fakeTheme.mauve);
+  });
+
   test("returns all required GraphTheme keys", () => {
     const gt = deriveGraphTheme(fakeTheme);
     const keys = Object.keys(gt).sort();
@@ -91,6 +97,7 @@ describe("deriveGraphTheme", () => {
       "borderActive",
       "error",
       "info",
+      "mauve",
       "primary",
       "success",
       "text",

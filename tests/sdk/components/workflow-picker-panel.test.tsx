@@ -81,6 +81,7 @@ const TEST_DARK_BASE = {
   success: "#a6e3a1",
   error: "#f38ba8",
   warning: "#f9e2af",
+  mauve: "#cba6f7",
 };
 
 const TEST_LIGHT_BASE = {
@@ -95,6 +96,7 @@ const TEST_LIGHT_BASE = {
   success: "#40a02b",
   error: "#d20f39",
   warning: "#df8e1d",
+  mauve: "#8839ef",
 };
 
 const TEST_THEME: PickerTheme = buildPickerTheme(TEST_DARK_BASE, true);

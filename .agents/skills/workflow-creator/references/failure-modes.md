@@ -31,7 +31,7 @@ Silent failures are catalogued first below. Loud failures are grouped at the end
 | # | Failure | Affected | Silent? |
 |---|---|---|---|
 | [F1](#f1-copilot-getlastassistanttext-returns-empty-string) | Copilot: `getLastAssistantText` returns empty string | Copilot | silent |
-| [F2](#f2-copilot-sub-agent-messages-pollute-getmessages-stream) | Copilot: sub-agent messages pollute `getMessages()` stream | Copilot | silent |
+| [F2](#f2-copilot-subagent-messages-pollute-getmessages-stream) | Copilot: subagent messages pollute `getMessages()` stream | Copilot | silent |
 | [F3](#f3-opencode-result-parts-contain-non-text-parts) | OpenCode: `result.data.parts` contains non-text parts | OpenCode | silent |
 | [F4](#f4-claude-ssessionquery-returns-sessionmessage-extract-text-with-extractassistanttext) | Claude: `s.session.query()` returns `SessionMessage[]` — extract text with `extractAssistantText(result, 0)` | Claude | silent |
 | [F5](#f5-fresh-session-wipes-prior-stage-context) | Fresh session wipes prior stage context | Copilot, OpenCode | silent |
@@ -40,17 +40,18 @@ Silent failures are catalogued first below. Loud failures are grouped at the end
 | [F8](#f8-fenced-block-parsers-break-when-the-model-adds-prose) | Fenced-block parsers break when the model adds prose before/after | all | silent |
 | [F9](#f9-ssave-receives-the-wrong-shape) | `s.save()` receives the wrong shape for the SDK | all | silent |
 | [F10](#f10-copilot-sendandwait-default-60s-timeout-throws) | Copilot: `sendAndWait` default 60s timeout throws (use `send` by default) | Copilot | loud |
-| [F11](#f11-manual-claude-session-initialization-resolved-by-runtime) | ~~Manual Claude session initialization~~ (resolved by runtime) | Claude | N/A |
-| [F12](#f12-resume-session-tries-to-swap-agents) | Resume session tries to swap agents | Copilot, OpenCode | loud |
-| [F13](#f13-parallel-siblings-read-each-others-transcripts) | Parallel siblings read each other's transcripts | all | loud |
-| [F14](#f14-forgetting-to-await-ctxstage) | Forgetting to `await` `ctx.stage()` | all | silent |
-| [F15](#f15-using-a-pending-sessionhandle-before-completion) | Using a pending `SessionHandle` before completion | all | silent |
-| [F16](#f16-headless-stage-errors-are-invisible-in-the-graph) | Headless stage errors are invisible in the graph | all | silent |
-| [F17](#f17-claude-importing-sdk-query-inside-a-non-headless-stage) | Claude: importing the SDK `query()` inside a non-headless stage (anti-pattern) | Claude | silent |
+| [F11](#f11-provider-level-resume-tries-to-swap-agents) | Provider-level resume tries to swap agents | Copilot, OpenCode | loud |
+| [F12](#f12-parallel-siblings-read-each-others-transcripts) | Parallel siblings read each other's transcripts | all | loud |
+| [F13](#f13-forgetting-to-await-ctxstage) | Forgetting to `await` `ctx.stage()` | all | silent |
+| [F14](#f14-using-a-pending-sessionhandle-before-completion) | Using a pending `SessionHandle` before completion | all | silent |
+| [F15](#f15-headless-stage-errors-are-invisible-in-the-graph) | Headless stage errors are invisible in the graph | all | silent |
+| [F16](#f16-claude-importing-sdk-query-inside-a-non-headless-stage) | Claude: importing the SDK `query()` inside a non-headless stage (anti-pattern) | Claude | silent |
 
 ---
 
-## F1. Copilot: `getLastAssistantText` returns empty string
+## Silent failures
+
+### F1. Copilot: `getLastAssistantText` returns empty string
 
 **Symptom.** The orchestrator (or any downstream stage) receives an empty
 `plannerNotes` / `reviewerOutput` despite the prior agent running successfully
@@ -104,22 +105,22 @@ function getAssistantText(messages: SessionEvent[]): string {
 }
 ```
 
-**Detection.** Log the returned text length after every `runAgent` call
-during development. An empty or surprisingly short string for a stage
+**Detection.** Log the returned text length after every `getAssistantText`
+call during development. An empty or surprisingly short string for a stage
 that clearly ran is the signature.
 
 ---
 
-## F2. Copilot: sub-agent messages pollute `getMessages()` stream
+### F2. Copilot: subagent messages pollute `getMessages()` stream
 
 **Symptom.** Downstream stages receive a snippet of text that doesn't match
-what the top-level agent said — it looks like a sub-agent's output.
+what the top-level agent said — it looks like a subagent's output.
 
 **Root cause.** `assistant.message` events carry a `parentToolCallId?: string`
 field, documented as *"Tool call ID of the parent tool invocation when this
-event originates from a sub-agent"*. When the top-level agent delegates,
-`getMessages()` returns **the complete history including sub-agent messages**.
-Filters that don't exclude `parentToolCallId` can pick a sub-agent's final
+event originates from a subagent"*. When the top-level agent delegates,
+`getMessages()` returns **the complete history including subagent messages**.
+Filters that don't exclude `parentToolCallId` can pick a subagent's final
 message via `.at(-1)`.
 
 **Affected SDKs.** Copilot.
@@ -143,7 +144,7 @@ scrollback for the top-level agent.
 
 ---
 
-## F3. OpenCode: `result.data.parts` contains non-text parts
+### F3. OpenCode: `result.data.parts` contains non-text parts
 
 **Symptom.** Concatenated response text contains `[object Object]`,
 truncated content, or swallows tool-call payloads into the prompt.
@@ -177,7 +178,7 @@ function extractResponseText(
 
 ---
 
-## F4. Claude: `s.session.query()` returns `SessionMessage[]` — extract text with `extractAssistantText`
+### F4. Claude: `s.session.query()` returns `SessionMessage[]` — extract text with `extractAssistantText`
 
 **Symptom.** Workflow code tries to access `.output` or `.text` on the
 result of `s.session.query()` and gets `undefined`, or passes the result
@@ -222,7 +223,7 @@ on an array returns `undefined`.
 
 ---
 
-## F5. Fresh session wipes prior stage context
+### F5. Fresh session wipes prior stage context
 
 **Symptom.** The orchestrator says "I don't see a task list" or "what
 specification are you referring to?" even though the planner clearly ran.
@@ -239,18 +240,45 @@ mode does NOT apply to `s.session.query()`.)
 ### ❌ Wrong
 
 ```ts
-await runAgent("planner", buildPlannerPrompt((ctx.inputs.prompt ?? "")));
+await ctx.stage({ name: "planner" }, {}, { agent: "planner" }, async (s) => {
+  await s.session.send({ prompt: buildPlannerPrompt((s.inputs.prompt ?? "")) });
+  s.save(await s.session.getMessages());
+});
 // orchestrator is a fresh session — it has no idea what the planner produced
-await runAgent("orchestrator", buildOrchestratorPrompt());
+await ctx.stage({ name: "orchestrator" }, {}, { agent: "orchestrator" }, async (s) => {
+  await s.session.send({ prompt: buildOrchestratorPrompt() });
+  s.save(await s.session.getMessages());
+});
 ```
 
 ### ✅ Right — explicit handoff
 
 ```ts
-const plannerNotes = await runAgent("planner", buildPlannerPrompt((ctx.inputs.prompt ?? "")));
-await runAgent(
-  "orchestrator",
-  buildOrchestratorPrompt((ctx.inputs.prompt ?? ""), { plannerNotes }),
+const plannerHandle = await ctx.stage(
+  { name: "planner" },
+  {},
+  { agent: "planner" },
+  async (s) => {
+    await s.session.send({ prompt: buildPlannerPrompt((s.inputs.prompt ?? "")) });
+    const messages = await s.session.getMessages();
+    s.save(messages);
+    return getAssistantText(messages); // see F1 for getAssistantText
+  },
+);
+
+await ctx.stage(
+  { name: "orchestrator" },
+  {},
+  { agent: "orchestrator" },
+  async (s) => {
+    await s.session.send({
+      prompt: buildOrchestratorPrompt(
+        (s.inputs.prompt ?? ""),
+        { plannerNotes: plannerHandle.result },
+      ),
+    });
+    s.save(await s.session.getMessages());
+  },
 );
 ```
 
@@ -264,7 +292,7 @@ controls what context is available".
 
 ---
 
-## F6. Planner prompts that don't request trailing commentary produce empty handoffs
+### F6. Planner prompts that don't request trailing commentary produce empty handoffs
 
 **Symptom.** F1 / F5 are fixed, extraction is correct — and the orchestrator
 still receives empty `plannerNotes` because the planner's last turn legitimately
@@ -319,7 +347,7 @@ string + a correctly-fixed extraction helper = F6.
 
 ---
 
-## F7. Continued sessions accumulate state across loop iterations (lost-in-middle)
+### F7. Continued sessions accumulate state across loop iterations (lost-in-middle)
 
 **Symptom.** A review/fix loop works on iterations 1-3 then starts
 producing worse output — misidentifying files, hallucinating line numbers,
@@ -378,7 +406,7 @@ iteration N, N is your safe-turn budget before compaction.
 
 ---
 
-## F8. Fenced-block parsers break when the model adds prose
+### F8. Fenced-block parsers break when the model adds prose
 
 **Symptom.** `JSON.parse(content)` throws, or a "matches the first fenced
 block" regex picks up a code example inside prose instead of the actual
@@ -434,7 +462,7 @@ over several runs. If 1 in 20 runs fails to parse, you have F8.
 
 ---
 
-## F9. `s.save()` receives the wrong shape
+### F9. `s.save()` receives the wrong shape
 
 **Symptom.** `s.transcript("stage-name")` returns an empty or malformed
 `content` string in the next stage.
@@ -458,9 +486,11 @@ expects, and the runtime doesn't type-check the argument beyond "anything".
 // Claude — saves the wrong thing (result is SessionMessage[], not { output: string })
 s.save(result.output);  // TypeError: result.output is undefined; use s.save(s.sessionId)
 
-// Copilot — saves an empty array if called before send
-s.save(await s.session.getMessages());
-// Or saves one message object instead of the array
+// Copilot — calling getMessages() BEFORE send() returns an empty array
+const earlyMessages = await s.session.getMessages(); // [] — no turns yet
+s.save(earlyMessages);
+
+// Copilot — saving a single message instead of the full array
 s.save((await s.session.getMessages()).at(-1));
 
 // OpenCode — missing the data unwrap
@@ -479,7 +509,7 @@ log the length. A 0-length or JSON-that-isn't-prose signature = F9.
 
 ## Loud failures (throw, but still worth knowing)
 
-## F10. Copilot: `sendAndWait` default 60s timeout throws
+### F10. Copilot: `sendAndWait` default 60s timeout throws
 
 **Symptom.** `Timeout after 60000ms waiting for session.idle`. Every
 subsequent `ctx.stage()` call never executes — the throw propagates out of
@@ -508,13 +538,7 @@ to "be safe", you want `send`.
 
 ---
 
-## F11. ~~Manual Claude session initialization~~ (resolved by runtime)
-
-No longer a failure mode. The runtime now auto-initializes `s.client` and `s.session` before the callback runs — just use `s.session.query()` directly.
-
----
-
-## F12. Provider-level resume tries to swap agents
+### F11. Provider-level resume tries to swap agents
 
 **Symptom.** Resumed Copilot / OpenCode session behaves as the original
 agent instead of the requested new one — or the SDK throws "agent mismatch"
@@ -530,7 +554,7 @@ over trying to reopen a prior stage.
 
 ---
 
-## F13. Parallel siblings read each other's transcripts
+### F12. Parallel siblings read each other's transcripts
 
 **Symptom.** `s.transcript("sibling-name")` inside a parallel session
 throws or returns empty.
@@ -546,27 +570,28 @@ shared state (files, DB) if siblings genuinely need to coordinate.
 
 ```ts
 // Fan-out → merge
-await ctx.stage({ name: "describe" }, {}, {}, async (s) => { /* ... */ });
+// Strings used here for brevity; prefer handles (s.transcript(handle)) when one is in scope.
+const describe = await ctx.stage({ name: "describe" }, {}, {}, async (s) => { /* ... */ });
 
-await Promise.all([
+const [summarizeA, summarizeB] = await Promise.all([
   ctx.stage({ name: "summarize-a" }, {}, {}, async (s) => {
-    const d = await s.transcript("describe"); // OK — prior completed session
+    const d = await s.transcript(describe); // OK — prior completed session (handle-based, preferred)
     // s.transcript("summarize-b") would fail here — sibling not yet complete
   }),
   ctx.stage({ name: "summarize-b" }, {}, {}, async (s) => {
-    const d = await s.transcript("describe"); // OK — prior completed session
+    const d = await s.transcript(describe); // OK — prior completed session
   }),
 ]);
 
 await ctx.stage({ name: "merge" }, {}, {}, async (s) => {
-  const a = await s.transcript("summarize-a"); // OK — prior completed session
-  const b = await s.transcript("summarize-b"); // OK — prior completed session
+  const a = await s.transcript(summarizeA); // OK — handle-based, preferred over "summarize-a"
+  const b = await s.transcript(summarizeB);
 });
 ```
 
 ---
 
-## F14. Forgetting to `await` `ctx.stage()`
+### F13. Forgetting to `await` `ctx.stage()`
 
 **Symptom.** A session runs (its tmux window opens, the agent does work)
 but the orchestrator doesn't wait for it. Subsequent sessions that depend
@@ -617,7 +642,7 @@ this at compile time.
 
 ---
 
-## F15. Using a pending `SessionHandle` before completion
+### F14. Using a pending `SessionHandle` before completion
 
 **Symptom.** `handle.result` is `undefined` or stale, or
 `s.transcript(handle)` throws / returns empty even though the session
@@ -670,7 +695,7 @@ accessing `.result` without awaiting, the type will be `Promise`, not `T`.
 
 ---
 
-## F16. Headless stage errors are invisible in the graph
+### F15. Headless stage errors are invisible in the graph
 
 **Symptom.** A workflow fails but the graph shows all visible stages as
 completed. The error message references a session name that doesn't appear
@@ -721,7 +746,7 @@ full error for each failed headless stage.
 
 ---
 
-## F17. Claude: importing the SDK `query()` inside a non-headless stage
+### F16. Claude: importing the SDK `query()` inside a non-headless stage
 
 **Symptom.** A reviewer / extractor / structured-output stage shows up in
 the workflow graph as a tmux pane, but the pane sits idle on the Claude
@@ -760,7 +785,7 @@ The runtime exposes exactly two routes for an SDK feature:
 | You want to use… | Stage shape | Code in callback |
 |---|---|---|
 | `outputFormat`, custom `agents`, `maxBudgetUsd`, etc. **without** a visible pane | `{ headless: true }` | `s.session.query(prompt, sdkOptions)` — wraps `HeadlessClaudeSessionWrapper.query()` which forwards `options` to the SDK |
-| The visible TUI with a sub-agent | omit `headless` and pass `chatFlags: ["--agent", "<name>", ...]` | `s.session.query(prompt)` — sends through tmux send-keys |
+| The visible TUI with a subagent | omit `headless` and pass `chatFlags: ["--agent", "<name>", ...]` | `s.session.query(prompt)` — sends through tmux send-keys |
 
 The one option that does **not** exist is "visible pane + in-process SDK call".
 That combination is always wrong — pick one route or the other.
@@ -787,9 +812,9 @@ await ctx.stage({ name: "review" }, {}, {}, async (s) => {
 });
 ```
 
-### ✅ Right (a) — visible TUI with sub-agent + chatFlags
+### ✅ Right (a) — visible TUI with subagent + chatFlags
 
-When you want the user to watch the review happen, run the sub-agent in
+When you want the user to watch the review happen, run the subagent in
 the pane via `--agent` and parse JSON out of the assistant text. The
 prompt should enumerate the schema fields so the model emits matching
 JSON; a tolerant parser (last-fenced-block + last-balanced-object
@@ -853,8 +878,8 @@ await ctx.stage(
    `s.client` and `s.session`.
 2. Watch the workflow run. If a visible pane shows the Claude welcome
    screen for the entire duration of a stage and never receives a prompt,
-   you have F17.
-3. Cost monitoring. F17 roughly doubles the Claude process count — if
+   you have F16.
+3. Cost monitoring. F16 roughly doubles the Claude process count — if
    stage spend looks 2× a single run, audit imports.
 
 ---
@@ -870,9 +895,9 @@ Before shipping a multi-session workflow, walk the list:
 - [ ] Structured-output parsers extract the LAST fenced block, not the first (F8)
 - [ ] `s.save()` receives the per-SDK correct shape — Copilot uses `s.session.getMessages()` (F9)
 - [ ] Loops over 10 iterations have a compaction / reset strategy (F7)
-- [ ] Parallel groups only read from prior completed sessions, never siblings (F13)
-- [ ] Every `ctx.stage()` call is `await`ed (F14)
-- [ ] `SessionHandle` values are only used after the promise resolves (F15)
-- [ ] If provider-level resume/fork is used at all, it stays within the same agent role (F12)
-- [ ] Headless stage callbacks include descriptive error context so failures can be diagnosed without a graph node (F16)
-- [ ] Claude stages never import `query` (or other entry points) from `@anthropic-ai/claude-agent-sdk` directly — go through `s.session.query()` so the runtime routes to the TUI (interactive) or the SDK (headless) consistently (F17)
+- [ ] Parallel groups only read from prior completed sessions, never siblings (F12)
+- [ ] Every `ctx.stage()` call is `await`ed (F13)
+- [ ] `SessionHandle` values are only used after the promise resolves (F14)
+- [ ] If provider-level resume/fork is used at all, it stays within the same agent role (F11)
+- [ ] Headless stage callbacks include descriptive error context so failures can be diagnosed without a graph node (F15)
+- [ ] Claude stages never import `query` (or other entry points) from `@anthropic-ai/claude-agent-sdk` directly — go through `s.session.query()` so the runtime routes to the TUI (interactive) or the SDK (headless) consistently (F16)

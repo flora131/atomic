@@ -6,57 +6,86 @@ For **invocation-time** inputs (the values the user supplies when they launch th
 
 ## Claude
 
-### Via `canUseTool` callback
+Never import `query` from `@anthropic-ai/claude-agent-sdk` inside a stage
+callback — that's the F16 anti-pattern (see `failure-modes.md` §F16). All
+options route through `s.session.query(prompt, sdkOptions)` in headless
+stages, or through `chatFlags` in interactive stages.
 
-The Claude Agent SDK provides a `canUseTool` callback for runtime approval and user interaction:
+### Via `canUseTool` callback (headless stages only)
+
+`canUseTool` is an SDK option — it only applies in a headless stage, where
+the second argument to `s.session.query()` is forwarded to the Agent SDK as
+`Partial<SDKOptions>`. In interactive stages the option is silently ignored
+because `s.session.query()` is driving the `claude` CLI binary, not the SDK.
 
 ```ts
-import { query } from "@anthropic-ai/claude-agent-sdk";
-
-// Inside a ctx.stage() callback:
-async (s) => {
-  const result = query({
-    prompt: "Implement the feature, but ask me before making any database changes.",
-    options: {
-      canUseTool: async (toolName, toolInput, options) => {
-        if (toolName === "Write" && toolInput.file_path?.includes("migration")) {
-          // Prompt the user for approval
-          const approved = await promptUser("Allow database migration?");
-          return approved
-            ? { behavior: "allow" }
-            : { behavior: "deny", message: "User declined migration" };
-        }
-        return { behavior: "allow" };
+await ctx.stage(
+  { name: "implement", headless: true },
+  {}, {},
+  async (s) => {
+    const messages = await s.session.query(
+      "Implement the feature, but ask me before making any database changes.",
+      {
+        canUseTool: async (toolName, toolInput) => {
+          if (toolName === "Write" && typeof toolInput.file_path === "string" && toolInput.file_path.includes("migration")) {
+            const approved = await promptUser("Allow database migration?");
+            return approved
+              ? { behavior: "allow", updatedInput: toolInput }
+              : { behavior: "deny", message: "User declined migration" };
+          }
+          return { behavior: "allow", updatedInput: toolInput };
+        },
       },
-    },
-  });
-  for await (const msg of result) { /* process */ }
-},
+    );
+    s.save(s.sessionId);
+    return extractAssistantText(messages, 0);
+  },
+);
 ```
 
 ### Via `AskUserQuestion` tool
 
-Allow the agent to ask the user questions by including `AskUserQuestion` in `allowedTools`:
+Allow the agent to ask the user questions by including `AskUserQuestion` in
+`allowedTools`. This works for both interactive stages (via `chatFlags`) and
+headless stages (via sdkOptions on `s.session.query()`).
+
+**Interactive stage** — pass the tool allowlist via `chatFlags`:
 
 ```ts
-const result = query({
-  prompt: (ctx.inputs.prompt ?? ""),
-  options: {
-    allowedTools: ["Read", "Write", "Edit", "Bash", "AskUserQuestion"],
+await ctx.stage(
+  { name: "implement" },
+  { chatFlags: ["--allowed-tools", "Read,Write,Edit,Bash,AskUserQuestion"] },
+  {},
+  async (s) => {
+    await s.session.query(s.inputs.prompt ?? "");
+    s.save(s.sessionId);
   },
-});
+);
 ```
 
-### Via streaming input
-
-For interactive sessions, use streaming mode to feed user input:
+**Headless stage** — pass `allowedTools` in the sdkOptions:
 
 ```ts
-const q = query({ prompt: (ctx.inputs.prompt ?? ""), options: { ... } });
-
-// Feed additional input while the agent is running
-q.streamInput("Here's the additional context you asked for...");
+await ctx.stage(
+  { name: "implement", headless: true },
+  {}, {},
+  async (s) => {
+    const messages = await s.session.query(s.inputs.prompt ?? "", {
+      allowedTools: ["Read", "Write", "Edit", "Bash", "AskUserQuestion"],
+    });
+    s.save(s.sessionId);
+    return extractAssistantText(messages, 0);
+  },
+);
 ```
+
+### Via streaming input (headless stages only)
+
+The Agent SDK's `streamInput()` feeds additional input while a query is
+running. It's only reachable from headless stages via an async iterable
+prompt — pass an `AsyncIterable<SDKUserMessage>` as the first argument to
+`s.session.query()` instead of a plain string. In interactive stages, send
+follow-up turns with another `s.session.query()` call to the same session.
 
 ## Copilot
 
@@ -77,7 +106,7 @@ await ctx.stage({ name: "plan" }, {}, {
     return answer;
   },
 }, async (s) => {
-  await s.session.send({ prompt: (ctx.inputs.prompt ?? "") });
+  await s.session.send({ prompt: (s.inputs.prompt ?? "") });
   s.save(await s.session.getMessages());
 });
 ```
@@ -97,7 +126,7 @@ await ctx.stage({ name: "plan" }, {}, {
     };
   },
 }, async (s) => {
-  await s.session.send({ prompt: (ctx.inputs.prompt ?? "") });
+  await s.session.send({ prompt: (s.inputs.prompt ?? "") });
   s.save(await s.session.getMessages());
 });
 ```
@@ -112,7 +141,7 @@ import { approveAll } from "@github/copilot-sdk";
 
 // Explicit (same as the default):
 await ctx.stage({ name: "plan" }, {}, { onPermissionRequest: approveAll }, async (s) => {
-  await s.session.send({ prompt: (ctx.inputs.prompt ?? "") });
+  await s.session.send({ prompt: (s.inputs.prompt ?? "") });
   s.save(await s.session.getMessages());
 });
 ```
@@ -131,7 +160,7 @@ await ctx.stage({ name: "plan" }, {}, {
     return { kind: "approved" };
   },
 }, async (s) => {
-  await s.session.send({ prompt: (ctx.inputs.prompt ?? "") });
+  await s.session.send({ prompt: (s.inputs.prompt ?? "") });
   s.save(await s.session.getMessages());
 });
 ```
@@ -186,11 +215,10 @@ Use user input results in conditional logic. This Claude example uses
 user directly, and you parse the response to branch:
 
 ```ts
-import { query } from "@anthropic-ai/claude-agent-sdk";
-
-// Inside a ctx.stage() callback (Claude example):
+// Inside a ctx.stage() callback (Claude example).
+// AskUserQuestion must be in allowedTools — see "Via AskUserQuestion tool" above.
 async (s) => {
-  const plan = await s.transcript("plan");
+  const plan = await s.transcript("plan"); // or s.transcript(handle) if a handle is in scope (preferred)
 
   // Let the agent ask the user for approval via AskUserQuestion
   const result = await s.session.query(

@@ -10,7 +10,6 @@ import {
   createPane,
   sendLiteralText,
   sendSpecialKey,
-  sendKeysAndSubmit,
   capturePane,
   capturePaneVisible,
   capturePaneScrollback,
@@ -19,12 +18,6 @@ import {
   listSessions,
   normalizeTmuxCapture,
   normalizeTmuxLines,
-  paneLooksReady,
-  paneHasActiveTask,
-  paneIsIdle,
-  waitForPaneReady,
-  waitForOutput,
-  attemptSubmitRounds,
   attachSession,
   killWindow,
   switchClient,
@@ -276,86 +269,6 @@ describe("normalizeTmuxLines", () => {
 });
 
 // ---------------------------------------------------------------------------
-// paneLooksReady — additional edge cases
-// ---------------------------------------------------------------------------
-
-describe("paneLooksReady — edge cases", () => {
-  test("detects 'how can i help you' without prompt char", () => {
-    const capture = "Welcome!\nHow can I help you?\n";
-    expect(paneLooksReady(capture)).toBe(true);
-  });
-
-  test("detects 'how can i help' without 'you'", () => {
-    const capture = "How can I help?";
-    expect(paneLooksReady(capture)).toBe(true);
-  });
-
-  test("rejects 'model: loading' bootstrapping", () => {
-    const capture = "model: loading\n❯ ";
-    expect(paneLooksReady(capture)).toBe(false);
-  });
-
-  test("rejects 'starting up' bootstrapping", () => {
-    const capture = "Starting up the server...\n> ";
-    expect(paneLooksReady(capture)).toBe(false);
-  });
-
-  test("returns false for whitespace-only content after trimEnd", () => {
-    expect(paneLooksReady("   \n   \n   ")).toBe(false);
-  });
-
-  test("handles prompt with surrounding text", () => {
-    const capture = "Some output\n❯ type here";
-    expect(paneLooksReady(capture)).toBe(true);
-  });
-
-  test("handles indented chevron prompt", () => {
-    expect(paneLooksReady("    > ")).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// paneHasActiveTask — additional edge cases
-// ---------------------------------------------------------------------------
-
-describe("paneHasActiveTask — edge cases", () => {
-  test("detects 'background terminal running' without number prefix", () => {
-    const capture = "background terminal running";
-    expect(paneHasActiveTask(capture)).toBe(true);
-  });
-
-  test("detects multiple background terminals", () => {
-    const capture = "3 background terminal running";
-    expect(paneHasActiveTask(capture)).toBe(true);
-  });
-
-  test("case insensitive 'Esc to interrupt'", () => {
-    const capture = "ESC TO INTERRUPT";
-    expect(paneHasActiveTask(capture)).toBe(true);
-  });
-
-  test("spinner with two words", () => {
-    const capture = "· Writing code...";
-    expect(paneHasActiveTask(capture)).toBe(true);
-  });
-
-  test("spinner with unicode ellipsis and asterisk", () => {
-    const capture = "✻ Analyzing…";
-    expect(paneHasActiveTask(capture)).toBe(true);
-  });
-
-  test("no false positive for regular text ending in dots", () => {
-    const capture = "The end result was good...";
-    expect(paneHasActiveTask(capture)).toBe(false);
-  });
-
-  test("no false positive for empty lines", () => {
-    const capture = "\n\n\n";
-    expect(paneHasActiveTask(capture)).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // parseSessionName — pure function
 // ---------------------------------------------------------------------------
 
@@ -501,14 +414,6 @@ describe.if(tmuxAvailable)("tmux integration: send keys and capture", () => {
     expect(captured).toContain("SPECIAL_KEY_TEST");
   });
 
-  test("sendKeysAndSubmit sends text and presses enter", async () => {
-    await sendKeysAndSubmit(paneId, "echo SUBMIT_TEST", 1, 50);
-    await Bun.sleep(300);
-
-    const captured = capturePane(paneId);
-    expect(captured).toContain("SUBMIT_TEST");
-  });
-
   test("capturePane returns visible content", () => {
     const captured = capturePane(paneId);
     expect(typeof captured).toBe("string");
@@ -517,7 +422,8 @@ describe.if(tmuxAvailable)("tmux integration: send keys and capture", () => {
 
   test("capturePane with start parameter captures scrollback", async () => {
     // Generate some output to create scrollback
-    await sendKeysAndSubmit(paneId, "echo SCROLLBACK_TEST", 1, 50);
+    sendLiteralText(paneId, "echo SCROLLBACK_TEST");
+    sendSpecialKey(paneId, "C-m");
     await Bun.sleep(200);
 
     const captured = capturePane(paneId, -50);
@@ -536,7 +442,8 @@ describe.if(tmuxAvailable)("tmux integration: send keys and capture", () => {
   });
 
   test("capturePaneScrollback returns recent history", async () => {
-    await sendKeysAndSubmit(paneId, "echo SCROLLBACK_HISTORY", 1, 50);
+    sendLiteralText(paneId, "echo SCROLLBACK_HISTORY");
+    sendSpecialKey(paneId, "C-m");
     await Bun.sleep(200);
 
     const scrollback = capturePaneScrollback(paneId, 100);
@@ -551,106 +458,6 @@ describe.if(tmuxAvailable)("tmux integration: send keys and capture", () => {
   test("capturePaneScrollback uses default lines parameter", () => {
     const scrollback = capturePaneScrollback(paneId);
     expect(typeof scrollback).toBe("string");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Integration: paneIsIdle with real pane
-// ---------------------------------------------------------------------------
-
-const IDLE_SESSION = `atomic-idle-${crypto.randomUUID().slice(0, 8)}`;
-
-describe.if(tmuxAvailable)("tmux integration: paneIsIdle", () => {
-  let paneId: string;
-
-  beforeAll(async () => {
-    paneId = createSession(IDLE_SESSION, "bash", "idle-test");
-    await Bun.sleep(500);
-  });
-
-  afterAll(() => {
-    killSession(IDLE_SESSION);
-  });
-
-  test("returns boolean for a real pane", () => {
-    const result = paneIsIdle(paneId);
-    expect(typeof result).toBe("boolean");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Integration: waitForPaneReady with real shell prompt
-// ---------------------------------------------------------------------------
-
-const READY_SESSION = `atomic-rdy-${crypto.randomUUID().slice(0, 8)}`;
-
-describe.if(tmuxAvailable)("tmux integration: waitForPaneReady", () => {
-  let paneId: string;
-
-  beforeAll(async () => {
-    // Start a process that prints a `> ` prompt and then blocks, so
-    // paneLooksReady's `[›>❯]` regex matches a real captured pane.
-    // (A bare `bash` shows `$`, which never matches and forces the function
-    // to time out — racing bun:test's own 5s per-test timeout.)
-    paneId = createSession(READY_SESSION, 'printf "> "; sleep 30', "ready-test");
-    await Bun.sleep(300);
-  });
-
-  afterAll(() => {
-    killSession(READY_SESSION);
-  });
-
-  test("waitForPaneReady resolves quickly when prompt is visible", async () => {
-    const elapsed = await waitForPaneReady(paneId, 5_000);
-    expect(typeof elapsed).toBe("number");
-    // The prompt is already on screen — the first poll should detect it.
-    // Anything close to the 5s timeout means the success path is broken.
-    expect(elapsed).toBeLessThan(1_000);
-  });
-
-  test("waitForPaneReady respects timeout", async () => {
-    // Use a very short timeout — function should return (not hang).
-    // With the prompt already visible, it should return well under the cap.
-    const elapsed = await waitForPaneReady(paneId, 100);
-    expect(elapsed).toBeLessThan(100);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Integration: waitForOutput with real output
-// ---------------------------------------------------------------------------
-
-const OUTPUT_SESSION = `atomic-out-${crypto.randomUUID().slice(0, 8)}`;
-
-describe.if(tmuxAvailable)("tmux integration: waitForOutput", () => {
-  let paneId: string;
-
-  beforeAll(async () => {
-    paneId = createSession(OUTPUT_SESSION, "bash", "output-test");
-    await Bun.sleep(500);
-  });
-
-  afterAll(() => {
-    killSession(OUTPUT_SESSION);
-  });
-
-  test("waitForOutput resolves when pattern matches", async () => {
-    await sendKeysAndSubmit(paneId, "echo WAITFOR_MARKER_XYZ", 1, 50);
-
-    const content = await waitForOutput(paneId, /WAITFOR_MARKER_XYZ/, {
-      timeoutMs: 5_000,
-      pollIntervalMs: 100,
-    });
-    expect(content).toContain("WAITFOR_MARKER_XYZ");
-  });
-
-  test("waitForOutput throws on timeout when pattern not found", async () => {
-    await expect(
-      waitForOutput(paneId, /IMPOSSIBLE_PATTERN_NEVER_APPEARS_999/, {
-        timeoutMs: 300,
-        pollIntervalMs: 100,
-      }),
-    ).rejects.toThrow("Timed out waiting for pattern");
   });
 });
 
@@ -684,98 +491,6 @@ describe.if(tmuxAvailable)("tmux error paths", () => {
   test("sendSpecialKey throws for invalid pane", () => {
     expect(() => sendSpecialKey("%99999", "C-m")).toThrow(/send-keys failed/);
   });
-});
-
-// ---------------------------------------------------------------------------
-// Integration: sendKeysAndSubmit with multiple presses (covers sleep path)
-// ---------------------------------------------------------------------------
-
-const MULTI_SESSION = `atomic-mul-${crypto.randomUUID().slice(0, 8)}`;
-
-describe.if(tmuxAvailable)("tmux integration: sendKeysAndSubmit multi-press", () => {
-  let paneId: string;
-
-  beforeAll(async () => {
-    paneId = createSession(MULTI_SESSION, "bash", "multi-test");
-    await Bun.sleep(500);
-  });
-
-  afterAll(() => {
-    killSession(MULTI_SESSION);
-  });
-
-  test("sendKeysAndSubmit with multiple presses executes sleep between presses", async () => {
-    // presses=2 triggers the Bun.sleepSync branch (line 201-202)
-    await sendKeysAndSubmit(paneId, "echo MULTI_PRESS_TEST", 2, 50);
-    await Bun.sleep(300);
-
-    const captured = capturePane(paneId);
-    expect(captured).toContain("MULTI_PRESS_TEST");
-  });
-
-  test("sendKeysAndSubmit with presses=3 hits sleep multiple times", async () => {
-    await sendKeysAndSubmit(paneId, "echo THREE_PRESSES", 3, 30);
-    await Bun.sleep(300);
-
-    const captured = capturePane(paneId);
-    expect(captured).toContain("THREE_PRESSES");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Integration: waitForPaneReady with non-ready pane (covers backoff loop)
-// ---------------------------------------------------------------------------
-
-const NOTREADY_SESSION = `atomic-nrd-${crypto.randomUUID().slice(0, 8)}`;
-
-describe.if(tmuxAvailable)("tmux integration: waitForPaneReady backoff loop", () => {
-  afterAll(() => {
-    killSession(NOTREADY_SESSION);
-  });
-
-  test("waitForPaneReady loops with backoff when pane has no prompt", async () => {
-    // Start a pane running 'sleep' — no shell prompt will appear
-    const paneId = createSession(NOTREADY_SESSION, "sleep 30", "sleep-test");
-
-    // With a short timeout, it should go through the backoff loop
-    // and return the elapsed time (close to the timeout)
-    const elapsed = await waitForPaneReady(paneId, 500);
-    expect(elapsed).toBeGreaterThanOrEqual(400);
-    expect(elapsed).toBeLessThan(2_000);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Integration: attemptSubmitRounds
-// ---------------------------------------------------------------------------
-
-const SUBMIT_SESSION = `atomic-sub-${crypto.randomUUID().slice(0, 8)}`;
-
-describe.if(tmuxAvailable)("tmux integration: attemptSubmitRounds", () => {
-  let paneId: string;
-
-  beforeAll(async () => {
-    paneId = createSession(SUBMIT_SESSION, "bash", "submit-test");
-    await Bun.sleep(500);
-  });
-
-  afterAll(() => {
-    killSession(SUBMIT_SESSION);
-  });
-
-  test("attemptSubmitRounds executes rounds and returns boolean", async () => {
-    // Type something into the pane
-    sendLiteralText(paneId, "echo SUBMIT_ROUND_TEST");
-    await Bun.sleep(100);
-
-    // attemptSubmitRounds will press C-m and check if the prompt text disappeared
-    // After bash executes the echo, "echo SUBMIT_ROUND_TEST" stays in scrollback
-    // so the function will run through all rounds — verify it returns a boolean
-    const result = await attemptSubmitRounds(paneId, "UNIQUE_PHANTOM_TEXT_NEVER_ON_SCREEN", 2, 1);
-    // "UNIQUE_PHANTOM_TEXT_NEVER_ON_SCREEN" is not on screen, so !includes() → true on first round
-    expect(result).toBe(true);
-  });
-
 });
 
 // ---------------------------------------------------------------------------

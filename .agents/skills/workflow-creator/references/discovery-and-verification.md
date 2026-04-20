@@ -5,8 +5,8 @@
 ```bash
 bun init                                   # Create a new project
 bun add @bastani/atomic                    # Install the workflow SDK
-bun add @github/copilot-sdk               # For Copilot workflows
 bun add @anthropic-ai/claude-agent-sdk    # For Claude workflows
+bun add @github/copilot-sdk               # For Copilot workflows
 bun add @opencode-ai/sdk                  # For OpenCode workflows
 ```
 

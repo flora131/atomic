@@ -45,6 +45,7 @@ import type { SessionPromptResponse } from "@opencode-ai/sdk/v2";
 import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import * as tmux from "./tmux.ts";
 import { spawnMuxAttach } from "./tmux.ts";
+import { spawnAttachedFooter } from "./attached-footer.ts";
 import { WorkflowLoader } from "./loader.ts";
 import {
   clearClaudeSession,
@@ -274,34 +275,6 @@ export function applyContainerEnvDefaults(): void {
   if (isNodeOnPath()) return;
   const bin = discoverCopilotBinary();
   if (bin) process.env.COPILOT_CLI_PATH = bin;
-}
-
-/** Percent of the agent window's vertical space allocated to the React footer pane. */
-const FOOTER_PANE_PERCENT = 5;
-
-/**
- * Split the agent window so the top pane runs the agent CLI and the bottom
- * pane runs the React footer (via `atomic _footer`). Allocating a percentage
- * of the vertical layout — rather than an absolute cell count — lets tmux
- * enforce its minimum-pane-size constraints and keeps the split readable on
- * both tall and short terminals.
- *
- * Resolves the CLI entrypoint relative to this file (executor.ts lives at
- * src/sdk/runtime/, so ../../cli.ts is the CLI). `process.argv[1]` points
- * to executor-entry.ts here — a separate process that has no `_footer`
- * subcommand — so we can't use it.
- */
-function spawnAttachedFooter(windowName: string, paneId: string): void {
-  const runtime = process.execPath;
-  if (!runtime) return;
-  const cliPath = join(import.meta.dir, "..", "..", "cli.ts");
-  const cmd = `"${escBash(runtime)}" "${escBash(cliPath)}" _footer --name "${escBash(windowName)}"`;
-  tmux.tmuxRun([
-    "split-window",
-    "-t", paneId,
-    "-v", "-l", `${FOOTER_PANE_PERCENT}%`, "-d",
-    cmd,
-  ]);
 }
 
 function buildPaneCommand(

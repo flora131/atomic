@@ -24,7 +24,7 @@ import {
   type SDKUserMessage,
   type Options as SDKOptions,
 } from "@anthropic-ai/claude-agent-sdk";
-import { sendKeysAndSubmit } from "../runtime/tmux.ts";
+import { sendKeysAndSubmit, waitForPaneReady } from "../runtime/tmux.ts";
 import { escBash } from "../runtime/executor.ts";
 import { watch, unlink, mkdir, writeFile } from "node:fs/promises";
 import { existsSync, writeFileSync } from "node:fs";
@@ -283,10 +283,18 @@ async function spawnClaudeWithPrompt(
     argvPrompt,
   ].join(" ");
 
+  // Wait for the pane's shell to finish init and activate its line editor
+  // (starship `❯` / bare zsh `>`). Sending keys before this point lets zsh's
+  // TCSAFLUSH on ZLE startup discard the buffered `\r`, so the command ends
+  // up displayed at the prompt but never submitted. This wait was dropped in
+  // eca267b0 alongside the post-submit pane-scrape — we only needed to drop
+  // the latter.
+  await waitForPaneReady(paneId, readyTimeoutMs);
+
   await sendKeysAndSubmit(paneId, cmd);
 
   // SDK-native readiness signal: wait for Claude to create its JSONL file
-  // at the known UUID path. No pane scraping, no paneLooksReady check.
+  // at the known UUID path.
   await waitForSessionFileAt(sessionId, readyTimeoutMs);
 }
 
@@ -913,6 +921,21 @@ export async function claudeQuery(options: ClaudeQueryOptions): Promise<SessionM
 // ---------------------------------------------------------------------------
 
 /**
+ * Merge two `disallowedTools` lists, preserving caller entries and appending
+ * any extras that aren't already present. Exported for unit testing.
+ */
+export function mergeDisallowedTools(
+  existing: string[] | undefined,
+  extras: string[],
+): string[] {
+  const merged = [...(existing ?? [])];
+  for (const tool of extras) {
+    if (!merged.includes(tool)) merged.push(tool);
+  }
+  return merged;
+}
+
+/**
  * Synthetic client wrapper for Claude stages.
  * Auto-starts the Claude CLI in the tmux pane during `start()`.
  */
@@ -1041,13 +1064,30 @@ export class HeadlessClaudeSessionWrapper {
     prompt: string | AsyncIterable<SDKUserMessage>,
     options?: Partial<SDKOptions>,
   ): Promise<SessionMessage[]> {
+    // Auto-deny the `AskUserQuestion` tool in headless runs. Without this, the
+    // agent can call it and the SDK query will sit blocked forever since no
+    // human is attached to answer.
+    const sdkOpts = options ?? {};
+    const headlessSdkOpts: Partial<SDKOptions> = {
+      ...sdkOpts,
+      disallowedTools: mergeDisallowedTools(sdkOpts.disallowedTools, [
+        "AskUserQuestion",
+      ]),
+    };
+
     let sdkSessionId = "";
-    for await (const msg of sdkQuery({ prompt, options: options ?? {} })) {
-      if (msg.type === "result") {
-        sdkSessionId = String((msg as Record<string, unknown>).session_id ?? "");
+    try {
+      for await (const msg of sdkQuery({ prompt, options: headlessSdkOpts })) {
+        if (msg.type === "result") {
+          sdkSessionId = String(
+            (msg as Record<string, unknown>).session_id ?? "",
+          );
+        }
       }
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      throw new Error(`Claude SDK query failed: ${detail}`);
     }
-    // Read the transcript to return native SessionMessage[]
     if (sdkSessionId) {
       this._lastSessionId = sdkSessionId;
       return getSessionMessages(sdkSessionId, { dir: process.cwd() });

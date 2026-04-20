@@ -22,7 +22,7 @@ import { extractAssistantText } from "@bastani/atomic/workflows";
   // Step 1: Classify the request
   const triage = await ctx.stage({ name: "triage" }, {}, {}, async (s) => {
     const result = await s.session.query(
-      `Classify this as "bug", "feature", or "question": ${(ctx.inputs.prompt ?? "")}`,
+      `Classify this as "bug", "feature", or "question": ${(s.inputs.prompt ?? "")}`,
     );
     s.save(s.sessionId);
     return extractAssistantText(result, 0).toLowerCase();
@@ -60,7 +60,7 @@ import { extractAssistantText } from "@bastani/atomic/workflows";
 .run(async (ctx) => {
   await ctx.stage({ name: "triage-and-act" }, {}, {}, async (s) => {
     const triageResult = await s.session.query(
-      `Classify this as "bug", "feature", or "question": ${(ctx.inputs.prompt ?? "")}`,
+      `Classify this as "bug", "feature", or "question": ${(s.inputs.prompt ?? "")}`,
     );
 
     const classification = extractAssistantText(triageResult, 0).toLowerCase();
@@ -143,7 +143,7 @@ import { extractAssistantText } from "@bastani/atomic/workflows";
   for (let cycle = 1; cycle <= MAX_CYCLES; cycle++) {
     // Each review is a visible graph node
     const review = await ctx.stage({ name: `review-${cycle}` }, {}, {}, async (s) => {
-      const result = await s.session.query(buildReviewPrompt((ctx.inputs.prompt ?? "")));
+      const result = await s.session.query(buildReviewPrompt((s.inputs.prompt ?? "")));
       s.save(s.sessionId);
       return extractAssistantText(result, 0);
     });
@@ -162,8 +162,8 @@ import { extractAssistantText } from "@bastani/atomic/workflows";
     consecutiveClean = 0;
 
     const fixPrompt = parsed
-      ? buildFixSpecFromReview(parsed, (ctx.inputs.prompt ?? ""))
-      : buildFixSpecFromRawReview(reviewRaw, (ctx.inputs.prompt ?? ""));
+      ? buildFixSpecFromReview(parsed, (s.inputs.prompt ?? ""))
+      : buildFixSpecFromRawReview(reviewRaw, (s.inputs.prompt ?? ""));
 
     // Each fix is also a visible graph node
     await ctx.stage({ name: `fix-${cycle}` }, {}, {}, async (s) => {
@@ -190,7 +190,7 @@ import { getAssistantText } from "../helpers/parsers.ts"; // see failure-modes.m
   for (let cycle = 1; cycle <= MAX_CYCLES; cycle++) {
     const review = await ctx.stage({ name: `review-${cycle}` }, {}, {}, async (s) => {
       await s.session.send({
-        prompt: buildReviewPrompt((ctx.inputs.prompt ?? "")),
+        prompt: buildReviewPrompt((s.inputs.prompt ?? "")),
       });
       const reviewRaw = getAssistantText(await s.session.getMessages());
 
@@ -209,8 +209,8 @@ import { getAssistantText } from "../helpers/parsers.ts"; // see failure-modes.m
     consecutiveClean = 0;
 
     const fixPrompt = parsed
-      ? buildFixSpecFromReview(parsed, (ctx.inputs.prompt ?? ""))
-      : buildFixSpecFromRawReview(reviewRaw, (ctx.inputs.prompt ?? ""));
+      ? buildFixSpecFromReview(parsed, (s.inputs.prompt ?? ""))
+      : buildFixSpecFromRawReview(reviewRaw, (s.inputs.prompt ?? ""));
 
     await ctx.stage({ name: `fix-${cycle}` }, {}, {}, async (s) => {
       await s.session.send({
@@ -391,11 +391,11 @@ Within a single session callback, each SDK call adds to the conversation context
 .run(async (ctx) => {
   await ctx.stage({ name: "implement" }, {}, {}, async (s) => {
     try {
-      await s.session.query((ctx.inputs.prompt ?? ""));
+      await s.session.query((s.inputs.prompt ?? ""));
     } catch (error) {
       // Retry with simpler prompt
       await s.session.query(
-        `The previous attempt failed. Please try a simpler approach: ${(ctx.inputs.prompt ?? "")}`,
+        `The previous attempt failed. Please try a simpler approach: ${(s.inputs.prompt ?? "")}`,
       );
     }
     s.save(s.sessionId);
@@ -424,7 +424,7 @@ async function retryWithBackoff<T>(
 
 .run(async (ctx) => {
   await ctx.stage({ name: "implement" }, {}, {}, async (s) => {
-    await retryWithBackoff(() => s.session.query((ctx.inputs.prompt ?? "")));
+    await retryWithBackoff(() => s.session.query((s.inputs.prompt ?? "")));
     s.save(s.sessionId);
   });
 })
@@ -440,7 +440,7 @@ import { extractAssistantText } from "@bastani/atomic/workflows";
 .run(async (ctx) => {
   // Step 1: Analyse — result is available as a typed handle
   const analysisHandle = await ctx.stage({ name: "analyze" }, {}, {}, async (s) => {
-    const result = await s.session.query(`Analyse the task: ${(ctx.inputs.prompt ?? "")}`);
+    const result = await s.session.query(`Analyse the task: ${(s.inputs.prompt ?? "")}`);
     s.save(s.sessionId);
     return extractAssistantText(result, 0);
   });

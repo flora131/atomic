@@ -89,6 +89,18 @@ The nullish coalescing on `notes` handles the optional field case —
 declared-but-unset inputs resolve to `undefined` unless they have a
 `default`.
 
+**Style convention.** Inside a stage callback, both `s.inputs.<name>` and
+`ctx.inputs.<name>` resolve to the same value. Either of these patterns
+works:
+
+- **Destructure once at the top of `.run()`** so each stage closes over a
+  bare local. Best when many stages reference the same input.
+- **Inline access** with `(s.inputs.<name> ?? "")` at each call site. Best
+  for short workflows or when each stage uses a different field.
+
+Pick whichever reads cleaner for your workflow. Examples in other reference
+files use the inline form for brevity in focused snippets.
+
 ## Declaring an input schema
 
 Pass an `inputs` array to `defineWorkflow({ ... })`. Each entry is a
@@ -205,21 +217,9 @@ because the form teaches the schema as the user fills it in.
 
 ## Builtin protection
 
-Builtin workflows (the ones shipped inside the SDK — currently `ralph`
-and `deep-research-codebase`) are **reserved**. A local or global
-workflow with the same name will not shadow the builtin at resolution
-time — the runtime drops user-defined workflows with reserved names
-before any precedence merge. This prevents a user from accidentally
-redefining the canonical version of a workflow in a way that confuses
-teammates or breaks automation.
-
-You'll still see shadowed local/global workflows in
-`atomic workflow list` output so the collision is visible, but running
-`atomic workflow -n ralph -a claude` will always land on the builtin.
-
-The practical implication: **don't name a new workflow `ralph` or
-`deep-research-codebase`**. Pick a distinct name and you'll never hit
-this.
+Builtin names (`ralph`, `deep-research-codebase`) are reserved — pick
+distinct names for your workflows. Full precedence + shadowing rules
+live in `discovery-and-verification.md`.
 
 ## Invocation details
 

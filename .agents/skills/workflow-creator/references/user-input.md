@@ -7,7 +7,7 @@ For **invocation-time** inputs (the values the user supplies when they launch th
 ## Claude
 
 Never import `query` from `@anthropic-ai/claude-agent-sdk` inside a stage
-callback — that's the F17 anti-pattern (see `failure-modes.md` §F17). All
+callback — that's the F16 anti-pattern (see `failure-modes.md` §F16). All
 options route through `s.session.query(prompt, sdkOptions)` in headless
 stages, or through `chatFlags` in interactive stages.
 
@@ -106,7 +106,7 @@ await ctx.stage({ name: "plan" }, {}, {
     return answer;
   },
 }, async (s) => {
-  await s.session.send({ prompt: (ctx.inputs.prompt ?? "") });
+  await s.session.send({ prompt: (s.inputs.prompt ?? "") });
   s.save(await s.session.getMessages());
 });
 ```
@@ -126,7 +126,7 @@ await ctx.stage({ name: "plan" }, {}, {
     };
   },
 }, async (s) => {
-  await s.session.send({ prompt: (ctx.inputs.prompt ?? "") });
+  await s.session.send({ prompt: (s.inputs.prompt ?? "") });
   s.save(await s.session.getMessages());
 });
 ```
@@ -141,7 +141,7 @@ import { approveAll } from "@github/copilot-sdk";
 
 // Explicit (same as the default):
 await ctx.stage({ name: "plan" }, {}, { onPermissionRequest: approveAll }, async (s) => {
-  await s.session.send({ prompt: (ctx.inputs.prompt ?? "") });
+  await s.session.send({ prompt: (s.inputs.prompt ?? "") });
   s.save(await s.session.getMessages());
 });
 ```
@@ -160,7 +160,7 @@ await ctx.stage({ name: "plan" }, {}, {
     return { kind: "approved" };
   },
 }, async (s) => {
-  await s.session.send({ prompt: (ctx.inputs.prompt ?? "") });
+  await s.session.send({ prompt: (s.inputs.prompt ?? "") });
   s.save(await s.session.getMessages());
 });
 ```
@@ -215,11 +215,10 @@ Use user input results in conditional logic. This Claude example uses
 user directly, and you parse the response to branch:
 
 ```ts
-import { query } from "@anthropic-ai/claude-agent-sdk";
-
-// Inside a ctx.stage() callback (Claude example):
+// Inside a ctx.stage() callback (Claude example).
+// AskUserQuestion must be in allowedTools — see "Via AskUserQuestion tool" above.
 async (s) => {
-  const plan = await s.transcript("plan");
+  const plan = await s.transcript("plan"); // or s.transcript(handle) if a handle is in scope (preferred)
 
   // Let the agent ask the user for approval via AskUserQuestion
   const result = await s.session.query(

@@ -171,33 +171,27 @@ if (needsReview) {
 
 ## Headless (background) stages
 
-Stages can run in headless mode by setting `headless: true` in the first argument to `ctx.stage()`. Headless stages execute the provider SDK in-process instead of spawning a tmux window — they are invisible in the workflow graph but tracked via a background task counter in the statusline.
+Set `headless: true` in the stage options to run the provider SDK
+in-process instead of spawning a tmux window — invisible in the graph,
+identical callback API.
 
 ```ts
-// Headless stage — identical callback API, no tmux window
 const result = await ctx.stage(
   { name: "background-task", headless: true },
   {}, {},
   async (s) => {
-    // s.client, s.session, s.save(), s.transcript() all work identically
     const result = await s.session.query("Analyze the codebase.");
     s.save(s.sessionId);
     return extractAssistantText(result, 0);
   },
 );
-// result.result contains the returned value
 ```
 
-The callback interface is identical to interactive stages. The only differences:
-- No tmux window is created
-- The stage does not appear as a node in the workflow graph
-- The `paneId` is a virtual identifier: `headless-<name>-<sessionId>`
-- Background stages are tracked by a counter in the orchestrator statusline
-
-**Common pattern — visible seed, parallel headless gather, visible merge:**
-see `control-flow.md` §"Headless stages: transparent to graph topology" for
-the canonical example. Headless stages are transparent to graph topology —
-`seed → [3 headless] → merge` renders as `seed → merge` in the graph.
+For per-provider mechanics, the canonical fan-out pattern (visible seed →
+parallel headless → visible merge), and topology semantics, see
+`control-flow.md` §"Headless stages: transparent to graph topology" and the
+per-SDK "Headless mode" sections in `agent-sessions.md`. Failure visibility
+caveats live in `failure-modes.md` §F15.
 
 ## SDK exports
 
@@ -261,18 +255,9 @@ The Atomic runtime provides `s.client` and `s.session` with types resolved from 
 
 ## Reference files
 
-| File | Topic |
-|---|---|
-| `failure-modes.md` | 16 catalogued silent + loud failures with wrong-vs-right patterns and a pre-ship design checklist — **read before shipping any multi-session workflow** |
-| `workflow-inputs.md` | Declaring the `inputs: WorkflowInput[]` schema, the free-form vs structured decision, CLI flag + picker invocation surfaces, builtin protection |
-| `agent-sessions.md` | Creating agent sessions with SDK calls per provider |
-| `computation-and-validation.md` | Deterministic computation, parsing, validation inside `run()` |
-| `user-input.md` | Collecting user input **mid-workflow** (for invocation-time inputs, see `workflow-inputs.md`) |
-| `control-flow.md` | Loops, conditionals, early termination in plain TypeScript |
-| `state-and-data-flow.md` | Data flow between sessions, transcripts, persistence |
-| `session-config.md` | Per-SDK session configuration: model, tools, permissions, hooks |
-| `running-workflows.md` | How to **run** (not author) an existing workflow on the user's behalf — invocation recipe, input discovery, status monitoring, teardown |
-| `discovery-and-verification.md` | Workflow file discovery, validation, TypeScript config |
+The full table of references with load triggers lives in SKILL.md
+§"Reference Files". Pull `failure-modes.md` before shipping any
+multi-session workflow, and `agent-sessions.md` whenever writing SDK calls.
 
 ## Builtin reference implementations
 
@@ -287,4 +272,4 @@ For a minimal headless example (not a builtin — it lives as a local workflow i
 
 ## Type safety
 
-The SDK is typed with **no `unknown` or `any`**. `SessionContext` fields are precisely typed, and native provider types may appear inside Atomic generic aliases and runtime values — if you need to name those types in your own code, import them from the provider SDK directly. Use `import type` for type-only imports. Use `.for<"agent">()` to narrow `s.client` and `s.session` to the correct provider types. Declare `inputs` inline so TypeScript enforces typed access on `ctx.inputs`.
+The SDK avoids `any` and uses `unknown` only at well-defined boundaries (e.g., `SessionRef = string | SessionHandle<unknown>` for handle-erased lookups). `SessionContext` fields are precisely typed, and native provider types may appear inside Atomic generic aliases and runtime values — if you need to name those types in your own code, import them from the provider SDK directly. Use `import type` for type-only imports. Use `.for<"agent">()` to narrow `s.client` and `s.session` to the correct provider types. Declare `inputs` inline so TypeScript enforces typed access on `ctx.inputs`.

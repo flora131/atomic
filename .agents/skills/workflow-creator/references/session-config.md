@@ -25,7 +25,7 @@ If you want to configure agent/permission/tools behavior for a **headless** Clau
 
 ```ts
 await ctx.stage({ name: "..." }, {}, {}, async (s) => {
-  await s.session.query((ctx.inputs.prompt ?? ""));
+  await s.session.query((s.inputs.prompt ?? ""));
   s.save(s.sessionId);
 });
 ```
@@ -35,7 +35,7 @@ await ctx.stage({ name: "..." }, {}, {}, async (s) => {
 **This block is a reference cheatsheet for the SDK option shape — it is
 not valid workflow code.** Do not import `query` from
 `@anthropic-ai/claude-agent-sdk` inside a `ctx.stage()` callback (see
-`failure-modes.md` §F17). In a **headless** stage, pass these options as
+`failure-modes.md` §F16). In a **headless** stage, pass these options as
 the second argument to `s.session.query(prompt, sdkOptions)` — the runtime
 forwards them to the Agent SDK. In an **interactive** stage, the options
 are silently ignored; drive behaviour via `chatFlags` in `clientOpts`
@@ -50,7 +50,7 @@ const result = query({
   options: {
     // Model selection
     model: "claude-opus-4-6",         // Full model ID or alias ("opus", "sonnet", "haiku")
-    effort: "high",                   // "low", "medium", "high", "max" (max is Opus 4.6 only)
+    effort: "high",                   // "low", "medium", "high", "xhigh", "max" (max is Opus 4.6/4.7 only)
     thinking: { type: "adaptive" },   // Default for supported models; or { type: "enabled", budgetTokens: N }
     maxTurns: 50,                     // Maximum conversation turns
     maxBudgetUsd: 5.0,                // Spending cap in USD
@@ -236,7 +236,7 @@ await ctx.stage({ name: "plan" }, {}, {
     bufferExhaustionThreshold: 0.95,    // block at 95% until compaction completes
   },
 }, async (s) => {
-  await s.session.send({ prompt: (ctx.inputs.prompt ?? "") });
+  await s.session.send({ prompt: (s.inputs.prompt ?? "") });
   s.save(await s.session.getMessages());
 });
 ```
@@ -246,7 +246,7 @@ await ctx.stage({ name: "plan" }, {}, {
 ```ts
 // Approve everything (autonomous) — this is the default
 await ctx.stage({ name: "plan" }, {}, { onPermissionRequest: approveAll }, async (s) => {
-  await s.session.send({ prompt: (ctx.inputs.prompt ?? "") });
+  await s.session.send({ prompt: (s.inputs.prompt ?? "") });
   s.save(await s.session.getMessages());
 });
 
@@ -266,7 +266,7 @@ await ctx.stage({ name: "plan" }, {}, {
     }
   },
 }, async (s) => {
-  await s.session.send({ prompt: (ctx.inputs.prompt ?? "") });
+  await s.session.send({ prompt: (s.inputs.prompt ?? "") });
   s.save(await s.session.getMessages());
 });
 ```
@@ -310,7 +310,7 @@ await ctx.stage({ name: "implement" }, {}, {}, async (s) => {
   // Basic prompt
   const result = await s.client.session.prompt({
     sessionID: s.session.id,
-    parts: [{ type: "text", text: (ctx.inputs.prompt ?? "") }],
+    parts: [{ type: "text", text: (s.inputs.prompt ?? "") }],
   });
 
   // Structured output

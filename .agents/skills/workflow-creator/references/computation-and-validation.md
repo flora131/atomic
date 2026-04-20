@@ -74,39 +74,12 @@ const text = extractResponseText(result.data!.parts);
 
 ### JSON parsing with fallback
 
-Use a layered fallback: direct parse, then the **last** fenced block (not
-the first — see `failure-modes.md` §F4 / §F8 for why), then last balanced
-object:
-
-```ts
-function parseJsonResponse(text: string): Record<string, unknown> | null {
-  // 1. Direct parse
-  try { return JSON.parse(text); } catch {}
-
-  // 2. LAST fenced code block (prose often quotes examples before the real output)
-  const blockRe = /```(?:json)?\s*\n([\s\S]*?)\n```/g;
-  let lastBlock: string | null = null;
-  let m: RegExpExecArray | null;
-  while ((m = blockRe.exec(text)) !== null) {
-    if (m[1]) lastBlock = m[1];
-  }
-  if (lastBlock) {
-    try { return JSON.parse(lastBlock); } catch {}
-  }
-
-  // 3. Last balanced JSON object
-  const objRe = /\{[\s\S]*\}/g;
-  let lastObj: string | null = null;
-  while ((m = objRe.exec(text)) !== null) {
-    if (m[0]) lastObj = m[0];
-  }
-  if (lastObj) {
-    try { return JSON.parse(lastObj); } catch {}
-  }
-
-  return null;
-}
-```
+Use a layered fallback: direct parse → **last** fenced block (not the
+first — prose often quotes examples earlier; see `failure-modes.md` §F8) →
+last balanced object. Canonical helper lives in `state-and-data-flow.md`
+§"Response parsers"; copy it into a sibling `helpers/parsers.ts` and
+import. The full three-layer implementation, including the balanced-object
+fallback, is in `src/sdk/workflows/builtin/ralph/helpers/prompts.ts`.
 
 ### Zod validation
 
@@ -173,7 +146,7 @@ Transform data between sessions:
 ```ts
 // Inside a ctx.stage() callback:
 async (s) => {
-  const raw = await s.getMessages("planner");
+  const raw = await s.getMessages("planner"); // or s.getMessages(handle) if a handle is in scope (preferred)
 
   // Transform: extract only task IDs and descriptions
   const tasks = extractTasks(raw).map(t => ({

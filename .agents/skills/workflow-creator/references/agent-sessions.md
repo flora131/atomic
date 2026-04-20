@@ -97,43 +97,16 @@ Claude maintains conversation context across calls within the same pane. Call `s
 
 ### Advanced: Claude Agent SDK `query()` option surface (reference only)
 
-**Do not import `query` from `@anthropic-ai/claude-agent-sdk` inside a `ctx.stage()` callback.** In a non-headless stage it double-spawns Claude (idle TUI pane + in-process SDK call) — see `failure-modes.md` §F17. In a headless stage it bypasses the runtime's wiring. Always go through `s.session.query()`; the runtime forwards options to the SDK for headless stages and routes the interactive TUI for non-headless stages.
+**Do not import `query` from `@anthropic-ai/claude-agent-sdk` inside a `ctx.stage()` callback.** In a non-headless stage it double-spawns Claude (idle TUI pane + in-process SDK call) — see `failure-modes.md` §F16. In a headless stage it bypasses the runtime's wiring. Always go through `s.session.query()`; the runtime forwards options to the SDK for headless stages and routes the interactive TUI for non-headless stages.
 
 Two correct routes:
 
 1. **Headless + SDK options** — `s.session.query(prompt, sdkOptions)` inside `{ headless: true }`.
 2. **Interactive TUI + `--agent`** — `chatFlags: ["--agent", "<name>", ...]` in `clientOpts`.
 
-The snippet below is a **reference cheatsheet for the SDK option shape only** — it is *not* valid workflow code. Use it to learn what `sdkOptions` accepts when passed as the second argument to `s.session.query()` in a headless stage:
+For the full SDK option surface, see `session-config.md` §"`query()` options".
 
-```ts
-// ❌ Do not call query() like this from a workflow. Reference-only to show
-//    which options are available when you pass them to s.session.query().
-import { query } from "@anthropic-ai/claude-agent-sdk";
-
-query({
-  prompt: "...",
-  options: {
-    model: "claude-opus-4-6",
-    effort: "high",
-    maxTurns: 50,
-    maxBudgetUsd: 5.0,
-    permissionMode: "acceptEdits",
-    allowedTools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"],
-    disallowedTools: ["AskUserQuestion"],
-    systemPrompt: "You are a senior engineer...",
-    outputFormat: {
-      type: "json_schema",
-      schema: { type: "object", properties: { tasks: { type: "array", items: { type: "string" } } } },
-    },
-    agents: {
-      reviewer: { description: "Review code changes", prompt: "You are a code reviewer..." },
-    },
-  },
-});
-```
-
-The ✅ equivalent in a real workflow:
+Example workflow usage in a headless stage:
 
 ```ts
 await ctx.stage({ name: "implement", headless: true }, {}, {}, async (s) => {
@@ -153,7 +126,7 @@ await ctx.stage({ name: "implement", headless: true }, {}, {}, async (s) => {
 
 Key `query()` options:
 - `model` — model ID (`"claude-opus-4-6"`, `"claude-sonnet-4-6"`) or alias (`"opus"`, `"sonnet"`, `"haiku"`)
-- `effort` — reasoning effort (`"low"`, `"medium"`, `"high"`, `"max"` — `"max"` is Opus 4.6 only)
+- `effort` — reasoning effort (`"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"` — `"max"` is Opus 4.6/4.7 only)
 - `thinking` — thinking/reasoning config: `{ type: "adaptive" }` (default for supported models), `{ type: "enabled", budgetTokens: N }`, or `{ type: "disabled" }`
 - `maxTurns` — maximum conversation turns
 - `maxBudgetUsd` — spending cap in USD
@@ -176,7 +149,7 @@ Key `query()` options:
 Claude supports parallel subagents via the `agents` option (a
 `Record<string, AgentDefinition>` keyed by agent name). In a workflow,
 pass the option through `s.session.query(prompt, sdkOptions)` in a
-**headless** stage — see §F17 for why the raw SDK `query()` import is
+**headless** stage — see §F16 for why the raw SDK `query()` import is
 an anti-pattern:
 
 ```ts
@@ -231,9 +204,9 @@ await ctx.stage({ name: "fork", headless: true }, {}, {}, async (s) => {
 });
 ```
 
-### Sub-agent delegation
+### Subagent delegation
 
-For stages that call a single sub-agent, use `--agent` (interactive) or the SDK `agent` option (headless) to route all prompts through that agent. The agent must be defined in `.claude/agents/` or `.agents/skills/`.
+For stages that call a single subagent, use `--agent` (interactive) or the SDK `agent` option (headless) to route all prompts through that agent. The agent must be defined in `.claude/agents/` or `.agents/skills/`.
 
 **Interactive stages** — pass `--agent` via `chatFlags` in client opts (2nd arg):
 
@@ -360,7 +333,7 @@ A workflow is not just a sequence of agent calls — it is an **information
 flow problem**. The single most common failure mode in Copilot workflows is
 assuming context carries across session boundaries when it doesn't.
 Designing a workflow without thinking about information flow produces
-sub-agents that hallucinate, repeat work, or drop requirements silently.
+subagents that hallucinate, repeat work, or drop requirements silently.
 
 **Treat this section as load-bearing**, not decorative. If you skip it, your
 workflow will ship broken in subtle, non-deterministic ways.
@@ -374,12 +347,12 @@ you need full history, prefer another turn inside the same stage callback.
 Copilot also exposes an advanced `Resumed` state at the provider level. Each
 state determines what context the model sees on its next turn:
 
-| State | How you get there | Context available | Action needed |
-|---|---|---|---|
-| **Fresh** | `client.createSession(...)` (what `ctx.stage()` does) | **None** — empty conversation | You MUST inject everything the agent needs in the first prompt |
-| **Continued** | Same session, additional `send` calls | All prior turns in this session | Nothing — but watch total token usage |
-| **Resumed** *(advanced)* | `client.resumeSession(sessionId)` | All persisted turns from the prior session of the SAME agent | Nothing — full history is reattached. Use only for same-role continuation |
-| **Closed** | `session.disconnect()` or `client.stop()` (auto-handled by runtime after the stage callback returns) | **Gone** from the live client; persisted on disk if the host enables it | Either resume by ID (same agent) or start fresh and re-inject context |
+| State                    | How you get there                                                                                    | Context available                                                       | Action needed                                                             |
+| ------------------------ | ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| **Fresh**                | `client.createSession(...)` (what `ctx.stage()` does)                                                | **None** — empty conversation                                           | You MUST inject everything the agent needs in the first prompt            |
+| **Continued**            | Same session, additional `send` calls                                                                | All prior turns in this session                                         | Nothing — but watch total token usage                                     |
+| **Resumed** *(advanced)* | `client.resumeSession(sessionId)`                                                                    | All persisted turns from the prior session of the SAME agent            | Nothing — full history is reattached. Use only for same-role continuation |
+| **Closed**               | `session.disconnect()` or `client.stop()` (auto-handled by runtime after the stage callback returns) | **Gone** from the live client; persisted on disk if the host enables it | Either resume by ID (same agent) or start fresh and re-inject context     |
 
 The failure mode: you close a session, create a new one, and assume the new
 one "remembers" the previous conversation. It doesn't. `client` is just the
@@ -392,7 +365,7 @@ handoff path.
 // the planner just produced, because each ctx.stage() starts a brand-new
 // conversation for Copilot.
 await ctx.stage({ name: "planner" }, {}, { agent: "planner" }, async (s) => {
-  await s.session.send({ prompt: buildPlannerPrompt((ctx.inputs.prompt ?? "")) });
+  await s.session.send({ prompt: buildPlannerPrompt((s.inputs.prompt ?? "")) });
   s.save(await s.session.getMessages());
 });
 await ctx.stage({ name: "orchestrator" }, {}, { agent: "orchestrator" }, async (s) => {
@@ -421,7 +394,7 @@ const plannerHandle = await ctx.stage(
   {},
   { agent: "planner" },
   async (s) => {
-    await s.session.send({ prompt: buildPlannerPrompt((ctx.inputs.prompt ?? "")) });
+    await s.session.send({ prompt: buildPlannerPrompt((s.inputs.prompt ?? "")) });
     const messages = await s.session.getMessages();
     s.save(messages);
     return getAssistantText(messages); // see failure-modes.md §F1 for getAssistantText
@@ -435,7 +408,7 @@ await ctx.stage(
   async (s) => {
     await s.session.send({
       prompt: buildOrchestratorPrompt(
-        (ctx.inputs.prompt ?? ""),
+        (s.inputs.prompt ?? ""),
         { plannerNotes: plannerHandle.result },
       ),
     });
@@ -491,15 +464,15 @@ trade-offs in depth.
 Information flow is a design problem, not an implementation detail. Before
 committing to a session layout, pull in the relevant skills:
 
-| When you're deciding... | Consult |
-|---|---|
-| What context each session actually needs (anatomy + token budget) | `context-fundamentals` |
+| When you're deciding...                                                  | Consult                |
+| ------------------------------------------------------------------------ | ---------------------- |
+| What context each session actually needs (anatomy + token budget)        | `context-fundamentals` |
 | How many sessions and how they hand off (orchestrator vs peers vs swarm) | `multi-agent-patterns` |
-| How to compress large planner/reviewer output before re-injecting | `context-compression` |
-| How to detect and prevent lost-in-middle, poisoning, and distraction | `context-degradation` |
-| How to use files as coordination medium across sessions | `filesystem-context` |
-| How to persist knowledge across whole workflow runs | `memory-systems` |
-| Which turns to drop, which to cache, when to compact | `context-optimization` |
+| How to compress large planner/reviewer output before re-injecting        | `context-compression`  |
+| How to detect and prevent lost-in-middle, poisoning, and distraction     | `context-degradation`  |
+| How to use files as coordination medium across sessions                  | `filesystem-context`   |
+| How to persist knowledge across whole workflow runs                      | `memory-systems`       |
+| Which turns to drop, which to cache, when to compact                     | `context-optimization` |
 
 These aren't optional reading — they're the difference between a workflow
 that works on day one and a workflow that silently degrades as inputs grow.
@@ -582,27 +555,17 @@ await ctx.stage(
 
 Do **not** just grab `.at(-1).data.content` — a Copilot turn's final
 `assistant.message` often has empty `content` (tool-calls-only) and
-sub-agent messages can pollute the stream via `parentToolCallId`. Concatenate
-every top-level turn's non-empty content instead. See
-`references/failure-modes.md` §"Copilot: `getLastAssistantText` returns
-empty string" for the full explanation and wrong-vs-right examples.
+subagent messages can pollute the stream via `parentToolCallId`. Concatenate
+every top-level turn's non-empty content instead.
+
+The canonical `getAssistantText` helper lives in `failure-modes.md` §F1 —
+copy it into a sibling `helpers/parsers.ts` and import it. Usage:
 
 ```ts
-import type { SessionEvent } from "@github/copilot-sdk";
+import { getAssistantText } from "../helpers/parsers.ts";
 
-/** Concatenate every top-level assistant turn's non-empty content.
- *  Canonical definition — also referenced in failure-modes.md §F1
- *  and computation-and-validation.md. */
-function getAssistantText(messages: SessionEvent[]): string {
-  return messages
-    .filter(
-      (m): m is Extract<SessionEvent, { type: "assistant.message" }> =>
-        m.type === "assistant.message" && !m.data.parentToolCallId,
-    )
-    .map((m) => m.data.content)
-    .filter((c) => c.length > 0)
-    .join("\n\n");
-}
+const messages = await s.session.getMessages();
+const text = getAssistantText(messages);
 ```
 
 ### Streaming events
@@ -618,9 +581,9 @@ s.session.on("assistant.reasoning_delta", (event) => {
 });
 ```
 
-### Sub-agent delegation
+### Subagent delegation
 
-Pass the `agent` parameter in `sessionOpts` (3rd arg to `ctx.stage()`) to bind the session to a named sub-agent:
+Pass the `agent` parameter in `sessionOpts` (3rd arg to `ctx.stage()`) to bind the session to a named subagent:
 
 ```ts
 .run(async (ctx) => {
@@ -693,11 +656,11 @@ export default defineWorkflow({
 
 OpenCode sessions have **exactly the same isolation semantics as Copilot
 sessions**. Every call to `client.session.create(...)` returns a fresh,
-empty conversation. Creating a new session for the next sub-agent wipes
+empty conversation. Creating a new session for the next subagent wipes
 everything the prior session knew — conversation history, tool-call
 results, intermediate reasoning — unless you forward it explicitly.
 
-The full explanation, the three lifecycle states (Fresh / Continued /
+The full explanation, the four lifecycle states (Fresh / Continued /
 Resumed / Closed), the three valid ways to carry context across a session
 boundary, compaction & clearing guidance, and the context engineering
 skill-map live in the **Copilot** section above under
@@ -706,13 +669,13 @@ available"](#critical-pitfall-session-lifecycle-controls-what-context-is-availab
 Every principle there applies to OpenCode without modification — just
 substitute the OpenCode API equivalents:
 
-| Concept | Copilot API | OpenCode API |
-|---|---|---|
-| Fresh session (auto-created) | `s.session` (runtime creates via `createSession`) | `s.session` (runtime creates via `session.create`) |
-| Send a turn | `s.session.send({ prompt })` | `s.client.session.prompt({ sessionID: s.session.id, parts })` |
-| Close / disconnect | Auto-handled by runtime | session lifecycle managed via server; no explicit disconnect in typical flow |
-| Continue prior conversation | `s.client.resumeSession(sessionId)` (provider API; advanced) | Reuse the same `sessionID` with `s.client.session.prompt()` inside the same logical conversation. `ctx.stage()` itself still creates a fresh session every time |
-| Extract final text | `getAssistantText(messages)` (see `failure-modes.md` §F1) | `extractResponseText(result.data!.parts)` |
+| Concept                      | Copilot API                                                  | OpenCode API                                                                                                                                                    |
+| ---------------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Fresh session (auto-created) | `s.session` (runtime creates via `createSession`)            | `s.session` (runtime creates via `session.create`)                                                                                                              |
+| Send a turn                  | `s.session.send({ prompt })`                                 | `s.client.session.prompt({ sessionID: s.session.id, parts })`                                                                                                   |
+| Close / disconnect           | Auto-handled by runtime                                      | session lifecycle managed via server; no explicit disconnect in typical flow                                                                                    |
+| Continue prior conversation  | `s.client.resumeSession(sessionId)` (provider API; advanced) | Reuse the same `sessionID` with `s.client.session.prompt()` inside the same logical conversation. `ctx.stage()` itself still creates a fresh session every time |
+| Extract final text           | `getAssistantText(messages)` (see `failure-modes.md` §F1)    | `extractResponseText(result.data!.parts)`                                                                                                                       |
 
 **Multi-agent handoff example (applies the same pattern as Copilot):**
 
@@ -722,7 +685,7 @@ substitute the OpenCode API equivalents:
 await ctx.stage({ name: "planner" }, {}, { title: "planner" }, async (s) => {
   const result = await s.client.session.prompt({
     sessionID: s.session.id,
-    parts: [{ type: "text", text: buildPlannerPrompt((ctx.inputs.prompt ?? "")) }],
+    parts: [{ type: "text", text: buildPlannerPrompt((s.inputs.prompt ?? "")) }],
     agent: "planner",
   });
   s.save(result.data!);
@@ -744,7 +707,7 @@ const plannerHandle = await ctx.stage(
   async (s) => {
     const result = await s.client.session.prompt({
       sessionID: s.session.id,
-      parts: [{ type: "text", text: buildPlannerPrompt((ctx.inputs.prompt ?? "")) }],
+      parts: [{ type: "text", text: buildPlannerPrompt((s.inputs.prompt ?? "")) }],
       agent: "planner",
     });
     s.save(result.data!);
@@ -762,7 +725,7 @@ await ctx.stage(
       parts: [{
         type: "text",
         text: buildOrchestratorPrompt(
-          (ctx.inputs.prompt ?? ""),
+          (s.inputs.prompt ?? ""),
           { plannerNotes: plannerHandle.result },
         ),
       }],
@@ -853,20 +816,14 @@ const result = await s.client.session.prompt({
 
 ### Extracting response text
 
-```ts
-/** Filter for text parts only — non-text parts produce [object Object].
- *  Canonical definition — also referenced in failure-modes.md §F3
- *  and computation-and-validation.md. */
-function extractResponseText(
-  parts: Array<{ type: string; [key: string]: unknown }>,
-): string {
-  return parts
-    .filter((p) => p.type === "text")
-    .map((p) => (p as { type: string; text: string }).text)
-    .join("\n");
-}
+Non-text parts (`tool`, `file`, `reasoning`, …) coexist with `text` parts in
+`result.data!.parts`; naive `.map(p => p.text)` emits `undefined` for them.
+The canonical `extractResponseText` helper lives in `failure-modes.md` §F3 —
+copy it into a sibling `helpers/parsers.ts` and import it. Usage:
 
-// Usage inside a ctx.stage callback:
+```ts
+import { extractResponseText } from "../helpers/parsers.ts";
+
 const result = await s.client.session.prompt({
   sessionID: s.session.id,
   parts: [{ type: "text", text: (s.inputs.prompt ?? "") }],
@@ -885,9 +842,9 @@ const unsubscribe = await s.client.event.subscribe((event) => {
 });
 ```
 
-### Sub-agent delegation
+### Subagent delegation
 
-Pass the `agent` parameter to `s.client.session.prompt()` to route a prompt to a named sub-agent:
+Pass the `agent` parameter to `s.client.session.prompt()` to route a prompt to a named subagent:
 
 ```ts
 .run(async (ctx) => {

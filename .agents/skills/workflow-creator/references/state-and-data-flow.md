@@ -110,7 +110,7 @@ Use closures and variables for state within a single session:
 
     for (let cycle = 0; cycle < 10; cycle++) {
       const result = await s.session.query(
-        buildReviewPrompt((ctx.inputs.prompt ?? ""), priorOutput),
+        buildReviewPrompt((s.inputs.prompt ?? ""), priorOutput),
       );
 
       // Accumulate findings
@@ -128,7 +128,7 @@ Use closures and variables for state within a single session:
       consecutiveClean = 0;
 
       // Apply fix
-      const fixResult = await s.session.query(buildFixSpec(review, (ctx.inputs.prompt ?? "")));
+      const fixResult = await s.session.query(buildFixSpec(review, (s.inputs.prompt ?? "")));
       priorOutput = extractAssistantText(fixResult, 0);
     }
 
@@ -210,6 +210,11 @@ export function buildReviewPrompt(spec: string, priorOutput?: string): string {
 
 ### Response parsers
 
+For tolerant JSON parsing, see `failure-modes.md` §F8 — the canonical
+`parseReviewResult` helper uses a layered fallback (direct parse → last
+fenced block → last balanced object) that survives prose interleaving.
+Copy that implementation into `helpers/parsers.ts` and import.
+
 ```ts
 // .atomic/workflows/my-workflow/helpers/parsers.ts
 export interface ReviewResult {
@@ -217,27 +222,9 @@ export interface ReviewResult {
   overall_correctness: string;
 }
 
-/** Layered fallback: direct parse → last fenced block → last balanced object.
- *  Always extract the LAST block, not the first — see failure-modes.md §F4/§F8. */
+// See failure-modes.md §F8 for the full implementation.
 export function parseReviewResult(text: string): ReviewResult | null {
-  // 1. Direct parse
-  try {
-    const parsed = JSON.parse(text);
-    if (parsed?.findings) return parsed;
-  } catch {}
-
-  // 2. Last fenced block
-  const blockRe = /```(?:json)?\s*\n([\s\S]*?)\n```/g;
-  let lastBlock: string | null = null;
-  let m: RegExpExecArray | null;
-  while ((m = blockRe.exec(text)) !== null) {
-    if (m[1]) lastBlock = m[1];
-  }
-  if (lastBlock) {
-    try { return JSON.parse(lastBlock); } catch {}
-  }
-
-  return null;
+  // ... three-layer fallback per §F8
 }
 ```
 

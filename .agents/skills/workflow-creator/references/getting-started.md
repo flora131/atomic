@@ -234,7 +234,6 @@ The `@bastani/atomic/workflows` package exports the workflow authoring primitive
 - `ProviderClient<A>` — the `s.client` type, resolved by agent type
 - `ProviderSession<A>` — the `s.session` type, resolved by agent type
 - `ClaudeSessionWrapper` — Atomic wrapper for Claude sessions (exposes `s.session.query()`, which returns `SessionMessage[]`)
-- `ClaudeQueryDefaults` — per-stage query defaults (timeouts, poll interval) for Claude sessions
 - `SessionRef` — `string | SessionHandle<unknown>` for transcript/message lookups
 - `WorkflowContext` — top-level context passed to `.run()` callback
 - `WorkflowOptions` — `{ name, description? }` workflow metadata

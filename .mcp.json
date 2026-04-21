@@ -8,11 +8,9 @@
       }
     },
     "azure-devops": {
-      "type": "http",
-      "url": "https://dev.azure.com/your-org/_apis/mcp",
-      "headers": {
-        "Authorization": "Bearer ${AZURE_DEVOPS_PAT}"
-      }
+      "type": "stdio",
+      "command": "bunx",
+      "args": ["-y", "@azure-devops/mcp", "<your-org>"]
     }
   }
 }

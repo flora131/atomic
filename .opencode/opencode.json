@@ -7,14 +7,13 @@
       "url": "https://api.githubcopilot.com/mcp",
       "headers": {
         "Authorization": "Bearer ${env:GITHUB_PERSONAL_ACCESS_TOKEN}"
-      }
+      },
+      "enabled": false
     },
     "azure-devops": {
-      "type": "remote",
-      "url": "https://dev.azure.com/your-org/_apis/mcp",
-      "headers": {
-        "Authorization": "Bearer ${env:AZURE_DEVOPS_PAT}"
-      }
+      "type": "local",
+      "command": ["bunx", "-y", "@azure-devops/mcp", "<your-org>"],
+      "enabled": false
     }
   }
 }

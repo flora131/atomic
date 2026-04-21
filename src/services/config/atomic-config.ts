@@ -16,6 +16,14 @@ import { ensureDir } from "../system/copy.ts";
 const SETTINGS_DIR = ".atomic";
 const SETTINGS_FILENAME = "settings.json";
 
+/** Source control providers Atomic can auto-configure MCP servers for. */
+export const SCM_PROVIDERS = ["github", "azure-devops", "sapling"] as const;
+export type ScmProvider = (typeof SCM_PROVIDERS)[number];
+
+export function isScmProvider(value: unknown): value is ScmProvider {
+  return typeof value === "string" && (SCM_PROVIDERS as readonly string[]).includes(value);
+}
+
 /**
  * Atomic project configuration schema.
  */
@@ -24,6 +32,8 @@ export interface AtomicConfig {
   version?: number;
   /** Timestamp of last init */
   lastUpdated?: string;
+  /** Selected source control provider (drives MCP server enable/disable sync). */
+  scm?: ScmProvider;
   /** Per-provider overrides for chatFlags and envVars */
   providers?: Partial<Record<AgentKey, ProviderOverrides>>;
 }
@@ -91,6 +101,7 @@ function pickAtomicConfig(record: JsonRecord | null): AtomicConfig | null {
 
   if (typeof version === "number") config.version = version;
   if (typeof lastUpdated === "string") config.lastUpdated = lastUpdated;
+  if (isScmProvider(record.scm)) config.scm = record.scm;
 
   const providers = pickProviders(record.providers);
   if (providers) config.providers = providers;
@@ -134,6 +145,7 @@ function mergeConfigs(...configs: Array<AtomicConfig | null>): AtomicConfig | nu
     if (!config) continue;
     if (config.version !== undefined) merged.version = config.version;
     if (config.lastUpdated !== undefined) merged.lastUpdated = config.lastUpdated;
+    if (config.scm !== undefined) merged.scm = config.scm;
 
     if (config.providers) {
       if (!merged.providers) merged.providers = {};

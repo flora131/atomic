@@ -15,12 +15,14 @@ import { SETTINGS_SCHEMA_URL } from "./settings-schema.ts";
 import { ensureDir } from "../system/copy.ts";
 import { errorMessage } from "../../sdk/errors.ts";
 import type { AgentKey, ProviderOverrides } from "./definitions.ts";
+import type { ScmProvider } from "./atomic-config.ts";
 
 interface AtomicSettings {
   $schema?: string;
   version?: number;
   lastUpdated?: string;
   telemetryEnabled?: boolean;
+  scm?: ScmProvider;
   providers?: Partial<Record<AgentKey, ProviderOverrides>>;
 }
 
@@ -62,5 +64,22 @@ export async function setTelemetryEnabled(enabled: boolean): Promise<void> {
     await writeGlobalSettings(settings);
   } catch (e) {
     console.warn(`[settings] failed to set telemetry: ${errorMessage(e)}`);
+  }
+}
+
+/**
+ * Set the selected source control provider in global settings.
+ *
+ * The value is read on every `atomic chat` / `atomic workflow` startup
+ * to reconcile the enable/disable state of the GitHub and Azure DevOps
+ * MCP servers in `.claude/settings.json` and `.opencode/opencode.json`.
+ */
+export async function setScmProvider(scm: ScmProvider): Promise<void> {
+  try {
+    const settings = await loadSettingsFile(globalSettingsPath());
+    settings.scm = scm;
+    await writeGlobalSettings(settings);
+  } catch (e) {
+    console.warn(`[settings] failed to set scm: ${errorMessage(e)}`);
   }
 }

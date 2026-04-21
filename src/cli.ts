@@ -318,8 +318,8 @@ Examples:
     configCmd
         .command("set")
         .description("Set a configuration value")
-        .argument("<key>", "Configuration key (e.g., telemetry)")
-        .argument("<value>", "Value to set (e.g., true, false)")
+        .argument("<key>", "Configuration key (telemetry | scm)")
+        .argument("<value>", "Value to set (telemetry: true|false; scm: github|azure-devops|sapling)")
         .action(async (key: string, value: string) => {
             const { configCommand } = await import("./commands/cli/config.ts");
             const exitCode = await configCommand("set", key, value);

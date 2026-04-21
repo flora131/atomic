@@ -9,9 +9,9 @@
 [![Bun](https://img.shields.io/badge/Bun-Runtime-f9f1e1?logo=bun&logoColor=black)](./package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-**An open-source TypeScript SDK for building harnesses around your coding agent** — Claude Code, OpenCode, or GitHub Copilot CLI. Chain agent sessions into deterministic pipelines, add human-in-the-loop approval gates, dispatch **12 specialized sub-agents**, and tap **55 built-in skills** — then ship it as TypeScript your whole team runs.
+**An open-source TypeScript SDK for building harnesses around your coding agent** — Claude Code, OpenCode, or GitHub Copilot CLI. Chain agent sessions into deterministic pipelines, add human-in-the-loop approval gates, dispatch **12 specialized sub-agents**, and tap **57 built-in skills** — then ship it as TypeScript your whole team runs.
 
-> Define how your agent works. Start for yourself, scale to your team.
+> Define how your agent works. Start for yourself, scale to your team — across GitHub, Azure DevOps (ADO), or Sapling.
 
 ---
 
@@ -255,27 +255,54 @@ atomic workflow -n ux-personas -a claude
 
 ## Table of Contents
 
-- [Quick Start](#quick-start)
-- [Why Atomic](#why-atomic)
-- [Security: Workflow Permissions Model](#security-workflow-permissions-model)
-- [Core Features](#core-features)
-  - [Multi-Agent Support](#multi-agent-support)
-  - [Workflow SDK](#workflow-sdk--build-your-own-deterministic-harness)
-  - [Research Codebase](#research-codebase)
-  - [Autonomous Execution (Ralph)](#autonomous-execution-ralph)
-  - [Deep Research Codebase](#deep-research-codebase)
-  - [Containerized Execution](#containerized-execution)
-  - [Specialized Sub-Agents](#specialized-sub-agents)
-  - [Built-in Skills](#built-in-skills)
-  - [Workflow Orchestrator Panel](#workflow-orchestrator-panel)
-- [Commands Reference](#commands-reference)
-- [Configuration](#configuration)
-- [Updating & Uninstalling](#updating--uninstalling)
-- [Troubleshooting](#troubleshooting)
-- [FAQ](#faq)
-- [Contributing](#contributing)
-- [License](#license)
-- [Credits](#credits)
+- [Atomic](#atomic)
+  - [Quick Start](#quick-start)
+    - [Prerequisites](#prerequisites)
+    - [1. Install](#1-install)
+    - [2. Generate context files](#2-generate-context-files)
+    - [3. Try Ralph (autonomous coding)](#3-try-ralph-autonomous-coding)
+    - [4. Build your own workflow](#4-build-your-own-workflow)
+    - [Managing sessions](#managing-sessions)
+  - [Why Atomic](#why-atomic)
+    - [Example use cases](#example-use-cases)
+  - [Table of Contents](#table-of-contents)
+  - [Security: Workflow Permissions Model](#security-workflow-permissions-model)
+  - [Core Features](#core-features)
+    - [Multi-Agent Support](#multi-agent-support)
+    - [Workflow SDK — Build Your Own Deterministic Harness](#workflow-sdk--build-your-own-deterministic-harness)
+      - [Builder API](#builder-api)
+      - [WorkflowContext (`ctx`) — top-level orchestrator](#workflowcontext-ctx--top-level-orchestrator)
+      - [SessionContext (`s`) — inside each session callback](#sessioncontext-s--inside-each-session-callback)
+      - [Session Options (`SessionRunOptions`)](#session-options-sessionrunoptions)
+      - [Saving Transcripts](#saving-transcripts)
+      - [Per-Agent Session APIs](#per-agent-session-apis)
+      - [Key Rules](#key-rules)
+    - [Research Codebase](#research-codebase)
+    - [Autonomous Execution (Ralph)](#autonomous-execution-ralph)
+    - [Deep Research Codebase](#deep-research-codebase)
+    - [Containerized Execution](#containerized-execution)
+    - [Specialized Sub-Agents](#specialized-sub-agents)
+    - [Built-in Skills](#built-in-skills)
+    - [Workflow Orchestrator Panel](#workflow-orchestrator-panel)
+  - [Commands Reference](#commands-reference)
+    - [CLI Commands](#cli-commands)
+      - [Global Flags](#global-flags)
+      - [`atomic session` Subcommands](#atomic-session-subcommands)
+      - [`atomic chat` Flags](#atomic-chat-flags)
+      - [`atomic workflow` Flags](#atomic-workflow-flags)
+      - [`atomic completions` — Shell Completions](#atomic-completions--shell-completions)
+    - [Atomic-Provided Skills (invokable from any agent chat)](#atomic-provided-skills-invokable-from-any-agent-chat)
+  - [Configuration](#configuration)
+    - [`.atomic/settings.json`](#atomicsettingsjson)
+    - [Agent-Specific Files](#agent-specific-files)
+  - [Updating \& Uninstalling](#updating--uninstalling)
+    - [Update](#update)
+    - [Uninstall](#uninstall)
+  - [Troubleshooting](#troubleshooting)
+  - [FAQ](#faq)
+  - [Contributing](#contributing)
+  - [License](#license)
+  - [Credits](#credits)
 
 ---
 
@@ -529,19 +556,19 @@ The graph shows `seed → merge` — headless stages are transparent to the topo
 
 **Key capabilities:**
 
-| Capability                         | Description                                                                                                                                                                      |
-| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Dynamic session spawning**       | `ctx.stage()` spawns sessions at runtime — each gets its own tmux window and graph node                                                                                          |
-| **Native TypeScript control flow** | Use `for`, `if/else`, `Promise.all()`, `try/catch` — no framework DSL                                                                                                            |
-| **Session return values**          | Session callbacks can return data: `const h = await ctx.stage(...); h.result`                                                                                                    |
-| **Transcript passing**             | Access prior output via handle (`s.transcript(handle)`) or name (`s.transcript("name")`)                                                                                         |
-| **Declared input schemas**         | Add an `inputs: [...]` array and the CLI materialises `--<field>=<value>` flags with built-in validation                                                                         |
-| **Interactive picker**             | `atomic workflow -a <agent>` renders input schemas as forms — no flag memorisation                                                                                               |
-| **Nested sub-sessions**            | `s.stage()` inside a callback spawns child sessions — visible as nested graph nodes                                                                                              |
-| **Auto-inferred graph**            | Topology derived from `await` / `Promise.all` patterns — no annotations                                                                                                          |
-| **Provider-agnostic**              | Write raw SDK code for Claude, Copilot, or OpenCode inside each callback                                                                                                         |
-| **Live graph visualization**       | Sessions appear in the TUI graph as they spawn — loops and conditionals visible in real time                                                                                     |
-| **Background (headless) stages**   | `headless: true` runs in-process without a tmux window — invisible in graph, tracked by statusline counter, identical callback API                                               |
+| Capability                         | Description                                                                                                                        |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| **Dynamic session spawning**       | `ctx.stage()` spawns sessions at runtime — each gets its own tmux window and graph node                                            |
+| **Native TypeScript control flow** | Use `for`, `if/else`, `Promise.all()`, `try/catch` — no framework DSL                                                              |
+| **Session return values**          | Session callbacks can return data: `const h = await ctx.stage(...); h.result`                                                      |
+| **Transcript passing**             | Access prior output via handle (`s.transcript(handle)`) or name (`s.transcript("name")`)                                           |
+| **Declared input schemas**         | Add an `inputs: [...]` array and the CLI materialises `--<field>=<value>` flags with built-in validation                           |
+| **Interactive picker**             | `atomic workflow -a <agent>` renders input schemas as forms — no flag memorisation                                                 |
+| **Nested sub-sessions**            | `s.stage()` inside a callback spawns child sessions — visible as nested graph nodes                                                |
+| **Auto-inferred graph**            | Topology derived from `await` / `Promise.all` patterns — no annotations                                                            |
+| **Provider-agnostic**              | Write raw SDK code for Claude, Copilot, or OpenCode inside each callback                                                           |
+| **Live graph visualization**       | Sessions appear in the TUI graph as they spawn — loops and conditionals visible in real time                                       |
+| **Background (headless) stages**   | `headless: true` runs in-process without a tmux window — invisible in graph, tracked by statusline counter, identical callback API |
 
 **Deterministic execution guarantees:**
 
@@ -580,19 +607,19 @@ Variance comes only from the LLM's responses, not from the harness.
 
 #### SessionContext (`s`) — inside each session callback
 
-| Property                                     | Type                        | Description                                                                                                                             |
-| -------------------------------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `s.client`                                   | `ProviderClient<A>`         | Pre-created SDK client (auto-managed by runtime)                                                                                        |
-| `s.session`                                  | `ProviderSession<A>`        | Pre-created provider session (auto-managed by runtime)                                                                                  |
-| `s.inputs`                                   | `{ [K in N]?: string }`     | Same typed inputs as `ctx.inputs`, forwarded into every stage so callbacks can read values without closing over the outer `ctx`         |
-| `s.agent`                                    | `AgentType`                 | Which agent is running                                                                                                                  |
-| `s.paneId`                                   | `string`                    | tmux pane ID for this session                                                                                                           |
-| `s.sessionId`                                | `string`                    | Session UUID                                                                                                                            |
-| `s.sessionDir`                               | `string`                    | Path to this session's storage directory on disk                                                                                        |
-| `s.save(messages)`                           | `SaveTranscript`            | Save this session's output for subsequent sessions                                                                                      |
-| `s.transcript(ref)`                          | `Promise<Transcript>`       | Get a completed session's transcript                                                                                                    |
-| `s.getMessages(ref)`                         | `Promise<SavedMessage[]>`   | Get a completed session's raw native messages                                                                                           |
-| `s.stage(opts, clientOpts, sessionOpts, fn)` | `Promise<SessionHandle<T>>` | Spawn a nested sub-session (child in the graph)                                                                                         |
+| Property                                     | Type                        | Description                                                                                                                     |
+| -------------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `s.client`                                   | `ProviderClient<A>`         | Pre-created SDK client (auto-managed by runtime)                                                                                |
+| `s.session`                                  | `ProviderSession<A>`        | Pre-created provider session (auto-managed by runtime)                                                                          |
+| `s.inputs`                                   | `{ [K in N]?: string }`     | Same typed inputs as `ctx.inputs`, forwarded into every stage so callbacks can read values without closing over the outer `ctx` |
+| `s.agent`                                    | `AgentType`                 | Which agent is running                                                                                                          |
+| `s.paneId`                                   | `string`                    | tmux pane ID for this session                                                                                                   |
+| `s.sessionId`                                | `string`                    | Session UUID                                                                                                                    |
+| `s.sessionDir`                               | `string`                    | Path to this session's storage directory on disk                                                                                |
+| `s.save(messages)`                           | `SaveTranscript`            | Save this session's output for subsequent sessions                                                                              |
+| `s.transcript(ref)`                          | `Promise<Transcript>`       | Get a completed session's transcript                                                                                            |
+| `s.getMessages(ref)`                         | `Promise<SavedMessage[]>`   | Get a completed session's raw native messages                                                                                   |
+| `s.stage(opts, clientOpts, sessionOpts, fn)` | `Promise<SessionHandle<T>>` | Spawn a nested sub-session (child in the graph)                                                                                 |
 
 #### Session Options (`SessionRunOptions`)
 
@@ -645,14 +672,14 @@ For the authoring walkthrough ask Atomic to use the `workflow-creator` skill or 
 
 The `/research-codebase` command dispatches **specialized sub-agents in parallel** to analyze your codebase — understand auth flows, trace root causes, query docs, and hit external sources via [DeepWiki MCP](https://deepwiki.com). Get up to speed on a new project in minutes instead of hours.
 
-| Sub-Agent                    | Model  | Purpose                                                                                   |
-| ---------------------------- | ------ | ----------------------------------------------------------------------------------------- |
-| `codebase-locator`           | Haiku  | Locate files, directories, and components relevant to the research topic                  |
-| `codebase-analyzer`          | Sonnet | Analyze implementation details, trace data flow, explain technical workings               |
-| `codebase-pattern-finder`    | Haiku  | Find similar implementations, usage examples, and existing patterns to model after        |
-| `codebase-online-researcher` | Sonnet | Fetch up-to-date information from the web and repository knowledge from DeepWiki          |
-| `codebase-research-locator`  | Haiku  | Discover relevant documents in `research/` and `specs/` directories                       |
-| `codebase-research-analyzer` | Sonnet | Extract high-value insights, decisions, and technical details from research documents     |
+| Sub-Agent                    | Model  | Purpose                                                                               |
+| ---------------------------- | ------ | ------------------------------------------------------------------------------------- |
+| `codebase-locator`           | Haiku  | Locate files, directories, and components relevant to the research topic              |
+| `codebase-analyzer`          | Sonnet | Analyze implementation details, trace data flow, explain technical workings           |
+| `codebase-pattern-finder`    | Haiku  | Find similar implementations, usage examples, and existing patterns to model after    |
+| `codebase-online-researcher` | Sonnet | Fetch up-to-date information from the web and repository knowledge from DeepWiki      |
+| `codebase-research-locator`  | Haiku  | Discover relevant documents in `research/` and `specs/` directories                   |
+| `codebase-research-analyzer` | Sonnet | Extract high-value insights, decisions, and technical details from research documents |
 
 **Run parallel research sessions** to compare approaches:
 
@@ -748,20 +775,20 @@ See [Quick Start → Devcontainer](#1-install) for a working `.devcontainer.json
 
 Atomic dispatches **purpose-built sub-agents**, each with scoped context, tools, and termination conditions:
 
-| Sub-Agent                    | Purpose                                                                |
-| ---------------------------- | ---------------------------------------------------------------------- |
-| `planner`                    | Decompose specs into structured task lists with dependency tracking    |
-| `worker`                     | Implement single focused tasks (multiple workers run in parallel)      |
-| `reviewer`                   | Audit implementations against specs and best practices                 |
-| `code-simplifier`            | Simplify and refine code for clarity, consistency, maintainability     |
-| `orchestrator`               | Coordinate complex multi-step workflows                                |
-| `codebase-analyzer`          | Analyze implementation details of specific components                  |
-| `codebase-locator`           | Locate files, directories, and components                              |
-| `codebase-pattern-finder`    | Find similar implementations and usage examples                        |
-| `codebase-online-researcher` | Research using web sources and DeepWiki                                |
-| `codebase-research-analyzer` | Deep dive on research topics                                           |
-| `codebase-research-locator`  | Find documents in `research/` directory                                |
-| `debugger`                   | Debug errors, test failures, and unexpected behavior                   |
+| Sub-Agent                    | Purpose                                                             |
+| ---------------------------- | ------------------------------------------------------------------- |
+| `planner`                    | Decompose specs into structured task lists with dependency tracking |
+| `worker`                     | Implement single focused tasks (multiple workers run in parallel)   |
+| `reviewer`                   | Audit implementations against specs and best practices              |
+| `code-simplifier`            | Simplify and refine code for clarity, consistency, maintainability  |
+| `orchestrator`               | Coordinate complex multi-step workflows                             |
+| `codebase-analyzer`          | Analyze implementation details of specific components               |
+| `codebase-locator`           | Locate files, directories, and components                           |
+| `codebase-pattern-finder`    | Find similar implementations and usage examples                     |
+| `codebase-online-researcher` | Research using web sources and DeepWiki                             |
+| `codebase-research-analyzer` | Deep dive on research topics                                        |
+| `codebase-research-locator`  | Find documents in `research/` directory                             |
+| `debugger`                   | Debug errors, test failures, and unexpected behavior                |
 
 <details>
 <summary><i>Why specialize instead of using one general-purpose agent?</i></summary>
@@ -783,7 +810,7 @@ Use `/agents` in any chat session to see all available sub-agents.
 
 ### Built-in Skills
 
-Skills are structured capability modules that give agents best practices and reusable workflows. Atomic ships **55 skills** across eight categories; each lives at `.agents/skills/<name>/SKILL.md` and is auto-invoked when the agent detects a relevant trigger.
+Skills are structured capability modules that give agents best practices and reusable workflows. Atomic ships **57 skills** across eight categories; each lives at `.agents/skills/<name>/SKILL.md` and is auto-invoked when the agent detects a relevant trigger.
 
 <details>
 <summary><b>Development workflows</b></summary>
@@ -872,15 +899,19 @@ Skills are structured capability modules that give agents best practices and reu
 | `pptx`      | Create, read, edit, and manipulate PowerPoint (`.pptx`) slide decks     |
 | `liteparse` | Parse and convert unstructured files (PDF, DOCX, PPTX, images) locally  |
 
-**Git / Sapling / automation:**
+**Git / Azure DevOps / Sapling / automation:**
 
-| Skill            | Description                                              |
-| ---------------- | -------------------------------------------------------- |
-| `gh-commit`      | Conventional-commit Git commits                          |
-| `gh-create-pr`   | Commit unstaged changes, push, and submit a pull request |
-| `sl-commit`      | Conventional-commit Sapling commits                      |
-| `sl-submit-diff` | Submit Sapling commits as Phabricator diffs              |
-| `playwright-cli` | Automate browser interactions, tests, screenshots        |
+| Skill            | Description                                                                 |
+| ---------------- | --------------------------------------------------------------------------- |
+| `gh-commit`      | Conventional-commit Git commits                                             |
+| `gh-create-pr`   | Commit unstaged changes, push, and submit a GitHub PR                       |
+| `ado-commit`     | Conventional-commit Git commits for Azure DevOps (adds `AB#<id>` trailers)  |
+| `ado-create-pr`  | Commit, push, and open an Azure DevOps PR via the `azure-devops` MCP server |
+| `sl-commit`      | Conventional-commit Sapling commits                                         |
+| `sl-submit-diff` | Submit Sapling commits as Phabricator diffs                                 |
+| `playwright-cli` | Automate browser interactions, tests, screenshots                           |
+
+> **Note on source control providers:** the GitHub and Azure DevOps MCP servers are **disabled by default** to avoid consuming tokens on projects that don't need them. Set `scm` in `.atomic/settings.json` (or run `atomic config set scm <provider>`) to `github`, `azure-devops`, or `sapling` — on every `atomic chat` / `atomic workflow` startup Atomic reconciles `.claude/settings.json` (`disabledMcpjsonServers`), `.opencode/opencode.json` (`mcp.<server>.enabled`), and appends `--disable-mcp-server <name>` to the Copilot CLI invocation (Copilot has no on-disk MCP toggle). `sapling` disables both servers everywhere.
 
 **Meta:**
 
@@ -914,16 +945,16 @@ During `atomic chat`, there is no Atomic-owned TUI — `atomic chat -a <agent>` 
 
 ### CLI Commands
 
-| Command                         | Description                                                           |
-| ------------------------------- | --------------------------------------------------------------------- |
-| `atomic chat`                   | Spawn the native agent CLI inside a tmux session                      |
-| `atomic workflow`               | Run a multi-session workflow with the Atomic orchestrator panel       |
-| `atomic workflow list`          | List available workflows, grouped by source                           |
-| `atomic session list`           | List all running sessions on the atomic tmux socket                   |
-| `atomic session connect [name]` | Attach to a session (interactive picker when no name given)           |
-| `atomic session kill [name]`    | Kill a session by name, or all sessions when no name is given         |
-| `atomic completions <shell>`    | Output shell completion script (bash, zsh, fish, powershell)          |
-| `atomic config set <k> <v>`     | Set configuration values (currently supports `telemetry`)             |
+| Command                         | Description                                                     |
+| ------------------------------- | --------------------------------------------------------------- |
+| `atomic chat`                   | Spawn the native agent CLI inside a tmux session                |
+| `atomic workflow`               | Run a multi-session workflow with the Atomic orchestrator panel |
+| `atomic workflow list`          | List available workflows, grouped by source                     |
+| `atomic session list`           | List all running sessions on the atomic tmux socket             |
+| `atomic session connect [name]` | Attach to a session (interactive picker when no name given)     |
+| `atomic session kill [name]`    | Kill a session by name, or all sessions when no name is given   |
+| `atomic completions <shell>`    | Output shell completion script (bash, zsh, fish, powershell)    |
+| `atomic config set <k> <v>`     | Set configuration values (supports `telemetry` and `scm`)       |
 
 #### Global Flags
 
@@ -978,13 +1009,13 @@ atomic chat -a claude --verbose              # forward --verbose to claude
 
 #### `atomic workflow` Flags
 
-| Flag                 | Description                                                                                       |
-| -------------------- | ------------------------------------------------------------------------------------------------- |
-| `-n, --name <name>`  | Workflow name (matches directory under `.atomic/workflows/<name>/`)                               |
-| `-a, --agent <name>` | Agent: `claude`, `opencode`, `copilot`                                                            |
+| Flag                 | Description                                                                                                                                       |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-n, --name <name>`  | Workflow name (matches directory under `.atomic/workflows/<name>/`)                                                                               |
+| `-a, --agent <name>` | Agent: `claude`, `opencode`, `copilot`                                                                                                            |
 | `-d, --detach`       | Start the workflow in the background without attaching — ideal for scripted / CI runs; attach later with `atomic workflow session connect <name>` |
-| `--<field>=<value>`  | Structured input for workflows that declare an `inputs` schema (also accepts `--<field> <value>`) |
-| `[prompt...]`        | Positional prompt — requires the workflow to declare a `prompt` input                             |
+| `--<field>=<value>`  | Structured input for workflows that declare an `inputs` schema (also accepts `--<field> <value>`)                                                 |
+| `[prompt...]`        | Positional prompt — requires the workflow to declare a `prompt` input                                                                             |
 
 Five invocation shapes:
 
@@ -1057,17 +1088,19 @@ Add-Content $PROFILE "`nif (Test-Path `"$cache`") { . `"$cache`" }"
 
 Atomic ships skills — not slash commands. Skills are auto-discovered by Claude Code, OpenCode, and Copilot CLI, invoked by typing `/<skill-name>` (Claude Code) or by natural-language reference (OpenCode / Copilot CLI).
 
-| Skill               | Typical invocation                | Purpose                                                                       |
-| ------------------- | --------------------------------- | ----------------------------------------------------------------------------- |
-| `init`              | `/init`                           | Generate `CLAUDE.md` and `AGENTS.md` by exploring the codebase                |
-| `research-codebase` | `/research-codebase "<question>"` | Dispatch parallel sub-agents to analyze the codebase and write a research doc |
-| `create-spec`       | `/create-spec "<research-path>"`  | Produce a technical spec grounded in a research document                      |
-| `explain-code`      | `/explain-code "<path>"`          | Deep-dive explanation of specific code using DeepWiki                         |
-| `gh-commit`         | `/gh-commit`                      | Create a conventional-commit Git commit                                       |
-| `gh-create-pr`      | `/gh-create-pr`                   | Commit, push, and open a pull request                                         |
-| `sl-commit`         | `/sl-commit`                      | Create a Sapling commit                                                       |
-| `sl-submit-diff`    | `/sl-submit-diff`                 | Submit a Sapling commit as a Phabricator diff                                 |
-| `workflow-creator`  | natural language                  | Generate a multi-agent workflow file in `.atomic/workflows/`                  |
+| Skill               | Typical invocation                | Purpose                                                                         |
+| ------------------- | --------------------------------- | ------------------------------------------------------------------------------- |
+| `init`              | `/init`                           | Generate `CLAUDE.md` and `AGENTS.md` by exploring the codebase                  |
+| `research-codebase` | `/research-codebase "<question>"` | Dispatch parallel sub-agents to analyze the codebase and write a research doc   |
+| `create-spec`       | `/create-spec "<research-path>"`  | Produce a technical spec grounded in a research document                        |
+| `explain-code`      | `/explain-code "<path>"`          | Deep-dive explanation of specific code using DeepWiki                           |
+| `gh-commit`         | `/gh-commit`                      | Create a conventional-commit Git commit                                         |
+| `gh-create-pr`      | `/gh-create-pr`                   | Commit, push, and open a GitHub pull request                                    |
+| `ado-commit`        | `/ado-commit`                     | Create a conventional-commit Git commit on an Azure DevOps-hosted repo          |
+| `ado-create-pr`     | `/ado-create-pr`                  | Commit, push, and open an Azure DevOps PR through the `azure-devops` MCP server |
+| `sl-commit`         | `/sl-commit`                      | Create a Sapling commit                                                         |
+| `sl-submit-diff`    | `/sl-submit-diff`                 | Submit a Sapling commit as a Phabricator diff                                   |
+| `workflow-creator`  | natural language                  | Generate a multi-agent workflow file in `.atomic/workflows/`                    |
 
 Native slash commands (`/help`, `/clear`, `/compact`, `/model`, `/theme`, `/agents`, `/mcp`, `/exit`) come from the underlying agent CLI, not Atomic.
 
@@ -1091,12 +1124,13 @@ Resolution order:
 }
 ```
 
-| Field         | Type   | Description                               |
-| ------------- | ------ | ----------------------------------------- |
-| `$schema`     | string | JSON Schema URL for editor autocomplete   |
-| `version`     | number | Config schema version (currently `1`)     |
-| `scm`         | string | Source control: `github` or `sapling`     |
-| `lastUpdated` | string | ISO 8601 timestamp of the last update     |
+
+| Field         | Type   | Description                                                                                                                                     |
+| ------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `$schema`     | string | JSON Schema URL for editor autocomplete                                                                                                         |
+| `version`     | number | Config schema version (currently `1`)                                                                                                           |
+| `scm`         | string | Source control provider — `github`, `azure-devops`, or `sapling`. Reconciles the GitHub / Azure DevOps MCP servers in agent configs on startup. |
+| `lastUpdated` | string | ISO 8601 timestamp of the last update                                                                                                           |
 
 > Model selection and reasoning effort are managed by each underlying agent CLI (e.g. Claude Code's `/model`), not Atomic. Atomic's chat command spawns the agent's native TUI — use the agent's own controls.
 
@@ -1183,7 +1217,7 @@ Ensure the agent CLI is in your PATH. Atomic uses `Bun.which()`, which handles `
 | **Data Flow**            | Manual — copy output between steps           | Controlled transcript passing via `ctx.transcript()` and `ctx.getMessages()`                        |
 | **Agent Support**        | GitHub Copilot CLI                           | Claude Code + OpenCode + Copilot CLI — switch with a flag                                           |
 | **Sub-Agents**           | Single general-purpose agent                 | 12 specialized sub-agents with scoped tools and isolated contexts                                   |
-| **Skills**               | Not available                                | 55 built-in skills (development, design, docs, agent architecture)                                  |
+| **Skills**               | Not available                                | 57 built-in skills (development, design, docs, agent architecture)                                  |
 | **Autonomous Execution** | Not available                                | Ralph — multi-hour autonomous sessions with plan/implement/review/debug loop                        |
 | **Execution Guarantees** | Non-deterministic                            | Deterministic — strict step ordering, frozen definitions, controlled transcript access              |
 | **Isolation**            | Not addressed                                | Devcontainer features for containerized execution                                                   |
@@ -1206,7 +1240,7 @@ Ensure the agent CLI is in your PATH. Atomic uses `Bun.which()`, which handles `
 | **Execution Model**     | DAG-based with conditional edges                | Deterministic — strict step ordering, frozen definitions, controlled transcript passing       |
 | **Parallelism**         | Via LangGraph branch nodes                      | Native parallel sessions via `Promise.all()` with `ctx.session()` in isolated context windows |
 | **Sub-Agents**          | Researcher, coder, reporter nodes               | 12 specialized sub-agents with scoped tools (planner, worker, reviewer, debugger, etc.)       |
-| **Skills**              | Not available                                   | 55 built-in skills auto-invoked by context                                                    |
+| **Skills**              | Not available                                   | 57 built-in skills auto-invoked by context                                                    |
 | **Isolation**           | Sandbox containers                              | Devcontainer features + git worktrees                                                         |
 | **Interface**           | Web UI (Streamlit)                              | Terminal chat with tmux-based session management                                              |
 | **Autonomous**          | Not available                                   | Ralph — bounded iteration with plan/implement/review/debug loop                               |
@@ -1231,7 +1265,7 @@ Ensure the agent CLI is in your PATH. Atomic uses `Bun.which()`, which handles `
 | **Data Flow**             | In-context within a single conversation                                                      | Controlled transcript passing via `ctx.transcript()` and `ctx.getMessages()`                                                                 |
 | **Self-Improvement**      | Closed learning loop — auto-creates skills from experience, persistent user model via Honcho | Skills authored by developers; memory via CLAUDE.md / AGENTS.md context files                                                                |
 | **Sub-Agents**            | `delegate_task` spawns isolated subagents                                                    | 12 specialized sub-agents with scoped tools and model tiers (Opus, Sonnet, Haiku)                                                            |
-| **Skills**                | 40+ tools + community Skills Hub (agentskills.io)                                            | 55 built-in skills (development, design, docs, agent architecture)                                                                           |
+| **Skills**                | 40+ tools + community Skills Hub (agentskills.io)                                            | 57 built-in skills (development, design, docs, agent architecture)                                                                           |
 | **Interface**             | Terminal TUI + multi-platform messaging gateway (Telegram, Discord, Slack, WhatsApp, etc.)   | Terminal chat with tmux-based session management                                                                                             |
 | **Isolation**             | Six terminal backends (local, Docker, SSH, Daytona, Singularity, Modal)                      | Devcontainer features + git worktrees                                                                                                        |
 | **Autonomous Execution**  | Cron scheduler with inactivity-based timeouts                                                | Ralph — bounded iteration with plan/implement/review/debug loop                                                                              |

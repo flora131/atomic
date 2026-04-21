@@ -39,6 +39,7 @@ import {
   type ProviderOverrides,
 } from "../../services/config/definitions.ts";
 import { getProviderOverrides } from "../../services/config/atomic-config.ts";
+import { getCopilotScmDisableFlags } from "../../services/config/scm-sync.ts";
 import { ensureDir } from "../../services/system/copy.ts";
 import type { SessionEvent } from "@github/copilot-sdk";
 import type { SessionPromptResponse } from "@opencode-ai/sdk/v2";
@@ -281,6 +282,7 @@ function buildPaneCommand(
   agent: AgentType,
   port: number,
   overrides: ProviderOverrides = {},
+  extraChatFlags: string[] = [],
 ): { command: string; envVars: Record<string, string> } {
   const {
     cmd,
@@ -301,6 +303,7 @@ function buildPaneCommand(
           "--port",
           String(port),
           ...chatFlags,
+          ...extraChatFlags,
         ].join(" "),
         envVars,
       };
@@ -1141,6 +1144,12 @@ interface SharedRunnerState {
   inputs: Record<string, string>;
   /** User-configured provider overrides (global + local merged). */
   providerOverrides: ProviderOverrides;
+  /**
+   * Extra CLI flags appended to the agent's chat flags, derived from
+   * the project's scm selection. Currently only populated for Copilot
+   * (which has no on-disk MCP toggle — see `getCopilotScmDisableFlags`).
+   */
+  extraChatFlags: string[];
   panel: OrchestratorPanel;
   /** Sessions that have been spawned (for name uniqueness + cleanup). */
   activeRegistry: Map<string, ActiveSession>;
@@ -1420,6 +1429,7 @@ function createSessionRunner(
         shared.agent,
         port,
         shared.providerOverrides,
+        shared.extraChatFlags,
       );
 
       // ── 7. Create tmux window or headless execution ──
@@ -1789,6 +1799,8 @@ export async function runOrchestrator(): Promise<void> {
   process.chdir(cwd);
 
   const providerOverrides = await getProviderOverrides(agent, cwd);
+  const extraChatFlags =
+    agent === "copilot" ? await getCopilotScmDisableFlags(cwd) : [];
   const sessionsBaseDir = join(getSessionsBaseDir(), workflowRunId);
   await ensureDir(sessionsBaseDir);
 
@@ -1856,6 +1868,7 @@ export async function runOrchestrator(): Promise<void> {
     agent,
     inputs,
     providerOverrides,
+    extraChatFlags,
     panel,
     activeRegistry: new Map(),
     completedRegistry: new Map(),

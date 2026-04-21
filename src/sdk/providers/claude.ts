@@ -110,6 +110,25 @@ function buildWorkflowHookCommand(subcommand: string, extraArgs: readonly string
 }
 
 /**
+ * Effectively-unbounded timeout (in seconds) for the Stop hook command.
+ *
+ * Claude Code's Stop hook process runs three phases sequentially — the
+ * initial Stop hooks, then TaskCompleted hooks (per in-progress task owned
+ * by the teammate), then TeammateIdle hooks — and the per-hook `timeout`
+ * applies to the entire lifecycle. Under Claude Code's default (10 min),
+ * a turn that leaves tasks in-progress (e.g. via the TaskList/TodoWrite
+ * tool) can blow the budget and get killed, which also severs our
+ * `_claude-stop-hook`'s queue/release poll and strands the workflow.
+ *
+ * ~24 days — the max safe `setTimeout` value (2^31 - 1 ms) expressed in
+ * seconds — removes the timeout in practical terms. `waitForIdle`'s
+ * marker-file watch still fires as soon as our initial hook writes the
+ * marker, so the workflow proceeds on real hook completion, not on timer
+ * expiry.
+ */
+const STOP_HOOK_TIMEOUT_SECONDS = 2_147_483;
+
+/**
  * Inline settings injected via `claude --settings <json>` on every workflow
  * spawn. Registers the workflow-owned hooks without relying on
  * `.claude/settings.json` — so the hooks fire only for workflow-spawned
@@ -117,7 +136,9 @@ function buildWorkflowHookCommand(subcommand: string, extraArgs: readonly string
  *
  * Registered hooks:
  *   - `Stop`: deliver queued follow-up prompts via `{decision:"block"}` and
- *     write an idle-marker file that `waitForIdle` watches.
+ *     write an idle-marker file that `waitForIdle` watches. `timeout` is
+ *     set to {@link STOP_HOOK_TIMEOUT_SECONDS} so the hook survives long
+ *     TaskCompleted/TeammateIdle phases — see the constant's docstring.
  *   - `PreToolUse` matched on `AskUserQuestion`: write
  *     `~/.atomic/claude-hil/<session_id>` so `watchHILMarker` can fire
  *     `onHIL(true)` — the node card flips to the blue "awaiting_input" pulse.
@@ -140,6 +161,7 @@ const WORKFLOW_HOOK_SETTINGS = JSON.stringify({
           {
             type: "command",
             command: buildWorkflowHookCommand("_claude-stop-hook"),
+            timeout: STOP_HOOK_TIMEOUT_SECONDS,
           },
         ],
       },
@@ -1074,7 +1096,7 @@ export class HeadlessClaudeSessionWrapper {
 
     let sdkSessionId = "";
     try {
-      for await (const msg of sdkQuery({ prompt, options: options ?? {} })) {
+      for await (const msg of sdkQuery({ prompt, options: headlessSdkOpts })) {
         if (msg.type === "result") {
           sdkSessionId = String(
             (msg as Record<string, unknown>).session_id ?? "",

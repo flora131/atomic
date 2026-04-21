@@ -8,6 +8,13 @@
       "headers": {
         "Authorization": "Bearer ${env:GITHUB_PERSONAL_ACCESS_TOKEN}"
       }
+    },
+    "azure-devops": {
+      "type": "remote",
+      "url": "https://dev.azure.com/your-org/_apis/mcp",
+      "headers": {
+        "Authorization": "Bearer ${env:AZURE_DEVOPS_PAT}"
+      }
     }
   }
 }

@@ -9,9 +9,9 @@
 [![Bun](https://img.shields.io/badge/Bun-Runtime-f9f1e1?logo=bun&logoColor=black)](./package.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-**An open-source TypeScript SDK for building harnesses around your coding agent** — Claude Code, OpenCode, or GitHub Copilot CLI. Chain agent sessions into deterministic pipelines, add human-in-the-loop approval gates, dispatch **12 specialized sub-agents**, and tap **55 built-in skills** — then ship it as TypeScript your whole team runs.
+**An open-source TypeScript SDK for building harnesses around your coding agent** — Claude Code, OpenCode, or GitHub Copilot CLI. Chain agent sessions into deterministic pipelines, add human-in-the-loop approval gates, dispatch **12 specialized sub-agents**, and tap **57 built-in skills** — then ship it as TypeScript your whole team runs.
 
-> Define how your agent works. Start for yourself, scale to your team.
+> Define how your agent works. Start for yourself, scale to your team — across GitHub and Azure DevOps (ADO).
 
 ---
 
@@ -783,7 +783,7 @@ Use `/agents` in any chat session to see all available sub-agents.
 
 ### Built-in Skills
 
-Skills are structured capability modules that give agents best practices and reusable workflows. Atomic ships **55 skills** across eight categories; each lives at `.agents/skills/<name>/SKILL.md` and is auto-invoked when the agent detects a relevant trigger.
+Skills are structured capability modules that give agents best practices and reusable workflows. Atomic ships **57 skills** across eight categories; each lives at `.agents/skills/<name>/SKILL.md` and is auto-invoked when the agent detects a relevant trigger.
 
 <details>
 <summary><b>Development workflows</b></summary>
@@ -872,15 +872,17 @@ Skills are structured capability modules that give agents best practices and reu
 | `pptx`      | Create, read, edit, and manipulate PowerPoint (`.pptx`) slide decks     |
 | `liteparse` | Parse and convert unstructured files (PDF, DOCX, PPTX, images) locally  |
 
-**Git / Sapling / automation:**
+**Git / Azure DevOps / Sapling / automation:**
 
-| Skill            | Description                                              |
-| ---------------- | -------------------------------------------------------- |
-| `gh-commit`      | Conventional-commit Git commits                          |
-| `gh-create-pr`   | Commit unstaged changes, push, and submit a pull request |
-| `sl-commit`      | Conventional-commit Sapling commits                      |
-| `sl-submit-diff` | Submit Sapling commits as Phabricator diffs              |
-| `playwright-cli` | Automate browser interactions, tests, screenshots        |
+| Skill            | Description                                                |
+| ---------------- | ---------------------------------------------------------- |
+| `gh-commit`      | Conventional-commit Git commits                            |
+| `gh-create-pr`   | Commit unstaged changes, push, and submit a GitHub PR      |
+| `az-commit`      | Conventional-commit Git commits for Azure DevOps workflows |
+| `az-create-pr`   | Commit, push, and open an Azure DevOps PR                  |
+| `sl-commit`      | Conventional-commit Sapling commits                        |
+| `sl-submit-diff` | Submit Sapling commits as Phabricator diffs                |
+| `playwright-cli` | Automate browser interactions, tests, screenshots          |
 
 **Meta:**
 
@@ -923,7 +925,7 @@ During `atomic chat`, there is no Atomic-owned TUI — `atomic chat -a <agent>` 
 | `atomic session connect [name]` | Attach to a session (interactive picker when no name given)           |
 | `atomic session kill [name]`    | Kill a session by name, or all sessions when no name is given         |
 | `atomic completions <shell>`    | Output shell completion script (bash, zsh, fish, powershell)          |
-| `atomic config set <k> <v>`     | Set configuration values (currently supports `telemetry`)             |
+| `atomic config set <k> <v>` | Set configuration values (supports `telemetry` and `scm`)             |
 
 #### Global Flags
 
@@ -1064,7 +1066,9 @@ Atomic ships skills — not slash commands. Skills are auto-discovered by Claude
 | `create-spec`       | `/create-spec "<research-path>"`  | Produce a technical spec grounded in a research document                      |
 | `explain-code`      | `/explain-code "<path>"`          | Deep-dive explanation of specific code using DeepWiki                         |
 | `gh-commit`         | `/gh-commit`                      | Create a conventional-commit Git commit                                       |
-| `gh-create-pr`      | `/gh-create-pr`                   | Commit, push, and open a pull request                                         |
+| `gh-create-pr`      | `/gh-create-pr`                   | Commit, push, and open a GitHub pull request                                  |
+| `az-commit`         | `/az-commit`                      | Create a conventional-commit Git commit for Azure DevOps workflows            |
+| `az-create-pr`      | `/az-create-pr`                   | Commit, push, and open an Azure DevOps pull request                           |
 | `sl-commit`         | `/sl-commit`                      | Create a Sapling commit                                                       |
 | `sl-submit-diff`    | `/sl-submit-diff`                 | Submit a Sapling commit as a Phabricator diff                                 |
 | `workflow-creator`  | natural language                  | Generate a multi-agent workflow file in `.atomic/workflows/`                  |
@@ -1091,12 +1095,13 @@ Resolution order:
 }
 ```
 
-| Field         | Type   | Description                               |
-| ------------- | ------ | ----------------------------------------- |
-| `$schema`     | string | JSON Schema URL for editor autocomplete   |
-| `version`     | number | Config schema version (currently `1`)     |
-| `scm`         | string | Source control: `github` or `sapling`     |
-| `lastUpdated` | string | ISO 8601 timestamp of the last update     |
+
+| Field         | Type   | Description                                              |
+| ------------- | ------ | -------------------------------------------------------- |
+| `$schema`     | string | JSON Schema URL for editor autocomplete                  |
+| `version`     | number | Config schema version (currently `1`)                    |
+| `scm`         | string | Source control: `github`, `azure-devops`, or `sapling`   |
+| `lastUpdated` | string | ISO 8601 timestamp of the last update                    |
 
 > Model selection and reasoning effort are managed by each underlying agent CLI (e.g. Claude Code's `/model`), not Atomic. Atomic's chat command spawns the agent's native TUI — use the agent's own controls.
 
@@ -1183,7 +1188,7 @@ Ensure the agent CLI is in your PATH. Atomic uses `Bun.which()`, which handles `
 | **Data Flow**            | Manual — copy output between steps           | Controlled transcript passing via `ctx.transcript()` and `ctx.getMessages()`                        |
 | **Agent Support**        | GitHub Copilot CLI                           | Claude Code + OpenCode + Copilot CLI — switch with a flag                                           |
 | **Sub-Agents**           | Single general-purpose agent                 | 12 specialized sub-agents with scoped tools and isolated contexts                                   |
-| **Skills**               | Not available                                | 55 built-in skills (development, design, docs, agent architecture)                                  |
+| **Skills**               | Not available                                | 57 built-in skills (development, design, docs, agent architecture)                                  |
 | **Autonomous Execution** | Not available                                | Ralph — multi-hour autonomous sessions with plan/implement/review/debug loop                        |
 | **Execution Guarantees** | Non-deterministic                            | Deterministic — strict step ordering, frozen definitions, controlled transcript access              |
 | **Isolation**            | Not addressed                                | Devcontainer features for containerized execution                                                   |
@@ -1206,7 +1211,7 @@ Ensure the agent CLI is in your PATH. Atomic uses `Bun.which()`, which handles `
 | **Execution Model**     | DAG-based with conditional edges                | Deterministic — strict step ordering, frozen definitions, controlled transcript passing       |
 | **Parallelism**         | Via LangGraph branch nodes                      | Native parallel sessions via `Promise.all()` with `ctx.session()` in isolated context windows |
 | **Sub-Agents**          | Researcher, coder, reporter nodes               | 12 specialized sub-agents with scoped tools (planner, worker, reviewer, debugger, etc.)       |
-| **Skills**              | Not available                                   | 55 built-in skills auto-invoked by context                                                    |
+| **Skills**              | Not available                                   | 57 built-in skills auto-invoked by context                                                    |
 | **Isolation**           | Sandbox containers                              | Devcontainer features + git worktrees                                                         |
 | **Interface**           | Web UI (Streamlit)                              | Terminal chat with tmux-based session management                                              |
 | **Autonomous**          | Not available                                   | Ralph — bounded iteration with plan/implement/review/debug loop                               |
@@ -1231,7 +1236,7 @@ Ensure the agent CLI is in your PATH. Atomic uses `Bun.which()`, which handles `
 | **Data Flow**             | In-context within a single conversation                                                      | Controlled transcript passing via `ctx.transcript()` and `ctx.getMessages()`                                                                 |
 | **Self-Improvement**      | Closed learning loop — auto-creates skills from experience, persistent user model via Honcho | Skills authored by developers; memory via CLAUDE.md / AGENTS.md context files                                                                |
 | **Sub-Agents**            | `delegate_task` spawns isolated subagents                                                    | 12 specialized sub-agents with scoped tools and model tiers (Opus, Sonnet, Haiku)                                                            |
-| **Skills**                | 40+ tools + community Skills Hub (agentskills.io)                                            | 55 built-in skills (development, design, docs, agent architecture)                                                                           |
+| **Skills**                | 40+ tools + community Skills Hub (agentskills.io)                                            | 57 built-in skills (development, design, docs, agent architecture)                                                                           |
 | **Interface**             | Terminal TUI + multi-platform messaging gateway (Telegram, Discord, Slack, WhatsApp, etc.)   | Terminal chat with tmux-based session management                                                                                             |
 | **Isolation**             | Six terminal backends (local, Docker, SSH, Daytona, Singularity, Modal)                      | Devcontainer features + git worktrees                                                                                                        |
 | **Autonomous Execution**  | Cron scheduler with inactivity-based timeouts                                                | Ralph — bounded iteration with plan/implement/review/debug loop                                                                              |

@@ -6,6 +6,13 @@
       "headers": {
         "Authorization": "Bearer ${GITHUB_PERSONAL_ACCESS_TOKEN}"
       }
+    },
+    "azure-devops": {
+      "type": "http",
+      "url": "https://dev.azure.com/your-org/_apis/mcp",
+      "headers": {
+        "Authorization": "Bearer ${AZURE_DEVOPS_PAT}"
+      }
     }
   }
 }

@@ -14,8 +14,8 @@
     },
     "scm": {
       "type": "string",
-      "enum": ["github", "sapling"],
-      "description": "Selected source control management system."
+      "enum": ["github", "azure-devops", "sapling"],
+      "description": "Selected source control provider. On atomic startup, the corresponding GitHub / Azure DevOps MCP servers are enabled in `.claude/settings.json` and `.opencode/opencode.json`; the others are disabled to avoid unnecessary token consumption."
     },
     "lastUpdated": {
       "type": "string",

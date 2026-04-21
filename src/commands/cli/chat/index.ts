@@ -18,6 +18,7 @@ import { homedir } from "node:os";
 import { mkdir, writeFile, rm } from "node:fs/promises";
 import { AGENT_CONFIG, type AgentKey } from "../../../services/config/index.ts";
 import { getProviderOverrides } from "../../../services/config/atomic-config.ts";
+import { getCopilotScmDisableFlags } from "../../../services/config/scm-sync.ts";
 import { ensureProjectSetup } from "../init/index.ts";
 import { COLORS } from "../../../theme/colors.ts";
 import { isCommandInstalled } from "../../../services/system/detect.ts";
@@ -83,7 +84,13 @@ export async function buildAgentArgs(
 
   const flags = overrides.chatFlags ?? [...config.chat_flags];
 
-  return [...flags, ...passthroughArgs];
+  // Copilot has no on-disk MCP toggle — `--disable-mcp-server <name>` is
+  // the equivalent of flipping `enabled: false` in .opencode/opencode.json
+  // or adding to `disabledMcpjsonServers` in .claude/settings.json.
+  const scmFlags =
+    agentType === "copilot" ? await getCopilotScmDisableFlags(projectRoot) : [];
+
+  return [...flags, ...scmFlags, ...passthroughArgs];
 }
 
 function generateChatId(): string {

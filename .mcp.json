@@ -6,6 +6,11 @@
       "headers": {
         "Authorization": "Bearer ${GITHUB_PERSONAL_ACCESS_TOKEN}"
       }
+    },
+    "azure-devops": {
+      "type": "stdio",
+      "command": "bunx",
+      "args": ["-y", "@azure-devops/mcp", "<your-org>"]
     }
   }
 }

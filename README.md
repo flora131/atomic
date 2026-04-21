@@ -11,7 +11,7 @@
 
 **An open-source TypeScript SDK for building harnesses around your coding agent** — Claude Code, OpenCode, or GitHub Copilot CLI. Chain agent sessions into deterministic pipelines, add human-in-the-loop approval gates, dispatch **12 specialized sub-agents**, and tap **57 built-in skills** — then ship it as TypeScript your whole team runs.
 
-> Define how your agent works. Start for yourself, scale to your team — across GitHub and Azure DevOps (ADO).
+> Define how your agent works. Start for yourself, scale to your team — across GitHub, Azure DevOps (ADO), or Sapling.
 
 ---
 

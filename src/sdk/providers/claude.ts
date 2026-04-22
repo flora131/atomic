@@ -641,11 +641,6 @@ export async function releaseClaudeSession(claudeSessionId: string): Promise<voi
  * @param claudeSessionId       - Claude's session UUID (used to identify marker file)
  * @param transcriptBeforeCount - number of messages in transcript before this turn
  */
-/** Safety timeout so the workflow's next stage still fires if the Stop hook
- * never runs (misconfigured settings, killed Claude process, etc.). 15 min
- * covers any reasonable single-turn run without hanging forever. */
-const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
-
 /**
  * @internal Exported for unit tests.
  */
@@ -658,7 +653,6 @@ export async function waitForIdle(
   const sessionId = claudeSessionId;
   const target = markerPath(sessionId);
   const ac = new AbortController();
-  const timeout = setTimeout(() => ac.abort(), IDLE_TIMEOUT_MS);
 
   // Process a marker that has appeared on disk. Returns a tuple:
   //   [resolved, result] — when resolved=true, waitForIdle should return.
@@ -743,13 +737,10 @@ export async function waitForIdle(
       }
     }
   } catch (e: unknown) {
-    // AbortError is expected when we call ac.abort() to stop watching, or
-    // when the safety timeout fires.
+    // AbortError is expected when we call ac.abort() to stop watching.
     if (!(e instanceof Error && e.name === "AbortError")) {
       throw e;
     }
-  } finally {
-    clearTimeout(timeout);
   }
 
   return [];

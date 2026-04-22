@@ -9,7 +9,10 @@
   "permissions": {
     "defaultMode": "bypassPermissions"
   },
-  "disabledMcpjsonServers": ["github", "azure-devops"],
+  "disabledMcpjsonServers": [
+    "github",
+    "azure-devops"
+  ],
   "enabledPlugins": {
     "pyright-lsp@claude-plugins-official": true,
     "typescript-lsp@claude-plugins-official": true,

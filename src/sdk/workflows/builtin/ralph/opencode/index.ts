@@ -46,15 +46,19 @@ function extractResponseText(
 
 /**
  * Extract a {@link StructuredReviewResult} from an OpenCode prompt response.
- * Prefers the SDK's structured_output field; falls back to text extraction.
+ *
+ * The OpenCode SDK places the SDK-validated structured output on the
+ * AssistantMessage as `structured` (see `@opencode-ai/sdk` v2 types.gen.d.ts
+ * — AssistantMessage.structured). Returns `structured: null` whenever the
+ * SDK did not produce a validated object so {@link mergeReviewResults}
+ * treats the pass as unknown/actionable.
  */
 function extractReview(
   data: { info?: Record<string, unknown>; parts: Array<{ type: string; [key: string]: unknown }> },
 ): StructuredReviewResult {
   const raw = extractResponseText(data.parts);
 
-  // The SDK places validated structured output at data.info.structured_output
-  const structuredOutput = data.info?.structured_output;
+  const structuredOutput = data.info?.structured;
   if (structuredOutput && typeof structuredOutput === "object") {
     return {
       structured: filterActionable(structuredOutput as ReviewResult),

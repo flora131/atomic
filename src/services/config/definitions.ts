@@ -22,6 +22,13 @@ export interface AgentConfig {
     source: string;
     destination: string;
     merge: boolean;
+    /**
+     * Top-level keys to strip from the source before copying or merging.
+     * Useful when a key is project-local by design (e.g. Claude's
+     * `disabledMcpjsonServers`) and must not leak into a global
+     * destination like `~/.claude/settings.json`.
+     */
+    excludeConfigKeys?: readonly string[];
   }>;
 }
 
@@ -55,6 +62,9 @@ export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
         source: ".claude/settings.json",
         destination: "~/.claude/settings.json",
         merge: true,
+        // `disabledMcpjsonServers` is reconciled per-project by scm-sync
+        // and must not leak into the user's global Claude settings.
+        excludeConfigKeys: ["disabledMcpjsonServers"],
       },
     ],
   },

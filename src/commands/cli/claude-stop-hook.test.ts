@@ -9,10 +9,11 @@
  * and clean up in `afterEach` so test runs never collide with each other
  * or with real marker/queue/release files.
  *
- * The hook's default wait for a queued follow-up prompt is 15 minutes.
- * Every test here passes a short `waitTimeoutMs` so the hook exits quickly
- * when no queue entry is present — we are testing the branching logic,
- * not the real-world wait budget.
+ * The hook's default wait for a queued follow-up prompt is effectively
+ * unbounded (~24 days) so the workflow can take as long as it needs between
+ * turns. Every test here passes a short `waitTimeoutMs` so the hook exits
+ * quickly when no queue entry is present — we are testing the branching
+ * logic, not the real-world wait budget.
  */
 
 import { describe, test, expect, afterEach, spyOn } from "bun:test";
@@ -20,7 +21,7 @@ import { access, rm, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { claudeStopHookCommand, claudeHookDirs } from "./claude-stop-hook.ts";
 
-const { marker: markerDir, queue: queueDir, release: releaseDir } = claudeHookDirs();
+const { marker: markerDir, queue: queueDir, release: releaseDir, pid: pidDir } = claudeHookDirs();
 
 const SHORT_TIMEOUT_MS = 300;
 
@@ -52,6 +53,7 @@ afterEach(async () => {
       rm(join(markerDir, id), { force: true }),
       rm(join(queueDir, id), { force: true }),
       rm(join(releaseDir, id), { force: true }),
+      rm(join(pidDir, id), { force: true }),
     ]);
   }
   sessionIdsToClean.length = 0;
@@ -267,5 +269,49 @@ describe("claudeStopHookCommand", () => {
     expect(await fileExists(join(markerDir, sessionId))).toBe(true);
     // No block decision emitted.
     expect(stdoutChunks.join("")).toBe("");
+  });
+
+  // 9. Dead atomic PID → hook exits without waiting out the full timeout.
+  //
+  // Simulates the case where the atomic workflow was SIGKILL'd between
+  // turns: the pid file on disk points at a process that no longer exists,
+  // so the liveness check should fire and let the hook bail. We pick a
+  // deliberately-bogus PID (2^22 - 1) that is almost certainly unused.
+  test("dead atomic pid triggers liveness exit before the wait timeout", async () => {
+    const sessionId = crypto.randomUUID();
+    sessionIdsToClean.push(sessionId);
+
+    // Find a PID that doesn't currently exist. `process.kill(pid, 0)` throws
+    // ESRCH for free PIDs; we scan from a high number downward to dodge
+    // system-reserved low PIDs.
+    let deadPid = 4_194_303;
+    while (deadPid > 1) {
+      try {
+        process.kill(deadPid, 0);
+        deadPid -= 1;
+      } catch (e: unknown) {
+        if (e instanceof Error && "code" in e && (e as NodeJS.ErrnoException).code === "ESRCH") break;
+        deadPid -= 1;
+      }
+    }
+
+    await mkdir(pidDir, { recursive: true });
+    await writeFile(join(pidDir, sessionId), String(deadPid), "utf-8");
+
+    mockStdin(JSON.stringify({ session_id: sessionId }));
+
+    // Use a long wait timeout so the test only passes if the liveness check
+    // short-circuits the wait. livenessIntervalMs is short so the test runs fast.
+    const started = Date.now();
+    const code = await claudeStopHookCommand({
+      waitTimeoutMs: 30_000,
+      pollIntervalMs: 10_000,
+      livenessIntervalMs: 50,
+    });
+    const elapsed = Date.now() - started;
+
+    expect(code).toBe(0);
+    expect(elapsed).toBeLessThan(5_000);
+    expect(await fileExists(join(markerDir, sessionId))).toBe(true);
   });
 });

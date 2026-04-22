@@ -1207,12 +1207,21 @@ async function initProviderClientAndSession<A extends AgentType>(
   switch (agent) {
     case "copilot": {
       const { CopilotClient, approveAll } = await import("@github/copilot-sdk");
+      const { copilotSubprocessEnv } = await import("../providers/copilot.ts");
       const copilotClientOpts = clientOpts as StageClientOptions<"copilot">;
       const copilotSessionOpts = sessionOpts as StageSessionOptions<"copilot">;
       // Headless: let the SDK spawn its own CLI process (no cliUrl).
       // Non-headless: connect to the CLI server running in a tmux pane.
+      // `env` is only meaningful in the headless path — the SDK ignores
+      // it when `cliUrl` is set — but layering in `copilotSubprocessEnv`
+      // when the caller didn't supply their own env keeps the
+      // SQLite `ExperimentalWarning` from leaking through the SDK's
+      // `[CLI subprocess]` stderr forwarder.
       const client = headless
-        ? new CopilotClient({ ...copilotClientOpts })
+        ? new CopilotClient({
+            env: copilotSubprocessEnv(),
+            ...copilotClientOpts,
+          })
         : new CopilotClient({ ...copilotClientOpts, cliUrl: serverUrl });
       await client.start();
       // In headless stages, add `ask_user` to the session's excludedTools so

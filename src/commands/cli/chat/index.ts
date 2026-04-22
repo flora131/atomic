@@ -22,6 +22,7 @@ import { getCopilotScmDisableFlags } from "../../../services/config/scm-sync.ts"
 import { ensureProjectSetup } from "../init/index.ts";
 import { COLORS } from "../../../theme/colors.ts";
 import { isCommandInstalled } from "../../../services/system/detect.ts";
+import { checkAgentAuth, printAuthError } from "../../../services/system/auth.ts";
 import {
   ensureAtomicGlobalAgentConfigs,
 } from "../../../services/config/atomic-global-config.ts";
@@ -182,6 +183,16 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
       `${COLORS.red}Error: '${config.cmd}' is not installed or not in PATH.${COLORS.reset}`
     );
     console.error(`Install it from: ${config.install_url}`);
+    return 1;
+  }
+
+  // ── Preflight: authentication ──
+  // Copilot and Claude expose SDK-level login checks; run them now so
+  // users get a short actionable error instead of being dropped into a
+  // native CLI that immediately redirects them to /login.
+  const auth = await checkAgentAuth(agentType);
+  if (!auth.loggedIn) {
+    printAuthError(agentType, auth);
     return 1;
   }
 

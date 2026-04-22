@@ -13,6 +13,7 @@
 import { AGENT_CONFIG, type AgentKey } from "../../services/config/index.ts";
 import { COLORS, createPainter, type PaletteKey } from "../../theme/colors.ts";
 import { isCommandInstalled } from "../../services/system/detect.ts";
+import { checkAgentAuth, printAuthError } from "../../services/system/auth.ts";
 import { ensureTmuxInstalled, ensureBunInstalled } from "../../lib/spawn.ts";
 import { ensureProjectSetup } from "./init/index.ts";
 import { ensureAtomicGlobalAgentConfigs } from "../../services/config/atomic-global-config.ts";
@@ -296,6 +297,15 @@ async function runPrereqChecks(agent: AgentKey): Promise<number> {
       `${COLORS.red}Error: '${AGENT_CONFIG[agent].cmd}' is not installed.${COLORS.reset}`,
     );
     console.error(`Install it from: ${AGENT_CONFIG[agent].install_url}`);
+    return 1;
+  }
+
+  // Fail fast when the SDK reports the user isn't authenticated —
+  // otherwise the workflow spawns the agent CLI in a detached tmux pane
+  // and silently stalls on a login screen the user never sees.
+  const auth = await checkAgentAuth(agent);
+  if (!auth.loggedIn) {
+    printAuthError(agent, auth);
     return 1;
   }
 

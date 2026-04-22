@@ -21,6 +21,7 @@ import { statSync, accessSync, constants as fsConstants } from "node:fs";
 import type {
   WorkflowDefinition,
   WorkflowContext,
+  WorkflowInput,
   SessionContext,
   SessionRunOptions,
   SessionHandle,
@@ -416,6 +417,35 @@ export function parseInputsEnv(
   } catch {
     return {};
   }
+}
+
+/**
+ * Coerce raw string inputs to their declared runtime types. Integer inputs
+ * become `number`; every other declared type passes through as `string`.
+ * Unknown keys (not in the schema) are preserved as strings.
+ *
+ * Invalid integer strings fall back to the key being dropped — validation
+ * already runs upstream (in `validateInputsAgainstSchema`), so reaching
+ * this path with garbage means the executor was invoked out-of-band.
+ */
+export function coerceInputsBySchema(
+  inputs: Record<string, string>,
+  schema: readonly WorkflowInput[],
+): Record<string, string | number> {
+  const byName = new Map(schema.map((f) => [f.name, f]));
+  const out: Record<string, string | number> = {};
+  for (const [k, v] of Object.entries(inputs)) {
+    const field = byName.get(k);
+    if (field?.type === "integer") {
+      const parsed = Number.parseInt(v, 10);
+      if (Number.isFinite(parsed) && Number.isInteger(parsed)) {
+        out[k] = parsed;
+      }
+      continue;
+    }
+    out[k] = v;
+  }
+  return out;
 }
 
 // ============================================================================
@@ -1138,10 +1168,10 @@ interface SharedRunnerState {
   /**
    * Structured inputs for this workflow run. Free-form workflows use
    * `{ prompt: "..." }`; structured workflows use their declared field
-   * names. Workflow authors read both shapes via `ctx.inputs` — and
-   * specifically via `ctx.inputs.prompt` for the free-form case.
+   * names. Workflow authors read both shapes via `ctx.inputs` — integer
+   * inputs are parsed to `number`, everything else stays a `string`.
    */
-  inputs: Record<string, string>;
+  inputs: Record<string, string | number>;
   /** User-configured provider overrides (global + local merged). */
   providerOverrides: ProviderOverrides;
   /**
@@ -1662,7 +1692,7 @@ function createSessionRunner(
       const ctx: SessionContext = {
         client: providerClient,
         session: providerSession,
-        inputs: shared.inputs,
+        inputs: shared.inputs as SessionContext["inputs"],
         agent: shared.agent,
         sessionDir,
         paneId,
@@ -1904,6 +1934,11 @@ export async function runOrchestrator(): Promise<void> {
     }
     const definition = loaded.value.definition;
 
+    // Parse integer inputs to numbers so `ctx.inputs.<name>` matches the
+    // declared type. Do this after loading (when the schema is known) and
+    // mutate shared.inputs so per-stage SessionContexts see the same shape.
+    shared.inputs = coerceInputsBySchema(inputs, definition.inputs);
+
     await Bun.write(
       join(sessionsBaseDir, "metadata.json"),
       JSON.stringify(
@@ -1926,7 +1961,7 @@ export async function runOrchestrator(): Promise<void> {
     const sessionRunner = createSessionRunner(shared, "orchestrator");
 
     const workflowCtx: WorkflowContext = {
-      inputs,
+      inputs: shared.inputs as WorkflowContext["inputs"],
       agent,
       stage: sessionRunner as WorkflowContext["stage"],
       transcript: createTranscriptReader(shared.completedRegistry),

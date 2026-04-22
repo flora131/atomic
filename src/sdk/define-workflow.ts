@@ -19,6 +19,8 @@ import type {
   WorkflowInput,
 } from "./types.ts";
 
+type AnyInputs = readonly WorkflowInput[];
+
 /**
  * Validate a single declared workflow input, throwing on authoring
  * mistakes that would otherwise surface as confusing runtime errors
@@ -45,11 +47,31 @@ function validateWorkflowInput(input: WorkflowInput, workflowName: string): void
           `declares no \`values\`.`,
       );
     }
-    if (input.default !== undefined && !input.values.includes(input.default)) {
+    if (input.default !== undefined) {
+      if (typeof input.default !== "string") {
+        throw new Error(
+          `Workflow "${workflowName}" input "${input.name}" (enum) has a ` +
+            `non-string default ${JSON.stringify(input.default)}.`,
+        );
+      }
+      if (!input.values.includes(input.default)) {
+        throw new Error(
+          `Workflow "${workflowName}" input "${input.name}" has a default ` +
+            `"${input.default}" that is not one of its declared values: ` +
+            `${input.values.join(", ")}.`,
+        );
+      }
+    }
+  }
+  if (input.type === "integer" && input.default !== undefined) {
+    const n =
+      typeof input.default === "number"
+        ? input.default
+        : Number.parseInt(input.default, 10);
+    if (!Number.isFinite(n) || !Number.isInteger(n)) {
       throw new Error(
-        `Workflow "${workflowName}" input "${input.name}" has a default ` +
-          `"${input.default}" that is not one of its declared values: ` +
-          `${input.values.join(", ")}.`,
+        `Workflow "${workflowName}" input "${input.name}" (integer) has a ` +
+          `non-integer default ${JSON.stringify(input.default)}.`,
       );
     }
   }
@@ -59,13 +81,16 @@ function validateWorkflowInput(input: WorkflowInput, workflowName: string): void
  * Chainable workflow builder. Records the run callback,
  * then .compile() seals it into a WorkflowDefinition.
  */
-export class WorkflowBuilder<A extends AgentType = AgentType, N extends string = string> {
+export class WorkflowBuilder<
+  A extends AgentType = AgentType,
+  I extends AnyInputs = AnyInputs,
+> {
   /** @internal Brand for detection across package boundaries */
   readonly __brand = "WorkflowBuilder" as const;
-  private readonly options: WorkflowOptions;
-  private runFn: ((ctx: WorkflowContext<A, N>) => Promise<void>) | null = null;
+  private readonly options: WorkflowOptions<I>;
+  private runFn: ((ctx: WorkflowContext<A, I>) => Promise<void>) | null = null;
 
-  constructor(options: WorkflowOptions) {
+  constructor(options: WorkflowOptions<I>) {
     this.options = options;
   }
 
@@ -91,8 +116,8 @@ export class WorkflowBuilder<A extends AgentType = AgentType, N extends string =
    *   .compile();
    * ```
    */
-  for<B extends AgentType>(): WorkflowBuilder<B, N> {
-    return this as unknown as WorkflowBuilder<B, N>;
+  for<B extends AgentType>(): WorkflowBuilder<B, I> {
+    return this as unknown as WorkflowBuilder<B, I>;
   }
 
   /**
@@ -103,7 +128,7 @@ export class WorkflowBuilder<A extends AgentType = AgentType, N extends string =
    * reading completed session outputs. Use native TypeScript control flow
    * (loops, conditionals, `Promise.all()`) for orchestration.
    */
-  run(fn: (ctx: WorkflowContext<A, N>) => Promise<void>): this {
+  run(fn: (ctx: WorkflowContext<A, I>) => Promise<void>): this {
     if (this.runFn) {
       throw new Error("run() can only be called once per workflow.");
     }
@@ -120,7 +145,7 @@ export class WorkflowBuilder<A extends AgentType = AgentType, N extends string =
    * After calling compile(), the returned object is consumed by the
    * Atomic CLI runtime.
    */
-  compile(): WorkflowDefinition<A, N> {
+  compile(): WorkflowDefinition<A, I> {
     if (!this.runFn) {
       throw new Error(
         `Workflow "${this.options.name}" has no run callback. ` +
@@ -188,9 +213,9 @@ export function defineWorkflow<
   const I extends readonly WorkflowInput[] = readonly WorkflowInput[],
 >(
   options: WorkflowOptions<I>,
-): WorkflowBuilder<AgentType, I[number]["name"]> {
+): WorkflowBuilder<AgentType, I> {
   if (!options.name || options.name.trim() === "") {
     throw new Error("Workflow name is required.");
   }
-  return new WorkflowBuilder<AgentType, I[number]["name"]>(options);
+  return new WorkflowBuilder<AgentType, I>(options);
 }

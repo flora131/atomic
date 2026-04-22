@@ -78,8 +78,18 @@ export const ReviewResultSchema = z.object({
     .describe("Overall confidence in the review (0.0–1.0)"),
 });
 
-/** JSON Schema derived from the Zod schema — used by Claude and OpenCode SDKs. */
-export const REVIEW_RESULT_JSON_SCHEMA = z.toJSONSchema(ReviewResultSchema);
+/**
+ * JSON Schema derived from the Zod schema — used by Claude and OpenCode SDKs.
+ *
+ * `target: "openapi-3.0"` drops the `$schema` draft URL that Zod stamps
+ * by default. The Claude Agent SDK's validator silently drops
+ * `structured_output` when that metadata field is present, so we emit
+ * the OpenAPI-flavoured variant which matches the hand-written shape in
+ * the SDK's structured-output guide.
+ */
+export const REVIEW_RESULT_JSON_SCHEMA = z.toJSONSchema(ReviewResultSchema, {
+  target: "openapi-3.0",
+});
 
 /** Result from a reviewer stage with structured output support. */
 export interface StructuredReviewResult {
@@ -92,10 +102,12 @@ export interface StructuredReviewResult {
 /**
  * Merge two parallel reviewer results into one.
  *
- * Two independent reviewers run the same prompt simultaneously. This function
- * unions their findings and picks the more conservative overall_correctness.
- * When either reviewer's structured output is unavailable, it falls back to
- * text parsing ({@link parseReviewResult}) before merging.
+ * Each SDK enforces {@link ReviewResultSchema} at the provider level (Claude
+ * `outputFormat`, OpenCode `format: json_schema`, Copilot `defineTool`), so a
+ * non-null `structured` is already a validated {@link ReviewResult}. When
+ * either reviewer failed to produce validated output we propagate `null` —
+ * {@link hasActionableFindings} then treats the raw response as actionable so
+ * the loop keeps iterating instead of silently exiting on a missing reviewer.
  */
 export function mergeReviewResults(
   a: StructuredReviewResult,
@@ -103,38 +115,30 @@ export function mergeReviewResults(
 ): StructuredReviewResult {
   const rawCombined = [a.raw, b.raw].filter(Boolean).join("\n\n---\n\n");
 
-  // Resolve: prefer structured output, fall back to text parsing
-  const parsedA =
-    a.structured ?? (a.raw.trim() ? parseReviewResult(a.raw) : null);
-  const parsedB =
-    b.structured ?? (b.raw.trim() ? parseReviewResult(b.raw) : null);
-
-  if (!parsedA && !parsedB) {
+  // Conservative: any missing structured output → propagate null. Fabricating
+  // a "patch is correct" default here is how the loop previously exited after
+  // a single iteration when one reviewer's output failed SDK validation.
+  if (!a.structured || !b.structured) {
     return { structured: null, raw: rawCombined };
   }
 
-  const findingsA = parsedA?.findings ?? [];
-  const findingsB = parsedB?.findings ?? [];
-
-  const correctnessA = parsedA?.overall_correctness ?? "patch is correct";
-  const correctnessB = parsedB?.overall_correctness ?? "patch is correct";
   const isIncorrect =
-    correctnessA === "patch is incorrect" ||
-    correctnessB === "patch is incorrect";
+    a.structured.overall_correctness === "patch is incorrect" ||
+    b.structured.overall_correctness === "patch is incorrect";
 
   const explanations = [
-    parsedA?.overall_explanation,
-    parsedB?.overall_explanation,
-  ].filter(Boolean) as string[];
+    a.structured.overall_explanation,
+    b.structured.overall_explanation,
+  ].filter((e): e is string => typeof e === "string" && e.length > 0);
 
   const confidences = [
-    parsedA?.overall_confidence_score,
-    parsedB?.overall_confidence_score,
+    a.structured.overall_confidence_score,
+    b.structured.overall_confidence_score,
   ].filter((c): c is number => c !== undefined);
 
   return {
     structured: {
-      findings: [...findingsA, ...findingsB],
+      findings: [...a.structured.findings, ...b.structured.findings],
       overall_correctness: isIncorrect
         ? "patch is incorrect"
         : "patch is correct",
@@ -980,65 +984,6 @@ the "Pitfalls" section entirely if there are none. Begin now.`;
 // ============================================================================
 // PARSING HELPERS
 // ============================================================================
-
-/**
- * Parse the reviewer's JSON output. Tries, in order:
- *   1. Direct JSON.parse on the entire content.
- *   2. The LAST fenced ```json (or unlabelled) code block.
- *   3. The LAST balanced object containing a "findings" key in surrounding prose.
- *
- * Filters out P3 (minor/style) findings — only P0/P1/P2 count as actionable.
- * Returns null when no parse strategy succeeds.
- */
-export function parseReviewResult(content: string): ReviewResult | null {
-  // Strategy 1: direct JSON
-  try {
-    const parsed = JSON.parse(content);
-    if (parsed && parsed.findings && parsed.overall_correctness) {
-      return filterActionable(parsed);
-    }
-  } catch {
-    /* fall through */
-  }
-
-  // Strategy 2: last fenced code block
-  const blockRe = /```(?:json)?\s*\n([\s\S]*?)\n```/g;
-  let lastBlock: string | null = null;
-  let blockMatch: RegExpExecArray | null;
-  while ((blockMatch = blockRe.exec(content)) !== null) {
-    if (blockMatch[1]) lastBlock = blockMatch[1];
-  }
-  if (lastBlock !== null) {
-    try {
-      const parsed = JSON.parse(lastBlock);
-      if (parsed && parsed.findings && parsed.overall_correctness) {
-        return filterActionable(parsed);
-      }
-    } catch {
-      /* fall through */
-    }
-  }
-
-  // Strategy 3: last "{...findings...}" object in surrounding prose
-  const objRe = /\{[\s\S]*?"findings"[\s\S]*?\}/g;
-  let lastObj: string | null = null;
-  let objMatch: RegExpExecArray | null;
-  while ((objMatch = objRe.exec(content)) !== null) {
-    lastObj = objMatch[0];
-  }
-  if (lastObj !== null) {
-    try {
-      const parsed = JSON.parse(lastObj);
-      if (parsed && parsed.findings && parsed.overall_correctness) {
-        return filterActionable(parsed);
-      }
-    } catch {
-      /* nothing more to try */
-    }
-  }
-
-  return null;
-}
 
 export function filterActionable(parsed: {
   findings: ReviewFinding[];

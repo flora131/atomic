@@ -7,13 +7,13 @@
  *   - `max_loops` iterations have completed (defaults to {@link DEFAULT_MAX_LOOPS}), OR
  *   - Two parallel reviewer passes both return zero findings.
  *
- * The reviewer stages run the `reviewer` sub-agent in a visible TUI via the
- * `--agent reviewer` chatFlag, then parse the JSON review out of the
- * assistant text with {@link parseReviewResult}. The prompt enumerates the
- * {@link ReviewResultSchema} fields so the model emits matching JSON. We
- * deliberately avoid invoking the Claude Agent SDK's `query()` from inside a
- * non-headless stage — that would spawn a TUI pane that goes unused while
- * the SDK runs in-process (see workflow-creator skill, failure-modes F17).
+ * The reviewer stages run **headless** via the Claude Agent SDK with
+ * `outputFormat: { type: "json_schema", schema: REVIEW_RESULT_JSON_SCHEMA }`,
+ * so the SDK validates {@link ReviewResultSchema} before returning. The
+ * validated object is read from `s.session.lastStructuredOutput` — no text
+ * parsing required. Running the reviewers headless (no tmux pane) keeps the
+ * graph focused on stages the user cares about and lets the SDK enforce the
+ * schema without TUI round-trips.
  *
  * Run: atomic workflow -n ralph -a claude "<your spec>"
  */
@@ -27,8 +27,10 @@ import {
   buildReviewPrompt,
   buildDebuggerReportPrompt,
   extractMarkdownBlock,
-  parseReviewResult,
+  filterActionable,
   mergeReviewResults,
+  REVIEW_RESULT_JSON_SCHEMA,
+  type ReviewResult,
   type StructuredReviewResult,
 } from "../helpers/prompts.ts";
 import { hasActionableFindings } from "../helpers/review.ts";
@@ -42,13 +44,23 @@ const DEFAULT_MAX_LOOPS = 10;
 // timeout is needed.
 
 /**
- * Extract a {@link StructuredReviewResult} from the reviewer TUI's assistant
- * text. {@link parseReviewResult} tolerates surrounding prose and fenced
- * code blocks; the prompt instructs the model to emit JSON matching
- * {@link ReviewResultSchema}.
+ * Turn the SDK's validated structured_output (plus raw transcript text) into a
+ * {@link StructuredReviewResult}. When the SDK failed to validate the schema
+ * (`error_max_structured_output_retries`) `structured_output` is absent and
+ * we propagate `null` so {@link mergeReviewResults} treats the pass as
+ * unknown/actionable.
  */
-function extractReview(rawText: string): StructuredReviewResult {
-  return { structured: parseReviewResult(rawText), raw: rawText };
+function extractReview(
+  structuredOutput: unknown,
+  rawText: string,
+): StructuredReviewResult {
+  if (structuredOutput && typeof structuredOutput === "object") {
+    return {
+      structured: filterActionable(structuredOutput as ReviewResult),
+      raw: rawText,
+    };
+  }
+  return { structured: null, raw: rawText };
 }
 
 export default defineWorkflow({
@@ -179,41 +191,39 @@ export default defineWorkflow({
           patternResult.result,
       ].join("\n\n---\n\n");
 
-      // ── Review (two parallel passes) ────────────────────────────────────
+      // ── Review (two parallel headless passes with schema enforcement) ──
       const reviewPrompt = buildReviewPrompt(prompt, {
         changeset,
         iteration,
         discoveryContext,
       });
 
-      const reviewerChatFlags = [
-        "--agent",
-        "reviewer",
-        "--allow-dangerously-skip-permissions",
-        "--dangerously-skip-permissions",
-      ];
+      const runReviewer = (name: string) =>
+        ctx.stage(
+          { name, headless: true },
+          {},
+          {},
+          async (s) => {
+            const result = await s.session.query(reviewPrompt, {
+              agent: "reviewer",
+              permissionMode: "bypassPermissions",
+              allowDangerouslySkipPermissions: true,
+              outputFormat: {
+                type: "json_schema",
+                schema: REVIEW_RESULT_JSON_SCHEMA,
+              },
+            });
+            s.save(s.sessionId);
+            return extractReview(
+              s.session.lastStructuredOutput,
+              extractAssistantText(result, 0),
+            );
+          },
+        );
 
       const [reviewA, reviewB] = await Promise.all([
-        ctx.stage(
-          { name: `reviewer-${iteration}-a` },
-          { chatFlags: reviewerChatFlags },
-          {},
-          async (s) => {
-            const result = await s.session.query(reviewPrompt);
-            s.save(s.sessionId);
-            return extractReview(extractAssistantText(result, 0));
-          },
-        ),
-        ctx.stage(
-          { name: `reviewer-${iteration}-b` },
-          { chatFlags: reviewerChatFlags },
-          {},
-          async (s) => {
-            const result = await s.session.query(reviewPrompt);
-            s.save(s.sessionId);
-            return extractReview(extractAssistantText(result, 0));
-          },
-        ),
+        runReviewer(`reviewer-${iteration}-a`),
+        runReviewer(`reviewer-${iteration}-b`),
       ]);
 
       const merged = mergeReviewResults(reviewA.result, reviewB.result);

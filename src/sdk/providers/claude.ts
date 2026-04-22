@@ -1064,6 +1064,16 @@ export class ClaudeSessionWrapper {
     });
   }
 
+  /**
+   * Structured output is only produced by the Agent SDK's `result` message,
+   * which interactive stages don't consume (they drive the `claude` CLI via
+   * tmux, not the SDK). Always `undefined` here — pair `outputFormat` with a
+   * headless stage to read {@link HeadlessClaudeSessionWrapper#lastStructuredOutput}.
+   */
+  get lastStructuredOutput(): unknown {
+    return undefined;
+  }
+
   /** Noop — for API symmetry with CopilotSession.disconnect(). */
   async disconnect(): Promise<void> {}
 }
@@ -1143,9 +1153,22 @@ export class HeadlessClaudeSessionWrapper {
    * Claude stages run in parallel (each call gets its own SDK-assigned UUID).
    */
   private _lastSessionId: string = "";
+  /**
+   * Validated structured output captured from the most recent `query()`'s
+   * `result` message. Populated only when callers pass
+   * `options.outputFormat = { type: "json_schema", schema }` and the SDK
+   * produced a `subtype: "success"` result with `structured_output` attached.
+   * Remains `undefined` on plain text runs or when the SDK fails validation
+   * (`error_max_structured_output_retries`).
+   */
+  private _lastStructuredOutput: unknown = undefined;
 
   get sessionId(): string {
     return this._lastSessionId;
+  }
+
+  get lastStructuredOutput(): unknown {
+    return this._lastStructuredOutput;
   }
 
   async query(
@@ -1166,12 +1189,15 @@ export class HeadlessClaudeSessionWrapper {
     };
 
     let sdkSessionId = "";
+    let structuredOutput: unknown = undefined;
     try {
       for await (const msg of sdkQuery({ prompt, options: headlessSdkOpts })) {
         if (msg.type === "result") {
-          sdkSessionId = String(
-            (msg as Record<string, unknown>).session_id ?? "",
-          );
+          const record = msg as Record<string, unknown>;
+          sdkSessionId = String(record.session_id ?? "");
+          if (record.subtype === "success" && "structured_output" in record) {
+            structuredOutput = record.structured_output;
+          }
         }
       }
     } catch (err) {
@@ -1187,6 +1213,7 @@ export class HeadlessClaudeSessionWrapper {
       );
     }
     this._lastSessionId = sdkSessionId;
+    this._lastStructuredOutput = structuredOutput;
     return getSessionMessages(sdkSessionId, { dir: process.cwd() });
   }
 

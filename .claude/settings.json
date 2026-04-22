@@ -10,7 +10,6 @@
     "defaultMode": "bypassPermissions"
   },
   "disabledMcpjsonServers": [
-    "github",
     "azure-devops"
   ],
   "enabledPlugins": {

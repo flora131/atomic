@@ -34,7 +34,12 @@ export async function applyManagedOnboardingFiles(
       managedFile.destination,
       projectRoot,
     );
-    await syncJsonFile(sourcePath, destinationPath, managedFile.merge);
+    await syncJsonFile(
+      sourcePath,
+      destinationPath,
+      managedFile.merge,
+      managedFile.excludeConfigKeys ?? [],
+    );
   }
 }
 

@@ -13,8 +13,13 @@ import {
   test,
   expect,
   beforeEach,
+  beforeAll,
+  afterAll,
   mock,
 } from "bun:test";
+import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 // ─── Copilot SDK fake ──────────────────────────────────────────────────────
 // `CopilotClient` is a class; the constructor captures latest test state.
@@ -45,10 +50,6 @@ class FakeCopilotClient {
   }
 }
 
-mock.module("@github/copilot-sdk", () => ({
-  CopilotClient: FakeCopilotClient,
-}));
-
 // ─── Claude Agent SDK fake ────────────────────────────────────────────────
 // `query()` returns something with `initializationResult()` and `close()`.
 // We ignore the `prompt` stream — the real SDK consumes it lazily, and the
@@ -65,17 +66,50 @@ let claudeInit = mock<() => Promise<{ account: ClaudeAccount }>>(async () => ({
 }));
 let claudeClose = mock(() => {});
 
-mock.module("@anthropic-ai/claude-agent-sdk", () => ({
-  query: () => ({
-    initializationResult: () => claudeInit(),
-    close: () => claudeClose(),
-  }),
-}));
+// `mock.module` is process-global in Bun and leaks across every test file
+// loaded in the same run — live ESM bindings in other files rebind to the
+// stub as soon as it registers, and re-registering with the real module in
+// `afterAll` does not restore the original namespace identity. Capture the
+// real SDK modules first, install the mocks only while this file's tests
+// are running, and never mock `claude.ts` (other test files exercise its
+// real exports). All consumers in `auth.ts` use dynamic `await import(...)`,
+// so lazy mock registration is safe here.
+const actualCopilotSdk = await import("@github/copilot-sdk");
+const actualClaudeSdk = await import("@anthropic-ai/claude-agent-sdk");
 
-// Stub the claude provider module so we don't probe PATH for `claude`.
-mock.module("../../sdk/providers/claude.ts", () => ({
-  resolveHeadlessClaudeBin: () => "/usr/local/bin/claude",
-}));
+// Put a fake `claude` binary on PATH so `resolveHeadlessClaudeBin()` (called
+// by `checkClaudeAuth`) succeeds without hitting the real CLI on disk. The
+// mocked SDK `query()` never actually spawns the subprocess — the path is
+// only passed through to the SDK constructor.
+let pathBefore: string | undefined;
+
+beforeAll(() => {
+  const dir = mkdtempSync(join(tmpdir(), "atomic-auth-test-path-"));
+  const bin = join(dir, "claude");
+  writeFileSync(bin, "#!/usr/bin/env sh\nexit 0\n");
+  chmodSync(bin, 0o755);
+  pathBefore = process.env.PATH;
+  process.env.PATH = `${dir}:${process.env.PATH ?? ""}`;
+
+  mock.module("@github/copilot-sdk", () => ({
+    ...actualCopilotSdk,
+    CopilotClient: FakeCopilotClient,
+  }));
+  mock.module("@anthropic-ai/claude-agent-sdk", () => ({
+    ...actualClaudeSdk,
+    query: () => ({
+      initializationResult: () => claudeInit(),
+      close: () => claudeClose(),
+    }),
+  }));
+});
+
+afterAll(() => {
+  if (pathBefore === undefined) delete process.env.PATH;
+  else process.env.PATH = pathBefore;
+  mock.module("@github/copilot-sdk", () => ({ ...actualCopilotSdk }));
+  mock.module("@anthropic-ai/claude-agent-sdk", () => ({ ...actualClaudeSdk }));
+});
 
 const { checkAgentAuth } = await import("./auth.ts");
 

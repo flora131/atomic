@@ -1,0 +1,28 @@
+repos:
+  - repo: local
+    hooks:
+      - id: typecheck
+        name: typecheck
+        entry: bun run typecheck
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+      - id: lint
+        name: lint
+        entry: bun run lint
+        language: system
+        files: \.(ts|tsx)$
+        pass_filenames: false
+        stages: [pre-commit]
+      - id: test
+        name: test
+        entry: bun test
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+      - id: test-coverage
+        name: test-coverage
+        entry: bun run test:coverage
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

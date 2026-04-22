@@ -20,7 +20,6 @@ import type { ScmProvider } from "./atomic-config.ts";
 interface AtomicSettings {
   $schema?: string;
   version?: number;
-  lastUpdated?: string;
   telemetryEnabled?: boolean;
   scm?: ScmProvider;
   providers?: Partial<Record<AgentKey, ProviderOverrides>>;
@@ -52,6 +51,25 @@ async function writeGlobalSettings(settings: AtomicSettings): Promise<void> {
   const path = globalSettingsPath();
   await ensureDir(dirname(path));
   await Bun.write(path, JSON.stringify(settings, null, 2));
+}
+
+/**
+ * Ensure `~/.atomic/settings.json` exists. Called once at CLI startup so
+ * users have a valid file to edit (with JSON Schema intellisense wired up
+ * via `$schema`) without having to run any explicit init command.
+ *
+ * Idempotent — no-op if the file already exists. Best-effort: filesystem
+ * errors (e.g. read-only home) are swallowed so the CLI never blocks on
+ * this side-effect.
+ */
+export async function ensureGlobalAtomicSettings(): Promise<void> {
+  try {
+    const path = globalSettingsPath();
+    if (await Bun.file(path).exists()) return;
+    await writeGlobalSettings({ version: 1 });
+  } catch (e) {
+    console.warn(`[settings] failed to bootstrap global settings: ${errorMessage(e)}`);
+  }
 }
 
 /**

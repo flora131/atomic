@@ -404,6 +404,12 @@ export const program = createProgram();
  */
 async function main(): Promise<void> {
     try {
+        // Bootstrap `~/.atomic/settings.json` on every invocation if absent,
+        // so users always have a file to edit with JSON Schema intellisense
+        // wired up. Idempotent; swallows FS errors internally.
+        const { ensureGlobalAtomicSettings } = await import("./services/config/settings.ts");
+        await ensureGlobalAtomicSettings();
+
         // Sync tooling deps and global skills on first launch after install
         // or upgrade. Runs at most once per version bump (gated on a marker
         // file under ~/.atomic). Skipped for `--version` / `--help` so info

@@ -30,8 +30,6 @@ export function isScmProvider(value: unknown): value is ScmProvider {
 export interface AtomicConfig {
   /** Version of config schema */
   version?: number;
-  /** Timestamp of last init */
-  lastUpdated?: string;
   /** Selected source control provider (drives MCP server enable/disable sync). */
   scm?: ScmProvider;
   /** Per-provider overrides for chatFlags and envVars */
@@ -97,10 +95,8 @@ function pickAtomicConfig(record: JsonRecord | null): AtomicConfig | null {
 
   const config: AtomicConfig = {};
   const version = record.version;
-  const lastUpdated = record.lastUpdated;
 
   if (typeof version === "number") config.version = version;
-  if (typeof lastUpdated === "string") config.lastUpdated = lastUpdated;
   if (isScmProvider(record.scm)) config.scm = record.scm;
 
   const providers = pickProviders(record.providers);
@@ -144,7 +140,6 @@ function mergeConfigs(...configs: Array<AtomicConfig | null>): AtomicConfig | nu
   for (const config of configs) {
     if (!config) continue;
     if (config.version !== undefined) merged.version = config.version;
-    if (config.lastUpdated !== undefined) merged.lastUpdated = config.lastUpdated;
     if (config.scm !== undefined) merged.scm = config.scm;
 
     if (config.providers) {
@@ -186,7 +181,6 @@ export async function saveAtomicConfig(
     ...currentConfig,
     ...updates,
     version: 1,
-    lastUpdated: new Date().toISOString(),
   };
 
   const nextSettings: JsonRecord = {

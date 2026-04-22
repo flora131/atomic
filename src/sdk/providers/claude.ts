@@ -71,6 +71,12 @@ export async function clearClaudeSession(paneId: string): Promise<void> {
       // Best-effort — if release fails the hook will still exit on its
       // own safety timeout.
     }
+    try {
+      await unlinkAtomicPidFile(state.claudeSessionId);
+    } catch {
+      // Best-effort — stale pid file is inert; the next session writes a
+      // fresh one under its own UUID.
+    }
   }
   initializedPanes.delete(paneId);
 }
@@ -258,6 +264,12 @@ export async function createClaudeSession(options: ClaudeSessionOptions): Promis
     chatFlags,
     readyTimeoutMs,
   });
+
+  // Write our PID so the Stop hook can detect an orphaned session if we
+  // crash/get SIGKILL'd without running teardown. Best-effort; failures just
+  // mean the hook falls back to waiting out Claude's own hook timeout.
+  await writeAtomicPidFile(claudeSessionId);
+
   return claudeSessionId;
 }
 
@@ -607,6 +619,38 @@ async function enqueuePrompt(claudeSessionId: string, prompt: string): Promise<v
 export async function releaseClaudeSession(claudeSessionId: string): Promise<void> {
   await mkdir(releaseDir(), { recursive: true });
   await writeFile(releasePath(claudeSessionId), "");
+}
+
+/** @internal */
+function pidDir(): string {
+  return claudeHookDirs().pid;
+}
+
+/** @internal */
+function pidFilePath(claudeSessionId: string): string {
+  return join(pidDir(), claudeSessionId);
+}
+
+/**
+ * Write `process.pid` to `~/.atomic/claude-pid/<session_id>` so the Stop hook
+ * can use it as a liveness signal. If atomic is SIGKILL'd (no chance to run
+ * `clearClaudeSession`), the hook detects the dead PID via `process.kill(..,0)`
+ * and self-exits instead of parking Claude for the full 24-day timeout.
+ */
+async function writeAtomicPidFile(claudeSessionId: string): Promise<void> {
+  await mkdir(pidDir(), { recursive: true });
+  await writeFile(pidFilePath(claudeSessionId), String(process.pid), "utf-8");
+}
+
+/** Remove the pid file for a session. Idempotent — ENOENT is swallowed. */
+async function unlinkAtomicPidFile(claudeSessionId: string): Promise<void> {
+  try {
+    await unlink(pidFilePath(claudeSessionId));
+  } catch (e: unknown) {
+    if (!(e instanceof Error && "code" in e && (e as NodeJS.ErrnoException).code === "ENOENT")) {
+      throw e;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

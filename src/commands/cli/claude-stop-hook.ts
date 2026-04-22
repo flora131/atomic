@@ -121,9 +121,9 @@ export async function claudeStopHookCommand(
   // `src/query.ts` → `transition: { reason: 'stop_hook_blocking' }`). In a
   // multi-turn workflow, every follow-up turn after the first is therefore
   // invoked with `stop_hook_active=true`. Returning early here would skip the
-  // marker write, leaving `waitForIdle` hanging until its 15-minute safety
-  // timeout, and would skip the queue poll so the workflow's next
-  // `s.session.query(...)` would never reach Claude.
+  // marker write, leaving `waitForIdle` hanging forever, and would skip the
+  // queue poll so the workflow's next `s.session.query(...)` would never
+  // reach Claude.
   //
   // Our design doesn't need the generic loop guard: the hook only emits a
   // `block` decision when the workflow runtime has written a prompt to the

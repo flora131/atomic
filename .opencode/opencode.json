@@ -8,11 +8,16 @@
       "headers": {
         "Authorization": "Bearer ${env:GITHUB_PERSONAL_ACCESS_TOKEN}"
       },
-      "enabled": false
+      "enabled": true
     },
     "azure-devops": {
       "type": "local",
-      "command": ["bunx", "-y", "@azure-devops/mcp", "<your-org>"],
+      "command": [
+        "bunx",
+        "-y",
+        "@azure-devops/mcp",
+        "<your-org>"
+      ],
       "enabled": false
     }
   }

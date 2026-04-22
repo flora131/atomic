@@ -61,15 +61,12 @@
     "typecheck": "bunx tsc --noEmit && bunx tsc -p tests --noEmit",
     "lint": "oxlint --config=oxlint.json src",
     "lint:fix": "oxlint --config=oxlint.json --fix src",
-    "prepare": "lefthook install || true"
+    "prepare": "prek install -t pre-commit -t pre-push || true"
   },
-  "trustedDependencies": [
-    "lefthook"
-  ],
   "devDependencies": {
+    "@j178/prek": "^0.3.10",
     "@types/bun": "^1.3.12",
     "@types/react": "^19.2.14",
-    "lefthook": "^2.1.6",
     "oxlint": "^1.61.0",
     "typescript": "^6.0.3",
     "typescript-language-server": "^5.1.3"

@@ -8,7 +8,10 @@
  */
 
 import { test, expect, describe } from "bun:test";
-import { mergeDisallowedTools } from "./claude.ts";
+import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { mergeDisallowedTools, resolveHeadlessClaudeBin } from "./claude.ts";
 import {
   HEADLESS_OPENCODE_CLIENT_ID,
   withHeadlessOpencodeEnv,
@@ -60,6 +63,43 @@ describe("mergeExcludedTools (Copilot)", () => {
       "ask_user",
       "bash",
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Claude — headless binary resolution pins to the PATH `claude` CLI
+// ---------------------------------------------------------------------------
+
+describe("resolveHeadlessClaudeBin", () => {
+  const withPath = (path: string, fn: () => void) => {
+    const before = process.env.PATH;
+    process.env.PATH = path;
+    try {
+      fn();
+    } finally {
+      if (before === undefined) delete process.env.PATH;
+      else process.env.PATH = before;
+    }
+  };
+
+  test("returns the `claude` binary when present on PATH", () => {
+    const dir = mkdtempSync(join(tmpdir(), "atomic-claude-bin-"));
+    const bin = join(dir, "claude");
+    writeFileSync(bin, "#!/usr/bin/env sh\nexit 0\n");
+    chmodSync(bin, 0o755);
+    withPath(dir, () => {
+      expect(resolveHeadlessClaudeBin()).toBe(bin);
+    });
+  });
+
+  test("throws with installer URL when PATH has no `claude`", () => {
+    const empty = mkdtempSync(join(tmpdir(), "atomic-empty-path-"));
+    withPath(empty, () => {
+      expect(() => resolveHeadlessClaudeBin()).toThrow(/CLI not found on PATH/);
+      expect(() => resolveHeadlessClaudeBin()).toThrow(
+        /docs\.claude\.com.*claude-code/,
+      );
+    });
   });
 });
 

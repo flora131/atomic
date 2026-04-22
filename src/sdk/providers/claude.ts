@@ -1090,6 +1090,40 @@ export class HeadlessClaudeClientWrapper {
 }
 
 /**
+ * Resolve the `claude` CLI binary for headless SDK queries.
+ *
+ * Pins the SDK to the same binary interactive stages already spawn via tmux
+ * (`AGENT_CONFIG.claude.cmd` on PATH), bypassing
+ * `@anthropic-ai/claude-agent-sdk`'s built-in resolver. That resolver probes
+ * optional native packages in a fixed order — on Linux it tries
+ * `linux-${arch}-musl` before `linux-${arch}` and returns whichever
+ * `require.resolve` finds first — so on a glibc host where both optional
+ * packages got installed (Bun installs every optionalDependency by default)
+ * it picks the musl binary, which can't exec because its dynamic linker
+ * (`/lib/ld-musl-*.so.1`) is absent. The SDK surfaces the resulting ENOENT
+ * as a misleading "Claude Code native binary not found" error.
+ *
+ * `chatCommand` and `workflowCommand` already fail fast when `claude` isn't
+ * on PATH (see `isCommandInstalled` in each), so in practice this lookup
+ * always succeeds. The throw here is a belt-and-suspenders guard that
+ * prefers a clear failure over silently falling back to the SDK's resolver.
+ */
+export function resolveHeadlessClaudeBin(): string {
+  // Pass PATH explicitly — the 1-arg form of Bun.which caches the value
+  // captured at process start, which makes the lookup insensitive to later
+  // env mutations (and un-exercisable from tests that tweak `process.env.PATH`).
+  const onPath = Bun.which("claude", { PATH: process.env.PATH ?? "" });
+  if (!onPath) {
+    throw new Error(
+      "`claude` CLI not found on PATH. Install Claude Code via the native " +
+        "installer (https://docs.claude.com/en/docs/claude-code/overview) " +
+        "and retry.",
+    );
+  }
+  return onPath;
+}
+
+/**
  * Headless session wrapper for Claude stages. Uses the Agent SDK's `query()`
  * directly instead of tmux pane operations. Implements the same `query()`
  * interface as {@link ClaudeSessionWrapper} so workflow callbacks work
@@ -1124,6 +1158,8 @@ export class HeadlessClaudeSessionWrapper {
     const sdkOpts = options ?? {};
     const headlessSdkOpts: Partial<SDKOptions> = {
       ...sdkOpts,
+      pathToClaudeCodeExecutable:
+        sdkOpts.pathToClaudeCodeExecutable ?? resolveHeadlessClaudeBin(),
       disallowedTools: mergeDisallowedTools(sdkOpts.disallowedTools, [
         "AskUserQuestion",
       ]),

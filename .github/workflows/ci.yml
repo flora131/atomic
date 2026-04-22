@@ -35,8 +35,8 @@ jobs:
             - name: Run linting
               run: bun run lint
 
-            - name: Run tests
-              run: bun test 2>&1 | cat
+            - name: Run tests with coverage
+              run: bun run test:coverage 2>&1 | cat
 
             - name: Validate SDK build
               run: bun run build

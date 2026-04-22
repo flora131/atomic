@@ -61,7 +61,7 @@
     "typecheck": "bunx tsc --noEmit && bunx tsc -p tests --noEmit",
     "lint": "oxlint --config=oxlint.json src",
     "lint:fix": "oxlint --config=oxlint.json --fix src",
-    "prepare": "prek install -t pre-commit -t pre-push || true"
+    "prepare": "prek install || true"
   },
   "devDependencies": {
     "@j178/prek": "^0.3.10",

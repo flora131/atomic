@@ -1,3 +1,4 @@
+default_install_hook_types: [pre-commit, pre-push]
 repos:
   - repo: local
     hooks:
@@ -12,12 +13,6 @@ repos:
         entry: bun run lint
         language: system
         files: \.(ts|tsx)$
-        pass_filenames: false
-        stages: [pre-commit]
-      - id: test
-        name: test
-        entry: bun test
-        language: system
         pass_filenames: false
         stages: [pre-commit]
       - id: test-coverage

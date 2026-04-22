@@ -34,6 +34,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import * as realWorkflows from "../../sdk/workflows/index.ts";
 import * as realDetect from "../../services/system/detect.ts";
+import * as realAuth from "../../services/system/auth.ts";
 import * as realSpawn from "../../lib/spawn.ts";
 import { AGENT_CONFIG } from "../../services/config/index.ts";
 import type {
@@ -99,6 +100,14 @@ const ensureBunInstalledMock = mock<typeof realSpawn.ensureBunInstalled>(
   async () => {},
 );
 
+// Default: pretend auth succeeded. Real probes spawn the agent CLI via
+// its SDK to talk to an auth RPC — that's network/process-heavy and
+// non-deterministic on CI runners, so the auth branch is faked here and
+// exercised directly by `auth.test.ts`.
+const checkAgentAuthMock = mock<typeof realAuth.checkAgentAuth>(async () => ({
+  loggedIn: true,
+}));
+
 mock.module("../../sdk/workflows/index.ts", () => ({
   ...realWorkflows,
   executeWorkflow: executeWorkflowMock,
@@ -109,6 +118,10 @@ mock.module("../../sdk/workflows/index.ts", () => ({
 mock.module("../../services/system/detect.ts", () => ({
   ...realDetect,
   isCommandInstalled: isCommandInstalledMock,
+}));
+mock.module("../../services/system/auth.ts", () => ({
+  ...realAuth,
+  checkAgentAuth: checkAgentAuthMock,
 }));
 mock.module("../../lib/spawn.ts", () => ({
   ...realSpawn,
@@ -226,6 +239,8 @@ beforeEach(async () => {
   ensureTmuxInstalledMock.mockImplementation(async () => {});
   ensureBunInstalledMock.mockClear();
   ensureBunInstalledMock.mockImplementation(async () => {});
+  checkAgentAuthMock.mockClear();
+  checkAgentAuthMock.mockImplementation(async () => ({ loggedIn: true }));
 });
 
 afterEach(async () => {
@@ -906,6 +921,31 @@ describe("workflowCommand prereq checks", () => {
     expect(ensureTmuxInstalledMock).toHaveBeenCalledTimes(1);
     // Platform-specific message — both tmux and psmux acceptable.
     expect(cap.stderr).toMatch(/(tmux|psmux) is not installed/);
+  });
+
+  test("returns 1 with a login hint when the user isn't authenticated", async () => {
+    // Auth probe runs after `isCommandInstalled` and before tmux/bun
+    // installer checks — the workflow must bail before spawning a tmux
+    // session users would then have to kill manually.
+    checkAgentAuthMock.mockImplementationOnce(async () => ({
+      loggedIn: false,
+      detail: "oauth token missing",
+    }));
+
+    const cap = captureOutput();
+    const code = await workflowCommand({
+      name: "anything",
+      agent: "copilot",
+      cwd: tempDir,
+    });
+    cap.restore();
+
+    expect(code).toBe(1);
+    expect(cap.stderr).toContain("Not logged in to GitHub Copilot CLI");
+    expect(cap.stderr).toContain("oauth token missing");
+    expect(cap.stderr).toContain("copilot");
+    // Downstream installers never run — the auth gate short-circuits.
+    expect(ensureTmuxInstalledMock).not.toHaveBeenCalled();
   });
 
   test("best-effort tmux installer errors are swallowed", async () => {

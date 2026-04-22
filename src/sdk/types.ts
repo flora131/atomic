@@ -143,11 +143,12 @@ export function createProviderValidator(
 /**
  * Supported field types for a workflow's declared inputs.
  *
- * - `"string"` — single-line free-form input (short values, identifiers, paths)
- * - `"text"`   — multi-line free-form input (long prose, prompts, specs)
- * - `"enum"`   — one of a fixed list of allowed `values`
+ * - `"string"`  — single-line free-form input (short values, identifiers, paths)
+ * - `"text"`    — multi-line free-form input (long prose, prompts, specs)
+ * - `"enum"`    — one of a fixed list of allowed `values`
+ * - `"integer"` — whole number; parsed to `number` in `ctx.inputs`
  */
-export type WorkflowInputType = "string" | "text" | "enum";
+export type WorkflowInputType = "string" | "text" | "enum" | "integer";
 
 /**
  * A declared input for a workflow. When a workflow provides an `inputs`
@@ -170,11 +171,45 @@ export interface WorkflowInput {
   description?: string;
   /** Placeholder text shown when the field is empty. */
   placeholder?: string;
-  /** Default value pre-filled into the field. Enums use this to pick their initial value. */
-  default?: string;
+  /**
+   * Default value pre-filled into the field. Enums use this to pick
+   * their initial value. Integer inputs accept either a `number` or its
+   * decimal string representation.
+   */
+  default?: string | number;
   /** Allowed values — required when `type` is `"enum"`. */
   values?: readonly string[];
 }
+
+/**
+ * Map a {@link WorkflowInputType} to the runtime value type observed in
+ * `ctx.inputs`. Integer inputs are parsed to `number` at the executor
+ * boundary; everything else stays a `string`.
+ */
+export type WorkflowInputValue<T extends WorkflowInputType> =
+  T extends "integer" ? number : string;
+
+/**
+ * Compute the typed `ctx.inputs` shape from a workflow's declared input
+ * schema. Each declared field becomes an optional key whose value type
+ * is determined by {@link WorkflowInputValue}.
+ *
+ * Free-form workflows (no declared schema) fall back to a loose
+ * string-keyed record so authors can still read `ctx.inputs.prompt`.
+ */
+export type InputsOf<I extends readonly WorkflowInput[]> =
+  // Non-literal schema (default `I = readonly WorkflowInput[]`) or empty
+  // tuple — no type-level info about individual fields, so fall back to a
+  // loose string record that preserves the prior free-form behaviour.
+  WorkflowInput extends I[number]
+    ? Record<string, string | undefined>
+    : I[number] extends never
+      ? Record<string, string | undefined>
+      : {
+          [K in I[number]["name"]]?: WorkflowInputValue<
+            Extract<I[number], { name: K }>["type"]
+          >;
+        };
 
 // ─── Core types ─────────────────────────────────────────────────────────────
 
@@ -252,7 +287,10 @@ export interface SessionRunOptions {
  * Created by `ctx.stage(opts, clientOpts, sessionOpts, fn)` — the callback
  * receives this as its argument with pre-initialized `client` and `session`.
  */
-export interface SessionContext<A extends AgentType = AgentType, N extends string = string> {
+export interface SessionContext<
+  A extends AgentType = AgentType,
+  I extends readonly WorkflowInput[] = readonly WorkflowInput[],
+> {
   /** Provider-specific SDK client (auto-created by runtime) */
   client: ProviderClient<A>;
   /** Provider-specific session (auto-created by runtime) */
@@ -263,10 +301,11 @@ export interface SessionContext<A extends AgentType = AgentType, N extends strin
    *
    * When the workflow declares an `inputs` schema, only the declared
    * field names are valid keys — accessing undeclared fields is a
-   * compile-time error. Free-form workflows (no declared schema)
-   * allow any key, including the conventional `prompt` key.
+   * compile-time error. Each field's value type is determined by its
+   * declared `type` (integer inputs surface as `number`). Free-form
+   * workflows (no declared schema) allow any key.
    */
-  inputs: { [K in N]?: string };
+  inputs: InputsOf<I>;
   /** Which agent is running */
   agent: A;
   /**
@@ -299,7 +338,7 @@ export interface SessionContext<A extends AgentType = AgentType, N extends strin
     options: SessionRunOptions,
     clientOpts: StageClientOptions<A>,
     sessionOpts: StageSessionOptions<A>,
-    run: (ctx: SessionContext<A, N>) => Promise<T>,
+    run: (ctx: SessionContext<A, I>) => Promise<T>,
   ): Promise<SessionHandle<T>>;
 }
 
@@ -307,17 +346,21 @@ export interface SessionContext<A extends AgentType = AgentType, N extends strin
  * Top-level context provided to the workflow's `.run()` callback.
  * Does not have session-specific fields (paneId, save, etc.).
  */
-export interface WorkflowContext<A extends AgentType = AgentType, N extends string = string> {
+export interface WorkflowContext<
+  A extends AgentType = AgentType,
+  I extends readonly WorkflowInput[] = readonly WorkflowInput[],
+> {
   /**
    * Structured inputs for this workflow run. Populated from CLI flags
    * (`--<name>=<value>`) or the interactive picker.
    *
    * When the workflow declares an `inputs` schema, only the declared
    * field names are valid keys — accessing undeclared fields is a
-   * compile-time error. Free-form workflows (no declared schema)
-   * allow any key, including the conventional `prompt` key.
+   * compile-time error. Each field's value type is determined by its
+   * declared `type` (integer inputs surface as `number`). Free-form
+   * workflows (no declared schema) allow any key.
    */
-  inputs: { [K in N]?: string };
+  inputs: InputsOf<I>;
   /** Which agent is running */
   agent: A;
   /**
@@ -330,7 +373,7 @@ export interface WorkflowContext<A extends AgentType = AgentType, N extends stri
     options: SessionRunOptions,
     clientOpts: StageClientOptions<A>,
     sessionOpts: StageSessionOptions<A>,
-    run: (ctx: SessionContext<A, N>) => Promise<T>,
+    run: (ctx: SessionContext<A, I>) => Promise<T>,
   ): Promise<SessionHandle<T>>;
   /**
    * Get a completed session's transcript as rendered text.
@@ -385,7 +428,10 @@ export interface WorkflowOptions<
 /**
  * A compiled workflow definition — the sealed output of defineWorkflow().compile().
  */
-export interface WorkflowDefinition<A extends AgentType = AgentType, N extends string = string> {
+export interface WorkflowDefinition<
+  A extends AgentType = AgentType,
+  I extends readonly WorkflowInput[] = readonly WorkflowInput[],
+> {
   readonly __brand: "WorkflowDefinition";
   readonly name: string;
   readonly description: string;
@@ -397,5 +443,5 @@ export interface WorkflowDefinition<A extends AgentType = AgentType, N extends s
    */
   readonly minSDKVersion: string | null;
   /** The workflow's entry point. Called by the executor with a WorkflowContext. */
-  readonly run: (ctx: WorkflowContext<A, N>) => Promise<void>;
+  readonly run: (ctx: WorkflowContext<A, I>) => Promise<void>;
 }

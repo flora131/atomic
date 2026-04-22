@@ -110,9 +110,11 @@ export function validateInputsAgainstSchema(
 
   for (const field of schema) {
     const raw = inputs[field.name];
+    const defaultStr =
+      field.default !== undefined ? String(field.default) : undefined;
     const value =
       raw === undefined || raw === ""
-        ? field.default ?? (field.type === "enum" ? field.values?.[0] ?? "" : "")
+        ? defaultStr ?? (field.type === "enum" ? field.values?.[0] ?? "" : "")
         : raw;
 
     if (field.required) {
@@ -133,6 +135,19 @@ export function validateInputsAgainstSchema(
         errors.push(
           `Invalid value for --${field.name}: "${value}". ` +
             `Expected one of: ${allowed.join(", ")}.`,
+        );
+      }
+    }
+
+    if (field.type === "integer" && value !== "") {
+      const parsed = Number.parseInt(value, 10);
+      if (
+        !Number.isFinite(parsed) ||
+        !Number.isInteger(parsed) ||
+        String(parsed) !== value.trim()
+      ) {
+        errors.push(
+          `Invalid value for --${field.name}: "${value}". Expected an integer.`,
         );
       }
     }
@@ -166,7 +181,7 @@ export function resolveInputs(
     if (raw !== undefined && raw !== "") {
       out[field.name] = raw;
     } else if (field.default !== undefined) {
-      out[field.name] = field.default;
+      out[field.name] = String(field.default);
     } else if (field.type === "enum" && field.values && field.values.length > 0) {
       out[field.name] = field.values[0]!;
     }

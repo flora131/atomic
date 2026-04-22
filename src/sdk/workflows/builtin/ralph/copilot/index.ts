@@ -4,7 +4,7 @@
  * Each sub-agent invocation spawns its own visible session in the graph,
  * so users can see each iteration's progress in real time. The loop
  * terminates when:
- *   - {@link MAX_LOOPS} iterations have completed, OR
+ *   - `max_loops` iterations have completed (defaults to {@link DEFAULT_MAX_LOOPS}), OR
  *   - Two parallel reviewer passes both return zero findings.
  *
  * The reviewer stages use a `submit_review` custom tool (defined via
@@ -35,7 +35,7 @@ import {
 import { hasActionableFindings } from "../helpers/review.ts";
 import { captureBranchChangeset } from "../helpers/git.ts";
 
-const MAX_LOOPS = 10;
+const DEFAULT_MAX_LOOPS = 10;
 
 const SUBMIT_REVIEW_DESCRIPTION =
   "Submit the structured code review result. You MUST call this tool " +
@@ -85,14 +85,21 @@ export default defineWorkflow({
       required: true,
       description: "task prompt",
     },
+    {
+      name: "max_loops",
+      type: "integer",
+      description: "maximum number of plan/orchestrate/review iterations",
+      default: DEFAULT_MAX_LOOPS,
+    },
   ],
 })
   .for<"copilot">()
   .run(async (ctx) => {
     const userPromptText = ctx.inputs.prompt ?? "";
+    const maxLoops = ctx.inputs.max_loops ?? DEFAULT_MAX_LOOPS;
     let debuggerReport = "";
 
-    for (let iteration = 1; iteration <= MAX_LOOPS; iteration++) {
+    for (let iteration = 1; iteration <= maxLoops; iteration++) {
       // ── Plan ──────────────────────────────────────────────────────────
       const planner = await ctx.stage(
         { name: `planner-${iteration}` },
@@ -247,7 +254,7 @@ export default defineWorkflow({
       if (!hasActionableFindings(parsed, reviewRaw)) break;
 
       // ── Debug (only if another iteration is allowed) ──────────────────
-      if (iteration < MAX_LOOPS) {
+      if (iteration < maxLoops) {
         const debugger_ = await ctx.stage(
           { name: `debugger-${iteration}` },
           {},

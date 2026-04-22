@@ -114,7 +114,9 @@ export function renderInputsText(payload: WorkflowInputsResult): string {
     }
     if (field.default !== undefined) {
       lines.push(
-        "      " + paint("dim", "default: ") + paint("text", field.default),
+        "      " +
+          paint("dim", "default: ") +
+          paint("text", String(field.default)),
       );
     }
     if (field.placeholder) {

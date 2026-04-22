@@ -296,6 +296,16 @@ function isRunnable(wf: WorkflowWithMetadata): boolean {
 // ─── Validation ─────────────────────────────────
 
 export function isFieldValid(field: WorkflowInput, value: string): boolean {
+  if (field.type === "integer") {
+    const trimmed = value.trim();
+    if (trimmed === "") return !field.required;
+    const parsed = Number.parseInt(trimmed, 10);
+    return (
+      Number.isFinite(parsed) &&
+      Number.isInteger(parsed) &&
+      String(parsed) === trimmed
+    );
+  }
   if (!field.required) return true;
   if (field.type === "enum") return value !== "";
   return value.trim() !== "";
@@ -864,7 +874,7 @@ const Field = memo(function Field({
             focused={focused}
             onInput={onInput}
           />
-        ) : field.type === "string" ? (
+        ) : field.type === "string" || field.type === "integer" ? (
           <StringContent
             value={value}
             placeholder={field.placeholder ?? ""}
@@ -1397,8 +1407,11 @@ function usePickerKeyboard(state: PickerKeyboardState): void {
         const initial: Record<string, string> = {};
         for (const f of wf.inputs) {
           initial[f.name] =
-            f.default ??
-            (f.type === "enum" ? (f.values?.[0] ?? "") : "");
+            f.default !== undefined
+              ? String(f.default)
+              : f.type === "enum"
+                ? (f.values?.[0] ?? "")
+                : "";
         }
         setFieldValues(initial);
         setFocusedFieldIdx(0);
@@ -1453,7 +1466,10 @@ function usePickerKeyboard(state: PickerKeyboardState): void {
       return;
     }
 
-    if (field.type === "string" && key.name === "return") {
+    if (
+      (field.type === "string" || field.type === "integer") &&
+      key.name === "return"
+    ) {
       key.stopPropagation();
       setFocusedFieldIdx((i: number) =>
         Math.min(currentFieldsRef.current.length - 1, i + 1),

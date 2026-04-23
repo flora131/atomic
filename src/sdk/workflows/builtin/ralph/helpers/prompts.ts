@@ -1,18 +1,88 @@
 /**
  * Ralph Prompt Utilities
  *
- * Prompts used by the Ralph plan → orchestrate → review → debug loop:
- *   - buildPlannerPrompt:           initial planning OR re-planning from a debugger report
+ * Prompts used by the Ralph plan → orchestrate → review loop:
+ *   - buildPlannerPrompt:           initial planning OR re-planning from reviewer findings
  *   - buildOrchestratorPrompt:      spawn workers to execute the task list
  *   - buildInfraDiscoveryPrompts:   prompts for parallel sub-agent infrastructure discovery
  *   - buildReviewPrompt:            structured code review with injected changeset + discovery context
- *   - buildDebuggerReportPrompt:    diagnose review findings, produce a re-plan brief
  *
  * Plus Zod schemas for structured output, parsing helpers for the reviewer
- * JSON output, and the debugger markdown report.
+ * JSON output, and {@link formatReviewForReplan} which renders the merged
+ * reviewer output as the markdown brief consumed by the next planner
+ * iteration.
  */
 
 import { z } from "zod";
+
+// ============================================================================
+// RESPONSE STYLE (token reduction)
+// ============================================================================
+
+/**
+ * Caveman response-style directive injected into every Ralph prompt.
+ *
+ * Goal: shrink free-form prose across many loop iterations to cut tokens
+ * without dropping technical substance. Carve-outs preserve every
+ * machine-consumed contract (schemas, headers, enums, tool args, code).
+ *
+ * Placement: appended via {@link withCaveman} so each builder's strict
+ * output-format block remains the final instruction the model reads.
+ */
+export const CAVEMAN_INSTRUCTION = `## Response Style — Terse Caveman
+
+Respond terse like smart caveman. All technical substance stay. Only fluff die.
+
+### Persistence
+ACTIVE EVERY RESPONSE. No revert after many turns. No filler drift. Still active if unsure.
+
+### Rules
+Drop: articles (a/an/the), filler (just/really/basically/actually/simply), pleasantries (sure/certainly/of course/happy to), hedging. Fragments OK. Short synonyms (big not extensive, fix not "implement a solution for"). Technical terms exact. Code blocks unchanged. Errors quoted exact.
+
+Pattern: \`[thing] [action] [reason]. [next step].\`
+
+Not: "Sure! I'd be happy to help you with that. The issue you're experiencing is likely caused by..."
+Yes: "Bug in auth middleware. Token expiry check use \`<\` not \`<=\`. Fix:"
+
+### Intensity
+Drop articles, fragments OK, short synonyms.
+
+Example — "Why React component re-render?"
+"New object ref each render. Inline object prop = new ref = re-render. Wrap in \`useMemo\`."
+
+Example — "Explain database connection pooling."
+"Pool reuse open DB connections. No new connection per request. Skip handshake overhead."
+
+### Auto-Clarity
+Drop caveman for: security warnings, irreversible action confirmations, multi-step sequences where fragment order risks misread, user asks to clarify or repeats question. Resume caveman after clear part done.
+
+Example — destructive op:
+> **Warning:** This will permanently delete all rows in the \`users\` table and cannot be undone.
+> \`\`\`sql
+> DROP TABLE users;
+> \`\`\`
+> Caveman resume. Verify backup exist first.
+
+### Boundaries — caveman MUST NOT touch
+Caveman compresses free-form prose only. Leave the following exactly as the prompt or schema specifies:
+
+- Code blocks, commit messages, PR descriptions: write normal.
+- Exact enum / literal strings the schema or prompt specifies (e.g. \`"patch is correct"\`, \`"patch is incorrect"\`, task statuses \`pending\` / \`in_progress\` / \`completed\` / \`error\`).
+- Required section headers and template scaffolding (e.g. \`# Debugger Report\`, \`## Issues Identified\`, RFC section names) — verbatim.
+- Tool names, tool arguments, JSON keys, schema field names.
+- File paths, URLs, command invocations, error text quoted from tools.
+- SQL, JSON, Markdown templates: compress prose inside, never the structure.
+- Task titles / descriptions persisted via task-management tools: keep them self-contained and unambiguous.
+- When the prompt says output ONLY a path / ONLY a fenced block / ONLY a JSON payload, obey that exactly — caveman does not override output contracts.`;
+
+/**
+ * Append the caveman style directive after the prompt body but BEFORE any
+ * trailing strict output-format / schema instructions in the caller. Each
+ * builder positions the marker so the format contract remains last.
+ */
+function withCaveman(prompt: string): string {
+  return `${prompt}\n\n${CAVEMAN_INSTRUCTION}`;
+}
 
 // ============================================================================
 // STRUCTURED OUTPUT SCHEMAS
@@ -65,8 +135,10 @@ export const ReviewResultSchema = z.object({
     .array(ReviewFindingSchema)
     .describe("List of review findings, ordered by priority"),
   overall_correctness: z
-    .string()
-    .describe("'patch is correct' or 'patch is incorrect'"),
+    .enum(["patch is correct", "patch is incorrect"])
+    .describe(
+      "Exact literal: 'patch is correct' or 'patch is incorrect'. No paraphrase.",
+    ),
   overall_explanation: z
     .string()
     .describe("Summary of overall quality and correctness"),
@@ -157,31 +229,38 @@ export function mergeReviewResults(
 export interface PlannerContext {
   /** 1-indexed loop iteration. Iteration 1 = initial plan; >1 = re-plan. */
   iteration: number;
-  /** Markdown report from the previous iteration's debugger sub-agent. */
-  debuggerReport?: string;
+  /**
+   * Markdown rendering of the previous iteration's merged reviewer
+   * findings. Produced by {@link formatReviewForReplan}. The planner is
+   * responsible for validating, deduping, and clustering findings into
+   * shared root causes before revising the RFC — there is no separate
+   * debugger stage.
+   */
+  reviewReport?: string;
 }
 
 /**
  * Build the planner prompt. The first iteration authors an RFC from the
- * original spec; subsequent iterations revise the RFC using the debugger
- * report from the previous loop iteration.
+ * original spec; subsequent iterations revise the RFC using the merged
+ * reviewer findings from the previous loop iteration.
  *
  * The planner's deliverable is a filled-in Technical Design Document / RFC
- * rendered as markdown text
- * consumes the RFC as design context
+ * rendered as markdown text; the orchestrator consumes the RFC as design
+ * context.
  */
 export function buildPlannerPrompt(
   spec: string,
   context: PlannerContext = { iteration: 1 },
 ): string {
-  const debuggerReport = context.debuggerReport?.trim() ?? "";
-  const isReplan = context.iteration > 1 && debuggerReport.length > 0;
+  const reviewReport = context.reviewReport?.trim() ?? "";
+  const isReplan = context.iteration > 1 && reviewReport.length > 0;
 
   const header = isReplan
     ? `# Technical Design Revision (Iteration ${context.iteration})
 
-The previous iteration's implementation was flagged by the reviewer, and the
-debugger investigated. Revise the RFC so it reflects the corrected approach.`
+The previous iteration's implementation was flagged by the reviewer.
+Investigate the findings, identify shared root causes, and revise the RFC
+so it reflects the corrected approach.`
     : `# Technical Design (Iteration 1)
 
 Author a Technical Design Document / RFC for the specification below.`;
@@ -192,43 +271,57 @@ Author a Technical Design Document / RFC for the specification below.`;
 ${spec}
 </specification>`;
 
-  const debuggerBlock = isReplan
+  const reviewBlock = isReplan
     ? `
 
-## Debugger Report (authoritative)
+## Reviewer Findings (previous iteration)
 
-<debugger_report>
-${debuggerReport}
-</debugger_report>
+<reviewer_findings>
+${reviewReport}
+</reviewer_findings>
+
+### Triage Before Revising
+
+The findings above are reviewer hypotheses, not root causes. Before touching
+the RFC:
+
+1. **Validate** — for each finding, Read the cited file/lines (Grep/Glob/LSP)
+   and confirm the issue exists. Drop findings that are stale or wrong.
+2. **Dedupe & cluster** — group findings that share a file, module, or
+   underlying defect. Multiple symptoms often share one root cause.
+3. **Root-cause** — for each cluster, identify the underlying defect (not
+   the symptom). Note files that must change and any invariants the next
+   workers must respect.
 
 ### Revision Focus
 
-Fold every issue in the debugger report into the revised RFC:
+Fold the validated, clustered root causes into the RFC:
 
-- **Section 5 (Detailed Design)** — specify the corrected approach. Every
-  "Issue Identified" in the report should map to a concrete design change.
-- **Section 6 (Alternatives Considered)** — if the root cause points to a
+- **Section 5 (Detailed Design)** — specify the corrected approach. Each
+  root cause should map to a concrete design change.
+- **Section 6 (Alternatives Considered)** — if a root cause points to a
   better option than the one previously chosen, promote it and demote the
   current choice to "rejected" with the new rejection reason.
 - **Section 8 (Migration, Rollout, and Testing)** — add validation steps
-  that would have caught the regression.
+  (tests, lint rules, type checks) that would have caught the regression.
 - **Section 9 (Open Questions / Unresolved Issues)** — surface any
-  uncertainty the debugger flagged as unresolved.`
+  uncertainty triage left unresolved.`
     : "";
 
-  return `${header}
+  return withCaveman(`${header}
 
-${specBlock}${debuggerBlock}
+${specBlock}${reviewBlock}
 
 ${
   isReplan
     ? `## Step 1: Author a Revised RFC
 
-This is a re-plan iteration — the debugger report above MUST be folded into
-the design. Always author a revised RFC here, even if the original
-specification was a file path. If the spec is a path, Read the file first to
-get the original design, then produce a revised RFC that incorporates the
-debugger findings. Do NOT short-circuit to just the path on re-plan.`
+This is a re-plan iteration — the validated, clustered findings above MUST
+be folded into the design. Always author a revised RFC here, even if the
+original specification was a file path. If the spec is a path, Read the
+file first to get the original design, then produce a revised RFC that
+incorporates the corrected approach. Do NOT short-circuit to just the path
+on re-plan.`
     : `## Step 1: Spec Path Short-Circuit (do this FIRST)
 
 The specification above may be either a **file path** to an existing spec
@@ -279,7 +372,7 @@ forward the path. Duplicating the spec wastes tokens and introduces drift.`
 - Output nothing else after the RFC (or path) — no meta-commentary, no
   summary. The document (or path) stands on its own.
 - Match depth to stakes: a greenfield service warrants deep sections 5-7; a
-  small refactor can abbreviate them, but every section header must be present.`;
+  small refactor can abbreviate them, but every section header must be present.`);
 }
 // ============================================================================
 // ORCHESTRATOR
@@ -320,7 +413,7 @@ ${plannerNotes}
 (empty — fall back to the Original User Specification below)
 </planner_output>`;
 
-  return `You are the workflow orchestrator. You run a three-phase loop:
+  return withCaveman(`You are the workflow orchestrator. You run a three-phase loop:
 
 1. **Decompose** the design document into a task list.
 2. **Execute** the tasks by spawning parallel worker sub-agents.
@@ -444,7 +537,21 @@ Update statuses **immediately** at every transition via task tool.
 - When multiple workers complete in parallel, issue a SEPARATE update per
   task.
 - Mark previous tasks \`completed\` before marking new ones
-  \`in_progress\`.`;
+  \`in_progress\`.
+
+## Worker Sub-Agent Response Style
+
+When you spawn a worker via \`Agent\` / \`Task\` / \`agent\`, append this exact
+clause to its prompt so the worker inherits the terse style:
+
+> Respond terse like smart caveman. Drop articles, filler, pleasantries,
+> hedging. Fragments OK. Technical terms exact. Code blocks unchanged.
+> Errors quoted exact. Never compress: tool names, tool args, file paths,
+> commit messages, code, exact enum/literal strings, schema field names,
+> required section headers, task titles persisted to task tools.
+
+Do NOT compress the worker's task subject, description, or persisted task
+records — those must remain self-contained and unambiguous.`);
 }
 
 // ============================================================================
@@ -472,7 +579,7 @@ export interface InfraDiscoveryPrompts {
  */
 export function buildInfraDiscoveryPrompts(): InfraDiscoveryPrompts {
   return {
-    locator: `# Locate Build & Test Infrastructure Files
+    locator: withCaveman(`# Locate Build & Test Infrastructure Files
 
 Find ALL files in this repository that define or configure the build, test,
 lint, type-check, and CI/CD infrastructure. Report their paths and a
@@ -498,9 +605,9 @@ Respond with a flat list:
 
 Be exhaustive. Do NOT skip files just because they seem minor — CI configs
 and agent instruction files often contain the authoritative command list.
-End with a brief trailing summary (1-2 sentences) of what you found.`,
+End with a brief trailing summary (1-2 sentences) of what you found.`),
 
-    analyzer: `# Analyze Build & Test Infrastructure
+    analyzer: withCaveman(`# Analyze Build & Test Infrastructure
 
 Examine this repository's build, test, lint, and type-check infrastructure.
 Your goal is to produce a concise reference that tells a reviewer exactly
@@ -541,9 +648,9 @@ which commands to run to verify an implementation.
 
 Be specific — include the exact invocation string (e.g. \`bun test\`, not
 just "run tests"). If a command has variants (e.g. test:unit, test:e2e),
-list each separately. End with a brief trailing summary.`,
+list each separately. End with a brief trailing summary.`),
 
-    patternFinder: `# Find Build & Test Patterns
+    patternFinder: withCaveman(`# Find Build & Test Patterns
 
 Search this repository for existing patterns that show how code is built,
 tested, and validated. A reviewer needs to know not just WHAT commands exist,
@@ -572,7 +679,7 @@ For each pattern found, report:
 - A brief explanation of when/how it's used
 
 End with a brief trailing summary of the overall build/test workflow order
-(e.g. "install → typecheck → lint → test → build").`,
+(e.g. "install → typecheck → lint → test → build").`),
   };
 }
 
@@ -834,155 +941,7 @@ Begin your review now.`;
 }
 
 // ============================================================================
-// DEBUGGER
-// ============================================================================
-
-export interface DebuggerContext {
-  /** 1-indexed loop iteration the debugger is investigating. */
-  iteration: number;
-  /**
-   * Branch changeset captured immediately before the review. Provides the
-   * debugger with the same file-level context as the reviewer.
-   */
-  changeset: {
-    baseBranch: string;
-    diffStat: string;
-    uncommitted: string;
-    nameStatus: string;
-    errors: string[];
-  };
-}
-
-/**
- * Build a prompt asking the debugger sub-agent to investigate a set of review
- * findings and produce a structured report. The debugger MUST NOT apply
- * fixes — its only deliverable is the report, which the next iteration's
- * planner consumes.
- */
-export function buildDebuggerReportPrompt(
-  review: ReviewResult | null,
-  rawReview: string,
-  context: DebuggerContext,
-): string {
-  let findingsSection: string;
-  if (review !== null && review.findings.length > 0) {
-    const sorted = [...review.findings].sort(
-      (a, b) => (a.priority ?? 3) - (b.priority ?? 3),
-    );
-    findingsSection = sorted
-      .map((f, i) => {
-        const pri = f.priority !== undefined ? `P${f.priority}` : "P2";
-        const loc = f.code_location
-          ? `${f.code_location.file_path}:${f.code_location.line_range.start}-${f.code_location.line_range.end}`
-          : "unspecified";
-        return `### Finding ${i + 1}: [${pri}] ${f.title}
-- **Location:** ${loc}
-- **Issue:** ${f.body}`;
-      })
-      .join("\n\n");
-  } else {
-    const trimmed = rawReview.trim();
-    findingsSection =
-      trimmed.length > 0
-        ? `Reviewer output (could not parse as JSON):
-
-\`\`\`
-${trimmed}
-\`\`\``
-        : `(no reviewer output captured)`;
-  }
-
-  const { changeset } = context;
-  const hasChanges =
-    changeset.nameStatus.length > 0 || changeset.uncommitted.length > 0;
-  const hasErrors = changeset.errors.length > 0;
-
-  let changesetSection: string;
-  if (hasChanges || hasErrors) {
-    const parts: string[] = [];
-    if (hasErrors) {
-      parts.push(
-        "**Git errors** (changeset may be incomplete — re-run these yourself):",
-        ...changeset.errors.map((e) => `- ${e}`),
-        "",
-      );
-    }
-    if (changeset.nameStatus.length > 0) {
-      parts.push(
-        `Changed files (relative to \`${changeset.baseBranch}\`):`,
-        "```",
-        changeset.nameStatus,
-        "```",
-      );
-    }
-    if (changeset.uncommitted.length > 0) {
-      parts.push(
-        `Uncommitted (\`git status -s\`):`,
-        "```",
-        changeset.uncommitted,
-        "```",
-      );
-    }
-    changesetSection = parts.join("\n");
-  } else {
-    changesetSection = "(no changes detected)";
-  }
-
-  return `# Debugging Report Request (Iteration ${context.iteration})
-
-The reviewer flagged the issues below. Investigate them as a debugger and
-produce a structured report that the planner will consume on the next loop
-iteration.
-
-**You are NOT applying fixes.** Your only deliverable is the report. Do not
-edit files. Investigation tool calls (Read, grep, LSP, running tests in
-read-only mode) are fine; mutations are not.
-
-## Reviewer Findings
-
-${findingsSection}
-
-## Branch Changeset
-
-${changesetSection}
-
-## Investigation Steps
-
-For each finding:
-1. Locate the relevant code (LSP / grep / Read).
-2. Identify the **root cause**, not just the symptom.
-3. List the repo-relative file paths that must change.
-4. Note constraints, pitfalls, or invariants the next planner must respect.
-
-## Output Format
-
-Respond with EXACTLY one fenced \`\`\`markdown block containing the report.
-No prose before or after the block. Use this exact section structure:
-
-\`\`\`markdown
-# Debugger Report
-
-## Issues Identified
-- [P<priority>] <one-line issue summary>
-  - **Root cause:** <one or two sentences>
-  - **Files:** <path/to/file.ext, path/to/other.ext>
-  - **Fix approach:** <imperative description>
-
-## Suggested Plan Adjustments
-1. <imperative task description, suitable as a planner task>
-2. <...>
-
-## Pitfalls
-- <invariant or gotcha the planner/workers must respect>
-- <...>
-\`\`\`
-
-Keep the report tight — every line must be load-bearing for re-planning. Omit
-the "Pitfalls" section entirely if there are none. Begin now.`;
-}
-
-// ============================================================================
-// PARSING HELPERS
+// PARSING & RE-PLAN HELPERS
 // ============================================================================
 
 export function filterActionable(parsed: {
@@ -1003,20 +962,80 @@ export function filterActionable(parsed: {
 }
 
 /**
- * Extract the LAST fenced ```markdown block from a piece of text. Used for
- * parsing the debugger's structured report out of a long Claude pane
- * scrollback or any other output that may include extra prose.
+ * Render the merged reviewer result as the markdown brief consumed by the
+ * next iteration's planner.
  *
- * Falls back to the trimmed full input when no fenced block is present, so
- * the planner still receives the debugger's content even if formatting drifts.
+ * Findings are grouped by file path so the planner sees clusters of related
+ * symptoms together (often a hint at a shared root cause). Within each
+ * group findings are ordered by ascending priority (P0 first). The
+ * `overall_explanation` is included verbatim so the planner has the
+ * reviewers' overall narrative.
+ *
+ * When `parsed === null` (SDK validation failed) the raw transcript is
+ * surfaced inside a clearly-labelled fenced block so the planner knows the
+ * data is unstructured and must be investigated rather than trusted.
  */
-export function extractMarkdownBlock(content: string): string {
-  const blockRe = /```markdown\s*\n([\s\S]*?)\n```/g;
-  let last: string | null = null;
-  let match: RegExpExecArray | null;
-  while ((match = blockRe.exec(content)) !== null) {
-    if (match[1]) last = match[1];
+export function formatReviewForReplan(
+  parsed: ReviewResult | null,
+  rawText: string,
+): string {
+  if (parsed === null) {
+    const trimmed = rawText.trim();
+    if (trimmed.length === 0) {
+      return "(no reviewer output captured — investigate the previous iteration's branch state directly)";
+    }
+    return `## Unparseable Reviewer Output
+
+The reviewer's structured output failed schema validation. Raw transcript
+below — investigate the branch state to determine what (if anything) needs
+revision.
+
+\`\`\`
+${trimmed}
+\`\`\``;
   }
-  if (last !== null) return last.trim();
-  return content.trim();
+
+  if (parsed.findings.length === 0) {
+    return `## Reviewer Verdict
+
+${parsed.overall_explanation || "No actionable findings, but the reviewers did not sign off."}`;
+  }
+
+  // Group by file path so clusters of related symptoms surface together.
+  const groups = new Map<string, ReviewFinding[]>();
+  for (const f of parsed.findings) {
+    const key = f.code_location?.file_path ?? "(unspecified location)";
+    const bucket = groups.get(key) ?? [];
+    bucket.push(f);
+    groups.set(key, bucket);
+  }
+
+  const sections: string[] = [];
+
+  if (parsed.overall_explanation && parsed.overall_explanation.length > 0) {
+    sections.push(`## Reviewer Summary\n\n${parsed.overall_explanation}`);
+  }
+
+  sections.push(`## Findings (${parsed.findings.length}, grouped by file)`);
+
+  const sortedFiles = Array.from(groups.keys()).sort();
+  for (const filePath of sortedFiles) {
+    const findings = (groups.get(filePath) ?? []).slice().sort(
+      (a, b) => (a.priority ?? 3) - (b.priority ?? 3),
+    );
+    const lines: string[] = [`### \`${filePath}\``];
+    for (const f of findings) {
+      const pri = f.priority !== undefined ? `P${f.priority}` : "P2";
+      const range = f.code_location
+        ? `:${f.code_location.line_range.start}-${f.code_location.line_range.end}`
+        : "";
+      lines.push(
+        `- **[${pri}] ${f.title}**${range ? ` (lines${range})` : ""}`,
+        `  ${f.body.replace(/\n/g, "\n  ")}`,
+      );
+    }
+    sections.push(lines.join("\n"));
+  }
+
+  return sections.join("\n\n");
 }

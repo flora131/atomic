@@ -51,6 +51,11 @@ import {
   slugifyPrompt,
 } from "../helpers/prompts.ts";
 import { writeExplorerScratchFile } from "../helpers/scratch.ts";
+import {
+  deriveHistoryBrief,
+  PROSE_GUARD_RETRY_PROMPT,
+  queryWithProseGuard,
+} from "../../_context/index.ts";
 
 /** Filter for text parts only — non-text parts produce [object Object]. */
 function extractResponseText(
@@ -156,20 +161,35 @@ export default defineWorkflow({
           {},
           { title: "history-locator" },
           async (s) => {
-            const result = await s.client.session.prompt({
-              sessionID: s.session.id,
-              parts: [
-                {
-                  type: "text",
-                  text: buildHistoryLocatorPrompt({
-                    question: prompt,
-                  }),
-                },
-              ],
-              agent: "codebase-research-locator",
+            let lastResult: Awaited<ReturnType<typeof s.client.session.prompt>>;
+            const { text } = await queryWithProseGuard({
+              query: async () => {
+                lastResult = await s.client.session.prompt({
+                  sessionID: s.session.id,
+                  parts: [
+                    {
+                      type: "text",
+                      text: buildHistoryLocatorPrompt({
+                        question: prompt,
+                      }),
+                    },
+                  ],
+                  agent: "codebase-research-locator",
+                });
+                return lastResult;
+              },
+              getText: (r) => extractResponseText(r.data!.parts),
+              retry: async () => {
+                lastResult = await s.client.session.prompt({
+                  sessionID: s.session.id,
+                  parts: [{ type: "text", text: PROSE_GUARD_RETRY_PROMPT }],
+                  agent: "codebase-research-locator",
+                });
+                return lastResult;
+              },
             });
-            s.save(result.data!);
-            return extractResponseText(result.data!.parts);
+            s.save(lastResult!.data!);
+            return text;
           },
         );
 
@@ -182,21 +202,36 @@ export default defineWorkflow({
           {},
           { title: "history-analyzer" },
           async (s) => {
-            const result = await s.client.session.prompt({
-              sessionID: s.session.id,
-              parts: [
-                {
-                  type: "text",
-                  text: buildHistoryAnalyzerPrompt({
-                    question: prompt,
-                    locatorOutput: historyLocator.result,
-                  }),
-                },
-              ],
-              agent: "codebase-research-analyzer",
+            let lastResult: Awaited<ReturnType<typeof s.client.session.prompt>>;
+            const { text } = await queryWithProseGuard({
+              query: async () => {
+                lastResult = await s.client.session.prompt({
+                  sessionID: s.session.id,
+                  parts: [
+                    {
+                      type: "text",
+                      text: buildHistoryAnalyzerPrompt({
+                        question: prompt,
+                        locatorOutput: historyLocator.result,
+                      }),
+                    },
+                  ],
+                  agent: "codebase-research-analyzer",
+                });
+                return lastResult;
+              },
+              getText: (r) => extractResponseText(r.data!.parts),
+              retry: async () => {
+                lastResult = await s.client.session.prompt({
+                  sessionID: s.session.id,
+                  parts: [{ type: "text", text: PROSE_GUARD_RETRY_PROMPT }],
+                  agent: "codebase-research-analyzer",
+                });
+                return lastResult;
+              },
             });
-            s.save(result.data!);
-            return extractResponseText(result.data!.parts);
+            s.save(lastResult!.data!);
+            return text;
           },
         );
 
@@ -206,6 +241,10 @@ export default defineWorkflow({
 
     const { partitions, explorerCount, scratchDir, totalLoc, totalFiles } =
       scout.result;
+
+    // D2: derive a short brief from the history-analyzer output to inject as
+    // <PRIOR_RESEARCH_HINT> into per-partition locator + analyzer prompts.
+    const priorResearchBrief = deriveHistoryBrief(historyOverview);
 
     const scoutOverview = (await ctx.transcript(scout)).content;
 
@@ -226,24 +265,40 @@ export default defineWorkflow({
             {},
             { title: `locator-${i}` },
             async (s) => {
-              const result = await s.client.session.prompt({
-                sessionID: s.session.id,
-                parts: [
-                  {
-                    type: "text",
-                    text: buildLocatorPrompt({
-                      question: prompt,
-                      partition,
-                      scoutOverview,
-                      index: i,
-                      total: explorerCount,
-                    }),
-                  },
-                ],
-                agent: "codebase-locator",
+              let lastResult: Awaited<ReturnType<typeof s.client.session.prompt>>;
+              const { text } = await queryWithProseGuard({
+                query: async () => {
+                  lastResult = await s.client.session.prompt({
+                    sessionID: s.session.id,
+                    parts: [
+                      {
+                        type: "text",
+                        text: buildLocatorPrompt({
+                          question: prompt,
+                          partition,
+                          scoutOverview,
+                          index: i,
+                          total: explorerCount,
+                          priorResearchBrief,
+                        }),
+                      },
+                    ],
+                    agent: "codebase-locator",
+                  });
+                  return lastResult;
+                },
+                getText: (r) => extractResponseText(r.data!.parts),
+                retry: async () => {
+                  lastResult = await s.client.session.prompt({
+                    sessionID: s.session.id,
+                    parts: [{ type: "text", text: PROSE_GUARD_RETRY_PROMPT }],
+                    agent: "codebase-locator",
+                  });
+                  return lastResult;
+                },
               });
-              s.save(result.data!);
-              return extractResponseText(result.data!.parts);
+              s.save(lastResult!.data!);
+              return text;
             },
           ),
           ctx.stage(
@@ -255,24 +310,39 @@ export default defineWorkflow({
             {},
             { title: `pattern-finder-${i}` },
             async (s) => {
-              const result = await s.client.session.prompt({
-                sessionID: s.session.id,
-                parts: [
-                  {
-                    type: "text",
-                    text: buildPatternFinderPrompt({
-                      question: prompt,
-                      partition,
-                      scoutOverview,
-                      index: i,
-                      total: explorerCount,
-                    }),
-                  },
-                ],
-                agent: "codebase-pattern-finder",
+              let lastResult: Awaited<ReturnType<typeof s.client.session.prompt>>;
+              const { text } = await queryWithProseGuard({
+                query: async () => {
+                  lastResult = await s.client.session.prompt({
+                    sessionID: s.session.id,
+                    parts: [
+                      {
+                        type: "text",
+                        text: buildPatternFinderPrompt({
+                          question: prompt,
+                          partition,
+                          scoutOverview,
+                          index: i,
+                          total: explorerCount,
+                        }),
+                      },
+                    ],
+                    agent: "codebase-pattern-finder",
+                  });
+                  return lastResult;
+                },
+                getText: (r) => extractResponseText(r.data!.parts),
+                retry: async () => {
+                  lastResult = await s.client.session.prompt({
+                    sessionID: s.session.id,
+                    parts: [{ type: "text", text: PROSE_GUARD_RETRY_PROMPT }],
+                    agent: "codebase-pattern-finder",
+                  });
+                  return lastResult;
+                },
               });
-              s.save(result.data!);
-              return extractResponseText(result.data!.parts);
+              s.save(lastResult!.data!);
+              return text;
             },
           ),
         ]);
@@ -291,25 +361,41 @@ export default defineWorkflow({
             {},
             { title: `analyzer-${i}` },
             async (s) => {
-              const result = await s.client.session.prompt({
-                sessionID: s.session.id,
-                parts: [
-                  {
-                    type: "text",
-                    text: buildAnalyzerPrompt({
-                      question: prompt,
-                      partition,
-                      locatorOutput,
-                      scoutOverview,
-                      index: i,
-                      total: explorerCount,
-                    }),
-                  },
-                ],
-                agent: "codebase-analyzer",
+              let lastResult: Awaited<ReturnType<typeof s.client.session.prompt>>;
+              const { text } = await queryWithProseGuard({
+                query: async () => {
+                  lastResult = await s.client.session.prompt({
+                    sessionID: s.session.id,
+                    parts: [
+                      {
+                        type: "text",
+                        text: buildAnalyzerPrompt({
+                          question: prompt,
+                          partition,
+                          locatorOutput,
+                          scoutOverview,
+                          index: i,
+                          total: explorerCount,
+                          priorResearchBrief,
+                        }),
+                      },
+                    ],
+                    agent: "codebase-analyzer",
+                  });
+                  return lastResult;
+                },
+                getText: (r) => extractResponseText(r.data!.parts),
+                retry: async () => {
+                  lastResult = await s.client.session.prompt({
+                    sessionID: s.session.id,
+                    parts: [{ type: "text", text: PROSE_GUARD_RETRY_PROMPT }],
+                    agent: "codebase-analyzer",
+                  });
+                  return lastResult;
+                },
               });
-              s.save(result.data!);
-              return extractResponseText(result.data!.parts);
+              s.save(lastResult!.data!);
+              return text;
             },
           ),
           ctx.stage(
@@ -321,24 +407,39 @@ export default defineWorkflow({
             {},
             { title: `online-researcher-${i}` },
             async (s) => {
-              const result = await s.client.session.prompt({
-                sessionID: s.session.id,
-                parts: [
-                  {
-                    type: "text",
-                    text: buildOnlineResearcherPrompt({
-                      question: prompt,
-                      partition,
-                      locatorOutput,
-                      index: i,
-                      total: explorerCount,
-                    }),
-                  },
-                ],
-                agent: "codebase-online-researcher",
+              let lastResult: Awaited<ReturnType<typeof s.client.session.prompt>>;
+              const { text } = await queryWithProseGuard({
+                query: async () => {
+                  lastResult = await s.client.session.prompt({
+                    sessionID: s.session.id,
+                    parts: [
+                      {
+                        type: "text",
+                        text: buildOnlineResearcherPrompt({
+                          question: prompt,
+                          partition,
+                          locatorOutput,
+                          index: i,
+                          total: explorerCount,
+                        }),
+                      },
+                    ],
+                    agent: "codebase-online-researcher",
+                  });
+                  return lastResult;
+                },
+                getText: (r) => extractResponseText(r.data!.parts),
+                retry: async () => {
+                  lastResult = await s.client.session.prompt({
+                    sessionID: s.session.id,
+                    parts: [{ type: "text", text: PROSE_GUARD_RETRY_PROMPT }],
+                    agent: "codebase-online-researcher",
+                  });
+                  return lastResult;
+                },
               });
-              s.save(result.data!);
-              return extractResponseText(result.data!.parts);
+              s.save(lastResult!.data!);
+              return text;
             },
           ),
         ]);

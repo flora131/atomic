@@ -38,6 +38,95 @@
  */
 
 import type { PartitionUnit } from "./scout.ts";
+import { deriveHistoryBrief, HUGE_FILE_LOC } from "../../_context/index.ts";
+
+/**
+ * Render a `<PRIOR_RESEARCH_HINT>` block for inclusion in explorer prompts.
+ * Caller is responsible for passing the already-bounded brief string
+ * (`deriveHistoryBrief(historyOverview)` is the usual producer). Returns
+ * an empty string when the brief is empty so the caller can inline the
+ * result without conditional glue.
+ */
+function renderPriorResearchHint(brief: string | undefined): string {
+  const trimmed = brief?.trim() ?? "";
+  if (!trimmed) return "";
+  return [
+    ``,
+    `<PRIOR_RESEARCH_HINT>`,
+    `Previous research on this topic (kept brief; below the distraction`,
+    `threshold). Use as a weak prior — trust fresh investigation when they`,
+    `disagree:`,
+    ``,
+    trimmed,
+    `</PRIOR_RESEARCH_HINT>`,
+  ].join("\n");
+}
+
+/**
+ * Build a `<HUGE_FILES>` block listing files in the partition whose LOC
+ * exceeds {@link HUGE_FILE_LOC}. Readers should offset/limit these rather
+ * than reading in full. Empty partitions or no-huge-files → empty string.
+ *
+ * Note: `PartitionUnit.files` does not carry per-file LOC currently — the
+ * deterministic producer passes `hugeFiles` directly. This helper renders
+ * whatever list the caller supplies.
+ */
+function renderHugeFiles(hugeFiles: string[] | undefined): string {
+  if (!hugeFiles || hugeFiles.length === 0) return "";
+  return [
+    ``,
+    `<HUGE_FILES>`,
+    `The following files in your partition exceed ${HUGE_FILE_LOC.toLocaleString()} lines.`,
+    `Read them via offset/limit (e.g. Read with \`offset\` + \`limit\`) — reading`,
+    `them in full will blow your context window:`,
+    ``,
+    ...hugeFiles.map((f) => `- \`${f}\``),
+    `</HUGE_FILES>`,
+  ].join("\n");
+}
+
+// Re-export for SDK index call sites that need to compute a brief.
+export { deriveHistoryBrief, HUGE_FILE_LOC };
+
+/**
+ * Prepended to every stage prompt. Compresses agent prose output to cut
+ * tokens without losing technical substance. Code blocks, tool-call
+ * arguments, and structured file outputs remain verbatim.
+ */
+const CAVEMAN_PREAMBLE = `# Response Style (applies to all prose output)
+
+Respond terse like smart caveman. All technical substance stay. Only fluff die.
+
+## Persistence
+
+ACTIVE EVERY RESPONSE. No revert after many turns. No filler drift. Still active if unsure.
+
+## Rules
+
+Drop: articles (a/an/the), filler (just/really/basically/actually/simply), pleasantries (sure/certainly/of course/happy to), hedging. Fragments OK. Short synonyms (big not extensive, fix not "implement a solution for"). Technical terms exact. Code blocks unchanged. Errors quoted exact. File paths, line numbers, symbol names exact.
+
+Pattern: \`[thing] [action] [reason]. [next step].\`
+
+Not: "Sure! I'd be happy to help you with that. The issue you're experiencing is likely caused by..."
+Yes: "Bug in auth middleware. Token expiry check use \`<\` not \`<=\`. Fix:"
+
+## Intensity
+
+Drop articles, fragments OK, short synonyms.
+
+Example — "Why React component re-render?"
+"New object ref each render. Inline object prop = new ref = re-render. Wrap in \`useMemo\`."
+
+## Auto-Clarity
+
+Drop caveman for: security warnings, irreversible action confirmations, multi-step sequences where fragment order risks misread, user asks to clarify or repeats question. Resume caveman after clear part done.
+
+## Boundaries
+
+Code/commits/PRs: write normal. Structured file outputs (scratch file sections, required headers/templates): write normal — schema wins. Section headers and required output shapes unchanged.
+
+---
+`;
 
 const DOCUMENTARIAN_DISCLAIMER =
   "You are a documentarian, not a critic. Document what EXISTS — do not " +
@@ -98,6 +187,7 @@ export function buildScoutPrompt(opts: {
     .join("\n");
 
   return [
+    CAVEMAN_PREAMBLE,
     `<RESEARCH_QUESTION>`,
     opts.question,
     `</RESEARCH_QUESTION>`,
@@ -167,6 +257,8 @@ export function buildLocatorPrompt(opts: {
   scoutOverview: string;
   index: number;
   total: number;
+  /** ≤150-word brief derived from the history-analyzer output (D2). */
+  priorResearchBrief?: string;
 }): string {
   const assignment = renderPartitionAssignment(opts.partition);
   const dirs = renderPartitionDirs(opts.partition);
@@ -176,6 +268,7 @@ export function buildLocatorPrompt(opts: {
       : "(scout overview unavailable — proceed without)";
 
   return [
+    CAVEMAN_PREAMBLE,
     `<RESEARCH_QUESTION>`,
     opts.question,
     `</RESEARCH_QUESTION>`,
@@ -189,6 +282,7 @@ export function buildLocatorPrompt(opts: {
     `<ARCHITECTURAL_ORIENTATION>`,
     orientation,
     `</ARCHITECTURAL_ORIENTATION>`,
+    renderPriorResearchHint(opts.priorResearchBrief),
     ``,
     `<SCOPE>`,
     `Search ONLY within these directories. Other partitions cover the rest of`,
@@ -256,6 +350,7 @@ export function buildPatternFinderPrompt(opts: {
       : "(scout overview unavailable — proceed without)";
 
   return [
+    CAVEMAN_PREAMBLE,
     `<RESEARCH_QUESTION>`,
     opts.question,
     `</RESEARCH_QUESTION>`,
@@ -313,6 +408,10 @@ export function buildAnalyzerPrompt(opts: {
   scoutOverview: string;
   index: number;
   total: number;
+  /** Files in this partition whose LOC exceeds HUGE_FILE_LOC (D1). */
+  hugeFiles?: string[];
+  /** ≤150-word brief derived from the history-analyzer output (D2). */
+  priorResearchBrief?: string;
 }): string {
   const assignment = renderPartitionAssignment(opts.partition);
   const orientation =
@@ -325,6 +424,7 @@ export function buildAnalyzerPrompt(opts: {
       : "(locator returned no files — analyse the partition directly)";
 
   return [
+    CAVEMAN_PREAMBLE,
     `<RESEARCH_QUESTION>`,
     opts.question,
     `</RESEARCH_QUESTION>`,
@@ -340,10 +440,12 @@ export function buildAnalyzerPrompt(opts: {
     `<ARCHITECTURAL_ORIENTATION>`,
     orientation,
     `</ARCHITECTURAL_ORIENTATION>`,
+    renderPriorResearchHint(opts.priorResearchBrief),
     ``,
     `<SCOPE>`,
     assignment,
     `</SCOPE>`,
+    renderHugeFiles(opts.hugeFiles),
     ``,
     `<LOCATOR_FINDINGS>`,
     `Verbatim output from the codebase-locator sibling for this partition —`,
@@ -420,6 +522,7 @@ export function buildOnlineResearcherPrompt(opts: {
       : "(locator returned no files)";
 
   return [
+    CAVEMAN_PREAMBLE,
     `<RESEARCH_QUESTION>`,
     opts.question,
     `</RESEARCH_QUESTION>`,
@@ -498,6 +601,7 @@ export function buildHistoryLocatorPrompt(opts: {
   question: string;
 }): string {
   return [
+    CAVEMAN_PREAMBLE,
     `<RESEARCH_QUESTION>`,
     opts.question,
     `</RESEARCH_QUESTION>`,
@@ -561,6 +665,7 @@ export function buildHistoryAnalyzerPrompt(opts: {
       : "(no prior research surfaced)";
 
   return [
+    CAVEMAN_PREAMBLE,
     `<RESEARCH_QUESTION>`,
     opts.question,
     `</RESEARCH_QUESTION>`,
@@ -647,6 +752,7 @@ export function buildAggregatorPrompt(opts: {
       : "(no historical research surfaced)";
 
   return [
+    CAVEMAN_PREAMBLE,
     `<RESEARCH_QUESTION>`,
     opts.question,
     `</RESEARCH_QUESTION>`,

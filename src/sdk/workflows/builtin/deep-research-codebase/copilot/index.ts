@@ -52,6 +52,11 @@ import {
   slugifyPrompt,
 } from "../helpers/prompts.ts";
 import { writeExplorerScratchFile } from "../helpers/scratch.ts";
+import {
+  deriveHistoryBrief,
+  PROSE_GUARD_RETRY_PROMPT,
+  queryWithProseGuard,
+} from "../../_context/index.ts";
 
 /**
  * Concatenate every top-level assistant turn's non-empty content. The final
@@ -157,12 +162,21 @@ export default defineWorkflow({
           {},
           { agent: "codebase-research-locator" },
           async (s) => {
-            await s.session.send({
-              prompt: buildHistoryLocatorPrompt({ question: prompt }),
+            const { text } = await queryWithProseGuard({
+              query: async () => {
+                await s.session.send({
+                  prompt: buildHistoryLocatorPrompt({ question: prompt }),
+                });
+                return await s.session.getMessages();
+              },
+              getText: getAssistantText,
+              retry: async () => {
+                await s.session.send({ prompt: PROSE_GUARD_RETRY_PROMPT });
+                return await s.session.getMessages();
+              },
             });
-            const messages = await s.session.getMessages();
-            s.save(messages);
-            return getAssistantText(messages);
+            s.save(await s.session.getMessages());
+            return text;
           },
         );
 
@@ -175,15 +189,24 @@ export default defineWorkflow({
           {},
           { agent: "codebase-research-analyzer" },
           async (s) => {
-            await s.session.send({
-              prompt: buildHistoryAnalyzerPrompt({
-                question: prompt,
-                locatorOutput: historyLocator.result,
-              }),
+            const { text } = await queryWithProseGuard({
+              query: async () => {
+                await s.session.send({
+                  prompt: buildHistoryAnalyzerPrompt({
+                    question: prompt,
+                    locatorOutput: historyLocator.result,
+                  }),
+                });
+                return await s.session.getMessages();
+              },
+              getText: getAssistantText,
+              retry: async () => {
+                await s.session.send({ prompt: PROSE_GUARD_RETRY_PROMPT });
+                return await s.session.getMessages();
+              },
             });
-            const messages = await s.session.getMessages();
-            s.save(messages);
-            return getAssistantText(messages);
+            s.save(await s.session.getMessages());
+            return text;
           },
         );
 
@@ -193,6 +216,10 @@ export default defineWorkflow({
 
     const { partitions, explorerCount, scratchDir, totalLoc, totalFiles } =
       scout.result;
+
+    // D2: derive a short brief from the history-analyzer output to inject as
+    // <PRIOR_RESEARCH_HINT> into per-partition locator + analyzer prompts.
+    const priorResearchBrief = deriveHistoryBrief(historyOverview);
 
     const scoutOverview = (await ctx.transcript(scout)).content;
 
@@ -213,18 +240,28 @@ export default defineWorkflow({
             {},
             { agent: "codebase-locator" },
             async (s) => {
-              await s.session.send({
-                prompt: buildLocatorPrompt({
-                  question: prompt,
-                  partition,
-                  scoutOverview,
-                  index: i,
-                  total: explorerCount,
-                }),
+              const { text } = await queryWithProseGuard({
+                query: async () => {
+                  await s.session.send({
+                    prompt: buildLocatorPrompt({
+                      question: prompt,
+                      partition,
+                      scoutOverview,
+                      index: i,
+                      total: explorerCount,
+                      priorResearchBrief,
+                    }),
+                  });
+                  return await s.session.getMessages();
+                },
+                getText: getAssistantText,
+                retry: async () => {
+                  await s.session.send({ prompt: PROSE_GUARD_RETRY_PROMPT });
+                  return await s.session.getMessages();
+                },
               });
-              const messages = await s.session.getMessages();
-              s.save(messages);
-              return getAssistantText(messages);
+              s.save(await s.session.getMessages());
+              return text;
             },
           ),
           ctx.stage(
@@ -236,18 +273,27 @@ export default defineWorkflow({
             {},
             { agent: "codebase-pattern-finder" },
             async (s) => {
-              await s.session.send({
-                prompt: buildPatternFinderPrompt({
-                  question: prompt,
-                  partition,
-                  scoutOverview,
-                  index: i,
-                  total: explorerCount,
-                }),
+              const { text } = await queryWithProseGuard({
+                query: async () => {
+                  await s.session.send({
+                    prompt: buildPatternFinderPrompt({
+                      question: prompt,
+                      partition,
+                      scoutOverview,
+                      index: i,
+                      total: explorerCount,
+                    }),
+                  });
+                  return await s.session.getMessages();
+                },
+                getText: getAssistantText,
+                retry: async () => {
+                  await s.session.send({ prompt: PROSE_GUARD_RETRY_PROMPT });
+                  return await s.session.getMessages();
+                },
               });
-              const messages = await s.session.getMessages();
-              s.save(messages);
-              return getAssistantText(messages);
+              s.save(await s.session.getMessages());
+              return text;
             },
           ),
         ]);
@@ -266,19 +312,29 @@ export default defineWorkflow({
             {},
             { agent: "codebase-analyzer" },
             async (s) => {
-              await s.session.send({
-                prompt: buildAnalyzerPrompt({
-                  question: prompt,
-                  partition,
-                  locatorOutput,
-                  scoutOverview,
-                  index: i,
-                  total: explorerCount,
-                }),
+              const { text } = await queryWithProseGuard({
+                query: async () => {
+                  await s.session.send({
+                    prompt: buildAnalyzerPrompt({
+                      question: prompt,
+                      partition,
+                      locatorOutput,
+                      scoutOverview,
+                      index: i,
+                      total: explorerCount,
+                      priorResearchBrief,
+                    }),
+                  });
+                  return await s.session.getMessages();
+                },
+                getText: getAssistantText,
+                retry: async () => {
+                  await s.session.send({ prompt: PROSE_GUARD_RETRY_PROMPT });
+                  return await s.session.getMessages();
+                },
               });
-              const messages = await s.session.getMessages();
-              s.save(messages);
-              return getAssistantText(messages);
+              s.save(await s.session.getMessages());
+              return text;
             },
           ),
           ctx.stage(
@@ -290,18 +346,27 @@ export default defineWorkflow({
             {},
             { agent: "codebase-online-researcher" },
             async (s) => {
-              await s.session.send({
-                prompt: buildOnlineResearcherPrompt({
-                  question: prompt,
-                  partition,
-                  locatorOutput,
-                  index: i,
-                  total: explorerCount,
-                }),
+              const { text } = await queryWithProseGuard({
+                query: async () => {
+                  await s.session.send({
+                    prompt: buildOnlineResearcherPrompt({
+                      question: prompt,
+                      partition,
+                      locatorOutput,
+                      index: i,
+                      total: explorerCount,
+                    }),
+                  });
+                  return await s.session.getMessages();
+                },
+                getText: getAssistantText,
+                retry: async () => {
+                  await s.session.send({ prompt: PROSE_GUARD_RETRY_PROMPT });
+                  return await s.session.getMessages();
+                },
               });
-              const messages = await s.session.getMessages();
-              s.save(messages);
-              return getAssistantText(messages);
+              s.save(await s.session.getMessages());
+              return text;
             },
           ),
         ]);

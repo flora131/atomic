@@ -20,9 +20,13 @@
  * References"), or the aggregator will look for sections that don't exist.
  */
 
-import { writeFile } from "node:fs/promises";
+import { readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { PartitionUnit } from "./scout.ts";
+import {
+  compactScratchFile,
+  SCRATCH_COMPACT_THRESHOLD,
+} from "../../_context/index.ts";
 
 export type ExplorerSections = {
   index: number;
@@ -112,4 +116,47 @@ export async function writeExplorerScratchFile(
   const md = renderExplorerMarkdown(sections);
   await writeFile(abs, md, "utf8");
   return abs;
+}
+
+/**
+ * D3: aggregator pre-flight compaction. If the **sum** of scratch file
+ * sizes exceeds `SCRATCH_COMPACT_THRESHOLD`, each file is rewritten using
+ * `compactScratchFile` so the aggregator can read them without overflowing
+ * its effective context window. Heading schema is preserved verbatim, so
+ * the aggregator's reading contract still holds.
+ *
+ * Returns the list of paths actually compacted (empty when the run was
+ * under threshold), so callers can log it.
+ */
+export async function compactScratchFilesForAggregator(
+  paths: string[],
+  threshold: number = SCRATCH_COMPACT_THRESHOLD,
+): Promise<string[]> {
+  const sizes = await Promise.all(
+    paths.map(async (p) => {
+      try {
+        return (await stat(p)).size;
+      } catch {
+        return 0;
+      }
+    }),
+  );
+  const total = sizes.reduce((a, b) => a + b, 0);
+  if (total <= threshold) return [];
+
+  // Per-file budget: divide threshold across N files, leaving a 10% headroom
+  // for headings + delimiters the aggregator emits between sections.
+  const perFileBudget = Math.floor((threshold * 0.9) / Math.max(1, paths.length));
+
+  const compacted: string[] = [];
+  await Promise.all(
+    paths.map(async (p, i) => {
+      if ((sizes[i] ?? 0) <= perFileBudget) return;
+      const content = await readFile(p, "utf8");
+      const next = compactScratchFile(content, perFileBudget);
+      await writeFile(p, next, "utf8");
+      compacted.push(p);
+    }),
+  );
+  return compacted;
 }

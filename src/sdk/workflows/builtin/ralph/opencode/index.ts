@@ -31,8 +31,37 @@ import {
 } from "../helpers/prompts.ts";
 import { hasActionableFindings } from "../helpers/review.ts";
 import { captureBranchChangeset } from "../helpers/git.ts";
+import {
+  initScratchpad,
+  latestPriorRFC,
+  recordDebuggerReport,
+  recordFilesModified,
+  recordPlannerOutput,
+  shouldReRunInfraDiscovery,
+} from "../../_context/index.ts";
 
 const DEFAULT_MAX_LOOPS = 10;
+
+function deriveSessionIntent(prompt: string): string {
+  const trimmed = prompt.trim();
+  if (!trimmed) return "(no prompt)";
+  const firstPara = trimmed.split(/\n\n+/)[0] ?? trimmed;
+  const oneLine = firstPara.split("\n").join(" ").replace(/\s+/g, " ");
+  return oneLine.length > 200 ? oneLine.slice(0, 200) + "…" : oneLine;
+}
+
+function parseFilesFromNameStatus(nameStatus: string): string[] {
+  const paths: string[] = [];
+  for (const line of nameStatus.split("\n")) {
+    if (!line.trim()) continue;
+    const parts = line.split("\t");
+    if (parts.length >= 2) {
+      const p = parts[parts.length - 1];
+      if (p) paths.push(p);
+    }
+  }
+  return paths;
+}
 
 /** Concatenate the text-typed parts of an OpenCode response. */
 function extractResponseText(
@@ -87,7 +116,17 @@ export default defineWorkflow({
   .run(async (ctx) => {
     const prompt = ctx.inputs.prompt ?? "";
     const maxLoops = ctx.inputs.max_loops ?? DEFAULT_MAX_LOOPS;
+    const runId = crypto.randomUUID();
+    const sessionIntent = deriveSessionIntent(prompt);
+    const scratchpad = await initScratchpad({
+      sessionId: runId,
+      projectRoot: process.cwd(),
+      originalSpec: prompt,
+    });
+
     let debuggerReport = "";
+    let priorRfc: string | null = null;
+    let discoveryContext: string | null = null;
 
     for (let iteration = 1; iteration <= maxLoops; iteration++) {
       // ── Plan ────────────────────────────────────────────────────────────
@@ -104,6 +143,8 @@ export default defineWorkflow({
                 text: buildPlannerPrompt(prompt, {
                   iteration,
                   debuggerReport: debuggerReport || undefined,
+                  priorRfc: priorRfc ?? undefined,
+                  sessionIntent,
                 }),
               },
             ],
@@ -113,6 +154,9 @@ export default defineWorkflow({
           return extractResponseText(result.data!.parts);
         },
       );
+
+      await recordPlannerOutput(scratchpad, iteration, planner.result);
+      priorRfc = await latestPriorRFC(scratchpad);
 
       // ── Orchestrate ─────────────────────────────────────────────────────
       await ctx.stage(
@@ -136,66 +180,81 @@ export default defineWorkflow({
         },
       );
 
-      // ── Infrastructure Discovery (three parallel sub-agent stages) ────
+      // ── Capture changeset ───────────────────────────────────────────────
       const changeset = await captureBranchChangeset();
-      const discoveryPrompts = buildInfraDiscoveryPrompts();
+      await recordFilesModified(
+        scratchpad,
+        iteration,
+        parseFilesFromNameStatus(changeset.nameStatus),
+      );
 
-      const [locatorResult, analyzerResult, patternResult] = await Promise.all([
-        ctx.stage(
-          { name: `infra-locate-${iteration}`, headless: true },
-          {},
-          { title: `infra-locate-${iteration}` },
-          async (s) => {
-            const result = await s.client.session.prompt({
-              sessionID: s.session.id,
-              parts: [{ type: "text", text: discoveryPrompts.locator }],
-              agent: "codebase-locator",
-            });
-            s.save(result.data!);
-            return extractResponseText(result.data!.parts);
-          },
-        ),
-        ctx.stage(
-          { name: `infra-analyze-${iteration}`, headless: true },
-          {},
-          { title: `infra-analyze-${iteration}` },
-          async (s) => {
-            const result = await s.client.session.prompt({
-              sessionID: s.session.id,
-              parts: [{ type: "text", text: discoveryPrompts.analyzer }],
-              agent: "codebase-analyzer",
-            });
-            s.save(result.data!);
-            return extractResponseText(result.data!.parts);
-          },
-        ),
-        ctx.stage(
-          { name: `infra-patterns-${iteration}`, headless: true },
-          {},
-          { title: `infra-patterns-${iteration}` },
-          async (s) => {
-            const result = await s.client.session.prompt({
-              sessionID: s.session.id,
-              parts: [{ type: "text", text: discoveryPrompts.patternFinder }],
-              agent: "codebase-pattern-finder",
-            });
-            s.save(result.data!);
-            return extractResponseText(result.data!.parts);
-          },
-        ),
-      ]);
+      // ── Infrastructure Discovery (hoisted; re-runs on infra edits) ────
+      const needsRediscovery =
+        discoveryContext === null || shouldReRunInfraDiscovery(changeset);
+      if (needsRediscovery) {
+        const discoveryPrompts = buildInfraDiscoveryPrompts();
+        const [locatorResult, analyzerResult, patternResult] =
+          await Promise.all([
+            ctx.stage(
+              { name: `infra-locate-${iteration}`, headless: true },
+              {},
+              { title: `infra-locate-${iteration}` },
+              async (s) => {
+                const result = await s.client.session.prompt({
+                  sessionID: s.session.id,
+                  parts: [{ type: "text", text: discoveryPrompts.locator }],
+                  agent: "codebase-locator",
+                });
+                s.save(result.data!);
+                return extractResponseText(result.data!.parts);
+              },
+            ),
+            ctx.stage(
+              { name: `infra-analyze-${iteration}`, headless: true },
+              {},
+              { title: `infra-analyze-${iteration}` },
+              async (s) => {
+                const result = await s.client.session.prompt({
+                  sessionID: s.session.id,
+                  parts: [{ type: "text", text: discoveryPrompts.analyzer }],
+                  agent: "codebase-analyzer",
+                });
+                s.save(result.data!);
+                return extractResponseText(result.data!.parts);
+              },
+            ),
+            ctx.stage(
+              { name: `infra-patterns-${iteration}`, headless: true },
+              {},
+              { title: `infra-patterns-${iteration}` },
+              async (s) => {
+                const result = await s.client.session.prompt({
+                  sessionID: s.session.id,
+                  parts: [{ type: "text", text: discoveryPrompts.patternFinder }],
+                  agent: "codebase-pattern-finder",
+                });
+                s.save(result.data!);
+                return extractResponseText(result.data!.parts);
+              },
+            ),
+          ]);
 
-      const discoveryContext = [
-        "### Infrastructure Files (codebase-locator)\n\n" + locatorResult.result,
-        "### Infrastructure Analysis (codebase-analyzer)\n\n" + analyzerResult.result,
-        "### Build & Test Patterns (codebase-pattern-finder)\n\n" + patternResult.result,
-      ].join("\n\n---\n\n");
+        discoveryContext = [
+          "### Infrastructure Files (codebase-locator)\n\n" +
+            locatorResult.result,
+          "### Infrastructure Analysis (codebase-analyzer)\n\n" +
+            analyzerResult.result,
+          "### Build & Test Patterns (codebase-pattern-finder)\n\n" +
+            patternResult.result,
+        ].join("\n\n---\n\n");
+      }
 
       // ── Review (two parallel passes) ────────────────────────────────────
       const reviewPrompt = buildReviewPrompt(prompt, {
         changeset,
         iteration,
-        discoveryContext,
+        discoveryContext: discoveryContext ?? undefined,
+        sessionIntent,
       });
 
       const reviewStage = async (name: string) =>
@@ -261,6 +320,7 @@ export default defineWorkflow({
         );
 
         debuggerReport = extractMarkdownBlock(debugger_.result);
+        await recordDebuggerReport(scratchpad, iteration, debuggerReport);
       }
     }
   })

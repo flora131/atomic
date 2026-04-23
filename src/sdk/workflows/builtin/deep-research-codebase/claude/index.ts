@@ -81,7 +81,7 @@ import {
   buildScoutPrompt,
   slugifyPrompt,
 } from "../helpers/prompts.ts";
-import { writeExplorerScratchFile } from "../helpers/scratch.ts";
+import { compactScratchFilesForAggregator, writeExplorerScratchFile } from "../helpers/scratch.ts";
 import {
   deriveHistoryBrief,
   PROSE_GUARD_RETRY_PROMPT,
@@ -443,6 +443,14 @@ export default defineWorkflow({
       "research",
       "docs",
       `${isoDate}-${slug}.md`,
+    );
+
+    // D3: pre-flight scratch compaction. If the sum of partition scratch
+    // sizes exceeds SCRATCH_COMPACT_THRESHOLD, rewrite each oversized file
+    // with a head/tail-truncated, schema-preserving summary so the
+    // aggregator's effective context window stays bounded.
+    await compactScratchFilesForAggregator(
+      explorerHandles.map((e) => e.scratchPath),
     );
 
     await ctx.stage(

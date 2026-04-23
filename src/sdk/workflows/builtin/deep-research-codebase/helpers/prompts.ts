@@ -38,7 +38,7 @@
  */
 
 import type { PartitionUnit } from "./scout.ts";
-import { deriveHistoryBrief, HUGE_FILE_LOC } from "../../_context/index.ts";
+import { deriveHistoryBrief } from "../../_context/index.ts";
 
 /**
  * Render a `<PRIOR_RESEARCH_HINT>` block for inclusion in explorer prompts.
@@ -62,31 +62,8 @@ function renderPriorResearchHint(brief: string | undefined): string {
   ].join("\n");
 }
 
-/**
- * Build a `<HUGE_FILES>` block listing files in the partition whose LOC
- * exceeds {@link HUGE_FILE_LOC}. Readers should offset/limit these rather
- * than reading in full. Empty partitions or no-huge-files → empty string.
- *
- * Note: `PartitionUnit.files` does not carry per-file LOC currently — the
- * deterministic producer passes `hugeFiles` directly. This helper renders
- * whatever list the caller supplies.
- */
-function renderHugeFiles(hugeFiles: string[] | undefined): string {
-  if (!hugeFiles || hugeFiles.length === 0) return "";
-  return [
-    ``,
-    `<HUGE_FILES>`,
-    `The following files in your partition exceed ${HUGE_FILE_LOC.toLocaleString()} lines.`,
-    `Read them via offset/limit (e.g. Read with \`offset\` + \`limit\`) — reading`,
-    `them in full will blow your context window:`,
-    ``,
-    ...hugeFiles.map((f) => `- \`${f}\``),
-    `</HUGE_FILES>`,
-  ].join("\n");
-}
-
 // Re-export for SDK index call sites that need to compute a brief.
-export { deriveHistoryBrief, HUGE_FILE_LOC };
+export { deriveHistoryBrief };
 
 /**
  * Prepended to every stage prompt. Compresses agent prose output to cut
@@ -408,8 +385,6 @@ export function buildAnalyzerPrompt(opts: {
   scoutOverview: string;
   index: number;
   total: number;
-  /** Files in this partition whose LOC exceeds HUGE_FILE_LOC (D1). */
-  hugeFiles?: string[];
   /** ≤150-word brief derived from the history-analyzer output (D2). */
   priorResearchBrief?: string;
 }): string {
@@ -445,7 +420,6 @@ export function buildAnalyzerPrompt(opts: {
     `<SCOPE>`,
     assignment,
     `</SCOPE>`,
-    renderHugeFiles(opts.hugeFiles),
     ``,
     `<LOCATOR_FINDINGS>`,
     `Verbatim output from the codebase-locator sibling for this partition —`,

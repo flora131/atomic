@@ -14,6 +14,69 @@
 
 import { z } from "zod";
 
+import {
+  compactReminder,
+  MAX_DEBUGGER_REPORT_CHARS,
+  maskChangeset,
+  truncateMarkdownReport,
+} from "../../_context/index.ts";
+
+// ============================================================================
+// TOKEN-REDUCTION META-PROMPT
+// ============================================================================
+
+/**
+ * Prepended to every Ralph stage prompt. Compresses agent output to cut
+ * tokens while preserving all technical substance. Code blocks, commits,
+ * PRs, and structured outputs (JSON/markdown templates) are exempt — the
+ * individual stage prompts override this where verbatim formatting matters.
+ */
+export const CAVEMAN_PREAMBLE = `# Response Style (applies to all prose output)
+
+Respond terse like smart caveman. All technical substance stay. Only fluff die.
+
+## Persistence
+
+ACTIVE EVERY RESPONSE. No revert after many turns. No filler drift. Still active if unsure.
+
+## Rules
+
+Drop: articles (a/an/the), filler (just/really/basically/actually/simply), pleasantries (sure/certainly/of course/happy to), hedging. Fragments OK. Short synonyms (big not extensive, fix not "implement a solution for"). Technical terms exact. Code blocks unchanged. Errors quoted exact.
+
+Pattern: \`[thing] [action] [reason]. [next step].\`
+
+Not: "Sure! I'd be happy to help you with that. The issue you're experiencing is likely caused by..."
+Yes: "Bug in auth middleware. Token expiry check use \`<\` not \`<=\`. Fix:"
+
+## Intensity
+
+Drop articles, fragments OK, short synonyms.
+
+Example — "Why React component re-render?"
+"New object ref each render. Inline object prop = new ref = re-render. Wrap in \`useMemo\`."
+
+Example — "Explain database connection pooling."
+"Pool reuse open DB connections. No new connection per request. Skip handshake overhead."
+
+## Auto-Clarity
+
+Drop caveman for: security warnings, irreversible action confirmations, multi-step sequences where fragment order risks misread, user asks to clarify or repeats question. Resume caveman after clear part done.
+
+Example — destructive op:
+> **Warning:** This will permanently delete all rows in the \`users\` table and cannot be undone.
+> \`\`\`sql
+> DROP TABLE users;
+> \`\`\`
+> Caveman resume. Verify backup exist first.
+
+## Boundaries
+
+Code/commits/PRs: write normal. Structured outputs (JSON, required markdown templates, schema-enforced fields): write normal — schema wins.
+
+---
+
+`;
+
 // ============================================================================
 // STRUCTURED OUTPUT SCHEMAS
 // ============================================================================
@@ -159,6 +222,18 @@ export interface PlannerContext {
   iteration: number;
   /** Markdown report from the previous iteration's debugger sub-agent. */
   debuggerReport?: string;
+  /**
+   * Previous iteration's full inline RFC (if any), captured from the
+   * per-run scratchpad. Only injected on re-plan iterations when the prior
+   * planner did NOT short-circuit to a file path. Precedence on re-plan:
+   * `debuggerReport` > `priorRfc`.
+   */
+  priorRfc?: string;
+  /**
+   * Session-level one-line intent used for the `<SPEC_REMINDER>` anchor
+   * at the bottom of the prompt. Deterministic — never the full spec.
+   */
+  sessionIntent?: string;
 }
 
 /**
@@ -175,7 +250,9 @@ export function buildPlannerPrompt(
   context: PlannerContext = { iteration: 1 },
 ): string {
   const debuggerReport = context.debuggerReport?.trim() ?? "";
-  const isReplan = context.iteration > 1 && debuggerReport.length > 0;
+  const priorRfc = context.priorRfc?.trim() ?? "";
+  const isReplan =
+    context.iteration > 1 && (debuggerReport.length > 0 || priorRfc.length > 0);
 
   const header = isReplan
     ? `# Technical Design Revision (Iteration ${context.iteration})
@@ -192,7 +269,23 @@ Author a Technical Design Document / RFC for the specification below.`;
 ${spec}
 </specification>`;
 
-  const debuggerBlock = isReplan
+  const priorRfcBlock =
+    isReplan && priorRfc.length > 0
+      ? `
+
+## Prior RFC (previous iteration — for continuity)
+
+<prior_rfc>
+${priorRfc}
+</prior_rfc>
+
+_Note: the **Debugger Report below takes precedence** over the Prior RFC._
+_The Prior RFC is provided for continuity so you do not re-derive the_
+_design from scratch. Keep decisions, alternatives, and open questions_
+_that are still valid; revise what the debugger report invalidates._`
+      : "";
+
+  const debuggerBlock = isReplan && debuggerReport.length > 0
     ? `
 
 ## Debugger Report (authoritative)
@@ -216,9 +309,16 @@ Fold every issue in the debugger report into the revised RFC:
   uncertainty the debugger flagged as unresolved.`
     : "";
 
-  return `${header}
+  const specReminder = context.sessionIntent
+    ? `\n\n<SPEC_REMINDER>\n${compactReminder({
+        intent: context.sessionIntent,
+        iteration: context.iteration,
+      })}\n</SPEC_REMINDER>`
+    : "";
 
-${specBlock}${debuggerBlock}
+  return `${CAVEMAN_PREAMBLE}${header}
+
+${specBlock}${priorRfcBlock}${debuggerBlock}
 
 ${
   isReplan
@@ -279,7 +379,7 @@ forward the path. Duplicating the spec wastes tokens and introduces drift.`
 - Output nothing else after the RFC (or path) — no meta-commentary, no
   summary. The document (or path) stands on its own.
 - Match depth to stakes: a greenfield service warrants deep sections 5-7; a
-  small refactor can abbreviate them, but every section header must be present.`;
+  small refactor can abbreviate them, but every section header must be present.${specReminder}`;
 }
 // ============================================================================
 // ORCHESTRATOR
@@ -320,7 +420,7 @@ ${plannerNotes}
 (empty — fall back to the Original User Specification below)
 </planner_output>`;
 
-  return `You are the workflow orchestrator. You run a three-phase loop:
+  return `${CAVEMAN_PREAMBLE}You are the workflow orchestrator. You run a three-phase loop:
 
 1. **Decompose** the design document into a task list.
 2. **Execute** the tasks by spawning parallel worker sub-agents.
@@ -472,7 +572,7 @@ export interface InfraDiscoveryPrompts {
  */
 export function buildInfraDiscoveryPrompts(): InfraDiscoveryPrompts {
   return {
-    locator: `# Locate Build & Test Infrastructure Files
+    locator: `${CAVEMAN_PREAMBLE}# Locate Build & Test Infrastructure Files
 
 Find ALL files in this repository that define or configure the build, test,
 lint, type-check, and CI/CD infrastructure. Report their paths and a
@@ -500,7 +600,7 @@ Be exhaustive. Do NOT skip files just because they seem minor — CI configs
 and agent instruction files often contain the authoritative command list.
 End with a brief trailing summary (1-2 sentences) of what you found.`,
 
-    analyzer: `# Analyze Build & Test Infrastructure
+    analyzer: `${CAVEMAN_PREAMBLE}# Analyze Build & Test Infrastructure
 
 Examine this repository's build, test, lint, and type-check infrastructure.
 Your goal is to produce a concise reference that tells a reviewer exactly
@@ -543,7 +643,7 @@ Be specific — include the exact invocation string (e.g. \`bun test\`, not
 just "run tests"). If a command has variants (e.g. test:unit, test:e2e),
 list each separately. End with a brief trailing summary.`,
 
-    patternFinder: `# Find Build & Test Patterns
+    patternFinder: `${CAVEMAN_PREAMBLE}# Find Build & Test Patterns
 
 Search this repository for existing patterns that show how code is built,
 tested, and validated. A reviewer needs to know not just WHAT commands exist,
@@ -629,6 +729,8 @@ export interface ReviewContext {
    * repository's build/test/lint commands as part of verification.
    */
   discoveryContext?: string;
+  /** Session-level one-line intent used for the `<SPEC_REMINDER>` anchor. */
+  sessionIntent?: string;
 }
 
 /**
@@ -640,7 +742,7 @@ export function buildReviewPrompt(
   spec: string,
   context: ReviewContext,
 ): string {
-  const { changeset } = context;
+  const changeset = maskChangeset(context.changeset);
   const hasChanges =
     changeset.diffStat.length > 0 || changeset.uncommitted.length > 0;
   const hasErrors = changeset.errors.length > 0;
@@ -748,7 +850,7 @@ ${context.discoveryContext}
 
   // ── Full prompt ────────────────────────────────────────────────────────
 
-  return `${header}
+  return `${CAVEMAN_PREAMBLE}${header}
 
 ## Original Specification
 
@@ -830,7 +932,15 @@ ${outputSection}
 - **overall_explanation**: Summary of overall quality, correctness, and any
   patterns observed.
 
-Begin your review now.`;
+Begin your review now.${
+    context.sessionIntent
+      ? `\n\n<SPEC_REMINDER>\n${compactReminder({
+          intent: context.sessionIntent,
+          iteration: context.iteration,
+          extra: `changeset: ${changeset.nameStatus.split("\n").filter(Boolean).length} paths`,
+        })}\n</SPEC_REMINDER>`
+      : ""
+  }`;
 }
 
 // ============================================================================
@@ -892,7 +1002,7 @@ ${trimmed}
         : `(no reviewer output captured)`;
   }
 
-  const { changeset } = context;
+  const changeset = maskChangeset(context.changeset);
   const hasChanges =
     changeset.nameStatus.length > 0 || changeset.uncommitted.length > 0;
   const hasErrors = changeset.errors.length > 0;
@@ -928,7 +1038,7 @@ ${trimmed}
     changesetSection = "(no changes detected)";
   }
 
-  return `# Debugging Report Request (Iteration ${context.iteration})
+  return `${CAVEMAN_PREAMBLE}# Debugging Report Request (Iteration ${context.iteration})
 
 The reviewer flagged the issues below. Investigate them as a debugger and
 produce a structured report that the planner will consume on the next loop
@@ -1018,5 +1128,5 @@ export function extractMarkdownBlock(content: string): string {
     if (match[1]) last = match[1];
   }
   if (last !== null) return last.trim();
-  return content.trim();
+  return truncateMarkdownReport(content.trim(), MAX_DEBUGGER_REPORT_CHARS);
 }

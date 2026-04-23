@@ -35,8 +35,42 @@ import {
 } from "../helpers/prompts.ts";
 import { hasActionableFindings } from "../helpers/review.ts";
 import { captureBranchChangeset } from "../helpers/git.ts";
+import {
+  initScratchpad,
+  latestPriorRFC,
+  recordDebuggerReport,
+  recordFilesModified,
+  recordPlannerOutput,
+  shouldReRunInfraDiscovery,
+} from "../../_context/index.ts";
 
 const DEFAULT_MAX_LOOPS = 10;
+
+/** Deterministic intent extraction — first sentence/paragraph or 200 chars. */
+function deriveSessionIntent(prompt: string): string {
+  const trimmed = prompt.trim();
+  if (!trimmed) return "(no prompt)";
+  const firstPara = trimmed.split(/\n\n+/)[0] ?? trimmed;
+  const oneLine = firstPara.split("\n").join(" ").replace(/\s+/g, " ");
+  return oneLine.length > 200 ? oneLine.slice(0, 200) + "…" : oneLine;
+}
+
+/**
+ * Parse repo-relative paths from `git diff --name-status` output. Used to
+ * tell the scratchpad which files this iteration touched.
+ */
+function parseFilesFromNameStatus(nameStatus: string): string[] {
+  const paths: string[] = [];
+  for (const line of nameStatus.split("\n")) {
+    if (!line.trim()) continue;
+    const parts = line.split("\t");
+    if (parts.length >= 2) {
+      const p = parts[parts.length - 1];
+      if (p) paths.push(p);
+    }
+  }
+  return paths;
+}
 
 // The orchestrator stage implements the actual code changes and can run for
 // a very long time on large tasks. Completion is detected via session file
@@ -86,11 +120,23 @@ export default defineWorkflow({
   .run(async (ctx) => {
     const prompt = ctx.inputs.prompt ?? "";
     const maxLoops = ctx.inputs.max_loops ?? DEFAULT_MAX_LOOPS;
+    const runId = crypto.randomUUID();
+    const sessionIntent = deriveSessionIntent(prompt);
+    const scratchpad = await initScratchpad({
+      sessionId: runId,
+      projectRoot: process.cwd(),
+      originalSpec: prompt,
+    });
+
     let debuggerReport = "";
+    let priorRfc: string | null = null;
+    // Hoisted infra-discovery cache; populated lazily on iteration 1, then
+    // re-run only when a build/test/lint/CI/agent-instruction file changes.
+    let discoveryContext: string | null = null;
 
     for (let iteration = 1; iteration <= maxLoops; iteration++) {
       // ── Plan ────────────────────────────────────────────────────────────
-      await ctx.stage(
+      const plannerStage = await ctx.stage(
         { name: `planner-${iteration}` },
         {
           chatFlags: [
@@ -102,15 +148,21 @@ export default defineWorkflow({
         },
         {},
         async (s) => {
-          await s.session.query(
+          const result = await s.session.query(
             buildPlannerPrompt(prompt, {
               iteration,
               debuggerReport: debuggerReport || undefined,
+              priorRfc: priorRfc ?? undefined,
+              sessionIntent,
             }),
           );
           s.save(s.sessionId);
+          return extractAssistantText(result, 0);
         },
       );
+
+      await recordPlannerOutput(scratchpad, iteration, plannerStage.result);
+      priorRfc = await latestPriorRFC(scratchpad);
 
       // ── Orchestrate ─────────────────────────────────────────────────────
       await ctx.stage(
@@ -130,72 +182,88 @@ export default defineWorkflow({
         },
       );
 
-      // ── Infrastructure Discovery (three parallel sub-agent stages) ────
+      // ── Capture changeset (needed before infra-invalidation + reviewer) ─
       const changeset = await captureBranchChangeset();
-      const discoveryPrompts = buildInfraDiscoveryPrompts();
 
-      const [locatorResult, analyzerResult, patternResult] = await Promise.all([
-        ctx.stage(
-          { name: `infra-locate-${iteration}`, headless: true },
-          {},
-          {},
-          async (s) => {
-            const result = await s.session.query(discoveryPrompts.locator, {
-              agent: "codebase-locator",
-              permissionMode: "bypassPermissions",
-              allowDangerouslySkipPermissions: true,
-            });
-            s.save(s.sessionId);
-            return extractAssistantText(result, 0);
-          },
-        ),
-        ctx.stage(
-          { name: `infra-analyze-${iteration}`, headless: true },
-          {},
-          {},
-          async (s) => {
-            const result = await s.session.query(discoveryPrompts.analyzer, {
-              agent: "codebase-analyzer",
-              permissionMode: "bypassPermissions",
-              allowDangerouslySkipPermissions: true,
-            });
-            s.save(s.sessionId);
-            return extractAssistantText(result, 0);
-          },
-        ),
-        ctx.stage(
-          { name: `infra-patterns-${iteration}`, headless: true },
-          {},
-          {},
-          async (s) => {
-            const result = await s.session.query(
-              discoveryPrompts.patternFinder,
-              {
-                agent: "codebase-pattern-finder",
-                permissionMode: "bypassPermissions",
-                allowDangerouslySkipPermissions: true,
+      await recordFilesModified(
+        scratchpad,
+        iteration,
+        parseFilesFromNameStatus(changeset.nameStatus),
+      );
+
+      // ── Infrastructure Discovery (hoisted; re-runs on infra-file edits) ─
+      const needsRediscovery =
+        discoveryContext === null || shouldReRunInfraDiscovery(changeset);
+      if (needsRediscovery) {
+        const discoveryPrompts = buildInfraDiscoveryPrompts();
+        const [locatorResult, analyzerResult, patternResult] =
+          await Promise.all([
+            ctx.stage(
+              { name: `infra-locate-${iteration}`, headless: true },
+              {},
+              {},
+              async (s) => {
+                const result = await s.session.query(discoveryPrompts.locator, {
+                  agent: "codebase-locator",
+                  permissionMode: "bypassPermissions",
+                  allowDangerouslySkipPermissions: true,
+                });
+                s.save(s.sessionId);
+                return extractAssistantText(result, 0);
               },
-            );
-            s.save(s.sessionId);
-            return extractAssistantText(result, 0);
-          },
-        ),
-      ]);
+            ),
+            ctx.stage(
+              { name: `infra-analyze-${iteration}`, headless: true },
+              {},
+              {},
+              async (s) => {
+                const result = await s.session.query(
+                  discoveryPrompts.analyzer,
+                  {
+                    agent: "codebase-analyzer",
+                    permissionMode: "bypassPermissions",
+                    allowDangerouslySkipPermissions: true,
+                  },
+                );
+                s.save(s.sessionId);
+                return extractAssistantText(result, 0);
+              },
+            ),
+            ctx.stage(
+              { name: `infra-patterns-${iteration}`, headless: true },
+              {},
+              {},
+              async (s) => {
+                const result = await s.session.query(
+                  discoveryPrompts.patternFinder,
+                  {
+                    agent: "codebase-pattern-finder",
+                    permissionMode: "bypassPermissions",
+                    allowDangerouslySkipPermissions: true,
+                  },
+                );
+                s.save(s.sessionId);
+                return extractAssistantText(result, 0);
+              },
+            ),
+          ]);
 
-      const discoveryContext = [
-        "### Infrastructure Files (codebase-locator)\n\n" +
-          locatorResult.result,
-        "### Infrastructure Analysis (codebase-analyzer)\n\n" +
-          analyzerResult.result,
-        "### Build & Test Patterns (codebase-pattern-finder)\n\n" +
-          patternResult.result,
-      ].join("\n\n---\n\n");
+        discoveryContext = [
+          "### Infrastructure Files (codebase-locator)\n\n" +
+            locatorResult.result,
+          "### Infrastructure Analysis (codebase-analyzer)\n\n" +
+            analyzerResult.result,
+          "### Build & Test Patterns (codebase-pattern-finder)\n\n" +
+            patternResult.result,
+        ].join("\n\n---\n\n");
+      }
 
       // ── Review (two parallel headless passes with schema enforcement) ──
       const reviewPrompt = buildReviewPrompt(prompt, {
         changeset,
         iteration,
-        discoveryContext,
+        discoveryContext: discoveryContext ?? undefined,
+        sessionIntent,
       });
 
       const runReviewer = (name: string) =>
@@ -259,6 +327,7 @@ export default defineWorkflow({
         );
 
         debuggerReport = extractMarkdownBlock(debugger_.result);
+        await recordDebuggerReport(scratchpad, iteration, debuggerReport);
       }
     }
   })

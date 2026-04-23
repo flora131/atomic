@@ -2,6 +2,7 @@ import { describe, test, expect } from "bun:test";
 import {
   compactDiffStat,
   compactReminder,
+  compactScratchFile,
   compactUncommitted,
   deriveHistoryBrief,
   infraInvalidationPaths,
@@ -216,5 +217,36 @@ describe("detectSpecPath", () => {
     [""],
   ])("rejects non-path %p", (input) => {
     expect(detectSpecPath(input)).toBeNull();
+  });
+});
+
+describe("compactScratchFile", () => {
+  test("returns verbatim when under cap", () => {
+    const small = "## A\nbody\n## B\nbody";
+    expect(compactScratchFile(small, 1000)).toBe(small);
+  });
+
+  test("preserves all ## headings even when bodies are elided", () => {
+    const big =
+      "## Scope\n" +
+      "x".repeat(2000) +
+      "\n## Files in Scope\n" +
+      "y".repeat(2000) +
+      "\n## How It Works\n" +
+      "z".repeat(2000);
+    const out = compactScratchFile(big, 600);
+    expect(out).toContain("## Scope");
+    expect(out).toContain("## Files in Scope");
+    expect(out).toContain("## How It Works");
+    expect(out).toContain("elided");
+    expect(out.length).toBeLessThan(big.length);
+  });
+
+  test("preserves ### sub-headings", () => {
+    const input =
+      "## A\n" + "p".repeat(500) + "\n### Sub\n" + "q".repeat(500);
+    const out = compactScratchFile(input, 200);
+    expect(out).toContain("## A");
+    expect(out).toContain("### Sub");
   });
 });

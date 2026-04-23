@@ -282,3 +282,67 @@ export async function queryWithProseGuard<T>(
 export const PROSE_GUARD_RETRY_PROMPT =
   "Emit the required prose summary now — do not end on a tool call. " +
   "A short markdown report following the earlier output format is sufficient.";
+
+// ============================================================================
+// SCRATCH FILE COMPACTION (D3, deep-research aggregator pre-flight)
+// ============================================================================
+
+/**
+ * Schema-preserving head/tail truncation of a markdown scratch file. Keeps
+ * every `## ` and `### ` heading verbatim and truncates section bodies to
+ * fit the budget. Path anchors and `file:line` refs that appear within the
+ * preserved head/tail of each section are kept; only the middle of long
+ * sections is collapsed.
+ *
+ * The aggregator's reading contract (helpers/scratch.ts schema) requires
+ * the same heading layout — locator/patterns/analyzer/online sections — so
+ * we never drop a heading even if its body becomes empty.
+ */
+export function compactScratchFile(content: string, maxChars: number): string {
+  if (content.length <= maxChars) return content;
+
+  const lines = content.split("\n");
+  const sections: { heading: string; body: string[] }[] = [];
+  let current: { heading: string; body: string[] } | null = null;
+  for (const line of lines) {
+    if (/^##\s/.test(line) || /^###\s/.test(line)) {
+      if (current) sections.push(current);
+      current = { heading: line, body: [] };
+    } else if (current) {
+      current.body.push(line);
+    } else {
+      // Pre-heading preamble — treat as a synthetic leading section so we
+      // don't lose the file's title block.
+      current = { heading: "", body: [line] };
+    }
+  }
+  if (current) sections.push(current);
+
+  const headingCost = sections.reduce(
+    (sum, s) => sum + s.heading.length + 1,
+    0,
+  );
+  const budgetForBodies = Math.max(0, maxChars - headingCost);
+  const perSection = Math.floor(budgetForBodies / Math.max(1, sections.length));
+
+  const out: string[] = [];
+  for (const s of sections) {
+    if (s.heading) out.push(s.heading);
+    const body = s.body.join("\n");
+    if (body.length <= perSection) {
+      out.push(body);
+      continue;
+    }
+    const half = Math.floor((perSection - 32) / 2);
+    if (half <= 0) {
+      out.push(`[… ${body.length} chars elided …]`);
+      continue;
+    }
+    out.push(
+      body.slice(0, half) +
+        `\n\n[… ${body.length - perSection} chars elided …]\n\n` +
+        body.slice(body.length - half),
+    );
+  }
+  return out.join("\n");
+}

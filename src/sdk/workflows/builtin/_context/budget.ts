@@ -18,9 +18,6 @@ export function approxTokens(text: string): number {
 /** Fraction of effective window at which compaction should trigger. */
 export const COMPACT_TRIGGER_FRACTION = 0.7;
 
-/** Partition file-LOC above which a file is flagged as "huge" for readers. */
-export const HUGE_FILE_LOC = 5_000;
-
 /**
  * Aggregator pre-flight: when the sum of per-partition scratch-file sizes
  * exceeds this many chars, compact each oversized scratch before the

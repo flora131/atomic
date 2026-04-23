@@ -43,7 +43,6 @@
     "src",
     "dist",
     "assets/settings.schema.json",
-    ".agents/skills",
     ".claude/agents",
     ".claude/settings.json",
     ".opencode/agents",

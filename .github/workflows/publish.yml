@@ -73,6 +73,31 @@ jobs:
           node-version: "lts/*"
           registry-url: "https://registry.npmjs.org"
 
+      - name: Stage filtered skills for npm package
+        env:
+          SKILLS_REPO: https://github.com/flora131/atomic.git
+        run: |
+          set -euo pipefail
+
+          # Replace the dev-laden checkout skills with the filtered set
+          # produced by `bunx skills add` (which excludes development-only
+          # skills). Install globally on the runner, then copy into the
+          # package root so npm pack picks them up.
+          rm -rf .agents/skills
+          bunx skills add "$SKILLS_REPO" \
+            --skill "*" \
+            -a opencode -a github-copilot \
+            -g -y
+
+          mkdir -p .agents/skills
+          cp -R "$HOME/.agents/skills/." .agents/skills/
+
+          # Whitelist the staged directory for `npm publish` without
+          # baking the entry into the committed package.json.
+          tmp=$(mktemp)
+          jq '.files += [".agents/skills"]' package.json > "$tmp"
+          mv "$tmp" package.json
+
       - name: Publish to npm
         run: npm publish --provenance --access public --tag ${{ steps.npm-tag.outputs.tag }}
 

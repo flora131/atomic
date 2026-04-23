@@ -68,6 +68,7 @@ export {
   capturePaneVisible,
   capturePaneScrollback,
   killSession,
+  killSessionOnPaneExit,
   killWindow,
   sessionExists,
   listSessions,

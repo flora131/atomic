@@ -37,6 +37,7 @@ import {
   createSession,
   detachAndAttachAtomic,
   killSession,
+  killSessionOnPaneExit,
   setSessionEnv,
   spawnMuxAttach,
   switchClient,
@@ -262,6 +263,12 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   try {
     const paneId = createSession(windowName, shellCmd, undefined, projectRoot);
     setSessionEnv(windowName, "ATOMIC_AGENT", agentType);
+
+    // When the agent CLI exits (via `/exit`, double Ctrl+C, or crash),
+    // tear down the whole session so the footer pane doesn't keep it
+    // alive in the background. Pane-scoped so the footer's own exit
+    // (which cascades from the kill-session) doesn't re-trigger.
+    killSessionOnPaneExit(windowName, paneId);
 
     // Split the pane so the agent CLI runs on top and the React footer
     // (provider pill + window name) runs in a 5% bottom pane. Matches

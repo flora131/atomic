@@ -221,6 +221,28 @@ export function createSession(
 }
 
 /**
+ * Install a hook that kills the entire session when the given pane's
+ * process exits. Used by chat sessions so the session is torn down
+ * when the agent CLI exits — whether via `/exit`, a deliberate double
+ * Ctrl+C, or a crash — without leaving the footer pane keeping the
+ * session alive.
+ *
+ * The hook is session-scoped (pane-scoped hooks don't fire because the
+ * pane is already gone when `pane-exited` would run) and guarded with
+ * `#{hook_pane}` so the footer pane's eventual exit cascade doesn't
+ * re-trigger it. `kill-session` is idempotent in any case.
+ */
+export function killSessionOnPaneExit(sessionName: string, paneId: string): void {
+  const guard = `if -F '#{==:#{hook_pane},${paneId}}' 'kill-session -t ${sessionName}'`;
+  tmuxRun([
+    "set-hook",
+    "-t", sessionName,
+    "pane-exited",
+    guard,
+  ]);
+}
+
+/**
  * Create a new window in an existing session without switching focus.
  *
  * @param sessionName - Target session name

@@ -49,8 +49,6 @@ interface PaneState {
   claudeStarted: boolean;
   /** CLI flags to pass to `claude` when it is spawned on the first query. */
   chatFlags: string[];
-  /** Timeout in ms waiting for Claude TUI / JSONL file on first spawn. */
-  readyTimeoutMs: number;
 }
 
 const initializedPanes = new Map<string, PaneState>();
@@ -76,6 +74,13 @@ export async function clearClaudeSession(paneId: string): Promise<void> {
     } catch {
       // Best-effort — stale pid file is inert; the next session writes a
       // fresh one under its own UUID.
+    }
+    try {
+      await clearStaleReadyMarker(state.claudeSessionId);
+    } catch {
+      // Best-effort — stale ready marker is inert; the next session writes
+      // a fresh one under its own UUID and clears any prior leftover in
+      // `claudeQuery` before respawn.
     }
   }
   initializedPanes.delete(paneId);
@@ -135,6 +140,18 @@ function buildWorkflowHookCommand(subcommand: string, extraArgs: readonly string
 const STOP_HOOK_TIMEOUT_SECONDS = 2_147_483;
 
 /**
+ * Effectively-unbounded ms ceiling for `waitForReadyMarker`. Mirrors
+ * {@link STOP_HOOK_TIMEOUT_SECONDS} but expressed in ms for `setTimeout`.
+ *
+ * The SessionStart hook fires well under a second on a working spawn, so in
+ * practice this timer never expires. It only protects against failure modes
+ * where the hook will never fire at all (claude binary missing, hook
+ * command not resolvable, settings JSON rejected), where a clear error
+ * beats a hung pane.
+ */
+const READY_HOOK_TIMEOUT_MS = 2_147_483_000;
+
+/**
  * Inline settings injected via `claude --settings <json>` on every workflow
  * spawn. Registers the workflow-owned hooks without relying on
  * `.claude/settings.json` — so the hooks fire only for workflow-spawned
@@ -161,6 +178,17 @@ const STOP_HOOK_TIMEOUT_SECONDS = 2_147_483;
  */
 const WORKFLOW_HOOK_SETTINGS = JSON.stringify({
   hooks: {
+    SessionStart: [
+      {
+        matcher: "startup",
+        hooks: [
+          {
+            type: "command",
+            command: buildWorkflowHookCommand("_claude-session-start-hook"),
+          },
+        ],
+      },
+    ],
     Stop: [
       {
         hooks: [
@@ -217,8 +245,6 @@ export interface ClaudeSessionOptions {
   paneId: string;
   /** CLI flags to pass to the `claude` command (default: ["--allow-dangerously-skip-permissions", "--dangerously-skip-permissions"]) */
   chatFlags?: string[];
-  /** Timeout in ms waiting for Claude TUI to be ready (default: 30s) */
-  readyTimeoutMs?: number;
 }
 
 /**
@@ -251,18 +277,13 @@ export interface ClaudeSessionOptions {
  * ```
  */
 export async function createClaudeSession(options: ClaudeSessionOptions): Promise<string> {
-  const {
-    paneId,
-    chatFlags = DEFAULT_CHAT_FLAGS,
-    readyTimeoutMs = 30_000,
-  } = options;
+  const { paneId, chatFlags = DEFAULT_CHAT_FLAGS } = options;
 
   const claudeSessionId = randomUUID();
   initializedPanes.set(paneId, {
     claudeSessionId,
     claudeStarted: false,
     chatFlags,
-    readyTimeoutMs,
   });
 
   // Write our PID so the Stop hook can detect an orphaned session if we
@@ -298,7 +319,6 @@ async function spawnClaudeWithPrompt(
   promptFile: string,
   chatFlags: string[],
   sessionId: string,
-  readyTimeoutMs: number,
 ): Promise<void> {
   // sessionDir is the workflow's `${name}-${sessionId}` directory under
   // ~/.atomic/sessions — slug-based, so single-quoting is sufficient on
@@ -324,55 +344,58 @@ async function spawnClaudeWithPrompt(
   // the command typed at the prompt but never submitted.
   respawnPane(paneId, cmd);
 
-  // SDK-native readiness signal: wait for Claude to create its JSONL file
-  // at the known UUID path.
-  await waitForSessionFileAt(sessionId, readyTimeoutMs);
+  // Positive readiness signal: wait for Claude's SessionStart hook (matcher
+  // `startup`) to write `~/.atomic/claude-ready/<session_id>`. This fires
+  // before Claude writes the JSONL transcript, so it beats the old
+  // transcript-file race and is deterministic.
+  await waitForReadyMarker(sessionId);
 }
 
 /**
- * Wait for Claude's JSONL session file at a known UUID-named path to exist.
+ * Wait for the SessionStart hook's ready marker at
+ * `~/.atomic/claude-ready/<session_id>`.
  *
- * Because we pass `--session-id <UUID>` to the spawn, the file's exact path
- * is deterministic — we just need to wait for it to appear. Uses `fs.watch`
- * for instant OS-native notification (inotify/kqueue in Bun) racing against
- * a polling fallback that handles the case where the session directory
- * doesn't exist yet on first run.
+ * `atomic _claude-session-start-hook` is registered in
+ * {@link WORKFLOW_HOOK_SETTINGS} with matcher `startup`; the Claude CLI
+ * dispatches it during spawn, before the first API call and before the JSONL
+ * transcript is created. Waiting on the resulting marker file gives us a
+ * positive "Claude is alive" signal instead of racing the transcript writer.
+ *
+ * The timeout only fires on catastrophic startup failure (bad binary, exec
+ * error) — under load, Claude's own session bootstrap runs well under the
+ * limit because SessionStart is dispatched early in the startup sequence.
  */
-async function waitForSessionFileAt(
-  sessionId: string,
-  timeoutMs: number,
-): Promise<void> {
-  const sessionDir = resolveSessionDir(process.cwd());
-  const targetPath = `${sessionDir}/${sessionId}.jsonl`;
+async function waitForReadyMarker(sessionId: string): Promise<void> {
+  const { ready: readyDir } = claudeHookDirs();
+  await mkdir(readyDir, { recursive: true });
+  const target = join(readyDir, sessionId);
 
-  if (existsSync(targetPath)) return;
+  if (existsSync(target)) return;
 
   const ac = new AbortController();
-  const timeout = setTimeout(() => ac.abort(), timeoutMs);
+  const timeout = setTimeout(() => ac.abort(), READY_HOOK_TIMEOUT_MS);
 
   try {
     await Promise.race([
-      // fs.watch — instant OS-native notification when Claude writes the file
+      // fs.watch — instant OS-native notification when the hook writes the file
       (async (): Promise<void> => {
         try {
-          for await (const event of watch(sessionDir, { signal: ac.signal })) {
-            if (event.filename === `${sessionId}.jsonl` && existsSync(targetPath)) {
-              return;
-            }
+          for await (const _event of watch(readyDir, { signal: ac.signal })) {
+            // Trust disk state, not event.filename (Linux can deliver
+            // unexpected basenames under tmp+rename writes).
+            if (existsSync(target)) return;
           }
         } catch (e: unknown) {
           if (e instanceof Error && e.name === "AbortError") throw e;
-          // Directory doesn't exist yet — let polling handle it
         }
-        // Park this branch so polling can win the race
         return new Promise<void>(() => {});
       })(),
 
-      // Polling fallback — handles directory-not-yet-created case
+      // Polling fallback — catches dropped inotify/FSEvent notifications
       (async (): Promise<void> => {
         while (!ac.signal.aborted) {
-          if (existsSync(targetPath)) return;
-          await Bun.sleep(500);
+          if (existsSync(target)) return;
+          await Bun.sleep(250);
         }
         throw new DOMException("Aborted", "AbortError");
       })(),
@@ -380,8 +403,8 @@ async function waitForSessionFileAt(
   } catch (e: unknown) {
     if (e instanceof DOMException && e.name === "AbortError") {
       throw new Error(
-        `Timed out waiting for Claude session file at ${targetPath}. ` +
-        "Verify the `claude` command started successfully.",
+        `Timed out waiting for Claude SessionStart hook to signal readiness ` +
+        `at ${target}. Verify the \`claude\` command started successfully.`,
       );
     }
     throw e;
@@ -389,16 +412,6 @@ async function waitForSessionFileAt(
     clearTimeout(timeout);
     ac.abort();
   }
-}
-
-/**
- * Resolve the session directory for a given cwd.
- * Session files live at `~/.claude/projects/<encoded-cwd>/`.
- */
-function resolveSessionDir(cwd: string): string {
-  const encodedCwd = cwd.replace(/[^a-zA-Z0-9]/g, "-");
-  const home = process.env.HOME || process.env.USERPROFILE || "";
-  return `${home}/.claude/projects/${encodedCwd}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -593,6 +606,24 @@ async function clearStaleHILMarker(claudeSessionId: string): Promise<void> {
   await mkdir(hil, { recursive: true });
   try {
     await unlink(join(hil, claudeSessionId));
+  } catch (e: unknown) {
+    if (!(e instanceof Error && "code" in e && (e as NodeJS.ErrnoException).code === "ENOENT")) {
+      throw e;
+    }
+  }
+}
+
+/**
+ * Remove a stale ready marker from a prior session that reused this UUID (in
+ * practice impossible — UUIDs are fresh per session — but cheap insurance so
+ * `waitForReadyMarker`'s initial existsSync can't false-positive on anything
+ * we left behind). Ignores ENOENT.
+ */
+async function clearStaleReadyMarker(claudeSessionId: string): Promise<void> {
+  const { ready } = claudeHookDirs();
+  await mkdir(ready, { recursive: true });
+  try {
+    await unlink(join(ready, claudeSessionId));
   } catch (e: unknown) {
     if (!(e instanceof Error && "code" in e && (e as NodeJS.ErrnoException).code === "ENOENT")) {
       throw e;
@@ -895,6 +926,7 @@ export async function claudeQuery(options: ClaudeQueryOptions): Promise<SessionM
   await clearStaleMarker(claudeSessionId);
   await clearStaleQueue(claudeSessionId);
   await clearStaleHILMarker(claudeSessionId);
+  await clearStaleReadyMarker(claudeSessionId);
 
   let transcriptBeforeCount = 0;
   let spawnPromptFile: string | undefined;
@@ -931,7 +963,6 @@ export async function claudeQuery(options: ClaudeQueryOptions): Promise<SessionM
         spawnPromptFile,
         paneState.chatFlags,
         claudeSessionId,
-        paneState.readyTimeoutMs,
       );
       paneState.claudeStarted = true;
     }
@@ -995,11 +1026,11 @@ export function mergeDisallowedTools(
  */
 export class ClaudeClientWrapper {
   readonly paneId: string;
-  private readonly opts: { chatFlags?: string[]; readyTimeoutMs?: number };
+  private readonly opts: { chatFlags?: string[] };
 
   constructor(
     paneId: string,
-    opts: { chatFlags?: string[]; readyTimeoutMs?: number } = {},
+    opts: { chatFlags?: string[] } = {},
   ) {
     this.paneId = paneId;
     this.opts = opts;
@@ -1017,7 +1048,6 @@ export class ClaudeClientWrapper {
     return await createClaudeSession({
       paneId: this.paneId,
       chatFlags: this.opts.chatFlags,
-      readyTimeoutMs: this.opts.readyTimeoutMs,
     });
   }
 

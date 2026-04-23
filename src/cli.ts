@@ -350,6 +350,16 @@ Examples:
             process.exit(exitCode);
         });
 
+    // ── Internal: Claude SessionStart hook handler ────────────────────────
+    program
+        .command("_claude-session-start-hook", { hidden: true })
+        .description("Internal: Claude Code SessionStart hook handler — writes a ready-marker file")
+        .action(async () => {
+            const { claudeSessionStartHookCommand } = await import("./commands/cli/claude-session-start-hook.ts");
+            const exitCode = await claudeSessionStartHookCommand();
+            process.exit(exitCode);
+        });
+
     // ── Internal: Claude AskUserQuestion hook handler ─────────────────────
     program
         .command("_claude-ask-hook", { hidden: true })
@@ -423,7 +433,8 @@ async function main(): Promise<void> {
             argv[0] === "completions" ||
             argv[0] === "_footer" ||
             argv[0] === "_claude-stop-hook" ||
-            argv[0] === "_claude-ask-hook";
+            argv[0] === "_claude-ask-hook" ||
+            argv[0] === "_claude-session-start-hook";
 
         if (!isInfoCommand) {
             const { autoSyncIfStale } = await import("./services/system/auto-sync.ts");

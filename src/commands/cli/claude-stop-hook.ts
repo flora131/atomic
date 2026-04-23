@@ -67,6 +67,7 @@ export function claudeHookDirs(): {
   release: string;
   hil: string;
   pid: string;
+  ready: string;
 } {
   const base = path.join(os.homedir(), ".atomic");
   return {
@@ -80,6 +81,10 @@ export function claudeHookDirs(): {
     // can detect the orphaned session and self-exit instead of sitting in
     // its wait loop for ~24 days.
     pid: path.join(base, "claude-pid"),
+    // Written by the SessionStart hook on fresh spawns. The workflow runtime
+    // watches this directory to detect readiness — positive signal, unlike
+    // racing the JSONL writer.
+    ready: path.join(base, "claude-ready"),
   };
 }
 

@@ -36,7 +36,7 @@ export type AgentType = "copilot" | "opencode" | "claude";
 type ClientOptionsMap = {
   opencode: { directory?: string; experimental_workspaceID?: string };
   copilot: Omit<CopilotClientOptions, "cliUrl">;
-  claude: { chatFlags?: string[]; readyTimeoutMs?: number };
+  claude: { chatFlags?: string[] };
 };
 
 /**

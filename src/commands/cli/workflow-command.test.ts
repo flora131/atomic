@@ -51,6 +51,12 @@ import type {
 const realDiscoverWorkflows = realWorkflows.discoverWorkflows;
 const realLoadWorkflowsMetadata = realWorkflows.loadWorkflowsMetadata;
 const realIsCommandInstalled = realDetect.isCommandInstalled;
+// Snapshot the real `auth.ts` exports before `mock.module` rebinds them.
+// Bun 1.3.13 canonicalizes `mock.module` specifiers to an absolute path, so
+// our registration for `"../../services/system/auth.ts"` now shares a key with
+// `auth.test.ts`'s `"./auth.ts"` — the mock leaks across files unless we
+// explicitly restore on teardown. See `afterAll` at the bottom of this file.
+const realAuthSnapshot = { ...realAuth };
 
 // ─── Dependency mocks ───────────────────────────────────────────────────────
 // Every mock is a wrapper around the real implementation by default so
@@ -132,6 +138,12 @@ mock.module("../../lib/spawn.ts", () => ({
 // Dynamic import — must happen AFTER `mock.module` so the module-under-test
 // binds to the mocked dependencies. Top-level await is fine under Bun.
 const { workflowCommand } = await import("./workflow.ts");
+
+// Restore `auth.ts` to its real exports once this file's tests finish so the
+// leaked `checkAgentAuthMock` doesn't hijack `auth.test.ts` when it loads next.
+afterAll(() => {
+  mock.module("../../services/system/auth.ts", () => realAuthSnapshot);
+});
 
 // ─── Output capture ─────────────────────────────────────────────────────────
 // The CLI writes error banners to stderr via `console.error`, success content

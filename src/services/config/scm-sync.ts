@@ -30,6 +30,19 @@ function enabledServersFor(scm: ScmProvider): Set<ScmMcpServer> {
 }
 
 /**
+ * Copilot CLI servers to disable per scm selection. Copilot ships with a
+ * built-in `github-mcp-server`; when scm is `github` the user's own
+ * `github` MCP is redundant with it, so we keep the built-in and disable
+ * the user's. For `azure-devops` we keep the user's `azure-devops` and
+ * disable both GitHub variants. Sapling disables everything.
+ */
+const COPILOT_DISABLE_BY_SCM: Record<ScmProvider, readonly string[]> = {
+  github: ["github", "azure-devops"],
+  "azure-devops": ["github", "github-mcp-server"],
+  sapling: ["github", "azure-devops", "github-mcp-server"],
+};
+
+/**
  * Pure helper: returns the `--disable-mcp-server <name>` flag sequence to
  * append when spawning Copilot CLI, given a selected scm provider.
  *
@@ -39,11 +52,9 @@ function enabledServersFor(scm: ScmProvider): Set<ScmMcpServer> {
  */
 export function copilotScmDisableFlags(scm: ScmProvider | undefined): string[] {
   if (!scm) return [];
-  const enabled = enabledServersFor(scm);
+  const names = COPILOT_DISABLE_BY_SCM[scm] ?? [];
   const flags: string[] = [];
-  for (const name of SCM_MCP_SERVERS) {
-    if (!enabled.has(name)) flags.push("--disable-mcp-server", name);
-  }
+  for (const name of names) flags.push("--disable-mcp-server", name);
   return flags;
 }
 

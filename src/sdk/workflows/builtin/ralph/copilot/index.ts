@@ -38,6 +38,9 @@ import {
 } from "../helpers/prompts.ts";
 import { hasActionableFindings } from "../helpers/review.ts";
 import { captureBranchChangeset } from "../helpers/git.ts";
+import { buildRalphReviewerAgent } from "../helpers/copilot-reviewer.ts";
+
+const SUBMIT_REVIEW_TOOL_NAME = "submit_review";
 
 const DEFAULT_MAX_LOOPS = 10;
 
@@ -198,7 +201,7 @@ export default defineWorkflow({
       let captureA: ReviewResult | null = null;
       let captureB: ReviewResult | null = null;
 
-      const toolA = defineTool("submit_review", {
+      const toolA = defineTool(SUBMIT_REVIEW_TOOL_NAME, {
         description: SUBMIT_REVIEW_DESCRIPTION,
         parameters: ReviewResultSchema,
         skipPermission: true,
@@ -208,7 +211,7 @@ export default defineWorkflow({
         },
       });
 
-      const toolB = defineTool("submit_review", {
+      const toolB = defineTool(SUBMIT_REVIEW_TOOL_NAME, {
         description: SUBMIT_REVIEW_DESCRIPTION,
         parameters: ReviewResultSchema,
         skipPermission: true,
@@ -218,11 +221,22 @@ export default defineWorkflow({
         },
       });
 
+      // Inline reviewer agent config overrides the disk-based
+      // `.github/agents/reviewer.md`. Defining it here lets the tool
+      // allowlist include `submit_review` — disk-loaded agents filter the
+      // frontmatter `tools:` list against Copilot's built-in alias
+      // registry at parse time, so session-level custom tools are dropped.
+      const ralphReviewer = buildRalphReviewerAgent(SUBMIT_REVIEW_TOOL_NAME);
+
       const [reviewA, reviewB] = await Promise.all([
         ctx.stage(
           { name: `reviewer-${iteration}-a` },
           {},
-          { agent: "reviewer", tools: [toolA] },
+          {
+            agent: "reviewer",
+            tools: [toolA],
+            customAgents: [ralphReviewer],
+          },
           async (s) => {
             await s.session.send({ prompt: reviewPrompt });
             const messages = await s.session.getMessages();
@@ -236,7 +250,11 @@ export default defineWorkflow({
         ctx.stage(
           { name: `reviewer-${iteration}-b` },
           {},
-          { agent: "reviewer", tools: [toolB] },
+          {
+            agent: "reviewer",
+            tools: [toolB],
+            customAgents: [ralphReviewer],
+          },
           async (s) => {
             await s.session.send({ prompt: reviewPrompt });
             const messages = await s.session.getMessages();

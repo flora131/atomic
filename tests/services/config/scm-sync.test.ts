@@ -57,26 +57,32 @@ describe("copilotScmDisableFlags", () => {
     expect(copilotScmDisableFlags(undefined)).toEqual([]);
   });
 
-  test("disables azure-devops when scm is github", () => {
+  test("disables github and azure-devops when scm is github (keeps built-in github-mcp-server)", () => {
     expect(copilotScmDisableFlags("github")).toEqual([
+      "--disable-mcp-server",
+      "github",
       "--disable-mcp-server",
       "azure-devops",
     ]);
   });
 
-  test("disables github when scm is azure-devops", () => {
+  test("disables github and github-mcp-server when scm is azure-devops", () => {
     expect(copilotScmDisableFlags("azure-devops")).toEqual([
       "--disable-mcp-server",
       "github",
+      "--disable-mcp-server",
+      "github-mcp-server",
     ]);
   });
 
-  test("disables all scm servers when scm is sapling (no matching mcp server)", () => {
+  test("disables github, azure-devops, and github-mcp-server when scm is sapling", () => {
     expect(copilotScmDisableFlags("sapling")).toEqual([
       "--disable-mcp-server",
       "github",
       "--disable-mcp-server",
       "azure-devops",
+      "--disable-mcp-server",
+      "github-mcp-server",
     ]);
   });
 });
@@ -98,6 +104,8 @@ describe("getCopilotScmDisableFlags", () => {
     await writeAtomicConfig(projectRoot, { scm: "github" });
 
     expect(await getCopilotScmDisableFlags(projectRoot)).toEqual([
+      "--disable-mcp-server",
+      "github",
       "--disable-mcp-server",
       "azure-devops",
     ]);

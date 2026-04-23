@@ -1,11 +1,16 @@
 /**
- * Ralph workflow for Claude Code — plan → orchestrate → review → debug loop.
+ * Ralph workflow for Claude Code — plan → orchestrate → review loop.
  *
  * Each sub-agent invocation spawns its own visible session in the graph,
  * so users can see each iteration's progress in real time. The loop
  * terminates when:
  *   - `max_loops` iterations have completed (defaults to {@link DEFAULT_MAX_LOOPS}), OR
- *   - Two parallel reviewer passes both return zero findings.
+ *   - Both parallel reviewer passes return `overall_correctness === "patch is correct"`.
+ *
+ * On a failed review the merged findings are formatted into a markdown
+ * brief by {@link formatReviewForReplan} and fed into the next iteration's
+ * planner, which is responsible for validating, deduping, and clustering
+ * them into shared root causes before revising the RFC.
  *
  * The reviewer stages run **headless** via the Claude Agent SDK with
  * `outputFormat: { type: "json_schema", schema: REVIEW_RESULT_JSON_SCHEMA }`,
@@ -25,9 +30,8 @@ import {
   buildOrchestratorPrompt,
   buildInfraDiscoveryPrompts,
   buildReviewPrompt,
-  buildDebuggerReportPrompt,
-  extractMarkdownBlock,
   filterActionable,
+  formatReviewForReplan,
   mergeReviewResults,
   REVIEW_RESULT_JSON_SCHEMA,
   type ReviewResult,
@@ -65,8 +69,7 @@ function extractReview(
 
 export default defineWorkflow({
   name: "ralph",
-  description:
-    "Plan → orchestrate → review → debug loop with bounded iteration",
+  description: "Plan → orchestrate → review loop with bounded iteration",
   inputs: [
     {
       name: "prompt",
@@ -86,7 +89,7 @@ export default defineWorkflow({
   .run(async (ctx) => {
     const prompt = ctx.inputs.prompt ?? "";
     const maxLoops = ctx.inputs.max_loops ?? DEFAULT_MAX_LOOPS;
-    let debuggerReport = "";
+    let reviewReport = "";
 
     for (let iteration = 1; iteration <= maxLoops; iteration++) {
       // ── Plan ────────────────────────────────────────────────────────────
@@ -105,7 +108,7 @@ export default defineWorkflow({
           await s.session.query(
             buildPlannerPrompt(prompt, {
               iteration,
-              debuggerReport: debuggerReport || undefined,
+              reviewReport: reviewReport || undefined,
             }),
           );
           s.save(s.sessionId);
@@ -233,33 +236,8 @@ export default defineWorkflow({
       // Both reviewers agree the code is clean → done
       if (!hasActionableFindings(parsed, reviewRaw)) break;
 
-      // ── Debug (only if another iteration is allowed) ────────────────────
-      if (iteration < maxLoops) {
-        const debugger_ = await ctx.stage(
-          { name: `debugger-${iteration}` },
-          {
-            chatFlags: [
-              "--agent",
-              "debugger",
-              "--allow-dangerously-skip-permissions",
-              "--dangerously-skip-permissions",
-            ],
-          },
-          {},
-          async (s) => {
-            const result = await s.session.query(
-              buildDebuggerReportPrompt(parsed, reviewRaw, {
-                iteration,
-                changeset,
-              }),
-            );
-            s.save(s.sessionId);
-            return extractAssistantText(result, 0);
-          },
-        );
-
-        debuggerReport = extractMarkdownBlock(debugger_.result);
-      }
+      // Findings exist — format them for the next iteration's planner.
+      reviewReport = formatReviewForReplan(parsed, reviewRaw);
     }
   })
   .compile();

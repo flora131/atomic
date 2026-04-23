@@ -1,11 +1,16 @@
 /**
- * Ralph workflow for OpenCode — plan → orchestrate → review → debug loop.
+ * Ralph workflow for OpenCode — plan → orchestrate → review loop.
  *
  * Each sub-agent invocation spawns its own visible session in the graph,
  * so users can see each iteration's progress in real time. The loop
  * terminates when:
  *   - `max_loops` iterations have completed (defaults to {@link DEFAULT_MAX_LOOPS}), OR
- *   - Two parallel reviewer passes both return zero findings.
+ *   - Both parallel reviewer passes return `overall_correctness === "patch is correct"`.
+ *
+ * On a failed review the merged findings are formatted into a markdown
+ * brief by {@link formatReviewForReplan} and fed into the next iteration's
+ * planner, which is responsible for validating, deduping, and clustering
+ * them into shared root causes before revising the RFC.
  *
  * The reviewer stages use the OpenCode SDK's structured output
  * (`format: { type: "json_schema" }`) to guarantee the review result
@@ -21,9 +26,8 @@ import {
   buildOrchestratorPrompt,
   buildInfraDiscoveryPrompts,
   buildReviewPrompt,
-  buildDebuggerReportPrompt,
-  extractMarkdownBlock,
   filterActionable,
+  formatReviewForReplan,
   mergeReviewResults,
   REVIEW_RESULT_JSON_SCHEMA,
   type ReviewResult,
@@ -71,8 +75,7 @@ function extractReview(
 
 export default defineWorkflow({
   name: "ralph",
-  description:
-    "Plan → orchestrate → review → debug loop with bounded iteration",
+  description: "Plan → orchestrate → review loop with bounded iteration",
   inputs: [
     { name: "prompt", type: "text", required: true, description: "task prompt" },
     {
@@ -87,7 +90,7 @@ export default defineWorkflow({
   .run(async (ctx) => {
     const prompt = ctx.inputs.prompt ?? "";
     const maxLoops = ctx.inputs.max_loops ?? DEFAULT_MAX_LOOPS;
-    let debuggerReport = "";
+    let reviewReport = "";
 
     for (let iteration = 1; iteration <= maxLoops; iteration++) {
       // ── Plan ────────────────────────────────────────────────────────────
@@ -103,7 +106,7 @@ export default defineWorkflow({
                 type: "text",
                 text: buildPlannerPrompt(prompt, {
                   iteration,
-                  debuggerReport: debuggerReport || undefined,
+                  reviewReport: reviewReport || undefined,
                 }),
               },
             ],
@@ -235,33 +238,8 @@ export default defineWorkflow({
       // Both reviewers agree the code is clean → done
       if (!hasActionableFindings(parsed, reviewRaw)) break;
 
-      // ── Debug (only if another iteration is allowed) ────────────────────
-      if (iteration < maxLoops) {
-        const debugger_ = await ctx.stage(
-          { name: `debugger-${iteration}` },
-          {},
-          { title: `debugger-${iteration}` },
-          async (s) => {
-            const result = await s.client.session.prompt({
-              sessionID: s.session.id,
-              parts: [
-                {
-                  type: "text",
-                  text: buildDebuggerReportPrompt(parsed, reviewRaw, {
-                    iteration,
-                    changeset,
-                  }),
-                },
-              ],
-              agent: "debugger",
-            });
-            s.save(result.data!);
-            return extractResponseText(result.data!.parts);
-          },
-        );
-
-        debuggerReport = extractMarkdownBlock(debugger_.result);
-      }
+      // Findings exist — format them for the next iteration's planner.
+      reviewReport = formatReviewForReplan(parsed, reviewRaw);
     }
   })
   .compile();

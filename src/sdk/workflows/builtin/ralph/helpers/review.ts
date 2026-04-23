@@ -8,25 +8,26 @@
 import type { ReviewResult } from "./prompts.ts";
 
 /**
- * Check whether the reviewer produced actionable findings.
+ * Check whether the loop should iterate again.
  *
  * Returns true when:
- * 1. The parsed ReviewResult has one or more findings, OR
- * 2. The review could not be parsed (null) but the raw response
- *    text is non-empty (treat unparseable output as actionable).
+ * 1. The review could not be parsed (null) but the raw response text is
+ *    non-empty — treat unparseable output as actionable so the loop keeps
+ *    iterating instead of silently exiting on a missing reviewer.
+ * 2. The merged review reports `overall_correctness === "patch is incorrect"`.
+ *    {@link mergeReviewResults} sets the merged value to "patch is incorrect"
+ *    if EITHER reviewer flagged it, so "patch is correct" here means BOTH
+ *    reviewers signed off — the only stop condition.
  *
- * @param review  - Parsed ReviewResult, or null if parsing failed.
+ * @param review  - Parsed (merged) ReviewResult, or null if parsing failed.
  * @param rawText - The raw reviewer response text.
  */
 export function hasActionableFindings(
   review: ReviewResult | null,
   rawText: string,
 ): boolean {
-  if (review !== null && review.findings.length > 0) {
-    return true;
+  if (review === null) {
+    return rawText.trim().length > 0;
   }
-  if (review === null && rawText.trim().length > 0) {
-    return true;
-  }
-  return false;
+  return review.overall_correctness === "patch is incorrect";
 }

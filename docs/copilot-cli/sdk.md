@@ -86,8 +86,8 @@ new CopilotClient(options?: CopilotClientOptions)
 - `useStdio?: boolean` - Use stdio transport instead of TCP (default: true)
 - `logLevel?: string` - Log level (default: "info")
 - `autoStart?: boolean` - Auto-start server (default: true)
-- `githubToken?: string` - GitHub token for authentication. When provided, takes priority over other auth methods.
-- `useLoggedInUser?: boolean` - Whether to use logged-in user for authentication (default: true, but false when `githubToken` is provided). Cannot be used with `cliUrl`.
+- `gitHubToken?: string` - GitHub token for authentication. When provided, takes priority over other auth methods.
+- `useLoggedInUser?: boolean` - Whether to use logged-in user for authentication (default: true, but false when `gitHubToken` is provided). Cannot be used with `cliUrl`.
 - `telemetry?: TelemetryConfig` - OpenTelemetry configuration for the CLI process. Providing this object enables telemetry — no separate flag needed. See [Telemetry](#telemetry) below.
 - `onGetTraceContext?: TraceContextProvider` - Advanced: callback for linking your application's own OpenTelemetry spans into the same distributed trace as the CLI's spans. Not needed for normal telemetry collection. See [Telemetry](#telemetry) below.
 
@@ -119,6 +119,7 @@ Create a new conversation session.
 - `infiniteSessions?: InfiniteSessionConfig` - Configure automatic context compaction (see below)
 - `provider?: ProviderConfig` - Custom API provider configuration (BYOK - Bring Your Own Key). See [Custom Providers](#custom-providers) section.
 - `onPermissionRequest: PermissionHandler` - **Required.** Handler called before each tool execution to approve or deny it. Use `approveAll` to allow everything, or provide a custom function for fine-grained control. See [Permission Handling](#permission-handling) section.
+- `gitHubToken?: string` - Per-session GitHub token for authentication. This is the supported token option when connecting through an existing `cliUrl` server.
 - `onUserInputRequest?: UserInputHandler` - Handler for user input requests from the agent. Enables the `ask_user` tool. See [User Input Requests](#user-input-requests) section.
 - `onElicitationRequest?: ElicitationHandler` - Handler for elicitation requests dispatched by the server. Enables this client to present form-based UI dialogs on behalf of the agent or other session participants. See [Elicitation Requests](#elicitation-requests) section.
 - `hooks?: SessionHooks` - Hook handlers for session lifecycle events. See [Session Hooks](#session-hooks) section.

@@ -12,6 +12,7 @@ import {
   shouldOverrideCopilotCliPath,
   discoverCopilotBinary,
   applyContainerEnvDefaults,
+  normalizeExternalCopilotOptions,
   type CopilotHILSessionSurface,
 } from "./executor.ts";
 import type { SavedMessage } from "../types.ts";
@@ -853,6 +854,42 @@ describe("watchCopilotSessionForElicitation", () => {
 
     unsubHIL();
     unsubElicitation();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Copilot SDK 0.3 external-server auth option normalization
+// ---------------------------------------------------------------------------
+
+describe("normalizeExternalCopilotOptions", () => {
+  test("moves client-level GitHub token to the session for cliUrl clients", () => {
+    const result = normalizeExternalCopilotOptions({
+      gitHubToken: "client-token",
+      logLevel: "error",
+    });
+
+    expect(result).toEqual({
+      clientOptions: { logLevel: "error" },
+      sessionGitHubToken: "client-token",
+    });
+  });
+
+  test("keeps an explicit session GitHub token when both levels are set", () => {
+    const result = normalizeExternalCopilotOptions(
+      { gitHubToken: "client-token" },
+      "session-token",
+    );
+
+    expect(result).toEqual({
+      clientOptions: {},
+      sessionGitHubToken: "session-token",
+    });
+  });
+
+  test("rejects useLoggedInUser because external Copilot servers own auth", () => {
+    expect(() =>
+      normalizeExternalCopilotOptions({ useLoggedInUser: false }),
+    ).toThrow("useLoggedInUser");
   });
 });
 

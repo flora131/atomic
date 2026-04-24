@@ -1214,6 +1214,48 @@ export function mergeExcludedTools(
   return merged;
 }
 
+type ExternalCopilotClientOptions = Omit<
+  StageClientOptions<"copilot">,
+  "gitHubToken" | "useLoggedInUser"
+>;
+
+interface ExternalCopilotOptions {
+  clientOptions: ExternalCopilotClientOptions;
+  sessionGitHubToken?: string;
+}
+
+/**
+ * Copilot SDK 0.3.0 rejects client-level auth options when connecting to an
+ * existing `cliUrl`. Visible stages use an already-running TUI server, so move
+ * token auth to the session-level option that 0.3.0 introduced for this case.
+ */
+export function normalizeExternalCopilotOptions(
+  clientOptions: StageClientOptions<"copilot">,
+  sessionGitHubToken?: string,
+): ExternalCopilotOptions {
+  const {
+    gitHubToken: clientGitHubToken,
+    useLoggedInUser,
+    ...externalClientOptions
+  } = clientOptions;
+
+  if (useLoggedInUser !== undefined) {
+    throw new Error(
+      "Copilot client option `useLoggedInUser` cannot be used for visible stages because they connect to an existing Copilot CLI server. Configure authentication on the server process instead.",
+    );
+  }
+
+  const normalized: ExternalCopilotOptions = {
+    clientOptions: externalClientOptions,
+  };
+  if (sessionGitHubToken !== undefined) {
+    normalized.sessionGitHubToken = sessionGitHubToken;
+  } else if (clientGitHubToken !== undefined) {
+    normalized.sessionGitHubToken = clientGitHubToken;
+  }
+  return normalized;
+}
+
 /**
  * Create the provider-specific client and session for a stage.
  * Called by the session runner after server readiness is confirmed.
@@ -1257,12 +1299,23 @@ async function initProviderClientAndSession<A extends AgentType>(
       // when the caller didn't supply their own env keeps the
       // SQLite `ExperimentalWarning` from leaking through the SDK's
       // `[CLI subprocess]` stderr forwarder.
-      const client = headless
-        ? new CopilotClient({
-            env: copilotSubprocessEnv(),
-            ...copilotClientOpts,
-          })
-        : new CopilotClient({ ...copilotClientOpts, cliUrl: serverUrl });
+      let externalCopilotOptions: ExternalCopilotOptions | undefined;
+      let client: InstanceType<typeof CopilotClient>;
+      if (headless) {
+        client = new CopilotClient({
+          env: copilotSubprocessEnv(),
+          ...copilotClientOpts,
+        });
+      } else {
+        externalCopilotOptions = normalizeExternalCopilotOptions(
+          copilotClientOpts,
+          copilotSessionOpts.gitHubToken,
+        );
+        client = new CopilotClient({
+          ...externalCopilotOptions.clientOptions,
+          cliUrl: serverUrl,
+        });
+      }
       await client.start();
       // In headless stages, add `ask_user` to the session's excludedTools so
       // the agent cannot call the interactive question tool — there is no
@@ -1270,6 +1323,9 @@ async function initProviderClientAndSession<A extends AgentType>(
       const sessionConfig = {
         onPermissionRequest: approveAll,
         ...copilotSessionOpts,
+        ...(externalCopilotOptions?.sessionGitHubToken !== undefined
+          ? { gitHubToken: externalCopilotOptions.sessionGitHubToken }
+          : {}),
         ...(headless
           ? {
               excludedTools: mergeExcludedTools(

@@ -4,14 +4,14 @@ This guide covers the basics of creating workflows with the `defineWorkflow().ru
 
 ## Composition root
 
-A workflow's composition root is the TypeScript file a user runs via `bun`. The SDK ships **one** factory — `createWorkflowCli` — that accepts a single workflow, an array, or a `Registry`. The same shape scales from toy scripts to multi-agent suites without pattern changes, and every cli ships with `-n/--name` + `-a/--agent` flags, the interactive picker, the `--<inputName>` union across registered workflows, and `-d/--detach`.
+A workflow's composition root is the TypeScript file a user runs via `bun`. The SDK ships **one** factory — `createWorkflowCli` — that accepts a single workflow, an array, or a `Registry`. The same shape scales from toy scripts to multi-agent suites without pattern changes, and every cli ships with `-n/--name` + `-a/--agent` flags, the interactive picker, the `--<inputName>` union across registered workflows, and `-d/--detach`. Direct runs require both `-n` and `-a`; the only no-`-n` path is the TTY picker (`-a <agent>` with no name).
 
 ### The three input shapes
 
 ```ts
 import { createWorkflowCli, createRegistry } from "@bastani/atomic/workflows";
 
-// Single workflow — pass it directly. `-a` defaults to the lone agent.
+// Single workflow — pass it directly. Direct CLI runs still use -n + -a.
 await createWorkflowCli(workflow).run();
 
 // Multiple workflows — pass an array.
@@ -50,11 +50,11 @@ await cli.run({
 Run it:
 
 ```bash
-bun run src/cli.ts --prompt "your task"                # single workflow
-bun run src/cli.ts --field=value
-bun run src/cli.ts -n deploy -a claude "your task"     # multi-workflow
-bun run src/cli.ts -a claude                           # picker (TTY)
-bun run src/cli.ts -d "your task"                      # detached
+bun run src/cli.ts -n deploy -a claude --prompt "your task"
+bun run src/cli.ts -n deploy -a claude --field=value
+bun run src/cli.ts -n deploy -a claude "your task"
+bun run src/cli.ts -a claude                           # picker (TTY; no -n)
+bun run src/cli.ts -n deploy -a claude -d "your task"  # detached
 ```
 
 For embedding under a parent CLI, use the Commander adapter:

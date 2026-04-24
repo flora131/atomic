@@ -131,8 +131,8 @@ bunx tsc --noEmit
 **5. Run**:
 
 ```bash
-bun run src/claude-worker.ts --prompt "<test task>"                  # attached
-bun run src/claude-worker.ts -d --prompt "<test task>"               # detached (background)
+bun run src/claude-worker.ts -n <workflow-name> -a claude --prompt "<test task>"       # attached
+bun run src/claude-worker.ts -n <workflow-name> -a claude -d --prompt "<test task>"    # detached (background)
 ```
 
 **6. Monitor and manage** (the worker CLI ships these natively — `createWorkflowCli` auto-registers `session` and `status` subcommands by default):
@@ -341,20 +341,19 @@ Two invocation paths:
 **User's own app** — one file, always the cli:
 
 ```bash
-# Single workflow — `-a` is optional because there's only one agent.
-bun run src/cli.ts --<field>=<value>
-bun run src/cli.ts "<prompt>"
-
-# Multiple workflows — `-n` names the workflow, `-a` names the agent.
+# Direct runs always name the workflow and agent, even when the cli was
+# built from a single workflow. Omit `-n` only for the interactive picker.
 bun run src/cli.ts -n <name> -a <agent> --<field>=<value>
+bun run src/cli.ts -n <name> -a <agent> "<prompt>"
 
 # Picker — `-a` alone in a TTY shows an interactive workflow picker.
 bun run src/cli.ts -a <agent>
 ```
 
-No separate single-workflow vs multi-workflow shape. `createWorkflowCli`
-handles both because it accepts a lone workflow, an array, or a registry
-— the CLI surface scales without the developer changing patterns.
+No separate single-workflow vs multi-workflow invocation shape.
+`createWorkflowCli` handles both because it accepts a lone workflow, an
+array, or a registry — the direct-run CLI surface stays the same and
+requires `-n/--name` + `-a/--agent`.
 
 For a `list` subcommand (discover workflows), attach it to
 `toCommand(cli)` the same way `atomic workflow list` is wired up
@@ -395,7 +394,7 @@ Surface | Command | When
 ---|---|---
 Named, with prompt | `… -n hello -a claude "fix the bug"` | Requires workflow to declare a `prompt` input
 Named, structured | `… -n gen-spec -a claude --research_doc=notes.md` | Structured inputs via `--<field>` flags
-Interactive picker | `atomic workflow -a claude` | Discovery — fuzzy list + form (cli only; single-workflow workers have one workflow by construction)
+Interactive picker | `atomic workflow -a claude` | Discovery — fuzzy list + form; this is the intentional no-`-n` path
 List (atomic builtins) | `atomic workflow list`, `atomic workflow list -a <agent>` | Browse registered builtins, optionally filtered
 List (user cli) | Attach a `list` subcommand to `toCommand(cli)` (mirror `src/cli.ts`) | No built-in `--list` flag
 List (single-workflow) | Not applicable — the file *is* the workflow
@@ -588,7 +587,7 @@ caveats.
   `claude/index.ts`, `copilot/index.ts`, `opencode/index.ts`, and one
   `<agent>-worker.ts` entrypoint per agent — each a three-line
   `createWorkflowCli(workflow).run()` file. Run with
-  `bun run examples/<name>/<agent>-worker.ts [--field=value | "<prompt>"]`.
+  `bun run examples/<name>/<agent>-worker.ts -n <workflow-name> -a <agent> [--field=value | "<prompt>"]`.
   Covers: `hello-world`, `parallel-hello-world`, `headless-test`,
   `hil-favorite-color`, `hil-favorite-color-headless`,
   `structured-output-demo`, `reviewer-tool-test` (copilot only).
@@ -602,16 +601,16 @@ The composition root is always three lines (see §"Scaffold a new workflow from 
 
 ```bash
 bun typecheck
-bun run src/<agent>-worker.ts --prompt "<test task>"
+bun run src/<agent>-worker.ts -n <workflow-name> -a <agent> --prompt "<test task>"
 ```
 
 Other invocation shapes you may want to demonstrate to the user once the workflow runs:
 
 ```bash
-bun run src/<agent>-worker.ts --<field>=<value>      # structured inputs
-bun run src/cli.ts -n <name> -a <agent> "<prompt>"   # multi-workflow
-bun run src/cli.ts -a <agent>                        # interactive picker (TTY)
-bun run src/<agent>-worker.ts -d "<prompt>"          # detached (background)
+bun run src/<agent>-worker.ts -n <name> -a <agent> --<field>=<value>  # structured inputs
+bun run src/cli.ts -n <name> -a <agent> "<prompt>"                   # multi-workflow
+bun run src/cli.ts -a <agent>                                        # interactive picker (TTY)
+bun run src/<agent>-worker.ts -n <name> -a <agent> -d "<prompt>"      # detached (background)
 ```
 
 For the atomic builtins (`ralph`, `deep-research-codebase`, `open-claude-design`), use `atomic workflow -n <name> -a <agent> "<prompt>"` — see `references/running-workflows.md` for monitoring and teardown.
@@ -624,9 +623,9 @@ to invoke it correctly. That's a different playbook from authoring.
 
 **Read `references/running-workflows.md`.** It covers:
 
-- Two invocation paths: user's own app (`bun run src/worker.ts`) vs.
-  atomic builtins (`atomic workflow -n …`).
-- Why you don't usually need `-a` or `-d` (env-driven auto-detach).
+- Three invocation paths: user's own app (`bun run src/worker.ts -n … -a …`),
+  repo examples, and atomic builtins (`atomic workflow -n … -a …`).
+- Why direct runs require `-n` + `-a`, and when to add `-d`.
 - Why you must list workflows first.
 - How to handle missing workflows (offer to author, not fabricate).
 - Using `atomic workflow inputs <name> -a <agent>` to discover the schema

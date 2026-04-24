@@ -314,4 +314,39 @@ describe("workflowInputsCommand", () => {
       cap.restore();
     }
   });
+
+  test("default deps resolve against the builtin registry on success", async () => {
+    // Omit the deps argument so the module-level `defaultDeps` runs —
+    // this exercises `registryFindWorkflow` + `registryLoadWorkflow`.
+    const cap = captureOutput();
+    try {
+      const code = await workflowInputsCommand({
+        name: "ralph",
+        agent: "claude",
+        format: "json",
+      });
+      expect(code).toBe(0);
+      const parsed = JSON.parse(cap.stdout());
+      expect(parsed.workflow).toBe("ralph");
+      expect(parsed.agent).toBe("claude");
+    } finally {
+      cap.restore();
+    }
+  });
+
+  test("default deps report 'not found' for an unknown workflow", async () => {
+    const cap = captureOutput();
+    try {
+      const code = await workflowInputsCommand({
+        name: "definitely-not-a-real-workflow",
+        agent: "claude",
+        format: "json",
+      });
+      expect(code).toBe(1);
+      const parsed = JSON.parse(cap.stdout());
+      expect(parsed.error).toContain("not found");
+    } finally {
+      cap.restore();
+    }
+  });
 });

@@ -111,7 +111,7 @@ afterAll(() => {
   mock.module("@anthropic-ai/claude-agent-sdk", () => ({ ...actualClaudeSdk }));
 });
 
-const { checkAgentAuth } = await import("./auth.ts");
+const { checkAgentAuth, printAuthError } = await import("./auth.ts");
 
 beforeEach(() => {
   copilotStart.mockClear();
@@ -224,5 +224,67 @@ describe("checkAgentAuth(opencode)", () => {
     // Confirm neither SDK fake was touched.
     expect(copilotStart).not.toHaveBeenCalled();
     expect(claudeInit).not.toHaveBeenCalled();
+  });
+});
+
+describe("printAuthError", () => {
+  function captureStderr(): {
+    output: () => string;
+    restore: () => void;
+  } {
+    const chunks: string[] = [];
+    const orig = process.stderr.write;
+    process.stderr.write = ((c: string | Uint8Array) => {
+      chunks.push(typeof c === "string" ? c : new TextDecoder().decode(c));
+      return true;
+    }) as typeof process.stderr.write;
+    const origErr = console.error;
+    console.error = (...args: unknown[]) => {
+      chunks.push(args.map((a) => String(a)).join(" ") + "\n");
+    };
+    return {
+      output: () => chunks.join(""),
+      restore: () => {
+        process.stderr.write = orig;
+        console.error = origErr;
+      },
+    };
+  }
+
+  test("prints the Claude login hint with optional detail line", () => {
+    const cap = captureStderr();
+    try {
+      printAuthError("claude", { loggedIn: false, detail: "token expired" });
+      const out = cap.output();
+      expect(out).toContain("Not logged in to Claude Code");
+      expect(out).toContain("token expired");
+      expect(out).toContain("/login");
+    } finally {
+      cap.restore();
+    }
+  });
+
+  test("omits the detail line when no detail is given", () => {
+    const cap = captureStderr();
+    try {
+      printAuthError("copilot", { loggedIn: false });
+      const out = cap.output();
+      expect(out).toContain("Not logged in to GitHub Copilot CLI");
+      expect(out).toContain("`/login`");
+    } finally {
+      cap.restore();
+    }
+  });
+
+  test("prints the OpenCode login hint", () => {
+    const cap = captureStderr();
+    try {
+      printAuthError("opencode", { loggedIn: false });
+      const out = cap.output();
+      expect(out).toContain("Not logged in to OpenCode");
+      expect(out).toContain("opencode auth login");
+    } finally {
+      cap.restore();
+    }
   });
 });

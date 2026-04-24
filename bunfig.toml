@@ -77,6 +77,10 @@ coveragePathIgnorePatterns = [
   "src/sdk/components/orchestrator-panel.tsx",
   "src/sdk/components/compact-switcher.tsx",
   "src/sdk/components/session-graph-panel.tsx",
+  # Commander subcommand builder — action handlers call process.exit and
+  # dynamically import subprocess orchestration modules. Command shape is
+  # verified in tests/sdk/management-commands.test.ts.
+  "src/sdk/management-commands.ts",
   # Builtin workflow implementations (SDK-session-dependent orchestration + subprocess helpers)
   "src/sdk/workflows/builtin/**",
   # Workflow runtime I/O (subprocess/SDK/filesystem dependent)

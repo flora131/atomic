@@ -60,7 +60,7 @@
     "build": "rm -rf dist && bunx tsc --project tsconfig.build.json",
     "prepack": "bun run build",
     "test": "bun test --parallel ./src ./tests",
-    "test:coverage": "bun test --parallel --coverage ./src ./tests",
+    "test:coverage": "bun test --coverage ./src ./tests",
     "typecheck": "bunx tsc --noEmit && bunx tsc -p tests --noEmit && bunx tsc -p examples --noEmit",
     "lint": "oxlint --config=oxlint.json src",
     "lint:fix": "oxlint --config=oxlint.json --fix src",

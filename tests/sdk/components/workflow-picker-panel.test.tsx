@@ -10,14 +10,13 @@ import {
   buildEntries,
   buildPickerTheme,
   buildRows,
-  deduplicateByName,
   fuzzyMatch,
   isFieldValid,
   type PickerTheme,
   type WorkflowPickerResult,
 } from "../../../src/sdk/components/workflow-picker-panel.tsx";
-import type { WorkflowWithMetadata } from "../../../src/sdk/runtime/discovery.ts";
-import type { WorkflowInput } from "../../../src/sdk/types.ts";
+import type { WorkflowDefinition, WorkflowInput } from "../../../src/sdk/types.ts";
+import { createRegistry } from "../../../src/sdk/registry.ts";
 
 // ─── Keyboard input helpers ───────────────────────
 //
@@ -55,18 +54,18 @@ async function press(
 // ─── Fixtures ─────────────────────────────────────
 
 function makeWorkflow(
-  overrides: Partial<WorkflowWithMetadata> = {},
-): WorkflowWithMetadata {
+  overrides: Partial<Omit<WorkflowDefinition, "__brand" | "run" | "minSDKVersion">> = {},
+): WorkflowDefinition {
   return {
+    __brand: "WorkflowDefinition" as const,
     name: "wf",
     agent: "claude",
-    path: "/tmp/wf",
-    source: "local",
     description: "",
     inputs: [],
-    status: { kind: "ok" },
+    minSDKVersion: null,
+    run: async () => {},
     ...overrides,
-  };
+  } as WorkflowDefinition;
 }
 
 const TEST_DARK_BASE = {
@@ -101,11 +100,11 @@ const TEST_LIGHT_BASE = {
 
 const TEST_THEME: PickerTheme = buildPickerTheme(TEST_DARK_BASE, true);
 
-// A catalog with one workflow from each source plus a free-form one.
-const WORKFLOWS: WorkflowWithMetadata[] = [
+// A catalog with workflows across agents.
+const WORKFLOWS: WorkflowDefinition[] = [
   makeWorkflow({
     name: "ralph",
-    source: "local",
+    agent: "claude",
     description: "run ralph loop",
     inputs: [
       {
@@ -126,16 +125,16 @@ const WORKFLOWS: WorkflowWithMetadata[] = [
     ],
   }),
   makeWorkflow({
-    name: "deep-research",
-    source: "global",
+    name: "z-deep-research",
+    agent: "claude",
     description: "deep research",
     inputs: [
       { name: "question", type: "string", required: true, placeholder: "ask" },
     ],
   }),
   makeWorkflow({
-    name: "freeform",
-    source: "builtin",
+    name: "z-freeform",
+    agent: "claude",
     description: "freeform prompt",
     inputs: [],
   }),
@@ -152,7 +151,7 @@ afterEach(() => {
 
 async function renderPicker(
   opts: {
-    workflows?: WorkflowWithMetadata[];
+    workflows?: WorkflowDefinition[];
     onSubmit?: (r: WorkflowPickerResult) => void;
     onCancel?: () => void;
     width?: number;
@@ -250,18 +249,23 @@ describe("isFieldValid", () => {
 });
 
 describe("buildEntries", () => {
-  test("empty query groups workflows by source in canonical order", () => {
-    const entries = buildEntries("", WORKFLOWS);
+  test("empty query groups workflows by agent in canonical order", () => {
+    const workflows = [
+      makeWorkflow({ name: "wf-a", agent: "claude" }),
+      makeWorkflow({ name: "wf-b", agent: "copilot" }),
+      makeWorkflow({ name: "wf-c", agent: "opencode" }),
+    ];
+    const entries = buildEntries("", workflows);
     const sections = entries.map((e) => e.section);
-    // local should come before global which should come before builtin.
-    expect(sections).toEqual(["local", "global", "builtin"]);
+    // claude before copilot before opencode.
+    expect(sections).toEqual(["claude", "copilot", "opencode"]);
   });
 
-  test("empty query sorts alphabetically within a source", () => {
+  test("empty query sorts alphabetically within an agent", () => {
     const workflows = [
-      makeWorkflow({ name: "zebra", source: "local" }),
-      makeWorkflow({ name: "alpha", source: "local" }),
-      makeWorkflow({ name: "mango", source: "local" }),
+      makeWorkflow({ name: "zebra", agent: "claude" }),
+      makeWorkflow({ name: "alpha", agent: "claude" }),
+      makeWorkflow({ name: "mango", agent: "claude" }),
     ];
     const entries = buildEntries("", workflows);
     expect(entries.map((e) => e.workflow.name)).toEqual([
@@ -271,7 +275,7 @@ describe("buildEntries", () => {
     ]);
   });
 
-  test("non-empty query sorts by score regardless of source", () => {
+  test("non-empty query sorts by score regardless of agent", () => {
     const entries = buildEntries("ralph", WORKFLOWS);
     expect(entries.length).toBeGreaterThan(0);
     // "ralph" should match the ralph workflow first.
@@ -306,53 +310,21 @@ describe("buildEntries", () => {
   });
 });
 
-describe("deduplicateByName", () => {
-  test("keeps higher-precedence source when names collide (builtin > local > global)", () => {
-    const workflows = [
-      makeWorkflow({ name: "shared", source: "global" }),
-      makeWorkflow({ name: "shared", source: "local" }),
-    ];
-    const result = deduplicateByName(workflows);
-    expect(result).toHaveLength(1);
-    expect(result[0]!.source).toBe("local");
-  });
-
-  test("builtin wins over both local and global", () => {
-    const workflows = [
-      makeWorkflow({ name: "shared", source: "local" }),
-      makeWorkflow({ name: "shared", source: "builtin" }),
-      makeWorkflow({ name: "shared", source: "global" }),
-    ];
-    const result = deduplicateByName(workflows);
-    expect(result).toHaveLength(1);
-    expect(result[0]!.source).toBe("builtin");
-  });
-
-  test("distinct names are all preserved", () => {
-    const workflows = [
-      makeWorkflow({ name: "a", source: "local" }),
-      makeWorkflow({ name: "b", source: "global" }),
-      makeWorkflow({ name: "c", source: "builtin" }),
-    ];
-    const result = deduplicateByName(workflows);
-    expect(result).toHaveLength(3);
-  });
-
-  test("empty input returns empty output", () => {
-    expect(deduplicateByName([])).toEqual([]);
-  });
-});
-
 describe("buildRows", () => {
-  test("empty query inserts section headers for each source transition", () => {
-    const entries = buildEntries("", WORKFLOWS);
+  test("empty query inserts section headers for each agent transition", () => {
+    const workflows = [
+      makeWorkflow({ name: "wf-a", agent: "claude" }),
+      makeWorkflow({ name: "wf-b", agent: "copilot" }),
+      makeWorkflow({ name: "wf-c", agent: "opencode" }),
+    ];
+    const entries = buildEntries("", workflows);
     const rows = buildRows(entries, "");
     const sectionRows = rows.filter((r) => r.kind === "section");
     expect(sectionRows).toHaveLength(3);
-    expect(sectionRows.map((r) => r.source)).toEqual([
-      "local",
-      "global",
-      "builtin",
+    expect(sectionRows.map((r) => r.kind === "section" && r.agent)).toEqual([
+      "claude",
+      "copilot",
+      "opencode",
     ]);
   });
 
@@ -407,7 +379,7 @@ describe("WorkflowPicker rendering", () => {
 
   test("header shows singular when exactly one workflow", async () => {
     const setup = await renderPicker({
-      workflows: [makeWorkflow({ name: "solo", source: "local" })],
+      workflows: [makeWorkflow({ name: "solo", agent: "claude" })],
     });
     const frame = setup.captureCharFrame();
     expect(frame).toContain("1 workflow");
@@ -424,23 +396,21 @@ describe("WorkflowPicker rendering", () => {
     const setup = await renderPicker();
     const frame = setup.captureCharFrame();
     expect(frame).toContain("ralph");
-    expect(frame).toContain("deep-research");
-    expect(frame).toContain("freeform");
+    expect(frame).toContain("z-deep-research");
+    expect(frame).toContain("z-freeform");
   });
 
-  test("renders source section labels", async () => {
+  test("renders agent section label", async () => {
     const setup = await renderPicker();
     const frame = setup.captureCharFrame();
-    expect(frame).toContain("local");
-    expect(frame).toContain("global");
-    expect(frame).toContain("builtin");
+    expect(frame).toContain("claude");
   });
 
   test("renders preview for the focused workflow", async () => {
     const setup = await renderPicker();
     const frame = setup.captureCharFrame();
-    // Focus starts on the first entry which (alphabetically within local)
-    // is "ralph" — its description should appear in the preview pane.
+    // Focus starts on the first entry which (alphabetically within claude)
+    // is "ralph" — its description and arguments should appear in the preview pane.
     expect(frame).toContain("run ralph loop");
     expect(frame).toContain("ARGUMENTS");
   });
@@ -462,8 +432,8 @@ describe("WorkflowPicker rendering", () => {
   test("empty workflow list renders the empty preview hint", async () => {
     const setup = await renderPicker({ workflows: [] });
     const frame = setup.captureCharFrame();
-    // EmptyPreview shows the `.atomic/workflows/...` hint.
-    expect(frame).toContain(".atomic/workflows");
+    // EmptyPreview shows the new worker.ts registration hint.
+    expect(frame).toContain("createRegistry");
   });
 });
 
@@ -495,7 +465,7 @@ describe("WorkflowPicker PICK keyboard", () => {
   test("arrow down moves focus to next entry", async () => {
     const setup = await renderPicker();
     await press(setup, (i) => i.pressArrow("down"));
-    // The focused preview switches from ralph to deep-research.
+    // The focused preview switches from ralph to z-deep-research.
     const frame = setup.captureCharFrame();
     expect(frame).toContain("deep research");
   });
@@ -531,7 +501,7 @@ describe("WorkflowPicker PICK keyboard", () => {
       await press(setup, (input) => input.pressArrow("down"));
     }
     const frame = setup.captureCharFrame();
-    // After over-scrolling, we should sit on the last workflow (freeform).
+    // After over-scrolling, we should sit on the last workflow (z-freeform).
     expect(frame).toContain("freeform prompt");
   });
 
@@ -581,116 +551,8 @@ describe("WorkflowPicker PICK keyboard", () => {
     expect(frame).toContain("PICK");
   });
 
-  test("enter on an incompatible workflow does not transition", async () => {
-    // Non-ok entries stay visible so the user can *see* the failure —
-    // but the picker must refuse to advance into the prompt phase,
-    // because there's no runnable definition on the other side.
-    const workflows = [
-      makeWorkflow({
-        name: "needs-update",
-        source: "local",
-        status: {
-          kind: "incompatible",
-          requiredVersion: "99.0.0",
-          currentVersion: "0.5.0",
-          message: "needs newer SDK",
-        },
-      }),
-    ];
-    let submitted = false;
-    const setup = await renderPicker({
-      workflows,
-      onSubmit: () => {
-        submitted = true;
-      },
-    });
-    await press(setup, (i) => i.pressEnter());
-    const frame = setup.captureCharFrame();
-    // Still on the picker — no PROMPT transition, no submission.
-    expect(frame).toContain("PICK");
-    expect(frame).not.toContain("PROMPT");
-    expect(submitted).toBe(false);
-  });
-
-  test("enter on a broken workflow does not transition", async () => {
-    const workflows = [
-      makeWorkflow({
-        name: "broken-wf",
-        source: "local",
-        status: { kind: "error", stage: "load", message: "syntax error" },
-      }),
-    ];
-    let submitted = false;
-    const setup = await renderPicker({
-      workflows,
-      onSubmit: () => {
-        submitted = true;
-      },
-    });
-    await press(setup, (i) => i.pressEnter());
-    const frame = setup.captureCharFrame();
-    expect(frame).toContain("PICK");
-    expect(submitted).toBe(false);
-  });
 });
 
-describe("WorkflowPicker status rendering", () => {
-  test("incompatible entry shows a warning glyph and 'update required' preview", async () => {
-    const workflows = [
-      makeWorkflow({
-        name: "future-wf",
-        source: "local",
-        status: {
-          kind: "incompatible",
-          requiredVersion: "99.0.0",
-          currentVersion: "0.5.21-0",
-          message: "requires 99.0.0",
-        },
-      }),
-    ];
-    const setup = await renderPicker({ workflows });
-    const frame = setup.captureCharFrame();
-    // Warning glyph gutter + actionable preview copy.
-    expect(frame).toContain("⚠");
-    expect(frame).toContain("update required");
-    expect(frame).toContain("99.0.0");
-  });
-
-  test("broken entry shows an error glyph and 'failed to load' preview", async () => {
-    const workflows = [
-      makeWorkflow({
-        name: "broken-wf",
-        source: "local",
-        status: {
-          kind: "error",
-          stage: "load",
-          message: "unique-diagnostic-marker",
-        },
-      }),
-    ];
-    const setup = await renderPicker({ workflows });
-    const frame = setup.captureCharFrame();
-    expect(frame).toContain("✗");
-    expect(frame).toContain("failed to load");
-    // The underlying loader message is surfaced in the preview so
-    // users don't have to guess what went wrong.
-    expect(frame).toContain("unique-diagnostic-marker");
-  });
-
-  test("status hint dims the select label to 'unavailable' on non-ok rows", async () => {
-    const workflows = [
-      makeWorkflow({
-        name: "broken-only",
-        source: "local",
-        status: { kind: "error", stage: "load", message: "oops" },
-      }),
-    ];
-    const setup = await renderPicker({ workflows });
-    const frame = setup.captureCharFrame();
-    expect(frame).toContain("unavailable");
-    expect(frame).not.toContain("↵ select");
-  });
-});
 
 // ─── Keyboard: PROMPT phase ───────────────────────
 
@@ -741,7 +603,7 @@ describe("WorkflowPicker PROMPT keyboard", () => {
     const workflows = [
       makeWorkflow({
         name: "one-field",
-        source: "local",
+        agent: "claude",
         inputs: [{ name: "only", type: "string", required: true }],
       }),
     ];
@@ -801,7 +663,7 @@ describe("WorkflowPicker PROMPT keyboard", () => {
     const workflows = [
       makeWorkflow({
         name: "two-strings",
-        source: "local",
+        agent: "claude",
         inputs: [
           { name: "a", type: "string", required: true },
           { name: "b", type: "string", required: true },
@@ -838,7 +700,7 @@ describe("WorkflowPicker PROMPT keyboard", () => {
     const workflows = [
       makeWorkflow({
         name: "empty-enum",
-        source: "local",
+        agent: "claude",
         inputs: [
           { name: "choice", type: "enum", required: false, values: [] },
         ],
@@ -873,9 +735,8 @@ describe("WorkflowPicker PROMPT keyboard", () => {
 
   test("free-form workflow seeds a DEFAULT prompt field", async () => {
     const setup = await renderPicker();
-    // Move down past ralph (local) and deep-research (global) to freeform
-    // (the builtin entry).
-    for (let i = 0; i < 3; i++) {
+    // Move down past ralph and z-deep-research to z-freeform.
+    for (let i = 0; i < 2; i++) {
       await press(setup, (input) => input.pressArrow("down"));
     }
     await press(setup, (i) => i.pressEnter());
@@ -888,8 +749,8 @@ describe("WorkflowPicker PROMPT keyboard", () => {
 
   test("ctrl+d on free-form workflow with filled prompt opens confirm modal", async () => {
     const setup = await renderPicker();
-    // Navigate to the freeform workflow (inputs: []).
-    for (let i = 0; i < 3; i++) {
+    // Navigate to the z-freeform workflow (inputs: []).
+    for (let i = 0; i < 2; i++) {
       await press(setup, (input) => input.pressArrow("down"));
     }
     await press(setup, (i) => i.pressEnter());
@@ -913,7 +774,7 @@ describe("WorkflowPicker PROMPT keyboard", () => {
       { name: "e", type: "string", required: false },
     ];
     const workflows = [
-      makeWorkflow({ name: "many", source: "local", inputs: manyFields }),
+      makeWorkflow({ name: "many", agent: "claude", inputs: manyFields }),
     ];
     const setup = await renderAndEnterPrompt({ workflows, height: 15 });
     // Tab through fields — each should remain navigable without crash.
@@ -1022,10 +883,14 @@ describe("WorkflowPickerPanel class", () => {
     // mockInput events.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+    const registry = WORKFLOWS.reduce(
+      (r, wf) => r.register(wf),
+      createRegistry(),
+    );
     act(() => {
       panel = WorkflowPickerPanel.createWithRenderer(coreSetup!.renderer, {
         agent: "claude",
-        workflows: WORKFLOWS,
+        registry,
       });
     });
     return panel!;
@@ -1072,11 +937,11 @@ describe("WorkflowPickerPanel class", () => {
     panel = null;
   });
 
-  test("createWithRenderer with empty workflow list still mounts", async () => {
+  test("createWithRenderer with empty registry still mounts", async () => {
     coreSetup = await createTestRenderer({ width: 120, height: 40 });
     panel = WorkflowPickerPanel.createWithRenderer(coreSetup.renderer, {
       agent: "opencode",
-      workflows: [],
+      registry: createRegistry(),
     });
     expect(panel).toBeInstanceOf(WorkflowPickerPanel);
   });

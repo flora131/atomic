@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { defineWorkflow, WorkflowBuilder } from "./define-workflow.ts";
+import { defineWorkflow, WorkflowBuilder, RESERVED_INPUT_NAMES } from "./define-workflow.ts";
 import type { WorkflowInput } from "./types.ts";
 
 describe("defineWorkflow", () => {
@@ -39,6 +39,7 @@ describe("WorkflowBuilder.run()", () => {
 describe("WorkflowBuilder.compile()", () => {
   test("produces a WorkflowDefinition with correct brand", () => {
     const def = defineWorkflow({ name: "test" })
+      .for("copilot")
       .run(async () => {})
       .compile();
     expect(def.__brand).toBe("WorkflowDefinition");
@@ -46,6 +47,7 @@ describe("WorkflowBuilder.compile()", () => {
 
   test("defaults inputs to an empty array when none are declared", () => {
     const def = defineWorkflow({ name: "test" })
+      .for("copilot")
       .run(async () => {})
       .compile();
     expect(def.inputs).toEqual([]);
@@ -70,6 +72,7 @@ describe("WorkflowBuilder.compile()", () => {
         },
       ],
     })
+      .for("opencode")
       .run(async () => {})
       .compile();
     expect(def.inputs).toHaveLength(2);
@@ -83,6 +86,7 @@ describe("WorkflowBuilder.compile()", () => {
       name: "test",
       inputs: [{ name: "foo", type: "string" }],
     })
+      .for("claude")
       .run(async () => {})
       .compile();
     expect(() => {
@@ -96,6 +100,7 @@ describe("WorkflowBuilder.compile()", () => {
         name: "bad",
         inputs: [{ name: "mode", type: "enum" }],
       })
+        .for("copilot")
         .run(async () => {})
         .compile(),
     ).toThrow("declares no `values`");
@@ -114,6 +119,7 @@ describe("WorkflowBuilder.compile()", () => {
           },
         ],
       })
+        .for("copilot")
         .run(async () => {})
         .compile(),
     ).toThrow(/not one of its declared values/);
@@ -125,6 +131,7 @@ describe("WorkflowBuilder.compile()", () => {
         name: "bad",
         inputs: [{ name: "1bad", type: "string" }],
       })
+        .for("copilot")
         .run(async () => {})
         .compile(),
     ).toThrow(/invalid/);
@@ -139,21 +146,25 @@ describe("WorkflowBuilder.compile()", () => {
           { name: "foo", type: "string" },
         ],
       })
+        .for("copilot")
         .run(async () => {})
         .compile(),
     ).toThrow(/duplicate input name/);
   });
 
-  test("preserves name and description", () => {
+  test("preserves name, description, and agent", () => {
     const def = defineWorkflow({ name: "my-wf", description: "A description" })
+      .for("claude")
       .run(async () => {})
       .compile();
     expect(def.name).toBe("my-wf");
     expect(def.description).toBe("A description");
+    expect(def.agent).toBe("claude");
   });
 
   test("defaults description to empty string", () => {
     const def = defineWorkflow({ name: "test" })
+      .for("opencode")
       .run(async () => {})
       .compile();
     expect(def.description).toBe("");
@@ -161,22 +172,104 @@ describe("WorkflowBuilder.compile()", () => {
 
   test("stores the run function", () => {
     const fn = async () => {};
-    const def = defineWorkflow({ name: "test" }).run(fn).compile();
+    const def = defineWorkflow({ name: "test" }).for("copilot").run(fn).compile();
     expect(def.run).toBe(fn);
   });
 
   test("throws if no run callback was provided", () => {
-    const builder = defineWorkflow({ name: "test" });
+    const builder = defineWorkflow({ name: "test" }).for("copilot");
     expect(() => builder.compile()).toThrow("has no run callback");
+  });
+
+  test("throws if .for() was not called before compile()", () => {
+    const builder = defineWorkflow({ name: "test" }).run(async () => {});
+    expect(() => builder.compile()).toThrow("has no agent");
+  });
+});
+
+describe("RESERVED_INPUT_NAMES — reserved name validation", () => {
+  test("RESERVED_INPUT_NAMES is exported and contains expected names", () => {
+    expect(RESERVED_INPUT_NAMES).toContain("name");
+    expect(RESERVED_INPUT_NAMES).toContain("agent");
+    expect(RESERVED_INPUT_NAMES).toContain("detach");
+    expect(RESERVED_INPUT_NAMES).toContain("list");
+    expect(RESERVED_INPUT_NAMES).toContain("help");
+    expect(RESERVED_INPUT_NAMES).toContain("version");
+  });
+
+  // Each reserved name must be rejected individually.
+  for (const reserved of RESERVED_INPUT_NAMES) {
+    test(`rejects reserved input name "${reserved}"`, () => {
+      expect(() =>
+        defineWorkflow({
+          name: "bad",
+          inputs: [{ name: reserved, type: "string" }],
+        })
+          .for("copilot")
+          .run(async () => {})
+          .compile(),
+      ).toThrow(reserved);
+    });
+  }
+
+  test("error message lists all reserved names", () => {
+    let message = "";
+    try {
+      defineWorkflow({
+        name: "bad",
+        inputs: [{ name: "name", type: "string" }],
+      })
+        .for("copilot")
+        .run(async () => {})
+        .compile();
+    } catch (e) {
+      message = (e as Error).message;
+    }
+    for (const reserved of RESERVED_INPUT_NAMES) {
+      expect(message).toContain(reserved);
+    }
+  });
+
+  test("non-reserved input name passes validation", () => {
+    expect(() =>
+      defineWorkflow({
+        name: "ok",
+        inputs: [{ name: "topic", type: "string" }],
+      })
+        .for("copilot")
+        .run(async () => {})
+        .compile(),
+    ).not.toThrow();
+  });
+
+  test("non-reserved name that is a prefix of a reserved name passes", () => {
+    expect(() =>
+      defineWorkflow({
+        name: "ok",
+        inputs: [{ name: "named", type: "string" }],
+      })
+        .for("copilot")
+        .run(async () => {})
+        .compile(),
+    ).not.toThrow();
   });
 });
 
 describe("WorkflowBuilder.for()", () => {
-  test("returns the same builder instance (type-only narrowing)", () => {
+  test("returns a new builder with agent set", () => {
     const builder = defineWorkflow({ name: "test" });
-    const narrowed = builder.for<"copilot">();
-    // Same instance — .for() only changes the TypeScript type, not the value
-    expect(narrowed === (builder as unknown)).toBe(true);
+    const narrowed = builder.for("copilot");
+    // .for() returns a new builder instance
+    expect(narrowed).toBeInstanceOf(WorkflowBuilder);
+    expect(narrowed).not.toBe(builder as unknown);
+  });
+
+  test("stores agent on the compiled definition", () => {
+    const def = defineWorkflow({ name: "test" })
+      .for("copilot")
+      .run(async () => {})
+      .compile();
+    expect(def.agent).toBe("copilot");
   });
 
   test("chains with run and compile", () => {
@@ -184,7 +277,7 @@ describe("WorkflowBuilder.for()", () => {
       name: "test",
       inputs: [{ name: "greeting", type: "string" }],
     })
-      .for<"copilot">()
+      .for("copilot")
       .run(async () => {})
       .compile();
     expect(def.__brand).toBe("WorkflowDefinition");
@@ -205,7 +298,7 @@ describe("typed inputs (compile-time)", () => {
         { name: "style", type: "enum", values: ["formal", "casual"] },
       ],
     })
-      .for<"copilot">()
+      .for("copilot")
       .run(async (ctx) => {
         // Declared keys are valid
         const _g: string | undefined = ctx.inputs.greeting;
@@ -220,7 +313,7 @@ describe("typed inputs (compile-time)", () => {
 
   test("free-form workflows allow any key", () => {
     defineWorkflow({ name: "freeform-test" })
-      .for<"copilot">()
+      .for("copilot")
       .run(async (ctx) => {
         const _p: string | undefined = ctx.inputs.prompt;
         expect(true).toBe(true);

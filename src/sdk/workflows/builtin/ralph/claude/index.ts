@@ -85,7 +85,7 @@ export default defineWorkflow({
     },
   ],
 })
-  .for<"claude">()
+  .for("claude")
   .run(async (ctx) => {
     const prompt = ctx.inputs.prompt ?? "";
     const maxLoops = ctx.inputs.max_loops ?? DEFAULT_MAX_LOOPS;

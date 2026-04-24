@@ -99,7 +99,7 @@ export default defineWorkflow({
     },
   ],
 })
-  .for<"copilot">()
+  .for("copilot")
   .run(async (ctx) => {
     const userPromptText = ctx.inputs.prompt ?? "";
     const maxLoops = ctx.inputs.max_loops ?? DEFAULT_MAX_LOOPS;

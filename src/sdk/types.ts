@@ -412,7 +412,7 @@ export interface WorkflowOptions<
    *
    * When set, the CLI refuses to load the workflow on an older install
    * and surfaces an actionable "update required" entry in the picker
-   * and `atomic workflow -l` output instead of silently dropping it.
+   * and `atomic workflow list` output instead of silently dropping it.
    *
    * Leave unset (the default) to opt out entirely — the workflow will
    * be treated as compatible with every CLI version. Use this when you
@@ -425,6 +425,150 @@ export interface WorkflowOptions<
   minSDKVersion?: string;
 }
 
+// ─── Registry + Worker types ─────────────────────────────────────────────────
+
+/**
+ * Structural constraint for workflows accepted by `Registry.register()`.
+ *
+ * Uses `run: (...args: never[]) => Promise<void>` instead of the full
+ * `WorkflowDefinition<A, I>` constraint to avoid contravariance failures.
+ * A narrowly-typed `run(ctx: WorkflowContext<"claude">) => void` is not
+ * assignable to `run(ctx: WorkflowContext<AgentType>) => void` under
+ * `--strictFunctionTypes` (contravariant parameter position). Using
+ * `(...args: never[]) => Promise<void>` sidesteps this: any callable is
+ * assignable to a function that takes `never` args. Type narrowing on the
+ * accumulating `T` generic is still preserved via `W["agent"]`/`W["name"]`.
+ */
+export type RegistrableWorkflow = {
+  readonly __brand: "WorkflowDefinition";
+  readonly agent: AgentType;
+  readonly name: string;
+  readonly description: string;
+  readonly inputs: readonly WorkflowInput[];
+  readonly minSDKVersion: string | null;
+  readonly run: (...args: never[]) => Promise<void>;
+};
+
+/**
+ * Immutable, chainable registry of compiled workflow definitions.
+ *
+ * The generic parameter `T` accumulates the registered set as a
+ * `Record<"${agent}/${name}", WorkflowDefinition>` intersection, giving
+ * `get()` a typed return without casting.
+ */
+export type Registry<
+  T extends Record<string, WorkflowDefinition> = Record<string, WorkflowDefinition>,
+> = {
+  /**
+   * Register a workflow definition. Returns a new Registry with the
+   * definition added. Throws if the same `${agent}/${name}` key is
+   * already registered.
+   */
+  register<W extends RegistrableWorkflow>(
+    wf: W,
+  ): Registry<T & Record<`${W["agent"]}/${W["name"]}`, W>>;
+
+  /**
+   * Retrieve a registered definition by its composite key.
+   * Compile-time typed based on the accumulated registry type.
+   */
+  get<K extends keyof T>(key: K): T[K];
+
+  /** Return true if a workflow with the given composite key is registered. */
+  has(key: string): boolean;
+
+  /** Return all registered definitions as a readonly array. */
+  list(): readonly WorkflowDefinition[];
+
+  /**
+   * Resolve a workflow by name + agent. Composes the composite key
+   * internally. Returns `undefined` when not found.
+   */
+  resolve(name: string, agent: AgentType): WorkflowDefinition | undefined;
+};
+
+/** Options for constructing a Worker via `createWorker()`. */
+export interface CreateWorkerOptions {
+  /** Override argv (for tests/embedding). Defaults to process.argv. */
+  argv?: string[];
+}
+
+/**
+ * A worker bound to exactly one compiled `WorkflowDefinition`.
+ *
+ * Agent, name, and input schema are all fixed at construction time, so
+ * `start(inputs)` is unambiguous: the values apply to that workflow's
+ * declared inputs. Argv parsing exposes only `--<inputName>` flags (plus
+ * `-d/--detach`) — no `--name` / `--agent` dispatch.
+ *
+ * The generic is constrained to `RegistrableWorkflow` rather than
+ * `WorkflowDefinition` for the same reason `Registry.register` is —
+ * invariance on the `run` callback breaks inference of narrow agent
+ * and input tuple types. See the `RegistrableWorkflow` declaration.
+ */
+export interface Worker<
+  D extends RegistrableWorkflow = RegistrableWorkflow,
+> {
+  /**
+   * Flat-root CLI. Parses argv and runs the bound workflow. The
+   * provided `inputs` are merged BENEATH CLI flags (CLI flags win).
+   */
+  start(inputs?: InputsOf<D["inputs"]>): Promise<void>;
+  /**
+   * Return a configured Commander Command for embedding under a parent
+   * CLI. Pass `name` to override the command name (default: the bound
+   * workflow's `name`).
+   */
+  command(name?: string): import("@commander-js/extra-typings").Command;
+  /**
+   * Programmatic invocation without argv parsing.
+   */
+  run(options?: {
+    inputs?: InputsOf<D["inputs"]>;
+    detach?: boolean;
+    entrypointFile?: string;
+  }): Promise<void>;
+}
+
+/** Options for constructing a Dispatcher via `createDispatcher()`. */
+export interface CreateDispatcherOptions {
+  /** Programmatic inputs. CLI flags override these. */
+  inputs?: Record<string, string>;
+  /** Override argv (for tests/embedding). Defaults to process.argv. */
+  argv?: string[];
+  /** Hook to add sibling commands at the root of the flat CLI. */
+  extend?: (program: import("@commander-js/extra-typings").Command) => void;
+}
+
+/**
+ * A dispatcher that resolves `--name` + `--agent` from argv and runs the
+ * matching workflow from a registry. Used by multi-workflow CLIs (e.g.
+ * the internal `atomic workflow` command).
+ */
+export interface Dispatcher<
+  _T extends Record<string, WorkflowDefinition> = Record<string, WorkflowDefinition>,
+> {
+  /**
+   * Standalone flat-root CLI — parses argv with `-n/--name`,
+   * `-a/--agent`, and per-input flags (union across registry).
+   */
+  start(): Promise<void>;
+  /**
+   * Return a configured commander Command for embedding under a parent CLI.
+   * Pass `name` to override the command name (default: `"workflow"`).
+   */
+  command(name?: string): import("@commander-js/extra-typings").Command;
+  /**
+   * Programmatic invocation without argv parsing.
+   * `inputs` here overrides `createDispatcher({ inputs })`.
+   */
+  run(
+    workflowName: string,
+    agent: AgentType,
+    options?: { inputs?: Record<string, string>; detach?: boolean; entrypointFile?: string },
+  ): Promise<void>;
+}
+
 /**
  * A compiled workflow definition — the sealed output of defineWorkflow().compile().
  */
@@ -434,14 +578,26 @@ export interface WorkflowDefinition<
 > {
   readonly __brand: "WorkflowDefinition";
   readonly name: string;
+  /** The agent this workflow targets. Set via `.for(agent)` in the builder. */
+  readonly agent: A;
   readonly description: string;
-  /** Declared input schema — empty array for free-form workflows. */
-  readonly inputs: readonly WorkflowInput[];
+  /**
+   * Declared input schema — empty tuple for free-form workflows.
+   * Typed as the builder-supplied `I` so consumers (e.g.
+   * `createWorker(def)`) can derive the narrow `InputsOf<I>` shape
+   * without carrying a second generic parameter.
+   */
+  readonly inputs: I;
   /**
    * Minimum Atomic SDK version required. `null` when the workflow
    * declared no requirement — treated as compatible with every CLI.
    */
   readonly minSDKVersion: string | null;
   /** The workflow's entry point. Called by the executor with a WorkflowContext. */
-  readonly run: (ctx: WorkflowContext<A, I>) => Promise<void>;
+  // Method signature (not a property) so TypeScript treats `run` as bivariant
+  // under --strictFunctionTypes — this allows a WorkflowDefinition<"claude">
+  // to be assigned to WorkflowDefinition<AgentType> even though `agent` is
+  // narrowed. Property function signatures would be contravariant and reject
+  // the assignment. See: https://www.typescriptlang.org/docs/handbook/2/functions.html
+  run(ctx: WorkflowContext<A, I>): Promise<void>;
 }

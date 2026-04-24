@@ -34,12 +34,14 @@ export type {
 // Workflow SDK (also available as atomic/workflows subpath)
 export { defineWorkflow } from "./define-workflow.ts";
 
-// Workflow discovery and execution
-export {
-  discoverWorkflows,
-  findWorkflow,
-} from "./runtime/discovery.ts";
+// Registry
+export type { Registry } from "./registry.ts";
+export { createRegistry } from "./registry.ts";
 
-export { WorkflowLoader } from "./runtime/loader.ts";
+// Worker — single-workflow CLI factory
+export { createWorker } from "./worker.ts";
+export type { Worker, CreateWorkerOptions } from "./types.ts";
 
-export { executeWorkflow } from "./runtime/executor.ts";
+// Dispatcher — multi-workflow CLI factory (registry-based dispatch)
+export { createDispatcher } from "./dispatcher.ts";
+export type { Dispatcher, CreateDispatcherOptions } from "./types.ts";

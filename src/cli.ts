@@ -26,6 +26,47 @@ import { VERSION } from "./version.ts";
 import { COLORS } from "./theme/colors.ts";
 import { AGENT_CONFIG, type AgentKey } from "./services/config/index.ts";
 import { SUPPORTED_SHELLS, type Shell } from "./completions/index.ts";
+import { workflowCommand } from "./commands/cli/workflow.ts";
+
+// ─── Orchestrator re-entry guard ─────────────────────────────────────────────
+
+/**
+ * Detect orchestrator re-entry for builtin workflows running in detached mode.
+ *
+ * When `atomic workflow -n <name> -a <agent> --detach` launches a builtin
+ * workflow, the executor spawns a tmux orchestrator pane that re-invokes the
+ * atomic binary with ATOMIC_ORCHESTRATOR_MODE=1 + ATOMIC_WF_KEY=<key>.
+ * Without this guard, commander would try to parse argv as a normal command
+ * and fail. We intercept BEFORE commander runs.
+ *
+ * Returns true when orchestrator mode was handled (caller should exit 0).
+ * Returns false when ATOMIC_ORCHESTRATOR_MODE is unset — normal CLI path.
+ * Throws on missing/unknown key so the caller can print the error and exit 1.
+ */
+export async function handleBuiltinOrchestratorReEntry(): Promise<boolean> {
+  if (process.env.ATOMIC_ORCHESTRATOR_MODE !== "1") {
+    return false;
+  }
+
+  const key = process.env.ATOMIC_WF_KEY ?? "";
+  const { createBuiltinRegistry } = await import("./sdk/workflows/builtin-registry.ts");
+  const { runOrchestrator } = await import("./sdk/runtime/executor.ts");
+
+  // Key format: "<agent>/<name>"
+  const slashIdx = key.indexOf("/");
+  const registry = createBuiltinRegistry();
+  const def =
+    slashIdx >= 0
+      ? registry.resolve(key.slice(slashIdx + 1), key.slice(0, slashIdx) as Parameters<typeof registry.resolve>[1])
+      : undefined;
+
+  if (!def) {
+    throw new Error(`orchestrator: ATOMIC_WF_KEY '${key}' not found in builtin registry`);
+  }
+
+  await runOrchestrator(def);
+  return true;
+}
 
 // ─── Session subcommand factory ─────────────────────────────────────────────
 
@@ -200,24 +241,19 @@ Examples:
 
     // ── Workflow command ─────────────────────────────────────────────────────
     //
-    // Three shapes:
-    //   1. `atomic workflow -a <agent>`                 — interactive picker
-    //   2. `atomic workflow -n <name> -a <agent> ...`   — named run
-    //   3. `atomic workflow list [-a <agent>]`          — list workflows
+    // The base Command (with -n, -a, -d flags and workflow dispatch) is
+    // produced by the SDK dispatcher. Subcommands (list, inputs, status,
+    // session) are attached here so they live under `atomic workflow *`.
     //
-    // `allowUnknownOption` + `allowExcessArguments` let unknown flags and
-    // positional tokens land in `cmd.args`, forwarded as `passthroughArgs`
-    // so the command layer can parse them against the workflow's schema.
-    const workflowCmd = program
-        .command("workflow")
+    // `enablePositionalOptions()` on the dispatcher is what makes
+    // `atomic workflow list -a claude` route `-a` to the `list`
+    // subcommand instead of the parent dispatcher (which *also* declares
+    // `-a/--agent` for the dispatch path). Without it, Commander would
+    // greedily bind the flag to the parent and the subcommand would
+    // never see it.
+    workflowCommand
         .description("Run a multi-session agent workflow")
-        .option("-n, --name <name>", "Workflow name (matches directory under .atomic/workflows/<name>/)")
-        .option("-a, --agent <name>", `Agent to use (${agentChoices})`)
-        .option("-d, --detach", "Start the workflow in the background without attaching (auto-enabled when launched from inside an atomic chat/workflow session to avoid hijacking it). Attach later with 'atomic workflow session connect <id>'.")
-        .allowUnknownOption()
-        .allowExcessArguments(true)
         .enablePositionalOptions()
-        .passThroughOptions()
         .addHelpText(
             "after",
             `
@@ -235,27 +271,22 @@ Examples:
   $ atomic workflow session list                    List running sessions
   $ atomic workflow session connect <id>            Attach to a session
   $ atomic workflow session kill [id] -y            Kill a workflow session (or all), no prompt`,
-        )
-        .action(async (localOpts, cmd) => {
-            const { workflowCommand } = await import("./commands/cli/workflow.ts");
-            const exitCode = await workflowCommand({
-                name: localOpts.name,
-                agent: localOpts.agent,
-                detach: localOpts.detach,
-                passthroughArgs: cmd.args,
-            });
-            process.exit(exitCode);
-        });
+        );
+
+    program.addCommand(workflowCommand);
 
     // Workflow list subcommand: atomic workflow list [-a <agent>]
-    workflowCmd
+    // Prints the builtin registry. `-a` filters to one agent so users
+    // can narrow to workflows runnable with their configured provider.
+    workflowCommand
         .command("list")
-        .description("List available workflows")
-        .option("-a, --agent <name>", `Filter by agent (${agentChoices})`)
+        .description("List available workflows (optionally filter by agent)")
+        .option("-a, --agent <name>", `Filter by agent backend (${agentChoices})`)
         .action(async (localOpts) => {
-            const { workflowCommand } = await import("./commands/cli/workflow.ts");
-            const exitCode = await workflowCommand({
-                list: true,
+            const { workflowListCommand } = await import(
+                "./commands/cli/workflow-list.ts"
+            );
+            const exitCode = await workflowListCommand({
                 agent: localOpts.agent,
             });
             process.exit(exitCode);
@@ -264,7 +295,7 @@ Examples:
     // Workflow inputs subcommand: atomic workflow inputs <name> -a <agent>
     // Exposes the declared input schema so an orchestrating agent can build
     // a valid `atomic workflow -n ...` invocation without reading source.
-    workflowCmd
+    workflowCommand
         .command("inputs")
         .description("Print a workflow's declared input schema (JSON by default)")
         .argument("<name>", "Workflow name")
@@ -285,7 +316,7 @@ Examples:
     // Workflow status subcommand: atomic workflow status [<id>]
     // Returns one of in_progress | error | completed | needs_review.
     // Defaults to JSON so agents can parse it without screen-scraping.
-    workflowCmd
+    workflowCommand
         .command("status")
         .description(
             "Query workflow status (in_progress, error, completed, needs_review)",
@@ -304,7 +335,7 @@ Examples:
         });
 
     // Workflow session subcommands: atomic workflow session list / connect
-    addSessionSubcommand(workflowCmd, "workflow");
+    addSessionSubcommand(workflowCommand, "workflow");
 
     // ── Top-level session command ───────────────────────────────────────────
     addSessionSubcommand(program);
@@ -414,6 +445,14 @@ export const program = createProgram();
  */
 async function main(): Promise<void> {
     try {
+        // Orchestrator re-entry for builtin workflows (detach mode).
+        // Must run BEFORE commander parses argv so the re-launched orchestrator
+        // pane short-circuits cleanly instead of failing argv parsing.
+        const handled = await handleBuiltinOrchestratorReEntry();
+        if (handled) {
+            process.exit(0);
+        }
+
         // Bootstrap `~/.atomic/settings.json` on every invocation if absent,
         // so users always have a file to edit with JSON Schema intellisense
         // wired up. Idempotent; swallows FS errors internally.

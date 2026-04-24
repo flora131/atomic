@@ -121,7 +121,7 @@ export default defineWorkflow({
     },
   ],
 })
-  .for<"claude">()
+  .for("claude")
   .run(async (ctx) => {
     const prompt = ctx.inputs.prompt ?? "";
     const reference = ctx.inputs.reference ?? "";

@@ -12,12 +12,9 @@ import {
   renderInputsText,
   workflowInputsCommand,
   type WorkflowInputsDeps,
+  type ResolvedWorkflowEntry,
 } from "./workflow-inputs.ts";
-import type {
-  WorkflowInput,
-  DiscoveredWorkflow,
-  WorkflowDefinition,
-} from "../../sdk/workflows/index.ts";
+import type { AgentType, WorkflowInput, WorkflowDefinition } from "../../sdk/workflows/index.ts";
 
 let originalNoColor: string | undefined;
 beforeAll(() => {
@@ -153,12 +150,10 @@ function captureOutput(): {
   };
 }
 
-function fakeDiscovered(name: string): DiscoveredWorkflow {
+function fakeDiscovered(name: string): ResolvedWorkflowEntry {
   return {
     name,
     agent: "claude",
-    path: `/fake/path/${name}.ts`,
-    source: "builtin",
   };
 }
 
@@ -166,10 +161,12 @@ function fakeDefinition(
   name: string,
   description: string,
   inputs: WorkflowInput[],
+  agent: AgentType = "claude",
 ): WorkflowDefinition {
   return {
     __brand: "WorkflowDefinition",
     name,
+    agent,
     description,
     inputs,
     minSDKVersion: null,
@@ -181,11 +178,9 @@ function makeDeps(overrides: Partial<WorkflowInputsDeps> = {}): WorkflowInputsDe
   return {
     findWorkflow: mock(async () => fakeDiscovered("gen-spec")) as unknown as
       WorkflowInputsDeps["findWorkflow"],
-    loadWorkflow: mock(async (plan) => ({
+    loadWorkflow: mock(async () => ({
       ok: true,
       value: {
-        ...plan,
-        warnings: [],
         definition: fakeDefinition("gen-spec", "spec generator", [
           { name: "research_doc", type: "string", required: true },
         ]),

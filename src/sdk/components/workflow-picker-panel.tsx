@@ -16,7 +16,7 @@
  *
  * Lifecycle:
  *
- *   const panel = await WorkflowPickerPanel.create({ agent, workflows });
+ *   const panel = await WorkflowPickerPanel.create({ agent, registry });
  *   const result = await panel.waitForSelection();
  *   panel.destroy();
  *   if (result) await executeWorkflow({ ... });
@@ -41,17 +41,13 @@ import {
 import { useState, useEffect, useMemo, useRef, useCallback, useContext, createContext, memo } from "react";
 import { useLatest } from "./hooks.ts";
 import { resolveTheme, type TerminalTheme } from "../runtime/theme.ts";
-import type { AgentType, WorkflowInput } from "../types.ts";
-import type {
-  WorkflowWithMetadata,
-  WorkflowMetadataStatus,
-} from "../runtime/discovery.ts";
+import type { AgentType, WorkflowInput, WorkflowDefinition, Registry } from "../types.ts";
 import { ErrorBoundary } from "./error-boundary.tsx";
 
 // ─── Theme ──────────────────────────────────────
 // The picker uses a slightly extended palette vs. the base terminal theme:
 // an `info` (sky) hue for built-in workflows and a `mauve` hue for global
-// ones — the same distinctions `atomic workflow -l` already draws. The
+// ones — the same distinctions `atomic workflow list` already draws. The
 // rest is sourced from {@link resolveTheme} so light/dark mode tracks the
 // orchestrator panel.
 export interface PickerTheme {
@@ -110,42 +106,23 @@ function usePickerTheme(): PickerTheme {
 
 // ─── Types ──────────────────────────────────────
 
-type Source = "local" | "global" | "builtin";
 type Phase = "pick" | "prompt";
 
 /** The payload the picker resolves with on successful submission. */
 export interface WorkflowPickerResult {
   /** The workflow the user committed to running. */
-  workflow: WorkflowWithMetadata;
+  workflow: WorkflowDefinition;
   /** Populated form values, one per declared input (or { prompt } for free-form). */
   inputs: Record<string, string>;
 }
 
 // ─── Helpers ────────────────────────────────────
 
-const SOURCE_DISPLAY: Record<Source, string> = {
-  local: "local",
-  global: "global",
-  builtin: "builtin",
-};
-
-const SOURCE_DIR: Record<Source, string> = {
-  local: ".atomic/workflows",
-  global: "~/.atomic/workflows",
-  builtin: "built-in",
-};
-
-const SOURCE_COLOR: Record<Source, keyof PickerTheme> = {
-  local: "success",
-  global: "mauve",
-  builtin: "info",
-};
-
-/** Higher number wins when two workflows share a name. */
-const SOURCE_PRECEDENCE: Record<Source, number> = {
-  global: 0,
-  local: 1,
-  builtin: 2,
+/** Per-agent display color in the picker list / section headers. */
+const AGENT_COLOR: Record<AgentType, keyof PickerTheme> = {
+  claude: "warning",
+  copilot: "success",
+  opencode: "mauve",
 };
 
 /**
@@ -180,39 +157,22 @@ export function fuzzyMatch(query: string, target: string): number | null {
 // ─── List Building ──────────────────────────────
 
 interface ListEntry {
-  workflow: WorkflowWithMetadata;
-  section: Source;
+  workflow: WorkflowDefinition;
+  /** Agent the workflow belongs to — used for section grouping. */
+  section: AgentType;
 }
 
 type ListRow =
-  | { kind: "section"; source: Source }
+  | { kind: "section"; agent: AgentType }
   | { kind: "entry"; entry: ListEntry };
-
-/**
- * Deduplicate workflows by name using builtin > local > global precedence.
- * When two workflows share a name, only the higher-precedence entry is kept.
- */
-export function deduplicateByName(
-  workflows: WorkflowWithMetadata[],
-): WorkflowWithMetadata[] {
-  const byName = new Map<string, WorkflowWithMetadata>();
-  for (const wf of workflows) {
-    const existing = byName.get(wf.name);
-    if (!existing || SOURCE_PRECEDENCE[wf.source] > SOURCE_PRECEDENCE[existing.source]) {
-      byName.set(wf.name, wf);
-    }
-  }
-  return Array.from(byName.values());
-}
 
 export function buildEntries(
   query: string,
-  workflows: WorkflowWithMetadata[],
+  workflows: WorkflowDefinition[],
 ): ListEntry[] {
-  const deduped = deduplicateByName(workflows);
-  type Scored = { wf: WorkflowWithMetadata; score: number };
+  type Scored = { wf: WorkflowDefinition; score: number };
   const scored: Scored[] = [];
-  for (const wf of deduped) {
+  for (const wf of workflows) {
     const nameScore = fuzzyMatch(query, wf.name);
     const descScore = fuzzyMatch(query, wf.description);
     const best =
@@ -228,11 +188,11 @@ export function buildEntries(
 
   if (query === "") {
     const rest: ListEntry[] = [];
-    for (const source of ["local", "global", "builtin"] as Source[]) {
+    for (const agent of ["claude", "copilot", "opencode"] as AgentType[]) {
       const group = scored
-        .filter((s) => s.wf.source === source)
+        .filter((s) => s.wf.agent === agent)
         .sort((a, b) => a.wf.name.localeCompare(b.wf.name));
-      for (const s of group) rest.push({ workflow: s.wf, section: source });
+      for (const s of group) rest.push({ workflow: s.wf, section: agent });
     }
     return rest;
   }
@@ -240,7 +200,7 @@ export function buildEntries(
   scored.sort((a, b) => a.score - b.score);
   return scored.map<ListEntry>((s) => ({
     workflow: s.wf,
-    section: s.wf.source,
+    section: s.wf.agent,
   }));
 }
 
@@ -250,7 +210,7 @@ export function buildRows(entries: ListEntry[], query: string): ListRow[] {
     let lastSection: string | null = null;
     for (const e of entries) {
       if (e.section !== lastSection) {
-        rows.push({ kind: "section", source: e.section });
+        rows.push({ kind: "section", agent: e.section });
         lastSection = e.section;
       }
       rows.push({ kind: "entry", entry: e });
@@ -259,38 +219,6 @@ export function buildRows(entries: ListEntry[], query: string): ListRow[] {
     for (const e of entries) rows.push({ kind: "entry", entry: e });
   }
   return rows;
-}
-
-// ─── Status helpers ─────────────────────────────
-// Non-ok entries stay visible in the picker so the user sees that a
-// workflow from an older SDK release (or one with a load error) still
-// exists on disk — the previous behaviour silently dropped them, which
-// made user/global workflows appear to vanish after an atomic upgrade.
-
-/** Unicode glyph that prefixes a non-ok entry and heads its preview. */
-const STATUS_ICON: Record<WorkflowMetadataStatus["kind"], string> = {
-  ok: " ",
-  incompatible: "⚠",
-  error: "✗",
-};
-
-/** Compact single-word label used in list rows and the bottom hint. */
-const STATUS_LABEL: Record<WorkflowMetadataStatus["kind"], string> = {
-  ok: "",
-  incompatible: "update",
-  error: "broken",
-};
-
-/** Map each status kind to its semantic palette slot. */
-const STATUS_COLOR: Record<WorkflowMetadataStatus["kind"], keyof PickerTheme> = {
-  ok: "success",
-  incompatible: "warning",
-  error: "error",
-};
-
-/** Non-ok rows are inert — Enter / run commands must not transition the picker. */
-function isRunnable(wf: WorkflowWithMetadata): boolean {
-  return wf.status.kind === "ok";
 }
 
 // ─── Validation ─────────────────────────────────
@@ -408,20 +336,17 @@ const WorkflowList = memo(function WorkflowList({
     <box flexDirection="column">
       {rows.map((row, i) => {
         if (row.kind === "section") {
-          const src = row.source;
+          const ag = row.agent;
           return (
             <box
-              key={`section-${src}`}
+              key={`section-${ag}`}
               height={2}
               paddingTop={1}
               paddingLeft={2}
             >
               <text>
-                <span fg={theme[SOURCE_COLOR[src]]}>
-                  {SOURCE_DISPLAY[src]}
-                </span>
-                <span fg={theme.textDim}>
-                  {" (" + SOURCE_DIR[src] + ")"}
+                <span fg={theme[AGENT_COLOR[ag]]}>
+                  {ag}
                 </span>
               </text>
             </box>
@@ -430,28 +355,11 @@ const WorkflowList = memo(function WorkflowList({
         const entryIdx = entryIndexByRow.get(i) ?? -1;
         const isFocused = entryIdx === focusedEntryIdx;
         const wf = row.entry.workflow;
-        const statusKind = wf.status.kind;
-        const runnable = statusKind === "ok";
-        // Status indicator sits between the focus marker and the name so
-        // every row shares a 4-character gutter — ok rows render a blank
-        // gutter, so the list stays visually flush while non-ok rows
-        // always occupy a fixed slot (no layout jitter when filtering).
-        const statusIcon = STATUS_ICON[statusKind];
-        const statusCol = theme[STATUS_COLOR[statusKind]];
-        // Non-ok rows fade the name so the "diagnostic, not selectable"
-        // read is immediate even when the user hasn't reached the row
-        // yet — the eye catches the warning glyph + dim text together.
-        const nameCol = runnable
-          ? isFocused
-            ? theme.text
-            : theme.textMuted
-          : isFocused
-            ? theme.textMuted
-            : theme.textDim;
+        const nameCol = isFocused ? theme.text : theme.textMuted;
 
         return (
           <box
-            key={`wf-${wf.name}`}
+            key={`wf-${wf.agent}-${wf.name}`}
             height={1}
             flexDirection="row"
             backgroundColor={isFocused ? theme.border : "transparent"}
@@ -461,9 +369,6 @@ const WorkflowList = memo(function WorkflowList({
             <text>
               <span fg={isFocused ? theme.primary : theme.textDim}>
                 {isFocused ? "▸ " : "  "}
-              </span>
-              <span fg={statusCol}>
-                {statusIcon + " "}
               </span>
               <span fg={nameCol}>
                 {wf.name}
@@ -525,67 +430,13 @@ const ArgumentRow = memo(function ArgumentRow({
   );
 });
 
-/**
- * Diagnostic block for non-ok workflows. Replaces the description +
- * arguments sections in the preview pane so the user sees *why* a row
- * is inert and what to do about it, instead of an empty-looking panel.
- */
-const StatusDiagnostic = memo(function StatusDiagnostic({
-  status,
-}: {
-  status: Exclude<WorkflowMetadataStatus, { kind: "ok" }>;
-}) {
-  const theme = usePickerTheme();
-  const color = theme[STATUS_COLOR[status.kind]];
-  const icon = STATUS_ICON[status.kind];
-
-  // Headline + sub-copy split: the headline is terse (three words) so
-  // it reads at a glance even on a narrow right pane; the sub-copy
-  // explains *why* and the third paragraph tells the user what to do.
-  const headline =
-    status.kind === "incompatible"
-      ? "update required"
-      : "failed to load";
-  const detail =
-    status.kind === "incompatible"
-      ? `Needs Atomic v${status.requiredVersion}. Installed: v${status.currentVersion}.`
-      : status.message;
-  const remediation =
-    status.kind === "incompatible"
-      ? "Update Atomic, or re-save the workflow against the current SDK."
-      : "Open the workflow file and fix the error above.";
-
-  return (
-    <box flexDirection="column">
-      <text>
-        <span fg={color}>
-          <strong>{icon + " " + headline}</strong>
-        </span>
-      </text>
-
-      <box height={1} />
-
-      <text>
-        <span fg={theme.textMuted}>{detail}</span>
-      </text>
-
-      <box height={1} />
-
-      <text>
-        <span fg={theme.textDim}>{remediation}</span>
-      </text>
-    </box>
-  );
-});
-
 const Preview = memo(function Preview({
   wf,
 }: {
-  wf: WorkflowWithMetadata;
+  wf: WorkflowDefinition;
 }) {
   const theme = usePickerTheme();
   const args = wf.inputs;
-  const status = wf.status;
 
   return (
     <box
@@ -603,37 +454,28 @@ const Preview = memo(function Preview({
       <box height={1} />
 
       <text>
-        <span fg={theme[SOURCE_COLOR[wf.source]]}>
-          {SOURCE_DISPLAY[wf.source]}
-        </span>
-        <span fg={theme.textDim}>
-          {" (" + SOURCE_DIR[wf.source] + ")"}
+        <span fg={theme[AGENT_COLOR[wf.agent]]}>
+          {wf.agent}
         </span>
       </text>
 
       <box height={2} />
 
-      {status.kind === "ok" ? (
-        <>
-          <text>
-            <span fg={theme.textMuted}>
-              {wf.description || "(no description)"}
-            </span>
-          </text>
+      <text>
+        <span fg={theme.textMuted}>
+          {wf.description || "(no description)"}
+        </span>
+      </text>
 
-          {args.length > 0 && (
-            <>
-              <box height={2} />
-              <SectionLabel label="ARGUMENTS" />
-              <box height={1} />
-              {args.map((f) => (
-                <ArgumentRow key={f.name} field={f} />
-              ))}
-            </>
-          )}
+      {args.length > 0 && (
+        <>
+          <box height={2} />
+          <SectionLabel label="ARGUMENTS" />
+          <box height={1} />
+          {args.map((f) => (
+            <ArgumentRow key={f.name} field={f} />
+          ))}
         </>
-      ) : (
-        <StatusDiagnostic status={status} />
       )}
     </box>
   );
@@ -664,16 +506,25 @@ function EmptyPreview({
       </text>
       <box height={2} />
       <text>
-        <span fg={theme.textDim}>create a new one at</span>
+        <span fg={theme.textDim}>
+          define one with{" "}
+        </span>
+        <span fg={theme.primary}>defineWorkflow(...).for&lt;"agent"&gt;(...)</span>
+        <span fg={theme.textDim}>,</span>
       </text>
       <box height={1} />
-      <box paddingLeft={2}>
-        <text>
-          <span fg={theme.primary}>
-            .atomic/workflows/&lt;name&gt;/&lt;agent&gt;/index.ts
-          </span>
-        </text>
-      </box>
+      <text>
+        <span fg={theme.textDim}>
+          then register and start it via{" "}
+        </span>
+        <span fg={theme.primary}>createRegistry().register(wf)</span>
+      </text>
+      <box height={1} />
+      <text>
+        <span fg={theme.textDim}>{"and "}</span>
+        <span fg={theme.primary}>createWorker({"{ registry }"})</span>
+        <span fg={theme.textDim}>{" in src/worker.ts"}</span>
+      </text>
     </box>
   );
 }
@@ -912,7 +763,7 @@ function InputPhase({
   focusedFieldIdx,
   onFieldInput,
 }: {
-  workflow: WorkflowWithMetadata;
+  workflow: WorkflowDefinition;
   agent: AgentType;
   fields: readonly WorkflowInput[];
   values: Record<string, string>;
@@ -998,13 +849,6 @@ function InputPhase({
           </span>
           <span fg={theme.textDim}>{"  ·  "}</span>
           <span fg={theme.mauve}>{agent}</span>
-          <span fg={theme.textDim}>{"  ·  "}</span>
-          <span fg={theme[SOURCE_COLOR[workflow.source]]}>
-            {SOURCE_DISPLAY[workflow.source]}
-          </span>
-          <span fg={theme.textDim}>
-            {" (" + SOURCE_DIR[workflow.source] + ")"}
-          </span>
         </text>
         <box height={1} />
         <text>
@@ -1076,7 +920,7 @@ function ConfirmModal({
   workflow,
   agent,
 }: {
-  workflow: WorkflowWithMetadata;
+  workflow: WorkflowDefinition;
   agent: AgentType;
 }) {
   const theme = usePickerTheme();
@@ -1146,14 +990,6 @@ type Hint = { key: string; label: string; dim?: boolean };
 const PICK_HINTS: Hint[] = [
   { key: "↑↓", label: "navigate" },
   { key: "↵", label: "select" },
-  { key: "esc", label: "quit" },
-];
-// Shown instead of PICK_HINTS when the focused row is non-ok — the dim
-// `↵ unavailable` reads immediately as "this row is navigable but not
-// runnable", which matches the muted row colour and preview diagnostic.
-const PICK_HINTS_UNAVAILABLE: Hint[] = [
-  { key: "↑↓", label: "navigate" },
-  { key: "↵", label: "unavailable", dim: true },
   { key: "esc", label: "quit" },
 ];
 const CONFIRM_HINTS: Hint[] = [
@@ -1238,7 +1074,7 @@ const Statusline = memo(function Statusline({
   phase: Phase;
   confirmOpen: boolean;
   hints: { key: string; label: string; dim?: boolean }[];
-  focusedWf: WorkflowWithMetadata | undefined;
+  focusedWf: WorkflowDefinition | undefined;
 }) {
   const theme = usePickerTheme();
   const modeLabel = confirmOpen
@@ -1268,26 +1104,9 @@ const Statusline = memo(function Statusline({
       {focusedWf ? (
         <box paddingLeft={1} paddingRight={1} alignItems="center">
           <text>
-            {focusedWf.status.kind !== "ok" ? (
-              <span fg={theme[STATUS_COLOR[focusedWf.status.kind]]}>
-                {STATUS_ICON[focusedWf.status.kind] + " "}
-              </span>
-            ) : null}
-            <span
-              fg={
-                focusedWf.status.kind === "ok" ? theme.text : theme.textMuted
-              }
-            >
+            <span fg={theme.text}>
               {focusedWf.name}
             </span>
-            {focusedWf.status.kind !== "ok" ? (
-              <>
-                <span fg={theme.textDim}>{"  ·  "}</span>
-                <span fg={theme[STATUS_COLOR[focusedWf.status.kind]]}>
-                  {STATUS_LABEL[focusedWf.status.kind]}
-                </span>
-              </>
-            ) : null}
           </text>
         </box>
       ) : null}
@@ -1321,7 +1140,7 @@ interface PickerKeyboardState {
   entries: ListEntry[];
   clampedEntryIdx: number;
   savedEntryIdx: number;
-  focusedWf: WorkflowWithMetadata | undefined;
+  focusedWf: WorkflowDefinition | undefined;
   fieldValues: Record<string, string>;
   isFormValid: boolean;
   invalidFieldIndices: number[];
@@ -1400,10 +1219,7 @@ function usePickerKeyboard(state: PickerKeyboardState): void {
     if (key.name === "return") {
       key.stopPropagation();
       const wf = focusedWfRef.current;
-      // Silently swallow Enter on incompatible / broken entries — the
-      // preview pane already explains the failure; advancing into the
-      // prompt phase would be misleading since the workflow can't run.
-      if (wf && isRunnable(wf)) {
+      if (wf) {
         const initial: Record<string, string> = {};
         for (const f of wf.inputs) {
           initial[f.name] =
@@ -1494,7 +1310,7 @@ function usePickerKeyboard(state: PickerKeyboardState): void {
 interface PickerAppProps {
   theme: PickerTheme;
   agent: AgentType;
-  workflows: WorkflowWithMetadata[];
+  workflows: WorkflowDefinition[];
   onSubmit: (result: WorkflowPickerResult) => void;
   onCancel: () => void;
 }
@@ -1570,13 +1386,10 @@ export function WorkflowPicker({
     setConfirmOpen,
   });
 
-  const focusedIsRunnable = focusedWf ? isRunnable(focusedWf) : true;
   const hints = confirmOpen
     ? CONFIRM_HINTS
     : phase === "pick"
-      ? focusedIsRunnable
-        ? PICK_HINTS
-        : PICK_HINTS_UNAVAILABLE
+      ? PICK_HINTS
       : isFormValid
         ? PROMPT_HINTS_VALID
         : PROMPT_HINTS_INVALID;
@@ -1652,8 +1465,11 @@ export function WorkflowPicker({
 
 export interface WorkflowPickerPanelOptions {
   agent: AgentType;
-  /** Pre-loaded workflows to show. Must already be filtered to `agent`. */
-  workflows: WorkflowWithMetadata[];
+  /**
+   * Registry of compiled workflow definitions. The panel calls
+   * `registry.list()` and filters to the selected `agent`.
+   */
+  registry: Registry<Record<string, WorkflowDefinition>>;
 }
 
 /**
@@ -1680,6 +1496,10 @@ export class WorkflowPickerPanel {
 
     const isDark = renderer.themeMode !== "light";
     const theme = buildPickerTheme(resolveTheme(renderer.themeMode), isDark);
+    // Filter registry to only the workflows for the selected agent.
+    const workflows = options.registry
+      .list()
+      .filter((wf) => wf.agent === options.agent);
     this.root = createRoot(renderer);
     this.root.render(
       <ErrorBoundary
@@ -1702,7 +1522,7 @@ export class WorkflowPickerPanel {
         <WorkflowPicker
           theme={theme}
           agent={options.agent}
-          workflows={options.workflows}
+          workflows={workflows}
           onSubmit={(result) => this.handleSubmit(result)}
           onCancel={() => this.handleCancel()}
         />

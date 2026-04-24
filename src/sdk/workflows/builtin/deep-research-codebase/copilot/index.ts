@@ -82,7 +82,7 @@ export default defineWorkflow({
     },
   ],
 })
-  .for<"copilot">()
+  .for("copilot")
   .run(async (ctx) => {
     const prompt = ctx.inputs.prompt ?? "";
     const root = getCodebaseRoot();

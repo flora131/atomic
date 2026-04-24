@@ -3,7 +3,7 @@
  *
  * Usage:
  *   defineWorkflow({ name: "my-workflow", inputs: [...] })
- *     .for<"copilot">()
+ *     .for("copilot")
  *     .run(async (ctx) => {
  *       await ctx.stage({ name: "research" }, {}, {}, async (s) => { ... });
  *       await ctx.stage({ name: "plan" }, {}, {}, async (s) => { ... });
@@ -22,6 +22,20 @@ import type {
 type AnyInputs = readonly WorkflowInput[];
 
 /**
+ * Flag names reserved by the worker CLI that cannot be used as workflow
+ * input names. Declaring a workflow input with any of these names would
+ * collide with the worker's own flags at runtime.
+ */
+export const RESERVED_INPUT_NAMES = [
+  "name",
+  "agent",
+  "detach",
+  "list",
+  "help",
+  "version",
+] as const;
+
+/**
  * Validate a single declared workflow input, throwing on authoring
  * mistakes that would otherwise surface as confusing runtime errors
  * inside the picker or the flag parser.
@@ -38,6 +52,12 @@ function validateWorkflowInput(input: WorkflowInput, workflowName: string): void
         `name — must start with a letter and contain only letters, ` +
         `digits, underscores, and dashes (so it can be used as a ` +
         `\`--${input.name}\` CLI flag).`,
+    );
+  }
+  if ((RESERVED_INPUT_NAMES as readonly string[]).includes(input.name)) {
+    throw new Error(
+      `defineWorkflow: input name "${input.name}" is reserved by the worker CLI. ` +
+        `Rename it. Reserved names: ${RESERVED_INPUT_NAMES.join(", ")}.`,
     );
   }
   if (input.type === "enum") {
@@ -89,6 +109,7 @@ export class WorkflowBuilder<
   readonly __brand = "WorkflowBuilder" as const;
   private readonly options: WorkflowOptions<I>;
   private runFn: ((ctx: WorkflowContext<A, I>) => Promise<void>) | null = null;
+  private agentValue: AgentType | null = null;
 
   constructor(options: WorkflowOptions<I>) {
     this.options = options;
@@ -97,10 +118,9 @@ export class WorkflowBuilder<
   /**
    * Narrow the agent type for this workflow while preserving typed inputs.
    *
-   * Use `.for<"copilot">()` **before** `.run()` instead of passing the
-   * agent as a type parameter to `defineWorkflow`. This allows TypeScript
-   * to infer input names from the `inputs` array AND narrow the agent
-   * type for `stage()` callbacks.
+   * Pass the agent as a runtime string argument so the compiled
+   * {@link WorkflowDefinition} carries the `agent` field required by
+   * the registry.
    *
    * @example
    * ```typescript
@@ -108,7 +128,7 @@ export class WorkflowBuilder<
    *   name: "my-workflow",
    *   inputs: [{ name: "greeting", type: "string" }],
    * })
-   *   .for<"copilot">()
+   *   .for("copilot")
    *   .run(async (ctx) => {
    *     ctx.inputs.greeting; // ✓ typed
    *     ctx.inputs.prompt;   // ✗ compile error
@@ -116,8 +136,11 @@ export class WorkflowBuilder<
    *   .compile();
    * ```
    */
-  for<B extends AgentType>(): WorkflowBuilder<B, I> {
-    return this as unknown as WorkflowBuilder<B, I>;
+  for<B extends AgentType>(agent: B): WorkflowBuilder<B, I> {
+    const next = new WorkflowBuilder<B, I>(this.options as WorkflowOptions<I>);
+    next.agentValue = agent;
+    next.runFn = this.runFn as ((ctx: WorkflowContext<B, I>) => Promise<void>) | null;
+    return next;
   }
 
   /**
@@ -170,11 +193,19 @@ export class WorkflowBuilder<
     }
     const inputs = Object.freeze(
       declaredInputs.map((i) => Object.freeze({ ...i })),
-    ) as readonly WorkflowInput[];
+    ) as unknown as I;
+
+    if (this.agentValue === null) {
+      throw new Error(
+        `Workflow "${this.options.name}" has no agent. ` +
+          `Call .for("copilot") / .for("opencode") / .for("claude") before .compile().`,
+      );
+    }
 
     return {
       __brand: "WorkflowDefinition" as const,
       name: this.options.name,
+      agent: this.agentValue as A,
       description: this.options.description ?? "",
       inputs,
       minSDKVersion: this.options.minSDKVersion ?? null,
@@ -187,7 +218,7 @@ export class WorkflowBuilder<
  * Entry point for defining a workflow.
  *
  * Write the `inputs` array inline so TypeScript infers literal field
- * names and enforces them on `ctx.inputs`. Use `.for<Agent>()` to
+ * names and enforces them on `ctx.inputs`. Use `.for(agent)` to
  * narrow the agent type while keeping typed inputs:
  *
  * @example
@@ -201,7 +232,7 @@ export class WorkflowBuilder<
  *     { name: "greeting", type: "string", required: true },
  *   ],
  * })
- *   .for<"copilot">()
+ *   .for("copilot")
  *   .run(async (ctx) => {
  *     ctx.inputs.greeting; // ✓ string | undefined
  *     ctx.inputs.prompt;   // ✗ compile error — not declared

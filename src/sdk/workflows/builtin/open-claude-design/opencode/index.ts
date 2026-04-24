@@ -117,7 +117,7 @@ export default defineWorkflow({
     },
   ],
 })
-  .for<"opencode">()
+  .for("opencode")
   .run(async (ctx) => {
     const prompt = ctx.inputs.prompt ?? "";
     const reference = ctx.inputs.reference ?? "";

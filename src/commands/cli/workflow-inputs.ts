@@ -13,12 +13,9 @@
  */
 
 import { COLORS, createPainter } from "../../theme/colors.ts";
-import { AGENT_CONFIG, type AgentKey } from "../../services/config/index.ts";
-import {
-  findWorkflow as _findWorkflow,
-  WorkflowLoader,
-} from "../../sdk/workflows/index.ts";
-import type { WorkflowInput } from "../../sdk/workflows/index.ts";
+import { AGENT_CONFIG } from "../../services/config/index.ts";
+import { createBuiltinRegistry } from "../../sdk/workflows/builtin-registry.ts";
+import type { WorkflowInput, WorkflowDefinition, AgentType } from "../../sdk/workflows/index.ts";
 
 export type WorkflowInputsFormat = "json" | "text";
 
@@ -152,18 +149,56 @@ export interface WorkflowInputsOptions {
 }
 
 /**
+ * A resolved workflow entry — enough information for the inputs command
+ * to load and render the workflow's declared schema.
+ */
+export interface ResolvedWorkflowEntry {
+  name: string;
+  agent: AgentType;
+}
+
+/**
+ * Result of loading a workflow definition — either success with the
+ * definition or a failure with a stage label and message.
+ */
+export type WorkflowLoadResult =
+  | { ok: true; value: { definition: WorkflowDefinition } }
+  | { ok: false; stage: string; error: unknown; message: string };
+
+/**
  * Deps for `workflowInputsCommand`. Injected so tests can drive every
  * branch (unknown agent / missing workflow / load failure / success)
- * without the SDK's real filesystem-dependent discovery.
+ * without touching the real registry or filesystem.
  */
 export interface WorkflowInputsDeps {
-  findWorkflow: typeof _findWorkflow;
-  loadWorkflow: typeof WorkflowLoader.loadWorkflow;
+  findWorkflow: (name: string, agent: AgentType, cwd?: string) => Promise<ResolvedWorkflowEntry | null>;
+  loadWorkflow: (entry: ResolvedWorkflowEntry) => Promise<WorkflowLoadResult>;
+}
+
+function registryFindWorkflow(name: string, agent: AgentType): Promise<ResolvedWorkflowEntry | null> {
+  const registry = createBuiltinRegistry();
+  const wf = registry.resolve(name, agent);
+  if (!wf) return Promise.resolve(null);
+  return Promise.resolve({ name: wf.name, agent: wf.agent });
+}
+
+function registryLoadWorkflow(entry: ResolvedWorkflowEntry): Promise<WorkflowLoadResult> {
+  const registry = createBuiltinRegistry();
+  const wf = registry.resolve(entry.name, entry.agent);
+  if (!wf) {
+    return Promise.resolve({
+      ok: false,
+      stage: "resolve",
+      error: new Error(`Workflow not found: ${entry.agent}/${entry.name}`),
+      message: `Workflow not found: ${entry.agent}/${entry.name}`,
+    });
+  }
+  return Promise.resolve({ ok: true, value: { definition: wf } });
 }
 
 const defaultDeps: WorkflowInputsDeps = {
-  findWorkflow: _findWorkflow,
-  loadWorkflow: WorkflowLoader.loadWorkflow,
+  findWorkflow: registryFindWorkflow,
+  loadWorkflow: registryLoadWorkflow,
 };
 
 /**
@@ -185,7 +220,7 @@ export async function workflowInputsCommand(
       `Unknown agent '${options.agent}'. Valid agents: ${validAgents.join(", ")}`,
     );
   }
-  const agent = options.agent as AgentKey;
+  const agent = options.agent as AgentType;
 
   const discovered = await deps.findWorkflow(options.name, agent, options.cwd);
   if (!discovered) {

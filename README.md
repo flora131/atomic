@@ -142,10 +142,9 @@ Every team has a process — code review, CI checks, PR creation, approval, merg
 
 ```bash
 bun init && bun add @bastani/atomic
-mkdir -p .atomic/workflows/review-to-merge/claude
 ```
 
-Create `.atomic/workflows/review-to-merge/claude/index.ts`:
+Author the workflow in `src/review-to-merge/claude.ts`:
 
 ```ts
 import { defineWorkflow } from "@bastani/atomic/workflows";
@@ -153,7 +152,7 @@ import { defineWorkflow } from "@bastani/atomic/workflows";
 export default defineWorkflow({
   name: "review-to-merge",
   description: "Review → CI → PR → Notify → Approve → Merge",
-}).for<"claude">()
+}).for("claude")
   .run(async (ctx) => {
     // 1. Review
     const review = await ctx.stage({ name: "review" }, {}, {}, async (s) => {
@@ -195,13 +194,23 @@ export default defineWorkflow({
   .compile();
 ```
 
+Wire it to a CLI in `src/claude-worker.ts` — three lines:
+
+```ts
+import { createWorker } from "@bastani/atomic/workflows";
+import workflow from "./review-to-merge/claude.ts";
+
+const worker = createWorker(workflow);
+await worker.start();
+```
+
 Run it:
 
 ```bash
-atomic workflow -n review-to-merge -a claude
+bun run src/claude-worker.ts
 ```
 
-Swap `-a claude` for `-a opencode` or `-a copilot` — same harness, different agent. See [Workflow SDK](#workflow-sdk--build-your-own-deterministic-harness) for parallel stages, input schemas, headless stages, and the full API reference.
+`createWorker` binds the worker to one compiled workflow, so the CLI exposes only the workflow's declared inputs — no `-n`/`-a` dispatch, no guesswork. For another agent, write `src/opencode-worker.ts` pointing at `./review-to-merge/opencode.ts` — same three-line shape. See [Workflow SDK](#workflow-sdk--build-your-own-deterministic-harness) for parallel stages, input schemas, headless stages, typed `start(inputs)` defaults, and the full API reference.
 
 ### Managing sessions
 
@@ -237,16 +246,18 @@ Better models make harnesses **more** important, not less. The more you trust an
 
 ### Example use cases
 
+These are shapes you'd **author** with `defineWorkflow` and then run from your own `src/<agent>-worker.ts` — see [step 4 of Quick Start](#4-build-your-own-workflow) for the three-line entrypoint. Atomic ships three built-in workflows (`ralph`, `deep-research-codebase`, `open-claude-design`); everything else is yours to define.
+
 **Add production monitoring.** Research observability gaps, implement missing metrics and health checks, review the changes.
 
 ```bash
-atomic workflow -n add-monitoring -a claude "add Prometheus metrics and health checks to all API endpoints"
+bun run src/claude-worker.ts "add Prometheus metrics and health checks to all API endpoints"
 ```
 
 **Parallel UX testing with 50 personas.** Spin up 50 agents, each with a distinct persona (power user, accessibility-dependent, non-technical stakeholder), each using [Playwright](#built-in-skills) to test your app.
 
 ```bash
-atomic workflow -n ux-personas -a claude
+bun run src/claude-worker.ts --personas=50
 ```
 
 **Review-to-merge pipeline.** The workflow from [step 4](#4-build-your-own-workflow) above — reviews code, runs CI in parallel, opens a PR, notifies Slack, waits for approval, merges.
@@ -292,6 +303,13 @@ atomic workflow -n ux-personas -a claude
       - [`atomic workflow` Flags](#atomic-workflow-flags)
       - [`atomic completions` — Shell Completions](#atomic-completions--shell-completions)
     - [Atomic-Provided Skills (invokable from any agent chat)](#atomic-provided-skills-invokable-from-any-agent-chat)
+  - [Building your own atomic-powered app](#building-your-own-atomic-powered-app)
+    - [Composition root](#composition-root)
+    - [Three execution shapes](#three-execution-shapes)
+    - [Registry rules](#registry-rules)
+    - [CLI flag precedence](#cli-flag-precedence)
+    - [Builtin workflows via the `atomic` CLI](#builtin-workflows-via-the-atomic-cli)
+    - [Migration from 0.x (directory-scanning) to current](#migration-from-0x-directory-scanning-to-current)
   - [Configuration](#configuration)
     - [`.atomic/settings.json`](#atomicsettingsjson)
     - [Agent-Specific Files](#agent-specific-files)
@@ -339,13 +357,39 @@ Each agent gets its own configuration directory (`.claude/`, `.opencode/`, `.git
 
 The Workflow SDK (`@bastani/atomic/workflows`) lets you encode your team's process as TypeScript — spawn agent sessions dynamically with native control flow (`for`, `if`, `Promise.all()`), and watch them appear in a live graph as they execute.
 
-Set up a workflow project (`bun init && bun add @bastani/atomic`), create `.atomic/workflows/<name>/<agent>/index.ts`, and run it:
+Set up a workflow project (`bun init && bun add @bastani/atomic`), define your workflow with `defineWorkflow`, then bind it to a CLI with `createWorker(definition)` (single workflow) or `createDispatcher(registry)` (many workflows):
 
 ```bash
-atomic workflow -n my-workflow -a claude "describe this project"
+bun run src/claude-worker.ts --prompt "describe this project"
 ```
 
 See [step 4 of Quick Start](#4-build-your-own-workflow) for a complete review-to-merge example. More examples and the full API reference below.
+
+#### Runnable examples shipped with the repo
+
+The [`examples/`](./examples) directory contains small, complete user apps you can run directly. Each subdirectory ships `claude/`, `copilot/`, and `opencode/` variants plus one agent-scoped worker file per agent — `claude-worker.ts`, `copilot-worker.ts`, `opencode-worker.ts` — each a three-line `createWorker(workflow).start()` entrypoint:
+
+| Example | What it demonstrates |
+|---|---|
+| `hello-world` | Minimal single-session workflow with structured inputs (greeting, style, optional notes) |
+| `parallel-hello-world` | `Promise.all()` fan-out and transcript merge |
+| `headless-test` | Visible seed → 3 parallel headless stages → visible merge → headless verdict |
+| `hil-favorite-color` | Human-in-the-loop prompt mid-workflow |
+| `hil-favorite-color-headless` | HIL pause inside a headless stage |
+| `structured-output-demo` | Per-SDK structured output (JSON-schema validation, Zod) |
+| `reviewer-tool-test` | Custom reviewer tool wiring (Copilot — copilot-worker.ts only) |
+
+Run any of them with:
+
+```bash
+bun run examples/<name>/<agent>-worker.ts [--field=value | "<prompt>"]
+
+# e.g.
+bun run examples/hello-world/claude-worker.ts --greeting="Hello" --style=casual
+bun run examples/headless-test/copilot-worker.ts "TypeScript"
+```
+
+Copy an example directory into your project as a starting point — swap the workflow import in each `<agent>-worker.ts` for your own definition and you're done.
 
 <details>
 <summary><b>Example: Sequential workflow (describe → summarize)</b></summary>
@@ -357,7 +401,7 @@ export default defineWorkflow({
   name: "my-workflow",
   description: "Two-session pipeline: describe -> summarize",
   inputs: [{ name: "prompt", type: "text", required: true, description: "task prompt" }],
-}).for<"claude">()
+}).for("claude")
   .run(async (ctx) => {
     const prompt = ctx.inputs.prompt ?? "";
 
@@ -395,7 +439,7 @@ export default defineWorkflow({
   name: "parallel-demo",
   description: "describe -> [summarize-a, summarize-b] -> merge",
   inputs: [{ name: "prompt", type: "text", required: true, description: "task prompt" }],
-}).for<"claude">()
+}).for("claude")
   .run(async (ctx) => {
     const prompt = ctx.inputs.prompt ?? "";
 
@@ -464,7 +508,7 @@ export default defineWorkflow({
       description: "extra guidance for the spec writer (optional)",
     },
   ],
-}).for<"claude">()
+}).for("claude")
   .run(async (ctx) => {
     const { research_doc, focus } = ctx.inputs;
     const notes = ctx.inputs.notes ?? "";
@@ -480,16 +524,13 @@ export default defineWorkflow({
   .compile();
 ```
 
-Run it:
+Wire it into `src/claude-worker.ts` (three lines — see [step 4 of Quick Start](#4-build-your-own-workflow)) and run it:
 
 ```bash
-# Named + flags (scriptable; CI-friendly)
-atomic workflow -n gen-spec -a claude \
+# Scriptable; CI-friendly
+bun run src/claude-worker.ts \
   --research_doc=research/docs/2026-04-11-auth.md \
   --focus=standard
-
-# Picker (fuzzy-search workflows, fill the form)
-atomic workflow -a claude
 ```
 
 </details>
@@ -506,7 +547,7 @@ export default defineWorkflow({
   name: "headless-demo",
   description: "seed -> [3 headless background] -> merge",
   inputs: [{ name: "prompt", type: "text", required: true, description: "task prompt" }],
-}).for<"claude">()
+}).for("claude")
   .run(async (ctx) => {
     const prompt = ctx.inputs.prompt ?? "";
 
@@ -653,11 +694,11 @@ The runtime auto-creates `s.client` and `s.session` — use them directly inside
 
 #### Key Rules
 
-1. Every workflow file must `export default` a builder with `.run()` and `.compile()`
+1. Every workflow definition must call `.run()` and `.compile()` on the builder
 2. Session names must be unique within a workflow run
 3. `transcript()` / `getMessages()` only access completed sessions (callback returned + saves flushed)
 4. Each session runs in its own tmux window with the chosen agent
-5. Workflows are organized as `.atomic/workflows/<name>/<agent>/index.ts`
+5. Bind a workflow to a CLI with `createWorker(workflow)` (single workflow) or `createDispatcher(createRegistry().register(...))` (many workflows)
 6. Set up your workflow project with `bun init && bun add @bastani/atomic`
 7. Background (headless) stages use the same callback API — `s.client`, `s.session`, `s.save()`, return values all work identically
 
@@ -1011,7 +1052,7 @@ atomic chat -a claude --verbose              # forward --verbose to claude
 
 | Flag                 | Description                                                                                                                                       |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `-n, --name <name>`  | Workflow name (matches directory under `.atomic/workflows/<name>/`)                                                                               |
+| `-n, --name <name>`  | Workflow name (must be registered in the worker's registry)                                                                                       |
 | `-a, --agent <name>` | Agent: `claude`, `opencode`, `copilot`                                                                                                            |
 | `-d, --detach`       | Start the workflow in the background without attaching — ideal for scripted / CI runs; attach later with `atomic workflow session connect <name>` |
 | `--<field>=<value>`  | Structured input for workflows that declare an `inputs` schema (also accepts `--<field> <value>`)                                                 |
@@ -1031,9 +1072,9 @@ atomic workflow -a claude
 atomic workflow -n ralph -a claude "build a REST API for user management"
 
 # 4. Run a structured-input workflow with one --<field> flag per declared input
-atomic workflow -n gen-spec -a claude \
-  --research_doc=research/docs/2026-04-11-auth.md \
-  --focus=standard
+atomic workflow -n open-claude-design -a claude \
+  --prompt="a dashboard for monitoring API latency" \
+  --output-type=prototype
 
 # 5. Run detached — orchestrator runs in the background; prints the session name
 #    and returns immediately. Attach any time with `atomic workflow session connect`.
@@ -1100,9 +1141,133 @@ Atomic ships skills — not slash commands. Skills are auto-discovered by Claude
 | `ado-create-pr`     | `/ado-create-pr`                  | Commit, push, and open an Azure DevOps PR through the `azure-devops` MCP server |
 | `sl-commit`         | `/sl-commit`                      | Create a Sapling commit                                                         |
 | `sl-submit-diff`    | `/sl-submit-diff`                 | Submit a Sapling commit as a Phabricator diff                                   |
-| `workflow-creator`  | natural language                  | Generate a multi-agent workflow file in `.atomic/workflows/`                    |
+| `workflow-creator`  | natural language                  | Generate a multi-agent workflow definition using `defineWorkflow` + registry    |
 
 Native slash commands (`/help`, `/clear`, `/compact`, `/model`, `/theme`, `/agents`, `/mcp`, `/exit`) come from the underlying agent CLI, not Atomic.
+
+---
+
+## Building your own atomic-powered app
+
+`@bastani/atomic/workflows` is a library, not just a CLI. Use it directly to build your own TypeScript app that runs your team's workflows.
+
+### Two composition primitives
+
+Pick the one that matches your shape:
+
+| Primitive | Binds to | Use when |
+|---|---|---|
+| `createWorker(workflow)` | Exactly one compiled `WorkflowDefinition` | The file *is* the workflow. No `-n`/`-a` dispatch, CLI exposes only declared `--<input>` flags, `start(inputs)` is typed against the schema. |
+| `createDispatcher(registry)` | A `Registry` of many workflows | You're shipping many workflows behind one entrypoint and need argv-driven `-n <name> -a <agent>` dispatch (the shape `atomic workflow` uses internally). |
+
+**Single-workflow (recommended default)** — one file per agent, three lines each:
+
+```ts
+// src/claude-worker.ts
+import { createWorker } from "@bastani/atomic/workflows";
+import workflow from "./workflows/review-to-merge/claude.ts";
+
+const worker = createWorker(workflow);
+await worker.start({ target_branch: "main" });   // typed defaults; CLI flags override
+```
+
+Run it:
+
+```bash
+bun run src/claude-worker.ts --target_branch=release/v2
+```
+
+**Multi-workflow dispatcher** — when you want one entrypoint to dispatch across many:
+
+```ts
+// src/dispatcher.ts
+import { createRegistry, createDispatcher } from "@bastani/atomic/workflows";
+import reviewToMerge from "./workflows/review-to-merge/claude.ts";
+import genSpec from "./workflows/gen-spec/claude.ts";
+
+const registry = createRegistry().register(reviewToMerge).register(genSpec);
+const dispatcher = createDispatcher(registry);
+await dispatcher.start();
+```
+
+Run it:
+
+```bash
+bun run src/dispatcher.ts -n review-to-merge -a claude
+```
+
+Need a listing subcommand? Use `dispatcher.command()` and attach your own `list` subcommand — the same way `atomic workflow list` is wired up in `src/cli.ts`.
+
+### Three execution shapes
+
+Both primitives expose the same triptych — a flat CLI, an embeddable Commander command, and a programmatic call. Signatures differ because the single-workflow worker already knows the agent and name.
+
+| Shape | `Worker<D>` (single) | `Dispatcher<T>` (many) |
+|---|---|---|
+| Flat CLI (parses argv) | `worker.start(inputs?)` | `dispatcher.start()` |
+| Embeddable Commander command | `worker.command(name?)` — default name = `workflow.name` | `dispatcher.command(name?)` — default `"workflow"` |
+| Programmatic invocation | `worker.run({ inputs?, detach? })` | `dispatcher.run(name, agent, { inputs?, detach? })` |
+
+Example — embed a worker under a parent CLI:
+
+```ts
+import { Command } from "commander";
+const program = new Command("my-app");
+program.addCommand(worker.command());   // registers as a subcommand named after the workflow
+program.parse(process.argv);
+```
+
+Example — programmatic invocation without argv:
+
+```ts
+await worker.run({
+  inputs: { research_doc: "research/docs/2026-04-11-auth.md" },
+});
+```
+
+### Registry rules (dispatcher only)
+
+- `createRegistry()` returns an **immutable** registry. Each `.register(wf)` call returns a **new** registry — the original is unchanged. Chain calls to accumulate workflows.
+- Each workflow is keyed by `${agent}/${name}` — the `(agent, name)` pair must be unique. Registering a duplicate throws immediately.
+- `createDispatcher(registry)` inspects every registered workflow and builds a union of their declared inputs. Same-name / same-type flags are shared; same-name / different-type conflicts throw at construction time so ambiguity never reaches runtime.
+- Builtin workflows (`ralph`, `deep-research-codebase`, `open-claude-design`) are managed by `atomic`'s internal `createBuiltinRegistry()`. They are reserved — user-registered workflows with the same name will not shadow builtins when running the `atomic` CLI.
+
+### Input precedence
+
+CLI flags always win. Under them, the order is:
+
+1. `defineWorkflow` default values (on each `WorkflowInput`)
+2. Layer supplied at construction or invocation:
+   - `worker.start(inputs)` / `worker.run({ inputs })` for the single-workflow shape
+   - `createDispatcher(registry, { inputs })` / `dispatcher.run(name, agent, { inputs })` for the multi-workflow shape
+3. CLI flags — `--<field>=<value>` passed at runtime
+
+### Builtin workflows via the `atomic` CLI
+
+The `atomic workflow` command still works for the three built-in workflows — internally it's `createDispatcher(createBuiltinRegistry()).command("workflow")`:
+
+```bash
+atomic workflow -n ralph -a claude "Build the auth module"
+atomic workflow -n deep-research-codebase -a claude "How does auth work?"
+atomic workflow -n open-claude-design -a claude
+```
+
+These are not affected by your own `createRegistry()` — they are separate.
+
+### Migration from 0.x (directory-scanning) to current
+
+> This is a breaking change. The SDK no longer scans `.atomic/workflows/` directories.
+
+1. **Delete** `.atomic/workflows/` from your repo.
+2. **Create one worker file per agent**, e.g. `src/claude-worker.ts`:
+   ```ts
+   import { createWorker } from "@bastani/atomic/workflows";
+   import workflow from "./workflows/my-workflow/claude.ts";
+
+   const worker = createWorker(workflow);
+   await worker.start();
+   ```
+3. **Update invocations**: replace `atomic workflow -n foo -a claude` with `bun run src/claude-worker.ts` for your custom workflows. For the Atomic builtin set (`ralph`, `deep-research-codebase`, `open-claude-design`) keep using `atomic workflow -n <name> -a <agent>`.
 
 ---
 
@@ -1120,17 +1285,22 @@ Resolution order:
   "$schema": "https://raw.githubusercontent.com/flora131/atomic/main/assets/settings.schema.json",
   "version": 1,
   "scm": "github",
-  "lastUpdated": "2026-04-09T12:00:00.000Z"
+  "providers": {
+    "claude": {
+      "chatFlags": ["--model", "claude-sonnet-4-6"],
+      "envVars": { "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "16384" }
+    }
+  }
 }
 ```
 
 
-| Field         | Type   | Description                                                                                                                                     |
-| ------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `$schema`     | string | JSON Schema URL for editor autocomplete                                                                                                         |
-| `version`     | number | Config schema version (currently `1`)                                                                                                           |
-| `scm`         | string | Source control provider — `github`, `azure-devops`, or `sapling`. Reconciles the GitHub / Azure DevOps MCP servers in agent configs on startup. |
-| `lastUpdated` | string | ISO 8601 timestamp of the last update                                                                                                           |
+| Field       | Type   | Description                                                                                                                                     |
+| ----------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `$schema`   | string | JSON Schema URL for editor autocomplete                                                                                                         |
+| `version`   | number | Config schema version (currently `1`)                                                                                                           |
+| `scm`       | string | Source control provider — `github`, `azure-devops`, or `sapling`. Reconciles the GitHub / Azure DevOps MCP servers in agent configs on startup. |
+| `providers` | object | Per-provider overrides for `claude`, `opencode`, `copilot`. `chatFlags` replaces built-in defaults entirely; `envVars` are merged               |
 
 > Model selection and reasoning effort are managed by each underlying agent CLI (e.g. Claude Code's `/model`), not Atomic. Atomic's chat command spawns the agent's native TUI — use the agent's own controls.
 

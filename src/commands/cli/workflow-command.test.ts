@@ -1,6 +1,6 @@
 /**
  * Tests for `workflowCommand` — the Commander Command returned by
- * `createDispatcher(createBuiltinRegistry()).command("workflow")`.
+ * `createWorkflowCli(createBuiltinRegistry()).command("workflow")`.
  *
  * Mocking strategy: mock.module("../../sdk/runtime/executor.ts") replaces
  * executeWorkflow with a spy BEFORE the dynamic import of workflow.ts.
@@ -51,11 +51,13 @@ await mock.module("../../sdk/runtime/executor.ts", () => ({
 // Build a fresh workflowCommand using the real builtin registry directly.
 // This avoids stale-cache issues when workflow.ts was previously loaded by
 // cli.ts with a mocked (fake) builtin-registry in earlier test files.
-const { createDispatcher } = await import("../../sdk/dispatcher.ts");
+const { createWorkflowCli } = await import("../../sdk/workflow-cli.ts");
+const { toCommand } = await import("../../sdk/commander.ts");
 const { createBuiltinRegistry } = await import("../../sdk/workflows/builtin-registry.ts");
-const workflowCommand = createDispatcher(
-  createBuiltinRegistry(),
-).command("workflow");
+const workflowCommand = toCommand(
+  createWorkflowCli(createBuiltinRegistry()),
+  "workflow",
+);
 
 // ─── Output capture ──────────────────────────────────────────────────────────
 

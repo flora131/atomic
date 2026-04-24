@@ -1,6 +1,6 @@
 /**
  * Shared helpers for the single-definition worker (`./worker.ts`) and
- * the multi-workflow dispatcher (`./dispatcher.ts`). These were all
+ * the multi-workflow dispatcher (`./workflow-cli.ts`). These were all
  * inlined in the original `worker.ts` before the split.
  */
 

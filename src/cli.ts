@@ -27,125 +27,16 @@ import { COLORS } from "./theme/colors.ts";
 import { AGENT_CONFIG, type AgentKey } from "./services/config/index.ts";
 import { SUPPORTED_SHELLS, type Shell } from "./completions/index.ts";
 import { workflowCommand } from "./commands/cli/workflow.ts";
+import { addSessionSubcommand } from "./sdk/management-commands.ts";
 
-// ─── Orchestrator re-entry guard ─────────────────────────────────────────────
-
-/**
- * Detect orchestrator re-entry for builtin workflows running in detached mode.
- *
- * When `atomic workflow -n <name> -a <agent> --detach` launches a builtin
- * workflow, the executor spawns a tmux orchestrator pane that re-invokes the
- * atomic binary with ATOMIC_ORCHESTRATOR_MODE=1 + ATOMIC_WF_KEY=<key>.
- * Without this guard, commander would try to parse argv as a normal command
- * and fail. We intercept BEFORE commander runs.
- *
- * Returns true when orchestrator mode was handled (caller should exit 0).
- * Returns false when ATOMIC_ORCHESTRATOR_MODE is unset — normal CLI path.
- * Throws on missing/unknown key so the caller can print the error and exit 1.
- */
-export async function handleBuiltinOrchestratorReEntry(): Promise<boolean> {
-  if (process.env.ATOMIC_ORCHESTRATOR_MODE !== "1") {
-    return false;
-  }
-
-  const key = process.env.ATOMIC_WF_KEY ?? "";
-  const { createBuiltinRegistry } = await import("./sdk/workflows/builtin-registry.ts");
-  const { runOrchestrator } = await import("./sdk/runtime/executor.ts");
-
-  // Key format: "<agent>/<name>"
-  const slashIdx = key.indexOf("/");
-  const registry = createBuiltinRegistry();
-  const def =
-    slashIdx >= 0
-      ? registry.resolve(key.slice(slashIdx + 1), key.slice(0, slashIdx) as Parameters<typeof registry.resolve>[1])
-      : undefined;
-
-  if (!def) {
-    throw new Error(`orchestrator: ATOMIC_WF_KEY '${key}' not found in builtin registry`);
-  }
-
-  await runOrchestrator(def);
-  return true;
-}
-
-// ─── Session subcommand factory ─────────────────────────────────────────────
-
-/**
- * Build a `session` subcommand group with `list` and `connect` children.
- * Reused under `chat`, `workflow`, and at the top level.
- */
-/** Commander collect helper: accumulates repeated `-a` values into an array. */
-function collectAgent(value: string, previous: string[]): string[] {
-    return [...previous, value];
-}
-
-function addSessionSubcommand(parent: Command, scope: "chat" | "workflow" | "all" = "all") {
-    const sessionCmd = parent
-        .command("session")
-        .description("Manage running tmux sessions");
-
-    sessionCmd
-        .command("list")
-        .description("List running sessions on the atomic tmux socket")
-        .option(
-            "-a, --agent <name>",
-            `Filter by agent backend (${Object.keys(AGENT_CONFIG).join(", ")}); repeatable`,
-            collectAgent,
-            [] as string[],
-        )
-        .action(async (localOpts) => {
-            const { sessionListCommand } = await import("./commands/cli/session.ts");
-            const exitCode = await sessionListCommand(localOpts.agent, scope);
-            process.exit(exitCode);
-        });
-
-    sessionCmd
-        .command("connect")
-        .description("Attach to a running session (interactive picker when no id given)")
-        .argument("[session_id]", "Session name to connect to")
-        .option(
-            "-a, --agent <name>",
-            `Filter picker by agent backend (${Object.keys(AGENT_CONFIG).join(", ")}); repeatable`,
-            collectAgent,
-            [] as string[],
-        )
-        .action(async (sessionId, localOpts) => {
-            if (sessionId) {
-                const { sessionConnectCommand } = await import("./commands/cli/session.ts");
-                const exitCode = await sessionConnectCommand(sessionId);
-                process.exit(exitCode);
-            } else {
-                const { sessionPickerCommand } = await import("./commands/cli/session.ts");
-                const exitCode = await sessionPickerCommand(localOpts.agent, scope);
-                process.exit(exitCode);
-            }
-        });
-
-    sessionCmd
-        .command("kill")
-        .description("Kill a running session (omit id to kill all)")
-        .argument("[session_id]", "Session name to kill (omit to kill all)")
-        .option(
-            "-a, --agent <name>",
-            `Filter by agent backend (${Object.keys(AGENT_CONFIG).join(", ")}); repeatable`,
-            collectAgent,
-            [] as string[],
-        )
-        .option("-y, --yes", "Skip the confirmation prompt (for non-interactive callers like agents)")
-        .action(async (sessionId, localOpts) => {
-            const { sessionKillCommand } = await import("./commands/cli/session.ts");
-            const exitCode = await sessionKillCommand(
-                sessionId,
-                localOpts.agent,
-                scope,
-                undefined,
-                { yes: localOpts.yes === true },
-            );
-            process.exit(exitCode);
-        });
-
-    return sessionCmd;
-}
+// Orchestrator re-entry is handled transparently by `runCli` in `main()`
+// below — no explicit guard needed. The `atomic workflow` command exposes
+// the builtin workflow CLI, which `runCli` uses to resolve re-entry keys.
+//
+// Session subcommand builders live in `./sdk/management-commands.ts` so the
+// exact same `session list | connect | kill` surface is shipped by every
+// `createWorkflowCli()` user CLI — sessions live on the shared atomic tmux
+// socket, so there's one implementation.
 
 // ─── Program ────────────────────────────────────────────────────────────────
 
@@ -441,47 +332,58 @@ Install completions for your shell:
 export const program = createProgram();
 
 /**
- * Main entry point for the CLI
+ * Main entry point for the CLI.
+ *
+ * `runCli` handles detached orchestrator re-entry transparently — when the
+ * process is spawned by a tmux orchestrator pane (ATOMIC_ORCHESTRATOR_MODE
+ * set), it resolves the workflow against the builtin CLI's registry
+ * and drives it via `runOrchestrator`, skipping bootstrap + argv parsing.
+ * Otherwise, it runs the provided CLI callback (bootstrap + parseAsync).
  */
 async function main(): Promise<void> {
     try {
-        // Orchestrator re-entry for builtin workflows (detach mode).
-        // Must run BEFORE commander parses argv so the re-launched orchestrator
-        // pane short-circuits cleanly instead of failing argv parsing.
-        const handled = await handleBuiltinOrchestratorReEntry();
-        if (handled) {
-            process.exit(0);
-        }
+        const { createWorkflowCli } = await import("./sdk/workflow-cli.ts");
+        const { runCli } = await import("./sdk/commander.ts");
+        const { createBuiltinRegistry } = await import(
+            "./sdk/workflows/builtin-registry.ts"
+        );
 
-        // Bootstrap `~/.atomic/settings.json` on every invocation if absent,
-        // so users always have a file to edit with JSON Schema intellisense
-        // wired up. Idempotent; swallows FS errors internally.
-        const { ensureGlobalAtomicSettings } = await import("./services/config/settings.ts");
-        await ensureGlobalAtomicSettings();
+        const builtinCli = createWorkflowCli(createBuiltinRegistry());
 
-        // Sync tooling deps and global skills on first launch after install
-        // or upgrade. Runs at most once per version bump (gated on a marker
-        // file under ~/.atomic). Skipped for `--version` / `--help` so info
-        // paths stay instant.
-        const argv = process.argv.slice(2);
-        const isInfoCommand =
-            argv.includes("--version") ||
-            argv.includes("-v") ||
-            argv.includes("--help") ||
-            argv.includes("-h") ||
-            argv[0] === "completions" ||
-            argv[0] === "_footer" ||
-            argv[0] === "_claude-stop-hook" ||
-            argv[0] === "_claude-ask-hook" ||
-            argv[0] === "_claude-session-start-hook";
+        await runCli([builtinCli], async () => {
+            // Bootstrap `~/.atomic/settings.json` on every invocation if absent,
+            // so users always have a file to edit with JSON Schema intellisense
+            // wired up. Idempotent; swallows FS errors internally.
+            const { ensureGlobalAtomicSettings } = await import(
+                "./services/config/settings.ts"
+            );
+            await ensureGlobalAtomicSettings();
 
-        if (!isInfoCommand) {
-            const { autoSyncIfStale } = await import("./services/system/auto-sync.ts");
-            await autoSyncIfStale();
-        }
+            // Sync tooling deps and global skills on first launch after install
+            // or upgrade. Runs at most once per version bump (gated on a marker
+            // file under ~/.atomic). Skipped for `--version` / `--help` so info
+            // paths stay instant.
+            const argv = process.argv.slice(2);
+            const isInfoCommand =
+                argv.includes("--version") ||
+                argv.includes("-v") ||
+                argv.includes("--help") ||
+                argv.includes("-h") ||
+                argv[0] === "completions" ||
+                argv[0] === "_footer" ||
+                argv[0] === "_claude-stop-hook" ||
+                argv[0] === "_claude-ask-hook" ||
+                argv[0] === "_claude-session-start-hook";
 
-        // Parse and execute the command
-        await program.parseAsync();
+            if (!isInfoCommand) {
+                const { autoSyncIfStale } = await import(
+                    "./services/system/auto-sync.ts"
+                );
+                await autoSyncIfStale();
+            }
+
+            await program.parseAsync();
+        });
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.error(`${COLORS.red}Error: ${message}${COLORS.reset}`);

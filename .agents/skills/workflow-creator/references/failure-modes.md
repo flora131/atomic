@@ -47,10 +47,10 @@ Silent failures are catalogued first below. Loud failures are grouped at the end
 | [F15](#f15-headless-stage-errors-are-invisible-in-the-graph) | Headless stage errors are invisible in the graph | all | silent |
 | [F16](#f16-claude-importing-sdk-query-inside-a-non-headless-stage) | Claude: importing the SDK `query()` inside a non-headless stage (anti-pattern) | Claude | silent |
 | [F17](#f17-duplicate-registration-throws-at-composition-root) | Duplicate registration throws at composition root | all | loud |
-| [F18](#f18-input-flag-name-collision-across-workflows-at-createworker-time) | Input flag-name collision across workflows at `createWorker` time | all | loud |
+| [F18](#f18-input-flag-name-collision-across-workflows-at-createworker-time) | Input flag-name collision across workflows at `createWorkflowCli` time | all | loud |
 | [F19](#f19-reserved-flag-input-name-declared-in-workflow) | Reserved flag input name declared in workflow | all | loud |
 | [F20](#f20-orchestrator-re-entry-env-var-corruption) | Orchestrator re-entry env var corruption | all | silent |
-| [F21](#f21-entrypointfile-mismatch-when-user-bundles-the-app) | `entrypointFile` mismatch when user bundles the app | all | silent |
+| [F21](#f21-entry-mismatch-when-user-bundles-the-app) | `entry` mismatch when user bundles the app | all | silent |
 | [F22](#f22-ctxstage-with-no-llm-query-spawns-an-empty-idle-pane) | `ctx.stage()` with no LLM query spawns an empty, idle pane | all | silent |
 
 ---
@@ -911,7 +911,7 @@ Before shipping a multi-session workflow, walk the list:
 - [ ] Shared input names across workflows use the same `type` (F18)
 - [ ] No declared inputs use reserved names: `name`, `agent`, `detach`, `list`, `help`, `version` (F19)
 - [ ] `ATOMIC_ORCHESTRATOR_MODE` and `ATOMIC_WF_KEY` are set exclusively by the runtime — not in `.env` files or parent process env (F20)
-- [ ] When bundling the user app, `entrypointFile` matches the bundle's entrypoint, not the source file (F21)
+- [ ] When bundling the user app, pass `entry` to `createWorkflowCli`/`createWorkflowCli` pointing at the bundle's entrypoint, not the source file (F21)
 - [ ] Every `ctx.stage()` callback contains at least one LLM call (`s.session.query` / `s.session.send` / `s.client.session.prompt`); stages that are pure deterministic code have been demoted to plain TypeScript in `.run()` (F22)
 
 ---
@@ -933,9 +933,9 @@ without conflict.
 
 ---
 
-### F18. Input flag-name collision across workflows at `createWorker` time
+### F18. Input flag-name collision across workflows at `createWorkflowCli` time
 
-**Symptom.** `createWorker({ registry })` throws with a type-conflict message
+**Symptom.** `createWorkflowCli({ registry })` throws with a type-conflict message
 before the CLI parses any argv:
 
 ```
@@ -975,7 +975,7 @@ fresh invocation, or re-entry fails with `ATOMIC_WF_KEY "${key}" not found in
 registry`. The CLI runs a different workflow than requested, or exits with an
 opaque error.
 
-**Root cause.** `worker.start()` checks `process.env.ATOMIC_ORCHESTRATOR_MODE`
+**Root cause.** `cli.run()` (and `cli.run()`) check `process.env.ATOMIC_ORCHESTRATOR_MODE`
 **before** parsing argv. If `ATOMIC_ORCHESTRATOR_MODE=1` is present in the
 environment (e.g. from a leaked `.env` file, a parent process, or a test
 harness that forked the worker), the normal CLI flow is bypassed entirely.
@@ -991,13 +991,13 @@ wrong or missing, the worker throws without touching argv.
 
 ---
 
-### F21. `entrypointFile` mismatch when user bundles the app
+### F21. `entry` mismatch when user bundles the app
 
 **Symptom.** The worker spawns a tmux pane and the orchestrator re-entry
 process exits immediately with a module-not-found error, or runs the wrong
 entrypoint, or fails to locate the workflow definition.
 
-**Root cause.** The executor passes `entrypointFile` (defaults to
+**Root cause.** The executor passes `entry` (defaults to
 `process.argv[1]`) to the spawned orchestrator process as the script to
 re-execute. When the app is bundled (e.g. `bun build`), the running process
 is the bundle, but `process.argv[1]` may still point to the original
@@ -1005,19 +1005,18 @@ source file (or vice versa). The spawned child executes a different file than
 the one that registered the workflow — so the registry is empty or different
 and `ATOMIC_WF_KEY` resolves to nothing.
 
-**Fix.** When building and distributing the app as a bundle:
+**Fix.** Set `entry` at composition-root construction time — it's now a
+factory option, so you set it once, not on every call:
 
 ```ts
-const worker = createWorker({
-  registry,
-  // Point to the bundle output, not the source file
-  // worker.run() accepts entrypointFile per-call
+// Point to the bundle output, not the source file.
+const worker = createWorkflowCli(workflow, {
+  entry: "/path/to/dist/worker.js",
 });
 
-// Or, programmatic invocation with explicit entrypoint:
-await worker.run("my-workflow", "claude", {
-  inputs: { prompt: "..." },
-  entrypointFile: "/path/to/dist/worker.js",
+// WorkflowCli takes the same option.
+const cli = createWorkflowCli(registry, {
+  entry: import.meta.url,
 });
 ```
 

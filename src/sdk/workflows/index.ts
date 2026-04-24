@@ -10,13 +10,13 @@ export { defineWorkflow, WorkflowBuilder } from "../define-workflow.ts";
 export { createRegistry } from "../registry.ts";
 export type { Registry } from "../registry.ts";
 
-// Worker — single-workflow CLI factory
-export { createWorker } from "../worker.ts";
-export type { Worker, CreateWorkerOptions } from "../types.ts";
+// WorkflowCli — the single factory that drives workflow CLIs. Accepts a
+// lone workflow, an array of workflows, or a Registry for programmatic
+// composition. Ships with the interactive picker out of the box.
+export { createWorkflowCli } from "../workflow-cli.ts";
+export type { WorkflowCli, CreateWorkflowCliOptions } from "../types.ts";
 
-// Dispatcher — multi-workflow CLI factory (registry-based dispatch)
-export { createDispatcher } from "../dispatcher.ts";
-export type { Dispatcher, CreateDispatcherOptions } from "../types.ts";
+export type { ArgvMode } from "../types.ts";
 
 export type {
   AgentType,

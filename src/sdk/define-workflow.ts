@@ -22,9 +22,12 @@ import type {
 type AnyInputs = readonly WorkflowInput[];
 
 /**
- * Flag names reserved by the worker CLI that cannot be used as workflow
- * input names. Declaring a workflow input with any of these names would
- * collide with the worker's own flags at runtime.
+ * Flag and subcommand names reserved by the worker CLI that cannot be used as
+ * workflow input names. The first block (`name` / `agent` / `detach` / `list`
+ * / `help` / `version`) collides with Commander's own flags on the root
+ * command; the second block (`session` / `status`) collides with the auto-
+ * registered management subcommands added by `createWorkflowCli` when
+ * `includeManagementCommands` is left at its default (`true`).
  */
 export const RESERVED_INPUT_NAMES = [
   "name",
@@ -33,6 +36,8 @@ export const RESERVED_INPUT_NAMES = [
   "list",
   "help",
   "version",
+  "session",
+  "status",
 ] as const;
 
 /**

@@ -1,5 +1,5 @@
 /**
- * Tests for createDispatcher() — the registry-based multi-workflow CLI
+ * Tests for createWorkflowCli() — the registry-based multi-workflow CLI
  * factory used by the internal `atomic workflow` command.
  *
  * Mocking strategy: mock.module("../../src/sdk/runtime/executor.ts") replaces
@@ -21,7 +21,7 @@ import type { WorkflowRunOptions } from "../../src/sdk/runtime/executor.ts";
 import type { WorkflowDefinition } from "../../src/sdk/types.ts";
 import type { WorkflowPickerResult } from "../../src/sdk/components/workflow-picker-panel.tsx";
 
-// ─── Module-level mock — declared before any import of dispatcher.ts ─────────
+// ─── Module-level mock — declared before any import of cli.ts ─────────
 
 const executeWorkflowCalls: WorkflowRunOptions[] = [];
 const runOrchestratorCalls: WorkflowDefinition[] = [];
@@ -63,7 +63,8 @@ await mock.module("../../src/sdk/components/workflow-picker-panel.tsx", () => ({
 }));
 
 // Import AFTER mock.module is set up
-import { createDispatcher } from "../../src/sdk/dispatcher.ts";
+import { createWorkflowCli } from "../../src/sdk/workflow-cli.ts";
+import { toCommand } from "../../src/sdk/commander.ts";
 import { createRegistry } from "../../src/sdk/registry.ts";
 import { defineWorkflow } from "../../src/sdk/define-workflow.ts";
 
@@ -153,13 +154,19 @@ afterEach(() => {
 
 // ─── 1. Construction ──────────────────────────────────────────────────────────
 
-describe("createDispatcher — construction", () => {
-  test("empty registry returns Dispatcher with start, command, run methods", () => {
+describe("createWorkflowCli — construction", () => {
+  test("empty registry returns WorkflowCli with registry, entry, defaults, and run", () => {
     const registry = createRegistry();
-    const dispatcher = createDispatcher(registry);
-    expect(typeof dispatcher.start).toBe("function");
-    expect(typeof dispatcher.command).toBe("function");
-    expect(typeof dispatcher.run).toBe("function");
+    const cli = createWorkflowCli(registry);
+    expect(cli.registry).toBe(registry);
+    expect(typeof cli.entry).toBe("string");
+    expect(typeof cli.run).toBe("function");
+  });
+
+  test("WorkflowCli does not expose .command() — adapter lives in /commander", () => {
+    const registry = createRegistry();
+    const cli = createWorkflowCli(registry);
+    expect((cli as unknown as { command?: unknown }).command).toBeUndefined();
   });
 
   test("same-name + different-type inputs across two workflows throws with both workflow names", () => {
@@ -181,9 +188,9 @@ describe("createDispatcher — construction", () => {
 
     const registry = createRegistry().register(wf1).register(wf2);
 
-    expect(() => createDispatcher(registry)).toThrow("score");
-    expect(() => createDispatcher(registry)).toThrow("claude/alpha");
-    expect(() => createDispatcher(registry)).toThrow("opencode/beta");
+    expect(() => createWorkflowCli(registry)).toThrow("score");
+    expect(() => createWorkflowCli(registry)).toThrow("claude/alpha");
+    expect(() => createWorkflowCli(registry)).toThrow("opencode/beta");
   });
 
   test("same-name + same-type inputs across two workflows does not throw", () => {
@@ -204,89 +211,74 @@ describe("createDispatcher — construction", () => {
       .compile();
 
     const registry = createRegistry().register(wf1).register(wf2);
-    expect(() => createDispatcher(registry)).not.toThrow();
+    expect(() => createWorkflowCli(registry)).not.toThrow();
   });
 });
 
-// ─── 2. .command() ────────────────────────────────────────────────────────────
+// ─── 2. toCommand(cli) — Commander adapter ───────────────────────────
 
-describe(".command(name)", () => {
+describe("toCommand(cli, name?)", () => {
   test("returns a Commander Command named 'workflow' by default", () => {
     const registry = createRegistry().register(makeSimpleWorkflow("foo", "claude"));
-    const dispatcher = createDispatcher(registry);
-    const cmd = dispatcher.command("workflow");
+    const cmd = toCommand(createWorkflowCli(registry));
     expect(cmd.name()).toBe("workflow");
   });
 
   test("returns a Commander Command with the given name", () => {
     const registry = createRegistry();
-    const dispatcher = createDispatcher(registry);
-    const cmd = dispatcher.command("wf");
+    const cmd = toCommand(createWorkflowCli(registry), "wf");
     expect(cmd.name()).toBe("wf");
   });
 
   test("command has -n/--name option", () => {
     const registry = createRegistry();
-    const dispatcher = createDispatcher(registry);
-    const cmd = dispatcher.command("workflow");
+    const cmd = toCommand(createWorkflowCli(registry));
     const opts = cmd.options;
-    const nameOpt = opts.find((o) => o.long === "--name");
-    expect(nameOpt).toBeDefined();
-    const shortOpt = opts.find((o) => o.short === "-n");
-    expect(shortOpt).toBeDefined();
+    expect(opts.find((o) => o.long === "--name")).toBeDefined();
+    expect(opts.find((o) => o.short === "-n")).toBeDefined();
   });
 
   test("command has -a/--agent option", () => {
     const registry = createRegistry();
-    const dispatcher = createDispatcher(registry);
-    const cmd = dispatcher.command("workflow");
+    const cmd = toCommand(createWorkflowCli(registry));
     const opts = cmd.options;
-    const agentOpt = opts.find((o) => o.long === "--agent");
-    expect(agentOpt).toBeDefined();
-    const shortOpt = opts.find((o) => o.short === "-a");
-    expect(shortOpt).toBeDefined();
+    expect(opts.find((o) => o.long === "--agent")).toBeDefined();
+    expect(opts.find((o) => o.short === "-a")).toBeDefined();
   });
 
   test("command has -d/--detach option", () => {
     const registry = createRegistry();
-    const dispatcher = createDispatcher(registry);
-    const cmd = dispatcher.command("workflow");
-    const opts = cmd.options;
-    const detachOpt = opts.find((o) => o.long === "--detach");
-    expect(detachOpt).toBeDefined();
+    const cmd = toCommand(createWorkflowCli(registry));
+    expect(cmd.options.find((o) => o.long === "--detach")).toBeDefined();
   });
 
   test("command does NOT have -l/--list option (moved to `atomic workflow list` subcommand)", () => {
     const registry = createRegistry();
-    const dispatcher = createDispatcher(registry);
-    const cmd = dispatcher.command("workflow");
-    const opts = cmd.options;
-    expect(opts.find((o) => o.long === "--list")).toBeUndefined();
-    expect(opts.find((o) => o.short === "-l")).toBeUndefined();
+    const cmd = toCommand(createWorkflowCli(registry));
+    expect(cmd.options.find((o) => o.long === "--list")).toBeUndefined();
+    expect(cmd.options.find((o) => o.short === "-l")).toBeUndefined();
   });
 
   test("command has --<inputName> flag for each union input", () => {
     const wf = makeStringWorkflow("myflow", "claude");
     const registry = createRegistry().register(wf);
-    const dispatcher = createDispatcher(registry);
-    const cmd = dispatcher.command("workflow");
-    const opts = cmd.options;
-    expect(opts.find((o) => o.long === "--topic")).toBeDefined();
-    expect(opts.find((o) => o.long === "--mode")).toBeDefined();
+    const cmd = toCommand(createWorkflowCli(registry));
+    expect(cmd.options.find((o) => o.long === "--topic")).toBeDefined();
+    expect(cmd.options.find((o) => o.long === "--mode")).toBeDefined();
   });
 });
 
-// ─── 3. .start() with argv ────────────────────────────────────────────────────
+// ─── 3. .run() with argv ────────────────────────────────────────────────────
 
-describe(".start() — argv parsing", () => {
+describe(".run() — argv parsing", () => {
   test("calls executeWorkflow with resolved inputs + entrypointFile + workflowKey", async () => {
     const wf = makeSeverityWorkflow("mywf", "claude");
     const registry = createRegistry().register(wf);
-    const dispatcher = createDispatcher(registry, {
+    const cli = createWorkflowCli(registry);
+
+    await cli.run({
       argv: ["bun", "worker.ts", "-n", "mywf", "-a", "claude", "--severity", "high"],
     });
-
-    await dispatcher.start();
 
     expect(executeWorkflowCalls).toHaveLength(1);
     const call = executeWorkflowCalls[0]!;
@@ -298,11 +290,11 @@ describe(".start() — argv parsing", () => {
   test("free-form workflow passes prompt tokens through inputs.prompt", async () => {
     const wf = makeSimpleWorkflow("freeflow", "opencode");
     const registry = createRegistry().register(wf);
-    const dispatcher = createDispatcher(registry, {
+    const cli = createWorkflowCli(registry);
+
+    await cli.run({
       argv: ["bun", "worker.ts", "-n", "freeflow", "-a", "opencode", "hello", "world"],
     });
-
-    await dispatcher.start();
 
     expect(executeWorkflowCalls).toHaveLength(1);
     expect(executeWorkflowCalls[0]!.inputs?.["prompt"]).toBe("hello world");
@@ -315,19 +307,21 @@ describe("unknown (name, agent) pair", () => {
   test("registry has only claude/foo — calling opencode/foo via .run() throws with clear error", async () => {
     const wf = makeSimpleWorkflow("foo", "claude");
     const registry = createRegistry().register(wf);
-    const dispatcher = createDispatcher(registry);
+    const cli = createWorkflowCli(registry);
 
-    await expect(dispatcher.run("foo", "opencode")).rejects.toThrow(/no workflow named "foo"/);
+    await expect(
+      cli.run({ name: "foo", agent: "opencode", argv: false }),
+    ).rejects.toThrow(/no workflow named "foo"/);
   });
 
   test("error message mentions available agents when name exists for another agent", async () => {
     const wf = makeSimpleWorkflow("foo", "claude");
     const registry = createRegistry().register(wf);
-    const dispatcher = createDispatcher(registry);
+    const cli = createWorkflowCli(registry);
 
     let caught: Error | undefined;
     try {
-      await dispatcher.run("foo", "opencode");
+      await cli.run({ name: "foo", agent: "opencode", argv: false });
     } catch (e) {
       caught = e as Error;
     }
@@ -337,52 +331,58 @@ describe("unknown (name, agent) pair", () => {
 
   test("error message says 'no workflow named' when name does not exist at all", async () => {
     const registry = createRegistry();
-    const dispatcher = createDispatcher(registry);
+    const cli = createWorkflowCli(registry);
 
-    await expect(dispatcher.run("missing", "claude")).rejects.toThrow(
-      /no workflow named "missing"/,
-    );
+    await expect(
+      cli.run({ name: "missing", agent: "claude", argv: false }),
+    ).rejects.toThrow(/no workflow named "missing"/);
   });
 });
 
 // ─── 5. Input precedence ──────────────────────────────────────────────────────
 
 describe("input precedence", () => {
-  test(".run() inputs override createDispatcher({ inputs })", async () => {
+  test(".run() inputs override createWorkflowCli({ inputs })", async () => {
     const wf = makeSeverityWorkflow("wf", "claude");
     const registry = createRegistry().register(wf);
-    const dispatcher = createDispatcher(registry, {
+    const cli = createWorkflowCli(registry, {
       inputs: { severity: "medium" },
     });
 
-    await dispatcher.run("wf", "claude", { inputs: { severity: "high" } });
+    await cli.run({
+      name: "wf",
+      agent: "claude",
+      inputs: { severity: "high" },
+      argv: false,
+    });
 
     expect(executeWorkflowCalls).toHaveLength(1);
     expect(executeWorkflowCalls[0]!.inputs?.["severity"]).toBe("high");
   });
 
-  test("createDispatcher({ inputs }) overrides defineWorkflow default", async () => {
+  test("createWorkflowCli({ inputs }) overrides defineWorkflow default", async () => {
     const wf = makeSeverityWorkflow("wf", "claude", "low");
     const registry = createRegistry().register(wf);
-    const dispatcher = createDispatcher(registry, {
+    const cli = createWorkflowCli(registry, {
       inputs: { severity: "medium" },
     });
 
-    await dispatcher.run("wf", "claude");
+    await cli.run({ name: "wf", agent: "claude", argv: false });
 
     expect(executeWorkflowCalls).toHaveLength(1);
     expect(executeWorkflowCalls[0]!.inputs?.["severity"]).toBe("medium");
   });
 
-  test("CLI argv --severity overrides createDispatcher({ inputs })", async () => {
+  test("CLI argv --severity overrides createWorkflowCli({ inputs })", async () => {
     const wf = makeSeverityWorkflow("wf", "claude");
     const registry = createRegistry().register(wf);
-    const dispatcher = createDispatcher(registry, {
+    const cli = createWorkflowCli(registry, {
       inputs: { severity: "medium" },
-      argv: ["bun", "worker.ts", "-n", "wf", "-a", "claude", "--severity", "critical"],
     });
 
-    await dispatcher.start();
+    await cli.run({
+      argv: ["bun", "worker.ts", "-n", "wf", "-a", "claude", "--severity", "critical"],
+    });
 
     expect(executeWorkflowCalls).toHaveLength(1);
     expect(executeWorkflowCalls[0]!.inputs?.["severity"]).toBe("critical");
@@ -391,9 +391,9 @@ describe("input precedence", () => {
   test("defineWorkflow default used when no higher-precedence value given", async () => {
     const wf = makeSeverityWorkflow("wf", "claude", "low");
     const registry = createRegistry().register(wf);
-    const dispatcher = createDispatcher(registry);
+    const cli = createWorkflowCli(registry);
 
-    await dispatcher.run("wf", "claude");
+    await cli.run({ name: "wf", agent: "claude", argv: false });
 
     expect(executeWorkflowCalls).toHaveLength(1);
     expect(executeWorkflowCalls[0]!.inputs?.["severity"]).toBe("low");
@@ -406,12 +406,12 @@ describe("orchestrator re-entry", () => {
   test("ATOMIC_ORCHESTRATOR_MODE=1 + ATOMIC_WF_KEY calls runOrchestrator, not executeWorkflow", async () => {
     const wf = makeSimpleWorkflow("foo", "claude");
     const registry = createRegistry().register(wf);
-    const dispatcher = createDispatcher(registry);
+    const cli = createWorkflowCli(registry);
 
     process.env.ATOMIC_ORCHESTRATOR_MODE = "1";
     process.env.ATOMIC_WF_KEY = "claude/foo";
 
-    await dispatcher.start();
+    await cli.run();
 
     expect(runOrchestratorCalls).toHaveLength(1);
     expect(executeWorkflowCalls).toHaveLength(0);
@@ -421,31 +421,31 @@ describe("orchestrator re-entry", () => {
 
   test("ATOMIC_ORCHESTRATOR_MODE=1 without ATOMIC_WF_KEY throws", async () => {
     const registry = createRegistry();
-    const dispatcher = createDispatcher(registry);
+    const cli = createWorkflowCli(registry);
 
     process.env.ATOMIC_ORCHESTRATOR_MODE = "1";
 
-    await expect(dispatcher.start()).rejects.toThrow("ATOMIC_WF_KEY");
+    await expect(cli.run()).rejects.toThrow("ATOMIC_WF_KEY");
   });
 
   test("ATOMIC_WF_KEY not found in registry throws", async () => {
     const registry = createRegistry();
-    const dispatcher = createDispatcher(registry);
+    const cli = createWorkflowCli(registry);
 
     process.env.ATOMIC_ORCHESTRATOR_MODE = "1";
     process.env.ATOMIC_WF_KEY = "claude/nonexistent";
 
-    await expect(dispatcher.start()).rejects.toThrow("claude/nonexistent");
+    await expect(cli.run()).rejects.toThrow("claude/nonexistent");
   });
 
   test("without ATOMIC_ORCHESTRATOR_MODE, runOrchestrator is never called", async () => {
     const wf = makeSimpleWorkflow("bar", "opencode");
     const registry = createRegistry().register(wf);
-    const dispatcher = createDispatcher(registry, {
+    const cli = createWorkflowCli(registry);
+
+    await cli.run({
       argv: ["bun", "worker.ts", "-n", "bar", "-a", "opencode"],
     });
-
-    await dispatcher.start();
 
     expect(runOrchestratorCalls).toHaveLength(0);
     expect(executeWorkflowCalls).toHaveLength(1);
@@ -465,11 +465,11 @@ describe("hyphenated input names", () => {
       .compile();
 
     const registry = createRegistry().register(wf);
-    const dispatcher = createDispatcher(registry, {
+    const cli = createWorkflowCli(registry);
+
+    await cli.run({
       argv: ["bun", "worker.ts", "-n", "hyphen-wf", "-a", "claude", "--output-type", "json"],
     });
-
-    await dispatcher.start();
 
     expect(executeWorkflowCalls).toHaveLength(1);
     expect(executeWorkflowCalls[0]!.inputs?.["output-type"]).toBe("json");
@@ -489,7 +489,9 @@ describe("hyphenated input names", () => {
       .compile();
 
     const registry = createRegistry().register(wf);
-    const dispatcher = createDispatcher(registry, {
+    const cli = createWorkflowCli(registry);
+
+    await cli.run({
       argv: [
         "bun", "worker.ts",
         "-n", "multi-hyphen",
@@ -499,8 +501,6 @@ describe("hyphenated input names", () => {
         "--simple", "yes",
       ],
     });
-
-    await dispatcher.start();
 
     expect(executeWorkflowCalls).toHaveLength(1);
     const inputs = executeWorkflowCalls[0]!.inputs;
@@ -516,8 +516,7 @@ describe("extend hook", () => {
   test("extend callback is invoked with root program and sibling command runs", async () => {
     let helloRan = false;
     const registry = createRegistry();
-    const dispatcher = createDispatcher(registry, {
-      argv: ["bun", "worker.ts", "hello"],
+    const cli = createWorkflowCli(registry, {
       extend: (program) => {
         program
           .command("hello")
@@ -527,19 +526,19 @@ describe("extend hook", () => {
       },
     });
 
-    await dispatcher.start();
+    await cli.run({ argv: ["bun", "worker.ts", "hello"] });
 
     expect(helloRan).toBe(true);
   });
 
-  test("extend not provided — no error on start", async () => {
+  test("extend not provided — no error on run", async () => {
     const wf = makeSimpleWorkflow("baz", "copilot");
     const registry = createRegistry().register(wf);
-    const dispatcher = createDispatcher(registry, {
-      argv: ["bun", "worker.ts", "-n", "baz", "-a", "copilot"],
-    });
+    const cli = createWorkflowCli(registry);
 
-    await expect(dispatcher.start()).resolves.toBeUndefined();
+    await expect(
+      cli.run({ argv: ["bun", "worker.ts", "-n", "baz", "-a", "copilot"] }),
+    ).resolves.toBeUndefined();
   });
 });
 
@@ -560,11 +559,9 @@ describe("picker branch — missing --name with --agent in TTY", () => {
   test("WorkflowPickerPanel.create is called with the correct agent when --name is omitted + --agent is given + TTY", async () => {
     const wf = makeSimpleWorkflow("myflow", "claude");
     const registry = createRegistry().register(wf);
-    const dispatcher = createDispatcher(registry, {
-      argv: ["bun", "worker.ts", "-a", "claude"],
-    });
+    const cli = createWorkflowCli(registry);
 
-    await dispatcher.start();
+    await cli.run({ argv: ["bun", "worker.ts", "-a", "claude"] });
 
     expect(pickerCreateCalls).toHaveLength(1);
     expect(pickerCreateCalls[0]!.agent).toBe("claude");
@@ -576,11 +573,9 @@ describe("picker branch — missing --name with --agent in TTY", () => {
 
     pickerResolution = { workflow: wf, inputs: {} };
 
-    const dispatcher = createDispatcher(registry, {
-      argv: ["bun", "worker.ts", "-a", "claude"],
-    });
+    const cli = createWorkflowCli(registry);
 
-    await dispatcher.start();
+    await cli.run({ argv: ["bun", "worker.ts", "-a", "claude"] });
 
     expect(executeWorkflowCalls).toHaveLength(1);
     expect(executeWorkflowCalls[0]!.workflowKey).toBe("claude/myflow");
@@ -591,11 +586,9 @@ describe("picker branch — missing --name with --agent in TTY", () => {
     const registry = createRegistry().register(wf);
     pickerResolution = { workflow: wf, inputs: {} };
 
-    const dispatcher = createDispatcher(registry, {
-      argv: ["bun", "worker.ts", "-a", "claude"],
-    });
+    const cli = createWorkflowCli(registry);
 
-    await dispatcher.start();
+    await cli.run({ argv: ["bun", "worker.ts", "-a", "claude"] });
 
     expect(pickerDestroyCalled).toBe(true);
   });
@@ -604,11 +597,9 @@ describe("picker branch — missing --name with --agent in TTY", () => {
     const wf = makeSimpleWorkflow("myflow", "claude");
     const registry = createRegistry().register(wf);
 
-    const dispatcher = createDispatcher(registry, {
-      argv: ["bun", "worker.ts", "-a", "claude"],
-    });
+    const cli = createWorkflowCli(registry);
 
-    await dispatcher.start();
+    await cli.run({ argv: ["bun", "worker.ts", "-a", "claude"] });
 
     expect(pickerDestroyCalled).toBe(true);
     expect(executeWorkflowCalls).toHaveLength(0);
@@ -622,11 +613,9 @@ describe("picker branch — missing --name with --agent in TTY", () => {
 
     pickerResolution = null;
 
-    const dispatcher = createDispatcher(registry, {
-      argv: ["bun", "worker.ts", "-a", "claude"],
-    });
+    const cli = createWorkflowCli(registry);
 
-    await dispatcher.start();
+    await cli.run({ argv: ["bun", "worker.ts", "-a", "claude"] });
 
     expect(pickerCreateCalls).toHaveLength(1);
     expect(pickerCreateCalls[0]!.agent).toBe("claude");

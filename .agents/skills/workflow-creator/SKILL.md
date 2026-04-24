@@ -1,6 +1,6 @@
 ---
 name: workflow-creator
-description: Create AND run Atomic CLI workflows (`defineWorkflow().run().compile()` with `ctx.stage()`) across Claude, Copilot, and OpenCode SDKs. Use for **authoring** when the user wants to build, edit, debug, or design agent pipelines — multi-stage automations, review/fix loops, parallel fan-out, headless/background stages, `defineWorkflow`, `ctx.stage`, `ctx.inputs`, declared `WorkflowInput` schemas, `createRegistry`, `createWorker`, `createDispatcher`, `registry.register`, `worker.start`, `worker.run`, `worker.command`, `dispatcher.start`, single-workflow or dispatcher composition roots. Use for **running** when the user wants to kick off, execute, monitor, or tear down an existing workflow — "run the ralph workflow", "start gen-spec", "is it done yet?", "what's the status?", "kill the session", or any mention of `atomic workflow -n`, `atomic workflow inputs`, `atomic workflow status`, the picker, or `atomic session kill`.
+description: Create AND run Atomic CLI workflows (`defineWorkflow().run().compile()` with `ctx.stage()`) across Claude, Copilot, and OpenCode SDKs. Use for **authoring** when the user wants to build, edit, debug, or design agent pipelines — multi-stage automations, review/fix loops, parallel fan-out, headless/background stages, `defineWorkflow`, `ctx.stage`, `ctx.inputs`, declared `WorkflowInput` schemas, `createWorkflowCli`, `createRegistry`, `cli.run`, `toCommand` and `runCli` from `@bastani/atomic/workflows/commander` for embedding under a parent Commander CLI, the `argv: false` programmatic escape hatch, the interactive workflow picker, single or multi-workflow composition roots. Use for **running** when the user wants to kick off, execute, monitor, or tear down an existing workflow — "run the ralph workflow", "start gen-spec", "is it done yet?", "what's the status?", "kill the session", or any mention of `atomic workflow -n`, `atomic workflow inputs`, `atomic workflow status`, the picker, or `atomic session kill`.
 ---
 
 # Workflow Creator
@@ -30,7 +30,136 @@ Load references on demand. **Only `getting-started.md` is always-load.** Everyth
 | `computation-and-validation.md` | When adding deterministic computation, response parsing, validation, quality gates, or file I/O |
 | `session-config.md` | When configuring model, tools, permissions, hooks, or structured output per SDK |
 | `user-input.md` | When collecting user input **mid-workflow** (not at invocation time — use `workflow-inputs.md` for that) |
-| `registry-and-validation.md` | When setting up `createRegistry()` / `createDispatcher()`, understanding key scheme, validate-on-register rules, reserved flag names, or same-name collision detection (only relevant for the multi-workflow dispatcher) |
+| `registry-and-validation.md` | When setting up `createRegistry()` / `createWorkflowCli()`, understanding key scheme, validate-on-register rules, reserved flag names, or same-name collision detection (only relevant for the multi-workflow cli) |
+
+## Scaffold a new workflow from scratch
+
+When the user asks you to build a new workflow, follow this recipe exactly. The point of a fixed convention is that every atomic project looks the same — users, agents, and the `workflow-creator` skill all locate files the same way. Improvising paths makes the next agent's job harder.
+
+### Runtime prerequisites (check before writing code)
+
+Three things have to exist on the host or the first `bun run` will fail. If any are missing, tell the user before scaffolding — fixing them afterward is more frustrating than getting them out of the way up front.
+
+- **[Bun](https://bun.sh/)** as the JavaScript runtime — Atomic and the SDK rely on `Bun.spawn`, native pty handling, and Bun-specific module resolution. **They do not run on Node.js.** Verify with `bun --version`. If the user has only `node`, direct them to install Bun first (`curl -fsSL https://bun.sh/install | bash`) — `npm install @bastani/atomic` and `node src/claude-worker.ts` will both fail.
+- **Terminal multiplexer** — every `ctx.stage()` runs inside a detachable session on the `atomic` tmux socket. That's what makes `-d/--detach` possible and what keeps the orchestrator alive when the user's terminal disconnects. `tmux` on macOS/Linux (`brew install tmux` / distro package manager), [`psmux`](https://github.com/psmux/psmux) on Windows. Verify with `which tmux` or `where.exe psmux`.
+- **At least one authenticated coding agent CLI** — the runtime spawns `claude` / `opencode` / `copilot` at each stage and talks to it via its SDK. The agent whose workflow file targets via `.for("claude")` / `.for("copilot")` / `.for("opencode")` must be installed and logged in. If the user says "build a workflow for Claude" and `claude --version` fails, that's the first thing to surface.
+
+Only Bun is a `bun add` dependency in spirit — tmux/psmux and the agent CLIs are separate processes the SDK orchestrates. The global `atomic` CLI installer doesn't install tmux/psmux or the agents either, so SDK-only users and CLI users share the same prereqs. A devcontainer using the `ghcr.io/flora131/atomic/<agent>:1` feature bundles all three, which is the fastest way to unblock a user who's stuck on install friction.
+
+### Project layout
+
+```
+<repo>/
+├── package.json
+├── tsconfig.json
+└── src/
+    ├── workflows/
+    │   └── <workflow-name>/
+    │       ├── claude.ts        # one file per agent you target
+    │       ├── copilot.ts
+    │       └── opencode.ts
+    └── <agent>-worker.ts        # one composition root per agent
+```
+
+One workflow per directory, one file per agent, one composition-root file per agent. If the user wants only one agent, ship just `claude.ts` (or whichever) plus `claude-worker.ts` — the layout still holds.
+
+### Steps
+
+**1. Initialize the project** (skip if `package.json` already exists):
+
+```bash
+bun init -y
+bun add @bastani/atomic
+# plus the provider SDK(s) you target:
+bun add @anthropic-ai/claude-agent-sdk    # for claude
+bun add @github/copilot-sdk               # for copilot
+bun add @opencode-ai/sdk                  # for opencode
+```
+
+**2. Write the workflow** at `src/workflows/<name>/<agent>.ts`. This is the bulk of the work — see the per-agent templates in `references/getting-started.md` §"Quick-start example". Minimal Claude skeleton:
+
+```ts
+// src/workflows/<name>/claude.ts
+import { defineWorkflow } from "@bastani/atomic/workflows";
+
+export default defineWorkflow({
+  name: "<workflow-name>",
+  description: "<one-line description>",
+  inputs: [
+    { name: "prompt", type: "text", required: true, description: "<what the user supplies>" },
+  ],
+})
+  .for("claude")
+  .run(async (ctx) => {
+    await ctx.stage({ name: "step-1" }, {}, {}, async (s) => {
+      await s.session.query(ctx.inputs.prompt ?? "");
+      s.save(s.sessionId);
+    });
+  })
+  .compile();
+```
+
+**3. Write the composition root** at `src/<agent>-worker.ts` — always three lines:
+
+```ts
+// src/claude-worker.ts
+import { createWorkflowCli } from "@bastani/atomic/workflows";
+import workflow from "./workflows/<name>/claude.ts";
+
+await createWorkflowCli(workflow).run();
+```
+
+Multi-workflow variant (only when the user actually wants many workflows under one CLI — otherwise prefer one worker file per agent):
+
+```ts
+// src/cli.ts
+import { createWorkflowCli } from "@bastani/atomic/workflows";
+import reviewFlow from "./workflows/review/claude.ts";
+import specFlow from "./workflows/spec/claude.ts";
+
+await createWorkflowCli([reviewFlow, specFlow]).run();
+```
+
+**4. Typecheck**:
+
+```bash
+bun typecheck       # if the user has a typecheck script
+# or:
+bunx tsc --noEmit
+```
+
+**5. Run**:
+
+```bash
+bun run src/claude-worker.ts --prompt "<test task>"                  # attached
+bun run src/claude-worker.ts -d --prompt "<test task>"               # detached (background)
+```
+
+**6. Monitor and manage** (the worker CLI ships these natively — `createWorkflowCli` auto-registers `session` and `status` subcommands by default):
+
+```bash
+bun run src/claude-worker.ts session list                     # all running workflows
+bun run src/claude-worker.ts status <session-name>            # JSON status for one workflow
+bun run src/claude-worker.ts status                           # status for every running workflow
+bun run src/claude-worker.ts session connect <session-name>   # reattach to a detached run
+bun run src/claude-worker.ts session kill <session-name> -y   # tear it down (-y is mandatory for agents)
+```
+
+These are the same commands the global `atomic` CLI exposes — the SDK just attaches them to every CLI it builds. Every session lives on the shared `atomic` tmux socket regardless of which path spawned it, so `atomic session list` and `bun run src/claude-worker.ts session list` show the same list.
+
+Opt out with `createWorkflowCli(workflow, { includeManagementCommands: false })` if you're building a minimal CLI (e.g. programmatic invocation inside a larger program), or embedding under a parent Commander CLI that owns session management. Workflow inputs named `session` or `status` are rejected at `defineWorkflow` time to avoid flag collisions — rename them (`statusCheck`, `sessionNotes`, etc.) if the reserved names fit your data model.
+
+Full details (the `needs_review` state, worked examples, `bunx atomic` fallback) live in `references/running-workflows.md`.
+
+That's the whole scaffold. If the user has more than two stages or parallel fan-out, the changes all happen inside step 2 (the `.run()` callback) — steps 1, 3, 4, 5, 6 are the same regardless of workflow complexity.
+
+### When in doubt
+
+- **Single agent, single workflow** — the 90% case. One `<agent>.ts` + one `<agent>-worker.ts`. Done.
+- **Same workflow across agents** — three `<agent>.ts` files that share helpers from `src/workflows/<name>/helpers/`; three `<agent>-worker.ts` files. See `references/getting-started.md` §"Quick-start example" for the per-agent SDK differences.
+- **Multiple workflows in one CLI** — pass an array to `createWorkflowCli([wf1, wf2])`. Use a `src/cli.ts` composition root instead of per-agent workers.
+
+If the user's need doesn't match any of these, ask them which shape they want before scaffolding — don't guess.
 
 ## Information Flow Is a First-Class Design Concern
 
@@ -127,39 +256,68 @@ Install `@bastani/atomic` plus the native SDK(s) you target
 ### Composition root
 
 Workflows are wired into a **composition root** — a TypeScript file the
-user runs with `bun`. Two primitives live in the SDK:
+user runs with `bun`. There is **one** SDK primitive: `createWorkflowCli`.
+It accepts a single workflow, an array of workflows, or a `Registry` — so
+the shape scales from toy scripts to multi-agent suites without changing
+patterns. Every cli ships with:
 
-- **`createWorker(definition)`** — bound to exactly one compiled
-  `WorkflowDefinition`. Use one file per agent. Exposes
-  `worker.start(inputs?)`, `worker.command()`, `worker.run(opts?)`.
-- **`createDispatcher(registry)`** — multi-workflow dispatch via
-  `-n/--name` + `-a/--agent`. Used for apps that ship many workflows
-  behind a single entrypoint, and internally by `atomic workflow`.
+- `-n/--name` + `-a/--agent` CLI flags
+- `-d/--detach` for background runs
+- The **interactive picker** (agent given without name in a TTY)
+- Automatic `--<inputName>` flag union across every registered workflow
+
+The returned `WorkflowCli` is framework-agnostic — no Commander types leak
+into it. To embed under a parent Commander CLI, import `toCommand` +
+`runCli` from the `@bastani/atomic/workflows/commander` subpath.
 
 ```ts
-// src/claude-worker.ts — single-workflow
-import { createWorker } from "@bastani/atomic/workflows";
+// src/claude-worker.ts — single workflow
+import { createWorkflowCli } from "@bastani/atomic/workflows";
 import workflow from "./workflows/my-workflow/claude.ts";
 
-const worker = createWorker(workflow);
-await worker.start({ prompt: "default task" });
+await createWorkflowCli(workflow).run();                 // parses process.argv
+// await createWorkflowCli(workflow).run({ inputs: { prompt: "default" } });
+// await createWorkflowCli(workflow).run({ name, agent, inputs, argv: false });
 
-// src/dispatcher.ts — multi-workflow
-import { createRegistry, createDispatcher } from "@bastani/atomic/workflows";
+// src/cli.ts — many workflows, inline array
+import { createWorkflowCli } from "@bastani/atomic/workflows";
 import claudeWorkflow from "./workflows/my-workflow/claude.ts";
 import copilotWorkflow from "./workflows/my-workflow/copilot.ts";
 
+await createWorkflowCli([claudeWorkflow, copilotWorkflow]).run();
+
+// src/cli.ts — many workflows via explicit registry (for programmatic
+// composition, e.g. loop-register, conditional registration)
+import { createWorkflowCli, createRegistry } from "@bastani/atomic/workflows";
 const registry = createRegistry()
   .register(claudeWorkflow)
   .register(copilotWorkflow);
-
-const dispatcher = createDispatcher(registry);
-await dispatcher.start();
+await createWorkflowCli(registry).run();
 ```
+
+`run()` is one method with three argv modes:
+
+| `opts.argv` | Behaviour |
+|---|---|
+| *unset* (default) | Parse `process.argv`. `inputs` (and `name`/`agent` on the cli) merge in as defaults beneath CLI flags. |
+| `string[]` | Parse the supplied argv list. Useful in tests and embedded harnesses. |
+| `false` | Skip parsing entirely. `inputs` / `name` / `agent` are used as-is. Required for programmatic cli calls — CLI preconditions are not enforced. |
 
 For full mechanics, key scheme, validate-on-register behaviour,
 collision detection, and reserved flag names see
 `references/registry-and-validation.md`.
+
+### The `entry` option — when the composition-root file isn't `process.argv[1]`
+
+`createWorkflowCli` accepts `{ entry?: string }` so the runtime knows where
+to re-exec on `--detach`. The default (`process.argv[1]`) is correct for
+`bun run src/cli.ts`. Override `entry` when your composition root isn't
+argv[1] — bundled apps, test harnesses, programs that delegate argv
+parsing to a parent framework:
+
+```ts
+await createWorkflowCli(workflow, { entry: import.meta.url }).run();
+```
 
 ### Two context levels
 
@@ -180,29 +338,54 @@ semantics, and the "declare your prompt input explicitly" pattern.
 
 Two invocation paths:
 
-**User's own app** — one of the two composition shapes:
+**User's own app** — one file, always the cli:
 
-- Single-workflow (`createWorker(workflow)`, the default). One file per
-  agent, e.g. `src/claude-worker.ts`. CLI exposes only declared
-  `--<input>` flags:
-  ```bash
-  bun run src/claude-worker.ts [--field=value | "<prompt>"]
-  ```
-- Multi-workflow dispatcher (`createDispatcher(registry)`). One file
-  dispatches across many workflows by `-n/--name` and `-a/--agent`:
-  ```bash
-  bun run src/dispatcher.ts -n <name> -a <agent> [inputs...]
-  ```
-  (no built-in `--list` flag; user apps can attach their own `list`
-  subcommand to `dispatcher.command()` the same way `atomic workflow list`
-  is wired up in `src/cli.ts`.)
+```bash
+# Single workflow — `-a` is optional because there's only one agent.
+bun run src/cli.ts --<field>=<value>
+bun run src/cli.ts "<prompt>"
 
-Both shapes also expose `.command()` for embedding under a parent
-Commander program and `.run(...)` for programmatic invocation without
-argv parsing.
+# Multiple workflows — `-n` names the workflow, `-a` names the agent.
+bun run src/cli.ts -n <name> -a <agent> --<field>=<value>
+
+# Picker — `-a` alone in a TTY shows an interactive workflow picker.
+bun run src/cli.ts -a <agent>
+```
+
+No separate single-workflow vs multi-workflow shape. `createWorkflowCli`
+handles both because it accepts a lone workflow, an array, or a registry
+— the CLI surface scales without the developer changing patterns.
+
+For a `list` subcommand (discover workflows), attach it to
+`toCommand(cli)` the same way `atomic workflow list` is wired up
+in `src/cli.ts`.
+
+The cli supports `.run({ argv: false, ... })` for programmatic
+invocation without argv parsing. To **embed** under a parent Commander
+CLI, import `toCommand` and `runCli` from the Commander adapter subpath:
+
+```ts
+import { Command } from "@commander-js/extra-typings";
+import { createWorkflowCli } from "@bastani/atomic/workflows";
+import { toCommand, runCli } from "@bastani/atomic/workflows/commander";
+
+const cli = createWorkflowCli(workflow);
+
+const program = new Command("my-app");
+program.addCommand(toCommand(cli));
+
+// runCli replaces program.parseAsync(). Under the hood it transparently
+// dispatches orchestrator re-entry to runOrchestrator when the process
+// is a tmux-spawned detached worker — think PyTorch's init_process_group
+// deciding rank-zero behaviour on your behalf. No guards in user code.
+await runCli(cli, () => program.parseAsync());
+```
+
+`WorkflowCli` never imports Commander, so a future yargs or citty adapter
+can ship alongside `toCommand` without touching the core SDK.
 
 **Atomic builtins** — workflows shipped inside `@bastani/atomic`,
-powered internally by `createDispatcher(createBuiltinRegistry())`:
+powered internally by `createWorkflowCli(createBuiltinRegistry())`:
 
 ```bash
 atomic workflow -n <name> -a <agent> [inputs...]
@@ -212,9 +395,9 @@ Surface | Command | When
 ---|---|---
 Named, with prompt | `… -n hello -a claude "fix the bug"` | Requires workflow to declare a `prompt` input
 Named, structured | `… -n gen-spec -a claude --research_doc=notes.md` | Structured inputs via `--<field>` flags
-Interactive picker | `atomic workflow -a claude` | Discovery — fuzzy list + form (dispatcher only; single-workflow workers have one workflow by construction)
+Interactive picker | `atomic workflow -a claude` | Discovery — fuzzy list + form (cli only; single-workflow workers have one workflow by construction)
 List (atomic builtins) | `atomic workflow list`, `atomic workflow list -a <agent>` | Browse registered builtins, optionally filtered
-List (user dispatcher) | Attach a `list` subcommand to `dispatcher.command()` (mirror `src/cli.ts`) | No built-in `--list` flag
+List (user cli) | Attach a `list` subcommand to `toCommand(cli)` (mirror `src/cli.ts`) | No built-in `--list` flag
 List (single-workflow) | Not applicable — the file *is* the workflow
 Inspect inputs | `atomic workflow inputs <name> -a claude` | Print input schema as JSON
 Status (one or all) | `atomic workflow status [<session-id>]` | Query state — `in_progress`, `error`, `completed`, `needs_review`
@@ -403,8 +586,8 @@ caveats.
 - **User-app examples** (`examples/<name>/`) — minimal runnable user apps
   you can copy-paste as a starting point. Each example directory contains
   `claude/index.ts`, `copilot/index.ts`, `opencode/index.ts`, and one
-  `<agent>-worker.ts` per agent — each a three-line
-  `createWorker(workflow).start()` entrypoint. Run with
+  `<agent>-worker.ts` entrypoint per agent — each a three-line
+  `createWorkflowCli(workflow).run()` file. Run with
   `bun run examples/<name>/<agent>-worker.ts [--field=value | "<prompt>"]`.
   Covers: `hello-world`, `parallel-hello-world`, `headless-test`,
   `hil-favorite-color`, `hil-favorite-color-headless`,
@@ -413,63 +596,25 @@ caveats.
 Both sets demonstrate shared helpers, context-aware prompt building,
 deterministic heuristics, and cross-SDK adaptation.
 
-### 4. Wire into the Composition Root
+### 4. Wire, typecheck, run
 
-After writing the workflow definition, pick a composition root that fits:
-
-```ts
-// single-workflow entrypoint — src/claude-worker.ts
-import { createWorker } from "@bastani/atomic/workflows";
-import workflow from "./workflows/my-workflow/claude.ts";
-
-const worker = createWorker(workflow);
-await worker.start();
-```
-
-Or, for apps that ship many workflows behind one entrypoint:
-
-```ts
-// src/dispatcher.ts
-import { createRegistry, createDispatcher } from "@bastani/atomic/workflows";
-import { myWorkflow } from "./workflows/my-workflow.ts";
-
-const registry = createRegistry().register(myWorkflow);
-const dispatcher = createDispatcher(registry);
-await dispatcher.start();
-```
-
-### 5. Type-Check
+The composition root is always three lines (see §"Scaffold a new workflow from scratch" above for the exact template and multi-workflow variant). After writing it:
 
 ```bash
 bun typecheck
+bun run src/<agent>-worker.ts --prompt "<test task>"
 ```
 
-### 6. Test the Workflow
-
-Three paths depending on what you're running:
+Other invocation shapes you may want to demonstrate to the user once the workflow runs:
 
 ```bash
-# 1a. User's own app — single-workflow worker (src/<agent>-worker.ts)
-bun run src/claude-worker.ts "<your prompt>"
-bun run src/claude-worker.ts --field=value
-bun run src/claude-worker.ts -d "<your prompt>"   # detached
-
-# 1b. User's own app — multi-workflow dispatcher (src/dispatcher.ts)
-bun run src/dispatcher.ts -n <workflow-name> -a <agent> "<your prompt>"
-bun run src/dispatcher.ts -n <name> -a <agent>
-
-# 2. Shipped examples — one worker file per agent
-bun run examples/<name>/<agent>-worker.ts "<your prompt>"
-bun run examples/<name>/<agent>-worker.ts --field=value
-
-# 3. Atomic builtins (ralph, deep-research-codebase, open-claude-design)
-atomic workflow -n <workflow-name> -a <agent> "<your prompt>"
-atomic workflow -n <workflow-name> -a <agent> --research_doc=notes.md --focus=standard
-atomic workflow -n <workflow-name> -a <agent> -d "<your prompt>"
+bun run src/<agent>-worker.ts --<field>=<value>      # structured inputs
+bun run src/cli.ts -n <name> -a <agent> "<prompt>"   # multi-workflow
+bun run src/cli.ts -a <agent>                        # interactive picker (TTY)
+bun run src/<agent>-worker.ts -d "<prompt>"          # detached (background)
 ```
 
-See `references/running-workflows.md` for the full invocation recipe, including
-monitoring and teardown.
+For the atomic builtins (`ralph`, `deep-research-codebase`, `open-claude-design`), use `atomic workflow -n <name> -a <agent> "<prompt>"` — see `references/running-workflows.md` for monitoring and teardown.
 
 ## Running an Existing Workflow
 

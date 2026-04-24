@@ -1,0 +1,12 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@bastani/atomic": ["../src/sdk/index.ts"],
+      "@bastani/atomic/workflows": ["../src/sdk/workflows/index.ts"],
+      "@bastani/atomic/workflows/commander": ["../src/sdk/commander.ts"],
+      "@bastani/atomic/*": ["../src/sdk/*"]
+    }
+  },
+  "include": ["**/*.ts"]
+}

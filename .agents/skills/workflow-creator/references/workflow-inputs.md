@@ -17,14 +17,18 @@ runtime populates it from whichever invocation surface the user chose.
 
 CLI flags always win. Under them, the order depends on the composition shape:
 
-- **Single-workflow worker** (`createWorker(def)`):
+- **Single-workflow worker** (`createWorkflowCli(workflow)`):
   ```
-  CLI flags > worker.run({ inputs }) / worker.start(inputs) > defineWorkflow defaults
+  CLI flags > cli.run({ inputs }) > defineWorkflow defaults
   ```
-- **Multi-workflow dispatcher** (`createDispatcher(registry, { inputs })`):
+- **Multi-workflow cli** (`createWorkflowCli(registry, { inputs })`):
   ```
-  CLI flags > dispatcher.run(name, agent, { inputs }) > createDispatcher({ inputs }) > defineWorkflow defaults
+  CLI flags > cli.run({ inputs }) > createWorkflowCli({ inputs }) > defineWorkflow defaults
   ```
+
+With `argv: false`, the CLI-flags layer is skipped entirely — `inputs`
+become the top-of-chain value. Use this from tests or any programmatic
+caller that doesn't want its host process argv parsed.
 
 `defineWorkflow` field `default` is always the final fallback if no
 higher-precedence value supplies one.
@@ -35,10 +39,10 @@ higher-precedence value supplies one.
 |---|---|---|
 | **Single-worker, positional** — `bun run src/claude-worker.ts "fix the bug"` | Trailing prompt tokens (workflow has no declared schema — free-form only) | `{ prompt: "fix the bug" }` |
 | **Single-worker, structured** — `bun run src/claude-worker.ts --research_doc=notes.md --focus=standard` | One `--<field>=<value>` flag per declared input | `{ research_doc: "notes.md", focus: "standard" }` |
-| **Dispatcher, named** — `bun run src/dispatcher.ts -n gen-spec -a claude --research_doc=notes.md` | `-n` picks the workflow, `-a` picks the agent, flags per declared input | Same as above |
-| **Interactive picker** — `atomic workflow -a claude` (dispatcher only) | User fills in a form rendered from the declared schema | Whatever the user typed, keyed by field name |
-| **Programmatic (single)** — `worker.run({ inputs })` | Typed `InputsOf<def["inputs"]>` | Merged under CLI flags; above `defineWorkflow` defaults |
-| **Programmatic (dispatcher)** — `dispatcher.run(name, agent, { inputs })` | Plain `Record<string, string>` | Merged under CLI flags; above `createDispatcher` defaults |
+| **WorkflowCli, named** — `bun run src/cli.ts -n gen-spec -a claude --research_doc=notes.md` | `-n` picks the workflow, `-a` picks the agent, flags per declared input | Same as above |
+| **Interactive picker** — `atomic workflow -a claude` (cli only) | User fills in a form rendered from the declared schema | Whatever the user typed, keyed by field name |
+| **Programmatic (single)** — `cli.run({ inputs })` | Typed `InputsOf<def["inputs"]>` | Merged under CLI flags; above `defineWorkflow` defaults |
+| **Programmatic (cli)** — `cli.run({ name, agent, inputs, argv: false })` | Plain `Record<string, string>` (`argv: false` is required — otherwise Commander will try to parse process.argv and exit on missing `-n`/`-a`) | Top-of-chain when `argv: false`; above `createWorkflowCli` defaults |
 
 Workflow code is the same either way — it always reads
 `ctx.inputs.<name>`. The invocation surface is a CLI concern, not a
@@ -46,9 +50,9 @@ workflow concern.
 
 ### Auto-registered CLI flags
 
-- **`createWorker(def)`** registers a `--<name>` CLI flag for every input
+- **`createWorkflowCli(workflow)`** registers a `--<name>` CLI flag for every input
   declared on the single bound workflow. No union, no conflicts.
-- **`createDispatcher(registry)`** inspects the registry at construction
+- **`createWorkflowCli(registry)`** inspects the registry at construction
   time and registers a `--<name>` flag for every input declared across
   *all* workflows (the union). See §"CLI flag union and conflict rules"
   below for the full collision contract and reserved-name list.
@@ -225,14 +229,14 @@ inputs: [
 
 ## CLI flag union and conflict rules
 
-`createDispatcher(registry)` builds the union of all declared inputs across
+`createWorkflowCli(registry)` builds the union of all declared inputs across
 every workflow in the registry at construction time. Each distinct input name
 becomes one `--<name>` CLI flag shared by all workflows that declare it.
 
-### Same name, different type → throws at `createDispatcher` time
+### Same name, different type → throws at `createWorkflowCli` time
 
 If two registered workflows declare the same input name with **different
-types**, `createWorker` throws immediately (fail fast at composition root):
+types**, `createWorkflowCli` throws immediately (fail fast at composition root):
 
 ```
 [atomic/worker] Input name conflict: "focus" is declared as "enum" in
@@ -261,7 +265,7 @@ Declaring an input with any of these names throws at `defineWorkflow` time
 Rename it. Reserved names: name, agent, detach, list, help, version.
 ```
 
-This is enforced in `defineWorkflow`, not in `createWorker`, so the error
+This is enforced in `defineWorkflow`, not in `createWorkflowCli`, so the error
 surfaces at workflow authoring time — it cannot be registered.
 
 ## The interactive picker
@@ -291,9 +295,10 @@ remember flag names. Structured workflows benefit the most from it
 because the form teaches the schema as the user fills it in.
 
 User apps can mount the same picker against their own registry by
-wiring `worker.start()` — if `-n` is omitted and `process.stdout.isTTY`
-is true, the worker automatically launches the picker over the
-user-supplied registry.
+wiring `cli.run()` — if `-n` is omitted and `process.stdout.isTTY`
+is true, the cli automatically launches the picker over the
+user-supplied registry. Single-workflow workers have no picker because
+the file already identifies the workflow.
 
 ## Duplicate registration
 
@@ -322,8 +327,8 @@ prompt, structured flags) and is independent of the inputs schema.
 
 ```bash
 # User's own app
-bun run src/dispatcher.ts -n gen-spec -a claude --focus=standard --research_doc=notes.md
-bun run src/dispatcher.ts -n gen-spec -a claude --focus standard --research_doc notes.md
+bun run src/cli.ts -n gen-spec -a claude --focus=standard --research_doc=notes.md
+bun run src/cli.ts -n gen-spec -a claude --focus standard --research_doc notes.md
 
 # Atomic builtins (same flag semantics)
 atomic workflow -n gen-spec -a claude --focus=standard --research_doc=notes.md

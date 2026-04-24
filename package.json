@@ -34,6 +34,10 @@
       "bun": "./src/sdk/workflows/index.ts",
       "types": "./dist/sdk/workflows/index.d.ts"
     },
+    "./workflows/commander": {
+      "bun": "./src/sdk/commander.ts",
+      "types": "./dist/sdk/commander.d.ts"
+    },
     "./*": {
       "bun": "./src/sdk/*",
       "types": "./dist/sdk/*"
@@ -57,7 +61,7 @@
     "prepack": "bun run build",
     "test": "bun test --parallel ./src ./tests",
     "test:coverage": "bun test --parallel --coverage ./src ./tests",
-    "typecheck": "bunx tsc --noEmit && bunx tsc -p tests --noEmit",
+    "typecheck": "bunx tsc --noEmit && bunx tsc -p tests --noEmit && bunx tsc -p examples --noEmit",
     "lint": "oxlint --config=oxlint.json src",
     "lint:fix": "oxlint --config=oxlint.json --fix src",
     "prepare": "prek install || true"

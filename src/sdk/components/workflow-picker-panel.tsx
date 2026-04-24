@@ -522,8 +522,8 @@ function EmptyPreview({
       <box height={1} />
       <text>
         <span fg={theme.textDim}>{"and "}</span>
-        <span fg={theme.primary}>createWorker({"{ registry }"})</span>
-        <span fg={theme.textDim}>{" in src/worker.ts"}</span>
+        <span fg={theme.primary}>createWorkflowCli(registry).run()</span>
+        <span fg={theme.textDim}>{" in your entrypoint"}</span>
       </text>
     </box>
   );

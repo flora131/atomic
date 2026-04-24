@@ -6,12 +6,14 @@ correct invocation and run it. This is the playbook for that flow. It is
 different from the authoring playbook in `SKILL.md`: the workflow already
 exists in a registry; you just need to invoke it correctly.
 
+**This playbook works from any context.** Whether you're running in a fresh terminal, inside `atomic chat -a <agent>`, or from a CI script, the decision tree below is the same — atomic builtins, repo examples, and user SDK workflows are all discoverable and invokable. If the user is chatting with you through `atomic chat` and says "start my hello-world workflow", walk the same three paths; the shared tmux socket means the workflow you spawn will be visible to every monitoring surface (the worker CLI's own `status` / `session` subcommands, `atomic workflow status`, and `bunx atomic …`) regardless of which path you used to start it.
+
 ## Three invocation paths
 
 **Path A — user's own app.** The user wrote one or more composition
 roots. Two shapes exist — pick based on what the file calls:
 
-- **Single-workflow worker** (`createWorker(definition).start()`) —
+- **Single-workflow worker** (`createWorkflowCli(definition).run()`) —
   one file per agent, bound to one `WorkflowDefinition`. No `--name`
   or `--agent` flags — the file is the workflow. Typical name:
   `claude-worker.ts`.
@@ -22,20 +24,20 @@ roots. Two shapes exist — pick based on what the file calls:
   bun run src/claude-worker.ts -d "<prompt>"         # detached
   ```
 
-- **Multi-workflow dispatcher** (`createDispatcher(registry).start()`)
+- **Multi-workflow cli** (`createWorkflowCli(registry).run()`)
   — a single file that registers many workflows and dispatches on
   `-n/--name` + `-a/--agent`:
 
   ```bash
-  bun run src/dispatcher.ts -n <name> -a <agent> [--field=value]
-  bun run src/dispatcher.ts -n <name> -a <agent> "<prompt>"
-  bun run src/dispatcher.ts -n <name> -a <agent>
+  bun run src/cli.ts -n <name> -a <agent> [--field=value]
+  bun run src/cli.ts -n <name> -a <agent> "<prompt>"
+  bun run src/cli.ts -n <name> -a <agent>
   ```
 
 **Path B — repo-shipped examples.** Inside the Atomic repo each example
 directory ships one worker file per agent (`claude-worker.ts`,
 `copilot-worker.ts`, `opencode-worker.ts`). Each is a
-`createWorker(definition)` entrypoint:
+`createWorkflowCli(workflow)` entrypoint:
 
 ```bash
 bun run examples/<name>/claude-worker.ts [--field=value]
@@ -68,7 +70,7 @@ command simplifies to `atomic workflow -n <name> <inputs>`.
 2. Does `examples/<name>/<agent>-worker.ts` exist in the current repo? →
    **Path B** (`bun run examples/<name>/<agent>-worker.ts`).
 3. Does a composition root exist in `src/` (single-workflow
-   `createWorker(def)` file, or a dispatcher `createDispatcher(registry)`
+   `createWorkflowCli(workflow)` file, or a cli `createWorkflowCli(registry)`
    file)? → **Path A**.
 4. None of the above → the workflow doesn't exist. Offer to author it
    (see below).
@@ -86,7 +88,7 @@ atomic workflow list
 bun run examples/<name>/<agent>-worker.ts --help
 
 # User's own app
-bun run src/dispatcher.ts -n <name> -a <agent>
+bun run src/cli.ts -n <name> -a <agent>
 ```
 
 The list output tells you:
@@ -165,7 +167,7 @@ Skip AskUserQuestion entirely when:
 1. **Identify the invocation path** — atomic builtin (`atomic workflow`),
    repo-shipped example (`bun run examples/<name>/<agent>-worker.ts`), or
    the user's own app (single-workflow `src/<agent>-worker.ts` or
-   multi-workflow `src/dispatcher.ts`)?
+   multi-workflow `src/cli.ts`)?
 2. **List available workflows** — run the list command for the chosen path.
    This is your ground truth.
 3. **Resolve the target**:
@@ -179,14 +181,14 @@ Skip AskUserQuestion entirely when:
    unanswered required field. Enums become multiple-choice.
 6. **Invoke** — build one of these commands:
 
-   User's own app — single-workflow worker:
+   User's own app — single-workflow cli:
    - Free-form: `bun run src/<agent>-worker.ts "<prompt>"`
    - Structured: `bun run src/<agent>-worker.ts --field1=val1`
    - Detached: add `-d`
 
-   User's own app — multi-workflow dispatcher:
-   - Free-form: `bun run src/dispatcher.ts -n <name> -a <agent> "<prompt>"`
-   - Structured: `bun run src/dispatcher.ts -n <name> -a <agent> --field1=val1`
+   User's own app — multi-workflow cli:
+   - Free-form: `bun run src/cli.ts -n <name> -a <agent> "<prompt>"`
+   - Structured: `bun run src/cli.ts -n <name> -a <agent> --field1=val1`
    - Detached: add `-d`
 
    Repo-shipped example (inside atomic repo):
@@ -203,13 +205,33 @@ Skip AskUserQuestion entirely when:
 
 ## Monitoring a running workflow
 
-Detached workflows return immediately with a session name; the actual work
-runs in the background on the atomic tmux socket. Use `atomic workflow status`
-to check whether the workflow is still running, has completed, errored out, or
-paused for human input — without attaching to its TUI.
+**Monitoring works identically for all three invocation paths** — Path A (user's SDK app), Path B (repo-shipped examples), and Path C (atomic builtins) all spawn sessions on the same `atomic` tmux socket. Three equivalent surfaces expose the same commands:
+
+1. **Path A / Path B — the worker CLI itself.** `createWorkflowCli` auto-registers `session` and `status` subcommands by default, so any worker file or `cli.ts` already has monitoring built in:
+   ```bash
+   bun run src/claude-worker.ts session list
+   bun run src/claude-worker.ts status <session-name>
+   bun run src/claude-worker.ts session connect <session-name>
+   bun run src/claude-worker.ts session kill <session-name> -y
+   ```
+2. **Path C — the global `atomic` binary.** Same commands under `atomic session …` and `atomic workflow status`. Note the small shape difference: atomic nests status under `workflow` (`atomic workflow status <id>`), the SDK exposes it flat (`worker.ts status <id>`).
+3. **SDK-only fallback — `bunx atomic`.** Any project with `@bastani/atomic` as a dep ships the full `atomic` binary at `node_modules/.bin/atomic`. Use this when the user has a multi-workflow repo and wants the global-style flat `atomic …` surface without installing globally.
+
+Pick whichever is handy — they all talk to the same tmux socket, so a workflow started by `bun run src/claude-worker.ts` is equally visible to `atomic workflow status` and to `bun run src/claude-worker.ts status`.
+
+Detached workflows return immediately with a session name; the actual work runs in the background on the atomic tmux socket. Use `status` to check whether the workflow is still running, has completed, errored out, or paused for human input — without attaching to its TUI.
 
 ```bash
+# Via the worker CLI (recommended for SDK users — no extra install):
+bun run src/claude-worker.ts status atomic-wf-claude-gen-spec-a1b2c3d4
+
+# Via the global `atomic` CLI (for atomic builtins or users who prefer the global binary):
 atomic workflow status atomic-wf-claude-gen-spec-a1b2c3d4
+
+# Via bunx atomic (SDK-only, no global install):
+bunx atomic workflow status atomic-wf-claude-gen-spec-a1b2c3d4
+
+# All three print:
 # {"id":"atomic-wf-claude-gen-spec-a1b2c3d4","overall":"in_progress","alive":true,
 #  "sessions":[{"name":"orchestrator","status":"running",...}],...}
 ```
@@ -237,7 +259,14 @@ When the user is done with a workflow — or you launched one detached and it's
 no longer needed — tear it down with `-y` so no confirmation prompt blocks you:
 
 ```bash
+# Via the worker CLI (auto-registered by createWorkflowCli):
+bun run src/claude-worker.ts session kill atomic-wf-claude-gen-spec-a1b2c3d4 -y
+
+# Via the global atomic binary:
 atomic session kill atomic-wf-claude-gen-spec-a1b2c3d4 -y
+
+# Via bunx atomic (SDK-only, no global install):
+bunx atomic session kill atomic-wf-claude-gen-spec-a1b2c3d4 -y
 ```
 
 The `-y` flag is mandatory for agent use. Without it, the CLI calls
@@ -272,13 +301,19 @@ in-scope session — only do that when the user has asked to stop everything.
 
 > **User:** "run the summarize-pr workflow on 'add OAuth to the API'"
 
-1. Path A. `src/claude-worker.ts` exists and calls `createWorker(summarizePrClaude)`.
-   (If instead the user had a `src/dispatcher.ts` with `createDispatcher(registry)`,
-   you'd run `bun run src/dispatcher.ts -n <name> -a <agent>` first to confirm.)
+1. Path A. `src/claude-worker.ts` exists and calls `createWorkflowCli(summarizePrClaude)`.
+   (If instead the user had a `src/cli.ts` with `createWorkflowCli(registry)`,
+   you'd run `bun run src/cli.ts -n <name> -a <agent>` first to confirm.)
 2. Target resolved exactly: `summarize-pr`, agent `claude`.
 3. Prompt already given in user's message. No AskUserQuestion needed.
-4. Run: `bun run src/claude-worker.ts "add OAuth to the API"`
-5. Report the session name.
+4. Run detached: `bun run src/claude-worker.ts -d "add OAuth to the API"`.
+   The CLI prints a session name like `atomic-wf-claude-summarize-pr-a1b2c3d4`.
+5. Report it using the worker CLI's own subcommands (auto-registered by
+   `createWorkflowCli`):
+   - "Attach: `bun run src/claude-worker.ts session connect atomic-wf-claude-summarize-pr-a1b2c3d4`"
+   - "Status: `bun run src/claude-worker.ts status atomic-wf-claude-summarize-pr-a1b2c3d4`"
+   - "Stop: `bun run src/claude-worker.ts session kill atomic-wf-claude-summarize-pr-a1b2c3d4 -y`"
+6. Equivalent commands work via the global `atomic` binary (`atomic session connect …`, `atomic workflow status …`) or `bunx atomic …` for SDK-only installs — pick whichever is convenient. Whether the worker CLI spawned the workflow or `atomic workflow -n <name>` did doesn't matter to the monitoring commands; both paths land on the same atomic tmux socket.
 
 **Example B1b — repo-shipped example, structured inputs**
 
@@ -311,7 +346,7 @@ in-scope session — only do that when the user has asked to stop everything.
 
 > **User:** "run the security-audit workflow on src/auth"
 
-1. This sounds like a user app workflow. Run `bun run src/dispatcher.ts -n <name> -a <agent>`.
+1. This sounds like a user app workflow. Run `bun run src/cli.ts -n <name> -a <agent>`.
    Available: `summarize-pr`, `triage-pr`. No `security-audit`.
 2. Tell the user: "I don't see a `security-audit` workflow registered. Available: summarize-pr, triage-pr."
 3. Ask via AskUserQuestion: "Want me to create a `security-audit` workflow

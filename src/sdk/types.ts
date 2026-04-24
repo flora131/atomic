@@ -425,7 +425,7 @@ export interface WorkflowOptions<
   minSDKVersion?: string;
 }
 
-// ─── Registry + Worker types ─────────────────────────────────────────────────
+// ─── Registry + WorkflowCli types ───────────────────────────────────────────
 
 /**
  * Structural constraint for workflows accepted by `Registry.register()`.
@@ -487,86 +487,95 @@ export type Registry<
   resolve(name: string, agent: AgentType): WorkflowDefinition | undefined;
 };
 
-/** Options for constructing a Worker via `createWorker()`. */
-export interface CreateWorkerOptions {
-  /** Override argv (for tests/embedding). Defaults to process.argv. */
-  argv?: string[];
-}
-
 /**
- * A worker bound to exactly one compiled `WorkflowDefinition`.
+ * Argv control for `WorkflowCli.run`.
  *
- * Agent, name, and input schema are all fixed at construction time, so
- * `start(inputs)` is unambiguous: the values apply to that workflow's
- * declared inputs. Argv parsing exposes only `--<inputName>` flags (plus
- * `-d/--detach`) — no `--name` / `--agent` dispatch.
- *
- * The generic is constrained to `RegistrableWorkflow` rather than
- * `WorkflowDefinition` for the same reason `Registry.register` is —
- * invariance on the `run` callback breaks inference of narrow agent
- * and input tuple types. See the `RegistrableWorkflow` declaration.
+ * - `undefined` — parse `process.argv` (default).
+ * - `string[]` — parse this explicit argv list (tests, embedding).
+ * - `false` — skip parsing; use `inputs` / `name` / `agent` as provided.
  */
-export interface Worker<
-  D extends RegistrableWorkflow = RegistrableWorkflow,
-> {
-  /**
-   * Flat-root CLI. Parses argv and runs the bound workflow. The
-   * provided `inputs` are merged BENEATH CLI flags (CLI flags win).
-   */
-  start(inputs?: InputsOf<D["inputs"]>): Promise<void>;
-  /**
-   * Return a configured Commander Command for embedding under a parent
-   * CLI. Pass `name` to override the command name (default: the bound
-   * workflow's `name`).
-   */
-  command(name?: string): import("@commander-js/extra-typings").Command;
-  /**
-   * Programmatic invocation without argv parsing.
-   */
-  run(options?: {
-    inputs?: InputsOf<D["inputs"]>;
-    detach?: boolean;
-    entrypointFile?: string;
-  }): Promise<void>;
-}
+export type ArgvMode = string[] | false;
 
-/** Options for constructing a Dispatcher via `createDispatcher()`. */
-export interface CreateDispatcherOptions {
+/** Options for constructing a WorkflowCli via `createWorkflowCli()`. */
+export interface CreateWorkflowCliOptions {
   /** Programmatic inputs. CLI flags override these. */
   inputs?: Record<string, string>;
-  /** Override argv (for tests/embedding). Defaults to process.argv. */
-  argv?: string[];
-  /** Hook to add sibling commands at the root of the flat CLI. */
+  /**
+   * Absolute path to the composition root file. The executor re-executes
+   * this path with `ATOMIC_ORCHESTRATOR_MODE=1` when detach is requested,
+   * so re-entry lands on the module that wired the dispatcher. Defaults
+   * to `process.argv[1]` — override when your composition root isn't
+   * argv[1] (test harnesses, bundled CLIs, embedded programs).
+   */
+  entry?: string;
+  /**
+   * Hook to attach sibling commands to the standalone `run()` CLI. The
+   * callback runs once against the Commander program `run()` built
+   * internally. Not used by the `toCommand` adapter — if you're embedding,
+   * add your siblings to the parent directly.
+   */
   extend?: (program: import("@commander-js/extra-typings").Command) => void;
+  /**
+   * When `true` (the default), the generated CLI auto-registers the
+   * session + status management subcommands — `session list`,
+   * `session connect`, `session kill`, and `status` — so SDK users get
+   * the same monitoring UX as `atomic workflow …` without needing the
+   * global `atomic` binary.
+   *
+   * Every session spawned by the SDK lives on the shared `atomic` tmux
+   * socket, so these commands are pure pass-throughs to the same
+   * implementations the global CLI uses; there's no divergence. Set to
+   * `false` only when you want a minimal CLI (e.g. programmatic invocation
+   * or embedding under a parent Commander program where the parent owns
+   * session management).
+   *
+   * The `session` and `status` names are reserved — workflow inputs
+   * declared with those names will throw at `defineWorkflow` time to
+   * avoid flag collisions.
+   */
+  includeManagementCommands?: boolean;
 }
 
 /**
- * A dispatcher that resolves `--name` + `--agent` from argv and runs the
+ * A CLI program that resolves `--name` + `--agent` from argv and runs the
  * matching workflow from a registry. Used by multi-workflow CLIs (e.g.
- * the internal `atomic workflow` command).
+ * the internal `atomic workflow` command) and single-workflow entry points.
+ *
+ * Framework-agnostic by design. To embed under a parent CLI, use the
+ * `toCommand` adapter in `@bastani/atomic/workflows/commander`.
  */
-export interface Dispatcher<
-  _T extends Record<string, WorkflowDefinition> = Record<string, WorkflowDefinition>,
+export interface WorkflowCli<
+  T extends Record<string, WorkflowDefinition> = Record<string, WorkflowDefinition>,
 > {
+  /** Registry the CLI was constructed with. */
+  readonly registry: Registry<T>;
   /**
-   * Standalone flat-root CLI — parses argv with `-n/--name`,
-   * `-a/--agent`, and per-input flags (union across registry).
+   * Absolute path the executor re-execs on `--detach`. Defaults to
+   * `process.argv[1]`; override via `createWorkflowCli(reg, { entry })`.
    */
-  start(): Promise<void>;
+  readonly entry: string;
   /**
-   * Return a configured commander Command for embedding under a parent CLI.
-   * Pass `name` to override the command name (default: `"workflow"`).
+   * Input defaults supplied at construction. The adapter reads these so
+   * CLI-built Commands merge them identically to `run()`.
    */
-  command(name?: string): import("@commander-js/extra-typings").Command;
+  readonly defaults: Record<string, string> | undefined;
   /**
-   * Programmatic invocation without argv parsing.
-   * `inputs` here overrides `createDispatcher({ inputs })`.
+   * Run the workflow CLI.
+   *
+   * - Default (`argv` unset): parses `process.argv` with `-n/--name`,
+   *   `-a/--agent`, and the per-input union across the registry;
+   *   `inputs`/`name`/`agent` layer in as defaults.
+   * - `argv: [...]`: parses the given argv list the same way.
+   * - `argv: false`: skip parsing; `name` and `agent` are required and
+   *   `inputs` are used as-is.
    */
-  run(
-    workflowName: string,
-    agent: AgentType,
-    options?: { inputs?: Record<string, string>; detach?: boolean; entrypointFile?: string },
-  ): Promise<void>;
+  run(options?: {
+    name?: string;
+    agent?: AgentType;
+    inputs?: Record<string, string>;
+    argv?: ArgvMode;
+    detach?: boolean;
+  }): Promise<void>;
 }
 
 /**
@@ -584,7 +593,7 @@ export interface WorkflowDefinition<
   /**
    * Declared input schema — empty tuple for free-form workflows.
    * Typed as the builder-supplied `I` so consumers (e.g.
-   * `createWorker(def)`) can derive the narrow `InputsOf<I>` shape
+   * `createWorkflowCli(def)`) can derive the narrow `InputsOf<I>` shape
    * without carrying a second generic parameter.
    */
   readonly inputs: I;

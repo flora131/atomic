@@ -1823,6 +1823,46 @@ function createSessionRunner(
 export { validateOrchestratorEnv } from "./executor-env.ts";
 import { validateOrchestratorEnv } from "./executor-env.ts";
 
+/**
+ * Orchestrator re-entry guard.
+ *
+ * When `executeWorkflow()` spawns a detached pane, it re-invokes the
+ * composition root with `ATOMIC_ORCHESTRATOR_MODE=1` +
+ * `ATOMIC_WF_KEY="<agent>/<name>"`. This helper detects that re-entry
+ * and hands off to `runOrchestrator()` with the resolved definition.
+ *
+ * Returns `true` when re-entry was handled (caller should stop normal
+ * CLI flow). Returns `false` when `ATOMIC_ORCHESTRATOR_MODE` is unset
+ * — the caller should proceed with argv parsing.
+ *
+ * The `resolve` callback lets embedded workers pass a trivial lookup
+ * (their single bound definition) while the dispatcher passes its
+ * registry. Throws on malformed or unknown keys so authoring mistakes
+ * surface loudly instead of silently hanging.
+ */
+export async function handleOrchestratorReEntry(
+  resolve: (name: string, agent: AgentType) => WorkflowDefinition | undefined,
+): Promise<boolean> {
+  if (process.env.ATOMIC_ORCHESTRATOR_MODE !== "1") {
+    return false;
+  }
+  const key = process.env.ATOMIC_WF_KEY ?? "";
+  const slashIdx = key.indexOf("/");
+  if (slashIdx < 0) {
+    throw new Error(
+      `ATOMIC_ORCHESTRATOR_MODE=1 but ATOMIC_WF_KEY "${key}" is malformed — expected "<agent>/<name>"`,
+    );
+  }
+  const agent = key.slice(0, slashIdx) as AgentType;
+  const name = key.slice(slashIdx + 1);
+  const def = resolve(name, agent);
+  if (!def) {
+    throw new Error(`ATOMIC_WF_KEY "${key}" not found in registry`);
+  }
+  await runOrchestrator(def);
+  return true;
+}
+
 export async function runOrchestrator(
   definition: WorkflowDefinition,
 ): Promise<void> {

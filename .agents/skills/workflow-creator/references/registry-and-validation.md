@@ -55,11 +55,11 @@ Two workflows with the **same name but different agents** (`"claude/ralph"` and
 `"copilot/ralph"`) are distinct keys and register without conflict — that is the
 intended pattern for cross-agent workflows.
 
-## Input flag-name conflicts at `createDispatcher` time
+## Input flag-name conflicts at `createWorkflowCli` time
 
-`createDispatcher(registry)` inspects all registered workflows and builds a
+`createWorkflowCli(registry)` inspects all registered workflows and builds a
 union of their declared inputs. If two workflows declare the same input name
-with **different types**, `createDispatcher` throws immediately:
+with **different types**, `createWorkflowCli` throws immediately:
 
 ```
 [atomic/worker] Input name conflict: "focus" is declared as "enum" in
@@ -70,8 +70,8 @@ Workflows sharing an input name must agree on the type.
 Same name + same type: the flag is shared silently (one `--focus` covers
 both workflows).
 
-Note: `createWorker(definition)` is bound to a single workflow, so it
-performs no union. Only the dispatcher faces this class of conflict.
+Note: `createWorkflowCli(workflow)` is bound to a single workflow, so it
+performs no union. Only the cli faces this class of conflict.
 
 ## Reserved flag names
 

@@ -2,19 +2,19 @@
  * Workflow runtime executor.
  *
  * Architecture:
- * 1. `executeWorkflow()` is called by the CLI command
- * 2. It creates a tmux session with an orchestrator pane that runs
- *    `bun run executor-entry.ts` (a thin wrapper that calls `runOrchestrator()`)
+ * 1. `executeWorkflow()` is called by the CLI command or worker
+ * 2. It creates a tmux session with an orchestrator pane that re-executes
+ *    the user's entrypoint file with `ATOMIC_ORCHESTRATOR_MODE=1`
  * 3. The CLI then attaches to the tmux session (user sees it live)
  * 4. The orchestrator pane calls `definition.run(workflowCtx)` — the
  *    user's callback uses `ctx.stage()` to spawn agent sessions
  *
- * The entry point is in executor-entry.ts (not this file) to avoid Bun's
- * dual-module-identity issue: Bun evaluates a file twice when it is both
- * the entry point and reached through package.json `exports` self-referencing.
+ * In the new model the user's own file (e.g. `src/worker.ts`) is re-executed
+ * with env vars (`ATOMIC_ORCHESTRATOR_MODE`, `ATOMIC_WF_KEY`) that signal
+ * re-entry. The worker detects those vars and calls `runOrchestrator(definition)`.
  */
 
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { homedir } from "node:os";
 import { writeFile } from "node:fs/promises";
 import { statSync, accessSync, constants as fsConstants } from "node:fs";
@@ -36,7 +36,6 @@ import type {
   ProviderSession,
 } from "../types.ts";
 import {
-  isValidAgent,
   type ProviderOverrides,
 } from "../../services/config/definitions.ts";
 import { getProviderOverrides } from "../../services/config/atomic-config.ts";
@@ -48,7 +47,6 @@ import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import * as tmux from "./tmux.ts";
 import { spawnMuxAttach } from "./tmux.ts";
 import { spawnAttachedFooter } from "./attached-footer.ts";
-import { WorkflowLoader } from "./loader.ts";
 import {
   clearClaudeSession,
   ClaudeClientWrapper,
@@ -133,8 +131,19 @@ export interface WorkflowRunOptions {
    * whether the workflow declares a schema. Empty record is valid.
    */
   inputs?: Record<string, string>;
-  /** Absolute path to the workflow's index.ts file (from discovery) */
-  workflowFile: string;
+  /**
+   * Absolute path to the user's entrypoint file (e.g. `src/worker.ts`).
+   * The launcher re-executes this file with `ATOMIC_ORCHESTRATOR_MODE=1`
+   * so the worker can detect re-entry and call `runOrchestrator()`.
+   * Defaults to `process.argv[1]` at the call site.
+   */
+  entrypointFile: string;
+  /**
+   * Registry key identifying this workflow, formatted as `"<agent>/<name>"`.
+   * Passed via `ATOMIC_WF_KEY` so the orchestrator can resolve the
+   * definition from the registry without a file-system scan.
+   */
+  workflowKey: string;
   /** Project root (defaults to cwd) */
   projectRoot?: string;
   /**
@@ -466,7 +475,8 @@ export async function executeWorkflow(
     definition,
     agent,
     inputs = {},
-    workflowFile,
+    entrypointFile,
+    workflowKey,
     projectRoot = process.cwd(),
     detach = false,
   } = options;
@@ -477,10 +487,8 @@ export async function executeWorkflow(
   await ensureDir(sessionsBaseDir);
 
   // Write a launcher script for the orchestrator pane.
-  // Points to executor-entry.ts (not executor.ts) to avoid Bun's
-  // dual-module-identity issue: entry points and package self-references
-  // are evaluated as separate module instances in Bun.
-  const thisFile = resolve(import.meta.dir, "executor-entry.ts");
+  // Re-executes the user's entrypoint file with ATOMIC_ORCHESTRATOR_MODE=1
+  // so the worker can detect re-entry and call runOrchestrator().
   const isWin = process.platform === "win32";
   const launcherExt = isWin ? "ps1" : "sh";
   const launcherPath = join(sessionsBaseDir, `orchestrator.${launcherExt}`);
@@ -500,9 +508,10 @@ export async function executeWorkflow(
         `$env:ATOMIC_WF_TMUX = "${escPwsh(tmuxSessionName)}"`,
         `$env:ATOMIC_WF_AGENT = "${escPwsh(agent)}"`,
         `$env:ATOMIC_WF_INPUTS = "${escPwsh(inputsB64)}"`,
-        `$env:ATOMIC_WF_FILE = "${escPwsh(workflowFile)}"`,
+        `$env:ATOMIC_ORCHESTRATOR_MODE = "1"`,
+        `$env:ATOMIC_WF_KEY = "${escPwsh(workflowKey)}"`,
         `$env:ATOMIC_WF_CWD = "${escPwsh(projectRoot)}"`,
-        `bun run "${escPwsh(thisFile)}" 2>"${escPwsh(logPath)}"`,
+        `bun run "${escPwsh(entrypointFile)}" 2>"${escPwsh(logPath)}"`,
       ].join("\n")
     : [
         "#!/bin/bash",
@@ -511,9 +520,10 @@ export async function executeWorkflow(
         `export ATOMIC_WF_TMUX="${escBash(tmuxSessionName)}"`,
         `export ATOMIC_WF_AGENT="${escBash(agent)}"`,
         `export ATOMIC_WF_INPUTS="${escBash(inputsB64)}"`,
-        `export ATOMIC_WF_FILE="${escBash(workflowFile)}"`,
+        `export ATOMIC_ORCHESTRATOR_MODE="1"`,
+        `export ATOMIC_WF_KEY="${escBash(workflowKey)}"`,
         `export ATOMIC_WF_CWD="${escBash(projectRoot)}"`,
-        `bun run "${escBash(thisFile)}" 2>"${escBash(logPath)}"`,
+        `bun run "${escBash(entrypointFile)}" 2>"${escBash(logPath)}"`,
       ].join("\n");
 
   await writeFile(launcherPath, launcherScript, { mode: 0o755 });
@@ -1800,29 +1810,63 @@ function createSessionRunner(
 // Orchestrator logic — runs inside a tmux pane
 // ============================================================================
 
-export async function runOrchestrator(): Promise<void> {
-  const requiredEnvVars = [
-    "ATOMIC_WF_ID",
-    "ATOMIC_WF_TMUX",
-    "ATOMIC_WF_AGENT",
-    "ATOMIC_WF_FILE",
-    "ATOMIC_WF_CWD",
-  ] as const;
-  for (const key of requiredEnvVars) {
-    if (process.env[key] === undefined) {
-      throw new Error(`Missing required environment variable: ${key}`);
-    }
-  }
+/**
+ * Run the orchestrator inside a tmux pane.
+ *
+ * Called by the worker entrypoint when `ATOMIC_ORCHESTRATOR_MODE=1` is set.
+ * The `definition` parameter is resolved by the caller (the worker) from the
+ * registry using `ATOMIC_WF_KEY` — this function no longer performs any
+ * file-path import or workflow discovery.
+ *
+ * @param definition - Resolved workflow definition from the registry.
+ */
+export { validateOrchestratorEnv } from "./executor-env.ts";
+import { validateOrchestratorEnv } from "./executor-env.ts";
 
-  const workflowRunId = process.env.ATOMIC_WF_ID!;
-  const tmuxSessionName = process.env.ATOMIC_WF_TMUX!;
-  const rawAgent = process.env.ATOMIC_WF_AGENT!;
-  if (!isValidAgent(rawAgent)) {
+/**
+ * Orchestrator re-entry guard.
+ *
+ * When `executeWorkflow()` spawns a detached pane, it re-invokes the
+ * composition root with `ATOMIC_ORCHESTRATOR_MODE=1` +
+ * `ATOMIC_WF_KEY="<agent>/<name>"`. This helper detects that re-entry
+ * and hands off to `runOrchestrator()` with the resolved definition.
+ *
+ * Returns `true` when re-entry was handled (caller should stop normal
+ * CLI flow). Returns `false` when `ATOMIC_ORCHESTRATOR_MODE` is unset
+ * — the caller should proceed with argv parsing.
+ *
+ * The `resolve` callback lets embedded workers pass a trivial lookup
+ * (their single bound definition) while the dispatcher passes its
+ * registry. Throws on malformed or unknown keys so authoring mistakes
+ * surface loudly instead of silently hanging.
+ */
+export async function handleOrchestratorReEntry(
+  resolve: (name: string, agent: AgentType) => WorkflowDefinition | undefined,
+): Promise<boolean> {
+  if (process.env.ATOMIC_ORCHESTRATOR_MODE !== "1") {
+    return false;
+  }
+  const key = process.env.ATOMIC_WF_KEY ?? "";
+  const slashIdx = key.indexOf("/");
+  if (slashIdx < 0) {
     throw new Error(
-      `Invalid ATOMIC_WF_AGENT: "${rawAgent}". Expected one of: copilot, opencode, claude`,
+      `ATOMIC_ORCHESTRATOR_MODE=1 but ATOMIC_WF_KEY "${key}" is malformed — expected "<agent>/<name>"`,
     );
   }
-  const agent: AgentType = rawAgent;
+  const agent = key.slice(0, slashIdx) as AgentType;
+  const name = key.slice(slashIdx + 1);
+  const def = resolve(name, agent);
+  if (!def) {
+    throw new Error(`ATOMIC_WF_KEY "${key}" not found in registry`);
+  }
+  await runOrchestrator(def);
+  return true;
+}
+
+export async function runOrchestrator(
+  definition: WorkflowDefinition,
+): Promise<void> {
+  const { workflowRunId, tmuxSessionName, agent, cwd } = validateOrchestratorEnv();
   // ATOMIC_WF_INPUTS carries the full input payload. Free-form
   // workflows store their single positional prompt under the `prompt`
   // key so workflow authors always read it via `ctx.inputs.prompt`.
@@ -1832,8 +1876,6 @@ export async function runOrchestrator(): Promise<void> {
   // A bare prompt string is still useful for the panel header and the
   // session-dir metadata.json — both just want something displayable.
   const prompt = inputs.prompt ?? "";
-  const workflowFile = process.env.ATOMIC_WF_FILE!;
-  const cwd = process.env.ATOMIC_WF_CWD!;
 
   process.chdir(cwd);
 
@@ -1915,28 +1957,9 @@ export async function runOrchestrator(): Promise<void> {
   };
 
   try {
-    const plan: WorkflowLoader.Plan = {
-      name: workflowFile.split("/").at(-3) ?? "unknown",
-      agent,
-      path: workflowFile,
-      source: "local",
-    };
-
-    const loaded = await WorkflowLoader.loadWorkflow(plan, {
-      warn(warnings) {
-        for (const w of warnings) {
-          console.warn(`⚠ [${w.rule}] ${w.message}`);
-        }
-      },
-    });
-    if (!loaded.ok) {
-      throw new Error(loaded.message);
-    }
-    const definition = loaded.value.definition;
-
     // Parse integer inputs to numbers so `ctx.inputs.<name>` matches the
-    // declared type. Do this after loading (when the schema is known) and
-    // mutate shared.inputs so per-stage SessionContexts see the same shape.
+    // declared type. Mutate shared.inputs so per-stage SessionContexts see
+    // the same shape.
     shared.inputs = coerceInputsBySchema(inputs, definition.inputs);
 
     await Bun.write(

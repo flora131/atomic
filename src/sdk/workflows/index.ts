@@ -7,6 +7,16 @@
  */
 
 export { defineWorkflow, WorkflowBuilder } from "../define-workflow.ts";
+export { createRegistry } from "../registry.ts";
+export type { Registry } from "../registry.ts";
+
+// WorkflowCli — the single factory that drives workflow CLIs. Accepts a
+// lone workflow, an array of workflows, or a Registry for programmatic
+// composition. Ships with the interactive picker out of the box.
+export { createWorkflowCli } from "../workflow-cli.ts";
+export type { WorkflowCli, CreateWorkflowCliOptions } from "../types.ts";
+
+export type { ArgvMode } from "../types.ts";
 
 export type {
   AgentType,
@@ -87,23 +97,3 @@ export {
   normalizeTmuxLines,
 } from "../runtime/tmux.ts";
 
-// Runtime — workflow discovery
-export {
-  AGENTS,
-  discoverWorkflows,
-  findWorkflow,
-  loadWorkflowsMetadata,
-  WORKFLOWS_GITIGNORE,
-} from "../runtime/discovery.ts";
-export type {
-  DiscoveredWorkflow,
-  WorkflowWithMetadata,
-  WorkflowMetadataStatus,
-} from "../runtime/discovery.ts";
-
-// Runtime — workflow loader pipeline
-export { WorkflowLoader } from "../runtime/loader.ts";
-
-// Runtime — workflow executor
-export { executeWorkflow } from "../runtime/executor.ts";
-export type { WorkflowRunOptions } from "../runtime/executor.ts";

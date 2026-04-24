@@ -1,17 +1,107 @@
 # Workflow Authors: Getting Started
 
-This guide covers the basics of creating workflows with the `defineWorkflow().run().compile()` API.
+This guide covers the basics of creating workflows with the `defineWorkflow().run().compile()` API and wiring them into a composition root.
+
+## Composition root
+
+A workflow's composition root is the TypeScript file a user runs via `bun`. The SDK ships **one** factory — `createWorkflowCli` — that accepts a single workflow, an array, or a `Registry`. The same shape scales from toy scripts to multi-agent suites without pattern changes, and every cli ships with `-n/--name` + `-a/--agent` flags, the interactive picker, the `--<inputName>` union across registered workflows, and `-d/--detach`.
+
+### The three input shapes
+
+```ts
+import { createWorkflowCli, createRegistry } from "@bastani/atomic/workflows";
+
+// Single workflow — pass it directly. `-a` defaults to the lone agent.
+await createWorkflowCli(workflow).run();
+
+// Multiple workflows — pass an array.
+await createWorkflowCli([claudeFlow, copilotFlow, opencodeFlow]).run();
+
+// Dynamic/programmatic composition — build a Registry.
+const registry = workflowFiles.reduce((r, wf) => r.register(wf), createRegistry());
+await createWorkflowCli(registry).run();
+```
+
+### `run()` options
+
+`run()` accepts one options bag that controls all three invocation modes:
+
+```ts
+const cli = createWorkflowCli(workflow);
+
+// CLI mode (default) — parses process.argv
+await cli.run();
+
+// CLI mode with defaults — `inputs` layer beneath CLI flags
+await cli.run({ inputs: { prompt: "default task" } });
+
+// Explicit argv — useful in tests and embedded harnesses
+await cli.run({ argv: ["bun", "cli.ts", "-n", "deploy", "-a", "claude"] });
+
+// Programmatic — skips argv entirely; name + agent required, inputs final
+await cli.run({
+  argv: false,
+  name: "deploy",
+  agent: "claude",
+  inputs: { prompt: "task" },
+});
+```
+
+Run it:
+
+```bash
+bun run src/cli.ts --prompt "your task"                # single workflow
+bun run src/cli.ts --field=value
+bun run src/cli.ts -n deploy -a claude "your task"     # multi-workflow
+bun run src/cli.ts -a claude                           # picker (TTY)
+bun run src/cli.ts -d "your task"                      # detached
+```
+
+For embedding under a parent CLI, use the Commander adapter:
+
+```ts
+import { toCommand, runCli } from "@bastani/atomic/workflows/commander";
+
+parentProgram.addCommand(toCommand(cli));
+await runCli(cli, () => parentProgram.parseAsync());
+```
+
+Programmatic invocation — `argv: false` is required because the cli
+normally exits on a missing `-n`/`-a` via Commander's help:
+
+```ts
+await cli.run({
+  name: "my-workflow",
+  agent: "claude",
+  inputs: { prompt: "task" },
+  argv: false,
+});
+```
+
+### The `entry` option
+
+Both factories accept `{ entry?: string }` so the runtime knows which file
+to re-exec on `--detach`. Default is `process.argv[1]`, which is correct
+for the common `bun run src/cli.ts` case. Override it when:
+
+- You bundle the app — `entry` must point at the bundle's entrypoint.
+- Your composition root is imported from elsewhere and isn't argv[1].
+- You're running inside a test harness that isn't your worker file.
+
+```ts
+await createWorkflowCli(workflow, { entry: import.meta.url }).run();
+```
 
 ## Quick-start example
 
-Use `defineWorkflow({...}).for<"agent">().run(callback).compile()` to define your workflow. Inside the `.run()` callback, use `ctx.stage()` to spawn agent sessions dynamically. Each session gets its own tmux window and graph node. Use native TypeScript control flow (`for`, `if`, `Promise.all()`) for orchestration.
+Use `defineWorkflow({...}).for("agent").run(callback).compile()` to define your workflow. Pass the agent as a runtime string argument to `.for()` — this narrows the context types for everything downstream. Inside the `.run()` callback, use `ctx.stage()` to spawn agent sessions dynamically. Each session gets its own tmux window and graph node. Use native TypeScript control flow (`for`, `if`, `Promise.all()`) for orchestration.
 
 The runtime manages the full session lifecycle automatically — it creates the client, creates the session, runs your callback, then cleans up. You never need to manually disconnect or stop anything.
 
 ### Claude
 
 ```ts
-// .atomic/workflows/my-workflow/claude/index.ts
+// src/workflows/my-workflow/claude.ts
 import { defineWorkflow, extractAssistantText } from "@bastani/atomic/workflows";
 
 export default defineWorkflow({
@@ -21,7 +111,7 @@ export default defineWorkflow({
       { name: "prompt", type: "text", required: true, description: "task to perform" },
     ],
   })
-  .for<"claude">()
+  .for("claude")
   .run(async (ctx) => {
     const prompt = ctx.inputs.prompt ?? "";
 
@@ -54,7 +144,7 @@ export default defineWorkflow({
 ### Copilot
 
 ```ts
-// .atomic/workflows/my-workflow/copilot/index.ts
+// src/workflows/my-workflow/copilot.ts
 import { defineWorkflow } from "@bastani/atomic/workflows";
 
 export default defineWorkflow({
@@ -64,7 +154,7 @@ export default defineWorkflow({
       { name: "prompt", type: "text", required: true, description: "task to perform" },
     ],
   })
-  .for<"copilot">()
+  .for("copilot")
   .run(async (ctx) => {
     const prompt = ctx.inputs.prompt ?? "";
 
@@ -97,7 +187,7 @@ export default defineWorkflow({
 ### OpenCode
 
 ```ts
-// .atomic/workflows/my-workflow/opencode/index.ts
+// src/workflows/my-workflow/opencode.ts
 import { defineWorkflow } from "@bastani/atomic/workflows";
 
 export default defineWorkflow({
@@ -107,7 +197,7 @@ export default defineWorkflow({
       { name: "prompt", type: "text", required: true, description: "task to perform" },
     ],
   })
-  .for<"opencode">()
+  .for("opencode")
   .run(async (ctx) => {
     const prompt = ctx.inputs.prompt ?? "";
 
@@ -195,10 +285,18 @@ caveats live in `failure-modes.md` §F15.
 
 ## SDK exports
 
-The `@bastani/atomic/workflows` package exports the workflow authoring primitives. For native SDK types and utilities, install and import from the provider packages directly.
+The `@bastani/atomic/workflows` package exports the workflow authoring and composition primitives. For native SDK types and utilities, install and import from the provider packages directly.
+
+**Composition root:**
+- `createRegistry()` — factory for an empty, immutable, chainable registry. Chain `.register(wf)` to add workflow definitions. Each call returns a new registry. Throws on duplicate `${agent}/${name}` key.
+- `createWorkflowCli(target, options?)` — the workflow-CLI factory. `target` accepts a compiled `WorkflowDefinition`, an array of them, or a `Registry` — the cli normalizes internally. `options` supports `inputs?`, `entry?` (path to re-exec on `--detach`; defaults to `process.argv[1]`), and `extend?` (attach sibling commands to the standalone `run()` CLI).
+- `createRegistry()` — factory for an immutable, chainable registry. Only needed when you want dynamic/programmatic composition; pass workflows directly to `createWorkflowCli` otherwise.
+- `Registry` — type for the registry object (see `registry-and-validation.md`)
+- `WorkflowCli` — exposes `run(options?)`. `run()` options: `{ name?, agent?, inputs?, argv?: string[] | false, detach? }`.
+- `CreateWorkflowCliOptions`, `ArgvMode` — options types
 
 **Builder:**
-- `defineWorkflow` — entry point; returns a chainable `WorkflowBuilder`. Use `.for<"agent">()` on the builder to narrow types to a specific provider.
+- `defineWorkflow` — entry point; returns a chainable `WorkflowBuilder`. Use `.for("agent")` on the builder to narrow types to a specific provider.
 - `WorkflowBuilder` — the builder class (rarely needed directly)
 
 **Types** (import with `import type`):
@@ -261,15 +359,13 @@ multi-session workflow, and `agent-sessions.md` whenever writing SDK calls.
 
 ## Builtin reference implementations
 
-The SDK ships two builtin workflows that demonstrate production patterns for all three SDKs:
+The SDK ships two builtin workflows registered via `createBuiltinRegistry()` (internal to the `atomic` CLI). They demonstrate production patterns for all three SDKs:
 
 - **`ralph`** (`src/sdk/workflows/builtin/ralph/`) — iterative plan → orchestrate → review → debug loop with consecutive clean-pass detection, shared helpers for prompts/parsing/git, and cross-SDK adaptation
 - **`deep-research-codebase`** (`src/sdk/workflows/builtin/deep-research-codebase/`) — deterministic codebase scout → LOC-based heuristic explorer partitioning → parallel explorers → aggregator with file-based handoffs and context-aware prompt engineering
 
-Both include `helpers/` directories with SDK-agnostic logic (prompt builders, parsers, heuristics) and per-agent `index.ts` files showing how the same workflow topology adapts to Claude, Copilot, and OpenCode.
-
-For a minimal headless example (not a builtin — it lives as a local workflow in this repo), see `.atomic/workflows/headless-test/` — demonstrates the visible → [parallel headless] → visible merge pattern for all three SDKs.
+Both include `helpers/` directories with SDK-agnostic logic (prompt builders, parsers, heuristics) and per-agent `index.ts` files showing how the same workflow topology adapts to Claude, Copilot, and OpenCode. Their composition root pattern (`createWorkflowCli(workflow | [...] | registry).run()`) is the same pattern user apps follow.
 
 ## Type safety
 
-The SDK avoids `any` and uses `unknown` only at well-defined boundaries (e.g., `SessionRef = string | SessionHandle<unknown>` for handle-erased lookups). `SessionContext` fields are precisely typed, and native provider types may appear inside Atomic generic aliases and runtime values — if you need to name those types in your own code, import them from the provider SDK directly. Use `import type` for type-only imports. Use `.for<"agent">()` to narrow `s.client` and `s.session` to the correct provider types. Declare `inputs` inline so TypeScript enforces typed access on `ctx.inputs`.
+The SDK avoids `any` and uses `unknown` only at well-defined boundaries (e.g., `SessionRef = string | SessionHandle<unknown>` for handle-erased lookups). `SessionContext` fields are precisely typed, and native provider types may appear inside Atomic generic aliases and runtime values — if you need to name those types in your own code, import them from the provider SDK directly. Use `import type` for type-only imports. Use `.for("agent")` to narrow `s.client` and `s.session` to the correct provider types. Declare `inputs` inline so TypeScript enforces typed access on `ctx.inputs`.

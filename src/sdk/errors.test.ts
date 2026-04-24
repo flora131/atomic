@@ -3,6 +3,7 @@ import {
   MissingDependencyError,
   WorkflowNotCompiledError,
   InvalidWorkflowError,
+  IncompatibleSDKError,
   errorMessage,
 } from "./errors";
 
@@ -39,6 +40,21 @@ describe("InvalidWorkflowError", () => {
     expect(err.name).toBe("InvalidWorkflowError");
     expect(err.path).toBe("/tmp/bad.ts");
     expect(err.message).toContain("/tmp/bad.ts does not export a valid WorkflowDefinition");
+  });
+});
+
+describe("IncompatibleSDKError", () => {
+  test("sets name, versions, and message", () => {
+    const err = new IncompatibleSDKError("/tmp/wf.ts", "2.0.0", "1.4.0");
+    expect(err).toBeInstanceOf(Error);
+    expect(err.name).toBe("IncompatibleSDKError");
+    expect(err.path).toBe("/tmp/wf.ts");
+    expect(err.requiredVersion).toBe("2.0.0");
+    expect(err.currentVersion).toBe("1.4.0");
+    expect(err.message).toContain("/tmp/wf.ts");
+    expect(err.message).toContain("v2.0.0");
+    expect(err.message).toContain("v1.4.0");
+    expect(err.message).toContain("Update Atomic");
   });
 });
 

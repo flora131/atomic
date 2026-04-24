@@ -12,12 +12,9 @@ import {
   renderInputsText,
   workflowInputsCommand,
   type WorkflowInputsDeps,
+  type ResolvedWorkflowEntry,
 } from "./workflow-inputs.ts";
-import type {
-  WorkflowInput,
-  DiscoveredWorkflow,
-  WorkflowDefinition,
-} from "../../sdk/workflows/index.ts";
+import type { AgentType, WorkflowInput, WorkflowDefinition } from "../../sdk/workflows/index.ts";
 
 let originalNoColor: string | undefined;
 beforeAll(() => {
@@ -153,12 +150,10 @@ function captureOutput(): {
   };
 }
 
-function fakeDiscovered(name: string): DiscoveredWorkflow {
+function fakeDiscovered(name: string): ResolvedWorkflowEntry {
   return {
     name,
     agent: "claude",
-    path: `/fake/path/${name}.ts`,
-    source: "builtin",
   };
 }
 
@@ -166,10 +161,12 @@ function fakeDefinition(
   name: string,
   description: string,
   inputs: WorkflowInput[],
+  agent: AgentType = "claude",
 ): WorkflowDefinition {
   return {
     __brand: "WorkflowDefinition",
     name,
+    agent,
     description,
     inputs,
     minSDKVersion: null,
@@ -181,11 +178,9 @@ function makeDeps(overrides: Partial<WorkflowInputsDeps> = {}): WorkflowInputsDe
   return {
     findWorkflow: mock(async () => fakeDiscovered("gen-spec")) as unknown as
       WorkflowInputsDeps["findWorkflow"],
-    loadWorkflow: mock(async (plan) => ({
+    loadWorkflow: mock(async () => ({
       ok: true,
       value: {
-        ...plan,
-        warnings: [],
         definition: fakeDefinition("gen-spec", "spec generator", [
           { name: "research_doc", type: "string", required: true },
         ]),
@@ -315,6 +310,41 @@ describe("workflowInputsCommand", () => {
       expect(code).toBe(0);
       // JSON parses cleanly
       JSON.parse(cap.stdout());
+    } finally {
+      cap.restore();
+    }
+  });
+
+  test("default deps resolve against the builtin registry on success", async () => {
+    // Omit the deps argument so the module-level `defaultDeps` runs —
+    // this exercises `registryFindWorkflow` + `registryLoadWorkflow`.
+    const cap = captureOutput();
+    try {
+      const code = await workflowInputsCommand({
+        name: "ralph",
+        agent: "claude",
+        format: "json",
+      });
+      expect(code).toBe(0);
+      const parsed = JSON.parse(cap.stdout());
+      expect(parsed.workflow).toBe("ralph");
+      expect(parsed.agent).toBe("claude");
+    } finally {
+      cap.restore();
+    }
+  });
+
+  test("default deps report 'not found' for an unknown workflow", async () => {
+    const cap = captureOutput();
+    try {
+      const code = await workflowInputsCommand({
+        name: "definitely-not-a-real-workflow",
+        agent: "claude",
+        format: "json",
+      });
+      expect(code).toBe(1);
+      const parsed = JSON.parse(cap.stdout());
+      expect(parsed.error).toContain("not found");
     } finally {
       cap.restore();
     }

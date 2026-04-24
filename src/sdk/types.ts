@@ -412,7 +412,7 @@ export interface WorkflowOptions<
    *
    * When set, the CLI refuses to load the workflow on an older install
    * and surfaces an actionable "update required" entry in the picker
-   * and `atomic workflow -l` output instead of silently dropping it.
+   * and `atomic workflow list` output instead of silently dropping it.
    *
    * Leave unset (the default) to opt out entirely — the workflow will
    * be treated as compatible with every CLI version. Use this when you
@@ -425,6 +425,159 @@ export interface WorkflowOptions<
   minSDKVersion?: string;
 }
 
+// ─── Registry + WorkflowCli types ───────────────────────────────────────────
+
+/**
+ * Structural constraint for workflows accepted by `Registry.register()`.
+ *
+ * Uses `run: (...args: never[]) => Promise<void>` instead of the full
+ * `WorkflowDefinition<A, I>` constraint to avoid contravariance failures.
+ * A narrowly-typed `run(ctx: WorkflowContext<"claude">) => void` is not
+ * assignable to `run(ctx: WorkflowContext<AgentType>) => void` under
+ * `--strictFunctionTypes` (contravariant parameter position). Using
+ * `(...args: never[]) => Promise<void>` sidesteps this: any callable is
+ * assignable to a function that takes `never` args. Type narrowing on the
+ * accumulating `T` generic is still preserved via `W["agent"]`/`W["name"]`.
+ */
+export type RegistrableWorkflow = {
+  readonly __brand: "WorkflowDefinition";
+  readonly agent: AgentType;
+  readonly name: string;
+  readonly description: string;
+  readonly inputs: readonly WorkflowInput[];
+  readonly minSDKVersion: string | null;
+  readonly run: (...args: never[]) => Promise<void>;
+};
+
+/**
+ * Immutable, chainable registry of compiled workflow definitions.
+ *
+ * The generic parameter `T` accumulates the registered set as a
+ * `Record<"${agent}/${name}", WorkflowDefinition>` intersection, giving
+ * `get()` a typed return without casting.
+ */
+export type Registry<
+  T extends Record<string, WorkflowDefinition> = Record<string, WorkflowDefinition>,
+> = {
+  /**
+   * Register a workflow definition. Returns a new Registry with the
+   * definition added. Throws if the same `${agent}/${name}` key is
+   * already registered.
+   */
+  register<W extends RegistrableWorkflow>(
+    wf: W,
+  ): Registry<T & Record<`${W["agent"]}/${W["name"]}`, W>>;
+
+  /**
+   * Retrieve a registered definition by its composite key.
+   * Compile-time typed based on the accumulated registry type.
+   */
+  get<K extends keyof T>(key: K): T[K];
+
+  /** Return true if a workflow with the given composite key is registered. */
+  has(key: string): boolean;
+
+  /** Return all registered definitions as a readonly array. */
+  list(): readonly WorkflowDefinition[];
+
+  /**
+   * Resolve a workflow by name + agent. Composes the composite key
+   * internally. Returns `undefined` when not found.
+   */
+  resolve(name: string, agent: AgentType): WorkflowDefinition | undefined;
+};
+
+/**
+ * Argv control for `WorkflowCli.run`.
+ *
+ * - `undefined` — parse `process.argv` (default).
+ * - `string[]` — parse this explicit argv list (tests, embedding).
+ * - `false` — skip parsing; use `inputs` / `name` / `agent` as provided.
+ */
+export type ArgvMode = string[] | false;
+
+/** Options for constructing a WorkflowCli via `createWorkflowCli()`. */
+export interface CreateWorkflowCliOptions {
+  /** Programmatic inputs. CLI flags override these. */
+  inputs?: Record<string, string>;
+  /**
+   * Absolute path to the composition root file. The executor re-executes
+   * this path with `ATOMIC_ORCHESTRATOR_MODE=1` when detach is requested,
+   * so re-entry lands on the module that wired the dispatcher. Defaults
+   * to `process.argv[1]` — override when your composition root isn't
+   * argv[1] (test harnesses, bundled CLIs, embedded programs).
+   */
+  entry?: string;
+  /**
+   * Hook to attach sibling commands to the standalone `run()` CLI. The
+   * callback runs once against the Commander program `run()` built
+   * internally. Not used by the `toCommand` adapter — if you're embedding,
+   * add your siblings to the parent directly.
+   */
+  extend?: (program: import("@commander-js/extra-typings").Command) => void;
+  /**
+   * When `true` (the default), the generated CLI auto-registers the
+   * session + status management subcommands — `session list`,
+   * `session connect`, `session kill`, and `status` — so SDK users get
+   * the same monitoring UX as `atomic workflow …` without needing the
+   * global `atomic` binary.
+   *
+   * Every session spawned by the SDK lives on the shared `atomic` tmux
+   * socket, so these commands are pure pass-throughs to the same
+   * implementations the global CLI uses; there's no divergence. Set to
+   * `false` only when you want a minimal CLI (e.g. programmatic invocation
+   * or embedding under a parent Commander program where the parent owns
+   * session management).
+   *
+   * The `session` and `status` names are reserved — workflow inputs
+   * declared with those names will throw at `defineWorkflow` time to
+   * avoid flag collisions.
+   */
+  includeManagementCommands?: boolean;
+}
+
+/**
+ * A CLI program that resolves `--name` + `--agent` from argv and runs the
+ * matching workflow from a registry. Used by multi-workflow CLIs (e.g.
+ * the internal `atomic workflow` command) and single-workflow entry points.
+ *
+ * Framework-agnostic by design. To embed under a parent CLI, use the
+ * `toCommand` adapter in `@bastani/atomic/workflows/commander`.
+ */
+export interface WorkflowCli<
+  T extends Record<string, WorkflowDefinition> = Record<string, WorkflowDefinition>,
+> {
+  /** Registry the CLI was constructed with. */
+  readonly registry: Registry<T>;
+  /**
+   * Absolute path the executor re-execs on `--detach`. Defaults to
+   * `process.argv[1]`; override via `createWorkflowCli(reg, { entry })`.
+   */
+  readonly entry: string;
+  /**
+   * Input defaults supplied at construction. The adapter reads these so
+   * CLI-built Commands merge them identically to `run()`.
+   */
+  readonly defaults: Record<string, string> | undefined;
+  /**
+   * Run the workflow CLI.
+   *
+   * - Default (`argv` unset): parses `process.argv` with `-n/--name`,
+   *   `-a/--agent`, and the per-input union across the registry;
+   *   `inputs`/`name`/`agent` layer in as defaults.
+   * - `argv: [...]`: parses the given argv list the same way.
+   * - `argv: false`: skip parsing; `name` and `agent` are required and
+   *   `inputs` are used as-is.
+   */
+  run(options?: {
+    name?: string;
+    agent?: AgentType;
+    inputs?: Record<string, string>;
+    argv?: ArgvMode;
+    detach?: boolean;
+  }): Promise<void>;
+}
+
 /**
  * A compiled workflow definition — the sealed output of defineWorkflow().compile().
  */
@@ -434,14 +587,26 @@ export interface WorkflowDefinition<
 > {
   readonly __brand: "WorkflowDefinition";
   readonly name: string;
+  /** The agent this workflow targets. Set via `.for(agent)` in the builder. */
+  readonly agent: A;
   readonly description: string;
-  /** Declared input schema — empty array for free-form workflows. */
-  readonly inputs: readonly WorkflowInput[];
+  /**
+   * Declared input schema — empty tuple for free-form workflows.
+   * Typed as the builder-supplied `I` so consumers (e.g.
+   * `createWorkflowCli(def)`) can derive the narrow `InputsOf<I>` shape
+   * without carrying a second generic parameter.
+   */
+  readonly inputs: I;
   /**
    * Minimum Atomic SDK version required. `null` when the workflow
    * declared no requirement — treated as compatible with every CLI.
    */
   readonly minSDKVersion: string | null;
   /** The workflow's entry point. Called by the executor with a WorkflowContext. */
-  readonly run: (ctx: WorkflowContext<A, I>) => Promise<void>;
+  // Method signature (not a property) so TypeScript treats `run` as bivariant
+  // under --strictFunctionTypes — this allows a WorkflowDefinition<"claude">
+  // to be assigned to WorkflowDefinition<AgentType> even though `agent` is
+  // narrowed. Property function signatures would be contravariant and reject
+  // the assignment. See: https://www.typescriptlang.org/docs/handbook/2/functions.html
+  run(ctx: WorkflowContext<A, I>): Promise<void>;
 }

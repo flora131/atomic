@@ -145,10 +145,20 @@ function buildLauncherScript(
   const envLines = envEntries.map(
     ([key, value]) => `export ${key}="${escBash(value)}"`,
   );
+  // Pre-silence the tty before exec'ing the agent. copilot and opencode
+  // write terminal-capability probes (CSI ?Pn $p, OSC 4;0;?, CSI c) to
+  // stdout at startup; under tmux the DECRPM / OSC 4 / DA1 replies arrive
+  // on stdin a few ms later. If the agent hasn't enabled raw mode yet,
+  // the tty driver echoes those replies back to the screen as garbage
+  // (e.g. `^[[?1016;2$y^[[?2004;1$y^[]4;0;rgb:...`). Disabling echo and
+  // canonical mode here means the driver drops them silently; the agent's
+  // own termios setup then takes over once it's ready. Redirected stdin
+  // (no tty) harmlessly no-ops the stty call.
   const script = [
     "#!/bin/bash",
     `cd "${escBash(projectRoot)}"`,
     ...envLines,
+    "stty -echo -icanon 2>/dev/null || true",
     `exec "${escBash(cmd)}" ${quotedArgs}`,
   ].join("\n");
   return { script, ext: "sh" };

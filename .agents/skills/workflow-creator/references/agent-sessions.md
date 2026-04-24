@@ -58,7 +58,7 @@ export default defineWorkflow({
     name: "implement",
     inputs: [{ name: "prompt", type: "text", required: true, description: "task prompt" }],
   })
-  .for<"claude">()
+  .for("claude")
   .run(async (ctx) => {
     await ctx.stage(
       { name: "implement", description: "Implement the feature" },
@@ -284,7 +284,7 @@ export default defineWorkflow({
     name: "implement",
     inputs: [{ name: "prompt", type: "text", required: true, description: "task prompt" }],
   })
-  .for<"copilot">()
+  .for("copilot")
   .run(async (ctx) => {
     await ctx.stage(
       { name: "implement" },
@@ -630,7 +630,7 @@ export default defineWorkflow({
     name: "implement",
     inputs: [{ name: "prompt", type: "text", required: true, description: "task prompt" }],
   })
-  .for<"opencode">()
+  .for("opencode")
   .run(async (ctx) => {
     await ctx.stage(
       { name: "implement" },

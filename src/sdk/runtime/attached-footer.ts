@@ -9,7 +9,7 @@
  *
  * Resolves the CLI entrypoint relative to this module (runtime/ lives at
  * src/sdk/runtime/, so ../../cli.ts is the CLI). `process.argv[1]` points
- * at the orchestrator's executor-entry.ts when called from the executor,
+ * at the worker entrypoint when called from the orchestrator,
  * so it can't be used here.
  */
 

@@ -34,12 +34,12 @@ export type {
 // Workflow SDK (also available as atomic/workflows subpath)
 export { defineWorkflow } from "./define-workflow.ts";
 
-// Workflow discovery and execution
-export {
-  discoverWorkflows,
-  findWorkflow,
-} from "./runtime/discovery.ts";
+// Registry
+export type { Registry } from "./registry.ts";
+export { createRegistry } from "./registry.ts";
 
-export { WorkflowLoader } from "./runtime/loader.ts";
-
-export { executeWorkflow } from "./runtime/executor.ts";
+// WorkflowCli — the factory that drives workflow CLIs. Accepts a lone
+// workflow, an array of workflows, or a Registry for programmatic
+// composition. Ships with the interactive picker out of the box.
+export { createWorkflowCli } from "./workflow-cli.ts";
+export type { WorkflowCli, CreateWorkflowCliOptions } from "./types.ts";

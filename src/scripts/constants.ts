@@ -5,8 +5,9 @@
  * change propagates everywhere.
  */
 
-import { AGENTS } from "../sdk/workflows/index.ts";
 import type { AgentType } from "../sdk/workflows/index.ts";
+
+const AGENTS: AgentType[] = ["copilot", "opencode", "claude"];
 
 export {
   SDK_PACKAGE_NAME,

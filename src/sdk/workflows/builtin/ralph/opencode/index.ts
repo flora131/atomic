@@ -86,7 +86,7 @@ export default defineWorkflow({
     },
   ],
 })
-  .for<"opencode">()
+  .for("opencode")
   .run(async (ctx) => {
     const prompt = ctx.inputs.prompt ?? "";
     const maxLoops = ctx.inputs.max_loops ?? DEFAULT_MAX_LOOPS;

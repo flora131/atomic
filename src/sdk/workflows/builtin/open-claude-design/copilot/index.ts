@@ -122,7 +122,7 @@ export default defineWorkflow({
     },
   ],
 })
-  .for<"copilot">()
+  .for("copilot")
   .run(async (ctx) => {
     const prompt = ctx.inputs.prompt ?? "";
     const reference = ctx.inputs.reference ?? "";

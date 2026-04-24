@@ -180,21 +180,20 @@ import { join } from "path";
 Extract SDK-agnostic logic into shared helpers. This is the key pattern for building workflows that work across all three SDKs:
 
 ```
-.atomic/workflows/
-└── my-workflow/
-    ├── claude/index.ts             # Claude SDK code
-    ├── copilot/index.ts            # Copilot SDK code
-    ├── opencode/index.ts           # OpenCode SDK code
-    └── helpers/
-        ├── prompts.ts              # Prompt builders
-        ├── parsers.ts              # Response parsers
-        └── validation.ts           # Validation logic
+src/workflows/my-workflow/
+├── claude.ts               # Claude SDK code — exports WorkflowDefinition
+├── copilot.ts              # Copilot SDK code — exports WorkflowDefinition
+├── opencode.ts             # OpenCode SDK code — exports WorkflowDefinition
+└── helpers/
+    ├── prompts.ts          # Prompt builders
+    ├── parsers.ts          # Response parsers
+    └── validation.ts       # Validation logic
 ```
 
 ### Prompt builders
 
 ```ts
-// .atomic/workflows/my-workflow/helpers/prompts.ts
+// src/workflows/my-workflow/helpers/prompts.ts
 export function buildPlanPrompt(spec: string): string {
   return `Decompose into tasks:\n${spec}`;
 }
@@ -216,7 +215,7 @@ fenced block → last balanced object) that survives prose interleaving.
 Copy that implementation into `helpers/parsers.ts` and import.
 
 ```ts
-// .atomic/workflows/my-workflow/helpers/parsers.ts
+// src/workflows/my-workflow/helpers/parsers.ts
 export interface ReviewResult {
   findings: Array<{ title: string; body: string; priority: number }>;
   overall_correctness: string;
@@ -231,9 +230,9 @@ export function parseReviewResult(text: string): ReviewResult | null {
 ### Usage in workflows
 
 ```ts
-// .atomic/workflows/my-workflow/claude/index.ts
-import { buildPlanPrompt, buildReviewPrompt } from "../helpers/prompts.ts";
-import { parseReviewResult } from "../helpers/parsers.ts";
+// src/workflows/my-workflow/claude.ts
+import { buildPlanPrompt, buildReviewPrompt } from "./helpers/prompts.ts";
+import { parseReviewResult } from "./helpers/parsers.ts";
 
 // ... use in run() callbacks
 ```

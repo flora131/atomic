@@ -37,11 +37,11 @@ higher-precedence value supplies one.
 
 | Surface | How values are supplied | How they land in `ctx.inputs` |
 |---|---|---|
-| **Single-worker, positional** — `bun run src/claude-worker.ts "fix the bug"` | Trailing prompt tokens (workflow has no declared schema — free-form only) | `{ prompt: "fix the bug" }` |
-| **Single-worker, structured** — `bun run src/claude-worker.ts --research_doc=notes.md --focus=standard` | One `--<field>=<value>` flag per declared input | `{ research_doc: "notes.md", focus: "standard" }` |
+| **Single-worker, positional** — `bun run src/claude-worker.ts -n answer -a claude "fix the bug"` | `-n` picks the workflow, `-a` picks the agent, trailing prompt tokens supply `prompt` | `{ prompt: "fix the bug" }` |
+| **Single-worker, structured** — `bun run src/claude-worker.ts -n gen-spec -a claude --research_doc=notes.md --focus=standard` | `-n` picks the workflow, `-a` picks the agent, one `--<field>=<value>` flag per declared input | `{ research_doc: "notes.md", focus: "standard" }` |
 | **WorkflowCli, named** — `bun run src/cli.ts -n gen-spec -a claude --research_doc=notes.md` | `-n` picks the workflow, `-a` picks the agent, flags per declared input | Same as above |
 | **Interactive picker** — `atomic workflow -a claude` (cli only) | User fills in a form rendered from the declared schema | Whatever the user typed, keyed by field name |
-| **Programmatic (single)** — `cli.run({ inputs })` | Typed `InputsOf<def["inputs"]>` | Merged under CLI flags; above `defineWorkflow` defaults |
+| **Programmatic (single)** — `cli.run({ name, agent, inputs, argv: false })` | Typed `InputsOf<def["inputs"]>` | Top-of-chain when `argv: false`; above `createWorkflowCli` defaults |
 | **Programmatic (cli)** — `cli.run({ name, agent, inputs, argv: false })` | Plain `Record<string, string>` (`argv: false` is required — otherwise Commander will try to parse process.argv and exit on missing `-n`/`-a`) | Top-of-chain when `argv: false`; above `createWorkflowCli` defaults |
 
 Workflow code is the same either way — it always reads
@@ -272,6 +272,9 @@ surfaces at workflow authoring time — it cannot be registered.
 
 `atomic workflow -a <agent>` (no `-n`) launches the interactive
 picker (TTY only — non-interactive contexts skip straight to `--help`).
+This picker is the only user-facing workflow path that intentionally
+omits `-n`; all direct attached or detached runs should pass
+`-n <workflow-name>` explicitly.
 The picker is a `WorkflowPickerPanel` component that takes a `Registry`
 prop. It:
 

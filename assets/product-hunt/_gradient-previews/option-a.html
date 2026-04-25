@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Gradient Option A — Diagonal Mesh Fade</title>
+  <link rel="stylesheet" href="../_shared/fonts.css">
+  <link rel="stylesheet" href="../_shared/tokens.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 1270px; height: 760px; overflow: hidden; }
+
+    /*
+      Option A — Diagonal Mesh Fade
+      Smooth warm→mauve→cool diagonal sweep with broad overlapping radial blooms.
+      No displacement filter; gradients blend organically through additive radial layers.
+      Reads as a single continuous gradient instead of separate "blobs."
+    */
+    .bg {
+      position: absolute; inset: 0;
+      background:
+        /* Warm corner — top-left bloom (red/peach) */
+        radial-gradient(ellipse 95% 80% at 0% 0%,
+          oklch(60% 0.20 18 / 0.95) 0%,
+          oklch(58% 0.18 25 / 0.55) 25%,
+          transparent 60%),
+        /* Peach midwarm extending down-left */
+        radial-gradient(ellipse 70% 70% at 18% 55%,
+          oklch(72% 0.16 50 / 0.55) 0%,
+          transparent 55%),
+        /* Mauve bridge — diagonal middle band */
+        radial-gradient(ellipse 80% 70% at 50% 50%,
+          oklch(60% 0.16 320 / 0.50) 0%,
+          transparent 55%),
+        /* Cool pole — bottom-right bloom (sapphire/blue) */
+        radial-gradient(ellipse 95% 80% at 100% 100%,
+          oklch(58% 0.18 240 / 0.95) 0%,
+          oklch(62% 0.18 220 / 0.55) 25%,
+          transparent 60%),
+        /* Teal accent — soft right-side */
+        radial-gradient(ellipse 60% 60% at 88% 35%,
+          oklch(68% 0.14 200 / 0.45) 0%,
+          transparent 55%),
+        /* Mocha base */
+        var(--mocha-base);
+    }
+
+    /* Subtle film grain to keep it from looking flat/digital */
+    .grain {
+      position: absolute; inset: 0;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.18 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+      mix-blend-mode: overlay;
+      opacity: 0.55;
+      pointer-events: none;
+    }
+
+    .label {
+      position: absolute;
+      top: 28px; left: 32px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      color: oklch(95% 0.02 60 / 0.75);
+      text-transform: uppercase;
+    }
+  </style>
+</head>
+<body>
+  <div class="bg"></div>
+  <div class="grain"></div>
+  <div class="label">Option A — Diagonal Mesh Fade</div>
+</body>
+</html>

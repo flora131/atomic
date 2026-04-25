@@ -7,6 +7,7 @@
  */
 
 import { join } from "node:path";
+import { requiredMuxBinaryCandidatesForPlatform } from "../../lib/spawn.ts";
 import { writeFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import type { Subprocess } from "bun";
@@ -45,7 +46,9 @@ let resolvedMuxBinary: string | null | undefined; // undefined = not yet resolve
 /**
  * Resolve the terminal multiplexer binary for the current platform.
  *
- * On Windows, tries psmux → pmux → tmux (psmux ships all three as aliases).
+ * On Windows, tries psmux → pmux. Do not accept arbitrary `tmux.exe` because
+ * that can be a non-native shim and would prevent the psmux installer from
+ * running.
  * On Unix/macOS, uses tmux directly.
  *
  * Returns the binary name (not the full path) or null if none is found.
@@ -59,19 +62,14 @@ export function getMuxBinary(): string | null {
   // so that callers who modify PATH (e.g. tests) get correct results.
   const pathOpt = { PATH: process.env.PATH ?? "" };
 
-  if (process.platform === "win32") {
-    for (const candidate of ["psmux", "pmux", "tmux"]) {
-      if (Bun.which(candidate, pathOpt)) {
-        resolvedMuxBinary = candidate;
-        return resolvedMuxBinary;
-      }
+  for (const candidate of requiredMuxBinaryCandidatesForPlatform()) {
+    if (Bun.which(candidate, pathOpt)) {
+      resolvedMuxBinary = candidate;
+      return resolvedMuxBinary;
     }
-    resolvedMuxBinary = null;
-    return null;
   }
 
-  // Unix / macOS
-  resolvedMuxBinary = Bun.which("tmux", pathOpt) ? "tmux" : null;
+  resolvedMuxBinary = null;
   return resolvedMuxBinary;
 }
 
@@ -220,26 +218,50 @@ export function createSession(
   return paneId || tmux(["list-panes", "-t", sessionName, "-F", "#{pane_id}"]).split("\n")[0]!;
 }
 
+export function buildKillSessionOnPaneExitHooks(
+  sessionName: string,
+  paneId: string,
+  options: { guardPaneExited?: boolean } = {},
+): Array<{ event: string; command: string }> {
+  const killCommand = `kill-session -t ${sessionName}`;
+  const paneExitedCommand = options.guardPaneExited === false
+    ? killCommand
+    : `if -F '#{==:#{hook_pane},${paneId}}' '${killCommand}'`;
+  return [
+    { event: "pane-exited", command: paneExitedCommand },
+    { event: "after-kill-pane", command: killCommand },
+  ];
+}
+
+function supportsHookPaneFormat(binary = getMuxBinary()): boolean {
+  return binary !== "psmux" && binary !== "pmux";
+}
+
 /**
- * Install a hook that kills the entire session when the given pane's
- * process exits. Used by chat sessions so the session is torn down
- * when the agent CLI exits — whether via `/exit`, a deliberate double
- * Ctrl+C, or a crash — without leaving the footer pane keeping the
- * session alive.
+ * Install hooks that kill the entire session when the agent pane goes away.
+ * Used by chat sessions so the session is torn down when the agent CLI exits
+ * — whether via `/exit`, a deliberate double Ctrl+C, a crash, or a direct
+ * pane close — without leaving the footer pane keeping the session alive.
  *
- * The hook is session-scoped (pane-scoped hooks don't fire because the
- * pane is already gone when `pane-exited` would run) and guarded with
- * `#{hook_pane}` so the footer pane's eventual exit cascade doesn't
- * re-trigger it. `kill-session` is idempotent in any case.
+ * tmux fires `pane-exited` when a pane process exits; psmux also supports
+ * that event, but does not currently populate tmux's `#{hook_pane}` format,
+ * so the psmux hook is session-scoped. A direct pane close/kill fires
+ * `after-kill-pane` instead. These session-scoped hooks are safe for chat
+ * sessions: they only have the agent pane plus its footer, and closing either
+ * should close the entire chat window.
  */
 export function killSessionOnPaneExit(sessionName: string, paneId: string): void {
-  const guard = `if -F '#{==:#{hook_pane},${paneId}}' 'kill-session -t ${sessionName}'`;
-  tmuxRun([
-    "set-hook",
-    "-t", sessionName,
-    "pane-exited",
-    guard,
-  ]);
+  const hooks = buildKillSessionOnPaneExitHooks(sessionName, paneId, {
+    guardPaneExited: supportsHookPaneFormat(),
+  });
+  for (const hook of hooks) {
+    tmuxRun([
+      "set-hook",
+      "-t", sessionName,
+      hook.event,
+      hook.command,
+    ]);
+  }
 }
 
 /**
@@ -441,6 +463,14 @@ export function setSessionEnv(sessionName: string, key: string, value: string): 
   tmuxRun(["set-environment", "-t", sessionName, key, value]);
 }
 
+export function parseSessionEnvValue(stdout: string, key: string): string | null {
+  const prefix = `${key}=`;
+  const line = stdout
+    .split(/\r?\n/)
+    .find((entry) => entry.startsWith(prefix));
+  return line ? line.slice(prefix.length) : null;
+}
+
 /**
  * Read a session-level environment variable.
  * Returns `null` when the session doesn't exist or the variable isn't set.
@@ -448,9 +478,10 @@ export function setSessionEnv(sessionName: string, key: string, value: string): 
 export function getSessionEnv(sessionName: string, key: string): string | null {
   const result = tmuxRun(["show-environment", "-t", sessionName, key]);
   if (!result.ok) return null;
-  // Output format: "KEY=VALUE"
-  const eq = result.stdout.indexOf("=");
-  return eq >= 0 ? result.stdout.slice(eq + 1) : null;
+  // tmux returns "KEY=VALUE" for a requested key. psmux can append its own
+  // PSMUX_* metadata or return all environment lines, so only accept an exact
+  // key match and ignore every unrelated line.
+  return parseSessionEnvValue(result.stdout, key);
 }
 
 /** Session type derived from the session name prefix. */
@@ -510,6 +541,40 @@ export interface TmuxSession {
   agent?: string;
 }
 
+const SESSION_LIST_DELIMITER = "__ATOMIC_SESSION_FIELD__";
+
+function isAtomicManagedSessionName(name: string): boolean {
+  return name.startsWith("atomic-");
+}
+
+export function parseListSessionsOutput(
+  stdout: string,
+  getEnv: (sessionName: string, key: string) => string | null = getSessionEnv,
+): TmuxSession[] {
+  return stdout
+    .split("\n")
+    .filter((line) => line.trim() !== "")
+    .filter((line) => line.includes(SESSION_LIST_DELIMITER))
+    .flatMap((line) => {
+      const [name, windowsStr, createdStr, attachedStr] = line.split(SESSION_LIST_DELIMITER);
+      if (!name || !windowsStr || !createdStr || attachedStr === undefined) return [];
+      if (!isAtomicManagedSessionName(name)) return [];
+
+      const epochSec = Number(createdStr);
+      const parsed = parseSessionName(name);
+      return [{
+        name,
+        windows: Number(windowsStr) || 1,
+        created: Number.isFinite(epochSec) && epochSec > 0
+          ? new Date(epochSec * 1000).toISOString()
+          : createdStr,
+        attached: attachedStr === "1",
+        type: parsed.type,
+        agent: parsed.agent ?? getEnv(name, "ATOMIC_AGENT") ?? undefined,
+      }];
+    });
+}
+
 /**
  * List all sessions on the atomic tmux socket.
  *
@@ -518,30 +583,16 @@ export interface TmuxSession {
  * sessions (tmux exits non-zero in both cases).
  */
 export function listSessions(): TmuxSession[] {
-  const fmt = "#{session_name}\t#{session_windows}\t#{session_created}\t#{session_attached}";
+  const fmt = [
+    "#{session_name}",
+    "#{session_windows}",
+    "#{session_created}",
+    "#{session_attached}",
+  ].join(SESSION_LIST_DELIMITER);
   const result = tmuxRun(["list-sessions", "-F", fmt]);
   if (!result.ok) return [];
 
-  const sessions = result.stdout
-    .split("\n")
-    .filter((line) => line.trim() !== "")
-    .map((line) => {
-      const [name, windowsStr, createdStr, attachedStr] = line.split("\t");
-      const epochSec = Number(createdStr);
-      const parsed = parseSessionName(name!);
-      return {
-        name: name!,
-        windows: Number(windowsStr) || 1,
-        created: Number.isFinite(epochSec) && epochSec > 0
-          ? new Date(epochSec * 1000).toISOString()
-          : createdStr!,
-        attached: attachedStr === "1",
-        type: parsed.type,
-        agent: parsed.agent ?? getSessionEnv(name!, "ATOMIC_AGENT") ?? undefined,
-      };
-    });
-
-  return sessions;
+  return parseListSessionsOutput(result.stdout);
 }
 
 /** Build the full argument list for an attach-session command. */
@@ -679,4 +730,3 @@ export function normalizeTmuxLines(text: string): string {
     .join("\n")
     .trim();
 }
-

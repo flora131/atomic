@@ -5,12 +5,21 @@
  * eliminating duplication across postinstall-playwright, postinstall-liteparse, etc.
  */
 
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+} from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 
 export interface SpawnResult {
   success: boolean;
   details: string;
+  stdout?: string;
+  stderr?: string;
 }
 
 export interface RunCommandOptions {
@@ -49,14 +58,19 @@ export async function runCommand(cmd: string[], options?: RunCommandOptions): Pr
       new Response(proc.stdout).text(),
       proc.exited,
     ]);
+    const trimmedStdout = stdout.trim();
+    const trimmedStderr = stderr.trim();
     return {
       success: exitCode === 0,
-      details: stderr.trim().length > 0 ? stderr.trim() : stdout.trim(),
+      details: trimmedStderr.length > 0 ? trimmedStderr : trimmedStdout,
+      stdout: trimmedStdout,
+      stderr: trimmedStderr,
     };
   } catch (error) {
     return {
       success: false,
       details: error instanceof Error ? error.message : String(error),
+      stderr: error instanceof Error ? error.message : String(error),
     };
   }
 }
@@ -68,8 +82,287 @@ export function prependPath(directory: string): void {
   const pathDelimiter = process.platform === "win32" ? ";" : ":";
   const currentPath = process.env.PATH ?? "";
   const entries = currentPath.split(pathDelimiter);
-  if (!entries.includes(directory)) {
+  const alreadyPresent = process.platform === "win32"
+    ? entries.some((entry) => entry.toLowerCase() === directory.toLowerCase())
+    : entries.includes(directory);
+  if (!alreadyPresent) {
     process.env.PATH = directory + pathDelimiter + currentPath;
+  }
+}
+
+function windowsAtomicBinDir(): string {
+  return join(getHomeDir(), ".atomic", "bin");
+}
+
+export function resolveCommandFromCurrentPath(cmd: string): string | null {
+  return Bun.which(cmd, { PATH: process.env.PATH ?? "" });
+}
+
+export type MuxBinaryName = "tmux" | "psmux" | "pmux";
+
+export function requiredMuxBinaryCandidatesForPlatform(
+  platform: NodeJS.Platform = process.platform,
+): MuxBinaryName[] {
+  return platform === "win32" ? ["psmux", "pmux"] : ["tmux"];
+}
+
+export function isMuxBinaryRequiredForPlatform(
+  binary: MuxBinaryName,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  return requiredMuxBinaryCandidatesForPlatform(platform).includes(binary);
+}
+
+export function hasRequiredMuxBinary(): boolean {
+  return requiredMuxBinaryCandidatesForPlatform().some(
+    (candidate) => resolveCommandFromCurrentPath(candidate),
+  );
+}
+
+function prependPathIfDirectory(directory: string | undefined): void {
+  if (!directory || !existsSync(directory)) return;
+  prependPath(directory);
+}
+
+function prependWindowsMuxInstallPaths(): void {
+  if (process.platform !== "win32") return;
+
+  const home = getHomeDir();
+  prependPathIfDirectory(
+    process.env.SCOOP ? join(process.env.SCOOP, "shims") : undefined,
+  );
+  prependPathIfDirectory(home ? join(home, "scoop", "shims") : undefined);
+  prependPathIfDirectory(
+    process.env.LOCALAPPDATA
+      ? join(process.env.LOCALAPPDATA, "Microsoft", "WinGet", "Links")
+      : undefined,
+  );
+  prependPathIfDirectory(
+    process.env.LOCALAPPDATA
+      ? join(process.env.LOCALAPPDATA, "Microsoft", "WindowsApps")
+      : undefined,
+  );
+  prependPathIfDirectory(
+    process.env.ChocolateyInstall
+      ? join(process.env.ChocolateyInstall, "bin")
+      : undefined,
+  );
+  prependPathIfDirectory("C:\\ProgramData\\chocolatey\\bin");
+  prependPathIfDirectory(home ? join(home, ".cargo", "bin") : undefined);
+  prependPathIfDirectory(windowsAtomicBinDir());
+}
+
+function prependBunInstallPaths(): void {
+  const home = getHomeDir();
+  prependPathIfDirectory(process.env.BUN_INSTALL_BIN);
+  prependPathIfDirectory(
+    process.env.BUN_INSTALL ? join(process.env.BUN_INSTALL, "bin") : undefined,
+  );
+  prependPathIfDirectory(home ? join(home, ".bun", "bin") : undefined);
+
+  if (process.platform !== "win32") return;
+
+  prependPathIfDirectory(
+    process.env.SCOOP ? join(process.env.SCOOP, "shims") : undefined,
+  );
+  prependPathIfDirectory(home ? join(home, "scoop", "shims") : undefined);
+  prependPathIfDirectory(
+    process.env.LOCALAPPDATA
+      ? join(process.env.LOCALAPPDATA, "Microsoft", "WinGet", "Links")
+      : undefined,
+  );
+  prependPathIfDirectory(
+    process.env.LOCALAPPDATA
+      ? join(process.env.LOCALAPPDATA, "Microsoft", "WindowsApps")
+      : undefined,
+  );
+}
+
+function mergePath(pathValue: string): void {
+  const delimiter = process.platform === "win32" ? ";" : ":";
+  for (const entry of pathValue.split(delimiter)) {
+    const trimmed = entry.trim();
+    if (trimmed) prependPath(trimmed);
+  }
+}
+
+async function refreshWindowsPathFromRegistry(): Promise<void> {
+  if (process.platform !== "win32") return;
+
+  const shell = resolveCommandFromCurrentPath("powershell") ??
+    resolveCommandFromCurrentPath("pwsh");
+  if (!shell) return;
+
+  const readRegistryPath =
+    "$paths = @([Environment]::GetEnvironmentVariable('Path','Process'), " +
+    "[Environment]::GetEnvironmentVariable('Path','User'), " +
+    "[Environment]::GetEnvironmentVariable('Path','Machine')) | " +
+    "Where-Object { $_ }; $paths -join ';'";
+
+  const result = await runCommand([
+    shell,
+    "-NoProfile",
+    "-Command",
+    readRegistryPath,
+  ]);
+  if (result.success && result.stdout) {
+    mergePath(result.stdout);
+  }
+}
+
+async function refreshWindowsMuxPath(): Promise<void> {
+  prependWindowsMuxInstallPaths();
+  await refreshWindowsPathFromRegistry();
+  prependWindowsMuxInstallPaths();
+}
+
+async function refreshWindowsBunPath(): Promise<void> {
+  prependBunInstallPaths();
+  await refreshWindowsPathFromRegistry();
+  prependBunInstallPaths();
+}
+
+interface GitHubReleaseAsset {
+  name: string;
+  browser_download_url: string;
+}
+
+interface GitHubRelease {
+  assets: GitHubReleaseAsset[];
+}
+
+export function psmuxReleaseAssetSuffix(
+  arch: NodeJS.Architecture = process.arch,
+): string | null {
+  switch (arch) {
+    case "x64":
+      return "windows-x64.zip";
+    case "ia32":
+      return "windows-x86.zip";
+    case "arm64":
+      return "windows-arm64.zip";
+    default:
+      return null;
+  }
+}
+
+function powershellLiteral(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+async function persistWindowsUserPath(directory: string): Promise<SpawnResult> {
+  const shell = resolveCommandFromCurrentPath("powershell") ??
+    resolveCommandFromCurrentPath("pwsh");
+  if (!shell) return { success: true, details: "" };
+
+  const script =
+    `$dir = ${powershellLiteral(directory)}; ` +
+    "$current = [Environment]::GetEnvironmentVariable('Path','User'); " +
+    "$entries = if ([string]::IsNullOrWhiteSpace($current)) { @() } else { $current -split ';' }; " +
+    "$expandedDir = [Environment]::ExpandEnvironmentVariables($dir) -replace '[\\\\/]+$',''; " +
+    "$hasDir = $false; " +
+    "foreach ($entry in $entries) { " +
+    "  $expandedEntry = [Environment]::ExpandEnvironmentVariables($entry).Trim().Trim('\"') -replace '[\\\\/]+$',''; " +
+    "  if ($expandedEntry -ieq $expandedDir) { $hasDir = $true; break } " +
+    "} " +
+    "if (-not $hasDir) { " +
+    "  $next = (@($entries) + @($dir) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join ';'; " +
+    "  [Environment]::SetEnvironmentVariable('Path', $next, 'User'); " +
+    "}";
+
+  return runCommand([shell, "-NoProfile", "-Command", script]);
+}
+
+async function installPsmuxFromGitHubRelease(): Promise<SpawnResult> {
+  try {
+    const suffix = psmuxReleaseAssetSuffix();
+    if (!suffix) {
+      return {
+        success: false,
+        details: `No psmux release asset is available for ${process.arch}.`,
+      };
+    }
+
+    const response = await fetch(
+      "https://api.github.com/repos/psmux/psmux/releases/latest",
+      { headers: { "Accept": "application/vnd.github+json" } },
+    );
+    if (!response.ok) {
+      return {
+        success: false,
+        details: `Could not fetch latest psmux release: ${response.status} ${response.statusText}`,
+      };
+    }
+
+    const release = await response.json() as GitHubRelease;
+    const asset = release.assets.find((item) => item.name.endsWith(suffix));
+    if (!asset) {
+      return {
+        success: false,
+        details: `Latest psmux release does not include a ${suffix} asset.`,
+      };
+    }
+
+    const archiveResponse = await fetch(asset.browser_download_url);
+    if (!archiveResponse.ok) {
+      return {
+        success: false,
+        details: `Could not download ${asset.name}: ${archiveResponse.status} ${archiveResponse.statusText}`,
+      };
+    }
+
+    const tempDir = mkdtempSync(join(tmpdir(), "atomic-psmux-"));
+    const zipPath = join(tempDir, asset.name);
+    const extractDir = join(tempDir, "extract");
+    const installDir = windowsAtomicBinDir();
+
+    try {
+      await Bun.write(zipPath, await archiveResponse.arrayBuffer());
+      mkdirSync(extractDir, { recursive: true });
+      mkdirSync(installDir, { recursive: true });
+
+      const shell = resolveCommandFromCurrentPath("powershell") ??
+        resolveCommandFromCurrentPath("pwsh");
+      if (!shell) {
+        return {
+          success: false,
+          details: "PowerShell is required to expand the psmux release archive.",
+        };
+      }
+
+      const expand = await runCommand([
+        shell,
+        "-NoProfile",
+        "-Command",
+        `Expand-Archive -LiteralPath ${powershellLiteral(zipPath)} -DestinationPath ${powershellLiteral(extractDir)} -Force`,
+      ]);
+      if (!expand.success) return expand;
+
+      for (const binary of ["psmux.exe", "pmux.exe", "tmux.exe"]) {
+        const source = join(extractDir, binary);
+        if (existsSync(source)) {
+          copyFileSync(source, join(installDir, binary));
+        }
+      }
+
+      prependPath(installDir);
+      const persistResult = await persistWindowsUserPath(installDir);
+      if (!persistResult.success) return persistResult;
+
+      return hasRequiredMuxBinary()
+        ? { success: true, details: "" }
+        : {
+            success: false,
+            details: `Downloaded psmux but no psmux binary was found in ${installDir}.`,
+          };
+    } finally {
+      rmSync(tempDir, { force: true, recursive: true });
+    }
+  } catch (error) {
+    return {
+      success: false,
+      details: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
@@ -138,62 +431,85 @@ export async function ensureTmuxInstalled(options: EnsureOptions = {}): Promise<
   const quiet = options.quiet ?? false;
   const inherit = !quiet;
 
-  // Check for any multiplexer binary
-  if (Bun.which("tmux") || Bun.which("psmux") || Bun.which("pmux")) return;
+  // Check for the platform-native multiplexer binary.
+  if (hasRequiredMuxBinary()) return;
 
   let capturedDetails = "";
   const record = (result: SpawnResult) => {
-    if (quiet && !result.success && result.details) {
+    if (!result.success && result.details) {
       capturedDetails = result.details;
     }
   };
 
   if (process.platform === "win32") {
     // Windows: install psmux
-    const winget = Bun.which("winget");
+    const winget = resolveCommandFromCurrentPath("winget");
     if (winget) {
-      const result = await runCommand([winget, "install", "psmux", "--accept-source-agreements", "--accept-package-agreements"], { inherit });
+      const result = await runCommand([
+        winget,
+        "install",
+        "--id",
+        "marlocarlo.psmux",
+        "--exact",
+        "--accept-source-agreements",
+        "--accept-package-agreements",
+      ], { inherit });
       record(result);
-      if (result.success && (Bun.which("psmux") || Bun.which("tmux"))) return;
+      if (result.success) {
+        await refreshWindowsMuxPath();
+        if (hasRequiredMuxBinary()) return;
+      }
     }
 
-    const scoop = Bun.which("scoop");
+    const scoop = resolveCommandFromCurrentPath("scoop");
     if (scoop) {
       await runCommand([scoop, "bucket", "add", "psmux", "https://github.com/psmux/scoop-psmux"], { inherit });
       const result = await runCommand([scoop, "install", "psmux"], { inherit });
       record(result);
-      if (result.success && (Bun.which("psmux") || Bun.which("tmux"))) return;
+      if (result.success) {
+        await refreshWindowsMuxPath();
+        if (hasRequiredMuxBinary()) return;
+      }
     }
 
-    const choco = Bun.which("choco");
+    const choco = resolveCommandFromCurrentPath("choco");
     if (choco) {
       const result = await runCommand([choco, "install", "psmux", "-y", "--no-progress"], { inherit });
       record(result);
-      if (result.success && (Bun.which("psmux") || Bun.which("tmux"))) return;
+      if (result.success) {
+        await refreshWindowsMuxPath();
+        if (hasRequiredMuxBinary()) return;
+      }
     }
 
-    const cargo = Bun.which("cargo");
+    const cargo = resolveCommandFromCurrentPath("cargo");
     if (cargo) {
       const result = await runCommand([cargo, "install", "psmux"], { inherit });
       record(result);
       if (result.success) {
         const home = getHomeDir();
         if (home) prependPath(join(home, ".cargo", "bin"));
-        if (Bun.which("psmux") || Bun.which("tmux")) return;
+        await refreshWindowsMuxPath();
+        if (hasRequiredMuxBinary()) return;
       }
     }
+
+    const directResult = await installPsmuxFromGitHubRelease();
+    record(directResult);
+    if (directResult.success) return;
+
     throw new Error(
-      capturedDetails || "Could not install psmux — no supported Windows package manager succeeded.",
+      capturedDetails || "Could not install psmux automatically.",
     );
   }
 
   // Unix / macOS
   if (process.platform === "darwin") {
-    const brew = Bun.which("brew");
+    const brew = resolveCommandFromCurrentPath("brew");
     if (brew) {
       const result = await runCommand([brew, "install", "tmux"], { inherit });
       record(result);
-      if (result.success && Bun.which("tmux")) return;
+      if (result.success && resolveCommandFromCurrentPath("tmux")) return;
     }
   }
 
@@ -214,7 +530,7 @@ export async function ensureTmuxInstalled(options: EnsureOptions = {}): Promise<
 
   for (const script of managers) {
     record(await runCommand([shell, "-lc", script], { inherit }));
-    if (Bun.which("tmux")) return;
+    if (resolveCommandFromCurrentPath("tmux")) return;
   }
 
   throw new Error(
@@ -227,51 +543,73 @@ export async function ensureTmuxInstalled(options: EnsureOptions = {}): Promise<
  * No-op when already present.
  */
 export async function ensureBunInstalled(): Promise<void> {
-  if (Bun.which("bun")) return;
-
-  const home = getHomeDir();
+  if (resolveCommandFromCurrentPath("bun")) return;
 
   if (process.platform === "win32") {
     // Windows
-    const winget = Bun.which("winget");
+    const winget = resolveCommandFromCurrentPath("winget");
     if (winget) {
       const result = await runCommand([winget, "install", "Oven-sh.Bun", "--accept-source-agreements", "--accept-package-agreements"], { inherit: true });
       if (result.success) {
-        if (home) prependPath(join(home, ".bun", "bin"));
-        if (Bun.which("bun")) return;
+        await refreshWindowsBunPath();
+        if (resolveCommandFromCurrentPath("bun")) return;
       }
     }
 
-    const scoop = Bun.which("scoop");
+    const scoop = resolveCommandFromCurrentPath("scoop");
     if (scoop) {
       const result = await runCommand([scoop, "install", "bun"], { inherit: true });
-      if (result.success && Bun.which("bun")) return;
+      if (result.success) {
+        await refreshWindowsBunPath();
+        if (resolveCommandFromCurrentPath("bun")) return;
+      }
     }
 
-    return;
+    const shell = resolveCommandFromCurrentPath("powershell") ??
+      resolveCommandFromCurrentPath("pwsh");
+    if (shell) {
+      const result = await runCommand([
+        shell,
+        "-NoProfile",
+        "-Command",
+        "irm bun.sh/install.ps1 | iex",
+      ], { inherit: true });
+      if (result.success) {
+        await refreshWindowsBunPath();
+        if (resolveCommandFromCurrentPath("bun")) return;
+      }
+    }
+
+    throw new Error("Could not install bun automatically.");
   }
 
   // Unix / macOS
-  const shell = Bun.which("bash") ?? Bun.which("sh");
+  const shell = resolveCommandFromCurrentPath("bash") ??
+    resolveCommandFromCurrentPath("sh");
   if (shell) {
     const result = await runCommand(
       [shell, "-lc", "curl -fsSL https://bun.sh/install | bash"],
       { inherit: true },
     );
     if (result.success) {
-      if (home) prependPath(join(home, ".bun", "bin"));
-      if (Bun.which("bun")) return;
+      prependBunInstallPaths();
+      if (resolveCommandFromCurrentPath("bun")) return;
     }
   }
 
   // macOS Homebrew fallback
   if (process.platform === "darwin") {
-    const brew = Bun.which("brew");
+    const brew = resolveCommandFromCurrentPath("brew");
     if (brew) {
       const result = await runCommand([brew, "install", "oven-sh/bun/bun"], { inherit: true });
-      if (result.success && Bun.which("bun")) return;
+      if (result.success) {
+        prependBunInstallPaths();
+        if (resolveCommandFromCurrentPath("bun")) return;
+      }
     }
   }
+
+  throw new Error("Could not install bun automatically.");
 }
 
 /**

@@ -1,12 +1,11 @@
 /** @jsxImportSource @opentui/react */
 
 import { test, expect, describe, afterEach } from "bun:test";
-import { testRender } from "@opentui/react/test-utils";
 import { PanelStore } from "../../../src/sdk/components/orchestrator-panel-store.ts";
 import { Statusline } from "../../../src/sdk/components/statusline.tsx";
-import { TestProviders } from "./test-helpers.tsx";
+import { renderReact, TestProviders, type ReactTestSetup } from "./test-helpers.tsx";
 
-let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;
+let testSetup: ReactTestSetup | null = null;
 
 afterEach(() => {
   testSetup?.renderer.destroy();
@@ -16,7 +15,7 @@ afterEach(() => {
 describe("Statusline", () => {
   test("renders GRAPH badge", async () => {
     const store = new PanelStore();
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <TestProviders store={store}>
         <Statusline attachMsg="" />
       </TestProviders>,
@@ -29,7 +28,7 @@ describe("Statusline", () => {
 
   test("shows navigation hints when no attach message", async () => {
     const store = new PanelStore();
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <TestProviders store={store}>
         <Statusline attachMsg="" />
       </TestProviders>,
@@ -43,7 +42,7 @@ describe("Statusline", () => {
 
   test("shows attach message when provided", async () => {
     const store = new PanelStore();
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <TestProviders store={store}>
         <Statusline attachMsg={"\u2192 worker-1"} />
       </TestProviders>,
@@ -59,7 +58,7 @@ describe("Statusline", () => {
     store.workflowName = "my-workflow";
     store.setWorkflowInfo("my-workflow", "claude", [{ name: "worker-1", parents: [] }], "p");
     store.startSession("worker-1");
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <TestProviders store={store}>
         <Statusline attachMsg="" />
       </TestProviders>,
@@ -75,7 +74,7 @@ describe("Statusline", () => {
     const store = new PanelStore();
     store.incrementBackgroundTasks();
     store.incrementBackgroundTasks();
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <TestProviders store={store}>
         <Statusline attachMsg="" />
       </TestProviders>,
@@ -88,7 +87,7 @@ describe("Statusline", () => {
 
   test("shows quit option", async () => {
     const store = new PanelStore();
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <TestProviders store={store}>
         <Statusline attachMsg="" />
       </TestProviders>,
@@ -101,7 +100,7 @@ describe("Statusline", () => {
 
   test("shows ctrl+b d detach hint", async () => {
     const store = new PanelStore();
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <TestProviders store={store}>
         <Statusline attachMsg="" />
       </TestProviders>,

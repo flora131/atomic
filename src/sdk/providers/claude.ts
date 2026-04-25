@@ -112,12 +112,29 @@ function buildWorkflowHookCommand(subcommand: string, extraArgs: readonly string
   }
   const runtime = process.execPath;
   const cliPath = join(import.meta.dir, "..", "..", "cli.ts");
+  if (process.platform === "win32") {
+    const script = [
+      quotePwshLiteral(runtime),
+      quotePwshLiteral(cliPath),
+      quotePwshLiteral(subcommand),
+      ...extraArgs.map(quotePwshLiteral),
+    ].join(" ");
+    const encoded = Buffer.from(`& ${script}`, "utf16le").toString("base64");
+    return `pwsh -NoProfile -EncodedCommand ${encoded}`;
+  }
   return [
     `"${escBash(runtime)}"`,
     `"${escBash(cliPath)}"`,
     subcommand,
     ...extraArgs,
   ].join(" ");
+}
+
+function quotePwshLiteral(s: string): string {
+  return `'${s
+    .replace(/\x00/g, "")
+    .replace(/[\n\r]+/g, " ")
+    .replace(/'/g, "''")}'`;
 }
 
 /**

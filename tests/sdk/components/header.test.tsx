@@ -1,12 +1,11 @@
 /** @jsxImportSource @opentui/react */
 
 import { test, expect, describe, afterEach } from "bun:test";
-import { testRender } from "@opentui/react/test-utils";
 import { PanelStore } from "../../../src/sdk/components/orchestrator-panel-store.ts";
 import { Header } from "../../../src/sdk/components/header.tsx";
-import { TestProviders } from "./test-helpers.tsx";
+import { renderReact, TestProviders, type ReactTestSetup } from "./test-helpers.tsx";
 
-let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;
+let testSetup: ReactTestSetup | null = null;
 
 afterEach(() => {
   testSetup?.renderer.destroy();
@@ -18,7 +17,7 @@ describe("Header", () => {
     const store = new PanelStore();
     store.setWorkflowInfo("my-wf", "claude", [{ name: "s1", parents: [] }], "prompt");
 
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <TestProviders store={store}>
         <Header />
       </TestProviders>,
@@ -36,7 +35,7 @@ describe("Header", () => {
     store.completeSession("s1");
     store.setCompletion("my-wf", "/tmp/transcripts");
 
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <TestProviders store={store}>
         <Header />
       </TestProviders>,
@@ -53,7 +52,7 @@ describe("Header", () => {
     store.setWorkflowInfo("my-wf", "claude", [], "p");
     store.setFatalError("something broke");
 
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <TestProviders store={store}>
         <Header />
       </TestProviders>,
@@ -75,7 +74,7 @@ describe("Header", () => {
     store.completeSession("s1");
     // Now: orchestrator=running(1), s1=complete(1), s2=pending(1)
 
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <TestProviders store={store}>
         <Header />
       </TestProviders>,
@@ -91,7 +90,7 @@ describe("Header", () => {
     const store = new PanelStore();
     store.setWorkflowInfo("wf", "claude", [{ name: "s1", parents: [] }], "p");
 
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <TestProviders store={store} tmuxSession="atomic-abc123">
         <Header />
       </TestProviders>,
@@ -108,7 +107,7 @@ describe("Header", () => {
     store.startSession("s1");
     store.failSession("s1", "oops");
 
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <TestProviders store={store}>
         <Header />
       </TestProviders>,

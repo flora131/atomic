@@ -5,7 +5,8 @@
 # silently syncs tooling deps and bundled skills on first launch — see
 # src/services/system/auto-sync.ts.
 #
-# If you already have bun, you can skip this script entirely:
+# If you already have bun and `bun pm bin -g` is on PATH, you can skip this
+# script entirely:
 #   bun install -g @bastani/atomic@latest
 #
 # Usage:
@@ -193,6 +194,134 @@ function Refresh-Path {
                 [System.Environment]::GetEnvironmentVariable('Path', 'Machine')
 }
 
+# These environment helpers follow Bun's Windows installer. They write the
+# user environment registry value directly so existing %VAR% entries are not
+# accidentally expanded, then notify running shells/editors that it changed.
+function Publish-Env {
+    if (-not ("Win32.NativeMethods" -as [Type])) {
+        Add-Type -Namespace Win32 -Name NativeMethods -MemberDefinition @"
+[DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+public static extern IntPtr SendMessageTimeout(
+    IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam,
+    uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);
+"@
+    }
+
+    $HWND_BROADCAST = [IntPtr]0xffff
+    $WM_SETTINGCHANGE = 0x1a
+    $result = [UIntPtr]::Zero
+    [Win32.NativeMethods]::SendMessageTimeout(
+        $HWND_BROADCAST,
+        $WM_SETTINGCHANGE,
+        [UIntPtr]::Zero,
+        "Environment",
+        2,
+        5000,
+        [ref]$result
+    ) | Out-Null
+}
+
+function Write-Env {
+    param(
+        [string]$Key,
+        [AllowNull()][string]$Value
+    )
+
+    $registerKey = Get-Item -Path 'HKCU:'
+    $envRegisterKey = $registerKey.OpenSubKey('Environment', $true)
+
+    if ($null -eq $Value) {
+        $envRegisterKey.DeleteValue($Key)
+    } else {
+        $registryValueKind = if ($Value.Contains('%')) {
+            [Microsoft.Win32.RegistryValueKind]::ExpandString
+        } elseif ($envRegisterKey.GetValue($Key)) {
+            $envRegisterKey.GetValueKind($Key)
+        } else {
+            [Microsoft.Win32.RegistryValueKind]::String
+        }
+        $envRegisterKey.SetValue($Key, $Value, $registryValueKind)
+    }
+
+    Publish-Env
+}
+
+function Get-Env {
+    param([string]$Key)
+
+    $registerKey = Get-Item -Path 'HKCU:'
+    $envRegisterKey = $registerKey.OpenSubKey('Environment')
+    $envRegisterKey.GetValue($Key, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+}
+
+function Get-BunGlobalBinDir {
+    $binDir = & bun pm bin -g 2>$null | Select-Object -First 1
+    if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($binDir)) {
+        return $binDir.Trim()
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($env:BUN_INSTALL_BIN)) {
+        return $env:BUN_INSTALL_BIN
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:BUN_INSTALL)) {
+        return (Join-Path $env:BUN_INSTALL "bin")
+    }
+    return (Join-Path $HOME ".bun\bin")
+}
+
+function Normalize-PathEntry {
+    param([string]$PathEntry)
+
+    if ([string]::IsNullOrWhiteSpace($PathEntry)) { return "" }
+    $value = [System.Environment]::ExpandEnvironmentVariables($PathEntry.Trim().Trim('"'))
+    while ($value.EndsWith("\") -or $value.EndsWith("/")) {
+        $value = $value.Substring(0, $value.Length - 1)
+    }
+    return $value
+}
+
+function Test-PathContains {
+    param(
+        [string]$PathValue,
+        [string]$Entry
+    )
+
+    if ([string]::IsNullOrWhiteSpace($PathValue)) { return $false }
+    $target = Normalize-PathEntry $Entry
+    foreach ($item in ($PathValue -split ';')) {
+        if ((Normalize-PathEntry $item) -ieq $target) {
+            return $true
+        }
+    }
+    return $false
+}
+
+function Ensure-BunGlobalBinOnPath {
+    $binDir = Get-BunGlobalBinDir
+    if (-not (Test-Path $binDir)) {
+        New-Item -ItemType Directory -Path $binDir -Force | Out-Null
+    }
+
+    if (-not (Test-PathContains $env:Path $binDir)) {
+        $env:Path = if ([string]::IsNullOrWhiteSpace($env:Path)) { $binDir } else { "$env:Path;$binDir" }
+    }
+
+    $userPathValue = Get-Env -Key "Path"
+    $userPath = if ([string]::IsNullOrWhiteSpace($userPathValue)) { @() } else { $userPathValue -split ';' }
+    if (-not (Test-PathContains $userPathValue $binDir)) {
+        $newUserPathEntries = @($userPath) + @($binDir)
+        $newUserPath = ($newUserPathEntries | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join ';'
+        Write-Env -Key 'Path' -Value $newUserPath
+        $env:Path = @($env:Path -split ';' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join ';'
+        if (-not (Test-PathContains $env:Path $binDir)) {
+            $env:Path = "$env:Path;$binDir"
+        }
+        Write-Info "added bun global bin to user PATH ($binDir)"
+    } else {
+        Write-Info "bun global bin already on user PATH ($binDir)"
+    }
+}
+
 # ── Installers ──────────────────────────────────────────────────────────────
 
 function Install-Bun {
@@ -326,11 +455,18 @@ Write-Host ""
 
 if (-not (Install-Bun)) { exit 1 }
 
+Ensure-BunGlobalBinOnPath
+
 # Embed the package name as a literal so the scriptblock needs no closure.
 $atomicAction = [ScriptBlock]::Create("bun install -g '$PACKAGE'")
 $ok = Invoke-Step -Label "Installing @bastani/atomic" -Action $atomicAction
 if (-not $ok) {
     Write-Err2 "Failed to install atomic"
+    exit 1
+}
+
+if (-not (Get-Command atomic -ErrorAction SilentlyContinue)) {
+    Write-Err2 "atomic installed but is not on PATH — add $(Get-BunGlobalBinDir) to PATH"
     exit 1
 }
 

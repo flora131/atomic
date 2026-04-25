@@ -1,7 +1,6 @@
 /** @jsxImportSource @opentui/react */
 
 import { test, expect, describe, afterEach } from "bun:test";
-import { testRender } from "@opentui/react/test-utils";
 import { createTestRenderer } from "@opentui/core/testing";
 import { act } from "react";
 import {
@@ -17,6 +16,11 @@ import {
 } from "../../../src/sdk/components/workflow-picker-panel.tsx";
 import type { WorkflowDefinition, WorkflowInput } from "../../../src/sdk/types.ts";
 import { createRegistry } from "../../../src/sdk/registry.ts";
+import {
+  renderReact,
+  setReactActEnvironment,
+  type ReactTestSetup,
+} from "./test-helpers.tsx";
 
 // ─── Keyboard input helpers ───────────────────────
 //
@@ -24,11 +28,10 @@ import { createRegistry } from "../../../src/sdk/registry.ts";
 // either a follow-up byte or a timeout to disambiguate a bare escape
 // key from the start of an escape sequence. In tests that never
 // advance the clock, we need to force-flush the parser explicitly.
-// We also wrap every input action in React's `act()` so the resulting
-// state updates are committed before the next `renderOnce()` captures
-// a frame.
+// The shared React renderer helper wraps input and render cycles in
+// React's `act()` so state updates commit before frame capture.
 
-type TestSetup = Awaited<ReturnType<typeof testRender>>;
+type TestSetup = ReactTestSetup;
 
 function flushPendingInput(setup: TestSetup) {
   // stdinParser is public on CliRenderer (no underscore).
@@ -45,10 +48,9 @@ async function press(
   await act(async () => {
     await action(setup.mockInput);
     flushPendingInput(setup);
+    await Promise.resolve();
   });
-  await act(async () => {
-    await setup.renderOnce();
-  });
+  await setup.renderOnce();
 }
 
 // ─── Fixtures ─────────────────────────────────────
@@ -142,7 +144,7 @@ const WORKFLOWS: WorkflowDefinition[] = [
 
 // ─── Lifecycle ────────────────────────────────────
 
-let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;
+let testSetup: ReactTestSetup | null = null;
 
 afterEach(() => {
   testSetup?.renderer.destroy();
@@ -161,7 +163,7 @@ async function renderPicker(
 ) {
   const onSubmit = opts.onSubmit ?? (() => {});
   const onCancel = opts.onCancel ?? (() => {});
-  testSetup = await testRender(
+  testSetup = await renderReact(
     <WorkflowPicker
       theme={TEST_THEME}
       agent="claude"
@@ -178,9 +180,7 @@ async function renderPicker(
       kittyKeyboard: opts.kittyKeyboard ?? false,
     },
   );
-  await act(async () => {
-    await testSetup!.renderOnce();
-  });
+  await testSetup.renderOnce();
   return testSetup;
 }
 
@@ -867,22 +867,24 @@ describe("WorkflowPickerPanel class", () => {
   let coreSetup: Awaited<ReturnType<typeof createTestRenderer>> | null = null;
 
   afterEach(() => {
-    panel?.destroy();
+    act(() => {
+      panel?.destroy();
+    });
     panel = null;
-    coreSetup?.renderer.destroy();
+    act(() => {
+      coreSetup?.renderer.destroy();
+    });
     coreSetup = null;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (globalThis as any).IS_REACT_ACT_ENVIRONMENT = false;
+    setReactActEnvironment(false);
   });
 
   async function createPanel() {
     coreSetup = await createTestRenderer({ width: 120, height: 40 });
-    // Match what `testRender` does so useEffect-backed subscriptions (like
+    // Match what the React renderer helper does so useEffect-backed subscriptions (like
     // `useKeyboard`) flush synchronously during construction — without
     // this, the keyboard listener isn't attached in time for subsequent
     // mockInput events.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+    setReactActEnvironment(true);
     const registry = WORKFLOWS.reduce(
       (r, wf) => r.register(wf),
       createRegistry(),
@@ -924,7 +926,9 @@ describe("WorkflowPickerPanel class", () => {
   test("destroy resolves a pending selection with null", async () => {
     const p = await createPanel();
     const promise = p.waitForSelection();
-    p.destroy();
+    act(() => {
+      p.destroy();
+    });
     panel = null;
     const result = await promise;
     expect(result).toBeNull();
@@ -932,16 +936,25 @@ describe("WorkflowPickerPanel class", () => {
 
   test("destroy is idempotent", async () => {
     const p = await createPanel();
-    p.destroy();
-    expect(() => p.destroy()).not.toThrow();
+    act(() => {
+      p.destroy();
+    });
+    expect(() => {
+      act(() => {
+        p.destroy();
+      });
+    }).not.toThrow();
     panel = null;
   });
 
   test("createWithRenderer with empty registry still mounts", async () => {
     coreSetup = await createTestRenderer({ width: 120, height: 40 });
-    panel = WorkflowPickerPanel.createWithRenderer(coreSetup.renderer, {
-      agent: "opencode",
-      registry: createRegistry(),
+    setReactActEnvironment(true);
+    act(() => {
+      panel = WorkflowPickerPanel.createWithRenderer(coreSetup!.renderer, {
+        agent: "opencode",
+        registry: createRegistry(),
+      });
     });
     expect(panel).toBeInstanceOf(WorkflowPickerPanel);
   });
@@ -953,6 +966,7 @@ describe("WorkflowPickerPanel class", () => {
       const r = coreSetup!.renderer as any;
       r.stdinParser?.flushTimeout?.(Number.POSITIVE_INFINITY);
       r.drainStdinParser?.();
+      await Promise.resolve();
     });
     await act(async () => {
       await coreSetup!.renderOnce();
@@ -967,7 +981,9 @@ describe("WorkflowPickerPanel class", () => {
     expect(result).toBeNull();
     // Prevent afterEach from double-destroying after handleCancel.
     panel = null;
-    p.destroy();
+    act(() => {
+      p.destroy();
+    });
   });
 
   test("handleSubmit: driving the full pick→prompt→confirm→y flow resolves with payload", async () => {
@@ -990,6 +1006,8 @@ describe("WorkflowPickerPanel class", () => {
     expect(result!.workflow.name).toBe("ralph");
     expect(result!.inputs.task).toContain("via class");
     panel = null;
-    p.destroy();
+    act(() => {
+      p.destroy();
+    });
   });
 });

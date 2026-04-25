@@ -87,6 +87,7 @@ bun install -g @bastani/atomic
 ```
 
 This skips the Bun install step but doesn't set up shell completions — run `atomic completions <shell>` separately if you want them (see [Commands Reference](#atomic-completions--shell-completions)).
+If your shell cannot find `atomic` after the install, add the directory from `bun pm bin -g` to your PATH or use the bootstrap installer above to do it automatically.
 
 **Prerelease builds:** `bun install -g @bastani/atomic@next` (may contain breaking changes).
 

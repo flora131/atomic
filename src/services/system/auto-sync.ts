@@ -29,6 +29,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { VERSION } from "../../version.ts";
 import {
+  hasRequiredMuxBinary,
   ensureTmuxInstalled,
   upgradeGlobalToolPackages,
 } from "../../lib/spawn.ts";
@@ -77,7 +78,8 @@ async function silentStep(fn: () => Promise<unknown>): Promise<boolean> {
 /**
  * Sync tooling deps, bundled agents, and global skills if the marker
  * doesn't match the bundled VERSION. No-op in dev checkouts and when the
- * marker already matches the current version.
+ * marker already matches the current version and the platform-native
+ * multiplexer is present.
  *
  * Runs entirely silently — no spinner, no progress bar, no banner. The
  * only loading UI lives in the bootstrap installers (install.sh / install.ps1).
@@ -91,17 +93,21 @@ export async function autoSyncIfStale(): Promise<void> {
     stored = (await marker.text()).trim();
   }
 
-  if (stored === VERSION) return;
+  if (stored === VERSION && hasRequiredMuxBinary()) return;
+
+  const steps = stored === VERSION
+    ? [silentStep(() => ensureTmuxInstalled({ quiet: true }))]
+    : [
+        silentStep(() => ensureTmuxInstalled({ quiet: true })),
+        silentStep(installGlobalAgents),
+        silentStep(upgradeGlobalToolPackages),
+        silentStep(installGlobalSkills),
+      ];
 
   // All steps run in parallel and silently. Failures are swallowed so the
   // CLI can proceed. The marker is only written when every step succeeds;
   // on partial failure the next launch retries (all steps are idempotent).
-  const results = await Promise.all([
-    silentStep(() => ensureTmuxInstalled({ quiet: true })),
-    silentStep(installGlobalAgents),
-    silentStep(upgradeGlobalToolPackages),
-    silentStep(installGlobalSkills),
-  ]);
+  const results = await Promise.all(steps);
 
   const allOk = results.every(Boolean);
 

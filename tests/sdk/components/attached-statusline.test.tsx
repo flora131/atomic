@@ -1,11 +1,10 @@
 /** @jsxImportSource @opentui/react */
 
 import { test, expect, describe, afterEach } from "bun:test";
-import { testRender } from "@opentui/react/test-utils";
 import { AttachedStatusline } from "../../../src/sdk/components/attached-statusline.tsx";
-import { TEST_THEME } from "./test-helpers.tsx";
+import { renderReact, TEST_THEME, type ReactTestSetup } from "./test-helpers.tsx";
 
-let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;
+let testSetup: ReactTestSetup | null = null;
 
 afterEach(() => {
   testSetup?.renderer.destroy();
@@ -14,7 +13,7 @@ afterEach(() => {
 
 describe("AttachedStatusline", () => {
   test("renders window name badge and navigation hints (workflow variant)", async () => {
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <AttachedStatusline name="worker-1" theme={TEST_THEME} />,
       { width: 120, height: 3 },
     );
@@ -33,7 +32,7 @@ describe("AttachedStatusline", () => {
   });
 
   test("renders uppercase agent pill, pane name, and detach hint (chat variant)", async () => {
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <AttachedStatusline
         name="atomic-chat-copilot-abcd1234"
         theme={TEST_THEME}

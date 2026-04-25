@@ -1,7 +1,6 @@
 /** @jsxImportSource @opentui/react */
 
 import { test, expect, describe, afterEach } from "bun:test";
-import { testRender } from "@opentui/react/test-utils";
 import { PanelStore } from "../../../src/sdk/components/orchestrator-panel-store.ts";
 import {
   StoreContext,
@@ -10,9 +9,9 @@ import {
   useGraphTheme,
   useStoreVersion,
 } from "../../../src/sdk/components/orchestrator-panel-contexts.ts";
-import { TEST_THEME } from "./test-helpers.tsx";
+import { renderReact, TEST_THEME, type ReactTestSetup } from "./test-helpers.tsx";
 
-let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;
+let testSetup: ReactTestSetup | null = null;
 
 afterEach(() => {
   testSetup?.renderer.destroy();
@@ -39,7 +38,7 @@ describe("useStore", () => {
     const store = new PanelStore();
     store.setWorkflowInfo("test-wf", "claude", [], "p");
 
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <StoreContext.Provider value={store}>
         <StoreConsumer />
       </StoreContext.Provider>,
@@ -62,7 +61,7 @@ describe("useStore", () => {
 
 describe("useGraphTheme", () => {
   test("returns theme from context", async () => {
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <ThemeContext.Provider value={TEST_THEME}>
         <ThemeConsumer />
       </ThemeContext.Provider>,
@@ -85,7 +84,7 @@ describe("useStoreVersion", () => {
   test("returns current version from store", async () => {
     const store = new PanelStore();
 
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <StoreContext.Provider value={store}>
         <VersionConsumer store={store} />
       </StoreContext.Provider>,
@@ -102,7 +101,7 @@ describe("useStoreVersion", () => {
     // Mutate before render — useSyncExternalStore reads the latest snapshot
     store.setWorkflowInfo("wf", "claude", [], "p");
 
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <StoreContext.Provider value={store}>
         <VersionConsumer store={store} />
       </StoreContext.Provider>,

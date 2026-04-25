@@ -13,7 +13,7 @@
  * so it can't be used here.
  */
 
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 import type { AgentType } from "../types.ts";
 import { tmuxRun } from "./tmux.ts";
 
@@ -31,6 +31,61 @@ function escBash(s: string): string {
     .replace(/[\\"$`!]/g, "\\$&");
 }
 
+/** Escape a string as a PowerShell single-quoted literal. */
+function quotePwshLiteral(s: string): string {
+  return `'${s
+    .replace(/\x00/g, "")
+    .replace(/[\n\r]+/g, " ")
+    .replace(/'/g, "''")}'`;
+}
+
+function encodePwshCommand(script: string): string {
+  return Buffer.from(script, "utf16le").toString("base64");
+}
+
+export function resolveAttachedFooterCliPath(
+  runtimeDir = import.meta.dir,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  return platform === "win32"
+    ? win32.join(runtimeDir, "..", "..", "cli.ts")
+    : join(runtimeDir, "..", "..", "cli.ts");
+}
+
+export function buildAttachedFooterCommand({
+  runtime,
+  cliPath,
+  windowName,
+  agentType,
+  platform = process.platform,
+}: {
+  runtime: string;
+  cliPath: string;
+  windowName: string;
+  agentType?: AgentType;
+  platform?: NodeJS.Platform;
+}): string {
+  if (platform === "win32") {
+    const script = [
+      quotePwshLiteral(runtime),
+      quotePwshLiteral(cliPath),
+      quotePwshLiteral("_footer"),
+      quotePwshLiteral("--name"),
+      quotePwshLiteral(windowName),
+      ...(agentType
+        ? [quotePwshLiteral("--agent"), quotePwshLiteral(agentType)]
+        : []),
+    ].join(" ");
+    return `pwsh -NoProfile -EncodedCommand ${encodePwshCommand(`& ${script}`)}`;
+  }
+
+  const agentFlag = agentType ? ` --agent "${escBash(agentType)}"` : "";
+  return (
+    `"${escBash(runtime)}" "${escBash(cliPath)}" _footer ` +
+    `--name "${escBash(windowName)}"${agentFlag}`
+  );
+}
+
 export function spawnAttachedFooter(
   windowName: string,
   paneId: string,
@@ -38,11 +93,13 @@ export function spawnAttachedFooter(
 ): void {
   const runtime = process.execPath;
   if (!runtime) return;
-  const cliPath = join(import.meta.dir, "..", "..", "cli.ts");
-  const agentFlag = agentType ? ` --agent "${escBash(agentType)}"` : "";
-  const cmd =
-    `"${escBash(runtime)}" "${escBash(cliPath)}" _footer ` +
-    `--name "${escBash(windowName)}"${agentFlag}`;
+  const cliPath = resolveAttachedFooterCliPath();
+  const cmd = buildAttachedFooterCommand({
+    runtime,
+    cliPath,
+    windowName,
+    agentType,
+  });
   const split = tmuxRun([
     "split-window",
     "-t", paneId,

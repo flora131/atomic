@@ -1,10 +1,10 @@
 /** @jsxImportSource @opentui/react */
 
 import { test, expect, describe, afterEach, mock } from "bun:test";
-import { testRender } from "@opentui/react/test-utils";
 import { ErrorBoundary } from "../../../src/sdk/components/error-boundary.tsx";
+import { renderReact, type ReactTestSetup } from "./test-helpers.tsx";
 
-let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;
+let testSetup: ReactTestSetup | null = null;
 
 afterEach(() => {
   testSetup?.renderer.destroy();
@@ -17,7 +17,7 @@ function ThrowingChild({ message }: { message: string }): never {
 
 describe("ErrorBoundary", () => {
   test("renders children when no error is thrown", async () => {
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <ErrorBoundary fallback={() => <text>fallback</text>}>
         <text>safe content</text>
       </ErrorBoundary>,
@@ -34,7 +34,7 @@ describe("ErrorBoundary", () => {
     const originalError = console.error;
     console.error = mock(() => {});
 
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <ErrorBoundary
         fallback={(err) => <text>{`caught: ${err.message}`}</text>}
       >
@@ -54,7 +54,7 @@ describe("ErrorBoundary", () => {
     const originalError = console.error;
     console.error = (...args: unknown[]) => { calls.push(args); };
 
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <ErrorBoundary fallback={() => <text>fallback</text>}>
         <ThrowingChild message="log test" />
       </ErrorBoundary>,
@@ -74,7 +74,7 @@ describe("ErrorBoundary", () => {
     const originalError = console.error;
     console.error = mock(() => {});
 
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <ErrorBoundary
         fallback={(err) => <text>{err.constructor.name}</text>}
       >

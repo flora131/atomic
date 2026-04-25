@@ -1,14 +1,13 @@
 /** @jsxImportSource @opentui/react */
 
 import { test, expect, describe, afterEach } from "bun:test";
-import { testRender } from "@opentui/react/test-utils";
 import { PanelStore } from "../../../src/sdk/components/orchestrator-panel-store.ts";
 import { NodeCard } from "../../../src/sdk/components/node-card.tsx";
 import type { LayoutNode } from "../../../src/sdk/components/layout.ts";
 import { NODE_H } from "../../../src/sdk/components/layout.ts";
-import { TestProviders } from "./test-helpers.tsx";
+import { renderReact, TestProviders, type ReactTestSetup } from "./test-helpers.tsx";
 
-let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;
+let testSetup: ReactTestSetup | null = null;
 
 afterEach(() => {
   testSetup?.renderer.destroy();
@@ -35,7 +34,7 @@ describe("NodeCard", () => {
     const store = new PanelStore();
     const node = makeLayoutNode({ name: "my-session", status: "pending" });
 
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <TestProviders store={store}>
         <NodeCard node={node} focused={false} pulsePhase={0} displayH={NODE_H} />
       </TestProviders>,
@@ -56,7 +55,7 @@ describe("NodeCard", () => {
       startedAt: now - 65000, // 1m 05s ago
     });
 
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <TestProviders store={store}>
         <NodeCard node={node} focused={false} pulsePhase={0} displayH={NODE_H} />
       </TestProviders>,
@@ -77,7 +76,7 @@ describe("NodeCard", () => {
       endedAt: 6000, // 5 seconds
     });
 
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <TestProviders store={store}>
         <NodeCard node={node} focused={false} pulsePhase={0} displayH={NODE_H} />
       </TestProviders>,
@@ -99,7 +98,7 @@ describe("NodeCard", () => {
       endedAt: 3000,
     });
 
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <TestProviders store={store}>
         <NodeCard node={node} focused={false} pulsePhase={0} displayH={NODE_H} />
       </TestProviders>,
@@ -114,7 +113,7 @@ describe("NodeCard", () => {
     const store = new PanelStore();
     const node = makeLayoutNode({ name: "focused-node", status: "pending" });
 
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <TestProviders store={store}>
         <NodeCard node={node} focused={true} pulsePhase={0} displayH={NODE_H} />
       </TestProviders>,
@@ -133,7 +132,7 @@ describe("NodeCard", () => {
       startedAt: Date.now() - 5000,
     });
 
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <TestProviders store={store}>
         <NodeCard node={node} focused={false} pulsePhase={0} displayH={6} />
       </TestProviders>,
@@ -153,7 +152,7 @@ describe("NodeCard", () => {
       startedAt: Date.now() - 5000,
     });
 
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <TestProviders store={store}>
         <NodeCard node={node} focused={false} pulsePhase={0} displayH={6} />
       </TestProviders>,
@@ -173,7 +172,7 @@ describe("NodeCard", () => {
     });
 
     // Phase 0
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <TestProviders store={store}>
         <NodeCard node={node} focused={false} pulsePhase={0} displayH={6} />
       </TestProviders>,
@@ -184,7 +183,7 @@ describe("NodeCard", () => {
     testSetup.renderer.destroy();
 
     // Phase 16 (half cycle)
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <TestProviders store={store}>
         <NodeCard node={node} focused={true} pulsePhase={16} displayH={6} />
       </TestProviders>,
@@ -199,7 +198,7 @@ describe("NodeCard", () => {
     const node = makeLayoutNode({ name: "pulse-test", status: "running", startedAt: Date.now() });
 
     // Test at phase 0
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <TestProviders store={store}>
         <NodeCard node={node} focused={false} pulsePhase={0} displayH={NODE_H} />
       </TestProviders>,
@@ -210,7 +209,7 @@ describe("NodeCard", () => {
     testSetup.renderer.destroy();
 
     // Test at phase 16 (half cycle)
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <TestProviders store={store}>
         <NodeCard node={node} focused={true} pulsePhase={16} displayH={NODE_H} />
       </TestProviders>,

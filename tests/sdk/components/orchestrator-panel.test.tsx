@@ -2,10 +2,9 @@
 
 import { test, expect, describe, afterEach } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
-import { testRender } from "@opentui/react/test-utils";
 import { OrchestratorPanel } from "../../../src/sdk/components/orchestrator-panel.tsx";
 import { ErrorBoundary } from "../../../src/sdk/components/error-boundary.tsx";
-import { TEST_THEME } from "./test-helpers.tsx";
+import { renderReact, TEST_THEME } from "./test-helpers.tsx";
 
 let panel: OrchestratorPanel | null = null;
 let testSetup: Awaited<ReturnType<typeof createTestRenderer>> | null = null;
@@ -142,7 +141,7 @@ describe("OrchestratorPanel", () => {
       const originalError = console.error;
       console.error = () => {};
 
-      const setup = await testRender(
+      const setup = await renderReact(
         <ErrorBoundary
           fallback={(err) => (
             <box

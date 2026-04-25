@@ -1,12 +1,11 @@
 /** @jsxImportSource @opentui/react */
 
 import { test, expect, describe, afterEach } from "bun:test";
-import { testRender } from "@opentui/react/test-utils";
 import { PanelStore } from "../../../src/sdk/components/orchestrator-panel-store.ts";
 import { SessionGraphPanel } from "../../../src/sdk/components/session-graph-panel.tsx";
-import { TestProviders } from "./test-helpers.tsx";
+import { renderReact, TestProviders, type ReactTestSetup } from "./test-helpers.tsx";
 
-let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;
+let testSetup: ReactTestSetup | null = null;
 
 afterEach(() => {
   testSetup?.renderer.destroy();
@@ -24,7 +23,7 @@ function createPopulatedStore(): PanelStore {
 }
 
 async function renderPanel(store: PanelStore) {
-  testSetup = await testRender(
+  testSetup = await renderReact(
     <TestProviders store={store}>
       <SessionGraphPanel />
     </TestProviders>,
@@ -271,7 +270,7 @@ describe("SessionGraphPanel", () => {
 
     async function renderNarrow(store: PanelStore) {
       // Use a very small viewport so the graph overflows in both axes
-      testSetup = await testRender(
+      testSetup = await renderReact(
         <TestProviders store={store}>
           <SessionGraphPanel />
         </TestProviders>,

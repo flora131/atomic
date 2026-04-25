@@ -1,10 +1,10 @@
 /** @jsxImportSource @opentui/react */
 
 import { test, expect, describe, afterEach } from "bun:test";
-import { testRender } from "@opentui/react/test-utils";
 import { Edge } from "../../../src/sdk/components/edge.tsx";
+import { renderReact, type ReactTestSetup } from "./test-helpers.tsx";
 
-let testSetup: Awaited<ReturnType<typeof testRender>> | null = null;
+let testSetup: ReactTestSetup | null = null;
 
 afterEach(() => {
   testSetup?.renderer.destroy();
@@ -13,7 +13,7 @@ afterEach(() => {
 
 describe("Edge", () => {
   test("renders straight vertical connector text", async () => {
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <Edge text="│" col={5} row={2} width={1} height={1} color="#6c7086" />,
       { width: 40, height: 10 },
     );
@@ -24,7 +24,7 @@ describe("Edge", () => {
 
   test("renders branching connector with horizontal bar", async () => {
     const branchText = "╭──┬──╮";
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <Edge text={branchText} col={0} row={0} width={7} height={1} color="#6c7086" />,
       { width: 40, height: 10 },
     );
@@ -35,7 +35,7 @@ describe("Edge", () => {
 
   test("renders multiline connector text", async () => {
     const text = "│\n╰──╮";
-    testSetup = await testRender(
+    testSetup = await renderReact(
       <Edge text={text} col={0} row={0} width={4} height={2} color="#ffffff" />,
       { width: 40, height: 10 },
     );

@@ -82,18 +82,21 @@ describe("headless footer frame", () => {
     const stdout = createFooterTestStream(36);
     const previousSigtermListeners = process.listeners("SIGTERM");
     const previousSigwinchListeners = process.listeners("SIGWINCH");
+    let rendererReady = false;
     const renderer = runFooterRenderer({
       name: "atomic-chat-claude-long-session-name",
       agentType: "claude",
       stdout,
+      onReady: () => {
+        rendererReady = true;
+      },
     });
 
     try {
       await waitFor(
         () =>
           stdout.writes.length > 0 &&
-          newListeners("SIGTERM", previousSigtermListeners).length > 0 &&
-          newListeners("SIGWINCH", previousSigwinchListeners).length > 0,
+          rendererReady,
         "footer renderer did not start",
       );
 
@@ -121,17 +124,22 @@ describe("headless footer frame", () => {
   test.serial("footer command exits successfully after renderer teardown", async () => {
     const previousSigtermListeners = process.listeners("SIGTERM");
     const stdoutChunks: string[] = [];
+    let rendererReady = false;
     const stdoutSpy = spyOn(process.stdout, "write").mockImplementation(
       (chunk: unknown) => {
         stdoutChunks.push(String(chunk));
         return true;
       },
     );
-    const command = footerCommand("atomic-chat-opencode-abcd1234", "opencode");
+    const command = footerCommand("atomic-chat-opencode-abcd1234", "opencode", {
+      onReady: () => {
+        rendererReady = true;
+      },
+    });
 
     try {
       await waitFor(
-        () => newListeners("SIGTERM", previousSigtermListeners).length > 0,
+        () => rendererReady,
         "footer command did not start renderer",
       );
 

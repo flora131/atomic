@@ -35,6 +35,13 @@ type FooterOutput = {
   write(chunk: string): unknown;
 };
 
+type FooterRendererOptions = {
+  name: string;
+  agentType?: AgentType;
+  stdout?: FooterOutput;
+  onReady?: () => void;
+};
+
 /**
  * Snapshot the parent PID at module load. `process.ppid` is cached in both
  * Node and Bun, so we can't re-read it to detect reparenting — instead we
@@ -161,11 +168,8 @@ export async function runFooterRenderer({
   name,
   agentType,
   stdout = process.stdout,
-}: {
-  name: string;
-  agentType?: AgentType;
-  stdout?: FooterOutput;
-}): Promise<void> {
+  onReady,
+}: FooterRendererOptions): Promise<void> {
   const testSetup = await createFooterTestRenderer({
     name,
     agentType,
@@ -230,13 +234,15 @@ export async function runFooterRenderer({
     const watchdog = setInterval(() => {
       if (!originalParentAlive()) teardown();
     }, PARENT_WATCHDOG_MS);
+    onReady?.();
   });
 }
 
 export async function footerCommand(
   name: string,
   agentType?: AgentType,
+  options: Omit<FooterRendererOptions, "name" | "agentType"> = {},
 ): Promise<number> {
-  await runFooterRenderer({ name, agentType });
+  await runFooterRenderer({ name, agentType, ...options });
   return 0;
 }

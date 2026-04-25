@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1270">
+  <title>Atomic — Slide 03: Before/After</title>
+  <link rel="stylesheet" href="../_shared/fonts.css">
+  <link rel="stylesheet" href="../_shared/tokens.css">
+  <link rel="stylesheet" href="../_shared/components.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 1270px; height: 760px; overflow: hidden; }
+
+    /* Slide-local filter overrides for diptych */
+    /* Warm side: slightly more agitated turbulence */
+    #lsf-warm { }
+    /* Cool side: calmer flow */
+    #lsf-cool { }
+
+    .diptych-warm {
+      position: absolute;
+      top: 0; left: 0;
+      width: 615px; /* slightly less than 50% to leave room for seam */
+      height: 100%;
+      filter: url('#lsf-warm');
+    }
+
+    .diptych-cool {
+      position: absolute;
+      top: 0; right: 0;
+      width: 615px;
+      height: 100%;
+      filter: url('#lsf-cool');
+    }
+
+    /* Mauve seam: gradient zone between halves */
+    .mauve-seam {
+      position: absolute;
+      top: 0;
+      left: calc(50% - 20px);
+      width: 40px;
+      height: 100%;
+      z-index: 1;
+      pointer-events: none;
+      background: linear-gradient(
+        to right,
+        transparent 0%,
+        oklch(70% 0.15 300 / 0.18) 30%,
+        oklch(72% 0.17 300 / 0.30) 50%,
+        oklch(70% 0.15 300 / 0.18) 70%,
+        transparent 100%
+      );
+      filter: blur(6px);
+    }
+
+    /* Before bullet list */
+    .before-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    .before-list li {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-family: var(--font-body);
+      font-size: 18px;
+      color: var(--mocha-subtext0);
+      line-height: 1.4;
+    }
+
+    .before-list li .glyph {
+      color: var(--warm-peach);
+      opacity: 0.7;
+      font-size: 16px;
+      flex-shrink: 0;
+      width: 16px;
+    }
+
+    /* Workflow graph nodes */
+    .wf-node {
+      position: relative;
+    }
+
+    .wf-connector {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .wf-arrow {
+      color: var(--mocha-overlay1);
+      font-family: var(--font-mono);
+      font-size: 13px;
+    }
+
+    /* Top band (headline area) */
+    .top-band {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 110px;
+      z-index: 3;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 0 48px;
+      background: linear-gradient(
+        to bottom,
+        oklch(12% 0.02 260 / 0.85) 0%,
+        oklch(12% 0.02 260 / 0.50) 70%,
+        transparent 100%
+      );
+    }
+
+    .top-band-row {
+      display: flex;
+      align-items: baseline;
+      gap: 24px;
+      margin-bottom: 8px;
+    }
+
+    /* Squiggle SVG */
+    .squiggle-layer {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 1;
+      overflow: hidden;
+    }
+  </style>
+</head>
+<body>
+  <!-- SVG filters -->
+  <svg width="0" height="0" style="position:absolute;overflow:hidden" aria-hidden="true">
+    <defs>
+      <!-- Warm side: more agitated turbulence (higher baseFrequency) -->
+      <filter id="lsf-warm" x="-20%" y="-20%" width="140%" height="140%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.018 0.013" numOctaves="5" seed="3" result="noise"/>
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="100" xChannelSelector="R" yChannelSelector="G"/>
+      </filter>
+      <!-- Cool side: calmer flow (lower baseFrequency) -->
+      <filter id="lsf-cool" x="-20%" y="-20%" width="140%" height="140%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.007 0.005" numOctaves="3" seed="17" result="noise"/>
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="60" xChannelSelector="R" yChannelSelector="G"/>
+      </filter>
+      <!-- Organic squiggle displacement filter -->
+      <filter id="squiggle-filter" x="-5%" y="-5%" width="110%" height="110%">
+        <feTurbulence type="turbulence" baseFrequency="0.02 0.06" numOctaves="2" seed="42" result="warp"/>
+        <feDisplacementMap in="SourceGraphic" in2="warp" scale="4" xChannelSelector="R" yChannelSelector="G"/>
+      </filter>
+    </defs>
+  </svg>
+
+  <!-- Standard liquid-silk filter needed by the component classes -->
+  <svg width="0" height="0" style="position:absolute;overflow:hidden" aria-hidden="true">
+    <defs>
+      <filter id="liquid-silk-filter" x="-20%" y="-20%" width="140%" height="140%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.010 0.007" numOctaves="4" seed="11" result="noise"/>
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="90" xChannelSelector="R" yChannelSelector="G"/>
+      </filter>
+    </defs>
+  </svg>
+
+  <div class="slide">
+
+    <!-- Warm left backdrop -->
+    <div class="diptych-warm" style="
+      background:
+        radial-gradient(ellipse 95% 65% at 10% 25%, oklch(52% 0.20 10 / 0.65) 0%, transparent 65%),
+        radial-gradient(ellipse 75% 85% at 75% 80%, oklch(58% 0.22 25 / 0.45) 0%, transparent 65%),
+        radial-gradient(ellipse 65% 50% at 45% 100%, oklch(48% 0.17 350 / 0.35) 0%, transparent 60%),
+        radial-gradient(ellipse 80% 45% at 80% 5%,  oklch(62% 0.14 300 / 0.28) 0%, transparent 55%),
+        var(--mocha-base);
+    "></div>
+
+    <!-- Cool right backdrop -->
+    <div class="diptych-cool" style="
+      background:
+        radial-gradient(ellipse 90% 70% at 15% 20%, oklch(62% 0.16 220 / 0.55) 0%, transparent 65%),
+        radial-gradient(ellipse 80% 75% at 85% 80%, oklch(68% 0.20 185 / 0.45) 0%, transparent 65%),
+        radial-gradient(ellipse 60% 55% at 60% 95%, oklch(58% 0.18 200 / 0.32) 0%, transparent 60%),
+        radial-gradient(ellipse 75% 38% at 92% 8%,  oklch(52% 0.16 240 / 0.28) 0%, transparent 55%),
+        var(--mocha-base);
+    "></div>
+
+    <!-- Mauve seam: warm-to-cool gradient bridge -->
+    <div class="mauve-seam"></div>
+
+    <!-- Film grain -->
+    <div class="film-grain"></div>
+
+    <!-- Top band: wordmark + headline + subhead -->
+    <div class="top-band">
+      <div class="top-band-row">
+        <span class="wordmark">ATOMIC</span>
+        <span style="font-family: var(--font-body); font-size: 13px; color: var(--mocha-overlay1); letter-spacing: 0.04em;">slide 03</span>
+      </div>
+      <p class="headline" style="font-size: 46px; font-weight: 700; margin-bottom: 6px;">
+        The pain is operational control.
+      </p>
+      <p class="subhead" style="font-size: 19px; color: var(--mocha-subtext0); max-width: 900px;">
+        Agents write code. Atomic makes longer agent runs reviewable, repeatable, and safer.
+      </p>
+    </div>
+
+    <!-- Content layer: diptych panels -->
+    <div class="slide__content" style="display: flex; padding-top: 118px; height: 100%;">
+
+      <!-- LEFT PANEL: Before -->
+      <div style="
+        flex: 0 0 610px;
+        padding: 24px 32px 32px 48px;
+        display: flex;
+        flex-direction: column;
+        position: relative;
+      ">
+        <!-- Organic squiggle connecting the list items — faint, behind text -->
+        <svg
+          class="squiggle-layer"
+          viewBox="0 0 610 540"
+          xmlns="http://www.w3.org/2000/svg"
+          style="position:absolute; top: 24px; left:0; width:610px; height:540px; opacity:0.18;"
+          aria-hidden="true"
+        >
+          <path
+            d="M 80 90 C 90 130, 70 160, 82 200 C 94 240, 75 270, 80 310 C 85 350, 72 380, 78 420 C 84 460, 70 490, 76 520"
+            stroke="var(--warm-peach)"
+            stroke-width="1.5"
+            stroke-dasharray="6 8"
+            fill="none"
+            filter="url('#squiggle-filter')"
+          />
+        </svg>
+
+        <!-- "Before" title — NO bubble effect, plain Bricolage Grotesque -->
+        <h2 style="
+          font-family: var(--font-display);
+          font-size: 96px;
+          font-weight: 800;
+          line-height: 1;
+          letter-spacing: -0.03em;
+          color: var(--cream);
+          margin-bottom: 28px;
+          position: relative;
+          z-index: 2;
+        ">Before</h2>
+
+        <!-- Bullet list with ○ glyphs -->
+        <ul class="before-list" style="position: relative; z-index: 2;">
+          <li>
+            <span class="glyph">○</span>
+            <span>Manual prompting</span>
+          </li>
+          <li>
+            <span class="glyph">○</span>
+            <span>Repeated reminders</span>
+          </li>
+          <li>
+            <span class="glyph">○</span>
+            <span>Context switching</span>
+          </li>
+          <li>
+            <span class="glyph">○</span>
+            <span>Unclear state</span>
+          </li>
+          <li>
+            <span class="glyph">○</span>
+            <span>Unsafe execution</span>
+          </li>
+        </ul>
+      </div>
+
+      <!-- Spacer for seam -->
+      <div style="flex: 0 0 50px;"></div>
+
+      <!-- RIGHT PANEL: After -->
+      <div style="
+        flex: 1;
+        padding: 24px 48px 32px 32px;
+        display: flex;
+        flex-direction: column;
+        position: relative;
+      ">
+        <!-- "After" title WITH bubble effect — the single delight word -->
+        <h2 style="margin-bottom: 20px; position: relative; z-index: 2;">
+          <span
+            class="bubble-text bubble-text--cool"
+            data-text="After"
+            style="font-size: 96px;"
+          >After</span>
+        </h2>
+
+        <!-- Workflow graph: nested tui-pane nodes in terminal cartography style -->
+        <div style="display: flex; flex-direction: column; gap: 8px; position: relative; z-index: 2; max-width: 520px;">
+
+          <!-- Node: workflow.ts (root) -->
+          <div class="tui-pane" style="width: 100%; background: var(--mocha-mantle);">
+            <div class="tui-pane__titlebar">
+              <div class="tui-pane__traffic-lights">
+                <div class="tui-pane__dot tui-pane__dot--close"></div>
+                <div class="tui-pane__dot tui-pane__dot--min"></div>
+                <div class="tui-pane__dot tui-pane__dot--max"></div>
+              </div>
+              <div class="tui-pane__title">workflow.ts</div>
+            </div>
+            <div class="tui-pane__body" style="font-size: 14px; padding: 8px 16px; white-space: normal;">
+              <span style="color: var(--cool-teal);">✓</span>
+              <span style="color: var(--cool-blue);"> defineWorkflow</span>
+              <span style="color: var(--mocha-subtext0);">(</span>
+              <span style="color: var(--mocha-green);">"deploy"</span>
+              <span style="color: var(--mocha-subtext0);">)</span>
+            </div>
+          </div>
+
+          <!-- Arrow down with label -->
+          <div style="display: flex; align-items: center; padding-left: 20px; gap: 8px;">
+            <span style="font-family: var(--font-mono); font-size: 16px; color: var(--mocha-overlay1); line-height: 1;">↓</span>
+            <span style="font-family: var(--font-mono); font-size: 11px; color: var(--mocha-overlay0); letter-spacing: 0.06em;">parallel stages</span>
+          </div>
+
+          <!-- Parallel nodes: agent A + agent B side by side -->
+          <div style="display: flex; gap: 10px; align-items: stretch;">
+            <!-- Agent A -->
+            <div class="tui-pane" style="flex: 1; background: var(--mocha-mantle);">
+              <div class="tui-pane__titlebar">
+                <div class="tui-pane__traffic-lights">
+                  <div class="tui-pane__dot tui-pane__dot--close"></div>
+                  <div class="tui-pane__dot tui-pane__dot--min"></div>
+                  <div class="tui-pane__dot tui-pane__dot--max"></div>
+                </div>
+                <div class="tui-pane__title">agent A</div>
+              </div>
+              <div class="tui-pane__body" style="font-size: 13px; padding: 8px 14px; white-space: normal;">
+                <span style="color: var(--cool-teal);">✓</span>
+                <span style="color: var(--mocha-subtext0);"> security-scan</span>
+              </div>
+            </div>
+
+            <!-- Agent B -->
+            <div class="tui-pane" style="flex: 1; background: var(--mocha-mantle);">
+              <div class="tui-pane__titlebar">
+                <div class="tui-pane__traffic-lights">
+                  <div class="tui-pane__dot tui-pane__dot--close"></div>
+                  <div class="tui-pane__dot tui-pane__dot--min"></div>
+                  <div class="tui-pane__dot tui-pane__dot--max"></div>
+                </div>
+                <div class="tui-pane__title">agent B</div>
+              </div>
+              <div class="tui-pane__body" style="font-size: 13px; padding: 8px 14px; white-space: normal;">
+                <span style="color: var(--cool-teal);">✓</span>
+                <span style="color: var(--mocha-subtext0);"> ci-checks</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Arrow converging to gate -->
+          <div style="display: flex; align-items: center; padding-left: 20px; gap: 8px;">
+            <span style="font-family: var(--font-mono); font-size: 16px; color: var(--mocha-overlay1); line-height: 1;">↓</span>
+            <span style="font-family: var(--font-mono); font-size: 11px; color: var(--mocha-overlay0); letter-spacing: 0.06em;">merge → gate</span>
+          </div>
+
+          <!-- Review gate node — mauve accent (human judgment) -->
+          <div class="tui-pane" style="width: 100%; border-color: var(--mocha-mauve); background: oklch(14% 0.06 300 / 0.80);">
+            <div class="tui-pane__titlebar" style="background: oklch(28% 0.14 300 / 0.50);">
+              <div class="tui-pane__traffic-lights">
+                <div class="tui-pane__dot tui-pane__dot--close"></div>
+                <div class="tui-pane__dot tui-pane__dot--min"></div>
+                <div class="tui-pane__dot tui-pane__dot--max"></div>
+              </div>
+              <div class="tui-pane__title" style="color: var(--mocha-mauve);">review gate</div>
+            </div>
+            <div class="tui-pane__body" style="font-size: 13px; padding: 8px 16px; white-space: normal;">
+              <span style="color: var(--mocha-mauve);">⏳</span>
+              <span style="color: var(--mocha-subtext0);"> awaiting human approval</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</body>
+</html>

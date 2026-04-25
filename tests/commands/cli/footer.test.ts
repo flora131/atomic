@@ -1,4 +1,4 @@
-import { describe, expect, spyOn, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
   footerCommand,
   renderFooterFrame,
@@ -123,15 +123,10 @@ describe("headless footer frame", () => {
 
   test.serial("footer command exits successfully after renderer teardown", async () => {
     const previousSigtermListeners = process.listeners("SIGTERM");
-    const stdoutChunks: string[] = [];
+    const stdout = createFooterTestStream(80);
     let rendererReady = false;
-    const stdoutSpy = spyOn(process.stdout, "write").mockImplementation(
-      (chunk: unknown) => {
-        stdoutChunks.push(String(chunk));
-        return true;
-      },
-    );
     const command = footerCommand("atomic-chat-opencode-abcd1234", "opencode", {
+      stdout,
       onReady: () => {
         rendererReady = true;
       },
@@ -146,11 +141,10 @@ describe("headless footer frame", () => {
       invokeNewListeners("SIGTERM", previousSigtermListeners);
       await expect(command).resolves.toBe(0);
     } finally {
-      stdoutSpy.mockRestore();
       invokeNewListeners("SIGTERM", previousSigtermListeners);
     }
 
-    expect(stdoutChunks.join("")).toContain("OPENCODE");
-    expect(stdoutChunks.join("")).toContain("atomic-chat-opencode-abcd1234");
+    expect(stdout.writes.join("")).toContain("OPENCODE");
+    expect(stdout.writes.join("")).toContain("atomic-chat-opencode-abcd1234");
   });
 });

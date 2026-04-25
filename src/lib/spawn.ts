@@ -81,11 +81,23 @@ export function resolveCommandFromCurrentPath(cmd: string): string | null {
   return Bun.which(cmd, { PATH: process.env.PATH ?? "" });
 }
 
-function hasMuxBinary(): boolean {
-  return Boolean(
-    resolveCommandFromCurrentPath("tmux") ||
-    resolveCommandFromCurrentPath("psmux") ||
-    resolveCommandFromCurrentPath("pmux"),
+type MuxBinaryName = "tmux" | "psmux" | "pmux";
+
+export function isMuxBinaryRequiredForPlatform(
+  binary: MuxBinaryName,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  if (platform === "win32") {
+    return binary === "psmux" || binary === "pmux";
+  }
+  return binary === "tmux";
+}
+
+export function hasRequiredMuxBinary(): boolean {
+  const candidates: MuxBinaryName[] = ["psmux", "pmux", "tmux"];
+  return candidates.some((candidate) =>
+    isMuxBinaryRequiredForPlatform(candidate) &&
+    resolveCommandFromCurrentPath(candidate)
   );
 }
 
@@ -224,8 +236,8 @@ export async function ensureTmuxInstalled(options: EnsureOptions = {}): Promise<
   const quiet = options.quiet ?? false;
   const inherit = !quiet;
 
-  // Check for any multiplexer binary
-  if (hasMuxBinary()) return;
+  // Check for the platform-native multiplexer binary.
+  if (hasRequiredMuxBinary()) return;
 
   let capturedDetails = "";
   const record = (result: SpawnResult) => {
@@ -250,7 +262,7 @@ export async function ensureTmuxInstalled(options: EnsureOptions = {}): Promise<
       record(result);
       if (result.success) {
         await refreshWindowsMuxPath();
-        if (hasMuxBinary()) return;
+        if (hasRequiredMuxBinary()) return;
       }
     }
 
@@ -261,7 +273,7 @@ export async function ensureTmuxInstalled(options: EnsureOptions = {}): Promise<
       record(result);
       if (result.success) {
         await refreshWindowsMuxPath();
-        if (hasMuxBinary()) return;
+        if (hasRequiredMuxBinary()) return;
       }
     }
 
@@ -271,7 +283,7 @@ export async function ensureTmuxInstalled(options: EnsureOptions = {}): Promise<
       record(result);
       if (result.success) {
         await refreshWindowsMuxPath();
-        if (hasMuxBinary()) return;
+        if (hasRequiredMuxBinary()) return;
       }
     }
 
@@ -283,7 +295,7 @@ export async function ensureTmuxInstalled(options: EnsureOptions = {}): Promise<
         const home = getHomeDir();
         if (home) prependPath(join(home, ".cargo", "bin"));
         await refreshWindowsMuxPath();
-        if (hasMuxBinary()) return;
+        if (hasRequiredMuxBinary()) return;
       }
     }
     throw new Error(

@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1270">
+  <title>Atomic — Slide 04: Use Case Carousel</title>
+  <link rel="stylesheet" href="../_shared/fonts.css">
+  <link rel="stylesheet" href="../_shared/tokens.css">
+  <link rel="stylesheet" href="../_shared/components.css">
+  <link rel="stylesheet" href="../_shared/tui.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 1270px; height: 760px; overflow: hidden; }
+
+    /* -----------------------------------------------------------------------
+       Slide-scoped liquid-silk override: cool flow from upper-right only
+    ----------------------------------------------------------------------- */
+    .liquid-silk--cool-tr {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 55%;
+      height: 55%;
+      z-index: 0;
+      /* Radial gradients anchored to top-right corner */
+      background:
+        radial-gradient(ellipse 100% 100% at 100% 0%, oklch(65% 0.15 220 / 0.55) 0%, transparent 65%),
+        radial-gradient(ellipse 80% 70% at 90% 10%, oklch(60% 0.18 185 / 0.35) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 60% at 80% 5%, oklch(55% 0.14 240 / 0.25) 0%, transparent 55%);
+      filter: url('#liquid-silk-filter');
+      pointer-events: none;
+    }
+
+    /* -----------------------------------------------------------------------
+       Magazine asymmetric grid
+    ----------------------------------------------------------------------- */
+    .cases {
+      display: grid;
+      grid-template-columns: 1.4fr 1fr;
+      grid-template-rows: 1fr 1fr;
+      grid-template-areas:
+        "pr     ticket"
+        "alert  feedback";
+      gap: 16px;
+      flex: 1;
+    }
+
+    /* -----------------------------------------------------------------------
+       Case blocks
+    ----------------------------------------------------------------------- */
+    .case-block {
+      position: relative;
+      background: oklch(15% 0.02 240 / 0.85);
+      border-radius: 8px;
+      padding: 22px 24px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      overflow: hidden;
+    }
+
+    /* Grid placements */
+    .case-block--pr       { grid-area: pr; }
+    .case-block--ticket   { grid-area: ticket; }
+    .case-block--alert    { grid-area: alert; }
+    .case-block--feedback { grid-area: feedback; }
+
+    /* Per-block accent borders */
+    .case-block--pr       { border: 1px solid color-mix(in oklch, var(--warm-maroon) 50%, transparent); }
+    .case-block--ticket   { border: 1px solid color-mix(in oklch, var(--cool-sapphire) 50%, transparent); }
+    .case-block--alert    { border: 1px solid color-mix(in oklch, var(--warm-red) 50%, transparent); }
+    .case-block--feedback { border: 1px solid color-mix(in oklch, var(--cool-teal) 50%, transparent); }
+
+    /* Editorial number: large faded background glyph */
+    .case-block__number {
+      position: absolute;
+      bottom: -8px;
+      right: 10px;
+      font-family: var(--font-display);
+      font-weight: 900;
+      font-size: 140px;
+      line-height: 1;
+      opacity: 0.08;
+      pointer-events: none;
+      user-select: none;
+      font-variation-settings: "wdth" 75;
+      letter-spacing: -0.04em;
+    }
+
+    .case-block--pr       .case-block__number { color: var(--warm-maroon); }
+    .case-block--ticket   .case-block__number { color: var(--cool-sapphire); }
+    .case-block--alert    .case-block__number { color: var(--warm-red); }
+    .case-block--feedback .case-block__number { color: var(--cool-teal); }
+
+    /* Block title */
+    .case-block__title {
+      font-family: var(--font-display);
+      font-weight: 600;
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+    }
+
+    .case-block--pr       .case-block__title { font-size: 30px; color: var(--warm-maroon); }
+    .case-block--ticket   .case-block__title { font-size: 26px; color: var(--cool-sapphire); }
+    .case-block--alert    .case-block__title { font-size: 28px; color: var(--warm-red); }
+    .case-block--feedback .case-block__title { font-size: 26px; color: var(--cool-teal); }
+
+    /* -----------------------------------------------------------------------
+       Mini TUI fragment — inline workflow stage list
+    ----------------------------------------------------------------------- */
+    .mini-tui {
+      background: var(--mocha-crust);
+      border-radius: 8px;
+      overflow: hidden;
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Per-block border color on mini-tui */
+    .case-block--pr       .mini-tui { border: 1px solid color-mix(in oklch, var(--warm-maroon) 40%, transparent); }
+    .case-block--ticket   .mini-tui { border: 1px solid color-mix(in oklch, var(--cool-sapphire) 40%, transparent); }
+    .case-block--alert    .mini-tui { border: 1px solid color-mix(in oklch, var(--warm-red) 40%, transparent); }
+    .case-block--feedback .mini-tui { border: 1px solid color-mix(in oklch, var(--cool-teal) 40%, transparent); }
+
+    .mini-tui__titlebar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 10px;
+      background: var(--mocha-surface0);
+      border-bottom: 1px solid var(--mocha-overlay0);
+      flex-shrink: 0;
+    }
+
+    .mini-tui__dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    .mini-tui__dot--close { background: var(--mocha-red); }
+    .mini-tui__dot--min   { background: var(--mocha-yellow); }
+    .mini-tui__dot--max   { background: var(--mocha-green); }
+
+    .mini-tui__label {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--mocha-subtext0);
+      letter-spacing: 0.04em;
+      margin-left: 2px;
+    }
+
+    .mini-tui__body {
+      flex: 1;
+      padding: 10px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      line-height: 1.5;
+      overflow: hidden;
+    }
+
+    .mini-tui__stage {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .mini-tui__stage--done .mini-tui__stage-name {
+      color: var(--mocha-subtext0);
+    }
+
+    .mini-tui__stage--active .mini-tui__stage-name {
+      color: var(--mocha-text);
+      font-weight: 700;
+    }
+
+    .mini-tui__check {
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+
+    .case-block--pr       .mini-tui__check { color: var(--warm-maroon); }
+    .case-block--ticket   .mini-tui__check { color: var(--cool-sapphire); }
+    .case-block--alert    .mini-tui__check { color: var(--warm-red); }
+    .case-block--feedback .mini-tui__check { color: var(--cool-teal); }
+
+    .case-block--pr       .mini-tui__stage--active .mini-tui__stage-name { color: var(--warm-maroon); }
+    .case-block--ticket   .mini-tui__stage--active .mini-tui__stage-name { color: var(--cool-sapphire); }
+    .case-block--alert    .mini-tui__stage--active .mini-tui__stage-name { color: var(--warm-red); }
+    .case-block--feedback .mini-tui__stage--active .mini-tui__stage-name { color: var(--cool-teal); }
+
+    .mini-tui__separator {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--mocha-overlay0);
+      padding-left: 19px;
+      line-height: 1;
+    }
+
+    /* -----------------------------------------------------------------------
+       Bottom caption with colored agent names
+    ----------------------------------------------------------------------- */
+    .caption {
+      font-family: var(--font-body);
+      font-size: 15px;
+      font-style: italic;
+      color: var(--mocha-subtext0);
+      letter-spacing: -0.01em;
+    }
+
+    .caption .agent--claude   { color: var(--cool-sapphire); font-style: normal; }
+    .caption .agent--opencode { color: var(--warm-peach);    font-style: normal; }
+    .caption .agent--copilot  { color: var(--cool-teal);     font-style: normal; }
+  </style>
+</head>
+<body>
+  <!-- SVG filter for liquid-silk displacement -->
+  <svg width="0" height="0" style="position:absolute">
+    <defs>
+      <filter id="liquid-silk-filter" x="-30%" y="-30%" width="160%" height="160%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.014 0.009" numOctaves="4" seed="5" result="noise"/>
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="70" xChannelSelector="R" yChannelSelector="G"/>
+      </filter>
+    </defs>
+  </svg>
+
+  <div class="slide">
+    <!-- Dark Mocha base -->
+    <div style="position:absolute; inset:0; background: var(--mocha-base);"></div>
+
+    <!-- Liquid silk — cool, upper-right corner only -->
+    <div class="liquid-silk--cool-tr"></div>
+
+    <!-- Film grain -->
+    <div class="film-grain"></div>
+
+    <!-- Content layer -->
+    <div class="slide__content" style="padding: 40px 56px 36px; display: flex; flex-direction: column; gap: 0;">
+
+      <!-- Wordmark -->
+      <div class="wordmark" style="margin-bottom: 10px;">ATOMIC</div>
+
+      <!-- Headline -->
+      <h1 style="
+        font-family: var(--font-display);
+        font-weight: 700;
+        font-size: 52px;
+        line-height: 1.05;
+        letter-spacing: -0.025em;
+        color: var(--mocha-text);
+        margin-bottom: 8px;
+      ">Workflows for ambiguous engineering work.</h1>
+
+      <!-- Subhead -->
+      <p style="
+        font-family: var(--font-body);
+        font-size: 18px;
+        color: var(--mocha-subtext0);
+        line-height: 1.45;
+        margin-bottom: 22px;
+        max-width: 700px;
+      ">Reusable patterns for tasks that need context, judgment, and controlled execution.</p>
+
+      <!-- Asymmetric magazine grid -->
+      <div class="cases">
+
+        <!-- PR UX Review — wide, top-left -->
+        <div class="case-block case-block--pr">
+          <div class="case-block__number">01</div>
+          <div class="case-block__title">PR UX Review</div>
+          <div class="mini-tui">
+            <div class="mini-tui__titlebar">
+              <div class="mini-tui__dot mini-tui__dot--close"></div>
+              <div class="mini-tui__dot mini-tui__dot--min"></div>
+              <div class="mini-tui__dot mini-tui__dot--max"></div>
+              <span class="mini-tui__label">pr-review · claude</span>
+            </div>
+            <div class="mini-tui__body">
+              <div class="mini-tui__stage mini-tui__stage--done">
+                <span class="mini-tui__check">✓</span>
+                <span class="mini-tui__stage-name">scan diff</span>
+              </div>
+              <div class="mini-tui__separator">↓</div>
+              <div class="mini-tui__stage mini-tui__stage--done">
+                <span class="mini-tui__check">✓</span>
+                <span class="mini-tui__stage-name">run review</span>
+              </div>
+              <div class="mini-tui__separator">↓</div>
+              <div class="mini-tui__stage mini-tui__stage--active">
+                <span class="mini-tui__check">⠹</span>
+                <span class="mini-tui__stage-name">file notes</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Support Ticket → Draft PR — narrow, top-right -->
+        <div class="case-block case-block--ticket">
+          <div class="case-block__number">02</div>
+          <div class="case-block__title">Support Ticket → Draft PR</div>
+          <div class="mini-tui">
+            <div class="mini-tui__titlebar">
+              <div class="mini-tui__dot mini-tui__dot--close"></div>
+              <div class="mini-tui__dot mini-tui__dot--min"></div>
+              <div class="mini-tui__dot mini-tui__dot--max"></div>
+              <span class="mini-tui__label">support-ticket-to-pr</span>
+            </div>
+            <div class="mini-tui__body">
+              <div class="mini-tui__stage mini-tui__stage--done">
+                <span class="mini-tui__check">✓</span>
+                <span class="mini-tui__stage-name">read ticket</span>
+              </div>
+              <div class="mini-tui__separator">↓</div>
+              <div class="mini-tui__stage mini-tui__stage--done">
+                <span class="mini-tui__check">✓</span>
+                <span class="mini-tui__stage-name">draft branch</span>
+              </div>
+              <div class="mini-tui__separator">↓</div>
+              <div class="mini-tui__stage mini-tui__stage--active">
+                <span class="mini-tui__check">⠼</span>
+                <span class="mini-tui__stage-name">share patch</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Production Alert Investigation — wide, bottom-left -->
+        <div class="case-block case-block--alert">
+          <div class="case-block__number">03</div>
+          <div class="case-block__title">Production Alert Investigation</div>
+          <div class="mini-tui">
+            <div class="mini-tui__titlebar">
+              <div class="mini-tui__dot mini-tui__dot--close"></div>
+              <div class="mini-tui__dot mini-tui__dot--min"></div>
+              <div class="mini-tui__dot mini-tui__dot--max"></div>
+              <span class="mini-tui__label">prod-alert-investigate</span>
+            </div>
+            <div class="mini-tui__body">
+              <div class="mini-tui__stage mini-tui__stage--done">
+                <span class="mini-tui__check">✓</span>
+                <span class="mini-tui__stage-name">inspect logs</span>
+              </div>
+              <div class="mini-tui__separator">↓</div>
+              <div class="mini-tui__stage mini-tui__stage--active">
+                <span class="mini-tui__check">⠸</span>
+                <span class="mini-tui__stage-name">propose fix</span>
+              </div>
+              <div class="mini-tui__separator">↓</div>
+              <div class="mini-tui__stage mini-tui__stage--done" style="opacity: 0.35;">
+                <span class="mini-tui__check" style="color: var(--mocha-overlay0);">○</span>
+                <span class="mini-tui__stage-name" style="color: var(--mocha-overlay0);">hand off</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Multi-Persona Product Feedback — square, bottom-right -->
+        <div class="case-block case-block--feedback">
+          <div class="case-block__number">04</div>
+          <div class="case-block__title">Multi-Persona Product Feedback</div>
+          <div class="mini-tui">
+            <div class="mini-tui__titlebar">
+              <div class="mini-tui__dot mini-tui__dot--close"></div>
+              <div class="mini-tui__dot mini-tui__dot--min"></div>
+              <div class="mini-tui__dot mini-tui__dot--max"></div>
+              <span class="mini-tui__label">multi-persona-feedback</span>
+            </div>
+            <div class="mini-tui__body">
+              <div class="mini-tui__stage mini-tui__stage--done">
+                <span class="mini-tui__check">✓</span>
+                <span class="mini-tui__stage-name">design</span>
+              </div>
+              <div class="mini-tui__separator">↓</div>
+              <div class="mini-tui__stage mini-tui__stage--active">
+                <span class="mini-tui__check">⠴</span>
+                <span class="mini-tui__stage-name">eng</span>
+              </div>
+              <div class="mini-tui__separator">↓</div>
+              <div class="mini-tui__stage mini-tui__stage--done" style="opacity: 0.35;">
+                <span class="mini-tui__check" style="color: var(--mocha-overlay0);">○</span>
+                <span class="mini-tui__stage-name" style="color: var(--mocha-overlay0);">pm</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /.cases -->
+
+      <!-- Bottom caption -->
+      <div style="margin-top: 18px;">
+        <span class="caption">Define once. Run with <span class="agent--claude">Claude Code</span>, <span class="agent--opencode">OpenCode</span>, or <span class="agent--copilot">GitHub Copilot CLI</span>.</span>
+      </div>
+
+    </div>
+  </div>
+</body>
+</html>

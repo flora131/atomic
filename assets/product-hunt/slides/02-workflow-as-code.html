@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1270">
+  <title>Atomic — Slide 02: Workflow-as-Code</title>
+  <link rel="stylesheet" href="../_shared/fonts.css">
+  <link rel="stylesheet" href="../_shared/tokens.css">
+  <link rel="stylesheet" href="../_shared/components.css">
+  <link rel="stylesheet" href="../_shared/tui.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 1270px; height: 760px; overflow: hidden; }
+
+    /* Slide-scoped liquid-silk: right edge only, ~30% wide strip */
+    .silk-right-edge {
+      position: absolute;
+      top: 0;
+      right: 0;
+      left: 60%;
+      bottom: 0;
+      z-index: 0;
+      overflow: hidden;
+      opacity: 0.4;
+      filter: url('#liquid-silk-filter');
+      background:
+        radial-gradient(ellipse 120% 70% at 100% 15%, oklch(65% 0.15 220 / 0.60) 0%, transparent 60%),
+        radial-gradient(ellipse 100% 80% at 95% 80%, oklch(70% 0.18 185 / 0.50) 0%, transparent 60%),
+        radial-gradient(ellipse 80% 50% at 85% 50%,  oklch(60% 0.14 240 / 0.35) 0%, transparent 55%),
+        transparent;
+    }
+
+    /* Code pane: custom tab bar + body */
+    .code-pane {
+      display: flex;
+      flex-direction: column;
+      background-color: var(--mocha-crust);
+      border-radius: 8px;
+      border: 1px solid var(--mocha-overlay0);
+      overflow: hidden;
+      width: 100%;
+    }
+
+    .code-pane__tabbar {
+      display: flex;
+      align-items: stretch;
+      height: 32px;
+      background-color: var(--mocha-surface0);
+      border-bottom: 1px solid var(--mocha-overlay0);
+      flex-shrink: 0;
+    }
+
+    .code-pane__tab {
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--mocha-text);
+      background-color: var(--mocha-crust);
+      border-right: 1px solid var(--mocha-overlay0);
+      letter-spacing: 0.01em;
+      white-space: nowrap;
+    }
+
+    .code-pane__tab-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: var(--mocha-blue);
+      margin-right: 8px;
+      opacity: 0.7;
+    }
+
+    .code-pane__tab-spacer {
+      flex: 1;
+    }
+
+    .code-pane__body {
+      padding: 16px 20px;
+      font-family: var(--font-mono);
+      font-size: 13.5px;
+      line-height: 1.65;
+      color: var(--mocha-text);
+      white-space: pre;
+      overflow: hidden;
+      flex: 1;
+    }
+
+    /* Line numbers */
+    .ln {
+      display: inline-block;
+      width: 24px;
+      color: var(--mocha-overlay0);
+      user-select: none;
+      font-size: 12px;
+      margin-right: 16px;
+      text-align: right;
+      opacity: 0.5;
+    }
+
+    /* Syntax token colors */
+    .tk-kw   { color: var(--mocha-mauve); }          /* keywords */
+    .tk-str  { color: var(--mocha-green); }           /* strings */
+    .tk-fn   { color: var(--mocha-blue); }            /* function names */
+    .tk-ty   { color: var(--mocha-yellow); }          /* type names */
+    .tk-cmt  { color: var(--mocha-overlay0); font-style: italic; } /* comments */
+    .tk-num  { color: var(--mocha-peach); }           /* numbers */
+    .tk-pun  { color: var(--mocha-subtext0); opacity: 0.75; }  /* punctuation */
+    .tk-prop { color: var(--mocha-sky); }             /* property keys */
+    .tk-txt  { color: var(--mocha-text); }            /* default text */
+
+    /* "What the file encodes" list */
+    .encodes-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .encodes-list li {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      color: var(--mocha-subtext0);
+      line-height: 1.35;
+    }
+
+    .encodes-list li .arrow {
+      color: var(--cool-sapphire);
+      flex-shrink: 0;
+      font-size: 12px;
+    }
+
+    /* Caption highlight for R, R, R */
+    .cap-r {
+      color: var(--cool-sapphire);
+    }
+
+    /* SVG connection arrow overlay */
+    .connect-svg {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 10;
+      overflow: visible;
+    }
+
+    /* TUI sidebar: narrower for this slide's smaller TUI area */
+    #tui-wrap .tui__sidebar {
+      width: 200px;
+    }
+
+    /* TUI graph nodes: smaller to fit in constrained graph area */
+    #tui-wrap .tui__node {
+      width: 110px;
+    }
+
+    #tui-wrap .tui__graph {
+      gap: 10px;
+    }
+  </style>
+</head>
+<body>
+  <!-- SVG filter for liquid-silk displacement -->
+  <svg width="0" height="0" style="position:absolute;overflow:hidden" aria-hidden="true">
+    <defs>
+      <filter id="liquid-silk-filter" x="-20%" y="-20%" width="140%" height="140%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.010 0.007" numOctaves="4" seed="13" result="noise"/>
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="70" xChannelSelector="R" yChannelSelector="G"/>
+      </filter>
+      <!-- Arrow marker for connection line -->
+      <marker id="arrow-head" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+        <path d="M 0 0 L 8 4 L 0 8 L 2 4 Z" fill="#74c7ec" opacity="0.85"/>
+      </marker>
+    </defs>
+  </svg>
+
+  <div class="slide">
+    <!-- Dark Mocha base -->
+    <div style="position:absolute; inset:0; background: var(--mocha-base);"></div>
+
+    <!-- Liquid-silk: right edge only, cool palette, low opacity -->
+    <div class="silk-right-edge"></div>
+
+    <!-- Film grain: full-bleed -->
+    <div class="film-grain"></div>
+
+    <!-- SVG connection arrow: code pane bottom-right → TUI top-left -->
+    <!-- Coordinates in 1270x760 slide space:
+         Content padding = 56px horizontal, 44px vertical
+         Code pane: left=56, width=58% of (1270-112)=1158 → ~672px → right edge at 56+672=728
+         Code pane: top=44+13(wordmark)+14+64(h1)+10+24(subhead)+28(mb)=197, height~350 → bottom~547
+         TUI: left=56+672+48=776, top~197 -->
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      style="position:absolute;top:0;left:0;width:1270px;height:760px;pointer-events:none;z-index:5;overflow:visible;"
+      aria-hidden="true"
+    >
+      <defs>
+        <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+          <polygon points="0 0, 10 3.5, 0 7" fill="#74c7ec" opacity="0.85"/>
+        </marker>
+      </defs>
+      <!-- Bezier curve: bottom-right of code pane → top-left of TUI -->
+      <!-- Start: (728, 430) → End: (780, 200) -->
+      <path
+        d="M 728 420 C 752 470, 756 200, 776 202"
+        stroke="#74c7ec"
+        stroke-width="1.8"
+        fill="none"
+        opacity="0.75"
+        stroke-dasharray="5 4"
+        marker-end="url(#arrowhead)"
+      />
+      <!-- "compile + run" micro-label at curve midpoint, rotated -->
+      <text
+        font-family="'JetBrains Mono', monospace"
+        font-size="10"
+        fill="#74c7ec"
+        opacity="0.60"
+        letter-spacing="0.06em"
+        transform="translate(750,370) rotate(-80)"
+        text-anchor="middle"
+      >compile + run</text>
+    </svg>
+
+    <!-- Content layer -->
+    <div class="slide__content" style="padding: 44px 56px 44px 56px; display: flex; flex-direction: column; position: relative;">
+
+      <!-- Top row: wordmark + headline + subhead -->
+      <div style="margin-bottom: 28px;">
+        <div class="wordmark" style="margin-bottom: 14px;">ATOMIC</div>
+
+        <h1 style="
+          font-family: var(--font-display);
+          font-weight: 700;
+          font-size: 64px;
+          line-height: 1.0;
+          letter-spacing: -0.025em;
+          color: var(--mocha-text);
+          margin-bottom: 10px;
+        ">Workflow-as-code</h1>
+
+        <p class="subhead" style="font-size: 20px; color: var(--mocha-subtext0); max-width: 560px;">
+          Developer-native orchestration that lives in the repo.
+        </p>
+      </div>
+
+      <!-- Body: editorial split -->
+      <div style="display: flex; flex: 1; gap: 0; align-items: flex-start; position: relative; min-height: 0;">
+
+        <!-- LEFT: code editor pane, ~58% -->
+        <div style="flex: 0 0 58%; padding-right: 0; position: relative;" id="code-pane-wrap">
+          <div class="code-pane">
+            <div class="code-pane__tabbar">
+              <div class="code-pane__tab">
+                <div class="code-pane__tab-dot"></div>
+                workflow.ts
+              </div>
+              <div class="code-pane__tab-spacer"></div>
+              <!-- Traffic lights on right of tab bar -->
+              <div style="display:flex;align-items:center;gap:6px;padding-right:12px;">
+                <div style="width:9px;height:9px;border-radius:50%;background:var(--mocha-red);"></div>
+                <div style="width:9px;height:9px;border-radius:50%;background:var(--mocha-yellow);"></div>
+                <div style="width:9px;height:9px;border-radius:50%;background:var(--mocha-green);"></div>
+              </div>
+            </div>
+            <div class="code-pane__body"><span class="ln">1</span><span class="tk-kw">import</span> <span class="tk-txt">{ </span><span class="tk-fn">defineWorkflow</span><span class="tk-txt"> }</span> <span class="tk-kw">from</span> <span class="tk-str">'@atomic/workflow'</span><span class="tk-pun">;</span>
+<span class="ln">2</span>
+<span class="ln">3</span><span class="tk-kw">export default</span> <span class="tk-fn">defineWorkflow</span><span class="tk-pun">({</span>
+<span class="ln">4</span>  <span class="tk-prop">name</span><span class="tk-pun">:</span> <span class="tk-str">'pr-review'</span><span class="tk-pun">,</span>
+<span class="ln">5</span>  <span class="tk-prop">description</span><span class="tk-pun">:</span> <span class="tk-str">'.devcontainer/claude.json'</span><span class="tk-pun">,</span>
+<span class="ln">6</span><span class="tk-pun">})</span>
+<span class="ln">7</span>  <span class="tk-pun">.</span><span class="tk-fn">run</span><span class="tk-pun">(</span><span class="tk-kw">async</span> <span class="tk-pun">(</span><span class="tk-txt">ctx</span><span class="tk-pun">) =&gt; {</span>
+<span class="ln">8</span>  <span class="tk-cmt">  // stage 1: review the diff</span>
+<span class="ln">9</span>  <span class="tk-kw">  const</span> <span class="tk-txt">review</span> <span class="tk-pun">=</span> <span class="tk-kw">await</span> <span class="tk-txt">ctx</span><span class="tk-pun">.</span><span class="tk-fn">stage</span><span class="tk-pun">(</span><span class="tk-str">'review'</span><span class="tk-pun">, {</span>
+<span class="ln">10</span>    <span class="tk-prop">agent</span><span class="tk-pun">:</span> <span class="tk-str">'claude-code'</span><span class="tk-pun">,</span>
+<span class="ln">11</span>    <span class="tk-prop">prompt</span><span class="tk-pun">:</span> <span class="tk-str">'Review diff for security, perf, clarity.'</span><span class="tk-pun">,</span>
+<span class="ln">12</span>  <span class="tk-pun">});</span>
+<span class="ln">13</span>
+<span class="ln">14</span>  <span class="tk-cmt">  // branch: only audit if findings exist</span>
+<span class="ln">15</span>  <span class="tk-kw">  if</span> <span class="tk-pun">(</span><span class="tk-txt">review</span><span class="tk-pun">.</span><span class="tk-prop">findings</span><span class="tk-pun">.</span><span class="tk-prop">length</span> <span class="tk-pun">&gt;</span> <span class="tk-num">0</span><span class="tk-pun">) {</span>
+<span class="ln">16</span>    <span class="tk-kw">  await</span> <span class="tk-txt">ctx</span><span class="tk-pun">.</span><span class="tk-fn">stage</span><span class="tk-pun">(</span><span class="tk-str">'security-audit'</span><span class="tk-pun">, {</span>
+<span class="ln">17</span>      <span class="tk-prop">agent</span><span class="tk-pun">:</span> <span class="tk-str">'opencode'</span><span class="tk-pun">,</span>
+<span class="ln">18</span>    <span class="tk-pun">  });</span>
+<span class="ln">19</span>  <span class="tk-pun">  }</span>
+<span class="ln">20</span>
+<span class="ln">21</span>  <span class="tk-cmt">  // stage 3: require human sign-off</span>
+<span class="ln">22</span>  <span class="tk-kw">  await</span> <span class="tk-txt">ctx</span><span class="tk-pun">.</span><span class="tk-fn">stage</span><span class="tk-pun">(</span><span class="tk-str">'human-approval'</span><span class="tk-pun">, {</span>
+<span class="ln">23</span>    <span class="tk-prop">require</span><span class="tk-pun">:</span> <span class="tk-str">'maintainer'</span><span class="tk-pun">,</span>
+<span class="ln">24</span>  <span class="tk-pun">});</span>
+<span class="ln">25</span><span class="tk-pun">})</span>
+<span class="ln">26</span><span class="tk-pun">.</span><span class="tk-fn">compile</span><span class="tk-pun">();</span></div>
+          </div>
+        </div>
+
+        <!-- RIGHT: TUI multi-agent state, ~42% -->
+        <div style="flex: 0 0 42%; padding-left: 48px;" id="tui-wrap">
+          <!-- TUI multi-agent state (from tui-state-multi-agent template) -->
+          <div class="tui" style="width:100%;height:340px;">
+
+            <!-- Header bar: GRAPH mode, workflow running -->
+            <div class="tui__header">
+              <div class="tui__header-badge tui__header-badge--graph">GRAPH</div>
+              <span class="tui__header-session">pr-review · claude</span>
+              <div class="tui__header-counts">
+                <span class="tui__count"><span class="tui-green">✓</span><span class="tui-dim"> 1</span></span>
+                <span class="tui__count"><span class="tui-yellow">●</span><span class="tui-dim"> 3</span></span>
+                <span class="tui__count"><span class="tui-dim">○</span><span class="tui-dim"> 0</span></span>
+              </div>
+            </div>
+
+            <!-- Body: sidebar + main -->
+            <div class="tui__body">
+
+              <!-- Sidebar: workflow selected -->
+              <div class="tui__sidebar">
+                <div class="tui__sidebar-header">
+                  <div class="tui__sidebar-header-badge tui__sidebar-header-badge--claude">CLAUDE</div>
+                  <span class="tui__sidebar-header-label">workflow › running</span>
+                </div>
+
+                <div class="tui__workflow-list">
+                  <div class="tui__section-label">
+                    <span class="tui__section-label-bar">▎</span>
+                    <span class="tui__section-label-text">sessions</span>
+                  </div>
+
+                  <div class="tui__row tui__row--active">
+                    <span class="tui__spinner">⠹</span>
+                    <span class="tui__row-name tui-yellow">orchestrator</span>
+                  </div>
+                  <div class="tui__row tui__row--focused">
+                    <span class="tui__spinner">⠼</span>
+                    <span class="tui__row-name tui-yellow">claude-code</span>
+                  </div>
+                  <div class="tui__row">
+                    <span class="tui__spinner tui-dim">⠴</span>
+                    <span class="tui__row-name tui-yellow">opencode</span>
+                  </div>
+                  <div class="tui__row">
+                    <span class="tui__spinner tui-dim">⠦</span>
+                    <span class="tui__row-name tui-yellow">copilot-cli</span>
+                  </div>
+
+                  <div class="tui__section-label" style="margin-top:8px;">
+                    <span class="tui__section-label-bar">▎</span>
+                    <span class="tui__section-label-text">workflow</span>
+                  </div>
+                  <div class="tui__row">
+                    <span class="tui__row-indicator tui-dim">  </span>
+                    <span class="tui__row-name tui-muted">pr-review</span>
+                  </div>
+                  <div class="tui__row">
+                    <span class="tui__row-indicator tui-dim">  </span>
+                    <span class="tui__row-name tui-dim">src/workflows/pr-review.ts</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Main pane: session graph -->
+              <div class="tui__main">
+                <div class="tui__graph" style="flex-direction:column;gap:0;padding:14px 20px;">
+
+                  <!-- Orchestrator node (done) -->
+                  <div style="display:flex;justify-content:center;margin-bottom:0;">
+                    <div class="tui__node tui__node--done" style="width:110px;">
+                      <div class="tui__node-title">orchestrator</div>
+                      <div class="tui__node-duration tui__node-duration--done">0:04</div>
+                    </div>
+                  </div>
+
+                  <!-- Connector line down -->
+                  <div style="display:flex;justify-content:center;height:14px;">
+                    <div style="width:1px;background:var(--mocha-overlay0);height:100%;"></div>
+                  </div>
+
+                  <!-- 3 parallel agents -->
+                  <div style="display:flex;justify-content:center;">
+                    <div style="display:flex;flex-direction:row;gap:8px;align-items:flex-start;">
+
+                      <!-- Agent 1: claude-code -->
+                      <div style="display:flex;flex-direction:column;align-items:center;gap:0;">
+                        <div style="width:1px;background:var(--mocha-overlay0);height:14px;"></div>
+                        <div class="tui__node tui__node--running tui__node--focused" style="width:110px;min-height:54px;">
+                          <div class="tui__node-title">claude-code</div>
+                          <div class="tui__node-duration tui__node-duration--running">
+                            <span class="tui__spinner">⠹</span> 1:12
+                          </div>
+                          <div class="tui__node-hint tui-dim">scan diff</div>
+                        </div>
+                      </div>
+
+                      <!-- Agent 2: opencode -->
+                      <div style="display:flex;flex-direction:column;align-items:center;gap:0;">
+                        <div style="width:1px;background:var(--mocha-overlay0);height:14px;"></div>
+                        <div class="tui__node tui__node--running" style="width:110px;min-height:54px;">
+                          <div class="tui__node-title">opencode</div>
+                          <div class="tui__node-duration tui__node-duration--running">
+                            <span class="tui__spinner tui-dim">⠼</span> 0:58
+                          </div>
+                          <div class="tui__node-hint tui-dim">audit</div>
+                        </div>
+                      </div>
+
+                      <!-- Agent 3: copilot -->
+                      <div style="display:flex;flex-direction:column;align-items:center;gap:0;">
+                        <div style="width:1px;background:var(--mocha-overlay0);height:14px;"></div>
+                        <div class="tui__node tui__node--running" style="width:110px;min-height:54px;">
+                          <div class="tui__node-title">copilot-cli</div>
+                          <div class="tui__node-duration tui__node-duration--running">
+                            <span class="tui__spinner tui-dim">⠦</span> 1:03
+                          </div>
+                          <div class="tui__node-hint tui-dim">ci-checks</div>
+                        </div>
+                      </div>
+
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+
+            </div>
+
+            <!-- Statusbar -->
+            <div class="tui__statusbar">
+              <div class="tui__statusbar-badge tui__statusbar-badge--graph">GRAPH</div>
+              <span class="tui__statusbar-info tui-yellow">● 3 background</span>
+              <div class="tui__statusbar-spacer"></div>
+              <div class="tui__statusbar-hints">
+                <span class="tui__hint">
+                  <span class="tui__hint-key">↑↓←→</span>
+                  <span class="tui__hint-label">navigate</span>
+                </span>
+                <span class="tui__hint">
+                  <span class="tui__hint-key">↵</span>
+                  <span class="tui__hint-label">attach</span>
+                </span>
+                <span class="tui__hint">
+                  <span class="tui__hint-key">q</span>
+                  <span class="tui__hint-label">quit</span>
+                </span>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- "What the file encodes" list — below TUI -->
+          <div style="margin-top: 12px; padding-left: 2px;">
+            <ul class="encodes-list">
+              <li><span class="arrow">→</span><span>steps as <code style="color:var(--mocha-blue);font-family:var(--font-mono);">ctx.stage()</code></span></li>
+              <li><span class="arrow">→</span><span>branching with <code style="color:var(--mocha-mauve);font-family:var(--font-mono);">if/else</code></span></li>
+              <li><span class="arrow">→</span><span>parallel agent sessions</span></li>
+              <li><span class="arrow">→</span><span>review gates</span></li>
+              <li><span class="arrow">→</span><span>devcontainer config</span></li>
+            </ul>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- Bottom-right caption: absolutely positioned on slide -->
+    <div style="
+      position: absolute;
+      bottom: 32px;
+      right: 56px;
+      max-width: 480px;
+      font-family: var(--font-body);
+      font-style: italic;
+      font-size: 15px;
+      color: var(--mocha-subtext0);
+      line-height: 1.55;
+      text-align: right;
+      z-index: 3;
+    ">No black-box canvas.
+      <span class="cap-r">R</span>eview it in Git.
+      <span class="cap-r">R</span>un it with Bun.
+      <span class="cap-r">R</span>euse it across the team.</div>
+
+  </div>
+</body>
+</html>

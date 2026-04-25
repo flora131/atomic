@@ -152,6 +152,32 @@ function prependWindowsMuxInstallPaths(): void {
   prependPathIfDirectory(windowsAtomicBinDir());
 }
 
+function prependBunInstallPaths(): void {
+  const home = getHomeDir();
+  prependPathIfDirectory(process.env.BUN_INSTALL_BIN);
+  prependPathIfDirectory(
+    process.env.BUN_INSTALL ? join(process.env.BUN_INSTALL, "bin") : undefined,
+  );
+  prependPathIfDirectory(home ? join(home, ".bun", "bin") : undefined);
+
+  if (process.platform !== "win32") return;
+
+  prependPathIfDirectory(
+    process.env.SCOOP ? join(process.env.SCOOP, "shims") : undefined,
+  );
+  prependPathIfDirectory(home ? join(home, "scoop", "shims") : undefined);
+  prependPathIfDirectory(
+    process.env.LOCALAPPDATA
+      ? join(process.env.LOCALAPPDATA, "Microsoft", "WinGet", "Links")
+      : undefined,
+  );
+  prependPathIfDirectory(
+    process.env.LOCALAPPDATA
+      ? join(process.env.LOCALAPPDATA, "Microsoft", "WindowsApps")
+      : undefined,
+  );
+}
+
 function mergePath(pathValue: string): void {
   const delimiter = process.platform === "win32" ? ";" : ":";
   for (const entry of pathValue.split(delimiter)) {
@@ -188,6 +214,12 @@ async function refreshWindowsMuxPath(): Promise<void> {
   prependWindowsMuxInstallPaths();
   await refreshWindowsPathFromRegistry();
   prependWindowsMuxInstallPaths();
+}
+
+async function refreshWindowsBunPath(): Promise<void> {
+  prependBunInstallPaths();
+  await refreshWindowsPathFromRegistry();
+  prependBunInstallPaths();
 }
 
 interface GitHubReleaseAsset {
@@ -511,51 +543,73 @@ export async function ensureTmuxInstalled(options: EnsureOptions = {}): Promise<
  * No-op when already present.
  */
 export async function ensureBunInstalled(): Promise<void> {
-  if (Bun.which("bun")) return;
-
-  const home = getHomeDir();
+  if (resolveCommandFromCurrentPath("bun")) return;
 
   if (process.platform === "win32") {
     // Windows
-    const winget = Bun.which("winget");
+    const winget = resolveCommandFromCurrentPath("winget");
     if (winget) {
       const result = await runCommand([winget, "install", "Oven-sh.Bun", "--accept-source-agreements", "--accept-package-agreements"], { inherit: true });
       if (result.success) {
-        if (home) prependPath(join(home, ".bun", "bin"));
-        if (Bun.which("bun")) return;
+        await refreshWindowsBunPath();
+        if (resolveCommandFromCurrentPath("bun")) return;
       }
     }
 
-    const scoop = Bun.which("scoop");
+    const scoop = resolveCommandFromCurrentPath("scoop");
     if (scoop) {
       const result = await runCommand([scoop, "install", "bun"], { inherit: true });
-      if (result.success && Bun.which("bun")) return;
+      if (result.success) {
+        await refreshWindowsBunPath();
+        if (resolveCommandFromCurrentPath("bun")) return;
+      }
     }
 
-    return;
+    const shell = resolveCommandFromCurrentPath("powershell") ??
+      resolveCommandFromCurrentPath("pwsh");
+    if (shell) {
+      const result = await runCommand([
+        shell,
+        "-NoProfile",
+        "-Command",
+        "irm bun.sh/install.ps1 | iex",
+      ], { inherit: true });
+      if (result.success) {
+        await refreshWindowsBunPath();
+        if (resolveCommandFromCurrentPath("bun")) return;
+      }
+    }
+
+    throw new Error("Could not install bun automatically.");
   }
 
   // Unix / macOS
-  const shell = Bun.which("bash") ?? Bun.which("sh");
+  const shell = resolveCommandFromCurrentPath("bash") ??
+    resolveCommandFromCurrentPath("sh");
   if (shell) {
     const result = await runCommand(
       [shell, "-lc", "curl -fsSL https://bun.sh/install | bash"],
       { inherit: true },
     );
     if (result.success) {
-      if (home) prependPath(join(home, ".bun", "bin"));
-      if (Bun.which("bun")) return;
+      prependBunInstallPaths();
+      if (resolveCommandFromCurrentPath("bun")) return;
     }
   }
 
   // macOS Homebrew fallback
   if (process.platform === "darwin") {
-    const brew = Bun.which("brew");
+    const brew = resolveCommandFromCurrentPath("brew");
     if (brew) {
       const result = await runCommand([brew, "install", "oven-sh/bun/bun"], { inherit: true });
-      if (result.success && Bun.which("bun")) return;
+      if (result.success) {
+        prependBunInstallPaths();
+        if (resolveCommandFromCurrentPath("bun")) return;
+      }
     }
   }
+
+  throw new Error("Could not install bun automatically.");
 }
 
 /**

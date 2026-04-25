@@ -6,7 +6,8 @@
 # silently syncs tooling deps and bundled skills on first launch — see
 # src/services/system/auto-sync.ts.
 #
-# If you already have bun, you can skip this script entirely:
+# If you already have bun and `bun pm bin -g` is on PATH, you can skip this
+# script entirely:
 #   bun install -g @bastani/atomic@latest
 #
 # Usage:
@@ -177,6 +178,80 @@ run_step() {
     fi
 }
 
+# `bun install -g` links CLIs into Bun's global bin directory. Use Bun's
+# own package-manager helper so custom BUN_INSTALL/BUN_INSTALL_BIN settings
+# are respected, then persist that directory for future shells.
+bun_global_bin_dir() {
+    local bin_dir=""
+    if bin_dir=$(bun pm bin -g 2>/dev/null) && [[ -n "$bin_dir" ]]; then
+        printf '%s\n' "$bin_dir"
+        return 0
+    fi
+
+    if [[ -n "${BUN_INSTALL_BIN:-}" ]]; then
+        printf '%s\n' "$BUN_INSTALL_BIN"
+    elif [[ -n "${BUN_INSTALL:-}" ]]; then
+        printf '%s\n' "$BUN_INSTALL/bin"
+    elif [[ -n "${XDG_CACHE_HOME:-}" ]]; then
+        printf '%s\n' "$XDG_CACHE_HOME/.bun/bin"
+    else
+        printf '%s\n' "$HOME/.bun/bin"
+    fi
+}
+
+path_contains() {
+    local dir=$1
+    case ":$PATH:" in
+        *":$dir:"*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+install_path_rc_snippet() {
+    local rc=$1 shell_name=$2 bin_dir=$3
+    local marker='# Atomic CLI bun global bin PATH'
+
+    mkdir -p "$(dirname "$rc")"
+    touch "$rc"
+
+    if grep -qF "$marker" "$rc" 2>/dev/null || grep -qF "$bin_dir" "$rc" 2>/dev/null; then
+        return 0
+    fi
+
+    {
+        printf '\n%s\n' "$marker"
+        if [[ "$shell_name" == "fish" ]]; then
+            printf 'fish_add_path "%s"\n' "$bin_dir"
+        else
+            printf 'case ":$PATH:" in\n'
+            printf '    *":%s:"*) ;;\n' "$bin_dir"
+            printf '    *) export PATH="%s:$PATH" ;;\n' "$bin_dir"
+            printf 'esac\n'
+        fi
+    } >> "$rc"
+}
+
+ensure_bun_global_bin_on_path() {
+    local bin_dir shell_name rc
+    bin_dir=$(bun_global_bin_dir)
+    mkdir -p "$bin_dir"
+
+    if ! path_contains "$bin_dir"; then
+        export PATH="$bin_dir:$PATH"
+    fi
+
+    shell_name=$(basename "${SHELL:-}")
+    case "$shell_name" in
+        bash) rc="$HOME/.bashrc" ;;
+        zsh)  rc="$HOME/.zshrc" ;;
+        fish) rc="$HOME/.config/fish/config.fish" ;;
+        *)    rc="$HOME/.profile" ;;
+    esac
+
+    install_path_rc_snippet "$rc" "$shell_name" "$bin_dir"
+    info "bun global bin on PATH ($bin_dir)"
+}
+
 # ── Installers ──────────────────────────────────────────────────────────────
 
 install_bun() {
@@ -326,8 +401,15 @@ main() {
         exit 1
     fi
 
+    ensure_bun_global_bin_on_path
+
     if ! install_atomic; then
         error "atomic installation failed"
+        exit 1
+    fi
+
+    if ! command -v atomic >/dev/null 2>&1; then
+        error "atomic installed but is not on PATH — add $(bun_global_bin_dir) to PATH"
         exit 1
     fi
 

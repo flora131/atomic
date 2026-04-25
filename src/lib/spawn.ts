@@ -5,6 +5,7 @@
  * eliminating duplication across postinstall-playwright, postinstall-liteparse, etc.
  */
 
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -68,9 +69,94 @@ export function prependPath(directory: string): void {
   const pathDelimiter = process.platform === "win32" ? ";" : ":";
   const currentPath = process.env.PATH ?? "";
   const entries = currentPath.split(pathDelimiter);
-  if (!entries.includes(directory)) {
+  const alreadyPresent = process.platform === "win32"
+    ? entries.some((entry) => entry.toLowerCase() === directory.toLowerCase())
+    : entries.includes(directory);
+  if (!alreadyPresent) {
     process.env.PATH = directory + pathDelimiter + currentPath;
   }
+}
+
+export function resolveCommandFromCurrentPath(cmd: string): string | null {
+  return Bun.which(cmd, { PATH: process.env.PATH ?? "" });
+}
+
+function hasMuxBinary(): boolean {
+  return Boolean(
+    resolveCommandFromCurrentPath("tmux") ||
+    resolveCommandFromCurrentPath("psmux") ||
+    resolveCommandFromCurrentPath("pmux"),
+  );
+}
+
+function prependPathIfDirectory(directory: string | undefined): void {
+  if (!directory || !existsSync(directory)) return;
+  prependPath(directory);
+}
+
+function prependWindowsMuxInstallPaths(): void {
+  if (process.platform !== "win32") return;
+
+  const home = getHomeDir();
+  prependPathIfDirectory(
+    process.env.SCOOP ? join(process.env.SCOOP, "shims") : undefined,
+  );
+  prependPathIfDirectory(home ? join(home, "scoop", "shims") : undefined);
+  prependPathIfDirectory(
+    process.env.LOCALAPPDATA
+      ? join(process.env.LOCALAPPDATA, "Microsoft", "WinGet", "Links")
+      : undefined,
+  );
+  prependPathIfDirectory(
+    process.env.LOCALAPPDATA
+      ? join(process.env.LOCALAPPDATA, "Microsoft", "WindowsApps")
+      : undefined,
+  );
+  prependPathIfDirectory(
+    process.env.ChocolateyInstall
+      ? join(process.env.ChocolateyInstall, "bin")
+      : undefined,
+  );
+  prependPathIfDirectory("C:\\ProgramData\\chocolatey\\bin");
+  prependPathIfDirectory(home ? join(home, ".cargo", "bin") : undefined);
+}
+
+function mergePath(pathValue: string): void {
+  const delimiter = process.platform === "win32" ? ";" : ":";
+  for (const entry of pathValue.split(delimiter)) {
+    const trimmed = entry.trim();
+    if (trimmed) prependPath(trimmed);
+  }
+}
+
+async function refreshWindowsPathFromRegistry(): Promise<void> {
+  if (process.platform !== "win32") return;
+
+  const shell = resolveCommandFromCurrentPath("powershell") ??
+    resolveCommandFromCurrentPath("pwsh");
+  if (!shell) return;
+
+  const readRegistryPath =
+    "$paths = @([Environment]::GetEnvironmentVariable('Path','Process'), " +
+    "[Environment]::GetEnvironmentVariable('Path','User'), " +
+    "[Environment]::GetEnvironmentVariable('Path','Machine')) | " +
+    "Where-Object { $_ }; $paths -join ';'";
+
+  const result = await runCommand([
+    shell,
+    "-NoProfile",
+    "-Command",
+    readRegistryPath,
+  ]);
+  if (result.success && result.details) {
+    mergePath(result.details);
+  }
+}
+
+async function refreshWindowsMuxPath(): Promise<void> {
+  prependWindowsMuxInstallPaths();
+  await refreshWindowsPathFromRegistry();
+  prependWindowsMuxInstallPaths();
 }
 
 /**
@@ -139,7 +225,7 @@ export async function ensureTmuxInstalled(options: EnsureOptions = {}): Promise<
   const inherit = !quiet;
 
   // Check for any multiplexer binary
-  if (Bun.which("tmux") || Bun.which("psmux") || Bun.which("pmux")) return;
+  if (hasMuxBinary()) return;
 
   let capturedDetails = "";
   const record = (result: SpawnResult) => {
@@ -150,36 +236,54 @@ export async function ensureTmuxInstalled(options: EnsureOptions = {}): Promise<
 
   if (process.platform === "win32") {
     // Windows: install psmux
-    const winget = Bun.which("winget");
+    const winget = resolveCommandFromCurrentPath("winget");
     if (winget) {
-      const result = await runCommand([winget, "install", "psmux", "--accept-source-agreements", "--accept-package-agreements"], { inherit });
+      const result = await runCommand([
+        winget,
+        "install",
+        "--id",
+        "marlocarlo.psmux",
+        "--exact",
+        "--accept-source-agreements",
+        "--accept-package-agreements",
+      ], { inherit });
       record(result);
-      if (result.success && (Bun.which("psmux") || Bun.which("tmux"))) return;
+      if (result.success) {
+        await refreshWindowsMuxPath();
+        if (hasMuxBinary()) return;
+      }
     }
 
-    const scoop = Bun.which("scoop");
+    const scoop = resolveCommandFromCurrentPath("scoop");
     if (scoop) {
       await runCommand([scoop, "bucket", "add", "psmux", "https://github.com/psmux/scoop-psmux"], { inherit });
       const result = await runCommand([scoop, "install", "psmux"], { inherit });
       record(result);
-      if (result.success && (Bun.which("psmux") || Bun.which("tmux"))) return;
+      if (result.success) {
+        await refreshWindowsMuxPath();
+        if (hasMuxBinary()) return;
+      }
     }
 
-    const choco = Bun.which("choco");
+    const choco = resolveCommandFromCurrentPath("choco");
     if (choco) {
       const result = await runCommand([choco, "install", "psmux", "-y", "--no-progress"], { inherit });
       record(result);
-      if (result.success && (Bun.which("psmux") || Bun.which("tmux"))) return;
+      if (result.success) {
+        await refreshWindowsMuxPath();
+        if (hasMuxBinary()) return;
+      }
     }
 
-    const cargo = Bun.which("cargo");
+    const cargo = resolveCommandFromCurrentPath("cargo");
     if (cargo) {
       const result = await runCommand([cargo, "install", "psmux"], { inherit });
       record(result);
       if (result.success) {
         const home = getHomeDir();
         if (home) prependPath(join(home, ".cargo", "bin"));
-        if (Bun.which("psmux") || Bun.which("tmux")) return;
+        await refreshWindowsMuxPath();
+        if (hasMuxBinary()) return;
       }
     }
     throw new Error(
@@ -189,11 +293,11 @@ export async function ensureTmuxInstalled(options: EnsureOptions = {}): Promise<
 
   // Unix / macOS
   if (process.platform === "darwin") {
-    const brew = Bun.which("brew");
+    const brew = resolveCommandFromCurrentPath("brew");
     if (brew) {
       const result = await runCommand([brew, "install", "tmux"], { inherit });
       record(result);
-      if (result.success && Bun.which("tmux")) return;
+      if (result.success && resolveCommandFromCurrentPath("tmux")) return;
     }
   }
 
@@ -214,7 +318,7 @@ export async function ensureTmuxInstalled(options: EnsureOptions = {}): Promise<
 
   for (const script of managers) {
     record(await runCommand([shell, "-lc", script], { inherit }));
-    if (Bun.which("tmux")) return;
+    if (resolveCommandFromCurrentPath("tmux")) return;
   }
 
   throw new Error(

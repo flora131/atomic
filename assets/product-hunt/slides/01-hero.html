@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1270">
+  <title>Atomic — Slide 01: Hero</title>
+  <link rel="stylesheet" href="../_shared/fonts.css">
+  <link rel="stylesheet" href="../_shared/tokens.css">
+  <link rel="stylesheet" href="../_shared/components.css">
+  <link rel="stylesheet" href="../_shared/tui.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 1270px; height: 760px; overflow: hidden; }
+
+    /* -----------------------------------------------------------------------
+       Hero-specific: push warm silk saturation harder (Arc-tier color pop)
+    ----------------------------------------------------------------------- */
+    .liquid-silk--warm {
+      background:
+        radial-gradient(ellipse 90% 65% at 10% 15%, oklch(58% 0.25 10 / 0.72) 0%, transparent 62%),
+        radial-gradient(ellipse 70% 80% at 82% 72%, oklch(62% 0.26 22 / 0.55) 0%, transparent 62%),
+        radial-gradient(ellipse 65% 55% at 48% 105%, oklch(50% 0.22 350 / 0.45) 0%, transparent 58%),
+        radial-gradient(ellipse 80% 40% at 78% 8%,  oklch(60% 0.18 300 / 0.30) 0%, transparent 52%),
+        radial-gradient(ellipse 50% 50% at 30% 90%, oklch(55% 0.20 15  / 0.40) 0%, transparent 55%),
+        var(--mocha-base);
+      filter: url('#liquid-silk-filter');
+    }
+
+    /* -----------------------------------------------------------------------
+       Bubble text override — push effect toward inflated 3-D chrome balloon
+       (stronger specular, inner-bottom shadow, tighter letter-spacing)
+    ----------------------------------------------------------------------- */
+    .bubble-text--warm {
+      /* Peach-cream fill — warm chrome balloon, NOT white, NOT orange */
+      color: oklch(91% 0.06 55);
+      letter-spacing: -0.04em;
+
+      text-shadow:
+        /* volumetric drop shadow — four-layer depth stack */
+        0  2px  5px  oklch(42% 0.22 10 / 0.90),
+        0  6px  18px oklch(38% 0.24 10 / 0.75),
+        0 14px  42px oklch(32% 0.26 10 / 0.60),
+        0 24px  72px oklch(26% 0.18 10 / 0.40),
+        /* asymmetric specular highlight — top-left, bigger + more luminous */
+        -4px -5px 14px oklch(96% 0.04 70 / 0.75),
+        /* chromatic rim — warm amber-cream border on top edge */
+        -1px -2px  0   oklch(88% 0.10 60 / 0.60),
+        /* inner-bottom shadow tint — weight at the bottom of each letter */
+        0  6px  8px  oklch(30% 0.20 8  / 0.55);
+    }
+
+    /* Stronger specular hotspot (top-left, larger ellipse, cream-warm tint) */
+    .bubble-text--warm::before {
+      background: radial-gradient(
+        ellipse 75% 50% at 22% 18%,
+        oklch(96% 0.04 70 / 0.50) 0%,
+        oklch(96% 0.04 70 / 0.18) 45%,
+        transparent 72%
+      );
+    }
+
+    /* Inner-bottom shadow tint via ::after — suggests weight/gravity at letter bottom */
+    .bubble-text--warm::after {
+      content: attr(data-text);
+      position: absolute;
+      inset: 0;
+      font-family: inherit;
+      font-weight: inherit;
+      letter-spacing: inherit;
+      line-height: inherit;
+      color: transparent;
+      /* Soft linear gradient from bottom — dark warm tint for gravity/weight */
+      background: linear-gradient(
+        to top,
+        oklch(35% 0.20 10 / 0.35) 0%,
+        oklch(35% 0.20 10 / 0.08) 35%,
+        transparent 55%
+      );
+      -webkit-background-clip: text;
+      background-clip: text;
+      pointer-events: none;
+      mix-blend-mode: multiply;
+    }
+
+    /* -----------------------------------------------------------------------
+       Wordmark override — cream semi-transparent on warm field
+    ----------------------------------------------------------------------- */
+    .wordmark {
+      color: oklch(91% 0.04 60 / 0.70);
+    }
+
+    /* -----------------------------------------------------------------------
+       TUI artifact container
+    ----------------------------------------------------------------------- */
+    .tui-artifact {
+      position: absolute;
+      right: -40px;
+      bottom: -30px;
+      width: 720px;
+      height: 440px;
+      transform: rotate(-3deg);
+      box-shadow:
+        0 30px 80px oklch(20% 0.08 10 / 0.50),
+        0  8px 24px oklch(15% 0.04 10 / 0.40);
+      border-radius: 8px;
+      overflow: hidden;
+      z-index: 3;
+    }
+
+    /* Scale the tui template content (860x480 → 720x440) */
+    .tui-artifact .tui {
+      width: 860px;
+      height: 480px;
+      transform-origin: top left;
+      transform: scale(0.8367);
+    }
+
+    /* -----------------------------------------------------------------------
+       Sticker anchored to TUI artifact upper-left
+    ----------------------------------------------------------------------- */
+    .tui-sticker-anchor {
+      position: absolute;
+      top: -18px;
+      left: -14px;
+      z-index: 10;
+    }
+
+    .sticker--cool {
+      transform: rotate(-12deg);
+      box-shadow:
+        0  6px 18px oklch(15% 0.06 240 / 0.55),
+        0  2px  6px oklch(10% 0.04 240 / 0.35),
+        0  0   0   2px oklch(70% 0.18 215 / 0.25);
+    }
+  </style>
+</head>
+<body>
+  <!-- SVG filter for liquid-silk displacement -->
+  <svg width="0" height="0" style="position:absolute">
+    <defs>
+      <filter id="liquid-silk-filter" x="-20%" y="-20%" width="140%" height="140%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.012 0.008" numOctaves="4" seed="2" result="noise"/>
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="80" xChannelSelector="R" yChannelSelector="G"/>
+      </filter>
+    </defs>
+  </svg>
+
+  <div class="slide">
+    <!-- Backdrop: warm liquid-silk (boosted saturation via slide override above) -->
+    <div class="liquid-silk liquid-silk--warm"></div>
+
+    <!-- Film grain overlay -->
+    <div class="film-grain"></div>
+
+    <!-- Wordmark: anchored top-left absolutely, outside flow -->
+    <div style="position:absolute;top:52px;left:80px;z-index:4;">
+      <div class="wordmark" style="font-size:13px;letter-spacing:0.12em;">ATOMIC</div>
+    </div>
+
+    <!-- Content layer — left-aligned editorial composition, vertically centered -->
+    <div class="slide__content" style="
+      padding: 0 0 0 80px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: flex-start;
+      gap: 0;
+      max-width: 660px;
+    ">
+
+      <!-- Headline: Bricolage Grotesque 800, ~96px fluid, left-aligned -->
+      <!-- "reliable" receives bubble-text--warm treatment -->
+      <h1 style="
+        font-family: var(--font-display);
+        font-weight: 800;
+        font-size: clamp(88px, 7.5vw, 104px);
+        line-height: 1.0;
+        letter-spacing: -0.025em;
+        color: var(--cream);
+        margin: 0 0 32px 0;
+        max-width: 580px;
+      ">
+        Turn coding agents into<br>
+        <span
+          class="bubble-text bubble-text--warm"
+          data-text="reliable"
+          style="font-size: inherit; line-height: inherit;"
+        >reliable</span>
+        engineering<br>
+        workflows.
+      </h1>
+
+      <!-- Subhead: Geist Sans 22px, weight 400 -->
+      <p style="
+        font-family: var(--font-body);
+        font-size: 22px;
+        font-weight: 400;
+        line-height: 1.5;
+        letter-spacing: -0.01em;
+        color: oklch(91% 0.04 60 / 0.72);
+        max-width: 50ch;
+        margin: 0;
+      ">
+        Atomic is not another coding agent.<br>
+        It is the structure around the agent.
+      </p>
+
+    </div>
+
+    <!-- TUI artifact: floats lower-right, bleeds off edge (Arc style) -->
+    <div class="tui-artifact">
+
+      <!-- Sticker anchored to upper-left corner of TUI, outside its boundary -->
+      <div class="tui-sticker-anchor">
+        <div class="sticker sticker--cool" style="width:108px;height:108px;font-size:12px;letter-spacing:0.06em;">
+          <span>v0.6</span>
+          <span>multi-agent</span>
+          <span>live</span>
+        </div>
+      </div>
+
+      <!-- TUI state: multi-agent — copied from tui-states.html #tui-state-multi-agent -->
+      <div class="tui" style="width:860px;height:480px;">
+
+        <!-- Header bar: GRAPH mode, workflow running -->
+        <div class="tui__header">
+          <div class="tui__header-badge tui__header-badge--graph">GRAPH</div>
+          <span class="tui__header-session">multi-agent-research · claude</span>
+          <div class="tui__header-counts">
+            <span class="tui__count"><span class="tui-green">✓</span><span class="tui-dim"> 1</span></span>
+            <span class="tui__count"><span class="tui-yellow">●</span><span class="tui-dim"> 3</span></span>
+            <span class="tui__count"><span class="tui-dim">○</span><span class="tui-dim"> 0</span></span>
+          </div>
+        </div>
+
+        <!-- Body: sidebar + main -->
+        <div class="tui__body">
+
+          <!-- Sidebar: workflow selected -->
+          <div class="tui__sidebar">
+            <div class="tui__sidebar-header">
+              <div class="tui__sidebar-header-badge tui__sidebar-header-badge--claude">CLAUDE</div>
+              <span class="tui__sidebar-header-label">workflow › running</span>
+            </div>
+
+            <div class="tui__workflow-list">
+              <div class="tui__section-label">
+                <span class="tui__section-label-bar">▎</span>
+                <span class="tui__section-label-text">sessions</span>
+              </div>
+
+              <div class="tui__row tui__row--active">
+                <span class="tui__spinner">⠹</span>
+                <span class="tui__row-name tui-yellow">orchestrator</span>
+              </div>
+              <div class="tui__row tui__row--focused">
+                <span class="tui__spinner">⠼</span>
+                <span class="tui__row-name tui-yellow">claude-code</span>
+              </div>
+              <div class="tui__row">
+                <span class="tui__spinner tui-dim">⠴</span>
+                <span class="tui__row-name tui-yellow">opencode</span>
+              </div>
+              <div class="tui__row">
+                <span class="tui__spinner tui-dim">⠦</span>
+                <span class="tui__row-name tui-yellow">copilot-cli</span>
+              </div>
+
+              <div class="tui__section-label" style="margin-top:8px;">
+                <span class="tui__section-label-bar">▎</span>
+                <span class="tui__section-label-text">workflow</span>
+              </div>
+              <div class="tui__row">
+                <span class="tui__row-indicator tui-dim">  </span>
+                <span class="tui__row-name tui-muted">multi-agent-research</span>
+              </div>
+              <div class="tui__row">
+                <span class="tui__row-indicator tui-dim">  </span>
+                <span class="tui__row-name tui-dim">src/workflows/multi-agent-research.ts</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Main pane: session graph with 3 parallel running agents -->
+          <div class="tui__main">
+            <div class="tui__graph" style="flex-direction:column;gap:0;padding:16px 24px;">
+
+              <!-- Orchestrator node (done) -->
+              <div style="display:flex;justify-content:center;margin-bottom:0;">
+                <div class="tui__node tui__node--done" style="width:160px;">
+                  <div class="tui__node-title">orchestrator</div>
+                  <div class="tui__node-duration tui__node-duration--done">0:04</div>
+                </div>
+              </div>
+
+              <!-- Connector line down -->
+              <div style="display:flex;justify-content:center;height:20px;position:relative;">
+                <div style="width:1px;background:var(--mocha-overlay0);height:100%;margin:0 auto;"></div>
+              </div>
+
+              <!-- Three parallel agents -->
+              <div style="display:flex;justify-content:center;margin-bottom:0;">
+                <div style="display:flex;flex-direction:row;gap:24px;align-items:flex-start;">
+
+                  <!-- Agent 1: claude-code -->
+                  <div style="display:flex;flex-direction:column;align-items:center;gap:0;">
+                    <div style="width:1px;background:var(--mocha-overlay0);height:20px;"></div>
+                    <div class="tui__node tui__node--running tui__node--focused" style="width:160px;min-height:68px;">
+                      <div class="tui__node-title">claude-code</div>
+                      <div class="tui__node-duration tui__node-duration--running">
+                        <span class="tui__spinner">⠹</span> 1:12
+                      </div>
+                      <div class="tui__node-hint tui-dim">scan diff</div>
+                    </div>
+                  </div>
+
+                  <!-- Agent 2: opencode -->
+                  <div style="display:flex;flex-direction:column;align-items:center;gap:0;">
+                    <div style="width:1px;background:var(--mocha-overlay0);height:20px;"></div>
+                    <div class="tui__node tui__node--running" style="width:160px;min-height:68px;">
+                      <div class="tui__node-title">opencode</div>
+                      <div class="tui__node-duration tui__node-duration--running">
+                        <span class="tui__spinner tui-dim">⠼</span> 0:58
+                      </div>
+                      <div class="tui__node-hint tui-dim">draft notes</div>
+                    </div>
+                  </div>
+
+                  <!-- Agent 3: copilot-cli -->
+                  <div style="display:flex;flex-direction:column;align-items:center;gap:0;">
+                    <div style="width:1px;background:var(--mocha-overlay0);height:20px;"></div>
+                    <div class="tui__node tui__node--running" style="width:160px;min-height:68px;">
+                      <div class="tui__node-title">copilot-cli</div>
+                      <div class="tui__node-duration tui__node-duration--running">
+                        <span class="tui__spinner tui-dim">⠦</span> 1:03
+                      </div>
+                      <div class="tui__node-hint tui-dim">compile report</div>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Statusbar: GRAPH mode -->
+        <div class="tui__statusbar">
+          <div class="tui__statusbar-badge tui__statusbar-badge--graph">GRAPH</div>
+          <span class="tui__statusbar-info tui-yellow">● 3 background</span>
+          <div class="tui__statusbar-spacer"></div>
+          <div class="tui__statusbar-hints">
+            <span class="tui__hint">
+              <span class="tui__hint-key">↑↓←→</span>
+              <span class="tui__hint-label">navigate</span>
+            </span>
+            <span class="tui__hint">
+              <span class="tui__hint-key">↵</span>
+              <span class="tui__hint-label">attach</span>
+            </span>
+            <span class="tui__hint">
+              <span class="tui__hint-key">ctrl+b d</span>
+              <span class="tui__hint-label">detach</span>
+            </span>
+            <span class="tui__hint">
+              <span class="tui__hint-key">q</span>
+              <span class="tui__hint-label">quit</span>
+            </span>
+          </div>
+        </div>
+
+      </div>
+      <!-- end .tui -->
+
+    </div>
+    <!-- end .tui-artifact -->
+
+  </div>
+  <!-- end .slide -->
+</body>
+</html>

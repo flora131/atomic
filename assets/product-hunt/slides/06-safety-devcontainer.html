@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1270">
+  <title>Atomic — Slide 06: Safety / Devcontainer</title>
+  <link rel="stylesheet" href="../_shared/fonts.css">
+  <link rel="stylesheet" href="../_shared/tokens.css">
+  <link rel="stylesheet" href="../_shared/components.css">
+  <link rel="stylesheet" href="../_shared/tui.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 1270px; height: 760px; overflow: hidden; }
+
+    /*
+      Slide-06 bubble-text override — promotes .bubble-text--cool to a true
+      3D balloon look with:
+        • Stronger asymmetric specular highlight (off-axis top-left, larger radius)
+        • Subtle bottom inset shadow to weight each letter
+        • Tighter letter-spacing (~-0.04em)
+        • Highlight hue close to --cool-sky mixed with cream
+    */
+    .s06-bubble-lower {
+      display: inline;
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: inherit;
+      line-height: inherit;
+      letter-spacing: -0.04em;
+      color: oklch(92% 0.06 195);   /* near-cream with cool-sky tint */
+      position: relative;
+      /*
+        Shadow stack:
+        1-4: deep volumetric fill — occlusion below the letter
+        5:   rim rim highlight — thin specular ring on top-left
+        6-7: large specular blob — the inflated-balloon catch-light
+        8:   bottom weight shadow — subtle warm sink to fake gravity
+      */
+      text-shadow:
+        0   2px   5px oklch(25% 0.22 220 / 0.90),
+        0   6px  18px oklch(20% 0.24 220 / 0.70),
+        0  14px  36px oklch(18% 0.20 220 / 0.55),
+        0  24px  60px oklch(15% 0.16 220 / 0.38),
+        -1px -2px  0   oklch(80% 0.10 195 / 0.60),
+        -3px -5px 12px oklch(95% 0.04 200 / 0.72),
+        -5px -8px 20px oklch(97% 0.02 200 / 0.45),
+        0   4px   8px oklch(10% 0.08 220 / 0.35);
+    }
+
+    /*
+      Specular overlay for the bubble "lower" word — stronger than the default
+      ::before pseudo-element, using a tighter ellipse and cooler hue.
+      We scope this to .s06-bubble-lower via a wrapping span approach.
+    */
+    .s06-bubble-lower::before {
+      content: attr(data-text);
+      position: absolute;
+      inset: 0;
+      font-family: inherit;
+      font-weight: inherit;
+      letter-spacing: inherit;
+      line-height: inherit;
+      color: transparent;
+      background: radial-gradient(
+        ellipse 55% 38% at 25% 18%,
+        oklch(95% 0.04 200 / 0.55) 0%,
+        oklch(93% 0.04 200 / 0.25) 35%,
+        transparent 65%
+      );
+      -webkit-background-clip: text;
+      background-clip: text;
+      pointer-events: none;
+      mix-blend-mode: overlay;
+    }
+
+    /* Sub-labels beneath panel headers */
+    .panel-sublabel {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--mocha-overlay0);
+      padding: 2px 6px;
+      line-height: 1.4;
+    }
+
+    .panel-sublabel + .panel-sublabel {
+      padding-top: 0;
+    }
+
+    /* Mauve transition band */
+    .mauve-band {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 70px;
+      z-index: 1;
+      pointer-events: none;
+      background: linear-gradient(
+        to right,
+        transparent 0%,
+        oklch(70% 0.14 300 / 0.14) 20%,
+        oklch(72% 0.17 300 / 0.26) 50%,
+        oklch(70% 0.14 300 / 0.14) 80%,
+        transparent 100%
+      );
+      filter: blur(8px);
+    }
+
+    /* Arrow + label in the mauve zone */
+    .isolate-arrow {
+      position: absolute;
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .isolate-arrow__glyph {
+      font-family: var(--font-mono);
+      font-size: 18px;
+      color: var(--bridge-mauve);
+      line-height: 1;
+    }
+
+    .isolate-arrow__label {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      color: var(--mocha-mauve);
+    }
+
+    /* Host panel TUI pane mock — warm-tinted text */
+    .host-pane {
+      background-color: var(--mocha-crust);
+      border-radius: 8px;
+      border: 1px solid oklch(65% 0.15 10 / 0.55);  /* warm-maroon 1px all-around */
+      overflow: hidden;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .host-pane__titlebar {
+      display: flex;
+      align-items: center;
+      height: 28px;
+      padding: 0 12px;
+      background-color: oklch(22% 0.06 10 / 0.70);
+      border-bottom: 1px solid oklch(65% 0.15 10 / 0.40);
+      gap: 8px;
+    }
+
+    .host-pane__dots {
+      display: flex;
+      gap: 5px;
+    }
+
+    .host-pane__dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+    }
+
+    .host-pane__title {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 500;
+      color: oklch(78% 0.10 10);   /* warm-tinted text */
+      letter-spacing: 0.04em;
+      flex: 1;
+      text-align: center;
+      margin-right: 23px;
+    }
+
+    .host-pane__body {
+      flex: 1;
+      padding: 10px 12px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      line-height: 1.7;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    /* Devcontainer right panel — strong cool-sapphire all-around border */
+    .dev-panel-outer {
+      border: 1.5px solid oklch(70% 0.20 215 / 0.80);   /* cool-sapphire, slightly thicker */
+      border-radius: 10px;
+      background: oklch(13% 0.04 220 / 0.50);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .dev-panel-header {
+      display: flex;
+      align-items: center;
+      height: 28px;
+      padding: 0 12px;
+      background-color: oklch(18% 0.08 215 / 0.80);
+      border-bottom: 1px solid oklch(70% 0.20 215 / 0.45);
+      gap: 8px;
+    }
+
+    .dev-panel-title {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--cool-sapphire);
+      letter-spacing: 0.06em;
+    }
+
+    .dev-panel-body {
+      flex: 1;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Scale the tui block inside the right panel */
+    .dev-panel-body .tui {
+      border: none;
+      border-radius: 0;
+      flex: 1;
+      font-size: 11px;
+    }
+
+    .dev-panel-body .tui__header {
+      height: 20px;
+      font-size: 11px;
+    }
+
+    .dev-panel-body .tui__header-badge {
+      font-size: 10px;
+    }
+
+    .dev-panel-body .tui__header-session {
+      font-size: 10px;
+    }
+
+    .dev-panel-body .tui__header-counts {
+      font-size: 10px;
+    }
+
+    .dev-panel-body .tui__sidebar {
+      width: 200px;
+    }
+
+    .dev-panel-body .tui__sidebar-header {
+      height: 20px;
+      font-size: 10px;
+    }
+
+    .dev-panel-body .tui__sidebar-header-badge {
+      font-size: 10px;
+    }
+
+    .dev-panel-body .tui__row {
+      height: 19px;
+      font-size: 10px;
+    }
+
+    .dev-panel-body .tui__section-label {
+      font-size: 10px;
+      padding: 5px 8px 1px;
+    }
+
+    .dev-panel-body .tui__statusbar {
+      height: 19px;
+      font-size: 10px;
+    }
+
+    .dev-panel-body .tui__statusbar-badge {
+      font-size: 10px;
+    }
+
+    .dev-panel-body .tui__output {
+      font-size: 10px;
+      padding: 8px 10px;
+      gap: 1px;
+      line-height: 1.5;
+    }
+
+    .dev-panel-body .tui__output-prefix {
+      font-size: 10px;
+    }
+
+    .dev-panel-body .tui__banner {
+      font-size: 10px;
+      padding: 3px 10px;
+    }
+
+    .dev-panel-body .tui__banner-detail {
+      font-size: 10px;
+    }
+  </style>
+</head>
+<body>
+  <!-- SVG filter for liquid-silk displacement — deeper saturation variant -->
+  <svg width="0" height="0" style="position:absolute;overflow:hidden" aria-hidden="true">
+    <defs>
+      <filter id="liquid-silk-filter" x="-20%" y="-20%" width="140%" height="140%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.011 0.008" numOctaves="4" seed="23" result="noise"/>
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="90" xChannelSelector="R" yChannelSelector="G"/>
+      </filter>
+    </defs>
+  </svg>
+
+  <div class="slide">
+
+    <!-- Cool silk backdrop — deeper saturation (amplified oklch chroma) -->
+    <div class="liquid-silk" style="
+      background:
+        radial-gradient(ellipse 90% 70% at 18% 12%, oklch(62% 0.22 222 / 0.65) 0%, transparent 65%),
+        radial-gradient(ellipse 80% 80% at 82% 78%, oklch(68% 0.24 188 / 0.55) 0%, transparent 65%),
+        radial-gradient(ellipse 60% 55% at 52% 98%, oklch(58% 0.22 205 / 0.40) 0%, transparent 60%),
+        radial-gradient(ellipse 75% 40% at 92% 3%,  oklch(52% 0.20 242 / 0.35) 0%, transparent 55%),
+        radial-gradient(ellipse 50% 45% at 5% 85%,  oklch(55% 0.18 200 / 0.28) 0%, transparent 55%),
+        var(--mocha-base);
+      filter: url('#liquid-silk-filter');
+    "></div>
+
+    <!-- Film grain -->
+    <div class="film-grain"></div>
+
+    <!-- Content layer -->
+    <div class="slide__content" style="padding: 44px 56px 36px; display: flex; flex-direction: column;">
+
+      <!-- Top row: wordmark -->
+      <div style="display: flex; align-items: center; margin-bottom: 22px;">
+        <div class="wordmark">ATOMIC</div>
+      </div>
+
+      <!-- Headline: "Run longer workflows with a lower blast radius." -->
+      <h1 style="
+        font-family: var(--font-display);
+        font-weight: 700;
+        font-size: 64px;
+        line-height: 1.08;
+        letter-spacing: -0.025em;
+        color: var(--mocha-text);
+        margin-bottom: 14px;
+        position: relative;
+        z-index: 2;
+        max-width: 920px;
+      ">
+        Run longer workflows with a
+        <span
+          class="s06-bubble-lower"
+          data-text="lower"
+          style="position: relative; display: inline-block;"
+        >lower</span>
+        blast radius.
+      </h1>
+
+      <!-- Subhead -->
+      <p class="subhead" style="font-size: 19px; max-width: 680px; margin-bottom: 28px; position: relative; z-index: 2;">
+        Atomic supports isolated devcontainers so agent execution does not have to depend directly on your host.
+      </p>
+
+      <!-- TWO-PANEL DIAGRAM -->
+      <div style="
+        flex: 1;
+        display: flex;
+        flex-direction: row;
+        align-items: stretch;
+        gap: 0;
+        position: relative;
+        z-index: 2;
+        min-height: 0;
+      ">
+
+        <!-- ================================================================
+             LEFT PANEL: Host machine
+             ================================================================ -->
+        <div style="
+          flex: 0 0 400px;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        ">
+          <!-- Panel header row -->
+          <div style="display: flex; align-items: center; gap: 10px; padding-bottom: 4px;">
+            <span style="
+              font-family: var(--font-mono);
+              font-size: 12px;
+              font-weight: 700;
+              letter-spacing: 0.06em;
+              text-transform: uppercase;
+              color: oklch(75% 0.12 10);
+            ">Host machine</span>
+          </div>
+
+          <!-- Sub-labels -->
+          <div style="display: flex; flex-direction: column; gap: 1px; margin-bottom: 6px;">
+            <div class="panel-sublabel" style="color: oklch(72% 0.10 10);">→ source of truth</div>
+            <div class="panel-sublabel" style="color: oklch(68% 0.14 10);">→ direct agent execution</div>
+            <div class="panel-sublabel" style="color: oklch(72% 0.12 350);">→ higher risk surface</div>
+          </div>
+
+          <!-- TUI pane mock: Host machine — warm-tinted, simulating direct execution -->
+          <div class="host-pane">
+            <div class="host-pane__titlebar">
+              <div class="host-pane__dots">
+                <div class="host-pane__dot" style="background: oklch(55% 0.20 10);"></div>
+                <div class="host-pane__dot" style="background: oklch(60% 0.18 50);"></div>
+                <div class="host-pane__dot" style="background: oklch(60% 0.15 145);"></div>
+              </div>
+              <div class="host-pane__title">terminal — host</div>
+            </div>
+            <div class="host-pane__body">
+              <!-- Warm-tinted output lines simulating direct host execution -->
+              <div style="color: oklch(62% 0.10 10); font-size: 10px;">$ atomic run prod-alert-investigate</div>
+              <div style="color: oklch(70% 0.08 10); font-size: 10px; padding-left: 0;">
+                <span style="color: oklch(60% 0.16 50);">warn</span>
+                <span style="color: oklch(65% 0.06 10);"> running on host filesystem</span>
+              </div>
+              <div style="color: oklch(68% 0.08 10); font-size: 10px;">→ claude-code session  <span style="color: oklch(60% 0.14 10);">starting…</span></div>
+              <div style="color: oklch(68% 0.08 10); font-size: 10px;">→ opencode session     <span style="color: oklch(60% 0.14 10);">starting…</span></div>
+              <div style="color: oklch(58% 0.18 10); font-size: 10px; margin-top: 6px;">
+                <span style="color: oklch(62% 0.20 10);">error</span>
+                <span style="color: oklch(65% 0.06 10);"> log-analyst wrote /var/log/atomic</span>
+              </div>
+              <div style="color: oklch(60% 0.15 350); font-size: 10px;">
+                <span style="color: oklch(65% 0.18 350);">warn</span>
+                <span style="color: oklch(65% 0.06 10);"> host fs access: /etc/passwd  ← uncontrolled</span>
+              </div>
+              <div style="color: oklch(62% 0.10 10); font-size: 10px; margin-top: 6px;">$ ▌</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ================================================================
+             CENTER: Mauve transition band + isolate arrow
+             ================================================================ -->
+        <div style="
+          flex: 0 0 80px;
+          position: relative;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        ">
+          <!-- Mauve bleed band -->
+          <div class="mauve-band" style="left: 0; right: 0; top: 0; bottom: 0;"></div>
+          <!-- Isolate arrow -->
+          <div class="isolate-arrow" style="top: 50%; transform: translateY(-50%);">
+            <span class="isolate-arrow__glyph">→</span>
+            <span class="isolate-arrow__label">isolate</span>
+          </div>
+        </div>
+
+        <!-- ================================================================
+             RIGHT PANEL: Devcontainer boundary
+             ================================================================ -->
+        <div style="
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          min-width: 0;
+        ">
+          <!-- Panel header row -->
+          <div style="display: flex; align-items: center; gap: 10px; padding-bottom: 4px;">
+            <span style="
+              font-family: var(--font-mono);
+              font-size: 12px;
+              font-weight: 700;
+              letter-spacing: 0.06em;
+              text-transform: uppercase;
+              color: var(--cool-sapphire);
+            ">Devcontainer boundary</span>
+          </div>
+
+          <!-- Sub-labels -->
+          <div style="display: flex; flex-direction: column; gap: 1px; margin-bottom: 6px;">
+            <div class="panel-sublabel" style="color: var(--cool-sapphire);">→ Atomic workflow <span style="color: var(--mocha-overlay0); text-transform: none; letter-spacing: 0;">(orchestration logic)</span></div>
+            <div class="panel-sublabel" style="color: var(--cool-teal);">→ Agent sessions</div>
+            <div class="panel-sublabel" style="color: var(--mocha-green);">→ lower blast radius</div>
+          </div>
+
+          <!-- Devcontainer boundary outer wrapper -->
+          <div class="dev-panel-outer" style="flex: 1; min-height: 0;">
+            <div class="dev-panel-header">
+              <span class="dev-panel-title">devcontainer: ubuntu-22.04</span>
+            </div>
+            <div class="dev-panel-body">
+              <!-- tui-state-devcontainer innerHTML (scaled down) -->
+              <div class="tui" style="flex: 1; border: none; border-radius: 0;">
+
+                <!-- Header bar -->
+                <div class="tui__header">
+                  <div class="tui__header-badge tui__header-badge--graph">GRAPH</div>
+                  <span class="tui__header-session">prod-alert-investigate · opencode</span>
+                  <div class="tui__header-counts">
+                    <span class="tui__count"><span class="tui-green">✓</span><span class="tui-dim"> 1</span></span>
+                    <span class="tui__count"><span class="tui-yellow">●</span><span class="tui-dim"> 2</span></span>
+                    <span class="tui__count"><span class="tui-dim">○</span><span class="tui-dim"> 1</span></span>
+                  </div>
+                </div>
+
+                <!-- Body -->
+                <div class="tui__body">
+
+                  <!-- Sidebar -->
+                  <div class="tui__sidebar">
+                    <div class="tui__sidebar-header">
+                      <div class="tui__sidebar-header-badge tui__sidebar-header-badge--opencode">OPENCODE</div>
+                      <span class="tui__sidebar-header-label">workflow › running</span>
+                    </div>
+
+                    <div class="tui__workflow-list">
+                      <div class="tui__section-label">
+                        <span class="tui__section-label-bar">▎</span>
+                        <span class="tui__section-label-text">sessions</span>
+                      </div>
+
+                      <div class="tui__row">
+                        <span class="tui-green" style="font-size:10px;">✓</span>
+                        <span class="tui__row-name tui-green">orchestrator</span>
+                      </div>
+                      <div class="tui__row tui__row--focused">
+                        <span class="tui__spinner">⠸</span>
+                        <span class="tui__row-name tui-yellow">log-analyst</span>
+                      </div>
+                      <div class="tui__row">
+                        <span class="tui__spinner tui-dim">⠼</span>
+                        <span class="tui__row-name tui-yellow">metric-collector</span>
+                      </div>
+                      <div class="tui__row">
+                        <span class="tui-dim" style="font-size:10px;">○</span>
+                        <span class="tui__row-name tui-dim">report-writer</span>
+                      </div>
+
+                      <div class="tui__section-label" style="margin-top:5px;">
+                        <span class="tui__section-label-bar">▎</span>
+                        <span class="tui__section-label-text">environment</span>
+                      </div>
+                      <div class="tui__row">
+                        <span class="tui-sapphire" style="font-size:10px;">●</span>
+                        <span class="tui__row-name tui-sapphire">devcontainer</span>
+                      </div>
+                      <div class="tui__row">
+                        <span class="tui-dim" style="font-size:10px;"> </span>
+                        <span class="tui__row-name tui-dim">ubuntu-22.04 · isolated</span>
+                      </div>
+                      <div class="tui__row">
+                        <span class="tui-dim" style="font-size:10px;"> </span>
+                        <span class="tui__row-name tui-dim">no network · no host fs</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Main pane: devcontainer banner + output -->
+                  <div class="tui__main">
+
+                    <!-- Devcontainer isolation banner -->
+                    <div class="tui__banner tui__banner--devcontainer">
+                      <span class="tui__banner-label">devcontainer: ubuntu-22.04</span>
+                      <span class="tui-dim">·</span>
+                      <span class="tui__banner-detail">isolated · no network · ephemeral fs</span>
+                      <span class="tui-dim" style="margin-left:auto;font-size:10px;">ctrl+b d detach</span>
+                    </div>
+
+                    <!-- Agent output inside container -->
+                    <div class="tui__output">
+                      <div class="tui__output-line">
+                        <span class="tui__output-prefix">log-analyst</span>
+                        <span class="tui__output-text tui-muted">Pulling log snapshot from /var/log/atomic/executor.log…</span>
+                      </div>
+                      <div class="tui__output-line">
+                        <span class="tui__output-prefix">log-analyst</span>
+                        <span class="tui__output-text"><span class="tui-yellow">WARN</span> <span class="tui-muted">High p95 latency: 4.2s (threshold: 2.0s)</span></span>
+                      </div>
+                      <div class="tui__output-line">
+                        <span class="tui__output-prefix">log-analyst</span>
+                        <span class="tui__output-text tui-muted">Checking correlated error rate at 14:22 UTC…</span>
+                      </div>
+                      <div class="tui__output-line">
+                        <span class="tui__output-prefix">log-analyst</span>
+                        <span class="tui__output-text"><span class="tui-red">ERROR</span> <span class="tui-muted">503 spike: 47 errors in 3m window → executor restart</span></span>
+                      </div>
+                      <div class="tui__output-line">
+                        <span class="tui__output-prefix">metric-collector</span>
+                        <span class="tui__output-text"><span class="tui__spinner">⠸</span> <span class="tui-muted">Querying Prometheus: cpu, mem, rps…</span></span>
+                      </div>
+                      <div class="tui__output-line">
+                        <span class="tui__output-prefix tui-dim">container</span>
+                        <span class="tui__output-text tui-dim">All writes isolated to ephemeral /workspace — host fs untouched</span>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+
+                <!-- Statusbar -->
+                <div class="tui__statusbar">
+                  <div class="tui__statusbar-badge tui__statusbar-badge--opencode">OPENCODE</div>
+                  <span class="tui__statusbar-info tui-yellow">⠸ log-analyst</span>
+                  <div class="tui__statusbar-spacer"></div>
+                  <div class="tui__statusbar-hints">
+                    <span class="tui__hint">
+                      <span class="tui__hint-key">ctrl+g</span>
+                      <span class="tui__hint-label">graph</span>
+                    </span>
+                    <span class="tui__hint">
+                      <span class="tui__hint-key">ctrl+b d</span>
+                      <span class="tui__hint-label">detach</span>
+                    </span>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+      <!-- END TWO-PANEL DIAGRAM -->
+
+      <!-- Bottom caption -->
+      <p style="
+        font-family: var(--font-body);
+        font-size: 16px;
+        font-style: italic;
+        color: var(--mocha-subtext0);
+        margin-top: 14px;
+        position: relative;
+        z-index: 2;
+        max-width: 860px;
+      ">
+        The concern is real: agents doing more need better boundaries. Atomic gives the workflow a safer place to run.
+      </p>
+
+    </div>
+  </div>
+</body>
+</html>

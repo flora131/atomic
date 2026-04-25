@@ -4,32 +4,31 @@
  * tmux window. The executor splits each agent window after creation and
  * runs `atomic _footer --name <window-name>` in the bottom pane.
  *
- * Setting `exitOnCtrlC: false` suppresses OpenTUI's built-in signal
- * handling, so we install our own teardown path. In the tmux case the
- * closed pty raises SIGPIPE on the next render, which hits our handler.
- * The parent-liveness watchdog is a portable fallback for the orphan case
- * where no signal arrives (process gets reparented to init/unknown).
+ * The footer is rendered through OpenTUI's headless renderer and repainted
+ * into the footer pane. A normal CLI renderer must not be used here:
+ * terminal capability probes from a footer pane can be answered by the
+ * attached client and routed by tmux into the active agent pane as input.
  */
 
-import { useEffect } from "react";
-import { createCliRenderer } from "@opentui/core";
-import { createRoot, flushSync, useRenderer } from "@opentui/react";
+import {
+  getBaseAttributes,
+  TextAttributes,
+  type CapturedFrame,
+  type CapturedSpan,
+} from "@opentui/core";
+import { testRender } from "@opentui/react/test-utils";
+import { act } from "react";
 import { resolveTheme } from "../../sdk/runtime/theme.ts";
 import {
   deriveGraphTheme,
-  type GraphTheme,
 } from "../../sdk/components/graph-theme.ts";
 import { AttachedStatusline } from "../../sdk/components/attached-statusline.tsx";
 import type { AgentType } from "../../sdk/types.ts";
 
 const PARENT_WATCHDOG_MS = 2000;
+const FOOTER_RENDER_INTERVAL_MS = 250;
 const FOOTER_RENDER_ROWS = 1;
-
-type FooterStdoutSource = {
-  readonly columns?: number;
-  readonly rows?: number;
-  write: NodeJS.WriteStream["write"];
-};
+const CLEAR_LINE = "\r\x1b[2K";
 
 /**
  * Snapshot the parent PID at module load. `process.ppid` is cached in both
@@ -66,104 +65,173 @@ const EXIT_SIGNALS: NodeJS.Signals[] =
     ? ["SIGTERM", "SIGINT", "SIGBREAK", "SIGHUP"]
     : ["SIGHUP", "SIGTERM", "SIGINT", "SIGPIPE"];
 
-/**
- * The footer runs in a tmux/psmux pane that is intentionally one row tall.
- * On Windows, psmux child processes can expose no TTY row count to Bun, which
- * makes OpenTUI fall back to 24 rows and paint the one-line footer off-screen.
- */
-export function createFooterStdout(
-  stdout: FooterStdoutSource = process.stdout,
-): NodeJS.WriteStream {
-  const footerStdout = Object.create(stdout) as NodeJS.WriteStream;
-  Object.defineProperties(footerStdout, {
-    columns: {
-      configurable: true,
-      enumerable: true,
-      get: () => Math.max(stdout.columns ?? 80, 1),
-    },
-    rows: {
-      configurable: true,
-      enumerable: true,
-      get: () => FOOTER_RENDER_ROWS,
-    },
-  });
-  footerStdout.write = stdout.write.bind(stdout) as NodeJS.WriteStream["write"];
-  return footerStdout;
+const ANSI_RESET = "\x1b[0m";
+
+function ansiColor(kind: 38 | 48, spanColor: CapturedSpan["fg"]): string {
+  const [r, g, b] = spanColor.toInts();
+  return `${kind};2;${r};${g};${b}`;
 }
 
-function FooterShell({
+function sanitizeText(text: string): string {
+  return text.replace(/[\x00-\x1f\x7f]/g, " ");
+}
+
+function spanToAnsi(span: CapturedSpan): string {
+  const attrs = getBaseAttributes(span.attributes);
+  const codes = [
+    ansiColor(38, span.fg),
+    ansiColor(48, span.bg),
+  ];
+
+  if ((attrs & TextAttributes.BOLD) !== 0) codes.unshift("1");
+  if ((attrs & TextAttributes.DIM) !== 0) codes.unshift("2");
+  if ((attrs & TextAttributes.ITALIC) !== 0) codes.unshift("3");
+  if ((attrs & TextAttributes.UNDERLINE) !== 0) codes.unshift("4");
+  if ((attrs & TextAttributes.INVERSE) !== 0) codes.unshift("7");
+
+  return `\x1b[${codes.join(";")}m${sanitizeText(span.text)}`;
+}
+
+function frameToAnsi(frame: CapturedFrame): string {
+  const lines = frame.lines.map((line) =>
+    line.spans.map(spanToAnsi).join("")
+  );
+  return `${lines.join("\n")}${ANSI_RESET}`;
+}
+
+async function createFooterTestRenderer({
   name,
-  theme,
   agentType,
+  width = process.stdout.columns ?? 80,
 }: {
   name: string;
-  theme: GraphTheme;
   agentType?: AgentType;
+  width?: number;
 }) {
-  const renderer = useRenderer();
+  const theme = deriveGraphTheme(resolveTheme(null));
+  return await testRender(
+    <AttachedStatusline name={name} theme={theme} agentType={agentType} />,
+    {
+      width: Math.max(width, 1),
+      height: FOOTER_RENDER_ROWS,
+      exitOnCtrlC: false,
+      exitSignals: [],
+      clearOnShutdown: false,
+      useMouse: false,
+      useKittyKeyboard: null,
+      openConsoleOnError: false,
+    },
+  );
+}
 
-  useEffect(() => {
-    let tornDown = false;
-    const teardown = () => {
+async function renderFooterSetupFrame(
+  testSetup: Awaited<ReturnType<typeof createFooterTestRenderer>>,
+): Promise<string> {
+  await act(async () => {
+    await testSetup.renderOnce();
+  });
+  return frameToAnsi(testSetup.captureSpans());
+}
+
+export async function renderFooterFrame({
+  name,
+  agentType,
+  width = process.stdout.columns ?? 80,
+}: {
+  name: string;
+  agentType?: AgentType;
+  width?: number;
+}): Promise<string> {
+  const testSetup = await createFooterTestRenderer({ name, agentType, width });
+  try {
+    return await renderFooterSetupFrame(testSetup);
+  } finally {
+    act(() => {
+      testSetup.renderer.destroy();
+    });
+  }
+}
+
+export async function runFooterRenderer({
+  name,
+  agentType,
+  stdout = process.stdout,
+}: {
+  name: string;
+  agentType?: AgentType;
+  stdout?: NodeJS.WriteStream;
+}): Promise<void> {
+  const testSetup = await createFooterTestRenderer({
+    name,
+    agentType,
+    width: stdout.columns,
+  });
+  let currentWidth = Math.max(stdout.columns ?? 80, 1);
+  let lastFrame = "";
+  let renderInFlight = false;
+  let tornDown = false;
+  let teardown!: () => void;
+
+  const render = async () => {
+    if (tornDown || renderInFlight) return;
+    renderInFlight = true;
+    try {
+      const nextWidth = Math.max(stdout.columns ?? 80, 1);
+      if (nextWidth !== currentWidth) {
+        currentWidth = nextWidth;
+        testSetup.resize(currentWidth, FOOTER_RENDER_ROWS);
+      }
+
+      const frame = await renderFooterSetupFrame(testSetup);
+      if (!tornDown && frame !== lastFrame) {
+        stdout.write(`${CLEAR_LINE}${frame}`);
+        lastFrame = frame;
+      }
+    } finally {
+      renderInFlight = false;
+    }
+  };
+
+  await render();
+
+  await new Promise<void>((resolve) => {
+    teardown = () => {
       if (tornDown) return;
       tornDown = true;
-      try {
-        renderer.destroy();
-      } catch {
-        // renderer may already be mid-destroy; the pty is likely gone
-      }
-      // Pane pty is already closed by the time we reach here, so there is
-      // no terminal state left to preserve. Exit explicitly in case
-      // destroy() doesn't (e.g. when stdout writes fail silently).
-      process.exit(0);
-    };
-    for (const sig of EXIT_SIGNALS) {
-      process.on(sig, teardown);
-    }
-
-    const watchdog = setInterval(() => {
-      if (!originalParentAlive()) teardown();
-    }, PARENT_WATCHDOG_MS);
-    watchdog.unref?.();
-
-    return () => {
       for (const sig of EXIT_SIGNALS) {
         process.off(sig, teardown);
       }
+      process.off("SIGWINCH", requestRender);
+      clearInterval(renderTick);
       clearInterval(watchdog);
+      act(() => {
+        testSetup.renderer.destroy();
+      });
+      resolve();
     };
-  }, [renderer]);
 
-  return (
-    <box
-      width="100%"
-      height="100%"
-      flexDirection="column"
-      justifyContent="flex-end"
-      backgroundColor={theme.background}
-    >
-      <AttachedStatusline name={name} theme={theme} agentType={agentType} />
-    </box>
-  );
+    const requestRender = () => {
+      void render();
+    };
+
+    for (const sig of EXIT_SIGNALS) {
+      process.on(sig, teardown);
+    }
+    process.on("SIGWINCH", requestRender);
+
+    const renderTick = setInterval(() => {
+      void render();
+    }, FOOTER_RENDER_INTERVAL_MS);
+    const watchdog = setInterval(() => {
+      if (!originalParentAlive()) teardown();
+    }, PARENT_WATCHDOG_MS);
+  });
 }
 
 export async function footerCommand(
   name: string,
   agentType?: AgentType,
 ): Promise<number> {
-  const renderer = await createCliRenderer({
-    exitOnCtrlC: false,
-    stdout: createFooterStdout(),
-  });
-  const theme = deriveGraphTheme(resolveTheme(renderer.themeMode));
-  const root = createRoot(renderer);
-  flushSync(() => {
-    root.render(
-      <FooterShell name={name} theme={theme} agentType={agentType} />,
-    );
-  });
-  renderer.requestRender();
-
-  await new Promise<void>(() => {});
+  await runFooterRenderer({ name, agentType });
   return 0;
 }

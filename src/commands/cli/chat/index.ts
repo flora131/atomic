@@ -2,10 +2,7 @@
 /**
  * Chat CLI command for atomic
  *
- * Spawns the native agent CLI as an interactive subprocess.
- * When already inside a tmux/psmux session, the agent spawns inline
- * in the current pane. When outside tmux, it creates a new tmux
- * session and attaches to it.
+ * Spawns the native agent CLI in tmux/psmux with an OpenTUI footer pane.
  *
  * All extra arguments after `-a <agent>` are forwarded to the native CLI.
  *
@@ -36,10 +33,8 @@ import {
 import {
   createSession,
   detachAndAttachAtomic,
-  killSession,
   killSessionOnPaneExit,
-  setSessionEnv,
-  SOCKET_NAME,
+  killSession,
   spawnMuxAttach,
   switchClient,
 } from "../../../sdk/workflows/index.ts";
@@ -119,7 +114,6 @@ export function buildLauncherScript(
   args: string[],
   projectRoot: string,
   envVars: Record<string, string> = {},
-  cleanupSessionName?: string,
 ): { script: string; ext: string } {
   const isWin = process.platform === "win32";
   const envEntries = Object.entries(envVars);
@@ -130,35 +124,15 @@ export function buildLauncherScript(
     const envLines = envEntries.map(
       ([key, value]) => `$env:${key} = "${escPwsh(value)}"`,
     );
-    const cleanupLines = cleanupSessionName
-      ? [
-          "function Invoke-AtomicSessionCleanup {",
-          "  $mux = Get-Command psmux -ErrorAction SilentlyContinue",
-          "  if (-not $mux) { $mux = Get-Command pmux -ErrorAction SilentlyContinue }",
-          "  if (-not $mux) { $mux = Get-Command tmux -ErrorAction SilentlyContinue }",
-          `  if ($mux) { & $mux.Source -L "${escPwsh(SOCKET_NAME)}" kill-session -t "${escPwsh(cleanupSessionName)}" *> $null }`,
-          "}",
-          "$atomicExitCode = 0",
-          "try {",
-        ]
-      : [];
-    const cleanupFinallyLines = cleanupSessionName
-      ? [
-          "  if ($LASTEXITCODE -is [int]) { $atomicExitCode = $LASTEXITCODE }",
-          "} finally {",
-          "  Invoke-AtomicSessionCleanup",
-          "}",
-          "exit $atomicExitCode",
-        ]
-      : [];
     const script = [
-      ...cleanupLines,
       `Set-Location "${escPwsh(projectRoot)}"`,
       ...envLines,
       argList.length > 0
         ? `& "${escPwsh(cmd)}" @(${argList})`
         : `& "${escPwsh(cmd)}"`,
-      ...cleanupFinallyLines,
+      "$atomicExitCode = 0",
+      "if ($LASTEXITCODE -is [int]) { $atomicExitCode = $LASTEXITCODE }",
+      "exit $atomicExitCode",
     ].join("\n");
     return { script, ext: "ps1" };
   }
@@ -170,29 +144,10 @@ export function buildLauncherScript(
   const envLines = envEntries.map(
     ([key, value]) => `export ${key}="${escBash(value)}"`,
   );
-  const cleanupLines = cleanupSessionName
-    ? [
-        "atomic_cleanup() {",
-        `  tmux -L "${escBash(SOCKET_NAME)}" kill-session -t "${escBash(cleanupSessionName)}" >/dev/null 2>&1 || true`,
-        "}",
-        "trap atomic_cleanup EXIT",
-      ]
-    : [];
-  // Pre-silence the tty before exec'ing the agent. copilot and opencode
-  // write terminal-capability probes (CSI ?Pn $p, OSC 4;0;?, CSI c) to
-  // stdout at startup; under tmux the DECRPM / OSC 4 / DA1 replies arrive
-  // on stdin a few ms later. If the agent hasn't enabled raw mode yet,
-  // the tty driver echoes those replies back to the screen as garbage
-  // (e.g. `^[[?1016;2$y^[[?2004;1$y^[]4;0;rgb:...`). Disabling echo and
-  // canonical mode here means the driver drops them silently; the agent's
-  // own termios setup then takes over once it's ready. Redirected stdin
-  // (no tty) harmlessly no-ops the stty call.
   const script = [
     "#!/bin/bash",
-    ...cleanupLines,
     `cd "${escBash(projectRoot)}"`,
     ...envLines,
-    "stty -echo -icanon 2>/dev/null || true",
     `"${escBash(cmd)}" ${quotedArgs}`,
     "atomic_exit_code=$?",
     'exit "$atomic_exit_code"',
@@ -257,9 +212,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   const cmd = [config.cmd, ...args];
   const overrides = await getProviderOverrides(agentType, projectRoot);
   // ATOMIC_AGENT must be baked into the launcher env so the agent CLI
-  // (and anything it spawns) can read it. `setSessionEnv` below only
-  // affects processes spawned *after* the initial command, so it cannot
-  // populate the env of the agent CLI that `new-session` kicks off.
+  // and anything it spawns can read it from process start.
   const envVars = {
     ...config.env_vars,
     ...overrides.envVars,
@@ -297,7 +250,6 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     args,
     projectRoot,
     envVars,
-    windowName,
   );
   const launcherPath = join(sessionsDir, `${windowName}.${ext}`);
   await writeFile(launcherPath, script, { mode: 0o755 });
@@ -309,19 +261,8 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   // ── Create session on the atomic socket and attach ──
   try {
     const paneId = createSession(windowName, shellCmd, undefined, projectRoot);
-    setSessionEnv(windowName, "ATOMIC_AGENT", agentType);
-
-    // When the agent CLI exits (via `/exit`, double Ctrl+C, or crash),
-    // tear down the whole session so the footer pane doesn't keep it
-    // alive in the background. Pane-scoped so the footer's own exit
-    // (which cascades from the kill-session) doesn't re-trigger.
-    killSessionOnPaneExit(windowName, paneId);
-
-    // Split the pane so the agent CLI runs on top and the React footer
-    // (provider pill + window name) runs in a 5% bottom pane. Matches
-    // the workflow-window layout, minus the keyboard hints (chat sessions
-    // only host a single agent, so ctrl+g / ctrl+\ navigation is moot).
     spawnAttachedFooter(windowName, paneId, agentType);
+    killSessionOnPaneExit(windowName, paneId);
 
     if (isInsideAtomicSocket()) {
       // Already on the atomic server — just switch to the new session.

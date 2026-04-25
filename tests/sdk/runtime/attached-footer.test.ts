@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildAttachedFooterCommand,
+  buildAttachedFooterCloseHooks,
   resolveAttachedFooterCliPath,
 } from "../../../src/sdk/runtime/attached-footer.ts";
 
@@ -63,5 +64,27 @@ describe("attached footer command harness", () => {
     expect(
       resolveAttachedFooterCliPath("/repo/src/sdk/runtime", "linux"),
     ).toBe("/repo/src/cli.ts");
+  });
+
+  test("builds guarded footer close hooks for tmux", () => {
+    expect(buildAttachedFooterCloseHooks("%1", "%2")).toEqual([
+      {
+        event: "pane-exited",
+        command: "if -F '#{==:#{hook_pane},%1}' 'kill-pane -t %2'",
+      },
+      {
+        event: "after-kill-pane",
+        command: "kill-pane -t %2",
+      },
+    ]);
+  });
+
+  test("builds unguarded footer close hooks for psmux", () => {
+    expect(
+      buildAttachedFooterCloseHooks("%1", "%2", { guardAgentPane: false }),
+    ).toEqual([
+      { event: "pane-exited", command: "kill-pane -t %2" },
+      { event: "after-kill-pane", command: "kill-pane -t %2" },
+    ]);
   });
 });

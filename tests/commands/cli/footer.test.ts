@@ -1,57 +1,32 @@
 import { describe, expect, test } from "bun:test";
-import { createFooterStdout } from "../../../src/commands/cli/footer.tsx";
+import { renderFooterFrame } from "../../../src/commands/cli/footer.tsx";
 
-function createFakeStdout({
-  columns,
-  rows,
-  chunks = [],
-}: {
-  columns?: number;
-  rows?: number;
-  chunks?: string[];
-}): {
-  readonly columns?: number;
-  readonly rows?: number;
-  write: NodeJS.WriteStream["write"];
-} {
-  return {
-    get columns() {
-      return columns;
-    },
-    get rows() {
-      return rows;
-    },
-    write: ((chunk: string | Uint8Array) => {
-      chunks.push(chunk.toString());
-      return true;
-    }) as NodeJS.WriteStream["write"],
-  };
-}
+describe("headless footer frame", () => {
+  test("renders the OpenTUI footer without terminal capability probes", async () => {
+    const frame = await renderFooterFrame({
+      name: "atomic-chat-copilot-abcd1234",
+      agentType: "copilot",
+      width: 120,
+    });
 
-describe("footer renderer stdout", () => {
-  test("pins OpenTUI geometry to the one-row footer pane", () => {
-    const stdout = createFakeStdout({ columns: 132, rows: 24 });
-    const footerStdout = createFooterStdout(stdout);
-
-    expect(footerStdout.rows).toBe(1);
-    expect(footerStdout.columns).toBe(132);
+    expect(frame).toContain("COPILOT");
+    expect(frame).toContain("atomic-chat-copilot-abcd1234");
+    expect(frame).toContain("ctrl+b d");
+    expect(frame).toContain("detach");
+    expect(frame).not.toContain("\x1b[?");
+    expect(frame).not.toContain("\x1b]");
+    expect(frame).not.toContain("\x1b_");
   });
 
-  test("falls back to a safe width when the pane width is unavailable", () => {
-    const stdout = createFakeStdout({});
-    const footerStdout = createFooterStdout(stdout);
+  test("sanitizes control characters from rendered footer text", async () => {
+    const frame = await renderFooterFrame({
+      name: "b\x1b]x\x07o",
+      width: 80,
+    });
 
-    expect(footerStdout.rows).toBe(1);
-    expect(footerStdout.columns).toBe(80);
-  });
-
-  test("delegates writes to the original stdout stream", () => {
-    const chunks: string[] = [];
-    const stdout = createFakeStdout({ columns: 80, rows: 24, chunks });
-    const footerStdout = createFooterStdout(stdout);
-
-    footerStdout.write("visible footer");
-
-    expect(chunks.join("")).toBe("visible footer");
+    expect(frame).toContain("b");
+    expect(frame).toContain("o");
+    expect(frame).not.toContain("\x1b]x");
+    expect(frame).not.toContain("\x07");
   });
 });

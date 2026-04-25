@@ -18,40 +18,43 @@ function withMockPlatform<T>(platform: NodeJS.Platform, fn: () => T): T {
 }
 
 describe("buildLauncherScript", () => {
-  test("adds PowerShell session cleanup after the agent exits", () => {
+  test("builds a PowerShell launcher with cwd, env, args, and exit code", () => {
     const { script, ext } = withMockPlatform("win32", () =>
       buildLauncherScript(
         "copilot",
         ["--debug"],
         "C:\\repo",
         { ATOMIC_AGENT: "copilot" },
-        "atomic-chat-copilot-abc12345",
       )
     );
 
     expect(ext).toBe("ps1");
-    expect(script).toContain("try {");
-    expect(script).toContain("} finally {");
-    expect(script).toContain("Invoke-AtomicSessionCleanup");
-    expect(script).toContain('-L "atomic" kill-session -t "atomic-chat-copilot-abc12345"');
+    expect(script).toContain('Set-Location "C:\\repo"');
+    expect(script).toContain('$env:ATOMIC_AGENT = "copilot"');
+    expect(script).toContain('& "copilot" @("--debug")');
+    expect(script).toContain('if ($LASTEXITCODE -is [int]) { $atomicExitCode = $LASTEXITCODE }');
     expect(script).toContain("exit $atomicExitCode");
+    expect(script).not.toContain("Invoke-AtomicSessionCleanup");
   });
 
-  test("adds bash session cleanup without execing away the launcher", () => {
+  test("builds a bash launcher without tmux input suppression", () => {
     const { script, ext } = withMockPlatform("linux", () =>
       buildLauncherScript(
         "claude",
         ["--dangerously-skip-permissions"],
         "/repo",
         { ATOMIC_AGENT: "claude" },
-        "atomic-chat-claude-abc12345",
       )
     );
 
     expect(ext).toBe("sh");
-    expect(script).toContain("trap atomic_cleanup EXIT");
-    expect(script).toContain('tmux -L "atomic" kill-session -t "atomic-chat-claude-abc12345"');
+    expect(script).toContain('cd "/repo"');
+    expect(script).toContain('export ATOMIC_AGENT="claude"');
+    expect(script).toContain('"claude" "--dangerously-skip-permissions"');
     expect(script).toContain("atomic_exit_code=$?");
     expect(script).not.toContain("exec ");
+    expect(script).not.toContain("stty -echo -icanon");
+    expect(script).not.toContain("atomic_original_tty_state");
+    expect(script).not.toContain("trap atomic_cleanup");
   });
 });

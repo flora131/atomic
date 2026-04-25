@@ -15,7 +15,7 @@
 
 import { posix, win32 } from "node:path";
 import type { AgentType } from "../types.ts";
-import { tmuxRun } from "./tmux.ts";
+import { getMuxBinary, tmuxRun } from "./tmux.ts";
 
 /**
  * Rows reserved for the footer pane. Matches the single-row height of
@@ -86,6 +86,27 @@ export function buildAttachedFooterCommand({
   );
 }
 
+export function buildAttachedFooterCloseHooks(
+  agentPaneId: string,
+  footerPaneId: string,
+  options: { guardAgentPane?: boolean } = {},
+): Array<{ event: string; command: string }> {
+  const killFooter = `kill-pane -t ${footerPaneId}`;
+  const paneExitedCommand = options.guardAgentPane === false
+    ? killFooter
+    : `if -F '#{==:#{hook_pane},${agentPaneId}}' '${killFooter}'`;
+
+  return [
+    { event: "pane-exited", command: paneExitedCommand },
+    { event: "after-kill-pane", command: killFooter },
+  ];
+}
+
+function muxSupportsHookPaneFormat(): boolean {
+  const binary = getMuxBinary();
+  return binary !== "psmux" && binary !== "pmux";
+}
+
 export function spawnAttachedFooter(
   windowName: string,
   paneId: string,
@@ -110,6 +131,17 @@ export function spawnAttachedFooter(
   if (!split.ok) return;
   const footerPaneId = split.stdout.trim();
   if (!footerPaneId) return;
+  tmuxRun(["select-pane", "-t", paneId]);
+  for (const hook of buildAttachedFooterCloseHooks(paneId, footerPaneId, {
+    guardAgentPane: muxSupportsHookPaneFormat(),
+  })) {
+    tmuxRun([
+      "set-hook",
+      "-w", "-t", footerPaneId,
+      hook.event,
+      hook.command,
+    ]);
+  }
   // Pin the footer to FOOTER_PANE_LINES on every resize so the agent pane
   // absorbs all new space. Tmux's default proportional redistribution
   // would otherwise grow the footer on larger windows. Window-scoped

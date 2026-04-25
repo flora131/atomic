@@ -7,6 +7,7 @@
  */
 
 import { join } from "node:path";
+import { requiredMuxBinaryCandidatesForPlatform } from "../../lib/spawn.ts";
 import { writeFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import type { Subprocess } from "bun";
@@ -45,7 +46,9 @@ let resolvedMuxBinary: string | null | undefined; // undefined = not yet resolve
 /**
  * Resolve the terminal multiplexer binary for the current platform.
  *
- * On Windows, tries psmux → pmux → tmux (psmux ships all three as aliases).
+ * On Windows, tries psmux → pmux. Do not accept arbitrary `tmux.exe` because
+ * that can be a non-native shim and would prevent the psmux installer from
+ * running.
  * On Unix/macOS, uses tmux directly.
  *
  * Returns the binary name (not the full path) or null if none is found.
@@ -59,19 +62,14 @@ export function getMuxBinary(): string | null {
   // so that callers who modify PATH (e.g. tests) get correct results.
   const pathOpt = { PATH: process.env.PATH ?? "" };
 
-  if (process.platform === "win32") {
-    for (const candidate of ["psmux", "pmux", "tmux"]) {
-      if (Bun.which(candidate, pathOpt)) {
-        resolvedMuxBinary = candidate;
-        return resolvedMuxBinary;
-      }
+  for (const candidate of requiredMuxBinaryCandidatesForPlatform()) {
+    if (Bun.which(candidate, pathOpt)) {
+      resolvedMuxBinary = candidate;
+      return resolvedMuxBinary;
     }
-    resolvedMuxBinary = null;
-    return null;
   }
 
-  // Unix / macOS
-  resolvedMuxBinary = Bun.which("tmux", pathOpt) ? "tmux" : null;
+  resolvedMuxBinary = null;
   return resolvedMuxBinary;
 }
 
@@ -510,6 +508,8 @@ export interface TmuxSession {
   agent?: string;
 }
 
+const SESSION_LIST_DELIMITER = "__ATOMIC_SESSION_FIELD__";
+
 /**
  * List all sessions on the atomic tmux socket.
  *
@@ -518,15 +518,21 @@ export interface TmuxSession {
  * sessions (tmux exits non-zero in both cases).
  */
 export function listSessions(): TmuxSession[] {
-  const fmt = "#{session_name}\t#{session_windows}\t#{session_created}\t#{session_attached}";
+  const fmt = [
+    "#{session_name}",
+    "#{session_windows}",
+    "#{session_created}",
+    "#{session_attached}",
+  ].join(SESSION_LIST_DELIMITER);
   const result = tmuxRun(["list-sessions", "-F", fmt]);
   if (!result.ok) return [];
 
   const sessions = result.stdout
     .split("\n")
     .filter((line) => line.trim() !== "")
+    .filter((line) => line.includes(SESSION_LIST_DELIMITER))
     .map((line) => {
-      const [name, windowsStr, createdStr, attachedStr] = line.split("\t");
+      const [name, windowsStr, createdStr, attachedStr] = line.split(SESSION_LIST_DELIMITER);
       const epochSec = Number(createdStr);
       const parsed = parseSessionName(name!);
       return {
@@ -679,4 +685,3 @@ export function normalizeTmuxLines(text: string): string {
     .join("\n")
     .trim();
 }
-

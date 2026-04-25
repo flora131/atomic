@@ -1,4 +1,7 @@
 import { test, expect, describe, beforeEach, afterEach, beforeAll, afterAll } from "bun:test";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   getMuxBinary,
   resetMuxBinaryCache,
@@ -57,6 +60,30 @@ function withEnvRestore(vars: string[]) {
   });
 }
 
+function writeFakeCommand(directory: string, name: string): void {
+  const extension = process.platform === "win32" ? ".cmd" : "";
+  const commandPath = join(directory, `${name}${extension}`);
+  const body = process.platform === "win32" ? "@echo off\r\n" : "#!/bin/sh\n";
+  writeFileSync(commandPath, body);
+  chmodSync(commandPath, 0o755);
+}
+
+function withMockPlatform<T>(platform: NodeJS.Platform, fn: () => T): T {
+  const originalPlatform = process.platform;
+  Object.defineProperty(process, "platform", {
+    configurable: true,
+    value: platform,
+  });
+  try {
+    return fn();
+  } finally {
+    Object.defineProperty(process, "platform", {
+      configurable: true,
+      value: originalPlatform,
+    });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // getMuxBinary
 // ---------------------------------------------------------------------------
@@ -95,6 +122,46 @@ describe("getMuxBinary", () => {
     // After reset, the next call re-resolves (doesn't throw, returns consistent result)
     const result = getMuxBinary();
     expect(typeof result === "string" || result === null).toBe(true);
+  });
+
+  test.serial("ignores tmux-only shims on Windows", () => {
+    const originalPath = process.env.PATH;
+    const tempDir = mkdtempSync(join(tmpdir(), "atomic-mux-"));
+    try {
+      writeFakeCommand(tempDir, "tmux");
+      process.env.PATH = tempDir;
+      resetMuxBinaryCache();
+
+      withMockPlatform("win32", () => {
+        expect(getMuxBinary()).toBeNull();
+        expect(isTmuxInstalled()).toBe(false);
+      });
+    } finally {
+      process.env.PATH = originalPath;
+      resetMuxBinaryCache();
+      rmSync(tempDir, { force: true, recursive: true });
+    }
+  });
+
+  test.serial("prefers native psmux on Windows", () => {
+    const originalPath = process.env.PATH;
+    const tempDir = mkdtempSync(join(tmpdir(), "atomic-mux-"));
+    try {
+      writeFakeCommand(tempDir, "psmux");
+      writeFakeCommand(tempDir, "pmux");
+      writeFakeCommand(tempDir, "tmux");
+      process.env.PATH = tempDir;
+      resetMuxBinaryCache();
+
+      withMockPlatform("win32", () => {
+        expect(getMuxBinary()).toBe("psmux");
+        expect(isTmuxInstalled()).toBe(true);
+      });
+    } finally {
+      process.env.PATH = originalPath;
+      resetMuxBinaryCache();
+      rmSync(tempDir, { force: true, recursive: true });
+    }
   });
 });
 
@@ -661,7 +728,7 @@ describe("tmuxRun — no binary on PATH", () => {
     resetMuxBinaryCache();
   });
 
-  test("returns ok:false when no mux binary found", () => {
+  test.serial("returns ok:false when no mux binary found", () => {
     const result = tmuxRun(["list-sessions"]);
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -688,15 +755,15 @@ describe("no-binary error paths", () => {
     resetMuxBinaryCache();
   });
 
-  test("spawnMuxAttach throws when no binary found", () => {
+  test.serial("spawnMuxAttach throws when no binary found", () => {
     expect(() => spawnMuxAttach("any-session")).toThrow(/No terminal multiplexer/);
   });
 
-  test("detachAndAttachAtomic throws when no binary found", () => {
+  test.serial("detachAndAttachAtomic throws when no binary found", () => {
     expect(() => detachAndAttachAtomic("any-session")).toThrow(/No terminal multiplexer/);
   });
 
-  test("attachSession throws when no binary found", () => {
+  test.serial("attachSession throws when no binary found", () => {
     expect(() => attachSession("any-session")).toThrow(/No terminal multiplexer/);
   });
 });
@@ -841,15 +908,15 @@ describe.if(tmuxAvailable)("listSessions", () => {
     killSession(LIST_SESSION);
   });
 
-  test("returns an empty array when no sessions exist on a clean server", () => {
+  test.serial("returns an empty array when no sessions exist on a clean server", () => {
     // If there are no sessions specifically named our test session,
     // listSessions should at least return an array.
     const sessions = listSessions();
     expect(Array.isArray(sessions)).toBe(true);
   });
 
-  test("includes a session after creation with parsed type and agent", () => {
-    createSession(LIST_SESSION, "bash");
+  test.serial("includes a session after creation with parsed type and agent", () => {
+    createSession(LIST_SESSION, "sleep 60");
     const sessions = listSessions();
     const found = sessions.find((s) => s.name === LIST_SESSION);
     expect(found).toBeDefined();
@@ -858,17 +925,12 @@ describe.if(tmuxAvailable)("listSessions", () => {
     expect(typeof found!.attached).toBe("boolean");
     expect(found!.type).toBe("chat");
     expect(found!.agent).toBe("claude");
-  });
 
-  test("session has a parseable ISO date", () => {
-    const sessions = listSessions();
-    const found = sessions.find((s) => s.name === LIST_SESSION);
-    expect(found).toBeDefined();
     const d = new Date(found!.created);
     expect(Number.isNaN(d.getTime())).toBe(false);
   });
 
-  test("session is gone after kill", () => {
+  test.serial("session is gone after kill", () => {
     killSession(LIST_SESSION);
     const sessions = listSessions();
     const found = sessions.find((s) => s.name === LIST_SESSION);
@@ -887,25 +949,23 @@ describe.if(tmuxAvailable)("setSessionEnv / getSessionEnv", () => {
     killSession(ENV_VAR_SESSION);
   });
 
-  test("setSessionEnv stores and getSessionEnv retrieves a value", () => {
-    createSession(ENV_VAR_SESSION, "bash");
+  test.serial("setSessionEnv stores and getSessionEnv retrieves a value", () => {
+    createSession(ENV_VAR_SESSION, "sleep 60");
     setSessionEnv(ENV_VAR_SESSION, "ATOMIC_AGENT", "claude");
     expect(getSessionEnv(ENV_VAR_SESSION, "ATOMIC_AGENT")).toBe("claude");
-  });
 
-  test("getSessionEnv returns null for unset key", () => {
-    expect(getSessionEnv(ENV_VAR_SESSION, "NONEXISTENT_KEY")).toBeNull();
-  });
-
-  test("getSessionEnv returns null for non-existent session", () => {
-    expect(getSessionEnv("nonexistent-session-xyz-99999", "ATOMIC_AGENT")).toBeNull();
-  });
-
-  test("listSessions includes agent from ATOMIC_AGENT env var", () => {
     const sessions = listSessions();
     const found = sessions.find((s) => s.name === ENV_VAR_SESSION);
     expect(found).toBeDefined();
     expect(found!.agent).toBe("claude");
   });
-});
 
+  test.serial("getSessionEnv returns null for unset key", () => {
+    expect(getSessionEnv(ENV_VAR_SESSION, "NONEXISTENT_KEY")).toBeNull();
+  });
+
+  test.serial("getSessionEnv returns null for non-existent session", () => {
+    expect(getSessionEnv("nonexistent-session-xyz-99999", "ATOMIC_AGENT")).toBeNull();
+  });
+
+});

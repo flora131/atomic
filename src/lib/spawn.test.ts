@@ -6,7 +6,10 @@ import {
   hasRequiredMuxBinary,
   isMuxBinaryRequiredForPlatform,
   prependPath,
+  psmuxReleaseAssetSuffix,
+  requiredMuxBinaryCandidatesForPlatform,
   resolveCommandFromCurrentPath,
+  runCommand,
 } from "./spawn.ts";
 
 describe("spawn PATH helpers", () => {
@@ -40,15 +43,28 @@ describe("spawn PATH helpers", () => {
   });
 
   test("requires native psmux binaries on Windows", () => {
+    expect(requiredMuxBinaryCandidatesForPlatform("win32")).toEqual([
+      "psmux",
+      "pmux",
+    ]);
     expect(isMuxBinaryRequiredForPlatform("psmux", "win32")).toBe(true);
     expect(isMuxBinaryRequiredForPlatform("pmux", "win32")).toBe(true);
     expect(isMuxBinaryRequiredForPlatform("tmux", "win32")).toBe(false);
   });
 
   test("requires tmux on Unix-like platforms", () => {
+    expect(requiredMuxBinaryCandidatesForPlatform("linux")).toEqual(["tmux"]);
+    expect(requiredMuxBinaryCandidatesForPlatform("darwin")).toEqual(["tmux"]);
     expect(isMuxBinaryRequiredForPlatform("tmux", "linux")).toBe(true);
     expect(isMuxBinaryRequiredForPlatform("psmux", "linux")).toBe(false);
     expect(isMuxBinaryRequiredForPlatform("pmux", "darwin")).toBe(false);
+  });
+
+  test("maps supported Windows architectures to psmux release assets", () => {
+    expect(psmuxReleaseAssetSuffix("x64")).toBe("windows-x64.zip");
+    expect(psmuxReleaseAssetSuffix("ia32")).toBe("windows-x86.zip");
+    expect(psmuxReleaseAssetSuffix("arm64")).toBe("windows-arm64.zip");
+    expect(psmuxReleaseAssetSuffix("arm")).toBeNull();
   });
 
   test("uses platform requirement when checking PATH", () => {
@@ -71,5 +87,23 @@ describe("spawn PATH helpers", () => {
     const delimiter = process.platform === "win32" ? ";" : ":";
     const entries = (process.env.PATH ?? "").split(delimiter);
     expect(entries.filter((entry) => entry === tempDir)).toHaveLength(1);
+  });
+
+  test("runCommand keeps stdout and stderr separate", async () => {
+    const scriptPath = join(tempDir, "streams.ts");
+    writeFileSync(
+      scriptPath,
+      "await Bun.write(Bun.stderr, 'warning\\n'); await Bun.write(Bun.stdout, 'value\\n');\n",
+    );
+
+    const result = await runCommand([
+      process.execPath,
+      scriptPath,
+    ]);
+
+    expect(result.success).toBe(true);
+    expect(result.details).toBe("warning");
+    expect(result.stderr).toBe("warning");
+    expect(result.stdout).toBe("value");
   });
 });

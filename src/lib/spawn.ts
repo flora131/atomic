@@ -5,13 +5,21 @@
  * eliminating duplication across postinstall-playwright, postinstall-liteparse, etc.
  */
 
-import { existsSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+} from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 
 export interface SpawnResult {
   success: boolean;
   details: string;
+  stdout?: string;
+  stderr?: string;
 }
 
 export interface RunCommandOptions {
@@ -50,14 +58,19 @@ export async function runCommand(cmd: string[], options?: RunCommandOptions): Pr
       new Response(proc.stdout).text(),
       proc.exited,
     ]);
+    const trimmedStdout = stdout.trim();
+    const trimmedStderr = stderr.trim();
     return {
       success: exitCode === 0,
-      details: stderr.trim().length > 0 ? stderr.trim() : stdout.trim(),
+      details: trimmedStderr.length > 0 ? trimmedStderr : trimmedStdout,
+      stdout: trimmedStdout,
+      stderr: trimmedStderr,
     };
   } catch (error) {
     return {
       success: false,
       details: error instanceof Error ? error.message : String(error),
+      stderr: error instanceof Error ? error.message : String(error),
     };
   }
 }
@@ -77,27 +90,32 @@ export function prependPath(directory: string): void {
   }
 }
 
+function windowsAtomicBinDir(): string {
+  return join(getHomeDir(), ".atomic", "bin");
+}
+
 export function resolveCommandFromCurrentPath(cmd: string): string | null {
   return Bun.which(cmd, { PATH: process.env.PATH ?? "" });
 }
 
-type MuxBinaryName = "tmux" | "psmux" | "pmux";
+export type MuxBinaryName = "tmux" | "psmux" | "pmux";
+
+export function requiredMuxBinaryCandidatesForPlatform(
+  platform: NodeJS.Platform = process.platform,
+): MuxBinaryName[] {
+  return platform === "win32" ? ["psmux", "pmux"] : ["tmux"];
+}
 
 export function isMuxBinaryRequiredForPlatform(
   binary: MuxBinaryName,
   platform: NodeJS.Platform = process.platform,
 ): boolean {
-  if (platform === "win32") {
-    return binary === "psmux" || binary === "pmux";
-  }
-  return binary === "tmux";
+  return requiredMuxBinaryCandidatesForPlatform(platform).includes(binary);
 }
 
 export function hasRequiredMuxBinary(): boolean {
-  const candidates: MuxBinaryName[] = ["psmux", "pmux", "tmux"];
-  return candidates.some((candidate) =>
-    isMuxBinaryRequiredForPlatform(candidate) &&
-    resolveCommandFromCurrentPath(candidate)
+  return requiredMuxBinaryCandidatesForPlatform().some(
+    (candidate) => resolveCommandFromCurrentPath(candidate),
   );
 }
 
@@ -131,6 +149,7 @@ function prependWindowsMuxInstallPaths(): void {
   );
   prependPathIfDirectory("C:\\ProgramData\\chocolatey\\bin");
   prependPathIfDirectory(home ? join(home, ".cargo", "bin") : undefined);
+  prependPathIfDirectory(windowsAtomicBinDir());
 }
 
 function mergePath(pathValue: string): void {
@@ -160,8 +179,8 @@ async function refreshWindowsPathFromRegistry(): Promise<void> {
     "-Command",
     readRegistryPath,
   ]);
-  if (result.success && result.details) {
-    mergePath(result.details);
+  if (result.success && result.stdout) {
+    mergePath(result.stdout);
   }
 }
 
@@ -169,6 +188,150 @@ async function refreshWindowsMuxPath(): Promise<void> {
   prependWindowsMuxInstallPaths();
   await refreshWindowsPathFromRegistry();
   prependWindowsMuxInstallPaths();
+}
+
+interface GitHubReleaseAsset {
+  name: string;
+  browser_download_url: string;
+}
+
+interface GitHubRelease {
+  assets: GitHubReleaseAsset[];
+}
+
+export function psmuxReleaseAssetSuffix(
+  arch: NodeJS.Architecture = process.arch,
+): string | null {
+  switch (arch) {
+    case "x64":
+      return "windows-x64.zip";
+    case "ia32":
+      return "windows-x86.zip";
+    case "arm64":
+      return "windows-arm64.zip";
+    default:
+      return null;
+  }
+}
+
+function powershellLiteral(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+async function persistWindowsUserPath(directory: string): Promise<SpawnResult> {
+  const shell = resolveCommandFromCurrentPath("powershell") ??
+    resolveCommandFromCurrentPath("pwsh");
+  if (!shell) return { success: true, details: "" };
+
+  const script =
+    `$dir = ${powershellLiteral(directory)}; ` +
+    "$current = [Environment]::GetEnvironmentVariable('Path','User'); " +
+    "$entries = if ([string]::IsNullOrWhiteSpace($current)) { @() } else { $current -split ';' }; " +
+    "$expandedDir = [Environment]::ExpandEnvironmentVariables($dir) -replace '[\\\\/]+$',''; " +
+    "$hasDir = $false; " +
+    "foreach ($entry in $entries) { " +
+    "  $expandedEntry = [Environment]::ExpandEnvironmentVariables($entry).Trim().Trim('\"') -replace '[\\\\/]+$',''; " +
+    "  if ($expandedEntry -ieq $expandedDir) { $hasDir = $true; break } " +
+    "} " +
+    "if (-not $hasDir) { " +
+    "  $next = (@($entries) + @($dir) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join ';'; " +
+    "  [Environment]::SetEnvironmentVariable('Path', $next, 'User'); " +
+    "}";
+
+  return runCommand([shell, "-NoProfile", "-Command", script]);
+}
+
+async function installPsmuxFromGitHubRelease(): Promise<SpawnResult> {
+  try {
+    const suffix = psmuxReleaseAssetSuffix();
+    if (!suffix) {
+      return {
+        success: false,
+        details: `No psmux release asset is available for ${process.arch}.`,
+      };
+    }
+
+    const response = await fetch(
+      "https://api.github.com/repos/psmux/psmux/releases/latest",
+      { headers: { "Accept": "application/vnd.github+json" } },
+    );
+    if (!response.ok) {
+      return {
+        success: false,
+        details: `Could not fetch latest psmux release: ${response.status} ${response.statusText}`,
+      };
+    }
+
+    const release = await response.json() as GitHubRelease;
+    const asset = release.assets.find((item) => item.name.endsWith(suffix));
+    if (!asset) {
+      return {
+        success: false,
+        details: `Latest psmux release does not include a ${suffix} asset.`,
+      };
+    }
+
+    const archiveResponse = await fetch(asset.browser_download_url);
+    if (!archiveResponse.ok) {
+      return {
+        success: false,
+        details: `Could not download ${asset.name}: ${archiveResponse.status} ${archiveResponse.statusText}`,
+      };
+    }
+
+    const tempDir = mkdtempSync(join(tmpdir(), "atomic-psmux-"));
+    const zipPath = join(tempDir, asset.name);
+    const extractDir = join(tempDir, "extract");
+    const installDir = windowsAtomicBinDir();
+
+    try {
+      await Bun.write(zipPath, await archiveResponse.arrayBuffer());
+      mkdirSync(extractDir, { recursive: true });
+      mkdirSync(installDir, { recursive: true });
+
+      const shell = resolveCommandFromCurrentPath("powershell") ??
+        resolveCommandFromCurrentPath("pwsh");
+      if (!shell) {
+        return {
+          success: false,
+          details: "PowerShell is required to expand the psmux release archive.",
+        };
+      }
+
+      const expand = await runCommand([
+        shell,
+        "-NoProfile",
+        "-Command",
+        `Expand-Archive -LiteralPath ${powershellLiteral(zipPath)} -DestinationPath ${powershellLiteral(extractDir)} -Force`,
+      ]);
+      if (!expand.success) return expand;
+
+      for (const binary of ["psmux.exe", "pmux.exe", "tmux.exe"]) {
+        const source = join(extractDir, binary);
+        if (existsSync(source)) {
+          copyFileSync(source, join(installDir, binary));
+        }
+      }
+
+      prependPath(installDir);
+      const persistResult = await persistWindowsUserPath(installDir);
+      if (!persistResult.success) return persistResult;
+
+      return hasRequiredMuxBinary()
+        ? { success: true, details: "" }
+        : {
+            success: false,
+            details: `Downloaded psmux but no psmux binary was found in ${installDir}.`,
+          };
+    } finally {
+      rmSync(tempDir, { force: true, recursive: true });
+    }
+  } catch (error) {
+    return {
+      success: false,
+      details: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 /**
@@ -241,7 +404,7 @@ export async function ensureTmuxInstalled(options: EnsureOptions = {}): Promise<
 
   let capturedDetails = "";
   const record = (result: SpawnResult) => {
-    if (quiet && !result.success && result.details) {
+    if (!result.success && result.details) {
       capturedDetails = result.details;
     }
   };
@@ -298,8 +461,13 @@ export async function ensureTmuxInstalled(options: EnsureOptions = {}): Promise<
         if (hasRequiredMuxBinary()) return;
       }
     }
+
+    const directResult = await installPsmuxFromGitHubRelease();
+    record(directResult);
+    if (directResult.success) return;
+
     throw new Error(
-      capturedDetails || "Could not install psmux — no supported Windows package manager succeeded.",
+      capturedDetails || "Could not install psmux automatically.",
     );
   }
 

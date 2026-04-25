@@ -30,6 +30,11 @@ const FOOTER_RENDER_INTERVAL_MS = 250;
 const FOOTER_RENDER_ROWS = 1;
 const CLEAR_LINE = "\r\x1b[2K";
 
+type FooterOutput = {
+  columns?: number;
+  write(chunk: string): unknown;
+};
+
 /**
  * Snapshot the parent PID at module load. `process.ppid` is cached in both
  * Node and Bun, so we can't re-read it to detect reparenting — instead we
@@ -159,7 +164,7 @@ export async function runFooterRenderer({
 }: {
   name: string;
   agentType?: AgentType;
-  stdout?: NodeJS.WriteStream;
+  stdout?: FooterOutput;
 }): Promise<void> {
   const testSetup = await createFooterTestRenderer({
     name,

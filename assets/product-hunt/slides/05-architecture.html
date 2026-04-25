@@ -12,45 +12,79 @@
     html, body { width: 1270px; height: 760px; overflow: hidden; }
 
     /* -----------------------------------------------------------------------
-       Slide-05-specific overrides: cream-safe pane chrome
-       On a cream background the standard dark pane fills don't apply —
-       we render panes as transparent/light with 1px solid borders only.
+       Slide-scoped conic sweep: shares slide 06's red → mauve → sapphire → teal
+       palette, but with cool stops occupying a wider arc so blues dominate the
+       canvas. Center-anchored with a softer vignette so the sweep bleeds
+       around and behind the architecture diagram. (Matches slide 02/04.)
+    ----------------------------------------------------------------------- */
+    .conic-sweep--cool-tr-quad {
+      --conic-from: 180deg;
+      --conic-at: 50% 50%;
+      --conic-vignette-size: 62% 60%;
+      --conic-vignette-at: 50% 55%;
+      --conic-vignette-strength: 0.50;
+      --conic-opacity: 0.85;
+      --conic-saturate: 1.20;
+    }
+
+    /* Override the conic stop list to bias the cool side: warm-red and peach
+       compress into a narrow lower wedge while blue → sapphire → teal claim
+       the majority of the rotation. Same hues as slide 06, redistributed. */
+    .conic-sweep--cool-tr-quad::before {
+      background: conic-gradient(
+        from var(--conic-from) at var(--conic-at),
+        oklch(58% 0.22 15)    0deg,    /* warm red */
+        oklch(70% 0.18 45)   30deg,    /* peach (narrow) */
+        oklch(62% 0.16 320)  85deg,    /* mauve */
+        oklch(60% 0.20 240) 165deg,    /* blue (expanded) */
+        oklch(64% 0.18 215) 240deg,    /* sapphire */
+        oklch(68% 0.14 195) 315deg,    /* teal */
+        oklch(58% 0.22 15)  360deg
+      );
+    }
+
+    /* -----------------------------------------------------------------------
+       Architecture pane chrome — dark TUI nested panes
     ----------------------------------------------------------------------- */
 
-    /* Outer "your repo" pane — translucent warm white, faint overlay border */
+    /* Outer "your repo" pane */
     .arch-pane--repo {
-      background: rgba(255, 255, 255, 0.55);
+      background: var(--mocha-crust);
       border: 1px solid var(--mocha-overlay0);
       border-radius: 10px;
-      box-shadow: 0 6px 32px oklch(30% 0.06 250 / 0.10), 0 1px 6px oklch(30% 0.06 250 / 0.08);
+      box-shadow:
+        0 12px 40px oklch(10% 0.04 240 / 0.55),
+        0 2px 8px  oklch(10% 0.04 240 / 0.35);
     }
 
     /* Middle "Atomic TypeScript workflow" pane — cool-blue tinted */
     .arch-pane--atomic {
-      background: oklch(95% 0.04 240 / 0.55);
-      border: 1px solid var(--cool-blue);
+      background: oklch(20% 0.04 240 / 0.55);
+      border: 1px solid color-mix(in oklch, var(--cool-blue) 45%, transparent);
       border-radius: 8px;
     }
 
     /* Inner agent leaf panes */
     .arch-pane--agent {
-      background: rgba(255, 255, 255, 0.65);
+      background: oklch(15% 0.02 240 / 0.85);
       border-radius: 7px;
       flex: 1;
+      display: flex;
+      flex-direction: column;
     }
 
-    .arch-pane--claude  { border: 1px solid var(--cool-sapphire); }
-    .arch-pane--opencode { border: 1px solid var(--warm-peach); }
-    .arch-pane--copilot { border: 1px solid var(--cool-teal); }
+    .arch-pane--claude   { border: 1px solid color-mix(in oklch, var(--cool-sapphire) 45%, transparent); }
+    .arch-pane--opencode { border: 1px solid color-mix(in oklch, var(--warm-peach)    45%, transparent); }
+    .arch-pane--copilot  { border: 1px solid color-mix(in oklch, var(--cool-teal)     45%, transparent); }
 
-    /* Clean title bar — no traffic lights, just label */
+    /* Title bar — clean label, no traffic lights, accent-tinted underline */
     .arch-titlebar {
       display: flex;
       align-items: center;
       padding: 7px 14px;
       border-bottom: 1px solid currentColor;
       border-color: inherit;
-      opacity: 0.9;
+      opacity: 0.95;
     }
 
     .arch-titlebar__label {
@@ -65,36 +99,35 @@
       flex: 1;
       height: 1px;
       background: currentColor;
-      opacity: 0.18;
+      opacity: 0.22;
       margin: 0 10px;
     }
 
     .arch-titlebar__close {
       font-family: var(--font-mono);
       font-size: 10px;
-      opacity: 0.30;
+      opacity: 0.45;
       letter-spacing: 0.06em;
     }
 
-    /* Body of pane */
+    /* Pane bodies */
     .arch-body {
-      padding: 12px 16px;
+      padding: 14px 20px 12px;
       font-family: var(--font-mono);
       font-size: 13px;
       line-height: 1.6;
       white-space: pre;
+      color: var(--mocha-subtext1);
     }
 
-    .arch-body--sm {
-      font-size: 12px;
-    }
+    .arch-body--sm { font-size: 12px; }
 
-    /* Inner agent pane body */
     .arch-agent-body {
-      padding: 10px 14px;
+      padding: 12px 14px;
       font-family: var(--font-mono);
       font-size: 12px;
       line-height: 1.55;
+      flex: 1;
     }
 
     /* Bottom ribbon */
@@ -105,78 +138,55 @@
       font-family: var(--font-mono);
       font-size: 13px;
       letter-spacing: 0.05em;
-      color: var(--mocha-overlay0);
+      color: var(--mocha-subtext0);
     }
 
-    .arch-ribbon__tag {
-      white-space: nowrap;
-    }
-
-    .arch-ribbon__dot {
-      margin: 0 8px;
-      opacity: 0.6;
-    }
+    .arch-ribbon__tag  { white-space: nowrap; }
+    .arch-ribbon__dot  { margin: 0 8px; opacity: 0.45; color: var(--mocha-overlay0); }
   </style>
 </head>
 <body>
-  <!-- SVG filter for liquid-silk displacement -->
-  <svg width="0" height="0" style="position:absolute">
-    <defs>
-      <filter id="liquid-silk-filter" x="-20%" y="-20%" width="140%" height="140%">
-        <feTurbulence type="fractalNoise" baseFrequency="0.009 0.006" numOctaves="5" seed="13" result="noise"/>
-        <feDisplacementMap in="SourceGraphic" in2="noise" scale="55" xChannelSelector="R" yChannelSelector="G"/>
-      </filter>
-    </defs>
-  </svg>
+  <!-- Dark slide -->
+  <div class="slide">
 
-  <!-- Cream slide -->
-  <div class="slide slide--cream">
+    <!-- Conic sweep — full-bleed, cool palette anchored to the top-right
+         corner; vignette fades into mocha base over the diagram. -->
+    <div class="conic-sweep conic-sweep--cool-tr conic-sweep--cool-tr-quad"></div>
 
-    <!-- Cream liquid-silk backdrop: base cream + cool flow at right edge ~30% -->
-    <div class="liquid-silk liquid-silk--cream"></div>
-
-    <!-- Extra cool flow concentrated at right edge -->
-    <div style="
-      position: absolute;
-      inset: 0;
-      z-index: 0;
-      background:
-        radial-gradient(ellipse 55% 90% at 100% 50%, oklch(78% 0.14 210 / 0.28) 0%, transparent 70%),
-        radial-gradient(ellipse 35% 60% at 95% 20%, oklch(82% 0.10 190 / 0.20) 0%, transparent 65%),
-        radial-gradient(ellipse 30% 50% at 92% 85%, oklch(76% 0.12 230 / 0.18) 0%, transparent 60%);
-      pointer-events: none;
-    "></div>
-
-    <!-- Film grain (lighter opacity on cream) -->
-    <div class="film-grain" style="opacity: 0.035;"></div>
+    <!-- Film grain -->
+    <div class="film-grain"></div>
 
     <!-- Content layer -->
     <div class="slide__content" style="padding: 48px 60px 44px; display: flex; flex-direction: column;">
 
-      <!-- Wordmark (dark on cream — mocha-crust for max contrast) -->
-      <div class="wordmark" style="margin-bottom: 28px; color: var(--mocha-crust);">ATOMIC</div>
+      <!-- Wordmark -->
+      <div class="wordmark" style="margin-bottom: 28px;">ATOMIC</div>
 
-      <!-- Headline — Bricolage Grotesque 54px, weight 700, dark Mocha crust -->
-      <h1 class="headline headline--cream" style="
-        margin-bottom: 8px;
-        font-size: 54px;
+      <!-- Headline -->
+      <h1 style="
+        font-family: var(--font-display);
         font-weight: 700;
+        font-size: 54px;
         line-height: 1.04;
         letter-spacing: -0.025em;
-        color: var(--mocha-crust);
-      ">
-        Atomic enhances your existing agent harness.
-      </h1>
+        color: var(--mocha-text);
+        margin-bottom: 8px;
+      ">Atomic
+        <span
+          class="bubble-text bubble-text--warm"
+          data-text="enhances"
+        >enhances</span>
+        your existing agent harness.</h1>
 
-      <!-- Subhead — Geist Sans 19px, mocha-overlay0 for subtle hierarchy -->
-      <p class="subhead" style="
-        margin-bottom: 32px;
+      <!-- Subhead -->
+      <p style="
+        font-family: var(--font-body);
         font-size: 19px;
-        color: var(--mocha-overlay0);
-        max-width: 680px;
-      ">
-        It wraps the tools developers already use with TypeScript workflow structure.
-      </p>
+        color: var(--mocha-subtext0);
+        line-height: 1.45;
+        margin-bottom: 32px;
+        max-width: 720px;
+      ">It wraps the tools developers already use with TypeScript workflow structure.</p>
 
       <!-- ================================================================
            Architecture diagram — terminal cartography (panes within panes)
@@ -185,9 +195,9 @@
       <!-- Outer "your repo" pane -->
       <div class="arch-pane--repo" style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
 
-        <!-- Title bar: "your repo" — mocha-overlay0 neutral -->
-        <div class="arch-titlebar" style="color: var(--mocha-overlay0); border-bottom-color: var(--mocha-overlay0);">
-          <span class="arch-titlebar__label" style="color: var(--mocha-overlay0);">your repo</span>
+        <!-- Title bar: "your repo" -->
+        <div class="arch-titlebar" style="color: var(--mocha-subtext0); border-bottom-color: var(--mocha-overlay0);">
+          <span class="arch-titlebar__label">your repo</span>
           <span class="arch-titlebar__line"></span>
           <span class="arch-titlebar__close">──────────────</span>
         </div>
@@ -198,20 +208,16 @@
           <!-- Middle "Atomic TypeScript workflow" pane -->
           <div class="arch-pane--atomic" style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
 
-            <!-- Title bar: "Atomic TypeScript workflow" — cool-blue -->
-            <div class="arch-titlebar" style="color: var(--cool-blue); border-bottom-color: var(--cool-blue);">
-              <span class="arch-titlebar__label" style="color: var(--cool-blue);">Atomic TypeScript workflow</span>
+            <!-- Title bar -->
+            <div class="arch-titlebar" style="color: var(--cool-blue); border-bottom-color: color-mix(in oklch, var(--cool-blue) 45%, transparent);">
+              <span class="arch-titlebar__label">Atomic TypeScript workflow</span>
               <span class="arch-titlebar__line" style="background: var(--cool-blue);"></span>
-              <span class="arch-titlebar__close" style="color: var(--cool-blue);">──────────</span>
+              <span class="arch-titlebar__close">──────────</span>
             </div>
 
             <!-- Workflow body: defineWorkflow call signature -->
-            <div class="arch-body arch-body--sm" style="
-              padding: 14px 20px 10px;
-              color: var(--mocha-surface1);
-            ">
-<span style="color: var(--cool-blue); opacity: 0.85;">defineWorkflow</span><span style="color: var(--mocha-overlay1);">()</span><span style="color: var(--mocha-overlay0);">.</span><span style="color: var(--cool-teal); opacity: 0.85;">run</span><span style="color: var(--mocha-overlay1);">(</span><span style="color: var(--mocha-sapphire);">Promise.all</span><span style="color: var(--mocha-overlay1);">)</span><span style="color: var(--mocha-overlay0);">.</span><span style="color: var(--mocha-overlay1);">compile</span><span style="color: var(--mocha-overlay0);">()</span>
-            </div>
+            <div class="arch-body arch-body--sm" style="padding: 14px 20px 10px;"
+><span style="color: var(--cool-blue);">defineWorkflow</span><span style="color: var(--mocha-overlay1);">()</span><span style="color: var(--mocha-overlay0);">.</span><span style="color: var(--cool-teal);">run</span><span style="color: var(--mocha-overlay1);">(</span><span style="color: var(--mocha-mauve);">Promise.all</span><span style="color: var(--mocha-overlay1);">)</span><span style="color: var(--mocha-overlay0);">.</span><span style="color: var(--mocha-subtext1);">compile</span><span style="color: var(--mocha-overlay1);">()</span></div>
 
             <!-- Three agent leaf panes side-by-side -->
             <div style="
@@ -223,38 +229,38 @@
             ">
 
               <!-- Claude Code — cool-sapphire -->
-              <div class="arch-pane--agent arch-pane--claude" style="display: flex; flex-direction: column;">
-                <div class="arch-titlebar" style="color: var(--cool-sapphire); border-bottom-color: var(--cool-sapphire);">
-                  <span class="arch-titlebar__label" style="color: var(--cool-sapphire);">Claude Code</span>
+              <div class="arch-pane--agent arch-pane--claude">
+                <div class="arch-titlebar" style="color: var(--cool-sapphire); border-bottom-color: color-mix(in oklch, var(--cool-sapphire) 45%, transparent);">
+                  <span class="arch-titlebar__label">Claude Code</span>
                   <span class="arch-titlebar__line" style="background: var(--cool-sapphire);"></span>
                 </div>
-                <div class="arch-agent-body" style="color: var(--mocha-surface2); flex: 1;">
-                  <div style="color: var(--cool-sapphire); opacity: 0.75; font-size: 11px; margin-bottom: 4px;">native CLI + SDK</div>
-                  <div style="color: var(--mocha-overlay0); font-size: 11px; opacity: 0.8;">session</div>
+                <div class="arch-agent-body">
+                  <div style="color: var(--cool-sapphire); font-size: 11px; margin-bottom: 4px; opacity: 0.85;">native CLI + SDK</div>
+                  <div style="color: var(--mocha-subtext0); font-size: 11px; opacity: 0.85;">session</div>
                 </div>
               </div>
 
               <!-- OpenCode — warm-peach -->
-              <div class="arch-pane--agent arch-pane--opencode" style="display: flex; flex-direction: column;">
-                <div class="arch-titlebar" style="color: var(--warm-peach); border-bottom-color: var(--warm-peach);">
-                  <span class="arch-titlebar__label" style="color: var(--warm-peach);">OpenCode</span>
+              <div class="arch-pane--agent arch-pane--opencode">
+                <div class="arch-titlebar" style="color: var(--warm-peach); border-bottom-color: color-mix(in oklch, var(--warm-peach) 45%, transparent);">
+                  <span class="arch-titlebar__label">OpenCode</span>
                   <span class="arch-titlebar__line" style="background: var(--warm-peach);"></span>
                 </div>
-                <div class="arch-agent-body" style="color: var(--mocha-surface2); flex: 1;">
-                  <div style="color: var(--warm-peach); opacity: 0.75; font-size: 11px; margin-bottom: 4px;">native CLI + SDK</div>
-                  <div style="color: var(--mocha-overlay0); font-size: 11px; opacity: 0.8;">session</div>
+                <div class="arch-agent-body">
+                  <div style="color: var(--warm-peach); font-size: 11px; margin-bottom: 4px; opacity: 0.85;">native CLI + SDK</div>
+                  <div style="color: var(--mocha-subtext0); font-size: 11px; opacity: 0.85;">session</div>
                 </div>
               </div>
 
               <!-- Copilot CLI — cool-teal -->
-              <div class="arch-pane--agent arch-pane--copilot" style="display: flex; flex-direction: column;">
-                <div class="arch-titlebar" style="color: var(--cool-teal); border-bottom-color: var(--cool-teal);">
-                  <span class="arch-titlebar__label" style="color: var(--cool-teal);">Copilot CLI</span>
+              <div class="arch-pane--agent arch-pane--copilot">
+                <div class="arch-titlebar" style="color: var(--cool-teal); border-bottom-color: color-mix(in oklch, var(--cool-teal) 45%, transparent);">
+                  <span class="arch-titlebar__label">Copilot CLI</span>
                   <span class="arch-titlebar__line" style="background: var(--cool-teal);"></span>
                 </div>
-                <div class="arch-agent-body" style="color: var(--mocha-surface2); flex: 1;">
-                  <div style="color: var(--cool-teal); opacity: 0.75; font-size: 11px; margin-bottom: 4px;">native CLI + SDK</div>
-                  <div style="color: var(--mocha-overlay0); font-size: 11px; opacity: 0.8;">session</div>
+                <div class="arch-agent-body">
+                  <div style="color: var(--cool-teal); font-size: 11px; margin-bottom: 4px; opacity: 0.85;">native CLI + SDK</div>
+                  <div style="color: var(--mocha-subtext0); font-size: 11px; opacity: 0.85;">session</div>
                 </div>
               </div>
 
@@ -291,6 +297,6 @@
     <!-- /slide__content -->
 
   </div>
-  <!-- /slide slide--cream -->
+  <!-- /slide -->
 </body>
 </html>

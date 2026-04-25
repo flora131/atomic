@@ -13,22 +13,35 @@
     html, body { width: 1270px; height: 760px; overflow: hidden; }
 
     /* -----------------------------------------------------------------------
-       Slide-scoped liquid-silk override: cool flow from upper-right only
+       Slide-scoped conic sweep: shares slide 06's red → mauve → sapphire → teal
+       palette, but with cool stops occupying a wider arc so blues dominate the
+       canvas. Anchored mid-right with a softer vignette so the sweep bleeds
+       around and behind the case grid instead of clipping to one corner.
     ----------------------------------------------------------------------- */
-    .liquid-silk--cool-tr {
-      position: absolute;
-      top: 0;
-      right: 0;
-      width: 55%;
-      height: 55%;
-      z-index: 0;
-      /* Radial gradients anchored to top-right corner */
-      background:
-        radial-gradient(ellipse 100% 100% at 100% 0%, oklch(65% 0.15 220 / 0.55) 0%, transparent 65%),
-        radial-gradient(ellipse 80% 70% at 90% 10%, oklch(60% 0.18 185 / 0.35) 0%, transparent 60%),
-        radial-gradient(ellipse 60% 60% at 80% 5%, oklch(55% 0.14 240 / 0.25) 0%, transparent 55%);
-      filter: url('#liquid-silk-filter');
-      pointer-events: none;
+    .conic-sweep--cool-tr-quad {
+      --conic-from: 180deg;
+      --conic-at: 50% 50%;
+      --conic-vignette-size: 62% 60%;
+      --conic-vignette-at: 50% 55%;
+      --conic-vignette-strength: 0.50;
+      --conic-opacity: 0.85;
+      --conic-saturate: 1.20;
+    }
+
+    /* Override the conic stop list to bias the cool side: warm-red and peach
+       compress into a narrow lower wedge while blue → sapphire → teal claim
+       the majority of the rotation. Same hues as slide 06, redistributed. */
+    .conic-sweep--cool-tr-quad::before {
+      background: conic-gradient(
+        from var(--conic-from) at var(--conic-at),
+        oklch(58% 0.22 15)    0deg,    /* warm red */
+        oklch(70% 0.18 45)   30deg,    /* peach (narrow) */
+        oklch(62% 0.16 320)  85deg,    /* mauve */
+        oklch(60% 0.20 240) 165deg,    /* blue (expanded) */
+        oklch(64% 0.18 215) 240deg,    /* sapphire */
+        oklch(68% 0.14 195) 315deg,    /* teal */
+        oklch(58% 0.22 15)  360deg
+      );
     }
 
     /* -----------------------------------------------------------------------
@@ -218,22 +231,10 @@
   </style>
 </head>
 <body>
-  <!-- SVG filter for liquid-silk displacement -->
-  <svg width="0" height="0" style="position:absolute">
-    <defs>
-      <filter id="liquid-silk-filter" x="-30%" y="-30%" width="160%" height="160%">
-        <feTurbulence type="fractalNoise" baseFrequency="0.014 0.009" numOctaves="4" seed="5" result="noise"/>
-        <feDisplacementMap in="SourceGraphic" in2="noise" scale="70" xChannelSelector="R" yChannelSelector="G"/>
-      </filter>
-    </defs>
-  </svg>
-
   <div class="slide">
-    <!-- Dark Mocha base -->
-    <div style="position:absolute; inset:0; background: var(--mocha-base);"></div>
-
-    <!-- Liquid silk — cool, upper-right corner only -->
-    <div class="liquid-silk--cool-tr"></div>
+    <!-- Conic sweep — full-bleed, cool palette anchored to the top-right
+         corner; vignette fades the gradient into mocha base over the cases. -->
+    <div class="conic-sweep conic-sweep--cool-tr conic-sweep--cool-tr-quad"></div>
 
     <!-- Film grain -->
     <div class="film-grain"></div>

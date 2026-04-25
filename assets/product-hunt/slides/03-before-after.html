@@ -11,74 +11,205 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 1270px; height: 760px; overflow: hidden; }
 
-    /* Slide-local filter overrides for diptych */
-    /* Warm side: slightly more agitated turbulence */
-    #lsf-warm { }
-    /* Cool side: calmer flow */
-    #lsf-cool { }
-
-    .diptych-warm {
-      position: absolute;
-      top: 0; left: 0;
-      width: 615px; /* slightly less than 50% to leave room for seam */
-      height: 100%;
-      filter: url('#lsf-warm');
-    }
-
-    .diptych-cool {
-      position: absolute;
-      top: 0; right: 0;
-      width: 615px;
-      height: 100%;
-      filter: url('#lsf-cool');
-    }
-
-    /* Mauve seam: gradient zone between halves */
-    .mauve-seam {
-      position: absolute;
-      top: 0;
-      left: calc(50% - 20px);
-      width: 40px;
-      height: 100%;
-      z-index: 1;
-      pointer-events: none;
-      background: linear-gradient(
-        to right,
-        transparent 0%,
-        oklch(70% 0.15 300 / 0.18) 30%,
-        oklch(72% 0.17 300 / 0.30) 50%,
-        oklch(70% 0.15 300 / 0.18) 70%,
-        transparent 100%
-      );
-      filter: blur(6px);
+    /* Diptych: a single full-bleed conic sweep that places warm hues on the
+       left, mauve through the center, and cool hues on the right. The seam
+       between Before and After is the gradient itself — no clipping, no hard
+       edge. Tuned via `from: 270deg` so the warm-red stop sits at 9 o'clock
+       (left) and sapphire/blue sits at 3 o'clock (right). */
+    .conic-sweep--diptych {
+      --conic-from: 270deg;
+      --conic-at: 50% 55%;
+      --conic-saturate: 1.18;
+      --conic-vignette-size: 38% 60%;
+      --conic-vignette-at: 50% 70%;
+      --conic-vignette-strength: 0.45;
+      --conic-opacity: 0.88;
     }
 
     /* Before bullet list */
     .before-list {
       list-style: none;
       display: flex;
-      flex-direction: column;
-      gap: 10px;
-      margin-top: 20px;
+      flex-direction: row;
+      flex-wrap: wrap;
+      gap: 6px 18px;
+      margin-top: 14px;
+      max-width: 520px;
     }
 
     .before-list li {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 8px;
       font-family: var(--font-body);
-      font-size: 18px;
+      font-size: 14px;
       color: var(--mocha-subtext0);
       line-height: 1.4;
     }
 
     .before-list li .glyph {
       color: var(--warm-peach);
-      opacity: 0.7;
-      font-size: 16px;
+      opacity: 0.75;
+      font-size: 13px;
       flex-shrink: 0;
-      width: 16px;
+      width: 12px;
     }
+
+    /* Manual prompt log — chat-style artifact for the Before panel */
+    .prompt-log {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.55;
+      color: var(--mocha-subtext0);
+      padding: 14px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 300px;
+      overflow: hidden;
+    }
+
+    .prompt-log__turn {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+
+    .prompt-log__user {
+      display: flex;
+      gap: 8px;
+      align-items: baseline;
+      color: var(--warm-peach);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .prompt-log__user-prompt { color: var(--mocha-text); }
+    .prompt-log__agent-tag   { color: var(--mocha-overlay1); font-size: 11px; }
+
+    .prompt-log__reply {
+      display: flex;
+      gap: 8px;
+      padding-left: 14px;
+      color: var(--mocha-overlay1);
+    }
+
+    .prompt-log__reply-glyph { color: var(--mocha-green); }
+    .prompt-log__reply--pending .prompt-log__reply-glyph { color: var(--mocha-yellow); }
+    .prompt-log__reply--error .prompt-log__reply-glyph { color: var(--warm-red); }
+
+    .prompt-log__nudge {
+      padding-left: 14px;
+      color: var(--warm-maroon);
+      font-style: italic;
+      font-size: 11px;
+      letter-spacing: 0.02em;
+    }
+
+    /* Skill invocation annotation — shows when an agent reaches for a skill */
+    .prompt-log__skill {
+      display: flex;
+      gap: 8px;
+      padding-left: 14px;
+      color: var(--mocha-mauve);
+      font-size: 11px;
+      letter-spacing: 0.01em;
+    }
+    .prompt-log__skill-name { color: var(--mocha-text); font-weight: 500; }
+    .prompt-log__skill-tag {
+      color: var(--mocha-overlay1);
+      font-style: italic;
+      font-size: 10.5px;
+    }
+
+    /* Workflow.ts code pane — keyword highlighting */
+    .code-line {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      line-height: 1.55;
+      white-space: pre;
+      color: var(--mocha-text);
+    }
+    .code-kw      { color: var(--mocha-mauve); }
+    .code-fn      { color: var(--cool-blue); }
+    .code-str     { color: var(--mocha-green); }
+    .code-prop    { color: var(--cool-teal); }
+    .code-arg     { color: var(--mocha-text); }
+    .code-comment { color: var(--mocha-overlay0); font-style: italic; }
+    .code-punct   { color: var(--mocha-subtext0); }
+
+    /* Outcome receipt card */
+    .outcome {
+      border: 1px solid var(--mocha-overlay0);
+      border-radius: 8px;
+      background: oklch(16% 0.04 220 / 0.85);
+      overflow: hidden;
+    }
+
+    .outcome__header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 14px;
+      background: oklch(22% 0.06 215 / 0.55);
+      border-bottom: 1px solid var(--mocha-overlay0);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.04em;
+    }
+    .outcome__badge {
+      background: var(--mocha-green);
+      color: var(--mocha-surface0);
+      padding: 1px 7px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      border-radius: 2px;
+    }
+    .outcome__path { color: var(--mocha-overlay1); }
+
+    .outcome__body {
+      padding: 12px 16px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .outcome__row {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      line-height: 1.5;
+    }
+    .outcome__check { color: var(--mocha-green); width: 12px; flex-shrink: 0; }
+    .outcome__label { color: var(--mocha-text); flex: 0 0 64px; font-weight: 500; }
+    .outcome__skill {
+      flex: 0 0 150px;
+      font-size: 11.5px;
+      color: var(--mocha-mauve);
+      letter-spacing: 0.01em;
+    }
+    .outcome__skill--none { color: var(--mocha-overlay0); }
+    .outcome__value { color: var(--mocha-subtext0); flex: 1; }
+
+    .outcome__divider {
+      height: 1px;
+      background: var(--mocha-overlay0);
+      opacity: 0.4;
+      margin: 4px 0 2px;
+    }
+
+    .outcome__footer {
+      display: flex;
+      align-items: baseline;
+      gap: 14px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--mocha-overlay0);
+      padding-top: 2px;
+    }
+    .outcome__footer-key { color: var(--mocha-subtext0); }
 
     /* Workflow graph nodes */
     .wf-node {
@@ -107,12 +238,6 @@
       flex-direction: column;
       justify-content: center;
       padding: 0 48px;
-      background: linear-gradient(
-        to bottom,
-        oklch(12% 0.02 260 / 0.85) 0%,
-        oklch(12% 0.02 260 / 0.50) 70%,
-        transparent 100%
-      );
     }
 
     .top-band-row {
@@ -156,40 +281,12 @@
     </defs>
   </svg>
 
-  <!-- Standard liquid-silk filter needed by the component classes -->
-  <svg width="0" height="0" style="position:absolute;overflow:hidden" aria-hidden="true">
-    <defs>
-      <filter id="liquid-silk-filter" x="-20%" y="-20%" width="140%" height="140%">
-        <feTurbulence type="fractalNoise" baseFrequency="0.010 0.007" numOctaves="4" seed="11" result="noise"/>
-        <feDisplacementMap in="SourceGraphic" in2="noise" scale="90" xChannelSelector="R" yChannelSelector="G"/>
-      </filter>
-    </defs>
-  </svg>
-
   <div class="slide">
 
-    <!-- Warm left backdrop -->
-    <div class="diptych-warm" style="
-      background:
-        radial-gradient(ellipse 95% 65% at 10% 25%, oklch(52% 0.20 10 / 0.65) 0%, transparent 65%),
-        radial-gradient(ellipse 75% 85% at 75% 80%, oklch(58% 0.22 25 / 0.45) 0%, transparent 65%),
-        radial-gradient(ellipse 65% 50% at 45% 100%, oklch(48% 0.17 350 / 0.35) 0%, transparent 60%),
-        radial-gradient(ellipse 80% 45% at 80% 5%,  oklch(62% 0.14 300 / 0.28) 0%, transparent 55%),
-        var(--mocha-base);
-    "></div>
-
-    <!-- Cool right backdrop -->
-    <div class="diptych-cool" style="
-      background:
-        radial-gradient(ellipse 90% 70% at 15% 20%, oklch(62% 0.16 220 / 0.55) 0%, transparent 65%),
-        radial-gradient(ellipse 80% 75% at 85% 80%, oklch(68% 0.20 185 / 0.45) 0%, transparent 65%),
-        radial-gradient(ellipse 60% 55% at 60% 95%, oklch(58% 0.18 200 / 0.32) 0%, transparent 60%),
-        radial-gradient(ellipse 75% 38% at 92% 8%,  oklch(52% 0.16 240 / 0.28) 0%, transparent 55%),
-        var(--mocha-base);
-    "></div>
-
-    <!-- Mauve seam: warm-to-cool gradient bridge -->
-    <div class="mauve-seam"></div>
+    <!-- Single full-bleed diptych conic sweep: warm hues seat on the left,
+         mauve passes through the center as the human-judgment bridge, and
+         cool hues seat on the right. No clipped halves, no hard seam. -->
+    <div class="conic-sweep conic-sweep--diptych"></div>
 
     <!-- Film grain -->
     <div class="film-grain"></div>
@@ -239,38 +336,87 @@
         <!-- "Before" title — NO bubble effect, plain Bricolage Grotesque -->
         <h2 style="
           font-family: var(--font-display);
-          font-size: 96px;
+          font-size: 80px;
           font-weight: 800;
           line-height: 1;
           letter-spacing: -0.03em;
           color: var(--cream);
-          margin-bottom: 28px;
+          margin-bottom: 18px;
           position: relative;
           z-index: 2;
         ">Before</h2>
 
-        <!-- Bullet list with ○ glyphs -->
+        <!-- Manual prompt log — chat-style artifact showing the messy back-and-forth -->
+        <div class="tui-pane" style="background: var(--mocha-mantle); position: relative; z-index: 2; max-width: 530px;">
+          <div class="tui-pane__titlebar">
+            <div class="tui-pane__traffic-lights">
+              <div class="tui-pane__dot tui-pane__dot--close"></div>
+              <div class="tui-pane__dot tui-pane__dot--min"></div>
+              <div class="tui-pane__dot tui-pane__dot--max"></div>
+            </div>
+            <div class="tui-pane__title">~/ship-fix &nbsp;·&nbsp; manual session</div>
+          </div>
+          <div class="prompt-log">
+            <div class="prompt-log__turn">
+              <div class="prompt-log__user">
+                <span>$</span><span class="prompt-log__agent-tag">claude</span>
+                <span class="prompt-log__user-prompt">"scan the diff for security issues"</span>
+              </div>
+              <div class="prompt-log__skill">
+                <span>↳ used skill</span>
+                <span class="prompt-log__skill-name">security-review</span>
+                <span class="prompt-log__skill-tag">(auto-invoked)</span>
+              </div>
+              <div class="prompt-log__reply">
+                <span class="prompt-log__reply-glyph">✓</span>
+                <span>2 findings · waiting on me to triage</span>
+              </div>
+            </div>
+
+            <div class="prompt-log__turn">
+              <div class="prompt-log__user">
+                <span>$</span><span class="prompt-log__agent-tag">copilot</span>
+                <span class="prompt-log__user-prompt">"now run the tests"</span>
+              </div>
+              <div class="prompt-log__reply">
+                <span class="prompt-log__reply-glyph">✓</span>
+                <span>12/12 passed</span>
+              </div>
+            </div>
+
+            <div class="prompt-log__turn">
+              <div class="prompt-log__user">
+                <span>$</span><span class="prompt-log__agent-tag">claude</span>
+                <span class="prompt-log__user-prompt">"use the lint-fix skill on src/"</span>
+              </div>
+              <div class="prompt-log__skill">
+                <span>↳ skill</span>
+                <span class="prompt-log__skill-name">lint-fix</span>
+                <span class="prompt-log__skill-tag">(you had to remember it)</span>
+              </div>
+              <div class="prompt-log__nudge">↳ wait, you removed an import — re-add it</div>
+            </div>
+
+            <div class="prompt-log__turn">
+              <div class="prompt-log__user">
+                <span>$</span><span class="prompt-log__agent-tag">claude</span>
+                <span class="prompt-log__user-prompt">"rerun the tests after the lint fix"</span>
+              </div>
+              <div class="prompt-log__reply prompt-log__reply--pending">
+                <span class="prompt-log__reply-glyph">…</span>
+                <span>still going? unclear</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pain bullet list — preserved copy, condensed into a horizontal cluster -->
         <ul class="before-list" style="position: relative; z-index: 2;">
-          <li>
-            <span class="glyph">○</span>
-            <span>Manual prompting</span>
-          </li>
-          <li>
-            <span class="glyph">○</span>
-            <span>Repeated reminders</span>
-          </li>
-          <li>
-            <span class="glyph">○</span>
-            <span>Context switching</span>
-          </li>
-          <li>
-            <span class="glyph">○</span>
-            <span>Unclear state</span>
-          </li>
-          <li>
-            <span class="glyph">○</span>
-            <span>Unsafe execution</span>
-          </li>
+          <li><span class="glyph">○</span><span>Manual prompting</span></li>
+          <li><span class="glyph">○</span><span>Repeated reminders</span></li>
+          <li><span class="glyph">○</span><span>Context switching</span></li>
+          <li><span class="glyph">○</span><span>Unclear state</span></li>
+          <li><span class="glyph">○</span><span>Unsafe execution</span></li>
         </ul>
       </div>
 
@@ -286,96 +432,103 @@
         position: relative;
       ">
         <!-- "After" title WITH bubble effect — the single delight word -->
-        <h2 style="margin-bottom: 20px; position: relative; z-index: 2;">
+        <h2 style="margin-bottom: 18px; position: relative; z-index: 2;">
           <span
             class="bubble-text bubble-text--cool"
             data-text="After"
-            style="font-size: 96px;"
+            style="font-size: 80px;"
           >After</span>
         </h2>
 
-        <!-- Workflow graph: nested tui-pane nodes in terminal cartography style -->
-        <div style="display: flex; flex-direction: column; gap: 8px; position: relative; z-index: 2; max-width: 520px;">
+        <!-- workflow.ts source file → completed run receipt -->
+        <div style="display: flex; flex-direction: column; gap: 10px; position: relative; z-index: 2; max-width: 520px;">
 
-          <!-- Node: workflow.ts (root) -->
-          <div class="tui-pane" style="width: 100%; background: var(--mocha-mantle);">
+          <!-- Tiny workflow.ts file — abbreviated, faithful to the real API -->
+          <div class="tui-pane" style="background: var(--mocha-mantle);">
             <div class="tui-pane__titlebar">
               <div class="tui-pane__traffic-lights">
                 <div class="tui-pane__dot tui-pane__dot--close"></div>
                 <div class="tui-pane__dot tui-pane__dot--min"></div>
                 <div class="tui-pane__dot tui-pane__dot--max"></div>
               </div>
-              <div class="tui-pane__title">workflow.ts</div>
+              <div class="tui-pane__title">workflow.ts &nbsp;·&nbsp; abbreviated</div>
             </div>
-            <div class="tui-pane__body" style="font-size: 14px; padding: 8px 16px; white-space: normal;">
-              <span style="color: var(--cool-teal);">✓</span>
-              <span style="color: var(--cool-blue);"> defineWorkflow</span>
-              <span style="color: var(--mocha-subtext0);">(</span>
-              <span style="color: var(--mocha-green);">"deploy"</span>
-              <span style="color: var(--mocha-subtext0);">)</span>
+            <div class="tui-pane__body" style="padding: 10px 16px; white-space: normal;">
+              <div class="code-line"><span class="code-kw">const</span> <span class="code-arg">step</span> <span class="code-punct">=</span> <span class="code-punct">(</span><span class="code-arg">cmd</span><span class="code-punct">) =&gt;</span> <span class="code-kw">async</span> <span class="code-punct">(</span><span class="code-arg">s</span><span class="code-punct">) =&gt;</span> <span class="code-arg">s</span><span class="code-punct">.</span><span class="code-prop">session</span><span class="code-punct">.</span><span class="code-prop">query</span><span class="code-punct">(</span><span class="code-arg">cmd</span><span class="code-punct">)</span></div>
+              <div class="code-line">&nbsp;</div>
+              <div class="code-line"><span class="code-fn">defineWorkflow</span><span class="code-punct">({</span> <span class="code-prop">name</span><span class="code-punct">:</span> <span class="code-str">"ship"</span> <span class="code-punct">})</span></div>
+              <div class="code-line">  <span class="code-punct">.</span><span class="code-prop">for</span><span class="code-punct">(</span><span class="code-str">"claude"</span><span class="code-punct">)</span></div>
+              <div class="code-line">  <span class="code-punct">.</span><span class="code-prop">run</span><span class="code-punct">(</span><span class="code-kw">async</span> <span class="code-punct">(</span><span class="code-arg">ctx</span><span class="code-punct">) =&gt; {</span></div>
+              <div class="code-line">    <span class="code-kw">await</span> <span class="code-arg">ctx</span><span class="code-punct">.</span><span class="code-prop">stage</span><span class="code-punct">({</span> <span class="code-prop">name</span><span class="code-punct">:</span> <span class="code-str">"scan"</span>   <span class="code-punct">},</span> <span class="code-punct">{}, {},</span> <span class="code-fn">step</span><span class="code-punct">(</span><span class="code-str">"/security-review"</span><span class="code-punct">))</span></div>
+              <div class="code-line">    <span class="code-kw">await</span> <span class="code-arg">ctx</span><span class="code-punct">.</span><span class="code-prop">stage</span><span class="code-punct">({</span> <span class="code-prop">name</span><span class="code-punct">:</span> <span class="code-str">"test"</span>   <span class="code-punct">},</span> <span class="code-punct">{}, {},</span> <span class="code-fn">step</span><span class="code-punct">(</span><span class="code-str">"bun test"</span><span class="code-punct">))</span></div>
+              <div class="code-line">    <span class="code-kw">await</span> <span class="code-arg">ctx</span><span class="code-punct">.</span><span class="code-prop">stage</span><span class="code-punct">({</span> <span class="code-prop">name</span><span class="code-punct">:</span> <span class="code-str">"lint"</span>   <span class="code-punct">},</span> <span class="code-punct">{}, {},</span> <span class="code-fn">step</span><span class="code-punct">(</span><span class="code-str">"/lint-fix"</span><span class="code-punct">))</span></div>
+              <div class="code-line">    <span class="code-kw">await</span> <span class="code-arg">ctx</span><span class="code-punct">.</span><span class="code-prop">stage</span><span class="code-punct">({</span> <span class="code-prop">name</span><span class="code-punct">:</span> <span class="code-str">"review"</span> <span class="code-punct">},</span> <span class="code-punct">{}, {},</span> <span class="code-fn">step</span><span class="code-punct">(</span><span class="code-str">"/pr-summary"</span><span class="code-punct">))</span></div>
+              <div class="code-line">  <span class="code-punct">})</span></div>
+              <div class="code-line">  <span class="code-punct">.</span><span class="code-prop">compile</span><span class="code-punct">()</span></div>
             </div>
           </div>
 
-          <!-- Arrow down with label -->
+          <!-- Caption: same skills, now sequenced -->
+          <div style="
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 2px 4px 0 4px;
+            font-family: var(--font-body);
+            font-size: 13px;
+            line-height: 1.4;
+            color: var(--mocha-mauve);
+            letter-spacing: 0.005em;
+          ">
+            <span style="font-family: var(--font-mono); font-size: 12px; color: var(--mocha-mauve); opacity: 0.7;">↳</span>
+            <span>Same skills you already use — now in sequence.</span>
+          </div>
+
+          <!-- Connector: workflow → result -->
           <div style="display: flex; align-items: center; padding-left: 20px; gap: 8px;">
             <span style="font-family: var(--font-mono); font-size: 16px; color: var(--mocha-overlay1); line-height: 1;">↓</span>
-            <span style="font-family: var(--font-mono); font-size: 11px; color: var(--mocha-overlay0); letter-spacing: 0.06em;">parallel stages</span>
+            <span style="font-family: var(--font-mono); font-size: 11px; color: var(--mocha-overlay0); letter-spacing: 0.06em;">atomic run · completed</span>
           </div>
 
-          <!-- Parallel nodes: agent A + agent B side by side -->
-          <div style="display: flex; gap: 10px; align-items: stretch;">
-            <!-- Agent A -->
-            <div class="tui-pane" style="flex: 1; background: var(--mocha-mantle);">
-              <div class="tui-pane__titlebar">
-                <div class="tui-pane__traffic-lights">
-                  <div class="tui-pane__dot tui-pane__dot--close"></div>
-                  <div class="tui-pane__dot tui-pane__dot--min"></div>
-                  <div class="tui-pane__dot tui-pane__dot--max"></div>
-                </div>
-                <div class="tui-pane__title">agent A</div>
+          <!-- Outcome receipt — the green payoff -->
+          <div class="outcome">
+            <div class="outcome__header">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <span class="outcome__badge">DONE</span>
+                <span style="color: var(--mocha-text); font-weight: 700;">ship</span>
               </div>
-              <div class="tui-pane__body" style="font-size: 13px; padding: 8px 14px; white-space: normal;">
-                <span style="color: var(--cool-teal);">✓</span>
-                <span style="color: var(--mocha-subtext0);"> security-scan</span>
-              </div>
+              <span class="outcome__path">3:42 · 4 stages</span>
             </div>
-
-            <!-- Agent B -->
-            <div class="tui-pane" style="flex: 1; background: var(--mocha-mantle);">
-              <div class="tui-pane__titlebar">
-                <div class="tui-pane__traffic-lights">
-                  <div class="tui-pane__dot tui-pane__dot--close"></div>
-                  <div class="tui-pane__dot tui-pane__dot--min"></div>
-                  <div class="tui-pane__dot tui-pane__dot--max"></div>
-                </div>
-                <div class="tui-pane__title">agent B</div>
+            <div class="outcome__body">
+              <div class="outcome__row">
+                <span class="outcome__check">✓</span>
+                <span class="outcome__label">scan</span>
+                <span class="outcome__skill">security-review</span>
+                <span class="outcome__value">no findings</span>
               </div>
-              <div class="tui-pane__body" style="font-size: 13px; padding: 8px 14px; white-space: normal;">
-                <span style="color: var(--cool-teal);">✓</span>
-                <span style="color: var(--mocha-subtext0);"> ci-checks</span>
+              <div class="outcome__row">
+                <span class="outcome__check">✓</span>
+                <span class="outcome__label">test</span>
+                <span class="outcome__skill outcome__skill--none">—</span>
+                <span class="outcome__value">124 / 124 passed</span>
               </div>
-            </div>
-          </div>
-
-          <!-- Arrow converging to gate -->
-          <div style="display: flex; align-items: center; padding-left: 20px; gap: 8px;">
-            <span style="font-family: var(--font-mono); font-size: 16px; color: var(--mocha-overlay1); line-height: 1;">↓</span>
-            <span style="font-family: var(--font-mono); font-size: 11px; color: var(--mocha-overlay0); letter-spacing: 0.06em;">merge → gate</span>
-          </div>
-
-          <!-- Review gate node — mauve accent (human judgment) -->
-          <div class="tui-pane" style="width: 100%; border-color: var(--mocha-mauve); background: oklch(14% 0.06 300 / 0.80);">
-            <div class="tui-pane__titlebar" style="background: oklch(28% 0.14 300 / 0.50);">
-              <div class="tui-pane__traffic-lights">
-                <div class="tui-pane__dot tui-pane__dot--close"></div>
-                <div class="tui-pane__dot tui-pane__dot--min"></div>
-                <div class="tui-pane__dot tui-pane__dot--max"></div>
+              <div class="outcome__row">
+                <span class="outcome__check">✓</span>
+                <span class="outcome__label">lint</span>
+                <span class="outcome__skill">lint-fix</span>
+                <span class="outcome__value">clean</span>
               </div>
-              <div class="tui-pane__title" style="color: var(--mocha-mauve);">review gate</div>
-            </div>
-            <div class="tui-pane__body" style="font-size: 13px; padding: 8px 16px; white-space: normal;">
-              <span style="color: var(--mocha-mauve);">⏳</span>
-              <span style="color: var(--mocha-subtext0);"> awaiting human approval</span>
+              <div class="outcome__row">
+                <span class="outcome__check">✓</span>
+                <span class="outcome__label">review</span>
+                <span class="outcome__skill">pr-summary</span>
+                <span class="outcome__value">PR&nbsp;#482 opened</span>
+              </div>
+              <div class="outcome__divider"></div>
+              <div class="outcome__footer">
+                <span><span class="outcome__footer-key">log</span>&nbsp; .atomic/runs/482</span>
+                <span><span class="outcome__footer-key">replay</span>&nbsp; atomic run ship</span>
+              </div>
             </div>
           </div>
 

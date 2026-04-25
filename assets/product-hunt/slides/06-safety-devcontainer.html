@@ -239,29 +239,10 @@
   </style>
 </head>
 <body>
-  <!-- SVG filter for liquid-silk displacement — deeper saturation variant -->
-  <svg width="0" height="0" style="position:absolute;overflow:hidden" aria-hidden="true">
-    <defs>
-      <filter id="liquid-silk-filter" x="-20%" y="-20%" width="140%" height="140%">
-        <feTurbulence type="fractalNoise" baseFrequency="0.011 0.008" numOctaves="4" seed="23" result="noise"/>
-        <feDisplacementMap in="SourceGraphic" in2="noise" scale="90" xChannelSelector="R" yChannelSelector="G"/>
-      </filter>
-    </defs>
-  </svg>
-
   <div class="slide">
 
-    <!-- Cool silk backdrop — deeper saturation (amplified oklch chroma) -->
-    <div class="liquid-silk" style="
-      background:
-        radial-gradient(ellipse 90% 70% at 18% 12%, oklch(62% 0.22 222 / 0.65) 0%, transparent 65%),
-        radial-gradient(ellipse 80% 80% at 82% 78%, oklch(68% 0.24 188 / 0.55) 0%, transparent 65%),
-        radial-gradient(ellipse 60% 55% at 52% 98%, oklch(58% 0.22 205 / 0.40) 0%, transparent 60%),
-        radial-gradient(ellipse 75% 40% at 92% 3%,  oklch(52% 0.20 242 / 0.35) 0%, transparent 55%),
-        radial-gradient(ellipse 50% 45% at 5% 85%,  oklch(55% 0.18 200 / 0.28) 0%, transparent 55%),
-        var(--mocha-base);
-      filter: url('#liquid-silk-filter');
-    "></div>
+    <!-- Cool conic sweep backdrop — deeper saturation -->
+    <div class="conic-sweep conic-sweep--cool-anchor"></div>
 
     <!-- Film grain -->
     <div class="film-grain"></div>

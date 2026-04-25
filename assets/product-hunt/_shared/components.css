@@ -39,8 +39,121 @@
 }
 
 /* ==========================================================================
-   Backdrop: .liquid-silk
-   Multi-radial gradient + SVG turbulence displacement for organic flow.
+   Backdrop: .conic-sweep
+   A single conic-gradient rotation through warm → mauve → cool → mauve → warm,
+   blurred to silk and seated over the mocha base, with a center vignette that
+   fades back toward mocha so typography stays legible. Configurable via CSS
+   custom properties so each slide can tune emphasis without redefining the
+   full color stop list.
+   ========================================================================== */
+
+.conic-sweep {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  background-color: var(--mocha-base);
+}
+
+.conic-sweep::before {
+  content: '';
+  position: absolute;
+  inset: -10%;
+  background: conic-gradient(
+    from var(--conic-from, 215deg) at var(--conic-at, 50% 50%),
+    oklch(58% 0.22 15)   0deg,    /* warm red */
+    oklch(70% 0.18 45)   55deg,   /* peach */
+    oklch(62% 0.16 320) 130deg,   /* mauve */
+    oklch(60% 0.20 240) 200deg,   /* blue */
+    oklch(64% 0.18 215) 260deg,   /* sapphire */
+    oklch(68% 0.14 195) 310deg,   /* teal */
+    oklch(58% 0.22 15)  360deg
+  );
+  filter: blur(var(--conic-blur, 80px)) saturate(var(--conic-saturate, 1.05));
+  opacity: var(--conic-opacity, 0.85);
+}
+
+.conic-sweep::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse var(--conic-vignette-size, 65% 70%) at var(--conic-vignette-at, 50% 55%),
+    oklch(20% 0.04 270 / var(--conic-vignette-strength, 0.55)) 0%,
+    transparent 65%
+  );
+}
+
+/* Warm anchor: warm spectrum dominates the left, cool the right. (slide 01) */
+.conic-sweep--warm-anchor {
+  --conic-from: 200deg;
+  --conic-saturate: 1.15;
+}
+
+/* Cool anchor: cool stops sit across the top and right (under the
+   headline + TUI), warm wraps to the bottom where the panes already
+   carry their own dark chrome. (slide 06) */
+.conic-sweep--cool-anchor {
+  --conic-from: 180deg;
+  --conic-saturate: 1.20;
+  --conic-opacity: 0.90;
+  --conic-vignette-size: 70% 65%;
+  --conic-vignette-at: 50% 50%;
+  --conic-vignette-strength: 0.55;
+}
+
+/* Cool top-right corner: gradient seated in upper-right quadrant only. */
+.conic-sweep--cool-tr {
+  --conic-from: 90deg;
+  --conic-at: 100% 0%;
+  --conic-vignette-size: 95% 90%;
+  --conic-vignette-at: 25% 70%;
+  --conic-vignette-strength: 0.85;
+  --conic-opacity: 0.70;
+}
+
+/* Right-edge strip: cool flow anchored to the right edge. (slide 02) */
+.conic-sweep--right-edge {
+  --conic-from: 90deg;
+  --conic-at: 100% 50%;
+  --conic-vignette-size: 80% 100%;
+  --conic-vignette-at: 25% 50%;
+  --conic-vignette-strength: 0.70;
+  --conic-opacity: 0.60;
+}
+
+/* Diptych halves: warm sweep clipped to the left half, cool to the right. */
+.conic-sweep--diptych-warm {
+  --conic-from: 215deg;
+  --conic-at: 100% 50%;
+  --conic-vignette-size: 70% 80%;
+  --conic-vignette-at: 50% 55%;
+  --conic-vignette-strength: 0.40;
+  --conic-saturate: 1.10;
+}
+
+.conic-sweep--diptych-cool {
+  --conic-from: 35deg;
+  --conic-at: 0% 50%;
+  --conic-vignette-size: 70% 80%;
+  --conic-vignette-at: 50% 55%;
+  --conic-vignette-strength: 0.40;
+  --conic-saturate: 1.10;
+}
+
+/* Cream variant: light base with cool flow seated low and right. */
+.conic-sweep--cream {
+  background-color: var(--cream);
+  --conic-from: 60deg;
+  --conic-opacity: 0.40;
+  --conic-vignette-size: 80% 80%;
+  --conic-vignette-strength: 0.20;
+}
+
+/* ==========================================================================
+   Backdrop: .liquid-silk (legacy)
+   Multi-radial gradient + SVG turbulence displacement. Retained for any
+   external references; new slides should use .conic-sweep above.
    ========================================================================== */
 
 .liquid-silk {

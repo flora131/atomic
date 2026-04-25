@@ -19,6 +19,7 @@ import {
   killSession,
   sessionExists,
   listSessions,
+  parseListSessionsOutput,
   normalizeTmuxCapture,
   normalizeTmuxLines,
   attachSession,
@@ -34,6 +35,7 @@ import {
   spawnMuxAttach,
   detachAndAttachAtomic,
   parseSessionName,
+  parseSessionEnvValue,
   sendViaPasteBuffer,
 } from "../../../src/sdk/runtime/tmux.ts";
 
@@ -385,6 +387,120 @@ describe("parseSessionName", () => {
   test("returns empty object for empty string", () => {
     const result = parseSessionName("");
     expect(result).toEqual({});
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseSessionEnvValue — pure function
+// ---------------------------------------------------------------------------
+
+describe("parseSessionEnvValue", () => {
+  test("returns only the exact requested key from psmux-noisy output", () => {
+    const value = parseSessionEnvValue(
+      [
+        "ATOMIC_AGENT=claude",
+        "PSMUX_CONFIG_FILE=C:\\dev\\atomic\\src\\sdk\\runtime\\tmux.conf",
+        "PSMUX_TARGET_SESSION=atomic__atomic-senv-abc12345",
+      ].join("\n"),
+      "ATOMIC_AGENT",
+    );
+
+    expect(value).toBe("claude");
+  });
+
+  test("returns null when psmux returns other environment keys", () => {
+    const value = parseSessionEnvValue(
+      [
+        "ATOMIC_AGENT=claude",
+        "PSMUX_CONFIG_FILE=C:\\dev\\atomic\\src\\sdk\\runtime\\tmux.conf",
+      ].join("\n"),
+      "NONEXISTENT_KEY",
+    );
+
+    expect(value).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseListSessionsOutput — pure function
+// ---------------------------------------------------------------------------
+
+describe("parseListSessionsOutput", () => {
+  const delimiter = "__ATOMIC_SESSION_FIELD__";
+
+  test("filters psmux internal target sessions and metadata leakage", () => {
+    const output = [
+      [
+        "pwsh -NoProfile -Command Start-Sleep -Seconds 1",
+        "1",
+        "50.175.4.2 59740 10.1.0.4 22",
+        "0",
+      ].join(delimiter),
+      "PSMUX_CONFIG_FILE=C:\\dev\\atomic\\src\\sdk\\runtime\\tmux.conf",
+      "PSMUX_TARGET_SESSION=atomic__pwsh -NoProfile -Command Start-Sleep -Seconds 1]",
+      [
+        "atomic-chat-copilot-abc12345",
+        "1",
+        "1700000000",
+        "0",
+      ].join(delimiter),
+    ].join("\n");
+
+    const sessions = parseListSessionsOutput(output, () => null);
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]!.name).toBe("atomic-chat-copilot-abc12345");
+    expect(sessions[0]!.type).toBe("chat");
+    expect(sessions[0]!.agent).toBe("copilot");
+    expect(JSON.stringify(sessions)).not.toContain("PSMUX");
+    expect(JSON.stringify(sessions)).not.toContain("Start-Sleep");
+  });
+
+  test("keeps Atomic-managed sessions that rely on session env for agent", () => {
+    const output = [
+      "atomic-senv-abc12345",
+      "1",
+      "1700000000",
+      "1",
+    ].join(delimiter);
+
+    const sessions = parseListSessionsOutput(output, (name, key) =>
+      name === "atomic-senv-abc12345" && key === "ATOMIC_AGENT" ? "claude" : null
+    );
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]!.name).toBe("atomic-senv-abc12345");
+    expect(sessions[0]!.attached).toBe(true);
+    expect(sessions[0]!.agent).toBe("claude");
+  });
+
+  test("ignores malformed formatter rows", () => {
+    const sessions = parseListSessionsOutput(
+      [
+        "atomic-chat-claude-missing-fields",
+        ["atomic-chat-claude-good1234", "1", "1700000000", "0"].join(delimiter),
+      ].join("\n"),
+      () => null,
+    );
+
+    expect(sessions.map((s) => s.name)).toEqual(["atomic-chat-claude-good1234"]);
+  });
+
+  test("uses only the exact requested environment key for agent fallback", () => {
+    const output = [
+      "atomic-senv-abc12345",
+      "1",
+      "1700000000",
+      "0",
+    ].join(delimiter);
+
+    const sessions = parseListSessionsOutput(output, (_name, key) =>
+      key === "ATOMIC_AGENT"
+        ? "claude"
+        : "PSMUX_CONFIG_FILE=C:\\dev\\atomic\\tmux.conf"
+    );
+
+    expect(sessions[0]!.agent).toBe("claude");
   });
 });
 

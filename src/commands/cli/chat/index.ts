@@ -39,6 +39,7 @@ import {
   killSession,
   killSessionOnPaneExit,
   setSessionEnv,
+  SOCKET_NAME,
   spawnMuxAttach,
   switchClient,
 } from "../../../sdk/workflows/index.ts";
@@ -113,11 +114,12 @@ function escPwsh(s: string): string {
  * Build a launcher script that preserves cwd and properly quotes args.
  * This avoids shell-injection risks from passthrough args.
  */
-function buildLauncherScript(
+export function buildLauncherScript(
   cmd: string,
   args: string[],
   projectRoot: string,
   envVars: Record<string, string> = {},
+  cleanupSessionName?: string,
 ): { script: string; ext: string } {
   const isWin = process.platform === "win32";
   const envEntries = Object.entries(envVars);
@@ -128,12 +130,35 @@ function buildLauncherScript(
     const envLines = envEntries.map(
       ([key, value]) => `$env:${key} = "${escPwsh(value)}"`,
     );
+    const cleanupLines = cleanupSessionName
+      ? [
+          "function Invoke-AtomicSessionCleanup {",
+          "  $mux = Get-Command psmux -ErrorAction SilentlyContinue",
+          "  if (-not $mux) { $mux = Get-Command pmux -ErrorAction SilentlyContinue }",
+          "  if (-not $mux) { $mux = Get-Command tmux -ErrorAction SilentlyContinue }",
+          `  if ($mux) { & $mux.Source -L "${escPwsh(SOCKET_NAME)}" kill-session -t "${escPwsh(cleanupSessionName)}" *> $null }`,
+          "}",
+          "$atomicExitCode = 0",
+          "try {",
+        ]
+      : [];
+    const cleanupFinallyLines = cleanupSessionName
+      ? [
+          "  if ($LASTEXITCODE -is [int]) { $atomicExitCode = $LASTEXITCODE }",
+          "} finally {",
+          "  Invoke-AtomicSessionCleanup",
+          "}",
+          "exit $atomicExitCode",
+        ]
+      : [];
     const script = [
+      ...cleanupLines,
       `Set-Location "${escPwsh(projectRoot)}"`,
       ...envLines,
       argList.length > 0
         ? `& "${escPwsh(cmd)}" @(${argList})`
         : `& "${escPwsh(cmd)}"`,
+      ...cleanupFinallyLines,
     ].join("\n");
     return { script, ext: "ps1" };
   }
@@ -145,6 +170,14 @@ function buildLauncherScript(
   const envLines = envEntries.map(
     ([key, value]) => `export ${key}="${escBash(value)}"`,
   );
+  const cleanupLines = cleanupSessionName
+    ? [
+        "atomic_cleanup() {",
+        `  tmux -L "${escBash(SOCKET_NAME)}" kill-session -t "${escBash(cleanupSessionName)}" >/dev/null 2>&1 || true`,
+        "}",
+        "trap atomic_cleanup EXIT",
+      ]
+    : [];
   // Pre-silence the tty before exec'ing the agent. copilot and opencode
   // write terminal-capability probes (CSI ?Pn $p, OSC 4;0;?, CSI c) to
   // stdout at startup; under tmux the DECRPM / OSC 4 / DA1 replies arrive
@@ -156,10 +189,13 @@ function buildLauncherScript(
   // (no tty) harmlessly no-ops the stty call.
   const script = [
     "#!/bin/bash",
+    ...cleanupLines,
     `cd "${escBash(projectRoot)}"`,
     ...envLines,
     "stty -echo -icanon 2>/dev/null || true",
-    `exec "${escBash(cmd)}" ${quotedArgs}`,
+    `"${escBash(cmd)}" ${quotedArgs}`,
+    "atomic_exit_code=$?",
+    'exit "$atomic_exit_code"',
   ].join("\n");
   return { script, ext: "sh" };
 }
@@ -261,6 +297,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     args,
     projectRoot,
     envVars,
+    windowName,
   );
   const launcherPath = join(sessionsDir, `${windowName}.${ext}`);
   await writeFile(launcherPath, script, { mode: 0o755 });

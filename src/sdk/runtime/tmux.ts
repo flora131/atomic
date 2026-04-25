@@ -439,6 +439,14 @@ export function setSessionEnv(sessionName: string, key: string, value: string): 
   tmuxRun(["set-environment", "-t", sessionName, key, value]);
 }
 
+export function parseSessionEnvValue(stdout: string, key: string): string | null {
+  const prefix = `${key}=`;
+  const line = stdout
+    .split(/\r?\n/)
+    .find((entry) => entry.startsWith(prefix));
+  return line ? line.slice(prefix.length) : null;
+}
+
 /**
  * Read a session-level environment variable.
  * Returns `null` when the session doesn't exist or the variable isn't set.
@@ -446,9 +454,10 @@ export function setSessionEnv(sessionName: string, key: string, value: string): 
 export function getSessionEnv(sessionName: string, key: string): string | null {
   const result = tmuxRun(["show-environment", "-t", sessionName, key]);
   if (!result.ok) return null;
-  // Output format: "KEY=VALUE"
-  const eq = result.stdout.indexOf("=");
-  return eq >= 0 ? result.stdout.slice(eq + 1) : null;
+  // tmux returns "KEY=VALUE" for a requested key. psmux can append its own
+  // PSMUX_* metadata or return all environment lines, so only accept an exact
+  // key match and ignore every unrelated line.
+  return parseSessionEnvValue(result.stdout, key);
 }
 
 /** Session type derived from the session name prefix. */
@@ -510,6 +519,38 @@ export interface TmuxSession {
 
 const SESSION_LIST_DELIMITER = "__ATOMIC_SESSION_FIELD__";
 
+function isAtomicManagedSessionName(name: string): boolean {
+  return name.startsWith("atomic-");
+}
+
+export function parseListSessionsOutput(
+  stdout: string,
+  getEnv: (sessionName: string, key: string) => string | null = getSessionEnv,
+): TmuxSession[] {
+  return stdout
+    .split("\n")
+    .filter((line) => line.trim() !== "")
+    .filter((line) => line.includes(SESSION_LIST_DELIMITER))
+    .flatMap((line) => {
+      const [name, windowsStr, createdStr, attachedStr] = line.split(SESSION_LIST_DELIMITER);
+      if (!name || !windowsStr || !createdStr || attachedStr === undefined) return [];
+      if (!isAtomicManagedSessionName(name)) return [];
+
+      const epochSec = Number(createdStr);
+      const parsed = parseSessionName(name);
+      return [{
+        name,
+        windows: Number(windowsStr) || 1,
+        created: Number.isFinite(epochSec) && epochSec > 0
+          ? new Date(epochSec * 1000).toISOString()
+          : createdStr,
+        attached: attachedStr === "1",
+        type: parsed.type,
+        agent: parsed.agent ?? getEnv(name, "ATOMIC_AGENT") ?? undefined,
+      }];
+    });
+}
+
 /**
  * List all sessions on the atomic tmux socket.
  *
@@ -527,27 +568,7 @@ export function listSessions(): TmuxSession[] {
   const result = tmuxRun(["list-sessions", "-F", fmt]);
   if (!result.ok) return [];
 
-  const sessions = result.stdout
-    .split("\n")
-    .filter((line) => line.trim() !== "")
-    .filter((line) => line.includes(SESSION_LIST_DELIMITER))
-    .map((line) => {
-      const [name, windowsStr, createdStr, attachedStr] = line.split(SESSION_LIST_DELIMITER);
-      const epochSec = Number(createdStr);
-      const parsed = parseSessionName(name!);
-      return {
-        name: name!,
-        windows: Number(windowsStr) || 1,
-        created: Number.isFinite(epochSec) && epochSec > 0
-          ? new Date(epochSec * 1000).toISOString()
-          : createdStr!,
-        attached: attachedStr === "1",
-        type: parsed.type,
-        agent: parsed.agent ?? getSessionEnv(name!, "ATOMIC_AGENT") ?? undefined,
-      };
-    });
-
-  return sessions;
+  return parseListSessionsOutput(result.stdout);
 }
 
 /** Build the full argument list for an attach-session command. */

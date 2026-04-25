@@ -171,6 +171,7 @@ describe("placeholder slide HTML files exist and link shared CSS", () => {
     "04-use-case-carousel.html",
     "05-architecture.html",
     "06-safety-devcontainer.html",
+    "07-workflow-skill-creator.html",
   ];
 
   for (const slideFile of slideFiles) {
@@ -204,6 +205,7 @@ describe("PNG output files are present and correctly sized", () => {
     "04-use-case-carousel.png",
     "05-architecture-diagram.png",
     "06-safety-devcontainer.png",
+    "07-workflow-skill-creator.png",
   ];
 
   for (const pngFile of pngFiles) {
@@ -236,13 +238,13 @@ describe("generate-product-hunt-assets.ts pipeline script", () => {
     expect(scriptContent).toContain("document.fonts.ready");
   });
 
-  test("renders exactly 6 slides", () => {
+  test("renders exactly 7 slides", () => {
     // Count SlideConfig entries via html: keys (inside the slides array literal only)
     const slidesArrayMatch = scriptContent.match(/const slides[^=]*=\s*\[([\s\S]*?)\];/);
     expect(slidesArrayMatch).not.toBeNull();
     const slidesArray = slidesArrayMatch![1];
     const htmlEntries = slidesArray.match(/\bhtml:/g);
-    expect(htmlEntries?.length).toBe(6);
+    expect(htmlEntries?.length).toBe(7);
   });
 
   test("viewport is 1270x760", () => {

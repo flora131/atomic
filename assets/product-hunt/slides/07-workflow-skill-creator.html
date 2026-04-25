@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1270">
+  <title>Atomic — Slide 07: Workflow Skill Creator</title>
+  <link rel="stylesheet" href="../_shared/fonts.css">
+  <link rel="stylesheet" href="../_shared/tokens.css">
+  <link rel="stylesheet" href="../_shared/components.css">
+  <link rel="stylesheet" href="../_shared/tui.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 1270px; height: 760px; overflow: hidden; }
+
+    /* Warm-anchor variant tuned for this slide: warm dominates the left
+       (prompt panel + headline), cool stops compressed into the right
+       (TUI), mauve bridges the middle (code pane). */
+    .conic-sweep--creator {
+      --conic-from: 215deg;
+      --conic-at: 50% 50%;
+      --conic-saturate: 1.18;
+      --conic-opacity: 0.88;
+      --conic-vignette-size: 65% 65%;
+      --conic-vignette-at: 50% 55%;
+      --conic-vignette-strength: 0.58;
+    }
+
+    /* Mauve transition band — same pattern as slide 06's isolate band */
+    .mauve-band {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 60px;
+      z-index: 1;
+      pointer-events: none;
+      background: linear-gradient(
+        to right,
+        transparent 0%,
+        oklch(70% 0.14 300 / 0.14) 20%,
+        oklch(72% 0.17 300 / 0.26) 50%,
+        oklch(70% 0.14 300 / 0.14) 80%,
+        transparent 100%
+      );
+      filter: blur(8px);
+    }
+
+    .stage-arrow {
+      position: absolute;
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .stage-arrow__glyph {
+      font-family: var(--font-mono);
+      font-size: 18px;
+      color: var(--bridge-mauve);
+      line-height: 1;
+    }
+
+    .stage-arrow__label {
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      color: var(--mocha-mauve);
+      white-space: nowrap;
+    }
+
+    /* ------------------------------------------------------------------
+       Panel column header & sub-labels (modeled on slide 06)
+       ------------------------------------------------------------------ */
+    .col-header {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding-bottom: 4px;
+    }
+
+    .col-sublabel {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--mocha-overlay0);
+      padding: 2px 6px;
+      line-height: 1.4;
+    }
+
+    .col-sublabel + .col-sublabel { padding-top: 0; }
+
+    /* ------------------------------------------------------------------
+       LEFT: Prompt / chat pane — warm-tinted to mirror slide 06's host pane
+       ------------------------------------------------------------------ */
+    .prompt-pane {
+      background-color: var(--mocha-crust);
+      border-radius: 8px;
+      border: 1px solid oklch(65% 0.15 25 / 0.55);
+      overflow: hidden;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .prompt-pane__titlebar {
+      display: flex;
+      align-items: center;
+      height: 28px;
+      padding: 0 12px;
+      background-color: oklch(22% 0.06 25 / 0.70);
+      border-bottom: 1px solid oklch(65% 0.15 25 / 0.40);
+      gap: 8px;
+    }
+
+    .prompt-pane__dots { display: flex; gap: 5px; }
+    .prompt-pane__dot {
+      width: 9px; height: 9px; border-radius: 50%;
+    }
+
+    .prompt-pane__title {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 500;
+      color: oklch(80% 0.10 50);
+      letter-spacing: 0.04em;
+      flex: 1;
+      text-align: center;
+      margin-right: 23px;
+    }
+
+    .prompt-pane__body {
+      flex: 1;
+      padding: 12px 14px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      line-height: 1.55;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      overflow: hidden;
+    }
+
+    .chat-turn {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .chat-turn__label {
+      font-size: 9.5px;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      color: var(--mocha-overlay0);
+    }
+
+    .chat-turn__label--user  { color: oklch(72% 0.14 50); }
+    .chat-turn__label--agent { color: var(--cool-sapphire); }
+
+    .chat-turn__text {
+      color: var(--mocha-text);
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .chat-turn__text--quote {
+      color: oklch(85% 0.08 50);
+    }
+
+    .chat-tool {
+      margin-top: 4px;
+      padding: 6px 8px;
+      background: oklch(20% 0.05 280 / 0.60);
+      border-left: 1px solid var(--mocha-mauve);
+      border-radius: 0 4px 4px 0;
+      font-size: 10.5px;
+      color: var(--mocha-subtext0);
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .chat-tool__name {
+      color: var(--mocha-mauve);
+      font-weight: 600;
+      font-size: 10px;
+      letter-spacing: 0.04em;
+    }
+
+    .chat-tool__detail {
+      color: var(--mocha-subtext0);
+    }
+
+    .chat-success {
+      color: var(--mocha-green);
+      font-size: 10.5px;
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+    }
+
+    .chat-success__path {
+      color: var(--mocha-text);
+      font-weight: 500;
+    }
+
+    .chat-prompt {
+      margin-top: auto;
+      color: oklch(70% 0.10 50);
+      font-size: 11px;
+    }
+
+    /* ------------------------------------------------------------------
+       MIDDLE: Code pane (re-using slide 02's pattern)
+       ------------------------------------------------------------------ */
+    .code-pane {
+      display: flex;
+      flex-direction: column;
+      background-color: var(--mocha-crust);
+      border-radius: 8px;
+      border: 1px solid var(--mocha-overlay0);
+      overflow: hidden;
+      flex: 1;
+    }
+
+    .code-pane__tabbar {
+      display: flex;
+      align-items: stretch;
+      height: 28px;
+      background-color: var(--mocha-surface0);
+      border-bottom: 1px solid var(--mocha-overlay0);
+      flex-shrink: 0;
+    }
+
+    .code-pane__tab {
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--mocha-text);
+      background-color: var(--mocha-crust);
+      border-right: 1px solid var(--mocha-overlay0);
+      letter-spacing: 0.01em;
+      white-space: nowrap;
+    }
+
+    .code-pane__tab-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background-color: var(--mocha-yellow);
+      margin-right: 7px;
+      opacity: 0.8;
+    }
+
+    .code-pane__tab-spacer { flex: 1; }
+
+    .code-pane__lights {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding-right: 10px;
+    }
+    .code-pane__lights > div {
+      width: 8px; height: 8px; border-radius: 50%;
+    }
+
+    .code-pane__body {
+      padding: 9px 11px;
+      font-family: var(--font-mono);
+      font-size: 9px;
+      line-height: 1.4;
+      color: var(--mocha-text);
+      overflow: hidden;
+      flex: 1;
+    }
+
+    .code-line {
+      display: block;
+      white-space: pre-wrap;
+      word-break: break-word;
+      padding-left: 26px;
+      text-indent: -26px;
+    }
+
+    .ln {
+      display: inline-block;
+      width: 16px;
+      color: var(--mocha-overlay0);
+      user-select: none;
+      font-size: 9px;
+      margin-right: 10px;
+      text-align: right;
+      opacity: 0.5;
+    }
+
+    /* Editable hint highlight: subtle mauve glow on a single line range */
+    .edit-hl {
+      background: linear-gradient(
+        to right,
+        oklch(72% 0.17 300 / 0.10),
+        oklch(72% 0.17 300 / 0.04) 80%,
+        transparent
+      );
+      border-left: 1px solid var(--mocha-mauve);
+      padding-left: 5px;
+      margin-left: -6px;
+    }
+
+    .edit-pill {
+      position: absolute;
+      right: 10px;
+      top: 36px;
+      font-family: var(--font-mono);
+      font-size: 9px;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      color: var(--mocha-mauve);
+      background: oklch(22% 0.06 300 / 0.92);
+      border: 1px solid oklch(72% 0.17 300 / 0.55);
+      border-radius: 999px;
+      padding: 2px 8px;
+      z-index: 4;
+      box-shadow: 0 2px 8px oklch(15% 0.05 300 / 0.50);
+    }
+
+    /* Syntax tokens (matched to slide 02) */
+    .tk-kw   { color: var(--mocha-mauve); }
+    .tk-str  { color: var(--mocha-green); }
+    .tk-fn   { color: var(--mocha-blue); }
+    .tk-cmt  { color: var(--mocha-overlay0); font-style: italic; }
+    .tk-num  { color: var(--mocha-peach); }
+    .tk-pun  { color: var(--mocha-subtext0); opacity: 0.75; }
+    .tk-prop { color: var(--mocha-sky); }
+    .tk-txt  { color: var(--mocha-text); }
+
+    /* ------------------------------------------------------------------
+       RIGHT: TUI graph wrapper — cool-anchored
+       ------------------------------------------------------------------ */
+    .tui-wrap {
+      border: 1.5px solid oklch(70% 0.20 215 / 0.80);
+      border-radius: 10px;
+      background: oklch(13% 0.04 220 / 0.50);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+    }
+
+    .tui-wrap__header {
+      display: flex;
+      align-items: center;
+      height: 26px;
+      padding: 0 12px;
+      background-color: oklch(18% 0.08 215 / 0.80);
+      border-bottom: 1px solid oklch(70% 0.20 215 / 0.45);
+      gap: 8px;
+    }
+
+    .tui-wrap__title {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--cool-sapphire);
+      letter-spacing: 0.06em;
+    }
+
+    .tui-wrap__body {
+      flex: 1;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Scale-down rules so the embedded tui block fits the right column */
+    .tui-wrap .tui {
+      border: none;
+      border-radius: 0;
+      flex: 1;
+      font-size: 10.5px;
+    }
+
+    .tui-wrap .tui__header { height: 20px; font-size: 10.5px; }
+    .tui-wrap .tui__header-badge { font-size: 9.5px; }
+    .tui-wrap .tui__header-session { font-size: 10px; }
+    .tui-wrap .tui__header-counts { font-size: 10px; }
+    .tui-wrap .tui__sidebar { width: 132px; }
+    .tui-wrap .tui__sidebar-header { height: 20px; font-size: 9.5px; }
+    .tui-wrap .tui__sidebar-header-badge { font-size: 9.5px; }
+    .tui-wrap .tui__row { height: 18px; font-size: 9.5px; }
+    .tui-wrap .tui__section-label { font-size: 9.5px; padding: 5px 8px 1px; }
+    .tui-wrap .tui__statusbar { height: 19px; font-size: 9.5px; }
+    .tui-wrap .tui__statusbar-badge { font-size: 9.5px; }
+    .tui-wrap .tui__node { width: 92px; font-size: 9.5px; }
+    .tui-wrap .tui__node-title { font-size: 10px; }
+    .tui-wrap .tui__node-duration { font-size: 9px; }
+    .tui-wrap .tui__node-hint { font-size: 9px; }
+    .tui-wrap .tui__graph { gap: 4px; padding: 12px 10px; }
+
+  </style>
+</head>
+<body>
+  <div class="slide">
+
+    <!-- Warm conic backdrop -->
+    <div class="conic-sweep conic-sweep--creator"></div>
+
+    <!-- Film grain -->
+    <div class="film-grain"></div>
+
+    <!-- Content layer -->
+    <div class="slide__content" style="padding: 32px 56px 24px; display: flex; flex-direction: column;">
+
+      <!-- Wordmark -->
+      <div style="display: flex; align-items: center; margin-bottom: 14px;">
+        <div class="wordmark">ATOMIC</div>
+      </div>
+
+      <!-- Headline -->
+      <h1 style="
+        font-family: var(--font-display);
+        font-weight: 700;
+        font-size: 56px;
+        line-height: 1.04;
+        letter-spacing: -0.025em;
+        color: var(--mocha-text);
+        margin-bottom: 10px;
+        position: relative;
+        z-index: 2;
+        max-width: 960px;
+      ">
+        Create workflows in
+        <span class="bubble-text bubble-text--warm" data-text="natural language">natural language</span>.
+      </h1>
+
+      <!-- Subhead -->
+      <p class="subhead" style="font-size: 17px; max-width: 760px; margin-bottom: 18px; position: relative; z-index: 2;">
+        Describe what you want. The <code style="font-family:var(--font-mono);color:var(--mocha-mauve);">workflow-creator</code> skill scaffolds a TypeScript file you can read, edit, and run.
+      </p>
+
+      <!-- THREE-PANEL DIAGRAM -->
+      <div style="
+        flex: 1;
+        display: flex;
+        flex-direction: row;
+        align-items: stretch;
+        gap: 0;
+        position: relative;
+        z-index: 2;
+        min-height: 0;
+      ">
+
+        <!-- ============================================================
+             PANEL 1 — PROMPT / agent chat
+             ============================================================ -->
+        <div style="flex: 0 0 296px; display: flex; flex-direction: column; gap: 6px; min-width: 0;">
+          <div class="col-header" style="color: oklch(78% 0.13 50);">Describe</div>
+          <div style="display: flex; flex-direction: column; gap: 1px; margin-bottom: 4px;">
+            <div class="col-sublabel" style="color: oklch(74% 0.10 50);">→ plain-english intent</div>
+            <div class="col-sublabel" style="color: var(--mocha-mauve);">→ workflow-creator skill</div>
+          </div>
+
+          <div class="prompt-pane">
+            <div class="prompt-pane__titlebar">
+              <div class="prompt-pane__dots">
+                <div class="prompt-pane__dot" style="background: oklch(55% 0.20 10);"></div>
+                <div class="prompt-pane__dot" style="background: oklch(60% 0.18 50);"></div>
+                <div class="prompt-pane__dot" style="background: oklch(60% 0.15 145);"></div>
+              </div>
+              <div class="prompt-pane__title">claude · interactive</div>
+            </div>
+            <div class="prompt-pane__body">
+
+              <div class="chat-turn">
+                <div class="chat-turn__label chat-turn__label--user">› you</div>
+                <div class="chat-turn__text chat-turn__text--quote">
+                  Build a workflow that drafts release notes from this week's merged PRs, gets a tone review, then opens a draft PR.
+                </div>
+              </div>
+
+              <div class="chat-turn">
+                <div class="chat-turn__label chat-turn__label--agent">⏵ atomic</div>
+                <div class="chat-turn__text" style="color: var(--mocha-subtext0); font-size: 10.5px;">
+                  Scaffolding with the workflow-creator skill…
+                </div>
+
+                <div class="chat-tool">
+                  <span class="chat-tool__name">⚙ skill · workflow-creator</span>
+                  <span class="chat-tool__detail">name: <span style="color:var(--mocha-green);">release-notes</span></span>
+                  <span class="chat-tool__detail">stages: <span style="color:var(--mocha-text);">collect-prs → draft → tone-review</span></span>
+                  <span class="chat-tool__detail">agent: <span style="color:var(--mocha-blue);">claude</span></span>
+                </div>
+
+                <div class="chat-success" style="margin-top:6px;">
+                  <span style="color:var(--mocha-green);">✓</span>
+                  <span>created <span class="chat-success__path">src/workflows/release-notes/claude.ts</span></span>
+                </div>
+              </div>
+
+              <div class="chat-prompt">›&nbsp;<span style="color:oklch(80% 0.06 50);">▌</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============================================================
+             BAND 1 — generate
+             ============================================================ -->
+        <div style="flex: 0 0 60px; position: relative; display: flex; align-items: center; justify-content: center;">
+          <div class="mauve-band" style="left: 0; right: 0; top: 0; bottom: 0;"></div>
+          <div class="stage-arrow" style="top: 50%; transform: translateY(-50%);">
+            <span class="stage-arrow__glyph">→</span>
+            <span class="stage-arrow__label">generate</span>
+          </div>
+        </div>
+
+        <!-- ============================================================
+             PANEL 2 — CODE pane (editable)
+             ============================================================ -->
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; position: relative;">
+          <div class="col-header" style="color: var(--mocha-mauve);">Edit</div>
+          <div style="display: flex; flex-direction: column; gap: 1px; margin-bottom: 4px;">
+            <div class="col-sublabel" style="color: var(--mocha-mauve);">→ TypeScript you own</div>
+            <div class="col-sublabel" style="color: var(--mocha-overlay0);">→ tweak prompts, add stages</div>
+          </div>
+
+          <div style="position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0;">
+            <div class="edit-pill">edit me</div>
+            <div class="code-pane">
+              <div class="code-pane__tabbar">
+                <div class="code-pane__tab">
+                  <div class="code-pane__tab-dot"></div>
+                  release-notes/claude.ts
+                </div>
+                <div class="code-pane__tab-spacer"></div>
+                <div class="code-pane__lights">
+                  <div style="background: var(--mocha-red);"></div>
+                  <div style="background: var(--mocha-yellow);"></div>
+                  <div style="background: var(--mocha-green);"></div>
+                </div>
+              </div>
+              <div class="code-pane__body"><div class="code-line"><span class="ln">1</span><span class="tk-kw">import</span> <span class="tk-pun">{ </span><span class="tk-fn">defineWorkflow</span><span class="tk-pun"> } </span><span class="tk-kw">from</span> <span class="tk-str">'@bastani/atomic/workflows'</span><span class="tk-pun">;</span></div><div class="code-line"><span class="ln">2</span></div><div class="code-line"><span class="ln">3</span><span class="tk-kw">export default</span> <span class="tk-fn">defineWorkflow</span><span class="tk-pun">({</span></div><div class="code-line"><span class="ln">4</span>  <span class="tk-prop">name</span><span class="tk-pun">: </span><span class="tk-str">'release-notes'</span><span class="tk-pun">,</span></div><div class="code-line"><span class="ln">5</span>  <span class="tk-prop">description</span><span class="tk-pun">: </span><span class="tk-str">'Draft notes from merged PRs'</span><span class="tk-pun">,</span></div><div class="code-line"><span class="ln">6</span>  <span class="tk-prop">inputs</span><span class="tk-pun">: [{ </span><span class="tk-prop">name</span><span class="tk-pun">: </span><span class="tk-str">'since'</span><span class="tk-pun">, </span><span class="tk-prop">default</span><span class="tk-pun">: </span><span class="tk-str">'7d'</span><span class="tk-pun"> }],</span></div><div class="code-line"><span class="ln">7</span><span class="tk-pun">})</span></div><div class="code-line"><span class="ln">8</span>  <span class="tk-pun">.</span><span class="tk-fn">for</span><span class="tk-pun">(</span><span class="tk-str">'claude'</span><span class="tk-pun">)</span></div><div class="code-line"><span class="ln">9</span>  <span class="tk-pun">.</span><span class="tk-fn">run</span><span class="tk-pun">(</span><span class="tk-kw">async</span> <span class="tk-pun">(</span><span class="tk-txt">ctx</span><span class="tk-pun">) =&gt; {</span></div><div class="code-line"><span class="ln">10</span>  <span class="tk-cmt">  // 1. gather merged PRs</span></div><div class="code-line"><span class="ln">11</span>  <span class="tk-kw">  const</span> <span class="tk-txt">prs</span> <span class="tk-pun">= </span><span class="tk-kw">await</span> <span class="tk-txt">ctx</span><span class="tk-pun">.</span><span class="tk-fn">stage</span><span class="tk-pun">({ </span><span class="tk-prop">name</span><span class="tk-pun">: </span><span class="tk-str">'collect-prs'</span><span class="tk-pun"> }, {}, {}, </span><span class="tk-kw">async</span> <span class="tk-pun">(</span><span class="tk-txt">s</span><span class="tk-pun">) =&gt; {</span></div><div class="code-line"><span class="ln">12</span>  <span class="tk-pun">    </span><span class="tk-kw">await</span> <span class="tk-txt">s</span><span class="tk-pun">.</span><span class="tk-prop">session</span><span class="tk-pun">.</span><span class="tk-fn">query</span><span class="tk-pun">(</span><span class="tk-str">`gh pr list --merged --since ${ctx.inputs.since}`</span><span class="tk-pun">);</span></div><div class="code-line"><span class="ln">13</span>  <span class="tk-pun">  });</span></div><div class="code-line"><span class="ln">14</span></div><div class="code-line"><span class="ln">15</span><span class="edit-hl">  <span class="tk-cmt">// 2. draft notes — tweak the prompt to shape the voice</span></span></div><div class="code-line"><span class="ln">16</span><span class="edit-hl">  <span class="tk-kw">const</span> <span class="tk-txt">draft</span> <span class="tk-pun">= </span><span class="tk-kw">await</span> <span class="tk-txt">ctx</span><span class="tk-pun">.</span><span class="tk-fn">stage</span><span class="tk-pun">({ </span><span class="tk-prop">name</span><span class="tk-pun">: </span><span class="tk-str">'draft'</span><span class="tk-pun"> }, {}, {}, </span><span class="tk-kw">async</span> <span class="tk-pun">(</span><span class="tk-txt">s</span><span class="tk-pun">) =&gt; {</span></span></div><div class="code-line"><span class="ln">17</span><span class="edit-hl">    <span class="tk-kw">const</span> <span class="tk-txt">prior</span> <span class="tk-pun">= </span><span class="tk-kw">await</span> <span class="tk-txt">s</span><span class="tk-pun">.</span><span class="tk-fn">transcript</span><span class="tk-pun">(</span><span class="tk-txt">prs</span><span class="tk-pun">);</span></span></div><div class="code-line"><span class="ln">18</span><span class="edit-hl">    <span class="tk-kw">await</span> <span class="tk-txt">s</span><span class="tk-pun">.</span><span class="tk-prop">session</span><span class="tk-pun">.</span><span class="tk-fn">query</span><span class="tk-pun">(</span><span class="tk-str">`Draft release notes from ${prior.path}.`</span><span class="tk-pun">);</span></span></div><div class="code-line"><span class="ln">19</span><span class="edit-hl">  <span class="tk-pun">});</span></span></div><div class="code-line"><span class="ln">20</span></div><div class="code-line"><span class="ln">21</span>  <span class="tk-cmt">  // 3. tone review</span></div><div class="code-line"><span class="ln">22</span>  <span class="tk-kw">  await</span> <span class="tk-txt">ctx</span><span class="tk-pun">.</span><span class="tk-fn">stage</span><span class="tk-pun">({ </span><span class="tk-prop">name</span><span class="tk-pun">: </span><span class="tk-str">'tone-review'</span><span class="tk-pun"> }, {}, {}, </span><span class="tk-kw">async</span> <span class="tk-pun">(</span><span class="tk-txt">s</span><span class="tk-pun">) =&gt; {</span></div><div class="code-line"><span class="ln">23</span>  <span class="tk-pun">    </span><span class="tk-kw">await</span> <span class="tk-txt">s</span><span class="tk-pun">.</span><span class="tk-prop">session</span><span class="tk-pun">.</span><span class="tk-fn">query</span><span class="tk-pun">(</span><span class="tk-str">'Review the draft for tone &amp; clarity.'</span><span class="tk-pun">);</span></div><div class="code-line"><span class="ln">24</span>  <span class="tk-pun">  });</span></div><div class="code-line"><span class="ln">25</span><span class="tk-pun">})</span><span class="tk-pun">.</span><span class="tk-fn">compile</span><span class="tk-pun">();</span></div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============================================================
+             BAND 2 — run
+             ============================================================ -->
+        <div style="flex: 0 0 60px; position: relative; display: flex; align-items: center; justify-content: center;">
+          <div class="mauve-band" style="left: 0; right: 0; top: 0; bottom: 0;"></div>
+          <div class="stage-arrow" style="top: 50%; transform: translateY(-50%);">
+            <span class="stage-arrow__glyph">→</span>
+            <span class="stage-arrow__label">run</span>
+          </div>
+        </div>
+
+        <!-- ============================================================
+             PANEL 3 — RUNNING TUI
+             ============================================================ -->
+        <div style="flex: 0 0 322px; display: flex; flex-direction: column; gap: 6px; min-width: 0;">
+          <div class="col-header" style="color: var(--cool-sapphire);">Run</div>
+          <div style="display: flex; flex-direction: column; gap: 1px; margin-bottom: 4px;">
+            <div class="col-sublabel" style="color: var(--cool-sapphire);">→ atomic workflow -n release-notes</div>
+            <div class="col-sublabel" style="color: var(--cool-teal);">→ stages live in tmux</div>
+          </div>
+
+          <div class="tui-wrap">
+            <div class="tui-wrap__header">
+              <span class="tui-wrap__title">$ atomic workflow</span>
+            </div>
+            <div class="tui-wrap__body">
+              <div class="tui">
+
+                <!-- TUI Header -->
+                <div class="tui__header">
+                  <div class="tui__header-badge tui__header-badge--graph">GRAPH</div>
+                  <span class="tui__header-session">release-notes · claude</span>
+                  <div class="tui__header-counts">
+                    <span class="tui__count"><span class="tui-green">✓</span><span class="tui-dim"> 1</span></span>
+                    <span class="tui__count"><span class="tui-yellow">●</span><span class="tui-dim"> 2</span></span>
+                    <span class="tui__count"><span class="tui-dim">○</span><span class="tui-dim"> 0</span></span>
+                  </div>
+                </div>
+
+                <!-- TUI Body -->
+                <div class="tui__body">
+                  <!-- Sidebar -->
+                  <div class="tui__sidebar">
+                    <div class="tui__sidebar-header">
+                      <div class="tui__sidebar-header-badge tui__sidebar-header-badge--claude">CLAUDE</div>
+                      <span class="tui__sidebar-header-label">running</span>
+                    </div>
+
+                    <div class="tui__workflow-list">
+                      <div class="tui__section-label">
+                        <span class="tui__section-label-bar">▎</span>
+                        <span class="tui__section-label-text">stages</span>
+                      </div>
+
+                      <div class="tui__row">
+                        <span class="tui-green" style="font-size:9.5px;">✓</span>
+                        <span class="tui__row-name tui-green">collect-prs</span>
+                      </div>
+                      <div class="tui__row tui__row--focused">
+                        <span class="tui__spinner">⠹</span>
+                        <span class="tui__row-name tui-yellow">draft</span>
+                      </div>
+                      <div class="tui__row">
+                        <span class="tui__spinner tui-dim">⠼</span>
+                        <span class="tui__row-name tui-yellow">tone-review</span>
+                      </div>
+
+                      <div class="tui__section-label" style="margin-top:5px;">
+                        <span class="tui__section-label-bar">▎</span>
+                        <span class="tui__section-label-text">inputs</span>
+                      </div>
+                      <div class="tui__row">
+                        <span class="tui-dim" style="font-size:9.5px;"> </span>
+                        <span class="tui__row-name tui-dim">since=7d</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Main: graph -->
+                  <div class="tui__main">
+                    <div class="tui__graph" style="flex-direction:column;">
+
+                      <!-- collect-prs (done) -->
+                      <div style="display:flex;justify-content:center;">
+                        <div class="tui__node tui__node--done">
+                          <div class="tui__node-title">collect-prs</div>
+                          <div class="tui__node-duration tui__node-duration--done">0:06</div>
+                        </div>
+                      </div>
+
+                      <div style="display:flex;justify-content:center;height:10px;">
+                        <div style="width:1px;background:var(--mocha-overlay0);height:100%;"></div>
+                      </div>
+
+                      <!-- draft (running, focused) -->
+                      <div style="display:flex;justify-content:center;">
+                        <div class="tui__node tui__node--running tui__node--focused">
+                          <div class="tui__node-title">draft</div>
+                          <div class="tui__node-duration tui__node-duration--running">
+                            <span class="tui__spinner">⠹</span> 0:42
+                          </div>
+                          <div class="tui__node-hint tui-dim">writing notes</div>
+                        </div>
+                      </div>
+
+                      <div style="display:flex;justify-content:center;height:10px;">
+                        <div style="width:1px;background:var(--mocha-overlay0);height:100%;"></div>
+                      </div>
+
+                      <!-- tone-review (running) -->
+                      <div style="display:flex;justify-content:center;">
+                        <div class="tui__node tui__node--running">
+                          <div class="tui__node-title">tone-review</div>
+                          <div class="tui__node-duration tui__node-duration--running">
+                            <span class="tui__spinner tui-dim">⠼</span> 0:11
+                          </div>
+                          <div class="tui__node-hint tui-dim">awaiting draft</div>
+                        </div>
+                      </div>
+
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Statusbar -->
+                <div class="tui__statusbar">
+                  <div class="tui__statusbar-badge tui__statusbar-badge--claude">CLAUDE</div>
+                  <span class="tui__statusbar-info tui-yellow">⠹ draft</span>
+                  <div class="tui__statusbar-spacer"></div>
+                  <div class="tui__statusbar-hints">
+                    <span class="tui__hint">
+                      <span class="tui__hint-key">↵</span>
+                      <span class="tui__hint-label">attach</span>
+                    </span>
+                    <span class="tui__hint">
+                      <span class="tui__hint-key">q</span>
+                      <span class="tui__hint-label">quit</span>
+                    </span>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+      <!-- END THREE-PANEL DIAGRAM -->
+
+      <!-- Bottom caption -->
+      <p style="
+        font-family: var(--font-body);
+        font-size: 15px;
+        font-style: italic;
+        color: var(--mocha-subtext0);
+        margin-top: 14px;
+        position: relative;
+        z-index: 2;
+        max-width: 920px;
+      ">
+        Plain English in. Editable TypeScript out. Real, observable execution downstream — no canvas, no lock-in.
+      </p>
+
+    </div>
+  </div>
+</body>
+</html>

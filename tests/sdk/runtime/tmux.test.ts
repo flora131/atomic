@@ -34,6 +34,7 @@ import {
   selectWindow,
   spawnMuxAttach,
   detachAndAttachAtomic,
+  buildKillSessionOnPaneExitHooks,
   parseSessionName,
   parseSessionEnvValue,
   sendViaPasteBuffer,
@@ -501,6 +502,40 @@ describe("parseListSessionsOutput", () => {
     );
 
     expect(sessions[0]!.agent).toBe("claude");
+  });
+});
+
+describe("buildKillSessionOnPaneExitHooks", () => {
+  test("installs a direct pane-kill hook alongside the tmux pane-exited hook", () => {
+    const hooks = buildKillSessionOnPaneExitHooks("atomic-chat-copilot-abc12345", "%1");
+
+    expect(hooks).toEqual([
+      {
+        event: "pane-exited",
+        command: "if -F '#{==:#{hook_pane},%1}' 'kill-session -t atomic-chat-copilot-abc12345'",
+      },
+      {
+        event: "after-kill-pane",
+        command: "kill-session -t atomic-chat-copilot-abc12345",
+      },
+    ]);
+  });
+
+  test("uses a session-scoped pane-exited hook for psmux", () => {
+    const hooks = buildKillSessionOnPaneExitHooks("atomic-chat-copilot-abc12345", "%1", {
+      guardPaneExited: false,
+    });
+
+    expect(hooks).toEqual([
+      {
+        event: "pane-exited",
+        command: "kill-session -t atomic-chat-copilot-abc12345",
+      },
+      {
+        event: "after-kill-pane",
+        command: "kill-session -t atomic-chat-copilot-abc12345",
+      },
+    ]);
   });
 });
 

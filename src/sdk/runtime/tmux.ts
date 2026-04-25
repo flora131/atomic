@@ -218,26 +218,50 @@ export function createSession(
   return paneId || tmux(["list-panes", "-t", sessionName, "-F", "#{pane_id}"]).split("\n")[0]!;
 }
 
+export function buildKillSessionOnPaneExitHooks(
+  sessionName: string,
+  paneId: string,
+  options: { guardPaneExited?: boolean } = {},
+): Array<{ event: string; command: string }> {
+  const killCommand = `kill-session -t ${sessionName}`;
+  const paneExitedCommand = options.guardPaneExited === false
+    ? killCommand
+    : `if -F '#{==:#{hook_pane},${paneId}}' '${killCommand}'`;
+  return [
+    { event: "pane-exited", command: paneExitedCommand },
+    { event: "after-kill-pane", command: killCommand },
+  ];
+}
+
+function supportsHookPaneFormat(binary = getMuxBinary()): boolean {
+  return binary !== "psmux" && binary !== "pmux";
+}
+
 /**
- * Install a hook that kills the entire session when the given pane's
- * process exits. Used by chat sessions so the session is torn down
- * when the agent CLI exits — whether via `/exit`, a deliberate double
- * Ctrl+C, or a crash — without leaving the footer pane keeping the
- * session alive.
+ * Install hooks that kill the entire session when the agent pane goes away.
+ * Used by chat sessions so the session is torn down when the agent CLI exits
+ * — whether via `/exit`, a deliberate double Ctrl+C, a crash, or a direct
+ * pane close — without leaving the footer pane keeping the session alive.
  *
- * The hook is session-scoped (pane-scoped hooks don't fire because the
- * pane is already gone when `pane-exited` would run) and guarded with
- * `#{hook_pane}` so the footer pane's eventual exit cascade doesn't
- * re-trigger it. `kill-session` is idempotent in any case.
+ * tmux fires `pane-exited` when a pane process exits; psmux also supports
+ * that event, but does not currently populate tmux's `#{hook_pane}` format,
+ * so the psmux hook is session-scoped. A direct pane close/kill fires
+ * `after-kill-pane` instead. These session-scoped hooks are safe for chat
+ * sessions: they only have the agent pane plus its footer, and closing either
+ * should close the entire chat window.
  */
 export function killSessionOnPaneExit(sessionName: string, paneId: string): void {
-  const guard = `if -F '#{==:#{hook_pane},${paneId}}' 'kill-session -t ${sessionName}'`;
-  tmuxRun([
-    "set-hook",
-    "-t", sessionName,
-    "pane-exited",
-    guard,
-  ]);
+  const hooks = buildKillSessionOnPaneExitHooks(sessionName, paneId, {
+    guardPaneExited: supportsHookPaneFormat(),
+  });
+  for (const hook of hooks) {
+    tmuxRun([
+      "set-hook",
+      "-t", sessionName,
+      hook.event,
+      hook.command,
+    ]);
+  }
 }
 
 /**

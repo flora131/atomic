@@ -13,7 +13,7 @@
  * so it can't be used here.
  */
 
-import { join, win32 } from "node:path";
+import { posix, win32 } from "node:path";
 import type { AgentType } from "../types.ts";
 import { tmuxRun } from "./tmux.ts";
 
@@ -49,7 +49,7 @@ export function resolveAttachedFooterCliPath(
 ): string {
   return platform === "win32"
     ? win32.join(runtimeDir, "..", "..", "cli.ts")
-    : join(runtimeDir, "..", "..", "cli.ts");
+    : posix.join(runtimeDir, "..", "..", "cli.ts");
 }
 
 export function buildAttachedFooterCommand({

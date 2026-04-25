@@ -13,7 +13,7 @@
 
 import { useEffect } from "react";
 import { createCliRenderer } from "@opentui/core";
-import { createRoot, useRenderer } from "@opentui/react";
+import { createRoot, flushSync, useRenderer } from "@opentui/react";
 import { resolveTheme } from "../../sdk/runtime/theme.ts";
 import {
   deriveGraphTheme,
@@ -23,6 +23,13 @@ import { AttachedStatusline } from "../../sdk/components/attached-statusline.tsx
 import type { AgentType } from "../../sdk/types.ts";
 
 const PARENT_WATCHDOG_MS = 2000;
+const FOOTER_RENDER_ROWS = 1;
+
+type FooterStdoutSource = {
+  readonly columns?: number;
+  readonly rows?: number;
+  write: NodeJS.WriteStream["write"];
+};
 
 /**
  * Snapshot the parent PID at module load. `process.ppid` is cached in both
@@ -58,6 +65,31 @@ const EXIT_SIGNALS: NodeJS.Signals[] =
   process.platform === "win32"
     ? ["SIGTERM", "SIGINT", "SIGBREAK", "SIGHUP"]
     : ["SIGHUP", "SIGTERM", "SIGINT", "SIGPIPE"];
+
+/**
+ * The footer runs in a tmux/psmux pane that is intentionally one row tall.
+ * On Windows, psmux child processes can expose no TTY row count to Bun, which
+ * makes OpenTUI fall back to 24 rows and paint the one-line footer off-screen.
+ */
+export function createFooterStdout(
+  stdout: FooterStdoutSource = process.stdout,
+): NodeJS.WriteStream {
+  const footerStdout = Object.create(stdout) as NodeJS.WriteStream;
+  Object.defineProperties(footerStdout, {
+    columns: {
+      configurable: true,
+      enumerable: true,
+      get: () => Math.max(stdout.columns ?? 80, 1),
+    },
+    rows: {
+      configurable: true,
+      enumerable: true,
+      get: () => FOOTER_RENDER_ROWS,
+    },
+  });
+  footerStdout.write = stdout.write.bind(stdout) as NodeJS.WriteStream["write"];
+  return footerStdout;
+}
 
 function FooterShell({
   name,
@@ -121,11 +153,16 @@ export async function footerCommand(
 ): Promise<number> {
   const renderer = await createCliRenderer({
     exitOnCtrlC: false,
+    stdout: createFooterStdout(),
   });
   const theme = deriveGraphTheme(resolveTheme(renderer.themeMode));
-  createRoot(renderer).render(
-    <FooterShell name={name} theme={theme} agentType={agentType} />,
-  );
+  const root = createRoot(renderer);
+  flushSync(() => {
+    root.render(
+      <FooterShell name={name} theme={theme} agentType={agentType} />,
+    );
+  });
+  renderer.requestRender();
 
   await new Promise<void>(() => {});
   return 0;

@@ -1,0 +1,685 @@
+/*
+  tui.css — Atomic TUI chrome for Product Hunt slides.
+
+  Builds on .tui-pane from components.css.
+  All content uses JetBrains Mono. All colors from tokens.css.
+  No gradient text. No colored stripes > 1px. No emoji.
+  Spinner glyphs from CLAUDE.md: ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏
+  Allowed unicode: ✓ ✗ → … ○ ● │
+
+  Layout reference (from src/sdk/components/session-graph-panel.tsx):
+    header (1 row) | scrollable graph | statusline (1 row)
+
+  Sidebar reference (from src/sdk/components/workflow-picker-panel.tsx):
+    header | filter bar | workflow list | statusline
+*/
+
+/* ==========================================================================
+   .tui — outer TUI container
+   ========================================================================== */
+
+.tui {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--mocha-text);
+  background-color: var(--mocha-base);
+  border-radius: 8px;
+  border: 1px solid var(--mocha-overlay0);
+  overflow: hidden;
+  /* tabular numerals for aligned status columns */
+  font-variant-numeric: tabular-nums;
+}
+
+/* ==========================================================================
+   .tui__header — top bar (1 row high, mirrors header.tsx)
+   ========================================================================== */
+
+.tui__header {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px 0 0;
+  background-color: var(--mocha-surface0);
+  flex-shrink: 0;
+}
+
+.tui__header-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  height: 100%;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.tui__header-badge--graph {
+  background-color: var(--mocha-blue);
+  color: var(--mocha-surface0);
+}
+
+.tui__header-badge--done {
+  background-color: var(--mocha-green);
+  color: var(--mocha-surface0);
+}
+
+.tui__header-badge--error {
+  background-color: var(--mocha-red);
+  color: var(--mocha-surface0);
+}
+
+.tui__header-badge--warn {
+  background-color: var(--mocha-yellow);
+  color: var(--mocha-surface0);
+}
+
+.tui__header-session {
+  margin-left: 8px;
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--mocha-text);
+}
+
+.tui__header-counts {
+  margin-left: auto;
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  font-size: 12px;
+  padding-right: 4px;
+}
+
+.tui__count {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+/* ==========================================================================
+   .tui__body — flex row containing sidebar + main
+   ========================================================================== */
+
+.tui__body {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ==========================================================================
+   .tui__sidebar — left pane (workflow list / picker)
+   ========================================================================== */
+
+.tui__sidebar {
+  width: 280px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--mocha-mantle);
+  border-right: 1px solid var(--mocha-overlay0);
+  overflow: hidden;
+}
+
+.tui__sidebar-header {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  background-color: var(--mocha-surface0);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.tui__sidebar-header-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 6px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.tui__sidebar-header-badge--claude {
+  background-color: var(--mocha-yellow);
+  color: var(--mocha-surface0);
+}
+
+.tui__sidebar-header-badge--copilot {
+  background-color: var(--mocha-green);
+  color: var(--mocha-surface0);
+}
+
+.tui__sidebar-header-badge--opencode {
+  background-color: var(--mocha-mauve);
+  color: var(--mocha-surface0);
+}
+
+.tui__sidebar-header-label {
+  margin-left: 6px;
+  color: var(--mocha-overlay0);
+  font-size: 11px;
+}
+
+.tui__sidebar-header-count {
+  margin-left: auto;
+  color: var(--mocha-overlay0);
+  font-size: 11px;
+}
+
+/* Search/filter bar */
+.tui__filter {
+  margin: 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--mocha-overlay0);
+  border-radius: 4px;
+  background-color: var(--mocha-surface0);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--mocha-text);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.tui__filter-prompt {
+  color: var(--mocha-blue);
+  font-weight: 700;
+}
+
+.tui__filter-text {
+  color: var(--mocha-overlay0);
+}
+
+/* Workflow list */
+.tui__workflow-list {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 0 4px;
+}
+
+.tui__section-label {
+  padding: 8px 8px 2px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tui__section-label-bar {
+  color: var(--mocha-mauve);
+}
+
+.tui__section-label-text {
+  color: var(--mocha-subtext0);
+  font-weight: 700;
+}
+
+/* Row items in sidebar list */
+.tui__row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  font-size: 12px;
+  color: var(--mocha-subtext0);
+  border-radius: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  gap: 6px;
+}
+
+.tui__row--active {
+  background-color: var(--mocha-overlay0);
+  color: var(--mocha-text);
+}
+
+.tui__row--focused {
+  background-color: var(--mocha-surface1);
+  color: var(--mocha-text);
+}
+
+.tui__row-indicator {
+  color: var(--mocha-blue);
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.tui__row-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ==========================================================================
+   .tui__main — right pane (session graph / output area)
+   ========================================================================== */
+
+.tui__main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--mocha-base);
+  overflow: hidden;
+  position: relative;
+}
+
+/* ==========================================================================
+   .tui__graph — session graph canvas inside .tui__main
+   ========================================================================== */
+
+.tui__graph {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  padding: 20px 24px;
+  gap: 40px;
+  flex-wrap: wrap;
+  align-content: center;
+}
+
+/* ==========================================================================
+   .tui__node — session graph node card (mirrors node-card.tsx)
+   Rounded border, NODE_W~36ch → 180px at 5px/ch scale
+   ========================================================================== */
+
+.tui__node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 180px;
+  min-height: 56px;
+  border-radius: 6px;
+  border: 1px solid var(--mocha-overlay0);
+  padding: 6px 10px;
+  font-size: 12px;
+  background-color: transparent;
+  position: relative;
+}
+
+.tui__node--running {
+  border-color: var(--mocha-yellow);
+}
+
+.tui__node--done {
+  border-color: var(--mocha-green);
+}
+
+.tui__node--error {
+  border-color: var(--mocha-red);
+}
+
+.tui__node--pending {
+  border-color: var(--mocha-overlay0);
+}
+
+.tui__node--awaiting {
+  border-color: var(--mocha-sky);
+}
+
+.tui__node--focused {
+  background-color: oklch(30% 0.05 240 / 0.15);
+}
+
+.tui__node-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--mocha-subtext0);
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: var(--mocha-base);
+  padding: 0 6px;
+  white-space: nowrap;
+}
+
+.tui__node-duration {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tui__node-duration--running { color: var(--mocha-yellow); }
+.tui__node-duration--done    { color: var(--mocha-green); }
+.tui__node-duration--error   { color: var(--mocha-red); }
+.tui__node-duration--pending { color: var(--mocha-overlay0); }
+.tui__node-duration--awaiting { color: var(--mocha-sky); }
+
+.tui__node-hint {
+  font-size: 11px;
+  color: var(--mocha-overlay0);
+  margin-top: 2px;
+}
+
+/* Connector line between nodes */
+.tui__connector {
+  width: 40px;
+  height: 1px;
+  background-color: var(--mocha-overlay0);
+  align-self: center;
+  flex-shrink: 0;
+}
+
+/* ==========================================================================
+   .tui__output — output / log area inside .tui__main (for agent text output)
+   ========================================================================== */
+
+.tui__output {
+  flex: 1;
+  padding: 12px 16px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--mocha-text);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tui__output-line {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: baseline;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.tui__output-prefix {
+  color: var(--mocha-overlay0);
+  flex-shrink: 0;
+  font-size: 11px;
+}
+
+.tui__output-text {
+  color: var(--mocha-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ==========================================================================
+   .tui__statusbar — bottom bar (mirrors statusline.tsx + attached-statusline.tsx)
+   ========================================================================== */
+
+.tui__statusbar {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  height: 22px;
+  background-color: var(--mocha-surface0);
+  flex-shrink: 0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tui__statusbar-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  height: 100%;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.tui__statusbar-badge--graph {
+  background-color: var(--mocha-blue);
+  color: var(--mocha-surface0);
+}
+
+.tui__statusbar-badge--pick {
+  background-color: var(--mocha-blue);
+  color: var(--mocha-surface0);
+}
+
+.tui__statusbar-badge--confirm {
+  background-color: var(--mocha-mauve);
+  color: var(--mocha-surface0);
+}
+
+.tui__statusbar-badge--claude {
+  background-color: var(--mocha-yellow);
+  color: var(--mocha-surface0);
+}
+
+.tui__statusbar-badge--copilot {
+  background-color: var(--mocha-green);
+  color: var(--mocha-surface0);
+}
+
+.tui__statusbar-badge--opencode {
+  background-color: var(--mocha-mauve);
+  color: var(--mocha-surface0);
+}
+
+.tui__statusbar-info {
+  margin-left: 8px;
+  color: var(--mocha-text);
+  font-weight: 700;
+}
+
+.tui__statusbar-spacer {
+  flex: 1;
+}
+
+.tui__statusbar-hints {
+  display: flex;
+  flex-direction: row;
+  gap: 0;
+  padding-right: 8px;
+  align-items: center;
+}
+
+.tui__hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+}
+
+.tui__hint + .tui__hint::before {
+  content: '·';
+  color: var(--mocha-overlay0);
+  padding: 0 5px;
+}
+
+.tui__hint-key {
+  color: var(--mocha-text);
+}
+
+.tui__hint-label {
+  color: var(--mocha-subtext0);
+}
+
+/* ==========================================================================
+   .tui__spinner — Braille spinner (static single frame)
+   ========================================================================== */
+
+.tui__spinner {
+  display: inline-block;
+  color: var(--mocha-blue);
+  font-size: 12px;
+  line-height: 1;
+}
+
+/* ==========================================================================
+   .tui__prompt — human-approval prompt (review-gate state)
+   ========================================================================== */
+
+.tui__prompt {
+  margin: 20px;
+  padding: 16px 20px;
+  border: 1px solid var(--mocha-mauve);
+  border-radius: 6px;
+  background-color: var(--mocha-mantle);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tui__prompt-title {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--mocha-mauve);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tui__prompt-body {
+  color: var(--mocha-text);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.tui__prompt-options {
+  display: flex;
+  flex-direction: row;
+  gap: 16px;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.tui__prompt-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tui__prompt-option-key {
+  color: var(--mocha-mauve);
+  font-weight: 700;
+}
+
+.tui__prompt-option-label {
+  color: var(--mocha-subtext0);
+}
+
+/* ==========================================================================
+   .tui__banner — top-of-main contextual banner
+   ========================================================================== */
+
+.tui__banner {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 16px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--mocha-overlay0);
+  flex-shrink: 0;
+}
+
+.tui__banner--devcontainer {
+  background-color: var(--mocha-mantle);
+  color: var(--mocha-sapphire);
+}
+
+.tui__banner-label {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.tui__banner-detail {
+  color: var(--mocha-subtext0);
+  font-size: 11px;
+}
+
+/* ==========================================================================
+   .tui__idle-hint — empty-state center hint
+   ========================================================================== */
+
+.tui__idle-hint {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--mocha-overlay0);
+  font-size: 13px;
+  letter-spacing: 0.02em;
+}
+
+/* ==========================================================================
+   .tui__summary — done-state stats block
+   ========================================================================== */
+
+.tui__summary {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 20px;
+}
+
+.tui__summary-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--mocha-green);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tui__summary-stats {
+  display: flex;
+  flex-direction: row;
+  gap: 24px;
+  font-size: 12px;
+}
+
+.tui__stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.tui__stat-value {
+  color: var(--mocha-text);
+  font-weight: 700;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tui__stat-label {
+  color: var(--mocha-overlay0);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.tui__summary-path {
+  font-size: 11px;
+  color: var(--mocha-overlay0);
+}
+
+/* ==========================================================================
+   Color helper spans — use inside .tui__output-text or .tui__prompt-body
+   ========================================================================== */
+
+.tui-blue    { color: var(--cool-blue); }
+.tui-green   { color: var(--mocha-green); }
+.tui-red     { color: var(--mocha-red); }
+.tui-yellow  { color: var(--mocha-yellow); }
+.tui-mauve   { color: var(--mocha-mauve); }
+.tui-sky     { color: var(--cool-sky); }
+.tui-teal    { color: var(--cool-teal); }
+.tui-sapphire { color: var(--cool-sapphire); }
+.tui-dim     { color: var(--mocha-overlay0); }
+.tui-muted   { color: var(--mocha-subtext0); }
+.tui-bold    { font-weight: 700; }

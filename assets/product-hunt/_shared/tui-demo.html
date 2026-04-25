@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<!--
+  tui-demo.html — Visual review of all 5 Atomic TUI states.
+
+  Loads all shared CSS, renders each tui-state template stacked vertically
+  with state labels. Not a slide — for internal review only.
+
+  Each TUI is rendered at 860x480px (the size it would appear in a real slide).
+  No liquid-silk, no film-grain — TUIs stand on their own technical chrome.
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1200">
+  <title>Atomic TUI States — visual review</title>
+  <link rel="stylesheet" href="./fonts.css">
+  <link rel="stylesheet" href="./tokens.css">
+  <link rel="stylesheet" href="./components.css">
+  <link rel="stylesheet" href="./tui.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      background-color: var(--mocha-crust);
+      color: var(--mocha-text);
+      font-family: var(--font-mono);
+      padding: 48px;
+      width: max-content;
+      min-width: 100%;
+    }
+
+    .demo-page-title {
+      font-family: var(--font-display);
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--mocha-text);
+      margin-bottom: 8px;
+      letter-spacing: -0.02em;
+    }
+
+    .demo-page-subtitle {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--mocha-overlay0);
+      margin-bottom: 56px;
+      letter-spacing: 0.04em;
+    }
+
+    .demo-state {
+      margin-bottom: 64px;
+    }
+
+    .demo-state-label {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--mocha-overlay0);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .demo-state-label::before {
+      content: '';
+      display: block;
+      width: 20px;
+      height: 1px;
+      background: var(--mocha-overlay0);
+    }
+
+    .demo-state-name {
+      color: var(--mocha-blue);
+    }
+
+    .demo-state-desc {
+      color: var(--mocha-subtext0);
+      font-weight: 400;
+      margin-left: 4px;
+    }
+
+    /* The TUI renders at exactly 860x480 */
+    .demo-tui-wrapper {
+      width: 860px;
+      height: 480px;
+      box-shadow: 0 8px 32px oklch(5% 0 0 / 0.60), 0 2px 8px oklch(5% 0 0 / 0.40);
+    }
+
+    .demo-tui-wrapper .tui {
+      width: 860px !important;
+      height: 860px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="demo-page-title">Atomic TUI States</div>
+  <div class="demo-page-subtitle">
+    assets/product-hunt/_shared/tui-states.html — visual review · not a slide · no liquid-silk or film-grain
+  </div>
+
+  
+  <!-- tui-state-idle -->
+  <div class="demo-state">
+    <div class="demo-state-label">
+      <span class="demo-state-name">tui-state-idle</span>
+      <span class="demo-state-desc">workflow picker open, empty main pane, press-enter hint</span>
+    </div>
+    <div class="demo-tui-wrapper">
+      <div class="tui" style="width:860px;height:480px;">
+
+    <!-- Header bar: PICK mode badge, session name, counts -->
+    <div class="tui__header">
+      <div class="tui__header-badge tui__header-badge--graph">ATOMIC</div>
+      <span class="tui__header-session">pr-review · claude</span>
+      <div class="tui__header-counts">
+        <span class="tui__count"><span class="tui-dim">○</span><span class="tui-dim"> 4</span></span>
+      </div>
+    </div>
+
+    <!-- Body: sidebar + main -->
+    <div class="tui__body">
+
+      <!-- Sidebar: workflow picker -->
+      <div class="tui__sidebar">
+        <div class="tui__sidebar-header">
+          <div class="tui__sidebar-header-badge tui__sidebar-header-badge--claude">CLAUDE</div>
+          <span class="tui__sidebar-header-label">workflow › select</span>
+          <span class="tui__sidebar-header-count">8 workflows</span>
+        </div>
+
+        <!-- Filter bar -->
+        <div class="tui__filter">
+          <span class="tui__filter-prompt">❯</span>
+          <span class="tui__filter-text">filter workflows…</span>
+        </div>
+
+        <!-- Workflow list: builtin section -->
+        <div class="tui__workflow-list">
+          <div class="tui__section-label">
+            <span class="tui__section-label-bar">▎</span>
+            <span class="tui__section-label-text">claude</span>
+          </div>
+
+          <div class="tui__row tui__row--focused">
+            <span class="tui__row-indicator">▸</span>
+            <span class="tui__row-name">pr-review</span>
+          </div>
+          <div class="tui__row">
+            <span class="tui__row-indicator tui-dim">  </span>
+            <span class="tui__row-name">spec-from-issue</span>
+          </div>
+          <div class="tui__row">
+            <span class="tui__row-indicator tui-dim">  </span>
+            <span class="tui__row-name">multi-agent-research</span>
+          </div>
+          <div class="tui__row">
+            <span class="tui__row-indicator tui-dim">  </span>
+            <span class="tui__row-name">support-ticket-to-pr</span>
+          </div>
+          <div class="tui__row">
+            <span class="tui__row-indicator tui-dim">  </span>
+            <span class="tui__row-name">prod-alert-investigate</span>
+          </div>
+          <div class="tui__row">
+            <span class="tui__row-indicator tui-dim">  </span>
+            <span class="tui__row-name">ralph</span>
+          </div>
+          <div class="tui__row">
+            <span class="tui__row-indicator tui-dim">  </span>
+            <span class="tui__row-name">deep-research-codebase</span>
+          </div>
+          <div class="tui__row">
+            <span class="tui__row-indicator tui-dim">  </span>
+            <span class="tui__row-name">open-claude-design</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main pane: idle hint -->
+      <div class="tui__main">
+        <div class="tui__idle-hint">
+          <span class="tui-dim">→</span>&nbsp;<span>select a workflow and press ↵ to configure</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Statusbar: PICK mode -->
+    <div class="tui__statusbar">
+      <div class="tui__statusbar-badge tui__statusbar-badge--pick">PICK</div>
+      <span class="tui__statusbar-info">pr-review</span>
+      <div class="tui__statusbar-spacer"></div>
+      <div class="tui__statusbar-hints">
+        <span class="tui__hint">
+          <span class="tui__hint-key">↑↓</span>
+          <span class="tui__hint-label">navigate</span>
+        </span>
+        <span class="tui__hint">
+          <span class="tui__hint-key">↵</span>
+          <span class="tui__hint-label">select</span>
+        </span>
+        <span class="tui__hint">
+          <span class="tui__hint-key">esc</span>
+          <span class="tui__hint-label">quit</span>
+        </span>
+      </div>
+    </div>
+
+  </div>
+    </div>
+  </div>
+
+  <!-- tui-state-multi-agent -->
+  <div class="demo-state">
+    <div class="demo-state-label">
+      <span class="demo-state-name">tui-state-multi-agent</span>
+      <span class="demo-state-desc">three parallel agent sessions running with Braille spinners</span>
+    </div>
+    <div class="demo-tui-wrapper">
+      <div class="tui" style="width:860px;height:480px;">
+
+    <!-- Header bar: GRAPH mode, workflow running -->
+    <div class="tui__header">
+      <div class="tui__header-badge tui__header-badge--graph">GRAPH</div>
+      <span class="tui__header-session">multi-agent-research · claude</span>
+      <div class="tui__header-counts">
+        <span class="tui__count"><span class="tui-green">✓</span><span class="tui-dim"> 1</span></span>
+        <span class="tui__count"><span class="tui-yellow">●</span><span class="tui-dim"> 3</span></span>
+        <span class="tui__count"><span class="tui-dim">○</span><span class="tui-dim"> 0</span></span>
+      </div>
+    </div>
+
+    <!-- Body: sidebar + main -->
+    <div class="tui__body">
+
+      <!-- Sidebar: workflow selected -->
+      <div class="tui__sidebar">
+        <div class="tui__sidebar-header">
+          <div class="tui__sidebar-header-badge tui__sidebar-header-badge--claude">CLAUDE</div>
+          <span class="tui__sidebar-header-label">workflow › running</span>
+        </div>
+
+        <div class="tui__workflow-list">
+          <div class="tui__section-label">
+            <span class="tui__section-label-bar">▎</span>
+            <span class="tui__section-label-text">sessions</span>
+          </div>
+
+          <div class="tui__row tui__row--active">
+            <span class="tui__spinner">⠹</span>
+            <span class="tui__row-name tui-yellow">orchestrator</span>
+          </div>
+          <div class="tui__row tui__row--focused">
+            <span class="tui__spinner">⠼</span>
+            <span class="tui__row-name tui-yellow">claude-code</span>
+          </div>
+          <div class="tui__row">
+            <span class="tui__spinner tui-dim">⠴</span>
+            <span class="tui__row-name tui-yellow">opencode</span>
+          </div>
+          <div class="tui__row">
+            <span class="tui__spinner tui-dim">⠦</span>
+            <span class="tui__row-name tui-yellow">copilot-cli</span>
+          </div>
+
+          <div class="tui__section-label" style="margin-top:8px;">
+            <span class="tui__section-label-bar">▎</span>
+            <span class="tui__section-label-text">workflow</span>
+          </div>
+          <div class="tui__row">
+            <span class="tui__row-indicator tui-dim">  </span>
+            <span class="tui__row-name tui-muted">multi-agent-research</span>
+          </div>
+          <div class="tui__row">
+            <span class="tui__row-indicator tui-dim">  </span>
+            <span class="tui__row-name tui-dim">src/workflows/multi-agent-research.ts</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main pane: session graph with 3 parallel running agents -->
+      <div class="tui__main">
+        <div class="tui__graph" style="flex-direction:column;gap:0;padding:16px 24px;">
+
+          <!-- Orchestrator node (done) -->
+          <div style="display:flex;justify-content:center;margin-bottom:0;">
+            <div class="tui__node tui__node--done" style="width:160px;">
+              <div class="tui__node-title">orchestrator</div>
+              <div class="tui__node-duration tui__node-duration--done">0:04</div>
+            </div>
+          </div>
+
+          <!-- Connector lines down to 3 parallel agents -->
+          <div style="display:flex;justify-content:center;height:20px;position:relative;">
+            <div style="width:1px;background:var(--mocha-overlay0);height:100%;margin:0 auto;"></div>
+          </div>
+
+          <!-- Horizontal line spanning all 3 agents -->
+          <div style="display:flex;justify-content:center;margin-bottom:0;">
+            <div style="display:flex;flex-direction:row;gap:24px;align-items:flex-start;">
+
+              <!-- Agent 1: claude-code -->
+              <div style="display:flex;flex-direction:column;align-items:center;gap:0;">
+                <div style="width:1px;background:var(--mocha-overlay0);height:20px;"></div>
+                <div class="tui__node tui__node--running tui__node--focused" style="width:160px;min-height:68px;">
+                  <div class="tui__node-title">claude-code</div>
+                  <div class="tui__node-duration tui__node-duration--running">
+                    <span class="tui__spinner">⠹</span> 1:12
+                  </div>
+                  <div class="tui__node-hint tui-dim">scan diff</div>
+                </div>
+              </div>
+
+              <!-- Agent 2: opencode -->
+              <div style="display:flex;flex-direction:column;align-items:center;gap:0;">
+                <div style="width:1px;background:var(--mocha-overlay0);height:20px;"></div>
+                <div class="tui__node tui__node--running" style="width:160px;min-height:68px;">
+                  <div class="tui__node-title">opencode</div>
+                  <div class="tui__node-duration tui__node-duration--running">
+                    <span class="tui__spinner tui-dim">⠼</span> 0:58
+                  </div>
+                  <div class="tui__node-hint tui-dim">draft notes</div>
+                </div>
+              </div>
+
+              <!-- Agent 3: copilot-cli -->
+              <div style="display:flex;flex-direction:column;align-items:center;gap:0;">
+                <div style="width:1px;background:var(--mocha-overlay0);height:20px;"></div>
+                <div class="tui__node tui__node--running" style="width:160px;min-height:68px;">
+                  <div class="tui__node-title">copilot-cli</div>
+                  <div class="tui__node-duration tui__node-duration--running">
+                    <span class="tui__spinner tui-dim">⠦</span> 1:03
+                  </div>
+                  <div class="tui__node-hint tui-dim">compile report</div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Statusbar: GRAPH mode, navigation hints -->
+    <div class="tui__statusbar">
+      <div class="tui__statusbar-badge tui__statusbar-badge--graph">GRAPH</div>
+      <span class="tui__statusbar-info tui-yellow">● 3 background</span>
+      <div class="tui__statusbar-spacer"></div>
+      <div class="tui__statusbar-hints">
+        <span class="tui__hint">
+          <span class="tui__hint-key">↑↓←→</span>
+          <span class="tui__hint-label">navigate</span>
+        </span>
+        <span class="tui__hint">
+          <span class="tui__hint-key">↵</span>
+          <span class="tui__hint-label">attach</span>
+        </span>
+        <span class="tui__hint">
+          <span class="tui__hint-key">ctrl+b d</span>
+          <span class="tui__hint-label">detach</span>
+        </span>
+        <span class="tui__hint">
+          <span class="tui__hint-key">q</span>
+          <span class="tui__hint-label">quit</span>
+        </span>
+      </div>
+    </div>
+
+  </div>
+    </div>
+  </div>
+
+  <!-- tui-state-review-gate -->
+  <div class="demo-state">
+    <div class="demo-state-label">
+      <span class="demo-state-name">tui-state-review-gate</span>
+      <span class="demo-state-desc">human-approval prompt foregrounded, mauve accent, [y]es/[n]o/[d]iff</span>
+    </div>
+    <div class="demo-tui-wrapper">
+      <div class="tui" style="width:860px;height:480px;">
+
+    <!-- Header bar -->
+    <div class="tui__header">
+      <div class="tui__header-badge tui__header-badge--warn">GRAPH</div>
+      <span class="tui__header-session">support-ticket-to-pr · claude</span>
+      <div class="tui__header-counts">
+        <span class="tui__count"><span class="tui-green">✓</span><span class="tui-dim"> 2</span></span>
+        <span class="tui__count"><span class="tui-sky">?</span><span class="tui-dim"> 1</span></span>
+        <span class="tui__count"><span class="tui-dim">○</span><span class="tui-dim"> 1</span></span>
+      </div>
+    </div>
+
+    <!-- Body -->
+    <div class="tui__body">
+
+      <!-- Sidebar -->
+      <div class="tui__sidebar">
+        <div class="tui__sidebar-header">
+          <div class="tui__sidebar-header-badge tui__sidebar-header-badge--claude">CLAUDE</div>
+          <span class="tui__sidebar-header-label">workflow › awaiting</span>
+        </div>
+
+        <div class="tui__workflow-list">
+          <div class="tui__section-label">
+            <span class="tui__section-label-bar">▎</span>
+            <span class="tui__section-label-text">sessions</span>
+          </div>
+
+          <div class="tui__row">
+            <span class="tui-green" style="font-size:11px;">✓</span>
+            <span class="tui__row-name tui-green">orchestrator</span>
+          </div>
+          <div class="tui__row">
+            <span class="tui-green" style="font-size:11px;">✓</span>
+            <span class="tui__row-name tui-muted">triage-agent</span>
+          </div>
+          <div class="tui__row tui__row--active">
+            <span class="tui-sky" style="font-size:11px;">?</span>
+            <span class="tui__row-name tui-sky">pr-author</span>
+          </div>
+          <div class="tui__row">
+            <span class="tui-dim" style="font-size:11px;">○</span>
+            <span class="tui__row-name tui-dim">notifier</span>
+          </div>
+
+          <div class="tui__section-label" style="margin-top:8px;">
+            <span class="tui__section-label-bar">▎</span>
+            <span class="tui__section-label-text">steps</span>
+          </div>
+          <div class="tui__row">
+            <span class="tui-green" style="font-size:11px;">✓</span>
+            <span class="tui__row-name tui-muted">triage ticket</span>
+          </div>
+          <div class="tui__row">
+            <span class="tui-green" style="font-size:11px;">✓</span>
+            <span class="tui__row-name tui-muted">draft PR body</span>
+          </div>
+          <div class="tui__row tui__row--focused">
+            <span class="tui-mauve" style="font-size:11px;">●</span>
+            <span class="tui__row-name tui-mauve">request human approval</span>
+          </div>
+          <div class="tui__row">
+            <span class="tui-dim" style="font-size:11px;">○</span>
+            <span class="tui__row-name tui-dim">open pull request</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main pane: human-approval prompt -->
+      <div class="tui__main">
+        <!-- Output context above the prompt -->
+        <div class="tui__output" style="flex:0;padding-bottom:4px;">
+          <div class="tui__output-line">
+            <span class="tui__output-prefix">pr-author</span>
+            <span class="tui__output-text tui-muted">Drafted pull request body from ticket #2847</span>
+          </div>
+          <div class="tui__output-line">
+            <span class="tui__output-prefix">pr-author</span>
+            <span class="tui__output-text tui-muted">Title: <span class="tui-text">fix: handle null session on timeout in executor</span></span>
+          </div>
+          <div class="tui__output-line">
+            <span class="tui__output-prefix">pr-author</span>
+            <span class="tui__output-text tui-muted">Base: <span class="tui-blue">main</span> · Head: <span class="tui-blue">fix/null-session-timeout</span></span>
+          </div>
+        </div>
+
+        <!-- Review gate prompt -->
+        <div class="tui__prompt">
+          <div class="tui__prompt-title">
+            <span class="tui-mauve">●</span>
+            <span>Human approval required</span>
+          </div>
+          <div class="tui__prompt-body">
+            The agent has drafted a pull request to <span class="tui-blue">main</span>.<br>
+            Review the diff at <span class="tui-sapphire">.atomic/sessions/support-ticket-to-pr/pr-author/diff.patch</span><br>
+            and confirm whether to open the PR on GitHub.
+          </div>
+          <div class="tui__prompt-options">
+            <span class="tui__prompt-option">
+              <span class="tui__prompt-option-key">[y]es</span>
+              <span class="tui__prompt-option-label">open PR</span>
+            </span>
+            <span class="tui__prompt-option">
+              <span class="tui__prompt-option-key">[n]o</span>
+              <span class="tui__prompt-option-label">abort</span>
+            </span>
+            <span class="tui__prompt-option">
+              <span class="tui__prompt-option-key">[d]iff</span>
+              <span class="tui__prompt-option-label">view diff</span>
+            </span>
+            <span class="tui__prompt-option">
+              <span class="tui__prompt-option-key">[e]dit</span>
+              <span class="tui__prompt-option-label">revise body</span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Statusbar: awaiting input -->
+    <div class="tui__statusbar">
+      <div class="tui__statusbar-badge tui__statusbar-badge--confirm">REVIEW</div>
+      <span class="tui__statusbar-info tui-mauve">● waiting for response</span>
+      <div class="tui__statusbar-spacer"></div>
+      <div class="tui__statusbar-hints">
+        <span class="tui__hint">
+          <span class="tui__hint-key">↵</span>
+          <span class="tui__hint-label">enter to respond</span>
+        </span>
+        <span class="tui__hint">
+          <span class="tui__hint-key">ctrl+b d</span>
+          <span class="tui__hint-label">detach</span>
+        </span>
+      </div>
+    </div>
+
+  </div>
+    </div>
+  </div>
+
+  <!-- tui-state-done -->
+  <div class="demo-state">
+    <div class="demo-state-label">
+      <span class="demo-state-name">tui-state-done</span>
+      <span class="demo-state-desc">workflow complete, checkmarks, summary stats, green accents</span>
+    </div>
+    <div class="demo-tui-wrapper">
+      <div class="tui" style="width:860px;height:480px;">
+
+    <!-- Header bar: done badge -->
+    <div class="tui__header">
+      <div class="tui__header-badge tui__header-badge--done">✓ pr-review</div>
+      <span class="tui__header-session">claude · 3:42</span>
+      <div class="tui__header-counts">
+        <span class="tui__count"><span class="tui-green">✓</span><span class="tui-dim"> 4</span></span>
+      </div>
+    </div>
+
+    <!-- Body -->
+    <div class="tui__body">
+
+      <!-- Sidebar: all done -->
+      <div class="tui__sidebar">
+        <div class="tui__sidebar-header">
+          <div class="tui__sidebar-header-badge tui__sidebar-header-badge--claude">CLAUDE</div>
+          <span class="tui__sidebar-header-label">workflow › complete</span>
+        </div>
+
+        <div class="tui__workflow-list">
+          <div class="tui__section-label">
+            <span class="tui__section-label-bar">▎</span>
+            <span class="tui__section-label-text">sessions</span>
+          </div>
+
+          <div class="tui__row">
+            <span class="tui-green" style="font-size:11px;">✓</span>
+            <span class="tui__row-name tui-green">orchestrator</span>
+          </div>
+          <div class="tui__row">
+            <span class="tui-green" style="font-size:11px;">✓</span>
+            <span class="tui__row-name tui-muted">scan-diff</span>
+          </div>
+          <div class="tui__row">
+            <span class="tui-green" style="font-size:11px;">✓</span>
+            <span class="tui__row-name tui-muted">review-agent</span>
+          </div>
+          <div class="tui__row">
+            <span class="tui-green" style="font-size:11px;">✓</span>
+            <span class="tui__row-name tui-muted">comment-poster</span>
+          </div>
+
+          <div class="tui__section-label" style="margin-top:8px;">
+            <span class="tui__section-label-bar">▎</span>
+            <span class="tui__section-label-text">output</span>
+          </div>
+          <div class="tui__row">
+            <span class="tui-muted" style="font-size:11px;">→</span>
+            <span class="tui__row-name tui-sapphire">.atomic/sessions/pr-review/</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main pane: summary -->
+      <div class="tui__main">
+        <!-- Output log -->
+        <div class="tui__output" style="flex:0;padding-bottom:8px;">
+          <div class="tui__output-line">
+            <span class="tui__output-prefix">review-agent</span>
+            <span class="tui__output-text tui-green">✓ Review complete: 3 comments posted to PR #412</span>
+          </div>
+          <div class="tui__output-line">
+            <span class="tui__output-prefix">comment-poster</span>
+            <span class="tui__output-text tui-green">✓ All inline comments submitted via GitHub API</span>
+          </div>
+          <div class="tui__output-line">
+            <span class="tui__output-prefix">orchestrator</span>
+            <span class="tui__output-text tui-green">✓ Workflow pr-review finished in 3m 42s</span>
+          </div>
+          <div class="tui__output-line">
+            <span class="tui__output-prefix tui-dim">transcript</span>
+            <span class="tui__output-text tui-dim">.atomic/sessions/pr-review/transcripts/</span>
+          </div>
+        </div>
+
+        <!-- Summary stats block -->
+        <div class="tui__summary">
+          <div class="tui__summary-title">
+            <span>✓</span>
+            <span>Workflow complete</span>
+          </div>
+
+          <div class="tui__summary-stats">
+            <div class="tui__stat">
+              <div class="tui__stat-value tui-green">4</div>
+              <div class="tui__stat-label">sessions</div>
+            </div>
+            <div class="tui__stat">
+              <div class="tui__stat-value tui-green">3:42</div>
+              <div class="tui__stat-label">elapsed</div>
+            </div>
+            <div class="tui__stat">
+              <div class="tui__stat-value tui-green">3</div>
+              <div class="tui__stat-label">comments</div>
+            </div>
+            <div class="tui__stat">
+              <div class="tui__stat-value tui-muted">24k</div>
+              <div class="tui__stat-label">tokens</div>
+            </div>
+          </div>
+
+          <div class="tui__summary-path tui-dim">
+            transcripts → .atomic/sessions/pr-review/transcripts/
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Statusbar: done, press q to exit -->
+    <div class="tui__statusbar">
+      <div class="tui__statusbar-badge tui__statusbar-badge--graph">GRAPH</div>
+      <span class="tui__statusbar-info tui-green">✓ pr-review</span>
+      <div class="tui__statusbar-spacer"></div>
+      <div class="tui__statusbar-hints">
+        <span class="tui__hint">
+          <span class="tui__hint-key">q</span>
+          <span class="tui__hint-label">quit</span>
+        </span>
+      </div>
+    </div>
+
+  </div>
+    </div>
+  </div>
+
+  <!-- tui-state-devcontainer -->
+  <div class="demo-state">
+    <div class="demo-state-label">
+      <span class="demo-state-name">tui-state-devcontainer</span>
+      <span class="demo-state-desc">sandboxed execution banner, cool-sapphire accent, agent output below</span>
+    </div>
+    <div class="demo-tui-wrapper">
+      <div class="tui" style="width:860px;height:480px;">
+
+    <!-- Header bar -->
+    <div class="tui__header">
+      <div class="tui__header-badge tui__header-badge--graph">GRAPH</div>
+      <span class="tui__header-session">prod-alert-investigate · opencode</span>
+      <div class="tui__header-counts">
+        <span class="tui__count"><span class="tui-green">✓</span><span class="tui-dim"> 1</span></span>
+        <span class="tui__count"><span class="tui-yellow">●</span><span class="tui-dim"> 2</span></span>
+        <span class="tui__count"><span class="tui-dim">○</span><span class="tui-dim"> 1</span></span>
+      </div>
+    </div>
+
+    <!-- Body -->
+    <div class="tui__body">
+
+      <!-- Sidebar -->
+      <div class="tui__sidebar">
+        <div class="tui__sidebar-header">
+          <div class="tui__sidebar-header-badge tui__sidebar-header-badge--opencode">OPENCODE</div>
+          <span class="tui__sidebar-header-label">workflow › running</span>
+        </div>
+
+        <div class="tui__workflow-list">
+          <div class="tui__section-label">
+            <span class="tui__section-label-bar">▎</span>
+            <span class="tui__section-label-text">sessions</span>
+          </div>
+
+          <div class="tui__row">
+            <span class="tui-green" style="font-size:11px;">✓</span>
+            <span class="tui__row-name tui-green">orchestrator</span>
+          </div>
+          <div class="tui__row tui__row--focused">
+            <span class="tui__spinner">⠸</span>
+            <span class="tui__row-name tui-yellow">log-analyst</span>
+          </div>
+          <div class="tui__row">
+            <span class="tui__spinner tui-dim">⠼</span>
+            <span class="tui__row-name tui-yellow">metric-collector</span>
+          </div>
+          <div class="tui__row">
+            <span class="tui-dim" style="font-size:11px;">○</span>
+            <span class="tui__row-name tui-dim">report-writer</span>
+          </div>
+
+          <div class="tui__section-label" style="margin-top:8px;">
+            <span class="tui__section-label-bar">▎</span>
+            <span class="tui__section-label-text">environment</span>
+          </div>
+          <div class="tui__row">
+            <span class="tui-sapphire" style="font-size:11px;">●</span>
+            <span class="tui__row-name tui-sapphire">devcontainer</span>
+          </div>
+          <div class="tui__row">
+            <span class="tui-dim" style="font-size:11px;"> </span>
+            <span class="tui__row-name tui-dim">ubuntu-22.04 · isolated</span>
+          </div>
+          <div class="tui__row">
+            <span class="tui-dim" style="font-size:11px;"> </span>
+            <span class="tui__row-name tui-dim">no network · no host fs</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main pane: devcontainer banner + output -->
+      <div class="tui__main">
+
+        <!-- Devcontainer isolation banner -->
+        <div class="tui__banner tui__banner--devcontainer">
+          <span class="tui__banner-label">devcontainer: ubuntu-22.04</span>
+          <span class="tui-dim">·</span>
+          <span class="tui__banner-detail">isolated · no network · ephemeral fs</span>
+          <span class="tui-dim" style="margin-left:auto;font-size:11px;">ctrl+b d detach</span>
+        </div>
+
+        <!-- Agent output inside container -->
+        <div class="tui__output">
+          <div class="tui__output-line">
+            <span class="tui__output-prefix">log-analyst</span>
+            <span class="tui__output-text tui-muted">Pulling log snapshot from /var/log/atomic/executor.log…</span>
+          </div>
+          <div class="tui__output-line">
+            <span class="tui__output-prefix">log-analyst</span>
+            <span class="tui__output-text"><span class="tui-yellow">WARN</span> <span class="tui-muted">High p95 latency: 4.2s (threshold: 2.0s)</span></span>
+          </div>
+          <div class="tui__output-line">
+            <span class="tui__output-prefix">log-analyst</span>
+            <span class="tui__output-text tui-muted">Checking correlated error rate at 14:22 UTC…</span>
+          </div>
+          <div class="tui__output-line">
+            <span class="tui__output-prefix">log-analyst</span>
+            <span class="tui__output-text"><span class="tui-red">ERROR</span> <span class="tui-muted">503 spike: 47 errors in 3m window → executor restart</span></span>
+          </div>
+          <div class="tui__output-line">
+            <span class="tui__output-prefix">metric-collector</span>
+            <span class="tui__output-text"><span class="tui__spinner">⠸</span> <span class="tui-muted">Querying Prometheus: cpu, mem, rps…</span></span>
+          </div>
+          <div class="tui__output-line">
+            <span class="tui__output-prefix">metric-collector</span>
+            <span class="tui__output-text tui-muted">CPU: <span class="tui-yellow">82%</span>  MEM: <span class="tui-text">4.1 GB / 8 GB</span>  RPS: <span class="tui-text">312</span></span>
+          </div>
+          <div class="tui__output-line">
+            <span class="tui__output-prefix tui-dim">container</span>
+            <span class="tui__output-text tui-dim">All writes isolated to ephemeral /workspace — host fs untouched</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Statusbar: opencode agent, detach hint -->
+    <div class="tui__statusbar">
+      <div class="tui__statusbar-badge tui__statusbar-badge--opencode">OPENCODE</div>
+      <span class="tui__statusbar-info tui-yellow">⠸ log-analyst</span>
+      <div class="tui__statusbar-spacer"></div>
+      <div class="tui__statusbar-hints">
+        <span class="tui__hint">
+          <span class="tui__hint-key">ctrl+g</span>
+          <span class="tui__hint-label">graph</span>
+        </span>
+        <span class="tui__hint">
+          <span class="tui__hint-key">ctrl+b d</span>
+          <span class="tui__hint-label">detach</span>
+        </span>
+      </div>
+    </div>
+
+  </div>
+    </div>
+  </div>
+
+
+</body>
+</html>

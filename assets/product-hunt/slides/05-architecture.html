@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1270">
+  <title>Atomic — Slide 05: Architecture</title>
+  <link rel="stylesheet" href="../_shared/fonts.css">
+  <link rel="stylesheet" href="../_shared/tokens.css">
+  <link rel="stylesheet" href="../_shared/components.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 1270px; height: 760px; overflow: hidden; }
+
+    /* -----------------------------------------------------------------------
+       Slide-05-specific overrides: cream-safe pane chrome
+       On a cream background the standard dark pane fills don't apply —
+       we render panes as transparent/light with 1px solid borders only.
+    ----------------------------------------------------------------------- */
+
+    /* Outer "your repo" pane — translucent warm white, faint overlay border */
+    .arch-pane--repo {
+      background: rgba(255, 255, 255, 0.55);
+      border: 1px solid var(--mocha-overlay0);
+      border-radius: 10px;
+      box-shadow: 0 6px 32px oklch(30% 0.06 250 / 0.10), 0 1px 6px oklch(30% 0.06 250 / 0.08);
+    }
+
+    /* Middle "Atomic TypeScript workflow" pane — cool-blue tinted */
+    .arch-pane--atomic {
+      background: oklch(95% 0.04 240 / 0.55);
+      border: 1px solid var(--cool-blue);
+      border-radius: 8px;
+    }
+
+    /* Inner agent leaf panes */
+    .arch-pane--agent {
+      background: rgba(255, 255, 255, 0.65);
+      border-radius: 7px;
+      flex: 1;
+    }
+
+    .arch-pane--claude  { border: 1px solid var(--cool-sapphire); }
+    .arch-pane--opencode { border: 1px solid var(--warm-peach); }
+    .arch-pane--copilot { border: 1px solid var(--cool-teal); }
+
+    /* Clean title bar — no traffic lights, just label */
+    .arch-titlebar {
+      display: flex;
+      align-items: center;
+      padding: 7px 14px;
+      border-bottom: 1px solid currentColor;
+      border-color: inherit;
+      opacity: 0.9;
+    }
+
+    .arch-titlebar__label {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+    }
+
+    .arch-titlebar__line {
+      flex: 1;
+      height: 1px;
+      background: currentColor;
+      opacity: 0.18;
+      margin: 0 10px;
+    }
+
+    .arch-titlebar__close {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      opacity: 0.30;
+      letter-spacing: 0.06em;
+    }
+
+    /* Body of pane */
+    .arch-body {
+      padding: 12px 16px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      line-height: 1.6;
+      white-space: pre;
+    }
+
+    .arch-body--sm {
+      font-size: 12px;
+    }
+
+    /* Inner agent pane body */
+    .arch-agent-body {
+      padding: 10px 14px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    /* Bottom ribbon */
+    .arch-ribbon {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      letter-spacing: 0.05em;
+      color: var(--mocha-overlay0);
+    }
+
+    .arch-ribbon__tag {
+      white-space: nowrap;
+    }
+
+    .arch-ribbon__dot {
+      margin: 0 8px;
+      opacity: 0.6;
+    }
+  </style>
+</head>
+<body>
+  <!-- SVG filter for liquid-silk displacement -->
+  <svg width="0" height="0" style="position:absolute">
+    <defs>
+      <filter id="liquid-silk-filter" x="-20%" y="-20%" width="140%" height="140%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.009 0.006" numOctaves="5" seed="13" result="noise"/>
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="55" xChannelSelector="R" yChannelSelector="G"/>
+      </filter>
+    </defs>
+  </svg>
+
+  <!-- Cream slide -->
+  <div class="slide slide--cream">
+
+    <!-- Cream liquid-silk backdrop: base cream + cool flow at right edge ~30% -->
+    <div class="liquid-silk liquid-silk--cream"></div>
+
+    <!-- Extra cool flow concentrated at right edge -->
+    <div style="
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      background:
+        radial-gradient(ellipse 55% 90% at 100% 50%, oklch(78% 0.14 210 / 0.28) 0%, transparent 70%),
+        radial-gradient(ellipse 35% 60% at 95% 20%, oklch(82% 0.10 190 / 0.20) 0%, transparent 65%),
+        radial-gradient(ellipse 30% 50% at 92% 85%, oklch(76% 0.12 230 / 0.18) 0%, transparent 60%);
+      pointer-events: none;
+    "></div>
+
+    <!-- Film grain (lighter opacity on cream) -->
+    <div class="film-grain" style="opacity: 0.035;"></div>
+
+    <!-- Content layer -->
+    <div class="slide__content" style="padding: 48px 60px 44px; display: flex; flex-direction: column;">
+
+      <!-- Wordmark (dark on cream — mocha-crust for max contrast) -->
+      <div class="wordmark" style="margin-bottom: 28px; color: var(--mocha-crust);">ATOMIC</div>
+
+      <!-- Headline — Bricolage Grotesque 54px, weight 700, dark Mocha crust -->
+      <h1 class="headline headline--cream" style="
+        margin-bottom: 8px;
+        font-size: 54px;
+        font-weight: 700;
+        line-height: 1.04;
+        letter-spacing: -0.025em;
+        color: var(--mocha-crust);
+      ">
+        Atomic enhances your existing agent harness.
+      </h1>
+
+      <!-- Subhead — Geist Sans 19px, mocha-overlay0 for subtle hierarchy -->
+      <p class="subhead" style="
+        margin-bottom: 32px;
+        font-size: 19px;
+        color: var(--mocha-overlay0);
+        max-width: 680px;
+      ">
+        It wraps the tools developers already use with TypeScript workflow structure.
+      </p>
+
+      <!-- ================================================================
+           Architecture diagram — terminal cartography (panes within panes)
+           ================================================================ -->
+
+      <!-- Outer "your repo" pane -->
+      <div class="arch-pane--repo" style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
+
+        <!-- Title bar: "your repo" — mocha-overlay0 neutral -->
+        <div class="arch-titlebar" style="color: var(--mocha-overlay0); border-bottom-color: var(--mocha-overlay0);">
+          <span class="arch-titlebar__label" style="color: var(--mocha-overlay0);">your repo</span>
+          <span class="arch-titlebar__line"></span>
+          <span class="arch-titlebar__close">──────────────</span>
+        </div>
+
+        <!-- Inner content of "your repo" -->
+        <div style="flex: 1; padding: 20px 24px 16px; display: flex; flex-direction: column;">
+
+          <!-- Middle "Atomic TypeScript workflow" pane -->
+          <div class="arch-pane--atomic" style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
+
+            <!-- Title bar: "Atomic TypeScript workflow" — cool-blue -->
+            <div class="arch-titlebar" style="color: var(--cool-blue); border-bottom-color: var(--cool-blue);">
+              <span class="arch-titlebar__label" style="color: var(--cool-blue);">Atomic TypeScript workflow</span>
+              <span class="arch-titlebar__line" style="background: var(--cool-blue);"></span>
+              <span class="arch-titlebar__close" style="color: var(--cool-blue);">──────────</span>
+            </div>
+
+            <!-- Workflow body: defineWorkflow call signature -->
+            <div class="arch-body arch-body--sm" style="
+              padding: 14px 20px 10px;
+              color: var(--mocha-surface1);
+            ">
+<span style="color: var(--cool-blue); opacity: 0.85;">defineWorkflow</span><span style="color: var(--mocha-overlay1);">()</span><span style="color: var(--mocha-overlay0);">.</span><span style="color: var(--cool-teal); opacity: 0.85;">run</span><span style="color: var(--mocha-overlay1);">(</span><span style="color: var(--mocha-sapphire);">Promise.all</span><span style="color: var(--mocha-overlay1);">)</span><span style="color: var(--mocha-overlay0);">.</span><span style="color: var(--mocha-overlay1);">compile</span><span style="color: var(--mocha-overlay0);">()</span>
+            </div>
+
+            <!-- Three agent leaf panes side-by-side -->
+            <div style="
+              display: flex;
+              gap: 14px;
+              padding: 0 16px 16px;
+              flex: 1;
+              align-items: stretch;
+            ">
+
+              <!-- Claude Code — cool-sapphire -->
+              <div class="arch-pane--agent arch-pane--claude" style="display: flex; flex-direction: column;">
+                <div class="arch-titlebar" style="color: var(--cool-sapphire); border-bottom-color: var(--cool-sapphire);">
+                  <span class="arch-titlebar__label" style="color: var(--cool-sapphire);">Claude Code</span>
+                  <span class="arch-titlebar__line" style="background: var(--cool-sapphire);"></span>
+                </div>
+                <div class="arch-agent-body" style="color: var(--mocha-surface2); flex: 1;">
+                  <div style="color: var(--cool-sapphire); opacity: 0.75; font-size: 11px; margin-bottom: 4px;">native CLI + SDK</div>
+                  <div style="color: var(--mocha-overlay0); font-size: 11px; opacity: 0.8;">session</div>
+                </div>
+              </div>
+
+              <!-- OpenCode — warm-peach -->
+              <div class="arch-pane--agent arch-pane--opencode" style="display: flex; flex-direction: column;">
+                <div class="arch-titlebar" style="color: var(--warm-peach); border-bottom-color: var(--warm-peach);">
+                  <span class="arch-titlebar__label" style="color: var(--warm-peach);">OpenCode</span>
+                  <span class="arch-titlebar__line" style="background: var(--warm-peach);"></span>
+                </div>
+                <div class="arch-agent-body" style="color: var(--mocha-surface2); flex: 1;">
+                  <div style="color: var(--warm-peach); opacity: 0.75; font-size: 11px; margin-bottom: 4px;">native CLI + SDK</div>
+                  <div style="color: var(--mocha-overlay0); font-size: 11px; opacity: 0.8;">session</div>
+                </div>
+              </div>
+
+              <!-- Copilot CLI — cool-teal -->
+              <div class="arch-pane--agent arch-pane--copilot" style="display: flex; flex-direction: column;">
+                <div class="arch-titlebar" style="color: var(--cool-teal); border-bottom-color: var(--cool-teal);">
+                  <span class="arch-titlebar__label" style="color: var(--cool-teal);">Copilot CLI</span>
+                  <span class="arch-titlebar__line" style="background: var(--cool-teal);"></span>
+                </div>
+                <div class="arch-agent-body" style="color: var(--mocha-surface2); flex: 1;">
+                  <div style="color: var(--cool-teal); opacity: 0.75; font-size: 11px; margin-bottom: 4px;">native CLI + SDK</div>
+                  <div style="color: var(--mocha-overlay0); font-size: 11px; opacity: 0.8;">session</div>
+                </div>
+              </div>
+
+            </div>
+            <!-- /three agent panes -->
+
+          </div>
+          <!-- /Atomic TypeScript workflow pane -->
+
+        </div>
+        <!-- /your repo inner content -->
+
+      </div>
+      <!-- /your repo outer pane -->
+
+      <!-- Bottom ribbon: tools · codebase · devcontainer · review gate · PR · report -->
+      <div style="margin-top: 18px;">
+        <div class="arch-ribbon">
+          <span class="arch-ribbon__tag">Tools</span>
+          <span class="arch-ribbon__dot">·</span>
+          <span class="arch-ribbon__tag">codebase</span>
+          <span class="arch-ribbon__dot">·</span>
+          <span class="arch-ribbon__tag">devcontainer</span>
+          <span class="arch-ribbon__dot">·</span>
+          <span class="arch-ribbon__tag">review gate</span>
+          <span class="arch-ribbon__dot">·</span>
+          <span class="arch-ribbon__tag">PR</span>
+          <span class="arch-ribbon__dot">·</span>
+          <span class="arch-ribbon__tag">report</span>
+        </div>
+      </div>
+
+    </div>
+    <!-- /slide__content -->
+
+  </div>
+  <!-- /slide slide--cream -->
+</body>
+</html>

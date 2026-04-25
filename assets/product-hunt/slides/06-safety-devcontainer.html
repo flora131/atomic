@@ -12,67 +12,6 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 1270px; height: 760px; overflow: hidden; }
 
-    /*
-      Slide-06 bubble-text override — promotes .bubble-text--cool to a true
-      3D balloon look with:
-        • Stronger asymmetric specular highlight (off-axis top-left, larger radius)
-        • Subtle bottom inset shadow to weight each letter
-        • Tighter letter-spacing (~-0.04em)
-        • Highlight hue close to --cool-sky mixed with cream
-    */
-    .s06-bubble-lower {
-      display: inline;
-      font-family: var(--font-display);
-      font-weight: 700;
-      font-size: inherit;
-      line-height: inherit;
-      letter-spacing: -0.04em;
-      color: oklch(92% 0.06 195);   /* near-cream with cool-sky tint */
-      position: relative;
-      /*
-        Shadow stack:
-        1-4: deep volumetric fill — occlusion below the letter
-        5:   rim rim highlight — thin specular ring on top-left
-        6-7: large specular blob — the inflated-balloon catch-light
-        8:   bottom weight shadow — subtle warm sink to fake gravity
-      */
-      text-shadow:
-        0   2px   5px oklch(25% 0.22 220 / 0.90),
-        0   6px  18px oklch(20% 0.24 220 / 0.70),
-        0  14px  36px oklch(18% 0.20 220 / 0.55),
-        0  24px  60px oklch(15% 0.16 220 / 0.38),
-        -1px -2px  0   oklch(80% 0.10 195 / 0.60),
-        -3px -5px 12px oklch(95% 0.04 200 / 0.72),
-        -5px -8px 20px oklch(97% 0.02 200 / 0.45),
-        0   4px   8px oklch(10% 0.08 220 / 0.35);
-    }
-
-    /*
-      Specular overlay for the bubble "lower" word — stronger than the default
-      ::before pseudo-element, using a tighter ellipse and cooler hue.
-      We scope this to .s06-bubble-lower via a wrapping span approach.
-    */
-    .s06-bubble-lower::before {
-      content: attr(data-text);
-      position: absolute;
-      inset: 0;
-      font-family: inherit;
-      font-weight: inherit;
-      letter-spacing: inherit;
-      line-height: inherit;
-      color: transparent;
-      background: radial-gradient(
-        ellipse 55% 38% at 25% 18%,
-        oklch(95% 0.04 200 / 0.55) 0%,
-        oklch(93% 0.04 200 / 0.25) 35%,
-        transparent 65%
-      );
-      -webkit-background-clip: text;
-      background-clip: text;
-      pointer-events: none;
-      mix-blend-mode: overlay;
-    }
-
     /* Sub-labels beneath panel headers */
     .panel-sublabel {
       font-family: var(--font-mono);
@@ -350,9 +289,8 @@
       ">
         Run longer workflows with a
         <span
-          class="s06-bubble-lower"
+          class="bubble-text bubble-text--cool"
           data-text="lower"
-          style="position: relative; display: inline-block;"
         >lower</span>
         blast radius.
       </h1>

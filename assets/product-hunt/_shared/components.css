@@ -1,0 +1,364 @@
+/*
+  components.css — Reusable visual components for Atomic Product Hunt slides.
+
+  Implements:
+    - .slide              (1270x760 stage)
+    - .bubble-text        (inflated display headline via layered shadows, NO gradient fill)
+    - .liquid-silk        (full-bleed SVG turbulence backdrop)
+    - .film-grain         (SVG noise overlay pseudo-element)
+    - .sticker            (Arc-style circular badge)
+    - .tui-pane           (terminal pane chrome)
+    - .wordmark           (top-left small-caps brand mark)
+    - .headline / .subhead (typographic utilities)
+
+  Anti-patterns avoided:
+    - NO -webkit-background-clip: text with gradients (gradient text fill BANNED)
+    - NO border-left/right > 1px as colored accent stripes (BANNED)
+    - NO pure black or pure white — use Mocha base and cream only
+*/
+
+/* ==========================================================================
+   Layout: .slide stage
+   ========================================================================== */
+
+.slide {
+  position: relative;
+  width: var(--slide-width);
+  height: var(--slide-height);
+  overflow: hidden;
+  font-family: var(--font-body);
+  background-color: var(--mocha-base);
+  color: var(--mocha-text);
+  box-sizing: border-box;
+}
+
+/* Cream variant for slide 5 (light background) */
+.slide--cream {
+  background-color: var(--cream);
+  color: var(--cream-text);
+}
+
+/* ==========================================================================
+   Backdrop: .liquid-silk
+   Multi-radial gradient + SVG turbulence displacement for organic flow.
+   ========================================================================== */
+
+.liquid-silk {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.liquid-silk::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  /* base gradient layer painted by variant */
+}
+
+/* Warm variant: maroon/red/peach + faint mauve at edges */
+.liquid-silk--warm {
+  background:
+    radial-gradient(ellipse 90% 60% at 15% 20%, oklch(55% 0.18 10 / 0.55) 0%, transparent 65%),
+    radial-gradient(ellipse 70% 80% at 85% 70%, oklch(60% 0.20 25 / 0.40) 0%, transparent 65%),
+    radial-gradient(ellipse 60% 50% at 50% 100%, oklch(50% 0.15 350 / 0.30) 0%, transparent 60%),
+    radial-gradient(ellipse 80% 40% at 80% 10%, oklch(65% 0.12 300 / 0.25) 0%, transparent 55%),
+    var(--mocha-base);
+  filter: url('#liquid-silk-filter');
+}
+
+/* Cool variant: sapphire/sky/blue/teal */
+.liquid-silk--cool {
+  background:
+    radial-gradient(ellipse 85% 65% at 20% 15%, oklch(65% 0.15 220 / 0.50) 0%, transparent 65%),
+    radial-gradient(ellipse 75% 70% at 80% 75%, oklch(70% 0.18 185 / 0.40) 0%, transparent 65%),
+    radial-gradient(ellipse 55% 55% at 55% 95%, oklch(60% 0.16 200 / 0.30) 0%, transparent 60%),
+    radial-gradient(ellipse 70% 35% at 90% 5%, oklch(55% 0.14 240 / 0.25) 0%, transparent 55%),
+    var(--mocha-base);
+  filter: url('#liquid-silk-filter');
+}
+
+/* Cream variant: light base with cool flow at edges */
+.liquid-silk--cream {
+  background:
+    radial-gradient(ellipse 80% 60% at 10% 90%, oklch(85% 0.12 220 / 0.35) 0%, transparent 65%),
+    radial-gradient(ellipse 65% 70% at 90% 10%, oklch(80% 0.10 185 / 0.30) 0%, transparent 60%),
+    radial-gradient(ellipse 90% 40% at 50% 110%, oklch(88% 0.08 200 / 0.20) 0%, transparent 55%),
+    var(--cream);
+  filter: url('#liquid-silk-filter');
+}
+
+/* Inline SVG filter for turbulence displacement — must be included in each slide's HTML */
+/* See: .liquid-silk-defs element inserted in each slide */
+
+/* ==========================================================================
+   Film grain overlay
+   ========================================================================== */
+
+.film-grain {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.film-grain::after {
+  content: '';
+  position: absolute;
+  inset: -50%;
+  width: 200%;
+  height: 200%;
+  opacity: 0.06;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23g)'/%3E%3C/svg%3E");
+  background-size: 300px 300px;
+}
+
+/* ==========================================================================
+   Bubble text
+   Inflated display headline via layered text-shadows + overlay highlights.
+   The text fill stays SOLID. NO gradient fill. NO -webkit-background-clip.
+   ========================================================================== */
+
+.bubble-text {
+  position: relative;
+  display: inline-block;
+  font-family: var(--font-display);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+/*
+  Shadow stack pattern (8 layers) used by all variants:
+    1-4: deep volumetric occlusion — gives the letter mass beneath
+    5:   thin top-left rim — sharp specular ring
+    6-7: large diffuse specular blob — the inflated catch-light
+    8:   bottom weight shadow — fakes gravity sink
+*/
+
+.bubble-text--warm {
+  color: oklch(91% 0.06 55);
+  text-shadow:
+    0   2px   5px oklch(35% 0.20 15  / 0.90),
+    0   6px  18px oklch(28% 0.22 15  / 0.70),
+    0  14px  36px oklch(22% 0.18 15  / 0.55),
+    0  24px  60px oklch(18% 0.14 15  / 0.38),
+    -1px -2px  0   oklch(88% 0.10 60  / 0.60),
+    -3px -5px 12px oklch(96% 0.04 70  / 0.75),
+    -5px -8px 20px oklch(97% 0.02 70  / 0.45),
+    0   4px   8px oklch(20% 0.18 10  / 0.40);
+}
+
+.bubble-text--cool {
+  color: oklch(92% 0.06 195);
+  text-shadow:
+    0   2px   5px oklch(25% 0.22 220 / 0.90),
+    0   6px  18px oklch(20% 0.24 220 / 0.70),
+    0  14px  36px oklch(18% 0.20 220 / 0.55),
+    0  24px  60px oklch(15% 0.16 220 / 0.38),
+    -1px -2px  0   oklch(80% 0.10 195 / 0.60),
+    -3px -5px 12px oklch(95% 0.04 200 / 0.72),
+    -5px -8px 20px oklch(97% 0.02 200 / 0.45),
+    0   4px   8px oklch(10% 0.08 220 / 0.35);
+}
+
+.bubble-text--cream {
+  color: oklch(96% 0.02 240);
+  text-shadow:
+    0   2px   5px oklch(40% 0.10 240 / 0.45),
+    0   6px  18px oklch(35% 0.12 240 / 0.30),
+    0  14px  36px oklch(30% 0.10 240 / 0.20),
+    0  24px  60px oklch(25% 0.08 240 / 0.12),
+    -1px -2px  0   oklch(92% 0.04 220 / 0.70),
+    -3px -5px 12px oklch(98% 0.01 0   / 0.85),
+    -5px -8px 20px oklch(99% 0.01 0   / 0.55),
+    0   4px   8px oklch(20% 0.06 240 / 0.20);
+}
+
+.bubble-text::before {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  font-family: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  line-height: inherit;
+  color: transparent;
+  background: radial-gradient(
+    ellipse 55% 38% at 25% 18%,
+    oklch(97% 0.03 80 / 0.55) 0%,
+    oklch(95% 0.03 80 / 0.25) 35%,
+    transparent 65%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  pointer-events: none;
+  mix-blend-mode: overlay;
+}
+
+.bubble-text--cool::before {
+  background: radial-gradient(
+    ellipse 55% 38% at 25% 18%,
+    oklch(95% 0.04 200 / 0.55) 0%,
+    oklch(93% 0.04 200 / 0.25) 35%,
+    transparent 65%
+  );
+}
+
+
+/* ==========================================================================
+   Sticker — Arc-style circular badge
+   ========================================================================== */
+
+.sticker {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: center;
+  line-height: 1.2;
+  transform: rotate(-8deg);
+  /* Dashed inner ring via outline offset trick */
+  outline: 2px dashed currentColor;
+  outline-offset: -6px;
+  background-color: var(--mocha-surface0);
+  color: var(--mocha-text);
+  box-shadow:
+    0 4px 16px oklch(10% 0 0 / 0.40),
+    0 1px 4px  oklch(10% 0 0 / 0.25);
+}
+
+/* Warm sticker */
+.sticker--warm {
+  background-color: var(--warm-maroon);
+  color: var(--mocha-base);
+}
+
+/* Cool sticker */
+.sticker--cool {
+  background-color: var(--cool-sapphire);
+  color: var(--mocha-base);
+}
+
+/* Cream slide sticker */
+.sticker--cream {
+  background-color: var(--cream-text);
+  color: var(--cream);
+}
+
+/* ==========================================================================
+   TUI pane chrome
+   ========================================================================== */
+
+.tui-pane {
+  position: relative;
+  background-color: var(--mocha-crust);
+  border-radius: 8px;
+  border: 1px solid var(--mocha-overlay0);
+  overflow: hidden;
+}
+
+.tui-pane__titlebar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background-color: var(--mocha-surface0);
+  border-bottom: 1px solid var(--mocha-overlay0);
+  height: 32px;
+}
+
+.tui-pane__traffic-lights {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.tui-pane__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.tui-pane__dot--close  { background-color: var(--mocha-red); }
+.tui-pane__dot--min    { background-color: var(--mocha-yellow); }
+.tui-pane__dot--max    { background-color: var(--mocha-green); }
+
+.tui-pane__title {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--mocha-subtext0);
+  letter-spacing: 0.02em;
+  text-align: center;
+  margin-right: 28px; /* balance the traffic lights */
+}
+
+.tui-pane__body {
+  padding: var(--space-4);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--mocha-text);
+  white-space: pre;
+}
+
+/* ==========================================================================
+   Typography utilities
+   ========================================================================== */
+
+.wordmark {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--cool-teal);
+}
+
+.headline {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 52px;
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+  color: var(--mocha-text);
+}
+
+.headline--warm { color: var(--warm-peach); }
+.headline--cool { color: var(--cool-sky); }
+.headline--cream { color: var(--cream-text); }
+
+.subhead {
+  font-family: var(--font-body);
+  font-weight: 400;
+  font-size: 19px;
+  line-height: 1.5;
+  letter-spacing: -0.01em;
+  color: var(--mocha-subtext0);
+}
+
+.subhead--cream { color: var(--cream-subtext); }
+
+/* ==========================================================================
+   Content layer (sits above liquid-silk and film-grain)
+   ========================================================================== */
+
+.slide__content {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+}

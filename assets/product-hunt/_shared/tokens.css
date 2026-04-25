@@ -1,0 +1,92 @@
+/*
+  tokens.css — Design tokens for Atomic Product Hunt slides.
+
+  Catppuccin Mocha base palette + warm/cool poles + mauve bridge + cream light surface.
+  Use OKLCH for any derived colors. Existing Catppuccin hexes stay as written.
+*/
+
+:root {
+  /* -----------------------------------------------------------------------
+     Catppuccin Mocha — base surfaces
+  ----------------------------------------------------------------------- */
+  --mocha-base:      #1e1e2e;   /* primary background */
+  --mocha-mantle:    #181825;   /* slightly darker, e.g. under cards */
+  --mocha-crust:     #11111b;   /* deepest background, code panes */
+  --mocha-surface0:  #313244;   /* card/pane fill */
+  --mocha-surface1:  #45475a;   /* selection highlight */
+  --mocha-surface2:  #585b70;   /* dim border */
+  --mocha-overlay0:  #6c7086;   /* border, separator */
+  --mocha-overlay1:  #7f849c;   /* dim text bg */
+  --mocha-text:      #cdd6f4;   /* primary text */
+  --mocha-subtext0:  #a6adc8;   /* secondary text */
+  --mocha-subtext1:  #bac2de;   /* slightly brighter secondary */
+
+  /* -----------------------------------------------------------------------
+     Catppuccin Mocha — semantic accent colors
+  ----------------------------------------------------------------------- */
+  --mocha-blue:    #89b4fa;   /* orchestration / primary accent */
+  --mocha-sky:     #89dceb;   /* light info */
+  --mocha-teal:    #94e2d5;   /* execution / success tint */
+  --mocha-green:   #a6e3a1;   /* approved / success */
+  --mocha-red:     #f38ba8;   /* error / risk */
+  --mocha-yellow:  #f9e2af;   /* warning / review gate */
+  --mocha-mauve:   #cba6f7;   /* human judgment / accent bridge */
+  --mocha-peach:   #fab387;   /* warm accent */
+  --mocha-pink:    #f5c2e7;   /* pink accent */
+  --mocha-maroon:  #eba0ac;   /* warm pole, red-adjacent */
+  --mocha-sapphire: #74c7ec;  /* cool pole, sky-adjacent */
+  --mocha-lavender: #b4befe;  /* cool highlight */
+
+  /* -----------------------------------------------------------------------
+     Warm pole (maroon/red/peach spectrum)
+  ----------------------------------------------------------------------- */
+  --warm-maroon:   #eba0ac;
+  --warm-red:      #f38ba8;
+  --warm-peach:    #fab387;
+
+  /* -----------------------------------------------------------------------
+     Cool pole (sapphire/sky/blue/teal spectrum)
+  ----------------------------------------------------------------------- */
+  --cool-sapphire: #74c7ec;
+  --cool-sky:      #89dceb;
+  --cool-blue:     #89b4fa;
+  --cool-teal:     #94e2d5;
+
+  /* -----------------------------------------------------------------------
+     Bridge accent
+  ----------------------------------------------------------------------- */
+  --bridge-mauve:  #cba6f7;
+
+  /* -----------------------------------------------------------------------
+     Light surface (slide 5 cream)
+  ----------------------------------------------------------------------- */
+  --cream:         #f4ede4;
+  --cream-text:    #1e1e2e;    /* Mocha base used as dark text on cream */
+  --cream-subtext: #45475a;    /* surface1 for secondary on cream */
+
+  /* -----------------------------------------------------------------------
+     Spacing scale (4px base unit)
+  ----------------------------------------------------------------------- */
+  --space-1:   4px;
+  --space-2:   8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-24: 96px;
+
+  /* -----------------------------------------------------------------------
+     Typography
+  ----------------------------------------------------------------------- */
+  --font-display:  'Bricolage Grotesque', 'Geist Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-body:     'Geist Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-mono:     'JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', monospace;
+
+  /* -----------------------------------------------------------------------
+     Slide dimensions
+  ----------------------------------------------------------------------- */
+  --slide-width:  1270px;
+  --slide-height: 760px;
+}

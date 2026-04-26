@@ -20,7 +20,7 @@ import * as linguistLanguages from "linguist-languages";
 import ignore, { type Ignore } from "ignore";
 import ignoreByDefault from "ignore-by-default";
 import { readdirSync, readFileSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { join, posix as posixPath, relative, sep } from "node:path";
 
 /**
  * Source-file extensions we treat as "code" for LOC accounting.
@@ -107,9 +107,15 @@ function walkWithIgnore(root: string): string[] {
     try {
       const content = readFileSync(join(dir, ".gitignore"), "utf8");
       const here = ignore().add(content);
+      // Normalize basePath to posix so it can be combined with `posix`
+      // (forward-slash) entry paths via `posix.relative` below — mixing
+      // separators in `path.relative` is undefined behaviour on Windows.
+      const basePathRel = relative(root, dir);
+      const basePath =
+        sep === "/" ? basePathRel : basePathRel.split(sep).join("/");
       scopes = [
         ...inheritedScopes,
-        { basePath: relative(root, dir), matcher: here },
+        { basePath, matcher: here },
       ];
     } catch {
       // No .gitignore at this level — keep inherited scopes.
@@ -139,7 +145,7 @@ function walkWithIgnore(root: string): string[] {
         const within =
           scope.basePath === ""
             ? probe
-            : relative(scope.basePath, posix).split(sep).join("/") +
+            : posixPath.relative(scope.basePath, posix) +
               (entry.isDirectory() ? "/" : "");
         // If `within` escapes the scope (starts with `..`), the file isn't
         // under this .gitignore's reach — skip the check.

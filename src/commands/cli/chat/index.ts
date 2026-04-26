@@ -252,9 +252,16 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   // `COPILOT_CUSTOM_INSTRUCTIONS_DIRS` (comma-separated). Point it at the
   // resolved AGENTS.md's parent dir so our additional instructions get
   // appended to the persona without touching the project's `AGENTS.md`.
+  // Skip dirs containing a comma — Copilot CLI has no documented escape
+  // syntax for the list separator, so a comma in the path (rare on POSIX,
+  // possible in Windows usernames) would be misparsed as a list boundary.
   if (agentType === "copilot") {
     const dir = getAdditionalInstructionsDir(projectRoot);
-    if (dir) {
+    if (dir && dir.includes(",")) {
+      console.error(
+        `${COLORS.yellow}Warning: skipping COPILOT_CUSTOM_INSTRUCTIONS_DIRS entry because the path contains a comma, which Copilot CLI cannot escape: ${dir}${COLORS.reset}`,
+      );
+    } else if (dir) {
       const existing = envVars.COPILOT_CUSTOM_INSTRUCTIONS_DIRS;
       envVars.COPILOT_CUSTOM_INSTRUCTIONS_DIRS = existing
         ? `${existing},${dir}`

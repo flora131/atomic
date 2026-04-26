@@ -141,6 +141,22 @@ async function safeReadFile(absPath: string): Promise<string> {
   }
 }
 
+/**
+ * Log Promise.allSettled rejection reasons to stderr so an all-failed wave
+ * leaves a debugging trail instead of silently producing an empty report.
+ */
+function logBatchRejections(
+  label: string,
+  results: PromiseSettledResult<unknown>[],
+): void {
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
+    if (r?.status === "rejected") {
+      console.error(`[deep-research-codebase] ${label} batch ${i + 1} failed:`, r.reason);
+    }
+  }
+}
+
 export default defineWorkflow({
   name: "deep-research-codebase",
   description:
@@ -295,12 +311,18 @@ export default defineWorkflow({
     // batch session context stays bounded by O(tasks_per_batch). Synthesis
     // reads the per-task files from disk.
 
-    /** Per-partition output paths. Specialists write these; synthesis reads them. */
-    const taskPaths = (i: number) => ({
-      locator: path.join(scratchDir, `locator-${i}.md`),
-      patternFinder: path.join(scratchDir, `pattern-finder-${i}.md`),
-      analyzer: path.join(scratchDir, `analyzer-${i}.md`),
-      online: path.join(scratchDir, `online-${i}.md`),
+    // Per-partition output paths, computed once and reused across both wave
+    // task-list construction and synthesis. Specialists write these;
+    // synthesis reads them.
+    const partitionPaths = partitions.map((_, idx) => {
+      const i = idx + 1;
+      return {
+        locator: path.join(scratchDir, `locator-${i}.md`),
+        patternFinder: path.join(scratchDir, `pattern-finder-${i}.md`),
+        analyzer: path.join(scratchDir, `analyzer-${i}.md`),
+        online: path.join(scratchDir, `online-${i}.md`),
+        explorer: path.join(scratchDir, `explorer-${i}.md`),
+      };
     });
 
     // Wave 1 task list — flat across partitions and specialist kinds so the
@@ -308,7 +330,7 @@ export default defineWorkflow({
     // Task tool's `subagent_type` is set per call inside the orchestrator.
     const wave1Tasks: Layer1Task[] = partitions.flatMap((partition, idx) => {
       const i = idx + 1;
-      const paths = taskPaths(i);
+      const paths = partitionPaths[idx]!;
       return [
         {
           kind: "locator" as const,
@@ -329,7 +351,9 @@ export default defineWorkflow({
 
     // Wave 1: dispatch all batches in parallel. allSettled so a single batch
     // failure doesn't abort siblings — synthesis tolerates missing files.
-    await Promise.allSettled(
+    // Rejection reasons are logged so an empty report is debuggable; without
+    // this, an all-failed wave would silently produce a confidently empty doc.
+    const wave1Results = await Promise.allSettled(
       wave1Batches.map((batch, batchIdx) => {
         const batchNumber = batchIdx + 1;
         return ctx.stage(
@@ -357,7 +381,7 @@ export default defineWorkflow({
                 prompt: wrapPromptForTaskDispatch({
                   specialistPrompt,
                   outputPath: t.outputPath,
-                  agentLabel: t.kind.toUpperCase().replace("-", "_"),
+                  agentLabel: t.kind.toUpperCase().replaceAll("-", "_"),
                 }),
               };
             });
@@ -376,6 +400,7 @@ export default defineWorkflow({
         );
       }),
     );
+    logBatchRejections("wave1", wave1Results);
 
     // Read locator outputs from disk for Wave 2 prompts. Layer 2 specialists
     // embed the locator's verbatim output rather than re-discovering it.
@@ -383,13 +408,13 @@ export default defineWorkflow({
     await Promise.all(
       partitions.map(async (_p, idx) => {
         const i = idx + 1;
-        locatorOutputs.set(i, await safeReadFile(taskPaths(i).locator));
+        locatorOutputs.set(i, await safeReadFile(partitionPaths[idx]!.locator));
       }),
     );
 
     const wave2Tasks: Layer2Task[] = partitions.flatMap((partition, idx) => {
       const i = idx + 1;
-      const paths = taskPaths(i);
+      const paths = partitionPaths[idx]!;
       const locatorOutput = locatorOutputs.get(i) ?? "";
       return [
         {
@@ -411,7 +436,7 @@ export default defineWorkflow({
 
     const wave2Batches = chunkBatches(wave2Tasks, MAX_TASKS_PER_BATCH);
 
-    await Promise.allSettled(
+    const wave2Results = await Promise.allSettled(
       wave2Batches.map((batch, batchIdx) => {
         const batchNumber = batchIdx + 1;
         return ctx.stage(
@@ -447,7 +472,7 @@ export default defineWorkflow({
                 prompt: wrapPromptForTaskDispatch({
                   specialistPrompt,
                   outputPath: t.outputPath,
-                  agentLabel: t.kind.toUpperCase().replace("-", "_"),
+                  agentLabel: t.kind.toUpperCase().replaceAll("-", "_"),
                 }),
               };
             });
@@ -466,6 +491,7 @@ export default defineWorkflow({
         );
       }),
     );
+    logBatchRejections("wave2", wave2Results);
 
     // Synthesis: read all four specialist files per partition, then write
     // the consolidated explorer scratch file the aggregator consumes.
@@ -475,8 +501,7 @@ export default defineWorkflow({
     const explorerHandles = await Promise.all(
       partitions.map(async (partition, idx) => {
         const i = idx + 1;
-        const paths = taskPaths(i);
-        const scratchPath = path.join(scratchDir, `explorer-${i}.md`);
+        const paths = partitionPaths[idx]!;
 
         const [locatorOutput, patternsOutput, analyzerOutput, onlineOutput] =
           await Promise.all([
@@ -488,7 +513,7 @@ export default defineWorkflow({
             safeReadFile(paths.online),
           ]);
 
-        await writeExplorerScratchFile(scratchPath, {
+        await writeExplorerScratchFile(paths.explorer, {
           index: i,
           total: explorerCount,
           partition,
@@ -498,7 +523,7 @@ export default defineWorkflow({
           onlineOutput,
         });
 
-        return { index: i, scratchPath, partition };
+        return { index: i, scratchPath: paths.explorer, partition };
       }),
     );
 

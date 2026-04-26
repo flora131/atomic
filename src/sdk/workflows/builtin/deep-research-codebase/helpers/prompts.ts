@@ -49,6 +49,14 @@ const TRAILING_PROSE_REMINDER =
   "Do NOT end the turn on a tool call — downstream stages read your assistant " +
   "transcript and will see nothing if the final message is a tool invocation.";
 
+const AST_GREP_ENV_NOTICE =
+  "You are operating in an environment where ast-grep is installed. For any " +
+  "code search that requires understanding of syntax or code structure, you " +
+  "should default to using `ast-grep --lang [language] -p '<pattern>'`. Rely " +
+  "on your ast-grep skill for best practices. Adjust the --lang flag as " +
+  "needed for the specific programming language. Avoid using text-only " +
+  "search tools unless a plain-text search is explicitly requested.";
+
 /** Slugify the user's prompt for use in the final research filename. */
 export function slugifyPrompt(prompt: string): string {
   const slug = prompt
@@ -78,8 +86,15 @@ function renderPartitionDirs(partition: PartitionUnit[]): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Stage 1a — codebase-scout (single LLM orientation call)
+// Stage 1a — codebase-scout + query planner (single LLM call)
 // ─────────────────────────────────────────────────────────────────────────────
+//
+// The scout produces both a ≤300-word architectural orientation AND a list of
+// per-partition ast-grep query seeds. The combined output is embedded verbatim
+// into each specialist sub-agent's prompt as a single <ARCHITECTURAL_ORIENTATION>
+// block — no JSON envelope, no deterministic parser. Specialists locate "their"
+// partition's seeds by searching for the matching section header inside the
+// block and treat them as starting points, not commands.
 
 export function buildScoutPrompt(opts: {
   question: string;
@@ -103,8 +118,9 @@ export function buildScoutPrompt(opts: {
     `</RESEARCH_QUESTION>`,
     ``,
     `<CONTEXT>`,
-    `You are the codebase scout for the deep-research-codebase workflow. The`,
-    `workflow has already computed the codebase layout deterministically:`,
+    `You are the codebase scout AND query planner for the deep-research-codebase`,
+    `workflow. The workflow has already computed the codebase layout`,
+    `deterministically:`,
     ``,
     `- Total source files: ${opts.totalFiles.toLocaleString()}`,
     `- Total LOC: ${opts.totalLoc.toLocaleString()}`,
@@ -119,25 +135,49 @@ export function buildScoutPrompt(opts: {
     "```",
     `</CONTEXT>`,
     ``,
-    `<TASK>`,
-    `Read the tree above and produce a brief architectural orientation that`,
-    `the downstream specialist sub-agents will use to anchor their searches.`,
+    `<TOOLING>`,
+    AST_GREP_ENV_NOTICE,
+    `Consult https://ast-grep.github.io/reference/languages.html for the`,
+    `canonical language list, and https://ast-grep.github.io/llms-full.txt for`,
+    `the full rule reference, when you need them.`,
+    `</TOOLING>`,
     ``,
-    `Cover, in ≤300 words:`,
+    `<TASK>`,
+    `Produce TWO sections — both will be embedded verbatim into the specialist`,
+    `sub-agents' prompts. Use the markdown headers shown so specialists can`,
+    `find their partition's seeds.`,
+    ``,
+    `## Orientation`,
+    `In ≤300 words, cover:`,
     `  1. The repo's overall shape (monorepo vs single package, polyglot or not)`,
     `  2. The 3-5 most important top-level directories and what each contains`,
-    `  3. Architectural boundaries / layering you can see from the tree`,
+    `  3. Architectural boundaries / layering visible from the tree`,
     `  4. Where entry points or main modules likely live`,
     ``,
-    `Do NOT attempt to answer the research question yet — your job is`,
-    `orientation for downstream specialists, not investigation. You may use`,
-    `Read/Glob/Grep sparingly to verify guesses about a few key files,`,
-    `but keep the output short.`,
+    `## Query Seeds`,
+    `For each of the ${opts.explorerCount} partitions, suggest 2-4 ast-grep`,
+    `query seeds the specialists could start from. Format each seed as:`,
+    ``,
+    `### Partition <n>`,
+    `- Query: \`ast-grep --lang <language> -p '<pattern>'\``,
+    `  Why: <one sentence>`,
+    ``,
+    `For structural rules (kind + has/inside), use a fenced YAML block instead`,
+    `of the \`-p\` form, with the same Why line.`,
+    ``,
+    `Seeds are starting points, not commands — specialists adapt as they find`,
+    `things. If a partition is clearly irrelevant to the question, write a`,
+    `single-line note explaining why and skip its seeds.`,
     `</TASK>`,
     ``,
     `<CONSTRAINTS>`,
     DOCUMENTARIAN_DISCLAIMER,
-    `Stay under 300 words. No bullet lists longer than 5 items.`,
+    `Do NOT investigate the codebase to answer the question yourself — your`,
+    `job is orientation + seeding, not investigation. You may use Read/Glob/`,
+    `Grep/ast-grep sparingly to verify guesses about a few key files or to`,
+    `confirm a pattern parses, but keep output focused.`,
+    `Stay under 300 words for the Orientation section. Plain markdown only —`,
+    `no JSON envelope, no structured output.`,
     TRAILING_PROSE_REMINDER,
     `</CONSTRAINTS>`,
     ``,
@@ -186,7 +226,16 @@ export function buildLocatorPrompt(opts: {
     `relates to the research question, and return a categorized index.`,
     `</MISSION>`,
     ``,
+    `<TOOLING>`,
+    AST_GREP_ENV_NOTICE,
+    `</TOOLING>`,
+    ``,
     `<ARCHITECTURAL_ORIENTATION>`,
+    `The briefing below contains both a high-level orientation AND per-partition`,
+    `ast-grep query seeds. Find the **Partition ${opts.index}** section for the`,
+    `seeds scoped to your investigation — treat them as starting points, not`,
+    `commands. Adapt or skip seeds that don't fit what you actually find.`,
+    ``,
     orientation,
     `</ARCHITECTURAL_ORIENTATION>`,
     ``,
@@ -267,7 +316,16 @@ export function buildPatternFinderPrompt(opts: {
     `Return runnable-looking snippets, not abstract descriptions.`,
     `</MISSION>`,
     ``,
+    `<TOOLING>`,
+    AST_GREP_ENV_NOTICE,
+    `</TOOLING>`,
+    ``,
     `<ARCHITECTURAL_ORIENTATION>`,
+    `The briefing below contains both a high-level orientation AND per-partition`,
+    `ast-grep query seeds. Find the **Partition ${opts.index}** section for the`,
+    `seeds scoped to your investigation — treat them as starting points, not`,
+    `commands. Adapt or skip seeds that don't fit what you actually find.`,
+    ``,
     orientation,
     `</ARCHITECTURAL_ORIENTATION>`,
     ``,
@@ -337,7 +395,16 @@ export function buildAnalyzerPrompt(opts: {
     `precise \`file.ts:line\` references throughout.`,
     `</MISSION>`,
     ``,
+    `<TOOLING>`,
+    AST_GREP_ENV_NOTICE,
+    `</TOOLING>`,
+    ``,
     `<ARCHITECTURAL_ORIENTATION>`,
+    `The briefing below contains both a high-level orientation AND per-partition`,
+    `ast-grep query seeds. Find the **Partition ${opts.index}** section for the`,
+    `seeds scoped to your investigation — treat them as starting points, not`,
+    `commands. Adapt or skip seeds that don't fit what you actually find.`,
+    ``,
     orientation,
     `</ARCHITECTURAL_ORIENTATION>`,
     ``,
@@ -763,5 +830,129 @@ export function buildAggregatorPrompt(opts: {
     `<RESEARCH_QUESTION_REMINDER>`,
     opts.question,
     `</RESEARCH_QUESTION_REMINDER>`,
+  ].join("\n");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stage 2 — batched specialist dispatch (Task-tool fan-out)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// To cap parallel SDK subprocesses, specialist invocations are grouped into
+// "batch sessions" (see helpers/batching.ts). Each batch session is a single
+// Claude Agent SDK call whose main thread dispatches up to N sub-agents via
+// the Task tool. The sub-agents write their verbatim findings to per-task
+// scratch files and reply with a single confirmation token, so the
+// orchestrator's context grows by N short lines rather than N transcripts
+// (filesystem-context skill).
+
+/**
+ * Wrap a specialist prompt with the "write to file, reply with token only"
+ * envelope. The envelope is what the orchestrator hands to the Task tool's
+ * `prompt` parameter — the inner specialist prompt is built by the existing
+ * `buildLocatorPrompt` / `buildPatternFinderPrompt` / etc. and embedded
+ * verbatim so prompt semantics stay identical to the unbatched workflow.
+ */
+export function wrapPromptForTaskDispatch(opts: {
+  specialistPrompt: string;
+  outputPath: string;
+  agentLabel: string;
+}): string {
+  return [
+    `<TASK_OUTPUT_CONTRACT>`,
+    `Write your COMPLETE response — the verbatim markdown findings exactly as`,
+    `the prompt below specifies — to this absolute path using the Write tool:`,
+    ``,
+    `  ${opts.outputPath}`,
+    ``,
+    `Then reply with exactly the single token "DONE" and nothing else. Your`,
+    `parent only needs confirmation; the file is the real output. Do NOT`,
+    `inline your findings into your reply, do NOT add commentary, do NOT`,
+    `summarise — just write the file, then reply "DONE".`,
+    ``,
+    `If you cannot produce useful findings (e.g. the partition has nothing`,
+    `relevant to the question), write a one-line sentinel to the file`,
+    `explaining why, then still reply "DONE". Reply with`,
+    `"FAILED: <one-line reason>" only if you could not even write the file.`,
+    `</TASK_OUTPUT_CONTRACT>`,
+    ``,
+    `<${opts.agentLabel}_TASK>`,
+    opts.specialistPrompt,
+    `</${opts.agentLabel}_TASK>`,
+  ].join("\n");
+}
+
+/**
+ * Build the orchestrator prompt for a batch session. The orchestrator's job
+ * is purely deterministic dispatch — fire one Task tool call per task in
+ * **a single assistant message** so they execute in parallel, then report a
+ * one-line tally. It must NOT inline sub-agent findings, paraphrase the
+ * embedded prompts, or retry failures — siblings still run and synthesis
+ * tolerates missing files.
+ */
+export function buildBatchOrchestratorPrompt(opts: {
+  wave: 1 | 2;
+  batchIndex: number;
+  totalBatches: number;
+  tasks: Array<{
+    subagentType: string;
+    prompt: string;
+    outputPath: string;
+  }>;
+}): string {
+  const taskBlocks = opts.tasks
+    .map((t, i) =>
+      [
+        `### Task ${i + 1} of ${opts.tasks.length} — \`${t.subagentType}\``,
+        `Output path the sub-agent will write to: \`${t.outputPath}\``,
+        ``,
+        `Verbatim prompt to pass as the Task tool's \`prompt\` parameter:`,
+        ``,
+        "````",
+        t.prompt,
+        "````",
+        ``,
+      ].join("\n"),
+    )
+    .join("\n");
+
+  return [
+    `<BATCH_DISPATCH_MISSION>`,
+    `You are the deterministic dispatcher for batch ${opts.batchIndex} of`,
+    `${opts.totalBatches} in wave ${opts.wave} of the deep-research-codebase`,
+    `workflow. Your sole job is to spawn the ${opts.tasks.length} sub-agent`,
+    `task${opts.tasks.length === 1 ? "" : "s"} listed below using the Task tool.`,
+    `</BATCH_DISPATCH_MISSION>`,
+    ``,
+    `<DISPATCH_RULES>`,
+    `1. Issue ALL ${opts.tasks.length} Task tool calls in a SINGLE assistant`,
+    `   message (parallel tool use), not sequentially across multiple turns.`,
+    `   Parallel dispatch is the only reason this batch exists — sequential`,
+    `   calls defeat its purpose.`,
+    `2. For each task: set \`subagent_type\` to the value shown, set \`prompt\``,
+    `   to the verbatim text inside the fenced block (no paraphrasing,`,
+    `   truncating, or added framing), and set \`description\` to a short`,
+    `   3–5 word label.`,
+    `3. Dispatch every task even if some look similar to others. Tasks here`,
+    `   cover DIFFERENT codebase partitions or DIFFERENT specialist roles —`,
+    `   apparent overlap is not real overlap. Do NOT merge, skip, or combine.`,
+    `4. Do NOT inline any sub-agent's findings into your reply. The sub-agents`,
+    `   write their output to disk; downstream stages read those files.`,
+    `5. Do NOT retry failed sub-agents. Siblings still run and the synthesis`,
+    `   step tolerates missing files.`,
+    `</DISPATCH_RULES>`,
+    ``,
+    `<FINAL_REPLY_FORMAT>`,
+    `After all sub-agents complete, your final assistant message must be`,
+    `exactly one line of the form:`,
+    ``,
+    `  BATCH ${opts.batchIndex} COMPLETE: <ok>/${opts.tasks.length} ok, <failed> failed`,
+    ``,
+    `where <ok> is the count that replied "DONE" and <failed> is the count`,
+    `that replied "FAILED" or otherwise did not produce a file.`,
+    `</FINAL_REPLY_FORMAT>`,
+    ``,
+    `---`,
+    ``,
+    taskBlocks,
   ].join("\n");
 }

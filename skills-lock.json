@@ -11,6 +11,11 @@
       "sourceType": "github",
       "computedHash": "354414a934957f9d54a71468abe81888304d35b47a4fe8e27fff08f60b457d53"
     },
+    "ast-grep": {
+      "source": "ast-grep/agent-skill",
+      "sourceType": "github",
+      "computedHash": "3bca45167617f547e97454ae16d271ba3aeb2550d89e6ef1942057bd122c0061"
+    },
     "audit": {
       "source": "pbakaus/impeccable",
       "sourceType": "github",
@@ -120,6 +125,11 @@
       "source": "pbakaus/impeccable",
       "sourceType": "github",
       "computedHash": "2c20b12bb4ece445d45fc63bda020aecf78b3cdf6d593beb59c273f658293130"
+    },
+    "ripgrep": {
+      "source": "ratacat/claude-skills",
+      "sourceType": "github",
+      "computedHash": "bc5ed0a5b897b7e06db597c00d0e1554dc1db3671009cdeab7945addf0708808"
     },
     "shape": {
       "source": "pbakaus/impeccable",

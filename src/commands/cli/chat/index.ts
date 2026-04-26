@@ -16,6 +16,10 @@ import { mkdir, writeFile, rm } from "node:fs/promises";
 import { AGENT_CONFIG, type AgentKey } from "../../../services/config/index.ts";
 import { getProviderOverrides } from "../../../services/config/atomic-config.ts";
 import { getCopilotScmDisableFlags } from "../../../services/config/scm-sync.ts";
+import {
+  resolveAdditionalInstructionsPath,
+} from "../../../services/config/additional-instructions.ts";
+import { dirname } from "node:path";
 import { ensureProjectSetup } from "../init/index.ts";
 import { COLORS } from "../../../theme/colors.ts";
 import { isCommandInstalled } from "../../../services/system/detect.ts";
@@ -88,7 +92,32 @@ export async function buildAgentArgs(
   const scmFlags =
     agentType === "copilot" ? await getCopilotScmDisableFlags(projectRoot) : [];
 
-  return [...flags, ...scmFlags, ...passthroughArgs];
+  // Claude Code is the only one with a flag that takes an instructions file.
+  // OpenCode and Copilot CLI consume the file via config (.opencode/opencode.json
+  // `instructions` array) and env var (`COPILOT_CUSTOM_INSTRUCTIONS_DIRS`)
+  // respectively — see `applyManagedOnboardingFiles` and `chatCommand`'s env
+  // build. Skipped silently when no file resolves so the CLI still spawns
+  // even on a fresh checkout that hasn't run `autoSyncIfStale` yet.
+  const instructionsFlags: string[] = [];
+  if (agentType === "claude") {
+    const path = resolveAdditionalInstructionsPath(projectRoot);
+    if (path) instructionsFlags.push("--append-system-prompt-file", path);
+  }
+
+  return [...flags, ...scmFlags, ...instructionsFlags, ...passthroughArgs];
+}
+
+/**
+ * Directory containing the resolved additional-instructions `AGENTS.md`,
+ * or `undefined` if no file resolves. Used to set
+ * `COPILOT_CUSTOM_INSTRUCTIONS_DIRS` on Copilot spawns — Copilot loads
+ * `AGENTS.md` from each dir on that list.
+ */
+export function getAdditionalInstructionsDir(
+  projectRoot: string,
+): string | undefined {
+  const path = resolveAdditionalInstructionsPath(projectRoot);
+  return path ? dirname(path) : undefined;
 }
 
 function generateChatId(): string {
@@ -213,11 +242,32 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   const overrides = await getProviderOverrides(agentType, projectRoot);
   // ATOMIC_AGENT must be baked into the launcher env so the agent CLI
   // and anything it spawns can read it from process start.
-  const envVars = {
+  const envVars: Record<string, string> = {
     ...config.env_vars,
     ...overrides.envVars,
     ATOMIC_AGENT: agentType,
   };
+
+  // Copilot CLI loads `AGENTS.md` from any directory listed in
+  // `COPILOT_CUSTOM_INSTRUCTIONS_DIRS` (comma-separated). Point it at the
+  // resolved AGENTS.md's parent dir so our additional instructions get
+  // appended to the persona without touching the project's `AGENTS.md`.
+  // Skip dirs containing a comma — Copilot CLI has no documented escape
+  // syntax for the list separator, so a comma in the path (rare on POSIX,
+  // possible in Windows usernames) would be misparsed as a list boundary.
+  if (agentType === "copilot") {
+    const dir = getAdditionalInstructionsDir(projectRoot);
+    if (dir && dir.includes(",")) {
+      console.error(
+        `${COLORS.yellow}Warning: skipping COPILOT_CUSTOM_INSTRUCTIONS_DIRS entry because the path contains a comma, which Copilot CLI cannot escape: ${dir}${COLORS.reset}`,
+      );
+    } else if (dir) {
+      const existing = envVars.COPILOT_CUSTOM_INSTRUCTIONS_DIRS;
+      envVars.COPILOT_CUSTOM_INSTRUCTIONS_DIRS = existing
+        ? `${existing},${dir}`
+        : dir;
+    }
+  }
 
   // ── No TTY: tmux attach requires a real terminal ──
   if (!process.stdin.isTTY) {

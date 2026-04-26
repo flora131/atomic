@@ -1,33 +1,35 @@
 /**
  * deep-research-codebase / opencode
  *
- * OpenCode replica of the Claude deep-research-codebase workflow. Specialist
- * sub-agents are dispatched as separate headless `ctx.stage()` calls — each
- * call passes `agent: "<name>"` to `s.client.session.prompt()` directly,
- * which is OpenCode's SDK-native way to route a turn to a sub-agent.
+ * OpenCode replica of the Claude deep-research-codebase workflow with the
+ * same **batched** Task-tool fan-out. Specialist sub-agents run inside batch
+ * sessions: each batch is a single `ctx.stage()` whose orchestrator turn
+ * dispatches up to MAX_TASKS_PER_BATCH (≈10) specialists in parallel via
+ * OpenCode's `task` tool. The default agent must have `task: "allow"` in
+ * its permission ruleset (see `.opencode/agents/worker.md` for the
+ * canonical example).
+ *
+ * See claude/index.ts for the full design rationale and topology diagram.
  *
  * OpenCode-specific concerns baked in (see references/failure-modes.md):
  *
- *   • F5 — every `ctx.stage()` is a FRESH session. Each specialist receives
- *     everything it needs (research question, scope, scout overview, and —
- *     for layer-2 specialists — verbatim locator output) in its first prompt.
+ *   • F3 — `result.data!.parts` is heterogenous. Batch sessions don't read
+ *     `extractResponseText` for orchestrator output (sub-agents write to
+ *     disk; the orchestrator reply is just a short tally), but the history
+ *     pipeline still uses it.
  *
- *   • F3 — `result.data!.parts` is a heterogenous array (text/tool/reasoning/
- *     file parts). Use `extractResponseText()` to filter to text parts only;
- *     concatenating raw `parts` produces `[object Object]` strings.
+ *   • F5 — every `ctx.stage()` is a FRESH session. Batch session prompts
+ *     embed everything the orchestrator needs in the first turn.
  *
- *   • F6 — every prompt explicitly requires trailing prose so transcripts and
- *     `extractResponseText()` reads are never empty.
+ *   • F6 — orchestrator prompt requires a single-line tally as the trailing
+ *     turn so transcripts are never empty.
  *
  *   • F9 — `s.save()` receives the unwrapped `{ info, parts }` payload from
- *     `result.data!`; passing the full `result` or raw `result.data!.parts`
- *     breaks downstream `transcript()` reads.
- *
- * See claude/index.ts for the full design rationale and topology diagram.
+ *     `result.data!`.
  */
 
 import { defineWorkflow } from "../../../index.ts";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -42,6 +44,7 @@ import {
 import {
   buildAggregatorPrompt,
   buildAnalyzerPrompt,
+  buildBatchOrchestratorPrompt,
   buildHistoryAnalyzerPrompt,
   buildHistoryLocatorPrompt,
   buildLocatorPrompt,
@@ -49,8 +52,16 @@ import {
   buildPatternFinderPrompt,
   buildScoutPrompt,
   slugifyPrompt,
+  wrapPromptForTaskDispatch,
 } from "../helpers/prompts.ts";
 import { writeExplorerScratchFile } from "../helpers/scratch.ts";
+import {
+  chunkBatches,
+  MAX_TASKS_PER_BATCH,
+  SUBAGENT_TYPE,
+  type Layer1Task,
+  type Layer2Task,
+} from "../helpers/batching.ts";
 
 /** Filter for text parts only — non-text parts produce [object Object]. */
 function extractResponseText(
@@ -60,6 +71,31 @@ function extractResponseText(
     .filter((p) => p.type === "text")
     .map((p) => (p as { type: string; text: string }).text)
     .join("\n");
+}
+
+/** Read a file as UTF-8, returning empty string if missing or unreadable. */
+async function safeReadFile(absPath: string): Promise<string> {
+  try {
+    return await readFile(absPath, "utf8");
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Log Promise.allSettled rejection reasons to stderr so an all-failed wave
+ * leaves a debugging trail instead of silently producing an empty report.
+ */
+function logBatchRejections(
+  label: string,
+  results: PromiseSettledResult<unknown>[],
+): void {
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
+    if (r?.status === "rejected") {
+      console.error(`[deep-research-codebase] ${label} batch ${i + 1} failed:`, r.reason);
+    }
+  }
 }
 
 export default defineWorkflow({
@@ -98,7 +134,9 @@ export default defineWorkflow({
           if (data.units.length === 0) {
             throw new Error(
               `deep-research-codebase: scout found no source files under ${root}. ` +
-                `Run from inside a code repository or check the CODE_EXTENSIONS list.`,
+                `Run from inside a code repository, or verify your files use a ` +
+                `recognized programming-language extension (sourced from GitHub ` +
+                `Linguist + sql/graphql/proto).`,
             );
           }
 
@@ -209,151 +247,225 @@ export default defineWorkflow({
 
     const scoutOverview = (await ctx.transcript(scout)).content;
 
-    // ── Stage 2: per-partition specialist fan-out ─────────────────────────
+    // ── Stage 2: batched specialist fan-out ───────────────────────────────
+    //
+    // Same two-wave batched design as claude/index.ts. Each batch session
+    // pins the dispatcher to the `orchestrator` agent (.opencode/agents/
+    // orchestrator.md) — its system prompt is purpose-built to delegate
+    // everything via the `task` tool, so the dispatcher cannot wander off
+    // and start doing the specialists' work itself.
+
+    // Per-partition output paths, computed once and reused across both wave
+    // task-list construction and synthesis.
+    const partitionPaths = partitions.map((_, idx) => {
+      const i = idx + 1;
+      return {
+        locator: path.join(scratchDir, `locator-${i}.md`),
+        patternFinder: path.join(scratchDir, `pattern-finder-${i}.md`),
+        analyzer: path.join(scratchDir, `analyzer-${i}.md`),
+        online: path.join(scratchDir, `online-${i}.md`),
+        explorer: path.join(scratchDir, `explorer-${i}.md`),
+      };
+    });
+
+    const wave1Tasks: Layer1Task[] = partitions.flatMap((partition, idx) => {
+      const i = idx + 1;
+      const paths = partitionPaths[idx]!;
+      return [
+        {
+          kind: "locator" as const,
+          partitionIndex: i,
+          partition,
+          outputPath: paths.locator,
+        },
+        {
+          kind: "pattern-finder" as const,
+          partitionIndex: i,
+          partition,
+          outputPath: paths.patternFinder,
+        },
+      ];
+    });
+
+    const wave1Batches = chunkBatches(wave1Tasks, MAX_TASKS_PER_BATCH);
+
+    const wave1Results = await Promise.allSettled(
+      wave1Batches.map((batch, batchIdx) => {
+        const batchNumber = batchIdx + 1;
+        return ctx.stage(
+          {
+            name: `wave1-batch-${batchNumber}`,
+            headless: true,
+            description: `Layer 1 dispatch (${batch.length} tasks)`,
+          },
+          {},
+          { title: `wave1-batch-${batchNumber}` },
+          async (s) => {
+            const taskSpecs = batch.map((t) => {
+              const builder =
+                t.kind === "locator" ? buildLocatorPrompt : buildPatternFinderPrompt;
+              const specialistPrompt = builder({
+                question: prompt,
+                partition: t.partition,
+                scoutOverview,
+                index: t.partitionIndex,
+                total: explorerCount,
+              });
+              return {
+                subagentType: SUBAGENT_TYPE[t.kind],
+                outputPath: t.outputPath,
+                prompt: wrapPromptForTaskDispatch({
+                  specialistPrompt,
+                  outputPath: t.outputPath,
+                  agentLabel: t.kind.toUpperCase().replaceAll("-", "_"),
+                }),
+              };
+            });
+
+            const result = await s.client.session.prompt({
+              sessionID: s.session.id,
+              parts: [
+                {
+                  type: "text",
+                  text: buildBatchOrchestratorPrompt({
+                    wave: 1,
+                    batchIndex: batchNumber,
+                    totalBatches: wave1Batches.length,
+                    tasks: taskSpecs,
+                  }),
+                },
+              ],
+              agent: "orchestrator",
+            });
+            s.save(result.data!);
+          },
+        );
+      }),
+    );
+    logBatchRejections("wave1", wave1Results);
+
+    const locatorOutputs: Map<number, string> = new Map();
+    await Promise.all(
+      partitions.map(async (_p, idx) => {
+        const i = idx + 1;
+        locatorOutputs.set(i, await safeReadFile(partitionPaths[idx]!.locator));
+      }),
+    );
+
+    const wave2Tasks: Layer2Task[] = partitions.flatMap((partition, idx) => {
+      const i = idx + 1;
+      const paths = partitionPaths[idx]!;
+      const locatorOutput = locatorOutputs.get(i) ?? "";
+      return [
+        {
+          kind: "analyzer" as const,
+          partitionIndex: i,
+          partition,
+          outputPath: paths.analyzer,
+          locatorOutput,
+        },
+        {
+          kind: "online-researcher" as const,
+          partitionIndex: i,
+          partition,
+          outputPath: paths.online,
+          locatorOutput,
+        },
+      ];
+    });
+
+    const wave2Batches = chunkBatches(wave2Tasks, MAX_TASKS_PER_BATCH);
+
+    const wave2Results = await Promise.allSettled(
+      wave2Batches.map((batch, batchIdx) => {
+        const batchNumber = batchIdx + 1;
+        return ctx.stage(
+          {
+            name: `wave2-batch-${batchNumber}`,
+            headless: true,
+            description: `Layer 2 dispatch (${batch.length} tasks)`,
+          },
+          {},
+          { title: `wave2-batch-${batchNumber}` },
+          async (s) => {
+            const taskSpecs = batch.map((t) => {
+              const specialistPrompt =
+                t.kind === "analyzer"
+                  ? buildAnalyzerPrompt({
+                      question: prompt,
+                      partition: t.partition,
+                      locatorOutput: t.locatorOutput,
+                      scoutOverview,
+                      index: t.partitionIndex,
+                      total: explorerCount,
+                    })
+                  : buildOnlineResearcherPrompt({
+                      question: prompt,
+                      partition: t.partition,
+                      locatorOutput: t.locatorOutput,
+                      index: t.partitionIndex,
+                      total: explorerCount,
+                    });
+              return {
+                subagentType: SUBAGENT_TYPE[t.kind],
+                outputPath: t.outputPath,
+                prompt: wrapPromptForTaskDispatch({
+                  specialistPrompt,
+                  outputPath: t.outputPath,
+                  agentLabel: t.kind.toUpperCase().replaceAll("-", "_"),
+                }),
+              };
+            });
+
+            const result = await s.client.session.prompt({
+              sessionID: s.session.id,
+              parts: [
+                {
+                  type: "text",
+                  text: buildBatchOrchestratorPrompt({
+                    wave: 2,
+                    batchIndex: batchNumber,
+                    totalBatches: wave2Batches.length,
+                    tasks: taskSpecs,
+                  }),
+                },
+              ],
+              agent: "orchestrator",
+            });
+            s.save(result.data!);
+          },
+        );
+      }),
+    );
+    logBatchRejections("wave2", wave2Results);
+
+    // Synthesis: read all four specialist files per partition and write the
+    // consolidated explorer scratch file. Missing files fall back to "" so
+    // partial batch failures degrade gracefully.
     const explorerHandles = await Promise.all(
       partitions.map(async (partition, idx) => {
         const i = idx + 1;
-        const scratchPath = path.join(scratchDir, `explorer-${i}.md`);
+        const paths = partitionPaths[idx]!;
 
-        // Layer 1: locator + pattern-finder run independently.
-        const [locator, patternFinder] = await Promise.all([
-          ctx.stage(
-            {
-              name: `locator-${i}`,
-              headless: true,
-              description: `codebase-locator over partition ${i}`,
-            },
-            {},
-            { title: `locator-${i}` },
-            async (s) => {
-              const result = await s.client.session.prompt({
-                sessionID: s.session.id,
-                parts: [
-                  {
-                    type: "text",
-                    text: buildLocatorPrompt({
-                      question: prompt,
-                      partition,
-                      scoutOverview,
-                      index: i,
-                      total: explorerCount,
-                    }),
-                  },
-                ],
-                agent: "codebase-locator",
-              });
-              s.save(result.data!);
-              return extractResponseText(result.data!.parts);
-            },
-          ),
-          ctx.stage(
-            {
-              name: `pattern-finder-${i}`,
-              headless: true,
-              description: `codebase-pattern-finder over partition ${i}`,
-            },
-            {},
-            { title: `pattern-finder-${i}` },
-            async (s) => {
-              const result = await s.client.session.prompt({
-                sessionID: s.session.id,
-                parts: [
-                  {
-                    type: "text",
-                    text: buildPatternFinderPrompt({
-                      question: prompt,
-                      partition,
-                      scoutOverview,
-                      index: i,
-                      total: explorerCount,
-                    }),
-                  },
-                ],
-                agent: "codebase-pattern-finder",
-              });
-              s.save(result.data!);
-              return extractResponseText(result.data!.parts);
-            },
-          ),
-        ]);
+        const [locatorOutput, patternsOutput, analyzerOutput, onlineOutput] =
+          await Promise.all([
+            Promise.resolve(locatorOutputs.get(i) ?? ""),
+            safeReadFile(paths.patternFinder),
+            safeReadFile(paths.analyzer),
+            safeReadFile(paths.online),
+          ]);
 
-        const locatorOutput = locator.result;
-        const patternsOutput = patternFinder.result;
-
-        // Layer 2: analyzer + online-researcher consume locator output.
-        const [analyzer, onlineResearcher] = await Promise.all([
-          ctx.stage(
-            {
-              name: `analyzer-${i}`,
-              headless: true,
-              description: `codebase-analyzer over partition ${i}`,
-            },
-            {},
-            { title: `analyzer-${i}` },
-            async (s) => {
-              const result = await s.client.session.prompt({
-                sessionID: s.session.id,
-                parts: [
-                  {
-                    type: "text",
-                    text: buildAnalyzerPrompt({
-                      question: prompt,
-                      partition,
-                      locatorOutput,
-                      scoutOverview,
-                      index: i,
-                      total: explorerCount,
-                    }),
-                  },
-                ],
-                agent: "codebase-analyzer",
-              });
-              s.save(result.data!);
-              return extractResponseText(result.data!.parts);
-            },
-          ),
-          ctx.stage(
-            {
-              name: `online-researcher-${i}`,
-              headless: true,
-              description: `codebase-online-researcher over partition ${i}`,
-            },
-            {},
-            { title: `online-researcher-${i}` },
-            async (s) => {
-              const result = await s.client.session.prompt({
-                sessionID: s.session.id,
-                parts: [
-                  {
-                    type: "text",
-                    text: buildOnlineResearcherPrompt({
-                      question: prompt,
-                      partition,
-                      locatorOutput,
-                      index: i,
-                      total: explorerCount,
-                    }),
-                  },
-                ],
-                agent: "codebase-online-researcher",
-              });
-              s.save(result.data!);
-              return extractResponseText(result.data!.parts);
-            },
-          ),
-        ]);
-
-        await writeExplorerScratchFile(scratchPath, {
+        await writeExplorerScratchFile(paths.explorer, {
           index: i,
           total: explorerCount,
           partition,
           locatorOutput,
           patternsOutput,
-          analyzerOutput: analyzer.result,
-          onlineOutput: onlineResearcher.result,
+          analyzerOutput,
+          onlineOutput,
         });
 
-        return { index: i, scratchPath, partition };
+        return { index: i, scratchPath: paths.explorer, partition };
       }),
     );
 

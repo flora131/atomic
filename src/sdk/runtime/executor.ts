@@ -40,6 +40,7 @@ import {
 } from "../../services/config/definitions.ts";
 import { getProviderOverrides } from "../../services/config/atomic-config.ts";
 import { getCopilotScmDisableFlags } from "../../services/config/scm-sync.ts";
+import { reconcileOpencodeInstructions } from "../../services/config/additional-instructions.ts";
 import { ensureDir } from "../../services/system/copy.ts";
 import type { SessionEvent } from "@github/copilot-sdk";
 import type { SessionPromptResponse } from "@opencode-ai/sdk/v2";
@@ -480,6 +481,19 @@ export async function executeWorkflow(
     projectRoot = process.cwd(),
     detach = false,
   } = options;
+
+  // OpenCode reads its `instructions` array from `.opencode/opencode.json`
+  // at server-start time — both for the interactive tmux-pane path and the
+  // headless `createOpencode({ port: 0 })` path. Reconcile here, before
+  // either spawn, so the resolved AGENTS.md is the source of truth on
+  // every workflow run. Best-effort: a malformed config shouldn't block.
+  if (agent === "opencode") {
+    try {
+      await reconcileOpencodeInstructions(projectRoot);
+    } catch {
+      /* swallow */
+    }
+  }
 
   const workflowRunId = generateId();
   const tmuxSessionName = `atomic-wf-${agent}-${definition.name}-${workflowRunId}`;
@@ -1174,6 +1188,14 @@ function createMessagesReader(
 interface SharedRunnerState {
   tmuxSessionName: string;
   sessionsBaseDir: string;
+  /**
+   * The project root the workflow is operating against. Threaded through to
+   * provider initialization so headless paths resolve project-scoped config
+   * (e.g. `additional-instructions`) from the workflow's actual root rather
+   * than `process.cwd()`, which can drift when workflows are invoked
+   * programmatically or from a subdirectory.
+   */
+  projectRoot: string;
   agent: AgentType;
   /**
    * Structured inputs for this workflow run. Free-form workflows use
@@ -1270,6 +1292,7 @@ async function initProviderClientAndSession<A extends AgentType>(
   agent: A,
   serverUrl: string,
   paneId: string,
+  projectRoot: string,
   clientOpts: StageClientOptions<A>,
   sessionOpts: StageSessionOptions<A>,
   headless = false,
@@ -1289,7 +1312,12 @@ async function initProviderClientAndSession<A extends AgentType>(
   switch (agent) {
     case "copilot": {
       const { CopilotClient, approveAll } = await import("@github/copilot-sdk");
-      const { copilotSubprocessEnv } = await import("../providers/copilot.ts");
+      const { copilotSubprocessEnv, mergeCopilotSystemMessage } = await import(
+        "../providers/copilot.ts"
+      );
+      const { resolveAdditionalInstructionsContent } = await import(
+        "../../services/config/additional-instructions.ts"
+      );
       const copilotClientOpts = clientOpts as StageClientOptions<"copilot">;
       const copilotSessionOpts = sessionOpts as StageSessionOptions<"copilot">;
       // Headless: let the SDK spawn its own CLI process (no cliUrl).
@@ -1320,6 +1348,9 @@ async function initProviderClientAndSession<A extends AgentType>(
       // In headless stages, add `ask_user` to the session's excludedTools so
       // the agent cannot call the interactive question tool — there is no
       // human attached to answer and the SDK would otherwise sit blocked.
+      const additionalInstructions = await resolveAdditionalInstructionsContent(
+        projectRoot,
+      );
       const sessionConfig = {
         onPermissionRequest: approveAll,
         ...copilotSessionOpts,
@@ -1331,6 +1362,14 @@ async function initProviderClientAndSession<A extends AgentType>(
               excludedTools: mergeExcludedTools(
                 copilotSessionOpts.excludedTools,
                 ["ask_user"],
+              ),
+            }
+          : {}),
+        ...(additionalInstructions
+          ? {
+              systemMessage: mergeCopilotSystemMessage(
+                copilotSessionOpts.systemMessage,
+                additionalInstructions,
               ),
             }
           : {}),
@@ -1379,7 +1418,7 @@ async function initProviderClientAndSession<A extends AgentType>(
         // tracks the latest one and exposes it as `sessionId`.
         const client = new HeadlessClaudeClientWrapper();
         await client.start();
-        const session = new HeadlessClaudeSessionWrapper();
+        const session = new HeadlessClaudeSessionWrapper(projectRoot);
         // Cast through `unknown` — `HeadlessClaudeClientWrapper` intentionally
         // omits the interactive-only fields (`paneId`, `sessionDir`, etc.)
         // that `ClaudeClientWrapper` has; both satisfy the same runtime
@@ -1661,6 +1700,7 @@ function createSessionRunner(
         shared.agent,
         serverUrl,
         paneId,
+        shared.projectRoot,
         clientOpts,
         sessionOpts,
         isHeadless,
@@ -2002,6 +2042,7 @@ export async function runOrchestrator(
   const shared: SharedRunnerState = {
     tmuxSessionName,
     sessionsBaseDir,
+    projectRoot: cwd,
     agent,
     inputs,
     providerOverrides,

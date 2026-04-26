@@ -1,34 +1,36 @@
 /**
  * deep-research-codebase / copilot
  *
- * Copilot replica of the Claude deep-research-codebase workflow. Specialist
- * sub-agents are dispatched as separate headless `ctx.stage()` calls — each
- * binds the SDK's session to a single named agent via `sessionOpts: { agent }`,
- * which is the SDK-native way to spawn a sub-agent on Copilot.
+ * Copilot replica of the Claude deep-research-codebase workflow with the
+ * same **batched** Task-tool fan-out. Specialist sub-agents run inside batch
+ * sessions: each batch is a single `ctx.stage()` whose orchestrator turn
+ * dispatches up to MAX_TASKS_PER_BATCH (≈10) specialists in parallel via
+ * Copilot's `agent` tool (alias `Task`, see Copilot subagents docs).
+ * Research-history specialists remain as their own sequential sub-pipeline.
+ *
+ * See claude/index.ts for the full design rationale and topology diagram.
  *
  * Copilot-specific concerns baked in (see references/failure-modes.md):
  *
- *   • F5 — every `ctx.stage()` is a FRESH session. Each specialist receives
- *     everything it needs (research question, scope, scout overview, and —
- *     for layer-2 specialists — verbatim locator output) in its first prompt.
- *
  *   • F1 — Copilot's last assistant turn is often empty when the agent ends
- *     on a tool call. We use `getAssistantText()` (canonical concatenation
- *     of every top-level non-empty assistant turn, ignoring sub-agent
- *     `parentToolCallId` traffic) instead of `.at(-1).data.content`.
+ *     on a tool call. Batch sessions don't read `getAssistantText` for the
+ *     orchestrator output (sub-agents write to disk; the orchestrator's text
+ *     reply is just a short tally), so this is no longer load-bearing for
+ *     Stage 2 — but the history pipeline still depends on it.
  *
- *   • F6 — every prompt explicitly requires trailing prose AFTER any tool
- *     call so `getAssistantText()` and downstream `transcript()` reads are
- *     never empty.
+ *   • F5 — every `ctx.stage()` is a FRESH session. Batch session prompts
+ *     embed everything the orchestrator needs (per-task subagent_type,
+ *     output path, and verbatim specialist prompt) in the first turn.
+ *
+ *   • F6 — orchestrator prompt requires a single-line tally as the trailing
+ *     turn so transcripts are never empty.
  *
  *   • F9 — `s.save()` receives `SessionEvent[]` from `s.session.getMessages()`.
- *
- * See claude/index.ts for the full design rationale and topology diagram.
  */
 
 import { defineWorkflow } from "../../../index.ts";
 import type { SessionEvent } from "@github/copilot-sdk";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -43,6 +45,7 @@ import {
 import {
   buildAggregatorPrompt,
   buildAnalyzerPrompt,
+  buildBatchOrchestratorPrompt,
   buildHistoryAnalyzerPrompt,
   buildHistoryLocatorPrompt,
   buildLocatorPrompt,
@@ -50,13 +53,23 @@ import {
   buildPatternFinderPrompt,
   buildScoutPrompt,
   slugifyPrompt,
+  wrapPromptForTaskDispatch,
 } from "../helpers/prompts.ts";
 import { writeExplorerScratchFile } from "../helpers/scratch.ts";
+import {
+  chunkBatches,
+  MAX_TASKS_PER_BATCH,
+  SUBAGENT_TYPE,
+  type Layer1Task,
+  type Layer2Task,
+} from "../helpers/batching.ts";
 
 /**
  * Concatenate every top-level assistant turn's non-empty content. The final
  * `assistant.message` of a Copilot turn is often empty when the agent ends
  * on a tool call (F1), and sub-agent traffic is signalled by `parentToolCallId`.
+ * Used for the history pipeline only — batch sessions don't need this since
+ * sub-agents write to disk.
  */
 function getAssistantText(messages: SessionEvent[]): string {
   return messages
@@ -67,6 +80,31 @@ function getAssistantText(messages: SessionEvent[]): string {
     .map((m) => m.data.content)
     .filter((c) => c.length > 0)
     .join("\n\n");
+}
+
+/** Read a file as UTF-8, returning empty string if missing or unreadable. */
+async function safeReadFile(absPath: string): Promise<string> {
+  try {
+    return await readFile(absPath, "utf8");
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Log Promise.allSettled rejection reasons to stderr so an all-failed wave
+ * leaves a debugging trail instead of silently producing an empty report.
+ */
+function logBatchRejections(
+  label: string,
+  results: PromiseSettledResult<unknown>[],
+): void {
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
+    if (r?.status === "rejected") {
+      console.error(`[deep-research-codebase] ${label} batch ${i + 1} failed:`, r.reason);
+    }
+  }
 }
 
 export default defineWorkflow({
@@ -105,7 +143,9 @@ export default defineWorkflow({
           if (data.units.length === 0) {
             throw new Error(
               `deep-research-codebase: scout found no source files under ${root}. ` +
-                `Run from inside a code repository or check the CODE_EXTENSIONS list.`,
+                `Run from inside a code repository, or verify your files use a ` +
+                `recognized programming-language extension (sourced from GitHub ` +
+                `Linguist + sql/graphql/proto).`,
             );
           }
 
@@ -196,127 +236,211 @@ export default defineWorkflow({
 
     const scoutOverview = (await ctx.transcript(scout)).content;
 
-    // ── Stage 2: per-partition specialist fan-out ─────────────────────────
+    // ── Stage 2: batched specialist fan-out ───────────────────────────────
+    //
+    // Same two-wave batched design as claude/index.ts. Each batch session
+    // pins the dispatcher to the `orchestrator` agent (.github/agents/
+    // orchestrator.md) — its system prompt is purpose-built to delegate
+    // everything via the `agent`/Task tool, so the dispatcher cannot wander
+    // off and start doing the specialists' work itself.
+
+    // Per-partition output paths, computed once and reused across both wave
+    // task-list construction and synthesis.
+    const partitionPaths = partitions.map((_, idx) => {
+      const i = idx + 1;
+      return {
+        locator: path.join(scratchDir, `locator-${i}.md`),
+        patternFinder: path.join(scratchDir, `pattern-finder-${i}.md`),
+        analyzer: path.join(scratchDir, `analyzer-${i}.md`),
+        online: path.join(scratchDir, `online-${i}.md`),
+        explorer: path.join(scratchDir, `explorer-${i}.md`),
+      };
+    });
+
+    const wave1Tasks: Layer1Task[] = partitions.flatMap((partition, idx) => {
+      const i = idx + 1;
+      const paths = partitionPaths[idx]!;
+      return [
+        {
+          kind: "locator" as const,
+          partitionIndex: i,
+          partition,
+          outputPath: paths.locator,
+        },
+        {
+          kind: "pattern-finder" as const,
+          partitionIndex: i,
+          partition,
+          outputPath: paths.patternFinder,
+        },
+      ];
+    });
+
+    const wave1Batches = chunkBatches(wave1Tasks, MAX_TASKS_PER_BATCH);
+
+    const wave1Results = await Promise.allSettled(
+      wave1Batches.map((batch, batchIdx) => {
+        const batchNumber = batchIdx + 1;
+        return ctx.stage(
+          {
+            name: `wave1-batch-${batchNumber}`,
+            headless: true,
+            description: `Layer 1 dispatch (${batch.length} tasks)`,
+          },
+          {},
+          { agent: "orchestrator" },
+          async (s) => {
+            const taskSpecs = batch.map((t) => {
+              const builder =
+                t.kind === "locator" ? buildLocatorPrompt : buildPatternFinderPrompt;
+              const specialistPrompt = builder({
+                question: prompt,
+                partition: t.partition,
+                scoutOverview,
+                index: t.partitionIndex,
+                total: explorerCount,
+              });
+              return {
+                subagentType: SUBAGENT_TYPE[t.kind],
+                outputPath: t.outputPath,
+                prompt: wrapPromptForTaskDispatch({
+                  specialistPrompt,
+                  outputPath: t.outputPath,
+                  agentLabel: t.kind.toUpperCase().replaceAll("-", "_"),
+                }),
+              };
+            });
+
+            await s.session.send({
+              prompt: buildBatchOrchestratorPrompt({
+                wave: 1,
+                batchIndex: batchNumber,
+                totalBatches: wave1Batches.length,
+                tasks: taskSpecs,
+              }),
+            });
+            s.save(await s.session.getMessages());
+          },
+        );
+      }),
+    );
+    logBatchRejections("wave1", wave1Results);
+
+    const locatorOutputs: Map<number, string> = new Map();
+    await Promise.all(
+      partitions.map(async (_p, idx) => {
+        const i = idx + 1;
+        locatorOutputs.set(i, await safeReadFile(partitionPaths[idx]!.locator));
+      }),
+    );
+
+    const wave2Tasks: Layer2Task[] = partitions.flatMap((partition, idx) => {
+      const i = idx + 1;
+      const paths = partitionPaths[idx]!;
+      const locatorOutput = locatorOutputs.get(i) ?? "";
+      return [
+        {
+          kind: "analyzer" as const,
+          partitionIndex: i,
+          partition,
+          outputPath: paths.analyzer,
+          locatorOutput,
+        },
+        {
+          kind: "online-researcher" as const,
+          partitionIndex: i,
+          partition,
+          outputPath: paths.online,
+          locatorOutput,
+        },
+      ];
+    });
+
+    const wave2Batches = chunkBatches(wave2Tasks, MAX_TASKS_PER_BATCH);
+
+    const wave2Results = await Promise.allSettled(
+      wave2Batches.map((batch, batchIdx) => {
+        const batchNumber = batchIdx + 1;
+        return ctx.stage(
+          {
+            name: `wave2-batch-${batchNumber}`,
+            headless: true,
+            description: `Layer 2 dispatch (${batch.length} tasks)`,
+          },
+          {},
+          { agent: "orchestrator" },
+          async (s) => {
+            const taskSpecs = batch.map((t) => {
+              const specialistPrompt =
+                t.kind === "analyzer"
+                  ? buildAnalyzerPrompt({
+                      question: prompt,
+                      partition: t.partition,
+                      locatorOutput: t.locatorOutput,
+                      scoutOverview,
+                      index: t.partitionIndex,
+                      total: explorerCount,
+                    })
+                  : buildOnlineResearcherPrompt({
+                      question: prompt,
+                      partition: t.partition,
+                      locatorOutput: t.locatorOutput,
+                      index: t.partitionIndex,
+                      total: explorerCount,
+                    });
+              return {
+                subagentType: SUBAGENT_TYPE[t.kind],
+                outputPath: t.outputPath,
+                prompt: wrapPromptForTaskDispatch({
+                  specialistPrompt,
+                  outputPath: t.outputPath,
+                  agentLabel: t.kind.toUpperCase().replaceAll("-", "_"),
+                }),
+              };
+            });
+
+            await s.session.send({
+              prompt: buildBatchOrchestratorPrompt({
+                wave: 2,
+                batchIndex: batchNumber,
+                totalBatches: wave2Batches.length,
+                tasks: taskSpecs,
+              }),
+            });
+            s.save(await s.session.getMessages());
+          },
+        );
+      }),
+    );
+    logBatchRejections("wave2", wave2Results);
+
+    // Synthesis: read all four specialist files per partition and write the
+    // consolidated explorer scratch file. Missing files fall back to "" so
+    // partial batch failures degrade gracefully.
     const explorerHandles = await Promise.all(
       partitions.map(async (partition, idx) => {
         const i = idx + 1;
-        const scratchPath = path.join(scratchDir, `explorer-${i}.md`);
+        const paths = partitionPaths[idx]!;
 
-        // Layer 1: locator + pattern-finder run independently.
-        const [locator, patternFinder] = await Promise.all([
-          ctx.stage(
-            {
-              name: `locator-${i}`,
-              headless: true,
-              description: `codebase-locator over partition ${i}`,
-            },
-            {},
-            { agent: "codebase-locator" },
-            async (s) => {
-              await s.session.send({
-                prompt: buildLocatorPrompt({
-                  question: prompt,
-                  partition,
-                  scoutOverview,
-                  index: i,
-                  total: explorerCount,
-                }),
-              });
-              const messages = await s.session.getMessages();
-              s.save(messages);
-              return getAssistantText(messages);
-            },
-          ),
-          ctx.stage(
-            {
-              name: `pattern-finder-${i}`,
-              headless: true,
-              description: `codebase-pattern-finder over partition ${i}`,
-            },
-            {},
-            { agent: "codebase-pattern-finder" },
-            async (s) => {
-              await s.session.send({
-                prompt: buildPatternFinderPrompt({
-                  question: prompt,
-                  partition,
-                  scoutOverview,
-                  index: i,
-                  total: explorerCount,
-                }),
-              });
-              const messages = await s.session.getMessages();
-              s.save(messages);
-              return getAssistantText(messages);
-            },
-          ),
-        ]);
+        const [locatorOutput, patternsOutput, analyzerOutput, onlineOutput] =
+          await Promise.all([
+            Promise.resolve(locatorOutputs.get(i) ?? ""),
+            safeReadFile(paths.patternFinder),
+            safeReadFile(paths.analyzer),
+            safeReadFile(paths.online),
+          ]);
 
-        const locatorOutput = locator.result;
-        const patternsOutput = patternFinder.result;
-
-        // Layer 2: analyzer + online-researcher consume locator output.
-        const [analyzer, onlineResearcher] = await Promise.all([
-          ctx.stage(
-            {
-              name: `analyzer-${i}`,
-              headless: true,
-              description: `codebase-analyzer over partition ${i}`,
-            },
-            {},
-            { agent: "codebase-analyzer" },
-            async (s) => {
-              await s.session.send({
-                prompt: buildAnalyzerPrompt({
-                  question: prompt,
-                  partition,
-                  locatorOutput,
-                  scoutOverview,
-                  index: i,
-                  total: explorerCount,
-                }),
-              });
-              const messages = await s.session.getMessages();
-              s.save(messages);
-              return getAssistantText(messages);
-            },
-          ),
-          ctx.stage(
-            {
-              name: `online-researcher-${i}`,
-              headless: true,
-              description: `codebase-online-researcher over partition ${i}`,
-            },
-            {},
-            { agent: "codebase-online-researcher" },
-            async (s) => {
-              await s.session.send({
-                prompt: buildOnlineResearcherPrompt({
-                  question: prompt,
-                  partition,
-                  locatorOutput,
-                  index: i,
-                  total: explorerCount,
-                }),
-              });
-              const messages = await s.session.getMessages();
-              s.save(messages);
-              return getAssistantText(messages);
-            },
-          ),
-        ]);
-
-        await writeExplorerScratchFile(scratchPath, {
+        await writeExplorerScratchFile(paths.explorer, {
           index: i,
           total: explorerCount,
           partition,
           locatorOutput,
           patternsOutput,
-          analyzerOutput: analyzer.result,
-          onlineOutput: onlineResearcher.result,
+          analyzerOutput,
+          onlineOutput,
         });
 
-        return { index: i, scratchPath, partition };
+        return { index: i, scratchPath: paths.explorer, partition };
       }),
     );
 

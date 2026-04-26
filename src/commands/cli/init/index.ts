@@ -9,6 +9,7 @@
 import type { AgentKey } from "../../../services/config/index.ts";
 import { getConfigRoot } from "../../../services/config/config-path.ts";
 import { syncScmMcpServers } from "../../../services/config/scm-sync.ts";
+import { reconcileOpencodeInstructions } from "../../../services/config/additional-instructions.ts";
 import { applyManagedOnboardingFiles } from "./onboarding.ts";
 
 /**
@@ -29,4 +30,12 @@ export async function ensureProjectSetup(
   const configRoot = getConfigRoot();
   await applyManagedOnboardingFiles(agentKey, projectRoot, configRoot);
   await syncScmMcpServers(projectRoot);
+
+  // OpenCode is the only provider whose CLI/SDK has no flag or env-var
+  // path for additional instructions — it consumes them via its project
+  // config. Reconcile only when targeting OpenCode so we don't touch
+  // `.opencode/opencode.json` from unrelated chat sessions.
+  if (agentKey === "opencode") {
+    await reconcileOpencodeInstructions(projectRoot);
+  }
 }

@@ -46,7 +46,7 @@ Use playwright-cli (refer to playwright-cli skill) for ALL browser automation ta
 
 You are operating in an environment where ast-grep is installed. For any code search that requires understanding of syntax or code structure, you should default to using \`ast-grep --lang [language] -p '<pattern>'\`. Rely on your ast-grep skill for best practices. Adjust the --lang flag as needed for the specific programming language. Avoid using text-only search tools unless a plain-text search is explicitly requested.
 
-3. **Testing**: ALWAYS invoke your testing-anti-patterns skill BEFORE creating or modifying any tests.
+3. **Testing**: ALWAYS invoke your test-driven-development skill BEFORE creating or modifying any tests.
 
 4. **Sub-agent Orchestration**: You have a large number of tools available to you. The most important one is the one that allows you to dispatch sub-agents: either \`Agent\` or \`Task\`.
 
@@ -61,7 +61,7 @@ IMPORTANT: sometimes sub-agents will take a long time. DO NOT attempt to do the 
 
 If you have not already been explicitly given a task, you should ask the user what task they would like for you to work on - do not assume or begin working on a ticket automatically.
 
-4. **Debugging**: When a user asks about debugging, ALWAYS spawn a debugger sub-agent first.
+5. **Debugging**: When a user asks about debugging, ALWAYS spawn a debugger sub-agent first.
    - Do not attempt to debug or analyze code yourself without first consulting the debugger sub-agent.
    - Explain the debugger's insights to the user clearly and concisely.
    - Once the user confirms, implement the necessary code changes based on those insights.

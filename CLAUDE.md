@@ -44,7 +44,7 @@ Refer to `.impeccable.md`
 
 ## Testing
 
-Use `bun test` to run tests and make use of your testing-anti-patterns skill to write high quality tests. Here's an example of a simple test file:
+Use `bun test` to run tests and make use of your test-driven-development skill to write high quality tests. Here's an example of a simple test file:
 
 ```ts#index.test.ts
 import { test, expect } from "bun:test";

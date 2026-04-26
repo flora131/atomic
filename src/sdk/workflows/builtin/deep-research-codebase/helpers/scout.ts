@@ -17,6 +17,7 @@
 // Use Bun.spawnSync instead of node:child_process for consistency with the rest of the codebase.
 
 import * as linguistLanguages from "linguist-languages";
+import type { Language } from "linguist-languages";
 import ignore, { type Ignore } from "ignore";
 import ignoreByDefault from "ignore-by-default";
 import { readdirSync, readFileSync } from "node:fs";
@@ -60,12 +61,11 @@ const EXCLUDE_EXTENSIONS = new Set<string>([
 
 const CODE_EXTENSIONS: Set<string> = (() => {
   const out = new Set<string>();
-  const langs = linguistLanguages as unknown as Record<
-    string,
-    { type?: string; extensions?: readonly string[] }
-  >;
-  for (const lang of Object.values(langs)) {
-    if (lang?.type !== "programming") continue;
+  // Each named export of `linguist-languages` is a `Language`; the namespace
+  // import has no other shape, so casting `Object.values(...)` to `Language[]`
+  // is sound and removes the need for an `unknown` intermediary.
+  for (const lang of Object.values(linguistLanguages) as Language[]) {
+    if (lang.type !== "programming") continue;
     for (const ext of lang.extensions ?? []) {
       const cleaned = ext.replace(/^\./, "").toLowerCase();
       // Skip multi-segment extensions — see file-level comment.
@@ -198,14 +198,19 @@ export type CodebaseScout = {
 
 /** Resolve the project root. Prefers `git rev-parse --show-toplevel`. */
 export function getCodebaseRoot(): string {
-  const r = Bun.spawnSync({
-    cmd: ["git", "rev-parse", "--show-toplevel"],
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  if (r.success && r.stdout) {
-    return r.stdout.toString().trim();
-  }
+  // Bun.spawnSync throws (rather than returning success:false) when the
+  // executable is missing from PATH — wrap so the documented "falls back to
+  // cwd" contract holds even on machines without git installed.
+  try {
+    const r = Bun.spawnSync({
+      cmd: ["git", "rev-parse", "--show-toplevel"],
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    if (r.success && r.stdout) {
+      return r.stdout.toString().trim();
+    }
+  } catch { /* git not on PATH — fall back to cwd */ }
   return process.cwd();
 }
 
@@ -270,7 +275,11 @@ function listAllFiles(root: string): string[] {
  *   "  N filename"
  *   "  N total"   (when more than one file is passed)
  *
- * We batch to avoid command-line length limits.
+ * We batch to avoid command-line length limits. When `wc` is missing from
+ * PATH (typical on Windows) `Bun.spawnSync` throws ENOENT — each batch is
+ * wrapped so we can fall back to an in-process newline counter rather than
+ * aborting the workflow or silently zeroing every file's LOC (which would
+ * collapse the partition bin-packer).
  */
 function countLines(root: string, files: string[]): Map<string, number> {
   const result = new Map<string, number>();
@@ -279,22 +288,40 @@ function countLines(root: string, files: string[]): Map<string, number> {
   const BATCH = 200;
   for (let i = 0; i < files.length; i += BATCH) {
     const batch = files.slice(i, i + BATCH);
-    const r = Bun.spawnSync({
-      cmd: ["wc", "-l", "--", ...batch],
-      cwd: root,
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    if (!r.stdout) continue;
-    for (const line of r.stdout.toString().split("\n")) {
-      const m = line.match(/^\s*(\d+)\s+(.+)$/);
-      // Regex groups are typed `string | undefined` under strict mode even
-      // when the whole match succeeded — guard explicitly.
-      const countStr = m?.[1];
-      const filename = m?.[2]?.trim();
-      if (countStr === undefined || filename === undefined) continue;
-      if (filename === "total") continue;
-      result.set(filename, parseInt(countStr, 10));
+    let wcOk = false;
+    try {
+      const r = Bun.spawnSync({
+        cmd: ["wc", "-l", "--", ...batch],
+        cwd: root,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      if (r.stdout) {
+        wcOk = true;
+        for (const line of r.stdout.toString().split("\n")) {
+          const m = line.match(/^\s*(\d+)\s+(.+)$/);
+          // Regex groups are typed `string | undefined` under strict mode even
+          // when the whole match succeeded — guard explicitly.
+          const countStr = m?.[1];
+          const filename = m?.[2]?.trim();
+          if (countStr === undefined || filename === undefined) continue;
+          if (filename === "total") continue;
+          result.set(filename, parseInt(countStr, 10));
+        }
+      }
+    } catch { /* wc not on PATH — fall through to in-process counter */ }
+    if (wcOk) continue;
+    // In-process fallback: count newline bytes. Matches `wc -l` semantics
+    // (a final line without a trailing `\n` is not counted).
+    for (const f of batch) {
+      try {
+        const content = readFileSync(join(root, f), "utf8");
+        let count = 0;
+        for (let j = 0; j < content.length; j++) {
+          if (content.charCodeAt(j) === 10) count++;
+        }
+        result.set(f, count);
+      } catch { /* unreadable — leave unset; consumer treats as 0 */ }
     }
   }
   return result;

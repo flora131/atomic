@@ -18,9 +18,6 @@
       "type": "bind"
     }
   ],
-  "remoteEnv": {
-    "GITHUB_PERSONAL_ACCESS_TOKEN": "${localEnv:GITHUB_PERSONAL_ACCESS_TOKEN}"
-  },
   "customizations": {
     "vscode": {
       "extensions": ["shd101wyy.markdown-preview-enhanced", "sst-dev.opencode"]

@@ -31,7 +31,7 @@
        Wordmark override — cream semi-transparent on warm field
     ----------------------------------------------------------------------- */
     .wordmark {
-      color: oklch(91% 0.04 60 / 0.70);
+      color: color-mix(in oklch, var(--text-on-gradient) 85%, transparent);
     }
 
     /* -----------------------------------------------------------------------
@@ -132,7 +132,7 @@
         font-weight: 400;
         line-height: 1.5;
         letter-spacing: -0.01em;
-        color: oklch(91% 0.04 60 / 0.72);
+        color: var(--text-on-gradient);
         max-width: 50ch;
         margin: 0;
       ">

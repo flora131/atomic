@@ -277,7 +277,7 @@
       </h1>
 
       <!-- Subhead -->
-      <p class="subhead" style="font-size: 19px; max-width: 680px; margin-bottom: 28px; position: relative; z-index: 2;">
+      <p class="subhead" style="font-size: 19px; max-width: 680px; margin-bottom: 28px; position: relative; z-index: 2; color: var(--text-on-gradient);">
         Atomic supports isolated devcontainers so agent execution does not have to depend directly on your host.
       </p>
 
@@ -310,15 +310,15 @@
               font-weight: 700;
               letter-spacing: 0.06em;
               text-transform: uppercase;
-              color: oklch(75% 0.12 10);
+              color: oklch(88% 0.08 25);
             ">Host machine</span>
           </div>
 
           <!-- Sub-labels -->
           <div style="display: flex; flex-direction: column; gap: 1px; margin-bottom: 6px;">
-            <div class="panel-sublabel" style="color: oklch(72% 0.10 10);">→ source of truth</div>
-            <div class="panel-sublabel" style="color: oklch(68% 0.14 10);">→ direct agent execution</div>
-            <div class="panel-sublabel" style="color: oklch(72% 0.12 350);">→ higher risk surface</div>
+            <div class="panel-sublabel" style="color: oklch(85% 0.06 25);">→ source of truth</div>
+            <div class="panel-sublabel" style="color: oklch(85% 0.06 25);">→ direct agent execution</div>
+            <div class="panel-sublabel" style="color: oklch(85% 0.06 25);">→ higher risk surface</div>
           </div>
 
           <!-- TUI pane mock: Host machine — warm-tinted, simulating direct execution -->
@@ -333,22 +333,22 @@
             </div>
             <div class="host-pane__body">
               <!-- Warm-tinted output lines simulating direct host execution -->
-              <div style="color: oklch(62% 0.10 10); font-size: 10px;">$ atomic run prod-alert-investigate</div>
-              <div style="color: oklch(70% 0.08 10); font-size: 10px; padding-left: 0;">
-                <span style="color: oklch(60% 0.16 50);">warn</span>
-                <span style="color: oklch(65% 0.06 10);"> running on host filesystem</span>
+              <div style="color: oklch(86% 0.04 25); font-size: 10px;">$ atomic run prod-alert-investigate</div>
+              <div style="color: oklch(86% 0.04 25); font-size: 10px; padding-left: 0;">
+                <span style="color: var(--mocha-yellow);">warn</span>
+                <span> running on host filesystem</span>
               </div>
-              <div style="color: oklch(68% 0.08 10); font-size: 10px;">→ claude-code session  <span style="color: oklch(60% 0.14 10);">starting…</span></div>
-              <div style="color: oklch(68% 0.08 10); font-size: 10px;">→ opencode session     <span style="color: oklch(60% 0.14 10);">starting…</span></div>
-              <div style="color: oklch(58% 0.18 10); font-size: 10px; margin-top: 6px;">
-                <span style="color: oklch(62% 0.20 10);">error</span>
-                <span style="color: oklch(65% 0.06 10);"> log-analyst wrote /var/log/atomic</span>
+              <div style="color: oklch(86% 0.04 25); font-size: 10px;">→ claude-code session  <span style="color: oklch(78% 0.05 25);">starting…</span></div>
+              <div style="color: oklch(86% 0.04 25); font-size: 10px;">→ opencode session     <span style="color: oklch(78% 0.05 25);">starting…</span></div>
+              <div style="color: oklch(86% 0.04 25); font-size: 10px; margin-top: 6px;">
+                <span style="color: var(--mocha-red);">error</span>
+                <span> log-analyst wrote /var/log/atomic</span>
               </div>
-              <div style="color: oklch(60% 0.15 350); font-size: 10px;">
-                <span style="color: oklch(65% 0.18 350);">warn</span>
-                <span style="color: oklch(65% 0.06 10);"> host fs access: /etc/passwd  ← uncontrolled</span>
+              <div style="color: oklch(86% 0.04 25); font-size: 10px;">
+                <span style="color: var(--mocha-yellow);">warn</span>
+                <span> host fs access: /etc/passwd  ← uncontrolled</span>
               </div>
-              <div style="color: oklch(62% 0.10 10); font-size: 10px; margin-top: 6px;">$ ▌</div>
+              <div style="color: oklch(86% 0.04 25); font-size: 10px; margin-top: 6px;">$ ▌</div>
             </div>
           </div>
         </div>
@@ -545,7 +545,7 @@
         font-family: var(--font-body);
         font-size: 16px;
         font-style: italic;
-        color: var(--mocha-subtext0);
+        color: var(--text-on-gradient);
         margin-top: 14px;
         position: relative;
         z-index: 2;

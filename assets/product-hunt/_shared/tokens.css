@@ -65,6 +65,14 @@
   --cream-subtext: #45475a;    /* surface1 for secondary on cream */
 
   /* -----------------------------------------------------------------------
+     Gradient-safe text — single shared variant for body copy that sits
+     directly on the conic sweep. Cream-tinted neutrals tuned to clear AAA
+     (≥7:1) on every conic stop (warm-red through cool-teal).
+  ----------------------------------------------------------------------- */
+  --text-on-gradient:     oklch(94% 0.02 60);
+  --text-on-gradient-dim: oklch(86% 0.02 60);
+
+  /* -----------------------------------------------------------------------
      Spacing scale (4px base unit)
   ----------------------------------------------------------------------- */
   --space-1:   4px;

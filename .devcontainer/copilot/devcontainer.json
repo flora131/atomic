@@ -19,8 +19,7 @@
     }
   ],
   "remoteEnv": {
-    "GH_TOKEN": "${localEnv:GH_TOKEN}",
-    "GITHUB_PERSONAL_ACCESS_TOKEN": "${localEnv:GITHUB_PERSONAL_ACCESS_TOKEN}"
+    "GH_TOKEN": "${localEnv:GH_TOKEN}"
   },
   "customizations": {
     "vscode": {

@@ -24,14 +24,14 @@ Add them to your shell profile (e.g. `~/.zshrc`, `~/.bashrc`) or export them in 
 **macOS / Linux:**
 
 ```bash
-export GH_TOKEN="ghp_..." # requires Copilot Requests scope
+export GH_TOKEN="ghp_..."
 export ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-$env:GH_TOKEN = "ghp_..." # requires Copilot Requests scope
+$env:GH_TOKEN = "ghp_..."
 $env:ANTHROPIC_API_KEY = "sk-ant-..."
 ```
 

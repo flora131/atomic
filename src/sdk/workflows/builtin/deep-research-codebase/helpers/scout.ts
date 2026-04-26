@@ -3,7 +3,8 @@
  *
  * Responsibilities:
  *   1. Discover the codebase root (git toplevel, falling back to cwd).
- *   2. List all source files, respecting .gitignore when in a git repo.
+ *   2. List all source files, honoring `.gitignore` via git ls-files in repos
+ *      and via `rg --files` in non-repo directories that still have one.
  *   3. Count lines of code per file using batched `wc -l`.
  *   4. Render a compact directory tree (depth-bounded) for prompt context.
  *   5. Build "partition units" by aggregating LOC at depth-1, then drilling
@@ -15,32 +16,151 @@
 
 // Use Bun.spawnSync instead of node:child_process for consistency with the rest of the codebase.
 
-/** Source-file extensions we treat as "code" for LOC accounting. */
-const CODE_EXTENSIONS = new Set<string>([
-  // Web / TS / JS
-  "ts", "tsx", "js", "jsx", "mjs", "cjs",
-  "vue", "svelte", "astro",
-  // Systems
-  "c", "cc", "cpp", "cxx", "h", "hpp", "rs", "go", "zig",
-  // JVM / .NET
-  "java", "kt", "kts", "scala", "groovy", "cs", "fs",
-  // Scripting
-  "py", "rb", "php", "pl", "lua", "sh", "bash", "zsh", "fish",
-  // Mobile
-  "swift", "m", "mm",
-  // Functional / niche
-  "ex", "exs", "erl", "elm", "hs", "ml", "clj", "cljs", "edn",
-  "r", "jl", "dart", "nim",
-  // Schemas / DSLs that materially shape behavior
-  "sql", "graphql", "proto",
+import * as linguistLanguages from "linguist-languages";
+import ignore, { type Ignore } from "ignore";
+import ignoreByDefault from "ignore-by-default";
+import { readdirSync, readFileSync } from "node:fs";
+import { join, relative, sep } from "node:path";
+
+/**
+ * Source-file extensions we treat as "code" for LOC accounting.
+ *
+ * Derived from GitHub Linguist (`linguist-languages`), filtered to
+ * `type === "programming"`. Linguist tracks 500+ programming languages and
+ * keeps the canonical extension list per language up to date — using it
+ * removes a maintenance burden and picks up obscure-but-legitimate
+ * languages we'd never enumerate by hand.
+ *
+ * Three modifications layered on top of the raw linguist data:
+ *
+ *   1. **Multi-segment extensions are skipped.** Linguist lists entries like
+ *      `.coffee.md` (Literate CoffeeScript) and `.gradle.kts` (Gradle Kotlin
+ *      DSL). Our `isCodeFile()` only sees the tail after the final dot, so
+ *      collapsing `.coffee.md` to `md` would mis-classify Markdown as code.
+ *      Skipping them is safe because the base languages they extend always
+ *      list a single-segment extension as well (`.coffee`, `.kts`).
+ *   2. **EXCLUDE_EXTENSIONS denylist.** A handful of single-segment
+ *      extensions that programming-typed languages claim but which in
+ *      practice almost always mean a non-code file (`.md` is claimed by
+ *      GCC Machine Description but means Markdown 99.9% of the time).
+ *   3. **SCHEMA_EXTENSIONS allowlist.** Schemas/DSLs that linguist
+ *      categorises as `type: "data"` but which materially shape codebase
+ *      behaviour and belong in research scope.
+ */
+const SCHEMA_EXTENSIONS = ["sql", "graphql", "proto"] as const;
+
+/**
+ * Single-segment extensions that linguist's `programming`-typed languages
+ * claim but which in real-world codebases almost always mean a non-code
+ * file. Each entry needs a one-line justification.
+ */
+const EXCLUDE_EXTENSIONS = new Set<string>([
+  "md", // claimed by "GCC Machine Description"; almost always Markdown.
 ]);
 
-/** Directories we always exclude even when not using git ls-files. */
-const FIND_IGNORE_PATTERNS = [
-  "node_modules", ".git", "dist", "build", "out",
-  ".next", ".nuxt", ".turbo", ".vercel", ".cache",
-  "target", "vendor", "__pycache__", ".venv", "venv", "coverage",
-];
+const CODE_EXTENSIONS: Set<string> = (() => {
+  const out = new Set<string>();
+  const langs = linguistLanguages as unknown as Record<
+    string,
+    { type?: string; extensions?: readonly string[] }
+  >;
+  for (const lang of Object.values(langs)) {
+    if (lang?.type !== "programming") continue;
+    for (const ext of lang.extensions ?? []) {
+      const cleaned = ext.replace(/^\./, "").toLowerCase();
+      // Skip multi-segment extensions — see file-level comment.
+      if (cleaned.includes(".")) continue;
+      if (EXCLUDE_EXTENSIONS.has(cleaned)) continue;
+      out.add(cleaned);
+    }
+  }
+  for (const ext of SCHEMA_EXTENSIONS) out.add(ext);
+  return out;
+})();
+
+/**
+ * Recursively walk a directory tree, honoring nested `.gitignore` files at
+ * every level and seeding with `ignore-by-default`'s minimal universal set
+ * (`node_modules`, `.git`, `coverage`, etc.). Returns repo-relative paths.
+ *
+ * Used as the last-resort discovery fallback when neither `git ls-files` nor
+ * `rg --files` is available. The walker matches `.gitignore` semantics:
+ *   • Patterns from a `.gitignore` only apply to files at or below the
+ *     `.gitignore`'s directory.
+ *   • Inherited rules from ancestor directories continue to apply.
+ *   • Negations and the rest of gitignore syntax come from the `ignore`
+ *     package, which is the de facto JS implementation.
+ *
+ * Symlinks are intentionally not followed (avoids cycles).
+ */
+function walkWithIgnore(root: string): string[] {
+  const out: string[] = [];
+
+  const baseline: Ignore = ignore().add(ignoreByDefault.directories());
+  walk(root, [{ basePath: "", matcher: baseline }]);
+
+  function walk(
+    dir: string,
+    inheritedScopes: ReadonlyArray<{ basePath: string; matcher: Ignore }>,
+  ): void {
+    let scopes = inheritedScopes;
+    try {
+      const content = readFileSync(join(dir, ".gitignore"), "utf8");
+      const here = ignore().add(content);
+      scopes = [
+        ...inheritedScopes,
+        { basePath: relative(root, dir), matcher: here },
+      ];
+    } catch {
+      // No .gitignore at this level — keep inherited scopes.
+    }
+
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      // Skip everything that isn't a regular file or a regular directory —
+      // most importantly, skip symlinks so we don't follow cycles.
+      if (!entry.isFile() && !entry.isDirectory()) continue;
+
+      const full = join(dir, entry.name);
+      const rel = relative(root, full);
+      // The `ignore` package requires forward-slash paths.
+      const posix = sep === "/" ? rel : rel.split(sep).join("/");
+      // Trailing slash so directory-only patterns (`dist/`) match.
+      const probe = entry.isDirectory() ? `${posix}/` : posix;
+
+      let ignored = false;
+      for (const scope of scopes) {
+        const within =
+          scope.basePath === ""
+            ? probe
+            : relative(scope.basePath, posix).split(sep).join("/") +
+              (entry.isDirectory() ? "/" : "");
+        // If `within` escapes the scope (starts with `..`), the file isn't
+        // under this .gitignore's reach — skip the check.
+        if (within.startsWith("..")) continue;
+        if (scope.matcher.ignores(within)) {
+          ignored = true;
+          break;
+        }
+      }
+      if (ignored) continue;
+
+      if (entry.isDirectory()) {
+        walk(full, scopes);
+      } else {
+        out.push(rel);
+      }
+    }
+  }
+
+  return out;
+}
 
 /** Per-file LOC + path. */
 export type FileStats = { path: string; loc: number };
@@ -90,36 +210,53 @@ function isCodeFile(p: string): boolean {
   return CODE_EXTENSIONS.has(ext);
 }
 
-/** List all files in the repository. Prefers git ls-files (respects .gitignore). */
+/**
+ * List all files in the repository, honoring `.gitignore` whenever possible.
+ *
+ * Three discovery paths, tried in order — every path respects `.gitignore`:
+ *
+ *   1. **git ls-files** — for git repos. Combines `--cached` (tracked) with
+ *      `--others --exclude-standard` (untracked-but-not-ignored) so a freshly
+ *      created file the user hasn't `git add`-ed yet still appears, while
+ *      anything matching `.gitignore` / `.git/info/exclude` is excluded.
+ *   2. **ripgrep `rg --files --hidden`** — for non-git directories that still
+ *      have a `.gitignore` (or `.ignore`). `rg` honors both without needing
+ *      a repo, and always excludes `.git/`. `--hidden` keeps tracked dotfiles
+ *      like `.github/`, `.claude/` visible (matching git's behavior).
+ *   3. **In-process walker** — last-resort fallback when neither git nor rg
+ *      is available. Uses the `ignore` package to honor every `.gitignore`
+ *      it encounters (including nested ones), seeded with `ignore-by-default`
+ *      for the universal-ignore baseline (`node_modules`, `.git`, etc.).
+ */
 function listAllFiles(root: string): string[] {
-  const git = Bun.spawnSync({
-    cmd: ["git", "ls-files"],
-    cwd: root,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  if (git.success && git.stdout) {
-    return git.stdout.toString().split("\n").filter((l) => l.length > 0);
-  }
+  // Bun.spawnSync throws (rather than returning success:false) when the
+  // executable is missing from PATH, so each branch is wrapped in try/catch
+  // and falls through to the next discovery strategy on error.
+  try {
+    const git = Bun.spawnSync({
+      cmd: ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+      cwd: root,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    if (git.success && git.stdout) {
+      return git.stdout.toString().split("\n").filter((l) => l.length > 0);
+    }
+  } catch { /* git not on PATH — fall through to rg */ }
 
-  // Fallback: shell out to find with the standard ignore patterns.
-  const args: string[] = ["find", ".", "-type", "f"];
-  for (const pattern of FIND_IGNORE_PATTERNS) {
-    args.push("-not", "-path", `*/${pattern}/*`);
-  }
-  const find = Bun.spawnSync({
-    cmd: args,
-    cwd: root,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  if (find.success && find.stdout) {
-    return find.stdout.toString()
-      .split("\n")
-      .map((p) => p.replace(/^\.\//, ""))
-      .filter((p) => p.length > 0);
-  }
-  return [];
+  try {
+    const rg = Bun.spawnSync({
+      cmd: ["rg", "--files", "--hidden"],
+      cwd: root,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    if (rg.success && rg.stdout) {
+      return rg.stdout.toString().split("\n").filter((l) => l.length > 0);
+    }
+  } catch { /* rg not on PATH — fall through to in-process walker */ }
+
+  return walkWithIgnore(root);
 }
 
 /**

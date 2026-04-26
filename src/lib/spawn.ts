@@ -414,9 +414,13 @@ export async function upgradeGlobalPackages(pkgs: string[]): Promise<void> {
   }
 }
 
-/** Upgrade @playwright/cli and @llamaindex/liteparse globally in one pass. */
+/** Upgrade @playwright/cli, @llamaindex/liteparse, and @ast-grep/cli globally in one pass. */
 export async function upgradeGlobalToolPackages(): Promise<void> {
-  return upgradeGlobalPackages(["@playwright/cli", "@llamaindex/liteparse"]);
+  return upgradeGlobalPackages([
+    "@playwright/cli",
+    "@llamaindex/liteparse",
+    "@ast-grep/cli",
+  ]);
 }
 
 /**

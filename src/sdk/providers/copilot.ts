@@ -1,10 +1,11 @@
 /**
- * Copilot workflow source validation.
+ * Copilot workflow source validation + helpers.
  *
  * Checks that Copilot workflow source files use the runtime-managed
  * `s.client` and `s.session` instead of manual SDK client creation.
  */
 
+import type { SessionConfig as CopilotSessionConfig } from "@github/copilot-sdk";
 import { createProviderValidator } from "../types.ts";
 
 /**
@@ -25,6 +26,34 @@ import { createProviderValidator } from "../types.ts";
  */
 export function copilotSubprocessEnv(): Record<string, string | undefined> {
   return { ...process.env, NODE_NO_WARNINGS: "1" };
+}
+
+/**
+ * Fold the atomic-managed additional instructions into a caller's
+ * `systemMessage` value on `client.createSession`. Behavior:
+ *
+ *   - **No caller value** → `{ mode: "append", content: extra }`. The
+ *     SDK's default mode is append and preserves the SDK persona.
+ *   - **Append/customize mode** → concatenate our content to the existing
+ *     `content` field (newline-separated when both are present).
+ *   - **Replace mode** → leave alone. The caller has explicitly opted out
+ *     of SDK-managed sections; silently re-adding the persona-style append
+ *     would violate that contract.
+ *
+ * Exported for unit testing.
+ */
+export function mergeCopilotSystemMessage(
+  existing: CopilotSessionConfig["systemMessage"],
+  extra: string,
+): CopilotSessionConfig["systemMessage"] {
+  if (!extra) return existing;
+  if (existing === undefined) {
+    return { mode: "append", content: extra };
+  }
+  if (existing.mode === "replace") return existing;
+  const prev = existing.content ?? "";
+  const merged = prev ? `${prev}\n\n${extra}` : extra;
+  return { ...existing, content: merged };
 }
 
 /**

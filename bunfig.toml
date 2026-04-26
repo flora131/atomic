@@ -57,6 +57,7 @@ coveragePathIgnorePatterns = [
   "src/services/config/claude-config.ts",
   "src/services/config/agent-definition-loader.ts",
   "src/services/config/workflow-package.ts",
+  "src/services/config/additional-instructions.ts",
   # Agent/skill discovery (filesystem-dependent)
   "src/services/agent-discovery/discovery.ts",
   "src/services/agents/tools/discovery.ts",

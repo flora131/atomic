@@ -17,7 +17,8 @@
  *     2. global agent configs    (file copies — no network)
  *     3. @playwright/cli         (bun install -g)
  *     4. @llamaindex/liteparse   (bun install -g)
- *     5. global skills           (file copies from bundled .agents/skills)
+ *     5. @ast-grep/cli           (bun install -g)
+ *     6. global skills           (file copies from bundled .agents/skills)
  *
  * All steps run silently. The only user-facing loading bar lives in the
  * bootstrap installers (install.sh / install.ps1). Failures are swallowed;
@@ -35,6 +36,7 @@ import {
 } from "../../lib/spawn.ts";
 import { installGlobalAgents } from "./agents.ts";
 import { installGlobalSkills } from "./skills.ts";
+import { seedGlobalAdditionalInstructions } from "../config/additional-instructions.ts";
 
 /** Path to the version marker. Honors ATOMIC_SETTINGS_HOME for tests. */
 function syncMarkerPath(): string {
@@ -85,6 +87,13 @@ async function silentStep(fn: () => Promise<unknown>): Promise<boolean> {
  * only loading UI lives in the bootstrap installers (install.sh / install.ps1).
  */
 export async function autoSyncIfStale(): Promise<void> {
+  // Seed the global additional-instructions AGENTS.md on every CLI start —
+  // a single `existsSync` when already present, so cheap enough to run
+  // outside the installed-package gate. This way dev checkouts also get
+  // the file and the resolver in `additional-instructions.ts` always finds
+  // a non-`undefined` path on machines that have ever run `atomic`.
+  await silentStep(seedGlobalAdditionalInstructions);
+
   if (!isInstalledPackage()) return;
 
   let stored = "";

@@ -32,6 +32,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import os from "node:os";
 import { claudeHookDirs } from "../../commands/cli/claude-stop-hook.ts";
+import { resolveAdditionalInstructionsContent } from "../../services/config/additional-instructions.ts";
 
 // ---------------------------------------------------------------------------
 // Session tracking — ensures createClaudeSession is called before claudeQuery
@@ -1038,6 +1039,36 @@ export function mergeDisallowedTools(
 }
 
 /**
+ * Fold the atomic-managed additional instructions into a caller's
+ * `systemPrompt` value. Behavior, in order of precedence:
+ *
+ *   - **No caller value** → return a `claude_code` preset with our content
+ *     in `append`. Preserves the SDK's full Claude Code persona.
+ *   - **Caller passed a preset object** → concatenate our content onto the
+ *     existing `append` (newline-separated when both are present).
+ *   - **Caller passed a custom string or array** → leave it alone. The
+ *     caller has explicitly opted into a custom prompt, and silently
+ *     prepending the persona-style preset text would break that contract.
+ *
+ * Exported for unit testing.
+ */
+export function mergeSystemPromptAppend(
+  existing: SDKOptions["systemPrompt"],
+  extra: string,
+): SDKOptions["systemPrompt"] {
+  if (!extra) return existing;
+  if (existing === undefined) {
+    return { type: "preset", preset: "claude_code", append: extra };
+  }
+  if (typeof existing === "object" && !Array.isArray(existing) && existing.type === "preset") {
+    const prevAppend = existing.append ?? "";
+    const merged = prevAppend ? `${prevAppend}\n\n${extra}` : extra;
+    return { ...existing, append: merged };
+  }
+  return existing;
+}
+
+/**
  * Synthetic client wrapper for Claude stages.
  * Auto-starts the Claude CLI in the tmux pane during `start()`.
  */
@@ -1226,6 +1257,7 @@ export class HeadlessClaudeSessionWrapper {
     // agent can call it and the SDK query will sit blocked forever since no
     // human is attached to answer.
     const sdkOpts = options ?? {};
+    const additional = await resolveAdditionalInstructionsContent(process.cwd());
     const headlessSdkOpts: Partial<SDKOptions> = {
       ...sdkOpts,
       pathToClaudeCodeExecutable:
@@ -1233,6 +1265,9 @@ export class HeadlessClaudeSessionWrapper {
       disallowedTools: mergeDisallowedTools(sdkOpts.disallowedTools, [
         "AskUserQuestion",
       ]),
+      ...(additional
+        ? { systemPrompt: mergeSystemPromptAppend(sdkOpts.systemPrompt, additional) }
+        : {}),
     };
 
     let sdkSessionId = "";

@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1270">
+  <title>Hero Preview B — Running TUI + bottom receipt stamp</title>
+  <link rel="stylesheet" href="../_shared/fonts.css">
+  <link rel="stylesheet" href="../_shared/tokens.css">
+  <link rel="stylesheet" href="../_shared/components.css">
+  <link rel="stylesheet" href="../_shared/tui.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 1270px; height: 760px; overflow: hidden; }
+
+    .conic-sweep--hero {
+      --conic-from: 200deg;
+      --conic-at: 50% 55%;
+      --conic-saturate: 1.18;
+      --conic-vignette-size: 55% 70%;
+      --conic-vignette-at: 30% 45%;
+      --conic-vignette-strength: 0.60;
+    }
+    .wordmark {
+      color: color-mix(in oklch, var(--text-on-gradient) 85%, transparent);
+    }
+
+    .tui-artifact {
+      position: absolute;
+      right: -40px;
+      top: 110px;
+      width: 660px;
+      height: 380px;
+      transform: rotate(-3deg);
+      box-shadow:
+        0 30px 80px oklch(18% 0.08 230 / 0.55),
+        0  8px 24px oklch(14% 0.05 230 / 0.42);
+      border-radius: 8px;
+      overflow: hidden;
+      z-index: 3;
+    }
+    .tui-artifact .tui {
+      width: 860px;
+      height: 480px;
+      transform-origin: top left;
+      transform: scale(0.7674);
+    }
+
+    .tui-sticker-anchor {
+      position: absolute;
+      top: -18px;
+      left: -14px;
+      z-index: 10;
+    }
+    .sticker--cool {
+      transform: rotate(-12deg);
+      box-shadow:
+        0  6px 18px oklch(15% 0.06 240 / 0.55),
+        0  2px  6px oklch(10% 0.04 240 / 0.35),
+        0  0   0   2px oklch(70% 0.18 215 / 0.25);
+    }
+
+    /* Receipt stamp: bottom-anchored card showing definition-of-done + CI */
+    .receipt-stamp {
+      position: absolute;
+      left: 60px;
+      right: -80px;
+      bottom: -28px;
+      transform: rotate(-1.5deg);
+      z-index: 5;
+      background: linear-gradient(180deg,
+        oklch(96% 0.015 70) 0%,
+        oklch(94% 0.02 70) 100%);
+      border-radius: 10px;
+      border: 1px solid oklch(82% 0.04 70);
+      padding: 18px 28px 20px 28px;
+      box-shadow:
+        0 24px 60px oklch(15% 0.08 30 / 0.40),
+        0  6px 18px oklch(12% 0.05 30 / 0.30),
+        inset 0 1px 0 oklch(99% 0.01 70);
+      font-family: var(--font-mono);
+    }
+
+    .receipt-stamp__header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 12px;
+    }
+    .receipt-stamp__title {
+      font-family: var(--font-display);
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: oklch(20% 0.04 280);
+    }
+    .receipt-stamp__sub {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: oklch(40% 0.03 280);
+      letter-spacing: 0.02em;
+    }
+    .receipt-stamp__seal {
+      margin-left: auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: oklch(72% 0.18 145);
+      color: oklch(18% 0.04 230);
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .receipt-stamp__pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 10px;
+      align-items: center;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 11px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      background: oklch(98% 0.005 70);
+      border: 1px solid oklch(86% 0.02 70);
+      color: oklch(22% 0.03 280);
+      white-space: nowrap;
+    }
+    .pill__check {
+      color: oklch(55% 0.16 145);
+      font-weight: 700;
+    }
+    .pill--accent {
+      background: oklch(94% 0.06 145);
+      border-color: oklch(75% 0.12 145);
+      color: oklch(28% 0.08 145);
+    }
+    .pill__sep {
+      color: oklch(70% 0.02 70);
+      font-weight: 400;
+      padding: 0 2px;
+    }
+  </style>
+</head>
+<body>
+  <div class="slide">
+    <div class="conic-sweep conic-sweep--warm-anchor conic-sweep--hero"></div>
+    <div class="film-grain"></div>
+
+    <div style="position:absolute;top:52px;left:80px;z-index:4;">
+      <div class="wordmark" style="font-size:13px;letter-spacing:0.12em;">ATOMIC</div>
+    </div>
+
+    <div class="slide__content" style="
+      padding: 0 0 0 80px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: flex-start;
+      gap: 0;
+      max-width: 660px;
+    ">
+      <h1 style="
+        font-family: var(--font-display);
+        font-weight: 800;
+        font-size: clamp(80px, 7vw, 96px);
+        line-height: 1.0;
+        letter-spacing: -0.025em;
+        color: var(--cream);
+        margin: 0 0 28px 0;
+        max-width: 580px;
+      ">
+        Turn coding agents into<br>
+        <span class="bubble-text bubble-text--warm" data-text="reliable"
+          style="font-size: inherit; line-height: inherit;">reliable</span>
+        engineering<br>
+        workflows.
+      </h1>
+      <p style="
+        font-family: var(--font-body);
+        font-size: 20px;
+        font-weight: 400;
+        line-height: 1.5;
+        letter-spacing: -0.01em;
+        color: var(--text-on-gradient);
+        max-width: 50ch;
+        margin: 0;
+      ">
+        Atomic is not another coding agent.<br>
+        It is the structure around the agent.
+      </p>
+    </div>
+
+    <!-- TUI artifact: running state, smaller, top-right -->
+    <div class="tui-artifact">
+      <div class="tui-sticker-anchor">
+        <div class="sticker sticker--cool">CLAUDE</div>
+      </div>
+
+      <div class="tui" style="width:860px;height:480px;">
+        <div class="tui__header">
+          <div class="tui__header-badge tui__header-badge--graph">GRAPH</div>
+          <span class="tui__header-session">review-fix-loop · claude</span>
+          <div class="tui__header-counts">
+            <span class="tui__count"><span class="tui-green">✓</span><span class="tui-dim"> 2</span></span>
+            <span class="tui__count"><span class="tui-yellow">●</span><span class="tui-dim"> 1</span></span>
+          </div>
+        </div>
+
+        <div class="tui__body">
+          <div class="tui__sidebar">
+            <div class="tui__sidebar-header">
+              <div class="tui__sidebar-header-badge tui__sidebar-header-badge--claude">CLAUDE</div>
+              <span class="tui__sidebar-header-label">workflow › running</span>
+            </div>
+            <div class="tui__workflow-list">
+              <div class="tui__section-label">
+                <span class="tui__section-label-bar">▎</span>
+                <span class="tui__section-label-text">stages</span>
+              </div>
+              <div class="tui__row">
+                <span class="tui-green" style="font-size:11px;">✓</span>
+                <span class="tui__row-name tui-muted">draft</span>
+              </div>
+              <div class="tui__row">
+                <span class="tui-green" style="font-size:11px;">✓</span>
+                <span class="tui__row-name tui-muted">review-1 · NEEDS_FIX</span>
+              </div>
+              <div class="tui__row tui__row--active">
+                <span class="tui__spinner">⠹</span>
+                <span class="tui__row-name tui-yellow">fix-1</span>
+              </div>
+              <div class="tui__row">
+                <span class="tui__row-indicator tui-dim">○</span>
+                <span class="tui__row-name tui-dim">review-2</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="tui__main">
+            <div class="tui__graph" style="flex-direction:column;gap:0;padding:16px 24px;">
+              <div style="display:flex;justify-content:center;margin-bottom:0;">
+                <div class="tui__node tui__node--done" style="width:160px;">
+                  <div class="tui__node-title">draft</div>
+                  <div class="tui__node-duration tui__node-duration--done">0:18</div>
+                </div>
+              </div>
+              <div style="display:flex;justify-content:center;height:14px;">
+                <div style="width:1px;background:var(--mocha-overlay0);height:100%;"></div>
+              </div>
+              <div style="display:flex;justify-content:center;margin-bottom:0;">
+                <div class="tui__node tui__node--done" style="width:160px;">
+                  <div class="tui__node-title">review-1</div>
+                  <div class="tui__node-duration tui__node-duration--done">0:09</div>
+                  <div class="tui__node-hint tui-yellow">NEEDS_FIX</div>
+                </div>
+              </div>
+              <div style="display:flex;justify-content:center;height:14px;">
+                <div style="width:1px;background:var(--mocha-overlay0);height:100%;"></div>
+              </div>
+              <div style="display:flex;justify-content:center;margin-bottom:0;">
+                <div class="tui__node tui__node--running tui__node--focused" style="width:160px;min-height:68px;">
+                  <div class="tui__node-title">fix-1</div>
+                  <div class="tui__node-duration tui__node-duration--running">
+                    <span class="tui__spinner">⠹</span> 0:23
+                  </div>
+                  <div class="tui__node-hint tui-dim">addressing review</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="tui__statusbar">
+          <div class="tui__statusbar-badge tui__statusbar-badge--graph">GRAPH</div>
+          <span class="tui__statusbar-info tui-yellow">● 1 running · loop bound: 3</span>
+          <div class="tui__statusbar-spacer"></div>
+          <div class="tui__statusbar-hints">
+            <span class="tui__hint">
+              <span class="tui__hint-key">↵</span>
+              <span class="tui__hint-label">attach</span>
+            </span>
+            <span class="tui__hint">
+              <span class="tui__hint-key">q</span>
+              <span class="tui__hint-label">quit</span>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Receipt stamp -->
+    <div class="receipt-stamp">
+      <div class="receipt-stamp__header">
+        <div>
+          <div class="receipt-stamp__title">definition of done</div>
+          <div class="receipt-stamp__sub">review-fix-loop · claude · finished 1:47</div>
+        </div>
+        <div class="receipt-stamp__seal">
+          <span>✓</span><span>all green</span>
+        </div>
+      </div>
+      <div class="receipt-stamp__pills">
+        <span class="pill pill--accent"><span class="pill__check">✓</span>review verdict: CLEAN</span>
+        <span class="pill__sep">│</span>
+        <span class="pill"><span class="pill__check">✓</span>typecheck</span>
+        <span class="pill"><span class="pill__check">✓</span>bun test 47/47</span>
+        <span class="pill"><span class="pill__check">✓</span>lint</span>
+        <span class="pill"><span class="pill__check">✓</span>ci/build</span>
+        <span class="pill__sep">│</span>
+        <span class="pill pill--accent"><span class="pill__check">✓</span>PR #412 ready to merge</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

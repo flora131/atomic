@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1270">
+  <title>Hero Preview A — Done-state TUI (in-place receipt)</title>
+  <link rel="stylesheet" href="../_shared/fonts.css">
+  <link rel="stylesheet" href="../_shared/tokens.css">
+  <link rel="stylesheet" href="../_shared/components.css">
+  <link rel="stylesheet" href="../_shared/tui.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 1270px; height: 760px; overflow: hidden; }
+
+    .conic-sweep--hero {
+      --conic-from: 200deg;
+      --conic-at: 50% 55%;
+      --conic-saturate: 1.18;
+      --conic-vignette-size: 55% 70%;
+      --conic-vignette-at: 30% 45%;
+      --conic-vignette-strength: 0.60;
+    }
+
+    .wordmark {
+      color: color-mix(in oklch, var(--text-on-gradient) 85%, transparent);
+    }
+
+    .tui-artifact {
+      position: absolute;
+      right: -40px;
+      bottom: -30px;
+      width: 720px;
+      height: 440px;
+      transform: rotate(-3deg);
+      box-shadow:
+        0 30px 80px oklch(18% 0.08 230 / 0.55),
+        0  8px 24px oklch(14% 0.05 230 / 0.42);
+      border-radius: 8px;
+      overflow: hidden;
+      z-index: 3;
+    }
+    .tui-artifact .tui {
+      width: 860px;
+      height: 480px;
+      transform-origin: top left;
+      transform: scale(0.8367);
+    }
+
+    /* CI-passed sticker replacing CLAUDE in upper-left of TUI */
+    .tui-sticker-anchor {
+      position: absolute;
+      top: -18px;
+      left: -14px;
+      z-index: 10;
+    }
+    .sticker--ci {
+      background: oklch(72% 0.18 145);
+      color: oklch(18% 0.04 230);
+      border-radius: 999px;
+      padding: 8px 14px;
+      font-family: var(--font-mono);
+      font-weight: 700;
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      transform: rotate(-12deg);
+      box-shadow:
+        0  6px 18px oklch(15% 0.06 145 / 0.55),
+        0  2px  6px oklch(10% 0.04 145 / 0.35),
+        0  0   0   2px oklch(80% 0.18 145 / 0.30);
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+  <div class="slide">
+    <div class="conic-sweep conic-sweep--warm-anchor conic-sweep--hero"></div>
+    <div class="film-grain"></div>
+
+    <div style="position:absolute;top:52px;left:80px;z-index:4;">
+      <div class="wordmark" style="font-size:13px;letter-spacing:0.12em;">ATOMIC</div>
+    </div>
+
+    <div class="slide__content" style="
+      padding: 0 0 0 80px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: flex-start;
+      gap: 0;
+      max-width: 660px;
+    ">
+      <h1 style="
+        font-family: var(--font-display);
+        font-weight: 800;
+        font-size: clamp(88px, 7.5vw, 104px);
+        line-height: 1.0;
+        letter-spacing: -0.025em;
+        color: var(--cream);
+        margin: 0 0 32px 0;
+        max-width: 580px;
+      ">
+        Turn coding agents into<br>
+        <span class="bubble-text bubble-text--warm" data-text="reliable"
+          style="font-size: inherit; line-height: inherit;">reliable</span>
+        engineering<br>
+        workflows.
+      </h1>
+      <p style="
+        font-family: var(--font-body);
+        font-size: 22px;
+        font-weight: 400;
+        line-height: 1.5;
+        letter-spacing: -0.01em;
+        color: var(--text-on-gradient);
+        max-width: 50ch;
+        margin: 0;
+      ">
+        Atomic is not another coding agent.<br>
+        It is the structure around the agent.
+      </p>
+    </div>
+
+    <!-- TUI artifact: done state, review-fix-loop finished, CI passed -->
+    <div class="tui-artifact">
+      <div class="tui-sticker-anchor">
+        <div class="sticker--ci">CI ✓ all green</div>
+      </div>
+
+      <div class="tui" style="width:860px;height:480px;">
+        <div class="tui__header">
+          <div class="tui__header-badge tui__header-badge--done">✓ review-fix-loop</div>
+          <span class="tui__header-session">claude · 1:47</span>
+          <div class="tui__header-counts">
+            <span class="tui__count"><span class="tui-green">✓</span><span class="tui-dim"> 4</span></span>
+          </div>
+        </div>
+
+        <div class="tui__body">
+          <div class="tui__sidebar">
+            <div class="tui__sidebar-header">
+              <div class="tui__sidebar-header-badge tui__sidebar-header-badge--claude">CLAUDE</div>
+              <span class="tui__sidebar-header-label">workflow › complete</span>
+            </div>
+            <div class="tui__workflow-list">
+              <div class="tui__section-label">
+                <span class="tui__section-label-bar">▎</span>
+                <span class="tui__section-label-text">stages</span>
+              </div>
+              <div class="tui__row">
+                <span class="tui-green" style="font-size:11px;">✓</span>
+                <span class="tui__row-name tui-muted">draft</span>
+              </div>
+              <div class="tui__row">
+                <span class="tui-green" style="font-size:11px;">✓</span>
+                <span class="tui__row-name tui-muted">review-1</span>
+              </div>
+              <div class="tui__row">
+                <span class="tui-green" style="font-size:11px;">✓</span>
+                <span class="tui__row-name tui-muted">fix-1</span>
+              </div>
+              <div class="tui__row">
+                <span class="tui-green" style="font-size:11px;">✓</span>
+                <span class="tui__row-name tui-green">review-2 · CLEAN</span>
+              </div>
+
+              <div class="tui__section-label" style="margin-top:8px;">
+                <span class="tui__section-label-bar">▎</span>
+                <span class="tui__section-label-text">checks</span>
+              </div>
+              <div class="tui__row">
+                <span class="tui-green" style="font-size:11px;">✓</span>
+                <span class="tui__row-name tui-muted">typecheck</span>
+              </div>
+              <div class="tui__row">
+                <span class="tui-green" style="font-size:11px;">✓</span>
+                <span class="tui__row-name tui-muted">bun test</span>
+              </div>
+              <div class="tui__row">
+                <span class="tui-green" style="font-size:11px;">✓</span>
+                <span class="tui__row-name tui-muted">lint</span>
+              </div>
+              <div class="tui__row">
+                <span class="tui-green" style="font-size:11px;">✓</span>
+                <span class="tui__row-name tui-muted">ci/build</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="tui__main">
+            <div class="tui__output" style="flex:0;padding-bottom:8px;">
+              <div class="tui__output-line">
+                <span class="tui__output-prefix">review-2</span>
+                <span class="tui__output-text tui-green">✓ Verdict: CLEAN — definition of done met</span>
+              </div>
+              <div class="tui__output-line">
+                <span class="tui__output-prefix">typecheck</span>
+                <span class="tui__output-text tui-green">✓ tsc --noEmit · 0 errors</span>
+              </div>
+              <div class="tui__output-line">
+                <span class="tui__output-prefix">test</span>
+                <span class="tui__output-text tui-green">✓ bun test · 47 passed in 12.4s</span>
+              </div>
+              <div class="tui__output-line">
+                <span class="tui__output-prefix">orchestrator</span>
+                <span class="tui__output-text tui-green">✓ Workflow complete in 1m 47s</span>
+              </div>
+            </div>
+
+            <div class="tui__summary">
+              <div class="tui__summary-title">
+                <span>✓</span>
+                <span>Definition of done met</span>
+              </div>
+              <div class="tui__summary-stats">
+                <div class="tui__stat">
+                  <div class="tui__stat-value tui-green">4</div>
+                  <div class="tui__stat-label">stages</div>
+                </div>
+                <div class="tui__stat">
+                  <div class="tui__stat-value tui-green">2</div>
+                  <div class="tui__stat-label">review rounds</div>
+                </div>
+                <div class="tui__stat">
+                  <div class="tui__stat-value tui-green">47/47</div>
+                  <div class="tui__stat-label">tests</div>
+                </div>
+                <div class="tui__stat">
+                  <div class="tui__stat-value tui-green">1:47</div>
+                  <div class="tui__stat-label">elapsed</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="tui__statusbar">
+          <div class="tui__statusbar-badge tui__statusbar-badge--graph">GRAPH</div>
+          <span class="tui__statusbar-info tui-green">✓ review-fix-loop · clean</span>
+          <div class="tui__statusbar-spacer"></div>
+          <div class="tui__statusbar-hints">
+            <span class="tui__hint">
+              <span class="tui__hint-key">q</span>
+              <span class="tui__hint-label">quit</span>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -162,18 +162,40 @@ export async function seedGlobalAdditionalInstructions(): Promise<void> {
 }
 
 /**
- * Identify entries in OpenCode's `instructions` array that atomic owns.
- *
- * We claim any entry whose path ends with `.atomic/AGENTS.md` (POSIX or
- * Windows separators), since both the global seed and the local override
- * land at that suffix. Reconciliation strips matches and re-adds the
- * currently-resolved path, so the on-disk config tracks the resolver
- * (e.g. flips when the user creates a local override) without piling up
- * stale entries across runs.
+ * Build a predicate that identifies OpenCode `instructions` entries atomic
+ * owns. Matches exact equality against the two paths we ever inject — the
+ * global seed (`~/.atomic/AGENTS.md`) and the project-local override
+ * (`<projectRoot>/.atomic/AGENTS.md`). A tighter scope than a tail-match
+ * ensures legal-but-unusual user entries like `vendor/.atomic/AGENTS.md`
+ * are preserved across reconciliation passes.
  */
-function isAtomicManagedInstruction(entry: unknown): entry is string {
-  if (typeof entry !== "string") return false;
-  return /(?:^|[\\/])\.atomic[\\/]AGENTS\.md$/.test(entry);
+function buildAtomicOwnedMatcher(
+  projectRoot: string,
+): (entry: unknown) => entry is string {
+  const owned = new Set<string>([
+    getGlobalAdditionalInstructionsPath(),
+    getLocalAdditionalInstructionsPath(projectRoot),
+  ]);
+  return (entry: unknown): entry is string =>
+    typeof entry === "string" && owned.has(entry);
+}
+
+/**
+ * Order-independent equality check for OpenCode's `instructions` array.
+ * OpenCode treats `instructions` as an unordered set of files to load, so
+ * a user reordering entries via their editor shouldn't trigger a rewrite
+ * (and the resulting "fight the user" mtime churn) on the next spawn.
+ * Uses `JSON.stringify` per-entry so non-string values (a malformed config
+ * we'd otherwise leave alone) are compared safely without spurious matches.
+ */
+function sameInstructionMultiset(
+  a: readonly unknown[],
+  b: readonly unknown[],
+): boolean {
+  if (a.length !== b.length) return false;
+  const aKeys = a.map((e) => JSON.stringify(e)).sort();
+  const bKeys = b.map((e) => JSON.stringify(e)).sort();
+  return aKeys.every((v, i) => v === bKeys[i]);
 }
 
 /**
@@ -194,6 +216,17 @@ function isAtomicManagedInstruction(entry: unknown): entry is string {
  * No-op on `.opencode/opencode.json` files we don't own (i.e. we never
  * create the file ourselves; `applyManagedOnboardingFiles` is responsible
  * for that). When the file is absent, this helper simply returns.
+ *
+ * Concurrency: this is a read-modify-write on `opencode.json` with no
+ * cross-process lock. Two concurrent `atomic` invocations (e.g. parallel
+ * `chat -a opencode` sessions, or a workflow racing the chat startup) can
+ * interleave reads and writes — A reads, B reads, A writes, B writes —
+ * and B's write loses any user-managed `instructions` entries A added in
+ * between. The window is tiny (a single `readFile` + `JSON.parse` +
+ * `writeFile`) and the damage is bounded: only concurrent edits to
+ * non-atomic entries are at risk, and the next reconcile pass restores
+ * the atomic entry. If this becomes a real problem in practice, wrap the
+ * read-modify-write in a file lock (`proper-lockfile` or similar).
  */
 export async function reconcileOpencodeInstructions(
   projectRoot: string,
@@ -214,22 +247,27 @@ export async function reconcileOpencodeInstructions(
   const existing = Array.isArray(config.instructions)
     ? (config.instructions as unknown[])
     : [];
-  const preserved = existing.filter((e) => !isAtomicManagedInstruction(e));
+  const isAtomicOwned = buildAtomicOwnedMatcher(projectRoot);
+  const preserved = existing.filter((e) => !isAtomicOwned(e));
 
   const resolved = resolveAdditionalInstructionsPath(projectRoot);
   const next = resolved ? [...preserved, resolved] : preserved;
 
-  // Skip the write when nothing actually changed — avoids touching mtime
-  // on every spawn and keeps the file out of `git status` noise.
-  const sameLength = next.length === existing.length;
-  const sameOrder =
-    sameLength && next.every((entry, i) => entry === existing[i]);
-  if (sameOrder) return;
+  // Skip the write when the entry set is unchanged — avoids touching mtime
+  // on every spawn, keeps the file out of `git status` noise, and preserves
+  // any reordering the user did in their editor (OpenCode is order-agnostic).
+  if (sameInstructionMultiset(next, existing)) return;
 
   if (next.length > 0) {
     config.instructions = next;
   } else {
     delete config.instructions;
   }
-  await writeFile(opencodeConfigPath, JSON.stringify(config, null, 2) + "\n");
+  // Preserve the file's existing line ending. JSON.stringify always emits
+  // LF; rewriting CRLF-edited config with LF would otherwise produce noisy
+  // diffs in workspaces with `eol=crlf` in `.gitattributes`.
+  const lineEnding = raw.includes("\r\n") ? "\r\n" : "\n";
+  const serialized =
+    JSON.stringify(config, null, 2).replace(/\n/g, lineEnding) + lineEnding;
+  await writeFile(opencodeConfigPath, serialized);
 }

@@ -1188,6 +1188,14 @@ function createMessagesReader(
 interface SharedRunnerState {
   tmuxSessionName: string;
   sessionsBaseDir: string;
+  /**
+   * The project root the workflow is operating against. Threaded through to
+   * provider initialization so headless paths resolve project-scoped config
+   * (e.g. `additional-instructions`) from the workflow's actual root rather
+   * than `process.cwd()`, which can drift when workflows are invoked
+   * programmatically or from a subdirectory.
+   */
+  projectRoot: string;
   agent: AgentType;
   /**
    * Structured inputs for this workflow run. Free-form workflows use
@@ -1284,6 +1292,7 @@ async function initProviderClientAndSession<A extends AgentType>(
   agent: A,
   serverUrl: string,
   paneId: string,
+  projectRoot: string,
   clientOpts: StageClientOptions<A>,
   sessionOpts: StageSessionOptions<A>,
   headless = false,
@@ -1340,7 +1349,7 @@ async function initProviderClientAndSession<A extends AgentType>(
       // the agent cannot call the interactive question tool — there is no
       // human attached to answer and the SDK would otherwise sit blocked.
       const additionalInstructions = await resolveAdditionalInstructionsContent(
-        process.cwd(),
+        projectRoot,
       );
       const sessionConfig = {
         onPermissionRequest: approveAll,
@@ -1409,7 +1418,7 @@ async function initProviderClientAndSession<A extends AgentType>(
         // tracks the latest one and exposes it as `sessionId`.
         const client = new HeadlessClaudeClientWrapper();
         await client.start();
-        const session = new HeadlessClaudeSessionWrapper();
+        const session = new HeadlessClaudeSessionWrapper(projectRoot);
         // Cast through `unknown` — `HeadlessClaudeClientWrapper` intentionally
         // omits the interactive-only fields (`paneId`, `sessionDir`, etc.)
         // that `ClaudeClientWrapper` has; both satisfy the same runtime
@@ -1691,6 +1700,7 @@ function createSessionRunner(
         shared.agent,
         serverUrl,
         paneId,
+        shared.projectRoot,
         clientOpts,
         sessionOpts,
         isHeadless,
@@ -2032,6 +2042,7 @@ export async function runOrchestrator(
   const shared: SharedRunnerState = {
     tmuxSessionName,
     sessionsBaseDir,
+    projectRoot: cwd,
     agent,
     inputs,
     providerOverrides,

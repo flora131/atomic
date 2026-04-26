@@ -1225,12 +1225,23 @@ export function resolveHeadlessClaudeBin(): string {
 export class HeadlessClaudeSessionWrapper {
   readonly paneId = "";
   /**
+   * Project root the workflow is operating against. Used to resolve
+   * project-scoped config (e.g. `additional-instructions`) against the
+   * workflow's actual root rather than `process.cwd()`, which can drift
+   * when workflows are invoked programmatically or from a subdirectory.
+   */
+  private readonly _projectRoot: string;
+  /**
    * The Claude session UUID of the most recently completed `query()`. Exposed
    * via `s.sessionId` so workflows can pass it to `s.save(s.sessionId)` and
    * have the save path read the correct transcript, even when several headless
    * Claude stages run in parallel (each call gets its own SDK-assigned UUID).
    */
   private _lastSessionId: string = "";
+
+  constructor(projectRoot: string) {
+    this._projectRoot = projectRoot;
+  }
   /**
    * Validated structured output captured from the most recent `query()`'s
    * `result` message. Populated only when callers pass
@@ -1257,7 +1268,7 @@ export class HeadlessClaudeSessionWrapper {
     // agent can call it and the SDK query will sit blocked forever since no
     // human is attached to answer.
     const sdkOpts = options ?? {};
-    const additional = await resolveAdditionalInstructionsContent(process.cwd());
+    const additional = await resolveAdditionalInstructionsContent(this._projectRoot);
     const headlessSdkOpts: Partial<SDKOptions> = {
       ...sdkOpts,
       pathToClaudeCodeExecutable:

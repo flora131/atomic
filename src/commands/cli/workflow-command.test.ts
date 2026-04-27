@@ -35,9 +35,12 @@ import "../../sdk/registry.ts";
 // but BEFORE the dynamic import of workflow.ts below (which uses worker.ts → mock).
 
 const executeWorkflowCalls: WorkflowRunOptions[] = [];
-const executeWorkflowMock = mock(async (opts: WorkflowRunOptions): Promise<void> => {
-  executeWorkflowCalls.push(opts);
-});
+const executeWorkflowMock = mock(
+  async (opts: WorkflowRunOptions): Promise<{ id: string; tmuxSessionName: string }> => {
+    executeWorkflowCalls.push(opts);
+    return { id: "fake-id", tmuxSessionName: "fake-session" };
+  },
+);
 
 // Spread real module to preserve all exports (escBash, discoverCopilotBinary, etc.)
 // so this mock doesn't break other test files that import those exports.
@@ -48,16 +51,12 @@ await mock.module("../../sdk/runtime/executor.ts", () => ({
   runOrchestrator: async () => {},
 }));
 
-// Build a fresh workflowCommand using the real builtin registry directly.
-// This avoids stale-cache issues when workflow.ts was previously loaded by
-// cli.ts with a mocked (fake) builtin-registry in earlier test files.
-const { createWorkflowCli } = await import("../../sdk/workflow-cli.ts");
-const { toCommand } = await import("../../sdk/commander.ts");
-const { createBuiltinRegistry } = await import("../../sdk/workflows/builtin-registry.ts");
-const workflowCommand = toCommand(
-  createWorkflowCli(createBuiltinRegistry()),
-  "workflow",
-);
+// Load the workflow command after the executor is mocked. Importing
+// `./workflow.ts` triggers the registry build + Commander tree
+// construction inside the mocked executor sandbox.
+const { workflowCommand, buildWorkflowCommand } = await import("./workflow.ts");
+const { defineWorkflow } = await import("../../sdk/define-workflow.ts");
+const { createRegistry } = await import("../../sdk/registry.ts");
 
 // ─── Output capture ──────────────────────────────────────────────────────────
 
@@ -107,6 +106,7 @@ beforeEach(() => {
   executeWorkflowMock.mockClear();
   executeWorkflowMock.mockImplementation(async (opts) => {
     executeWorkflowCalls.push(opts);
+    return { id: "fake-id", tmuxSessionName: "fake-session" };
   });
 });
 afterEach(() => {
@@ -162,7 +162,7 @@ describe("workflowCommand named mode — success", () => {
     const call = executeWorkflowCalls[0]!;
     expect(call.agent).toBe("claude");
     expect(call.inputs?.["prompt"]).toBe("fix the auth bug");
-    expect(call.workflowKey).toBe("claude/ralph");
+    expect(`${call.definition.agent}/${call.definition.name}`).toBe("claude/ralph");
   });
 
   test("dispatches ralph/copilot successfully", async () => {
@@ -200,7 +200,7 @@ describe("workflowCommand named mode — success", () => {
     ]);
 
     expect(executeWorkflowMock).toHaveBeenCalledTimes(1);
-    expect(executeWorkflowCalls[0]!.workflowKey).toBe("claude/deep-research-codebase");
+    expect(`${executeWorkflowCalls[0]!.definition.agent}/${executeWorkflowCalls[0]!.definition.name}`).toBe("claude/deep-research-codebase");
   });
 
   test("--detach flag threads detach=true to executor", async () => {
@@ -263,7 +263,10 @@ describe("workflowCommand named mode — success", () => {
     ]);
 
     expect(executeWorkflowMock).toHaveBeenCalledTimes(1);
-    expect(executeWorkflowCalls[0]!.workflowKey).toBe("copilot/deep-research-codebase");
+    const c = executeWorkflowCalls[0]!;
+    expect(`${c.definition.agent}/${c.definition.name}`).toBe(
+      "copilot/deep-research-codebase",
+    );
   });
 });
 
@@ -380,5 +383,236 @@ describe("workflowCommand enum input coercion", () => {
 
     expect(executeWorkflowMock).toHaveBeenCalledTimes(1);
     expect(executeWorkflowCalls[0]!.inputs?.["output-type"]).toBe("prototype");
+  });
+});
+
+// ─── Help fallback when name/agent is missing ────────────────────────────────
+//
+// `cmd.help()` is the action's terminal branch when neither `-n` nor `-a`
+// can resolve to a target (and the TTY picker isn't viable). With
+// `exitOverride()` Commander throws a CommanderError instead of calling
+// `process.exit`, so we can assert the dispatcher reaches the help path
+// without dispatching to the executor.
+
+describe("workflowCommand help fallback", () => {
+  test("no name and no agent triggers cmd.help() without dispatch", async () => {
+    enableExitOverride();
+    let threw = false;
+    const cap = captureOutput();
+    try {
+      await workflowCommand.parseAsync(["node", "cli"]);
+    } catch {
+      threw = true;
+    } finally {
+      cap.restore();
+    }
+    expect(threw).toBe(true);
+    expect(executeWorkflowMock).not.toHaveBeenCalled();
+  });
+
+  test("agent without name does NOT trigger picker when stdout is not a TTY", async () => {
+    enableExitOverride();
+    const origIsTTY = process.stdout.isTTY;
+    Object.defineProperty(process.stdout, "isTTY", {
+      configurable: true,
+      get: () => false,
+    });
+    let threw = false;
+    const cap = captureOutput();
+    try {
+      // -a claude with no -n: in TTY mode this would launch the picker;
+      // with isTTY=false it falls through to cmd.help().
+      await workflowCommand.parseAsync(["node", "cli", "-a", "claude"]);
+    } catch {
+      threw = true;
+    } finally {
+      cap.restore();
+      Object.defineProperty(process.stdout, "isTTY", {
+        configurable: true,
+        get: () => origIsTTY,
+      });
+    }
+    expect(threw).toBe(true);
+    expect(executeWorkflowMock).not.toHaveBeenCalled();
+  });
+
+  test("name without agent triggers cmd.help() — agent is required", async () => {
+    enableExitOverride();
+    let threw = false;
+    const cap = captureOutput();
+    try {
+      await workflowCommand.parseAsync(["node", "cli", "-n", "ralph"]);
+    } catch {
+      threw = true;
+    } finally {
+      cap.restore();
+    }
+    expect(threw).toBe(true);
+    expect(executeWorkflowMock).not.toHaveBeenCalled();
+  });
+});
+
+// ─── Custom-registry behaviours ──────────────────────────────────────────────
+//
+// `buildWorkflowCommand(registry)` lets us test branches that the
+// builtin registry doesn't exercise: workflows with empty input
+// schemas (free-form prompt collapse), enum inputs without a
+// description (fallback `desc` line), and (name, agent) pairs that
+// resolve only for one agent (resolveWorkflow's hint builder).
+
+describe("buildWorkflowCommand with custom registries", () => {
+  test("empty-inputs workflow + positional prompt collapses into inputs.prompt", async () => {
+    const freeForm = defineWorkflow({
+      name: "free-form",
+      source: import.meta.path,
+    })
+      .for("claude")
+      .run(async () => {})
+      .compile();
+    const registry = createRegistry().register(freeForm);
+    const cmd = buildWorkflowCommand(registry);
+
+    await cmd.parseAsync([
+      "node", "cli",
+      "-n", "free-form",
+      "-a", "claude",
+      "fix",
+      "the",
+      "auth",
+      "bug",
+    ]);
+
+    expect(executeWorkflowMock).toHaveBeenCalledTimes(1);
+    expect(executeWorkflowCalls[0]!.inputs?.["prompt"]).toBe("fix the auth bug");
+  });
+
+  test("workflow with declared inputs ignores positional prompt collapsing", async () => {
+    const declared = defineWorkflow({
+      name: "declared",
+      source: import.meta.path,
+      inputs: [{ name: "topic", type: "text", required: false }],
+    })
+      .for("claude")
+      .run(async () => {})
+      .compile();
+    const registry = createRegistry().register(declared);
+    const cmd = buildWorkflowCommand(registry);
+
+    await cmd.parseAsync([
+      "node", "cli",
+      "-n", "declared",
+      "-a", "claude",
+      "trailing", "positional",
+    ]);
+
+    expect(executeWorkflowMock).toHaveBeenCalledTimes(1);
+    // No `prompt` should be synthesised — schema is non-empty.
+    expect(executeWorkflowCalls[0]!.inputs?.["prompt"]).toBeUndefined();
+  });
+
+  test("resolveWorkflow lists alternate agents when name exists for a different agent", async () => {
+    const claudeOnly = defineWorkflow({
+      name: "only-claude",
+      source: import.meta.path,
+      inputs: [{ name: "topic", type: "text", required: false }],
+    })
+      .for("claude")
+      .run(async () => {})
+      .compile();
+    const registry = createRegistry().register(claudeOnly);
+    const cmd = buildWorkflowCommand(registry);
+    cmd.exitOverride();
+
+    let caught: unknown;
+    const cap = captureOutput();
+    try {
+      await cmd.parseAsync([
+        "node", "cli",
+        "-n", "only-claude",
+        "-a", "copilot",
+      ]);
+    } catch (e) {
+      caught = e;
+    } finally {
+      cap.restore();
+    }
+    expect(caught).toBeDefined();
+    const message = caught instanceof Error ? caught.message : String(caught);
+    // Hint should call out the agent that DOES have this workflow.
+    expect(message).toContain("only-claude");
+    expect(message).toContain("claude");
+  });
+
+  test("enum input without description gets a 'one of: ...' fallback in --help", async () => {
+    const enumWf = defineWorkflow({
+      name: "enum-wf",
+      source: import.meta.path,
+      inputs: [
+        {
+          name: "format",
+          type: "enum",
+          required: false,
+          values: ["json", "text"],
+          // description omitted on purpose — exercises the enum-fallback branch.
+        },
+      ],
+    })
+      .for("claude")
+      .run(async () => {})
+      .compile();
+    const registry = createRegistry().register(enumWf);
+    const cmd = buildWorkflowCommand(registry);
+
+    // Walk the registered options and find the synthesised --format.
+    const formatOption = cmd.options.find((o) => o.long === "--format");
+    expect(formatOption).toBeDefined();
+    expect(formatOption!.description).toBe("one of: json, text");
+  });
+
+  test("text input without description falls back to the type label", async () => {
+    const textWf = defineWorkflow({
+      name: "text-wf",
+      source: import.meta.path,
+      inputs: [
+        { name: "topic", type: "text", required: false },
+      ],
+    })
+      .for("claude")
+      .run(async () => {})
+      .compile();
+    const registry = createRegistry().register(textWf);
+    const cmd = buildWorkflowCommand(registry);
+
+    const topicOption = cmd.options.find((o) => o.long === "--topic");
+    expect(topicOption).toBeDefined();
+    expect(topicOption!.description).toBe("text");
+  });
+
+  test("empty registry rejects unknown name + agent at dispatch time with empty-registry hint", async () => {
+    const registry = createRegistry();
+    const cmd = buildWorkflowCommand(registry);
+    cmd.exitOverride();
+
+    let caught: unknown;
+    const cap = captureOutput();
+    try {
+      // With an empty registry the option parser allows any name (since
+      // allNames.length === 0 short-circuits the guard), so we reach
+      // resolveWorkflow which throws with the "no workflow named ..."
+      // hint.
+      await cmd.parseAsync([
+        "node", "cli",
+        "-n", "anything",
+        "-a", "claude",
+      ]);
+    } catch (e) {
+      caught = e;
+    } finally {
+      cap.restore();
+    }
+    expect(caught).toBeDefined();
+    const message = caught instanceof Error ? caught.message : String(caught);
+    expect(message).toContain("anything");
+    expect(message).toContain("registry");
   });
 });

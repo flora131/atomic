@@ -4,6 +4,7 @@ import {
   WorkflowNotCompiledError,
   InvalidWorkflowError,
   IncompatibleSDKError,
+  SessionNotFoundError,
   errorMessage,
 } from "./errors";
 
@@ -40,6 +41,16 @@ describe("InvalidWorkflowError", () => {
     expect(err.name).toBe("InvalidWorkflowError");
     expect(err.path).toBe("/tmp/bad.ts");
     expect(err.message).toContain("/tmp/bad.ts does not export a valid WorkflowDefinition");
+  });
+});
+
+describe("SessionNotFoundError", () => {
+  test("sets name, id, and message", () => {
+    const err = new SessionNotFoundError("atomic-wf-claude-ralph-deadbeef");
+    expect(err).toBeInstanceOf(Error);
+    expect(err.name).toBe("SessionNotFoundError");
+    expect(err.id).toBe("atomic-wf-claude-ralph-deadbeef");
+    expect(err.message).toBe("session not found: atomic-wf-claude-ralph-deadbeef");
   });
 });
 

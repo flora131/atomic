@@ -672,6 +672,23 @@ export function attachOrSwitch(sessionName: string): void {
 }
 
 /**
+ * Detach every client currently attached to the given atomic-managed
+ * tmux session. The session itself stays alive — only the clients are
+ * disconnected. Mirrors {@link attachSession}: attach connects a client,
+ * detachClients disconnects them.
+ *
+ * Best-effort: returns silently when the session has no attached clients
+ * or has already been torn down.
+ */
+export function detachClients(sessionName: string): void {
+  try {
+    tmuxExec(["detach-client", "-s", sessionName]);
+  } catch {
+    // No clients attached or session already gone — nothing to do.
+  }
+}
+
+/**
  * Detach from the user's current tmux session and replace the client
  * with an attach to a session on the atomic socket.
  *
@@ -706,6 +723,22 @@ export function detachAndAttachAtomic(sessionName: string): void {
  */
 export function selectWindow(target: string): void {
   tmuxExec(["select-window", "-t", target]);
+}
+
+/**
+ * Move the target session's current-window pointer forward by one.
+ * Equivalent to the `Ctrl+\` binding inside an attached client, but
+ * usable without a client and addressable by session name.
+ */
+export function nextWindow(sessionName: string): void {
+  tmuxExec(["next-window", "-t", sessionName]);
+}
+
+/**
+ * Move the target session's current-window pointer backward by one.
+ */
+export function previousWindow(sessionName: string): void {
+  tmuxExec(["previous-window", "-t", sessionName]);
 }
 
 // ---------------------------------------------------------------------------

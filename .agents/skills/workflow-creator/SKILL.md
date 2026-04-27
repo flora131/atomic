@@ -21,6 +21,7 @@ Load references on demand. **Only `getting-started.md` is always-load.** Everyth
 | File | Load when |
 |---|---|
 | `getting-started.md` | **Always** — quick-start examples for all 3 SDKs, SDK exports, `SessionContext` field reference |
+| `agent-setup-recipe.md` | When the user is starting from zero (empty terminal, no project, "set me up", "how do I get started"). Deterministic env-detect → install → scaffold → smoke-test playbook with typed-error recovery hints |
 | `failure-modes.md` | Before shipping any multi-session workflow. 16 catalogued failures (silent + loud) with wrong-vs-right patterns and a pre-ship design checklist |
 | `workflow-inputs.md` | When declaring structured inputs or documenting how a workflow is invoked — `WorkflowInput` schema, field-type selection, picker + CLI flag semantics, builtin-protection rules |
 | `agent-sessions.md` | When writing SDK calls — `s.session.query()` (Claude), `s.session.send()` (Copilot), `s.client.session.prompt()` (OpenCode); includes session-lifecycle pitfalls and when to use `sendAndWait` with explicit timeouts |
@@ -34,19 +35,9 @@ Load references on demand. **Only `getting-started.md` is always-load.** Everyth
 
 ## Scaffold a new workflow from scratch
 
-When the user asks you to build a new workflow, follow this recipe exactly. The point of a fixed convention is that every atomic project looks the same — users, agents, and the `workflow-creator` skill all locate files the same way. Improvising paths makes the next agent's job harder.
+When the user asks you to build a new workflow — and especially when they're starting from an empty terminal — **load `references/agent-setup-recipe.md` and follow it as your playbook.** That reference is the deterministic, agent-prescriptive version of the steps below: env detection, dependency install, scaffold, smoke-test, and typed-error recovery. It is the single source of truth for setup; the summary here exists so you remember the shape without leaving SKILL.md.
 
-### Runtime prerequisites (check before writing code)
-
-Three things have to exist on the host or the first `bun run` will fail. If any are missing, tell the user before scaffolding — fixing them afterward is more frustrating than getting them out of the way up front.
-
-- **[Bun](https://bun.sh/)** as the JavaScript runtime — Atomic and the SDK rely on `Bun.spawn`, native pty handling, and Bun-specific module resolution. **They do not run on Node.js.** Verify with `bun --version`. If the user has only `node`, direct them to install Bun first (`curl -fsSL https://bun.sh/install | bash`) — `npm install @bastani/atomic` and `node src/claude-worker.ts` will both fail.
-- **Terminal multiplexer** — every `ctx.stage()` runs inside a detachable session on the `atomic` tmux socket. That's what makes `-d/--detach` possible and what keeps the orchestrator alive when the user's terminal disconnects. `tmux` on macOS/Linux (`brew install tmux` / distro package manager), [`psmux`](https://github.com/psmux/psmux) on Windows. Verify with `which tmux` or `where.exe psmux`.
-- **At least one authenticated coding agent CLI** — the runtime spawns `claude` / `opencode` / `copilot` at each stage and talks to it via its SDK. The agent whose workflow file targets via `.for("claude")` / `.for("copilot")` / `.for("opencode")` must be installed and logged in. If the user says "build a workflow for Claude" and `claude --version` fails, that's the first thing to surface.
-
-Only Bun is a `bun add` dependency in spirit — tmux/psmux and the agent CLIs are separate processes the SDK orchestrates. The global `atomic` CLI installer doesn't install tmux/psmux or the agents either, so SDK-only users and CLI users share the same prereqs. A devcontainer using the `ghcr.io/flora131/atomic/<agent>:1` feature bundles all three, which is the fastest way to unblock a user who's stuck on install friction.
-
-### Project layout
+The shape:
 
 ```
 <repo>/
@@ -61,140 +52,25 @@ Only Bun is a `bun add` dependency in spirit — tmux/psmux and the agent CLIs a
     └── <agent>-worker.ts        # one composition root per agent
 ```
 
-One workflow per directory, one file per agent, one composition-root file per agent. If the user wants only one agent, ship just `claude.ts` (or whichever) plus `claude-worker.ts` — the layout still holds.
+One workflow per directory, one file per agent, one composition-root file per agent. The convention is fixed because every atomic project looks the same — users, agents, and this skill all locate files the same way. Improvising paths makes the next agent's job harder.
 
-### Steps
+The five-step rhythm is the same regardless of workflow complexity:
 
-**1. Initialize the project** (skip if `package.json` already exists):
+1. **Verify prerequisites** — Bun, tmux/psmux, an authenticated agent CLI. Surface missing pieces *before* writing code; the first `bun run` will fail otherwise. Devcontainers using `ghcr.io/flora131/atomic/<agent>:1` bundle all three.
+2. **Bootstrap** — `bun init -y` (skip if `package.json` exists) + `bun add @bastani/atomic` + the provider SDK(s) the user targets.
+3. **Write the workflow** at `src/workflows/<name>/<agent>.ts` using `defineWorkflow({ ... source: import.meta.path }).for(agent).run(...).compile()`. The `source: import.meta.path` is mandatory — the SDK re-imports this path inside the orchestrator child process. Per-agent skeletons live in `references/getting-started.md` §"Quick-start example".
+4. **Write the composition root** at `src/<agent>-worker.ts` (single workflow) or `src/cli.ts` (multiple workflows). The SDK exposes pure primitives — Commander/citty/yargs/etc. is the dev's choice; `runWorkflow({ workflow, inputs })` is the action body. Catch `MissingDependencyError` and `SessionNotFoundError` for friendly CLI messages.
+5. **Verify** — `bunx tsc --noEmit`, then a real `bun run src/<agent>-worker.ts --prompt "..."` smoke test. Watch the tmux pane spawn, the agent reply, the session end cleanly.
 
-```bash
-bun init -y
-bun add @bastani/atomic
-# plus the provider SDK(s) you target:
-bun add @anthropic-ai/claude-agent-sdk    # for claude
-bun add @github/copilot-sdk               # for copilot
-bun add @opencode-ai/sdk                  # for opencode
-```
-
-**2. Write the workflow** at `src/workflows/<name>/<agent>.ts`. This is the bulk of the work — see the per-agent templates in `references/getting-started.md` §"Quick-start example". Minimal Claude skeleton:
-
-```ts
-// src/workflows/<name>/claude.ts
-import { defineWorkflow } from "@bastani/atomic/workflows";
-
-export default defineWorkflow({
-  name: "<workflow-name>",
-  source: import.meta.path,                 // ← required: the SDK re-imports this path
-  description: "<one-line description>",
-  inputs: [
-    { name: "prompt", type: "text", required: true, description: "<what the user supplies>" },
-  ],
-})
-  .for("claude")
-  .run(async (ctx) => {
-    await ctx.stage({ name: "step-1" }, {}, {}, async (s) => {
-      await s.session.query(ctx.inputs.prompt ?? "");
-      s.save(s.sessionId);
-    });
-  })
-  .compile();
-```
-
-**3. Write the composition root** at `src/<agent>-worker.ts`. The SDK exposes pure primitives; compose them into any CLI library you like. A small Commander entrypoint:
-
-```ts
-// src/claude-worker.ts
-import { Command } from "@commander-js/extra-typings";
-import { getInputSchema, runWorkflow } from "@bastani/atomic/workflows";
-import workflow from "./workflows/<name>/claude.ts";
-
-const program = new Command();
-for (const input of getInputSchema(workflow)) {
-  program.option(`--${input.name} <value>`, input.description ?? "");
-}
-program.action(async (rawOpts) => {
-  await runWorkflow({ workflow, inputs: rawOpts as Record<string, string> });
-});
-await program.parseAsync();
-```
-
-Multi-workflow variant (only when the user actually wants many workflows under one CLI — otherwise prefer one worker file per agent):
-
-```ts
-// src/cli.ts
-import { Command } from "@commander-js/extra-typings";
-import {
-  createRegistry,
-  getInputSchema,
-  getName,
-  listWorkflows,
-  runWorkflow,
-} from "@bastani/atomic/workflows";
-import reviewFlow from "./workflows/review/claude.ts";
-import specFlow from "./workflows/spec/claude.ts";
-
-const registry = createRegistry().register(reviewFlow).register(specFlow);
-const program = new Command();
-for (const wf of listWorkflows(registry)) {
-  const sub = program.command(getName(wf)).description(wf.description);
-  for (const input of getInputSchema(wf)) {
-    sub.option(`--${input.name} <value>`, input.description ?? "");
-  }
-  sub.action(async (rawOpts) => {
-    await runWorkflow({ workflow: wf, inputs: rawOpts as Record<string, string> });
-  });
-}
-await program.parseAsync();
-```
-
-**4. Typecheck**:
-
-```bash
-bun typecheck       # if the user has a typecheck script
-# or:
-bunx tsc --noEmit
-```
-
-**5. Run**:
-
-```bash
-bun run src/claude-worker.ts --prompt "<test task>"       # attached
-```
-
-For detached runs and monitoring, either use the global `atomic` CLI (which has `session` / `status` / `workflow status` subcommands wired in) or wire the SDK's session primitives — `listSessions`, `getSessionStatus`, `attachSession`, `stopSession` — into your own CLI's subcommands.
-
-**6. Monitor and manage** with the global atomic CLI:
-
-```bash
-atomic session list                     # all running workflows on the atomic socket
-atomic workflow status <session-name>   # JSON status for one workflow
-atomic workflow status                  # status for every running workflow
-atomic session connect <session-name>   # reattach to a detached run
-atomic session kill <session-name> -y   # tear it down (-y is mandatory for agents)
-```
-
-Every session lives on the shared `atomic` tmux socket regardless of which path spawned it, so workflows you start with `runWorkflow({ ... })` show up in `atomic session list` too. If you want to ship your own equivalents inside your CLI, drop in the session primitives:
-
-```ts
-import {
-  listSessions,
-  stopSession,
-  attachSession,
-  getSessionStatus,
-} from "@bastani/atomic/workflows";
-```
-
-Full details (the `needs_review` state, worked examples, `bunx atomic` fallback) live in `references/running-workflows.md`.
-
-That's the whole scaffold. If the user has more than two stages or parallel fan-out, the changes all happen inside step 2 (the `.run()` callback) — steps 1, 3, 4, 5, 6 are the same regardless of workflow complexity.
-
-### When in doubt
+The when-in-doubt rules:
 
 - **Single agent, single workflow** — the 90% case. One `<agent>.ts` + one `<agent>-worker.ts`. Done.
-- **Same workflow across agents** — three `<agent>.ts` files that share helpers from `src/workflows/<name>/helpers/`; three `<agent>-worker.ts` files. See `references/getting-started.md` §"Quick-start example" for the per-agent SDK differences.
+- **Same workflow across agents** — three `<agent>.ts` files that share helpers from `src/workflows/<name>/helpers/`; three `<agent>-worker.ts` files.
 - **Multiple workflows in one CLI** — build a `createRegistry().register(...)` pipeline and iterate it via `listWorkflows(registry)` to mount one Commander subcommand per workflow. Use a `src/cli.ts` composition root instead of per-agent workers.
 
-If the user's need doesn't match any of these, ask them which shape they want before scaffolding — don't guess.
+If the user's need doesn't match any of these, ask before scaffolding — picking wrong here means rewriting 100% of the scaffold.
+
+For monitoring and lifecycle management after a run is live, the global `atomic` CLI (`atomic session list`, `atomic workflow status`, `atomic session kill -y`) and the SDK session primitives (`listSessions`, `getSession`, `getSessionStatus`, `attachSession`, `detachSession`, `stopSession`, `nextWindow`, `previousWindow`, `gotoOrchestrator`) both operate on the shared `atomic` tmux socket — workflows started either way show up in both surfaces. See `references/running-workflows.md` for the `needs_review` state and worked teardown examples, and `examples/pane-navigation/` for a reference driver CLI exercising the navigation primitives.
 
 ## Information Flow Is a First-Class Design Concern
 
@@ -298,7 +174,9 @@ user runs with `bun`. The SDK exposes pure primitives:
 - `createRegistry()` / `listWorkflows(reg)` / `getWorkflow(reg, agent, name)` — build and iterate a registry.
 - `getName(wf) / getAgent(wf) / getDescription(wf) / getInputSchema(wf) / getSource(wf) / getMinSDKVersion(wf)` — read workflow metadata.
 - `validateInputs(wf, raw)` — apply defaults and validate against the declared schema.
-- `listSessions / getSession / stopSession / attachSession / getSessionStatus / getSessionTranscript` — manage running tmux sessions on the shared atomic socket.
+- **Session lifecycle** — `listSessions / getSession / stopSession / attachSession / detachSession / getSessionStatus / getSessionTranscript`. Manage running tmux sessions on the shared atomic socket.
+- **Pane navigation** — `nextWindow / previousWindow / gotoOrchestrator`. Pure tmux verbs: they update the session's current-window pointer and return immediately. Never auto-attach — an attached client sees the change live; if no client is watching, the next `attachSession` call lands on the new window. Compose `nextWindow(id) + attachSession(id)` for navigate-then-attach.
+- **Typed errors** (catch with `instanceof` to render friendly CLI messages) — `MissingDependencyError` (tmux/psmux/bun missing), `SessionNotFoundError` (id not on the atomic socket), `WorkflowNotCompiledError` (forgot `.compile()`), `InvalidWorkflowError` (default export not a `WorkflowDefinition`), `IncompatibleSDKError` (workflow's `minSDKVersion` newer than installed CLI). All thrown by SDK primitives; all carry the relevant payload field (`dependency`, `id`, `path`, version pair).
 - `WorkflowPicker` (from `@bastani/atomic/workflows/components`) — the interactive picker `atomic workflow -a claude` uses.
 
 You compose them into whatever CLI library you prefer. The SDK never
@@ -612,9 +490,12 @@ caveats.
   entrypoint that calls `runWorkflow({ workflow, inputs })`. Run with
   `bun run examples/<name>/<agent>-worker.ts --<field>=<value>` (or a
   positional prompt string if the worker declares `[prompt...]`).
-  Covers: `hello-world`, `parallel-hello-world`, `headless-test`,
-  `hil-favorite-color`, `hil-favorite-color-headless`,
-  `structured-output-demo`, `reviewer-tool-test` (copilot only).
+  Covers: `hello-world`, `sequential-describe-summarize`,
+  `parallel-hello-world`, `headless-test`, `hil-favorite-color`,
+  `hil-favorite-color-headless`, `structured-output-demo`,
+  `reviewer-tool-test` (copilot only), `review-fix-loop`,
+  `multi-workflow`, `commander-embed`, `pane-navigation` (driver CLI for
+  the navigation primitives).
 
 Both sets demonstrate shared helpers, context-aware prompt building,
 deterministic heuristics, and cross-SDK adaptation.

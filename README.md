@@ -229,11 +229,17 @@ export default defineWorkflow({
 
 Wire it to a CLI in `src/claude-worker.ts`. The SDK ships pure
 primitives — no wrapper to opt into. Compose with your CLI library of
-choice (Commander, citty, yargs, …) and call `runWorkflow`:
+choice (Commander, citty, yargs, …) and call `runWorkflow`. Catch the
+SDK's typed errors (`MissingDependencyError`, `SessionNotFoundError`,
+…) for friendly CLI output:
 
 ```ts
 import { Command } from "@commander-js/extra-typings";
-import { getInputSchema, runWorkflow } from "@bastani/atomic/workflows";
+import {
+  getInputSchema,
+  runWorkflow,
+  MissingDependencyError,
+} from "@bastani/atomic/workflows";
 import workflow from "./workflows/review-to-merge/claude.ts";
 
 const program = new Command();
@@ -241,8 +247,15 @@ for (const input of getInputSchema(workflow)) {
   program.option(`--${input.name} <value>`, input.description ?? "");
 }
 program.action(async (rawOpts) => {
-  const inputs = rawOpts as Record<string, string>;
-  await runWorkflow({ workflow, inputs });
+  try {
+    await runWorkflow({ workflow, inputs: rawOpts as Record<string, string> });
+  } catch (err) {
+    if (err instanceof MissingDependencyError) {
+      console.error(`Missing dependency: ${err.dependency}. Install it and retry.`);
+      process.exit(1);
+    }
+    throw err;
+  }
 });
 await program.parseAsync();
 ```
@@ -295,7 +308,7 @@ Atomic ships **two** things that share one workflow runtime. You can use either 
 | **Install**           | `bun install -g @bastani/atomic` (or `install.sh` / `install.ps1`)                                                                                                                                                                       | `bun add @bastani/atomic` inside your project                                                                                                                                                                                                                   |
 | **Entrypoint**        | `atomic <command>`                                                                                                                                                                                                                       | `bun run src/<agent>-worker.ts`                                                                                                                                                                                                                                 |
 | **Code required?**    | No — everything is pre-built. You can also ask the agent inside `atomic chat` to use the `workflow-creator` skill, decide when a complex task needs its own workflow, and build/run that workflow on the fly.                            | No to start — describe the workflow in natural language and use the `workflow-creator` skill to generate it. Then refine it in natural language or edit the TypeScript workflow and composition root directly, with full visibility into exactly what will run. |
-| **What you get**      | `atomic chat` (agent REPL), three autonomous built-in workflows (`ralph`, `deep-research-codebase`, `open-claude-design`), session management, the live workflow panel, Atomic skills (`/init`, `/research-codebase`, `/create-spec`, …) | `defineWorkflow`, `createRegistry`, `runWorkflow`, metadata accessors (`getName`, `getInputSchema`, …), session primitives (`listSessions`, `getSessionStatus`, `attachSession`), `ctx.stage`, `s.save` / `s.transcript`, headless stages                       |
+| **What you get**      | `atomic chat` (agent REPL), three autonomous built-in workflows (`ralph`, `deep-research-codebase`, `open-claude-design`), session management, the live workflow panel, Atomic skills (`/init`, `/research-codebase`, `/create-spec`, …) | `defineWorkflow`, `createRegistry`, `runWorkflow`, metadata accessors (`getName`, `getInputSchema`, …), session primitives (`listSessions`, `getSessionStatus`, `attachSession` / `detachSession`, `nextWindow` / `previousWindow` / `gotoOrchestrator`), typed errors (`MissingDependencyError`, `SessionNotFoundError`, …), `ctx.stage`, `s.save` / `s.transcript`, headless stages |
 | **When to reach for** | You want autonomous execution of a standard pattern out of the box, interactive chat with your agent's full toolset, or a CLI agent that can create a purpose-built workflow before doing complex work.                                  | You want to control the outer loop yourself — review flows, deployment gates, custom research pipelines — with full visibility into the TypeScript your team will run identically.                                                                              |
 | **Read next**         | [Quick Start](#quick-start) (steps 1–3)                                                                                                                                                                                                  | [Quick Start step 4](#4-build-your-own-workflow--sdk) and [Building your own atomic-powered app](#building-your-own-atomic-powered-app)                                                                                                                         |
 
@@ -437,6 +450,7 @@ The [`examples/`](./examples) directory contains small, complete user apps you c
 | `review-fix-loop`               | Draft → loop(review → fix) with bounded iterations and early exit on a `CLEAN` verdict — a reliable review gate showing how a stage's return value (`handle.result`) drives TypeScript control flow                                                          |
 | `multi-workflow`                | Two Claude workflows under one `cli.ts` — uses `listWorkflows(registry)` to register one Commander subcommand per workflow with each workflow's declared inputs as `--<flag>` options.                                                |
 | `commander-embed`               | Mount an atomic workflow under a parent Commander CLI by calling `runWorkflow({ workflow, inputs })` inside a Commander action, alongside a plain Commander sibling command. No re-entry boilerplate — the SDK ships its own orchestrator entry script. |
+| `pane-navigation`               | Driver CLI for the SDK pane-navigation primitives (`nextWindow`, `previousWindow`, `gotoOrchestrator`, `attachSession`, `detachSession`). Spawns a 3-stage workflow detached and exposes `start / list / status / next / prev / home / attach / stop` subcommands. Catches `SessionNotFoundError` for friendly errors. |
 
 Run any of them with:
 
@@ -1225,7 +1239,9 @@ Native slash commands (`/help`, `/clear`, `/compact`, `/model`, `/theme`, `/agen
 
 > **SDK-only users:** you don't need the global `atomic` binary, but you still need the runtime prerequisites — **[Bun](https://bun.sh/) (the SDK does not run on Node.js)**, a terminal multiplexer (tmux on macOS/Linux, psmux on Windows), and at least one authenticated coding agent CLI (`claude`, `opencode`, or `copilot`). See [Prerequisites](#prerequisites) for the "why" and install commands. The SDK spawns the agent CLI at each stage and wraps it in a detachable multiplexer session.
 >
-> **Session management primitives.** The SDK exposes `listSessions`, `getSession`, `stopSession`, `attachSession`, `getSessionStatus`, and `getSessionTranscript` — wire them into your CLI's `session list`, `status`, etc. subcommands as you see fit. Sessions live on the shared `atomic` tmux socket, so a worker CLI built on the primitives, the global `atomic` binary, and `bunx atomic` all see the same runtime state.
+> **Session management primitives.** The SDK exposes `listSessions`, `getSession`, `stopSession`, `attachSession`, `detachSession`, `getSessionStatus`, `getSessionTranscript`, plus pane-navigation verbs `nextWindow` / `previousWindow` / `gotoOrchestrator` — wire them into your CLI's `session list`, `status`, etc. subcommands as you see fit. Sessions live on the shared `atomic` tmux socket, so a worker CLI built on the primitives, the global `atomic` binary, and `bunx atomic` all see the same runtime state.
+>
+> **Typed errors.** Every error path the SDK throws — missing tmux/psmux/bun, unknown session id, missing `.compile()`, invalid workflow file, `minSDKVersion` mismatch — is a typed class (`MissingDependencyError`, `SessionNotFoundError`, `WorkflowNotCompiledError`, `InvalidWorkflowError`, `IncompatibleSDKError`). Catch them with `instanceof` to render friendly CLI output without parsing message text. See `examples/pane-navigation/cli.ts` for a worked example.
 
 ### Primitives, not a wrapper
 
@@ -1239,9 +1255,11 @@ The SDK ships pure functions you compose into whatever CLI shape you want:
 | `getWorkflow(reg, …)`   | Resolve `(agent, name)` → workflow.                                                                    |
 | `getName / getAgent / getInputSchema / getDescription / getSource / getMinSDKVersion` | Read workflow metadata.        |
 | `validateInputs(wf, raw)` | Run the same validation pipeline atomic uses (required, defaults, enum, integer).                    |
-| `runWorkflow({ workflow, inputs, detach? })` | Spawn the orchestrator tmux session and (optionally) attach.                      |
-| `listSessions / getSession / stopSession / attachSession` | Manage running tmux sessions on the shared atomic socket.         |
+| `runWorkflow({ workflow, inputs, detach? })` | Spawn the orchestrator tmux session and (optionally) attach. Resolves with `{ id, tmuxSessionName }`. |
+| `listSessions / getSession / stopSession / attachSession / detachSession` | Manage running tmux sessions on the shared atomic socket. |
 | `getSessionStatus / getSessionTranscript`    | Read the orchestrator-written status snapshot or per-session messages from disk.  |
+| `nextWindow / previousWindow / gotoOrchestrator` | **Pane navigation** — pure tmux verbs that update the session's current-window pointer. Never auto-attach; an attached client sees the change live, otherwise a subsequent `attachSession` lands on the new window. |
+| `MissingDependencyError / SessionNotFoundError / WorkflowNotCompiledError / InvalidWorkflowError / IncompatibleSDKError` | **Typed errors** thrown by the primitives above. Catch with `instanceof` to render friendly CLI messages without parsing message text. |
 
 **Single workflow (most common):**
 

@@ -291,17 +291,34 @@ caveats live in `failure-modes.md` §F15.
 
 The `@bastani/atomic/workflows` package exports the workflow authoring and composition primitives. For native SDK types and utilities, install and import from the provider packages directly.
 
-**Composition root:**
+**Composition primitives:**
+- `runWorkflow({ workflow, inputs?, cwd?, detach? })` — spawn a workflow's tmux session on the atomic socket. Resolves with `{ id, tmuxSessionName }` after the session is created (foreground attaches and resolves on detach; `detach: true` returns immediately).
 - `createRegistry()` — factory for an empty, immutable, chainable registry. Chain `.register(wf)` to add workflow definitions. Each call returns a new registry. Throws on duplicate `${agent}/${name}` key.
-- `runWorkflow({ workflow, inputs })` — the workflow-CLI factory. `target` accepts a compiled `WorkflowDefinition`, an array of them, or a `Registry` — the cli normalizes internally. `options` supports `inputs?`, `entry?` (path to re-exec on `--detach`; defaults to `process.argv[1]`), and `extend?` (attach sibling commands to the standalone `run()` CLI).
-- `createRegistry()` — factory for an immutable, chainable registry. Only needed when you want dynamic/programmatic composition; pass workflows directly to `runWorkflow` otherwise.
+- `listWorkflows(registry)` / `getWorkflow(registry, agent, name)` — iterate or look up by `(agent, name)`. Returns `undefined` when the pair isn't registered.
 - `Registry` — type for the registry object (see `registry-and-validation.md`)
-- `WorkflowCli` — exposes `run(options?)`. `run()` options: `{ name?, agent?, inputs?, argv?: string[] | false, detach? }`.
-- `CreateWorkflowCliOptions`, `ArgvMode` — options types
 
 **Builder:**
 - `defineWorkflow` — entry point; returns a chainable `WorkflowBuilder`. Use `.for("agent")` on the builder to narrow types to a specific provider.
 - `WorkflowBuilder` — the builder class (rarely needed directly)
+
+**Session lifecycle (manage running tmux sessions on the shared atomic socket):**
+- `listSessions({ scope?, agent? })` — list every atomic-managed session. Returns `[]` when tmux is not installed.
+- `getSession(id)` — single-session lookup; returns `undefined` when not found.
+- `stopSession(id)` / `detachSession(id)` — best-effort kill / detach all clients. Idempotent.
+- `attachSession(id)` — interactively attach this terminal. Throws `MissingDependencyError` when tmux is missing.
+- `getSessionStatus(id)` — read the on-disk status snapshot for a workflow run; `null` when the orchestrator hasn't written one yet.
+- `getSessionTranscript(id, sessionName)` — read the saved native-message transcript for one stage inside a workflow run.
+
+**Pane navigation (pure tmux verbs — never auto-attach):**
+- `nextWindow(id)` / `previousWindow(id)` — move the session's current-window pointer. An attached client sees the change live; a detached session updates silently. Compose with `attachSession(id)` if you want navigate-then-attach.
+- `gotoOrchestrator(id)` — jump to window 0 of the target session. Mirrors the `Ctrl+G` keybinding inside an attached client.
+
+**Typed errors (catch with `instanceof` to render friendly CLI output):**
+- `MissingDependencyError` — `dependency: "tmux" | "psmux" | "bun"`. Thrown when a required external dependency is missing on `PATH`.
+- `SessionNotFoundError` — carries `id`. Thrown by `attachSession` and the navigation primitives when the id isn't on the socket.
+- `WorkflowNotCompiledError` — carries `path`. Thrown when a `defineWorkflow(...)` chain is missing `.compile()`.
+- `InvalidWorkflowError` — carries `path`. Thrown when a workflow file's default export isn't a `WorkflowDefinition`.
+- `IncompatibleSDKError` — carries `path`, `requiredVersion`, `currentVersion`. Thrown when `minSDKVersion` is newer than the installed SDK.
 
 **Types** (import with `import type`):
 - `AgentType` — `"copilot" | "opencode" | "claude"`

@@ -32,6 +32,10 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import os from "node:os";
 import { claudeHookDirs } from "../../commands/cli/claude-stop-hook.ts";
+import {
+  clearInflightTracking,
+  waitForInflightDrained,
+} from "../../commands/cli/claude-inflight-hook.ts";
 import { resolveAdditionalInstructionsContent } from "../../services/config/additional-instructions.ts";
 
 // ---------------------------------------------------------------------------
@@ -60,6 +64,19 @@ const initializedPanes = new Map<string, PaneState>();
  * waiting out the hook's safety timeout.
  *
  * Called by the runtime when a Claude stage is being torn down. Idempotent.
+ *
+ * After writing the release marker, this waits for the per-session in-flight
+ * marker dir (`~/.atomic/claude-inflight/<session_id>/`) to drain. The
+ * marker dir is populated by the SubagentStart/Stop and TaskCreated/Completed
+ * hooks registered in {@link WORKFLOW_HOOK_SETTINGS}. This wait is the
+ * synchronization barrier that prevents the executor from advancing to the
+ * next stage while the previous stage's backgrounded subagents/tasks still
+ * hold FDs/PTYs on the atomic tmux server — the failure mode that surfaced
+ * intermittently as `tmux respawn-pane: fork failed: Device not configured`.
+ *
+ * The wait has its own bounded timeout (default 30 minutes) so a wedged
+ * subagent can't permanently block the workflow; the in-hook stale-sweep
+ * (~2 hours TTL) is the ultimate safety net.
  */
 export async function clearClaudeSession(paneId: string): Promise<void> {
   const state = initializedPanes.get(paneId);
@@ -69,6 +86,15 @@ export async function clearClaudeSession(paneId: string): Promise<void> {
     } catch {
       // Best-effort — if release fails the hook will still exit on its
       // own safety timeout.
+    }
+    // Wait for in-flight subagents/tasks to finish before letting the
+    // executor advance. Resolves immediately when the dir is empty/missing
+    // (the common case, including any stage that didn't spawn subagents).
+    try {
+      await waitForInflightDrained(state.claudeSessionId);
+    } catch {
+      // Best-effort — the wait swallows internal errors and resolves on
+      // timeout. A throw here would only happen on a path bug.
     }
     try {
       await unlinkAtomicPidFile(state.claudeSessionId);
@@ -82,6 +108,12 @@ export async function clearClaudeSession(paneId: string): Promise<void> {
       // Best-effort — stale ready marker is inert; the next session writes
       // a fresh one under its own UUID and clears any prior leftover in
       // `claudeQuery` before respawn.
+    }
+    try {
+      await clearInflightTracking(state.claudeSessionId);
+    } catch {
+      // Best-effort — leftover marker files are reaped by the next session's
+      // stale-sweep, and the .session-roots/ entries are tiny.
     }
   }
   initializedPanes.delete(paneId);
@@ -189,6 +221,20 @@ const READY_HOOK_TIMEOUT_MS = 2_147_483_000;
  *     catch path — see `src/services/tools/toolExecution.ts` in the CLI
  *     source), so registering the same command on both guarantees the
  *     marker clears regardless of which completion path the tool takes.
+ *   - `SubagentStart` / `SubagentStop`: maintain a per-root-session marker
+ *     dir under `~/.atomic/claude-inflight/<root>/` so the Stop hook and
+ *     `clearClaudeSession` can both gate on subagent completion before
+ *     letting the stage advance. Without this gate, a stage that spawned
+ *     `run_in_background: true` subagents would tear down its pane while
+ *     children still hold FDs/PTYs on the atomic tmux server, intermittently
+ *     surfacing as `tmux respawn-pane: fork failed: Device not configured`
+ *     when the next stage tried to spawn.
+ *   - `TeammateIdle`: same gating applied at agent-team teammate idle.
+ *     Unlike Stop, this fires when a teammate (potentially a different
+ *     `session_id` from the stage's root) goes idle, so we route it to a
+ *     focused `_claude-inflight-hook wait` mode that only awaits in-flight
+ *     drain — no claude-stop marker write (that would confuse `waitForIdle`)
+ *     and no queue/release polling (those are keyed on the stage's root).
  *
  * Built once at module load. Contains no single quotes (JSON syntax doesn't
  * produce them and paths rarely do), so POSIX single-quoting at the spawn
@@ -247,6 +293,45 @@ const WORKFLOW_HOOK_SETTINGS = JSON.stringify({
           {
             type: "command",
             command: buildWorkflowHookCommand("_claude-ask-hook", ["exit"]),
+          },
+        ],
+      },
+    ],
+    // SubagentStart/SubagentStop fire per Agent-tool dispatch (no matcher)
+    // and route to a single subcommand that touches/removes one marker file
+    // per `agent_id`. The handler is bulletproof — any error exits 0
+    // silently — so a hook failure can't kill the stage.
+    SubagentStart: [
+      {
+        hooks: [
+          {
+            type: "command",
+            command: buildWorkflowHookCommand("_claude-inflight-hook", ["start"]),
+          },
+        ],
+      },
+    ],
+    SubagentStop: [
+      {
+        hooks: [
+          {
+            type: "command",
+            command: buildWorkflowHookCommand("_claude-inflight-hook", ["stop"]),
+          },
+        ],
+      },
+    ],
+    // TeammateIdle gets a focused `wait` mode (gates on in-flight drain,
+    // nothing else) — see the WORKFLOW_HOOK_SETTINGS docstring for why this
+    // doesn't reuse the Stop hook handler. Timeout matches Stop's so the
+    // wait can run for as long as the workflow holds onto teammates.
+    TeammateIdle: [
+      {
+        hooks: [
+          {
+            type: "command",
+            command: buildWorkflowHookCommand("_claude-inflight-hook", ["wait"]),
+            timeout: STOP_HOOK_TIMEOUT_SECONDS,
           },
         ],
       },

@@ -33,6 +33,10 @@ import { watch as watchDir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import {
+  inflightDirIsEmpty,
+  sweepStaleInflight,
+} from "./claude-inflight-hook.ts";
 
 /** Shape of the JSON payload Claude pipes to the Stop hook via stdin. */
 export interface ClaudeStopHookPayload {
@@ -68,8 +72,11 @@ export function claudeHookDirs(): {
   hil: string;
   pid: string;
   ready: string;
+  inflight: string;
+  inflightRoots: string;
 } {
   const base = path.join(os.homedir(), ".atomic");
+  const inflightBase = path.join(base, "claude-inflight");
   return {
     marker: path.join(base, "claude-stop"),
     queue: path.join(base, "claude-queue"),
@@ -85,6 +92,19 @@ export function claudeHookDirs(): {
     // watches this directory to detect readiness — positive signal, unlike
     // racing the JSONL writer.
     ready: path.join(base, "claude-ready"),
+    // Per-root-session marker dirs (`<inflight>/<root_session_id>/<id>`)
+    // populated by the SubagentStart/SubagentStop and TaskCreated/
+    // TaskCompleted hooks. Both `clearClaudeSession` and the Stop hook gate
+    // on this dir being empty before letting the stage advance, so a stage
+    // never tears down while it still has live subagents/tasks holding FDs.
+    inflight: inflightBase,
+    // `<inflight>/.session-roots/<session_id>` → root_session_id mapping.
+    // SubagentStart writes a mapping for every spawned agent so that nested
+    // subagents (a subagent spawning its own subagent) can resolve which
+    // stage's root they belong to and write their marker under the right
+    // root. Lives alongside `inflight/` rather than under it so a `readdir`
+    // of `<inflight>/<root>/` only returns id markers.
+    inflightRoots: path.join(inflightBase, ".session-roots"),
   };
 }
 
@@ -292,10 +312,12 @@ export async function claudeStopHookCommand(
   type Hit = { kind: "release" } | { kind: "queue"; prompt: string };
 
   const check = async (): Promise<Hit | null> => {
-    if (existsSync(releasePath)) {
-      try { await fs.unlink(releasePath); } catch { /* ENOENT is fine */ }
-      return { kind: "release" };
-    }
+    // Queue takes priority over release: if the runtime enqueued a follow-up
+    // prompt, we want to deliver it and let Claude run another turn. The
+    // workflow only writes a release marker when it's actually torn down, so
+    // a queue + release race only happens at session end — and in that case
+    // the queue prompt was authored before teardown, so honoring it first is
+    // correct.
     if (existsSync(queuePath)) {
       let prompt: string;
       try {
@@ -306,6 +328,20 @@ export async function claudeStopHookCommand(
       }
       try { await fs.unlink(queuePath); } catch { /* ENOENT is fine */ }
       return { kind: "queue", prompt };
+    }
+    if (existsSync(releasePath)) {
+      // Don't consume the release marker until in-flight subagents/tasks
+      // have drained. Reaping the marker prematurely would let Claude exit
+      // while backgrounded children still hold FDs/PTYs on the atomic tmux
+      // server, which is the failure mode the inflight tracking exists to
+      // prevent. Stale-sweep first so a crashed subagent that never fired
+      // SubagentStop doesn't wedge the wait forever.
+      await sweepStaleInflight(payload.session_id);
+      if (!(await inflightDirIsEmpty(payload.session_id))) {
+        return null;
+      }
+      try { await fs.unlink(releasePath); } catch { /* ENOENT is fine */ }
+      return { kind: "release" };
     }
     return null;
   };

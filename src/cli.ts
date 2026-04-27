@@ -297,6 +297,22 @@ Examples:
             process.exit(exitCode);
         });
 
+    // ── Internal: Claude Subagent / TeammateIdle lifecycle hook handler ───
+    program
+        .command("_claude-inflight-hook", { hidden: true })
+        .description("Internal: Claude Code Subagent/TeammateIdle lifecycle hook handler — touches/removes inflight markers, or waits for them to drain")
+        .argument("<mode>", "start (SubagentStart), stop (SubagentStop), or wait (TeammateIdle)")
+        .action(async (mode: string) => {
+            if (mode !== "start" && mode !== "stop" && mode !== "wait") {
+                // Silent exit-0 to match the handler's contract — never red
+                // hook errors in transcripts.
+                process.exit(0);
+            }
+            const { claudeInflightHookCommand } = await import("./commands/cli/claude-inflight-hook.ts");
+            const exitCode = await claudeInflightHookCommand(mode);
+            process.exit(exitCode);
+        });
+
     // ── Completions command ────────────────────────────────────────────────
     program
         .command("completions")
@@ -373,7 +389,8 @@ async function main(): Promise<void> {
                 argv[0] === "_footer" ||
                 argv[0] === "_claude-stop-hook" ||
                 argv[0] === "_claude-ask-hook" ||
-                argv[0] === "_claude-session-start-hook";
+                argv[0] === "_claude-session-start-hook" ||
+                argv[0] === "_claude-inflight-hook";
 
             if (!isInfoCommand) {
                 const { autoSyncIfStale } = await import(

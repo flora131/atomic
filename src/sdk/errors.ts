@@ -39,6 +39,19 @@ export class InvalidWorkflowError extends Error {
 }
 
 /**
+ * Thrown by session primitives when the requested tmux session id is
+ * not present on the atomic socket. Carries the id so the CLI layer can
+ * render an actionable "run `atomic session list` to see what's
+ * running" hint without parsing message text.
+ */
+export class SessionNotFoundError extends Error {
+  constructor(public readonly id: string) {
+    super(`session not found: ${id}`);
+    this.name = "SessionNotFoundError";
+  }
+}
+
+/**
  * Thrown when a workflow declares a `minSDKVersion` newer than the
  * bundled CLI. Carries both versions so the CLI can render an
  * actionable "update atomic or re-save the workflow" hint rather than

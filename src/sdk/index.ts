@@ -12,6 +12,7 @@ export {
   MissingDependencyError,
   WorkflowNotCompiledError,
   InvalidWorkflowError,
+  SessionNotFoundError,
 } from "./errors.ts";
 
 // ─── Authoring ──────────────────────────────────────────────────────────────
@@ -84,6 +85,10 @@ export {
   getSession,
   stopSession,
   attachSession,
+  detachSession,
+  nextWindow,
+  previousWindow,
+  gotoOrchestrator,
   getSessionStatus,
   getSessionTranscript,
 } from "./primitives/sessions.ts";
@@ -92,4 +97,5 @@ export type {
   SessionScope,
   StatusSnapshot,
   ListSessionsOptions,
+  SessionPrimitiveDeps,
 } from "./primitives/sessions.ts";

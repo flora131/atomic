@@ -11,9 +11,13 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import {
   attachSession as tmuxAttach,
+  detachClients as tmuxDetachClients,
   isTmuxInstalled,
   killSession,
   listSessions as listAllTmuxSessions,
+  nextWindow as tmuxNextWindow,
+  previousWindow as tmuxPreviousWindow,
+  selectWindow as tmuxSelectWindow,
   type SessionType,
   type TmuxSession,
 } from "../runtime/tmux.ts";
@@ -22,6 +26,7 @@ import {
   workflowRunIdFromTmuxName,
   type WorkflowStatusSnapshot,
 } from "../runtime/status-writer.ts";
+import { MissingDependencyError, SessionNotFoundError } from "../errors.ts";
 import type { AgentType, SavedMessage } from "../types.ts";
 
 /** Scope filter for session listings — chat sessions, workflow sessions, or both. */
@@ -52,10 +57,42 @@ export interface ListSessionsOptions {
   scope?: SessionScope;
 }
 
-/** Default base dir for session artefacts on disk. */
-function sessionsBaseDir(): string {
-  return join(homedir(), ".atomic", "sessions");
+/**
+ * Injectable dependencies for the session primitives.
+ *
+ * Defaults wire through to the real tmux/status-writer implementations.
+ * Tests pass in mocks; embedding consumers can override the base directory
+ * or swap the tmux backend (e.g. for psmux on Windows) without monkey-
+ * patching the underlying modules.
+ */
+export interface SessionPrimitiveDeps {
+  isTmuxInstalled: () => boolean;
+  listAllTmuxSessions: () => readonly TmuxSession[];
+  killSession: (id: string) => void;
+  attachSession: (id: string) => void;
+  detachClients: (id: string) => void;
+  nextWindow: (id: string) => void;
+  previousWindow: (id: string) => void;
+  /** `target` is a tmux window target like `<session>:<index>`. */
+  selectWindow: (target: string) => void;
+  readSnapshot: typeof readSnapshot;
+  /** Base directory for session artefacts. Defaults to `~/.atomic/sessions`. */
+  sessionsBaseDir: string;
 }
+
+/** Default deps object — wires through to the real implementations. */
+const defaultDeps: SessionPrimitiveDeps = {
+  isTmuxInstalled,
+  listAllTmuxSessions,
+  killSession,
+  attachSession: tmuxAttach,
+  detachClients: tmuxDetachClients,
+  nextWindow: tmuxNextWindow,
+  previousWindow: tmuxPreviousWindow,
+  selectWindow: tmuxSelectWindow,
+  readSnapshot,
+  sessionsBaseDir: join(homedir(), ".atomic", "sessions"),
+};
 
 /** Convert a TmuxSession into the consumer-facing SessionInfo shape. */
 function toSessionInfo(s: TmuxSession): SessionInfo {
@@ -93,8 +130,11 @@ function filterByAgents(
  * Returns an empty array when tmux is not installed or the server has no
  * sessions — never throws on the cold-start path.
  */
-export function listSessions(options: ListSessionsOptions = {}): SessionInfo[] {
-  if (!isTmuxInstalled()) return [];
+export function listSessions(
+  options: ListSessionsOptions = {},
+  deps: SessionPrimitiveDeps = defaultDeps,
+): SessionInfo[] {
+  if (!deps.isTmuxInstalled()) return [];
   const scope = options.scope ?? "all";
   const agents: readonly AgentType[] = options.agent === undefined
     ? []
@@ -102,16 +142,19 @@ export function listSessions(options: ListSessionsOptions = {}): SessionInfo[] {
       ? (options.agent as readonly AgentType[])
       : [options.agent as AgentType];
 
-  const all = listAllTmuxSessions();
+  const all = deps.listAllTmuxSessions();
   const scoped = filterByScope(all, scope);
   const filtered = filterByAgents(scoped, agents);
   return filtered.map(toSessionInfo);
 }
 
 /** Look up a single session by id. Returns `undefined` when not found. */
-export function getSession(id: string): SessionInfo | undefined {
-  if (!isTmuxInstalled()) return undefined;
-  const match = listAllTmuxSessions().find((s) => s.name === id);
+export function getSession(
+  id: string,
+  deps: SessionPrimitiveDeps = defaultDeps,
+): SessionInfo | undefined {
+  if (!deps.isTmuxInstalled()) return undefined;
+  const match = deps.listAllTmuxSessions().find((s) => s.name === id);
   return match ? toSessionInfo(match) : undefined;
 }
 
@@ -119,10 +162,13 @@ export function getSession(id: string): SessionInfo | undefined {
  * Stop a running session. Best-effort: if the session is already gone
  * the underlying `tmux kill-session` is a no-op-equivalent.
  */
-export async function stopSession(id: string): Promise<void> {
-  if (!isTmuxInstalled()) return;
+export async function stopSession(
+  id: string,
+  deps: SessionPrimitiveDeps = defaultDeps,
+): Promise<void> {
+  if (!deps.isTmuxInstalled()) return;
   try {
-    killSession(id);
+    deps.killSession(id);
   } catch {
     // tmux returns non-zero when the session has already been torn down —
     // surface that as a successful stop rather than a hard failure.
@@ -134,11 +180,96 @@ export async function stopSession(id: string): Promise<void> {
  * process has a TTY — otherwise the underlying tmux invocation will
  * complain that it can't take over the terminal.
  */
-export async function attachSession(id: string): Promise<void> {
-  if (!isTmuxInstalled()) {
-    throw new Error("tmux is not installed");
+export async function attachSession(
+  id: string,
+  deps: SessionPrimitiveDeps = defaultDeps,
+): Promise<void> {
+  if (!deps.isTmuxInstalled()) {
+    throw new MissingDependencyError("tmux");
   }
-  tmuxAttach(id);
+  deps.attachSession(id);
+}
+
+/**
+ * Validate that tmux is installed and the session id exists on the
+ * atomic socket. Shared preamble for the navigation primitives.
+ */
+function ensureSession(id: string, deps: SessionPrimitiveDeps): void {
+  if (!deps.isTmuxInstalled()) {
+    throw new MissingDependencyError("tmux");
+  }
+  const session = deps.listAllTmuxSessions().find((s) => s.name === id);
+  if (!session) {
+    throw new SessionNotFoundError(id);
+  }
+}
+
+/**
+ * Move the session's current-window pointer to the next window.
+ * Mirrors the `Ctrl+\` keybinding bound inside an attached client.
+ *
+ * Pure navigation: never attaches. An already-attached client sees the
+ * change live; if no client is watching, the session's current-window
+ * pointer is updated silently and a subsequent `attachSession` will
+ * land on the new window. Compose `nextWindow(id)` + `attachSession(id)`
+ * if you want navigate-then-attach.
+ */
+export async function nextWindow(
+  id: string,
+  deps: SessionPrimitiveDeps = defaultDeps,
+): Promise<void> {
+  ensureSession(id, deps);
+  deps.nextWindow(id);
+}
+
+/**
+ * Move the session's current-window pointer to the previous window.
+ * Symmetrical counterpart to {@link nextWindow} — also pure navigation.
+ */
+export async function previousWindow(
+  id: string,
+  deps: SessionPrimitiveDeps = defaultDeps,
+): Promise<void> {
+  ensureSession(id, deps);
+  deps.previousWindow(id);
+}
+
+/**
+ * Jump to the orchestrator window (window 0) of the target session.
+ * Mirrors the `Ctrl+G` keybinding bound inside an attached client.
+ *
+ * For workflow sessions, window 0 hosts the orchestrator graph view;
+ * for chat sessions, window 0 is the agent pane. Pure navigation —
+ * never attaches.
+ */
+export async function gotoOrchestrator(
+  id: string,
+  deps: SessionPrimitiveDeps = defaultDeps,
+): Promise<void> {
+  ensureSession(id, deps);
+  deps.selectWindow(`${id}:0`);
+}
+
+/**
+ * Detach every client currently attached to a session. The session
+ * itself keeps running in the background — re-attach with
+ * {@link attachSession} or `tmux -L atomic attach -t <id>`.
+ *
+ * Best-effort, idempotent: returns silently when tmux is missing, the
+ * session is already gone, or no clients are attached.
+ */
+export async function detachSession(
+  id: string,
+  deps: SessionPrimitiveDeps = defaultDeps,
+): Promise<void> {
+  if (!deps.isTmuxInstalled()) return;
+  try {
+    deps.detachClients(id);
+  } catch {
+    // tmux returns non-zero when the session is gone or no clients are
+    // attached — surface that as a successful detach rather than a hard
+    // failure, matching `stopSession`'s best-effort semantics.
+  }
 }
 
 /**
@@ -148,10 +279,11 @@ export async function attachSession(id: string): Promise<void> {
  */
 export async function getSessionStatus(
   id: string,
+  deps: SessionPrimitiveDeps = defaultDeps,
 ): Promise<StatusSnapshot | null> {
   const runId = workflowRunIdFromTmuxName(id);
   if (!runId) return null;
-  return await readSnapshot(join(sessionsBaseDir(), runId));
+  return await deps.readSnapshot(join(deps.sessionsBaseDir, runId));
 }
 
 /**
@@ -166,11 +298,12 @@ export async function getSessionStatus(
 export async function getSessionTranscript(
   id: string,
   sessionName: string,
+  deps: SessionPrimitiveDeps = defaultDeps,
 ): Promise<SavedMessage[]> {
   const runId = workflowRunIdFromTmuxName(id);
   if (!runId) return [];
   const file = Bun.file(
-    join(sessionsBaseDir(), runId, sessionName, "messages.json"),
+    join(deps.sessionsBaseDir, runId, sessionName, "messages.json"),
   );
   if (!(await file.exists())) return [];
   let parsed: unknown;

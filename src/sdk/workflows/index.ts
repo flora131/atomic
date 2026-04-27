@@ -20,6 +20,7 @@ export {
   MissingDependencyError,
   WorkflowNotCompiledError,
   InvalidWorkflowError,
+  SessionNotFoundError,
 } from "../errors.ts";
 
 // ─── Shared types ───────────────────────────────────────────────────────────
@@ -111,4 +112,5 @@ export type {
   SessionScope,
   StatusSnapshot,
   ListSessionsOptions,
+  SessionPrimitiveDeps,
 } from "../primitives/sessions.ts";

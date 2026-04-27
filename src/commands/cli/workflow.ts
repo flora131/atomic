@@ -84,9 +84,16 @@ async function runPicker(
   await dispatch(result.workflow, result.inputs, detach);
 }
 
-/** Build the workflow command Tree. Exported as a Commander Command. */
-function buildWorkflowCommand(): Command {
-  const registry = createBuiltinRegistry();
+/**
+ * Build the workflow command tree. Exported so third-party CLIs (and
+ * tests) can reuse the dispatcher with their own registries.
+ *
+ * @param registry workflow registry to drive the dispatcher; defaults
+ *   to the atomic CLI's builtin registry.
+ */
+export function buildWorkflowCommand(
+  registry: ReturnType<typeof createBuiltinRegistry> = createBuiltinRegistry(),
+): Command {
   const all = listWorkflows(registry);
   const allNames = [...new Set(all.map((w) => w.name))];
   // buildInputUnion enforces the reserved-name and type-conflict checks

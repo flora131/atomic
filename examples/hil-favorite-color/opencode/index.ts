@@ -23,7 +23,10 @@ export default defineWorkflow({
         description: "Ask the user for their favorite color (HIL)",
       },
       {},
-      { title: "ask-color" },
+      {
+        title: "ask-color",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      },
       async (s) => {
         const result = await s.client.session.prompt({
           sessionID: s.session.id,
@@ -50,7 +53,10 @@ export default defineWorkflow({
         description: "Write a short description of the chosen color",
       },
       {},
-      { title: "describe-color" },
+      {
+        title: "describe-color",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      },
       async (s) => {
         const prior = await s.transcript(askColor);
         const result = await s.client.session.prompt({

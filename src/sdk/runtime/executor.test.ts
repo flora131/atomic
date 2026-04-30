@@ -1,4 +1,4 @@
-import { test, expect, describe, beforeEach, afterEach } from "bun:test";
+import { test, expect, describe, beforeEach, afterEach, mock } from "bun:test";
 import { mkdtempSync, writeFileSync, chmodSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,6 +13,8 @@ import {
   discoverCopilotBinary,
   applyContainerEnvDefaults,
   normalizeExternalCopilotOptions,
+  buildPaneCommand,
+  waitForServer,
   type CopilotHILSessionSurface,
 } from "./executor.ts";
 import type { SavedMessage } from "../types.ts";
@@ -996,5 +998,256 @@ describe("discoverCopilotBinary / shouldOverrideCopilotCliPath", () => {
     process.env.COPILOT_CLI_PATH = "/custom/copilot";
     applyContainerEnvDefaults();
     expect(process.env.COPILOT_CLI_PATH).toBe("/custom/copilot");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildPaneCommand
+// ---------------------------------------------------------------------------
+
+describe("buildPaneCommand", () => {
+  test("copilot: command contains --ui-server and --port 0", () => {
+    const { command } = buildPaneCommand("copilot");
+    expect(command).toContain("--ui-server");
+    expect(command).toContain("--port 0");
+  });
+
+  test("copilot: command invokes the copilot binary as the first token", () => {
+    const { command } = buildPaneCommand("copilot");
+    // Accept either a bare name (binary not on PATH in test env) or an
+    // absolute path resolved via Bun.which — both end in "copilot".
+    expect(command).toMatch(/^("[^"]*\/)?[^\s"]*copilot"?\s/);
+  });
+
+  test("opencode: command contains --port 0 but not --ui-server", () => {
+    const { command } = buildPaneCommand("opencode");
+    expect(command).toContain("--port 0");
+    expect(command).not.toContain("--ui-server");
+  });
+
+  test("opencode: command invokes the opencode binary as the first token", () => {
+    const { command } = buildPaneCommand("opencode");
+    expect(command).toMatch(/^("[^"]*\/)?[^\s"]*opencode"?\s/);
+  });
+
+  test("claude: command resolves to a shell and does not contain --port", () => {
+    const { command } = buildPaneCommand("claude");
+    // SHELL is typically already absolute (e.g. /bin/zsh) so it passes through
+    // unchanged; bare fallbacks ("sh"/"pwsh") get resolved via Bun.which.
+    const expected =
+      process.env.SHELL || (process.platform === "win32" ? "pwsh" : "sh");
+    const stripped = command.replace(/^"|"$/g, "");
+    if (expected.includes("/") || expected.includes("\\")) {
+      expect(stripped).toBe(expected);
+    } else {
+      // Bare fallback either resolved via Bun.which or returned as-is.
+      expect(stripped.endsWith(expected) || stripped === expected).toBe(true);
+    }
+    expect(command).not.toContain("--port");
+  });
+
+  test("overrides.envVars merges with defaults for copilot", () => {
+    const { envVars } = buildPaneCommand("copilot", {
+      envVars: { MY_VAR: "hello" },
+    });
+    // Default copilot env var preserved
+    expect(envVars.COPILOT_ALLOW_ALL).toBe("true");
+    // Override merged in
+    expect(envVars.MY_VAR).toBe("hello");
+  });
+
+  test("overrides.chatFlags replaces defaults for copilot", () => {
+    const { command } = buildPaneCommand("copilot", {
+      chatFlags: ["--custom-flag"],
+    });
+    expect(command).toContain("--custom-flag");
+    // Default flags should be absent
+    expect(command).not.toContain("--add-dir");
+  });
+
+  test("extraChatFlags appended to copilot command", () => {
+    const { command } = buildPaneCommand("copilot", {}, ["--extra-flag"]);
+    expect(command).toContain("--extra-flag");
+  });
+
+  test("extraChatFlags not appended to opencode command", () => {
+    const { command } = buildPaneCommand("opencode", {}, ["--extra-flag"]);
+    expect(command).not.toContain("--extra-flag");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// waitForServer
+// ---------------------------------------------------------------------------
+
+// Three non-empty lines — enough to break the TUI-render loop.
+const PANE_CONTENT_READY = "line one\nline two\nline three\n";
+
+// ---------------------------------------------------------------------------
+// waitForServer — module-level captures for mock.module cleanup
+// ---------------------------------------------------------------------------
+
+// Snapshot the real function values BEFORE any mock.module call.
+// We can't hold the module namespace reference because mock.module mutates it
+// in-place, so we must copy the property values into a plain object snapshot.
+const _tmuxMod = await import("./tmux.ts");
+const realTmuxSnapshot = { ..._tmuxMod };
+const _portMod = await import("./port-discovery.ts");
+const realPortDiscoverySnapshot = { ..._portMod };
+let realCopilotSdkSnapshot: Record<string, unknown> | null = null;
+try {
+  const _copilotMod = await import("@github/copilot-sdk");
+  realCopilotSdkSnapshot = { ..._copilotMod };
+} catch {
+  // optional dependency — not installed in all environments
+}
+
+describe("waitForServer", () => {
+  // Save and restore Bun.sleep so we can make it instant in async tests.
+  let originalSleep: typeof Bun.sleep;
+
+  beforeEach(() => {
+    originalSleep = Bun.sleep;
+    // Make Bun.sleep a no-op so probe retry loops resolve immediately.
+    (globalThis as { Bun: { sleep: (ms: number) => Promise<void> } }).Bun.sleep =
+      () => Promise.resolve();
+  });
+
+  afterEach(() => {
+    (globalThis as { Bun: { sleep: typeof Bun.sleep } }).Bun.sleep =
+      originalSleep;
+    // Restore module mocks so they don't leak into subsequent test files.
+    // Use snapshot copies (not live references) because mock.module mutates
+    // the module namespace in-place.
+    mock.module("./tmux.ts", () => realTmuxSnapshot);
+    mock.module("./port-discovery.ts", () => realPortDiscoverySnapshot);
+    if (realCopilotSdkSnapshot !== null) {
+      mock.module("@github/copilot-sdk", () => realCopilotSdkSnapshot!);
+    }
+  });
+
+  test('returns "" immediately for agent "claude" without touching tmux', async () => {
+    // No mocks for tmux — any call would throw because real tmux isn't running.
+    const result = await waitForServer("claude", "%0");
+    expect(result).toBe("");
+  });
+
+  test("copilot: throws when getPanePid returns null", async () => {
+    mock.module("./tmux.ts", () => ({
+      capturePane: () => PANE_CONTENT_READY,
+      getPanePid: () => null,
+      // preserve other named exports as stubs
+      spawnMuxAttach: () => {},
+    }));
+
+    let err: Error | undefined;
+    try {
+      await waitForServer("copilot", "%0");
+    } catch (e) {
+      err = e as Error;
+    }
+    expect(err?.message).toContain("failed to resolve agent PID");
+  });
+
+  test("copilot: throws when port discovery times out (getListeningPortForPid returns null)", async () => {
+    mock.module("./tmux.ts", () => ({
+      capturePane: () => PANE_CONTENT_READY,
+      getPanePid: () => 12345,
+      spawnMuxAttach: () => {},
+    }));
+
+    mock.module("./port-discovery.ts", () => ({
+      getListeningPortForPid: async () => null,
+      PORT_DISCOVERY_TIMEOUT_MS: 100,
+    }));
+
+    let err: Error | undefined;
+    try {
+      await waitForServer("copilot", "%0");
+    } catch (e) {
+      err = e as Error;
+    }
+    expect(err?.message).toContain("did not bind a TCP port");
+  });
+
+  test("copilot: throws when SDK probe fails (CopilotClient.start rejects)", async () => {
+    mock.module("./tmux.ts", () => ({
+      capturePane: () => PANE_CONTENT_READY,
+      getPanePid: () => 12345,
+      spawnMuxAttach: () => {},
+    }));
+
+    mock.module("./port-discovery.ts", () => ({
+      getListeningPortForPid: async () => 50001,
+      PORT_DISCOVERY_TIMEOUT_MS: 100,
+    }));
+
+    mock.module("@github/copilot-sdk", () => ({
+      CopilotClient: class {
+        start() {
+          return Promise.reject(new Error("connection refused"));
+        }
+        listSessions() {
+          return Promise.resolve([]);
+        }
+        stop() {
+          return Promise.resolve();
+        }
+      },
+    }));
+
+    // SERVER_PROBE_TIMEOUT_MS is 60_000 but Bun.sleep is mocked to instant,
+    // so the loop burns through retries until Date.now() passes the deadline.
+    // To avoid a real 60s wall-clock wait we mock Date.now temporarily.
+    const realDateNow = Date.now;
+    let callCount = 0;
+    Date.now = () => {
+      callCount++;
+      // First few calls (port-deadline checks, probe-deadline setup): allow.
+      // After 10 calls assume probe deadline has passed.
+      return callCount > 10 ? realDateNow() + 999_999 : realDateNow();
+    };
+
+    let err: Error | undefined;
+    try {
+      try {
+        await waitForServer("copilot", "%0");
+      } catch (e) {
+        err = e as Error;
+      }
+    } finally {
+      Date.now = realDateNow;
+    }
+    expect(err?.message).toContain("copilot SDK probe did not respond");
+  });
+
+  test("copilot: returns localhost:<port> when SDK probe succeeds", async () => {
+    mock.module("./tmux.ts", () => ({
+      capturePane: () => PANE_CONTENT_READY,
+      getPanePid: () => 12345,
+      spawnMuxAttach: () => {},
+    }));
+
+    mock.module("./port-discovery.ts", () => ({
+      getListeningPortForPid: async () => 50001,
+      PORT_DISCOVERY_TIMEOUT_MS: 100,
+    }));
+
+    mock.module("@github/copilot-sdk", () => ({
+      CopilotClient: class {
+        start() {
+          return Promise.resolve();
+        }
+        listSessions() {
+          return Promise.resolve([]);
+        }
+        stop() {
+          return Promise.resolve();
+        }
+      },
+    }));
+
+    const result = await waitForServer("copilot", "%0");
+    expect(result).toBe("localhost:50001");
   });
 });

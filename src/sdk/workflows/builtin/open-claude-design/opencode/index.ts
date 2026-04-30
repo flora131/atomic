@@ -151,7 +151,10 @@ export default defineWorkflow({
             description: "Locate design files and tokens",
           },
           {},
-          { title: "ds-locator" },
+          {
+            title: "ds-locator",
+            permission: [{ permission: "*", pattern: "*", action: "allow" }],
+          },
           async (s) => {
             const result = await s.client.session.prompt({
               sessionID: s.session.id,
@@ -171,7 +174,10 @@ export default defineWorkflow({
             description: "Analyze design tokens and patterns",
           },
           {},
-          { title: "ds-analyzer" },
+          {
+            title: "ds-analyzer",
+            permission: [{ permission: "*", pattern: "*", action: "allow" }],
+          },
           async (s) => {
             const result = await s.client.session.prompt({
               sessionID: s.session.id,
@@ -191,7 +197,10 @@ export default defineWorkflow({
             description: "Find existing design patterns",
           },
           {},
-          { title: "ds-patterns" },
+          {
+            title: "ds-patterns",
+            permission: [{ permission: "*", pattern: "*", action: "allow" }],
+          },
           async (s) => {
             const result = await s.client.session.prompt({
               sessionID: s.session.id,
@@ -214,7 +223,10 @@ export default defineWorkflow({
           description: "Build design system with user approval (HIL)",
         },
         {},
-        { title: "design-system-builder" },
+        {
+          title: "design-system-builder",
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        },
         async (s) => {
           const result = await s.client.session.prompt({
             sessionID: s.session.id,
@@ -253,7 +265,10 @@ export default defineWorkflow({
               description: "Capture web reference via playwright",
             },
             {},
-            { title: "web-capture" },
+            {
+              title: "web-capture",
+              permission: [{ permission: "*", pattern: "*", action: "allow" }],
+            },
             async (s) => {
               const result = await s.client.session.prompt({
                 sessionID: s.session.id,
@@ -283,7 +298,10 @@ export default defineWorkflow({
               description: "Parse reference document",
             },
             {},
-            { title: "file-parser" },
+            {
+              title: "file-parser",
+              permission: [{ permission: "*", pattern: "*", action: "allow" }],
+            },
             async (s) => {
               const result = await s.client.session.prompt({
                 sessionID: s.session.id,
@@ -317,7 +335,10 @@ export default defineWorkflow({
     await ctx.stage(
       { name: "generator", description: "Generate first design version" },
       {},
-      { title: "generator" },
+      {
+        title: "generator",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      },
       async (s) => {
         const result = await s.client.session.prompt({
           sessionID: s.session.id,
@@ -351,7 +372,10 @@ export default defineWorkflow({
           description: `Collect refinement feedback (iteration ${iteration})`,
         },
         {},
-        { title: `user-feedback-${iteration}` },
+        {
+          title: `user-feedback-${iteration}`,
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        },
         async (s) => {
           const result = await s.client.session.prompt({
             sessionID: s.session.id,
@@ -384,7 +408,10 @@ export default defineWorkflow({
             description: `Design critique (iteration ${iteration})`,
           },
           {},
-          { title: `critique-${iteration}` },
+          {
+            title: `critique-${iteration}`,
+            permission: [{ permission: "*", pattern: "*", action: "allow" }],
+          },
           async (s) => {
             const result = await s.client.session.prompt({
               sessionID: s.session.id,
@@ -411,7 +438,10 @@ export default defineWorkflow({
             description: `Visual validation (iteration ${iteration})`,
           },
           {},
-          { title: `screenshot-${iteration}` },
+          {
+            title: `screenshot-${iteration}`,
+            permission: [{ permission: "*", pattern: "*", action: "allow" }],
+          },
           async (s) => {
             const result = await s.client.session.prompt({
               sessionID: s.session.id,
@@ -450,7 +480,10 @@ export default defineWorkflow({
           description: `Apply refinements (iteration ${iteration})`,
         },
         {},
-        { title: `apply-changes-${iteration}` },
+        {
+          title: `apply-changes-${iteration}`,
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        },
         async (s) => {
           const result = await s.client.session.prompt({
             sessionID: s.session.id,
@@ -495,7 +528,10 @@ export default defineWorkflow({
           description: "Remove banned anti-patterns before export",
         },
         {},
-        { title: "forced-fix" },
+        {
+          title: "forced-fix",
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        },
         async (s) => {
           const result = await s.client.session.prompt({
             sessionID: s.session.id,
@@ -539,7 +575,10 @@ export default defineWorkflow({
         description: "Export design and create handoff bundle",
       },
       {},
-      { title: "exporter" },
+      {
+        title: "exporter",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      },
       async (s) => {
         const result = await s.client.session.prompt({
           sessionID: s.session.id,

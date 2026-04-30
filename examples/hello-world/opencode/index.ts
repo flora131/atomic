@@ -47,7 +47,10 @@ export default defineWorkflow({
     await ctx.stage(
       { name: "hello", description: "Say hello to the world" },
       {},
-      { title: "hello" },
+      {
+        title: "hello",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      },
       async (s) => {
         const result = await s.client.session.prompt({
           sessionID: s.session.id,

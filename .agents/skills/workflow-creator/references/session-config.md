@@ -289,17 +289,64 @@ await ctx.stage({ name: "..." }, {
 ### Session options (`sessionOpts` — 3rd arg to `ctx.stage()`)
 
 These are forwarded to `client.session.create()`. Use them to set a title,
-parentID, or workspaceID for the session:
+parentID, workspaceID, or — most importantly — a `permission` ruleset for
+the session:
 
 ```ts
 await ctx.stage({ name: "..." }, {}, {
   title: "Feature implementation",
   parentID: "parent-session-id",
   workspaceID: "workspace-id",
+  // Recommended default — autonomous stages should approve every tool call.
+  // Mirrors Copilot's `approveAll` and Claude's `bypassPermissions`. Omit
+  // (or narrow) only when a stage must gate specific tools behind HIL.
+  permission: [{ permission: "*", pattern: "*", action: "allow" }],
 }, async (s) => {
   // s.session is the created OpencodeSession, s.session.id is the session ID
 });
 ```
+
+### OpenCode session permission ruleset (recommended default)
+
+Every opencode stage in the builtin and example workflows passes
+`permission: [{ permission: "*", pattern: "*", action: "allow" }]`
+explicitly. **Do the same for new opencode workflows.** This is OpenCode's
+equivalent of:
+
+| Agent    | Autonomous-default knob                                         |
+| -------- | --------------------------------------------------------------- |
+| Claude   | `chatFlags: ["--dangerously-skip-permissions"]` (interactive) / `permissionMode: "bypassPermissions"` (headless `s.session.query()` options) |
+| Copilot  | `onPermissionRequest: approveAll` (defaults on automatically)   |
+| OpenCode | `permission: [{ permission: "*", pattern: "*", action: "allow" }]` (default in the runtime; **set explicitly so workflow authors can see and override per stage**) |
+
+Why explicit:
+
+- The runtime applies the same allow-all ruleset as a fallback, but
+  **workflow authors should see the permission decision in the workflow
+  source** — not learn it by reading the executor.
+- A workflow author who needs a stricter ruleset (e.g. deny `bash` on a
+  production machine, ask before `edit` on a sensitive directory) can
+  override the field per stage. The runtime only applies the default when
+  `permission` is `undefined` in the session opts.
+- Mirroring the explicit pattern keeps the three SDK variants visually
+  symmetric — every stage in every agent shows its permission posture in
+  the same place (3rd arg to `ctx.stage()`).
+
+To narrow per stage, pass any other ruleset shape:
+
+```ts
+// Deny shell commands in this stage; ask for everything else.
+await ctx.stage({ name: "review" }, {}, {
+  title: "review",
+  permission: [
+    { permission: "bash", pattern: "*", action: "deny" },
+    { permission: "*", pattern: "*", action: "ask" },
+  ],
+}, async (s) => { /* ... */ });
+```
+
+The full type lives in `@opencode-ai/sdk/v2` as `PermissionRuleset`
+(`Array<{ permission: string; pattern?: string; action: "allow" | "deny" | "ask" }>`).
 
 ### Session prompting
 

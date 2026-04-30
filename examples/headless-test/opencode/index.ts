@@ -32,7 +32,10 @@ export default defineWorkflow({
     const seed = await ctx.stage(
       { name: "seed", description: "Generate a topic overview" },
       {},
-      { title: "seed" },
+      {
+        title: "seed",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      },
       async (s) => {
         const result = await s.client.session.prompt({
           sessionID: s.session.id,
@@ -53,7 +56,10 @@ export default defineWorkflow({
       ctx.stage(
         { name: "pros", headless: true },
         {},
-        { title: "pros" },
+        {
+          title: "pros",
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        },
         async (s) => {
           const result = await s.client.session.prompt({
             sessionID: s.session.id,
@@ -71,7 +77,10 @@ export default defineWorkflow({
       ctx.stage(
         { name: "cons", headless: true },
         {},
-        { title: "cons" },
+        {
+          title: "cons",
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        },
         async (s) => {
           const result = await s.client.session.prompt({
             sessionID: s.session.id,
@@ -89,7 +98,10 @@ export default defineWorkflow({
       ctx.stage(
         { name: "uses", headless: true },
         {},
-        { title: "uses" },
+        {
+          title: "uses",
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        },
         async (s) => {
           const result = await s.client.session.prompt({
             sessionID: s.session.id,
@@ -110,7 +122,10 @@ export default defineWorkflow({
     const mergeHandle = await ctx.stage(
       { name: "merge", description: "Combine background results" },
       {},
-      { title: "merge" },
+      {
+        title: "merge",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      },
       async (s) => {
         const result = await s.client.session.prompt({
           sessionID: s.session.id,
@@ -135,7 +150,10 @@ export default defineWorkflow({
     await ctx.stage(
       { name: "verdict", headless: true },
       {},
-      { title: "verdict" },
+      {
+        title: "verdict",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      },
       async (s) => {
         const result = await s.client.session.prompt({
           sessionID: s.session.id,

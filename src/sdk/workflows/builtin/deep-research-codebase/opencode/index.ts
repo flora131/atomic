@@ -129,7 +129,10 @@ export default defineWorkflow({
             "Map codebase, count LOC, partition for parallel specialists",
         },
         {},
-        { title: "codebase-scout" },
+        {
+          title: "codebase-scout",
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        },
         async (s) => {
           const data = scoutCodebase(root);
           if (data.units.length === 0) {
@@ -193,7 +196,10 @@ export default defineWorkflow({
             description: "Locate prior research docs (codebase-research-locator)",
           },
           {},
-          { title: "history-locator" },
+          {
+            title: "history-locator",
+            permission: [{ permission: "*", pattern: "*", action: "allow" }],
+          },
           async (s) => {
             const result = await s.client.session.prompt({
               sessionID: s.session.id,
@@ -219,7 +225,10 @@ export default defineWorkflow({
             description: "Synthesize prior research (codebase-research-analyzer)",
           },
           {},
-          { title: "history-analyzer" },
+          {
+            title: "history-analyzer",
+            permission: [{ permission: "*", pattern: "*", action: "allow" }],
+          },
           async (s) => {
             const result = await s.client.session.prompt({
               sessionID: s.session.id,
@@ -300,7 +309,10 @@ export default defineWorkflow({
             description: `Layer 1 dispatch (${batch.length} tasks)`,
           },
           {},
-          { title: `wave1-batch-${batchNumber}` },
+          {
+            title: `wave1-batch-${batchNumber}`,
+            permission: [{ permission: "*", pattern: "*", action: "allow" }],
+          },
           async (s) => {
             const taskSpecs = batch.map((t) => {
               const builder =
@@ -387,7 +399,10 @@ export default defineWorkflow({
             description: `Layer 2 dispatch (${batch.length} tasks)`,
           },
           {},
-          { title: `wave2-batch-${batchNumber}` },
+          {
+            title: `wave2-batch-${batchNumber}`,
+            permission: [{ permission: "*", pattern: "*", action: "allow" }],
+          },
           async (s) => {
             const taskSpecs = batch.map((t) => {
               const specialistPrompt =
@@ -485,7 +500,10 @@ export default defineWorkflow({
           "Synthesize partition findings + history into final research doc",
       },
       {},
-      { title: "aggregator" },
+      {
+        title: "aggregator",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      },
       async (s) => {
         const result = await s.client.session.prompt({
           sessionID: s.session.id,

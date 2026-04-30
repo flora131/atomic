@@ -35,7 +35,10 @@ export default defineWorkflow({
     const greet = await ctx.stage(
       { name: "greet", description: "Generate a greeting topic" },
       {},
-      { title: "greet" },
+      {
+        title: "greet",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      },
       async (s) => {
         const result = await s.client.session.prompt({
           sessionID: s.session.id,
@@ -49,7 +52,10 @@ export default defineWorkflow({
       ctx.stage(
         { name: "formal", description: "Write a formal greeting" },
         {},
-        { title: "formal" },
+        {
+          title: "formal",
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        },
         async (s) => {
           const prior = await s.transcript(greet);
           const result = await s.client.session.prompt({
@@ -67,7 +73,10 @@ export default defineWorkflow({
       ctx.stage(
         { name: "casual", description: "Write a casual greeting" },
         {},
-        { title: "casual" },
+        {
+          title: "casual",
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        },
         async (s) => {
           const prior = await s.transcript(greet);
           const result = await s.client.session.prompt({
@@ -87,7 +96,10 @@ export default defineWorkflow({
     await ctx.stage(
       { name: "merge", description: "Combine both greetings" },
       {},
-      { title: "merge" },
+      {
+        title: "merge",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      },
       async (s) => {
         const formalText = await s.transcript(formal);
         const casualText = await s.transcript(casual);

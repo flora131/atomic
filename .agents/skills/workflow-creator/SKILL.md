@@ -364,6 +364,7 @@ Every workflow pattern maps directly to TypeScript code:
 | Deterministic work tied to an LLM call       | Inside the same stage callback, before/after the query. E.g. `s.session.query(...)` → parse → validate → `s.save(parsed)`.                                                            |
 | Subagent orchestration                       | Claude: `--agent` via `chatFlags` (interactive) or `agent` SDK option (headless); Copilot: `{ agent: "name" }` in sessionOpts; OpenCode: `agent` param in `s.client.session.prompt()` |
 | Per-session configuration                    | Pass `clientOpts` (2nd arg) and `sessionOpts` (3rd arg) to `ctx.stage()`                                                                                                              |
+| Per-session permission posture (autonomous)  | Claude: `chatFlags: ["--dangerously-skip-permissions"]` (interactive) or `permissionMode: "bypassPermissions"` on `s.session.query()` (headless). Copilot: `onPermissionRequest: approveAll` (default — auto-applied). OpenCode: pass `permission: [{ permission: "*", pattern: "*", action: "allow" }]` in `sessionOpts` on **every stage** so the posture is visible in the workflow source, not buried in runtime defaults. See `references/session-config.md` §"OpenCode session permission ruleset". |
 
 ### When to use a stage vs. plain TypeScript
 

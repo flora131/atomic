@@ -39,9 +39,7 @@ import type {
   ProviderClient,
   ProviderSession,
 } from "../types.ts";
-import {
-  type ProviderOverrides,
-} from "../../services/config/definitions.ts";
+import { type ProviderOverrides } from "../../services/config/definitions.ts";
 import { getProviderOverrides } from "../../services/config/atomic-config.ts";
 import { getCopilotScmDisableFlags } from "../../services/config/scm-sync.ts";
 import { reconcileOpencodeInstructions } from "../../services/config/additional-instructions.ts";
@@ -51,6 +49,10 @@ import type { SessionPromptResponse } from "@opencode-ai/sdk/v2";
 import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import * as tmux from "./tmux.ts";
 import { spawnMuxAttach } from "./tmux.ts";
+import {
+  getListeningPortForPid,
+  PORT_DISCOVERY_TIMEOUT_MS,
+} from "./port-discovery.ts";
 import { spawnAttachedFooter } from "./attached-footer.ts";
 import {
   clearClaudeSession,
@@ -66,8 +68,8 @@ import { buildSnapshot, writeSnapshot } from "./status-writer.ts";
 import { errorMessage } from "../errors.ts";
 import { createPainter } from "../../theme/colors.ts";
 
-/** Maximum time (ms) to wait for an agent's server to become reachable. */
-const SERVER_WAIT_TIMEOUT_MS = 60_000;
+/** Maximum time (ms) for the SDK probe to succeed after port is discovered. */
+export const SERVER_PROBE_TIMEOUT_MS = 60_000;
 
 /** Agent CLI configuration for spawning in tmux panes. */
 const AGENT_CLI: Record<
@@ -170,33 +172,6 @@ function getSessionsBaseDir(): string {
   return join(homedir(), ".atomic", "sessions");
 }
 
-async function getRandomPort(): Promise<number> {
-  const net = await import("node:net");
-
-  const MAX_RETRIES = 3;
-  let lastPort = 0;
-
-  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-    const port = await new Promise<number>((resolve, reject) => {
-      const server = net.createServer();
-      server.listen(0, () => {
-        const addr = server.address();
-        const p = typeof addr === "object" && addr ? addr.port : 0;
-        server.close(() => resolve(p));
-      });
-      server.on("error", reject);
-    });
-
-    if (port > 0) return port;
-    lastPort = port;
-    await Bun.sleep(50);
-  }
-
-  throw new Error(
-    `Failed to acquire a random port after ${MAX_RETRIES} attempts (last: ${lastPort})`,
-  );
-}
-
 /**
  * Resolve a non-JS Copilot CLI binary on PATH.
  *
@@ -280,9 +255,29 @@ export function applyContainerEnvDefaults(): void {
   if (bin) process.env.COPILOT_CLI_PATH = bin;
 }
 
-function buildPaneCommand(
+/**
+ * Resolve a CLI binary name to its absolute path using the parent atomic
+ * process's PATH. tmux's child shell can have a stripped or differently
+ * ordered PATH from the user's interactive shell — most visibly when atomic
+ * is launched from a globally-installed bin wrapper rather than `bun run dev`.
+ * Resolving here, where we still have the full interactive PATH, mirrors
+ * how `attached-footer.ts` injects `process.execPath` + an absolute cli.ts
+ * path so the footer always spawns regardless of the child shell's PATH.
+ *
+ * Falls back to the bare name when the binary isn't found on PATH so behavior
+ * stays unchanged for callers running entirely inside a normal interactive shell.
+ */
+function resolveCliBinary(cmd: string): string {
+  return Bun.which(cmd, { PATH: process.env.PATH ?? "" }) ?? cmd;
+}
+
+/** Wrap a path in bash double quotes only when it contains shell-significant characters. */
+function quotePathIfNeeded(path: string): string {
+  return /[\s'"$`!\\]/.test(path) ? `"${escBash(path)}"` : path;
+}
+
+export function buildPaneCommand(
   agent: AgentType,
-  port: number,
   overrides: ProviderOverrides = {},
   extraChatFlags: string[] = [],
 ): { command: string; envVars: Record<string, string> } {
@@ -296,14 +291,16 @@ function buildPaneCommand(
     ? { ...defaultEnvVars, ...overrides.envVars }
     : defaultEnvVars;
 
+  const resolvedCmd = quotePathIfNeeded(resolveCliBinary(cmd));
+
   switch (agent) {
     case "copilot":
       return {
         command: [
-          cmd,
+          resolvedCmd,
           "--ui-server",
           "--port",
-          String(port),
+          "0",
           ...chatFlags,
           ...extraChatFlags,
         ].join(" "),
@@ -311,43 +308,67 @@ function buildPaneCommand(
       };
     case "opencode":
       return {
-        command: [cmd, "--port", String(port), ...chatFlags].join(" "),
+        command: [resolvedCmd, "--port", "0", ...chatFlags].join(" "),
         envVars,
       };
-    case "claude":
-      // Claude is started via createClaudeSession() in the workflow's run()
+    case "claude": {
+      // Claude is started via createClaudeSession() in the workflow's run().
+      // Resolve $SHELL (or the platform default) to an absolute path for the
+      // same reason the agent CLIs are resolved above.
+      const fallback = process.platform === "win32" ? "pwsh" : "sh";
+      const shellCandidate = process.env.SHELL || fallback;
+      const resolvedShell =
+        shellCandidate.includes("/") || shellCandidate.includes("\\")
+          ? shellCandidate
+          : resolveCliBinary(shellCandidate);
       return {
-        command:
-          process.env.SHELL || (process.platform === "win32" ? "pwsh" : "sh"),
+        command: quotePathIfNeeded(resolvedShell),
         envVars,
       };
+    }
     default:
       return assertNever(agent);
   }
 }
 
-async function waitForServer(
+export async function waitForServer(
   agent: AgentType,
-  port: number,
   paneId: string,
 ): Promise<string> {
   if (agent === "claude") return "";
 
-  const serverUrl = `localhost:${port}`;
-  const deadline = Date.now() + SERVER_WAIT_TIMEOUT_MS;
+  const portDeadline = Date.now() + PORT_DISCOVERY_TIMEOUT_MS;
 
-  // Wait for the TUI to render first
-  while (Date.now() < deadline) {
+  // 1. Wait for the agent process to start and the TUI to render.
+  while (Date.now() < portDeadline) {
     const content = tmux.capturePane(paneId);
     const lines = content.split("\n").filter((l) => l.trim().length > 0);
     if (lines.length >= 3) break;
     await Bun.sleep(1_000);
   }
 
-  // Then verify the SDK can actually connect and list sessions
+  // 2. Discover the listening port via the agent's PID.
+  const panePid = tmux.getPanePid(paneId);
+  if (!panePid) {
+    throw new Error(`failed to resolve agent PID for pane ${paneId}`);
+  }
+  const remainingMs = Math.max(0, portDeadline - Date.now());
+  const port = await getListeningPortForPid(panePid, {
+    timeoutMs: remainingMs,
+  });
+  if (port === null) {
+    throw new Error(
+      `agent (${agent}) did not bind a TCP port within ${PORT_DISCOVERY_TIMEOUT_MS}ms ` +
+        `(pane ${paneId}, pid ${panePid})`,
+    );
+  }
+  const serverUrl = `localhost:${port}`;
+
+  // 3. Verify the SDK can actually connect.
   if (agent === "copilot") {
+    const probeDeadline = Date.now() + SERVER_PROBE_TIMEOUT_MS;
     const { CopilotClient } = await import("@github/copilot-sdk");
-    while (Date.now() < deadline) {
+    while (Date.now() < probeDeadline) {
       try {
         const probe = new CopilotClient({ cliUrl: serverUrl });
         await probe.start();
@@ -358,10 +379,13 @@ async function waitForServer(
         await Bun.sleep(1_000);
       }
     }
+    throw new Error(
+      `copilot SDK probe did not respond at ${serverUrl} within ${SERVER_PROBE_TIMEOUT_MS}ms`,
+    );
   }
 
-  // For OpenCode, give it extra time after TUI renders
-  await Bun.sleep(3_000);
+  // OpenCode: short settle delay, then return.
+  await Bun.sleep(1_000);
   return serverUrl;
 }
 
@@ -482,6 +506,12 @@ export async function executeWorkflow(
   const orchestratorEntry = join(import.meta.dir, "orchestrator-entry.ts");
   const workflowSource = definition.source;
 
+  // Resolve the bun binary to an absolute path here — `process.execPath` is
+  // the exact bun interpreter currently running atomic, so we don't depend on
+  // bare `bun` being on the tmux child shell's PATH (the same reason
+  // `attached-footer.ts` uses it).
+  const bunBinary = process.execPath;
+
   const launcherScript = isWin
     ? [
         `Set-Location "${escPwsh(projectRoot)}"`,
@@ -489,7 +519,7 @@ export async function executeWorkflow(
         `$env:ATOMIC_WF_TMUX = "${escPwsh(tmuxSessionName)}"`,
         `$env:ATOMIC_WF_AGENT = "${escPwsh(agent)}"`,
         `$env:ATOMIC_WF_CWD = "${escPwsh(projectRoot)}"`,
-        `bun run "${escPwsh(orchestratorEntry)}" "${escPwsh(workflowSource)}" "${escPwsh(agent)}" "${escPwsh(inputsB64)}" 2>"${escPwsh(logPath)}"`,
+        `& "${escPwsh(bunBinary)}" run "${escPwsh(orchestratorEntry)}" "${escPwsh(workflowSource)}" "${escPwsh(agent)}" "${escPwsh(inputsB64)}" 2>"${escPwsh(logPath)}"`,
       ].join("\n")
     : [
         "#!/bin/bash",
@@ -498,7 +528,7 @@ export async function executeWorkflow(
         `export ATOMIC_WF_TMUX="${escBash(tmuxSessionName)}"`,
         `export ATOMIC_WF_AGENT="${escBash(agent)}"`,
         `export ATOMIC_WF_CWD="${escBash(projectRoot)}"`,
-        `bun run "${escBash(orchestratorEntry)}" "${escBash(workflowSource)}" "${escBash(agent)}" "${escBash(inputsB64)}" 2>"${escBash(logPath)}"`,
+        `"${escBash(bunBinary)}" run "${escBash(orchestratorEntry)}" "${escBash(workflowSource)}" "${escBash(agent)}" "${escBash(inputsB64)}" 2>"${escBash(logPath)}"`,
       ].join("\n");
 
   await writeFile(launcherPath, launcherScript, { mode: 0o755 });
@@ -541,12 +571,28 @@ function printDetachedBanner(tmuxSessionName: string): void {
   const paint = createPainter();
   process.stdout.write(
     "\n" +
-      "  " + paint("success", "✓") + " " + paint("text", "workflow started in background", { bold: true }) + "\n" +
-      "  " + paint("dim", "session: ") + paint("accent", tmuxSessionName) + "\n" +
+      "  " +
+      paint("success", "✓") +
+      " " +
+      paint("text", "workflow started in background", { bold: true }) +
       "\n" +
-      "  " + paint("dim", "attach: ") + paint("accent", `atomic workflow session connect ${tmuxSessionName}`) + "\n" +
-      "  " + paint("dim", "list:   ") + paint("accent", "atomic workflow session list") + "\n" +
-      "  " + paint("dim", "kill:   ") + paint("accent", `atomic workflow session kill ${tmuxSessionName}`) + "\n" +
+      "  " +
+      paint("dim", "session: ") +
+      paint("accent", tmuxSessionName) +
+      "\n" +
+      "\n" +
+      "  " +
+      paint("dim", "attach: ") +
+      paint("accent", `atomic workflow session connect ${tmuxSessionName}`) +
+      "\n" +
+      "  " +
+      paint("dim", "list:   ") +
+      paint("accent", "atomic workflow session list") +
+      "\n" +
+      "  " +
+      paint("dim", "kill:   ") +
+      paint("accent", `atomic workflow session kill ${tmuxSessionName}`) +
+      "\n" +
       "\n",
   );
 }
@@ -579,7 +625,9 @@ function resolveProviderSessionId(
     return typeof obj["id"] === "string" ? (obj["id"] as string) : "";
   }
   // claude and copilot both expose `sessionId` as a string.
-  return typeof obj["sessionId"] === "string" ? (obj["sessionId"] as string) : "";
+  return typeof obj["sessionId"] === "string"
+    ? (obj["sessionId"] as string)
+    : "";
 }
 
 /** Type guard for objects with a string `content` property (Copilot assistant.message data). */
@@ -792,7 +840,9 @@ function renderCopilotTranscript(
  * invocations. `reasoning` and `subtask` parts are internal and omitted.
  */
 function renderOpencodeTranscript(response: {
-  parts?: ReadonlyArray<{ type?: unknown; text?: unknown } & Record<string, unknown>>;
+  parts?: ReadonlyArray<
+    { type?: unknown; text?: unknown } & Record<string, unknown>
+  >;
 }): string {
   if (!response.parts) return "";
   const parts: string[] = [];
@@ -811,8 +861,8 @@ function renderOpencodeTranscript(response: {
       const state = part["state"];
       const args =
         state && typeof state === "object"
-          ? (state as Record<string, unknown>)["input"] ??
-            (state as Record<string, unknown>)["args"]
+          ? ((state as Record<string, unknown>)["input"] ??
+            (state as Record<string, unknown>)["args"])
           : undefined;
       parts.push(
         `**→ \`${name}\`**\n\n\`\`\`json\n${renderToolInput(args)}\n\`\`\``,
@@ -842,9 +892,7 @@ export function renderMessagesToText(messages: SavedMessage[]): string {
 
   for (const m of messages) {
     if (m.provider === "claude") {
-      claudeBatch.push(
-        m.data as unknown as { type: string; message: unknown },
-      );
+      claudeBatch.push(m.data as unknown as { type: string; message: unknown });
       continue;
     }
     flushClaude();
@@ -880,7 +928,10 @@ function resolveRef(ref: SessionRef): string {
  * CopilotSession and lightweight test mocks.
  */
 export interface CopilotSendSessionSurface {
-  on(eventType: string, handler: (event: { data?: unknown }) => void): () => void;
+  on(
+    eventType: string,
+    handler: (event: { data?: unknown }) => void,
+  ): () => void;
 }
 
 /**
@@ -1078,11 +1129,7 @@ export function watchCopilotSessionForElicitation(
   });
   const unsubCompleted = session.on("elicitation.completed", (event) => {
     const data = event.data as { requestId?: string } | undefined;
-    if (
-      data?.requestId &&
-      active.delete(data.requestId) &&
-      active.size === 0
-    ) {
+    if (data?.requestId && active.delete(data.requestId) && active.size === 0) {
       onHIL(false);
     }
   });
@@ -1275,12 +1322,10 @@ async function initProviderClientAndSession<A extends AgentType>(
   switch (agent) {
     case "copilot": {
       const { CopilotClient, approveAll } = await import("@github/copilot-sdk");
-      const { copilotSubprocessEnv, mergeCopilotSystemMessage } = await import(
-        "../providers/copilot.ts"
-      );
-      const { resolveAdditionalInstructionsContent } = await import(
-        "../../services/config/additional-instructions.ts"
-      );
+      const { copilotSubprocessEnv, mergeCopilotSystemMessage } =
+        await import("../providers/copilot.ts");
+      const { resolveAdditionalInstructionsContent } =
+        await import("../../services/config/additional-instructions.ts");
       const copilotClientOpts = clientOpts as StageClientOptions<"copilot">;
       const copilotSessionOpts = sessionOpts as StageSessionOptions<"copilot">;
       // Headless: let the SDK spawn its own CLI process (no cliUrl).
@@ -1311,9 +1356,8 @@ async function initProviderClientAndSession<A extends AgentType>(
       // In headless stages, add `ask_user` to the session's excludedTools so
       // the agent cannot call the interactive question tool — there is no
       // human attached to answer and the SDK would otherwise sit blocked.
-      const additionalInstructions = await resolveAdditionalInstructionsContent(
-        projectRoot,
-      );
+      const additionalInstructions =
+        await resolveAdditionalInstructionsContent(projectRoot);
       const sessionConfig = {
         onPermissionRequest: approveAll,
         ...copilotSessionOpts,
@@ -1356,7 +1400,10 @@ async function initProviderClientAndSession<A extends AgentType>(
         // the session permission ruleset).
         return await withHeadlessOpencodeEnv(async () => {
           const oc = await createOpencode({ port: 0 });
-          const sessionResult = await oc.client.session.create(ocSessionOpts);
+          const sessionResult = await oc.client.session.create({
+            permission: [{ permission: "*", pattern: "*", action: "allow" }],
+            ...ocSessionOpts,
+          });
           return {
             client: oc.client,
             session: sessionResult.data!,
@@ -1530,11 +1577,9 @@ function createSessionRunner(
     let panelSessionAdded = false;
 
     try {
-      // ── 6. Allocate port ──
-      const port = await getRandomPort();
+      // ── 6. Build pane command (OS allocates port via --port 0) ──
       const { command: paneCmd, envVars: paneEnvVars } = buildPaneCommand(
         shared.agent,
-        port,
         shared.providerOverrides,
         shared.extraChatFlags,
       );
@@ -1564,7 +1609,7 @@ function createSessionRunner(
 
         spawnAttachedFooter(name, paneId);
 
-        serverUrl = await waitForServer(shared.agent, port, paneId);
+        serverUrl = await waitForServer(shared.agent, paneId);
 
         shared.panel.addSession(name, graphParents);
         panelSessionAdded = true;
@@ -1592,8 +1637,8 @@ function createSessionRunner(
           if (!arg) {
             throw new Error(
               "wrapMessages: empty Claude session id. Call s.save(s.sessionId) " +
-              "only after a successful s.session.query() (headless wrappers " +
-              "only know their session_id once a query completes).",
+                "only after a successful s.session.query() (headless wrappers " +
+                "only know their session_id once a query completes).",
             );
           }
           const { getSessionMessages } =
@@ -1784,7 +1829,7 @@ function createSessionRunner(
             agent: shared.agent,
             paneId,
             serverUrl,
-            port,
+            port: serverUrl ? Number(serverUrl.split(":").pop()) : 0,
             startedAt: new Date().toISOString(),
           },
           null,
@@ -1886,7 +1931,8 @@ export async function runOrchestrator(
   definition: WorkflowDefinition,
   inputs: Record<string, string> = {},
 ): Promise<void> {
-  const { workflowRunId, tmuxSessionName, agent, cwd } = validateOrchestratorEnv();
+  const { workflowRunId, tmuxSessionName, agent, cwd } =
+    validateOrchestratorEnv();
   // A bare prompt string is still useful for the panel header and the
   // session-dir metadata.json — both just want something displayable.
   // Free-form workflows store their single positional prompt under the

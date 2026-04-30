@@ -28,7 +28,10 @@ export default defineWorkflow({
         description: "Headless: user-question should be disabled",
       },
       {},
-      { title: "ask-color-headless" },
+      {
+        title: "ask-color-headless",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      },
       async (s) => {
         const result = await s.client.session.prompt({
           sessionID: s.session.id,

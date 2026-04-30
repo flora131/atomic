@@ -38,6 +38,7 @@ import {
   parseSessionName,
   parseSessionEnvValue,
   sendViaPasteBuffer,
+  getPanePid,
 } from "../../../src/sdk/runtime/tmux.ts";
 
 // ---------------------------------------------------------------------------
@@ -1086,6 +1087,56 @@ describe.if(tmuxAvailable)("listSessions", () => {
     const sessions = listSessions();
     const found = sessions.find((s) => s.name === LIST_SESSION);
     expect(found).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getPanePid
+// ---------------------------------------------------------------------------
+
+describe("getPanePid — no binary", () => {
+  let originalPath: string | undefined;
+
+  beforeEach(() => {
+    resetMuxBinaryCache();
+    originalPath = process.env.PATH;
+    process.env.PATH = "/nonexistent-empty-dir";
+  });
+
+  afterEach(() => {
+    process.env.PATH = originalPath;
+    resetMuxBinaryCache();
+  });
+
+  test.serial("returns null when no mux binary found", () => {
+    expect(getPanePid("%0")).toBeNull();
+  });
+});
+
+describe.if(tmuxAvailable)("getPanePid integration", () => {
+  const PID_SESSION = `atomic-pid-${crypto.randomUUID().slice(0, 8)}`;
+  let paneId: string;
+
+  beforeAll(async () => {
+    paneId = createSession(PID_SESSION, "sleep 60", "pid-test");
+    await Bun.sleep(300);
+  });
+
+  afterAll(() => {
+    killSession(PID_SESSION);
+  });
+
+  test("returns a positive integer PID for a live pane", () => {
+    const pid = getPanePid(paneId);
+    expect(pid).not.toBeNull();
+    expect(typeof pid).toBe("number");
+    expect(pid! > 0).toBe(true);
+    expect(Number.isFinite(pid!)).toBe(true);
+    expect(Number.isInteger(pid!)).toBe(true);
+  });
+
+  test("returns null for a non-existent pane ID", () => {
+    expect(getPanePid("%99999")).toBeNull();
   });
 });
 

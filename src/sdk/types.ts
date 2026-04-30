@@ -50,6 +50,7 @@ type SessionOptionsMap = {
     parentID?: string;
     title?: string;
     workspaceID?: string;
+    permission?: import("@opencode-ai/sdk/v2").PermissionRuleset;
   };
   copilot: Partial<CopilotSessionConfig>;
   claude: Record<string, never>;

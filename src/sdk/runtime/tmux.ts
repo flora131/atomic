@@ -472,6 +472,22 @@ export function parseSessionEnvValue(stdout: string, key: string): string | null
 }
 
 /**
+ * Get the PID of the foreground process in a tmux pane.
+ * Returns null if the pane no longer exists or the query fails.
+ *
+ * Note: this is the pane's "current" process — typically the agent
+ * itself when the pane was created with the agent as the initial command.
+ * If tmux exec'd a wrapper shell that then exec'd the agent, the PID
+ * will refer to the same process (exec replaces in-place).
+ */
+export function getPanePid(paneId: string): number | null {
+  const result = tmuxRun(["display-message", "-t", paneId, "-p", "#{pane_pid}"]);
+  if (!result.ok) return null;
+  const pid = Number(result.stdout.trim());
+  return Number.isFinite(pid) && pid > 0 ? pid : null;
+}
+
+/**
  * Read a session-level environment variable.
  * Returns `null` when the session doesn't exist or the variable isn't set.
  */

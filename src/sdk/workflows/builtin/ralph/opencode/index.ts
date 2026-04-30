@@ -99,7 +99,10 @@ export default defineWorkflow({
       const planner = await ctx.stage(
         { name: `planner-${iteration}` },
         {},
-        { title: `planner-${iteration}` },
+        {
+          title: `planner-${iteration}`,
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        },
         async (s) => {
           const result = await s.client.session.prompt({
             sessionID: s.session.id,
@@ -123,7 +126,10 @@ export default defineWorkflow({
       await ctx.stage(
         { name: `orchestrator-${iteration}` },
         {},
-        { title: `orchestrator-${iteration}` },
+        {
+          title: `orchestrator-${iteration}`,
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        },
         async (s) => {
           const result = await s.client.session.prompt({
             sessionID: s.session.id,
@@ -145,7 +151,10 @@ export default defineWorkflow({
       await ctx.stage(
         { name: `code-simplifier-${iteration}` },
         {},
-        { title: `code-simplifier-${iteration}` },
+        {
+          title: `code-simplifier-${iteration}`,
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        },
         async (s) => {
           const result = await s.client.session.prompt({
             sessionID: s.session.id,
@@ -171,7 +180,10 @@ export default defineWorkflow({
         ctx.stage(
           { name: `infra-locate-${iteration}`, headless: true },
           {},
-          { title: `infra-locate-${iteration}` },
+          {
+            title: `infra-locate-${iteration}`,
+            permission: [{ permission: "*", pattern: "*", action: "allow" }],
+          },
           async (s) => {
             const result = await s.client.session.prompt({
               sessionID: s.session.id,
@@ -185,7 +197,10 @@ export default defineWorkflow({
         ctx.stage(
           { name: `infra-analyze-${iteration}`, headless: true },
           {},
-          { title: `infra-analyze-${iteration}` },
+          {
+            title: `infra-analyze-${iteration}`,
+            permission: [{ permission: "*", pattern: "*", action: "allow" }],
+          },
           async (s) => {
             const result = await s.client.session.prompt({
               sessionID: s.session.id,
@@ -199,7 +214,10 @@ export default defineWorkflow({
         ctx.stage(
           { name: `infra-patterns-${iteration}`, headless: true },
           {},
-          { title: `infra-patterns-${iteration}` },
+          {
+            title: `infra-patterns-${iteration}`,
+            permission: [{ permission: "*", pattern: "*", action: "allow" }],
+          },
           async (s) => {
             const result = await s.client.session.prompt({
               sessionID: s.session.id,
@@ -229,7 +247,10 @@ export default defineWorkflow({
         ctx.stage(
           { name },
           {},
-          { title: name },
+          {
+            title: name,
+            permission: [{ permission: "*", pattern: "*", action: "allow" }],
+          },
           async (s) => {
             const result = await s.client.session.prompt({
               sessionID: s.session.id,

@@ -18,7 +18,10 @@ export default defineWorkflow({
     await ctx.stage(
       { name: "alpha", description: "Window 1 — say A" },
       {},
-      { title: "alpha" },
+      {
+        title: "alpha",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      },
       async (s) => {
         const result = await s.client.session.prompt({
           sessionID: s.session.id,
@@ -31,7 +34,10 @@ export default defineWorkflow({
     await ctx.stage(
       { name: "bravo", description: "Window 2 — say B" },
       {},
-      { title: "bravo" },
+      {
+        title: "bravo",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      },
       async (s) => {
         const result = await s.client.session.prompt({
           sessionID: s.session.id,
@@ -44,7 +50,10 @@ export default defineWorkflow({
     await ctx.stage(
       { name: "charlie", description: "Window 3 — say C" },
       {},
-      { title: "charlie" },
+      {
+        title: "charlie",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      },
       async (s) => {
         const result = await s.client.session.prompt({
           sessionID: s.session.id,

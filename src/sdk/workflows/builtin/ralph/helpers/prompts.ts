@@ -564,10 +564,10 @@ export interface CodeSimplifierContext {
 }
 
 /**
- * Build the code-simplifier prompt. Invokes the `/code-simplifier` skill to
- * inspect only the orchestrator's changes on the current branch and refine
- * them for clarity, consistency, and maintainability — without altering
- * functionality or test behaviour.
+ * Build the code-simplifier prompt. Run by the `code-simplifier` sub-agent
+ * to inspect only the orchestrator's changes on the current branch and
+ * refine them for clarity, consistency, and maintainability — without
+ * altering functionality or test behaviour.
  *
  * @param spec - The user's original specification, used as context/fallback
  *   when planner output is missing or ambiguous.
@@ -587,7 +587,7 @@ ${plannerNotes}
 (empty — fall back to the Original User Specification below)
 </planner_output>`;
 
-  return withCaveman(`/code-simplifier Inspect the orchestrator's changes on the current branch and simplify the implementation for clarity, consistency, and maintainability.
+  return withCaveman(`Inspect the orchestrator's changes on the current branch and simplify the implementation for clarity, consistency, and maintainability.
 
 ## Design Input (authoritative)
 

@@ -157,6 +157,7 @@ export default defineWorkflow({
                 }),
               },
             ],
+            agent: "code-simplifier",
           });
           s.save(result.data!);
         },

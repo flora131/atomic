@@ -145,7 +145,7 @@ export default defineWorkflow({
       await ctx.stage(
         { name: `code-simplifier-${iteration}` },
         {},
-        {},
+        { agent: "code-simplifier" },
         async (s) => {
           await s.session.send({
             prompt: buildCodeSimplifierPrompt(userPromptText, {

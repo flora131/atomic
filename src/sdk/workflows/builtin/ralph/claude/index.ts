@@ -140,6 +140,8 @@ export default defineWorkflow({
         { name: `code-simplifier-${iteration}` },
         {
           chatFlags: [
+            "--agent",
+            "code-simplifier",
             "--allow-dangerously-skip-permissions",
             "--dangerously-skip-permissions",
           ],

@@ -9,6 +9,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { delimiter, join, sep } from "node:path";
 import type { CopilotClientOptions, SessionConfig as CopilotSessionConfig } from "@github/copilot-sdk";
 import { normalizedTerminalEnv } from "../../lib/terminal-env.ts";
+import { getCommandPath } from "../../services/system/detect.ts";
 import { createProviderValidator } from "../types.ts";
 
 // ---------------------------------------------------------------------------
@@ -138,14 +139,20 @@ export function resolveCopilotCliPath(): string | undefined {
   const envPath = process.env["COPILOT_CLI_PATH"];
   if (envPath) return envPath;
 
-  // 2. Enumerate all PATH dirs; return first non-shim candidate.
+  // 2. Use getCommandPath as primary lookup (testable/mockable via detect.ts).
+  //    If the first candidate is not a shim, return it immediately.
+  const primary = getCommandPath("copilot");
+  if (primary === null) return undefined;
+  if (!isCopilotShim(primary)) return primary;
+
+  // 3. Primary is a shim — enumerate all PATH dirs to find a non-shim candidate.
   const pathEnv = process.env["PATH"] ?? "";
   const candidates = enumeratePathCandidates("copilot", pathEnv);
   for (const candidate of candidates) {
     if (!isCopilotShim(candidate)) return candidate;
   }
 
-  // 3. No valid standalone binary found.
+  // 4. No valid standalone binary found.
   return undefined;
 }
 

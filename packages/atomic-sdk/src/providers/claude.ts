@@ -29,6 +29,9 @@ import { escBash } from "../runtime/executor.ts";
 import { watch, unlink, mkdir, writeFile } from "node:fs/promises";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+// TODO(Cluster B-3): CLI_PKG_ROOT removed from workspace-paths. Replace with
+// getDevCliPkgRoot() from "../lib/workspace-paths.ts" and handle undefined branch.
+import { getDevCliPkgRoot } from "../lib/workspace-paths.ts";
 import { randomUUID } from "node:crypto";
 import { claudeHookDirs } from "./claude-stop-hook.ts";
 import {
@@ -148,7 +151,9 @@ function buildWorkflowHookCommand(subcommand: string, extraArgs: readonly string
     return ["atomic", subcommand, ...extraArgs].join(" ");
   }
   const runtime = process.execPath;
-  const cliPath = join(import.meta.dir, "..", "..", "cli.ts");
+  const devCliRoot = getDevCliPkgRoot();
+  if (!devCliRoot) return ["atomic", subcommand, ...extraArgs].join(" ");
+  const cliPath = join(devCliRoot, "src", "cli.ts");
   if (process.platform === "win32") {
     const script = [
       quotePwshLiteral(runtime),

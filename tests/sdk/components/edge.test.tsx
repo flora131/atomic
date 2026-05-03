@@ -2,7 +2,7 @@
 
 import { test, expect, describe, afterEach } from "bun:test";
 import type { CapturedSpan } from "@opentui/core";
-import { Edge } from "../../../src/sdk/components/edge.tsx";
+import { Edge } from "../../../packages/atomic-sdk/src/components/edge.tsx";
 import { renderReact, TEST_THEME, type ReactTestSetup } from "./test-helpers.tsx";
 
 let testSetup: ReactTestSetup | null = null;

@@ -2,10 +2,10 @@
 
 import { test, expect, describe, afterEach } from "bun:test";
 import type { CapturedSpan } from "@opentui/core";
-import { PanelStore } from "../../../src/sdk/components/orchestrator-panel-store.ts";
-import { NodeCard } from "../../../src/sdk/components/node-card.tsx";
-import type { LayoutNode } from "../../../src/sdk/components/layout.ts";
-import { NODE_H } from "../../../src/sdk/components/layout.ts";
+import { PanelStore } from "../../../packages/atomic-sdk/src/components/orchestrator-panel-store.ts";
+import { NodeCard } from "../../../packages/atomic-sdk/src/components/node-card.tsx";
+import type { LayoutNode } from "../../../packages/atomic-sdk/src/components/layout.ts";
+import { NODE_H } from "../../../packages/atomic-sdk/src/components/layout.ts";
 import { renderReact, TestProviders, TEST_THEME, type ReactTestSetup } from "./test-helpers.tsx";
 
 let testSetup: ReactTestSetup | null = null;

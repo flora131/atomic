@@ -17,7 +17,7 @@ import {
   resolveCopilotCliPath,
   copilotSubprocessEnv,
   copilotSdkLaunchOptions,
-} from "../../../src/sdk/providers/copilot.ts";
+} from "../../../packages/atomic-sdk/src/providers/copilot.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers

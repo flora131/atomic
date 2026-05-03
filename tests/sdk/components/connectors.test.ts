@@ -2,11 +2,11 @@ import { test, expect, describe } from "bun:test";
 import {
   buildConnector,
   buildMergeConnector,
-} from "../../../src/sdk/components/connectors.ts";
-import { NODE_W, NODE_H, V_GAP } from "../../../src/sdk/components/layout.ts";
-import type { LayoutNode } from "../../../src/sdk/components/layout.ts";
-import type { GraphTheme } from "../../../src/sdk/components/graph-theme.ts";
-import type { SessionStatus } from "../../../src/sdk/components/orchestrator-panel-types.ts";
+} from "../../../packages/atomic-sdk/src/components/connectors.ts";
+import { NODE_W, NODE_H, V_GAP } from "../../../packages/atomic-sdk/src/components/layout.ts";
+import type { LayoutNode } from "../../../packages/atomic-sdk/src/components/layout.ts";
+import type { GraphTheme } from "../../../packages/atomic-sdk/src/components/graph-theme.ts";
+import type { SessionStatus } from "../../../packages/atomic-sdk/src/components/orchestrator-panel-types.ts";
 
 const theme: GraphTheme = {
   background: "#1e1e2e",

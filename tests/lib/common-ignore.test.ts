@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { createCommonIgnoreFilter } from "../../src/lib/common-ignore.ts";
+import { createCommonIgnoreFilter } from "../../packages/atomic-sdk/src/lib/common-ignore.ts";
 
 describe("createCommonIgnoreFilter", () => {
   test("ignores common OS, dependency, and lockfile patterns", () => {

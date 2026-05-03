@@ -1,4 +1,4 @@
-import { defineWorkflow, extractAssistantText } from "@bastani/atomic/workflows";
+import { defineWorkflow, extractAssistantText } from "@bastani/atomic-sdk/workflows";
 
 /**
  * Headless variant of hil-favorite-color (Claude).

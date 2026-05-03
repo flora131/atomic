@@ -1,4 +1,4 @@
-import { defineWorkflow } from "@bastani/atomic/workflows";
+import { defineWorkflow } from "@bastani/atomic-sdk/workflows";
 
 /** Extract text-typed parts from an OpenCode response. */
 function extractResponseText(

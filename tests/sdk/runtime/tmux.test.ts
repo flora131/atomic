@@ -39,7 +39,7 @@ import {
   parseSessionEnvValue,
   sendViaPasteBuffer,
   getPanePid,
-} from "../../../src/sdk/runtime/tmux.ts";
+} from "../../../packages/atomic-sdk/src/runtime/tmux.ts";
 
 // ---------------------------------------------------------------------------
 // Shared test helpers

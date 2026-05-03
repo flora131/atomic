@@ -8,7 +8,7 @@ import {
 import { mkdtemp, rm, mkdir, writeFile, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { seedGlobalProviderEnvVars } from "../../../src/services/config/settings.ts";
+import { seedGlobalProviderEnvVars } from "../../../packages/atomic/src/services/config/settings.ts";
 
 let tmpDir: string;
 let previousSettingsHome: string | undefined;

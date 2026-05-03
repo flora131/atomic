@@ -3,7 +3,7 @@ import {
   footerCommand,
   renderFooterFrame,
   runFooterRenderer,
-} from "../../../src/commands/cli/footer.tsx";
+} from "../../../packages/atomic/src/commands/cli/footer.tsx";
 
 type FooterTestStream = {
   columns: number;

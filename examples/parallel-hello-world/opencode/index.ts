@@ -1,4 +1,4 @@
-import { defineWorkflow } from "@bastani/atomic/workflows";
+import { defineWorkflow } from "@bastani/atomic-sdk/workflows";
 
 /** Compose the initial greeting prompt from the structured inputs. */
 function buildGreetPrompt(inputs: Record<string, string>): string {

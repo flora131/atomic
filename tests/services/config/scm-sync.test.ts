@@ -12,7 +12,7 @@ import {
   copilotScmDisableFlags,
   getCopilotScmDisableFlags,
   syncScmMcpServers,
-} from "../../../src/services/config/scm-sync.ts";
+} from "../../../packages/atomic-sdk/src/services/config/scm-sync.ts";
 
 let tmpDir: string;
 let previousSettingsHome: string | undefined;

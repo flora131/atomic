@@ -21,8 +21,8 @@ import {
   buildSpawnEnv,
   buildTmuxEnv,
   TERMINAL_ENV_KEYS,
-} from "../../../../src/commands/cli/chat/index.ts";
-import type { CommandPathResolver } from "../../../../src/sdk/providers/copilot.ts";
+} from "../../../../packages/atomic/src/commands/cli/chat/index.ts";
+import type { CommandPathResolver } from "../../../../packages/atomic-sdk/src/providers/copilot.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -9,7 +9,7 @@
  * Run: bun run examples/structured-output-demo/opencode-worker.ts --prompt=Python
  */
 
-import { defineWorkflow } from "@bastani/atomic/workflows";
+import { defineWorkflow } from "@bastani/atomic-sdk/workflows";
 
 import {
   LanguageFactsSchema,

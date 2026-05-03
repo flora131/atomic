@@ -1,6 +1,6 @@
 import { test, expect, describe } from "bun:test";
-import { deriveGraphTheme } from "../../../src/sdk/components/graph-theme.ts";
-import { resolveTheme } from "../../../src/sdk/runtime/theme.ts";
+import { deriveGraphTheme } from "../../../packages/atomic-sdk/src/components/graph-theme.ts";
+import { resolveTheme } from "../../../packages/atomic-sdk/src/runtime/theme.ts";
 
 const fakeTheme = resolveTheme(null);
 

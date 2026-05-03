@@ -29,14 +29,18 @@ import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 
 const sessionMessageQueue: SessionMessage[][] = [];
 
+// Capture the actual module first so we can spread its exports and only
+// override what we need. This prevents the stub from stripping exports that
+// other test files (e.g. auth.test.ts) rely on being present and compatible.
+const actualClaudeSdk = await import("@anthropic-ai/claude-agent-sdk");
+
 await mock.module("@anthropic-ai/claude-agent-sdk", () => {
   return {
+    ...actualClaudeSdk,
     getSessionMessages: async (_sessionId: string): Promise<SessionMessage[]> => {
       const next = sessionMessageQueue.shift();
       return next ?? [];
     },
-    // Provide stubs for other named exports used by claude.ts
-    query: async function* () {},
   };
 });
 
@@ -45,7 +49,7 @@ import {
   waitForIdle,
   markerDir,
   markerPath,
-} from "../../../src/sdk/providers/claude.ts";
+} from "../../../packages/atomic-sdk/src/providers/claude.ts";
 import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";

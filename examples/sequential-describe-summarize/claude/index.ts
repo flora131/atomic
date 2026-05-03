@@ -8,7 +8,7 @@
  * summary. This is the bread-and-butter handoff between stages in Atomic.
  */
 
-import { defineWorkflow } from "@bastani/atomic/workflows";
+import { defineWorkflow } from "@bastani/atomic-sdk/workflows";
 
 export default defineWorkflow({
   name: "sequential-describe-summarize",

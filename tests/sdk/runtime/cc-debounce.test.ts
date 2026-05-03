@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { shouldForward, QUIET_MS } from "../../../src/sdk/runtime/cc-debounce.ts";
+import { shouldForward, QUIET_MS } from "../../../packages/atomic-sdk/src/runtime/cc-debounce.ts";
 
 describe("shouldForward", () => {
   test("forwards the first press (last=0, no prior state)", () => {

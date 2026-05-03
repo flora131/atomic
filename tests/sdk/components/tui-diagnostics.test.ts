@@ -3,12 +3,12 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, mock, test } from "bun:test";
 import { OptimizedBuffer, RGBA, type CliRenderer } from "@opentui/core";
-import type { GraphTheme } from "../../../src/sdk/components/graph-theme.ts";
+import type { GraphTheme } from "../../../packages/atomic-sdk/src/components/graph-theme.ts";
 import {
   createTuiDiagnostics,
   isTuiDiagnosticsEnabled,
   summarizeBuffer,
-} from "../../../src/sdk/components/tui-diagnostics.ts";
+} from "../../../packages/atomic-sdk/src/components/tui-diagnostics.ts";
 
 const graphTheme: GraphTheme = {
   background: "#1e1e2e",

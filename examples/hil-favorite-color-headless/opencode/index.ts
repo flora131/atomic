@@ -1,4 +1,4 @@
-import { defineWorkflow } from "@bastani/atomic/workflows";
+import { defineWorkflow } from "@bastani/atomic-sdk/workflows";
 
 /**
  * Headless variant of hil-favorite-color (OpenCode).

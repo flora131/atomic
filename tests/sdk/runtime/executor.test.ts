@@ -1,11 +1,11 @@
 import { test, expect, describe, afterEach } from "bun:test";
-import type { WorkflowRunOptions } from "../../../src/sdk/runtime/executor.ts";
-import { runOrchestrator } from "../../../src/sdk/runtime/executor.ts";
+import type { WorkflowRunOptions } from "../../../packages/atomic-sdk/src/runtime/executor.ts";
+import { runOrchestrator } from "../../../packages/atomic-sdk/src/runtime/executor.ts";
 // Import validateOrchestratorEnv from the un-mocked sub-module so env-var
 // tests are not affected by mock.module("executor.ts") in worker/command tests.
-import { validateOrchestratorEnv } from "../../../src/sdk/runtime/executor-env.ts";
-import type { WorkflowDefinition } from "../../../src/sdk/types.ts";
-import { defineWorkflow } from "../../../src/sdk/define-workflow.ts";
+import { validateOrchestratorEnv } from "../../../packages/atomic-sdk/src/runtime/executor-env.ts";
+import type { WorkflowDefinition } from "../../../packages/atomic-sdk/src/types.ts";
+import { defineWorkflow } from "../../../packages/atomic-sdk/src/define-workflow.ts";
 
 // ---------------------------------------------------------------------------
 // WorkflowRunOptions shape
@@ -162,7 +162,7 @@ describe("runOrchestrator accepts WorkflowDefinition + inputs", () => {
 
 describe("launcher script invokes the SDK orchestrator entry", () => {
   test("executor sources orchestrator-entry.ts and drops the old env-var contract", async () => {
-    const src = await Bun.file("src/sdk/runtime/executor.ts").text();
+    const src = await Bun.file("packages/atomic-sdk/src/runtime/executor.ts").text();
 
     // The dev's CLI is no longer re-execed; the SDK ships its own entry.
     expect(src).toContain("orchestrator-entry.ts");

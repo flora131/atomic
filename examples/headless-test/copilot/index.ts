@@ -1,4 +1,4 @@
-import { defineWorkflow } from "@bastani/atomic/workflows";
+import { defineWorkflow } from "@bastani/atomic-sdk/workflows";
 import type { SessionEvent } from "@github/copilot-sdk";
 
 /** Extract top-level assistant text from Copilot session events. */

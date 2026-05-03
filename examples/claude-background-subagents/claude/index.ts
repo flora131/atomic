@@ -21,7 +21,7 @@
  * empties; only then does stage 2 spawn.
  */
 
-import { defineWorkflow } from "@bastani/atomic/workflows";
+import { defineWorkflow } from "@bastani/atomic-sdk/workflows";
 
 const MARKER_DIR = "/tmp";
 const MARKER_PREFIX = "atomic-bg-";

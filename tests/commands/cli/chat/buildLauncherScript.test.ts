@@ -12,7 +12,7 @@ function setPlatform(p: NodeJS.Platform) {
 // Import after platform is set the first time (we re-import via cache busting
 // is not needed because the module reads process.platform at call time, not
 // module load time).
-import { buildLauncherScript } from "../../../../src/commands/cli/chat/index.ts";
+import { buildLauncherScript } from "../../../../packages/atomic/src/commands/cli/chat/index.ts";
 
 // ── Bash branch ──────────────────────────────────────────────────────────────
 describe("buildLauncherScript – bash (posix)", () => {

@@ -3,7 +3,7 @@ import {
   buildAttachedFooterCommand,
   buildAttachedFooterCloseHooks,
   resolveAttachedFooterCliPath,
-} from "../../../src/sdk/runtime/attached-footer.ts";
+} from "../../../packages/atomic-sdk/src/runtime/attached-footer.ts";
 
 function decodeEncodedCommand(cmd: string): string {
   const prefix = "pwsh -NoProfile -EncodedCommand ";
@@ -56,14 +56,14 @@ describe("attached footer command harness", () => {
 
   test("resolves the CLI path with Windows separators when simulating win32", () => {
     expect(
-      resolveAttachedFooterCliPath("C:\\repo\\src\\sdk\\runtime", "win32"),
-    ).toBe("C:\\repo\\src\\cli.ts");
+      resolveAttachedFooterCliPath("C:\\repo\\packages\\atomic-sdk\\src\\runtime", "win32"),
+    ).toBe("C:\\repo\\packages\\atomic\\src\\cli.ts");
   });
 
   test("resolves the CLI path with POSIX separators on Unix-like platforms", () => {
     expect(
-      resolveAttachedFooterCliPath("/repo/src/sdk/runtime", "linux"),
-    ).toBe("/repo/src/cli.ts");
+      resolveAttachedFooterCliPath("/repo/packages/atomic-sdk/src/runtime", "linux"),
+    ).toBe("/repo/packages/atomic/src/cli.ts");
   });
 
   test("builds guarded footer close hooks for tmux", () => {

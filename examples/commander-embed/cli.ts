@@ -15,7 +15,7 @@
  */
 
 import { Command } from "@commander-js/extra-typings";
-import { getInputSchema, runWorkflow } from "@bastani/atomic/workflows";
+import { getInputSchema, runWorkflow } from "@bastani/atomic-sdk/workflows";
 import workflow from "./claude/index.ts";
 
 const program = new Command("my-app").description(

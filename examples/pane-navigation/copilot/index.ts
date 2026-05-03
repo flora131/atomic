@@ -6,7 +6,7 @@
  * the driver CLI in `../cli.ts` to walk with the navigation primitives.
  */
 
-import { defineWorkflow } from "@bastani/atomic/workflows";
+import { defineWorkflow } from "@bastani/atomic-sdk/workflows";
 
 export default defineWorkflow({
   name: "pane-navigation",

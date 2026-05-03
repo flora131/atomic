@@ -28,7 +28,7 @@ import {
   pathExists,
   isDirectory,
   isFileEmpty,
-} from "../../../src/services/system/copy.ts";
+} from "../../../packages/atomic-sdk/src/services/system/copy.ts";
 
 let tmpDir: string;
 

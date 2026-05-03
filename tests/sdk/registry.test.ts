@@ -3,9 +3,9 @@
  */
 
 import { test, expect, describe, spyOn, afterEach } from "bun:test";
-import { createRegistry } from "../../src/sdk/registry.ts";
-import { defineWorkflow } from "../../src/sdk/define-workflow.ts";
-import type { WorkflowDefinition } from "../../src/sdk/types.ts";
+import { createRegistry } from "../../packages/atomic-sdk/src/registry.ts";
+import { defineWorkflow } from "../../packages/atomic-sdk/src/define-workflow.ts";
+import type { WorkflowDefinition } from "../../packages/atomic-sdk/src/types.ts";
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 

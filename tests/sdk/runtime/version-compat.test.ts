@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test";
 import {
   compareVersions,
   satisfiesMinVersion,
-} from "../../../src/sdk/runtime/version-compat.ts";
+} from "../../../packages/atomic-sdk/src/runtime/version-compat.ts";
 
 describe("compareVersions", () => {
   test("compares major versions", () => {

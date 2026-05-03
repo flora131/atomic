@@ -12,8 +12,8 @@ import {
   ensureGlobalAtomicSettings,
   setTelemetryEnabled,
   setScmProvider,
-} from "../../../src/services/config/settings.ts";
-import { SETTINGS_SCHEMA_URL } from "../../../src/services/config/settings-schema.ts";
+} from "../../../packages/atomic/src/services/config/settings.ts";
+import { SETTINGS_SCHEMA_URL } from "../../../packages/atomic-sdk/src/services/config/settings-schema.ts";
 
 let tmpDir: string;
 let previousSettingsHome: string | undefined;

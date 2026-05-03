@@ -10,7 +10,7 @@
  * Run: bun run examples/structured-output-demo/copilot-worker.ts --prompt=Python
  */
 
-import { defineWorkflow } from "@bastani/atomic/workflows";
+import { defineWorkflow } from "@bastani/atomic-sdk/workflows";
 import { defineTool } from "@github/copilot-sdk";
 
 import {

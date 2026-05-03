@@ -11,7 +11,7 @@
  * quickly; the windows persist in tmux while the driver navigates.
  */
 
-import { defineWorkflow } from "@bastani/atomic/workflows";
+import { defineWorkflow } from "@bastani/atomic-sdk/workflows";
 
 export default defineWorkflow({
   name: "pane-navigation",

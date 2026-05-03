@@ -4,8 +4,8 @@ import {
   statusLabel,
   statusIcon,
   fmtDuration,
-} from "../../../src/sdk/components/status-helpers.ts";
-import type { GraphTheme } from "../../../src/sdk/components/graph-theme.ts";
+} from "../../../packages/atomic-sdk/src/components/status-helpers.ts";
+import type { GraphTheme } from "../../../packages/atomic-sdk/src/components/graph-theme.ts";
 
 const mockTheme: GraphTheme = {
   background: "#1e1e2e",

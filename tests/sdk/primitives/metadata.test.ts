@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { defineWorkflow } from "../../../src/sdk/define-workflow.ts";
+import { defineWorkflow } from "../../../packages/atomic-sdk/src/define-workflow.ts";
 import {
   getName,
   getDescription,
@@ -7,7 +7,7 @@ import {
   getInputSchema,
   getSource,
   getMinSDKVersion,
-} from "../../../src/sdk/primitives/metadata.ts";
+} from "../../../packages/atomic-sdk/src/primitives/metadata.ts";
 
 const sample = defineWorkflow({
   name: "hello",

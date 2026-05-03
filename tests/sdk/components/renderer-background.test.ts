@@ -6,7 +6,7 @@ import {
   setRendererBackground,
   terminalBackgroundColorSequence,
   wrapForTmuxIfNeeded,
-} from "../../../src/sdk/components/renderer-background.ts";
+} from "../../../packages/atomic-sdk/src/components/renderer-background.ts";
 
 function createRendererStub(): CliRenderer {
   return {

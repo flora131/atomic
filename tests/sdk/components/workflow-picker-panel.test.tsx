@@ -13,10 +13,10 @@ import {
   isFieldValid,
   type PickerTheme,
   type WorkflowPickerResult,
-} from "../../../src/sdk/components/workflow-picker-panel.tsx";
-import type { WorkflowDefinition, WorkflowInput } from "../../../src/sdk/types.ts";
-import { createRegistry } from "../../../src/sdk/registry.ts";
-import { resolveTheme } from "../../../src/sdk/runtime/theme.ts";
+} from "../../../packages/atomic-sdk/src/components/workflow-picker-panel.tsx";
+import type { WorkflowDefinition, WorkflowInput } from "../../../packages/atomic-sdk/src/types.ts";
+import { createRegistry } from "../../../packages/atomic-sdk/src/registry.ts";
+import { resolveTheme } from "../../../packages/atomic-sdk/src/runtime/theme.ts";
 import {
   renderReact,
   setReactActEnvironment,

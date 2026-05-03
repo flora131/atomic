@@ -1,8 +1,8 @@
 /** @jsxImportSource @opentui/react */
 
 import { test, expect, describe, afterEach } from "bun:test";
-import { PanelStore } from "../../../src/sdk/components/orchestrator-panel-store.ts";
-import { Header } from "../../../src/sdk/components/header.tsx";
+import { PanelStore } from "../../../packages/atomic-sdk/src/components/orchestrator-panel-store.ts";
+import { Header } from "../../../packages/atomic-sdk/src/components/header.tsx";
 import { renderReact, TestProviders, type ReactTestSetup } from "./test-helpers.tsx";
 
 let testSetup: ReactTestSetup | null = null;

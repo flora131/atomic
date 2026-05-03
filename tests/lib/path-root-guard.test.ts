@@ -12,7 +12,7 @@ import {
   isPathWithinRoot,
   assertPathWithinRoot,
   assertRealPathWithinRoot,
-} from "../../src/lib/path-root-guard.ts";
+} from "../../packages/atomic-sdk/src/lib/path-root-guard.ts";
 
 // ---------------------------------------------------------------------------
 // isPathWithinRoot

@@ -1,6 +1,6 @@
 import { test, expect, describe } from "bun:test";
-import { defineWorkflow } from "../../../src/sdk/define-workflow.ts";
-import { validateInputs } from "../../../src/sdk/primitives/inputs.ts";
+import { defineWorkflow } from "../../../packages/atomic-sdk/src/define-workflow.ts";
+import { validateInputs } from "../../../packages/atomic-sdk/src/primitives/inputs.ts";
 
 const wf = defineWorkflow({
   name: "x",

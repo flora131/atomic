@@ -15,8 +15,8 @@
  */
 
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
-import { watchHILMarker } from "../../../src/sdk/providers/claude.ts";
-import { claudeHookDirs } from "../../../src/commands/cli/claude-stop-hook.ts";
+import { watchHILMarker } from "../../../packages/atomic-sdk/src/providers/claude.ts";
+import { claudeHookDirs } from "../../../packages/atomic-sdk/src/providers/claude-stop-hook.ts";
 import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";

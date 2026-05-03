@@ -2,8 +2,8 @@
 
 import { test, expect, describe, afterEach } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
-import { OrchestratorPanel } from "../../../src/sdk/components/orchestrator-panel.tsx";
-import { ErrorBoundary } from "../../../src/sdk/components/error-boundary.tsx";
+import { OrchestratorPanel } from "../../../packages/atomic-sdk/src/components/orchestrator-panel.tsx";
+import { ErrorBoundary } from "../../../packages/atomic-sdk/src/components/error-boundary.tsx";
 import { renderReact, TEST_THEME } from "./test-helpers.tsx";
 
 let panel: OrchestratorPanel | null = null;

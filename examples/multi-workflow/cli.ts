@@ -19,7 +19,7 @@ import {
   getName,
   listWorkflows,
   runWorkflow,
-} from "@bastani/atomic/workflows";
+} from "@bastani/atomic-sdk/workflows";
 import hello from "./hello/claude.ts";
 import goodbye from "./goodbye/claude.ts";
 

@@ -3,13 +3,13 @@
 import { createTestRenderer, type TestRendererOptions } from "@opentui/core/testing";
 import { createRoot } from "@opentui/react";
 import { act, type ReactNode } from "react";
-import { PanelStore } from "../../../src/sdk/components/orchestrator-panel-store.ts";
+import { PanelStore } from "../../../packages/atomic-sdk/src/components/orchestrator-panel-store.ts";
 import {
   StoreContext,
   ThemeContext,
   TmuxSessionContext,
-} from "../../../src/sdk/components/orchestrator-panel-contexts.ts";
-import type { GraphTheme } from "../../../src/sdk/components/graph-theme.ts";
+} from "../../../packages/atomic-sdk/src/components/orchestrator-panel-contexts.ts";
+import type { GraphTheme } from "../../../packages/atomic-sdk/src/components/graph-theme.ts";
 
 export type ReactTestSetup = Awaited<ReturnType<typeof createTestRenderer>>;
 

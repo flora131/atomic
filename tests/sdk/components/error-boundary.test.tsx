@@ -1,7 +1,7 @@
 /** @jsxImportSource @opentui/react */
 
 import { test, expect, describe, afterEach, mock } from "bun:test";
-import { ErrorBoundary } from "../../../src/sdk/components/error-boundary.tsx";
+import { ErrorBoundary } from "../../../packages/atomic-sdk/src/components/error-boundary.tsx";
 import { renderReact, type ReactTestSetup } from "./test-helpers.tsx";
 
 let testSetup: ReactTestSetup | null = null;

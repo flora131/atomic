@@ -2,7 +2,7 @@ import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mergeJsonFile, syncJsonFile } from "../../src/lib/merge.ts";
+import { mergeJsonFile, syncJsonFile } from "../../packages/atomic/src/lib/merge.ts";
 
 let tmp: string;
 

@@ -4,7 +4,7 @@ import {
   getSession,
   getSessionStatus,
   getSessionTranscript,
-} from "../../../src/sdk/primitives/sessions.ts";
+} from "../../../packages/atomic-sdk/src/primitives/sessions.ts";
 
 describe("primitives/sessions", () => {
   test("listSessions returns an array (may be empty)", () => {

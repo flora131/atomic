@@ -16,7 +16,7 @@
  * Run: bun run examples/reviewer-tool-test/copilot-worker.ts
  */
 
-import { defineWorkflow } from "@bastani/atomic/workflows";
+import { defineWorkflow } from "@bastani/atomic-sdk/workflows";
 import { defineTool } from "@github/copilot-sdk";
 import type { CustomAgentConfig } from "@github/copilot-sdk";
 import { z } from "zod";

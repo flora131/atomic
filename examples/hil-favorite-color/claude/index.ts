@@ -1,4 +1,4 @@
-import { defineWorkflow } from "@bastani/atomic/workflows";
+import { defineWorkflow } from "@bastani/atomic-sdk/workflows";
 
 /**
  * Two-stage workflow that exercises the Claude HIL (human-in-the-loop)

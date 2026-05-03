@@ -39,7 +39,7 @@ import {
   SessionNotFoundError,
   stopSession,
   type AgentType,
-} from "@bastani/atomic";
+} from "@bastani/atomic-sdk";
 import claudeWorkflow from "./claude/index.ts";
 import copilotWorkflow from "./copilot/index.ts";
 import opencodeWorkflow from "./opencode/index.ts";

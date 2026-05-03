@@ -1,14 +1,14 @@
 /** @jsxImportSource @opentui/react */
 
 import { test, expect, describe, afterEach } from "bun:test";
-import { PanelStore } from "../../../src/sdk/components/orchestrator-panel-store.ts";
+import { PanelStore } from "../../../packages/atomic-sdk/src/components/orchestrator-panel-store.ts";
 import {
   StoreContext,
   ThemeContext,
   useStore,
   useGraphTheme,
   useStoreVersion,
-} from "../../../src/sdk/components/orchestrator-panel-contexts.ts";
+} from "../../../packages/atomic-sdk/src/components/orchestrator-panel-contexts.ts";
 import { renderReact, TEST_THEME, type ReactTestSetup } from "./test-helpers.tsx";
 
 let testSetup: ReactTestSetup | null = null;

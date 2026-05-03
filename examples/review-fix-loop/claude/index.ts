@@ -15,7 +15,7 @@
  * the loop's information flow explicit.
  */
 
-import { defineWorkflow, extractAssistantText } from "@bastani/atomic/workflows";
+import { defineWorkflow, extractAssistantText } from "@bastani/atomic-sdk/workflows";
 
 export default defineWorkflow({
   name: "review-fix-loop",

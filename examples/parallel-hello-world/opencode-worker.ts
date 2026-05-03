@@ -2,7 +2,7 @@ import { Command } from "@commander-js/extra-typings";
 import {
   getInputSchema,
   runWorkflow,
-} from "@bastani/atomic/workflows";
+} from "@bastani/atomic-sdk/workflows";
 import workflow from "./opencode/index.ts";
 
 const program = new Command();

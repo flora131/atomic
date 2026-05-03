@@ -1,7 +1,7 @@
 /** @jsxImportSource @opentui/react */
 
 import { test, expect, describe, afterEach } from "bun:test";
-import { AttachedStatusline } from "../../../src/sdk/components/attached-statusline.tsx";
+import { AttachedStatusline } from "../../../packages/atomic-sdk/src/components/attached-statusline.tsx";
 import { renderReact, TEST_THEME, type ReactTestSetup } from "./test-helpers.tsx";
 
 let testSetup: ReactTestSetup | null = null;

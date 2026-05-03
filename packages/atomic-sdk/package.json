@@ -1,6 +1,6 @@
 {
   "name": "@bastani/atomic-sdk",
-  "version": "0.6.8",
+  "version": "0.7.0-0",
   "type": "module",
   "license": "MIT",
   "description": "TypeScript SDK for atomic — defineWorkflow, schemas, components",
@@ -31,6 +31,7 @@
     "./lib/terminal-env": "./src/lib/terminal-env.ts",
     "./lib/common-ignore": "./src/lib/common-ignore.ts",
     "./lib/path-root-guard": "./src/lib/path-root-guard.ts",
+    "./lib/runtime-env": "./src/lib/runtime-env.ts",
     "./services/config/definitions": "./src/services/config/definitions.ts",
     "./services/config/atomic-config": "./src/services/config/atomic-config.ts",
     "./services/config/scm-sync": "./src/services/config/scm-sync.ts",
@@ -52,7 +53,9 @@
     "./workflows/builtin/open-claude-design/copilot": "./src/workflows/builtin/open-claude-design/copilot/index.ts",
     "./workflows/builtin/open-claude-design/opencode": "./src/workflows/builtin/open-claude-design/opencode/index.ts"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "bun run script/build.ts",
     "publish": "bun run script/publish.ts",

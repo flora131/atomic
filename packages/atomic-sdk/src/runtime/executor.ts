@@ -49,6 +49,7 @@ import type { SessionPromptResponse } from "@opencode-ai/sdk/v2";
 import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import * as tmux from "./tmux.ts";
 import { spawnMuxAttach } from "./tmux.ts";
+import { orchestratorEntryPath } from "../lib/runtime-assets.ts";
 import {
   getListeningPortForPid,
   PORT_DISCOVERY_TIMEOUT_MS,
@@ -518,7 +519,7 @@ export async function executeWorkflow(
   const inputsB64 = Buffer.from(JSON.stringify(inputs)).toString("base64");
 
   // Resolve the SDK's orchestrator entry script (sibling of this file).
-  const orchestratorEntry = join(import.meta.dir, "orchestrator-entry.ts");
+  const orchestratorEntry = orchestratorEntryPath;
   const workflowSource = definition.source;
 
   // Resolve the bun binary to an absolute path here — `process.execPath` is

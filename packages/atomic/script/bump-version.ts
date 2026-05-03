@@ -20,8 +20,36 @@
 import { $ } from "bun";
 import { resolve } from "node:path";
 import { VERSION_FILES } from "./constants-base.ts";
+import { findRepoRoot } from "../src/lib/workspace-paths.ts";
 
-const ROOT = resolve(import.meta.dir, "../..");
+/**
+ * Parse argv once into the values both `resolveRoot` and `getVersion` need.
+ * `--root <dir>` is a leading flag pair; everything else is positional.
+ */
+function parseArgv(): { rootOverride: string | undefined; positional: string[] } {
+  const argv = process.argv.slice(2);
+  let rootOverride: string | undefined;
+  const positional: string[] = [];
+
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--root" && argv[i + 1]) {
+      rootOverride = argv[i + 1];
+      i++;
+    } else {
+      positional.push(argv[i] as string);
+    }
+  }
+
+  return { rootOverride, positional };
+}
+
+const { rootOverride, positional } = parseArgv();
+
+/**
+ * Workspace root. `--root <dir>` overrides the default anchor-walk so tests
+ * (and CI) can point the script at a temp-dir copy of the package.json files.
+ */
+const ROOT = rootOverride ? resolve(rootOverride) : findRepoRoot(import.meta.dir);
 
 function parseVersionFromBranch(branch: string): string {
   const match = branch.match(/^(?:release|prerelease)\/v(.+)$/);
@@ -45,7 +73,7 @@ function validateVersion(version: string): void {
 }
 
 async function getVersion(): Promise<string> {
-  const arg = process.argv[2];
+  const arg = positional[0];
 
   if (!arg) {
     console.error(

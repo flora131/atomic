@@ -16,6 +16,7 @@
 import { posix, win32 } from "node:path";
 import type { AgentType } from "../types.ts";
 import { getMuxBinary, tmuxRun } from "./tmux.ts";
+import { isCompiledBinaryRuntime } from "../lib/runtime-env.ts";
 
 /**
  * Rows reserved for the footer pane. Matches the single-row height of
@@ -44,9 +45,13 @@ function encodePwshCommand(script: string): string {
 }
 
 export function resolveAttachedFooterCliPath(
-  runtimeDir = import.meta.dir,
+  runtimeDir = import.meta.dir, // runtime-asset: dev-only
   platform: NodeJS.Platform = process.platform,
 ): string {
+  if (isCompiledBinaryRuntime(runtimeDir)) {
+    // In a compiled binary, the CLI is the binary itself.
+    return process.execPath;
+  }
   // runtimeDir is packages/atomic-sdk/src/runtime/
   // Walk up 3 levels to reach packages/, then down into atomic/src/cli.ts
   return platform === "win32"

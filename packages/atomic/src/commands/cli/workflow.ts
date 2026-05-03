@@ -25,11 +25,13 @@ import {
   listWorkflows,
   runWorkflow,
 } from "@bastani/atomic-sdk";
+import {
+  getAgentKeys,
+  isValidAgent,
+} from "@bastani/atomic-sdk/services/config/definitions";
 import { buildInputUnion, toCamelCase } from "@bastani/atomic-sdk/worker-shared";
 import { createBuiltinRegistry } from "../builtin-registry.ts";
 import { WorkflowPickerPanel } from "@bastani/atomic-sdk/workflows/components";
-
-const VALID_AGENTS: readonly AgentType[] = ["claude", "opencode", "copilot"];
 
 /** Resolve a workflow against the builtin registry, throwing with a usable hint. */
 function resolveWorkflow(
@@ -120,13 +122,13 @@ export function buildWorkflowCommand(
     "-a, --agent <agent>",
     "Agent (claude | opencode | copilot)",
     (v) => {
-      if (!(VALID_AGENTS as readonly string[]).includes(v)) {
+      if (!isValidAgent(v)) {
         throw new Error(
           `[atomic/workflow] Unknown agent "${v}". ` +
-            `Valid agents: ${VALID_AGENTS.join(", ")}.`,
+            `Valid agents: ${getAgentKeys().join(", ")}.`,
         );
       }
-      return v as AgentType;
+      return v;
     },
   );
 
@@ -167,8 +169,8 @@ export function buildWorkflowCommand(
     // `inputs.prompt` so workflow authors can keep reading
     // `ctx.inputs.prompt` regardless of declared schema.
     const promptStr = promptTokens.join(" ");
-    if (promptStr !== "" && name) {
-      const def = registry.resolve(name, agent as AgentType);
+    if (promptStr !== "" && name && agent) {
+      const def = registry.resolve(name, agent);
       if (def && getInputSchema(def).length === 0) {
         cliInputs["prompt"] = promptStr;
       }

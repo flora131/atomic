@@ -1,37 +1,34 @@
 /**
- * Single accessor for runtime-resolved sibling assets (RFC §5.1).
+ * Resolved paths to runtime sibling assets (RFC §5.1).
  *
- * Each exported function returns the resolved path to a runtime file embedded
- * via `with { type: "file" }` static imports. Bun resolves these paths
- * correctly in both environments:
+ * Each export holds the path that `with { type: "file" }` resolves to:
  *
- *  - **Compiled binary**: returns a `/$bunfs/…` virtual-filesystem path.
- *  - **Dev / installed package**: returns the absolute source path.
+ *  - **Compiled binary**: a `/$bunfs/…` virtual-filesystem path.
+ *  - **Dev / installed package**: the absolute source path.
  *
- * This mirrors the `embedded-assets.ts` pattern. Do NOT use `import.meta.dir`
- * inside this module — `with { type: "file" }` is the only correct mechanism
- * for asset resolution under `bun build --compile`.
+ * `with { type: "file" }` is the only correct mechanism for asset resolution
+ * under `bun build --compile`. Do NOT use `import.meta.dir` inside this module.
+ *
+ * The `.script.js` bundles under `runtime-scripts/` are emitted by
+ * `emitRuntimeScriptBundles` (RFC §5.3) so a runtime asset import never
+ * collides with a module import of the canonical `cc-debounce.ts` /
+ * `orchestrator-entry.ts` source (RFC §5.6).
  */
 
-import tmuxConfAsset from "../runtime/tmux.conf" with { type: "file" };
-// @ts-expect-error — `with { type: "file" }` makes Bun treat this as an asset
-// path, not a module. TypeScript resolves the real module and errors on the
-// missing default export; the suppression is intentional and load-bearing.
-import ccDebounceAsset from "../runtime/cc-debounce.ts" with { type: "file" };
-// @ts-expect-error — same as above
-import orchestratorEntryAsset from "../runtime/orchestrator-entry.ts" with { type: "file" };
+import tmuxConfAsset          from "../runtime/tmux.conf"                           with { type: "file" };
+// `with { type: "file" }` makes Bun return a path string at runtime, but TypeScript
+// resolves the `.js` bundle as a module under `allowJs`. The suppression is
+// intentional and load-bearing.
+// @ts-expect-error see comment above
+import ccDebounceAsset         from "./runtime-scripts/cc-debounce.script.js"        with { type: "file" };
+// @ts-expect-error see comment above
+import orchestratorEntryAsset  from "./runtime-scripts/orchestrator-entry.script.js" with { type: "file" };
 
 /** Resolved path to the tmux.conf runtime asset. */
-export function tmuxConfPath(): string {
-  return tmuxConfAsset;
-}
+export const tmuxConfPath: string = tmuxConfAsset;
 
-/** Resolved path to the cc-debounce.ts runtime script. */
-export function ccDebounceScriptPath(): string {
-  return ccDebounceAsset;
-}
+/** Resolved path to the cc-debounce runtime script. */
+export const ccDebounceScriptPath: string = ccDebounceAsset;
 
-/** Resolved path to the orchestrator-entry.ts runtime script. */
-export function orchestratorEntryPath(): string {
-  return orchestratorEntryAsset;
-}
+/** Resolved path to the orchestrator-entry runtime script. */
+export const orchestratorEntryPath: string = orchestratorEntryAsset;

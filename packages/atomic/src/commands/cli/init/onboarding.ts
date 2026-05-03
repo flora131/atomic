@@ -2,7 +2,11 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { AGENT_CONFIG, type AgentKey } from "../../../services/config/index.ts";
 import { pathExists } from "@bastani/atomic-sdk/services/system/copy";
+import type { EmbeddedAssetKind } from "@bastani/atomic-sdk/services/config/definitions";
 import { syncJsonFile } from "../../../lib/merge.ts";
+
+/** Resolves an embedded-asset kind to its extracted directory path. */
+export type KindResolver = (kind: EmbeddedAssetKind) => Promise<string>;
 
 /**
  * Resolve an onboarding destination path. A leading `~/` is expanded to
@@ -20,12 +24,12 @@ function resolveDestination(destination: string, projectRoot: string): string {
 export async function applyManagedOnboardingFiles(
   agentKey: AgentKey,
   projectRoot: string,
-  configRoot: string,
+  resolveKind: KindResolver,
 ): Promise<void> {
   const onboardingFiles = AGENT_CONFIG[agentKey].onboarding_files;
 
   for (const managedFile of onboardingFiles) {
-    const sourcePath = join(configRoot, managedFile.source);
+    const sourcePath = join(await resolveKind(managedFile.kind), managedFile.source);
     if (!(await pathExists(sourcePath))) {
       continue;
     }

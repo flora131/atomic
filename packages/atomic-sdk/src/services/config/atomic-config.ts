@@ -9,7 +9,11 @@
 
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
-import { type AgentKey, type ProviderOverrides } from "./definitions.ts";
+import {
+  isValidAgent,
+  type AgentKey,
+  type ProviderOverrides,
+} from "./definitions.ts";
 import { SETTINGS_SCHEMA_URL } from "./settings-schema.ts";
 import { ensureDir } from "../system/copy.ts";
 
@@ -74,17 +78,15 @@ function pickProviderOverrides(raw: unknown): ProviderOverrides | null {
   return Object.keys(result).length > 0 ? result : null;
 }
 
-const VALID_AGENT_KEYS = new Set<string>(["claude", "opencode", "copilot"]);
-
 function pickProviders(raw: unknown): Partial<Record<AgentKey, ProviderOverrides>> | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const obj = raw as Record<string, unknown>;
   const result: Partial<Record<AgentKey, ProviderOverrides>> = {};
 
   for (const [key, value] of Object.entries(obj)) {
-    if (!VALID_AGENT_KEYS.has(key)) continue;
+    if (!isValidAgent(key)) continue;
     const overrides = pickProviderOverrides(value);
-    if (overrides) result[key as AgentKey] = overrides;
+    if (overrides) result[key] = overrides;
   }
 
   return Object.keys(result).length > 0 ? result : null;

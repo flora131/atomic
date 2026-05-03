@@ -10,15 +10,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { createCommonIgnoreFilter } from "@bastani/atomic-sdk/lib/common-ignore";
 import { copyDir, pathExists } from "@bastani/atomic-sdk/services/system/copy";
-
-/**
- * Locate the package root by walking up from this module. Both in installed
- * (`<pkg>/src/services/system/skills.ts`) and dev checkout layouts the
- * package root is three directories up.
- */
-function packageRoot(): string {
-  return join(import.meta.dir, "..", "..", "..");
-}
+import { getEmbeddedAsset } from "../../lib/embedded-assets.ts";
 
 /** Honors ATOMIC_SETTINGS_HOME so tests can point at a temp dir. */
 function homeRoot(): string {
@@ -41,7 +33,7 @@ const SKILL_DEST_DIRS = [
  * Copy bundled skills to the global skill directories.
  */
 export async function installGlobalSkills(): Promise<void> {
-  const src = join(packageRoot(), ".agents", "skills");
+  const src = await getEmbeddedAsset("skills");
 
   if (!(await pathExists(src))) {
     throw new Error(`Bundled skills missing at ${src}`);

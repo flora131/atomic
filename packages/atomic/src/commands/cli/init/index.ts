@@ -7,10 +7,10 @@
  */
 
 import type { AgentKey } from "../../../services/config/index.ts";
-import { getConfigRoot } from "../../../services/config/config-path.ts";
 import { syncScmMcpServers } from "@bastani/atomic-sdk/services/config/scm-sync";
 import { reconcileOpencodeInstructions } from "@bastani/atomic-sdk/services/config/additional-instructions";
 import { applyManagedOnboardingFiles } from "./onboarding.ts";
+import { getEmbeddedAsset } from "../../../lib/embedded-assets.ts";
 
 /**
  * Ensure the project is configured for the given agent. Idempotent — safe
@@ -27,8 +27,7 @@ export async function ensureProjectSetup(
   agentKey: AgentKey,
   projectRoot: string,
 ): Promise<void> {
-  const configRoot = getConfigRoot();
-  await applyManagedOnboardingFiles(agentKey, projectRoot, configRoot);
+  await applyManagedOnboardingFiles(agentKey, projectRoot, getEmbeddedAsset);
   await syncScmMcpServers(projectRoot);
 
   // OpenCode is the only provider whose CLI/SDK has no flag or env-var

@@ -28,7 +28,7 @@ import { checkAgentAuth, printAuthError } from "../../../services/system/auth.ts
 import {
   ensureAtomicGlobalAgentConfigs,
 } from "../../../services/config/atomic-global-config.ts";
-import { getConfigRoot } from "../../../services/config/config-path.ts";
+import { getEmbeddedAsset } from "../../../lib/embedded-assets.ts";
 import {
   isInsideAtomicSocket,
   isInsideTmux,
@@ -76,6 +76,13 @@ export interface ChatCommandOptions {
   agentType?: AgentType;
   /** Extra args/options forwarded verbatim to the native agent CLI */
   passthroughArgs?: string[];
+  /**
+   * When true, run only the preflight steps (global config sync + project
+   * onboarding) and exit 0 without spawning the agent CLI. Intended for
+   * integration tests and CI smoke-checks; skips the executable-existence
+   * and auth checks so it works even when the agent CLI is not installed.
+   */
+  preflightOnly?: boolean;
 }
 
 // ============================================================================
@@ -252,10 +259,22 @@ export function buildLauncherScript(
  * @returns Exit code from the agent process
  */
 export async function chatCommand(options: ChatCommandOptions = {}): Promise<number> {
-  const { agentType, passthroughArgs } = options;
+  const { agentType, passthroughArgs, preflightOnly } = options;
 
   if (!agentType) {
     throw new Error("agentType is required. Start chat with `atomic chat -a <agent>`.");
+  }
+
+  // ── Preflight-only mode ──
+  // Runs global-config sync + project onboarding without checking that the
+  // agent CLI is installed or that the user is authenticated. Safe to call
+  // on machines where the agent is not installed (e.g. CI). Exits 0 on
+  // success; lets any thrown error propagate as a non-zero exit.
+  if (preflightOnly) {
+    const projectRoot = process.cwd();
+    await ensureAtomicGlobalAgentConfigs(getEmbeddedAsset);
+    await ensureProjectSetup(agentType, projectRoot);
+    return 0;
   }
 
   const config = AGENT_CONFIG[agentType];
@@ -283,9 +302,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
 
   // ── Preflight: global config sync ──
   const projectRoot = process.cwd();
-  const configRoot = getConfigRoot();
-
-  await ensureAtomicGlobalAgentConfigs(configRoot);
+  await ensureAtomicGlobalAgentConfigs(getEmbeddedAsset);
 
   // ── Preflight: project setup (onboarding files, skills) ──
   await ensureProjectSetup(agentType, projectRoot);

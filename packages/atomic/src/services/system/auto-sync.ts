@@ -34,6 +34,7 @@ import {
   ensureTmuxInstalled,
   upgradeGlobalToolPackages,
 } from "@bastani/atomic-sdk/lib/spawn";
+import { isInstalledPackage } from "@bastani/atomic-sdk/lib/runtime-env";
 import { installGlobalAgents } from "./agents.ts";
 import { installGlobalSkills } from "./skills.ts";
 import { seedGlobalAdditionalInstructions } from "@bastani/atomic-sdk/services/config/additional-instructions";
@@ -43,15 +44,6 @@ import { seedGlobalProviderEnvVars } from "../config/settings.ts";
 function syncMarkerPath(): string {
   const home = process.env.ATOMIC_SETTINGS_HOME ?? homedir();
   return join(home, ".atomic", ".synced-version");
-}
-
-/**
- * True when running from an installed package (under `node_modules/`),
- * false on a dev checkout. Avoids triggering a full global setup on every
- * `bun run dev` in the repo.
- */
-function isInstalledPackage(): boolean {
-  return import.meta.dir.includes("node_modules");
 }
 
 /**
@@ -95,7 +87,7 @@ export async function autoSyncIfStale(): Promise<void> {
   // a non-`undefined` path on machines that have ever run `atomic`.
   await silentStep(seedGlobalAdditionalInstructions);
 
-  if (!isInstalledPackage()) return;
+  if (!isInstalledPackage(import.meta.dir)) return;
 
   let stored = "";
   const marker = Bun.file(syncMarkerPath());

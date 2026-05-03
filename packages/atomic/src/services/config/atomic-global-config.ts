@@ -6,7 +6,15 @@ import { AGENT_CONFIG, getAgentKeys, type AgentKey } from "./index.ts";
 import { syncJsonFile } from "../../lib/merge.ts";
 import { createCommonIgnoreFilter } from "@bastani/atomic-sdk/lib/common-ignore";
 import { copyDir, ensureDir, pathExists, shouldExclude } from "@bastani/atomic-sdk/services/system/copy";
+import type { ProviderConfigKind } from "@bastani/atomic-sdk/services/config/definitions";
+import type { KindResolver } from "../../commands/cli/init/onboarding.ts";
 
+/** Map from AgentKey to the embedded-asset kind that holds its bundled tree. */
+const AGENT_KIND_BY_KEY: Record<AgentKey, ProviderConfigKind> = {
+  claude: "claude",
+  opencode: "opencode",
+  copilot: "github",
+};
 
 const ATOMIC_HOME_DIR = join(homedir(), ".atomic");
 
@@ -163,13 +171,6 @@ function getGlobalSyncDestinationFileName(agentKey: AgentKey, sourceFileName: st
   return GLOBAL_SYNC_DESTINATION_FILE_NAMES[agentKey]?.[sourceFileName] ?? sourceFileName;
 }
 
-async function syncManagedGlobalFile(
-  sourcePath: string,
-  destinationPath: string,
-): Promise<void> {
-  await syncJsonFile(sourcePath, destinationPath);
-}
-
 /**
  * Remove only the Atomic-managed entries from provider-native global roots.
  *
@@ -179,13 +180,13 @@ async function syncManagedGlobalFile(
  * intentionally untouched — those are owned by the skills CLI now.
  */
 export async function removeAtomicManagedGlobalAgentConfigs(
-  configRoot: string,
+  resolveKind: KindResolver,
   baseDir: string = ATOMIC_HOME_DIR,
 ): Promise<void> {
   const agentKeys = getAgentKeys();
 
   for (const agentKey of agentKeys) {
-    const sourceFolder = join(configRoot, getTemplateAgentFolder(agentKey));
+    const sourceFolder = await resolveKind(AGENT_KIND_BY_KEY[agentKey]);
     const destinationFolder = getAtomicManagedAgentDir(agentKey, baseDir);
     for (const subdirectory of GLOBAL_SYNC_SUBDIRECTORIES) {
       const sourceSubdirectory = join(sourceFolder, subdirectory);
@@ -237,14 +238,14 @@ export async function removeAtomicManagedGlobalAgentConfigs(
  * via `npx skills add` from the git repo.
  */
 export async function syncAtomicGlobalAgentConfigs(
-  configRoot: string,
+  resolveKind: KindResolver,
   baseDir: string = ATOMIC_HOME_DIR,
 ): Promise<void> {
   await ensureDir(baseDir);
 
   const agentKeys = getAgentKeys();
   for (const agentKey of agentKeys) {
-    const sourceFolder = join(configRoot, getTemplateAgentFolder(agentKey));
+    const sourceFolder = await resolveKind(AGENT_KIND_BY_KEY[agentKey]);
     if (!(await pathExists(sourceFolder))) continue;
 
     const destinationFolder = getAtomicManagedAgentDir(agentKey, baseDir);
@@ -267,7 +268,7 @@ export async function syncAtomicGlobalAgentConfigs(
         destinationFolder,
         getGlobalSyncDestinationFileName(agentKey, fileName),
       );
-      await syncManagedGlobalFile(sourceFilePath, destinationFilePath);
+      await syncJsonFile(sourceFilePath, destinationFilePath);
     }
   }
 }
@@ -284,15 +285,15 @@ export async function syncAtomicGlobalAgentConfigs(
  * false-negative and they are never removed.
  */
 export async function hasAtomicGlobalAgentConfigs(
-  configRoot: string,
+  resolveKind: KindResolver,
   baseDir: string = ATOMIC_HOME_DIR,
 ): Promise<boolean> {
   const agentKeys = getAgentKeys();
 
   for (const agentKey of agentKeys) {
-    const sourceFolder = join(configRoot, getTemplateAgentFolder(agentKey));
+    const sourceFolder = await resolveKind(AGENT_KIND_BY_KEY[agentKey]);
     if (!(await pathExists(sourceFolder))) {
-      // No template for this agent in the config root — nothing to verify.
+      // No template for this agent in the embedded asset — nothing to verify.
       continue;
     }
 
@@ -339,10 +340,10 @@ export async function hasAtomicGlobalAgentConfigs(
  * This helper heals drift (e.g. a user deleted `~/.claude/agents/<foo>.md`).
  */
 export async function ensureAtomicGlobalAgentConfigs(
-  configRoot: string,
+  resolveKind: KindResolver,
   baseDir: string = ATOMIC_HOME_DIR,
 ): Promise<void> {
-  if (await hasAtomicGlobalAgentConfigs(configRoot, baseDir)) return;
-  await syncAtomicGlobalAgentConfigs(configRoot, baseDir);
+  if (await hasAtomicGlobalAgentConfigs(resolveKind, baseDir)) return;
+  await syncAtomicGlobalAgentConfigs(resolveKind, baseDir);
 }
 

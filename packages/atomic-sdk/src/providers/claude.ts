@@ -29,9 +29,8 @@ import { escBash } from "../runtime/executor.ts";
 import { watch, unlink, mkdir, writeFile } from "node:fs/promises";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-// TODO(Cluster B-3): CLI_PKG_ROOT removed from workspace-paths. Replace with
-// getDevCliPkgRoot() from "../lib/workspace-paths.ts" and handle undefined branch.
 import { getDevCliPkgRoot } from "../lib/workspace-paths.ts";
+import { isInstalledPackage } from "../lib/runtime-env.ts";
 import { randomUUID } from "node:crypto";
 import { claudeHookDirs } from "./claude-stop-hook.ts";
 import {
@@ -135,24 +134,22 @@ const DEFAULT_CHAT_FLAGS = [
 /**
  * Build the shell command Claude Code runs from an injected workflow hook.
  *
- * - **Published install** (`import.meta.dir` under `node_modules`): resolve
- *   `atomic` via the user's PATH. That's the binary they installed, and
- *   relying on PATH is robust across shells and platforms.
+ * - **Published install** (`node_modules` or `bun build --compile` binary):
+ *   resolve `atomic` via the user's PATH. Robust across shells and platforms.
  * - **Dev** (source checkout): re-invoke THIS repo's `src/cli.ts` using the
  *   same Bun runtime that's executing us, so edits to the hook logic are
  *   picked up without rebuilding or re-linking. Mirrors the
  *   `spawnAttachedFooter` pattern in `src/sdk/runtime/executor.ts:293-303`.
- *
- * The dev-detection heuristic (`node_modules` in `import.meta.dir`) is the
- * same one used by `src/services/system/auto-sync.ts:50`.
  */
 function buildWorkflowHookCommand(subcommand: string, extraArgs: readonly string[] = []): string {
-  if (import.meta.dir.includes("node_modules")) {
-    return ["atomic", subcommand, ...extraArgs].join(" ");
-  }
-  const runtime = process.execPath;
+  const onPath = ["atomic", subcommand, ...extraArgs].join(" ");
+
+  if (isInstalledPackage(import.meta.dir)) return onPath;
+
   const devCliRoot = getDevCliPkgRoot();
-  if (!devCliRoot) return ["atomic", subcommand, ...extraArgs].join(" ");
+  if (!devCliRoot) return onPath;
+
+  const runtime = process.execPath;
   const cliPath = join(devCliRoot, "src", "cli.ts");
   if (process.platform === "win32") {
     const script = [

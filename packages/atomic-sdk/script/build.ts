@@ -12,12 +12,17 @@ import { $ } from "bun";
 import { rm, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { emitRuntimeScriptBundles } from "../../atomic/script/build-assets.ts";
 
 const SDK_PKG_ROOT = fileURLToPath(new URL("..", import.meta.url));
+const WORKSPACE_ROOT = join(SDK_PKG_ROOT, "../..");
 const distDir = join(SDK_PKG_ROOT, "dist");
 
 await rm(distDir, { recursive: true, force: true });
 await mkdir(distDir, { recursive: true });
+
+// 0. Bundle runtime scripts into src/lib/runtime-scripts/ so tsc + bun build pick them up.
+await emitRuntimeScriptBundles(WORKSPACE_ROOT);
 
 // 1. Emit .d.ts via tsc.
 await $`bunx tsc --project tsconfig.build.json`.cwd(SDK_PKG_ROOT);

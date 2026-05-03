@@ -18,8 +18,9 @@ import { $ } from "bun";
 import { cpSync, existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { findRepoRoot } from "../src/lib/workspace-paths.ts";
 
-const ROOT = resolve(import.meta.dir, "../..");
+const ROOT = findRepoRoot(import.meta.dir);
 const HOME = homedir();
 
 /** Source repo for the global skills install. */

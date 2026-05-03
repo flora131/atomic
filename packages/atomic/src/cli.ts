@@ -24,7 +24,7 @@
 import { Command } from "@commander-js/extra-typings";
 import { VERSION } from "./version.ts";
 import { COLORS } from "@bastani/atomic-sdk/theme/colors";
-import { AGENT_CONFIG, type AgentKey } from "./services/config/index.ts";
+import { AGENT_CONFIG, isValidAgent } from "./services/config/index.ts";
 import { SUPPORTED_SHELLS, type Shell } from "./completions/index.ts";
 import { workflowCommand } from "./commands/cli/workflow.ts";
 import { addSessionSubcommand } from "./commands/cli/management-commands.ts";
@@ -71,6 +71,10 @@ export function createProgram() {
         .command("chat", { isDefault: true })
         .description("Start an interactive chat session with a coding agent")
         .option("-a, --agent <name>", `Agent to chat with (${agentChoices})`)
+        .option(
+            "--preflight-only",
+            "Run onboarding preflight (global-config sync + project setup) and exit 0 without spawning the agent. Skips executable and auth checks.",
+        )
         .allowUnknownOption()
         .allowExcessArguments(true)
         .enablePositionalOptions()
@@ -90,7 +94,6 @@ Examples:
   $ atomic chat session kill [id]                   Kill a chat session (multi-select when no id)`,
         )
         .action(async (localOpts, cmd) => {
-            const validAgents = Object.keys(AGENT_CONFIG);
             const agentType = localOpts.agent;
 
             if (!agentType) {
@@ -103,8 +106,7 @@ Examples:
                 process.exit(1);
             }
 
-            // Validate agent choice
-            if (!validAgents.includes(agentType)) {
+            if (!isValidAgent(agentType)) {
                 console.error(
                     `${COLORS.red}Error: Unknown agent '${agentType}'${COLORS.reset}`,
                 );
@@ -112,13 +114,11 @@ Examples:
                 process.exit(1);
             }
 
-            // Collect extra args/options to forward to the native CLI
-            const passthroughArgs = cmd.args;
-
             const { chatCommand } = await import("./commands/cli/chat.ts");
             const exitCode = await chatCommand({
-                agentType: agentType as AgentKey,
-                passthroughArgs,
+                agentType,
+                passthroughArgs: cmd.args,
+                preflightOnly: localOpts.preflightOnly,
             });
 
             process.exit(exitCode);
@@ -251,7 +251,6 @@ Examples:
         .option("--agent <agent>", "Agent type — renders provider pill in the footer")
         .action(async (opts: { name: string; agent?: string }) => {
             const { footerCommand } = await import("./commands/cli/footer.tsx");
-            const { isValidAgent } = await import("@bastani/atomic-sdk/services/config/definitions");
             const agentType = opts.agent && isValidAgent(opts.agent) ? opts.agent : undefined;
             const exitCode = await footerCommand(opts.name, agentType);
             process.exit(exitCode);

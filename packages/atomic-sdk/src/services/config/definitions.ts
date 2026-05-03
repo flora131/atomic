@@ -2,6 +2,19 @@
  * Agent configuration definitions for atomic CLI
  */
 
+/**
+ * Embedded-asset kind whose extracted tree is a provider config root
+ * (`.claude`, `.opencode`, `.github`). Used by onboarding-file declarations
+ * to identify their source bundle.
+ */
+export type ProviderConfigKind = "claude" | "opencode" | "github";
+
+/**
+ * Full embedded-asset kind — superset of {@link ProviderConfigKind} that
+ * also covers the `skills` bundle. Accepted by `getEmbeddedAsset`.
+ */
+export type EmbeddedAssetKind = ProviderConfigKind | "skills";
+
 export interface AgentConfig {
   /** Display name for the agent */
   name: string;
@@ -19,6 +32,9 @@ export interface AgentConfig {
   exclude: string[];
   /** Project files applied during `atomic chat` preflight for provider onboarding */
   onboarding_files: Array<{
+    /** Embedded-asset kind whose extracted tree is the source root. */
+    kind: ProviderConfigKind;
+    /** Path to the source file relative to the kind's extracted tree root. */
     source: string;
     destination: string;
     merge: boolean;
@@ -49,17 +65,20 @@ export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
     exclude: [],
     onboarding_files: [
       {
+        kind: "claude",
         source: ".mcp.json",
         destination: ".mcp.json",
         merge: true,
       },
       {
-        source: ".claude/settings.json",
+        kind: "claude",
+        source: "settings.json",
         destination: ".claude/settings.json",
         merge: true,
       },
       {
-        source: ".claude/settings.json",
+        kind: "claude",
+        source: "settings.json",
         destination: "~/.claude/settings.json",
         merge: true,
         // `disabledMcpjsonServers` is reconciled per-project by scm-sync
@@ -78,7 +97,8 @@ export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
     exclude: [".gitignore", "package.json"],
     onboarding_files: [
       {
-        source: ".opencode/opencode.json",
+        kind: "opencode",
+        source: "opencode.json",
         destination: ".opencode/opencode.json",
         merge: true,
       },

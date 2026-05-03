@@ -7,16 +7,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [0.7.0] — 2026-05-03
 
 ### Breaking Changes
-- `@bastani/atomic` no longer exposes SDK exports. Library consumers must migrate to the new `@bastani/atomic-sdk` package. See the README "Migration from 0.6.x" section.
+- **SDK rename: `@bastani/atomic` → `@bastani/atomic-sdk`.** Library consumers of
+  `defineWorkflow`, `createRegistry`, `WorkflowPicker`, etc. must migrate package
+  name. No backwards-compat shim is published. See README "Migration from 0.6.x".
+- **Wrapper carries no runtime dependencies.** `@bastani/atomic` is now a
+  zero-dep wrapper that resolves a per-platform binary via `optionalDependencies`.
 
 ### Added
-- Per-platform binary distribution: `@bastani/atomic-{linux,darwin,windows}-{x64,arm64}` packages. Globally installing `@bastani/atomic` now resolves a single matching binary with zero transitive `node_modules`, eliminating Windows MAX_PATH installation failures by construction.
-- `@bastani/atomic-sdk` standalone library package with compiled JS + type definitions.
-- Cross-platform install-smoke CI matrix covering Linux x64/arm64, macOS x64/arm64, Windows x64/arm64 to catch packaging regressions before they ship.
+- Per-platform binary distribution: `@bastani/atomic-{linux,darwin,windows}-{x64,arm64}`.
+- Bun workspace at repo root; CLI under `packages/atomic/`, SDK under `packages/atomic-sdk/`.
+- `Bun.embeddedFiles`-backed config bundling — `.claude/`, `.opencode/`, `.github/`,
+  `.agents/skills/` are inlined into the compiled binary and extracted to a
+  platform cache on first run.
 
 ### Fixed
-- `z.toJSONSchema is not a function` runtime error on Windows global installs caused by zod files exceeding the Windows 260-character MAX_PATH limit during nested `node_modules` extraction.
-
-### Internal
-- Repository converted to a Bun workspace under `packages/`. CLI source lives at `packages/atomic/`; SDK source at `packages/atomic-sdk/`.
-- Build/publish scripts mirror OpenCode's wrapper + `optionalDependencies` distribution pattern (reference: `sst/opencode`'s `packages/opencode/script/{build,publish}.ts`).
+- Windows MAX_PATH (260-char) silent file-extraction truncation that produced
+  `z.toJSONSchema is not a function` at runtime. Wrapper has no nested
+  `node_modules` by construction.

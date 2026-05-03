@@ -1,4 +1,5 @@
 [test]
+preload = ["./tests/setup/ensure-embedded-tarballs.ts"]
 root = "."
 
 # Coverage (opt-in via `bun run test:coverage`, not on every run)
@@ -17,107 +18,50 @@ coveragePathIgnorePatterns = [
   # Compiled workflow temp files generated at runtime
   "**/.atomic/.tmp/**",
   # Entry points (not unit-testable)
-  "src/cli.ts",
-  "src/version.ts",
-  # Scripts (standalone, not library code)
-  "src/scripts/**",
+  "packages/atomic/src/cli.ts",
+  "packages/atomic/src/version.ts",
   # React/OpenTUI components (require component test infrastructure)
-  "src/components/**",
-  "src/screens/**",
-  "src/app.tsx",
+  "packages/atomic-sdk/src/components/**",
   # Theme (React context + OpenTUI native resources)
-  "src/theme/**",
-  # React hooks (require React test renderer)
-  "src/hooks/**",
-  # State: React hooks, shell, keyboard, command handlers (deeply coupled to React)
-  "src/state/chat/**",
-  "src/state/chat/shell/**",
-  "src/state/runtime/**",
-  "src/state/streaming/**",
-  # SDK client integrations (require running SDK servers)
-  "src/services/agents/clients/**",
-  "src/services/agents/subagent-tool-policy.ts",
-  "src/services/agents/tools/opencode-mcp-bridge.ts",
-  "src/services/agents/provider-events/contracts.ts",
-  # Event adapter layer (tightly coupled to SDK sessions)
-  "src/services/events/adapters/**",
-  "src/services/events/consumers/echo-suppressor.ts",
-  "src/services/events/debug-subscriber/**",
-  "src/services/events/registry/handlers/**",
-  "src/services/events/event-bus-provider.tsx",
-  "src/services/events/hooks.ts",
-  # Telemetry I/O orchestration (fail-safe by design, pure functions tested separately)
-  "src/services/telemetry/**",
+  "packages/atomic-sdk/src/theme/**",
+  "packages/atomic/src/theme/**",
   # Config I/O
-  "src/services/config/atomic-config.ts",
-  "src/services/config/atomic-global-config.ts",
-  "src/services/config/config-path.ts",
-  "src/services/config/definitions.ts",
-  "src/services/config/mcp-config.ts",
-  "src/services/config/claude-config.ts",
-  "src/services/config/agent-definition-loader.ts",
-  "src/services/config/workflow-package.ts",
-  "src/services/config/additional-instructions.ts",
-  # Agent/skill discovery (filesystem-dependent)
-  "src/services/agent-discovery/discovery.ts",
-  "src/services/agents/tools/discovery.ts",
-  "src/services/agents/tools/registry.ts",
-  # Model operations (SDK-dependent)
-  "src/services/models/model-operations.ts",
-  "src/services/models/model-operations/**",
+  "packages/atomic-sdk/src/services/config/atomic-config.ts",
+  "packages/atomic-sdk/src/services/config/definitions.ts",
+  "packages/atomic-sdk/src/services/config/additional-instructions.ts",
+  "packages/atomic/src/services/config/atomic-global-config.ts",
   # SDK: non-testable runtime modules (require running agent CLIs, terminals, filesystems)
-  "src/sdk/define-workflow.ts",
-  "src/sdk/providers/**",
-  "src/sdk/runtime/attached-footer.ts",
-  "src/sdk/runtime/cc-debounce.ts",
-  "src/sdk/runtime/discovery.ts",
-  "src/sdk/runtime/executor.ts",
-  "src/sdk/runtime/panel.tsx",
-  "src/sdk/runtime/theme.ts",
-  "src/sdk/components/error-boundary.tsx",
-  "src/sdk/components/orchestrator-panel.tsx",
-  "src/sdk/components/compact-switcher.tsx",
-  "src/sdk/components/session-graph-panel.tsx",
+  "packages/atomic-sdk/src/define-workflow.ts",
+  "packages/atomic-sdk/src/providers/**",
+  "packages/atomic-sdk/src/runtime/attached-footer.ts",
+  "packages/atomic-sdk/src/runtime/cc-debounce.ts",
+  "packages/atomic-sdk/src/runtime/executor.ts",
+  "packages/atomic-sdk/src/runtime/panel.tsx",
+  "packages/atomic-sdk/src/runtime/theme.ts",
+  "packages/atomic-sdk/src/components/error-boundary.tsx",
+  "packages/atomic-sdk/src/components/orchestrator-panel.tsx",
+  "packages/atomic-sdk/src/components/compact-switcher.tsx",
+  "packages/atomic-sdk/src/components/session-graph-panel.tsx",
   # Commander subcommand builder — action handlers call process.exit and
-  # dynamically import subprocess orchestration modules. Command shape is
-  # verified in tests/sdk/management-commands.test.ts.
-  "src/sdk/management-commands.ts",
+  # dynamically import subprocess orchestration modules.
+  "packages/atomic/src/commands/cli/management-commands.ts",
   # Builtin workflow implementations (SDK-session-dependent orchestration + subprocess helpers)
-  "src/sdk/workflows/builtin/**",
-  # Workflow runtime I/O (subprocess/SDK/filesystem dependent)
-  "src/services/workflows/session.ts",
-  "src/services/workflows/graph/nodes.ts",
-  "src/services/workflows/graph/subagent-registry.ts",
-  "src/services/workflows/graph/errors.ts",
-  "src/services/workflows/graph/builder.ts",
-  "src/services/workflows/graph/authoring/**",
-  "src/services/workflows/graph/nodes/**",
-  "src/services/workflows/graph/persistence/**",
-  "src/services/workflows/graph/runtime/**",
-  "src/services/workflows/runtime/executor/**",
-  "src/services/workflows/conductor/**",
-  "src/services/workflows/builtin/ralph/ralph-workflow.ts",
-  # Workflow verification (wraps TypeScript compiler API — defensive branches untestable without fragile mocks)
-  "src/services/workflows/verification/type-checking.ts",
+  "packages/atomic-sdk/src/workflows/builtin/**",
   # System utilities (I/O-heavy)
-  "src/services/system/download.ts",
-  "src/services/system/file-lock.ts",
-  "src/services/system/workflows.ts",
-  "src/lib/spawn.ts",
-  "src/lib/ui/clipboard.ts",
-  "src/lib/ui/mention-parsing.ts",
-  "src/lib/ui/mcp-output.ts",
-  "src/lib/ui/markdown-selection-patch.ts",
+  "packages/atomic/src/services/system/file-lock.ts",
+  "packages/atomic-sdk/src/lib/spawn.ts",
   # Interactive CLI flows
-  "src/commands/cli/init.ts",
-  "src/commands/cli/init/**",
-  "src/commands/cli/chat/**",
-  "src/commands/tui/index.ts",
-  "src/commands/tui/agent-commands.ts",
-  "src/commands/tui/workflow-commands.ts",
-  "src/commands/tui/workflow-commands/**",
-  "src/commands/tui/builtin-commands.ts",
-  "src/commands/catalog/**",
+  "packages/atomic/src/commands/cli/init.ts",
+  "packages/atomic/src/commands/cli/init/**",
+  "packages/atomic/src/commands/cli/chat/**",
+  # Build/release scripts (exercised by integration tests, not unit covered)
+  "packages/atomic/script/clean-dist.ts",
+  "packages/atomic/script/publish.ts",
+  "packages/atomic/script/build.ts",
+  "packages/atomic/script/bundle-configs.ts",
+  "packages/atomic/script/build-assets.ts",
+  "packages/atomic-sdk/script/build.ts",
+  "packages/atomic-sdk/script/publish.ts",
   "node_modules/**",
   "vendor/**",
   "generated/**",

@@ -13,7 +13,10 @@
  */
 
 import { COLORS, createPainter } from "@bastani/atomic-sdk/theme/colors";
-import { AGENT_CONFIG } from "../../services/config/index.ts";
+import {
+  getAgentKeys,
+  isValidAgent,
+} from "@bastani/atomic-sdk/services/config/definitions";
 import { createBuiltinRegistry } from "../builtin-registry.ts";
 import type {
   WorkflowInput,
@@ -218,14 +221,13 @@ export async function workflowInputsCommand(
 ): Promise<number> {
   const format: WorkflowInputsFormat = options.format ?? "json";
 
-  const validAgents = Object.keys(AGENT_CONFIG);
-  if (!validAgents.includes(options.agent)) {
+  if (!isValidAgent(options.agent)) {
     return reportError(
       format,
-      `Unknown agent '${options.agent}'. Valid agents: ${validAgents.join(", ")}`,
+      `Unknown agent '${options.agent}'. Valid agents: ${getAgentKeys().join(", ")}`,
     );
   }
-  const agent = options.agent as AgentType;
+  const agent = options.agent;
 
   const discovered = await deps.findWorkflow(options.name, agent, options.cwd);
   if (!discovered) {

@@ -26,15 +26,8 @@ import {
   pathExists,
 } from "@bastani/atomic-sdk/services/system/copy";
 import { createCommonIgnoreFilter } from "@bastani/atomic-sdk/lib/common-ignore";
-
-/**
- * Locate the package root by walking up from this module. Both in installed
- * (`<pkg>/src/services/system/agents.ts`) and dev checkout layouts the
- * package root is three directories up.
- */
-function packageRoot(): string {
-  return join(import.meta.dir, "..", "..", "..");
-}
+import type { ProviderConfigKind } from "@bastani/atomic-sdk/services/config/definitions";
+import { getEmbeddedAsset } from "../../lib/embedded-assets.ts";
 
 /** Honors ATOMIC_SETTINGS_HOME so tests can point at a temp dir. */
 function homeRoot(): string {
@@ -42,16 +35,16 @@ function homeRoot(): string {
 }
 
 interface AgentSyncPair {
-  /** Source path relative to package root. */
-  src: string;
+  /** Embedded-asset kind whose extracted tree is the source root. */
+  kind: ProviderConfigKind;
   /** Destination path relative to home root. */
   dest: string;
 }
 
 const AGENT_DIR_PAIRS: AgentSyncPair[] = [
-  { src: ".claude/agents", dest: ".claude/agents" },
-  { src: ".opencode/agents", dest: ".opencode/agents" },
-  { src: ".github/agents", dest: ".copilot/agents" },
+  { kind: "claude", dest: ".claude/agents" },
+  { kind: "opencode", dest: ".opencode/agents" },
+  { kind: "github", dest: ".copilot/agents" },
 ];
 
 /**
@@ -60,20 +53,19 @@ const AGENT_DIR_PAIRS: AgentSyncPair[] = [
  * directories are warned about and skipped, not thrown.
  */
 export async function installGlobalAgents(): Promise<void> {
-  const pkg = packageRoot();
   const home = homeRoot();
 
   const warnings: string[] = [];
-  for (const pair of AGENT_DIR_PAIRS) {
-    const src = join(pkg, pair.src);
-    const dest = join(home, pair.dest);
+  for (const { kind, dest } of AGENT_DIR_PAIRS) {
+    const src = join(await getEmbeddedAsset(kind), "agents");
+    const target = join(home, dest);
 
     if (!(await pathExists(src))) {
-      warnings.push(`bundled agents missing at ${src} — skipping ${dest}`);
+      warnings.push(`bundled agents missing at ${src} — skipping ${target}`);
       continue;
     }
 
-    await copyDir(src, dest, { ignoreFilter: createCommonIgnoreFilter() });
+    await copyDir(src, target, { ignoreFilter: createCommonIgnoreFilter() });
   }
 
   // Surface skipped sources via a non-fatal thrown error only if ALL sources
@@ -86,7 +78,7 @@ export async function installGlobalAgents(): Promise<void> {
 
   // Copilot's lsp.json is renamed to ~/.copilot/lsp-config.json on disk
   // (see atomic-global-config.ts for the in-binary rename rationale).
-  const lspSrc = join(pkg, ".github", "lsp.json");
+  const lspSrc = join(await getEmbeddedAsset("github"), "lsp.json");
   const lspDest = join(home, ".copilot", "lsp-config.json");
   if (await pathExists(lspSrc)) {
     await ensureDir(dirname(lspDest));

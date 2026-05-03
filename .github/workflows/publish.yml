@@ -27,81 +27,148 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  publish:
-    name: Publish to npm
-    runs-on: ubuntu-latest
+  build:
+    name: Build ${{ matrix.target.name }}
     if: >-
       github.event_name != 'pull_request'
       || (github.event.pull_request.merged == true
       && (startsWith(github.event.pull_request.head.ref, 'release/')
       || startsWith(github.event.pull_request.head.ref, 'prerelease/')))
-    permissions:
-      contents: read
-      id-token: write
-
+    strategy:
+      matrix:
+        target:
+          - { name: linux-x64,     runner: ubuntu-latest }
+          - { name: linux-arm64,   runner: ubuntu-latest }
+          - { name: darwin-x64,    runner: ubuntu-latest }
+          - { name: darwin-arm64,  runner: ubuntu-latest }
+          - { name: windows-x64,   runner: ubuntu-latest }
+          - { name: windows-arm64, runner: ubuntu-latest }
+    runs-on: ${{ matrix.target.runner }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
-      - name: Install dependencies
-        run: bun install
+      - run: bun install
 
-      - name: Run type checking
-        run: bun run typecheck
+      - run: bun packages/atomic/script/build.ts ${{ matrix.target.name }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target.name }}
+          path: packages/atomic/dist/${{ matrix.target.name }}
+
+  publish:
+    name: Publish to npm
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      version: ${{ steps.npm-tag.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install
+
+      - run: bun run typecheck
 
       - name: Run tests
-        run: |
-          set -o pipefail
-          bun test 2>&1 | cat
+        run: bun test 2>&1 | cat
+        env:
+          ATOMIC_SKIP_PUBLISH_BUILD_TEST: "1"
 
       - name: Determine npm publish tag
         id: npm-tag
         run: |
           VERSION=$(jq -r .version package.json)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
           if [[ "$VERSION" == *-* ]]; then
             echo "tag=next" >> $GITHUB_OUTPUT
           else
             echo "tag=latest" >> $GITHUB_OUTPUT
           fi
 
-      - name: Setup Node.js for npm publish
-        uses: actions/setup-node@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: "lts/*"
           registry-url: "https://registry.npmjs.org"
 
-      - name: Stage filtered skills for npm package
+      - uses: actions/download-artifact@v4
+        with:
+          path: packages/atomic/dist/
+          pattern: '*'
+          merge-multiple: false
+
+      - name: Publish SDK to npm
+        run: bun packages/atomic-sdk/script/publish.ts
         env:
-          SKILLS_REPO: https://github.com/flora131/atomic.git
+          NPM_TAG: ${{ steps.npm-tag.outputs.tag }}
+
+      - name: Publish wrapper and platform packages to npm
+        run: bun packages/atomic/script/publish.ts
+        env:
+          NPM_TAG: ${{ steps.npm-tag.outputs.tag }}
+
+  install-smoke:
+    name: Smoke test ${{ matrix.os }} ${{ matrix.arch }}
+    needs: [publish]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,    arch: x64   }
+          - { os: ubuntu-24.04-arm, arch: arm64 }
+          - { os: macos-13,         arch: x64   }
+          - { os: macos-14,         arch: arm64 }
+          - { os: windows-latest,   arch: x64   }
+          - { os: windows-11-arm,   arch: arm64 }
+    runs-on: ${{ matrix.os }}
+    env:
+      RC_VERSION: ${{ needs.publish.outputs.version }}
+    steps:
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install -g @bastani/atomic@${{ env.RC_VERSION }}
+
+      - run: atomic --version
+
+      - run: atomic workflow list
+
+      - name: Smoke test — embedded asset extraction is version-keyed (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
         run: |
-          set -euo pipefail
+          atomic --version
+          atomic workflow list >/dev/null
+          test -d "${XDG_CACHE_HOME:-$HOME/.cache}/atomic/${{ env.RC_VERSION }}/skills"
 
-          # Replace the dev-laden checkout skills with the filtered set
-          # produced by `bunx skills add` (which excludes development-only
-          # skills). Install globally on the runner, then copy into the
-          # package root so npm pack picks them up.
-          rm -rf .agents/skills
-          bunx skills add "$SKILLS_REPO" \
-            --skill "*" \
-            -a opencode -a github-copilot \
-            -g -y
+      - name: Smoke test — embedded asset extraction is version-keyed (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          atomic --version
+          atomic workflow list >/dev/null
+          test -d "$HOME/Library/Caches/atomic/${{ env.RC_VERSION }}/skills"
 
-          mkdir -p .agents/skills
-          cp -R "$HOME/.agents/skills/." .agents/skills/
-
-          # Whitelist the staged directory for `npm publish` without
-          # baking the entry into the committed package.json.
-          tmp=$(mktemp)
-          jq '.files += [".agents/skills"]' package.json > "$tmp"
-          mv "$tmp" package.json
-
-      - name: Publish to npm
-        run: npm publish --provenance --access public --tag ${{ steps.npm-tag.outputs.tag }}
+      - name: Smoke test — embedded asset extraction is version-keyed (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          atomic --version
+          atomic workflow list | Out-Null
+          $cache = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { Join-Path $env:USERPROFILE 'AppData\Local' }
+          $expected = Join-Path $cache "atomic\Cache\${{ env.RC_VERSION }}\skills"
+          if (-not (Test-Path $expected)) { Write-Error "missing: $expected"; exit 1 }
 
   release:
     name: Create Release
@@ -134,7 +201,7 @@ jobs:
           fi
 
       - name: Bundle configs for release
-        run: bun run src/scripts/bundle-configs.ts "${{ steps.version.outputs.version }}"
+        run: bun packages/atomic/script/bundle-configs.ts "${{ steps.version.outputs.version }}"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3

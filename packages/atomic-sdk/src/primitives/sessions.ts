@@ -114,6 +114,15 @@ function filterByScope(
   return sessions.filter((s) => s.type === scope);
 }
 
+/** Normalise the optional `agent` option into a flat list. Empty list = no filter. */
+function toAgentList(
+  agent: AgentType | readonly AgentType[] | undefined,
+): readonly AgentType[] {
+  if (agent === undefined) return [];
+  if (Array.isArray(agent)) return agent as readonly AgentType[];
+  return [agent as AgentType];
+}
+
 /** Filter sessions by an allow-list of agent backends. */
 function filterByAgents(
   sessions: readonly TmuxSession[],
@@ -136,11 +145,7 @@ export function listSessions(
 ): SessionInfo[] {
   if (!deps.isTmuxInstalled()) return [];
   const scope = options.scope ?? "all";
-  const agents: readonly AgentType[] = options.agent === undefined
-    ? []
-    : Array.isArray(options.agent)
-      ? (options.agent as readonly AgentType[])
-      : [options.agent as AgentType];
+  const agents = toAgentList(options.agent);
 
   const all = deps.listAllTmuxSessions();
   const scoped = filterByScope(all, scope);

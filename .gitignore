@@ -1,3 +1,6 @@
+# Build artifacts
+*.tar
+
 # General
 .DS_Store
 __MACOSX/
@@ -171,8 +174,10 @@ ralph-loop.local.md
 
 ralph-sessions.jsonl
 
-atomic
-atomic.exe
+# Compiled CLI binary at the repo root (root-anchored so it doesn't
+# accidentally ignore the `packages/atomic/` workspace tree).
+/atomic
+/atomic.exe
 
 # TUI test screenshots
 screenshots/
@@ -184,3 +189,14 @@ tmux-screenshots/
 
 
 *.bun-build
+
+# Build-emitted SDK runtime script copies (RFC §5.6 path-identity fix)
+packages/atomic-sdk/src/lib/runtime-scripts/
+
+# Build output
+build/
+
+# Auto-generated agent CLI configs in workspace packages
+# (the canonical configs live at the repo root)
+packages/*/.claude/
+packages/*/.opencode/

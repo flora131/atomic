@@ -6,8 +6,8 @@
  * sending keystrokes, and pane state detection.
  */
 
-import { join } from "node:path";
 import { requiredMuxBinaryCandidatesForPlatform } from "../lib/spawn.ts";
+import { tmuxConfPath, ccDebounceScriptPath } from "../lib/runtime-assets.ts";
 import { writeFileSync, unlinkSync } from "node:fs";
 import type { Subprocess } from "bun";
 import { atomicTempPath } from "../lib/atomic-temp.ts";
@@ -20,12 +20,12 @@ import { atomicTempPath } from "../lib/atomic-temp.ts";
 export const SOCKET_NAME = "atomic";
 
 /** Path to the bundled tmux config (shared by tmux and psmux). */
-const CONFIG_PATH = join(import.meta.dir, "tmux.conf");
+const CONFIG_PATH = tmuxConfPath;
 
 /** Path to the bundled Ctrl+C debounce script (TypeScript, run via bun
  *  so the same file handles Linux, macOS, and Windows without shell
  *  dialect gymnastics). Referenced from tmux.conf. */
-const CC_DEBOUNCE_PATH = join(import.meta.dir, "cc-debounce.ts");
+const CC_DEBOUNCE_PATH = ccDebounceScriptPath;
 
 /** Discriminated result from a tmux command execution. */
 export type TmuxResult =

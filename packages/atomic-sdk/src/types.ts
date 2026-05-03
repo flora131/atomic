@@ -23,9 +23,14 @@ import type {
   ClaudeClientWrapper,
   ClaudeSessionWrapper,
 } from "./providers/claude.ts";
+import type { AgentKey } from "./services/config/definitions.ts";
 
-/** Supported agent types */
-export type AgentType = "copilot" | "opencode" | "claude";
+/**
+ * Supported agent identifier — alias of {@link AgentKey} so that
+ * `isValidAgent(x): x is AgentKey` narrows to the same nominal type used
+ * everywhere in the SDK (workflow definitions, ctx.stage, etc).
+ */
+export type AgentType = AgentKey;
 
 // ─── Provider type maps ─────────────────────────────────────────────────────
 

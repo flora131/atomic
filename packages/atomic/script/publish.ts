@@ -7,8 +7,11 @@ import { TARGETS } from "./targets.ts";
 const WORKSPACE_ROOT = findRepoRoot(import.meta.dir);
 const CLI_PKG_ROOT = join(WORKSPACE_ROOT, "packages", "atomic");
 
-export async function synthesizeWrapper(outDir: string, opts: { version: string }): Promise<void> {
-  const { version } = opts;
+export async function synthesizeWrapper(
+  outDir: string,
+  opts: { version: string; repository: unknown },
+): Promise<void> {
+  const { version, repository } = opts;
   await mkdir(join(outDir, "bin"), { recursive: true });
   await copyFile(join(CLI_PKG_ROOT, "bin", "atomic"),             join(outDir, "bin", "atomic"));
   await copyFile(join(CLI_PKG_ROOT, "script", "postinstall.mjs"), join(outDir, "postinstall.mjs"));
@@ -17,7 +20,14 @@ export async function synthesizeWrapper(outDir: string, opts: { version: string 
     name: "@bastani/atomic",
     version,
     description: "Configuration management CLI for coding agents",
-    bin: { atomic: "./bin/atomic" },
+    // npm provenance verification compares package.json `repository.url`
+    // against the workflow's source repo and rejects mismatches (or empty
+    // values) with E422.
+    repository,
+    // npm's normalize-package-data rejects bin paths with a leading `./`
+    // and silently strips the entry, leaving the wrapper without a CLI
+    // entrypoint. Use the bare `bin/atomic` form.
+    bin: { atomic: "bin/atomic" },
     files: ["bin", "postinstall.mjs", "LICENSE"],
     scripts: { postinstall: "node ./postinstall.mjs" },
     optionalDependencies: Object.fromEntries(
@@ -29,7 +39,9 @@ export async function synthesizeWrapper(outDir: string, opts: { version: string 
 }
 
 if (import.meta.main) {
-  const version = (await Bun.file(join(WORKSPACE_ROOT, "package.json")).json()).version;
+  const rootPkg = await Bun.file(join(WORKSPACE_ROOT, "package.json")).json();
+  const version = rootPkg.version;
+  const repository = rootPkg.repository;
   const tag = process.env.NPM_TAG ?? (version.includes("-") ? "next" : "latest");
 
   // `NPM_REGISTRY` is set by the validate workflow to point at a throwaway
@@ -43,7 +55,7 @@ if (import.meta.main) {
 
   // 1. Synthesize wrapper.
   const wrapperOut = join(CLI_PKG_ROOT, "dist", "wrapper");
-  await synthesizeWrapper(wrapperOut, { version });
+  await synthesizeWrapper(wrapperOut, { version, repository });
 
   // 2. Publish per-platform packages, then the wrapper. We tolerate
   //    "version already published" (E409 / EPUBLISHCONFLICT) so a flake

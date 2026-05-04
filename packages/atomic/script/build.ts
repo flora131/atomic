@@ -27,7 +27,9 @@ if (requested.length === 0) {
   process.exit(1);
 }
 
-const version = (await Bun.file(join(WORKSPACE_ROOT, "package.json")).json()).version;
+const rootPkg = await Bun.file(join(WORKSPACE_ROOT, "package.json")).json();
+const version = rootPkg.version;
+const repository = rootPkg.repository;
 
 for (const t of requested) {
   const outdir = join(CLI_PKG_ROOT, "dist", t.name);
@@ -44,6 +46,10 @@ for (const t of requested) {
   await writeFile(join(outdir, "package.json"), JSON.stringify({
     name: `@bastani/atomic-${t.name}`,
     version,
+    // npm provenance verification compares package.json `repository.url`
+    // against the workflow's source repo and rejects mismatches (or empty
+    // values) with E422. Must be present on every published package.
+    repository,
     os: [t.os],
     cpu: [t.cpu],
     files: ["bin"],

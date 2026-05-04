@@ -76,7 +76,7 @@
     "ignore-by-default": "^2.1.0",
     "linguist-languages": "^9.3.2",
     "yaml": "^2.8.4",
-    "zod": "^4.4.2"
+    "zod": "^4.4.3"
   },
   "peerDependencies": {
     "react": "^19.2.5"

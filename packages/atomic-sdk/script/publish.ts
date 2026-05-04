@@ -39,8 +39,24 @@ if (process.env.GITHUB_ACTIONS === "true" && !registry) args.push("--provenance"
 // Capture the exit code, restore + flush package.json, then exit.
 let exitCode = 0;
 try {
-  const result = Bun.spawnSync(["npm", ...args], { cwd: SDK_PKG_ROOT, stdio: ["inherit", "inherit", "inherit"] });
+  // Capture stderr so we can recognise "already published" — the wrapper
+  // publish script swallows the same case via isAlreadyPublished(), and
+  // the multi-step pipeline (validate → publish, or rerun-after-mid-loop
+  // failure) means the SDK can be re-attempted at the same version. npm
+  // surfaces same-version republishes as E403/E409/EPUBLISHCONFLICT, all
+  // of which we should treat as success rather than fail the whole run.
+  const result = Bun.spawnSync(["npm", ...args], {
+    cwd: SDK_PKG_ROOT,
+    stdout: "inherit",
+    stderr: "pipe",
+  });
+  const stderr = result.stderr ? new TextDecoder().decode(result.stderr) : "";
+  if (stderr) process.stderr.write(stderr);
   exitCode = result.exitCode ?? 1;
+  if (exitCode !== 0 && isAlreadyPublished(stderr)) {
+    console.log(`[publish] @bastani/atomic-sdk@${pkg.version} already published — skipping`);
+    exitCode = 0;
+  }
 } catch (err) {
   console.error(err);
   exitCode = 1;
@@ -50,3 +66,8 @@ try {
   await Bun.write(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
 }
 if (exitCode !== 0) process.exit(exitCode);
+
+function isAlreadyPublished(stderr: string): boolean {
+  // Same matchers used by packages/atomic/script/publish.ts.
+  return /EPUBLISHCONFLICT|previously published|cannot publish over/i.test(stderr);
+}

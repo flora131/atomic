@@ -8,7 +8,10 @@ import { synthesizeWrapper } from "../publish.ts";
 test("wrapper tarball contains exactly bin/atomic, postinstall.mjs, package.json, LICENSE", async () => {
   const dir = await mkdtemp(join(tmpdir(), "atomic-wrapper-shape-"));
   try {
-    await synthesizeWrapper(dir, { version: "9.99.99-test" });
+    await synthesizeWrapper(dir, {
+      version: "9.99.99-test",
+      repository: { type: "git", url: "git+https://github.com/flora131/atomic.git" },
+    });
     const out = await $`npm pack --dry-run --json`.cwd(dir).quiet().text();
     const parsed = JSON.parse(out) as Array<{ files: Array<{ path: string }> }>;
     const files = parsed[0].files.map((f) => f.path).sort();

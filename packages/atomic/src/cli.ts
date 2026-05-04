@@ -389,13 +389,18 @@ async function main(): Promise<void> {
         // Sync tooling deps and global skills on first launch after install
         // or upgrade. Runs at most once per version bump (gated on a marker
         // file under ~/.atomic). Skipped for `--version` / `--help` so info
-        // paths stay instant.
+        // paths stay instant, and for `install` / `uninstall` so the
+        // installer's own mux-detection branch isn't shadowed by the
+        // autosync's lazy psmux install (which adds ~/.atomic/bin to PATH
+        // before installCommand can register a planted stub dir).
         const argv = process.argv.slice(2);
         const isInfoCommand =
             argv.includes("--version") ||
             argv.includes("-v") ||
             argv.includes("--help") ||
             argv.includes("-h") ||
+            argv[0] === "install" ||
+            argv[0] === "uninstall" ||
             argv[0] === "completions" ||
             argv[0] === "_footer" ||
             argv[0] === "_claude-stop-hook" ||

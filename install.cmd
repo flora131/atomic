@@ -17,17 +17,17 @@ set "TARGET=%~1"
 if "!TARGET!"=="" set "TARGET=latest"
 
 REM Validate target — accept stable, latest, or semver-shaped strings
-REM (with optional prerelease suffix, e.g. 0.4.47-0). Anchored end-to-end
-REM via two passes: the semver shape, plus a reject pass for anything not
-REM in the allowed character set. Mirrors install.sh / install.ps1.
-if /i "!TARGET!"=="stable" goto :target_valid
-if /i "!TARGET!"=="latest" goto :target_valid
-echo !TARGET! | findstr /r "^[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*" >nul
-if !ERRORLEVEL! neq 0 goto :target_invalid
-REM Reject any character outside [0-9.\-A-Za-z] (covers `1.2.3foo$weird`,
-REM `1.2.3 ` etc) — findstr lacks a true `$` anchor, so reject by class.
-echo !TARGET! | findstr /r "[^0-9A-Za-z.\-]" >nul
-if !ERRORLEVEL! equ 0 goto :target_invalid
+REM (with optional prerelease suffix, e.g. 0.4.47-0). Delegate to PowerShell
+REM because findstr's regex engine has no end-of-input anchor and treats
+REM the CRLF that `echo` appends as part of the piped input — `0.7.0-1\r\n`
+REM then matches `[^0-9A-Za-z.\-]` via the trailing CR, falsely rejecting
+REM every prerelease version. Mirrors the manifest-parse PowerShell handoff
+REM below.
+set "_ATOMIC_TARGET=!TARGET!"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "if ($env:_ATOMIC_TARGET -match '^(?:stable|latest|[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?)$') { exit 0 } else { exit 1 }"
+set "_VALIDATE_RC=!ERRORLEVEL!"
+set "_ATOMIC_TARGET="
+if !_VALIDATE_RC! neq 0 goto :target_invalid
 goto :target_valid
 
 :target_invalid
@@ -80,8 +80,17 @@ if !ERRORLEVEL! neq 0 (
     exit /b 1
 )
 
-call :parse_manifest "!DOWNLOAD_DIR!\manifest.json" "!PLATFORM!"
-if !ERRORLEVEL! neq 0 (
+REM Parse manifest via PowerShell — cmd.exe's `for /f` + piped findstr +
+REM delayed-expansion combo for hand-rolled JSON parsing was racy and
+REM silently produced empty VERSION/EXPECTED_CHECKSUM. Mirrors the working
+REM logic in install.ps1.
+set "VERSION="
+set "EXPECTED_CHECKSUM="
+for /f "usebackq tokens=1,2 delims=|" %%a in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$m = Get-Content -Raw '!DOWNLOAD_DIR!\manifest.json' ^| ConvertFrom-Json; $c = $m.platforms.'!PLATFORM!'.checksum; if (-not $c) { exit 2 }; Write-Output ($m.version + '|' + $c)"`) do (
+    set "VERSION=%%a"
+    set "EXPECTED_CHECKSUM=%%b"
+)
+if not defined VERSION (
     echo Platform !PLATFORM! not found in manifest >&2
     del "!DOWNLOAD_DIR!\manifest.json" 2>nul
     exit /b 1
@@ -136,77 +145,6 @@ REM ============================================================================
 REM %1=URL  %2=OutputPath
 curl -fsSL --retry 3 "%~1" -o "%~2"
 exit /b !ERRORLEVEL!
-
-:parse_manifest
-REM Extract version + platform.<name>.checksum from manifest JSON using
-REM only findstr — no jq, no PowerShell.
-REM
-REM %1=ManifestPath  %2=Platform
-REM Sets: VERSION, EXPECTED_CHECKSUM
-set "MANIFEST_PATH=%~1"
-set "PLATFORM_NAME=%~2"
-set "VERSION="
-set "EXPECTED_CHECKSUM="
-set "IN_PLATFORM_SECTION="
-
-for /f "usebackq tokens=*" %%i in ("!MANIFEST_PATH!") do (
-    set "LINE=%%i"
-
-    REM Top-level "version": "..." (only matched outside platform section).
-    if not defined IN_PLATFORM_SECTION (
-        echo !LINE! | findstr /c:"\"version\":" >nul
-        if !ERRORLEVEL! equ 0 (
-            for /f "tokens=2 delims=:" %%j in ("!LINE!") do (
-                set "VPART=%%j"
-                set "VPART=!VPART: =!"
-                set "VPART=!VPART:"=!"
-                set "VPART=!VPART:,=!"
-                if not "!VPART!"=="" set "VERSION=!VPART!"
-            )
-        )
-    )
-
-    echo !LINE! | findstr /c:"\"%PLATFORM_NAME%\":" >nul
-    if !ERRORLEVEL! equ 0 set "IN_PLATFORM_SECTION=1"
-
-    if defined IN_PLATFORM_SECTION (
-        echo !LINE! | findstr /c:"\"checksum\":" >nul
-        if !ERRORLEVEL! equ 0 (
-            for /f "tokens=2 delims=:" %%j in ("!LINE!") do (
-                set "CPART=%%j"
-                set "CPART=!CPART: =!"
-                set "CPART=!CPART:"=!"
-                set "CPART=!CPART:,=!"
-                if not "!CPART!"=="" (
-                    call :check_length "!CPART!" 64
-                    if !ERRORLEVEL! equ 0 (
-                        set "EXPECTED_CHECKSUM=!CPART!"
-                        if not "!VERSION!"=="" exit /b 0
-                    )
-                )
-            )
-        )
-        echo !LINE! | findstr /c:"}" >nul
-        if !ERRORLEVEL! equ 0 set "IN_PLATFORM_SECTION="
-    )
-)
-
-if "!EXPECTED_CHECKSUM!"=="" exit /b 1
-if "!VERSION!"=="" exit /b 1
-exit /b 0
-
-:check_length
-REM %1=String  %2=ExpectedLength
-set "STR=%~1"
-set "EXPECTED_LEN=%~2"
-set "LEN=0"
-:count_loop
-if "!STR:~%LEN%,1!"=="" goto :count_done
-set /a LEN+=1
-goto :count_loop
-:count_done
-if %LEN%==%EXPECTED_LEN% exit /b 0
-exit /b 1
 
 :verify_checksum
 REM %1=FilePath  %2=ExpectedChecksum  (case-insensitive)

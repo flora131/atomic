@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, chmodSync } from "node:fs";
 import { mkdir, writeFile, copyFile } from "node:fs/promises";
 import { join } from "node:path";
 import { findRepoRoot } from "../src/lib/workspace-paths.ts";
@@ -7,8 +7,11 @@ import { TARGETS } from "./targets.ts";
 const WORKSPACE_ROOT = findRepoRoot(import.meta.dir);
 const CLI_PKG_ROOT = join(WORKSPACE_ROOT, "packages", "atomic");
 
-export async function synthesizeWrapper(outDir: string, opts: { version: string }): Promise<void> {
-  const { version } = opts;
+export async function synthesizeWrapper(
+  outDir: string,
+  opts: { version: string; repository: unknown },
+): Promise<void> {
+  const { version, repository } = opts;
   await mkdir(join(outDir, "bin"), { recursive: true });
   await copyFile(join(CLI_PKG_ROOT, "bin", "atomic"),             join(outDir, "bin", "atomic"));
   await copyFile(join(CLI_PKG_ROOT, "script", "postinstall.mjs"), join(outDir, "postinstall.mjs"));
@@ -17,7 +20,14 @@ export async function synthesizeWrapper(outDir: string, opts: { version: string 
     name: "@bastani/atomic",
     version,
     description: "Configuration management CLI for coding agents",
-    bin: { atomic: "./bin/atomic" },
+    // npm provenance verification compares package.json `repository.url`
+    // against the workflow's source repo and rejects mismatches (or empty
+    // values) with E422.
+    repository,
+    // npm's normalize-package-data rejects bin paths with a leading `./`
+    // and silently strips the entry, leaving the wrapper without a CLI
+    // entrypoint. Use the bare `bin/atomic` form.
+    bin: { atomic: "bin/atomic" },
     files: ["bin", "postinstall.mjs", "LICENSE"],
     scripts: { postinstall: "node ./postinstall.mjs" },
     optionalDependencies: Object.fromEntries(
@@ -29,7 +39,9 @@ export async function synthesizeWrapper(outDir: string, opts: { version: string 
 }
 
 if (import.meta.main) {
-  const version = (await Bun.file(join(WORKSPACE_ROOT, "package.json")).json()).version;
+  const rootPkg = await Bun.file(join(WORKSPACE_ROOT, "package.json")).json();
+  const version = rootPkg.version;
+  const repository = rootPkg.repository;
   const tag = process.env.NPM_TAG ?? (version.includes("-") ? "next" : "latest");
 
   // `NPM_REGISTRY` is set by the validate workflow to point at a throwaway
@@ -40,10 +52,13 @@ if (import.meta.main) {
   const extraArgs: string[] = [];
   if (registry) extraArgs.push(`--registry=${registry}`);
   if (process.env.GITHUB_ACTIONS === "true" && !registry) extraArgs.push("--provenance");
+  // `NPM_OTP` is for local bootstrap publishes from a 2FA-enabled account.
+  // CI runs go through OIDC trusted publishing, which bypasses 2FA.
+  if (process.env.NPM_OTP) extraArgs.push(`--otp=${process.env.NPM_OTP}`);
 
   // 1. Synthesize wrapper.
   const wrapperOut = join(CLI_PKG_ROOT, "dist", "wrapper");
-  await synthesizeWrapper(wrapperOut, { version });
+  await synthesizeWrapper(wrapperOut, { version, repository });
 
   // 2. Publish per-platform packages, then the wrapper. We tolerate
   //    "version already published" (E409 / EPUBLISHCONFLICT) so a flake
@@ -57,9 +72,17 @@ if (import.meta.main) {
       label: t.name,
       cwd: join(CLI_PKG_ROOT, "dist", t.name),
       requireDist: true,
+      binPath: join(CLI_PKG_ROOT, "dist", t.name, "bin", `atomic${t.ext ?? ""}`),
+      isWindows: t.os === "win32",
     })),
-    { label: "wrapper", cwd: wrapperOut, requireDist: false },
+    { label: "wrapper", cwd: wrapperOut, requireDist: false, binPath: undefined, isWindows: false },
   ];
+
+  // Resolve each target's npm package name once for the pre-flight check.
+  const labelToName: Record<string, string> = Object.fromEntries(
+    TARGETS.map((t) => [t.name, `@bastani/atomic-${t.name}`]),
+  );
+  labelToName.wrapper = "@bastani/atomic";
 
   for (const target of targets) {
     if (target.requireDist && !existsSync(target.cwd)) {
@@ -69,6 +92,23 @@ if (import.meta.main) {
       }
       failures.push({ pkg: target.label, reason: `missing dist dir: ${target.cwd}` });
       continue;
+    }
+    // Pre-flight check: under OIDC trusted publishing, npm masks "publisher
+    // not configured for this package" as a generic 404 PUT, indistinguishable
+    // from a same-version republish. The post-publish stderr matcher works
+    // for token-auth (E403/EPUBLISHCONFLICT) but not for OIDC's 404, so we
+    // must skip *before* npm publish runs to avoid a false failure.
+    if (!registry && (await isPublished(labelToName[target.label], version))) {
+      console.log(`[publish] ${target.label}@${version} already published — skipping`);
+      continue;
+    }
+    // actions/upload-artifact@v4 zips artifacts and drops Unix mode bits, so
+    // the binary lands here without +x after download. Re-apply 0755 so the
+    // npm tarball ships an executable on Linux/macOS — without this the
+    // wrapper's spawnSync hits EACCES on `atomic --version`. No-op on
+    // Windows where the .exe extension carries executability.
+    if (target.binPath && !target.isWindows && existsSync(target.binPath)) {
+      chmodSync(target.binPath, 0o755);
     }
     const result = Bun.spawnSync(
       ["npm", "publish", "--access", "public", "--tag", tag, ...extraArgs],
@@ -96,4 +136,14 @@ function isAlreadyPublished(stderr: string): boolean {
   //   - HTTP 409 ("403 Forbidden" on some registries with same body)
   // Match conservatively on the textual signals.
   return /EPUBLISHCONFLICT|previously published|cannot publish over/i.test(stderr);
+}
+
+async function isPublished(name: string, version: string): Promise<boolean> {
+  // `npm view <name>@<version> version` exits 0 when the version exists, 1
+  // (with E404) when missing. Equivalent to OpenCode's `published()` check.
+  const result = Bun.spawnSync(["npm", "view", `${name}@${version}`, "version"], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  return result.exitCode === 0;
 }

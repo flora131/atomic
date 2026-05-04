@@ -204,7 +204,7 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-latest,  arch: x64   }
-          - { os: macos-14,       arch: arm64 }
+          - { os: macos-latest,       arch: arm64 }
           - { os: windows-latest, arch: x64   }
     runs-on: ${{ matrix.os }}
     env:
@@ -354,8 +354,8 @@ jobs:
         include:
           - { os: ubuntu-latest,    arch: x64   }
           - { os: ubuntu-24.04-arm, arch: arm64 }
-          - { os: macos-13,         arch: x64   }
-          - { os: macos-14,         arch: arm64 }
+          - { os: macos-26-intel,         arch: x64   }
+          - { os: macos-latest,         arch: arm64 }
           - { os: windows-latest,   arch: x64   }
           - { os: windows-11-arm,   arch: arm64 }
     runs-on: ${{ matrix.os }}
@@ -476,8 +476,8 @@ jobs:
         include:
           - { os: ubuntu-latest,    arch: x64,   shell: bash }
           - { os: ubuntu-24.04-arm, arch: arm64, shell: bash }
-          - { os: macos-13,         arch: x64,   shell: bash }
-          - { os: macos-14,         arch: arm64, shell: bash }
+          - { os: macos-26-intel,         arch: x64,   shell: bash }
+          - { os: macos-latest,         arch: arm64, shell: bash }
           - { os: windows-latest,   arch: x64,   shell: powershell }
           - { os: windows-latest,   arch: x64,   shell: cmd }
           - { os: windows-11-arm,   arch: arm64, shell: powershell }
@@ -513,6 +513,18 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          # Some runner images (notably windows-11-arm) ship psmux pre-installed
+          # via Chocolatey at C:\ProgramData\Chocolatey\bin. If atomic install
+          # finds it there, it correctly logs "found on PATH" and never adds
+          # our planted stub dir — defeating the auto-PATH assertion. Strip any
+          # psmux.exe from system PATH locations before planting the stub.
+          $found = Get-Command psmux -ErrorAction SilentlyContinue
+          while ($found) {
+            Write-Output "removing pre-installed $($found.Source)"
+            Remove-Item -Force $found.Source -ErrorAction SilentlyContinue
+            $found = Get-Command psmux -ErrorAction SilentlyContinue
+          }
+
           $stubDir = Join-Path $env:LOCALAPPDATA "Programs\psmux"
           New-Item -ItemType Directory -Force -Path $stubDir | Out-Null
           $stubPath = Join-Path $stubDir "psmux.exe"
@@ -542,9 +554,15 @@ jobs:
       - name: Bootstrap (cmd)
         if: matrix.shell == 'cmd'
         shell: cmd
+        # Capture install.cmd's exit code, dump the log unconditionally so
+        # the failure mode is visible in CI logs, then propagate the original
+        # exit. Without this, Actions' cmd wrapper aborts on non-zero
+        # immediately after install.cmd and never `type`s the log.
         run: |
           install.cmd %RC_VERSION% > "%RUNNER_TEMP%\atomic-install.log" 2>&1
+          set "INSTALL_RC=%ERRORLEVEL%"
           type "%RUNNER_TEMP%\atomic-install.log"
+          exit /b %INSTALL_RC%
 
       # ── Verify atomic is on PATH after a fresh shell starts.
       - name: Verify atomic is on PATH (Unix)

@@ -1,7 +1,7 @@
 {
   "name": "@bastani/atomic-monorepo",
   "private": true,
-  "version": "0.7.0-1",
+  "version": "0.7.0-2",
   "description": "Configuration management CLI and SDK for coding agents",
   "type": "module",
   "license": "MIT",
@@ -28,7 +28,7 @@
     "examples/*"
   ],
   "scripts": {
-    "dev": "bun run packages/atomic/src/cli.ts",
+    "dev": "bun run packages/atomic/script/ensure-dev-assets.ts && bun run packages/atomic/src/cli.ts",
     "build": "bun run packages/atomic/script/build.ts && bun run packages/atomic-sdk/script/build.ts",
     "test": "bun test --parallel packages tests",
     "test:coverage": "bun test --coverage packages tests",

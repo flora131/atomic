@@ -295,11 +295,43 @@ function userShellRcFiles(): ShellRcFile[] {
 
 function detectUserShell(): Shell | null {
     if (isWindows()) return "powershell";
-    const shell = process.env.SHELL ?? "";
-    const base = shell.split("/").pop() ?? "";
+    // 1. `$SHELL` is the conventional source. Some environments leave it
+    //    unset — notably the GitHub-hosted `ubuntu-24.04-arm` runner image
+    //    (actions/runner-images#11414), minimal containers, and some init
+    //    systems that don't run a login shell.
+    const env = process.env.SHELL ?? "";
+    const fromEnv = parseShellPath(env);
+    if (fromEnv) return fromEnv;
+    // 2. Fall back to /etc/passwd for the current user. Cheap and works
+    //    even when $SHELL is empty.
+    const fromPasswd = parseShellPath(loginShellFromPasswd() ?? "");
+    if (fromPasswd) return fromPasswd;
+    // 3. Last resort: bash. The completions cache file is harmless if the
+    //    user runs a different shell — they can still source it manually.
+    return "bash";
+}
+
+function parseShellPath(path: string): Shell | null {
+    const base = path.split("/").pop() ?? "";
     if (base === "bash") return "bash";
     if (base === "zsh") return "zsh";
     if (base === "fish") return "fish";
+    return null;
+}
+
+function loginShellFromPasswd(): string | null {
+    try {
+        const uid = process.getuid?.();
+        if (uid === undefined) return null;
+        const passwd = readFileSync("/etc/passwd", "utf8");
+        for (const line of passwd.split("\n")) {
+            const parts = line.split(":");
+            if (parts.length < 7) continue;
+            if (Number(parts[2]) === uid) return parts[6] ?? null;
+        }
+    } catch {
+        // ignore — fall through to caller's default.
+    }
     return null;
 }
 
@@ -321,17 +353,52 @@ export function appendPathRcSnippet(rcPath: string, shell: Shell | "sh", dir: st
     appendFileSync(rcPath, snippet);
 }
 
-function runPowerShell(script: string, extraEnv: Record<string, string> = {}): string | null {
+type PSHost = "powershell.exe" | "pwsh.exe";
+
+function runPowerShell(
+    script: string,
+    extraEnv: Record<string, string> = {},
+    bin: PSHost = "powershell.exe",
+): string | null {
     // Use Bun.spawnSync — same shape as node:child_process.spawnSync but
-    // Bun-native, avoiding a node-compat shim hop.
-    const result = Bun.spawnSync({
-        cmd: ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
-        env: { ...process.env, ...extraEnv } as Record<string, string>,
-        stdout: "pipe",
-        stderr: "pipe",
-    });
-    if (result.exitCode !== 0) return null;
-    return result.stdout.toString().replace(/\r?\n$/, "");
+    // Bun-native, avoiding a node-compat shim hop. Wrapped in try/catch
+    // because Bun.spawnSync throws ENOENT synchronously on Windows when
+    // `bin` cannot be resolved on PATH (notably when `pwsh.exe` is not
+    // installed and we're probing for it). Returning null lets callers
+    // treat "host absent" the same as "host present but errored".
+    try {
+        const result = Bun.spawnSync({
+            cmd: [bin, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
+            env: { ...process.env, ...extraEnv } as Record<string, string>,
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        if (result.exitCode !== 0) return null;
+        return result.stdout.toString().replace(/\r?\n$/, "");
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Probe each PowerShell host's `$PROFILE.CurrentUserCurrentHost` and return
+ * paths for whichever editions are actually present:
+ *   - `powershell.exe` (Windows PowerShell 5.1) → Documents\WindowsPowerShell\...
+ *   - `pwsh.exe`       (PowerShell 7+)          → Documents\PowerShell\...
+ * The two paths don't overlap, so a wrapper installed under one edition is
+ * invisible to the other. Probe by spawning each binary directly — `Bun.which`
+ * with explicit PATHEXT handling has been unreliable from the compiled atomic
+ * binary on Windows runners (returns null even when pwsh.exe is on system
+ * PATH), so we just try the spawn and trust the success/failure result.
+ */
+function detectPSProfiles(): string[] {
+    if (!isWindows()) return [];
+    const paths: string[] = [];
+    for (const bin of ["powershell.exe", "pwsh.exe"] as const) {
+        const p = runPowerShell("$PROFILE.CurrentUserCurrentHost", {}, bin);
+        if (p) paths.push(p);
+    }
+    return paths;
 }
 
 // ── tmux/psmux detection ───────────────────────────────────────────────────
@@ -399,7 +466,7 @@ export function wellKnownMuxInstallDirs(): string[] {
 
 interface CompletionInstall {
     readonly cachePath: string;
-    readonly rcPath: string | null;
+    readonly rcPaths: readonly string[];
     readonly shell: Shell;
 }
 
@@ -420,24 +487,24 @@ function installCompletions(paths: InstallPaths): CompletionInstall | null {
         const fishDir = join(homedir(), ".config", "fish", "completions");
         mkdirSync(fishDir, { recursive: true });
         writeFileSync(join(fishDir, "atomic.fish"), COMPLETION_SCRIPTS.fish, "utf8");
-        return { cachePath, rcPath: null, shell };
+        return { cachePath, rcPaths: [], shell };
     }
 
-    const rcPath = completionsRcPath(shell);
-    if (rcPath !== null) {
+    const rcPaths = completionsRcPaths(shell);
+    for (const rcPath of rcPaths) {
         ensureCompletionsSourcedFromRc(rcPath, shell, cachePath);
     }
-    return { cachePath, rcPath, shell };
+    return { cachePath, rcPaths, shell };
 }
 
-function completionsRcPath(shell: Shell): string | null {
+function completionsRcPaths(shell: Shell): readonly string[] {
     if (shell === "powershell") {
-        return runPowerShell("$PROFILE.CurrentUserCurrentHost");
+        return detectPSProfiles();
     }
     const home = homedir();
-    if (shell === "bash") return join(home, ".bashrc");
-    if (shell === "zsh") return join(home, ".zshrc");
-    return null;
+    if (shell === "bash") return [join(home, ".bashrc")];
+    if (shell === "zsh") return [join(home, ".zshrc")];
+    return [];
 }
 
 export function ensureCompletionsSourcedFromRc(rcPath: string, shell: Shell, cachePath: string): void {
@@ -574,8 +641,11 @@ export async function uninstallCommand(opts: UninstallOptions = {}): Promise<num
         join(homedir(), ".profile"),
     ];
     if (isWindows()) {
-        const psProfile = runPowerShell("$PROFILE.CurrentUserCurrentHost");
-        if (psProfile) rcCandidates.push(psProfile);
+        // Strip from every PowerShell edition's profile — a prior install
+        // may have written to either or both.
+        for (const psProfile of detectPSProfiles()) {
+            rcCandidates.push(psProfile);
+        }
     }
 
     let rcStripped = 0;
@@ -680,9 +750,9 @@ export async function installCommand(opts: InstallOptions = {}): Promise<number>
         const completions = installCompletions(paths);
         if (completions === null) {
             process.stdout.write("  ! could not detect shell — skipping completions\n");
-        } else if (completions.rcPath) {
+        } else if (completions.rcPaths.length > 0) {
             process.stdout.write(
-                `  ✓ ${completions.shell} completions installed (sourced from ${completions.rcPath})\n`,
+                `  ✓ ${completions.shell} completions installed (sourced from ${completions.rcPaths.join(", ")})\n`,
             );
         } else {
             process.stdout.write(`  ✓ ${completions.shell} completions installed\n`);

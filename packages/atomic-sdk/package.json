@@ -79,5 +79,10 @@
   },
   "peerDependencies": {
     "react": "^19.2.5"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
   }
 }

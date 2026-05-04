@@ -11,10 +11,13 @@ const pkg = await Bun.file(pkgPath).json();
 
 // Snapshot original exports for restore after publish (so dev still resolves to src/).
 const originalExports = pkg.exports;
-const rewritten: Record<string, { import: string; types: string }> = {};
+// `types` MUST come before `import` — TS resolves conditional exports
+// left-to-right under node16 / bundler resolution, so an `import`-first
+// shape would match the `.js` and miss the `.d.ts`.
+const rewritten: Record<string, { types: string; import: string }> = {};
 for (const [key, src] of Object.entries(originalExports as Record<string, string>)) {
   const base = (src as string).replace(/^\.\/src\//, "./dist/").replace(/\.tsx?$/, "");
-  rewritten[key] = { import: `${base}.js`, types: `${base}.d.ts` };
+  rewritten[key] = { types: `${base}.d.ts`, import: `${base}.js` };
 }
 pkg.exports = rewritten;
 
@@ -31,11 +34,19 @@ const args = ["publish", "--access", "public", "--tag", tag];
 if (registry) args.push("--registry", registry);
 if (process.env.GITHUB_ACTIONS === "true" && !registry) args.push("--provenance");
 
+// process.exit() terminates synchronously and skips pending async I/O,
+// so we MUST NOT exit from inside `finally` before the restore lands.
+// Capture the exit code, restore + flush package.json, then exit.
+let exitCode = 0;
 try {
   const result = Bun.spawnSync(["npm", ...args], { cwd: SDK_PKG_ROOT, stdio: ["inherit", "inherit", "inherit"] });
-  if (result.exitCode !== 0) process.exit(result.exitCode ?? 1);
+  exitCode = result.exitCode ?? 1;
+} catch (err) {
+  console.error(err);
+  exitCode = 1;
 } finally {
   // Always restore so dev checkouts keep resolving to src/.
   pkg.exports = originalExports;
   await Bun.write(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
 }
+if (exitCode !== 0) process.exit(exitCode);

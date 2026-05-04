@@ -1,4 +1,3 @@
-import { $ } from "bun";
 import { existsSync } from "node:fs";
 import { mkdir, writeFile, copyFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -46,19 +45,55 @@ if (import.meta.main) {
   const wrapperOut = join(CLI_PKG_ROOT, "dist", "wrapper");
   await synthesizeWrapper(wrapperOut, { version });
 
-  // 2. Publish per-platform packages.
-  for (const t of TARGETS) {
-    const distDir = join(CLI_PKG_ROOT, "dist", t.name);
-    if (!existsSync(distDir)) {
+  // 2. Publish per-platform packages, then the wrapper. We tolerate
+  //    "version already published" (E409 / EPUBLISHCONFLICT) so a flake
+  //    mid-loop is recoverable on rerun without a version bump — npm
+  //    rejects same-version republishes as a hard error otherwise. Real
+  //    failures (auth, network, validation) surface as a final aggregated
+  //    throw after the loop completes.
+  const failures: { pkg: string; reason: string }[] = [];
+  const targets = [
+    ...TARGETS.map((t) => ({
+      label: t.name,
+      cwd: join(CLI_PKG_ROOT, "dist", t.name),
+      requireDist: true,
+    })),
+    { label: "wrapper", cwd: wrapperOut, requireDist: false },
+  ];
+
+  for (const target of targets) {
+    if (target.requireDist && !existsSync(target.cwd)) {
       if (registry) {
-        console.log(`[publish] skipping ${t.name} — dist dir missing (validate mode)`);
+        console.log(`[publish] skipping ${target.label} — dist dir missing (validate mode)`);
         continue;
       }
-      throw new Error(`[publish] missing dist dir for ${t.name}: ${distDir}`);
+      failures.push({ pkg: target.label, reason: `missing dist dir: ${target.cwd}` });
+      continue;
     }
-    await $`cd ${distDir} && npm publish --access public --tag ${tag} ${extraArgs}`;
+    const result = Bun.spawnSync(
+      ["npm", "publish", "--access", "public", "--tag", tag, ...extraArgs],
+      { cwd: target.cwd, stdout: "inherit", stderr: "pipe" },
+    );
+    const stderr = result.stderr ? new TextDecoder().decode(result.stderr) : "";
+    if (stderr) process.stderr.write(stderr);
+    if (result.exitCode === 0) continue;
+    if (isAlreadyPublished(stderr)) {
+      console.log(`[publish] ${target.label}@${version} already published — skipping`);
+      continue;
+    }
+    failures.push({ pkg: target.label, reason: `npm publish exited ${result.exitCode}` });
   }
 
-  // 3. Publish wrapper.
-  await $`cd ${wrapperOut} && npm publish --access public --tag ${tag} ${extraArgs}`;
+  if (failures.length > 0) {
+    const summary = failures.map((f) => `  - ${f.pkg}: ${f.reason}`).join("\n");
+    throw new Error(`[publish] ${failures.length} package(s) failed:\n${summary}`);
+  }
+}
+
+function isAlreadyPublished(stderr: string): boolean {
+  // npm surfaces same-version republishes as either:
+  //   - exit + "EPUBLISHCONFLICT" / "previously published"
+  //   - HTTP 409 ("403 Forbidden" on some registries with same body)
+  // Match conservatively on the textual signals.
+  return /EPUBLISHCONFLICT|previously published|cannot publish over/i.test(stderr);
 }

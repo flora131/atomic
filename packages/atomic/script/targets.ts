@@ -23,7 +23,7 @@ export const TARGETS: readonly BuildTarget[] = [
   { name: "darwin-x64",    bunTarget: "bun-darwin-x64",           os: "darwin", cpu: "x64"   },
   { name: "darwin-arm64",  bunTarget: "bun-darwin-arm64",         os: "darwin", cpu: "arm64" },
   { name: "windows-x64",   bunTarget: "bun-windows-x64",          os: "win32",  cpu: "x64",   ext: ".exe" },
-  { name: "windows-arm64", bunTarget: "bun-windows-x64-baseline", os: "win32",  cpu: "arm64", ext: ".exe" },
+  { name: "windows-arm64", bunTarget: "bun-windows-arm64",        os: "win32",  cpu: "arm64", ext: ".exe" },
 ] as const;
 
 /** Host-platform target name (e.g. `linux-x64`). */

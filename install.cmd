@@ -16,12 +16,21 @@ REM   ... ^&^& install.cmd 0.4.47 ^&^& del install.cmd
 set "TARGET=%~1"
 if "!TARGET!"=="" set "TARGET=latest"
 
-REM Validate target — accept stable, latest, or semver-shaped strings.
+REM Validate target — accept stable, latest, or semver-shaped strings
+REM (with optional prerelease suffix, e.g. 0.4.47-0). Anchored end-to-end
+REM via two passes: the semver shape, plus a reject pass for anything not
+REM in the allowed character set. Mirrors install.sh / install.ps1.
 if /i "!TARGET!"=="stable" goto :target_valid
 if /i "!TARGET!"=="latest" goto :target_valid
 echo !TARGET! | findstr /r "^[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*" >nul
-if !ERRORLEVEL! equ 0 goto :target_valid
+if !ERRORLEVEL! neq 0 goto :target_invalid
+REM Reject any character outside [0-9.\-A-Za-z] (covers `1.2.3foo$weird`,
+REM `1.2.3 ` etc) — findstr lacks a true `$` anchor, so reject by class.
+echo !TARGET! | findstr /r "[^0-9A-Za-z.\-]" >nul
+if !ERRORLEVEL! equ 0 goto :target_invalid
+goto :target_valid
 
+:target_invalid
 echo Usage: %~nx0 [stable^|latest^|VERSION] >&2
 echo Example: %~nx0 0.4.47 >&2
 exit /b 1

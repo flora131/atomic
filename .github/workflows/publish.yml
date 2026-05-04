@@ -21,7 +21,11 @@ permissions:
 
 concurrency:
   group: publish-${{ github.ref }}
-  cancel-in-progress: true
+  # Never cancel mid-flight: cancellation between the per-platform
+  # publishes (or between platform-publish and wrapper-publish) leaves
+  # npm partially populated, and same-version republishes are rejected.
+  # Queue subsequent runs instead of interrupting this one.
+  cancel-in-progress: false
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -51,7 +55,13 @@ jobs:
         with:
           bun-version: latest
 
-      - run: bun install
+      # `--cpu=* --os=*` overrides the host filter so all OpenTUI native
+      # packages (`@opentui/core-{darwin,linux,win32}-{x64,arm64}`) land
+      # in node_modules. Bun's `--compile --target=...` rewrites
+      # `process.platform`/`process.arch` at bundle time to the target,
+      # so without these flags cross-compile fails to resolve the
+      # target's native module on the build host.
+      - run: bun install --cpu='*' --os='*'
 
       - run: bun packages/atomic/script/build.ts ${{ matrix.target.name }}
 

@@ -16,7 +16,7 @@ set -e
 
 TARGET="${1:-latest}"
 
-if [[ -n "$TARGET" ]] && [[ ! "$TARGET" =~ ^(stable|latest|[0-9]+\.[0-9]+\.[0-9]+(-[^[:space:]]+)?)$ ]]; then
+if [[ ! "$TARGET" =~ ^(stable|latest|[0-9]+\.[0-9]+\.[0-9]+(-[^[:space:]]+)?)$ ]]; then
     echo "Usage: $0 [stable|latest|VERSION]" >&2
     exit 1
 fi

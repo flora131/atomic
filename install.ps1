@@ -71,11 +71,28 @@ if (-not $checksum) {
 $binaryUrl = "$RELEASES_BASE/download/v$version/atomic-$platform.exe"
 $binaryPath = Join-Path $DOWNLOAD_DIR "atomic-$version-$platform.exe"
 
-try {
-    Invoke-WebRequest -Uri $binaryUrl -OutFile $binaryPath -ErrorAction Stop
+# Retry transient network failures. Mirrors install.sh / install.cmd
+# (`curl --retry 3`). Hand-rolled rather than -MaximumRetryCount because
+# that flag isn't available on PowerShell 5.1.
+$maxAttempts = 3
+$attempt = 0
+$downloaded = $false
+$lastError = $null
+while ($attempt -lt $maxAttempts -and -not $downloaded) {
+    $attempt++
+    try {
+        Invoke-WebRequest -Uri $binaryUrl -OutFile $binaryPath -ErrorAction Stop
+        $downloaded = $true
+    }
+    catch {
+        $lastError = $_
+        if ($attempt -lt $maxAttempts) {
+            Start-Sleep -Seconds ([Math]::Min(5, $attempt * 2))
+        }
+    }
 }
-catch {
-    Write-Error "Failed to download binary from $binaryUrl : $_"
+if (-not $downloaded) {
+    Write-Error "Failed to download binary from $binaryUrl after $maxAttempts attempts: $lastError"
     if (Test-Path $binaryPath) { Remove-Item -Force $binaryPath }
     exit 1
 }

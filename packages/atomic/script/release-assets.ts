@@ -87,6 +87,12 @@ export function generateReleaseAssets(
     }
 
     const manifest: Manifest = { version: opts.version, platforms };
+    // The manifest's pretty-printed (one-field-per-line) shape is
+    // load-bearing for install.cmd's `findstr`-based parser, which
+    // can't tokenise JSON. Keep `JSON.stringify(..., null, 2)` and the
+    // top-level `version` + `platforms.<name>.checksum` layout — see
+    // install.cmd `:parse_manifest`. install.sh / install.ps1 use real
+    // JSON parsers and are tolerant.
     writeFileSync(
         join(opts.assetsRoot, "manifest.json"),
         JSON.stringify(manifest, null, 2) + "\n",

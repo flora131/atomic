@@ -59,7 +59,7 @@
   "scripts": {
     "build": "bun run script/build.ts",
     "release": "bun run script/publish.ts",
-    "typecheck": "bunx tsc --noEmit"
+    "typecheck": "bun run script/prebundle.ts && bunx tsc --noEmit"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.126",

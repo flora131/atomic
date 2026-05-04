@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, chmodSync } from "node:fs";
 import { mkdir, writeFile, copyFile } from "node:fs/promises";
 import { join } from "node:path";
 import { findRepoRoot } from "../src/lib/workspace-paths.ts";
@@ -57,8 +57,10 @@ if (import.meta.main) {
       label: t.name,
       cwd: join(CLI_PKG_ROOT, "dist", t.name),
       requireDist: true,
+      binPath: join(CLI_PKG_ROOT, "dist", t.name, "bin", `atomic${t.ext ?? ""}`),
+      isWindows: t.os === "win32",
     })),
-    { label: "wrapper", cwd: wrapperOut, requireDist: false },
+    { label: "wrapper", cwd: wrapperOut, requireDist: false, binPath: undefined, isWindows: false },
   ];
 
   for (const target of targets) {
@@ -69,6 +71,14 @@ if (import.meta.main) {
       }
       failures.push({ pkg: target.label, reason: `missing dist dir: ${target.cwd}` });
       continue;
+    }
+    // actions/upload-artifact@v4 zips artifacts and drops Unix mode bits, so
+    // the binary lands here without +x after download. Re-apply 0755 so the
+    // npm tarball ships an executable on Linux/macOS — without this the
+    // wrapper's spawnSync hits EACCES on `atomic --version`. No-op on
+    // Windows where the .exe extension carries executability.
+    if (target.binPath && !target.isWindows && existsSync(target.binPath)) {
+      chmodSync(target.binPath, 0o755);
     }
     const result = Bun.spawnSync(
       ["npm", "publish", "--access", "public", "--tag", tag, ...extraArgs],

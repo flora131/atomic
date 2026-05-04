@@ -193,9 +193,9 @@ jobs:
   # Verifies the lazy auto-install path: when atomic launches and tmux/psmux
   # is missing, autoSyncIfStale → ensureTmuxInstalled shells out to the host
   # package manager and the binary lands on PATH. Linux uses apt-get (sudo
-  # passwordless on the runner), macOS uses brew. Windows is excluded — its
-  # package managers (winget/scoop/choco) are not reliably available on the
-  # GitHub-hosted runners and would make this test flaky.
+  # passwordless on the runner), macOS uses brew, Windows tries winget →
+  # scoop → choco → cargo → direct GitHub-release download (last is the
+  # backstop that always works given network access).
   mux-autoinstall-smoke:
     name: Mux auto-install smoke (${{ matrix.os }})
     needs: [publish]
@@ -203,8 +203,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, arch: x64   }
-          - { os: macos-14,      arch: arm64 }
+          - { os: ubuntu-latest,  arch: x64   }
+          - { os: macos-14,       arch: arm64 }
+          - { os: windows-latest, arch: x64   }
     runs-on: ${{ matrix.os }}
     env:
       RC_VERSION: ${{ needs.publish.outputs.version }}
@@ -235,6 +236,30 @@ jobs:
             exit 1
           fi
 
+      # psmux isn't pre-installed on the windows-latest image, but guard
+      # against future image changes — also strip well-known install dirs
+      # that ensureTmuxInstalled's detector probes (Scoop shims, WinGet
+      # Links, %LOCALAPPDATA%\Programs\psmux) so a stale leftover from a
+      # cached image can't pass the test by accident.
+      - name: Ensure psmux is NOT pre-installed (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $existing = Get-Command psmux -ErrorAction SilentlyContinue
+          if ($existing) {
+            throw "psmux already on PATH at $($existing.Source) — test cannot verify auto-install"
+          }
+          foreach ($d in @(
+            (Join-Path $env:LOCALAPPDATA 'Programs\psmux'),
+            (Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Links'),
+            (Join-Path $env:USERPROFILE 'scoop\shims')
+          )) {
+            if (Test-Path (Join-Path $d 'psmux.exe')) {
+              Write-Output "Removing pre-existing $d\psmux.exe"
+              Remove-Item -Force (Join-Path $d 'psmux.exe') -ErrorAction SilentlyContinue
+            }
+          }
+
       - name: Install atomic from npm
         run: bun install -g @bastani/atomic@${{ env.RC_VERSION }}
 
@@ -242,19 +267,52 @@ jobs:
       # `--help` / `completions` are gated out in cli.ts). `workflow list`
       # is non-info, awaited, and silently triggers ensureTmuxInstalled
       # when hasRequiredMuxBinary() returns false.
-      - name: Trigger lazy auto-install via atomic workflow list
+      - name: Trigger lazy auto-install via atomic workflow list (Unix)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           export PATH="$HOME/.bun/bin:$PATH"
           atomic --version
           atomic workflow list >/dev/null
 
-      - name: Verify tmux is now on PATH
+      - name: Trigger lazy auto-install via atomic workflow list (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # ensureTmuxInstalled's Windows install paths (winget / scoop /
+          # cargo) write to user PATH via [Environment]::SetEnvironmentVariable;
+          # the change doesn't propagate to the current session, so reload
+          # from the registry before checking.
+          $userPath = [Environment]::GetEnvironmentVariable('Path','User')
+          if ($userPath) { $env:Path = "$env:Path;$userPath" }
+          atomic --version
+          atomic workflow list | Out-Null
+
+      - name: Verify tmux is now on PATH (Unix)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           export PATH="$HOME/.bun/bin:$PATH"
           which tmux
           tmux -V
+
+      - name: Verify psmux is now on PATH (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $userPath = [Environment]::GetEnvironmentVariable('Path','User')
+          if ($userPath) { $env:Path = "$env:Path;$userPath" }
+          $mux = Get-Command psmux -ErrorAction SilentlyContinue
+          if (-not $mux) {
+            $mux = Get-Command pmux -ErrorAction SilentlyContinue
+          }
+          if (-not $mux) {
+            $mux = Get-Command tmux -ErrorAction SilentlyContinue
+          }
+          if (-not $mux) {
+            throw "no multiplexer (psmux/pmux/tmux) on PATH after auto-install"
+          }
+          Write-Output "multiplexer resolved: $($mux.Source)"
 
   install-smoke:
     name: Smoke test ${{ matrix.os }} ${{ matrix.arch }}

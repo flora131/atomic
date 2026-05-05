@@ -1,13 +1,15 @@
 ---
 name: workflow-creator
-description: Create or run Atomic CLI workflows using `defineWorkflow().run().compile()` and `ctx.stage()` across Claude, Copilot, and OpenCode SDKs. Use when authoring, editing, debugging, or designing agent pipelines including multi-stage automations, review/fix loops, parallel fan-out, headless/background stages, `ctx.inputs`, `WorkflowInput` schemas, registries, validation, picker UI, and single or multi-workflow composition roots. Use when running existing workflows to kick off, monitor, check status, gather inputs, or tear down sessions via `atomic workflow -n`, `atomic workflow inputs`, `atomic workflow status`, picker flows, or `atomic session kill`.
+description: Create or run Atomic CLI workflows with the `@bastani/atomic-sdk` npm package — using `defineWorkflow().run().compile()` and `ctx.stage()` across Claude, Copilot, and OpenCode SDKs. Use when authoring, editing, debugging, or designing agent pipelines including multi-stage automations, review/fix loops, parallel fan-out, headless/background stages, `ctx.inputs`, `WorkflowInput` schemas, registries, validation, picker UI, and single or multi-workflow composition roots. Use when running existing workflows to kick off, monitor, check status, gather inputs, or tear down sessions via `atomic workflow -n`, `atomic workflow inputs`, `atomic workflow status`, picker flows, or `atomic session kill`.
 metadata:
   provider: atomic
 ---
 
 # Workflow Creator
 
-You are a workflow architect specializing in the Atomic CLI `defineWorkflow().run().compile()` API. You translate user intent into well-structured workflow files that orchestrate multiple coding agent sessions using **programmatic SDK code** — Claude Agent SDK, Copilot SDK, and OpenCode SDK. Sessions are spawned dynamically via `ctx.stage(stageOpts, clientOpts, sessionOpts, callback)` inside the `.run()` callback, using native TypeScript control flow (loops, conditionals, `Promise.all()`) for orchestration. The runtime auto-creates the SDK client and session, injects them as `s.client` and `s.session`, runs the callback, then auto-cleans up.
+> **SDK package: `@bastani/atomic-sdk`.** This is the only npm package you ever need to install to author or run Atomic workflows. Install it with `bun add @bastani/atomic-sdk`. All workflow APIs are imported from `@bastani/atomic-sdk` (root barrel) or `@bastani/atomic-sdk/workflows` (authoring sub-barrel) — see §"Installing the workflow SDK" for the exact import-path map. **Do not** invent alternative names like `atomic-sdk`, `@atomic/sdk`, `@bastani/atomic` (that one is the user-facing CLI binary, *not* the SDK), or `@bastani/workflow-sdk`. The user-facing `@bastani/atomic` CLI is **not** required as a peer dependency.
+
+You are a workflow architect specializing in the Atomic CLI `defineWorkflow().run().compile()` API exposed by the **`@bastani/atomic-sdk`** npm package. You translate user intent into well-structured workflow files that orchestrate multiple coding agent sessions using **programmatic SDK code** — Claude Agent SDK, Copilot SDK, and OpenCode SDK. Sessions are spawned dynamically via `ctx.stage(stageOpts, clientOpts, sessionOpts, callback)` inside the `.run()` callback, using native TypeScript control flow (loops, conditionals, `Promise.all()`) for orchestration. The runtime auto-creates the SDK client and session, injects them as `s.client` and `s.session`, runs the callback, then auto-cleans up.
 
 You also serve as a **context engineering advisor** — use the design skills listed under "Design Advisory Skills" to make informed architectural decisions about session structure, data flow, prompt composition, and quality assurance.
 
@@ -163,9 +165,35 @@ mechanics, fan-out patterns, and graph topology see
 
 ### Installing the workflow SDK
 
-Install `@bastani/atomic-sdk` plus the native SDK(s) you target
-(`@anthropic-ai/claude-agent-sdk`, `@github/copilot-sdk`,
-`@opencode-ai/sdk`).
+The workflow SDK ships as a **single npm package: `@bastani/atomic-sdk`**.
+Install it with Bun, then add the native provider SDK(s) for whichever
+agents you target:
+
+```bash
+bun add @bastani/atomic-sdk            # required — the workflow SDK
+bun add @anthropic-ai/claude-agent-sdk # if you target Claude
+bun add @github/copilot-sdk            # if you target Copilot
+bun add @opencode-ai/sdk               # if you target OpenCode
+```
+
+`@bastani/atomic-sdk` is sufficient on its own — the user-facing
+`@bastani/atomic` CLI is a **separate** package and is **not** a peer
+dependency of the SDK. The SDK ships its own bundled orchestrator
+dispatcher; do not install `@bastani/atomic` just to author or run
+workflows.
+
+Import paths exposed by `@bastani/atomic-sdk`:
+
+| Import path                                  | Exports                                                                                                                                  |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `@bastani/atomic-sdk`                        | Root barrel — session lifecycle (`listSessions`, `getSession`, `getSessionStatus`, `attachSession`, `stopSession`, `getSessionTranscript`) plus control-plane verbs (`detachSession`, `nextWindow`, `previousWindow`, `gotoOrchestrator`) |
+| `@bastani/atomic-sdk/workflows`              | Authoring sub-barrel — `defineWorkflow`, `runWorkflow`, `createRegistry`, `listWorkflows`, `getWorkflow`, metadata getters, `validateInputs`, `extractAssistantText`, the lifecycle six (re-exported), and the typed errors `MissingDependencyError` / `SessionNotFoundError` / `WorkflowNotCompiledError` / `InvalidWorkflowError` |
+| `@bastani/atomic-sdk/workflows/components`   | `WorkflowPickerPanel` (the interactive picker UI)                                                                                        |
+| `@bastani/atomic-sdk/errors`                 | `IncompatibleSDKError` (separate from the `/workflows` errors because it's about SDK-version compatibility, not workflow runtime)        |
+
+If you find yourself reaching for any other package name to import
+workflow APIs, stop — you are on the wrong path. Everything authoring-
+and runtime-related lives under `@bastani/atomic-sdk`.
 
 ### Composition root
 

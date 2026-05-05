@@ -2,6 +2,24 @@
 
 This guide covers the basics of creating workflows with the `defineWorkflow().run().compile()` API and wiring them into a composition root.
 
+## SDK package: `@bastani/atomic-sdk`
+
+> **The workflow SDK is published as a single npm package: `@bastani/atomic-sdk`.** Install it with `bun add @bastani/atomic-sdk`. Every import in this guide resolves to one of three sub-paths under that one package — there is no separate workflow SDK package, no `@atomic/sdk`, no `atomic-sdk` (without the scope), and no `@bastani/workflow-sdk`. The user-facing CLI (`@bastani/atomic`) is a *different* package and is **not** required to author or run workflows.
+
+| Import path                                  | What you get                                                                                                                |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `@bastani/atomic-sdk`                        | Root barrel — session lifecycle + control-plane verbs (`detachSession`, `nextWindow`, `previousWindow`, `gotoOrchestrator`) |
+| `@bastani/atomic-sdk/workflows`              | Authoring sub-barrel — `defineWorkflow`, `runWorkflow`, registry primitives, `extractAssistantText`, typed errors           |
+| `@bastani/atomic-sdk/workflows/components`   | `WorkflowPickerPanel` (the interactive picker UI)                                                                           |
+| `@bastani/atomic-sdk/errors`                 | `IncompatibleSDKError`                                                                                                      |
+
+```bash
+bun add @bastani/atomic-sdk            # the workflow SDK (always required)
+bun add @anthropic-ai/claude-agent-sdk # native Claude SDK (only if targeting Claude)
+bun add @github/copilot-sdk            # native Copilot SDK (only if targeting Copilot)
+bun add @opencode-ai/sdk               # native OpenCode SDK (only if targeting OpenCode)
+```
+
 ## Composition root
 
 A workflow's composition root is the TypeScript file a user runs via `bun`. The SDK exposes pure primitives — there's no opinionated wrapper. Compose them into whatever CLI library you prefer (Commander, citty, yargs, or none at all) and call `runWorkflow({ workflow, inputs })` from the action.

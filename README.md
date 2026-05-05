@@ -493,26 +493,10 @@ The [`examples/`](./examples) directory contains small, complete user apps you c
 | `commander-embed`               | Mount an atomic workflow under a parent Commander CLI by calling `runWorkflow({ workflow, inputs })` inside a Commander action, alongside a plain Commander sibling command. No re-entry boilerplate — the SDK ships its own orchestrator entry script.                                                                |
 | `pane-navigation`               | Driver CLI for the SDK pane-navigation primitives (`nextWindow`, `previousWindow`, `gotoOrchestrator`, `attachSession`, `detachSession`). Spawns a 3-stage workflow detached and exposes `start / list / status / next / prev / home / attach / stop` subcommands. Catches `SessionNotFoundError` for friendly errors. |
 
-Run any of them with:
+Each example directory ships its own `package.json` and `README.md` with the run command, inputs, and a one-paragraph explanation — head to [`examples/`](./examples) and pick one. The general shape is:
 
-```bash
-# Single-workflow workers — agent is pinned by which file you run, so no `-a` flag.
-# Inputs map to `--<input>=<value>` flags; if the workflow declares no inputs,
-# trailing positional tokens become the prompt.
-bun run examples/hello-world/claude-worker.ts --greeting="Hello" --style=casual
-bun run examples/sequential-describe-summarize/claude-worker.ts --topic="Bun"
-bun run examples/review-fix-loop/claude-worker.ts --topic="adopting Bun" --max_iterations=3
-bun run examples/headless-test/copilot-worker.ts --prompt="TypeScript"
-
-# Multi-workflow CLI — one cli.ts, one Commander subcommand per registered workflow.
-bun run examples/multi-workflow/cli.ts hello   --who=Alex
-bun run examples/multi-workflow/cli.ts goodbye --tone=melodramatic
-
-# Commander embedding — atomic workflow mounted as `greet` alongside plain Commander commands.
-bun run examples/commander-embed/cli.ts greet --who=Alex
-bun run examples/commander-embed/cli.ts status                # sibling Commander command
-bun run examples/commander-embed/cli.ts --help                # all commands
-```
+- **Worker-style examples** — `bun install && bun run <agent>-worker.ts --<input>=<value>`. Agent is pinned by which worker file you run (no `-a` flag). Inputs map to `--<input>=<value>` flags; if the workflow declares no inputs, trailing positional tokens become the prompt.
+- **CLI-style examples** (`multi-workflow`, `commander-embed`, `pane-navigation`) — `bun install && bun run cli.ts <subcommand>`. See each folder's README for subcommands.
 
 Copy an example directory into your project as a starting point — swap the workflow import in each `<agent>-worker.ts` (or in `cli.ts` for the multi-workflow / commander-embed shapes) for your own definition and you're done.
 

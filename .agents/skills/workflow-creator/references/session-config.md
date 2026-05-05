@@ -109,7 +109,7 @@ const result = query({
 the pane ID from `s.paneId` automatically. Call it inside the stage callback:
 
 ```ts
-import { extractAssistantText } from "@bastani/atomic/workflows";
+import { extractAssistantText } from "@bastani/atomic-sdk/workflows";
 
 await ctx.stage({ name: "..." }, {}, {}, async (s) => {
   const result = await s.session.query("Your prompt");

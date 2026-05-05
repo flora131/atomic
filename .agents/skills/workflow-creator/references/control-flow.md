@@ -16,7 +16,7 @@ Prefer inter-session control flow when you want the workflow graph to reflect wh
 Run a triage session first, then branch at the `.run()` level to spawn a purpose-built session for each outcome. Every branch appears as a distinct node in the graph:
 
 ```ts
-import { extractAssistantText } from "@bastani/atomic/workflows";
+import { extractAssistantText } from "@bastani/atomic-sdk/workflows";
 
 .run(async (ctx) => {
   // Step 1: Classify the request
@@ -55,7 +55,7 @@ import { extractAssistantText } from "@bastani/atomic/workflows";
 When the branching logic is simple and you want the agent to retain full context across both the triage and the action, do it all inside a single session callback:
 
 ```ts
-import { extractAssistantText } from "@bastani/atomic/workflows";
+import { extractAssistantText } from "@bastani/atomic-sdk/workflows";
 
 .run(async (ctx) => {
   await ctx.stage({ name: "triage-and-act" }, {}, {}, async (s) => {
@@ -85,7 +85,7 @@ import { extractAssistantText } from "@bastani/atomic/workflows";
 Each iteration spawns its own session, so the graph shows exactly how many passes ran:
 
 ```ts
-import { extractAssistantText } from "@bastani/atomic/workflows";
+import { extractAssistantText } from "@bastani/atomic-sdk/workflows";
 
 .run(async (ctx) => {
   const MAX_ITERATIONS = 5;
@@ -109,7 +109,7 @@ import { extractAssistantText } from "@bastani/atomic/workflows";
 When the agent must remember every prior iteration's output to make progress, keep the loop inside one session:
 
 ```ts
-import { extractAssistantText } from "@bastani/atomic/workflows";
+import { extractAssistantText } from "@bastani/atomic-sdk/workflows";
 
 .run(async (ctx) => {
   await ctx.stage({ name: "iterative-refinement" }, {}, {}, async (s) => {
@@ -133,7 +133,7 @@ import { extractAssistantText } from "@bastani/atomic/workflows";
 The inter-session pattern is the right fit here: every review and every fix becomes its own graph node, so the executed path is fully visible. This is the production-grade approach with consecutive clean-pass detection:
 
 ```ts
-import { extractAssistantText } from "@bastani/atomic/workflows";
+import { extractAssistantText } from "@bastani/atomic-sdk/workflows";
 
 .run(async (ctx) => {
   const MAX_CYCLES = 10;
@@ -308,7 +308,7 @@ Each iteration's stages form a natural chain because each `await` follows the pr
 Headless stages (`{ headless: true }`) are **invisible in the workflow graph** — they don't consume or update the execution frontier. This means they don't affect the parent-child edges inferred for visible stages.
 
 ```ts
-import { extractAssistantText } from "@bastani/atomic/workflows";
+import { extractAssistantText } from "@bastani/atomic-sdk/workflows";
 
 // ✅ Graph renders: seed → merge (headless stages are transparent)
 .run(async (ctx) => {
@@ -435,7 +435,7 @@ async function retryWithBackoff<T>(
 Combine loops, conditionals, and inter-session data passing. Session callbacks return typed values via `SessionHandle<T>.result`, and `s.transcript(handle)` accepts a prior `SessionHandle` to read another session's saved output:
 
 ```ts
-import { extractAssistantText } from "@bastani/atomic/workflows";
+import { extractAssistantText } from "@bastani/atomic-sdk/workflows";
 
 .run(async (ctx) => {
   // Step 1: Analyse — result is available as a typed handle

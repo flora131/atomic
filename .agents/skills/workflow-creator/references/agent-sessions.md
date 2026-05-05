@@ -11,7 +11,7 @@ Claude runs as a full interactive TUI in a tmux pane. The runtime auto-starts th
 ### Session lifecycle
 
 ```ts
-import { defineWorkflow } from "@bastani/atomic/workflows";
+import { defineWorkflow } from "@bastani/atomic-sdk/workflows";
 
 // ...
 .run(async (ctx) => {
@@ -52,7 +52,7 @@ No manual timeout is needed — idle detection watches for the pane prompt to re
 ### Basic usage with `s.session.query()`
 
 ```ts
-import { defineWorkflow } from "@bastani/atomic/workflows";
+import { defineWorkflow } from "@bastani/atomic-sdk/workflows";
 
 export default defineWorkflow({
     name: "implement",
@@ -251,7 +251,7 @@ For stages that call a single subagent, use `--agent` (interactive) or the SDK `
 Claude headless stages use the Agent SDK's `query()` API directly in-process instead of automating a tmux pane. Set `headless: true` in the stage options. SDK options like `agent`, `permissionMode`, and `allowDangerouslySkipPermissions` can be passed directly in the `query()` call:
 
 ```ts
-import { defineWorkflow, extractAssistantText } from "@bastani/atomic/workflows";
+import { defineWorkflow, extractAssistantText } from "@bastani/atomic-sdk/workflows";
 
 // ...
 await ctx.stage(
@@ -279,7 +279,7 @@ Copilot uses a client-server architecture. The runtime auto-creates a `CopilotCl
 ### Basic usage
 
 ```ts
-import { defineWorkflow } from "@bastani/atomic/workflows";
+import { defineWorkflow } from "@bastani/atomic-sdk/workflows";
 
 export default defineWorkflow({
     name: "implement",
@@ -626,7 +626,7 @@ OpenCode uses a client-server model. The runtime auto-creates an `OpencodeClient
 ### Basic usage
 
 ```ts
-import { defineWorkflow } from "@bastani/atomic/workflows";
+import { defineWorkflow } from "@bastani/atomic-sdk/workflows";
 
 export default defineWorkflow({
     name: "implement",

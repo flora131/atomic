@@ -1,6 +1,6 @@
 ---
 name: workflow-creator
-description: Create AND run Atomic CLI workflows (`defineWorkflow().run().compile()` with `ctx.stage()`) across Claude, Copilot, and OpenCode SDKs. Use for **authoring** when the user wants to build, edit, debug, or design agent pipelines — multi-stage automations, review/fix loops, parallel fan-out, headless/background stages, `defineWorkflow`, `ctx.stage`, `ctx.inputs`, declared `WorkflowInput` schemas, `runWorkflow`, `createRegistry`, `listWorkflows`, the SDK's metadata accessors (`getName`, `getInputSchema`, `getAgent`), `validateInputs`, the interactive workflow picker (`WorkflowPicker` from `@bastani/atomic/workflows/components`), single or multi-workflow composition roots. Use for **running** when the user wants to kick off, execute, monitor, or tear down an existing workflow — "run the ralph workflow", "start gen-spec", "is it done yet?", "what's the status?", "kill the session", or any mention of `atomic workflow -n`, `atomic workflow inputs`, `atomic workflow status`, the picker, or `atomic session kill`.
+description: Create AND run Atomic CLI workflows (`defineWorkflow().run().compile()` with `ctx.stage()`) across Claude, Copilot, and OpenCode SDKs. Use for **authoring** when the user wants to build, edit, debug, or design agent pipelines — multi-stage automations, review/fix loops, parallel fan-out, headless/background stages, `defineWorkflow`, `ctx.stage`, `ctx.inputs`, declared `WorkflowInput` schemas, `runWorkflow`, `createRegistry`, `listWorkflows`, the SDK's metadata accessors (`getName`, `getInputSchema`, `getAgent`), `validateInputs`, the interactive workflow picker (`WorkflowPicker` from `@bastani/atomic-sdk/workflows/components`), single or multi-workflow composition roots. Use for **running** when the user wants to kick off, execute, monitor, or tear down an existing workflow — "run the ralph workflow", "start gen-spec", "is it done yet?", "what's the status?", "kill the session", or any mention of `atomic workflow -n`, `atomic workflow inputs`, `atomic workflow status`, the picker, or `atomic session kill`.
 metadata:
   provider: atomic
 ---
@@ -59,7 +59,7 @@ One workflow per directory, one file per agent, one composition-root file per ag
 The five-step rhythm is the same regardless of workflow complexity:
 
 1. **Verify prerequisites** — Bun, tmux/psmux, an authenticated agent CLI. Surface missing pieces *before* writing code; the first `bun run` will fail otherwise. Devcontainers using `ghcr.io/flora131/atomic/<agent>:1` bundle all three.
-2. **Bootstrap** — `bun init -y` (skip if `package.json` exists) + `bun add @bastani/atomic` + the provider SDK(s) the user targets.
+2. **Bootstrap** — `bun init -y` (skip if `package.json` exists) + `bun add @bastani/atomic-sdk` + the provider SDK(s) the user targets.
 3. **Write the workflow** at `src/workflows/<name>/<agent>.ts` using `defineWorkflow({ ... source: import.meta.path }).for(agent).run(...).compile()`. The `source: import.meta.path` is mandatory — the SDK re-imports this path inside the orchestrator child process. Per-agent skeletons live in `references/getting-started.md` §"Quick-start example".
 4. **Write the composition root** at `src/<agent>-worker.ts` (single workflow) or `src/cli.ts` (multiple workflows). The SDK exposes pure primitives — Commander/citty/yargs/etc. is the dev's choice; `runWorkflow({ workflow, inputs })` is the action body. Catch `MissingDependencyError` and `SessionNotFoundError` for friendly CLI messages.
 5. **Verify** — `bunx tsc --noEmit`, then a real `bun run src/<agent>-worker.ts --prompt "..."` smoke test. Watch the tmux pane spawn, the agent reply, the session end cleanly.
@@ -130,7 +130,7 @@ running in headless mode). Native TypeScript handles all control flow:
 loops, conditionals, `Promise.all()`, `try`/`catch`.
 
 ```ts
-import { defineWorkflow, extractAssistantText } from "@bastani/atomic/workflows";
+import { defineWorkflow, extractAssistantText } from "@bastani/atomic-sdk/workflows";
 
 export default defineWorkflow({
     name: "my-workflow",
@@ -163,7 +163,7 @@ mechanics, fan-out patterns, and graph topology see
 
 ### Installing the workflow SDK
 
-Install `@bastani/atomic` plus the native SDK(s) you target
+Install `@bastani/atomic-sdk` plus the native SDK(s) you target
 (`@anthropic-ai/claude-agent-sdk`, `@github/copilot-sdk`,
 `@opencode-ai/sdk`).
 
@@ -178,8 +178,8 @@ user runs with `bun`. The SDK exposes pure primitives:
 - `validateInputs(wf, raw)` — apply defaults and validate against the declared schema.
 - **Session lifecycle** — `listSessions / getSession / stopSession / attachSession / detachSession / getSessionStatus / getSessionTranscript`. Manage running tmux sessions on the shared atomic socket.
 - **Pane navigation** — `nextWindow / previousWindow / gotoOrchestrator`. Pure tmux verbs: they update the session's current-window pointer and return immediately. Never auto-attach — an attached client sees the change live; if no client is watching, the next `attachSession` call lands on the new window. Compose `nextWindow(id) + attachSession(id)` for navigate-then-attach.
-- **Typed errors** (catch with `instanceof` to render friendly CLI messages) — `MissingDependencyError` (tmux/psmux/bun missing), `SessionNotFoundError` (id not on the atomic socket), `WorkflowNotCompiledError` (forgot `.compile()`), `InvalidWorkflowError` (default export not a `WorkflowDefinition`), `IncompatibleSDKError` (workflow's `minSDKVersion` newer than installed CLI). All thrown by SDK primitives; all carry the relevant payload field (`dependency`, `id`, `path`, version pair).
-- `WorkflowPicker` (from `@bastani/atomic/workflows/components`) — the interactive picker `atomic workflow -a claude` uses.
+- **Typed errors** (catch with `instanceof` to render friendly CLI messages) — `MissingDependencyError` (tmux/psmux/bun missing), `SessionNotFoundError` (id not on the atomic socket), `WorkflowNotCompiledError` (forgot `.compile()`), `InvalidWorkflowError` (default export not a `WorkflowDefinition`) all live on the `@bastani/atomic-sdk/workflows` barrel. `IncompatibleSDKError` (workflow's `minSDKVersion` newer than the installed `@bastani/atomic-sdk`) is exported separately from `@bastani/atomic-sdk/errors`. All thrown by SDK primitives; all carry the relevant payload field (`dependency`, `id`, `path`, version pair).
+- `WorkflowPicker` (from `@bastani/atomic-sdk/workflows/components`) — the interactive picker `atomic workflow -a claude` uses.
 
 You compose them into whatever CLI library you prefer. The SDK never
 re-execs the dev's CLI — it ships its own orchestrator entry script and
@@ -188,7 +188,7 @@ re-execs *that* with positional args.
 ```ts
 // src/claude-worker.ts — single workflow with a small Commander entrypoint
 import { Command } from "@commander-js/extra-typings";
-import { getInputSchema, runWorkflow } from "@bastani/atomic/workflows";
+import { getInputSchema, runWorkflow } from "@bastani/atomic-sdk/workflows";
 import workflow from "./workflows/my-workflow/claude.ts";
 
 const program = new Command();
@@ -207,7 +207,7 @@ import {
   getName,
   listWorkflows,
   runWorkflow,
-} from "@bastani/atomic/workflows";
+} from "@bastani/atomic-sdk/workflows";
 import claudeWorkflow from "./workflows/my-workflow/claude.ts";
 import copilotWorkflow from "./workflows/my-workflow/copilot.ts";
 
@@ -252,7 +252,7 @@ Workflows receive user data exclusively through `ctx.inputs` / `s.inputs`,
 declared inline as `inputs: WorkflowInput[]` on `defineWorkflow()`.
 TypeScript restricts `ctx.inputs` to declared keys (undeclared access is a
 compile-time error). Load `references/workflow-inputs.md` for schema shape,
-field types (`string` / `text` / `enum`), validation rules, picker
+field types (`string` / `text` / `enum` / `integer`), validation rules, picker
 semantics, and the "declare your prompt input explicitly" pattern.
 
 ### Invocation surfaces
@@ -274,7 +274,7 @@ bun run src/cli.ts spec   --research_doc=notes.md
 To launch the interactive picker, mount the `WorkflowPicker` component:
 
 ```ts
-import { WorkflowPickerPanel } from "@bastani/atomic/workflows/components";
+import { WorkflowPickerPanel } from "@bastani/atomic-sdk/workflows/components";
 
 const panel = await WorkflowPickerPanel.create({ agent: "claude", registry });
 const result = await panel.waitForSelection();
@@ -286,7 +286,7 @@ if (result) {
 
 The dev's CLI is **never** re-execed. The SDK ships an internal orchestrator entry script and re-execs that with positional args — no env-var dance, no boilerplate re-entry code in the dev's file.
 
-**Atomic builtins** — workflows shipped inside `@bastani/atomic`, registered by atomic's internal `createBuiltinRegistry()`:
+**Atomic builtins** — workflows shipped inside `@bastani/atomic-sdk`, registered by atomic's internal `createBuiltinRegistry()`:
 
 ```bash
 atomic workflow -n <name> -a <agent> [inputs...]
@@ -481,7 +481,7 @@ caveats.
 
 **Reference implementations** — two categories live in-repo:
 
-- **Builtins** (`src/sdk/workflows/builtin/`) — production patterns,
+- **Builtins** (`packages/atomic-sdk/src/workflows/builtin/`) — production patterns,
   registered via `createBuiltinRegistry()` inside the `atomic` CLI:
   - `ralph` — iterative plan → orchestrate → review → debug loop.
   - `deep-research-codebase` — scout → parallel explorer fan-out → aggregator.

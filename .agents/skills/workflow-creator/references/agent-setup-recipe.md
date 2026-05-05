@@ -1,6 +1,6 @@
 # Agent Setup Recipe
 
-A deterministic recipe for getting a user from "empty terminal" to "first workflow runs" in one session. This is the path to follow whenever the user signals they want to start using the workflow SDK from zero — phrases like *"set me up with the workflow SDK"*, *"I want to write workflows"*, *"bootstrap a workflow project"*, *"how do I get started"*, or any equivalent. If the user already has `@bastani/atomic` installed and a workflow file exists, jump to step 5.
+A deterministic recipe for getting a user from "empty terminal" to "first workflow runs" in one session. This is the path to follow whenever the user signals they want to start using the workflow SDK from zero — phrases like *"set me up with the workflow SDK"*, *"I want to write workflows"*, *"bootstrap a workflow project"*, *"how do I get started"*, or any equivalent. If the user already has `@bastani/atomic-sdk` installed and a workflow file exists, jump to step 5.
 
 ## Why this recipe exists
 
@@ -10,7 +10,7 @@ Bootstrapping is the highest-friction moment of the SDK because three of the run
 - **A terminal multiplexer** — tmux on macOS/Linux, psmux on Windows. Every `ctx.stage()` runs inside a detachable session on the `atomic` socket.
 - **An authenticated agent CLI** — `claude`, `copilot`, or `opencode`. The runtime spawns these at each stage; if the binary is missing or unauthenticated, the first stage will fail with an error the user has no way to interpret.
 
-A user hitting `bun add @bastani/atomic` in an empty project and then running their workflow will see one of these three blow up 30 seconds in with a stack trace that does not name the missing piece. This recipe checks all three up front and surfaces the missing one as a one-line fix. It also wires the typed errors the SDK throws (`MissingDependencyError`, `SessionNotFoundError`, `WorkflowNotCompiledError`, `InvalidWorkflowError`, `IncompatibleSDKError`) to actionable messages — so when something does fail later, the user sees a sentence, not a stack.
+A user hitting `bun add @bastani/atomic-sdk` in an empty project and then running their workflow will see one of these three blow up 30 seconds in with a stack trace that does not name the missing piece. This recipe checks all three up front and surfaces the missing one as a one-line fix. It also wires the typed errors the SDK throws (`MissingDependencyError`, `SessionNotFoundError`, `WorkflowNotCompiledError`, `InvalidWorkflowError`, `IncompatibleSDKError`) to actionable messages — so when something does fail later, the user sees a sentence, not a stack.
 
 Treat the steps below as a checklist, not a script. Read each step before running anything; tell the user what you found and what you're about to do; only proceed when each precondition is satisfied. Skipping a step "because it probably works" is what makes setup feel flaky.
 
@@ -58,7 +58,7 @@ bun init -y
 Add the SDK plus only the provider package(s) the user picked:
 
 ```bash
-bun add @bastani/atomic
+bun add @bastani/atomic-sdk
 bun add @anthropic-ai/claude-agent-sdk     # only if Claude
 bun add @github/copilot-sdk                # only if Copilot
 bun add @opencode-ai/sdk                   # only if OpenCode
@@ -77,7 +77,7 @@ Always include `source: import.meta.path` — the runtime re-imports the module 
 
 ```ts
 // src/workflows/<name>/claude.ts
-import { defineWorkflow } from "@bastani/atomic/workflows";
+import { defineWorkflow } from "@bastani/atomic-sdk/workflows";
 
 export default defineWorkflow({
   name: "<workflow-name>",
@@ -142,7 +142,7 @@ import {
   runWorkflow,
   MissingDependencyError,
   SessionNotFoundError,
-} from "@bastani/atomic/workflows";
+} from "@bastani/atomic-sdk/workflows";
 import workflow from "./workflows/<name>/<agent>.ts";
 
 const program = new Command();
@@ -178,7 +178,7 @@ import {
   getName,
   listWorkflows,
   runWorkflow,
-} from "@bastani/atomic/workflows";
+} from "@bastani/atomic-sdk/workflows";
 import flowA from "./workflows/<name-a>/<agent>.ts";
 import flowB from "./workflows/<name-b>/<agent>.ts";
 
@@ -242,7 +242,7 @@ For a worker that supports both, expose `--detach` as a Commander flag and pass 
 
 ## Step 8 — Failure recovery (typed errors)
 
-The SDK throws typed errors from `@bastani/atomic` so callers can pattern-match without parsing message text. When you wire user-facing CLIs, add `instanceof` branches for the ones that need a friendly message:
+The SDK throws typed errors from `@bastani/atomic-sdk` so callers can pattern-match without parsing message text. When you wire user-facing CLIs, add `instanceof` branches for the ones that need a friendly message:
 
 | Error | When | Friendly message |
 |---|---|---|
@@ -250,7 +250,7 @@ The SDK throws typed errors from `@bastani/atomic` so callers can pattern-match 
 | `SessionNotFoundError` | `attachSession`/`nextWindow`/`previousWindow`/`gotoOrchestrator` called with an id that's not on the atomic socket | `session not found: <id>. Run "atomic session list" or list via listSessions() to see what's running.` |
 | `WorkflowNotCompiledError` | The dev forgot `.compile()` at the end of `defineWorkflow(...)` | The error message itself is the fix — surface as-is. |
 | `InvalidWorkflowError` | The imported file's default export isn't a `WorkflowDefinition` | Ditto — surface the message; it tells the dev to add `defineWorkflow(...).compile()`. |
-| `IncompatibleSDKError` | The workflow declares `minSDKVersion` newer than the installed CLI | Tell the user to either `bun update -g @bastani/atomic` or relax the workflow's `minSDKVersion`. |
+| `IncompatibleSDKError` | The workflow declares `minSDKVersion` newer than the `@bastani/atomic-sdk` version in the project | Tell the user to run `bun update @bastani/atomic-sdk` in the workflow's project or relax the workflow's `minSDKVersion`. Import the class from `@bastani/atomic-sdk/errors` (it's not exported from the `/workflows` barrel). |
 
 Don't catch errors you don't know how to render — let them throw. A blanket `catch (err) { console.error(err) }` defeats the typed surface.
 

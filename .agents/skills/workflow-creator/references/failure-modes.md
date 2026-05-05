@@ -204,7 +204,7 @@ const parsed = JSON.parse(result.output);  // TypeError: result.output is undefi
 ### ✅ Right — use `extractAssistantText(result, 0)`
 
 ```ts
-import { extractAssistantText } from "@bastani/atomic/workflows";
+import { extractAssistantText } from "@bastani/atomic-sdk/workflows";
 
 const result = await s.session.query(prompt);
 const text = extractAssistantText(result, 0);
@@ -215,7 +215,7 @@ const text = extractAssistantText(result, 0);
 `afterIndex` forward, pulls `TextBlock.text` from each `assistant` message's
 content array, and joins them with newlines.
 
-The ralph helpers in `src/sdk/workflows/builtin/ralph/helpers/prompts.ts`
+The ralph helpers in `packages/atomic-sdk/src/workflows/builtin/ralph/helpers/prompts.ts`
 (`parseReviewResult`, `extractMarkdownBlock`) use this pattern — always
 extract text first, then parse.
 
@@ -454,7 +454,7 @@ export function parseReviewResult(content: string): ReviewResult | null {
   }
 
   // 3. Last balanced object containing the required key
-  // (implementation in src/sdk/workflows/builtin/ralph/helpers/prompts.ts)
+  // (implementation in packages/atomic-sdk/src/workflows/builtin/ralph/helpers/prompts.ts)
   return null;
 }
 ```
@@ -835,7 +835,7 @@ await ctx.stage(
 );
 ```
 
-This is the pattern used by `src/sdk/workflows/builtin/ralph/claude/index.ts`
+This is the pattern used by `packages/atomic-sdk/src/workflows/builtin/ralph/claude/index.ts`
 for its planner, orchestrator, reviewer, and debugger stages.
 
 ### ✅ Right (b) — headless stage with SDK options via `s.session.query()`
@@ -876,7 +876,7 @@ await ctx.stage(
 1. Grep your workflow for `from "@anthropic-ai/claude-agent-sdk"` —
    `query`, `tool`, `createSdkMcpServer` and similar imports inside a
    `.run()` callback are the smell. Workflow code should import from
-   `@bastani/atomic/workflows` and access the SDK exclusively through
+   `@bastani/atomic-sdk/workflows` and access the SDK exclusively through
    `s.client` and `s.session`.
 2. Watch the workflow run. If a visible pane shows the Claude welcome
    screen for the entire duration of a stage and never receives a prompt,

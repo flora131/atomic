@@ -52,7 +52,7 @@ Available examples: `hello-world`, `parallel-hello-world`, `headless-test`,
 `reviewer-tool-test` (copilot only). Use these to demonstrate a specific SDK
 feature or as a copy-paste starting point.
 
-**Path C — atomic builtins.** Workflows shipped inside `@bastani/atomic`
+**Path C — atomic builtins.** Workflows shipped inside `@bastani/atomic-sdk`
 and registered via `createBuiltinRegistry()` inside the `atomic` CLI:
 
 ```bash
@@ -224,9 +224,12 @@ tmux socket. Two surfaces expose monitoring commands:
    atomic session connect <session-id>
    atomic session kill <session-id> -y
    ```
-2. **SDK-only fallback — `bunx atomic`.** Any project with `@bastani/atomic`
-   as a dep ships the full `atomic` binary at `node_modules/.bin/atomic`. Use
-   this when the global binary is not installed.
+2. **No-global-install fallback — `bunx atomic`.** The `atomic` CLI ships as a
+   separate package (`@bastani/atomic`) from the SDK (`@bastani/atomic-sdk`).
+   Add it alongside the SDK with `bun add @bastani/atomic` and the binary
+   becomes available at `node_modules/.bin/atomic` so `bunx atomic …` works
+   without a global install. Skip this if the user already has the global
+   binary on `PATH`.
 
 `runWorkflow` does **not** auto-register `session` or `status` subcommands on
 user-app worker files. If the dev wants those commands inside their own CLI,
@@ -238,7 +241,7 @@ import {
   stopSession,
   attachSession,
   getSessionStatus,
-} from "@bastani/atomic/workflows";
+} from "@bastani/atomic-sdk/workflows";
 ```
 
 Because every workflow lands on the same atomic tmux socket regardless of
@@ -367,7 +370,7 @@ in-scope session — only do that when the user has asked to stop everything.
 
 > **User:** "run ralph on 'add OAuth to the API'"
 
-1. Path C (atomic builtin — `ralph` is shipped inside `@bastani/atomic`).
+1. Path C (atomic builtin — `ralph` is shipped inside `@bastani/atomic-sdk`).
    Run `atomic workflow list`. Confirms `ralph` is registered.
 2. Target resolved exactly: `ralph`, agent `claude`.
 3. Prompt already given in user's message. No AskUserQuestion needed.

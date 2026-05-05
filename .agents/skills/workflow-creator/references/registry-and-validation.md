@@ -5,7 +5,7 @@
 Factory for an empty, immutable, chainable workflow registry.
 
 ```ts
-import { createRegistry } from "@bastani/atomic/workflows";
+import { createRegistry } from "@bastani/atomic-sdk/workflows";
 
 const registry = createRegistry()
   .register(myClaudeWorkflow)

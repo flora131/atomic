@@ -39,7 +39,7 @@ Each SDK returns responses in different formats. Use helpers to extract text:
 `s.session.query()` returns `SessionMessage[]` — the native SDK transcript messages from this turn. Use `extractAssistantText()` to extract the plain text:
 
 ```ts
-import { extractAssistantText } from "@bastani/atomic/workflows";
+import { extractAssistantText } from "@bastani/atomic-sdk/workflows";
 
 const result = await s.session.query("...");
 const text = extractAssistantText(result, 0); // Extract text from SessionMessage[]
@@ -79,7 +79,7 @@ first — prose often quotes examples earlier; see `failure-modes.md` §F8) →
 last balanced object. Canonical helper lives in `state-and-data-flow.md`
 §"Response parsers"; copy it into a sibling `helpers/parsers.ts` and
 import. The full three-layer implementation, including the balanced-object
-fallback, is in `src/sdk/workflows/builtin/ralph/helpers/prompts.ts`.
+fallback, is in `packages/atomic-sdk/src/workflows/builtin/ralph/helpers/prompts.ts`.
 
 ### Zod validation
 

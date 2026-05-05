@@ -41,7 +41,7 @@ higher-precedence value supplies one.
 | **Single-worker, structured** — `bun run src/claude-worker.ts --research_doc=notes.md --focus=standard` | The dev registers one `--<field> <value>` option per declared input via `getInputSchema(wf)` | `{ research_doc: "notes.md", focus: "standard" }` |
 | **Multi-workflow CLI** — `bun run src/cli.ts gen-spec --research_doc=notes.md` | The dev registers one Commander subcommand per workflow; the subcommand's `--<field>` options match the workflow's declared inputs | Same as above |
 | **Interactive picker** — `atomic workflow -a claude` (atomic builtins only) | User fills in a form rendered from the declared schema | Whatever the user typed, keyed by field name |
-| **Picker in user app** — dev mounts `WorkflowPickerPanel` from `@bastani/atomic/workflows/components` | Same form-based collection, against the dev's own registry | Same as above |
+| **Picker in user app** — dev mounts `WorkflowPickerPanel` from `@bastani/atomic-sdk/workflows/components` | Same form-based collection, against the dev's own registry | Same as above |
 | **Programmatic** — `runWorkflow({ workflow, inputs })` | Plain `Record<string, string>` passed directly — no argv parsing | Top-of-chain value; falls back to `defineWorkflow` defaults |
 
 Workflow code is the same either way — it always reads
@@ -150,16 +150,17 @@ Pass an `inputs` array to `defineWorkflow({ ... })`. Each entry is a
 interface WorkflowInput {
   /** Field name — becomes the CLI flag (`--<name>`) and form label. */
   name: string;
-  /** Input kind: string | text | enum */
-  type: "string" | "text" | "enum";
+  /** Input kind: string | text | enum | integer */
+  type: "string" | "text" | "enum" | "integer";
   /** Whether the field must be non-empty before the workflow can run. */
   required?: boolean;
   /** Short description shown as the field caption. */
   description?: string;
   /** Placeholder shown when the field is empty. */
   placeholder?: string;
-  /** Default value — enums use this to pick their initial value. */
-  default?: string;
+  /** Default value — enums use this to pick their initial value;
+   *  integers accept either `number` or its decimal string form. */
+  default?: string | number;
   /** Allowed values — required when `type` is `"enum"`. */
   values?: readonly string[];
 }
@@ -172,10 +173,15 @@ interface WorkflowInput {
 | `string` | Short single-line values — identifiers, file paths, branch names | Single-row text input | `research_doc: "notes.md"` |
 | `text` | Longer free-form prose — specs, prompts, extra context | Multi-row text area | `spec: "Build a..."` |
 | `enum` | A fixed set of allowed values | Radio-button row | `focus: "standard" \| "minimal" \| "exhaustive"` |
+| `integer` | Whole-number counts, iteration limits, port numbers | Single-row numeric input | `max_iterations: 10` |
 
 Rule of thumb: use `enum` whenever there's a closed set of options — it
 gives users discoverable choices instead of making them remember magic
-strings, and the CLI will reject invalid values at parse time.
+strings, and the CLI will reject invalid values at parse time. Use
+`integer` (rather than `string`) for any field that participates in
+arithmetic or comparison — the runtime parses the value to a `number` at
+the executor boundary so `ctx.inputs.<name>` is already a number on the
+read side, with no `parseInt` boilerplate inside the workflow.
 
 ### Validation enforced by the runtime
 
@@ -275,7 +281,7 @@ atomic builtins (TTY only — non-interactive contexts skip straight to
 picker-discovery path.
 
 The picker is the `WorkflowPickerPanel` component from
-`@bastani/atomic/workflows/components`. It:
+`@bastani/atomic-sdk/workflows/components`. It:
 
 1. Calls `registry.list()` and filters to workflows whose `agent` field
    matches `<agent>`. No source labels — registry entries are just
@@ -284,8 +290,9 @@ The picker is the `WorkflowPickerPanel` component from
    arrows (or ⌃j/⌃k) to navigate, ↵ to lock in a selection.
 3. Renders the selected workflow's form. One field per declared input,
    type-specific rendering (`string` → single-row input, `text` →
-   multi-row textarea, `enum` → radio row). Free-form workflows
-   (no declared inputs) fall back to a single `prompt` text field.
+   multi-row textarea, `enum` → radio row, `integer` → numeric input).
+   Free-form workflows (no declared inputs) fall back to a single
+   `prompt` text field.
 4. Validates required fields on ⌃d. If any are empty, focus jumps to
    the first invalid field.
 5. Confirms with a y/n modal, then tears down the picker and hands
@@ -300,10 +307,10 @@ form teaches the schema as the user fills it in.
 
 `runWorkflow` does **not** auto-launch a picker. If a user app wants a
 picker UX, the developer mounts `WorkflowPickerPanel` from
-`@bastani/atomic/workflows/components` against their own registry:
+`@bastani/atomic-sdk/workflows/components` against their own registry:
 
 ```ts
-import { WorkflowPickerPanel } from "@bastani/atomic/workflows/components";
+import { WorkflowPickerPanel } from "@bastani/atomic-sdk/workflows/components";
 
 const panel = await WorkflowPickerPanel.create({ agent: "claude", registry });
 const result = await panel.waitForSelection();

@@ -1,51 +1,106 @@
-# Atomic
-
 <p align="center">
   <img src="assets/atomic.png" alt="Atomic" width="800">
 </p>
 
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/flora131/atomic)
-[![TypeScript](https://img.shields.io/badge/TypeScript-6.x-3178C6?logo=typescript&logoColor=white)](./package.json)
-[![Bun](https://img.shields.io/badge/Bun-Runtime-f9f1e1?logo=bun&logoColor=black)](./package.json)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+<h1 align="center">Atomic</h1>
 
-**Turn coding agents into reliable engineering workflows.** Atomic is an open-source CLI and TypeScript SDK for Claude Code, OpenCode, and GitHub Copilot CLI. Define the steps, guardrails, review gates, and execution environment your agent should follow, then run the workflow as TypeScript your whole team can review and reuse.
+<p align="center">
+  <b>Turn coding agents into reliable engineering workflows.</b><br>
+  An open-source CLI and TypeScript SDK for Claude Code, OpenCode, and GitHub Copilot CLI.
+</p>
 
-> Build the workflow once. Run it across agents, repos, and teams — with GitHub, Azure DevOps (ADO), or Sapling.
+<p align="center">
+  <a href="#quick-start"><b>Get started →</b></a>
+  &nbsp;·&nbsp;
+  <a href="#why-atomic">Why Atomic</a>
+  &nbsp;·&nbsp;
+  <a href="#example-use-cases">Use cases</a>
+  &nbsp;·&nbsp;
+  <a href="#workflow-sdk--build-reliable-engineering-workflows">SDK</a>
+  &nbsp;·&nbsp;
+  <a href="https://deepwiki.com/flora131/atomic">Docs</a>
+</p>
+
+<p align="center">
+  <a href="https://deepwiki.com/flora131/atomic"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
+  <a href="./package.json"><img src="https://img.shields.io/badge/TypeScript-6.x-3178C6?logo=typescript&logoColor=white" alt="TypeScript"></a>
+  <a href="./package.json"><img src="https://img.shields.io/badge/Bun-Runtime-f9f1e1?logo=bun&logoColor=black" alt="Bun"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+</p>
 
 ---
 
-## Migration from 0.6.x
+## Install in 60 seconds
 
-If you were importing from `@bastani/atomic` for SDK use (`defineWorkflow`,
-`createRegistry`, `WorkflowPicker`), switch to `@bastani/atomic-sdk`:
+```bash
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
 
-    bun remove @bastani/atomic
-    bun add    @bastani/atomic-sdk
+# Windows (PowerShell 5.1+ or 7+)
+irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1 | iex
+```
 
-Update imports: `from "@bastani/atomic/workflows"` →
-`from "@bastani/atomic-sdk/workflows"`. The CLI (`atomic` command) keeps the
-same package name; nothing changes for global-install users.
+Then kick off your first autonomous workflow:
+
+```bash
+atomic workflow -n ralph -a claude "Build a REST API for user management"
+```
+
+> Ralph plans, implements, reviews, and debugs the task on its own — up to 10 iterations, exiting after 2 consecutive clean reviews. Run it inside a [devcontainer](#alternative-devcontainer-recommended-for-autonomous-workflows) or [git worktree](https://git-scm.com/docs/git-worktree) — workflows execute with permission checks disabled.
+
+Need a different install path? See [all installation options](#1-install) (npm, devcontainer, SDK-only) or jump to the full [Quick Start](#quick-start).
+
+<details>
+<summary><b>Upgrading from a previous version?</b></summary>
+
+**From 0.6.x or earlier (SDK users):** the SDK moved from `@bastani/atomic` to `@bastani/atomic-sdk`.
+
+```bash
+bun remove @bastani/atomic
+bun add    @bastani/atomic-sdk
+```
+
+Update imports: `from "@bastani/atomic/workflows"` → `from "@bastani/atomic-sdk/workflows"`. The CLI (`atomic` command) keeps the same package name — nothing changes for global-install users.
+
+For SDK API changes (`createWorkflowCli` removal, `source: import.meta.path`, etc.), see the [full SDK migration guide](#migration-from-0x-directory-scanning-and-the-createworkflowcli-wrapper).
+
+**From the old standalone binary:** see [the binary migration steps](#migrating-from-the-old-standalone-binary).
+
+</details>
 
 ---
 
 ## Why Atomic
 
-Coding agents are great inside a single session. They can inspect code, use tools, make edits, and explain their work. The trouble starts when the task is ambiguous/complex, tied to specific outcomes/exit criteria, long-running, or tied to a large codebase: you end up reminding the agent of the process, moving output between sessions, checking whether it followed the right steps, and deciding when a human needs to review the work. Atomic turns that process into code. A workflow can branch, retry, run stages in parallel, isolate sessions, pass only the right transcript forward, pause for human approval, and run inside a devcontainer so the agent is not loose on your host machine.
+Coding agents are great inside a single session — they inspect code, use tools, make edits, and explain their work. The trouble starts when a task is ambiguous, tied to specific exit criteria, long-running, or anchored in a large codebase. You end up reminding the agent of the process, copying output between sessions, second-guessing whether it followed the right steps, and deciding when a human needs to review the work.
 
-- **Start with your own process.** Automate the repetitive parts of research, product feedback, debugging, review, migrations, or PR prep. One TypeScript file, versioned with the repo.
-- **Scale to your team.** Encode review gates, quality checks, and approvals so every teammate runs the same workflow instead of manually steering an agent.
-- **Keep the coding agent.** Atomic adds structure around Claude Code, OpenCode, and Copilot CLI without rebuilding their file editing, tool use, MCP setup, hooks, or context handling from scratch.
-- **Use natural language to get started.** Ask the `workflow-creator` skill to turn a workflow description into `defineWorkflow()` code, or let an agent use the skill when a complex task needs a repeatable workflow.
-- **Control the outer loop.** Instead of trusting a black-box harness to improvise process, Atomic makes the orchestration inspectable: the agent stil uses it's harness with its native tools and context management, but the workflow, gates, handoffs, and execution graph are TypeScript you can read, edit, and version. This allows you to enhance your existing coding agent's capabilities. 
+**Atomic turns that process into code.** A workflow can branch, retry, run stages in parallel, isolate sessions, pass only the right transcript forward, pause for human approval, and run inside a devcontainer so the agent is never loose on your host machine.
+
+| | |
+|---|---|
+| **Start with your own process** | Automate the repetitive parts of research, debugging, review, migrations, or PR prep. One TypeScript file, versioned with the repo. |
+| **Scale to your team** | Encode review gates, quality checks, and approvals so every teammate runs the same workflow instead of manually steering an agent. |
+| **Keep the coding agent** | Atomic adds structure around Claude Code, OpenCode, and Copilot CLI without rebuilding file editing, tool use, MCP setup, hooks, or context handling. |
+| **Start in natural language** | Ask the `workflow-creator` skill to turn a description into `defineWorkflow()` code — or let an agent invoke it when a complex task warrants a repeatable workflow. |
+| **Own the outer loop** | Workflows, gates, handoffs, and the execution graph are TypeScript you can read, edit, and version — instead of a black-box harness improvising process. |
+
+> Build the workflow once. Run it across agents, repos, and teams — with GitHub, Azure DevOps, or Sapling.
 
 ---
 
 ## Quick Start
 
-Install, generate context, try Ralph, then write your own workflow — four steps, a few minutes. Steps 1–3 are the **CLI** path (pre-built autonomous behaviour). Step 4 is the **SDK** path (your own workflows). Skip straight to step 4 if you only want the library.
+Four steps, a few minutes:
 
-### Prerequisites
+1. **[Install](#1-install)** — one-line bootstrap, no Bun or Node required.
+2. **[Generate context](#2-generate-context-files--cli)** — Atomic explores your codebase and writes `CLAUDE.md` / `AGENTS.md`.
+3. **[Try Ralph](#3-try-ralph--cli-autonomous-coding)** — autonomous plan → implement → review → debug loop.
+4. **[Build your own workflow](#4-build-your-own-workflow--sdk)** — encode your team's process in TypeScript.
+
+Steps 1–3 are the **CLI** path (pre-built autonomous behavior). Step 4 is the **SDK** path (your own workflows). Skip straight to step 4 if you only want the library.
+
+<details>
+<summary><b>Prerequisites</b> — what Atomic needs on your machine</summary>
 
 Atomic doesn't replace your coding agent or terminal — it gives them a workflow to follow. Three things have to exist on the host before a workflow can run:
 
@@ -57,7 +112,9 @@ Atomic doesn't replace your coding agent or terminal — it gives them a workflo
   - [OpenCode](https://opencode.ai) — run `opencode` and authenticate
   - [GitHub Copilot CLI](https://github.com/features/copilot/cli) — run `copilot` and authenticate
 
-> The bootstrap installer below ships a prebuilt binary — it does **not** require Bun, Node, or any other runtime on your machine. tmux/psmux are not bundled but are **auto-installed lazily on the first non-info `atomic` command** (e.g. `atomic workflow list`) — atomic shells out to your platform's package manager (`brew`/`apt`/`dnf`/`yum`/`pacman`/`zypper`/`apk` on Unix, `winget`/`scoop`/`choco`/`cargo` on Windows), or you can pre-install yourself if you'd rather skip that step. Coding agents are **not** auto-installed — install and authenticate those separately. Using a [devcontainer](#alternative-devcontainer-recommended-for-autonomous-workflows) short-circuits all of this: the atomic feature bundles tmux + the agent CLI into the container image.
+The bootstrap installer below ships a prebuilt binary — it does **not** require Bun, Node, or any other runtime on your machine. tmux/psmux are not bundled but are **auto-installed lazily on the first non-info `atomic` command** (e.g. `atomic workflow list`) via your platform's package manager. Coding agents are **not** auto-installed — install and authenticate those separately. Using a [devcontainer](#alternative-devcontainer-recommended-for-autonomous-workflows) short-circuits all of this: the atomic feature bundles tmux + the agent CLI into the container image.
+
+</details>
 
 ### 1. Install
 
@@ -341,65 +398,36 @@ These are workflows you'd author with `defineWorkflow` and run from your own `sr
 
 ## Table of Contents
 
-- [Atomic](#atomic)
-  - [Why Atomic](#why-atomic)
-  - [Quick Start](#quick-start)
-    - [Prerequisites](#prerequisites)
-    - [1. Install — CLI + SDK share the same package](#1-install--cli--sdk-share-the-same-package)
-    - [2. Generate context files — CLI](#2-generate-context-files--cli)
-    - [3. Try Ralph — CLI (autonomous coding)](#3-try-ralph--cli-autonomous-coding)
-    - [4. Build your own workflow — SDK](#4-build-your-own-workflow--sdk)
-    - [Managing sessions](#managing-sessions)
-  - [Two surfaces: CLI and SDK](#two-surfaces-cli-and-sdk)
-  - [Example use cases](#example-use-cases)
-  - [Table of Contents](#table-of-contents)
-  - [Security: Workflow Permissions Model](#security-workflow-permissions-model)
-  - [Core Features](#core-features)
-    - [Multi-Agent Support](#multi-agent-support)
-    - [Workflow SDK — Build Reliable Engineering Workflows](#workflow-sdk--build-reliable-engineering-workflows)
-      - [Runnable examples shipped with the repo](#runnable-examples-shipped-with-the-repo)
-      - [Builder API](#builder-api)
-      - [WorkflowContext (`ctx`) — top-level workflow context](#workflowcontext-ctx--top-level-workflow-context)
-      - [SessionContext (`s`) — inside each session callback](#sessioncontext-s--inside-each-session-callback)
-      - [Session Options (`SessionRunOptions`)](#session-options-sessionrunoptions)
-      - [Saving Transcripts](#saving-transcripts)
-      - [Per-Agent Session APIs](#per-agent-session-apis)
-      - [Key Rules](#key-rules)
-    - [Research Codebase](#research-codebase)
-    - [Autonomous Execution (Ralph)](#autonomous-execution-ralph)
-    - [Deep Research Codebase](#deep-research-codebase)
-    - [Containerized Execution](#containerized-execution)
-    - [Specialized Sub-Agents](#specialized-sub-agents)
-    - [Built-in Skills](#built-in-skills)
-    - [Workflow Panel](#workflow-panel)
-  - [Commands Reference](#commands-reference)
-    - [CLI Commands](#cli-commands)
-      - [Global Flags](#global-flags)
-      - [`atomic session` Subcommands](#atomic-session-subcommands)
-      - [`atomic chat` Flags](#atomic-chat-flags)
-      - [`atomic workflow` Flags](#atomic-workflow-flags)
-      - [`atomic completions` — Shell Completions](#atomic-completions--shell-completions)
-    - [Atomic-Provided Skills (invokable from any agent chat)](#atomic-provided-skills-invokable-from-any-agent-chat)
-  - [Building your own atomic-powered app](#building-your-own-atomic-powered-app)
-    - [Primitives, not a wrapper](#primitives-not-a-wrapper)
-    - [Programmatic invocation](#programmatic-invocation)
-    - [Embedding under a parent CLI — `runWorkflow` inside any Commander tree](#embedding-under-a-parent-cli--runworkflow-inside-any-commander-tree)
-    - [`WorkflowPicker` component](#workflowpicker-component)
-    - [Registry rules](#registry-rules)
-    - [Input precedence](#input-precedence)
-    - [Builtin workflows via the `atomic` CLI](#builtin-workflows-via-the-atomic-cli)
-    - [Migration from 0.x (directory-scanning) and the `createWorkflowCli` wrapper](#migration-from-0x-directory-scanning-and-the-createworkflowcli-wrapper)
-  - [Configuration](#configuration)
-    - [`.atomic/settings.json`](#atomicsettingsjson)
-    - [Agent-Specific Files](#agent-specific-files)
-  - [Updating \& Uninstalling](#updating--uninstalling)
-    - [Update](#update)
-    - [Uninstall](#uninstall)
-  - [Troubleshooting](#troubleshooting)
-  - [FAQ](#faq)
-  - [Contributing](#contributing)
-  - [License](#license)
-  - [Credits](#credits)
+- [Install in 60 seconds](#install-in-60-seconds)
+- [Why Atomic](#why-atomic)
+- [Quick Start](#quick-start)
+  - [1. Install](#1-install)
+  - [2. Generate context files](#2-generate-context-files--cli)
+  - [3. Try Ralph](#3-try-ralph--cli-autonomous-coding)
+  - [4. Build your own workflow](#4-build-your-own-workflow--sdk)
+  - [Managing sessions](#managing-sessions)
+- [Two surfaces: CLI and SDK](#two-surfaces-cli-and-sdk)
+- [Example use cases](#example-use-cases)
+- [Security: Workflow Permissions Model](#security-workflow-permissions-model)
+- [Core Features](#core-features)
+  - [Multi-Agent Support](#multi-agent-support)
+  - [Workflow SDK — Build Reliable Engineering Workflows](#workflow-sdk--build-reliable-engineering-workflows)
+  - [Research Codebase](#research-codebase)
+  - [Autonomous Execution (Ralph)](#autonomous-execution-ralph)
+  - [Deep Research Codebase](#deep-research-codebase)
+  - [Containerized Execution](#containerized-execution)
+  - [Specialized Sub-Agents](#specialized-sub-agents)
+  - [Built-in Skills](#built-in-skills)
+  - [Workflow Panel](#workflow-panel)
+- [Commands Reference](#commands-reference)
+- [Building your own atomic-powered app](#building-your-own-atomic-powered-app)
+- [Configuration](#configuration)
+- [Updating & Uninstalling](#updating--uninstalling)
+- [Troubleshooting](#troubleshooting)
+- [FAQ](#faq)
+- [Contributing](#contributing)
+- [License](#license)
+- [Credits](#credits)
 
 ---
 
@@ -1416,7 +1444,8 @@ atomic workflow -n open-claude-design -a claude
 
 These are not affected by your own `createRegistry()` — they are separate.
 
-### Migration from 0.x (directory-scanning) and the `createWorkflowCli` wrapper
+<details id="migration-from-0x-directory-scanning-and-the-createworkflowcli-wrapper">
+<summary><b>Migration from 0.x (directory-scanning) and the <code>createWorkflowCli</code> wrapper</b></summary>
 
 > Two breaking changes: workflows must declare `source: import.meta.path`, and the `createWorkflowCli` / `toCommand` / `runCli` wrappers were removed in favour of primitives.
 
@@ -1424,6 +1453,8 @@ These are not affected by your own `createRegistry()` — they are separate.
 2. **Replace `createWorkflowCli(workflow).run()`** with a small Commander (or citty / yargs) entrypoint that calls `runWorkflow({ workflow, inputs })` — see the snippets above. The SDK no longer ships a CLI wrapper.
 3. **Remove `handleOrchestratorReentry` / `runCli` calls** — the SDK ships its own orchestrator entry script and the dev's CLI is never re-execed.
 4. **Update invocations**: replace `atomic workflow -n foo -a claude` with `bun run src/claude-worker.ts --<input>=<value>` for your custom workflows. For the Atomic builtin set (`ralph`, `deep-research-codebase`, `open-claude-design`) keep using `atomic workflow -n <name> -a <agent>`.
+
+</details>
 
 ---
 

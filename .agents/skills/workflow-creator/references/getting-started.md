@@ -76,7 +76,7 @@ const { id, tmuxSessionName } = await runWorkflow({
 
 ### Detach and monitor
 
-`runWorkflow({ ..., detach: true })` returns immediately after the tmux session is created. Combine with `getSessionStatus(tmuxSessionName)`, `attachSession(id)`, and `stopSession(id)` from `@bastani/atomic-sdk/workflows` to build your own monitoring loop, or use the global `atomic session …` / `atomic workflow status` commands.
+`runWorkflow({ ..., detach: true })` returns immediately after the tmux session is created. Combine with `getSessionStatus(tmuxSessionName)`, `attachSession(id)`, and `stopSession(id)` from `@bastani/atomic-sdk/workflows` to build your own monitoring loop, or use the global `atomic session …` / `atomic workflow status` commands. `detachSession` exists for closing live attachments, but it is exported from the **root** `@bastani/atomic-sdk` barrel only — not from `/workflows`. Import it as `import { detachSession } from "@bastani/atomic-sdk";`.
 
 ### Interactive picker
 
@@ -208,7 +208,10 @@ export default defineWorkflow({
     const describe = await ctx.stage(
       { name: "describe", description: "Ask the agent to describe the project" },
       {},
-      { title: "describe" },
+      {
+        title: "describe",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      },
       async (s) => {
         const result = await s.client.session.prompt({
           sessionID: s.session.id,
@@ -221,7 +224,10 @@ export default defineWorkflow({
     await ctx.stage(
       { name: "summarize", description: "Summarize the previous session's output" },
       {},
-      { title: "summarize" },
+      {
+        title: "summarize",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      },
       async (s) => {
         const research = await s.transcript(describe);
         const result = await s.client.session.prompt({
@@ -301,17 +307,26 @@ The `@bastani/atomic-sdk/workflows` package exports the workflow authoring and c
 - `defineWorkflow` — entry point; returns a chainable `WorkflowBuilder`. Use `.for("agent")` on the builder to narrow types to a specific provider.
 - `WorkflowBuilder` — the builder class (rarely needed directly)
 
-**Session lifecycle (manage running tmux sessions on the shared atomic socket):**
+**Session lifecycle (manage running tmux sessions on the shared atomic socket).** These six are exported from **both** the `@bastani/atomic-sdk` root barrel and the `@bastani/atomic-sdk/workflows` sub-barrel — pick whichever import path your worker already uses.
 - `listSessions({ scope?, agent? })` — list every atomic-managed session. Returns `[]` when tmux is not installed.
 - `getSession(id)` — single-session lookup; returns `undefined` when not found.
-- `stopSession(id)` / `detachSession(id)` — best-effort kill / detach all clients. Idempotent.
+- `stopSession(id)` — best-effort kill. Idempotent.
 - `attachSession(id)` — interactively attach this terminal. Throws `MissingDependencyError` when tmux is missing.
 - `getSessionStatus(id)` — read the on-disk status snapshot for a workflow run; `null` when the orchestrator hasn't written one yet.
 - `getSessionTranscript(id, sessionName)` — read the saved native-message transcript for one stage inside a workflow run.
 
-**Pane navigation (pure tmux verbs — never auto-attach):**
+**Detach and pane navigation (root barrel only — `@bastani/atomic-sdk`, NOT `/workflows`).** These four primitives intentionally live on the root barrel because they are control-plane operations distinct from the lifecycle set above. Importing them from `/workflows` will fail at module-resolution time.
+- `detachSession(id)` — best-effort detach all clients from the tmux session. Idempotent.
 - `nextWindow(id)` / `previousWindow(id)` — move the session's current-window pointer. An attached client sees the change live; a detached session updates silently. Compose with `attachSession(id)` if you want navigate-then-attach.
 - `gotoOrchestrator(id)` — jump to window 0 of the target session. Mirrors the `Ctrl+G` keybinding inside an attached client.
+
+```ts
+// Lifecycle primitives — either path works
+import { listSessions, attachSession } from "@bastani/atomic-sdk/workflows";
+
+// Detach + navigation — root barrel only
+import { detachSession, nextWindow, previousWindow, gotoOrchestrator } from "@bastani/atomic-sdk";
+```
 
 **Typed errors (catch with `instanceof` to render friendly CLI output).** The first four live on the `@bastani/atomic-sdk/workflows` barrel; `IncompatibleSDKError` is exported separately from `@bastani/atomic-sdk/errors`.
 - `MissingDependencyError` — `dependency: "tmux" | "psmux" | "bun"`. Thrown when a required external dependency is missing on `PATH`.
@@ -380,12 +395,13 @@ multi-session workflow, and `agent-sessions.md` whenever writing SDK calls.
 
 ## Builtin reference implementations
 
-The SDK ships two builtin workflows registered via `createBuiltinRegistry()` (internal to the `atomic` CLI). They demonstrate production patterns for all three SDKs:
+The SDK ships three builtin workflows registered via `createBuiltinRegistry()` (internal to the `atomic` CLI). They demonstrate production patterns for all three SDKs:
 
 - **`ralph`** (`packages/atomic-sdk/src/workflows/builtin/ralph/`) — iterative plan → orchestrate → review → debug loop with consecutive clean-pass detection, shared helpers for prompts/parsing/git, and cross-SDK adaptation
 - **`deep-research-codebase`** (`packages/atomic-sdk/src/workflows/builtin/deep-research-codebase/`) — deterministic codebase scout → LOC-based heuristic explorer partitioning → parallel explorers → aggregator with file-based handoffs and context-aware prompt engineering
+- **`open-claude-design`** (`packages/atomic-sdk/src/workflows/builtin/open-claude-design/`) — design-system initialization flow that extracts a project's visual language and writes a `.impeccable.md` design context file
 
-Both include `helpers/` directories with SDK-agnostic logic (prompt builders, parsers, heuristics) and per-agent `index.ts` files showing how the same workflow topology adapts to Claude, Copilot, and OpenCode. Their composition root pattern (`runWorkflow(via runWorkflow primitives).run()`) is the same pattern user apps follow.
+The canonical builtin layout is `<name>/<agent>/index.ts` (per-agent **subdirectory** with an `index.ts`), not a flat `<name>/<agent>.ts` file. User workflows are free to use either shape — the flat shape is shown in §"Quick-start example" above and is fine for single-file workflows. All three builtins include `helpers/` directories with SDK-agnostic logic (prompt builders, parsers, heuristics) and per-agent `index.ts` files showing how the same workflow topology adapts to Claude, Copilot, and OpenCode. Their composition root pattern (`runWorkflow(via runWorkflow primitives).run()`) is the same pattern user apps follow.
 
 ## Type safety
 

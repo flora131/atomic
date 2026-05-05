@@ -75,22 +75,26 @@ performs no union. Only the cli faces this class of conflict.
 
 ## Reserved flag names
 
-The following input names are rejected by `defineWorkflow` because they
-conflict with worker CLI flags:
+The following **eight** input names are rejected by `defineWorkflow` because
+they conflict with the global `atomic` CLI flags and subcommands:
 
 ```
-name, agent, detach, list, help, version
+name, agent, detach, list, help, version, session, status
 ```
 
 Attempting to declare an input with one of these names throws at definition time:
 
 ```
 [atomic] Input name "name" is reserved by the worker CLI.
-Rename it. Reserved names: name, agent, detach, list, help, version.
+Rename it. Reserved names: name, agent, detach, list, help, version, session, status.
 ```
 
 This is enforced at `defineWorkflow` time — it cannot be registered into a
-registry.
+registry. The list mirrors `RESERVED_INPUT_NAMES` in
+`packages/atomic-sdk/src/define-workflow.ts`. `session` and `status` are
+reserved because they collide with the `atomic workflow status` and
+`atomic workflow session` subcommands; declaring an input named `session` or
+`status` would create an unresolvable arg-parse ambiguity for users.
 
 ## `Registry` API
 

@@ -131,7 +131,15 @@ Key `query()` options:
 - `thinking` — thinking/reasoning config: `{ type: "adaptive" }` (default for supported models), `{ type: "enabled", budgetTokens: N }`, or `{ type: "disabled" }`
 - `maxTurns` — maximum conversation turns
 - `maxBudgetUsd` — spending cap in USD
-- `permissionMode` — `"default"`, `"dontAsk"`, `"acceptEdits"`, `"bypassPermissions"`, `"plan"`
+- `permissionMode` — `"default"`, `"dontAsk"`, `"acceptEdits"`, `"bypassPermissions"`, `"plan"`, `"auto"` (`"auto"` routes each request through a model classifier; v0.2.x+)
+- `skills` — `string[] | "all"` (v0.2.120+) — preload named skills into the headless session. Use `"all"` to preload everything available.
+- `enableFileCheckpointing` — `boolean` (v0.2.111+) — enables `query.rewindFiles()` for checkpointed file edits.
+- `sessionStore` — mirror transcripts to an external `SessionStore` (v0.2.113+) for durable observability.
+- `forwardSubagentText` — forward subagent text + thinking blocks upstream so the parent transcript shows them inline.
+- `agentProgressSummaries` — periodic progress summaries during long-running stages.
+- `fallbackModel` — model ID to use when the primary is overloaded.
+- `taskBudget` — `{ total: number }` — `@alpha` overall cost / call budget.
+- `excludeDynamicSections` — on the `systemPrompt` preset shape; moves per-session context out of the static prefix so it can be re-cached across runs.
 - `allowedTools` / `disallowedTools` — tool access control
 - `tools` — base set of available built-in tools: `string[]` for specific tools, `[]` to disable all, or `{ type: "preset", preset: "claude_code" }` for defaults
 - `systemPrompt` — custom system prompt (`string`) or preset with additions (`{ type: "preset", preset: "claude_code", append: "..." }`)
@@ -272,6 +280,35 @@ The callback interface is identical to interactive stages — `s.session.query()
 
 **Design principle:** Never create custom message types. All provider return types are native SDK types — `SessionMessage[]` for Claude, `SessionEvent[]` for Copilot, `SessionPromptResponse` for OpenCode. Use `extractAssistantText()` to extract plain text from Claude's `SessionMessage[]`.
 
+#### `s.session.lastStructuredOutput` (headless only)
+
+When you pass `outputFormat: { type: "json_schema", schema }` to a headless
+`s.session.query()`, the structured payload lands on
+`s.session.lastStructuredOutput` (an Atomic-SDK convenience getter on
+`HeadlessClaudeSessionWrapper`, defined at
+`packages/atomic-sdk/src/providers/claude.ts`). It mirrors the Agent SDK's
+`SDKResultSuccess.structured_output` field but is reachable from the
+session object directly so you don't have to crawl the message array.
+
+```ts
+await ctx.stage({ name: "extract", headless: true }, {}, {}, async (s) => {
+  await s.session.query("Extract language facts.", {
+    outputFormat: { type: "json_schema", schema },
+    permissionMode: "bypassPermissions",
+    allowDangerouslySkipPermissions: true,
+  });
+  const facts = s.session.lastStructuredOutput as
+    | { language: string; paradigms: string[] }
+    | undefined;
+  if (facts) s.save(s.sessionId);
+});
+```
+
+It is `undefined` on **interactive** Claude stages because the Agent SDK
+only emits structured output via the headless `query()` result. If you need
+structured output from a visible Claude pane, run a paired headless stage
+right after it and read the structured field there.
+
 ## Copilot SDK
 
 Copilot uses a client-server architecture. The runtime auto-creates a `CopilotClient` (as `s.client`) and a `CopilotSession` (as `s.session`) before invoking your callback. Auto-cleanup (`session.disconnect()` and `client.stop()`) is handled by the runtime after the callback completes.
@@ -313,7 +350,7 @@ when the session emits `session.idle` — the same semantics as Claude's
 `query()` and OpenCode's `session.prompt()`. The wrapper has **no timeout**,
 so long-running planners and reviewers are safe. This is different from the
 raw Copilot SDK, where `send` is fire-and-forget; the wrapper is installed
-per-stage by the runtime (`wrapCopilotSend` in `src/sdk/runtime/executor.ts`).
+per-stage by the runtime (`wrapCopilotSend` in `packages/atomic-sdk/src/runtime/executor.ts`).
 
 ```ts
 // Default pattern — blocks until the agent is idle, no timeout
@@ -511,7 +548,7 @@ await ctx.stage(
   {}, // clientOpts
   {
     model: "claude-sonnet-4.6",
-    reasoningEffort: "high",
+    reasoningEffort: "high",            // "low" | "medium" | "high" | "xhigh" — note: no "max" for Copilot
     systemMessage: "You are a security auditor...",
     onUserInputRequest: (request) => { /* handle user input */ },
     hooks: {
@@ -528,16 +565,27 @@ await ctx.stage(
 
 ### Custom tools
 
+`defineTool` accepts a Zod schema **directly** as `parameters` — the SDK
+converts to JSON Schema internally. Prefer the Zod form: it composes with
+TypeScript inference (the `params` argument to `execute` is auto-typed),
+matches every live example in `examples/`, and is the form Copilot SDK
+v0.3.0 documents as canonical. Literal JSON Schema objects are still
+accepted for compatibility but lose the type inference.
+
 ```ts
 import { defineTool } from "@github/copilot-sdk";
+import { z } from "zod";
 
 const myTool = defineTool({
   name: "check-coverage",
   description: "Check test coverage",
-  parameters: { type: "object", properties: { path: { type: "string" } } },
+  // Zod is preferred — `params` below is typed as `{ path: string }` automatically.
+  parameters: z.object({
+    path: z.string().describe("Path to inspect"),
+  }),
   execute: async (params) => {
     // Run coverage check
-    return { content: "Coverage: 85%" };
+    return { content: `Coverage at ${params.path}: 85%` };
   },
 });
 

@@ -265,18 +265,25 @@ bunx atomic workflow status atomic-wf-claude-gen-spec-a1b2c3d4
 #  "sessions":[{"name":"orchestrator","status":"running",...}],...}
 ```
 
-Four overall states the agent must handle distinctly:
+Five overall states the agent must handle distinctly:
 
 | Status | Meaning | What you should do |
 |---|---|---|
 | `in_progress` | The orchestrator is running and no stage is paused | Wait, or report progress to the user |
-| `needs_review` | At least one stage is paused for human input (HIL) — Copilot `ask_user`, OpenCode `question.asked`, Copilot/MCP elicitation | **Surface this to the user immediately** — they need to attach with `atomic workflow session connect <id>` to respond, otherwise the workflow stalls indefinitely |
+| `awaiting_input` | A stage is mid-`AskUserQuestion` (or equivalent HIL primitive) and the SDK has emitted the elicitation event — but no transcript-level review marker is set yet. Surfaces in the orchestrator panel as a blue HIL pulse | **Surface this to the user immediately** — same UX as `needs_review`. The session is blocked waiting on a typed answer; nothing else will happen until the user attaches and responds |
+| `needs_review` | At least one stage is paused for human input (HIL) — Copilot `ask_user`, OpenCode `question.asked`, Copilot/MCP elicitation, or a transcript-marker handoff that survives across reattach | **Surface this to the user immediately** — they need to attach with `atomic workflow session connect <id>` to respond, otherwise the workflow stalls indefinitely |
 | `completed` | Workflow finished successfully | Report success and summarize the output |
 | `error` | Fatal error or a stage failed | Report the `fatalError` field and offer to investigate logs |
 
-`needs_review` outranks `completed` so a HIL pause near the end is never
-reported as done while still waiting on a human. A dead orchestrator with a
-stale snapshot is automatically downgraded to `error`.
+`awaiting_input` and `needs_review` both outrank `completed` so a HIL pause
+near the end is never reported as done while still waiting on a human.
+A dead orchestrator with a stale snapshot is automatically downgraded to
+`error`. The two HIL states differ in provenance: `awaiting_input` is a
+live-event pulse (only visible while the elicitation tool is mid-call —
+guarded transitions only allow `running → awaiting_input → running` per
+`PanelStore`), while `needs_review` is durable (set when a stage's transcript
+contains a review marker and survives across detach/reattach). Workflows that
+use `AskUserQuestion` may surface either or both.
 
 Omit the id to list every running workflow at once: `atomic workflow status`.
 Useful when checking on multiple parallel runs, or when the user just asks

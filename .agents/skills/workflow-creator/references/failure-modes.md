@@ -525,7 +525,7 @@ defaults to a 60-second timeout that throws on expiry. Real agent work
 `s.session.send()` so it blocks until `session.idle` with **no timeout** —
 the same blocking semantics as Claude's `query()` and OpenCode's
 `session.prompt()`. The wrapper lives in `wrapCopilotSend`
-(`src/sdk/runtime/executor.ts`) and is installed per-stage.
+(`packages/atomic-sdk/src/runtime/executor.ts`) and is installed per-stage.
 
 ```ts
 // Correct: send() in an Atomic stage blocks until idle, no timeout.
@@ -866,11 +866,12 @@ await ctx.stage(
 > `-p` (print mode) and therefore can't be passed via `chatFlags` to the
 > interactive TUI. If you need SDK-validated structured output, use route
 > (b) — set `headless: true` and pass `outputFormat: { type: "json_schema", schema }`
-> in the `s.session.query()` options. Pair (a)'s visible TUI with a
-> tolerant JSON parser instead. (Note: `s.session.query()`'s headless
-> wrapper currently returns `SessionMessage[]` and discards the SDK
-> result event's `structured_output` field — for now, parse JSON out of
-> the assistant text either way.)
+> in the `s.session.query()` options, then read the parsed payload from
+> `s.session.lastStructuredOutput` (an Atomic-SDK convenience getter on
+> `HeadlessClaudeSessionWrapper` that surfaces `SDKResultSuccess.structured_output`).
+> Pair (a)'s visible TUI with a tolerant JSON parser instead — interactive
+> sessions don't populate `lastStructuredOutput` because the Agent SDK only
+> emits `structured_output` from headless `query()` results.
 
 **Detection.**
 1. Grep your workflow for `from "@anthropic-ai/claude-agent-sdk"` —

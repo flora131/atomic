@@ -56,16 +56,21 @@ const result = query({
     maxBudgetUsd: 5.0,                // Spending cap in USD
 
     // Permissions
-    permissionMode: "acceptEdits",    // "default", "dontAsk", "acceptEdits", "bypassPermissions", "plan"
+    permissionMode: "acceptEdits",    // "default", "dontAsk", "acceptEdits", "bypassPermissions", "plan", "auto" ("auto" routes through a model classifier; v0.2.x+)
 
     // Tools — base set of available built-in tools
     tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"],  // or { type: "preset", preset: "claude_code" } for all defaults
     allowedTools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"],  // auto-allowed without prompting
     disallowedTools: ["AskUserQuestion"],  // removed from model's context
 
+    // Skills — preload named skills into the headless session (v0.2.120+)
+    skills: ["my-skill"],             // or "all" to preload every available skill
+
     // System prompt — string or preset with additions
     systemPrompt: "You are a senior security auditor...",
-    // Or: { type: "preset", preset: "claude_code", append: "Always explain your reasoning." }
+    // Or: { type: "preset", preset: "claude_code", append: "Always explain your reasoning.", excludeDynamicSections: true }
+    // `excludeDynamicSections: true` (v0.2.124+) moves per-session context into the
+    // first user message so the static prefix can be re-cached across runs.
 
     // Structured output
     outputFormat: {
@@ -99,9 +104,24 @@ const result = query({
 
     // Beta features
     betas: ["context-1m-2025-08-07"], // 1M context window (Sonnet 4/4.5 only)
+
+    // Performance / observability (v0.2.111+ unless noted)
+    enableFileCheckpointing: true,    // enables query.rewindFiles() — v0.2.111+
+    sessionStore: myStore,            // mirror transcripts to an external SessionStore — v0.2.113+
+    forwardSubagentText: true,        // forward subagent text + thinking blocks upstream — v0.2.118+
+    agentProgressSummaries: true,     // periodic progress summaries for long-running stages
+    fallbackModel: "claude-sonnet-4-6", // model fallback if the primary is overloaded
+    taskBudget: { total: 100 },       // @alpha — overall cost / call budget for the session
   },
 });
 ```
+
+**New top-level helpers** (root export from `@anthropic-ai/claude-agent-sdk`):
+`startup()` / `WarmQuery` (pre-warm subprocess for ~20× faster first
+query — single-use; consume with `await using` for auto-disposal),
+`getSessionInfo`, `renameSession`, `tagSession`, `deleteSession`,
+`forkSession`, `getSubagentMessages`, `listSubagents`. Use `startup()` at the
+top of `.run()` when a workflow opens many short headless stages back-to-back.
 
 ### `s.session.query()` usage
 
@@ -177,7 +197,27 @@ const result = query({
 });
 ```
 
-**Hook events** (most commonly used): `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Stop`, `SessionStart`, `SessionEnd`, `PreCompact`, `PostCompact`, `SubagentStart`, `SubagentStop`, `Notification`, `PermissionRequest`, `PermissionDenied`, `Elicitation`, `ElicitationResult`, `ConfigChange`, `FileChanged`, `CwdChanged`.
+**Hook events** — the full `HookEvent` union the Agent SDK accepts:
+`PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PostToolBatch`,
+`Notification`, `UserPromptSubmit`, `UserPromptExpansion`, `SessionStart`,
+`SessionEnd`, `Stop`, `StopFailure`, `SubagentStart`, `SubagentStop`,
+`PreCompact`, `PostCompact`, `PermissionRequest`, `PermissionDenied`,
+`Setup`, `TeammateIdle`, `TaskCreated`, `TaskCompleted`, `Elicitation`,
+`ElicitationResult`, `ConfigChange`, `WorktreeCreate`, `WorktreeRemove`,
+`InstructionsLoaded`, `CwdChanged`, `FileChanged`. The Atomic runtime
+already wires several of these (`Stop`, `SessionStart`, `PreToolUse`,
+`PostToolUse`, `PostToolUseFailure`, `SubagentStart`, `SubagentStop`,
+`TeammateIdle`) inside `WORKFLOW_HOOK_SETTINGS` to drive idle detection,
+HIL pulse, and transcript markers — your custom hook callbacks compose on
+top of those, they don't replace them.
+
+**Tool rename note (v0.2.x+):** Claude renamed the subagent dispatch tool
+from `Task` to `Agent`. `tool_use` blocks emitted by the assistant now use
+`name: "Agent"`, but `system:init`'s tools list and
+`permission_denials[].tool_name` still report `"Task"` for backwards
+compatibility. Match on either name when scanning transcripts. The
+`PostToolUse` hook return shape now uses `updatedToolOutput` (replaces the
+deprecated `updatedMCPToolOutput`).
 
 ## Copilot SDK
 
@@ -185,25 +225,31 @@ const result = query({
 
 All `client.createSession()` options are passed as `sessionOpts`. The runtime
 forwards them to `client.createSession()`. `onPermissionRequest` defaults to
-`approveAll` when not specified.
+`approveAll` when not specified — this default is auto-applied by the runtime,
+but you must pass it explicitly if you ever call `client.resumeSession()`
+yourself (the field is `required` on `SessionConfig` at the type level).
 
 ```ts
 import { approveAll, defineTool } from "@github/copilot-sdk";
+import { z } from "zod";
 
 await ctx.stage({ name: "plan" }, {}, {
   // Model selection
   model: "claude-sonnet-4.6",
-  reasoningEffort: "high",
+  reasoningEffort: "high",            // "low" | "medium" | "high" | "xhigh" — no "max" for Copilot
 
   // System prompt
   systemMessage: "You are a security auditor...",
 
-  // Custom tools
+  // Custom tools — Zod is the preferred shape for `parameters` (the SDK
+  // converts to JSON Schema internally). A literal JSON Schema object also
+  // works, but Zod composes better with TypeScript and is what every live
+  // example in /examples uses.
   tools: [
     defineTool({
       name: "check-coverage",
       description: "Check test coverage",
-      parameters: { type: "object", properties: { path: { type: "string" } } },
+      parameters: z.object({ path: z.string().describe("Path to inspect") }),
       execute: async (params) => ({ content: "Coverage: 85%" }),
     }),
   ],
@@ -219,6 +265,40 @@ await ctx.stage({ name: "plan" }, {}, {
     return { action: "submit", values: { choice: "option-a" } };
   },
 
+  // Streaming events (v0.3.0+) — toggle assistant.message_delta and
+  // assistant.reasoning_delta token-by-token events. Off by default.
+  streaming: true,
+
+  // Tool allowlist / blocklist (v0.3.0+) — restrict the available tool surface
+  // without rewriting the system prompt.
+  availableTools: ["read-file", "write-file", "shell"],
+  excludedTools: ["delete-file"],
+
+  // Subscribe to events synchronously, before `session.create` resolves —
+  // ensures early events aren't dropped when the `session` object hasn't
+  // been returned yet.
+  onEvent: (event) => { /* see SessionEventHandler */ },
+
+  // Slash-command registration (v0.3.0+) — add custom commands to the
+  // Copilot CLI prompt that this session honours.
+  commands: [
+    { name: "review", description: "Run a code review", argHint: "<path>" },
+  ],
+
+  // Skill discovery (v0.3.0+)
+  enableConfigDiscovery: true,        // auto-load .mcp.json + skill directories
+  skillDirectories: [".agents/skills"],
+  disabledSkills: ["legacy-skill"],
+
+  // Programmatic agent binding (v0.3.0+)
+  customAgents: [{ name: "reviewer", systemMessage: "...", tools: [] }],
+  defaultAgent: { name: "reviewer" },
+  agent: "reviewer",                  // bind this session to a specific agent
+
+  // Multitenancy / BYOK
+  gitHubToken: process.env.GITHUB_TOKEN,
+  provider: { kind: "anthropic", apiKey: process.env.ANTHROPIC_API_KEY },
+
   // Hooks
   hooks: {
     onPreToolUse: (event) => { /* before tool */ },
@@ -228,8 +308,9 @@ await ctx.stage({ name: "plan" }, {}, {
     onErrorOccurred: (event) => { /* error handling */ },
   },
 
-  // Advanced — auto-manage context via compaction. Pass an InfiniteSessionConfig,
-  // not a boolean. See docs/copilot-cli/sdk.md for the full threshold surface.
+  // Auto-manage context via compaction. **`infiniteSessions` is on by
+  // default in v0.3.0+** — pass `false` to opt out, or pass a config object
+  // to tune thresholds. The boolean form is sugar for the default config.
   infiniteSessions: {
     enabled: true,
     backgroundCompactionThreshold: 0.8, // start compacting at 80% window usage
@@ -240,6 +321,11 @@ await ctx.stage({ name: "plan" }, {}, {
   s.save(await s.session.getMessages());
 });
 ```
+
+**Disposal:** prefer `s.session.disconnect()` over the deprecated
+`s.session.destroy()` if you ever tear a session down manually. The Atomic
+runtime calls the right method automatically — this matters only when you
+bypass `ctx.stage()` for some reason.
 
 ### Copilot permission modes
 
@@ -350,7 +436,9 @@ The full type lives in `@opencode-ai/sdk/v2` as `PermissionRuleset`
 
 ### Session prompting
 
-Use `s.client` and `s.session.id` inside the callback:
+Use `s.client` and `s.session.id` inside the callback. Recent OpenCode SDK
+versions added several per-call overrides on `session.prompt()` that don't
+appear in older docs:
 
 ```ts
 await ctx.stage({ name: "implement" }, {}, {}, async (s) => {
@@ -358,6 +446,17 @@ await ctx.stage({ name: "implement" }, {}, {}, async (s) => {
   const result = await s.client.session.prompt({
     sessionID: s.session.id,
     parts: [{ type: "text", text: (s.inputs.prompt ?? "") }],
+
+    // Per-call model override — structured form `{ providerID, modelID }`.
+    // The string form is also accepted but the structured form is canonical.
+    model: { providerID: "anthropic", modelID: "claude-sonnet-4-6" },
+
+    // Per-call system override and per-call tool toggle (v1.14+).
+    system: "Respond as a senior backend engineer.",
+    tools: { "read-file": true, "shell": false },
+
+    // Optional: variant, messageID, workspace per call.
+    variant: "long-context",
   });
 
   // Structured output
@@ -370,12 +469,23 @@ await ctx.stage({ name: "implement" }, {}, {}, async (s) => {
       retryCount: 3,
     },
   });
+  // The structured payload lands on `AssistantMessage.structured` — NOT
+  // `structured_output`. Read it as
+  // `(structured.data!.info as { structured?: unknown }).structured`. The
+  // local docs/opencode/sdk.md call this `structured_output`; that is wrong
+  // for current SDK versions.
 
   // No-reply context injection
   await s.client.session.prompt({
     sessionID: s.session.id,
     parts: [{ type: "text", text: "Background context..." }],
     noReply: true,
+  });
+
+  // Fire-and-forget variant (does not wait for completion).
+  await s.client.session.promptAsync({
+    sessionID: s.session.id,
+    parts: [{ type: "text", text: "Kick off background indexing." }],
   });
 
   s.save(result.data!);
@@ -427,5 +537,93 @@ await ctx.stage({ name: "..." }, {}, {}, async (s) => {
     permissionID: "...",
     approved: true,
   });
+});
+```
+
+## Structured output across providers
+
+The three providers all support JSON-schema constrained output, but the
+mechanics and access patterns differ. The pattern below mirrors the live
+`examples/structured-output-demo/` workflows verbatim — copy from there
+when adding structured output to a new workflow.
+
+### Always strip `$schema` before passing a Zod schema
+
+Both Claude and OpenCode reject schemas that contain a `$schema` URL field
+(it is not part of OpenAPI 3.0, and the upstream validators silently drop
+the entire `structured_output`/`structured` payload when they see it).
+Use `z.toJSONSchema(schema, { target: "openapi-3.0" })` to convert Zod to
+JSON Schema *and* strip `$schema` in one step:
+
+```ts
+import { z } from "zod";
+
+const LanguageFactsSchema = z.object({
+  language: z.string(),
+  paradigms: z.array(z.string()),
+});
+
+// Right — produces an OpenAPI-3.0 compatible JSON Schema with no $schema.
+const schema = z.toJSONSchema(LanguageFactsSchema, { target: "openapi-3.0" });
+```
+
+The `examples/structured-output-demo/helpers/schema.ts` file has the
+canonical helper.
+
+### Claude — `outputFormat` + `s.session.lastStructuredOutput`
+
+```ts
+await ctx.stage({ name: "extract", headless: true }, {}, {}, async (s) => {
+  await s.session.query("Extract language facts from the input text.", {
+    outputFormat: { type: "json_schema", schema },
+    permissionMode: "bypassPermissions",
+    allowDangerouslySkipPermissions: true,
+  });
+
+  // `lastStructuredOutput` is an Atomic-SDK convenience getter on the
+  // headless Claude session wrapper (defined at
+  // packages/atomic-sdk/src/providers/claude.ts). It is `undefined` on
+  // interactive (visible) Claude stages because the Agent SDK only emits
+  // `structured_output` in headless `query()` results.
+  const result = s.session.lastStructuredOutput as
+    | { language: string; paradigms: string[] }
+    | undefined;
+  if (result) s.save(s.sessionId);
+});
+```
+
+### OpenCode — `format` field, read `info.structured`
+
+```ts
+const handle = await ctx.stage({ name: "extract" }, {}, {}, async (s) => {
+  const result = await s.client.session.prompt({
+    sessionID: s.session.id,
+    parts: [{ type: "text", text: "Extract language facts." }],
+    format: { type: "json_schema", schema, retryCount: 3 },
+  });
+  // Field name is `structured`, NOT `structured_output`.
+  return (result.data!.info as { structured?: unknown }).structured;
+});
+```
+
+### Copilot — `defineTool` + Zod, no separate format field
+
+Copilot expresses structured output as a tool the model is forced to call.
+Pass the Zod schema *directly* as `parameters` — the SDK converts it
+internally:
+
+```ts
+import { defineTool } from "@github/copilot-sdk";
+
+const reviewTool = defineTool({
+  name: "submit-review",
+  description: "Submit the structured review verdict.",
+  parameters: LanguageFactsSchema,            // Zod, not JSON Schema
+  execute: async (params) => ({ content: JSON.stringify(params) }),
+});
+
+await ctx.stage({ name: "extract" }, {}, { tools: [reviewTool] }, async (s) => {
+  await s.session.send({ prompt: "Extract language facts and call submit-review." });
+  s.save(await s.session.getMessages());
 });
 ```

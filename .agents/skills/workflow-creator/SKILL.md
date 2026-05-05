@@ -1,6 +1,6 @@
 ---
 name: workflow-creator
-description: Create AND run Atomic CLI workflows (`defineWorkflow().run().compile()` with `ctx.stage()`) across Claude, Copilot, and OpenCode SDKs. Use for **authoring** when the user wants to build, edit, debug, or design agent pipelines — multi-stage automations, review/fix loops, parallel fan-out, headless/background stages, `defineWorkflow`, `ctx.stage`, `ctx.inputs`, declared `WorkflowInput` schemas, `runWorkflow`, `createRegistry`, `listWorkflows`, the SDK's metadata accessors (`getName`, `getInputSchema`, `getAgent`), `validateInputs`, the interactive workflow picker (`WorkflowPicker` from `@bastani/atomic-sdk/workflows/components`), single or multi-workflow composition roots. Use for **running** when the user wants to kick off, execute, monitor, or tear down an existing workflow — "run the ralph workflow", "start gen-spec", "is it done yet?", "what's the status?", "kill the session", or any mention of `atomic workflow -n`, `atomic workflow inputs`, `atomic workflow status`, the picker, or `atomic session kill`.
+description: Create AND run Atomic CLI workflows (`defineWorkflow().run().compile()` with `ctx.stage()`) across Claude, Copilot, and OpenCode SDKs. Use for **authoring** when the user wants to build, edit, debug, or design agent pipelines — multi-stage automations, review/fix loops, parallel fan-out, headless/background stages, `defineWorkflow`, `ctx.stage`, `ctx.inputs`, declared `WorkflowInput` schemas, `runWorkflow`, `createRegistry`, `listWorkflows`, the SDK's metadata accessors (`getName`, `getInputSchema`, `getAgent`), `validateInputs`, the interactive workflow picker (`WorkflowPickerPanel` from `@bastani/atomic-sdk/workflows/components`), single or multi-workflow composition roots. Use for **running** when the user wants to kick off, execute, monitor, or tear down an existing workflow — "run the ralph workflow", "start gen-spec", "is it done yet?", "what's the status?", "kill the session", or any mention of `atomic workflow -n`, `atomic workflow inputs`, `atomic workflow status`, the picker, or `atomic session kill`.
 metadata:
   provider: atomic
 ---
@@ -72,7 +72,7 @@ The when-in-doubt rules:
 
 If the user's need doesn't match any of these, ask before scaffolding — picking wrong here means rewriting 100% of the scaffold.
 
-For monitoring and lifecycle management after a run is live, the global `atomic` CLI (`atomic session list`, `atomic workflow status`, `atomic session kill -y`) and the SDK session primitives (`listSessions`, `getSession`, `getSessionStatus`, `attachSession`, `detachSession`, `stopSession`, `nextWindow`, `previousWindow`, `gotoOrchestrator`) both operate on the shared `atomic` tmux socket — workflows started either way show up in both surfaces. See `references/running-workflows.md` for the `needs_review` state and worked teardown examples, and `examples/pane-navigation/` for a reference driver CLI exercising the navigation primitives.
+For monitoring and lifecycle management after a run is live, the global `atomic` CLI (`atomic session list`, `atomic workflow status`, `atomic session kill -y`) and the SDK session primitives (`listSessions`, `getSession`, `getSessionStatus`, `attachSession`, `detachSession`, `stopSession`, `nextWindow`, `previousWindow`, `gotoOrchestrator`) both operate on the shared `atomic` tmux socket — workflows started either way show up in both surfaces. The lifecycle six (`listSessions`, `getSession`, `getSessionStatus`, `attachSession`, `stopSession`, plus `getSessionTranscript`) live on both `@bastani/atomic-sdk` and `@bastani/atomic-sdk/workflows`; the four control-plane verbs (`detachSession`, `nextWindow`, `previousWindow`, `gotoOrchestrator`) live on the root barrel only. See `references/running-workflows.md` for the `awaiting_input` / `needs_review` HIL states and worked teardown examples, and `examples/pane-navigation/` for a reference driver CLI exercising the navigation primitives.
 
 ## Information Flow Is a First-Class Design Concern
 
@@ -176,10 +176,10 @@ user runs with `bun`. The SDK exposes pure primitives:
 - `createRegistry()` / `listWorkflows(reg)` / `getWorkflow(reg, agent, name)` — build and iterate a registry.
 - `getName(wf) / getAgent(wf) / getDescription(wf) / getInputSchema(wf) / getSource(wf) / getMinSDKVersion(wf)` — read workflow metadata.
 - `validateInputs(wf, raw)` — apply defaults and validate against the declared schema.
-- **Session lifecycle** — `listSessions / getSession / stopSession / attachSession / detachSession / getSessionStatus / getSessionTranscript`. Manage running tmux sessions on the shared atomic socket.
-- **Pane navigation** — `nextWindow / previousWindow / gotoOrchestrator`. Pure tmux verbs: they update the session's current-window pointer and return immediately. Never auto-attach — an attached client sees the change live; if no client is watching, the next `attachSession` call lands on the new window. Compose `nextWindow(id) + attachSession(id)` for navigate-then-attach.
+- **Session lifecycle** — `listSessions / getSession / stopSession / attachSession / getSessionStatus / getSessionTranscript` are exported from both the root `@bastani/atomic-sdk` barrel and the `/workflows` sub-barrel. `detachSession` is exported only from the **root** barrel (`@bastani/atomic-sdk`) — not from `/workflows`.
+- **Pane navigation** — `nextWindow / previousWindow / gotoOrchestrator` are exported only from the **root** `@bastani/atomic-sdk` barrel (not from `/workflows`). Pure tmux verbs: they update the session's current-window pointer and return immediately. Never auto-attach — an attached client sees the change live; if no client is watching, the next `attachSession` call lands on the new window. Compose `nextWindow(id) + attachSession(id)` for navigate-then-attach.
 - **Typed errors** (catch with `instanceof` to render friendly CLI messages) — `MissingDependencyError` (tmux/psmux/bun missing), `SessionNotFoundError` (id not on the atomic socket), `WorkflowNotCompiledError` (forgot `.compile()`), `InvalidWorkflowError` (default export not a `WorkflowDefinition`) all live on the `@bastani/atomic-sdk/workflows` barrel. `IncompatibleSDKError` (workflow's `minSDKVersion` newer than the installed `@bastani/atomic-sdk`) is exported separately from `@bastani/atomic-sdk/errors`. All thrown by SDK primitives; all carry the relevant payload field (`dependency`, `id`, `path`, version pair).
-- `WorkflowPicker` (from `@bastani/atomic-sdk/workflows/components`) — the interactive picker `atomic workflow -a claude` uses.
+- `WorkflowPickerPanel` (from `@bastani/atomic-sdk/workflows/components`) — the interactive picker `atomic workflow -a claude` uses.
 
 You compose them into whatever CLI library you prefer. The SDK never
 re-execs the dev's CLI — it ships its own orchestrator entry script and
@@ -271,7 +271,7 @@ bun run src/cli.ts review --target_branch=main
 bun run src/cli.ts spec   --research_doc=notes.md
 ```
 
-To launch the interactive picker, mount the `WorkflowPicker` component:
+To launch the interactive picker, mount the `WorkflowPickerPanel` component:
 
 ```ts
 import { WorkflowPickerPanel } from "@bastani/atomic-sdk/workflows/components";
@@ -301,7 +301,7 @@ atomic workflow -n <name> -a <agent> [inputs...]
 | List (user cli)        | Iterate `listWorkflows(registry)` and add a `list` Commander subcommand yourself | No built-in `--list` flag                                                      |
 | List (single-workflow) | Not applicable — the file *is* the workflow                                      |
 | Inspect inputs         | `atomic workflow inputs <name> -a claude`                                        | Print input schema as JSON                                                     |
-| Status (one or all)    | `atomic workflow status [<session-id>]`                                          | Query state — `in_progress`, `error`, `completed`, `needs_review`              |
+| Status (one or all)    | `atomic workflow status [<session-id>]`                                          | Query state — `in_progress`, `error`, `completed`, `needs_review`, `awaiting_input` |
 | Kill non-interactively | `atomic session kill <id> -y`                                                    | Tear down without confirmation prompt — `-y` is mandatory for agents           |
 | Detached (background)  | `… -d` / `… --detach`                                                            | Runs without attaching; reattach with `atomic workflow session connect <name>` |
 

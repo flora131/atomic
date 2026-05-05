@@ -264,7 +264,9 @@ Examples:
         .requiredOption("--name <name>", "Agent window name")
         .option("--agent <agent>", "Agent type — renders provider pill in the footer")
         .action(async (opts: { name: string; agent?: string }) => {
-            const { footerCommand } = await import("./commands/cli/footer.tsx");
+            const { footerCommand } = await import(
+                "@bastani/atomic-sdk/runtime/footer-command"
+            );
             const agentType = opts.agent && isValidAgent(opts.agent) ? opts.agent : undefined;
             const exitCode = await footerCommand(opts.name, agentType);
             process.exit(exitCode);

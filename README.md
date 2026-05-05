@@ -145,7 +145,7 @@ bun add @bastani/atomic-sdk                      # the SDK
 bun add @anthropic-ai/claude-agent-sdk           # the provider SDK you target
 ```
 
-Skip steps 2–3 below (those use the CLI) and jump straight to [step 4](#4-build-your-own-workflow--sdk). If you only want the SDK, `bun add @bastani/atomic-sdk` — the CLI binary is not required. You'll still need tmux/psmux + an authenticated agent CLI at runtime — see [Prerequisites](#prerequisites).
+Skip steps 2–3 below (those use the CLI) and jump straight to [step 4](#4-build-your-own-workflow--sdk). The SDK is fully standalone — it bundles its own orchestrator dispatcher and never reaches into a sibling `@bastani/atomic` package, so `@bastani/atomic-sdk` is the only atomic dependency you need. You'll still need tmux/psmux + an authenticated agent CLI at runtime — see [Prerequisites](#prerequisites). To route self-exec through a globally installed `atomic` binary instead of the bundled dispatcher, pass `pathToAtomicExecutable` to `runWorkflow` — see [Overriding the self-exec target](#overriding-the-self-exec-target).
 
 <details>
 <summary><b>Alternative: Already have Bun? Install the CLI directly from npm</b></summary>
@@ -1283,7 +1283,7 @@ The SDK ships pure functions you compose into whatever CLI shape you want:
 | `getWorkflow(reg, …)`                                                                                                    | Resolve `(agent, name)` → workflow.                                                                                                                                                                                 |
 | `getName / getAgent / getInputSchema / getDescription / getSource / getMinSDKVersion`                                    | Read workflow metadata.                                                                                                                                                                                             |
 | `validateInputs(wf, raw)`                                                                                                | Run the same validation pipeline atomic uses (required, defaults, enum, integer).                                                                                                                                   |
-| `runWorkflow({ workflow, inputs, detach? })`                                                                             | Spawn the orchestrator tmux session and (optionally) attach. Resolves with `{ id, tmuxSessionName }`.                                                                                                               |
+| `runWorkflow({ workflow, inputs, detach?, pathToAtomicExecutable? })`                                                    | Spawn the orchestrator tmux session and (optionally) attach. Resolves with `{ id, tmuxSessionName }`. `pathToAtomicExecutable` overrides the self-exec target — see [Overriding the self-exec target](#overriding-the-self-exec-target). |
 | `listSessions / getSession / stopSession / attachSession / detachSession`                                                | Manage running tmux sessions on the shared atomic socket.                                                                                                                                                           |
 | `getSessionStatus / getSessionTranscript`                                                                                | Read the orchestrator-written status snapshot or per-session messages from disk.                                                                                                                                    |
 | `nextWindow / previousWindow / gotoOrchestrator`                                                                         | **Pane navigation** — pure tmux verbs that update the session's current-window pointer. Never auto-attach; an attached client sees the change live, otherwise a subsequent `attachSession` lands on the new window. |
@@ -1388,7 +1388,30 @@ program.command("hello").action(() => console.log("hi"));
 await program.parseAsync();
 ```
 
-There's no re-entry boilerplate — the SDK ships its own internal orchestrator entry script and re-execs *that* with positional args (`workflowSource`, `agent`, base64-encoded inputs). Your CLI is never re-imported, so there's nothing to guard against orchestrator-mode env vars.
+There's no re-entry boilerplate — the SDK ships its own internal orchestrator entry script (bundled inside `@bastani/atomic-sdk`) and re-execs *that* with positional args (`workflowSource`, `agent`, base64-encoded inputs). Your CLI is never re-imported, so there's nothing to guard against orchestrator-mode env vars. `bun add @bastani/atomic-sdk` is the only dependency you need — the user-facing `@bastani/atomic` CLI is **not** a peer requirement.
+
+### Overriding the self-exec target
+
+Inspired by the Claude Agent SDK's [`pathToClaudeCodeExecutable`](https://docs.claude.com/en/agent-sdk/typescript). By default the SDK self-execs into its own bundled dispatcher; pass `pathToAtomicExecutable` to route through a separately installed `atomic` binary instead:
+
+```ts
+await runWorkflow({
+  workflow,
+  inputs,
+  // Bare command name — resolved via PATH at exec time, e.g. when
+  // a globally installed `atomic` is on the user's PATH.
+  pathToAtomicExecutable: "atomic",
+});
+
+await runWorkflow({
+  workflow,
+  inputs,
+  // Or an absolute path to a specific binary build.
+  pathToAtomicExecutable: "/usr/local/bin/atomic",
+});
+```
+
+Set this when you have a reason to prefer a specific atomic binary (custom build, version pinning, distribution shape) — otherwise leave it unset and let the SDK use its bundled dispatcher.
 
 ### `WorkflowPicker` component
 

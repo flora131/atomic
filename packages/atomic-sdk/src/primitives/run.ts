@@ -34,6 +34,16 @@ export interface RunWorkflowOptions {
    * `attachSession()`.
    */
   detach?: boolean;
+  /**
+   * Path to the atomic executable used for the orchestrator pane's
+   * self-exec call. Mirrors the Claude Code SDK's
+   * `pathToClaudeCodeExecutable` — only set this when you want the SDK
+   * to route through a separately installed `atomic` binary instead of
+   * its own bundled dispatcher. Default: SDK's bundled
+   * `@bastani/atomic-sdk/cli` (no extra dependency on the user-facing
+   * `@bastani/atomic` package).
+   */
+  pathToAtomicExecutable?: string;
 }
 
 /** Result of a successful `runWorkflow()` call. */
@@ -64,7 +74,7 @@ export interface RunWorkflowResult {
 export async function runWorkflow(
   options: RunWorkflowOptions,
 ): Promise<RunWorkflowResult> {
-  const { workflow, inputs = {}, cwd, detach } = options;
+  const { workflow, inputs = {}, cwd, detach, pathToAtomicExecutable } = options;
   const resolved = validateInputs(workflow, inputs);
   return await executeWorkflow({
     // Cast required because RegistrableWorkflow's `run` is `(...args: never[]) => Promise<void>`
@@ -77,5 +87,6 @@ export async function runWorkflow(
     inputs: resolved,
     projectRoot: cwd,
     detach,
+    pathToAtomicExecutable,
   });
 }

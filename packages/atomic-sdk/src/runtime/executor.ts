@@ -50,7 +50,7 @@ import type { SessionPromptResponse } from "@opencode-ai/sdk/v2";
 import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import * as tmux from "./tmux.ts";
 import { spawnMuxAttach } from "./tmux.ts";
-import { buildSelfExecCommand, resolveAtomicCliPath } from "../lib/self-exec.ts";
+import { buildSelfExecCommand, resolveSdkCliPath } from "../lib/self-exec.ts";
 import { buildLauncherEnv, buildTmuxEnv } from "../lib/terminal-env.ts";
 import {
   getListeningPortForPid,
@@ -152,6 +152,18 @@ export interface WorkflowRunOptions {
    * `atomic workflow session connect <name>`.
    */
   detach?: boolean;
+  /**
+   * Path to the atomic executable used for internal self-exec calls
+   * (`_orchestrator-entry`, `_footer`, `_cc-debounce`). Defaults to the
+   * SDK's bundled dispatcher (`@bastani/atomic-sdk/cli`), so SDK
+   * consumers don't need the user-facing `@bastani/atomic` package
+   * installed alongside.
+   *
+   * Mirrors the Claude Code SDK's `pathToClaudeCodeExecutable`. Set this
+   * when you want the SDK to route through a separately installed
+   * `atomic` binary instead of its own bundled entrypoint.
+   */
+  pathToAtomicExecutable?: string;
 }
 
 interface SessionResult {
@@ -479,6 +491,7 @@ export async function executeWorkflow(
     inputs = {},
     projectRoot = process.cwd(),
     detach = false,
+    pathToAtomicExecutable,
   } = options;
 
   // OpenCode reads its `instructions` array from `.opencode/opencode.json`
@@ -558,11 +571,18 @@ export async function executeWorkflow(
   const inputsB64 = Buffer.from(JSON.stringify(inputs)).toString("base64");
   const workflowSource = definition.source;
 
-  // Build the self-re-exec command line. In a compiled binary this resolves
-  // to `<atomic-binary> _orchestrator-entry <args>`; in dev it resolves to
-  // `<bun> <cli.ts> _orchestrator-entry <args>`.
-  const runtime = process.execPath;
-  const cliPath = resolveAtomicCliPath(import.meta.dir);
+  // Build the self-re-exec command line. Three resolution paths:
+  //   - `pathToAtomicExecutable` set → `<override> _orchestrator-entry <args>`
+  //     (direct exec; the override is the runnable binary, mirrors Claude
+  //     Code's `pathToClaudeCodeExecutable` semantics including bare
+  //     command names that PATH-resolve).
+  //   - Compiled binary → `<atomic-binary> _orchestrator-entry <args>`.
+  //   - Dev / installed → `<bun> <sdk>/cli.{ts,js} _orchestrator-entry <args>`.
+  const cliPath = resolveSdkCliPath({ override: pathToAtomicExecutable });
+  // When the caller overrides with a binary path/name, that binary is its
+  // own runtime — `buildSelfExecCommand`'s `isSelfExec` branch then emits
+  // a single token instead of `<bun> <override>`.
+  const runtime = pathToAtomicExecutable ? cliPath : process.execPath;
   const orchestratorCmd = buildSelfExecCommand({
     runtime,
     cliPath,
@@ -598,7 +618,14 @@ export async function executeWorkflow(
   // overrides, ATOMIC_AGENT. Workflow-only extras (ATOMIC_WF_* and
   // diagnostics) stay in the orchestrator launcher script's env exports
   // since stage panes don't need them.
-  tmux.createSession(tmuxSessionName, shellCmd, "orchestrator", undefined, sessionEnv);
+  tmux.createSession(
+    tmuxSessionName,
+    shellCmd,
+    "orchestrator",
+    undefined,
+    sessionEnv,
+    pathToAtomicExecutable,
+  );
 
   if (detach) {
     // Session is already running detached on the atomic socket (tmux

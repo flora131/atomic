@@ -26,8 +26,8 @@ Created a minimal Verus devcontainer with two files:
 - .devcontainer/devcontainer.json — ...
 - .devcontainer/setup.sh — ...
 ⣿ Reasoned for 56s · ↓ 1.3k tokens · thought for 5s
-● C:\dev\pdd-kit\.devcontainer\setup.sh          <-- BUG: should not render
-● C:\dev\pdd-kit\.devcontainer\devcontainer.json  <-- BUG: should not render
+● C:\dev\example-project\.devcontainer\setup.sh          <-- BUG: should not render
+● C:\dev\example-project\.devcontainer\devcontainer.json  <-- BUG: should not render
 ```
 
 The `● filepath` lines appear **after** the `⣿ Reasoned for ...` completion summary, creating visual artifacts. Similarly, `⚠` warning lines may appear in the same position.

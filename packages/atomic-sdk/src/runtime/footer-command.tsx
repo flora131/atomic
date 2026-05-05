@@ -18,12 +18,10 @@ import {
 } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { act } from "react";
-import { resolveTheme } from "@bastani/atomic-sdk/runtime/theme";
-import {
-  deriveGraphTheme,
-} from "@bastani/atomic-sdk/components/graph-theme";
-import { AttachedStatusline } from "@bastani/atomic-sdk/components/attached-statusline";
-import type { AgentType } from "@bastani/atomic-sdk/types";
+import { resolveTheme } from "./theme.ts";
+import { deriveGraphTheme } from "../components/graph-theme.ts";
+import { AttachedStatusline } from "../components/attached-statusline.tsx";
+import type { AgentType } from "../types.ts";
 
 const PARENT_WATCHDOG_MS = 2000;
 const FOOTER_RENDER_INTERVAL_MS = 250;

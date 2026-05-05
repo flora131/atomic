@@ -10,6 +10,7 @@
   },
   "exports": {
     ".": "./src/index.ts",
+    "./cli": "./src/cli.ts",
     "./workflows": "./src/workflows/index.ts",
     "./workflows/components": "./src/components/workflow-picker-panel.tsx",
     "./define-workflow": "./src/define-workflow.ts",
@@ -23,6 +24,7 @@
     "./runtime/theme": "./src/runtime/theme.ts",
     "./runtime/executor": "./src/runtime/executor.ts",
     "./runtime/orchestrator-entry": "./src/runtime/orchestrator-entry.ts",
+    "./runtime/footer-command": "./src/runtime/footer-command.tsx",
     "./runtime/cc-debounce": "./src/runtime/cc-debounce.ts",
     "./providers/claude": "./src/providers/claude.ts",
     "./providers/copilot": "./src/providers/copilot.ts",

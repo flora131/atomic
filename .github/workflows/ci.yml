@@ -94,6 +94,20 @@ jobs:
               env:
                   NPM_REGISTRY: http://localhost:4873
 
+            # SDK self-containment regression guard. Installs
+            # @bastani/atomic-sdk into a fresh project (no monorepo, no
+            # user-facing CLI alongside) and asserts dist/cli.js is
+            # present, the resolver lands inside the installed SDK, and
+            # the bundled dispatcher actually runs. Cheap PR-time check
+            # for the Linux-x64 case; the publish workflow re-runs this
+            # across the full 6-OS×arch matrix before npm publish.
+            - name: Verify SDK is self-contained
+              run: |
+                  VERSION=$(jq -r .version package.json)
+                  bun packages/atomic-sdk/script/verify-bundled-cli.ts \
+                      http://localhost:4873 \
+                      "$VERSION"
+
             - name: Publish wrapper + host platform package to verdaccio
               run: bun packages/atomic/script/publish.ts
               env:

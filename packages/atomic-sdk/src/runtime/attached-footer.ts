@@ -15,7 +15,7 @@
 
 import type { AgentType } from "../types.ts";
 import { getMuxBinary, tmuxRun } from "./tmux.ts";
-import { buildSelfExecCommand, resolveAtomicCliPath } from "../lib/self-exec.ts";
+import { buildSelfExecCommand, resolveSdkCliPath } from "../lib/self-exec.ts";
 
 /**
  * Rows reserved for the footer pane. Matches the single-row height of
@@ -27,11 +27,8 @@ function encodePwshCommand(script: string): string {
   return Buffer.from(script, "utf16le").toString("base64");
 }
 
-export function resolveAttachedFooterCliPath(
-  runtimeDir = import.meta.dir, // runtime-asset: dev-only
-  platform: NodeJS.Platform = process.platform,
-): string {
-  return resolveAtomicCliPath(runtimeDir, platform);
+export function resolveAttachedFooterCliPath(override?: string): string {
+  return resolveSdkCliPath({ override });
 }
 
 export function buildAttachedFooterCommand({
@@ -87,10 +84,14 @@ export function spawnAttachedFooter(
   windowName: string,
   paneId: string,
   agentType?: AgentType,
+  pathToAtomicExecutable?: string,
 ): void {
-  const runtime = process.execPath;
+  const cliPath = resolveAttachedFooterCliPath(pathToAtomicExecutable);
+  // When `pathToAtomicExecutable` is set, the override IS the runtime (direct
+  // exec, mirroring Claude SDK's `pathToClaudeCodeExecutable`). Otherwise
+  // `process.execPath` (Bun) runs the SDK's bundled cli.{ts,js}.
+  const runtime = pathToAtomicExecutable ? cliPath : process.execPath;
   if (!runtime) return;
-  const cliPath = resolveAttachedFooterCliPath();
   const cmd = buildAttachedFooterCommand({
     runtime,
     cliPath,

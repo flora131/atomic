@@ -48,28 +48,28 @@ These workflows run when a PR is opened or updated, providing feedback before me
 
 ### CI (`ci.yml`)
 
-Runs on all PRs to `main` that touch source code or config. A single `Checks`
-job runs against the consolidated `@bastani/atomic` package.
+Runs on all PRs to `main` that touch source code or config.
 
 ```
   PR opened/updated
   (paths: *.ts, *.tsx, *.js, *.jsx, package.json, bun.lock, tsconfig.json)
          │
-         ▼
-  ┌──────────────────────────────────┐
-  │              Checks              │
-  │  ┌────────────────────────────┐  │
-  │  │ bun install                │  │
-  │  │ bun run typecheck          │  │
-  │  │ bun run lint               │  │
-  │  │ bun test                   │  │
-  │  └────────────────────────────┘  │
-  └──────────────────────────────────┘
+         ├─► Checks ─ typecheck, lint, test (incl. SDK build test), `bun run build`
+         │
+         ├─► Validate publish (verdaccio, ubuntu) ─ smoke wrapper install +
+         │       Verify SDK is self-contained (verify-bundled-cli.ts)
+         │
+         └─► Runtime assets smoke (linux, macos, windows) ─ bunfs
+                 materialization regression guard
 ```
 
-The CLI source, the workflow SDK source (`src/sdk/`), and SDK tests
-(`tests/sdk/`) all live in the same package, so a single job covers
-everything.
+`Checks` runs typecheck + lint + the full `bun test` suite (which
+includes `packages/atomic-sdk/script/build.test.ts`, an SDK-bundle
+structural assertion that builds the SDK and asserts `dist/cli.js`,
+`dist/runtime/footer-command.js`, and the relevant `package.json#exports`
+entries are present). `Validate publish` then publishes the SDK to a
+throwaway verdaccio and runs the SDK self-containment verifier described
+below before exercising the wrapper install path.
 
 ### Bump Version (`bump-version.yml`)
 
@@ -164,8 +164,10 @@ Concurrency is enforced per-ref (`publish-${{ github.ref }}`), cancelling in-pro
   │   │  Validate (matrix: 6 OS × arch)             │              │
   │   │                                             │              │
   │   │  Each runner spins up its own verdaccio:    │              │
-  │   │  · publish wrapper + platform packages to   │              │
-  │   │    http://localhost:4873                    │              │
+  │   │  · publish SDK to http://localhost:4873     │              │
+  │   │  · verify SDK is self-contained (no peer    │              │
+  │   │    dep on @bastani/atomic CLI)              │              │
+  │   │  · publish wrapper + platform packages      │              │
   │   │  · bun install -g from verdaccio            │              │
   │   │  · smoke (--version, workflow list)         │              │
   │   │  · version-keyed cache extraction check     │              │
@@ -206,6 +208,48 @@ Concurrency is enforced per-ref (`publish-${{ github.ref }}`), cancelling in-pro
 Devcontainer features are published independently via `publish-features.yml`
 when `.devcontainer/features/**` files are merged to main or via manual dispatch.
 Features are validated via schema checks during PRs and published after merge.
+
+### SDK self-containment regression guard
+
+`@bastani/atomic-sdk` is published as a standalone library — consumers
+install only the SDK and never need the user-facing `@bastani/atomic`
+CLI package alongside. The SDK ships its own bundled orchestrator
+dispatcher at `dist/cli.js` and the runtime resolver
+(`resolveSdkCliPath`) delegates to `import.meta.resolve(...)` so it
+honours the SDK's own `package.json#exports` and never walks into a
+sibling package's tree.
+
+Three layers of CI catch regressions before they reach consumers:
+
+1. **Unit tests** — `packages/atomic-sdk/src/lib/self-exec.test.ts` pins
+   the resolver's branches: override returned verbatim, compiled-binary
+   runtime returns `process.execPath`, default resolution lands inside
+   `@bastani/atomic-sdk` and never escapes into a sibling `atomic`
+   directory. Runs on every PR via `Checks`.
+
+2. **Build-output assertion** — `packages/atomic-sdk/script/build.test.ts`
+   builds the SDK and asserts `dist/cli.js` and
+   `dist/runtime/footer-command.js` exist, the published `package.json`
+   declares the matching exports, and Bun + Commander dispatch the
+   bundled `_orchestrator-entry` subcommand. Runs on every PR via
+   `Checks`. Skipped in the publish job (`ATOMIC_SKIP_SDK_BUILD_TEST=1`)
+   because the validate matrix covers the same ground end-to-end.
+
+3. **End-to-end verifier** — `packages/atomic-sdk/script/verify-bundled-cli.ts`
+   installs `@bastani/atomic-sdk` from verdaccio into a fresh, isolated
+   project (no monorepo, no user-facing CLI alongside) and asserts every
+   property the fix promises: `bun add` succeeds, the tarball contains
+   `dist/cli.js` + `dist/runtime/footer-command.js`, the published
+   manifest declares `./cli` + `./runtime/footer-command` exports, no
+   sibling `atomic` package is present, and Bun + Commander dispatch the
+   bundled CLI's hidden subcommands. Runs on:
+   - **PR CI (`ci.yml` `validate-publish`)** — Linux x64 only, cheap
+     pre-merge check.
+   - **Publish CI (`publish.yml` `validate`)** — full 6-platform matrix
+     (Linux/macOS/Windows × x64/arm64), the gate before npm publish.
+
+The script returns nonzero on any assertion failure, which fails the
+job and (in the publish flow) blocks the npm publish.
 
 ### Why Pre-Publish Validation?
 
@@ -321,6 +365,7 @@ Scripts invoked by `publish.yml` at each stage:
 |------------|---------------------------------------------------|-------------------------------------------------------------------------|
 | `build`    | `packages/atomic/script/build.ts <target>`        | Cross-compile the CLI to `dist/<target>/bin/atomic[.exe]`               |
 | `validate` | `packages/atomic-sdk/script/publish.ts`           | Publish the SDK package (verdaccio with `NPM_REGISTRY=...` set)         |
+| `validate` | `packages/atomic-sdk/script/verify-bundled-cli.ts`| Install SDK standalone from verdaccio and assert the bundled CLI is discoverable + invokable. Runs on every validate-matrix runner (6 OS×arch) and in the PR `validate-publish` job (Linux). |
 | `validate` | `packages/atomic/script/publish.ts`               | Publish wrapper + 6 platform packages (verdaccio)                       |
 | `publish`  | `packages/atomic-sdk/script/publish.ts`           | Same script, no `NPM_REGISTRY` → publishes to npmjs                     |
 | `publish`  | `packages/atomic/script/publish.ts`               | Same script → publishes to npmjs with provenance                        |

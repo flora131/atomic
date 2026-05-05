@@ -172,7 +172,7 @@ Install `@bastani/atomic-sdk` plus the native SDK(s) you target
 Workflows are wired into a **composition root** — a TypeScript file the
 user runs with `bun`. The SDK exposes pure primitives:
 
-- `runWorkflow({ workflow, inputs, detach? })` — spawn a workflow's tmux session.
+- `runWorkflow({ workflow, inputs, detach?, pathToAtomicExecutable? })` — spawn a workflow's tmux session. `pathToAtomicExecutable` is an optional override that routes self-exec through a separately installed atomic binary (absolute path or bare command name resolved via PATH); leave it unset and the SDK uses its own bundled orchestrator dispatcher. Mirrors the Claude Agent SDK's [`pathToClaudeCodeExecutable`](https://docs.claude.com/en/agent-sdk/typescript).
 - `createRegistry()` / `listWorkflows(reg)` / `getWorkflow(reg, agent, name)` — build and iterate a registry.
 - `getName(wf) / getAgent(wf) / getDescription(wf) / getInputSchema(wf) / getSource(wf) / getMinSDKVersion(wf)` — read workflow metadata.
 - `validateInputs(wf, raw)` — apply defaults and validate against the declared schema.
@@ -182,8 +182,13 @@ user runs with `bun`. The SDK exposes pure primitives:
 - `WorkflowPickerPanel` (from `@bastani/atomic-sdk/workflows/components`) — the interactive picker `atomic workflow -a claude` uses.
 
 You compose them into whatever CLI library you prefer. The SDK never
-re-execs the dev's CLI — it ships its own orchestrator entry script and
-re-execs *that* with positional args.
+re-execs the dev's CLI — it ships its own orchestrator entry script
+(bundled inside `@bastani/atomic-sdk`) and re-execs *that* with positional
+args. `bun add @bastani/atomic-sdk` is sufficient on its own; the
+user-facing `@bastani/atomic` CLI is **not** a peer requirement. Pass
+`pathToAtomicExecutable` to `runWorkflow` if you want the SDK to route
+through a separately installed atomic binary instead of the bundled
+dispatcher (e.g. for a custom build or a version pin).
 
 ```ts
 // src/claude-worker.ts — single workflow with a small Commander entrypoint
@@ -236,6 +241,16 @@ const { id, tmuxSessionName } = await runWorkflow({
   inputs: { prompt: "fix the auth bug" },
   detach: true,
 });
+
+// To route self-exec through a globally installed atomic binary instead
+// of the SDK's bundled dispatcher (e.g. for a pinned build), set
+// `pathToAtomicExecutable`. Default behaviour is the bundled dispatcher,
+// so most callers should leave this unset.
+await runWorkflow({
+  workflow,
+  inputs,
+  pathToAtomicExecutable: "atomic", // bare names PATH-resolve at exec time
+});
 ```
 
 For full registry mechanics, key scheme, and validate-on-register behaviour see `references/registry-and-validation.md`.
@@ -284,7 +299,7 @@ if (result) {
 }
 ```
 
-The dev's CLI is **never** re-execed. The SDK ships an internal orchestrator entry script and re-execs that with positional args — no env-var dance, no boilerplate re-entry code in the dev's file.
+The dev's CLI is **never** re-execed. The SDK ships an internal orchestrator entry script (bundled inside `@bastani/atomic-sdk`) and re-execs that with positional args — no env-var dance, no boilerplate re-entry code in the dev's file, and no peer dependency on the user-facing `@bastani/atomic` CLI package.
 
 **Atomic builtins** — workflows shipped inside `@bastani/atomic-sdk`, registered by atomic's internal `createBuiltinRegistry()`:
 

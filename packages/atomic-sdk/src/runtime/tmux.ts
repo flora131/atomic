@@ -8,7 +8,7 @@
 
 import { requiredMuxBinaryCandidatesForPlatform } from "../lib/spawn.ts";
 import { tmuxConfPath } from "../lib/runtime-assets.ts";
-import { buildSelfExecCommand, resolveAtomicCliPath } from "../lib/self-exec.ts";
+import { buildSelfExecCommand, resolveSdkCliPath } from "../lib/self-exec.ts";
 import { writeFileSync, unlinkSync } from "node:fs";
 import type { Subprocess } from "bun";
 import { atomicTempPath } from "../lib/atomic-temp.ts";
@@ -177,6 +177,8 @@ function buildEnvArgs(envVars?: Record<string, string>): string[] {
  * @param windowName - Optional name for the initial window
  * @param cwd - Optional working directory for the initial pane
  * @param envVars - Optional environment variables for the initial pane
+ * @param pathToAtomicExecutable - Optional override for the cc-debounce
+ *   self-exec target. Defaults to the SDK's bundled dispatcher.
  * @returns The pane ID of the initial pane (e.g., "%0")
  */
 export function createSession(
@@ -185,6 +187,7 @@ export function createSession(
   windowName?: string,
   cwd?: string,
   envVars?: Record<string, string>,
+  pathToAtomicExecutable?: string,
 ): string {
   const args = [
     "new-session",
@@ -210,9 +213,13 @@ export function createSession(
   // run-shell does not always inherit in full, especially on Windows
   // psmux. The command is fully quoted: in compiled-binary mode it's
   // `<atomic-binary> _cc-debounce`; in dev it's `<bun> <cli.ts> _cc-debounce`.
+  const ccCliPath = resolveSdkCliPath({ override: pathToAtomicExecutable });
+  // When the caller overrides with a binary, the binary is its own runtime
+  // (matches Claude SDK's `pathToClaudeCodeExecutable` direct-exec semantics).
+  const ccRuntime = pathToAtomicExecutable ? ccCliPath : process.execPath;
   const ccDebounceCmd = buildSelfExecCommand({
-    runtime: process.execPath,
-    cliPath: resolveAtomicCliPath(import.meta.dir),
+    runtime: ccRuntime,
+    cliPath: ccCliPath,
     subcommand: "_cc-debounce",
     args: [],
   });

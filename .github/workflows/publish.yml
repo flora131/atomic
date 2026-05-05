@@ -142,6 +142,24 @@ jobs:
           NPM_REGISTRY: http://localhost:4873
         run: bun packages/atomic-sdk/script/publish.ts
 
+      # ── SDK self-containment regression guard. Installs
+      #    @bastani/atomic-sdk into a fresh project (no monorepo, no
+      #    user-facing CLI alongside) and exercises every property of
+      #    the bundled-dispatcher fix: dist/cli.js exists, the published
+      #    package.json declares ./cli + ./runtime/footer-command,
+      #    Commander dispatches the hidden subcommands, and the
+      #    runtime resolver lands inside the installed SDK with no
+      #    sibling-package walk. Runs before the wrapper is published so
+      #    it provably has nothing else to fall back on.
+      - name: Verify SDK is self-contained
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          bun packages/atomic-sdk/script/verify-bundled-cli.ts \
+            http://localhost:4873 \
+            "$VERSION"
+
       - name: Publish wrapper + all platform packages to verdaccio
         shell: bash
         env:
@@ -472,6 +490,11 @@ jobs:
         run: bun test 2>&1 | cat
         env:
           ATOMIC_SKIP_PUBLISH_BUILD_TEST: "1"
+          # The validate matrix (above) has already exercised the SDK
+          # build + bundled-cli verification across 6 OS×arch
+          # combinations. Skip the `bun run build` step embedded in the
+          # SDK build test here to save ~5–10 s on the publish runner.
+          ATOMIC_SKIP_SDK_BUILD_TEST: "1"
 
       - name: Determine npm publish tag
         id: npm-tag

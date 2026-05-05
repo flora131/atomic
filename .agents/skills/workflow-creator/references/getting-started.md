@@ -298,7 +298,7 @@ caveats live in `failure-modes.md` §F15.
 The `@bastani/atomic-sdk/workflows` package exports the workflow authoring and composition primitives. For native SDK types and utilities, install and import from the provider packages directly.
 
 **Composition primitives:**
-- `runWorkflow({ workflow, inputs?, cwd?, detach? })` — spawn a workflow's tmux session on the atomic socket. Resolves with `{ id, tmuxSessionName }` after the session is created (foreground attaches and resolves on detach; `detach: true` returns immediately).
+- `runWorkflow({ workflow, inputs?, cwd?, detach?, pathToAtomicExecutable? })` — spawn a workflow's tmux session on the atomic socket. Resolves with `{ id, tmuxSessionName }` after the session is created (foreground attaches and resolves on detach; `detach: true` returns immediately). `pathToAtomicExecutable` overrides the self-exec target — leave unset to use the SDK's bundled orchestrator dispatcher (the default), or set it to an absolute path / bare command name to route through a separately installed atomic binary. Mirrors the Claude Agent SDK's `pathToClaudeCodeExecutable` semantics, including PATH-resolution for bare names.
 - `createRegistry()` — factory for an empty, immutable, chainable registry. Chain `.register(wf)` to add workflow definitions. Each call returns a new registry. Throws on duplicate `${agent}/${name}` key.
 - `listWorkflows(registry)` / `getWorkflow(registry, agent, name)` — iterate or look up by `(agent, name)`. Returns `undefined` when the pair isn't registered.
 - `Registry` — type for the registry object (see `registry-and-validation.md`)

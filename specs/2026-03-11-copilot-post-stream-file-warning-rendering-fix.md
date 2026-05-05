@@ -39,8 +39,8 @@ After a Copilot SDK conversation stream completes (the `⣿ Reasoned for Xs` com
   - .devcontainer/devcontainer.json — ...
   - .devcontainer/setup.sh — ...
   ⣿ Reasoned for 56s · ↓ 1.3k tokens · thought for 5s
-  ● C:\dev\pdd-kit\.devcontainer\setup.sh          ← BUG
-  ● C:\dev\pdd-kit\.devcontainer\devcontainer.json  ← BUG
+  ● C:\dev\example-project\.devcontainer\setup.sh          ← BUG
+  ● C:\dev\example-project\.devcontainer\devcontainer.json  ← BUG
   ```
 - **Technical Debt:** The `stream.session.info` and `stream.session.warning` bus event types were post-spec additions (not in the original 19 `BusEventType` spec surface). They bypass the `StreamPipelineConsumer` mapping pipeline, staleness filter, and `BatchDispatcher` coalescing — operating as raw direct subscriptions with minimal guards. (Ref: `research/docs/2026-02-26-streaming-event-bus-spec-audit.md`)
 - **Cross-provider risk:** The rendering handlers are shared across all providers. A blanket suppression would also hide Claude and OpenCode's synthesized `session.warning` events for sub-agent permission auto-deny — a user-facing feature. (Ref: `research/docs/2026-03-06-claude-agent-sdk-event-schema.md`, `research/docs/2026-03-06-opencode-sdk-event-schema-reference.md`)

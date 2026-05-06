@@ -10,7 +10,7 @@
     "status": "bun run cli.ts status"
   },
   "dependencies": {
-    "@bastani/atomic-sdk": "^0.7.8",
+    "@bastani/atomic-sdk": "workspace:*",
     "@commander-js/extra-typings": "^14.0.0"
   }
 }

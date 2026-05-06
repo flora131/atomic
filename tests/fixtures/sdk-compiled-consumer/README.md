@@ -86,7 +86,7 @@ fixture itself. Matrix:
 | Linux | x64 (musl) | `ubuntu-latest` + `oven/bun:alpine` container | |
 | Linux | arm64 (glibc) | `ubuntu-24.04-arm` | |
 | macOS | arm64 | `macos-latest` (Apple Silicon) | |
-| macOS | x64 | `macos-13` | |
+| macOS | x64 | `macos-26-intel` | |
 | Windows | x64 | `windows-latest` | |
 
 Linux arm64 musl and Windows arm64 are blocked on missing GitHub-hosted

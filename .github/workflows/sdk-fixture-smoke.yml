@@ -96,7 +96,7 @@ jobs:
 
           # ── darwin-x64 ────────────────────────────────────────────────────
           - name: darwin-x64
-            runs-on: macos-13
+            runs-on: macos-26-intel
             container: ""
             shell: bash
 

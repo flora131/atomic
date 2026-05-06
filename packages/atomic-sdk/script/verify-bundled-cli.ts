@@ -17,9 +17,7 @@
  *   2. The published `package.json` declares `./cli` as an export — the
  *      resolver hits this path via `import.meta.resolve("@bastani/atomic-sdk/cli")`
  *      and would throw `NoDispatcherError` if the export went missing.
- *   3. The published `package.json` declares `./dispatcher` so compiled
- *      third-party consumers can opt into self-dispatch.
- *   4. Neither the scoped nor the flat `@bastani/atomic` sibling is
+ *   3. Neither the scoped nor the flat `@bastani/atomic` sibling is
  *      present in the SDK-only install (regression guard).
  *
  * The resolver itself is pinned by the unit tests in
@@ -81,13 +79,13 @@ try {
     exports: Record<string, unknown>;
   };
   assert(pkg.name === SDK_PKG, `package.json#name === "${SDK_PKG}"`);
+  // Published exports are rewritten by `script/publish.ts` from string
+  // ("./src/cli.ts") into a conditional object ({ types, import }).
+  // Accept either shape so the script works on a source checkout *and*
+  // on a verdaccio/npm-published install.
   assert(
-    typeof pkg.exports["./cli"] === "string",
+    pkg.exports["./cli"] != null,
     "package.json#exports['./cli'] is declared (prebundled dispatcher)",
-  );
-  assert(
-    typeof pkg.exports["./dispatcher"] === "string",
-    "package.json#exports['./dispatcher'] is declared (handleSelfDispatch helper)",
   );
 
   // ── 4. Sibling-package regression guard ─────────────────────────────────

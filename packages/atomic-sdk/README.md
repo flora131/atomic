@@ -37,48 +37,37 @@ await runWorkflow({ workflow, inputs: { who: "World" } });
 `runWorkflow` spawns the orchestrator pane in a fresh sub-process. The
 SDK resolves the dispatcher in two ways:
 
-1. **`host-bun` (default)**: when the SDK ships at a real on-disk path
-   (workspace dev or `node_modules` install), the SDK spawns
+1. **`host-bun` (default in `bun run` mode)**: when the SDK ships at a
+   real on-disk path (workspace dev or `node_modules` install), the SDK
+   spawns
    `bun <node_modules/@bastani/atomic-sdk/dist/cli.js> _orchestrator-entry …`
    via the host bun. Module resolution from the workflow's project tree
    resolves `@bastani/atomic-sdk` normally.
-2. **`override-binary`**: when `pathToAtomicExecutable` is set, the SDK
-   spawns that binary directly with the internal sub-command. Atomic's
-   own CLI binary handles `_orchestrator-entry` natively; third-party
-   compiled CLIs opt in via the `handleSelfDispatch` helper.
-
-The SDK never defaults to `process.execPath`. In a compiled third-party
-CLI `process.execPath` is the consumer's binary, not Atomic's, and the
-SDK keeps that detail outside its boundary — the consumer chooses.
+2. **`override-binary` (default in compiled-binary mode)**: when
+   `pathToAtomicExecutable` is set — or the SDK auto-detects a
+   compiled-binary host and defaults it to `process.execPath` — the SDK
+   spawns that binary directly with the internal sub-command. The SDK's
+   `@bastani/atomic-sdk/workflows` barrel installs a top-level argv
+   handler at module-load time, so the spawned binary self-dispatches
+   `_orchestrator-entry` automatically before its own CLI parser sees
+   argv. **No consumer boilerplate required.**
 
 ## Distribution: `bun build --compile`d third-party CLIs
 
-When a consumer compiles their own CLI with `bun build --compile`, the
-SDK's bundled cli.js is stored inside the binary's bunfs filesystem and
-**cannot** be spawned as a separate process from outside the binary.
-The host-bun branch therefore can't fire.
-
-The intended pattern is to route through the consumer's own binary so
-that `_orchestrator-entry` self-dispatches via the SDK's
-`handleSelfDispatch` interceptor:
+Compiling your CLI works out of the box — `runWorkflow` auto-defaults
+`pathToAtomicExecutable` to `process.execPath` in compiled-binary
+hosts, and the SDK barrel intercepts the spawned `_orchestrator-entry`
+argv at module load.
 
 ```ts
-// my-app/src/cli.ts
-import { handleSelfDispatch } from "@bastani/atomic-sdk/dispatcher";
-await handleSelfDispatch();   // catches argv[2] === "_orchestrator-entry" /
-                              // "_cc-debounce" before Commander parses argv
-
+// my-app/src/cli.ts — no SDK boilerplate
 import { Command } from "commander";
 import { runWorkflow } from "@bastani/atomic-sdk/workflows";
 import workflow from "./workflow.ts";
 
 const program = new Command("my-app");
 program.command("greet").action(async () => {
-  await runWorkflow({
-    workflow,
-    inputs: {},
-    pathToAtomicExecutable: process.execPath,  // route through this binary
-  });
+  await runWorkflow({ workflow, inputs: {} });
 });
 await program.parseAsync();
 ```
@@ -92,14 +81,14 @@ bun build --compile --outfile dist/my-app src/cli.ts
 
 When `runWorkflow` spawns the orchestrator pane it runs
 `<my-app> _orchestrator-entry <args>`, which re-enters the same
-compiled binary. `handleSelfDispatch()` catches the internal
-sub-command before Commander, runs the orchestrator, and exits — the
-consumer's own command tree never sees those argv tokens.
+compiled binary. The SDK's argv side-effect catches the sub-command
+before Commander parses argv, runs the orchestrator, and exits — your
+own command tree never sees those argv tokens.
 
 ## `pathToAtomicExecutable` escape hatch
 
-Pass `pathToAtomicExecutable` to `runWorkflow` to bypass the automatic
-resolver entirely:
+Pass `pathToAtomicExecutable` explicitly to override the resolver and
+route through a specific binary:
 
 ```ts
 await runWorkflow({
@@ -130,8 +119,9 @@ Use this option when:
 - The consumer ships `atomic` via a separate installer (e.g., Homebrew,
   a company-managed package) and wants the workflow to route through
   that copy.
-- The consumer compiles their own CLI and wants the SDK to dispatch
-  back to it (`pathToAtomicExecutable: process.execPath` + `handleSelfDispatch`).
+- You're pinning a specific atomic build for reproducibility.
+- You want to override the SDK's compiled-host auto-default with a
+  different binary.
 
 ## `NoDispatcherError` semantics
 
@@ -164,9 +154,9 @@ try {
 
 - For `bun run`: reinstall `@bastani/atomic-sdk` so the SDK's bundled
   cli.js is reachable on disk.
-- For `bun build --compile` consumers: import `handleSelfDispatch` and
-  pass `pathToAtomicExecutable: process.execPath` (see
-  [Distribution](#distribution-bun-build---compiled-third-party-clis)).
+- For `bun build --compile` consumers: usually shouldn't fire — the SDK
+  auto-defaults `pathToAtomicExecutable` to `process.execPath`. Only
+  reachable if you explicitly passed an empty override.
 - Or supply a path to any binary that handles
   `_orchestrator-entry` / `_cc-debounce` directly.
 
@@ -182,7 +172,6 @@ Import paths:
 ```ts
 import { defineWorkflow }       from "@bastani/atomic-sdk/define-workflow";
 import { runWorkflow }          from "@bastani/atomic-sdk/workflows";
-import { handleSelfDispatch }   from "@bastani/atomic-sdk/dispatcher";
 import { NoDispatcherError }    from "@bastani/atomic-sdk/errors";
 ```
 

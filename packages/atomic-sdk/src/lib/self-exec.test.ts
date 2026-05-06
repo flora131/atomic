@@ -135,6 +135,57 @@ describe("resolveDispatcher – host-bun", () => {
 });
 
 // ---------------------------------------------------------------------------
+// B'. Compiled-host auto-default
+// ---------------------------------------------------------------------------
+
+describe("resolveDispatcher – compiled-host auto-default", () => {
+  test("compiled binary with no override defaults to process.execPath", () => {
+    const result = resolveDispatcher({
+      compiledRuntimeProbe: () => true,
+      // resolveSdkCli is irrelevant — auto-default fires before host-bun.
+    });
+    expect(result.kind).toBe("override-binary");
+    if (result.kind === "override-binary") {
+      expect(result.binary).toBe(process.execPath);
+    }
+  });
+
+  test("explicit override beats the compiled-host auto-default", () => {
+    const result = resolveDispatcher({
+      override: "/usr/local/bin/atomic",
+      compiledRuntimeProbe: () => true,
+    });
+    expect(result.kind).toBe("override-binary");
+    if (result.kind === "override-binary") {
+      expect(result.binary).toBe("/usr/local/bin/atomic");
+    }
+  });
+
+  test("empty-string override skips the auto-default (explicit opt-out)", () => {
+    let thrown: unknown;
+    try {
+      resolveDispatcher({
+        override: "",
+        compiledRuntimeProbe: () => true,
+        resolveSdkCli: sdkCliThrow(),
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(NoDispatcherError);
+  });
+
+  test("non-compiled host with no override falls through to host-bun", () => {
+    const fakeCliPath = "/proj/node_modules/@bastani/atomic-sdk/dist/cli.js";
+    const result = resolveDispatcher({
+      compiledRuntimeProbe: () => false,
+      resolveSdkCli: sdkCliAt(fakeCliPath),
+    });
+    expect(result.kind).toBe("host-bun");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // C. NoDispatcherError
 // ---------------------------------------------------------------------------
 

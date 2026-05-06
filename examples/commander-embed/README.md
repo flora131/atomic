@@ -18,11 +18,11 @@ bun run cli.ts --help                # all commands
 
 ## Distribution (compiled binaries)
 
-When this example is compiled with `bun build --compile`, the SDK's
-bundled cli.js is bunfs-only and the host-bun resolver branch can't
-fire. Route the orchestrator through the consumer's own binary by
-importing `handleSelfDispatch` at the top of `cli.ts` and passing
-`pathToAtomicExecutable: process.execPath` to `runWorkflow`.
+`bun build --compile` works without any boilerplate. The SDK auto-
+defaults `pathToAtomicExecutable` to `process.execPath` in compiled-
+binary hosts, and the `@bastani/atomic-sdk/workflows` barrel installs
+an argv handler at module-load time so the spawned
+`_orchestrator-entry` self-dispatches before Commander parses argv.
 
 See `packages/atomic-sdk/README.md → Distribution` for the canonical
 pattern and `tests/fixtures/sdk-compiled-consumer/` for an end-to-end

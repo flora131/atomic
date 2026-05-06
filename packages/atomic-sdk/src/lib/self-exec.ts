@@ -57,7 +57,11 @@ function quoteBashArg(s: string): string {
 // ---------------------------------------------------------------------------
 
 export interface ResolveDispatcherOptions {
-  /** When set and non-empty, returned verbatim as `override-binary`. */
+  /**
+   * When set and non-empty, returned verbatim as `override-binary`.
+   * An explicit empty string `""` skips the compiled-host auto-default
+   * — used by the smoke fixture to force-exercise `NoDispatcherError`.
+   */
   override?: string;
   /**
    * Test seam for the `import.meta.resolve("@bastani/atomic-sdk/cli")`
@@ -65,6 +69,12 @@ export interface ResolveDispatcherOptions {
    * throw to control the branch.
    */
   resolveSdkCli?: () => string;
+  /**
+   * Test seam for the compiled-binary detection that drives the
+   * auto-default to `process.execPath`. Defaults to checking
+   * `import.meta.dir` of this module against `isCompiledBinaryRuntime`.
+   */
+  compiledRuntimeProbe?: () => boolean;
 }
 
 /**
@@ -99,7 +109,25 @@ function logResolution(dispatcher: Dispatcher): void {
 /**
  * Locate the dispatcher for the current environment.
  *
- * Throws `NoDispatcherError` when no branch resolves.
+ * Resolution order:
+ *   1. Explicit `override` (non-empty)        → `override-binary`
+ *   2. Compiled-binary host w/ no override    → auto-default to
+ *                                                `process.execPath`
+ *                                                (`override-binary`)
+ *   3. SDK cli.ts on disk (host-bun)          → `host-bun`
+ *   4. Nothing matches                        → `NoDispatcherError`
+ *
+ * The compiled-host auto-default in step 2 means every `runWorkflow` /
+ * `createSession` call from a compiled host (atomic's own CLI, or any
+ * `bun build --compile`d third-party CLI that imports the SDK)
+ * self-dispatches through its own binary without consumer boilerplate.
+ * The SDK barrel installs a top-level argv handler at module-load time
+ * (see `primitives/run.ts`) so the spawned `<binary> _orchestrator-entry
+ * <args>` is intercepted before the host's CLI parser sees argv.
+ *
+ * Test seam: `compiledRuntimeProbe` overrides the compiled-binary check
+ * so unit tests can exercise both branches without running inside a
+ * real compiled binary.
  */
 export function resolveDispatcher(opts?: ResolveDispatcherOptions): Dispatcher {
   const override = opts?.override;
@@ -109,12 +137,34 @@ export function resolveDispatcher(opts?: ResolveDispatcherOptions): Dispatcher {
     return result;
   }
 
+  // An explicit empty-string override is treated as "skip the auto-default
+  // too" — used by the smoke fixture's NoDispatcherError step to exercise
+  // the failure path without recompiling the host.
+  const skipAutoDefault = override === "";
+
+  // Auto-default for compiled-binary hosts: route through
+  // `process.execPath` so the host's own binary self-dispatches the
+  // internal sub-command via the SDK barrel's argv side-effect. The
+  // probe checks `import.meta.dir` of *this module*, which is bunfs-
+  // rooted in any compiled host (atomic or third-party).
+  if (!skipAutoDefault) {
+    const isCompiled = opts?.compiledRuntimeProbe
+      ? opts.compiledRuntimeProbe()
+      : isCompiledBinaryRuntime(import.meta.dir);
+    if (isCompiled) {
+      const result: Dispatcher = {
+        kind: "override-binary",
+        binary: process.execPath,
+      };
+      logResolution(result);
+      return result;
+    }
+  }
+
   // Host-bun: the SDK's own dispatcher lives at a real on-disk path
   // (workspace dev or `node_modules` install). Spawn it via the current
   // bun interpreter. Module resolution from the workflow file's project
-  // tree resolves `@bastani/atomic-sdk` normally. This is the only
-  // default — compiled-binary hosts that need a different dispatcher
-  // pass `pathToAtomicExecutable` explicitly.
+  // tree resolves `@bastani/atomic-sdk` normally.
   let resolvedUrl: string | undefined;
   try {
     resolvedUrl = opts?.resolveSdkCli

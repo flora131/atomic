@@ -7,13 +7,11 @@
  * Used by the smoke matrix to verify the third-party-compiled-binary
  * scenario described in the SDK README's "Distribution" section.
  *
- * The very first statement is `await handleSelfDispatch()` — when atomic
- * spawns this binary as `<my-app> _orchestrator-entry <args>` (the
- * default in compiled mode, since `pathToAtomicExecutable` defaults to
- * `process.execPath`), the helper intercepts argv before Commander
- * parses it, runs the SDK's internal sub-command, and exits. For all
- * other invocations (`<my-app> greet`, …) the helper returns and
- * Commander runs the user-facing command tree normally.
+ * Note: there is no boilerplate at the top of this file. The SDK's
+ * `@bastani/atomic-sdk/workflows` barrel intercepts argv at module-load
+ * time — when atomic spawns this binary as `<my-app> _orchestrator-entry
+ * <args>`, the SDK side-effect runs the sub-command and exits before
+ * Commander parses argv.
  *
  * Environment variables honoured:
  *   ATOMIC_EXECUTABLE  — forwarded to `pathToAtomicExecutable` (use this
@@ -22,16 +20,9 @@
  *   ATOMIC_DEBUG=1     — passed through to the SDK resolver for debug output.
  */
 
-import { handleSelfDispatch } from "@bastani/atomic-sdk/dispatcher";
-await handleSelfDispatch();
-
 import { Command } from "@commander-js/extra-typings";
 import { runWorkflow } from "@bastani/atomic-sdk/workflows";
-import { isCompiledBinaryRuntime } from "@bastani/atomic-sdk/lib/runtime-env";
 import { greetWorkflow } from "./workflow.ts";
-
-/** True when this entry was executed from a `bun build --compile` binary. */
-const IS_COMPILED = isCompiledBinaryRuntime(import.meta.dir);
 
 const program = new Command("my-app").description(
   "sdk-compiled-consumer smoke fixture",
@@ -52,17 +43,14 @@ program
         ? opts.atomicExecutable
         : undefined;
 
-    // In compiled mode the SDK's bundled cli.ts is bunfs-only, so
-    // `host-bun` resolution can't work. Route through this same binary
-    // (handleSelfDispatch above catches `_orchestrator-entry`).
-    // In `bun src/cli.ts` mode we leave the override unset so the SDK's
-    // own host-bun resolution kicks in.
-    //
     // `ATOMIC_DISABLE_DEFAULT_EXEC` is a smoke-test seam for exercising
-    // the NoDispatcherError branch; production callers don't set it.
+    // the NoDispatcherError branch — it forces the SDK to skip its
+    // compiled-host auto-default by passing an empty string (falsy in
+    // the resolver but distinct from `undefined`, which would re-trigger
+    // the auto-default).
     const disableDefault = process.env["ATOMIC_DISABLE_DEFAULT_EXEC"] === "1";
-    const compiledDefault = IS_COMPILED && !disableDefault ? process.execPath : undefined;
-    const pathToAtomicExecutable = explicitOverride ?? compiledDefault;
+    const pathToAtomicExecutable = explicitOverride
+      ?? (disableDefault ? "" : undefined);
 
     await runWorkflow({
       workflow: greetWorkflow,

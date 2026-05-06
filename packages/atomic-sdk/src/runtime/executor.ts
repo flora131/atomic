@@ -157,8 +157,9 @@ export interface WorkflowRunOptions {
    * spawns this path verbatim for `_orchestrator-entry` / `_cc-debounce`
    * instead of routing through its own bundled cli.ts. The override
    * binary must accept the internal sub-commands directly — atomic's
-   * own CLI does, and third-party compiled CLIs can opt in via
-   * `handleSelfDispatch` from `@bastani/atomic-sdk/dispatcher`.
+   * own CLI does, and any `bun build --compile`d host that imports
+   * `runWorkflow` from `@bastani/atomic-sdk/workflows` self-dispatches
+   * automatically (the SDK barrel intercepts argv at module-load time).
    *
    * Mirrors the Claude Agent SDK's `pathToClaudeCodeExecutable`.
    */

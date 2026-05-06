@@ -316,7 +316,7 @@ caveats live in `failure-modes.md` §F15.
 The `@bastani/atomic-sdk/workflows` package exports the workflow authoring and composition primitives. For native SDK types and utilities, install and import from the provider packages directly.
 
 **Composition primitives:**
-- `runWorkflow({ workflow, inputs?, cwd?, detach?, pathToAtomicExecutable? })` — spawn a workflow's tmux session on the atomic socket. Resolves with `{ id, tmuxSessionName }` after the session is created (foreground attaches and resolves on detach; `detach: true` returns immediately). `pathToAtomicExecutable` overrides the self-exec target — leave unset to use the SDK's bundled orchestrator dispatcher (the default), or set it to an absolute path / bare command name to route through a separately installed atomic binary. Mirrors the Claude Agent SDK's `pathToClaudeCodeExecutable` semantics, including PATH-resolution for bare names.
+- `runWorkflow({ workflow, inputs?, cwd?, detach?, pathToAtomicExecutable? })` — spawn a workflow's tmux session on the atomic socket. Resolves with `{ id, tmuxSessionName }` after the session is created (foreground attaches and resolves on detach; `detach: true` returns immediately). `pathToAtomicExecutable` overrides the SDK's auto-detected self-exec target — leave unset and the SDK uses its bundled orchestrator dispatcher in `bun run` mode and the consumer's own binary (`process.execPath`) in `bun build --compile`d hosts; the SDK barrel installs a module-load argv handler so compiled hosts self-dispatch the internal sub-command transparently. Set the option (absolute path or bare command name) only to route through a separately installed atomic binary. Mirrors the Claude Agent SDK's `pathToClaudeCodeExecutable` semantics, including PATH-resolution for bare names.
 - `createRegistry()` — factory for an empty, immutable, chainable registry. Chain `.register(wf)` to add workflow definitions. Each call returns a new registry. Throws on duplicate `${agent}/${name}` key.
 - `listWorkflows(registry)` / `getWorkflow(registry, agent, name)` — iterate or look up by `(agent, name)`. Returns `undefined` when the pair isn't registered.
 - `Registry` — type for the registry object (see `registry-and-validation.md`)
@@ -346,12 +346,13 @@ import { listSessions, attachSession } from "@bastani/atomic-sdk/workflows";
 import { detachSession, nextWindow, previousWindow, gotoOrchestrator } from "@bastani/atomic-sdk";
 ```
 
-**Typed errors (catch with `instanceof` to render friendly CLI output).** The first four live on the `@bastani/atomic-sdk/workflows` barrel; `IncompatibleSDKError` is exported separately from `@bastani/atomic-sdk/errors`.
+**Typed errors (catch with `instanceof` to render friendly CLI output).** The first four live on the `@bastani/atomic-sdk/workflows` barrel; `IncompatibleSDKError` and `NoDispatcherError` are exported separately from `@bastani/atomic-sdk/errors`.
 - `MissingDependencyError` — `dependency: "tmux" | "psmux" | "bun"`. Thrown when a required external dependency is missing on `PATH`.
 - `SessionNotFoundError` — carries `id`. Thrown by `attachSession` and the navigation primitives when the id isn't on the socket.
 - `WorkflowNotCompiledError` — carries `path`. Thrown when a `defineWorkflow(...)` chain is missing `.compile()`.
 - `InvalidWorkflowError` — carries `path`. Thrown when a workflow file's default export isn't a `WorkflowDefinition`.
 - `IncompatibleSDKError` — carries `path`, `requiredVersion`, `currentVersion`. Thrown when `minSDKVersion` is newer than the installed SDK. `import { IncompatibleSDKError } from "@bastani/atomic-sdk/errors";`
+- `NoDispatcherError` — carries `searchedFor: ReadonlyArray<string>`. Thrown by `runWorkflow` when no dispatcher branch resolves — typically only when an explicit empty `pathToAtomicExecutable` defeats the SDK's auto-default. Thrown before any tmux side-effect, so a no-dispatcher failure leaves nothing to clean up. `import { NoDispatcherError } from "@bastani/atomic-sdk/errors";`
 
 **Types** (import with `import type`):
 - `AgentType` — `"copilot" | "opencode" | "claude"`

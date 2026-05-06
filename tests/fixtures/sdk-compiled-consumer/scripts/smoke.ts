@@ -10,11 +10,10 @@
  *
  *   • Compiled binary: third-party CLI is built with `bun build
  *     --compile`. The bundled SDK's cli.ts is bunfs-only, so the SDK
- *     resolver throws unless the consumer passes
- *     `pathToAtomicExecutable`. The fixture passes
- *     `process.execPath` (its own binary) and imports
- *     `handleSelfDispatch` from `@bastani/atomic-sdk/dispatcher` so the
- *     spawned `<my-app> _orchestrator-entry <args>` self-dispatches.
+ *     auto-defaults `pathToAtomicExecutable` to `process.execPath` so
+ *     the consumer's own binary self-dispatches the internal sub-
+ *     command. The SDK barrel installs the dispatch handler at module-
+ *     load time — no consumer boilerplate required.
  *
  * Six-step matrix:
  *   1. `bun install`
@@ -154,7 +153,7 @@ if (!skipSteps.has(3)) {
   log("Step 3 SKIPPED");
 }
 
-// ── Step 4: compiled mode (handleSelfDispatch + override = process.execPath) ─
+// ── Step 4: compiled mode (SDK auto-defaults override to process.execPath) ──
 
 if (!skipSteps.has(4)) {
   log("Step 4 — compiled: dist/my-app greet --who=smoke-compiled");

@@ -200,23 +200,30 @@ and runtime-related lives under `@bastani/atomic-sdk`.
 Workflows are wired into a **composition root** — a TypeScript file the
 user runs with `bun`. The SDK exposes pure primitives:
 
-- `runWorkflow({ workflow, inputs, detach?, pathToAtomicExecutable? })` — spawn a workflow's tmux session. `pathToAtomicExecutable` is an optional override that routes self-exec through a separately installed atomic binary (absolute path or bare command name resolved via PATH); leave it unset and the SDK uses its own bundled orchestrator dispatcher. Mirrors the Claude Agent SDK's [`pathToClaudeCodeExecutable`](https://docs.claude.com/en/agent-sdk/typescript).
+- `runWorkflow({ workflow, inputs, detach?, pathToAtomicExecutable? })` — spawn a workflow's tmux session. Leave `pathToAtomicExecutable` unset and the SDK auto-detects: in `bun run` mode it spawns its own bundled dispatcher via host bun; in a `bun build --compile`d host it auto-defaults to `process.execPath` so the consumer's own binary self-dispatches the internal sub-command (the `@bastani/atomic-sdk/workflows` barrel installs the argv handler at module-load time — no consumer boilerplate). Set the option only to override that default, e.g. to route through a separately installed atomic binary (absolute path or bare command name resolved via PATH). Mirrors the Claude Agent SDK's [`pathToClaudeCodeExecutable`](https://docs.claude.com/en/agent-sdk/typescript).
 - `createRegistry()` / `listWorkflows(reg)` / `getWorkflow(reg, agent, name)` — build and iterate a registry.
 - `getName(wf) / getAgent(wf) / getDescription(wf) / getInputSchema(wf) / getSource(wf) / getMinSDKVersion(wf)` — read workflow metadata.
 - `validateInputs(wf, raw)` — apply defaults and validate against the declared schema.
 - **Session lifecycle** — `listSessions / getSession / stopSession / attachSession / getSessionStatus / getSessionTranscript` are exported from both the root `@bastani/atomic-sdk` barrel and the `/workflows` sub-barrel. `detachSession` is exported only from the **root** barrel (`@bastani/atomic-sdk`) — not from `/workflows`.
 - **Pane navigation** — `nextWindow / previousWindow / gotoOrchestrator` are exported only from the **root** `@bastani/atomic-sdk` barrel (not from `/workflows`). Pure tmux verbs: they update the session's current-window pointer and return immediately. Never auto-attach — an attached client sees the change live; if no client is watching, the next `attachSession` call lands on the new window. Compose `nextWindow(id) + attachSession(id)` for navigate-then-attach.
-- **Typed errors** (catch with `instanceof` to render friendly CLI messages) — `MissingDependencyError` (tmux/psmux/bun missing), `SessionNotFoundError` (id not on the atomic socket), `WorkflowNotCompiledError` (forgot `.compile()`), `InvalidWorkflowError` (default export not a `WorkflowDefinition`) all live on the `@bastani/atomic-sdk/workflows` barrel. `IncompatibleSDKError` (workflow's `minSDKVersion` newer than the installed `@bastani/atomic-sdk`) is exported separately from `@bastani/atomic-sdk/errors`. All thrown by SDK primitives; all carry the relevant payload field (`dependency`, `id`, `path`, version pair).
+- **Typed errors** (catch with `instanceof` to render friendly CLI messages) — `MissingDependencyError` (tmux/psmux/bun missing), `SessionNotFoundError` (id not on the atomic socket), `WorkflowNotCompiledError` (forgot `.compile()`), `InvalidWorkflowError` (default export not a `WorkflowDefinition`) all live on the `@bastani/atomic-sdk/workflows` barrel. `IncompatibleSDKError` (workflow's `minSDKVersion` newer than the installed `@bastani/atomic-sdk`) and `NoDispatcherError` (SDK can't locate its dispatcher — surfaces only when an explicit empty `pathToAtomicExecutable` defeats the auto-default) are exported separately from `@bastani/atomic-sdk/errors`. All thrown by SDK primitives; all carry the relevant payload field (`dependency`, `id`, `path`, version pair, or `searchedFor` for `NoDispatcherError`).
 - `WorkflowPickerPanel` (from `@bastani/atomic-sdk/workflows/components`) — the interactive picker `atomic workflow -a claude` uses.
 
-You compose them into whatever CLI library you prefer. The SDK never
-re-execs the dev's CLI — it ships its own orchestrator entry script
-(bundled inside `@bastani/atomic-sdk`) and re-execs *that* with positional
-args. `bun add @bastani/atomic-sdk` is sufficient on its own; the
-user-facing `@bastani/atomic` CLI is **not** a peer requirement. Pass
-`pathToAtomicExecutable` to `runWorkflow` if you want the SDK to route
-through a separately installed atomic binary instead of the bundled
-dispatcher (e.g. for a custom build or a version pin).
+You compose them into whatever CLI library you prefer. In `bun run` mode
+the SDK ships its own orchestrator entry script (bundled inside
+`@bastani/atomic-sdk`) and re-execs *that* with positional args, so the
+dev's CLI is never re-entered. In `bun build --compile`d hosts the SDK
+re-execs the consumer's own binary — but transparently: the
+`@bastani/atomic-sdk/workflows` barrel intercepts the internal
+sub-command via a top-level argv handler installed at module-load time,
+so the dev's command tree never sees those argv tokens. Either way,
+**no boilerplate or env-var dance in the dev's file**.
+
+`bun add @bastani/atomic-sdk` is sufficient on its own; the user-facing
+`@bastani/atomic` CLI is **not** a peer requirement. Pass
+`pathToAtomicExecutable` to `runWorkflow` only if you want the SDK to
+route through a separately installed atomic binary instead of the
+auto-detected default (e.g. for a custom build or a version pin).
 
 ```ts
 // src/claude-worker.ts — single workflow with a small Commander entrypoint
@@ -271,9 +278,10 @@ const { id, tmuxSessionName } = await runWorkflow({
 });
 
 // To route self-exec through a globally installed atomic binary instead
-// of the SDK's bundled dispatcher (e.g. for a pinned build), set
-// `pathToAtomicExecutable`. Default behaviour is the bundled dispatcher,
-// so most callers should leave this unset.
+// of the SDK's auto-detected default (bundled dispatcher in `bun run`,
+// `process.execPath` in compiled binaries), set `pathToAtomicExecutable`
+// explicitly. Most callers should leave it unset and let the SDK
+// auto-detect.
 await runWorkflow({
   workflow,
   inputs,
@@ -327,7 +335,7 @@ if (result) {
 }
 ```
 
-The dev's CLI is **never** re-execed. The SDK ships an internal orchestrator entry script (bundled inside `@bastani/atomic-sdk`) and re-execs that with positional args — no env-var dance, no boilerplate re-entry code in the dev's file, and no peer dependency on the user-facing `@bastani/atomic` CLI package.
+**No boilerplate in the dev's file.** In `bun run` mode the SDK re-execs its own internal orchestrator entry script (bundled inside `@bastani/atomic-sdk`); in `bun build --compile`d hosts it re-execs the consumer's own binary, but the SDK's `@bastani/atomic-sdk/workflows` barrel intercepts the internal sub-command via a top-level argv handler at module-load time, so the dev's command tree never sees those argv tokens. No env-var dance, no manual `handleSelfDispatch`-style entry-point hook, and no peer dependency on the user-facing `@bastani/atomic` CLI package.
 
 **Atomic builtins** — workflows shipped inside `@bastani/atomic-sdk`, registered by atomic's internal `createBuiltinRegistry()`:
 

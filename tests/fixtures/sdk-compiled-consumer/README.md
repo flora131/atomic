@@ -12,9 +12,9 @@ SDK resolves a dispatcher in two ways:
 1. **`host-bun`** (default when the SDK ships at a real on-disk path):
    spawn `bun <node_modules/@bastani/atomic-sdk/dist/cli.js> _orchestrator-entry …`.
 2. **`override-binary`** (`pathToAtomicExecutable` set): spawn that
-   binary directly. Used by atomic's own CLI to reuse its compiled
-   binary, and by third-party `bun build --compile` consumers to route
-   through their own binary's `handleSelfDispatch` interceptor.
+   binary directly. The SDK auto-defaults to `process.execPath` in
+   compiled-binary hosts so the consumer's own binary self-dispatches
+   the internal sub-command — no consumer boilerplate required.
 
 The fixture validates both branches end-to-end on every supported
 platform.
@@ -23,7 +23,7 @@ platform.
 
 | File | Role |
 |---|---|
-| `src/cli.ts` | Minimal Commander CLI. First statement: `await handleSelfDispatch()` so the same binary self-dispatches in compiled mode. |
+| `src/cli.ts` | Minimal Commander CLI. No SDK boilerplate — the SDK barrel intercepts argv at module-load time. |
 | `src/workflow.ts` | Trivial `defineWorkflow` — single echo step |
 | `scripts/smoke.ts` | Six-step smoke matrix runner |
 
@@ -47,10 +47,7 @@ Steps 2, 4, 6 require tmux on PATH (Linux/macOS) or psmux (Windows).
 ## How the compiled path works
 
 ```ts
-// src/cli.ts
-import { handleSelfDispatch } from "@bastani/atomic-sdk/dispatcher";
-await handleSelfDispatch();   // intercepts argv[2] === "_orchestrator-entry"
-
+// src/cli.ts — no SDK boilerplate at the top
 import { Command } from "@commander-js/extra-typings";
 import { runWorkflow } from "@bastani/atomic-sdk/workflows";
 import { greetWorkflow } from "./workflow.ts";
@@ -61,7 +58,8 @@ program.command("greet").action(async (opts) => {
     workflow: greetWorkflow,
     inputs: { who: opts.who },
     detach: true,
-    pathToAtomicExecutable: process.execPath,  // route through *this* binary
+    // pathToAtomicExecutable left unset — SDK auto-defaults to
+    // process.execPath in compiled-binary hosts.
   });
   console.log("workflow:launched");
 });
@@ -71,9 +69,10 @@ await program.parseAsync();
 
 When `runWorkflow` spawns the orchestrator pane, the launcher script
 runs `<my-app> _orchestrator-entry <name> <agent> <inputsB64> <source>`
-which re-enters the same compiled binary. `handleSelfDispatch()` catches
-the internal sub-command before Commander parses argv, runs the SDK's
-`runOrchestratorEntry`, and exits.
+which re-enters the same compiled binary. The SDK's
+`@bastani/atomic-sdk/workflows` barrel installs a top-level argv
+handler that catches the internal sub-command at module-load time —
+before Commander parses argv — runs the orchestrator, and exits.
 
 ## Cross-platform CI
 

@@ -14,6 +14,12 @@
 > `@bastani/atomic-sdk/workflows` outside its own bunfs bundle. The
 > shipped resolver therefore differs from §4–§5; see **§11 Implementation
 > Notes** for the actual design.
+>
+> **Update (2026-05-06 later):** §11 originally introduced an explicit
+> `handleSelfDispatch` helper that compiled third-party hosts had to call
+> as the first statement of their CLI entry. That was replaced before
+> shipping with two automatic mechanisms — see **§11.7** for the final
+> design that eliminates the consumer boilerplate entirely.
 
 ## 1. Executive Summary
 
@@ -547,10 +553,118 @@ shipping additional binaries.
 | Step | Mode | Asserts |
 |---|---|---|
 | 2 | host-bun (`bun src/cli.ts greet`) | `kind=host-bun` resolution, `workflow:launched` |
-| 4 | compiled (`dist/my-app greet`) | `kind=override-binary` (via `process.execPath`), `workflow:launched` |
+| 4 | compiled (`dist/my-app greet`) | `kind=override-binary` (via auto-defaulted `process.execPath`), `workflow:launched` |
 | 5 | compiled, `ATOMIC_DISABLE_DEFAULT_EXEC=1` | `NoDispatcherError` before tmux side-effect |
 
 `.github/workflows/sdk-fixture-smoke.yml` runs the full six-step matrix
 on every PR touching `packages/atomic-sdk/**`, `packages/atomic/**`, or
 the fixture, across linux-x64 (glibc + musl), linux-arm64 glibc,
 darwin-arm64, darwin-x64, and win32-x64.
+
+### 11.7 Final Design — Zero-Boilerplate Compiled Hosts (corrects §11.1, §11.3, §11.4)
+
+§11.1 originally required compiled third-party hosts to (a) call
+`handleSelfDispatch()` at the top of their entry file and (b) pass
+`pathToAtomicExecutable: process.execPath` to every `runWorkflow` call.
+That two-line ceremony pushed an SDK-internal argv contract into the
+consumer's CLI and was rejected as a poor developer experience.
+
+The shipped design replaces it with two automatic mechanisms. Compiled
+third-party hosts now look identical to `bun run` hosts — no SDK
+boilerplate at all:
+
+```ts
+// my-app/src/cli.ts — all of it
+import { Command } from "commander";
+import { runWorkflow } from "@bastani/atomic-sdk/workflows";
+import workflow from "./workflow.ts";
+
+const program = new Command("my-app");
+program.command("greet").action(async () => {
+  await runWorkflow({ workflow, inputs: {} });
+});
+await program.parseAsync();
+```
+
+#### 11.7.1 Mechanism 1 — auto-default `pathToAtomicExecutable`
+
+`runWorkflow` (in `packages/atomic-sdk/src/primitives/run.ts`) defaults
+the option when the caller leaves it unset:
+
+```ts
+const pathToAtomicExecutable =
+  options.pathToAtomicExecutable
+  ?? (isCompiledBinaryRuntime(import.meta.dir) ? process.execPath : undefined);
+```
+
+`import.meta.dir` of `run.ts` is bunfs-rooted in any compiled host
+(atomic's own binary or a third-party `bun build --compile` host) and a
+real on-disk path otherwise. The auto-default lights up the
+`override-binary` branch in compiled hosts and leaves the host-bun
+branch as the default in `bun run` mode. The user-facing
+`pathToAtomicExecutable` option remains as the documented escape hatch.
+
+#### 11.7.2 Mechanism 2 — argv side-effect at SDK barrel load
+
+`primitives/run.ts` installs a top-level argv handler that fires when
+the module is evaluated:
+
+```ts
+{
+  const sub = process.argv[2];
+  if (sub === "_orchestrator-entry") {
+    try {
+      const { runOrchestratorEntry } = await import("../runtime/orchestrator-entry.ts");
+      await runOrchestratorEntry(source, agent, inputsB64);
+      process.exit(0);
+    } catch (err) {
+      if (err instanceof InvalidWorkflowError) {
+        // Source path didn't resolve to a workflow module — defer to
+        // the host's argv parser (atomic's compiled CLI, which has its
+        // own hidden Commander handler that resolves builtin workflows
+        // by name+agent against `createBuiltinRegistry()`).
+      } else {
+        process.stderr.write(...);
+        process.exit(1);
+      }
+    }
+  } else if (sub === "_cc-debounce") {
+    process.exit(runCcDebounce(process.argv[3] ?? ""));
+  }
+}
+```
+
+The side-effect runs whenever a host imports `runWorkflow` (directly or
+via the `@bastani/atomic-sdk/workflows` barrel), which any host calling
+`runWorkflow` necessarily does. Non-matching argv is a single string
+compare — no async cost. Matching argv top-level-awaits the dispatch
+and exits before the consumer's Commander parser sees argv.
+
+#### 11.7.3 Atomic's compiled binary fallback
+
+Atomic's `_orchestrator-entry` Commander handler stays in
+`packages/atomic/src/cli.ts` because the SDK's source-path dynamic-
+import can't resolve atomic's builtin workflows (Bun collapses every
+bundled module's `import.meta.path` to the binary entry, which
+re-imports atomic's own cli.ts and fails with no default export). The
+side-effect catches `InvalidWorkflowError` and falls through silently;
+atomic's Commander then runs the registry-aware fallback
+(`createBuiltinRegistry().resolve(name, agent)` →
+`runOrchestratorWithDefinition`). Both paths converge.
+
+Third-party compiled hosts whose workflow modules retain individual
+bunfs paths (the typical case — workflow.ts statically-imported from
+the consumer's entry) get auto-dispatched by the SDK side-effect with
+no fallback needed.
+
+#### 11.7.4 Deletions made for this redesign
+
+- `packages/atomic-sdk/src/dispatcher.ts` — `handleSelfDispatch` removed.
+- `package.json#exports['./dispatcher']` — corresponding export entry.
+- `packages/atomic/src/lib/run-workflow-with-self.ts` — the auto-default
+  in the SDK primitive replaces this wrapper.
+- All documentation references to `handleSelfDispatch` across
+  `packages/atomic-sdk/README.md`, `examples/commander-embed/README.md`,
+  `tests/fixtures/sdk-compiled-consumer/README.md` and `…/src/cli.ts`,
+  the smoke script, and the SDK `script/build.test.ts` /
+  `script/verify-bundled-cli.ts` packaging assertions.

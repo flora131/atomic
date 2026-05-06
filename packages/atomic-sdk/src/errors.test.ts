@@ -104,7 +104,7 @@ describe("NoDispatcherError", () => {
   test("message contains pathToAtomicExecutable hint", () => {
     const err = new NoDispatcherError({ searchedFor: [] });
     expect(err.message).toContain("pathToAtomicExecutable");
-    expect(err.message).toContain("handleSelfDispatch");
+    expect(err.message).toContain("auto-default to `process.execPath`");
   });
 
   test("searchedFor is readonly (frozen shape)", () => {

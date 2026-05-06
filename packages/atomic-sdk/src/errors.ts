@@ -75,9 +75,11 @@ export class IncompatibleSDKError extends Error {
  * Thrown by `resolveDispatcher()` when no dispatcher branch resolves.
  * The SDK's only default is its prebundled CLI dispatcher
  * (`@bastani/atomic-sdk/cli`); when that can't be located on disk
- * (typically because the SDK is bundled into a third-party `bun build
- * --compile` binary) the caller must pass `pathToAtomicExecutable`.
- * Carries `searchedFor` so callers can render an actionable hint.
+ * (typically because the SDK is bundled into a `bun build --compile`
+ * binary that did NOT auto-default `pathToAtomicExecutable` — which the
+ * SDK normally does for compiled hosts) the caller must pass it
+ * explicitly. Carries `searchedFor` so callers can render an actionable
+ * hint.
  */
 export class NoDispatcherError extends Error {
   override readonly name = "NoDispatcherError";
@@ -86,12 +88,14 @@ export class NoDispatcherError extends Error {
     super(
       `runWorkflow() could not locate the atomic SDK dispatcher.\n` +
       `Searched: ${opts.searchedFor.join(", ")}.\n` +
-      `This usually means the SDK is bundled into a compiled binary that\n` +
-      `cannot reach its own dispatcher script on disk. Pass an explicit\n` +
-      `\`pathToAtomicExecutable\` to runWorkflow() pointing at a binary\n` +
-      `that handles \`_orchestrator-entry\` (atomic's own CLI does, or\n` +
-      `your own CLI when it imports \`handleSelfDispatch\` from\n` +
-      `\`@bastani/atomic-sdk/dispatcher\`).`,
+      `This usually means the SDK is bundled into a compiled binary and\n` +
+      `the auto-default to \`process.execPath\` was disabled. Pass an\n` +
+      `explicit \`pathToAtomicExecutable\` to runWorkflow() pointing at\n` +
+      `a binary that handles \`_orchestrator-entry\` — atomic's own CLI\n` +
+      `does, and any \`bun build --compile\`d host that imports\n` +
+      `\`runWorkflow\` from \`@bastani/atomic-sdk/workflows\` self-\n` +
+      `dispatches automatically (the SDK barrel intercepts argv at\n` +
+      `module-load time).`,
     );
     this.searchedFor = opts.searchedFor;
   }

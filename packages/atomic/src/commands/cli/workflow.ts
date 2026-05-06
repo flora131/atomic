@@ -23,8 +23,8 @@ import {
   type WorkflowInput,
   getInputSchema,
   listWorkflows,
+  runWorkflow,
 } from "@bastani/atomic-sdk";
-import { runWorkflowWithSelf } from "../../lib/run-workflow-with-self.ts";
 import {
   getAgentKeys,
   isValidAgent,
@@ -59,7 +59,14 @@ async function dispatch(
   cliInputs: Record<string, string>,
   detach: boolean,
 ): Promise<void> {
-  await runWorkflowWithSelf({
+  // The SDK's `runWorkflow` auto-defaults `pathToAtomicExecutable` to
+  // `process.execPath` in compiled-binary hosts, so atomic's compiled
+  // CLI self-dispatches `_orchestrator-entry` through its own binary
+  // (handled by atomic's hidden Commander command, which falls back to
+  // the builtin registry when the SDK's source-path dispatcher can't
+  // resolve). In dev mode (`bun packages/atomic/src/cli.ts …`) the
+  // auto-default returns undefined and the SDK's host-bun branch fires.
+  await runWorkflow({
     workflow,
     inputs: cliInputs,
     detach,
@@ -69,7 +76,7 @@ async function dispatch(
 /**
  * Drive the interactive picker. The picker reads its registry directly
  * (filtered by agent) and returns the chosen workflow + populated input
- * map; we then hand off to `runWorkflowWithSelf`.
+ * map; we then hand off to `runWorkflow`.
  */
 async function runPicker(
   registry: ReturnType<typeof createBuiltinRegistry>,

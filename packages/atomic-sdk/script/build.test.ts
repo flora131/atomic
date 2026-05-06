@@ -17,8 +17,6 @@
  *   2. The `./cli` export IS present in the published manifest — the SDK's
  *      prebundled dispatcher is the only default resolver path
  *      (`resolveDispatcher` calls `import.meta.resolve("@bastani/atomic-sdk/cli")`).
- *   3. The `./dispatcher` export IS present so compiled third-party
- *      consumers can opt into self-dispatch via `handleSelfDispatch`.
  */
 
 import { test, expect, describe, beforeAll } from "bun:test";
@@ -56,18 +54,7 @@ describe.skipIf(SKIP)("SDK build output", () => {
     expect(typeof pkg.exports["./cli"]).toBe("string");
   });
 
-  test("package.json declares ./dispatcher export (handleSelfDispatch helper)", async () => {
-    const pkg = (await Bun.file(join(SDK_PKG_ROOT, "package.json")).json()) as {
-      exports: Record<string, string>;
-    };
-    expect(typeof pkg.exports["./dispatcher"]).toBe("string");
-  });
-
   test("dist contains compiled cli.js for the dispatcher", () => {
     expect(existsSync(join(DIST, "cli.js"))).toBe(true);
-  });
-
-  test("dist contains compiled dispatcher.js for handleSelfDispatch", () => {
-    expect(existsSync(join(DIST, "dispatcher.js"))).toBe(true);
   });
 });

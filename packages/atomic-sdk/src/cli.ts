@@ -8,9 +8,9 @@
  * `node_modules` install).
  *
  * The dispatch logic lives as a top-level argv side-effect in
- * `./primitives/run.ts` (so it ALSO fires when consumers import the SDK
- * barrel into a `bun build --compile` binary — that's the entire reason
- * compiled hosts no longer need any boilerplate). This script just
- * imports that side-effect so it runs when bun loads the file.
+ * `./lib/auto-dispatch.ts` (so it ALSO fires when consumers import the
+ * SDK barrel into a `bun build --compile` binary — that's the entire
+ * reason compiled hosts no longer need any boilerplate). This script
+ * just imports that side-effect so it runs when bun loads the file.
  */
-import "./primitives/run.ts";
+import "./lib/auto-dispatch.ts";

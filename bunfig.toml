@@ -25,6 +25,10 @@ coveragePathIgnorePatterns = [
   "packages/atomic/src/cli.ts",
   "packages/atomic/src/version.ts",
   "packages/atomic-sdk/src/cli.ts",
+  # Auto-dispatch is a top-level argv side-effect that exits the
+  # process — same shape as the SDK cli entry; subprocess dispatch is
+  # exercised by `tests/fixtures/sdk-compiled-consumer/` end-to-end.
+  "packages/atomic-sdk/src/lib/auto-dispatch.ts",
   # React/OpenTUI components (require component test infrastructure)
   "packages/atomic-sdk/src/components/**",
   # Theme (React context + OpenTUI native resources)

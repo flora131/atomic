@@ -52,21 +52,6 @@ describe("SessionGraphPanel", () => {
       expect(frame).toContain("Orchestrator");
     });
 
-    test("renders statusline with GRAPH badge", async () => {
-      const store = createPopulatedStore();
-      const setup = await renderPanel(store);
-      const frame = setup.captureCharFrame();
-      expect(frame).toContain("GRAPH");
-    });
-
-    test("renders navigation hints", async () => {
-      const store = createPopulatedStore();
-      const setup = await renderPanel(store);
-      const frame = setup.captureCharFrame();
-      expect(frame).toContain("navigate");
-      expect(frame).toContain("attach");
-    });
-
     test("renders with running session showing duration", async () => {
       const store = createPopulatedStore();
       store.startSession("worker-1");
@@ -89,19 +74,6 @@ describe("SessionGraphPanel", () => {
       const setup = await renderPanel(store);
       const frame = setup.captureCharFrame();
       expect(frame).toContain("test-wf");
-    });
-
-    test("shows quit option after markCompletionReached", async () => {
-      const store = createPopulatedStore();
-      store.setCompletion("test-wf", "/tmp/transcripts");
-      store.markCompletionReached();
-
-      const setup = await renderPanel(store);
-      // Extra render cycles to flush subscription-driven state updates
-      await setup.renderOnce();
-      await setup.renderOnce();
-      const frame = setup.captureCharFrame();
-      expect(frame).toContain("quit");
     });
 
     test("renders fatal error state", async () => {

@@ -31,7 +31,6 @@ import type { ConnectorResult } from "./connectors.ts";
 import { NodeCard } from "./node-card.tsx";
 import { Edge } from "./edge.tsx";
 import { Header } from "./header.tsx";
-import { Statusline } from "./statusline.tsx";
 import { CompactSwitcher } from "./compact-switcher.tsx";
 
 /** Interval (ms) between pulse animation frames — ~60fps feel. */
@@ -40,8 +39,6 @@ const PULSE_INTERVAL_MS = 60;
 const PULSE_FRAME_COUNT = 32;
 /** Timeout (ms) for "gg" double-tap to jump to root node. */
 const GG_DOUBLE_TAP_MS = 300;
-/** Duration (ms) to display the attach flash message in the statusline. */
-const ATTACH_MSG_DISPLAY_MS = 2400;
 
 export function SessionGraphPanel() {
   const store = useStore();
@@ -105,17 +102,6 @@ export function SessionGraphPanel() {
     return () => clearInterval(pulseId);
   }, [hasRunning]);
 
-  // Attach flash message
-  const [attachMsg, setAttachMsg] = useState("");
-  const attachTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Clear attach timer on unmount to prevent state updates after teardown
-  useEffect(() => {
-    return () => {
-      if (attachTimerRef.current) clearTimeout(attachTimerRef.current);
-    };
-  }, []);
-
   const doAttach = useCallback(
     (id: string) => {
       const n = layout.map[id];
@@ -129,10 +115,6 @@ export function SessionGraphPanel() {
         store.setViewMode("graph");
         return;
       }
-
-      if (attachTimerRef.current) clearTimeout(attachTimerRef.current);
-      setAttachMsg(`\u2192 ${n.name}`);
-      attachTimerRef.current = setTimeout(() => setAttachMsg(""), ATTACH_MSG_DISPLAY_MS);
 
       setFocusedId(id);
       store.setViewMode("attached", id);
@@ -303,8 +285,10 @@ export function SessionGraphPanel() {
   const focused = layout.map[focusedId];
 
   // Center the graph when it's smaller than the viewport.
-  // viewportH = terminal height minus header (1) and statusline (1).
-  const viewportH = Math.max(0, termH - 2);
+  // viewportH = terminal height minus the panel's own header row (1).
+  // The tmux status line at the very bottom is reserved by tmux outside
+  // this pane, so it isn't subtracted here.
+  const viewportH = Math.max(0, termH - 1);
   const padX = Math.max(0, Math.floor((termW - layout.width) / 2));
   const padY = Math.max(0, Math.floor((viewportH - layout.height) / 2));
   const canvasW = Math.max(layout.width, termW) + padX;
@@ -382,19 +366,6 @@ export function SessionGraphPanel() {
     return () => clearInterval(id);
   }, [tmuxSession, hasStartedAgent]);
 
-  // ── Tmux status bar sync ──────────────────────────────
-  // The workflow owns its footer: the tmux status bar is hidden for this
-  // session so the React-rendered Statusline is the single source of truth
-  // in both graph and attached modes. Scoped via `-t <tmuxSession>` so other
-  // sessions on the atomic socket (e.g. chat) keep the tmux.conf defaults.
-  useEffect(() => {
-    const s = tmuxSession;
-    tmuxRun(["set", "-t", s, "status", "off"]);
-    return () => {
-      tmuxRun(["set", "-tu", s, "status"]);
-    };
-  }, [tmuxSession]);
-
   return (
     <box width="100%" height="100%" flexDirection="column" backgroundColor={theme.background}>
       <Header />
@@ -464,8 +435,6 @@ export function SessionGraphPanel() {
 
       {/* Compact agent switcher overlay */}
       {switcherOpen ? <CompactSwitcher selectedIndex={switcherSel} /> : null}
-
-      <Statusline attachMsg={attachMsg} />
     </box>
   );
 }

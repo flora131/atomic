@@ -115,14 +115,11 @@ const cleaned = captured.replace(ANSI_RE, "");
 //      as set by tmux/psmux when it forks the pane process; an empty value
 //      means chatCommand fell back to spawnDirect (no tmux at all).
 //
-//   2. footer pane rendered — `spawnAttachedFooter` splits a second pane
-//      under the agent and runs `atomic _footer --agent <agent>`, which
-//      paints an uppercase agent pill ("OPENCODE") via the OpenTUI headless
-//      renderer. A blank footer pane means the spawn command was malformed
-//      (e.g. duplicated binary path on a compiled binary → Commander falls
-//      through to the default `chat` command → "Missing agent" → pane dies).
-//      The pill text appears verbatim inside the captured PTY stream
-//      because tmux paints both panes into the same client terminal.
+//   2. footer rendered — `spawnAttachedFooter` compiles the agent pill
+//      to a tmux/psmux format string and applies it via `set-option -g
+//      status-left/status-right`. The uppercase agent pill ("OPENCODE")
+//      appears verbatim inside the captured PTY stream because tmux
+//      paints the status line into the same client terminal.
 // psmux separates the marker and `TMUX=…` field with a `\x1B[1C` cursor
 // advance rather than a literal space; once ANSI is stripped, the two
 // tokens are flush against each other (`ATOMIC_CHAT_SMOKETMUX=…`). Allow

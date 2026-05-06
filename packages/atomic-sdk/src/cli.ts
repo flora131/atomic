@@ -12,7 +12,6 @@
  *
  * Subcommands handled:
  *   _orchestrator-entry <workflowName> <agent> [inputsB64] [workflowSource]
- *   _footer --name <name> [--agent <agent>]
  *   _cc-debounce <paneId>
  *
  * Compiled-binary mode is intentionally not handled here: when the runtime
@@ -23,7 +22,6 @@
  */
 
 import { Command } from "@commander-js/extra-typings";
-import { isValidAgent } from "./services/config/definitions.ts";
 
 const program = new Command()
   .name("atomic-sdk")
@@ -51,21 +49,6 @@ program
       "./runtime/orchestrator-entry.ts"
     );
     await runOrchestratorEntry(workflowSource, agent, inputsB64);
-  });
-
-program
-  .command("_footer", { hidden: true })
-  .description("Internal: render the attached-mode footer for an agent window")
-  .requiredOption("--name <name>", "Agent window name")
-  .option(
-    "--agent <agent>",
-    "Agent type — renders provider pill in the footer",
-  )
-  .action(async (opts: { name: string; agent?: string }) => {
-    const { footerCommand } = await import("./runtime/footer-command.tsx");
-    const agentType = opts.agent && isValidAgent(opts.agent) ? opts.agent : undefined;
-    const exitCode = await footerCommand(opts.name, agentType);
-    process.exit(exitCode);
   });
 
 program

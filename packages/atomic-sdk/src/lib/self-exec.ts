@@ -26,9 +26,9 @@
  * SDK's `pathToClaudeCodeExecutable`).
  *
  * Centralising the launcher construction here keeps every internal
- * sub-command (`_footer`, `_orchestrator-entry`, `_cc-debounce`, …) on a
- * single code path, so a fix to argv handling or escaping lands in one
- * place rather than drifting across call sites.
+ * sub-command (`_orchestrator-entry`, `_cc-debounce`, …) on a single
+ * code path, so a fix to argv handling or escaping lands in one place
+ * rather than drifting across call sites.
  */
 
 import { fileURLToPath } from "node:url";
@@ -54,8 +54,7 @@ function quotePwshLiteral(s: string): string {
  *  bare; every other token is always double-quoted, matching the
  *  existing launcher style. The "always quote values" rule keeps user
  *  data (paths, agent names, base64 payloads) safe regardless of
- *  content; the "bare flags" rule keeps emitted commands readable and
- *  matches the historical buildAttachedFooterCommand output. */
+ *  content; the "bare flags" rule keeps emitted commands readable. */
 function quoteBashArg(s: string): string {
   return s.startsWith("-") ? s : `"${escBash(s)}"`;
 }

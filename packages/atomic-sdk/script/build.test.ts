@@ -13,14 +13,13 @@
  * has already exercised the same properties end-to-end.
  *
  * What we verify:
- *   1. `bun run build` produces `dist/cli.js` and
- *      `dist/runtime/footer-command.js` — the bundled artifacts the
- *      SDK self-exec target needs at runtime when consumers install
+ *   1. `bun run build` produces `dist/cli.js` — the bundled SDK
+ *      self-exec target needed at runtime when consumers install
  *      only `@bastani/atomic-sdk`.
  *   2. The build script's entry list is sourced from `package.json#exports`,
- *      so `./cli` and `./runtime/footer-command` exports are present in
- *      the published manifest. Drift between the manifest and the bundle
- *      is the most common way bundled artifacts disappear.
+ *      so the `./cli` export is present in the published manifest.
+ *      Drift between the manifest and the bundle is the most common
+ *      way bundled artifacts disappear.
  *   3. `dist/cli.js` is invokable through Bun and dispatches its hidden
  *      Commander subcommands. Catches broken imports, missing default
  *      exports, etc., before the verdaccio matrix runs.
@@ -56,23 +55,14 @@ describe.skipIf(SKIP)("SDK build output", () => {
     expect(statSync(cli).size).toBeGreaterThan(0);
   });
 
-  test("dist/runtime/footer-command.js exists and is non-empty", () => {
-    const f = join(DIST, "runtime", "footer-command.js");
-    expect(existsSync(f)).toBe(true);
-    expect(statSync(f).size).toBeGreaterThan(0);
-  });
-
-  test("package.json declares ./cli and ./runtime/footer-command exports", async () => {
+  test("package.json declares ./cli export", async () => {
     // The build pipeline iterates `pkg.exports` to choose entry points,
     // so any drop here means the corresponding bundle disappears
-    // silently. Assert both manifest entries exist.
+    // silently.
     const pkg = (await Bun.file(join(SDK_PKG_ROOT, "package.json")).json()) as {
       exports: Record<string, string>;
     };
     expect(pkg.exports["./cli"]).toBe("./src/cli.ts");
-    expect(pkg.exports["./runtime/footer-command"]).toBe(
-      "./src/runtime/footer-command.tsx",
-    );
   });
 
   test("bundled cli.js dispatches _orchestrator-entry via Commander", () => {

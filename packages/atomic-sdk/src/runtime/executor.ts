@@ -154,7 +154,7 @@ export interface WorkflowRunOptions {
   detach?: boolean;
   /**
    * Path to the atomic executable used for internal self-exec calls
-   * (`_orchestrator-entry`, `_footer`, `_cc-debounce`). Defaults to the
+   * (`_orchestrator-entry`, `_cc-debounce`). Defaults to the
    * SDK's bundled dispatcher (`@bastani/atomic-sdk/cli`), so SDK
    * consumers don't need the user-facing `@bastani/atomic` package
    * installed alongside.
@@ -277,9 +277,8 @@ export function applyContainerEnvDefaults(): void {
  * process's PATH. tmux's child shell can have a stripped or differently
  * ordered PATH from the user's interactive shell — most visibly when atomic
  * is launched from a globally-installed bin wrapper rather than `bun run dev`.
- * Resolving here, where we still have the full interactive PATH, mirrors
- * how `attached-footer.ts` injects `process.execPath` + an absolute cli.ts
- * path so the footer always spawns regardless of the child shell's PATH.
+ * Resolving here, where we still have the full interactive PATH, ensures
+ * agent panes spawn regardless of the child shell's PATH.
  *
  * Falls back to the bare name when the binary isn't found on PATH so behavior
  * stays unchanged for callers running entirely inside a normal interactive shell.
@@ -1711,7 +1710,7 @@ function createSessionRunner(
         );
         shared.activeRegistry.set(name, { name, paneId, done: donePromise });
 
-        spawnAttachedFooter(name, paneId);
+        spawnAttachedFooter(name, paneId, undefined, shared.tmuxSessionName);
 
         serverUrl = await waitForServer(shared.agent, paneId);
 

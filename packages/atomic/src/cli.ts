@@ -247,21 +247,6 @@ Examples:
             process.exit(exitCode);
         });
 
-    // ── Internal: footer renderer (spawned inside agent tmux windows) ──────
-    program
-        .command("_footer", { hidden: true })
-        .description("Internal: render the attached-mode footer for an agent window")
-        .requiredOption("--name <name>", "Agent window name")
-        .option("--agent <agent>", "Agent type — renders provider pill in the footer")
-        .action(async (opts: { name: string; agent?: string }) => {
-            const { footerCommand } = await import(
-                "@bastani/atomic-sdk/runtime/footer-command"
-            );
-            const agentType = opts.agent && isValidAgent(opts.agent) ? opts.agent : undefined;
-            const exitCode = await footerCommand(opts.name, agentType);
-            process.exit(exitCode);
-        });
-
     // ── Internal: orchestrator entry (spawned in the workflow tmux pane) ───
     //
     // Mirrors OpenCode's "every fresh-process entry is a CLI sub-command"
@@ -512,7 +497,6 @@ async function main(): Promise<void> {
             argv[0] === "install" ||
             argv[0] === "uninstall" ||
             argv[0] === "completions" ||
-            argv[0] === "_footer" ||
             argv[0] === "_orchestrator-entry" ||
             argv[0] === "_cc-debounce" ||
             argv[0] === "_claude-stop-hook" ||

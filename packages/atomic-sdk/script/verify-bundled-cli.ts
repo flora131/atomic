@@ -16,10 +16,9 @@
  *
  *   1. `bun add @bastani/atomic-sdk` succeeds without `@bastani/atomic`.
  *   2. The published tarball contains `dist/cli.js` (the bundled
- *      orchestrator dispatcher) and `dist/runtime/footer-command.js`.
- *   3. The published `package.json` declares `./cli` and
- *      `./runtime/footer-command` as exports, so the build pipeline
- *      hasn't quietly dropped them.
+ *      orchestrator dispatcher).
+ *   3. The published `package.json` declares `./cli` as an export, so
+ *      the build pipeline hasn't quietly dropped it.
  *   4. The bundled `cli.js` is invokable end-to-end through Bun and
  *      Commander dispatches its hidden subcommands (we exercise
  *      `_orchestrator-entry --help` instead of `--help` because Commander's
@@ -76,12 +75,8 @@ try {
     join(sdkRoot, "dist", "cli.js"),
     "bundled CLI dispatcher (dist/cli.js)",
   );
-  await assertExists(
-    join(sdkRoot, "dist", "runtime", "footer-command.js"),
-    "bundled footer command (dist/runtime/footer-command.js)",
-  );
 
-  // ── 3. Published package.json has `./cli` + `./runtime/footer-command`. ─
+  // ── 3. Published package.json has `./cli`. ──────────────────────────────
   //
   // The build script bundles every `exports` entry, so a missing export
   // here means the bundle silently lacks the corresponding file. Easier
@@ -92,10 +87,6 @@ try {
   };
   assert(pkg.name === SDK_PKG, `package.json#name === "${SDK_PKG}"`);
   assert(pkg.exports["./cli"] !== undefined, "package.json#exports['./cli']");
-  assert(
-    pkg.exports["./runtime/footer-command"] !== undefined,
-    "package.json#exports['./runtime/footer-command']",
-  );
 
   // ── 4. Sibling-package regression guard ─────────────────────────────────
   //

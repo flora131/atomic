@@ -33,6 +33,14 @@ const DOT = "·";
 export const ORCHESTRATOR_WINDOW_NAME = "orchestrator";
 
 /**
+ * Max characters of `#{window_name}` rendered in the agent-branch
+ * pill. Anything longer is truncated with an ellipsis via tmux's
+ * `#{=/N/T:variable}` modifier (so a workflow with a 40-char stage
+ * name doesn't overflow the pill into the bg-tasks counter).
+ */
+const STAGE_NAME_MAX = 16;
+
+/**
  * Suffix of the `@atomic-…` user-option the orchestrator panel pushes
  * the pre-styled background-tasks indicator into. The orchestrator
  * branch of the status-line references it via `#{@atomic-bg-tasks}`,
@@ -111,19 +119,24 @@ export function attachedStatusline(args: {
   }
 
   // The pill itself always renders, but its label switches: GRAPH on
-  // the orchestrator window (where the graph view owns the pane),
-  // STAGE on agent windows (where the user is attached to a single
-  // stage). The bg-task counter only renders on the orchestrator
-  // window because background stages can only be interacted with
-  // from the graph view; surfacing the count from an agent pane
-  // would just be noise. Both conditionals here are sibling (not
-  // nested) to the right-side one, so the psmux 3.3.3 nested-`#{?…}`
-  // bug doesn't apply.
+  // the orchestrator window, the live stage name on agent windows
+  // (so the user always knows which stage they're attached to). The
+  // name is truncated via tmux's `#{=/N/T:…}` modifier to keep the
+  // pill from ballooning when stage names are verbose. The bg-task
+  // counter only renders on the orchestrator window because
+  // background stages can only be interacted with from the graph
+  // view; surfacing the count from an agent pane would just be
+  // noise. Both conditionals here are sibling (not nested) to the
+  // right-side one, so the psmux 3.3.3 nested-`#{?…}` bug doesn't
+  // apply.
   const left: ReactNode = (
     <>
       <Box bg={theme.primary} paddingLeft={1} paddingRight={1}>
         <Text fg={theme.backgroundElement} bold>
-          {whenOrchestrator("GRAPH", "STAGE")}
+          {whenOrchestrator(
+            "GRAPH",
+            `#{=/${STAGE_NAME_MAX}/...:window_name}`,
+          )}
         </Text>
       </Box>
       {whenOrchestrator(`#{@atomic-${BACKGROUND_TASKS_OPTION}}`, "")}

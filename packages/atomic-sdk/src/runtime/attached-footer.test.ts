@@ -88,12 +88,15 @@ describe("attachedStatusline (workflow variant)", () => {
     expect(compiledRight.endsWith("}")).toBe(true);
   });
 
-  test("left pill switches GRAPH ↔ STAGE based on window_name", () => {
-    // The pill always renders so the user has a stable wayfinding
-    // anchor; only its label flips between modes. Asserting the
-    // literal conditional shape pins both branches at once.
+  test("left pill switches GRAPH ↔ truncated window_name", () => {
+    // Orchestrator window shows the literal `GRAPH`; agent windows
+    // show the live stage name truncated via tmux's `#{=/N/T:…}`
+    // modifier so a verbose stage name (`claude-background-…`) can't
+    // overflow into the bg-tasks counter. Pinning the literal
+    // conditional shape locks both branches and the truncation
+    // length at once.
     expect(compiledLeft).toContain(
-      `#{?#{==:#{window_name},orchestrator},GRAPH,STAGE}`,
+      `#{?#{==:#{window_name},orchestrator},GRAPH,#{=/16/...:window_name}}`,
     );
   });
 

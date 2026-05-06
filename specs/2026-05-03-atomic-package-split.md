@@ -213,12 +213,14 @@ Following OpenCode's pattern (`packages/opencode/script/publish.ts:36-52`), the 
 // script/publish.ts (sketch — final form will be a typed bun script)
 const version = process.env.VERSION;
 const TARGETS = [
-  { name: "linux-x64",        os: "linux",  cpu: "x64",   ext: ""    },
-  { name: "linux-arm64",      os: "linux",  cpu: "arm64", ext: ""    },
-  { name: "darwin-x64",       os: "darwin", cpu: "x64",   ext: ""    },
-  { name: "darwin-arm64",     os: "darwin", cpu: "arm64", ext: ""    },
-  { name: "windows-x64",      os: "win32",  cpu: "x64",   ext: ".exe"},
-  { name: "windows-arm64",    os: "win32",  cpu: "arm64", ext: ".exe"},
+  { name: "linux-x64",          os: "linux",  cpu: "x64",   ext: ""    },
+  { name: "linux-arm64",        os: "linux",  cpu: "arm64", ext: ""    },
+  { name: "linux-x64-musl",     os: "linux",  cpu: "x64",   ext: ""    },
+  { name: "linux-arm64-musl",   os: "linux",  cpu: "arm64", ext: ""    },
+  { name: "darwin-x64",         os: "darwin", cpu: "x64",   ext: ""    },
+  { name: "darwin-arm64",       os: "darwin", cpu: "arm64", ext: ""    },
+  { name: "windows-x64",        os: "win32",  cpu: "x64",   ext: ".exe"},
+  { name: "windows-arm64",      os: "win32",  cpu: "arm64", ext: ".exe"},
   // baseline variants — see §5.6
 ];
 
@@ -308,12 +310,14 @@ import { mkdir, writeFile, copyFile, chmod } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 
 const TARGETS = [
-  { name: "linux-x64",     bunTarget: "bun-linux-x64",            os: "linux",  cpu: "x64"   },
-  { name: "linux-arm64",   bunTarget: "bun-linux-arm64",          os: "linux",  cpu: "arm64" },
-  { name: "darwin-x64",    bunTarget: "bun-darwin-x64",           os: "darwin", cpu: "x64"   },
-  { name: "darwin-arm64",  bunTarget: "bun-darwin-arm64",         os: "darwin", cpu: "arm64" },
-  { name: "windows-x64",   bunTarget: "bun-windows-x64",          os: "win32",  cpu: "x64",   ext: ".exe" },
-  { name: "windows-arm64", bunTarget: "bun-windows-x64-baseline", os: "win32",  cpu: "arm64", ext: ".exe" }, // see §5.6
+  { name: "linux-x64",          bunTarget: "bun-linux-x64",            os: "linux",  cpu: "x64"   },
+  { name: "linux-arm64",        bunTarget: "bun-linux-arm64",          os: "linux",  cpu: "arm64" },
+  { name: "linux-x64-musl",     bunTarget: "bun-linux-x64-musl",       os: "linux",  cpu: "x64"   },
+  { name: "linux-arm64-musl",   bunTarget: "bun-linux-arm64-musl",     os: "linux",  cpu: "arm64" },
+  { name: "darwin-x64",         bunTarget: "bun-darwin-x64",           os: "darwin", cpu: "x64"   },
+  { name: "darwin-arm64",       bunTarget: "bun-darwin-arm64",         os: "darwin", cpu: "arm64" },
+  { name: "windows-x64",        bunTarget: "bun-windows-x64",          os: "win32",  cpu: "x64",   ext: ".exe" },
+  { name: "windows-arm64",      bunTarget: "bun-windows-x64-baseline", os: "win32",  cpu: "arm64", ext: ".exe" }, // see §5.6
 ];
 
 const version = process.env.VERSION!;
@@ -443,7 +447,7 @@ No new observability surfaces. Existing telemetry in atomic continues working �
 ### 7.3 Compatibility / Scalability
 
 - **Node ≥ 20** runs the wrapper shim. CLI binary runs without any host runtime (bun is embedded by `--compile`).
-- **Per-platform package count**: 6 targets × 1 package each + 1 wrapper + 1 SDK = **8 packages per release**. Well under npm's package count limits and OpenCode's 12+. CI matrix scales linearly.
+- **Per-platform package count**: 8 targets × 1 package each + 1 wrapper + 1 SDK = **10 packages per release** (6 original + 2 musl variants). Well under npm's package count limits and OpenCode's 12+. CI matrix scales linearly.
 
 ## 8. Migration, Rollout, and Testing
 

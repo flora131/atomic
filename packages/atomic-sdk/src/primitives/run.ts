@@ -35,13 +35,13 @@ export interface RunWorkflowOptions {
    */
   detach?: boolean;
   /**
-   * Path to the atomic executable used for the orchestrator pane's
-   * self-exec call. Mirrors the Claude Code SDK's
-   * `pathToClaudeCodeExecutable` — only set this when you want the SDK
-   * to route through a separately installed `atomic` binary instead of
-   * its own bundled dispatcher. Default: SDK's bundled
-   * `@bastani/atomic-sdk/cli` (no extra dependency on the user-facing
-   * `@bastani/atomic` package).
+   * Optional dispatcher binary override. Mirrors the Claude Agent SDK's
+   * `pathToClaudeCodeExecutable`. Defaults to the SDK's prebundled
+   * dispatcher script (`@bastani/atomic-sdk/cli`) spawned via host bun;
+   * set this only when routing through a specific binary that already
+   * handles `_orchestrator-entry` / `_cc-debounce` (atomic's own CLI
+   * does, and third-party compiled CLIs can opt in via
+   * `handleSelfDispatch` from `@bastani/atomic-sdk/dispatcher`).
    */
   pathToAtomicExecutable?: string;
 }

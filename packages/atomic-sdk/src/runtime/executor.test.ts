@@ -15,8 +15,11 @@ import {
   normalizeExternalCopilotOptions,
   buildPaneCommand,
   waitForServer,
+  executeWorkflow,
   type CopilotHILSessionSurface,
+  type WorkflowRunOptions,
 } from "./executor.ts";
+import { NoDispatcherError } from "../errors.ts";
 import type { SavedMessage } from "../types.ts";
 import type { SessionEvent } from "@github/copilot-sdk";
 import type { SessionPromptResponse } from "@opencode-ai/sdk/v2";
@@ -1345,5 +1348,110 @@ describe("waitForServer", () => {
     expect(opts["cliUrl"]).toBe("localhost:50002");
     // useLoggedInUser must NOT be set — external server owns auth
     expect(Object.prototype.hasOwnProperty.call(opts, "useLoggedInUser")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// executeWorkflow — NoDispatcherError rejects BEFORE any tmux side-effect
+// ---------------------------------------------------------------------------
+
+// Snapshot real modules before any mocks so we can restore in afterEach.
+const _selfExecMod = await import("../lib/self-exec.ts");
+const realSelfExecSnapshot = { ..._selfExecMod };
+const _tmuxModForDispatch = await import("./tmux.ts");
+const realTmuxSnapshotForDispatch = { ..._tmuxModForDispatch };
+
+describe("executeWorkflow — resolver pre-flight", () => {
+  // Track calls to tmux.createSession so we can assert it was never reached.
+  let createSessionCallCount: number;
+
+  beforeEach(() => {
+    createSessionCallCount = 0;
+
+    // Stub tmux module — any call to createSession increments the counter.
+    // All other tmux functions are no-ops; they must never be reached anyway.
+    mock.module("./tmux.ts", () => ({
+      createSession: (..._args: unknown[]) => {
+        createSessionCallCount++;
+        return "%0";
+      },
+      isInsideAtomicSocket: () => false,
+      isInsideTmux: () => false,
+      switchClient: () => {},
+      detachAndAttachAtomic: () => {},
+      spawnMuxAttach: () => ({ on: () => {} }),
+      capturePane: () => "",
+      getPanePid: () => null,
+      killSession: () => {},
+      killWindow: () => {},
+      createWindow: () => "%1",
+    }));
+
+    // Mock resolveDispatcher to throw NoDispatcherError — simulates a
+    // compiled-binary install where the SDK's own cli.ts isn't reachable
+    // on disk (host-bun resolution fails) and no override was supplied.
+    const searchedFor = ["@bastani/atomic-sdk/cli (host-bun)"] as const;
+
+    mock.module("../lib/self-exec.ts", () => ({
+      ...realSelfExecSnapshot,
+      resolveDispatcher: () => {
+        throw new NoDispatcherError({ searchedFor: [...searchedFor] });
+      },
+    }));
+  });
+
+  afterEach(() => {
+    // Restore real implementations so subsequent test files are not affected.
+    mock.module("../lib/self-exec.ts", () => realSelfExecSnapshot);
+    mock.module("./tmux.ts", () => realTmuxSnapshotForDispatch);
+  });
+
+  /** Minimal valid WorkflowRunOptions — enough to reach the resolver call. */
+  function makeMinimalOptions(): WorkflowRunOptions {
+    return {
+      definition: {
+        __brand: "WorkflowDefinition",
+        name: "test-workflow",
+        agent: "claude",
+        description: "test",
+        source: "/fake/workflow.ts",
+        inputs: [],
+        minSDKVersion: null,
+        run: async () => {},
+      },
+      agent: "claude",
+      inputs: {},
+      detach: true, // avoid tmux-attach logic; still hits createSession first
+    };
+  }
+
+  test("rejects with NoDispatcherError when resolver throws", async () => {
+    let caught: unknown;
+    try {
+      await executeWorkflow(makeMinimalOptions());
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(NoDispatcherError);
+  });
+
+  test("rejected NoDispatcherError carries the searchedFor array from the resolver", async () => {
+    let caught: unknown;
+    try {
+      await executeWorkflow(makeMinimalOptions());
+    } catch (err) {
+      caught = err;
+    }
+    const err = caught as NoDispatcherError;
+    expect(err.searchedFor).toEqual(["@bastani/atomic-sdk/cli (host-bun)"]);
+  });
+
+  test("tmux.createSession is never called when the resolver throws", async () => {
+    try {
+      await executeWorkflow(makeMinimalOptions());
+    } catch {
+      // expected — we only care about the side-effect count
+    }
+    expect(createSessionCallCount).toBe(0);
   });
 });

@@ -25,7 +25,8 @@
   },
   "workspaces": [
     "packages/*",
-    "examples/*"
+    "examples/*",
+    "tests/fixtures/*"
   ],
   "scripts": {
     "build:assets": "bun run packages/atomic/script/build-assets.ts",

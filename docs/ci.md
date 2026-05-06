@@ -395,13 +395,68 @@ has run in CI.
 
 ## Workflow Files Reference
 
-| File                       | Trigger                                        | Purpose                            |
-|----------------------------|------------------------------------------------|------------------------------------|
-| `ci.yml`                   | PR (source/config changes)                     | Typecheck, lint, tests             |
-| `bump-version.yml`         | PR opened/synced (`release/*`, `prerelease/*`) | Auto-bump version from branch name |
-| `validate-features.yml`    | PR (`.devcontainer/features/**`), `workflow_dispatch` | Schema validation            |
-| `code-review.yml`          | PR opened/synced                               | AI code review (Claude Opus)       |
-| `pr-description.yml`       | PR opened/synced                               | AI PR description (Claude Sonnet)  |
-| `claude.yml`               | `@claude` mentions (issues, PRs, reviews)      | Claude Code interactive assistant  |
-| `publish.yml`              | Merged `release/*`/`prerelease/*` PR, release published, `workflow_dispatch` | Publish to npm + create GitHub release |
-| `publish-features.yml`     | Merged PR (`.devcontainer/features/**`), `workflow_dispatch` | Publish features to GHCR |
+| File                          | Trigger                                        | Purpose                            |
+|-------------------------------|------------------------------------------------|------------------------------------|
+| `ci.yml`                      | PR (source/config changes)                     | Typecheck, lint, tests             |
+| `bump-version.yml`            | PR opened/synced (`release/*`, `prerelease/*`) | Auto-bump version from branch name |
+| `validate-features.yml`       | PR (`.devcontainer/features/**`), `workflow_dispatch` | Schema validation            |
+| `code-review.yml`             | PR opened/synced                               | AI code review (Claude Opus)       |
+| `pr-description.yml`          | PR opened/synced                               | AI PR description (Claude Sonnet)  |
+| `claude.yml`                  | `@claude` mentions (issues, PRs, reviews)      | Claude Code interactive assistant  |
+| `publish.yml`                 | Merged `release/*`/`prerelease/*` PR, release published, `workflow_dispatch` | Publish to npm + create GitHub release |
+| `publish-features.yml`        | Merged PR (`.devcontainer/features/**`), `workflow_dispatch` | Publish features to GHCR |
+| `sdk-fixture-smoke.yml`       | PR (`packages/atomic-sdk/**`, `packages/atomic/**`, `tests/fixtures/sdk-compiled-consumer/**`), nightly, release published, `workflow_dispatch` | SDK fixture smoke matrix (see below) |
+
+---
+
+## SDK Fixture Smoke Matrix
+
+Validates the `tests/fixtures/sdk-compiled-consumer/` fixture across all supported
+targets. The fixture is a minimal `bun build --compile`d third-party CLI that imports
+`runWorkflow` from `@bastani/atomic-sdk/workflows` and exercises the
+`resolveDispatcher()` resolution logic end-to-end (RFC §8.1 Phase 3).
+
+### Triggers
+
+| Trigger | Mode | Steps run |
+|---------|------|-----------|
+| PR touching `packages/atomic-sdk/**`, `packages/atomic/**`, `tests/fixtures/sdk-compiled-consumer/**`, or the workflow file | Pre-publish | Steps 1–3 only (install, compile, copy optional-dep) |
+| `schedule` (nightly, `0 7 * * *` UTC) | Nightly (Bun runtime drift) | Steps 1–3 only |
+| `release: published` | Post-publish | All six steps (full smoke including runtime launch) |
+| `workflow_dispatch` | Manual | Steps 1–3 only (pre-publish mode) |
+
+### Platform matrix
+
+| Target | Runner | Container | Status |
+|--------|--------|-----------|--------|
+| `linux-x64` | `ubuntu-latest` | — | Active |
+| `linux-x64-musl` | `ubuntu-latest` | `oven/bun:alpine` | Active |
+| `linux-arm64` | `ubuntu-24.04-arm` | — | Active |
+| `linux-arm64-musl` | `ubuntu-24.04-arm` | `oven/bun:alpine` | TODO: no arm64 alpine runner |
+| `darwin-arm64` | `macos-latest` | — | Active |
+| `darwin-x64` | `macos-13` | — | Active |
+| `win32-x64` | `windows-latest` | — | Active |
+| `win32-arm64` | `windows-11-arm` | — | TODO: no windows-arm64 runner |
+
+### Six-step smoke matrix
+
+| Step | Action | Assertion |
+|------|--------|-----------|
+| 1 | `bun install` (fixture) | Exit 0; SDK + optional deps installed |
+| 2 | `bun run compile` (`bun build --compile`) | `dist/my-app[.exe]` binary exists |
+| 3 | Copy `@bastani/atomic-{platform}-{arch}` next to binary | Colocated binary exists at `dist/node_modules/.../bin/atomic[.exe]` |
+| 4 | Run `dist/my-app greet` (default dispatcher) | stdout contains `workflow:launched` |
+| 5 | Run with `--atomic-executable <path>` (override dispatcher) | stdout contains `workflow:launched` |
+| 6 | Remove colocated binary; run again | Exit non-zero; stderr contains `NoDispatcherError` |
+
+Steps 4–6 require the published `@bastani/atomic-{platform}-{arch}` optional
+dependency to be present. On pre-publish / nightly runs they are skipped via
+`--skip-steps 4,5,6`; on post-publish (release trigger) the full matrix runs.
+
+### Artifacts uploaded on failure
+
+- `tests/fixtures/sdk-compiled-consumer/dist/` (compiled binary + colocated node_modules)
+- `tests/fixtures/sdk-compiled-consumer/orchestrator.log`
+
+Artifacts are retained for 7 days and named
+`smoke-artifacts-{matrix.name}-{run_id}`.

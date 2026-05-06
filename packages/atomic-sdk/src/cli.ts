@@ -2,23 +2,22 @@
 /**
  * SDK-bundled internal CLI dispatcher.
  *
- * The SDK self-execs into a fresh sub-process to spawn long-running pieces
- * of a workflow (orchestrator pane, attached footer, cc-debounce hook). To
- * avoid coupling SDK consumers to the user-facing `@bastani/atomic` CLI
- * package, the SDK ships its own dispatcher right here. `lib/self-exec.ts`
- * resolves to this file by default; consumers may override the resolved
- * path through `runWorkflow({ pathToAtomicExecutable })` (mirrors the
- * Claude Code SDK's `pathToClaudeCodeExecutable`).
+ * Used by `runWorkflow()` to spawn the orchestrator pane and the cc-debounce
+ * Ctrl+C hook in a fresh sub-process. The launcher emits
+ * `<bun> <this-script> _<subcommand> <args…>` whenever the resolver returns
+ * `host-bun` — i.e. whenever the SDK is running under a host bun runtime
+ * with a real on-disk path (workspace dev, `bun run`, or a published
+ * `node_modules` install). Compiled-binary hosts use a different branch
+ * (`override-binary` / `atomic-binary`) and never spawn this script.
  *
- * Subcommands handled:
- *   _orchestrator-entry <workflowName> <agent> [inputsB64] [workflowSource]
- *   _cc-debounce <paneId>
- *
- * Compiled-binary mode is intentionally not handled here: when the runtime
- * is a `bun build --compile` of the user-facing CLI, `resolveSdkCliPath()`
- * returns `process.execPath` and the binary's own dispatcher receives the
- * argv. This script only runs when the SDK lives at an installed-package
- * path or in workspace dev mode.
+ * Why the SDK ships its own dispatcher even though `@bastani/atomic` also
+ * registers the same sub-commands: the atomic CLI binary cannot
+ * dynamic-import third-party workflow files (their
+ * `import { defineWorkflow } from "@bastani/atomic-sdk/workflows"` is
+ * unresolvable from a `bun build --compile` binary's bunfs context). When
+ * the consumer is running under host bun, spawning a host-bun child against
+ * this script lets module resolution walk the workflow's project tree
+ * normally.
  */
 
 import { Command } from "@commander-js/extra-typings";

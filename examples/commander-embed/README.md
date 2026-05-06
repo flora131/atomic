@@ -15,3 +15,15 @@ bun run cli.ts --help                # all commands
 
 - `claude/` — the embedded workflow
 - `cli.ts` — parent Commander tree with `greet` (workflow) and `status` (plain command)
+
+## Distribution (compiled binaries)
+
+When this example is compiled with `bun build --compile`, the SDK's
+bundled cli.js is bunfs-only and the host-bun resolver branch can't
+fire. Route the orchestrator through the consumer's own binary by
+importing `handleSelfDispatch` at the top of `cli.ts` and passing
+`pathToAtomicExecutable: process.execPath` to `runWorkflow`.
+
+See `packages/atomic-sdk/README.md → Distribution` for the canonical
+pattern and `tests/fixtures/sdk-compiled-consumer/` for an end-to-end
+example with a smoke matrix that runs across all supported platforms.

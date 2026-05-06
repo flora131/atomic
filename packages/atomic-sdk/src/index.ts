@@ -13,6 +13,7 @@ export {
   WorkflowNotCompiledError,
   InvalidWorkflowError,
   SessionNotFoundError,
+  NoDispatcherError,
 } from "./errors.ts";
 
 // ─── Authoring ──────────────────────────────────────────────────────────────

@@ -1,0 +1,214 @@
+name: SDK Fixture Smoke
+
+# ── Triggers ──────────────────────────────────────────────────────────────────
+#
+# pre-publish  — every PR that touches atomic-sdk, atomic, or the fixture
+# nightly      — schedule to catch Bun runtime drift
+# post-publish — release event fires after publish.yml creates the GitHub Release
+# manual       — workflow_dispatch for ad-hoc runs
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "packages/atomic-sdk/**"
+      - "packages/atomic/**"
+      - "tests/fixtures/sdk-compiled-consumer/**"
+      - ".github/workflows/sdk-fixture-smoke.yml"
+  schedule:
+    - cron: "0 7 * * *" # nightly UTC
+  release:
+    types: [published]
+  workflow_dispatch:
+
+# Only one run per ref at a time; don't cancel mid-flight (same reasoning
+# as publish.yml — a cancelled mid-matrix run leaves an ambiguous result).
+concurrency:
+  group: sdk-fixture-smoke-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  # ── Cross-platform smoke matrix ──────────────────────────────────────────────
+  #
+  # Steps validated (see tests/fixtures/sdk-compiled-consumer/README.md):
+  #   1  bun install
+  #   2  host-bun: `bun src/cli.ts greet`     — `kind=host-bun` resolution
+  #   3  bun build --compile → dist/my-app
+  #   4  compiled: `dist/my-app greet`        — handleSelfDispatch + override
+  #   5  compiled w/ ATOMIC_DISABLE_DEFAULT_EXEC=1 — assert NoDispatcherError
+  #   6  host-bun re-run                      — idempotency
+  #
+  # All six steps run on every trigger; the fixture's behaviour does NOT
+  # depend on per-platform binary packages (the SDK now defaults to its
+  # own prebundled cli.ts, not to atomic's binary).
+  #
+  # For PR / schedule runs the fixture installs against a locally packed
+  # SDK tarball so the CI tests the PR's current state. For release runs
+  # the fixture installs against the published prerelease.
+  #
+  # Matrix:
+  #   ubuntu-latest          → linux-x64 glibc
+  #   ubuntu-latest (alpine) → linux-x64-musl (container)
+  #   ubuntu-24.04-arm       → linux-arm64 glibc
+  #   macos-latest           → darwin-arm64 (Apple Silicon)
+  #   macos-13               → darwin-x64
+  #   windows-latest         → win32-x64
+  #
+  # TODO(linux-arm64-musl): no ubuntu-arm alpine runner on GitHub Actions free tier.
+  # TODO(win32-arm64): no windows-arm64 runner on GitHub Actions.
+  smoke:
+    name: Smoke ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ── linux-x64 glibc ───────────────────────────────────────────────
+          - name: linux-x64
+            runs-on: ubuntu-latest
+            container: ""
+            shell: bash
+
+          # ── linux-x64-musl (alpine container) ─────────────────────────────
+          - name: linux-x64-musl
+            runs-on: ubuntu-latest
+            container: "oven/bun:alpine"
+            shell: sh
+
+          # ── linux-arm64 glibc ─────────────────────────────────────────────
+          - name: linux-arm64
+            runs-on: ubuntu-24.04-arm
+            container: ""
+            shell: bash
+
+          # ── linux-arm64-musl ──────────────────────────────────────────────
+          # TODO: no arm64 alpine runner on GitHub Actions free tier.
+          # - name: linux-arm64-musl
+          #   runs-on: ubuntu-24.04-arm
+          #   container: "oven/bun:alpine"
+
+          # ── darwin-arm64 (Apple Silicon, recent macos-latest) ─────────────
+          - name: darwin-arm64
+            runs-on: macos-latest
+            container: ""
+            shell: bash
+
+          # ── darwin-x64 ────────────────────────────────────────────────────
+          - name: darwin-x64
+            runs-on: macos-13
+            container: ""
+            shell: bash
+
+          # ── win32-x64 ─────────────────────────────────────────────────────
+          - name: win32-x64
+            runs-on: windows-latest
+            container: ""
+            shell: bash
+
+          # ── win32-arm64 ───────────────────────────────────────────────────
+          # TODO: no windows-arm64 runner on GitHub Actions.
+          # - name: win32-arm64
+          #   runs-on: windows-11-arm
+
+    runs-on: ${{ matrix.runs-on }}
+    # Empty string means no container; only the musl row sets a real image.
+    container: ${{ matrix.container || '' }}
+
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # setup-bun is not needed inside oven/bun:alpine (bun is pre-installed).
+      - name: Setup Bun
+        if: matrix.container == ''
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      # ── Pre-publish / nightly: pack SDK to local tarball ─────────────────
+      # Build the SDK and produce a local .tgz so the fixture installs from
+      # the PR's current state, not the last published version.
+      - name: Build SDK
+        if: github.event_name != 'release'
+        run: bun packages/atomic-sdk/script/build.ts
+
+      - name: Pack SDK tarball (pre-publish / nightly)
+        if: github.event_name != 'release'
+        id: pack-sdk
+        run: |
+          cd packages/atomic-sdk
+          TARBALL=$(npm pack --json 2>/dev/null | bun -e \
+            "const a = await Bun.stdin.json(); process.stdout.write(a[0].filename)")
+          echo "tarball=packages/atomic-sdk/${TARBALL}" >> "$GITHUB_OUTPUT"
+
+      # Rewrite the fixture's @bastani/atomic-sdk dependency to point at the
+      # local tarball so `bun install` inside smoke.ts picks it up.
+      - name: Patch fixture to use local SDK tarball (pre-publish / nightly)
+        if: github.event_name != 'release'
+        run: |
+          TARBALL="${{ steps.pack-sdk.outputs.tarball }}"
+          ABS_TARBALL="$(pwd)/${TARBALL}"
+          cd tests/fixtures/sdk-compiled-consumer
+          bun -e "
+            const pkg = await Bun.file('package.json').json();
+            pkg.dependencies['@bastani/atomic-sdk'] = 'file:' + '$ABS_TARBALL';
+            await Bun.write('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+      # ── Post-publish: pin to published prerelease ─────────────────────────
+      - name: Get published version (post-publish)
+        if: github.event_name == 'release'
+        id: release-version
+        run: |
+          # The release tag is e.g. "v0.8.0-0"; strip the leading "v".
+          VERSION="${{ github.event.release.tag_name }}"
+          VERSION="${VERSION#v}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Patch fixture to use published prerelease (post-publish)
+        if: github.event_name == 'release'
+        run: |
+          VERSION="${{ steps.release-version.outputs.version }}"
+          cd tests/fixtures/sdk-compiled-consumer
+          bun -e "
+            const pkg = await Bun.file('package.json').json();
+            pkg.dependencies['@bastani/atomic-sdk'] = '${VERSION}';
+            await Bun.write('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+      # ── Install tmux for steps 2/4/6 ──────────────────────────────────────
+      - name: Install tmux (linux glibc)
+        if: runner.os == 'Linux' && matrix.container == ''
+        run: sudo apt-get update -qq && sudo apt-get install -y tmux
+
+      - name: Install tmux (linux musl/alpine container)
+        if: matrix.container != ''
+        run: apk add --no-cache tmux
+
+      - name: Install tmux (macos)
+        if: runner.os == 'macOS'
+        run: brew install tmux || true
+
+      # ── Run the full six-step smoke matrix ────────────────────────────────
+      - name: Run smoke matrix
+        run: bun tests/fixtures/sdk-compiled-consumer/scripts/smoke.ts --verbose
+
+      # ── Upload artifacts on failure ────────────────────────────────────────
+      - name: Upload smoke artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: smoke-artifacts-${{ matrix.name }}-${{ github.run_id }}
+          path: |
+            tests/fixtures/sdk-compiled-consumer/dist/
+            tests/fixtures/sdk-compiled-consumer/orchestrator.log
+          if-no-files-found: ignore
+          retention-days: 7

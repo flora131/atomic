@@ -8,7 +8,7 @@
 
 import { requiredMuxBinaryCandidatesForPlatform } from "../lib/spawn.ts";
 import { tmuxConfPath } from "../lib/runtime-assets.ts";
-import { buildSelfExecCommand, resolveSdkCliPath } from "../lib/self-exec.ts";
+import { buildSelfExecCommand, resolveDispatcher } from "../lib/self-exec.ts";
 import { writeFileSync, unlinkSync } from "node:fs";
 import type { Subprocess } from "bun";
 import { atomicTempPath } from "../lib/atomic-temp.ts";
@@ -177,8 +177,9 @@ function buildEnvArgs(envVars?: Record<string, string>): string[] {
  * @param windowName - Optional name for the initial window
  * @param cwd - Optional working directory for the initial pane
  * @param envVars - Optional environment variables for the initial pane
- * @param pathToAtomicExecutable - Optional override for the cc-debounce
- *   self-exec target. Defaults to the SDK's bundled dispatcher.
+ * @param pathToAtomicExecutable - Optional dispatcher override forwarded
+ *   to `resolveDispatcher`. When unset, the SDK's host-bun resolution
+ *   spawns the prebundled cli.ts.
  * @returns The pane ID of the initial pane (e.g., "%0")
  */
 export function createSession(
@@ -189,6 +190,10 @@ export function createSession(
   envVars?: Record<string, string>,
   pathToAtomicExecutable?: string,
 ): string {
+  // Resolve the dispatcher BEFORE any tmux side-effect (§5.7: throw before side-effect).
+  // Throws NoDispatcherError when no binary is available, aborting the session creation.
+  const dispatcher = resolveDispatcher({ override: pathToAtomicExecutable });
+
   const args = [
     "new-session",
     "-d",
@@ -213,13 +218,8 @@ export function createSession(
   // run-shell does not always inherit in full, especially on Windows
   // psmux. The command is fully quoted: in compiled-binary mode it's
   // `<atomic-binary> _cc-debounce`; in dev it's `<bun> <cli.ts> _cc-debounce`.
-  const ccCliPath = resolveSdkCliPath({ override: pathToAtomicExecutable });
-  // When the caller overrides with a binary, the binary is its own runtime
-  // (matches Claude SDK's `pathToClaudeCodeExecutable` direct-exec semantics).
-  const ccRuntime = pathToAtomicExecutable ? ccCliPath : process.execPath;
   const ccDebounceCmd = buildSelfExecCommand({
-    runtime: ccRuntime,
-    cliPath: ccCliPath,
+    dispatcher,
     subcommand: "_cc-debounce",
     args: [],
   });

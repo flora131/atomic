@@ -1,91 +1,245 @@
 /**
- * Unit coverage for `resolveSdkCliPath`.
+ * Unit coverage for `resolveDispatcher` and `buildSelfExecCommand`.
  *
- * Pins the three resolution branches the public contract advertises:
- *   1. `override` → returned verbatim. Mirrors Claude Code SDK's
- *      `pathToClaudeCodeExecutable` semantics, including bare command
- *      names that the shell PATH-resolves at exec time.
- *   2. Compiled-binary runtime → `process.execPath` (the binary IS the CLI).
- *   3. Otherwise → delegated to `import.meta.resolve("@bastani/atomic-sdk/cli")`.
- *      The runtime's package resolver honours `package.json#exports`, so
- *      the resolved path is the canonical bundled dispatcher with no path
- *      walks and no layout assumptions in this code.
+ * resolveDispatcher resolution order:
+ *   1. `override` (non-empty)        → `{ kind: "override-binary" }`
+ *   2. SDK cli.ts on disk (host-bun) → `{ kind: "host-bun" }`
+ *   3. Nothing                       → throws `NoDispatcherError`
  *
- * Each branch encodes a packaging decision: regressing any one of them
- * leaks the SDK's self-exec resolution into the consumer's tree — the
- * pre-fix bug where the SDK walked up out of its own package and into
- * `node_modules/atomic/` looking for the user-facing CLI.
+ * Synthetic `resolveSdkCli` mocks keep tests hermetic so they can run
+ * in any environment (compiled or otherwise) without depending on the
+ * real `import.meta.resolve` behaviour.
  */
 
-import { test, expect, describe } from "bun:test";
-import { existsSync } from "node:fs";
-import { buildSelfExecCommand, resolveSdkCliPath } from "./self-exec.ts";
+import { test, expect, describe, beforeEach, afterEach, spyOn } from "bun:test";
+import { pathToFileURL } from "node:url";
+import {
+  resolveDispatcher,
+  buildSelfExecCommand,
+  type Dispatcher,
+} from "./self-exec.ts";
+import { NoDispatcherError } from "../errors.ts";
 
-describe("resolveSdkCliPath", () => {
-  test("override is returned verbatim (absolute path)", () => {
-    const cli = resolveSdkCliPath({ override: "/usr/local/bin/atomic" });
-    expect(cli).toBe("/usr/local/bin/atomic");
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** A `resolveSdkCli` mock that returns a file URL for a given fs path. */
+function sdkCliAt(fsPath: string): () => string {
+  return () => pathToFileURL(fsPath).href;
+}
+
+/** A `resolveSdkCli` mock that throws — simulates an unresolvable specifier. */
+function sdkCliThrow(): () => string {
+  return () => {
+    throw new Error("Cannot find module '@bastani/atomic-sdk/cli'");
+  };
+}
+
+// ---------------------------------------------------------------------------
+// A. Override branch
+// ---------------------------------------------------------------------------
+
+describe("resolveDispatcher – override", () => {
+  test("absolute path returns override-binary with exact binary", () => {
+    const result = resolveDispatcher({ override: "/usr/local/bin/atomic" });
+    expect(result).toEqual({ kind: "override-binary", binary: "/usr/local/bin/atomic" });
   });
 
-  test("override is returned verbatim (bare command name resolves via PATH)", () => {
-    // Mirrors the v0.2.63 fix to Claude Code SDK's pathToClaudeCodeExecutable —
-    // bare names must round-trip so the shell can resolve them at exec time.
-    const cli = resolveSdkCliPath({ override: "atomic" });
-    expect(cli).toBe("atomic");
+  test("bare command name returns override-binary (PATH-resolves at exec time)", () => {
+    const result = resolveDispatcher({ override: "atomic" });
+    expect(result).toEqual({ kind: "override-binary", binary: "atomic" });
   });
 
-  test("empty override falls through to default resolution", () => {
-    const cli = resolveSdkCliPath({ override: "" });
-    // Default resolution lands on a real cli.{ts,js} on disk.
-    expect(cli.endsWith("cli.ts") || cli.endsWith("cli.js")).toBe(true);
-    expect(existsSync(cli)).toBe(true);
-  });
-
-  test("compiled-binary caller (POSIX bunfs) returns process.execPath", () => {
-    const cli = resolveSdkCliPath({
-      callerUrl: "file:///$bunfs/root/atomic/runtime/executor.js",
-    });
-    expect(cli).toBe(process.execPath);
-  });
-
-  test("compiled-binary caller (Windows ~BUN) returns process.execPath", () => {
-    const cli = resolveSdkCliPath({
-      callerUrl: "file:///C:/~BUN/root/atomic/runtime/executor.js",
-    });
-    expect(cli).toBe(process.execPath);
-  });
-
-  test("default resolution lands inside @bastani/atomic-sdk", () => {
-    // The runtime's package resolver consults package.json#exports —
-    // for `./cli` that's `./src/cli.ts` in dev (or `./dist/cli.js`
-    // post-publish). Either way the resolved path lives inside the SDK
-    // package, never in a sibling.
-    const cli = resolveSdkCliPath();
-    expect(cli).toContain("atomic-sdk");
-    expect(cli.endsWith("cli.ts") || cli.endsWith("cli.js")).toBe(true);
-  });
-
-  test("default resolution does not walk into a sibling `atomic` package", () => {
-    // Pre-fix bug: the resolver walked `../../../atomic/src/cli.ts`,
-    // which for SDK-only consumers (those installing only
-    // @bastani/atomic-sdk without the user-facing CLI package)
-    // resolved into a non-existent sibling. The new resolver delegates
-    // to `import.meta.resolve` so it stays inside the SDK's own
-    // package layout.
-    const cli = resolveSdkCliPath();
-    expect(cli).not.toContain("/atomic/src/");
-    expect(cli).not.toContain("/atomic/dist/");
-    expect(cli).not.toContain("\\atomic\\src\\");
-    expect(cli).not.toContain("\\atomic\\dist\\");
+  test("empty override falls through (not treated as override)", () => {
+    let result: Dispatcher | undefined;
+    try {
+      result = resolveDispatcher({
+        override: "",
+        resolveSdkCli: sdkCliThrow(),
+      });
+    } catch (err) {
+      expect(err).toBeInstanceOf(NoDispatcherError);
+      return; // expected path
+    }
+    expect(result?.kind).not.toBe("override-binary");
   });
 });
 
+// ---------------------------------------------------------------------------
+// B. host-bun branch
+// ---------------------------------------------------------------------------
+
+describe("resolveDispatcher – host-bun", () => {
+  test("SDK cli.ts on disk returns host-bun with bun runtime + cliPath", () => {
+    const fakeCliPath = "/workspace/packages/atomic-sdk/src/cli.ts";
+    const result = resolveDispatcher({
+      resolveSdkCli: sdkCliAt(fakeCliPath),
+    });
+    expect(result.kind).toBe("host-bun");
+    if (result.kind === "host-bun") {
+      expect(result.runtime).toBe(process.execPath);
+      expect(result.cliPath).toBe(fakeCliPath);
+    }
+  });
+
+  test("SDK cli.js post-publish path also returns host-bun", () => {
+    const fakeCliPath = "/proj/node_modules/@bastani/atomic-sdk/dist/cli.js";
+    const result = resolveDispatcher({
+      resolveSdkCli: sdkCliAt(fakeCliPath),
+    });
+    expect(result.kind).toBe("host-bun");
+    if (result.kind === "host-bun") {
+      expect(result.cliPath).toBe(fakeCliPath);
+    }
+  });
+
+  test("bunfs cli path is NOT used as host-bun (must fall through)", () => {
+    // When the SDK is bundled into a compiled binary, `import.meta.resolve`
+    // returns a `/$bunfs/...` path that's only readable from inside the
+    // owning process. Spawning `bun /$bunfs/...` from a separate process
+    // can't work, so resolveDispatcher must skip this branch.
+    let thrown: unknown;
+    try {
+      resolveDispatcher({
+        resolveSdkCli: () => "file:///$bunfs/root/atomic-sdk/cli.js",
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(NoDispatcherError);
+  });
+
+  test("Windows ~BUN bunfs path is NOT used as host-bun", () => {
+    let thrown: unknown;
+    try {
+      resolveDispatcher({
+        resolveSdkCli: () => "file:///C:/~BUN/root/atomic-sdk/cli.js",
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(NoDispatcherError);
+  });
+
+  test("override takes precedence over host-bun", () => {
+    const result = resolveDispatcher({
+      override: "/explicit/atomic",
+      resolveSdkCli: sdkCliAt("/workspace/sdk/cli.ts"),
+    });
+    expect(result.kind).toBe("override-binary");
+    if (result.kind === "override-binary") {
+      expect(result.binary).toBe("/explicit/atomic");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// C. NoDispatcherError
+// ---------------------------------------------------------------------------
+
+describe("resolveDispatcher – NoDispatcherError", () => {
+  test("SDK cli unresolvable → throws NoDispatcherError", () => {
+    let thrown: unknown;
+    try {
+      resolveDispatcher({ resolveSdkCli: sdkCliThrow() });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(NoDispatcherError);
+  });
+
+  test("searchedFor is single SDK-cli sentinel", () => {
+    let thrown: unknown;
+    try {
+      resolveDispatcher({ resolveSdkCli: sdkCliThrow() });
+    } catch (err) {
+      thrown = err;
+    }
+    const err = thrown as NoDispatcherError;
+    expect(err.searchedFor).toEqual(["@bastani/atomic-sdk/cli (host-bun)"]);
+  });
+
+  test("err.name is 'NoDispatcherError'", () => {
+    let thrown: unknown;
+    try {
+      resolveDispatcher({ resolveSdkCli: sdkCliThrow() });
+    } catch (err) {
+      thrown = err;
+    }
+    expect((thrown as NoDispatcherError).name).toBe("NoDispatcherError");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// D. ATOMIC_DEBUG=1 logging
+// ---------------------------------------------------------------------------
+
+describe("resolveDispatcher – ATOMIC_DEBUG=1 logging", () => {
+  let stderrLines: string[];
+  let originalDebug: string | undefined;
+
+  beforeEach(() => {
+    stderrLines = [];
+    originalDebug = process.env.ATOMIC_DEBUG;
+    process.env.ATOMIC_DEBUG = "1";
+    spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+      stderrLines.push(args.join(" "));
+    });
+  });
+
+  afterEach(() => {
+    if (originalDebug === undefined) {
+      delete process.env.ATOMIC_DEBUG;
+    } else {
+      process.env.ATOMIC_DEBUG = originalDebug;
+    }
+  });
+
+  test("override-binary: logs kind and binary path to stderr", () => {
+    resolveDispatcher({ override: "/usr/local/bin/atomic" });
+    expect(stderrLines.length).toBe(1);
+    expect(stderrLines[0]).toContain("kind=override-binary");
+    expect(stderrLines[0]).toContain("/usr/local/bin/atomic");
+    expect(stderrLines[0]).toContain("[atomic-sdk:resolveDispatcher]");
+  });
+
+  test("host-bun: logs runtime and cliPath", () => {
+    const fakeCliPath = "/workspace/packages/atomic-sdk/src/cli.ts";
+    resolveDispatcher({ resolveSdkCli: sdkCliAt(fakeCliPath) });
+    expect(stderrLines.length).toBe(1);
+    expect(stderrLines[0]).toContain("kind=host-bun");
+    expect(stderrLines[0]).toContain(fakeCliPath);
+    expect(stderrLines[0]).toContain("[atomic-sdk:resolveDispatcher]");
+  });
+
+  test("no log when ATOMIC_DEBUG unset", () => {
+    delete process.env.ATOMIC_DEBUG;
+    resolveDispatcher({ override: "/usr/local/bin/atomic" });
+    expect(stderrLines.length).toBe(0);
+  });
+
+  test("no log when ATOMIC_DEBUG=0", () => {
+    process.env.ATOMIC_DEBUG = "0";
+    resolveDispatcher({ override: "/usr/local/bin/atomic" });
+    expect(stderrLines.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildSelfExecCommand — argv quoting + dispatcher destructuring
+// ---------------------------------------------------------------------------
+
 describe("buildSelfExecCommand", () => {
   describe("posix / bash", () => {
-    test("dev runtime emits `<bun> <cli> <subcommand> <args…>`, all values double-quoted", () => {
-      const cmd = buildSelfExecCommand({
+    test("host-bun dispatcher emits `<bun> <cli> <subcommand> <args…>`", () => {
+      const dispatcher: Dispatcher = {
+        kind: "host-bun",
         runtime: "/usr/bin/bun",
         cliPath: "/repo/packages/atomic-sdk/src/cli.ts",
+      };
+      const cmd = buildSelfExecCommand({
+        dispatcher,
         subcommand: "_orchestrator-entry",
         args: ["session-1", "/work dir/value"],
         platform: "linux",
@@ -95,18 +249,18 @@ describe("buildSelfExecCommand", () => {
       );
     });
 
-    test("compiled-binary runtime (runtime === cliPath) drops the cli script argument", () => {
-      // The binary auto-injects argv[1]; emitting the script explicitly
-      // would put a stray <binary> token before the subcommand and
-      // Commander would mis-route the call.
+    test("override-binary dispatcher (runtime === cliPath) drops cli script argument", () => {
+      const dispatcher: Dispatcher = {
+        kind: "override-binary",
+        binary: "/usr/local/bin/atomic",
+      };
       const cmd = buildSelfExecCommand({
-        runtime: "/opt/atomic",
-        cliPath: "/opt/atomic",
+        dispatcher,
         subcommand: "_cc-debounce",
         args: [],
-        platform: "darwin",
+        platform: "linux",
       });
-      expect(cmd).toBe(`"/opt/atomic" _cc-debounce`);
+      expect(cmd).toBe(`"/usr/local/bin/atomic" _cc-debounce`);
     });
 
     test("flag-shaped argv tokens are emitted bare; values are double-quoted", () => {
@@ -150,10 +304,14 @@ describe("buildSelfExecCommand", () => {
   });
 
   describe("win32 / pwsh", () => {
-    test("dev runtime emits single-quoted pwsh literals for runtime, cli, subcommand and args", () => {
-      const cmd = buildSelfExecCommand({
+    test("host-bun emits single-quoted pwsh literals for runtime, cli, subcommand and args", () => {
+      const dispatcher: Dispatcher = {
+        kind: "host-bun",
         runtime: "C:\\Program Files\\bun\\bun.exe",
         cliPath: "C:\\repo\\cli.ts",
+      };
+      const cmd = buildSelfExecCommand({
+        dispatcher,
         subcommand: "_orchestrator-entry",
         args: ["session-1", "C:\\work dir\\value"],
         platform: "win32",
@@ -163,17 +321,18 @@ describe("buildSelfExecCommand", () => {
       );
     });
 
-    test("compiled-binary runtime (runtime === cliPath) drops the cli script argument", () => {
+    test("override-binary dispatcher (runtime === cliPath) drops cli script argument", () => {
+      const dispatcher: Dispatcher = {
+        kind: "override-binary",
+        binary: "C:\\opt\\atomic.exe",
+      };
       const cmd = buildSelfExecCommand({
-        runtime: "C:\\opt\\atomic.exe",
-        cliPath: "C:\\opt\\atomic.exe",
+        dispatcher,
         subcommand: "_cc-debounce",
         args: ["a", "b"],
         platform: "win32",
       });
-      expect(cmd).toBe(
-        `'C:\\opt\\atomic.exe' '_cc-debounce' 'a' 'b'`,
-      );
+      expect(cmd).toBe(`'C:\\opt\\atomic.exe' '_cc-debounce' 'a' 'b'`);
     });
 
     test("single quotes inside values are doubled per pwsh single-quoted literal rules", () => {

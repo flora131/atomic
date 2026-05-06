@@ -41,12 +41,14 @@ jobs:
     strategy:
       matrix:
         target:
-          - { name: linux-x64,     runner: ubuntu-latest }
-          - { name: linux-arm64,   runner: ubuntu-latest }
-          - { name: darwin-x64,    runner: ubuntu-latest }
-          - { name: darwin-arm64,  runner: ubuntu-latest }
-          - { name: windows-x64,   runner: ubuntu-latest }
-          - { name: windows-arm64, runner: ubuntu-latest }
+          - { name: linux-x64,          runner: ubuntu-latest }
+          - { name: linux-arm64,        runner: ubuntu-latest }
+          - { name: linux-x64-musl,     runner: ubuntu-latest }
+          - { name: linux-arm64-musl,   runner: ubuntu-latest }
+          - { name: darwin-x64,         runner: ubuntu-latest }
+          - { name: darwin-arm64,       runner: ubuntu-latest }
+          - { name: windows-x64,        runner: ubuntu-latest }
+          - { name: windows-arm64,      runner: ubuntu-latest }
     runs-on: ${{ matrix.target.runner }}
     steps:
       - uses: actions/checkout@v6

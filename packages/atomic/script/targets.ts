@@ -18,12 +18,14 @@ export interface BuildTarget {
 }
 
 export const TARGETS: readonly BuildTarget[] = [
-  { name: "linux-x64",     bunTarget: "bun-linux-x64",            os: "linux",  cpu: "x64"   },
-  { name: "linux-arm64",   bunTarget: "bun-linux-arm64",          os: "linux",  cpu: "arm64" },
-  { name: "darwin-x64",    bunTarget: "bun-darwin-x64",           os: "darwin", cpu: "x64"   },
-  { name: "darwin-arm64",  bunTarget: "bun-darwin-arm64",         os: "darwin", cpu: "arm64" },
-  { name: "windows-x64",   bunTarget: "bun-windows-x64",          os: "win32",  cpu: "x64",   ext: ".exe" },
-  { name: "windows-arm64", bunTarget: "bun-windows-arm64",        os: "win32",  cpu: "arm64", ext: ".exe" },
+  { name: "linux-x64",          bunTarget: "bun-linux-x64",            os: "linux",  cpu: "x64"   },
+  { name: "linux-arm64",        bunTarget: "bun-linux-arm64",          os: "linux",  cpu: "arm64" },
+  { name: "linux-x64-musl",     bunTarget: "bun-linux-x64-musl",       os: "linux",  cpu: "x64"   },
+  { name: "linux-arm64-musl",   bunTarget: "bun-linux-arm64-musl",     os: "linux",  cpu: "arm64" },
+  { name: "darwin-x64",         bunTarget: "bun-darwin-x64",           os: "darwin", cpu: "x64"   },
+  { name: "darwin-arm64",       bunTarget: "bun-darwin-arm64",         os: "darwin", cpu: "arm64" },
+  { name: "windows-x64",        bunTarget: "bun-windows-x64",          os: "win32",  cpu: "x64",   ext: ".exe" },
+  { name: "windows-arm64",      bunTarget: "bun-windows-arm64",        os: "win32",  cpu: "arm64", ext: ".exe" },
 ] as const;
 
 /** Host-platform target name (e.g. `linux-x64`). */

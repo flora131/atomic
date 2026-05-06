@@ -1,37 +1,32 @@
 /**
  * Helpers for re-executing the atomic CLI as a fresh sub-process.
  *
- * Mirrors OpenCode's single-binary model: every fresh-process entry into
- * atomic goes through `<cli> _<subcommand>`. The launcher emits a
- * platform-appropriate command line that resolves to:
+ * `resolveDispatcher()` locates the dispatcher used for internal
+ * sub-commands (`_orchestrator-entry`, `_cc-debounce`). Resolution
+ * order — kept deliberately narrow per the SDK's encapsulation contract:
  *
- *   - **Compiled binary**: `<atomic-binary> _<subcommand> <args…>`
- *     (`process.execPath` is the binary itself; argv[0] is the subcommand)
+ *   1. `override` (non-empty)              → `{ kind: "override-binary" }`
+ *   2. SDK's prebundled CLI on disk        → `{ kind: "host-bun" }`
+ *      (workspace dev or `node_modules` install — host bun spawns the
+ *      SDK's bundled dispatcher, which dynamic-imports the workflow
+ *      file via the consumer project's normal module resolution)
+ *   3. Nothing matches                     → throws `NoDispatcherError`
  *
- *   - **Dev / installed-package runtime**: `<bun> <cli.{ts,js}> _<subcommand> <args…>`
- *     (`process.execPath` is the bun interpreter; the CLI script must be
- *     passed explicitly)
+ * The SDK never defaults to `process.execPath`. In a compiled
+ * third-party CLI `process.execPath` is the consumer's binary, not a
+ * dispatcher — assuming otherwise leaks an internal CLI assumption out
+ * of the SDK boundary. Compiled hosts that *do* know how to dispatch
+ * Atomic's internal commands (atomic's own CLI binary) supply the path
+ * explicitly via `pathToAtomicExecutable`.
  *
- * By default the resolver points at the SDK's *own* bundled dispatcher
- * (`@bastani/atomic-sdk/cli`), so SDK consumers don't need the
- * user-facing `@bastani/atomic` package installed alongside. Resolution
- * is delegated to `import.meta.resolve` — the runtime consults
- * `@bastani/atomic-sdk/package.json#exports` for the canonical mapping
- * (`./cli` → `./src/cli.ts` in dev, `./dist/cli.js` post-publish). No
- * path walks, no hardcoded layout assumptions, no extension guessing.
- *
- * Consumers that prefer to route through their own atomic binary can
- * pass an `override` (wired through
- * `runWorkflow({ pathToAtomicExecutable })`, mirroring the Claude Code
- * SDK's `pathToClaudeCodeExecutable`).
- *
- * Centralising the launcher construction here keeps every internal
- * sub-command (`_orchestrator-entry`, `_cc-debounce`, …) on a single
- * code path, so a fix to argv handling or escaping lands in one place
- * rather than drifting across call sites.
+ * `buildSelfExecCommand()` converts a `Dispatcher` (or a raw runtime/cliPath
+ * pair, retained for unit tests that exercise argv-quoting in isolation) into
+ * a bash / pwsh command line suitable for tmux's `new-session`,
+ * `split-window`, or `run-shell`.
  */
 
 import { fileURLToPath } from "node:url";
+import { NoDispatcherError } from "../errors.ts";
 import { isCompiledBinaryRuntime } from "./runtime-env.ts";
 
 /** Escape a string for safe interpolation inside a bash double-quoted string. */
@@ -50,89 +45,163 @@ function quotePwshLiteral(s: string): string {
     .replace(/'/g, "''")}'`;
 }
 
-/** Quote an argv token for bash. Flag names (`--foo`, `-x`) are emitted
- *  bare; every other token is always double-quoted, matching the
- *  existing launcher style. The "always quote values" rule keeps user
- *  data (paths, agent names, base64 payloads) safe regardless of
- *  content; the "bare flags" rule keeps emitted commands readable. */
+/** Quote an argv token for bash. Flag-shaped tokens (`--foo`, `-x`) emit
+ *  bare; every other token is double-quoted to keep user data (paths,
+ *  agent names, base64 payloads) safe regardless of content. */
 function quoteBashArg(s: string): string {
   return s.startsWith("-") ? s : `"${escBash(s)}"`;
 }
 
-export interface ResolveSdkCliPathOptions {
-  /**
-   * Optional override (typically `RunWorkflowOptions.pathToAtomicExecutable`).
-   * When set and non-empty, returned verbatim — the override is the entire
-   * resolution. Use this to point at a locally installed atomic binary
-   * instead of the SDK's bundled dispatcher. Mirrors Claude Code SDK's
-   * `pathToClaudeCodeExecutable` semantics, including bare command names
-   * that the shell PATH-resolves at exec time.
-   */
+// ---------------------------------------------------------------------------
+// resolveDispatcher
+// ---------------------------------------------------------------------------
+
+export interface ResolveDispatcherOptions {
+  /** When set and non-empty, returned verbatim as `override-binary`. */
   override?: string;
   /**
-   * Optional caller location, used **only** for compiled-binary
-   * detection. Defaults to this module's own `import.meta.url`. Tests
-   * inject synthetic URLs here to exercise the bunfs/~BUN branches
-   * without running inside an actual compiled binary.
+   * Test seam for the `import.meta.resolve("@bastani/atomic-sdk/cli")`
+   * lookup that backs the host-bun branch. Return a `file://` URL or
+   * throw to control the branch.
    */
-  callerUrl?: string;
+  resolveSdkCli?: () => string;
 }
 
 /**
- * Resolve the absolute path to the script that should be self-exec'd.
+ * Discriminated union describing how the SDK should be dispatched.
  *
- * Resolution order:
- *   1. `override` (if set) → returned verbatim.
- *   2. Compiled-binary runtime → `process.execPath` (the binary IS the
- *      CLI; its own argv dispatch handles the subcommand).
- *   3. Otherwise → `import.meta.resolve("@bastani/atomic-sdk/cli")`,
- *      which consults the SDK's `package.json#exports` map. The runtime
- *      itself decides which file backs the export — no path walks, no
- *      layout assumptions, no extension guessing in this code.
- *
- * Why delegate to `import.meta.resolve`: the SDK's source layout
- * (`src/cli.ts`) and its published layout (`dist/cli.js`) are different
- * shapes, and either could change again in future builds. The
- * `package.json#exports` map is the contract that consumers and the
- * publish pipeline both honour, so reading it through the runtime is
- * the only resolution that stays correct across both.
+ * - `override-binary`: caller supplied an explicit binary path/name.
+ * - `host-bun`:        SDK ships at a real on-disk path; spawn the SDK's
+ *                      own dispatcher (`@bastani/atomic-sdk/cli`) via
+ *                      host bun. Module resolution from the workflow's
+ *                      project tree resolves `@bastani/atomic-sdk` normally.
  */
-export function resolveSdkCliPath(opts: ResolveSdkCliPathOptions = {}): string {
-  const { override, callerUrl } = opts;
-  if (override && override.length > 0) return override;
+export type Dispatcher =
+  | { kind: "override-binary"; binary: string }
+  | { kind: "host-bun";        runtime: string; cliPath: string };
 
-  const detectFrom = callerUrl
-    ? fileURLToPath(callerUrl)
-    : import.meta.dir;
-  if (isCompiledBinaryRuntime(detectFrom)) {
-    return process.execPath;
+/** Trace the resolved dispatcher to stderr when `ATOMIC_DEBUG=1`. */
+function logResolution(dispatcher: Dispatcher): void {
+  if (process.env.ATOMIC_DEBUG !== "1") return;
+  const tag = "[atomic-sdk:resolveDispatcher]";
+  switch (dispatcher.kind) {
+    case "override-binary":
+      console.error(`${tag} kind=override-binary binary=${dispatcher.binary}`);
+      return;
+    case "host-bun":
+      console.error(
+        `${tag} kind=host-bun runtime=${dispatcher.runtime} cliPath=${dispatcher.cliPath}`,
+      );
+      return;
+  }
+}
+
+/**
+ * Locate the dispatcher for the current environment.
+ *
+ * Throws `NoDispatcherError` when no branch resolves.
+ */
+export function resolveDispatcher(opts?: ResolveDispatcherOptions): Dispatcher {
+  const override = opts?.override;
+  if (override && override.length > 0) {
+    const result: Dispatcher = { kind: "override-binary", binary: override };
+    logResolution(result);
+    return result;
   }
 
-  const url = import.meta.resolve("@bastani/atomic-sdk/cli");
-  return fileURLToPath(url);
+  // Host-bun: the SDK's own dispatcher lives at a real on-disk path
+  // (workspace dev or `node_modules` install). Spawn it via the current
+  // bun interpreter. Module resolution from the workflow file's project
+  // tree resolves `@bastani/atomic-sdk` normally. This is the only
+  // default — compiled-binary hosts that need a different dispatcher
+  // pass `pathToAtomicExecutable` explicitly.
+  let resolvedUrl: string | undefined;
+  try {
+    resolvedUrl = opts?.resolveSdkCli
+      ? opts.resolveSdkCli()
+      : import.meta.resolve("@bastani/atomic-sdk/cli");
+  } catch {
+    /* not resolvable */
+  }
+
+  if (resolvedUrl) {
+    const cliPath = fileURLToPath(resolvedUrl);
+    if (!isCompiledBinaryRuntime(cliPath)) {
+      const result: Dispatcher = {
+        kind: "host-bun",
+        runtime: process.execPath,
+        cliPath,
+      };
+      logResolution(result);
+      return result;
+    }
+  }
+
+  throw new NoDispatcherError({
+    searchedFor: ["@bastani/atomic-sdk/cli (host-bun)"],
+  });
+}
+
+// ---------------------------------------------------------------------------
+// buildSelfExecCommand
+// ---------------------------------------------------------------------------
+
+/**
+ * Map a `Dispatcher` to the `{ runtime, cliPath }` pair `buildSelfExecCommand`
+ * actually emits. The override-binary case collapses to one token; host-bun
+ * keeps the runtime + script split.
+ */
+function dispatcherToRuntime(dispatcher: Dispatcher): {
+  runtime: string;
+  cliPath: string;
+} {
+  switch (dispatcher.kind) {
+    case "host-bun":
+      return { runtime: dispatcher.runtime, cliPath: dispatcher.cliPath };
+    case "override-binary":
+      return { runtime: dispatcher.binary, cliPath: dispatcher.binary };
+  }
 }
 
 /**
  * Build a bash / pwsh command line that re-executes the atomic CLI with
- * the given internal sub-command and positional arguments. Use as the
+ * the given internal sub-command and positional arguments. Used as the
  * argument to tmux's `new-session` / `split-window` / `run-shell`.
  *
- * `runtime` is typically `process.execPath`. When it equals `cliPath`
- * (compiled-binary case, or override-as-runnable-binary case) we omit
- * the script argument — the binary either auto-injects argv[1] (Bun
- * compiled binary) or accepts the subcommand directly (override binary
- * spawned via PATH/absolute path), so emitting it explicitly would put
- * a stray `<binary>` token in front of the subcommand and Commander
- * would mis-route the call.
+ * Accepts either a `Dispatcher` union (preferred — produced by
+ * `resolveDispatcher()`) or a raw `{ runtime, cliPath }` pair (used by
+ * unit tests that exercise argv-quoting rules in isolation).
+ *
+ * When `runtime === cliPath` (single-binary dispatcher) we omit the script
+ * argument — the binary accepts the subcommand directly, so emitting it
+ * explicitly would put a stray token in front of the subcommand and
+ * Commander would mis-route the call.
  */
+export function buildSelfExecCommand(opts: {
+  dispatcher: Dispatcher;
+  subcommand: string;
+  args: readonly string[];
+  platform?: NodeJS.Platform;
+}): string;
 export function buildSelfExecCommand(opts: {
   runtime: string;
   cliPath: string;
   subcommand: string;
   args: readonly string[];
   platform?: NodeJS.Platform;
+}): string;
+export function buildSelfExecCommand(opts: {
+  dispatcher?: Dispatcher;
+  runtime?: string;
+  cliPath?: string;
+  subcommand: string;
+  args: readonly string[];
+  platform?: NodeJS.Platform;
 }): string {
-  const { runtime, cliPath, subcommand, args, platform = process.platform } = opts;
+  const { runtime, cliPath } = opts.dispatcher
+    ? dispatcherToRuntime(opts.dispatcher)
+    : { runtime: opts.runtime!, cliPath: opts.cliPath! };
+  const { subcommand, args, platform = process.platform } = opts;
   const isSelfExec = runtime === cliPath;
 
   if (platform === "win32") {

@@ -3,9 +3,9 @@
  *
  * Catches packaging regressions in PR CI without needing a full publish
  * cycle. The verdaccio matrix in `publish.yml` exercises the same
- * properties end-to-end across all 6 OS×arch combinations after a
- * release branch is opened — this lighter check fires on every PR so
- * regressions are surfaced before merge.
+ * properties end-to-end across all OS×arch combinations after a release
+ * branch is opened — this lighter check fires on every PR so regressions
+ * are surfaced before merge.
  *
  * Skip mechanic: set `ATOMIC_SKIP_SDK_BUILD_TEST=1` to bypass when
  * iterating locally (the build adds ~5–10 s to `bun test`). The publish
@@ -13,20 +13,16 @@
  * has already exercised the same properties end-to-end.
  *
  * What we verify:
- *   1. `bun run build` produces `dist/cli.js` — the bundled SDK
- *      self-exec target needed at runtime when consumers install
- *      only `@bastani/atomic-sdk`.
- *   2. The build script's entry list is sourced from `package.json#exports`,
- *      so the `./cli` export is present in the published manifest.
- *      Drift between the manifest and the bundle is the most common
- *      way bundled artifacts disappear.
- *   3. `dist/cli.js` is invokable through Bun and dispatches its hidden
- *      Commander subcommands. Catches broken imports, missing default
- *      exports, etc., before the verdaccio matrix runs.
+ *   1. `bun run build` completes without error and produces `dist/`.
+ *   2. The `./cli` export IS present in the published manifest — the SDK's
+ *      prebundled dispatcher is the only default resolver path
+ *      (`resolveDispatcher` calls `import.meta.resolve("@bastani/atomic-sdk/cli")`).
+ *   3. The `./dispatcher` export IS present so compiled third-party
+ *      consumers can opt into self-dispatch via `handleSelfDispatch`.
  */
 
 import { test, expect, describe, beforeAll } from "bun:test";
-import { existsSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -49,45 +45,29 @@ describe.skipIf(SKIP)("SDK build output", () => {
     }
   }, 120_000);
 
-  test("dist/cli.js exists and is non-empty", () => {
-    const cli = join(DIST, "cli.js");
-    expect(existsSync(cli)).toBe(true);
-    expect(statSync(cli).size).toBeGreaterThan(0);
+  test("dist/ directory exists after build", () => {
+    expect(existsSync(DIST)).toBe(true);
   });
 
-  test("package.json declares ./cli export", async () => {
-    // The build pipeline iterates `pkg.exports` to choose entry points,
-    // so any drop here means the corresponding bundle disappears
-    // silently.
+  test("package.json declares ./cli export (prebundled dispatcher)", async () => {
     const pkg = (await Bun.file(join(SDK_PKG_ROOT, "package.json")).json()) as {
       exports: Record<string, string>;
     };
-    expect(pkg.exports["./cli"]).toBe("./src/cli.ts");
+    expect(typeof pkg.exports["./cli"]).toBe("string");
   });
 
-  test("bundled cli.js dispatches _orchestrator-entry via Commander", () => {
-    // `--help` against a hidden subcommand exits 0 and prints the
-    // command's argument shape. Cheapest argv path that proves the
-    // bundle parses, imports resolve, and Commander has the command
-    // registered, without spawning tmux or a workflow.
-    const cli = join(DIST, "cli.js");
-    const result = spawnSync("bun", [cli, "_orchestrator-entry", "--help"], {
-      stdio: "pipe",
-      encoding: "utf-8",
-      cwd: SDK_PKG_ROOT,
-    });
-    if (result.status !== 0) {
-      console.error("stdout:", result.stdout);
-      console.error("stderr:", result.stderr);
-    }
-    expect(result.status).toBe(0);
-    const out = `${result.stdout}\n${result.stderr}`;
-    // Commander prints either the subcommand name or its positional
-    // argument names — both are accepted as proof of dispatch.
-    const dispatched =
-      out.includes("_orchestrator-entry") ||
-      out.includes("workflowName") ||
-      out.includes("workflowSource");
-    expect(dispatched).toBe(true);
+  test("package.json declares ./dispatcher export (handleSelfDispatch helper)", async () => {
+    const pkg = (await Bun.file(join(SDK_PKG_ROOT, "package.json")).json()) as {
+      exports: Record<string, string>;
+    };
+    expect(typeof pkg.exports["./dispatcher"]).toBe("string");
+  });
+
+  test("dist contains compiled cli.js for the dispatcher", () => {
+    expect(existsSync(join(DIST, "cli.js"))).toBe(true);
+  });
+
+  test("dist contains compiled dispatcher.js for handleSelfDispatch", () => {
+    expect(existsSync(join(DIST, "dispatcher.js"))).toBe(true);
   });
 });

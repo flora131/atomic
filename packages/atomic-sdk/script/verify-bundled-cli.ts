@@ -4,29 +4,26 @@
  * install `@bastani/atomic-sdk` without the user-facing `@bastani/atomic`
  * CLI package alongside.
  *
- * The bug this defends against: `runWorkflow()` used to spawn a self-exec
- * targeting `node_modules/@bastani/atomic/src/cli.ts` — a file that only
- * existed if the user-facing CLI package was *also* installed alongside
- * `@bastani/atomic-sdk`. SDK-only consumers got a broken self-exec at
- * runtime even though their `package.json` looked fine.
+ * The SDK's contract: a single `runWorkflow()` call must "just work" for
+ * SDK-only consumers without requiring them to install
+ * `@bastani/atomic` or its per-platform binary packages. The SDK ships
+ * its own prebundled CLI dispatcher (`@bastani/atomic-sdk/cli`) and
+ * routes workflow subprocesses through it via host bun.
  *
- * The script simulates the SDK-only install flow against a registry
- * (verdaccio in CI; npm by default) and asserts every property the fix
- * promises:
+ * Asserted properties:
  *
- *   1. `bun add @bastani/atomic-sdk` succeeds without `@bastani/atomic`.
- *   2. The published tarball contains `dist/cli.js` (the bundled
- *      orchestrator dispatcher).
- *   3. The published `package.json` declares `./cli` as an export, so
- *      the build pipeline hasn't quietly dropped it.
- *   4. The bundled `cli.js` is invokable end-to-end through Bun and
- *      Commander dispatches its hidden subcommands (we exercise
- *      `_orchestrator-entry --help` instead of `--help` because Commander's
- *      hidden-command help is the cheapest argv path that proves
- *      dispatch works without spawning anything).
+ *   1. `bun add @bastani/atomic-sdk` succeeds without `@bastani/atomic`
+ *      and without any per-platform binary packages.
+ *   2. The published `package.json` declares `./cli` as an export — the
+ *      resolver hits this path via `import.meta.resolve("@bastani/atomic-sdk/cli")`
+ *      and would throw `NoDispatcherError` if the export went missing.
+ *   3. The published `package.json` declares `./dispatcher` so compiled
+ *      third-party consumers can opt into self-dispatch.
+ *   4. Neither the scoped nor the flat `@bastani/atomic` sibling is
+ *      present in the SDK-only install (regression guard).
  *
- * The resolver itself (`resolveSdkCliPath`) is pinned by the unit tests
- * in `src/lib/self-exec.test.ts`. Together they bracket the regression:
+ * The resolver itself is pinned by the unit tests in
+ * `src/lib/self-exec.test.ts`. Together they bracket the regression:
  * unit tests cover the runtime behaviour, this script covers the
  * packaging — a regression in either layer would still trip one of them.
  *
@@ -71,22 +68,27 @@ try {
   // ── 2. Layout assertions on the installed package ───────────────────────
   const sdkRoot = join(workdir, "node_modules", "@bastani", "atomic-sdk");
   await assertExists(sdkRoot, "installed SDK package directory");
-  await assertExists(
-    join(sdkRoot, "dist", "cli.js"),
-    "bundled CLI dispatcher (dist/cli.js)",
-  );
 
-  // ── 3. Published package.json has `./cli`. ──────────────────────────────
+  // ── 3. Published package.json must declare the dispatcher exports. ─────
   //
-  // The build script bundles every `exports` entry, so a missing export
-  // here means the bundle silently lacks the corresponding file. Easier
-  // to fail fast on the manifest than chase missing imports later.
+  // The SDK's prebundled dispatcher is the SDK's only default route to
+  // `_orchestrator-entry` / `_cc-debounce`; the resolver hits it via
+  // `import.meta.resolve("@bastani/atomic-sdk/cli")`. If the export
+  // disappears the resolver throws `NoDispatcherError` and `runWorkflow`
+  // breaks for every SDK-only consumer.
   const pkg = (await Bun.file(join(sdkRoot, "package.json")).json()) as {
     name: string;
     exports: Record<string, unknown>;
   };
   assert(pkg.name === SDK_PKG, `package.json#name === "${SDK_PKG}"`);
-  assert(pkg.exports["./cli"] !== undefined, "package.json#exports['./cli']");
+  assert(
+    typeof pkg.exports["./cli"] === "string",
+    "package.json#exports['./cli'] is declared (prebundled dispatcher)",
+  );
+  assert(
+    typeof pkg.exports["./dispatcher"] === "string",
+    "package.json#exports['./dispatcher'] is declared (handleSelfDispatch helper)",
+  );
 
   // ── 4. Sibling-package regression guard ─────────────────────────────────
   //
@@ -99,38 +101,6 @@ try {
   const siblingFlat = join(workdir, "node_modules", SIBLING_PKG_DIR);
   await assertMissing(siblingScoped, "@bastani/atomic sibling (regression)");
   await assertMissing(siblingFlat, "atomic sibling (regression)");
-
-  // ── 5. Bundled CLI dispatches hidden subcommands ────────────────────────
-  //
-  // Commander prints the hidden-subcommand help to stdout and exits 0
-  // when given `--help`, even though the subcommand is `hidden: true` in
-  // the help listing. This proves: bun can run the file, the bundle's
-  // imports resolve, Commander parses argv, and the orchestrator-entry
-  // command is registered. It does NOT spawn tmux or a workflow — those
-  // require positional args we deliberately omit.
-  const cliPath = join(sdkRoot, "dist", "cli.js");
-  const help = spawnSync(
-    "bun",
-    [cliPath, "_orchestrator-entry", "--help"],
-    {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "pipe"],
-      // Don't inherit the monorepo's bun workspace context — the
-      // consumer scenario is a standalone install.
-      cwd: workdir,
-    },
-  );
-  if (help.status !== 0) {
-    console.error("[verify-bundled-cli] bundled cli failed to start");
-    console.error("stdout:", help.stdout);
-    console.error("stderr:", help.stderr);
-    throw new Error("bundled cli.js exited non-zero");
-  }
-  const helpOut = `${help.stdout}\n${help.stderr}`;
-  assert(
-    helpOut.includes("_orchestrator-entry") || helpOut.includes("workflowName"),
-    "Commander dispatched _orchestrator-entry help",
-  );
 
   console.log("\n[verify-bundled-cli] all checks passed");
 } catch (err) {

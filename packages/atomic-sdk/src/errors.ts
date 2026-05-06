@@ -71,6 +71,32 @@ export class IncompatibleSDKError extends Error {
   }
 }
 
+/**
+ * Thrown by `resolveDispatcher()` when no dispatcher branch resolves.
+ * The SDK's only default is its prebundled CLI dispatcher
+ * (`@bastani/atomic-sdk/cli`); when that can't be located on disk
+ * (typically because the SDK is bundled into a third-party `bun build
+ * --compile` binary) the caller must pass `pathToAtomicExecutable`.
+ * Carries `searchedFor` so callers can render an actionable hint.
+ */
+export class NoDispatcherError extends Error {
+  override readonly name = "NoDispatcherError";
+  readonly searchedFor: ReadonlyArray<string>;
+  constructor(opts: { searchedFor: ReadonlyArray<string> }) {
+    super(
+      `runWorkflow() could not locate the atomic SDK dispatcher.\n` +
+      `Searched: ${opts.searchedFor.join(", ")}.\n` +
+      `This usually means the SDK is bundled into a compiled binary that\n` +
+      `cannot reach its own dispatcher script on disk. Pass an explicit\n` +
+      `\`pathToAtomicExecutable\` to runWorkflow() pointing at a binary\n` +
+      `that handles \`_orchestrator-entry\` (atomic's own CLI does, or\n` +
+      `your own CLI when it imports \`handleSelfDispatch\` from\n` +
+      `\`@bastani/atomic-sdk/dispatcher\`).`,
+    );
+    this.searchedFor = opts.searchedFor;
+  }
+}
+
 /** Extract a human-readable message from an unknown thrown value. */
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

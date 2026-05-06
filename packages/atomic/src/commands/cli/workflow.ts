@@ -23,8 +23,8 @@ import {
   type WorkflowInput,
   getInputSchema,
   listWorkflows,
-  runWorkflow,
 } from "@bastani/atomic-sdk";
+import { runWorkflowWithSelf } from "../../lib/run-workflow-with-self.ts";
 import {
   getAgentKeys,
   isValidAgent,
@@ -59,7 +59,7 @@ async function dispatch(
   cliInputs: Record<string, string>,
   detach: boolean,
 ): Promise<void> {
-  await runWorkflow({
+  await runWorkflowWithSelf({
     workflow,
     inputs: cliInputs,
     detach,
@@ -69,7 +69,7 @@ async function dispatch(
 /**
  * Drive the interactive picker. The picker reads its registry directly
  * (filtered by agent) and returns the chosen workflow + populated input
- * map; we then hand off to `runWorkflow`.
+ * map; we then hand off to `runWorkflowWithSelf`.
  */
 async function runPicker(
   registry: ReturnType<typeof createBuiltinRegistry>,

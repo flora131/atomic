@@ -5,12 +5,16 @@
  *  - resolveChatCommand("copilot") delegates to resolveCopilotCliPath()
  *    and honors COPILOT_CLI_PATH even when copilot absent from PATH.
  *  - resolveChatCommand for non-copilot agents uses getCommandPath.
- *  - buildLauncherEnv (used for launcher scripts) excludes process.env
- *    secrets (GH_TOKEN, COPILOT_GITHUB_TOKEN, ANTHROPIC_API_KEY).
+ *  - buildLauncherEnv (used inside launcher scripts) keeps the in-script
+ *    `export` set minimal — only terminal keys + explicit envVars — so the
+ *    bash/pwsh script doesn't have to re-export the user's whole shell.
+ *  - buildTmuxEnv (used for `tmux new-session -e KEY=VAL`) carries the full
+ *    user shell env so vars updated between invocations override the
+ *    persistent atomic tmux server's stale snapshot.
  *  - buildSpawnEnv (used for direct Bun.spawn) inherits full env + normalized
  *    terminal keys.
  *  - Normalized LANG, LC_ALL, LC_CTYPE, TERM, COLORTERM always appear in
- *    launcher env.
+ *    every env builder.
  */
 
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
@@ -214,18 +218,20 @@ describe("buildSpawnEnv – direct spawn env", () => {
 });
 
 // ---------------------------------------------------------------------------
-// buildTmuxEnv — minimal env for tmux createSession (TTY path)
+// buildTmuxEnv — env injected via `tmux new-session -e KEY=VALUE` so the
+// pane sees the user's *current* shell env rather than the persistent
+// atomic tmux server's stale snapshot.
 // ---------------------------------------------------------------------------
 
 describe("buildTmuxEnv – tmux session env (chat wiring)", () => {
-  const LEAKY_BASE: NodeJS.ProcessEnv = {
+  const FULL_BASE: NodeJS.ProcessEnv = {
     GH_TOKEN: "ghp_secret",
     COPILOT_GITHUB_TOKEN: "ghu_secret",
     ANTHROPIC_API_KEY: "sk-ant-secret",
     OPENAI_API_KEY: "sk-openai-secret",
     HOME: "/home/user",
     PATH: "/usr/bin:/bin",
-    ARBITRARY_VAR: "do-not-leak",
+    ARBITRARY_VAR: "user-set-value",
     LANG: "en_US.UTF-8",
     LC_ALL: "en_US.UTF-8",
     LC_CTYPE: "en_US.UTF-8",
@@ -233,35 +239,33 @@ describe("buildTmuxEnv – tmux session env (chat wiring)", () => {
     COLORTERM: "truecolor",
   };
 
-  test("excludes GH_TOKEN from inherited env", () => {
-    const env = buildTmuxEnv({}, LEAKY_BASE);
-    expect("GH_TOKEN" in env).toBe(false);
+  test("forwards the user's shell env so values updated between atomic invocations override the daemon snapshot", () => {
+    const env = buildTmuxEnv({}, FULL_BASE);
+    expect(env["GH_TOKEN"]).toBe("ghp_secret");
+    expect(env["COPILOT_GITHUB_TOKEN"]).toBe("ghu_secret");
+    expect(env["ANTHROPIC_API_KEY"]).toBe("sk-ant-secret");
+    expect(env["OPENAI_API_KEY"]).toBe("sk-openai-secret");
+    expect(env["HOME"]).toBe("/home/user");
+    expect(env["PATH"]).toBe("/usr/bin:/bin");
+    expect(env["ARBITRARY_VAR"]).toBe("user-set-value");
   });
 
-  test("excludes COPILOT_GITHUB_TOKEN from inherited env", () => {
-    const env = buildTmuxEnv({}, LEAKY_BASE);
-    expect("COPILOT_GITHUB_TOKEN" in env).toBe(false);
-  });
-
-  test("excludes ANTHROPIC_API_KEY from inherited env", () => {
-    const env = buildTmuxEnv({}, LEAKY_BASE);
-    expect("ANTHROPIC_API_KEY" in env).toBe(false);
-  });
-
-  test("excludes OPENAI_API_KEY from inherited env", () => {
-    const env = buildTmuxEnv({}, LEAKY_BASE);
-    expect("OPENAI_API_KEY" in env).toBe(false);
-  });
-
-  test("excludes HOME and PATH from inherited env", () => {
-    const env = buildTmuxEnv({}, LEAKY_BASE);
-    expect("HOME" in env).toBe(false);
-    expect("PATH" in env).toBe(false);
-  });
-
-  test("excludes arbitrary inherited vars", () => {
-    const env = buildTmuxEnv({}, LEAKY_BASE);
-    expect("ARBITRARY_VAR" in env).toBe(false);
+  test("strips outer-tmux/psmux identifiers so the new pane doesn't reuse the caller's TMUX/TMUX_PANE", () => {
+    const env = buildTmuxEnv({}, {
+      ...FULL_BASE,
+      TMUX: "/tmp/tmux-1000/default,123,0",
+      TMUX_PANE: "%5",
+      TMUX_TMPDIR: "/tmp",
+      PSMUX: "/tmp/psmux/default,123,0",
+      PSMUX_PANE: "%5",
+      WINDOWID: "12345",
+    });
+    expect("TMUX" in env).toBe(false);
+    expect("TMUX_PANE" in env).toBe(false);
+    expect("TMUX_TMPDIR" in env).toBe(false);
+    expect("PSMUX" in env).toBe(false);
+    expect("PSMUX_PANE" in env).toBe(false);
+    expect("WINDOWID" in env).toBe(false);
   });
 
   test("includes normalized LANG, LC_ALL, LC_CTYPE, TERM, COLORTERM", () => {
@@ -281,35 +285,29 @@ describe("buildTmuxEnv – tmux session env (chat wiring)", () => {
   });
 
   test("includes explicit ATOMIC_AGENT", () => {
-    const env = buildTmuxEnv({ ATOMIC_AGENT: "copilot" }, LEAKY_BASE);
+    const env = buildTmuxEnv({ ATOMIC_AGENT: "copilot" }, FULL_BASE);
     expect(env["ATOMIC_AGENT"]).toBe("copilot");
   });
 
   test("includes explicit COPILOT_CUSTOM_INSTRUCTIONS_DIRS", () => {
-    const env = buildTmuxEnv({ COPILOT_CUSTOM_INSTRUCTIONS_DIRS: "/workspace/.github" }, LEAKY_BASE);
+    const env = buildTmuxEnv({ COPILOT_CUSTOM_INSTRUCTIONS_DIRS: "/workspace/.github" }, FULL_BASE);
     expect(env["COPILOT_CUSTOM_INSTRUCTIONS_DIRS"]).toBe("/workspace/.github");
   });
 
-  test("only TERMINAL_ENV_KEYS + explicit vars — no leakage from sensitive base", () => {
-    const env = buildTmuxEnv({ ATOMIC_AGENT: "copilot", COPILOT_CUSTOM_INSTRUCTIONS_DIRS: "/x" }, LEAKY_BASE);
-    const allowedKeys = new Set([
-      ...(TERMINAL_ENV_KEYS as readonly string[]),
-      "ATOMIC_AGENT",
-      "COPILOT_CUSTOM_INSTRUCTIONS_DIRS",
-    ]);
-    const leaked = Object.keys(env).filter((k) => !allowedKeys.has(k));
-    expect(leaked).toEqual([]);
+  test("explicit envVars override values inherited from the shell", () => {
+    const env = buildTmuxEnv(
+      { ANTHROPIC_API_KEY: "explicit-override" },
+      { ANTHROPIC_API_KEY: "from-shell" },
+    );
+    expect(env["ANTHROPIC_API_KEY"]).toBe("explicit-override");
   });
 
-  test("buildTmuxEnv is distinct from buildSpawnEnv — no full env inheritance", () => {
+  test("buildTmuxEnv is symmetric with buildSpawnEnv — both expose the full shell env", () => {
     const base: NodeJS.ProcessEnv = { HOME: "/root", PATH: "/usr/bin", GH_TOKEN: "ghp_x", LANG: "en_US.UTF-8", TERM: "xterm-256color", COLORTERM: "truecolor" };
     const tmuxEnv = buildTmuxEnv({}, base);
     const spawnEnv = buildSpawnEnv({}, base);
-    // spawnEnv has full env
-    expect(spawnEnv["HOME"]).toBe("/root");
-    expect(spawnEnv["GH_TOKEN"]).toBe("ghp_x");
-    // tmuxEnv does not
-    expect("HOME" in tmuxEnv).toBe(false);
-    expect("GH_TOKEN" in tmuxEnv).toBe(false);
+    expect(tmuxEnv["HOME"]).toBe(spawnEnv["HOME"]);
+    expect(tmuxEnv["PATH"]).toBe(spawnEnv["PATH"]);
+    expect(tmuxEnv["GH_TOKEN"]).toBe(spawnEnv["GH_TOKEN"]);
   });
 });

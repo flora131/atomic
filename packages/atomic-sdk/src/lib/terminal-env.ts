@@ -92,9 +92,45 @@ export function buildLauncherEnv(
   return buildMinimalEnv(explicitEnv, baseEnv);
 }
 
+// Keys that describe the *current* multiplexer client / pane and would
+// confuse a freshly created session if forwarded via `-e`. Stripping them
+// also prevents the atomic socket's panes from inheriting the user's outer
+// tmux/psmux identifiers.
+const TMUX_INTERNAL_KEYS = new Set([
+  "TMUX",
+  "TMUX_PANE",
+  "TMUX_TMPDIR",
+  "PSMUX",
+  "PSMUX_PANE",
+  "WINDOWID",
+]);
+
+const POSIX_ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+function isTmuxSafeEnvKey(key: string): boolean {
+  return POSIX_ENV_KEY_RE.test(key) && !TMUX_INTERNAL_KEYS.has(key);
+}
+
+/**
+ * Build the env passed to `tmux new-session -e KEY=VALUE …`.
+ *
+ * Carries the caller's full shell env (filtered to POSIX-shaped, non-tmux
+ * keys) so that vars set in the user's terminal — `ANTHROPIC_API_KEY`,
+ * `GITHUB_TOKEN`, arbitrary user vars — reach the new session even when
+ * the persistent `tmux -L atomic` server's snapshot is stale. Without
+ * `-e`, panes inherit only from the daemon's environment (captured once
+ * at first fork), so a value updated between two `atomic` invocations
+ * would silently be ignored.
+ */
 export function buildTmuxEnv(
   explicitEnv: Record<string, string>,
   baseEnv: NodeJS.ProcessEnv = process.env,
 ): Record<string, string> {
-  return buildLauncherEnv(explicitEnv, baseEnv);
+  const filtered: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(baseEnv)) {
+    if (isTmuxSafeEnvKey(key)) {
+      filtered[key] = value;
+    }
+  }
+  return { ...normalizedTerminalEnv(filtered), ...explicitEnv };
 }

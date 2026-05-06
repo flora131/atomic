@@ -225,7 +225,7 @@ describe("buildLauncherEnv", () => {
 });
 
 describe("buildTmuxEnv", () => {
-  const SENSITIVE_BASE = {
+  const FULL_BASE = {
     LANG: "en_US.UTF-8",
     LC_ALL: "en_US.UTF-8",
     LC_CTYPE: "en_US.UTF-8",
@@ -237,42 +237,46 @@ describe("buildTmuxEnv", () => {
     OPENAI_API_KEY: "sk-openai-secret",
     HOME: "/home/user",
     PATH: "/usr/bin:/bin",
-    ARBITRARY_VAR: "should-not-appear",
+    ARBITRARY_VAR: "should-pass-through",
   };
 
-  test("excludes GH_TOKEN", () => {
-    const env = buildTmuxEnv({}, SENSITIVE_BASE);
-    expect("GH_TOKEN" in env).toBe(false);
+  test("forwards user shell env so updates survive the persistent atomic tmux server's stale snapshot", () => {
+    const env = buildTmuxEnv({}, FULL_BASE);
+    expect(env["GH_TOKEN"]).toBe("ghp_secret");
+    expect(env["COPILOT_GITHUB_TOKEN"]).toBe("ghu_secret");
+    expect(env["ANTHROPIC_API_KEY"]).toBe("sk-ant-secret");
+    expect(env["OPENAI_API_KEY"]).toBe("sk-openai-secret");
+    expect(env["HOME"]).toBe("/home/user");
+    expect(env["PATH"]).toBe("/usr/bin:/bin");
+    expect(env["ARBITRARY_VAR"]).toBe("should-pass-through");
   });
 
-  test("excludes COPILOT_GITHUB_TOKEN", () => {
-    const env = buildTmuxEnv({}, SENSITIVE_BASE);
-    expect("COPILOT_GITHUB_TOKEN" in env).toBe(false);
+  test("filters tmux/psmux internal keys that describe the outer client", () => {
+    const env = buildTmuxEnv({}, {
+      ...FULL_BASE,
+      TMUX: "/tmp/tmux-1000/default,123,0",
+      TMUX_PANE: "%5",
+      TMUX_TMPDIR: "/tmp",
+      PSMUX: "/tmp/psmux/default,123,0",
+      PSMUX_PANE: "%5",
+      WINDOWID: "12345",
+    });
+    expect("TMUX" in env).toBe(false);
+    expect("TMUX_PANE" in env).toBe(false);
+    expect("TMUX_TMPDIR" in env).toBe(false);
+    expect("PSMUX" in env).toBe(false);
+    expect("PSMUX_PANE" in env).toBe(false);
+    expect("WINDOWID" in env).toBe(false);
   });
 
-  test("excludes ANTHROPIC_API_KEY", () => {
-    const env = buildTmuxEnv({}, SENSITIVE_BASE);
-    expect("ANTHROPIC_API_KEY" in env).toBe(false);
-  });
-
-  test("excludes OPENAI_API_KEY", () => {
-    const env = buildTmuxEnv({}, SENSITIVE_BASE);
-    expect("OPENAI_API_KEY" in env).toBe(false);
-  });
-
-  test("excludes HOME", () => {
-    const env = buildTmuxEnv({}, SENSITIVE_BASE);
-    expect("HOME" in env).toBe(false);
-  });
-
-  test("excludes PATH", () => {
-    const env = buildTmuxEnv({}, SENSITIVE_BASE);
-    expect("PATH" in env).toBe(false);
-  });
-
-  test("excludes arbitrary inherited env vars", () => {
-    const env = buildTmuxEnv({}, SENSITIVE_BASE);
-    expect("ARBITRARY_VAR" in env).toBe(false);
+  test("filters non-POSIX env keys (e.g. exported bash function definitions)", () => {
+    const env = buildTmuxEnv({}, {
+      ...FULL_BASE,
+      "BASH_FUNC_my-fn%%": "() {  echo hi\n}",
+      "weird key with spaces": "x",
+    });
+    expect("BASH_FUNC_my-fn%%" in env).toBe(false);
+    expect("weird key with spaces" in env).toBe(false);
   });
 
   test("includes normalized LANG", () => {
@@ -326,12 +330,12 @@ describe("buildTmuxEnv", () => {
     expect(env["TERM"]).toBe("screen");
   });
 
-  test("only TERMINAL_ENV_KEYS + explicit vars — no leakage", () => {
-    const env = buildTmuxEnv({ ATOMIC_AGENT: "claude" }, SENSITIVE_BASE);
-    const envKeys = Object.keys(env);
-    const allowedKeys = new Set([...(TERMINAL_ENV_KEYS as readonly string[]), "ATOMIC_AGENT"]);
-    const leaked = envKeys.filter((k) => !allowedKeys.has(k));
-    expect(leaked).toEqual([]);
+  test("explicit env wins over baseEnv for arbitrary keys", () => {
+    const env = buildTmuxEnv(
+      { ANTHROPIC_API_KEY: "explicit-override" },
+      { ANTHROPIC_API_KEY: "from-shell" },
+    );
+    expect(env["ANTHROPIC_API_KEY"]).toBe("explicit-override");
   });
 
   test("all TERMINAL_ENV_KEYS present with empty baseEnv", () => {

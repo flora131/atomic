@@ -54,6 +54,10 @@ interface Sandbox {
 
 const sandboxes: Sandbox[] = [];
 
+// Cleanup timeout is generous because the sandbox `settingsHome` contains
+// the extracted embedded-asset bundle cache (`LOCALAPPDATA`/`XDG_CACHE_HOME`).
+// On Windows, recursively removing that tree exceeds Bun's default 5s hook
+// timeout — bumping to 120s mirrors the per-test timeout above.
 afterAll(async () => {
   await Promise.all(
     sandboxes.map(async (s) => {
@@ -62,7 +66,7 @@ afterAll(async () => {
     }),
   );
   sandboxes.length = 0;
-});
+}, 120_000);
 
 async function createSandbox(label: string): Promise<Sandbox> {
   const projectRoot = await mkdtemp(join(tmpdir(), `atomic-onboarding-${label}-proj-`));

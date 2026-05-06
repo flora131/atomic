@@ -150,19 +150,24 @@ jobs:
         id: pack-sdk
         run: |
           TARBALL=$(bun packages/atomic-sdk/script/pack.ts)
-          echo "tarball=packages/atomic-sdk/${TARBALL}" >> "$GITHUB_OUTPUT"
+          echo "tarball-file=${TARBALL}" >> "$GITHUB_OUTPUT"
 
       # Rewrite the fixture's @bastani/atomic-sdk dependency to point at the
       # local tarball so `bun install` inside smoke.ts picks it up.
+      # Uses a relative path from the fixture so it works cross-platform —
+      # `$(pwd)` on Windows Git Bash returns a Unix-style path
+      # (`/d/a/...`) that bun's Windows install path resolution can't
+      # consume.
       - name: Patch fixture to use local SDK tarball (pre-publish / nightly)
         if: github.event_name != 'release'
+        env:
+          TARBALL_FILE: ${{ steps.pack-sdk.outputs.tarball-file }}
         run: |
-          TARBALL="${{ steps.pack-sdk.outputs.tarball }}"
-          ABS_TARBALL="$(pwd)/${TARBALL}"
           cd tests/fixtures/sdk-compiled-consumer
           bun -e "
             const pkg = await Bun.file('package.json').json();
-            pkg.dependencies['@bastani/atomic-sdk'] = 'file:' + '$ABS_TARBALL';
+            const rel = '../../../packages/atomic-sdk/' + process.env.TARBALL_FILE;
+            pkg.dependencies['@bastani/atomic-sdk'] = 'file:' + rel;
             await Bun.write('package.json', JSON.stringify(pkg, null, 2) + '\n');
           "
 

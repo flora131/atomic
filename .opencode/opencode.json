@@ -1,14 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
-    "github-mcp-server": {
-      "type": "remote",
-      "url": "https://api.githubcopilot.com/mcp",
-      "enabled": true,
-      "headers": {
-        "Authorization": "Bearer {env:GH_TOKEN}"
-      }
-    },
     "azure-devops": {
       "type": "local",
       "command": [
@@ -18,6 +10,14 @@
         "<your-org>"
       ],
       "enabled": false
+    },
+    "github-mcp-server": {
+      "type": "remote",
+      "url": "https://api.githubcopilot.com/mcp",
+      "enabled": true,
+      "headers": {
+        "Authorization": "Bearer {env:GH_TOKEN}"
+      }
     }
   },
   "permission": "allow",

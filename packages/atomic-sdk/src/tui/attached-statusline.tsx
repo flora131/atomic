@@ -5,20 +5,14 @@
  *
  * Two top-level variants:
  *   - workflow (no agentType): a single tmux conditional that picks
- *     between an orchestrator branch (GRAPH badge + graph-mode hints)
- *     and an agent branch (window-name pill + agent-mode hints) based
+ *     between an orchestrator branch (GRAPH badge + bg-task counter +
+ *     graph-mode hints) and an agent branch (agent-mode hints) based
  *     on `#{window_name}`. Mirrors the catppuccin-theme pattern that
  *     is known to render correctly on psmux 3.3.3 — no nested
- *     conditionals, no user-option indirection.
+ *     conditionals; reactive content rides single-option indirection
+ *     (`#{@atomic-bg-tasks}`).
  *   - chat (agentType set): single-window session, no conditional —
  *     just the agent-type pill + detach hint.
- *
- * Dynamic content (bg-task counter, attach-flash message) was
- * deliberately removed for now: psmux 3.3.3's status-line render
- * path mishandles nested `#{?…}` conditionals and a few escape
- * patterns we'd need. We can layer that back in later by having the
- * orchestrator panel push fully-styled segments into single
- * `@atomic-…` user-options the format string references inline.
  */
 
 import type { ReactNode } from "react";
@@ -37,6 +31,27 @@ const DOT = "·";
 
 /** Window name used by `runtime/tmux.ts:createSession` for the orchestrator. */
 export const ORCHESTRATOR_WINDOW_NAME = "orchestrator";
+
+/**
+ * Suffix of the `@atomic-…` user-option the orchestrator panel pushes
+ * the pre-styled background-tasks indicator into. The orchestrator
+ * branch of the status-line references it via `#{@atomic-bg-tasks}`,
+ * which psmux substitutes at render time without needing a nested
+ * `#{?…}` conditional. See `backgroundTasksValue` for the value shape.
+ */
+export const BACKGROUND_TASKS_OPTION = "bg-tasks";
+
+/**
+ * Pre-formatted tmux markup for the bg-tasks indicator. Empty when the
+ * count is zero so the status line collapses cleanly. Style attributes
+ * are space-separated to keep psmux 3.3.3's render parser happy
+ * (commas inside `#[…]` inside `#{?…}` leak fragments across branches).
+ */
+export function backgroundTasksValue(count: number, theme: GraphTheme): string {
+  if (count <= 0) return "";
+  const bg = theme.backgroundElement;
+  return ` #[fg=${theme.textDim} bg=${bg}]${DOT}#[fg=${theme.warning} bg=${bg}] ◆ #[fg=${theme.textMuted} bg=${bg}]${count} background`;
+}
 
 /**
  * Wrap two ReactNodes in a single tmux conditional that selects
@@ -95,19 +110,24 @@ export function attachedStatusline(args: {
     );
   }
 
-  const orchLeft = (
-    <Box bg={theme.primary} paddingLeft={1} paddingRight={1}>
-      <Text fg={theme.backgroundElement} bold>
-        GRAPH
-      </Text>
-    </Box>
-  );
-  const agentLeft = (
-    <Box bg={theme.primary} paddingLeft={1} paddingRight={1}>
-      <Text fg={theme.backgroundElement} bold>
-        {"#{window_name}"}
-      </Text>
-    </Box>
+  // The pill itself always renders, but its label switches: GRAPH on
+  // the orchestrator window (where the graph view owns the pane),
+  // STAGE on agent windows (where the user is attached to a single
+  // stage). The bg-task counter only renders on the orchestrator
+  // window because background stages can only be interacted with
+  // from the graph view; surfacing the count from an agent pane
+  // would just be noise. Both conditionals here are sibling (not
+  // nested) to the right-side one, so the psmux 3.3.3 nested-`#{?…}`
+  // bug doesn't apply.
+  const left: ReactNode = (
+    <>
+      <Box bg={theme.primary} paddingLeft={1} paddingRight={1}>
+        <Text fg={theme.backgroundElement} bold>
+          {whenOrchestrator("GRAPH", "STAGE")}
+        </Text>
+      </Box>
+      {whenOrchestrator(`#{@atomic-${BACKGROUND_TASKS_OPTION}}`, "")}
+    </>
   );
 
   const orchRight = (
@@ -140,7 +160,7 @@ export function attachedStatusline(args: {
 
   return (
     <Footer position="bottom" bg={theme.backgroundElement} fg={theme.text}>
-      <Footer.Left>{whenOrchestrator(orchLeft, agentLeft)}</Footer.Left>
+      <Footer.Left>{left}</Footer.Left>
       <Footer.Right>{whenOrchestrator(orchRight, agentRight)}</Footer.Right>
     </Footer>
   );

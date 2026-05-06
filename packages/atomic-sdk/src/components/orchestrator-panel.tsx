@@ -20,6 +20,11 @@ import {
   setRendererBackground,
 } from "./renderer-background.ts";
 import { createTuiDiagnostics, type TuiDiagnostics } from "./tui-diagnostics.ts";
+import {
+  BACKGROUND_TASKS_OPTION,
+  backgroundTasksValue,
+} from "../tui/attached-statusline.tsx";
+import { setStatuslineState } from "../tui/mux.ts";
 
 export class OrchestratorPanel {
   private store: PanelStore;
@@ -28,6 +33,8 @@ export class OrchestratorPanel {
   private terminalBackgroundSynced: boolean;
   private diagnostics: TuiDiagnostics | null = null;
   private unsubscribeDiagnostics: (() => void) | null = null;
+  private graphTheme: GraphTheme;
+  private tmuxSession: string;
 
   private constructor(
     renderer: CliRenderer,
@@ -38,6 +45,8 @@ export class OrchestratorPanel {
   ) {
     this.renderer = renderer;
     this.store = store;
+    this.graphTheme = graphTheme;
+    this.tmuxSession = tmuxSession;
     this.terminalBackgroundSynced = terminalBackgroundSynced;
     this.diagnostics = createTuiDiagnostics({
       renderer,
@@ -156,11 +165,27 @@ export class OrchestratorPanel {
   /** Increment the background task counter (shown in the statusline footer). */
   backgroundTaskStarted(): void {
     this.store.incrementBackgroundTasks();
+    this.pushBackgroundTasksIndicator();
   }
 
   /** Decrement the background task counter (shown in the statusline footer). */
   backgroundTaskFinished(): void {
     this.store.decrementBackgroundTasks();
+    this.pushBackgroundTasksIndicator();
+  }
+
+  /**
+   * Push the pre-styled bg-tasks segment into the tmux user-option the
+   * orchestrator branch of the status-line references inline. Pushing
+   * scopes to this workflow's tmux session so concurrent atomic
+   * sessions on the shared socket don't clobber each other's count.
+   */
+  private pushBackgroundTasksIndicator(): void {
+    setStatuslineState(
+      BACKGROUND_TASKS_OPTION,
+      backgroundTasksValue(this.store.backgroundTaskCount, this.graphTheme),
+      this.tmuxSession,
+    );
   }
 
   /** Show the workflow-complete banner with a link to saved transcripts. */

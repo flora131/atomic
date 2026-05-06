@@ -51,6 +51,25 @@ export function setWindowOption(
 }
 
 /**
+ * Set a window option globally on the running mux server. Used for
+ * options that need to apply uniformly across every window in every
+ * session — `set-option -t <session> <window-option>` only updates
+ * the *current* window of that session, so new windows created later
+ * fall back to the built-in defaults. The `-gw` form sets the
+ * server-wide window-option default that every window inherits when
+ * it doesn't override locally.
+ *
+ * Atomic owns the mux server (`-L atomic`), so global scope here only
+ * affects atomic sessions.
+ */
+export function setGlobalWindowOption(
+  name: string,
+  value: string,
+): TmuxResult {
+  return tmuxRun(["set-option", "-gw", name, value]);
+}
+
+/**
  * Push a value into the `@atomic-<id>` user-option namespace. The
  * format string can reference these via `#{@atomic-<id>}` and psmux
  * re-renders the status line on the next refresh tick. This is the

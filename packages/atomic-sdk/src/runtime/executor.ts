@@ -617,7 +617,7 @@ export async function executeWorkflow(
   // overrides, ATOMIC_AGENT. Workflow-only extras (ATOMIC_WF_* and
   // diagnostics) stay in the orchestrator launcher script's env exports
   // since stage panes don't need them.
-  tmux.createSession(
+  const orchPaneId = tmux.createSession(
     tmuxSessionName,
     shellCmd,
     "orchestrator",
@@ -625,6 +625,16 @@ export async function executeWorkflow(
     sessionEnv,
     pathToAtomicExecutable,
   );
+
+  // Set up the workflow's status-line up-front so the default tmux
+  // window-list (`0:orchestrator …`) doesn't leak through before the
+  // first agent stage starts. The format is shared across all windows
+  // in this session and switches between the orchestrator and agent
+  // branches via `#{window_name}`, so this single call covers every
+  // future stage window too — `createSessionRunner` re-applies it per
+  // stage to refresh user-option state, but the orchestrator pane no
+  // longer flashes the default tmux status while waiting.
+  spawnAttachedFooter("orchestrator", orchPaneId, undefined, tmuxSessionName);
 
   if (detach) {
     // Session is already running detached on the atomic socket (tmux

@@ -24,7 +24,10 @@
 import { test, expect, describe } from "bun:test";
 import { isValidElement, type ReactElement, type ReactNode } from "react";
 
-import { attachedStatusline } from "../tui/attached-statusline.tsx";
+import {
+  attachedStatusline,
+  backgroundTasksValue,
+} from "../tui/attached-statusline.tsx";
 import { compile } from "../tui/compiler/parser.ts";
 import { Footer, FooterLeft, FooterRight } from "../tui/components.tsx";
 import type { GraphTheme } from "../components/graph-theme.ts";
@@ -80,20 +83,33 @@ describe("attachedStatusline (workflow variant)", () => {
     expect(props.fg).toBe(THEME.text);
   });
 
-  test("left/right wrap content in a per-window conditional", () => {
-    expect(compiledLeft.startsWith("#{?#{==:#{window_name},orchestrator},")).toBe(true);
+  test("right side wraps hints in a per-window conditional", () => {
     expect(compiledRight.startsWith("#{?#{==:#{window_name},orchestrator},")).toBe(true);
-    expect(compiledLeft.endsWith("}")).toBe(true);
     expect(compiledRight.endsWith("}")).toBe(true);
+  });
+
+  test("left pill switches GRAPH ↔ STAGE based on window_name", () => {
+    // The pill always renders so the user has a stable wayfinding
+    // anchor; only its label flips between modes. Asserting the
+    // literal conditional shape pins both branches at once.
+    expect(compiledLeft).toContain(
+      `#{?#{==:#{window_name},orchestrator},GRAPH,STAGE}`,
+    );
+  });
+
+  test("left bg-tasks counter only renders on the orchestrator window", () => {
+    // Background stages can only be interacted with from the graph
+    // view, so the counter is hidden from agent panes. The conditional
+    // sits next to the pill (sibling, not nested), so the pill itself
+    // is still visible from every pane.
+    expect(compiledLeft).toContain(
+      `#{?#{==:#{window_name},orchestrator},#{@atomic-bg-tasks},}`,
+    );
   });
 
   test("style attributes are space-separated (no commas inside #[…])", () => {
     expect(compiledLeft).not.toMatch(/#\[[^\]]*,[^\]]*\]/);
     expect(compiledRight).not.toMatch(/#\[[^\]]*,[^\]]*\]/);
-  });
-
-  test("orchestrator branch has GRAPH badge", () => {
-    expect(compiledLeft).toContain("GRAPH");
   });
 
   test("orchestrator branch has graph-mode key hints", () => {
@@ -103,12 +119,6 @@ describe("attachedStatusline (workflow variant)", () => {
     expect(compiledRight).toContain("quit");
   });
 
-  test("agent branch has window-name pill referencing #{window_name}", () => {
-    expect(compiledLeft).toContain("#{window_name}");
-    expect(compiledLeft).toContain("#[bg=#3366ff]");
-    expect(compiledLeft).toContain("#[fg=#111111 bold]");
-  });
-
   test("agent branch has agent-mode navigation hints", () => {
     expect(compiledRight).toContain("ctrl+g");
     expect(compiledRight).toContain("graph");
@@ -116,13 +126,32 @@ describe("attachedStatusline (workflow variant)", () => {
     expect(compiledRight).toContain("next");
   });
 
-  test("no nested conditionals in compiled output", () => {
-    // The outer `#{?cond,...,...}` is the only conditional; embedded
-    // `#{?…}` would re-trigger the psmux 3.3.3 render-time bug.
-    const occurrences = (compiledLeft.match(/#\{\?/g) ?? []).length;
-    expect(occurrences).toBe(1);
-    const occurrencesR = (compiledRight.match(/#\{\?/g) ?? []).length;
-    expect(occurrencesR).toBe(1);
+  test("conditionals are sibling, never nested", () => {
+    // Left has two top-level conditionals (pill label + bg-tasks gate);
+    // right has one (mode hints). Nesting is the psmux 3.3.3 render
+    // trigger, not multiplicity — two sibling conditionals are safe.
+    // The literal `toContain` assertions above already pin the exact
+    // shape of each conditional, so a count check is enough here to
+    // catch a new conditional sneaking inside an existing branch.
+    expect(compiledLeft.match(/#\{\?/g)?.length ?? 0).toBe(2);
+    expect(compiledRight.match(/#\{\?/g)?.length ?? 0).toBe(1);
+  });
+});
+
+describe("backgroundTasksValue", () => {
+  test("zero count produces empty string so the segment collapses", () => {
+    expect(backgroundTasksValue(0, THEME)).toBe("");
+    expect(backgroundTasksValue(-1, THEME)).toBe("");
+  });
+
+  test("positive count emits styled count + label with no commas", () => {
+    const value = backgroundTasksValue(3, THEME);
+    expect(value).toContain("3 background");
+    // Style attributes are space-separated — psmux 3.3.3 mishandles
+    // commas inside `#[…]` once expanded inside a `#{?…}` conditional.
+    expect(value).not.toMatch(/#\[[^\]]*,[^\]]*\]/);
+    expect(value).toContain(`bg=${THEME.backgroundElement}`);
+    expect(value).toContain(`fg=${THEME.warning}`);
   });
 });
 

@@ -20,7 +20,7 @@ import { isValidElement, type ReactElement, type ReactNode } from "react";
 
 import { Footer, FooterLeft, FooterRight } from "./components.tsx";
 import { compile } from "./compiler/parser.ts";
-import { setOption, setOptionRaw } from "./mux.ts";
+import { setGlobalWindowOption, setOption, setOptionRaw } from "./mux.ts";
 import type { FooterConfig } from "./types.ts";
 
 type FooterElement = ReactElement<{
@@ -99,10 +99,14 @@ export function renderFooter(
   setOption("status-right-length", "200", s);
   // Blank out the window-list region between status-left and status-right.
   // tmux/psmux default to rendering `#I:#W` per window (e.g. `0:bash 1:zsh*`),
-  // which competes visually with the agent pill and detach hint.
-  setOption("window-status-format", "", s);
-  setOption("window-status-current-format", "", s);
-  setOption("window-status-separator", "", s);
+  // which competes visually with the agent pill and detach hint. These are
+  // *window* options — `set-option -t <session>` only updates the session's
+  // current window, so newly-created stage windows would fall back to the
+  // built-in defaults and start showing tab names again. `-gw` sets the
+  // server-wide default that every window inherits.
+  setGlobalWindowOption("window-status-format", "");
+  setGlobalWindowOption("window-status-current-format", "");
+  setGlobalWindowOption("window-status-separator", "");
   if (config.bg !== undefined || config.fg !== undefined) {
     const styleParts: string[] = [];
     if (config.bg !== undefined) styleParts.push(`bg=${config.bg}`);

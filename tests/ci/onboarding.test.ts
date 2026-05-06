@@ -199,6 +199,10 @@ describe.skipIf(!isE2EEnabled)("onboarding preflight (compiled binary)", () => {
           }
         }
       },
+      // Compiled-binary cold start + tar bundle extraction exceeds Bun's
+      // 5s default on macOS/Windows runners; mirror runPreflight's internal
+      // 120s subprocess timeout so the test wrapper isn't the limiting factor.
+      120_000,
     );
   }
 });

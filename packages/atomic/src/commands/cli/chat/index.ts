@@ -24,7 +24,6 @@ import { COLORS } from "@bastani/atomic-sdk/theme/colors";
 import {
   getCommandPath,
 } from "@bastani/atomic-sdk/services/system/detect";
-import { checkAgentAuth, printAuthError } from "../../../services/system/auth.ts";
 import {
   ensureAtomicGlobalAgentConfigs,
 } from "../../../services/config/atomic-global-config.ts";
@@ -80,18 +79,9 @@ export interface ChatCommandOptions {
    * When true, run only the preflight steps (global config sync + project
    * onboarding) and exit 0 without spawning the agent CLI. Intended for
    * integration tests and CI smoke-checks; skips the executable-existence
-   * and auth checks so it works even when the agent CLI is not installed.
+   * check so it works even when the agent CLI is not installed.
    */
   preflightOnly?: boolean;
-  /**
-   * When true, skip the SDK-level auth probe in `checkAgentAuth`.
-   * Internal — exists so the cross-platform CI smoke matrix can exercise
-   * the *real* tmux launch path against a stub agent on PATH without
-   * needing live Claude / Copilot credentials. The chat flow continues
-   * normally past the auth gate; it does NOT alter what the agent CLI
-   * itself does once spawned.
-   */
-  noLogin?: boolean;
 }
 
 // ============================================================================
@@ -268,7 +258,7 @@ export function buildLauncherScript(
  * @returns Exit code from the agent process
  */
 export async function chatCommand(options: ChatCommandOptions = {}): Promise<number> {
-  const { agentType, passthroughArgs, preflightOnly, noLogin } = options;
+  const { agentType, passthroughArgs, preflightOnly } = options;
 
   if (!agentType) {
     throw new Error("agentType is required. Start chat with `atomic chat -a <agent>`.");
@@ -297,20 +287,6 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     );
     console.error(`Install it from: ${config.install_url}`);
     return 1;
-  }
-
-  // ── Preflight: authentication ──
-  // Copilot and Claude expose SDK-level login checks; run them now so
-  // users get a short actionable error instead of being dropped into a
-  // native CLI that immediately redirects them to /login. The
-  // `--no-login` escape hatch skips this for CI smoke-tests that pair
-  // a stub agent on PATH with the real chat-launch code path.
-  if (!noLogin) {
-    const auth = await checkAgentAuth(agentType);
-    if (!auth.loggedIn) {
-      printAuthError(agentType, auth);
-      return 1;
-    }
   }
 
   // ── Preflight: global config sync ──

@@ -1,7 +1,7 @@
 /**
  * Cross-platform chat-launch smoke for the published `atomic` binary.
  *
- * Spawns `<atomic-bin> chat -a <agent> --no-login` inside a real PTY
+ * Spawns `<atomic-bin> chat -a <agent>` inside a real PTY
  * (forkpty on Unix, ConPTY on Windows) so the chat command's
  * `process.stdin.isTTY` guard sees a terminal and doesn't fall back to
  * `spawnDirect`. Asserts that the stub agent ends up running INSIDE
@@ -67,7 +67,7 @@ env[pathKey] = `${stubDir}${delimiter}${process.env.PATH ?? ""}`;
 console.log(`Chat-smoke binary: ${atomicBin}`);
 console.log(`Stub agent dir:    ${stubDir}`);
 
-const proc = ptySpawn(atomicBin, ["chat", "-a", agent, "--no-login"], {
+const proc = ptySpawn(atomicBin, ["chat", "-a", agent], {
   name: "xterm-256color",
   cols: 120,
   rows: 40,

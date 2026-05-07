@@ -17,6 +17,7 @@ import {
   workflowReadCommand,
   resolveRunId,
   formatSize,
+  defaultDeps as readDefaultDeps,
   type WorkflowReadDeps,
   type ReadJsonPayload,
   type ReadJsonError,
@@ -264,6 +265,63 @@ describe("workflowReadCommand — error paths", () => {
     expect(code).toBe(1);
     const payload: ReadJsonError = JSON.parse(captured.stdout);
     expect(payload.error).toContain('"scou"');
+  });
+
+  test("text-format errors go to stderr, not stdout", async () => {
+    const code = await workflowReadCommand(
+      { sessionId: "deadbeef", format: "text" },
+      makeDeps(),
+    );
+    expect(code).toBe(1);
+    expect(captured.stderr).toContain("no session directory");
+    expect(captured.stdout).toBe("");
+  });
+
+  test("text-format renders hint line when failure has a hint", async () => {
+    const code = await workflowReadCommand(
+      { format: "text" }, // no sessionId → triggers hint
+      makeDeps(),
+    );
+    expect(code).toBe(1);
+    expect(captured.stderr).toContain("--sessionId");
+    expect(captured.stderr).toContain("Hint");
+  });
+
+  test("missing stage in a run with no stage subdirs reports empty-candidates hint", async () => {
+    // Build a fresh run dir with only run-level files (no stage subdirs).
+    const emptyRunId = "deadbee0";
+    const emptyRunDir = join(sessionsDir, emptyRunId);
+    await mkdir(emptyRunDir, { recursive: true });
+    await writeFile(join(emptyRunDir, "status.json"), "{}");
+
+    const code = await workflowReadCommand(
+      { sessionId: emptyRunId, stageId: "any-stage", format: "json" },
+      makeDeps(),
+    );
+    expect(code).toBe(1);
+    const payload: ReadJsonError = JSON.parse(captured.stdout);
+    expect(payload.hint).toContain("no stage subdirectories");
+  });
+});
+
+// ─── defaultDeps unit tests ──────────────────────────────────────────────────
+
+describe("defaultDeps", () => {
+  test("sessionsBaseDir resolves under the user's home directory", () => {
+    const path = readDefaultDeps.sessionsBaseDir();
+    expect(path).toContain(".atomic");
+    expect(path).toContain("sessions");
+  });
+
+  test("env(name) reads from process.env", () => {
+    const original = process.env.ATOMIC_READ_DEPS_TEST;
+    process.env.ATOMIC_READ_DEPS_TEST = "ok";
+    try {
+      expect(readDefaultDeps.env("ATOMIC_READ_DEPS_TEST")).toBe("ok");
+    } finally {
+      if (original === undefined) delete process.env.ATOMIC_READ_DEPS_TEST;
+      else process.env.ATOMIC_READ_DEPS_TEST = original;
+    }
   });
 });
 

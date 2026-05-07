@@ -14,6 +14,7 @@
 import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach } from "bun:test";
 import {
   workflowRefreshCommand,
+  defaultDeps as refreshDefaultDeps,
   type WorkflowRefreshDeps,
   type RefreshJsonPayload,
 } from "./workflow-refresh.ts";
@@ -248,6 +249,25 @@ describe("workflowRefreshCommand — exit codes", () => {
     expect(payload.ok).toBe(false);
     expect(payload.error).toContain("settings.json is malformed");
   });
+
+  test("exit 1 and stderr message when bootstrap throws (text format)", async () => {
+    const deps = makeDeps(() => Promise.reject(new Error("settings.json is malformed")));
+    const exitCode = await workflowRefreshCommand({ format: "text" }, deps);
+    expect(exitCode).toBe(1);
+    expect(captured.stderr).toContain("failed to read settings");
+    expect(captured.stderr).toContain("settings.json is malformed");
+    // stdout should be untouched in text-error mode (errors go to stderr).
+    expect(captured.stdout).toBe("");
+  });
+
+  test("non-Error thrown values are coerced to strings", async () => {
+    // eslint-disable-next-line prefer-promise-reject-errors
+    const deps = makeDeps(() => Promise.reject("string-only failure"));
+    const exitCode = await workflowRefreshCommand({ format: "json" }, deps);
+    expect(exitCode).toBe(1);
+    const payload = JSON.parse(captured.stdout);
+    expect(payload.error).toContain("string-only failure");
+  });
 });
 
 describe("workflowRefreshCommand — format resolution", () => {
@@ -318,6 +338,23 @@ describe("workflowRefreshCommand — text output (LM-scrapeable lines)", () => {
     await workflowRefreshCommand({ format: "text" }, makeDeps(result));
     expect(captured.stdout).toContain("/work/proj/.atomic/settings.json");
     expect(captured.stdout).toContain("/home/u/.atomic/settings.json");
+  });
+});
+
+describe("defaultDeps", () => {
+  test("cwd() returns process.cwd()", () => {
+    expect(refreshDefaultDeps.cwd()).toBe(process.cwd());
+  });
+
+  test("env(name) reads from process.env", () => {
+    const original = process.env.ATOMIC_REFRESH_DEPS_TEST;
+    process.env.ATOMIC_REFRESH_DEPS_TEST = "ok";
+    try {
+      expect(refreshDefaultDeps.env("ATOMIC_REFRESH_DEPS_TEST")).toBe("ok");
+    } finally {
+      if (original === undefined) delete process.env.ATOMIC_REFRESH_DEPS_TEST;
+      else process.env.ATOMIC_REFRESH_DEPS_TEST = original;
+    }
   });
 });
 

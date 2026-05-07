@@ -68,7 +68,7 @@ export interface WorkflowRefreshDeps {
   env: (name: string) => string | undefined;
 }
 
-const defaultDeps: WorkflowRefreshDeps = {
+export const defaultDeps: WorkflowRefreshDeps = {
   bootstrap: bootstrapCustomWorkflows,
   rebuild: rebuildWorkflowCommand,
   cwd: () => process.cwd(),

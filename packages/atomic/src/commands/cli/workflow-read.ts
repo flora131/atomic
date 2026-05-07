@@ -72,7 +72,7 @@ export interface WorkflowReadDeps {
   stat: typeof stat;
 }
 
-const defaultDeps: WorkflowReadDeps = {
+export const defaultDeps: WorkflowReadDeps = {
   sessionsBaseDir: () => join(homedir(), ".atomic", "sessions"),
   env: (name) => process.env[name],
   readdir,

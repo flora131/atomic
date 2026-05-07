@@ -27,7 +27,15 @@ export interface Manifest {
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
-const GITHUB_API_BASE = "https://api.github.com/repos/flora131/atomic";
+const DEFAULT_GITHUB_API_BASE = "https://api.github.com/repos/flora131/atomic";
+
+/**
+ * Resolved on each call (not cached) so CI can flip the override mid-process
+ * and so tests don't need to reload the module to pick up env changes.
+ */
+function githubApiBase(): string {
+    return process.env.ATOMIC_GITHUB_API_BASE ?? DEFAULT_GITHUB_API_BASE;
+}
 
 function buildHeaders(): Record<string, string> {
     const headers: Record<string, string> = {
@@ -56,12 +64,12 @@ async function githubGet(url: string): Promise<ReleaseInfo> {
 
 /** Fetch the latest release from the flora131/atomic repo. */
 export async function getLatestRelease(): Promise<ReleaseInfo> {
-    return githubGet(`${GITHUB_API_BASE}/releases/latest`);
+    return githubGet(`${githubApiBase()}/releases/latest`);
 }
 
 /** Fetch a specific release by tag name. */
 export async function getReleaseByTag(tag: string): Promise<ReleaseInfo> {
-    return githubGet(`${GITHUB_API_BASE}/releases/tags/${encodeURIComponent(tag)}`);
+    return githubGet(`${githubApiBase()}/releases/tags/${encodeURIComponent(tag)}`);
 }
 
 /**

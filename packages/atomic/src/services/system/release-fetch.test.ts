@@ -60,11 +60,14 @@ function fakeStreamResponse(bytes: Uint8Array, status = 200): Response {
 
 let fetchSpy: Mock<typeof fetch>;
 let savedGithubToken: string | undefined;
+let savedApiBase: string | undefined;
 
 beforeEach(() => {
     fetchSpy = spyOn(globalThis, "fetch");
     savedGithubToken = process.env.GITHUB_TOKEN;
     delete process.env.GITHUB_TOKEN;
+    savedApiBase = process.env.ATOMIC_GITHUB_API_BASE;
+    delete process.env.ATOMIC_GITHUB_API_BASE;
 });
 
 afterEach(() => {
@@ -73,6 +76,11 @@ afterEach(() => {
         process.env.GITHUB_TOKEN = savedGithubToken;
     } else {
         delete process.env.GITHUB_TOKEN;
+    }
+    if (savedApiBase !== undefined) {
+        process.env.ATOMIC_GITHUB_API_BASE = savedApiBase;
+    } else {
+        delete process.env.ATOMIC_GITHUB_API_BASE;
     }
 });
 
@@ -140,6 +148,16 @@ describe("getLatestRelease", () => {
             msg = (e as Error).message;
         }
         expect(msg).toContain("GitHub API error 403");
+    });
+
+    test("ATOMIC_GITHUB_API_BASE redirects requests to the override host", async () => {
+        process.env.ATOMIC_GITHUB_API_BASE = "http://localhost:4874/repos/flora131/atomic";
+        fetchSpy.mockResolvedValueOnce(fakeJsonResponse(makeRelease("v0.7.9")));
+
+        await getLatestRelease();
+
+        const [url] = fetchSpy.mock.calls[0] as [string, RequestInit];
+        expect(url).toBe("http://localhost:4874/repos/flora131/atomic/releases/latest");
     });
 });
 

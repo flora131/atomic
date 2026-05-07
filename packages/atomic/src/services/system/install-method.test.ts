@@ -214,6 +214,58 @@ describe("detectInstallMethod probe behavior", () => {
         });
         expect(result.kind).toBe("unknown");
     });
+
+    test("probe loop: all PMs return non-zero → falls through to unknown", async () => {
+        // Stub Bun.spawn so each `<pm> ls -g` returns exitCode=1, stdout="".
+        // This exercises the real `defaultSpawn` and the for-loop in
+        // `detectInstallMethod`, which the skipProbe tests bypass entirely.
+        const { spyOn } = await import("bun:test");
+        const spawnSpy = spyOn(Bun, "spawn").mockImplementation(((_opts: { cmd: string[] }) => ({
+            stdout: new Response("").body,
+            stderr: new Response("").body,
+            exited: Promise.resolve(1),
+            kill: () => {},
+        })) as unknown as typeof Bun.spawn);
+
+        try {
+            const fakeExec = join(tmp, "elsewhere", "atomic");
+            mkdirSync(join(tmp, "elsewhere"), { recursive: true });
+            const result = await detectInstallMethod({ execPath: fakeExec, cwd: tmp });
+            expect(result.kind).toBe("unknown");
+            // All four PMs were probed.
+            expect(spawnSpy.mock.calls.length).toBe(4);
+        } finally {
+            spawnSpy.mockRestore();
+        }
+    });
+
+    test("probe loop: a PM owns the package → returns that PM kind", async () => {
+        const { spyOn } = await import("bun:test");
+        // Order in detectInstallMethod is bun, pnpm, npm, yarn. Make `bun pm ls -g`
+        // succeed and contain the package — first hit short-circuits.
+        const spawnSpy = spyOn(Bun, "spawn").mockImplementation(((opts: { cmd: string[] }) => {
+            const isBun = opts.cmd[0] === "bun";
+            const stdout = isBun ? `${ATOMIC_PACKAGE_NAME}@0.7.8\n` : "";
+            return {
+                stdout: new Response(stdout).body,
+                stderr: new Response("").body,
+                exited: Promise.resolve(isBun ? 0 : 1),
+                kill: () => {},
+            };
+        }) as unknown as typeof Bun.spawn);
+
+        try {
+            const fakeExec = join(tmp, "elsewhere", "atomic");
+            mkdirSync(join(tmp, "elsewhere"), { recursive: true });
+            const result = await detectInstallMethod({ execPath: fakeExec, cwd: tmp });
+            expect(result.kind).toBe("bun");
+            if (result.kind === "bun") {
+                expect(result.binPath).toBe(fakeExec);
+            }
+        } finally {
+            spawnSpy.mockRestore();
+        }
+    });
 });
 
 // ── source checkout detection ──────────────────────────────────────────────

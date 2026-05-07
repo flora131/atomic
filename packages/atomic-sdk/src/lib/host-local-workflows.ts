@@ -34,7 +34,7 @@ import type { runWorkflow as RealRunWorkflow } from "../primitives/run.ts";
 import {
   validateDispatchToken,
   parseAtomicRunArgv,
-} from "./auto-dispatch.ts";
+} from "./dispatch-utils.ts";
 
 /**
  * Structural shape accepted by `hostLocalWorkflows()`.

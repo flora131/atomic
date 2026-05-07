@@ -39,6 +39,18 @@ jobs:
             - name: Run linting
               run: bun run lint
 
+            # Build the host-target binary BEFORE `bun test` so the
+            # `describe.skipIf(!builtBinary)` gates in
+            # `packages/atomic-sdk/src/runtime/orchestrator-entry.test.ts`
+            # (and any future binary-gated suites) actually execute. Without
+            # this step these tests silently skip on every PR — exactly how
+            # the host-local-workflows TDZ regression slipped through. The
+            # binary-gated tests now `throw` instead of returning `null`
+            # when `process.env.CI` is set and no binary exists, so a
+            # missing build is a hard failure rather than a silent skip.
+            - name: Build host-target binary
+              run: bun packages/atomic/script/build.ts
+
             - name: Run tests with coverage
               run: |
                   set -o pipefail

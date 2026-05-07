@@ -46,6 +46,13 @@ coveragePathIgnorePatterns = [
   "packages/atomic-sdk/src/runtime/attached-footer.ts",
   "packages/atomic-sdk/src/runtime/cc-debounce.ts",
   "packages/atomic-sdk/src/runtime/executor.ts",
+  # `runtime/tmux.ts` is a thin wrapper around `tmuxExec(...)` subprocess
+  # calls into a real tmux/psmux server. The integration tests that
+  # exercised these wrappers were removed because they ran on the same
+  # `atomic` socket as the user's chat sessions and could detach an
+  # attached client mid-`bun test`. Pure helpers (parsers, env-var
+  # guards, hook builders) remain covered by tmux.test.ts.
+  "packages/atomic-sdk/src/runtime/tmux.ts",
   # `runOrchestratorEntry` / `runOrchestratorWithDefinition` both delegate
   # to `runOrchestrator` (tmux-bound), so the function bodies aren't unit-
   # testable. The new `resolveWorkflowDefinition` helper IS unit-tested by

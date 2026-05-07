@@ -3,16 +3,10 @@
  *
  * Uses the real SDK fixture at tests/fixtures/sdk-host-consumer/index.ts
  * to exercise the full spawn-parse cycle that the production loader
- * (loadCustomWorkflows) drives, as well as two direct-spawn paths that
+ * (loadCustomWorkflows) drives, as well as direct-spawn paths that
  * exercise hostLocalWorkflows() behaviour:
  *   1. _emit-workflow-meta with valid token  → ATOMIC_WORKFLOW_META emitted
  *   2. no env tokens                         → user main() runs, no meta
- *   3. _atomic-run --detach                  → exit 0 (creates tmux session)
- *
- * Test 3 uses --detach because the foreground attach path calls
- * `tmux switch-client`, which requires an active tmux client and therefore
- * fails in a plain terminal test harness.  The detach path creates the
- * session and exits 0 without attaching.
  */
 
 import { test, expect, beforeAll, afterAll } from "bun:test";
@@ -31,81 +25,13 @@ beforeAll(() => {
   _priorMetaTimeout = process.env.ATOMIC_WORKFLOWS_META_TIMEOUT_MS;
   process.env.ATOMIC_WORKFLOWS_META_TIMEOUT_MS = "15000";
 });
-afterAll(async () => {
+afterAll(() => {
   if (_priorMetaTimeout === undefined) {
     delete process.env.ATOMIC_WORKFLOWS_META_TIMEOUT_MS;
   } else {
     process.env.ATOMIC_WORKFLOWS_META_TIMEOUT_MS = _priorMetaTimeout;
   }
-
-  // Tear down any mux sessions + orchestrator processes the
-  // `_atomic-run --detach` test spawned. Two-step cleanup is required:
-  //
-  //   1. Kill the mux session via the SDK's platform-agnostic helper
-  //      (tmux on POSIX, psmux on Windows) — drops the launcher script
-  //      and the pane.
-  //   2. Kill the orchestrator-entry bun process. The mux's
-  //      `kill-session` only HUPs the pane's direct child; that child
-  //      doesn't propagate to its bun grandchild, so bun gets
-  //      reparented to init/PID 1 and stays alive (atomic's runtime
-  //      ignores SIGHUP by design so the orchestrator survives client
-  //      detach for `--detach` mode — but it means tests must signal
-  //      bun explicitly to reap it).
-  //
-  // Without this, every test run leaks one mux session and one bun
-  // process, which accumulate across iterations and slow the box down.
-  await reapDetachedTestArtifacts();
 });
-
-/**
- * Cross-platform cleanup for orphans the `_atomic-run --detach` test
- * leaves behind. Implemented in TypeScript (rather than a bash
- * one-liner) so Windows devs running the suite under PowerShell get
- * the same teardown — the mux helper handles tmux-vs-psmux, and the
- * process-listing branch picks `ps` on POSIX and `wmic` on Windows.
- */
-async function reapDetachedTestArtifacts(): Promise<void> {
-  // 1. Kill any leftover mux sessions matching the test fixture's prefix.
-  try {
-    const { listSessions, killSession } = await import("@bastani/atomic-sdk/runtime/tmux");
-    for (const s of listSessions()) {
-      if (s.name.startsWith("atomic-wf-claude-demo-wf-")) {
-        killSession(s.name);
-      }
-    }
-  } catch {
-    // Mux binary may be absent (e.g. CI sandbox without tmux/psmux);
-    // nothing to clean up in that case.
-  }
-
-  // 2. Kill orphan orchestrator-entry bun processes.
-  const isWin = process.platform === "win32";
-  if (isWin) {
-    // Windows: use wmic to list pids whose CommandLine references our
-    // fixture, then taskkill each. wmic is available out of the box on
-    // every supported Windows release.
-    Bun.spawnSync({
-      cmd: ["powershell", "-NoProfile", "-Command",
-        "Get-CimInstance Win32_Process | " +
-        "Where-Object { $_.CommandLine -match '_orchestrator-entry .*demo-wf' } | " +
-        "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }",
-      ],
-      stdout: "ignore",
-      stderr: "ignore",
-    });
-  } else {
-    // POSIX: ps + awk + kill. Bash is guaranteed present on Linux/macOS;
-    // even minimal containers ship `/bin/sh` + `ps` + `awk` + `kill`.
-    Bun.spawnSync({
-      cmd: ["sh", "-c",
-        "ps -eo pid,cmd | awk '/bun.*_orchestrator-entry .*demo-wf/ && !/awk/ {print $1}' | " +
-        "xargs -r kill -TERM 2>/dev/null; true",
-      ],
-      stdout: "ignore",
-      stderr: "ignore",
-    });
-  }
-}
 
 // ─── Fixture path ─────────────────────────────────────────────────────────────
 
@@ -226,38 +152,7 @@ test("RFC §8.3 symmetry: fixture invoked with _emit-workflow-meta and valid env
   expect(first["agent"]).toBe("claude");
 }, 30000);
 
-// ─── Test 3: _atomic-run --detach path exits 0 ────────────────────────────────
-
-test("hostLocalWorkflows _atomic-run --detach path creates tmux session and exits 0", async () => {
-  // The foreground _atomic-run path calls `tmux switch-client` which requires
-  // an active tmux client.  Using --detach avoids the attach step so the
-  // process can exit cleanly in a plain terminal harness.
-  const token = "a".repeat(32);
-  const child = Bun.spawn(
-    [
-      "bun", "run", FIXTURE_ENTRY,
-      "_atomic-run",
-      `--dispatch-token=${token}`,
-      "--name", "demo-wf",
-      "--agent", "claude",
-      "--detach",
-    ],
-    {
-      stdout: "pipe",
-      stderr: "pipe",
-      env: {
-        PATH: process.env.PATH ?? "",
-        ATOMIC_HOST: "1",
-        ATOMIC_DISPATCH_TOKEN: token,
-      },
-    },
-  );
-
-  const exitCode = await child.exited;
-  expect(exitCode).toBe(0);
-}, 30000);
-
-// ─── Test 4: _runtime-assets-smoke skips workflow bootstrap ───────────────────
+// ─── Test 3: _runtime-assets-smoke skips workflow bootstrap ───────────────────
 
 test("_runtime-assets-smoke exits 0 and does not trigger workflow bootstrap even with broken workflow entry", async () => {
   // Write a settings.json whose workflow command crashes with exit 7 and never

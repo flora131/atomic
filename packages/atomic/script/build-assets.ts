@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
-import { join, basename } from "node:path";
+import { join, basename, relative } from "node:path";
 import { findRepoRoot } from "../src/lib/workspace-paths.ts";
 
 interface ArchiveSpec {
@@ -62,10 +62,19 @@ export async function bundleEmbeddedAssets(rootDir: string): Promise<void> {
 
   for (const { outPath, leafDir, excludes } of archives) {
     const excludeArgs = (excludes ?? []).map((ex) => `--exclude=${ex}`);
+    // Run tar from rootDir with relative paths so GNU tar (Git Bash on
+    // Windows) doesn't try to resolve a drive-letter prefix as an
+    // rsh-style remote host. `tar -cf D:\…` fails with
+    // `tar: Cannot connect to D: resolve failed` because GNU tar parses
+    // `<host>:<path>` as a remote tarball; bsdtar from Windows system32
+    // doesn't have that quirk, but the test preload runs under bash on
+    // every OS, so we must work for both implementations.
+    const relOut = relative(rootDir, outPath);
+    const relLeaf = relative(rootDir, leafDir);
     const r = spawnSync(
       "tar",
-      ["-cf", outPath, ...excludeArgs, "-C", leafDir, "."],
-      { stdio: "inherit" },
+      ["-cf", relOut, ...excludeArgs, "-C", relLeaf, "."],
+      { stdio: "inherit", cwd: rootDir },
     );
     if (r.status !== 0) {
       throw new Error(
@@ -73,7 +82,7 @@ export async function bundleEmbeddedAssets(rootDir: string): Promise<void> {
       );
     }
 
-    const list = spawnSync("tar", ["-tf", outPath], { encoding: "utf8" });
+    const list = spawnSync("tar", ["-tf", relOut], { encoding: "utf8", cwd: rootDir });
     if (list.status !== 0) {
       throw new Error(`bundleEmbeddedAssets: tar -tf failed for ${outPath} (exit ${list.status})`);
     }

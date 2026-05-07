@@ -165,44 +165,6 @@ function makeManifestContent(): string {
     return JSON.stringify(manifest);
 }
 
-/**
- * Run updateCommand with the given install method, capturing the argv that
- * Bun.spawn would have been invoked with (the spawn itself is faked to exit 0).
- */
-async function runDispatchAndCapture(
-    method: InstallMethod,
-): Promise<{ code: number; argv: string[] }> {
-    detectInstallMethodResult = method;
-    let argv: string[] = [];
-    const spawnSpy = spyOn(Bun, "spawn").mockImplementation(((opts: { cmd: string[] }) => {
-        argv = opts.cmd;
-        return { exited: Promise.resolve(0) } as ReturnType<typeof Bun.spawn>;
-    }) as typeof Bun.spawn);
-    try {
-        const code = await updateCommand({ yes: true });
-        return { code, argv };
-    } finally {
-        spawnSpy.mockRestore();
-    }
-}
-
-/**
- * Run updateCommand with a Bun.spawn that throws ENOENT, returning the exit code
- * so callers can additionally assert the rendered error hint.
- */
-async function runEnoentScenario(method: InstallMethod): Promise<number> {
-    detectInstallMethodResult = method;
-    const enoentErr = Object.assign(new Error("ENOENT: not found"), { code: "ENOENT" });
-    const spawnSpy = spyOn(Bun, "spawn").mockImplementation(
-        ((() => { throw enoentErr; }) as unknown) as typeof Bun.spawn,
-    );
-    try {
-        return await updateCommand({ yes: true });
-    } finally {
-        spawnSpy.mockRestore();
-    }
-}
-
 // ── Setup / teardown ──────────────────────────────────────────────────────────
 
 beforeEach(() => {
@@ -308,38 +270,49 @@ describe("updateCommand", () => {
         }
     });
 
-    test("bun-global delegates to bun (P1 regression)", async () => {
-        const { code, argv } = await runDispatchAndCapture({
-            kind: "bun",
-            binPath: "/home/user/.bun/bin/atomic",
-        });
-        expect(code).toBe(0);
-        expect(argv).toEqual(["bun", "add", "-g", "@bastani/atomic@latest"]);
-    });
+    // ── PM-managed installs: atomic update is intentionally NOT dispatched
+    //    to the PM. Users are told to run `<pm> update -g` themselves so the
+    //    PM remains the single source of truth for global packages.
+    type PmCase = { kind: "bun" | "npm" | "pnpm" | "yarn"; hint: string };
+    const PM_CASES: readonly PmCase[] = [
+        { kind: "bun",  hint: "bun update -g @bastani/atomic" },
+        { kind: "npm",  hint: "npm update -g @bastani/atomic" },
+        { kind: "pnpm", hint: "pnpm update -g @bastani/atomic" },
+        { kind: "yarn", hint: "yarn global upgrade @bastani/atomic" },
+    ];
 
-    test("npm dispatch", async () => {
-        const { argv } = await runDispatchAndCapture({
-            kind: "npm",
-            binPath: "/usr/lib/node_modules/.bin/atomic",
+    for (const { kind, hint } of PM_CASES) {
+        test(`${kind} install: rejects update with PM hint, never spawns`, async () => {
+            detectInstallMethodResult = { kind, binPath: `/fake/${kind}/atomic` };
+            const spawnSpy = spyOn(Bun, "spawn");
+            try {
+                const code = await updateCommand({ yes: true });
+                expect(code).toBe(1);
+                expect(spawnSpy).not.toHaveBeenCalled();
+                const errorCalls = logErrorMock.mock.calls.map((c) => String(c[0]));
+                const infoCalls = logInfoMock.mock.calls.map((c) => String(c[0]));
+                const allLogs = [...errorCalls, ...infoCalls].join("\n");
+                expect(allLogs).toContain(`not available for ${kind}`);
+                expect(allLogs).toContain(hint);
+            } finally {
+                spawnSpy.mockRestore();
+            }
         });
-        expect(argv).toEqual(["npm", "install", "-g", "@bastani/atomic@latest"]);
-    });
 
-    test("pnpm dispatch", async () => {
-        const { argv } = await runDispatchAndCapture({
-            kind: "pnpm",
-            binPath: "/usr/lib/node_modules/.bin/atomic",
+        test(`${kind} install: --check renders PM hint, exits 0, never spawns`, async () => {
+            detectInstallMethodResult = { kind, binPath: `/fake/${kind}/atomic` };
+            const spawnSpy = spyOn(Bun, "spawn");
+            try {
+                const code = await updateCommand({ check: true });
+                expect(code).toBe(0);
+                expect(spawnSpy).not.toHaveBeenCalled();
+                const noteCalls = noteMock.mock.calls.map((c) => String(c[0]));
+                expect(noteCalls.some((m) => m.includes(`installed via ${kind}`) && m.includes(hint))).toBe(true);
+            } finally {
+                spawnSpy.mockRestore();
+            }
         });
-        expect(argv).toEqual(["pnpm", "add", "-g", "@bastani/atomic@latest"]);
-    });
-
-    test("yarn dispatch", async () => {
-        const { argv } = await runDispatchAndCapture({
-            kind: "yarn",
-            binPath: "/usr/lib/node_modules/.bin/atomic",
-        });
-        expect(argv).toEqual(["yarn", "global", "add", "@bastani/atomic@latest"]);
-    });
+    }
 
     test("source exits non-zero with guidance", async () => {
         detectInstallMethodResult = { kind: "source" };
@@ -373,77 +346,6 @@ describe("updateCommand", () => {
             const allLogs = [...errorCalls, ...infoCalls].join("\n");
             expect(allLogs).toMatch(/installer|package manager/i);
             expect(allLogs).not.toContain("git pull");
-        } finally {
-            spawnSpy.mockRestore();
-        }
-    });
-
-    test("--check on PM method probes upstream version and prints metadata", async () => {
-        detectInstallMethodResult = { kind: "bun", binPath: "/home/user/.bun/bin/atomic" };
-
-        // Stub `bun pm view @bastani/atomic version` → "0.7.9"
-        const spawnSpy = spyOn(Bun, "spawn").mockImplementation(((_opts: { cmd: string[] }) => ({
-            stdout: new Response("0.7.9\n").body,
-            stderr: new Response("").body,
-            exited: Promise.resolve(0),
-        })) as unknown as typeof Bun.spawn);
-
-        try {
-            const code = await updateCommand({ check: true });
-            expect(code).toBe(0);
-
-            // We spawned the version-probe subprocess.
-            expect(spawnSpy).toHaveBeenCalledTimes(1);
-            const spawnArgs = spawnSpy.mock.calls[0] as unknown as [{ cmd: string[] }];
-            expect(spawnArgs[0].cmd).toEqual(["bun", "pm", "view", "@bastani/atomic", "version"]);
-
-            // note() rendered with current/target/method.
-            const noteCalls = noteMock.mock.calls.map((c) => String(c[0]));
-            expect(noteCalls.some((m) => m.includes("current=") && m.includes("target=0.7.9") && m.includes("method=bun"))).toBe(true);
-        } finally {
-            spawnSpy.mockRestore();
-        }
-    });
-
-    test("--check on yarn parses --json output", async () => {
-        detectInstallMethodResult = { kind: "yarn", binPath: "/usr/lib/node_modules/.bin/atomic" };
-
-        const yarnJson = JSON.stringify({ type: "inspect", data: "0.8.1" }) + "\n";
-        const spawnSpy = spyOn(Bun, "spawn").mockImplementation(((_opts: { cmd: string[] }) => ({
-            stdout: new Response(yarnJson).body,
-            stderr: new Response("").body,
-            exited: Promise.resolve(0),
-        })) as unknown as typeof Bun.spawn);
-
-        try {
-            const code = await updateCommand({ check: true });
-            expect(code).toBe(0);
-            const argv = (spawnSpy.mock.calls[0] as unknown as [{ cmd: string[] }])[0].cmd;
-            expect(argv).toEqual(["yarn", "info", "@bastani/atomic", "version", "--json"]);
-            const noteCalls = noteMock.mock.calls.map((c) => String(c[0]));
-            expect(noteCalls.some((m) => m.includes("target=0.8.1") && m.includes("method=yarn"))).toBe(true);
-        } finally {
-            spawnSpy.mockRestore();
-        }
-    });
-
-    test("--check on PM method renders fallback note when probe fails", async () => {
-        detectInstallMethodResult = { kind: "npm", binPath: "/usr/lib/node_modules/.bin/atomic" };
-
-        // Probe fails: non-zero exit + stderr.
-        const spawnSpy = spyOn(Bun, "spawn").mockImplementation(((_opts: { cmd: string[] }) => ({
-            stdout: new Response("").body,
-            stderr: new Response("npm ERR! E404\n").body,
-            exited: Promise.resolve(1),
-        })) as unknown as typeof Bun.spawn);
-
-        try {
-            const code = await updateCommand({ check: true });
-            expect(code).toBe(0);
-            const argv = (spawnSpy.mock.calls[0] as unknown as [{ cmd: string[] }])[0].cmd;
-            expect(argv).toEqual(["npm", "view", "@bastani/atomic", "version"]);
-            const noteCalls = noteMock.mock.calls.map((c) => String(c[0]));
-            expect(noteCalls.some((m) => m.includes("target lookup failed"))).toBe(true);
         } finally {
             spawnSpy.mockRestore();
         }
@@ -551,23 +453,4 @@ describe("updateCommand", () => {
         }
     });
 
-    test("ENOENT on bun returns 1 with corrected hint", async () => {
-        const code = await runEnoentScenario({
-            kind: "bun",
-            binPath: "/home/user/.bun/bin/atomic",
-        });
-        expect(code).toBe(1);
-        const errorCalls = logErrorMock.mock.calls.map((c) => String(c[0]));
-        expect(errorCalls.some((m) => m.includes("bun add -g @bastani/atomic"))).toBe(true);
-    });
-
-    test("ENOENT on yarn hints \"yarn global add\" (P3)", async () => {
-        const code = await runEnoentScenario({
-            kind: "yarn",
-            binPath: "/usr/lib/node_modules/.bin/atomic",
-        });
-        expect(code).toBe(1);
-        const errorCalls = logErrorMock.mock.calls.map((c) => String(c[0]));
-        expect(errorCalls.some((m) => m.includes("yarn global add"))).toBe(true);
-    });
 });

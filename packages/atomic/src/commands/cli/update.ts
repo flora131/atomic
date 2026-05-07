@@ -1,8 +1,14 @@
 /**
  * `atomic update` — self-update entry point.
  *
- * Dispatches to the appropriate upgrade path based on how atomic was
- * installed (binary download, bun, npm, pnpm, yarn, or source checkout).
+ * Only the standalone binary install is updatable from the CLI: the
+ * binary downloads its successor from GitHub Releases, verifies the
+ * sha256, and atomic-moves it into the install path.
+ *
+ * Package-manager installs (bun / npm / pnpm / yarn) deliberately fall
+ * through to a guidance message — those installs are owned by the PM,
+ * so the user runs `<pm> update -g @bastani/atomic` instead and we
+ * don't shell out to the PM ourselves.
  */
 
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -34,8 +40,6 @@ export interface UpdateOptions {
     readonly version?: string;
 }
 
-const PACKAGE_NAME = "@bastani/atomic";
-
 // ── Platform helpers ─────────────────────────────────────────────────────────
 
 const IS_WINDOWS = process.platform === "win32";
@@ -46,74 +50,21 @@ function hostTarget(): string {
     return `${plat}-${process.arch}`;
 }
 
-// ── PM-delegate helper ────────────────────────────────────────────────────────
+// ── PM guidance ──────────────────────────────────────────────────────────────
 
 type PmKind = "bun" | "npm" | "pnpm" | "yarn";
 
-function buildPmViewArgv(pm: PmKind): string[] {
+/**
+ * The actual command users should run to upgrade a global PM install.
+ * Mirrors each PM's idiomatic global-update spelling — yarn keeps its
+ * own `global upgrade` form rather than the `add` aliases.
+ */
+function pmUpdateHint(pm: PmKind): string {
     switch (pm) {
-        case "bun":  return ["bun", "pm", "view", PACKAGE_NAME, "version"];
-        case "npm":  return ["npm", "view", PACKAGE_NAME, "version"];
-        case "pnpm": return ["pnpm", "view", PACKAGE_NAME, "version"];
-        case "yarn": return ["yarn", "info", PACKAGE_NAME, "version", "--json"];
-    }
-}
-
-async function fetchPmUpstreamVersion(pm: PmKind): Promise<string> {
-    const argv = buildPmViewArgv(pm);
-    const proc = Bun.spawn({
-        cmd: argv,
-        stdout: "pipe",
-        stderr: "pipe",
-        signal: AbortSignal.timeout(5000),
-    });
-    const exitCode = await proc.exited;
-    if (exitCode !== 0) {
-        const stderr = await new Response(proc.stderr).text();
-        throw new Error(stderr.trim() || `${pm} view exited with code ${exitCode}`);
-    }
-    const stdout = await new Response(proc.stdout).text();
-    if (pm === "yarn") {
-        // yarn --json outputs `{"type":"inspect","data":"<version>"}` per line
-        for (const line of stdout.split("\n")) {
-            const trimmed = line.trim();
-            if (!trimmed) continue;
-            try {
-                const parsed = JSON.parse(trimmed) as { data?: string };
-                if (parsed.data) return parsed.data.trim();
-            } catch {
-                // not JSON, skip
-            }
-        }
-        throw new Error("yarn info: could not parse version from JSON output");
-    }
-    return stdout.trim();
-}
-
-function buildPmArgv(pm: PmKind, packageSpec: string): string[] {
-    switch (pm) {
-        case "bun":  return ["bun", "add", "-g", packageSpec];
-        case "npm":  return ["npm", "install", "-g", packageSpec];
-        case "pnpm": return ["pnpm", "add", "-g", packageSpec];
-        case "yarn": return ["yarn", "global", "add", packageSpec];
-    }
-}
-
-async function runPmUpgrade(pm: PmKind, target: string): Promise<number> {
-    const argv = buildPmArgv(pm, `${PACKAGE_NAME}@${target}`);
-    try {
-        const proc = Bun.spawn({ cmd: argv, stdio: ["inherit", "inherit", "inherit"] });
-        return await proc.exited;
-    } catch (err) {
-        const e = err as NodeJS.ErrnoException;
-        if (e.code === "ENOENT") {
-            // Match the actual upgrade command per PM (yarn → "yarn global add").
-            const manualHint = buildPmArgv(pm, PACKAGE_NAME).join(" ");
-            log.error(`${pm} not found on PATH; reinstall it or run: ${manualHint}`);
-        } else {
-            log.error(`Failed to run ${pm}: ${e.message}`);
-        }
-        return 1;
+        case "bun":  return "bun update -g @bastani/atomic";
+        case "npm":  return "npm update -g @bastani/atomic";
+        case "pnpm": return "pnpm update -g @bastani/atomic";
+        case "yarn": return "yarn global upgrade @bastani/atomic";
     }
 }
 
@@ -273,31 +224,19 @@ export async function updateCommand(opts: UpdateOptions = {}): Promise<number> {
         case "bun":
         case "npm":
         case "pnpm":
-        case "yarn":
+        case "yarn": {
+            const hint = pmUpdateHint(method.kind);
             if (opts.check) {
-                let pmTarget: string | undefined;
-                let reason: string | undefined;
-                try {
-                    pmTarget = await fetchPmUpstreamVersion(method.kind);
-                } catch (err) {
-                    reason = err instanceof Error ? err.message : String(err);
-                }
-                if (pmTarget !== undefined) {
-                    const upToDate = !isNewer(pmTarget, VERSION);
-                    note(
-                        `current=${VERSION}  target=${pmTarget}  method=${method.kind}${upToDate ? "  (up to date)" : ""}`,
-                        "atomic update --check",
-                    );
-                } else {
-                    note(
-                        `current=${VERSION}  method=${method.kind}  (target lookup failed: ${reason})`,
-                        "atomic update --check",
-                    );
-                }
+                note(
+                    `atomic was installed via ${method.kind}.\nTo update, run: ${hint}`,
+                    "atomic update --check",
+                );
                 return 0;
             }
-            log.info(`Updating via ${method.kind}...`);
-            return runPmUpgrade(method.kind, target);
+            log.error(`atomic update is not available for ${method.kind} installs.`);
+            log.info(`To update, run: ${hint}`);
+            return 1;
+        }
 
         case "source":
             log.error("Cannot auto-update: atomic is running from a source checkout.");

@@ -438,27 +438,25 @@ jobs:
       # ────────────────────────────────────────────────────────────────────
       # ── `atomic update` lifecycle ──────────────────────────────────────
       # ────────────────────────────────────────────────────────────────────
-      # Three checks run before uninstall:
-      #   1. PM `--check` smoke           — probes upstream version via
-      #                                     `bun pm view` etc., asserts
-      #                                     note rendering.
-      #   2. Binary download path         — points the CLI at a local
-      #                                     mock GitHub Releases server
-      #                                     (script/ci/mock-gh-releases.ts)
-      #                                     and runs the binary at its
-      #                                     install path so detection
-      #                                     returns "binary".
-      #   3. PM upgrade roundtrip         — bumps version to vN+1, re-
-      #                                     publishes to verdaccio, then
-      #                                     runs `atomic update -y` with
-      #                                     bun pinned at the local
-      #                                     registry.
+      # `atomic update` is only a real upgrade path for the standalone
+      # binary install. PM-managed installs (bun/npm/pnpm/yarn) just print
+      # guidance pointing at the PM's own update command.
       #
-      # Caveat: the binaries themselves don't change between vN and vN+1
-      # (we re-tarball the same compiled output to keep the matrix cheap),
-      # so `atomic --version` reports vN throughout. The tests assert the
-      # update plumbing succeeds (download / verify / swap / spawn) but
-      # not that the version string advanced.
+      #   1. PM `--check` smoke   — runs against the bun-installed wrapper
+      #                             and asserts the rendered note tells
+      #                             the user to run `bun update -g`.
+      #   2. Binary download path — generates release-assets, points the
+      #                             CLI at a local mock GitHub Releases
+      #                             server (script/ci/mock-gh-releases.ts),
+      #                             and runs the installed binary so
+      #                             detection returns "binary". Exercises
+      #                             real download / verify / swap / spawn
+      #                             on every supported platform.
+      #
+      # Caveat (binary path): the same compiled binary is served as the
+      # vN+1 asset to keep the matrix cheap, so `atomic --version` still
+      # reports vN after the swap. The test asserts the plumbing
+      # succeeded, not that the version string advanced.
       - name: Compute host target
         id: host
         shell: bash
@@ -485,6 +483,9 @@ jobs:
         run: bun packages/atomic/script/release-assets.ts
 
       # ── 1. PM `--check` smoke ─────────────────────────────────────────
+      # `atomic` on PATH resolves to the bun-installed wrapper, so
+      # detectInstallMethod returns "bun" and `--check` should render
+      # a PM-update hint, not version metadata.
       - name: atomic update --check (Unix)
         if: runner.os != 'Windows'
         shell: bash
@@ -496,8 +497,8 @@ jobs:
             exit 1
           }
           echo "$out"
-          echo "$out" | grep -q "current=" || { echo "missing 'current=' in --check output"; exit 1; }
-          echo "$out" | grep -qE "method=(bun|npm|pnpm|yarn)" || { echo "missing 'method=<pm>' in --check output"; exit 1; }
+          echo "$out" | grep -q "installed via bun"           || { echo "missing 'installed via bun'"; exit 1; }
+          echo "$out" | grep -q "bun update -g @bastani/atomic" || { echo "missing PM update hint"; exit 1; }
 
       - name: atomic update --check (Windows)
         if: runner.os == 'Windows'
@@ -511,8 +512,8 @@ jobs:
             throw "atomic update --check exited $LASTEXITCODE"
           }
           Write-Output $out
-          if ($out -notmatch 'current=')              { throw "missing 'current=' in --check output" }
-          if ($out -notmatch 'method=(bun|npm|pnpm|yarn)') { throw "missing 'method=<pm>' in --check output" }
+          if ($out -notmatch 'installed via bun')             { throw "missing 'installed via bun'" }
+          if ($out -notmatch 'bun update -g @bastani/atomic') { throw "missing PM update hint" }
 
       # ── 2. Binary download path via mock GitHub Releases server ───────
       # Uses port 4874 (verdaccio is on 4873). MOCK_VERSION=999.0.0 forces
@@ -604,54 +605,6 @@ jobs:
           } finally {
             if (-not $mock.HasExited) { Stop-Process -Id $mock.Id -Force -ErrorAction SilentlyContinue }
           }
-
-      # ── 3. PM upgrade roundtrip via verdaccio ────────────────────────
-      # Re-publishes the wrapper + platform packages at vN+1 (metadata-only
-      # bump; same binaries inside) so that `bun add -g @bastani/atomic@latest`
-      # — which `atomic update` shells out to — pulls a different version
-      # from the local registry.
-      - name: Bump version on verdaccio for update roundtrip
-        id: bump
-        shell: bash
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          set -euo pipefail
-          NEXT="${VERSION}-update.1"
-          echo "next=${NEXT}" >> $GITHUB_OUTPUT
-          bun packages/atomic/script/bump-version.ts "$NEXT"
-          NPM_REGISTRY=http://localhost:4873 bun packages/atomic/script/publish.ts
-
-      - name: atomic update -y via verdaccio (Unix)
-        if: runner.os != 'Windows'
-        shell: bash
-        env:
-          NEXT: ${{ steps.bump.outputs.next }}
-          BUN_CONFIG_REGISTRY: http://localhost:4873
-        run: |
-          set -euo pipefail
-          export PATH="$HOME/.bun/bin:$PATH"
-          # `atomic update` for PM installs spawns `bun add -g @bastani/atomic@latest`,
-          # which inherits BUN_CONFIG_REGISTRY from this shell.
-          atomic update --check
-          atomic update -y
-          atomic --version
-
-      - name: atomic update -y via verdaccio (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        env:
-          NEXT: ${{ steps.bump.outputs.next }}
-          BUN_CONFIG_REGISTRY: http://localhost:4873
-        run: |
-          $userPath = [Environment]::GetEnvironmentVariable('Path','User')
-          if ($userPath) { $env:Path = "$env:Path;$userPath" }
-          atomic update --check
-          if ($LASTEXITCODE -ne 0) { throw "atomic update --check exited $LASTEXITCODE" }
-          atomic update -y
-          if ($LASTEXITCODE -ne 0) { throw "atomic update -y exited $LASTEXITCODE" }
-          atomic --version
-          if ($LASTEXITCODE -ne 0) { throw "atomic --version exited $LASTEXITCODE post-update" }
 
       # ── `atomic uninstall`: removes launcher / rc snippets / completions
       #    cache but preserves ~/.atomic (no --purge flag).

@@ -10,7 +10,6 @@ import { defineWorkflow } from "../../define-workflow.ts";
 export default defineWorkflow({
   name: "default-only-wf",
   description: "fixture: only export default, no hostLocalWorkflows",
-  source: import.meta.path,
   inputs: [],
 })
   .for("claude")

@@ -19,6 +19,87 @@ import type {
   WorkflowInput,
 } from "./types.ts";
 
+// ─── Caller-path capture ────────────────────────────────────────────────────
+
+/**
+ * Walk a V8-style stack trace and return the absolute path of the first
+ * frame outside this module. Used by `defineWorkflow()` to auto-populate
+ * `WorkflowOptions.source` so consumers don't have to pass it manually.
+ *
+ * Stack formats handled (V8, Bun, Node, both POSIX and Windows):
+ *   `at fnName (/abs/path.ts:LINE:COL)`           — named frame, POSIX
+ *   `at fnName (file:///abs/path.ts:LINE:COL)`    — file:// URL form
+ *   `at /abs/path.ts:LINE:COL`                    — module-level POSIX
+ *   `at file:///abs/path.ts:LINE:COL`             — module-level file://
+ *   `at fnName (C:\path\file.ts:LINE:COL)`        — Windows backslash
+ *   `at fnName (file:///C:/path/file.ts:L:C)`     — Windows file:// form
+ *
+ * Returns `null` when no caller frame can be parsed (e.g. compiled
+ * binary where every frame collapses to `/$bunfs/root/<bin>`); the
+ * caller falls through to the explicit-source validation error.
+ *
+ * Exported with a `_` prefix for cross-platform unit testing — production
+ * callers should use `defineWorkflow()` directly. Accepting an injected
+ * `stack` string lets tests assert against canned V8/Node/Windows traces
+ * without spinning up runtimes.
+ *
+ * @internal
+ */
+export function _captureCallerPath(stack?: string): string | null {
+  const raw = stack ?? new Error().stack;
+  if (!raw) return null;
+
+  const lines = raw.split("\n");
+  for (const line of lines) {
+    // Skip the "Error" header and any non-frame lines.
+    if (!line.includes(" at ")) continue;
+    // Skip frames inside this module.
+    if (line.includes("define-workflow.ts")) continue;
+    // Skip native/internal frames where there's no on-disk source path.
+    if (line.includes("native:") || line.includes("[native code]")) continue;
+
+    const path = extractPathFromFrame(line);
+    if (path !== null) return path;
+  }
+  return null;
+}
+
+/** Extract the absolute file path from a single stack-frame line. */
+function extractPathFromFrame(line: string): string | null {
+  // Parenthesised form: `at fnName (LOCATION)` — preferred.
+  const parenMatch = line.match(/\(([^()]+)\)\s*$/);
+  if (parenMatch) {
+    const path = stripFileUrlAndPosition(parenMatch[1]!);
+    if (path) return path;
+  }
+  // Bare form: `at LOCATION` — module-level frames in V8.
+  const bareMatch = line.match(/\s+at\s+(.+)$/);
+  if (bareMatch) {
+    const path = stripFileUrlAndPosition(bareMatch[1]!);
+    if (path) return path;
+  }
+  return null;
+}
+
+/**
+ * Strip the trailing `:LINE:COL` and any `file://` URL prefix from a
+ * frame's location string. Handles POSIX paths, Windows drive paths,
+ * and `file:///C:/...` URL forms.
+ */
+function stripFileUrlAndPosition(location: string): string | null {
+  const positionMatch = location.match(/^(.*?):\d+:\d+$/);
+  if (!positionMatch) return null;
+  let path = positionMatch[1]!;
+
+  if (path.startsWith("file://")) {
+    path = path.slice("file://".length);
+    // file:///C:/path → /C:/path → strip leading `/` so Windows drives
+    // surface as `C:/path` (matching what `import.meta.path` returns).
+    if (/^\/[A-Za-z]:/.test(path)) path = path.slice(1);
+  }
+  return path.length > 0 ? path : null;
+}
+
 // ─── Module-private compiled workflow registry ──────────────────────────────
 
 /**
@@ -239,10 +320,11 @@ export class WorkflowBuilder<
       this.options.source.trim() === ""
     ) {
       throw new Error(
-        `Workflow "${this.options.name}" is missing the \`source\` option. ` +
-          `Pass \`source: import.meta.path\` in the \`defineWorkflow({ ... })\` ` +
-          `call so the SDK orchestrator can re-import the workflow module ` +
-          `inside the spawned tmux session.`,
+        `Workflow "${this.options.name}" has no resolvable source path. ` +
+          `defineWorkflow auto-captures the caller's file path; this fired ` +
+          `because the stack frame couldn't be parsed (e.g. compiled-binary ` +
+          `bunfs paths). Pass an explicit \`\` to ` +
+          `defineWorkflow({ ... }) to override.`,
       );
     }
 
@@ -299,5 +381,11 @@ export function defineWorkflow<
   if (!options.name || options.name.trim() === "") {
     throw new Error("Workflow name is required.");
   }
-  return new WorkflowBuilder<AgentType, I>(options);
+  // Auto-capture the caller's file path so consumers don't have to pass
+  // `` on every call. An explicit `source` always
+  // wins so consumers can override when needed.
+  const resolved: WorkflowOptions<I> = options.source
+    ? options
+    : { ...options, source: _captureCallerPath() ?? undefined };
+  return new WorkflowBuilder<AgentType, I>(resolved);
 }

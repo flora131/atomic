@@ -10,7 +10,6 @@ import { hostLocalWorkflows } from "../../lib/host-local-workflows.ts";
 const wf = defineWorkflow({
   name: "host-only-wf",
   description: "fixture: registered via hostLocalWorkflows only",
-  source: import.meta.path,
   inputs: [],
 })
   .for("claude")

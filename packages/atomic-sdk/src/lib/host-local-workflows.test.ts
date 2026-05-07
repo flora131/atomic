@@ -44,7 +44,6 @@ function makeWorkflow(name = "demo", agent: "claude" | "copilot" | "opencode" = 
   return defineWorkflow({
     name,
     description: `${name} description`,
-    source: import.meta.path,
     inputs: [],
   })
     .for(agent)
@@ -171,7 +170,6 @@ describe("hostLocalWorkflows — _emit-workflow-meta", () => {
     const wf = defineWorkflow({
       name: "versioned",
       description: "with version",
-      source: import.meta.path,
       minSDKVersion: "1.2.3",
     })
       .for("claude")
@@ -287,7 +285,6 @@ describe("hostLocalWorkflows — _atomic-run", () => {
     const wfWithInputs = defineWorkflow({
       name: "with-inputs",
       description: "test",
-      source: import.meta.path,
       inputs: [
         { name: "topic", type: "string" as const, required: false },
       ],

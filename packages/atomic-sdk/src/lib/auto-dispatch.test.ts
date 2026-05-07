@@ -122,7 +122,6 @@ describe("getCompiledWorkflows", () => {
     defineWorkflow({
       name: uniqueName,
       description: "test",
-      source: import.meta.path,
     })
       .for("claude")
       .run(async () => {})
@@ -140,7 +139,6 @@ describe("getCompiledWorkflows", () => {
     defineWorkflow({
       name: uniqueName,
       description: "meta test",
-      source: import.meta.path,
       minSDKVersion: "0.7.0",
       inputs: [{ name: "topic", type: "string", required: true }],
     })
@@ -283,7 +281,6 @@ describe("getCompiledWorkflows minSDKVersion in meta payload", () => {
     const uniqueName = `test-meta-minsdk-${Date.now()}`;
     defineWorkflow({
       name: uniqueName,
-      source: import.meta.path,
       minSDKVersion: "1.2.3",
     })
       .for("claude")
@@ -309,7 +306,6 @@ describe("getCompiledWorkflows minSDKVersion in meta payload", () => {
     const uniqueName = `test-meta-minsdk-null-${Date.now()}`;
     defineWorkflow({
       name: uniqueName,
-      source: import.meta.path,
       // no minSDKVersion
     })
       .for("claude")

@@ -4,7 +4,6 @@ import { validateInputs } from "../../../packages/atomic-sdk/src/primitives/inpu
 
 const wf = defineWorkflow({
   name: "x",
-  source: import.meta.path,
   inputs: [
     { name: "topic", type: "string", required: true },
     {
@@ -52,7 +51,7 @@ describe("primitives/inputs.validateInputs", () => {
   });
 
   test("free-form workflows pass inputs through as-is", () => {
-    const free = defineWorkflow({ name: "f", source: import.meta.path })
+    const free = defineWorkflow({ name: "f" })
       .for("claude")
       .run(async () => {})
       .compile();

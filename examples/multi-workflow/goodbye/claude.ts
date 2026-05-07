@@ -2,7 +2,6 @@ import { defineWorkflow } from "@bastani/atomic-sdk/workflows";
 
 export default defineWorkflow({
   name: "goodbye",
-  source: import.meta.path,
   description: "Bid farewell in a chosen tone",
   inputs: [
     {

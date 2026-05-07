@@ -4,7 +4,6 @@ import { defineWorkflow, hostLocalWorkflows, type WorkflowDefinition } from "@ba
 const wf = defineWorkflow({
   name: "demo-wf",
   description: "Demo workflow for SDK host integration test",
-  source: import.meta.path,
   inputs: [],
 })
   .for("claude")

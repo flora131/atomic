@@ -12,7 +12,6 @@ function extractResponseText(
 
 export default defineWorkflow({
   name: "headless-test",
-  source: import.meta.path,
   description:
     "Test headless background stages: visible → [3 headless] → visible merge → headless verdict",
   inputs: [

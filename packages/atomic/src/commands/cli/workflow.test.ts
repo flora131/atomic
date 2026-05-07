@@ -186,7 +186,6 @@ describe("hard-block on activeBroken", () => {
     // look it up and accept it via the broken-alias short-circuit (Iteration 6 §5.6.1).
     const wf = defineWorkflow({
       name: "broken-wf",
-      source: import.meta.path,
       inputs: [],
     })
       .for("claude")
@@ -250,7 +249,6 @@ describe("hard-block on activeBroken", () => {
     // Register scoped-wf for both claude and opencode.
     const wfClaude = defineWorkflow({
       name: "scoped-wf",
-      source: import.meta.path,
       inputs: [],
     })
       .for("claude")
@@ -312,7 +310,6 @@ describe("hard-block on activeBroken", () => {
   test("§8.3 per-agent scoping: broken claude/scoped-wf exits 2 for -a claude", async () => {
     const wfClaude = defineWorkflow({
       name: "scoped-wf",
-      source: import.meta.path,
       inputs: [],
     })
       .for("claude")
@@ -388,7 +385,6 @@ describe("rebuildWorkflowCommand", () => {
     // Build registry with a workflow that has a unique input.
     const wf = defineWorkflow({
       name: "new-workflow",
-      source: import.meta.path,
       inputs: [{ name: "custom-option", type: "text", required: false }],
     })
       .for("claude")
@@ -545,7 +541,6 @@ describe("ATOMIC_DEBUG=1 dispatch-trace log", () => {
   // Build a minimal registry with one builtin workflow that has one input.
   const traceWf = defineWorkflow({
     name: "trace-wf",
-    source: import.meta.path,
     inputs: [{ name: "repo", type: "text", required: false }],
   })
     .for("claude")

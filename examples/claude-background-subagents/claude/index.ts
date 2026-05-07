@@ -29,7 +29,6 @@ const MARKER_PATHS = [1, 2, 3].map((n) => `${MARKER_DIR}/${MARKER_PREFIX}${n}.tx
 
 export default defineWorkflow({
   name: "claude-background-subagents",
-  source: import.meta.path,
   description:
     "Stage 1 spawns 3 background subagents and ends its turn immediately; stage 2 verifies they all finished before it started.",
   inputs: [],

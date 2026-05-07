@@ -15,7 +15,6 @@ function buildHelloPrompt(inputs: Record<string, string>): string {
 
 export default defineWorkflow({
     name: "hello-world",
-    source: import.meta.path,
     description: "A simple single-session hello world workflow",
     inputs: [
       {

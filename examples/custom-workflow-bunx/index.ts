@@ -4,7 +4,6 @@ import { defineWorkflow, hostLocalWorkflows } from "@bastani/atomic-sdk";
 const explainFile = defineWorkflow({
   name: "explain-file",
   description: "Open a Claude pane that walks through a file",
-  source: import.meta.path,
   inputs: [
     {
       name: "path",

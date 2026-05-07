@@ -11,7 +11,6 @@ import { defineWorkflow } from "@bastani/atomic-sdk/workflows";
  */
 export default defineWorkflow({
     name: "hil-favorite-color",
-    source: import.meta.path,
     description:
       "Test HIL: stage 1 asks the user for their favorite color via ask_user; stage 2 describes it",
   })

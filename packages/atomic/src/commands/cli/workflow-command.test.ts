@@ -464,7 +464,6 @@ describe("buildWorkflowCommand with custom registries", () => {
   test("empty-inputs workflow + positional prompt collapses into inputs.prompt", async () => {
     const freeForm = defineWorkflow({
       name: "free-form",
-      source: import.meta.path,
     })
       .for("claude")
       .run(async () => {})
@@ -489,7 +488,6 @@ describe("buildWorkflowCommand with custom registries", () => {
   test("workflow with declared inputs ignores positional prompt collapsing", async () => {
     const declared = defineWorkflow({
       name: "declared",
-      source: import.meta.path,
       inputs: [{ name: "topic", type: "text", required: false }],
     })
       .for("claude")
@@ -513,7 +511,6 @@ describe("buildWorkflowCommand with custom registries", () => {
   test("resolveWorkflow lists alternate agents when name exists for a different agent", async () => {
     const claudeOnly = defineWorkflow({
       name: "only-claude",
-      source: import.meta.path,
       inputs: [{ name: "topic", type: "text", required: false }],
     })
       .for("claude")
@@ -546,7 +543,6 @@ describe("buildWorkflowCommand with custom registries", () => {
   test("enum input without description gets a 'one of: ...' fallback in --help", async () => {
     const enumWf = defineWorkflow({
       name: "enum-wf",
-      source: import.meta.path,
       inputs: [
         {
           name: "format",
@@ -572,7 +568,6 @@ describe("buildWorkflowCommand with custom registries", () => {
   test("text input without description falls back to the type label", async () => {
     const textWf = defineWorkflow({
       name: "text-wf",
-      source: import.meta.path,
       inputs: [
         { name: "topic", type: "text", required: false },
       ],

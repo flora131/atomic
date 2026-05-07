@@ -18,7 +18,7 @@
  * ```typescript
  * import { defineWorkflow, hostLocalWorkflows } from "@bastani/atomic";
  *
- * const myWorkflow = defineWorkflow({ name: "my-wf", source: import.meta.path })
+ * const myWorkflow = defineWorkflow({ name: "my-wf" })
  *   .for("claude")
  *   .run(async (ctx) => { ... })
  *   .compile();

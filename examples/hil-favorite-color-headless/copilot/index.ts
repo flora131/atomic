@@ -14,7 +14,6 @@ import { defineWorkflow } from "@bastani/atomic-sdk/workflows";
  */
 export default defineWorkflow({
   name: "hil-favorite-color-headless",
-  source: import.meta.path,
   description:
     "Headless regression test: ask_user should be excluded so the stage does not hang",
 })

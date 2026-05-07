@@ -26,7 +26,6 @@ const SUBMIT_TOOL_DESCRIPTION =
 
 export default defineWorkflow({
   name: "structured-output-demo",
-  source: import.meta.path,
   description:
     "Ask for structured facts about a language and prove each SDK's native structured-output path works",
   inputs: [

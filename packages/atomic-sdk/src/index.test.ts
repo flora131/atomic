@@ -24,7 +24,7 @@ import {
 import type { ExternalWorkflow } from "./index.ts";
 
 function makeWorkflow(name: string, agent: "claude" | "copilot" | "opencode") {
-  return defineWorkflow({ name, source: import.meta.path })
+  return defineWorkflow({ name })
     .for(agent)
     .run(async () => {})
     .compile();

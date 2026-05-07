@@ -171,7 +171,7 @@ function fakeDefinition(
     description,
     inputs,
     minSDKVersion: null,
-    source: import.meta.path,
+    source: "/test/fake.ts",
     run: async () => {},
   } as WorkflowDefinition;
 }

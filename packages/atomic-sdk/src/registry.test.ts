@@ -4,7 +4,7 @@ import { defineWorkflow } from "./define-workflow.ts";
 
 // Helper: compile a minimal workflow definition
 function makeWf(name: string, agent: "claude" | "copilot" | "opencode" = "claude") {
-  return defineWorkflow({ name, source: import.meta.path })
+  return defineWorkflow({ name })
     .for(agent)
     .run(async () => {})
     .compile();

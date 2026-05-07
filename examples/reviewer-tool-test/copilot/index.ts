@@ -50,7 +50,6 @@ output the review as plain text — the tool enforces the required schema.`;
 
 export default defineWorkflow({
   name: "reviewer-tool-test",
-  source: import.meta.path,
   description:
     "Verify the reviewer subagent can call a workflow-registered submit_review tool",
   inputs: [],

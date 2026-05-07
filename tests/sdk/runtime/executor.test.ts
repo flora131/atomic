@@ -19,7 +19,6 @@ describe("WorkflowRunOptions shape", () => {
     const opts = {
       definition: defineWorkflow({
         name: "hello-world",
-        source: import.meta.path,
       })
         .for("claude")
         .run(async () => {})
@@ -140,7 +139,6 @@ describe("runOrchestrator accepts WorkflowDefinition + inputs", () => {
   test("signature accepts a compiled WorkflowDefinition and an inputs map", () => {
     const definition = defineWorkflow({
       name: "test-wf",
-      source: import.meta.path,
     })
       .for("copilot")
       .run(async () => {})

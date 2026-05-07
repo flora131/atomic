@@ -19,7 +19,6 @@ import { defineWorkflow, extractAssistantText } from "@bastani/atomic-sdk/workfl
 
 export default defineWorkflow({
   name: "review-fix-loop",
-  source: import.meta.path,
   description: "Generate → review → fix loop with bounded iterations and early exit on clean review",
   inputs: [
     {

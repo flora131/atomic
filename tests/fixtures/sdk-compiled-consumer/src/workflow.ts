@@ -10,7 +10,6 @@ import { defineWorkflow } from "@bastani/atomic-sdk/workflows";
 
 export const greetWorkflow = defineWorkflow({
   name: "fixture-greet",
-  source: import.meta.path,
   description: "Smoke fixture: echo a greeting",
   inputs: [
     {

@@ -11,7 +11,6 @@ import {
 
 const sample = defineWorkflow({
   name: "hello",
-  source: import.meta.path,
   description: "say hi",
   inputs: [{ name: "greeting", type: "string", required: true }],
   minSDKVersion: "0.6.0",
@@ -48,7 +47,7 @@ describe("primitives/metadata", () => {
   });
 
   test("getMinSDKVersion is null when not declared", () => {
-    const wf = defineWorkflow({ name: "x", source: import.meta.path })
+    const wf = defineWorkflow({ name: "x" })
       .for("claude")
       .run(async () => {})
       .compile();

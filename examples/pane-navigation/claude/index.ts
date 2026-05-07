@@ -15,7 +15,6 @@ import { defineWorkflow } from "@bastani/atomic-sdk/workflows";
 
 export default defineWorkflow({
   name: "pane-navigation",
-  source: import.meta.path,
   description: "Three-stage workflow used to demo pane navigation primitives",
 })
   .for("claude")

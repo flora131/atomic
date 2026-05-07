@@ -310,3 +310,33 @@ jobs:
               env:
                   RUN_CI_E2E: "1"
               run: bun test tests/ci/onboarding.test.ts
+
+    # `defineWorkflow` auto-captures `WorkflowOptions.source` from the
+    # caller's stack frame so consumers don't have to pass
+    # `source: import.meta.path` on every call. The parser handles V8/Bun
+    # stack formats across POSIX and Windows (paren'd vs bare frames,
+    # `file://` URLs, drive letters). The injected-stack cases run on
+    # every OS but the real-runtime smoke test inside the same suite
+    # exercises the actual `new Error().stack` shape — which is exactly
+    # where cross-platform drift shows up.
+    define-workflow-matrix:
+        name: defineWorkflow stack capture (${{ matrix.os }})
+        strategy:
+            fail-fast: false
+            matrix:
+                os: [ubuntu-latest, macos-latest, windows-latest]
+        runs-on: ${{ matrix.os }}
+
+        steps:
+            - uses: actions/checkout@v6
+
+            - uses: oven-sh/setup-bun@v2
+              with:
+                  bun-version: latest
+
+            - name: Install dependencies
+              run: bun install
+
+            - name: Run defineWorkflow tests
+              shell: bash
+              run: bun test packages/atomic-sdk/src/define-workflow.test.ts

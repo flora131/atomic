@@ -404,21 +404,24 @@ export interface WorkflowOptions<
   /** Human-readable description */
   description?: string;
   /**
-   * Absolute path of the workflow source file. Pass `import.meta.path` —
-   * the SDK uses this to import the workflow module inside the
-   * orchestrator child process. Required: a workflow without `source`
-   * cannot be re-imported by the orchestrator and `defineWorkflow`
-   * throws at compile time.
+   * Absolute path of the workflow source file. The SDK uses this to
+   * re-import the workflow module inside the orchestrator child process
+   * spawned for a workflow run.
+   *
+   * **Auto-captured** at `defineWorkflow()` time from the caller's stack
+   * frame, so consumers don't need to pass it. Provide an explicit
+   * `import.meta.path` only if you're constructing workflows from a
+   * non-ESM caller (rare) or you want to override the captured path.
    *
    * @example
    * ```typescript
-   * defineWorkflow({
-   *   name: "hello",
-   *   source: import.meta.path, // ← required
-   * }).for("claude").run(...).compile();
+   * defineWorkflow({ name: "hello" })
+   *   .for("claude")
+   *   .run(...)
+   *   .compile();
    * ```
    */
-  source: string;
+  source?: string;
   /**
    * Optional declared inputs. When provided, the CLI materialises one
    * `--<name>` flag per entry and the interactive picker renders one form

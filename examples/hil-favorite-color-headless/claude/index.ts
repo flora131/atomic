@@ -14,7 +14,6 @@ import { defineWorkflow, extractAssistantText } from "@bastani/atomic-sdk/workfl
  */
 export default defineWorkflow({
   name: "hil-favorite-color-headless",
-  source: import.meta.path,
   description:
     "Headless regression test: AskUserQuestion should be auto-denied so the stage does not hang",
 })

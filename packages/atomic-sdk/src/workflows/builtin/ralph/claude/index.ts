@@ -70,7 +70,6 @@ function extractReview(
 
 export default defineWorkflow({
   name: "ralph",
-  source: import.meta.path,
   description: "Plan → orchestrate → review loop with bounded iteration",
   inputs: [
     {

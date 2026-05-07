@@ -236,6 +236,28 @@ jobs:
                   echo "Smoke-testing: $ATOMIC"
                   "$ATOMIC" _runtime-assets-smoke
 
+            # Warm `autoSyncIfStale` (installs psmux/tmux deps, copies global
+            # agents/skills, runs `bun install -g` for tooling packages) so
+            # the chat-launch smoke's 8s PTY timeout doesn't have to absorb
+            # first-run sync latency. `_runtime-assets-smoke` is in the
+            # info-command skip set and no longer runs autoSync as a side
+            # effect, so we trigger it explicitly here via a non-skipped
+            # command. `workflow list` is the cheapest such command — it
+            # runs autoSync, prints the registry, and exits. Without this,
+            # the first `chat` invocation runs autoSync on a cold runner
+            # and the chat command's TUI initialisation never completes
+            # before `chat-smoke.ts` kills the PTY.
+            - name: Warm autoSync cache
+              shell: bash
+              run: |
+                  set -e
+                  ATOMIC=$(find packages/atomic/dist -type f \( -name 'atomic' -o -name 'atomic.exe' \) | head -n 1)
+                  if [ -z "$ATOMIC" ]; then
+                      echo "Could not locate built binary under packages/atomic/dist"
+                      exit 1
+                  fi
+                  "$ATOMIC" workflow list >/dev/null
+
             # End-to-end chat-launch smoke: invokes the *full* chat command
             # (`atomic chat -a opencode --no-login`) against a stub agent on
             # PATH and asserts the agent ended up running INSIDE tmux/psmux

@@ -378,18 +378,28 @@ describe("updateCommand", () => {
         }
     });
 
-    test("--check on PM method prints metadata only", async () => {
+    test("--check on PM method probes upstream version and prints metadata", async () => {
         detectInstallMethodResult = { kind: "bun", binPath: "/home/user/.bun/bin/atomic" };
 
-        const spawnSpy = spyOn(Bun, "spawn");
+        // Stub `bun pm view @bastani/atomic version` → "0.7.9"
+        const spawnSpy = spyOn(Bun, "spawn").mockImplementation(((_opts: { cmd: string[] }) => ({
+            stdout: new Response("0.7.9\n").body,
+            stderr: new Response("").body,
+            exited: Promise.resolve(0),
+        })) as unknown as typeof Bun.spawn);
 
         try {
             const code = await updateCommand({ check: true });
             expect(code).toBe(0);
-            expect(spawnSpy).not.toHaveBeenCalled();
-            // log.info called with current=... method=bun
-            const infoCalls = logInfoMock.mock.calls.map((c) => String(c[0]));
-            expect(infoCalls.some((m) => m.includes("current=") && m.includes("method=bun"))).toBe(true);
+
+            // We spawned the version-probe subprocess.
+            expect(spawnSpy).toHaveBeenCalledTimes(1);
+            const spawnArgs = spawnSpy.mock.calls[0] as unknown as [{ cmd: string[] }];
+            expect(spawnArgs[0].cmd).toEqual(["bun", "pm", "view", "@bastani/atomic", "version"]);
+
+            // note() rendered with current/target/method.
+            const noteCalls = noteMock.mock.calls.map((c) => String(c[0]));
+            expect(noteCalls.some((m) => m.includes("current=") && m.includes("target=0.7.9") && m.includes("method=bun"))).toBe(true);
         } finally {
             spawnSpy.mockRestore();
         }

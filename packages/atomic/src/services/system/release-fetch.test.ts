@@ -10,11 +10,10 @@ import {
     expect,
     beforeEach,
     afterEach,
-    mock,
     spyOn,
 } from "bun:test";
 import type { Mock } from "bun:test";
-import * as realNodeFs from "node:fs";
+import * as nodeFs from "node:fs";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -286,31 +285,29 @@ describe("downloadAssetFromUrl", () => {
 
     // ── Cluster C — atomic download cleanup on rename failure ─────────────────
 
+    // Use spyOn (not mock.module) — `mock.module("node:fs", ...)` is
+    // process-global in Bun and leaks across test files even after a
+    // spread-restore in afterEach. spyOn mutates the export in place and
+    // mockRestore() reverts it cleanly per test.
     describe("rename failure cleanup", () => {
-        const renameSyncMock = mock((_src: string, _dst: string) => {});
-        const copyFileSyncMock = mock((_src: string, _dst: string) => {});
-        const unlinkSyncMock = mock((_path: string) => {});
+        let renameSpy: Mock<typeof nodeFs.renameSync>;
+        let copyFileSpy: Mock<typeof nodeFs.copyFileSync>;
+        let unlinkSpy: Mock<typeof nodeFs.unlinkSync>;
 
-        beforeEach(async () => {
-            renameSyncMock.mockReset();
-            copyFileSyncMock.mockReset();
-            unlinkSyncMock.mockReset();
-
-            await mock.module("node:fs", () => ({
-                ...realNodeFs,
-                renameSync: renameSyncMock,
-                copyFileSync: copyFileSyncMock,
-                unlinkSync: unlinkSyncMock,
-            }));
+        beforeEach(() => {
+            renameSpy = spyOn(nodeFs, "renameSync");
+            copyFileSpy = spyOn(nodeFs, "copyFileSync").mockImplementation(() => {});
+            unlinkSpy = spyOn(nodeFs, "unlinkSync").mockImplementation(() => {});
         });
 
-        afterEach(async () => {
-            // Restore real node:fs so outer tests keep passing.
-            await mock.module("node:fs", () => ({ ...realNodeFs }));
+        afterEach(() => {
+            renameSpy.mockRestore();
+            copyFileSpy.mockRestore();
+            unlinkSpy.mockRestore();
         });
 
         test("cleans up tmpPath on EXDEV via copyFileSync fallback", async () => {
-            renameSyncMock.mockImplementation((_src: string, _dst: string) => {
+            renameSpy.mockImplementation(() => {
                 throw Object.assign(new Error("EXDEV"), { code: "EXDEV" });
             });
 
@@ -324,13 +321,13 @@ describe("downloadAssetFromUrl", () => {
                 await downloadAssetFromUrl("https://example.com/asset", destPath);
 
                 // copyFileSync used as EXDEV fallback
-                expect(copyFileSyncMock).toHaveBeenCalledTimes(1);
-                const [copySrc, copyDst] = copyFileSyncMock.mock.calls[0] as [string, string];
+                expect(copyFileSpy).toHaveBeenCalledTimes(1);
+                const [copySrc, copyDst] = copyFileSpy.mock.calls[0] as [string, string];
                 expect(copyDst).toBe(destPath);
 
                 // unlinkSync called with the same tmpPath used as copySrc
-                expect(unlinkSyncMock).toHaveBeenCalledTimes(1);
-                const [unlinkPath] = unlinkSyncMock.mock.calls[0] as [string];
+                expect(unlinkSpy).toHaveBeenCalledTimes(1);
+                const [unlinkPath] = unlinkSpy.mock.calls[0] as [string];
                 expect(unlinkPath).toBe(copySrc);
 
                 // function did not throw
@@ -341,7 +338,7 @@ describe("downloadAssetFromUrl", () => {
 
         test("rethrows non-EXDEV rename errors but still cleans up tmpPath", async () => {
             const eacces = Object.assign(new Error("EACCES"), { code: "EACCES" });
-            renameSyncMock.mockImplementation((_src: string, _dst: string) => {
+            renameSpy.mockImplementation(() => {
                 throw eacces;
             });
 
@@ -365,9 +362,9 @@ describe("downloadAssetFromUrl", () => {
             expect((thrown as NodeJS.ErrnoException).code).toBe("EACCES");
 
             // cleanup still happened
-            expect(unlinkSyncMock).toHaveBeenCalledTimes(1);
+            expect(unlinkSpy).toHaveBeenCalledTimes(1);
             // copyFileSync must NOT have been called (EACCES is not EXDEV)
-            expect(copyFileSyncMock).toHaveBeenCalledTimes(0);
+            expect(copyFileSpy).toHaveBeenCalledTimes(0);
         });
     });
 });

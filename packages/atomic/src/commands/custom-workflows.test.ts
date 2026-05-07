@@ -850,6 +850,171 @@ describe("mergeIntoRegistry — §8.3 brokenList vs brokenIndex consistency inva
   });
 });
 
+// ─── Iter-11 regression tests (§5.7.2) ──────────────────────────────────────
+
+describe("mergeIntoRegistry — §5.7.2 broken alias collides with builtin name", () => {
+  test("broken alias 'ralph' for claude is filtered because builtin ralph/claude exists", () => {
+    const builtin = createBuiltinRegistry();
+
+    // ralph is a known builtin for claude — broken entry should be filtered
+    const broken: BrokenWorkflow = {
+      alias: "ralph",
+      origin: "global",
+      agents: ["claude"],
+      reason: "command not found",
+      source: SETTINGS_PATH,
+      fix: "install it",
+    };
+
+    const globalRes: LoadCustomWorkflowsResult = { loaded: [], broken: [broken] };
+    const localRes: LoadCustomWorkflowsResult = { loaded: [], broken: [] };
+
+    const cap = captureStderr();
+    let result;
+    try {
+      result = mergeIntoRegistry(builtin, globalRes, localRes);
+    } finally {
+      cap.restore();
+    }
+
+    // Builtin collision: brokenIndex must NOT have claude/ralph
+    expect(result.brokenIndex.has("claude/ralph")).toBe(false);
+
+    // brokenList must not contain an entry with alias "ralph"
+    expect(result.brokenList.some((b) => b.alias === "ralph")).toBe(false);
+  });
+});
+
+describe("mergeIntoRegistry — §5.7.2 broken alias collides with healthy custom name", () => {
+  test("broken alias 'deep-research' is filtered because healthy alt-alias resolves to same name", () => {
+    const builtin = createBuiltinRegistry();
+
+    // Broken alias "deep-research" for claude
+    const broken: BrokenWorkflow = {
+      alias: "deep-research",
+      origin: "global",
+      agents: ["claude"],
+      reason: "command not found",
+      source: SETTINGS_PATH,
+      fix: "install it",
+    };
+
+    // Healthy entry: alias is "alt-alias" but workflow.name === "deep-research"
+    const healthyWf = makeExternalWorkflow("deep-research", "claude");
+
+    const globalRes: LoadCustomWorkflowsResult = {
+      loaded: [],
+      broken: [broken],
+    };
+    const localRes: LoadCustomWorkflowsResult = {
+      loaded: [{ alias: "alt-alias", origin: "local", workflow: healthyWf }],
+      broken: [],
+    };
+
+    const cap = captureStderr();
+    let result;
+    try {
+      result = mergeIntoRegistry(builtin, globalRes, localRes);
+    } finally {
+      cap.restore();
+    }
+
+    // Healthy compiled name "deep-research" for claude shadows the broken alias
+    expect(result.brokenIndex.get("claude/deep-research")).toBeUndefined();
+  });
+});
+
+describe("mergeIntoRegistry — §5.7.2 broken alias no collision still hard-blocks", () => {
+  test("broken alias 'missing-pkg' with no healthy entry remains in brokenIndex and brokenList", () => {
+    const builtin = createBuiltinRegistry();
+
+    // Broken alias not matching any builtin or healthy entry
+    const broken: BrokenWorkflow = {
+      alias: "missing-pkg",
+      origin: "global",
+      agents: ["claude"],
+      reason: "command not found",
+      source: SETTINGS_PATH,
+      fix: "install it",
+    };
+
+    const globalRes: LoadCustomWorkflowsResult = { loaded: [], broken: [broken] };
+    const localRes: LoadCustomWorkflowsResult = { loaded: [], broken: [] };
+
+    const cap = captureStderr();
+    let result;
+    try {
+      result = mergeIntoRegistry(builtin, globalRes, localRes);
+    } finally {
+      cap.restore();
+    }
+
+    // No collision — must stay broken
+    expect(result.brokenIndex.has("claude/missing-pkg")).toBe(true);
+    expect(result.brokenList.some((b) => b.alias === "missing-pkg")).toBe(true);
+  });
+});
+
+describe("mergeIntoRegistry — §5.7.2 brokenIndex invariant: registry.resolve fails for every key", () => {
+  test("every key in brokenIndex has no matching resolve in registry", () => {
+    const builtin = createBuiltinRegistry();
+
+    // Mix: some broken, some healthy, some colliding with builtins
+    const brokenRalph: BrokenWorkflow = {
+      alias: "ralph",
+      origin: "global",
+      agents: ["claude"],
+      reason: "command not found",
+      source: SETTINGS_PATH,
+      fix: "install it",
+    };
+    const brokenMissing: BrokenWorkflow = {
+      alias: "missing-pkg",
+      origin: "global",
+      agents: ["claude", "opencode"],
+      reason: "command not found",
+      source: SETTINGS_PATH,
+      fix: "install it",
+    };
+    const brokenDeep: BrokenWorkflow = {
+      alias: "my-custom-broken",
+      origin: "local",
+      agents: ["copilot"],
+      reason: "non-zero exit",
+      source: SETTINGS_PATH,
+      fix: "fix the script",
+    };
+
+    // Healthy entry that does NOT share a name with any broken alias
+    const healthyWf = makeExternalWorkflow("healthy-entry", "claude");
+
+    const globalRes: LoadCustomWorkflowsResult = {
+      loaded: [],
+      broken: [brokenRalph, brokenMissing],
+    };
+    const localRes: LoadCustomWorkflowsResult = {
+      loaded: [{ alias: "healthy-entry", origin: "local", workflow: healthyWf }],
+      broken: [brokenDeep],
+    };
+
+    const cap = captureStderr();
+    let result;
+    try {
+      result = mergeIntoRegistry(builtin, globalRes, localRes);
+    } finally {
+      cap.restore();
+    }
+
+    // Property invariant: for every key in brokenIndex, registry.resolve returns undefined
+    for (const key of result.brokenIndex.keys()) {
+      const [agent, ...nameParts] = key.split("/") as [string, ...string[]];
+      const name = nameParts.join("/");
+      const resolved = result.registry.resolve(name, agent as "claude" | "opencode" | "copilot");
+      expect(resolved).toBeUndefined();
+    }
+  });
+});
+
 describe("mergeIntoRegistry — summary formatting", () => {
   test("loaded only → no skipped suffix", () => {
     const builtin = createBuiltinRegistry();

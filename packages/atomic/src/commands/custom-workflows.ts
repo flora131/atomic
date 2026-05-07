@@ -11,6 +11,7 @@
 import { randomBytes } from "node:crypto";
 import type { CustomWorkflowEntry } from "@bastani/atomic-sdk/services/config/atomic-config";
 import type { AgentType, BrokenWorkflow, ExternalWorkflow, WorkflowInput } from "@bastani/atomic-sdk";
+import { listWorkflows } from "@bastani/atomic-sdk";
 import type { createBuiltinRegistry } from "./builtin-registry.ts";
 
 // ─── Public types ────────────────────────────────────────────────────────────
@@ -278,56 +279,82 @@ export function mergeIntoRegistry(
   global: LoadCustomWorkflowsResult,
   local: LoadCustomWorkflowsResult,
 ): MergeResult {
+  // Apply global first, then local — so local entries override on collision.
+  const allLoaded: readonly LoadedWorkflow[] = [...global.loaded, ...local.loaded];
   let registry = builtin;
-
-  function applyOrigin(loaded: readonly LoadedWorkflow[], origin: "global" | "local"): void {
-    for (const { workflow } of loaded) {
-      registry = registry.upsert(workflow, (prior) => {
-        const priorKind = prior.kind ?? "builtin";
-        process.stderr.write(
-          `[atomic/workflows] override: ${workflow.name}/${workflow.agent} (${origin}) > ${priorKind}\n`,
-        );
-      });
-    }
+  for (const { workflow, origin } of allLoaded) {
+    registry = registry.upsert(workflow, (prior) => {
+      const priorKind = prior.kind ?? "builtin";
+      process.stderr.write(
+        `[atomic/workflows] override: ${workflow.name}/${workflow.agent} (${origin}) > ${priorKind}\n`,
+      );
+    });
   }
-  applyOrigin(global.loaded, "global");
-  applyOrigin(local.loaded, "local");
 
-  // Build alias-keyed healthy set from LoadedWorkflow[], NOT from registry.resolve.
+  // TWO healthy sets for RFC §5.7.2 shadow-subtraction (alias ∪ name).
+  //
+  // Set 1: keyed by `${agent}/${alias}` — covers healthy custom externals
+  // where the compiled name happens to differ from the alias used in the
+  // broken entry.
   const healthyAliasAgent = new Set<string>();
-  for (const { alias, workflow } of [...global.loaded, ...local.loaded]) {
+  for (const { alias, workflow } of allLoaded) {
     healthyAliasAgent.add(`${workflow.agent}/${alias}`);
   }
 
-  // brokenIndex: dispatch-gating map. Skip pairs subsumed by healthy override.
+  // Set 2: keyed by compiled `${agent}/${name}` from the fully-merged
+  // registry.  Covers BOTH custom externals AND builtins — `blockIfBroken`
+  // looks up by name, so any resolvable name (custom OR builtin) must unmask
+  // a colliding broken alias.
+  const healthyNameAgent = new Set<string>();
+  for (const def of listWorkflows(registry)) {
+    healthyNameAgent.add(`${def.agent}/${def.name}`);
+  }
+
+  // A broken (agent, alias) pair is shadowed when either healthy set matches.
+  function isShadowed(a: AgentType, alias: string): boolean {
+    const key = `${a}/${alias}`;
+    return healthyAliasAgent.has(key) || healthyNameAgent.has(key);
+  }
+
+  // Single pass builds both:
+  //   brokenIndex (dispatch gate): un-shadowed (agent, alias) → BrokenWorkflow.
+  //   brokenList  (display):       entries whose every agent is shadowed drop
+  //                                out; surviving entries narrow to visible agents.
   const allBroken: BrokenWorkflow[] = [...global.broken, ...local.broken];
   const brokenIndex = new Map<string, BrokenWorkflow>();
+  const brokenList: BrokenWorkflow[] = [];
   for (const b of allBroken) {
-    for (const a of b.agents) {
-      if (healthyAliasAgent.has(`${a}/${b.alias}`)) continue;
+    const visibleAgents = b.agents.filter((a) => !isShadowed(a, b.alias));
+    if (visibleAgents.length === 0) continue;
+    for (const a of visibleAgents) {
       brokenIndex.set(`${a}/${b.alias}`, b);
+    }
+    brokenList.push({ ...b, agents: visibleAgents });
+  }
+
+  // §5.7.2 invariant: brokenIndex must never expose a key that the healthy
+  // registry can resolve. If this fires, shadow-subtraction broke and CLI
+  // dispatch would emit a false-positive hard-block. Dev-only guard.
+  if (process.env.NODE_ENV !== "production") {
+    for (const key of brokenIndex.keys()) {
+      const slash = key.indexOf("/");
+      const agent = key.slice(0, slash) as AgentType;
+      const name = key.slice(slash + 1);
+      if (registry.resolve(name, agent) !== undefined) {
+        throw new Error(
+          `[atomic/workflows] §5.7.2 invariant violated: brokenIndex key "${key}" ` +
+            `resolves to a healthy workflow; shadow-subtraction missed a collision`,
+        );
+      }
     }
   }
 
-  // brokenList: filter out broken entries whose every (alias, agent) pair
-  // is subsumed by a healthy override. Same predicate as brokenIndex,
-  // applied at the entry level. Entries with at least one un-shadowed
-  // agent stay visible.
-  const filteredBrokenList: BrokenWorkflow[] = allBroken
-    .map((b) => ({
-      ...b,
-      agents: b.agents.filter((a) => !healthyAliasAgent.has(`${a}/${b.alias}`)),
-    }))
-    .filter((b) => b.agents.length > 0);
-
-  const loadedCount = global.loaded.length + local.loaded.length;
+  const loadedCount = allLoaded.length;
   const summary =
-    loadedCount + filteredBrokenList.length > 0
+    loadedCount + brokenList.length > 0
       ? `[atomic/workflows] loaded ${loadedCount} custom workflow(s)` +
-        (filteredBrokenList.length
-          ? ` (${filteredBrokenList.length} skipped — see warnings above)`
-          : "")
+        (brokenList.length ? ` (${brokenList.length} skipped — see warnings above)` : "")
       : null;
 
-  return { registry, brokenList: filteredBrokenList, brokenIndex, summary };
+  return { registry, brokenList, brokenIndex, summary };
 }

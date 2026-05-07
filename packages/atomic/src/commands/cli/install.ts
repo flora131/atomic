@@ -45,7 +45,7 @@ export interface InstallOptions {
     readonly noCompletions?: boolean;
 }
 
-interface InstallPaths {
+export interface InstallPaths {
     readonly binDir: string;
     readonly binPath: string;
     readonly completionsDir: string;
@@ -76,7 +76,9 @@ export function getInstallPaths(): InstallPaths {
 // ── Self-copy ──────────────────────────────────────────────────────────────
 
 /**
- * Copy the running binary (process.execPath) into the install dir.
+ * Copy a binary into the install dir. Defaults to the running binary
+ * (`process.execPath`) for `atomic install`; `atomic update` passes the
+ * freshly-downloaded artifact.
  *
  * Atomic move pattern (mirroring Claude Code's installer.ts
  * `atomicMoveToInstallPath`): copy to a per-process temp file next
@@ -91,12 +93,8 @@ export function getInstallPaths(): InstallPaths {
  * before the new one rolls in. Stale `.old.*` files are reaped on
  * next install.
  */
-function copyBinary(paths: InstallPaths): void {
-    const source = process.execPath;
-    const sourceResolved = resolve(source);
-    const destResolved = resolve(paths.binPath);
-
-    if (sourceResolved.toLowerCase() === destResolved.toLowerCase()) {
+export function copyBinary(paths: InstallPaths, sourcePath: string = process.execPath): void {
+    if (resolve(sourcePath).toLowerCase() === resolve(paths.binPath).toLowerCase()) {
         // Already running from the install location (e.g. user re-ran
         // `atomic install` after a previous install). Nothing to copy.
         return;
@@ -120,7 +118,7 @@ function copyBinary(paths: InstallPaths): void {
 
     const tempPath = `${paths.binPath}.tmp.${process.pid}.${Date.now()}`;
     try {
-        copyFileSync(source, tempPath);
+        copyFileSync(sourcePath, tempPath);
         if (!isWindows()) {
             chmodSync(tempPath, 0o755);
         }

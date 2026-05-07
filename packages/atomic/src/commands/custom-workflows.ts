@@ -10,7 +10,7 @@
 
 import { randomBytes } from "node:crypto";
 import type { CustomWorkflowEntry } from "@bastani/atomic-sdk/services/config/atomic-config";
-import type { AgentType, BrokenWorkflow, ExternalWorkflow, WorkflowDefinition, WorkflowInput } from "@bastani/atomic-sdk";
+import type { AgentType, BrokenWorkflow, ExternalWorkflow, WorkflowInput } from "@bastani/atomic-sdk";
 import type { createBuiltinRegistry } from "./builtin-registry.ts";
 
 // ─── Public types ────────────────────────────────────────────────────────────
@@ -77,13 +77,10 @@ export async function loadCustomWorkflows(
     ),
   );
 
-  const loaded: LoadedWorkflow[] = [];
-  const broken: BrokenWorkflow[] = [];
-  for (const r of results) {
-    loaded.push(...r.loaded);
-    broken.push(...r.broken);
-  }
-  return { loaded, broken };
+  return {
+    loaded: results.flatMap((r) => r.loaded),
+    broken: results.flatMap((r) => r.broken),
+  };
 }
 
 // ─── Single-entry loader ─────────────────────────────────────────────────────
@@ -97,6 +94,7 @@ async function loadOne(
   const loaded: LoadedWorkflow[] = [];
   const broken: BrokenWorkflow[] = [];
   const timeoutMs = resolveTimeoutMs();
+  const args = entry.args ?? [];
 
   /**
    * Emit a §5.8 diagnostic to stderr and append a `BrokenWorkflow` to the
@@ -115,12 +113,7 @@ async function loadOne(
   // ── Spawn ────────────────────────────────────────────────────────────────
 
   const token = randomBytes(16).toString("hex");
-  const argv = [
-    entry.command,
-    ...(entry.args ?? []),
-    "_emit-workflow-meta",
-    `--dispatch-token=${token}`,
-  ];
+  const argv = [entry.command, ...args, "_emit-workflow-meta", `--dispatch-token=${token}`];
 
   let child: ReturnType<typeof Bun.spawn>;
   try {
@@ -157,8 +150,8 @@ async function loadOne(
   if (timedOut) {
     return fail(
       entry.agents,
-      `"${alias}": metadata emission timed out after ${timeoutMs}ms — is the third-party CLI using @bastani/atomic-sdk?`,
-      `ensure "${entry.command}" imports @bastani/atomic-sdk`,
+      `"${alias}": metadata emission timed out after ${timeoutMs}ms — ensure the third-party CLI invokes hostWorkflows([…]) after compile()`,
+      `add 'await hostWorkflows([wf])' after the .compile() call in "${entry.command}" (and verify it imports @bastani/atomic-sdk)`,
     );
   }
 
@@ -166,7 +159,7 @@ async function loadOne(
 
   const exitCode = child.exitCode;
   if (exitCode !== 0) {
-    const cmdStr = [entry.command, ...(entry.args ?? []), "_emit-workflow-meta"].join(" ");
+    const cmdStr = [entry.command, ...args, "_emit-workflow-meta"].join(" ");
     const capturedStderr = stderrText.slice(0, STDERR_TRUNCATE);
     return fail(
       entry.agents,
@@ -181,8 +174,8 @@ async function loadOne(
   if (!metaLine) {
     return fail(
       entry.agents,
-      `"${alias}": expected ATOMIC_WORKFLOW_META line — third-party CLI may be missing 'import "@bastani/atomic-sdk"'`,
-      `add 'import "@bastani/atomic-sdk"' to "${entry.command}"`,
+      `"${alias}": expected ATOMIC_WORKFLOW_META line — the third-party CLI may be missing the 'await hostWorkflows([wf])' call after compile() (or it is not importing @bastani/atomic-sdk)`,
+      `add 'await hostWorkflows([wf])' after the .compile() call in "${entry.command}"`,
     );
   }
 
@@ -231,7 +224,7 @@ async function loadOne(
         agent: declaredAgent,
         description: def.description,
         inputs: def.inputs ?? [],
-        source: { command: entry.command, args: entry.args ?? [] },
+        source: { command: entry.command, args },
       },
     });
   }
@@ -266,6 +259,7 @@ function spawnErrorMessage(alias: string, cmd: string, err: unknown): string {
 
 export interface MergeResult {
   registry: ReturnType<typeof createBuiltinRegistry>;
+  brokenList: readonly BrokenWorkflow[];
   brokenIndex: ReadonlyMap<string, BrokenWorkflow>;
   summary: string | null;
 }
@@ -284,32 +278,56 @@ export function mergeIntoRegistry(
   global: LoadCustomWorkflowsResult,
   local: LoadCustomWorkflowsResult,
 ): MergeResult {
-  type BuiltinRegistry = ReturnType<typeof createBuiltinRegistry>;
-  let registry: BuiltinRegistry = builtin;
+  let registry = builtin;
 
   function applyOrigin(loaded: readonly LoadedWorkflow[], origin: "global" | "local"): void {
     for (const { workflow } of loaded) {
-      registry = registry.upsert(workflow, (prior: WorkflowDefinition | ExternalWorkflow) => {
+      registry = registry.upsert(workflow, (prior) => {
+        const priorKind = prior.kind ?? "builtin";
         process.stderr.write(
-          `[atomic/workflows] override: ${workflow.name}/${workflow.agent} (${origin}) > ${prior.kind === "external" ? "external" : "builtin"}\n`,
+          `[atomic/workflows] override: ${workflow.name}/${workflow.agent} (${origin}) > ${priorKind}\n`,
         );
-      }) as BuiltinRegistry;
+      });
     }
   }
   applyOrigin(global.loaded, "global");
   applyOrigin(local.loaded, "local");
 
-  const brokenIndex = new Map<string, BrokenWorkflow>();
-  for (const b of [...global.broken, ...local.broken]) {
-    for (const a of b.agents) brokenIndex.set(`${a}/${b.alias}`, b);
+  // Build alias-keyed healthy set from LoadedWorkflow[], NOT from registry.resolve.
+  const healthyAliasAgent = new Set<string>();
+  for (const { alias, workflow } of [...global.loaded, ...local.loaded]) {
+    healthyAliasAgent.add(`${workflow.agent}/${alias}`);
   }
 
+  // brokenIndex: dispatch-gating map. Skip pairs subsumed by healthy override.
+  const allBroken: BrokenWorkflow[] = [...global.broken, ...local.broken];
+  const brokenIndex = new Map<string, BrokenWorkflow>();
+  for (const b of allBroken) {
+    for (const a of b.agents) {
+      if (healthyAliasAgent.has(`${a}/${b.alias}`)) continue;
+      brokenIndex.set(`${a}/${b.alias}`, b);
+    }
+  }
+
+  // brokenList: filter out broken entries whose every (alias, agent) pair
+  // is subsumed by a healthy override. Same predicate as brokenIndex,
+  // applied at the entry level. Entries with at least one un-shadowed
+  // agent stay visible.
+  const filteredBrokenList: BrokenWorkflow[] = allBroken
+    .map((b) => ({
+      ...b,
+      agents: b.agents.filter((a) => !healthyAliasAgent.has(`${a}/${b.alias}`)),
+    }))
+    .filter((b) => b.agents.length > 0);
+
   const loadedCount = global.loaded.length + local.loaded.length;
-  const brokenCount = global.broken.length + local.broken.length;
   const summary =
-    loadedCount + brokenCount > 0
-      ? `[atomic/workflows] loaded ${loadedCount} custom workflow(s)${brokenCount ? ` (${brokenCount} skipped — see warnings above)` : ""}`
+    loadedCount + filteredBrokenList.length > 0
+      ? `[atomic/workflows] loaded ${loadedCount} custom workflow(s)` +
+        (filteredBrokenList.length
+          ? ` (${filteredBrokenList.length} skipped — see warnings above)`
+          : "")
       : null;
 
-  return { registry, brokenIndex, summary };
+  return { registry, brokenList: filteredBrokenList, brokenIndex, summary };
 }

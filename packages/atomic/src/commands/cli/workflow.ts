@@ -17,6 +17,7 @@
  */
 
 import { randomBytes } from "node:crypto";
+import { constants as osConstants } from "node:os";
 import { Command } from "@commander-js/extra-typings";
 import {
   type AgentType,
@@ -36,10 +37,21 @@ import { createBuiltinRegistry } from "../builtin-registry.ts";
 import { WorkflowPickerPanel } from "@bastani/atomic-sdk/workflows/components";
 import type { BrokenWorkflow } from "../custom-workflows.ts";
 
+// ─── Signal exit-code table ───────────────────────────────────────────────────
+
+/** Numeric IDs for signals atomic propagates as `128 + N` exit codes. Built from os.constants at module load for portability across platforms and future signals. */
+const SIGNAL_NAME_TO_NUMBER: Record<string, number> = Object.fromEntries(
+  Object.entries(osConstants.signals).map(([name, num]) => [name, num as number]),
+);
+
+/** Exit code used when a signal name is not present in os.constants.signals. */
+const UNKNOWN_SIGNAL_EXIT = 129;
+
 // ─── Module-level mutable state (late-bound active registry) ─────────────────
 
 let activeRegistry: ReturnType<typeof createBuiltinRegistry> = createBuiltinRegistry();
 let activeBroken: ReadonlyMap<string, BrokenWorkflow> = new Map();
+let activeBrokenList: readonly BrokenWorkflow[] = [];
 
 export function getActiveRegistry(): ReturnType<typeof createBuiltinRegistry> {
   return activeRegistry;
@@ -47,6 +59,10 @@ export function getActiveRegistry(): ReturnType<typeof createBuiltinRegistry> {
 
 export function getActiveBroken(): ReadonlyMap<string, BrokenWorkflow> {
   return activeBroken;
+}
+
+export function getActiveBrokenList(): readonly BrokenWorkflow[] {
+  return activeBrokenList;
 }
 
 /**
@@ -67,37 +83,71 @@ export function blockIfBroken(name: string, agent: AgentType): void {
   process.exit(2);
 }
 
+/** Long flags that `resyncDynamicOptions` must preserve when stripping. */
+const RESERVED_LONG_FLAGS = new Set([
+  "--name",
+  "--agent",
+  "--detach",
+  "--help",
+  "--version",
+]);
+
+/** Render a Commander description for a workflow input. */
+function inputOptionDescription(input: WorkflowInput): string {
+  if (input.description) return input.description;
+  if (input.type === "enum") {
+    return `one of: ${(input.values ?? []).join(", ")}`;
+  }
+  return input.type;
+}
+
+/**
+ * Add one `--<input> <value>` option to `cmd` per entry in the merged input
+ * union of `registry`. Used both during initial command construction and on
+ * every `rebuildWorkflowCommand`-driven resync.
+ */
+function applyDynamicOptions(
+  cmd: Command,
+  registry: ReturnType<typeof createBuiltinRegistry>,
+): void {
+  for (const [, input] of buildInputUnion(listWorkflows(registry))) {
+    cmd.option(`--${input.name} <value>`, inputOptionDescription(input));
+  }
+}
+
+/**
+ * Commander internals exposed for dynamic-option resync. The `options` array
+ * is mutable at runtime (the Command constructor assigns `this.options = []`)
+ * but typed readonly; `removeAllListeners` is inherited from EventEmitter but
+ * not re-declared on the public class.
+ */
+type CommandInternals = {
+  options: Command["options"];
+  removeAllListeners(event: string): void;
+};
+
 /**
  * Strip all dynamic `--<input>` options from `cmd` and re-add them based
  * on the merged union of inputs across all workflows in `registry`.
  *
  * Reserved flags (-n, -a, -d, --name, --agent, --detach) and Commander
- * internals are left untouched.
+ * internals are left untouched. Each `cmd.option()` call also registers an
+ * `option:<long>` EventEmitter listener; we drop those before re-adding to
+ * prevent `MaxListenersExceededWarning` on repeated resyncs.
  */
 function resyncDynamicOptions(
   cmd: Command,
   registry: ReturnType<typeof createBuiltinRegistry>,
 ): void {
-  const reservedLong = new Set(["--name", "--agent", "--detach", "--help", "--version"]);
-
-  // Remove existing dynamic options (everything that's not a reserved flag).
-  // Cast through unknown to work around Commander's readonly typing — the
-  // underlying JS property is a plain mutable array (Command constructor sets
-  // `this.options = []`).
-  (cmd as unknown as { options: Command["options"] }).options =
-    cmd.options.filter((o) => reservedLong.has(o.long ?? ""));
-
-  // Re-add from the merged union.
-  const all = listWorkflows(registry);
-  const unionInputs: Map<string, WorkflowInput> = buildInputUnion(all);
-  for (const [, input] of unionInputs) {
-    const desc =
-      input.description ??
-      (input.type === "enum"
-        ? `one of: ${(input.values ?? []).join(", ")}`
-        : input.type);
-    cmd.option(`--${input.name} <value>`, desc);
+  const internals = cmd as unknown as CommandInternals;
+  for (const opt of cmd.options) {
+    if (opt.long && !RESERVED_LONG_FLAGS.has(opt.long)) {
+      // Commander emits `option:<long>` without the `--` prefix.
+      internals.removeAllListeners(`option:${opt.long.slice(2)}`);
+    }
   }
+  internals.options = cmd.options.filter((o) => RESERVED_LONG_FLAGS.has(o.long ?? ""));
+  applyDynamicOptions(cmd, registry);
 }
 
 /**
@@ -108,10 +158,12 @@ function resyncDynamicOptions(
  */
 export function rebuildWorkflowCommand(
   registry: ReturnType<typeof createBuiltinRegistry>,
-  broken: ReadonlyMap<string, BrokenWorkflow>,
+  brokenIndex: ReadonlyMap<string, BrokenWorkflow>,
+  brokenList: readonly BrokenWorkflow[] = [],
 ): void {
   activeRegistry = registry;
-  activeBroken = broken;
+  activeBroken = brokenIndex;
+  activeBrokenList = brokenList;
   resyncDynamicOptions(workflowCommand, registry);
 }
 
@@ -186,6 +238,21 @@ async function dispatchExternal(
     env: buildExternalDispatchEnv(token),
   });
   const code = await child.exited;
+  const signal = child.signalCode;
+
+  if (signal) {
+    process.stderr.write(
+      `[atomic/workflows] "${w.name}": child terminated by signal ${signal}\n`,
+    );
+    const num = SIGNAL_NAME_TO_NUMBER[signal];
+    process.exit(num !== undefined ? 128 + num : UNKNOWN_SIGNAL_EXIT);
+  }
+  if (typeof code !== "number") {
+    process.stderr.write(
+      `[atomic/workflows] "${w.name}": child exited without numeric code (got ${String(code)})\n`,
+    );
+    process.exit(1);
+  }
   if (code !== 0) process.exit(code);
 }
 
@@ -222,7 +289,7 @@ async function runPicker(
   agent: AgentType,
   detach: boolean,
 ): Promise<void> {
-  const panel = await WorkflowPickerPanel.create({ agent, registry });
+  const panel = await WorkflowPickerPanel.create({ agent, registry, brokenIndex: getActiveBroken() });
   const result = await panel.waitForSelection();
   panel.destroy();
   if (!result) {
@@ -247,12 +314,6 @@ export function buildWorkflowCommand(
   registry: ReturnType<typeof createBuiltinRegistry> = createBuiltinRegistry(),
   liveRegistry = false,
 ): Command {
-  const all = listWorkflows(registry);
-  const allNames = [...new Set(all.map((w) => w.name))];
-  // buildInputUnion enforces the reserved-name and type-conflict checks
-  // the SDK previously ran inside createWorkflowCli.
-  const unionInputs: Map<string, WorkflowInput> = buildInputUnion(all);
-
   const cmd = new Command("workflow");
 
   // Subcommands declare their own `-a`; without enablePositionalOptions
@@ -260,10 +321,18 @@ export function buildWorkflowCommand(
   cmd.enablePositionalOptions();
 
   cmd.option("-n, --name <name>", "Workflow name", (v) => {
-    if (allNames.length > 0 && !allNames.includes(v)) {
+    // Read the LIVE registry on every parse so post-rebuild custom workflows
+    // are accepted; fall back to the closure snapshot for non-singleton callers.
+    const reg = liveRegistry ? activeRegistry : registry;
+    const names = [...new Set(listWorkflows(reg).map((w) => w.name))];
+
+    // Accept broken aliases here so the action handler can run blockIfBroken()
+    // and emit the §5.7.3 structured exit-2 block instead of Commander's
+    // generic "Unknown workflow name" error.
+    const isBrokenAlias = [...activeBroken.keys()].some((k) => k.endsWith(`/${v}`));
+    if (!isBrokenAlias && names.length > 0 && !names.includes(v)) {
       throw new Error(
-        `[atomic/workflow] Unknown workflow name "${v}". ` +
-          `Available: ${allNames.join(", ")}.`,
+        `[atomic/workflow] Unknown workflow name "${v}". Available: ${names.join(", ")}.`,
       );
     }
     return v;
@@ -283,14 +352,11 @@ export function buildWorkflowCommand(
     },
   );
 
-  for (const [, input] of unionInputs) {
-    const desc =
-      input.description ??
-      (input.type === "enum"
-        ? `one of: ${(input.values ?? []).join(", ")}`
-        : input.type);
-    cmd.option(`--${input.name} <value>`, desc);
-  }
+  // Seed the Commander `--<input>` option declarations from the merged
+  // input union. `buildInputUnion` enforces reserved-name and type-conflict
+  // checks; the action handler recomputes the union from the live registry
+  // on every call so post-rebuild custom inputs are still parsed.
+  applyDynamicOptions(cmd, registry);
 
   cmd.option("-d, --detach", "Run workflow in background (detach from tmux)");
 
@@ -316,10 +382,12 @@ export function buildWorkflowCommand(
       blockIfBroken(name, agent);
     }
 
+    // Recompute the input union from the live registry on every invocation
+    // so custom-workflow-only inputs (added after `rebuildWorkflowCommand`)
+    // are still extracted from `options` and forwarded to the dispatcher.
     const cliInputs: Record<string, string> = {};
-    for (const [inputName] of unionInputs) {
-      const camelKey = toCamelCase(inputName);
-      const v = options[camelKey];
+    for (const inputName of buildInputUnion(listWorkflows(effectiveRegistry)).keys()) {
+      const v = options[toCamelCase(inputName)];
       if (typeof v === "string" && v !== "") {
         cliInputs[inputName] = v;
       }
@@ -349,6 +417,14 @@ export function buildWorkflowCommand(
     }
 
     const workflow = resolveWorkflow(effectiveRegistry, name, agent);
+
+    if (process.env.ATOMIC_DEBUG === "1") {
+      const keys = Object.keys(cliInputs).join(", ");
+      process.stderr.write(
+        `[atomic/workflow] dispatching ${name}/${agent} kind=${workflow.kind ?? "builtin"} inputs=[${keys}]\n`,
+      );
+    }
+
     await dispatch(workflow, cliInputs, detach);
   });
 

@@ -29,7 +29,7 @@
     },
     "workflows": {
       "type": "object",
-      "description": "Custom user workflows. Each entry declares an executable command; atomic invokes it once at startup with `_emit-workflow-meta` to discover the compiled WorkflowDefinitions, then invokes it with `_atomic-run` to dispatch. Both behaviors are auto-handled by @bastani/atomic-sdk's argv interceptor — no third-party boilerplate.",
+      "description": "Each entry's `command` must be a CLI that imports `@bastani/atomic-sdk`, calls `defineWorkflow({…}).run(…).compile()`, and invokes `hostWorkflows([wf])` once afterward. The `hostWorkflows` call lets atomic discover and dispatch the workflow without relying on ESM module-load ordering.",
       "additionalProperties": { "$ref": "#/$defs/customWorkflow" }
     }
   },

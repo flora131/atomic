@@ -249,7 +249,7 @@ describe("workflowListCommand — broken workflows", () => {
     try {
       code = await workflowListCommand(
         {},
-        { list: () => fixture, broken: () => new Map() },
+        { list: () => fixture, broken: () => [] },
       );
     } finally {
       cap.restore();
@@ -260,15 +260,15 @@ describe("workflowListCommand — broken workflows", () => {
   });
 
   test("skipped section appears after healthy section when broken non-empty", async () => {
-    const brokenMap = new Map<string, BrokenWorkflow>([
-      ["claude/bad-wf", brokenEntry("bad-wf", "SyntaxError: unexpected token")],
-    ]);
+    const brokenList: readonly BrokenWorkflow[] = [
+      brokenEntry("bad-wf", "SyntaxError: unexpected token"),
+    ];
     const cap = captureOutput();
     let code: number;
     try {
       code = await workflowListCommand(
         {},
-        { list: () => fixture, broken: () => brokenMap },
+        { list: () => fixture, broken: () => brokenList },
       );
     } finally {
       cap.restore();
@@ -282,14 +282,14 @@ describe("workflowListCommand — broken workflows", () => {
   });
 
   test("skipped row format: ✗ <alias>   failed to load — <reason>", async () => {
-    const brokenMap = new Map<string, BrokenWorkflow>([
-      ["claude/my-wf", brokenEntry("my-wf", "TypeError: cannot read property")],
-    ]);
+    const brokenList: readonly BrokenWorkflow[] = [
+      brokenEntry("my-wf", "TypeError: cannot read property"),
+    ];
     const cap = captureOutput();
     try {
       await workflowListCommand(
         {},
-        { list: () => [], broken: () => brokenMap },
+        { list: () => [], broken: () => brokenList },
       );
     } finally {
       cap.restore();
@@ -301,15 +301,15 @@ describe("workflowListCommand — broken workflows", () => {
 
   test("summary line format: <N> custom workflow(s) skipped — fix at <path>", async () => {
     const sourcePath = "/home/user/.config/atomic/settings.json";
-    const brokenMap = new Map<string, BrokenWorkflow>([
-      ["claude/wf-a", brokenEntry("wf-a", "some error", sourcePath)],
-      ["claude/wf-b", brokenEntry("wf-b", "another error", sourcePath)],
-    ]);
+    const brokenList: readonly BrokenWorkflow[] = [
+      brokenEntry("wf-a", "some error", sourcePath),
+      brokenEntry("wf-b", "another error", sourcePath),
+    ];
     const cap = captureOutput();
     try {
       await workflowListCommand(
         {},
-        { list: () => [], broken: () => brokenMap },
+        { list: () => [], broken: () => brokenList },
       );
     } finally {
       cap.restore();
@@ -318,16 +318,16 @@ describe("workflowListCommand — broken workflows", () => {
   });
 
   test("multiple broken entries sorted deterministically by alias", async () => {
-    const brokenMap = new Map<string, BrokenWorkflow>([
-      ["claude/zebra-wf", brokenEntry("zebra-wf", "err")],
-      ["claude/alpha-wf", brokenEntry("alpha-wf", "err")],
-      ["claude/middle-wf", brokenEntry("middle-wf", "err")],
-    ]);
+    const brokenList: readonly BrokenWorkflow[] = [
+      brokenEntry("zebra-wf", "err"),
+      brokenEntry("alpha-wf", "err"),
+      brokenEntry("middle-wf", "err"),
+    ];
     const cap = captureOutput();
     try {
       await workflowListCommand(
         {},
-        { list: () => [], broken: () => brokenMap },
+        { list: () => [], broken: () => brokenList },
       );
     } finally {
       cap.restore();
@@ -342,14 +342,14 @@ describe("workflowListCommand — broken workflows", () => {
 
   test("long reason truncated at 80 chars with ellipsis", async () => {
     const longReason = "x".repeat(100);
-    const brokenMap = new Map<string, BrokenWorkflow>([
-      ["claude/wf", brokenEntry("wf", longReason)],
-    ]);
+    const brokenList: readonly BrokenWorkflow[] = [
+      brokenEntry("wf", longReason),
+    ];
     const cap = captureOutput();
     try {
       await workflowListCommand(
         {},
-        { list: () => [], broken: () => brokenMap },
+        { list: () => [], broken: () => brokenList },
       );
     } finally {
       cap.restore();
@@ -371,6 +371,112 @@ describe("workflowListCommand — broken workflows", () => {
     }
     expect(code).toBe(0);
     expect(cap.stdout).not.toContain("skipped");
+  });
+
+  test("multi-agent broken entry renders exactly one row when no agent filter", async () => {
+    const multiAgentEntry: BrokenWorkflow = {
+      alias: "shared-wf",
+      origin: "local",
+      agents: ["claude", "opencode"],
+      reason: "ImportError: missing dep",
+      source: "/path/to/settings.json",
+      fix: "Check your settings.json",
+    };
+    const cap = captureOutput();
+    try {
+      await workflowListCommand(
+        {},
+        { list: () => [], broken: () => [multiAgentEntry] },
+      );
+    } finally {
+      cap.restore();
+    }
+    // Exactly one ✗ row for the single entry
+    expect(cap.stdout.match(/✗/g)?.length).toBe(1);
+    expect(cap.stdout).toContain("shared-wf");
+    expect(cap.stdout).toContain("1 custom workflow(s) skipped");
+  });
+
+  test("-a claude filter: only entries whose agents include claude render", async () => {
+    const claudeEntry: BrokenWorkflow = {
+      alias: "claude-only-wf",
+      origin: "local",
+      agents: ["claude"],
+      reason: "SyntaxError",
+      source: "/path/settings.json",
+      fix: "fix it",
+    };
+    const opencodeEntry: BrokenWorkflow = {
+      alias: "opencode-only-wf",
+      origin: "local",
+      agents: ["opencode"],
+      reason: "ParseError",
+      source: "/path/settings.json",
+      fix: "fix it",
+    };
+    const bothEntry: BrokenWorkflow = {
+      alias: "both-wf",
+      origin: "local",
+      agents: ["claude", "opencode"],
+      reason: "TypeError",
+      source: "/path/settings.json",
+      fix: "fix it",
+    };
+    const brokenList: readonly BrokenWorkflow[] = [claudeEntry, opencodeEntry, bothEntry];
+    const cap = captureOutput();
+    try {
+      await workflowListCommand(
+        { agent: "claude" },
+        { list: () => [], broken: () => brokenList },
+      );
+    } finally {
+      cap.restore();
+    }
+    // claude-only and both entries include claude
+    expect(cap.stdout).toContain("claude-only-wf");
+    expect(cap.stdout).toContain("both-wf");
+    // opencode-only entry does NOT include claude
+    expect(cap.stdout).not.toContain("opencode-only-wf");
+  });
+
+  test("summary uses visible.length after agent filter", async () => {
+    const sourcePath = "/path/settings.json";
+    const entry1: BrokenWorkflow = {
+      alias: "wf-1",
+      origin: "local",
+      agents: ["claude"],
+      reason: "err",
+      source: sourcePath,
+      fix: "fix",
+    };
+    const entry2: BrokenWorkflow = {
+      alias: "wf-2",
+      origin: "local",
+      agents: ["claude", "opencode"],
+      reason: "err",
+      source: sourcePath,
+      fix: "fix",
+    };
+    const entry3: BrokenWorkflow = {
+      alias: "wf-3",
+      origin: "local",
+      agents: ["opencode"],
+      reason: "err",
+      source: sourcePath,
+      fix: "fix",
+    };
+    const brokenList: readonly BrokenWorkflow[] = [entry1, entry2, entry3];
+    const cap = captureOutput();
+    try {
+      // Filter to claude: entry1 and entry2 qualify (2 of 3)
+      await workflowListCommand(
+        { agent: "claude" },
+        { list: () => [], broken: () => brokenList },
+      );
+    } finally {
+      cap.restore();
+    }
+    expect(cap.stdout).toContain(`2 custom workflow(s) skipped — fix at ${sourcePath}`);
   });
 });
 

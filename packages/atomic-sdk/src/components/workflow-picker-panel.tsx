@@ -178,6 +178,29 @@ type ListRow =
   | { kind: "section"; agent: AgentType }
   | { kind: "entry"; entry: ListEntry };
 
+/** Canonical agent display order for the empty-query grouping. */
+const AGENT_ORDER: readonly AgentType[] = ["claude", "copilot", "opencode"];
+
+/**
+ * Combine name + description fuzzy scores into a single rank. Description
+ * matches carry a +2 penalty so name hits win ties. Returns `null` when
+ * neither field matched.
+ */
+function combinedFuzzyScore(
+  query: string,
+  name: string,
+  description: string,
+): number | null {
+  const nameScore = fuzzyMatch(query, name);
+  const descScore = fuzzyMatch(query, description);
+  if (nameScore !== null && descScore !== null) {
+    return Math.min(nameScore, descScore + 2);
+  }
+  if (nameScore !== null) return nameScore;
+  if (descScore !== null) return descScore + 2;
+  return null;
+}
+
 export function buildEntries(
   query: string,
   workflows: PickerWorkflow[],
@@ -185,22 +208,13 @@ export function buildEntries(
   type Scored = { wf: PickerWorkflow; score: number };
   const scored: Scored[] = [];
   for (const wf of workflows) {
-    const nameScore = fuzzyMatch(query, wf.name);
-    const descScore = fuzzyMatch(query, wf.description ?? "");
-    const best =
-      nameScore !== null && descScore !== null
-        ? Math.min(nameScore, descScore + 2)
-        : nameScore !== null
-          ? nameScore
-          : descScore !== null
-            ? descScore + 2
-            : null;
-    if (best !== null) scored.push({ wf, score: best });
+    const score = combinedFuzzyScore(query, wf.name, wf.description ?? "");
+    if (score !== null) scored.push({ wf, score });
   }
 
   if (query === "") {
     const rest: ListEntry[] = [];
-    for (const agent of ["claude", "copilot", "opencode"] as AgentType[]) {
+    for (const agent of AGENT_ORDER) {
       const group = scored
         .filter((s) => s.wf.agent === agent)
         .sort((a, b) => a.wf.name.localeCompare(b.wf.name));
@@ -246,67 +260,51 @@ export function buildPickerRows(
   workflows: PickerWorkflow[],
   brokenIndex: ReadonlyMap<string, BrokenWorkflow> = new Map(),
 ): PickerRow[] {
-  // ── Healthy ──────────────────────────────────────────────────────────────
+  // Score both row kinds with a uniform `{ row, score }` shape so the
+  // assemble step doesn't need to discriminate by source.
+  type Scored = { row: PickerRow; score: number };
+  const scored: Scored[] = [];
 
-  type ScoredHealthy = { wf: PickerWorkflow; score: number };
-  const scoredHealthy: ScoredHealthy[] = [];
   for (const wf of workflows) {
-    const nameScore = fuzzyMatch(query, wf.name);
-    const descScore = fuzzyMatch(query, wf.description ?? "");
-    const best =
-      nameScore !== null && descScore !== null
-        ? Math.min(nameScore, descScore + 2)
-        : nameScore !== null
-          ? nameScore
-          : descScore !== null
-            ? descScore + 2
-            : null;
-    if (best !== null) scoredHealthy.push({ wf, score: best });
+    const score = combinedFuzzyScore(query, wf.name, wf.description ?? "");
+    if (score !== null) scored.push({ row: { kind: "healthy", wf }, score });
   }
 
-  // ── Broken ───────────────────────────────────────────────────────────────
-
-  type ScoredBroken = { alias: string; agent: AgentType; broken: BrokenWorkflow; score: number };
-  const scoredBroken: ScoredBroken[] = [];
   for (const [key, broken] of brokenIndex) {
     const slash = key.indexOf("/");
     if (slash === -1) continue;
     const agent = key.slice(0, slash) as AgentType;
     const alias = key.slice(slash + 1);
     const score = fuzzyMatch(query, alias);
-    if (score !== null) scoredBroken.push({ alias, agent, broken, score });
-  }
-
-  // ── Assemble ─────────────────────────────────────────────────────────────
-
-  if (query === "") {
-    // No query: group by agent in canonical order, healthy before broken per agent.
-    const rows: PickerRow[] = [];
-    for (const agent of ["claude", "copilot", "opencode"] as AgentType[]) {
-      const healthyGroup = scoredHealthy
-        .filter((s) => s.wf.agent === agent)
-        .sort((a, b) => a.wf.name.localeCompare(b.wf.name))
-        .map<PickerRow>((s) => ({ kind: "healthy", wf: s.wf }));
-      const brokenGroup = scoredBroken
-        .filter((s) => s.agent === agent)
-        .sort((a, b) => a.alias.localeCompare(b.alias))
-        .map<PickerRow>((s) => ({ kind: "broken", alias: s.alias, agent: s.agent, broken: s.broken }));
-      rows.push(...healthyGroup, ...brokenGroup);
+    if (score !== null) {
+      scored.push({ row: { kind: "broken", alias, agent, broken }, score });
     }
-    return rows;
   }
 
-  // With query: sort by score, interleave broken with healthy.
-  const allScored: Array<(ScoredHealthy | ScoredBroken) & { score: number }> = [
-    ...scoredHealthy,
-    ...scoredBroken,
-  ];
-  allScored.sort((a, b) => a.score - b.score);
-  return allScored.map<PickerRow>((s) =>
-    "wf" in s
-      ? { kind: "healthy", wf: s.wf }
-      : { kind: "broken", alias: s.alias, agent: s.agent, broken: s.broken },
-  );
+  // With query: pure score sort, broken interleaved with healthy.
+  if (query !== "") {
+    scored.sort((a, b) => a.score - b.score);
+    return scored.map((s) => s.row);
+  }
+
+  // Empty query: group by agent in canonical order; healthy before broken
+  // per agent; alphabetic within each sub-group.
+  const rowAgent = (row: PickerRow): AgentType =>
+    row.kind === "healthy" ? row.wf.agent : row.agent;
+  const sortKey = (row: PickerRow): string =>
+    row.kind === "healthy" ? row.wf.name : row.alias;
+  const byKey = (a: { row: PickerRow }, b: { row: PickerRow }): number =>
+    sortKey(a.row).localeCompare(sortKey(b.row));
+
+  const rows: PickerRow[] = [];
+  for (const agent of AGENT_ORDER) {
+    const inAgent = scored.filter((s) => rowAgent(s.row) === agent);
+    const healthy = inAgent.filter((s) => s.row.kind === "healthy").sort(byKey);
+    const broken = inAgent.filter((s) => s.row.kind === "broken").sort(byKey);
+    for (const s of healthy) rows.push(s.row);
+    for (const s of broken) rows.push(s.row);
+  }
+  return rows;
 }
 
 // ─── Validation ─────────────────────────────────
@@ -505,9 +503,7 @@ const BrokenPreview = memo(function BrokenPreview({
       paddingTop={1}
     >
       <text>
-        <span fg={theme.text}>
-          <strong>{alias}</strong>
-        </span>
+        <span fg={theme.text}>{alias}</span>
       </text>
 
       <box height={1} />
@@ -519,20 +515,20 @@ const BrokenPreview = memo(function BrokenPreview({
       <box height={2} />
 
       <text>
-        <span fg={theme.textMuted}>{broken.reason}</span>
+        <span fg={theme.text}>{broken.reason}</span>
       </text>
 
       <box height={2} />
 
       <text>
-        <span fg={theme.textDim}>{"source  ·  "}</span>
-        <span fg={theme.text}>{broken.source}</span>
+        <span fg={theme.textMuted}>{"source  ·  "}</span>
+        <span fg={theme.textMuted}>{broken.source}</span>
       </text>
 
       <box height={1} />
 
       <text>
-        <span fg={theme.textDim}>{"fix  ·  "}</span>
+        <span fg={theme.textMuted}>{"fix  ·  "}</span>
         <span fg={theme.textMuted}>{broken.fix}</span>
       </text>
     </box>
@@ -1181,13 +1177,6 @@ const PROMPT_HINTS_INVALID: Hint[] = [
   { key: "ctrl+d", label: "to run", dim: true },
 ];
 
-// Per-agent brand color used as the Header pill background.
-const AGENT_PILL_COLOR: Record<AgentType, keyof PickerTheme> = {
-  claude: "warning",
-  copilot: "success",
-  opencode: "mauve",
-};
-
 const Header = memo(function Header({
   phase,
   confirmOpen,
@@ -1205,7 +1194,7 @@ const Header = memo(function Header({
     : phase === "pick"
       ? "select"
       : "compose";
-  const pillBg = theme[AGENT_PILL_COLOR[selectedAgent]];
+  const pillBg = theme[AGENT_COLOR[selectedAgent]];
 
   return (
     <box
@@ -1734,6 +1723,16 @@ export class WorkflowPickerPanel {
     const workflows = options.registry
       .list()
       .filter((wf) => wf.agent === options.agent);
+
+    // Restrict the broken index to entries scoped to the selected agent —
+    // the picker only renders one agent's workflows at a time.
+    const agentPrefix = `${options.agent}/`;
+    const filteredBroken: ReadonlyMap<string, BrokenWorkflow> = new Map(
+      options.brokenIndex
+        ? Array.from(options.brokenIndex).filter(([key]) => key.startsWith(agentPrefix))
+        : [],
+    );
+
     this.root = createRoot(renderer);
     this.root.render(
       <ErrorBoundary
@@ -1757,7 +1756,7 @@ export class WorkflowPickerPanel {
           theme={theme}
           agent={options.agent}
           workflows={workflows}
-          brokenIndex={options.brokenIndex}
+          brokenIndex={filteredBroken}
           onSubmit={(result) => this.handleSubmit(result)}
           onCancel={() => this.handleCancel()}
         />

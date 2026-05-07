@@ -178,34 +178,29 @@ describe("findSub", () => {
     expect(findSub(["bun", "script.ts", "some-other-command"])).toBeNull();
   });
 
-  test("finds _atomic-run at index 2 (normal position)", () => {
+  test("_atomic-run is NOT in SUBS — returns null", () => {
     const result = findSub(["bun", "script.ts", "_atomic-run", "--name", "x"]);
-    expect(result).toEqual({ sub: "_atomic-run", index: 2 });
+    expect(result).toBeNull();
   });
 
-  test("finds sub at index > 2 (extra launcher tokens before it)", () => {
+  test("_emit-workflow-meta is NOT in SUBS at index > 2 — returns null", () => {
     const result = findSub(["bunx", "--bun", "my-pkg/cli.ts", "_emit-workflow-meta"]);
-    expect(result).toEqual({ sub: "_emit-workflow-meta", index: 3 });
+    expect(result).toBeNull();
   });
 
   test("returns first match and ignores subsequent matching tokens", () => {
-    const result = findSub(["bun", "script.ts", "_cc-debounce", "_atomic-run"]);
+    const result = findSub(["bun", "script.ts", "_cc-debounce", "_orchestrator-entry"]);
     expect(result).toEqual({ sub: "_cc-debounce", index: 2 });
   });
 
   test("ignores tokens at indices 0 and 1", () => {
     // Even if a sub name appears in positions 0/1, must not match.
-    expect(findSub(["_atomic-run", "_emit-workflow-meta"])).toBeNull();
+    expect(findSub(["_orchestrator-entry", "_cc-debounce"])).toBeNull();
   });
 
   test("finds _orchestrator-entry", () => {
     const result = findSub(["bun", "cli.ts", "_orchestrator-entry", "my-wf", "claude", "", "/path"]);
     expect(result).toEqual({ sub: "_orchestrator-entry", index: 2 });
-  });
-
-  test("finds _emit-workflow-meta", () => {
-    const result = findSub(["bun", "script.ts", "_emit-workflow-meta"]);
-    expect(result).toEqual({ sub: "_emit-workflow-meta", index: 2 });
   });
 
   test("finds _cc-debounce", () => {

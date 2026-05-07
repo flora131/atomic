@@ -2,6 +2,7 @@
 
 import { test, expect, describe, afterEach } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
+import { TextAttributes, hexToRgb } from "@opentui/core";
 import { act } from "react";
 import {
   WorkflowPicker,
@@ -1012,6 +1013,47 @@ describe("WorkflowPickerPanel class", () => {
       p.destroy();
     });
   });
+
+  // ─── R3 regression: picker filters brokenIndex by agent ──────────────────
+  //
+  // The panel constructor applies a `filteredBroken` boundary: only entries
+  // whose key starts with `${agent}/` are passed to <WorkflowPicker>.
+  // This test enforces that invariant — a multi-agent brokenIndex must not
+  // leak entries from a non-selected agent into the rendered list.
+  test("R3: brokenIndex filtered by agent — claude/foo shown, copilot/bar absent", async () => {
+    coreSetup = await createTestRenderer({ width: 120, height: 40 });
+    setReactActEnvironment(true);
+
+    const registry = createRegistry().register(
+      makeWorkflow({ name: "healthy-claude", agent: "claude" }),
+    );
+
+    const multiAgentBrokenIndex: ReadonlyMap<string, BrokenWorkflow> = new Map([
+      ["claude/foo", makeBroken({ alias: "foo", agents: ["claude"] })],
+      ["copilot/bar", makeBroken({ alias: "bar", agents: ["copilot"] })],
+    ]);
+
+    act(() => {
+      panel = WorkflowPickerPanel.createWithRenderer(coreSetup!.renderer, {
+        agent: "claude",
+        registry,
+        brokenIndex: multiAgentBrokenIndex,
+      });
+    });
+
+    await act(async () => {
+      await coreSetup!.renderOnce();
+    });
+
+    const frame = coreSetup!.captureCharFrame();
+
+    // claude/foo broken entry must appear (rendered with ✗ glyph).
+    expect(frame).toContain("foo");
+    expect(frame).toContain("✗");
+
+    // copilot/bar must NOT appear — filtered out at panel constructor boundary.
+    expect(frame).not.toContain("bar");
+  });
 });
 
 // ─── Broken workflow fixtures ─────────────────────
@@ -1301,4 +1343,223 @@ describe("WorkflowPicker broken row rendering", () => {
     expect(frameBack).toContain("run ralph loop");    // healthy preview restored
     expect(frameBack).not.toContain("✗ Failed to load");
   });
+
+  // ─── §5.7.1 token / no-bold assertions ───────────
+
+  test("BrokenPreview: alias has no bold, source+fix use same color (textMuted = subtext0)", async () => {
+    const broken = makeBroken({
+      alias: "deep-spec",
+      reason: '"bunx" exited 1 during _emit-workflow-meta',
+      source: "~/.atomic/settings.json",
+      fix: "check @me/atomic-deep-spec is installed",
+    });
+    const index = makeBrokenIndex([["claude/deep-spec", broken]]);
+    const setup = await renderPickerWithBroken({
+      workflows: [],
+      brokenIndex: index,
+    });
+
+    const frame = setup.captureSpans();
+    const BOLD = TextAttributes.BOLD;
+    const textMutedRgba = hexToRgb(TEST_THEME.textMuted);
+    const allSpans = frame.lines.flatMap((l) => l.spans);
+
+    // Spans that contain the preview-specific text (not present elsewhere in UI).
+    const aliasSpans = allSpans.filter((s) => s.text.includes("deep-spec"));
+    const sourceSpans = allSpans.filter((s) => s.text.includes("settings.json"));
+    const fixSpans = allSpans.filter((s) => s.text.includes("atomic-deep-spec"));
+
+    expect(aliasSpans.length).toBeGreaterThan(0);
+    expect(sourceSpans.length).toBeGreaterThan(0);
+    expect(fixSpans.length).toBeGreaterThan(0);
+
+    // Alias span: no bold.
+    const aliasBoldSpans = aliasSpans.filter((s) => (s.attributes & BOLD) !== 0);
+    expect(aliasBoldSpans.map((s) => s.text)).toEqual([]);
+
+    // Source and fix spans must all use textMuted (subtext0) foreground.
+    for (const span of [...sourceSpans, ...fixSpans]) {
+      expect(span.fg.equals(textMutedRgba)).toBe(true);
+    }
+  });
+
+  test("picker-row-broken focused: no bold on alias or glyph", async () => {
+    const index = makeBrokenIndex([
+      ["claude/bold-check", makeBroken({ alias: "bold-check" })],
+    ]);
+    const setup = await renderPickerWithBroken({
+      workflows: [],
+      brokenIndex: index,
+    });
+    // With no healthy rows, broken row at index 0 is already focused.
+    const frame = setup.captureSpans();
+    const BOLD = TextAttributes.BOLD;
+    const allSpans = frame.lines.flatMap((l) => l.spans);
+
+    // Spans that carry the alias text — scoped to the broken row / preview content.
+    const aliasSpans = allSpans.filter((s) => s.text.includes("bold-check"));
+    expect(aliasSpans.length).toBeGreaterThan(0);
+
+    // No alias span should have BOLD attribute.
+    const boldAliasSpans = aliasSpans.filter((s) => (s.attributes & BOLD) !== 0);
+    expect(boldAliasSpans.map((s) => s.text)).toEqual([]);
+
+    // Glyph span "✗ " must not be bold.
+    const glyphSpans = allSpans.filter((s) => s.text.includes("✗"));
+    expect(glyphSpans.length).toBeGreaterThan(0);
+    const boldGlyphSpans = glyphSpans.filter((s) => (s.attributes & BOLD) !== 0);
+    expect(boldGlyphSpans.map((s) => s.text)).toEqual([]);
+  });
 });
+
+// ─── RFC §8.3 three-row state lock ───────────────────────────────────────────
+//
+// "Picker snapshot: healthy + broken + healthy-selected three-row state lock."
+//
+// Uses a minimal three-entry catalog: two healthy workflows ("aaa-first",
+// "zzz-last") and one broken entry ("mmm-broken") for the same agent.
+// With an empty query, buildPickerRows orders: healthy-first-then-broken
+// within the same agent group, so the rendered list is:
+//
+//   [0] aaa-first   (healthy)
+//   [1] zzz-last    (healthy)
+//   [2] mmm-broken  (broken)
+//
+// Tests cover:
+//  (a) broken row rendered with ✗ glyph while healthy rows also present
+//  (b) snapshot: focus navigated to row 2 (the broken row, third position)
+//  (c) Enter on focused broken row: no phase transition, statusline flash
+//  (d) BrokenPreview pane shows reason / source / fix from BrokenWorkflow
+
+describe("RFC §8.3 three-row snapshot: healthy + broken + healthy-selected", () => {
+  // Shared three-row fixture for this describe block.
+  const THREE_ROW_WORKFLOWS: WorkflowDefinition[] = [
+    makeWorkflow({ name: "aaa-first", agent: "claude", description: "first healthy workflow" }),
+    makeWorkflow({ name: "zzz-last", agent: "claude", description: "last healthy workflow" }),
+  ];
+
+  const THREE_ROW_BROKEN: BrokenWorkflow = {
+    alias: "mmm-broken",
+    origin: "local",
+    agents: ["claude"],
+    reason: "bunx exit 1 during _emit-workflow-meta",
+    source: "~/.atomic/settings.json",
+    fix: "ensure @acme/mmm-broken is installed and on PATH",
+  };
+
+  const THREE_ROW_INDEX: ReadonlyMap<string, BrokenWorkflow> = new Map([
+    ["claude/mmm-broken", THREE_ROW_BROKEN],
+  ]);
+
+  async function renderThreeRow(
+    opts: {
+      onSubmit?: (r: WorkflowPickerResult) => void;
+      onCancel?: () => void;
+    } = {},
+  ) {
+    return renderPickerWithBroken({
+      workflows: THREE_ROW_WORKFLOWS,
+      brokenIndex: THREE_ROW_INDEX,
+      onSubmit: opts.onSubmit,
+      onCancel: opts.onCancel,
+      width: 120,
+      height: 40,
+    });
+  }
+
+  // ─── (a) Broken row has ✗ glyph; healthy rows also present ───────────────
+
+  test("(a) all three rows rendered: two healthy names + broken ✗ glyph visible", async () => {
+    const setup = await renderThreeRow();
+    const frame = setup.captureCharFrame();
+
+    // Both healthy workflows visible.
+    expect(frame).toContain("aaa-first");
+    expect(frame).toContain("zzz-last");
+
+    // Broken row rendered with ✗ glyph.
+    expect(frame).toContain("mmm-broken");
+    expect(frame).toContain("✗");
+  });
+
+  // ─── (b) Snapshot: focus on row index 2 (broken = third row) ─────────────
+
+  test("(b) snapshot: three-row state with broken row focused (third position)", async () => {
+    const setup = await renderThreeRow();
+
+    // Navigate to the third row (index 2 = the broken entry).
+    await press(setup, (i) => i.pressArrow("down")); // 0 → 1
+    await press(setup, (i) => i.pressArrow("down")); // 1 → 2
+
+    const frame = setup.captureCharFrame();
+
+    // Broken row is focused — preview pane shows broken content.
+    expect(frame).toContain("✗ Failed to load");
+
+    // Healthy rows still visible in the list.
+    expect(frame).toContain("aaa-first");
+    expect(frame).toContain("zzz-last");
+
+    // Broken alias visible (in list and preview).
+    expect(frame).toContain("mmm-broken");
+
+    // Lock the render state with a snapshot.
+    expect(frame).toMatchSnapshot();
+  });
+
+  // ─── (c) Enter on broken: no phase transition, statusline flash ───────────
+
+  test("(c) enter on focused broken row: no transition to PROMPT, flash shown", async () => {
+    let submitCalled = false;
+    const setup = await renderThreeRow({
+      onSubmit: () => { submitCalled = true; },
+    });
+
+    // Navigate to the broken row (index 2).
+    await press(setup, (i) => i.pressArrow("down")); // 0 → 1
+    await press(setup, (i) => i.pressArrow("down")); // 1 → 2
+
+    // Press Enter on the broken row.
+    await press(setup, (i) => i.pressEnter());
+
+    const frame = setup.captureCharFrame();
+
+    // No submission callback fired.
+    expect(submitCalled).toBe(false);
+
+    // Still in PICK phase (not PROMPT or CONFIRM).
+    expect(frame).toContain("PICK");
+    expect(frame).not.toContain("PROMPT");
+    expect(frame).not.toContain("CONFIRM");
+
+    // Statusline flash shows "cannot run" message with alias.
+    expect(frame).toContain("cannot run");
+    expect(frame).toContain("mmm-broken");
+    expect(frame).toContain("failed to load");
+  });
+
+  // ─── (d) BrokenPreview: reason / source / fix rendered in right pane ──────
+
+  test("(d) focused broken row: BrokenPreview shows reason, source, fix", async () => {
+    const setup = await renderThreeRow();
+
+    // Navigate to the broken row.
+    await press(setup, (i) => i.pressArrow("down")); // 0 → 1
+    await press(setup, (i) => i.pressArrow("down")); // 1 → 2
+
+    const frame = setup.captureCharFrame();
+
+    // Preview pane shows the broken workflow metadata.
+    expect(frame).toContain("✗ Failed to load");
+
+    // reason
+    expect(frame).toContain("bunx exit 1 during _emit-workflow-meta");
+
+    // source
+    expect(frame).toContain("~/.atomic/settings.json");
+
+    // fix
+    expect(frame).toContain("@acme/mmm-broken is installed");
+  });
+});
+

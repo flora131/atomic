@@ -202,10 +202,12 @@ exit 0
 
     expect(result.loaded).toHaveLength(0);
     expect(result.broken).toHaveLength(1);
-    expect(cap.stderr).toContain(
-      `"no-meta": expected ATOMIC_WORKFLOW_META line — third-party CLI may be missing 'import "@bastani/atomic-sdk"'`,
-    );
+    expect(cap.stderr).toContain("expected ATOMIC_WORKFLOW_META line");
+    expect(cap.stderr).toContain("hostWorkflows");
+    expect(cap.stderr).toContain("await hostWorkflows([wf])");
     expect(result.broken[0]!.reason).toContain("expected ATOMIC_WORKFLOW_META line");
+    expect(result.broken[0]!.reason).toContain("await hostWorkflows([wf])");
+    expect(result.broken[0]!.fix).toContain("await hostWorkflows([wf])");
   });
 });
 
@@ -266,8 +268,10 @@ await new Promise(() => {});
     expect(result.loaded).toHaveLength(0);
     expect(result.broken).toHaveLength(1);
     expect(cap.stderr).toContain("metadata emission timed out after 300ms");
-    expect(cap.stderr).toContain("@bastani/atomic-sdk");
+    expect(cap.stderr).toContain("hostWorkflows");
     expect(result.broken[0]!.reason).toContain("timed out after 300ms");
+    expect(result.broken[0]!.reason).toContain("hostWorkflows");
+    expect(result.broken[0]!.fix).toContain("await hostWorkflows([wf])");
   }, 15000);
 });
 
@@ -456,6 +460,7 @@ describe("mergeIntoRegistry — no custom workflows", () => {
       cap.restore();
     }
     expect(cap.stderr).toBe("");
+    expect(result.brokenList).toHaveLength(0);
     expect(result.brokenIndex.size).toBe(0);
     expect(result.summary).toBeNull();
   });
@@ -473,8 +478,32 @@ describe("mergeIntoRegistry — global entry, no prior key", () => {
       cap.restore();
     }
     expect(cap.stderr).toBe("");
+    expect(result.brokenList).toHaveLength(0);
     expect(result.registry.has("claude/totally-unique-global-wf")).toBe(true);
     expect(result.summary).toBe("[atomic/workflows] loaded 1 custom workflow(s)");
+  });
+
+  test("global broken entry → brokenList has entry, brokenIndex keys declared agents", () => {
+    const builtin = createBuiltinRegistry();
+    const broken: BrokenWorkflow = {
+      alias: "global-bad-wf",
+      origin: "global",
+      agents: ["claude", "opencode"],
+      reason: "test reason",
+      source: SETTINGS_PATH,
+      fix: "test fix",
+    };
+    const cap = captureStderr();
+    let result;
+    try {
+      result = mergeIntoRegistry(builtin, brokenResult(broken), emptyResult());
+    } finally {
+      cap.restore();
+    }
+    expect(result.brokenList).toHaveLength(1);
+    expect(result.brokenList[0]).toEqual(broken);
+    expect(result.brokenIndex.has("claude/global-bad-wf")).toBe(true);
+    expect(result.brokenIndex.has("opencode/global-bad-wf")).toBe(true);
   });
 });
 
@@ -501,7 +530,43 @@ describe("mergeIntoRegistry — local shadows global same key", () => {
     }
 
     expect(cap.stderr).toContain("[atomic/workflows] override: shadow-wf/claude (local) > external");
+    expect(result.brokenList).toHaveLength(0);
     expect(result.summary).toBe("[atomic/workflows] loaded 2 custom workflow(s)");
+  });
+
+  test("brokenList composition reflects merged global+local broken sources", () => {
+    const builtin = createBuiltinRegistry();
+    const globalBroken: BrokenWorkflow = {
+      alias: "global-broken",
+      origin: "global",
+      agents: ["claude"],
+      reason: "global reason",
+      source: SETTINGS_PATH,
+      fix: "global fix",
+    };
+    const localBroken: BrokenWorkflow = {
+      alias: "local-broken",
+      origin: "local",
+      agents: ["opencode"],
+      reason: "local reason",
+      source: SETTINGS_PATH,
+      fix: "local fix",
+    };
+    const globalRes: LoadCustomWorkflowsResult = { loaded: [], broken: [globalBroken] };
+    const localRes: LoadCustomWorkflowsResult = { loaded: [], broken: [localBroken] };
+
+    const cap = captureStderr();
+    let result;
+    try {
+      result = mergeIntoRegistry(builtin, globalRes, localRes);
+    } finally {
+      cap.restore();
+    }
+
+    expect(result.brokenList).toHaveLength(2);
+    // brokenList entries are new objects (map+filter produces copies), so use toEqual.
+    expect(result.brokenList[0]).toEqual(globalBroken);
+    expect(result.brokenList[1]).toEqual(localBroken);
   });
 });
 
@@ -528,6 +593,260 @@ describe("mergeIntoRegistry — brokenIndex keyed correctly", () => {
     expect(result.brokenIndex.has("opencode/bad-wf")).toBe(true);
     expect(result.brokenIndex.get("claude/bad-wf")).toBe(broken);
     expect(result.brokenIndex.get("opencode/bad-wf")).toBe(broken);
+  });
+});
+
+describe("mergeIntoRegistry — multi-agent broken entry brokenList dedup", () => {
+  test("one alias with two agents → brokenList has 1 entry, brokenIndex has 2 keys", () => {
+    const builtin = createBuiltinRegistry();
+    const broken: BrokenWorkflow = {
+      alias: "demo",
+      origin: "local",
+      agents: ["claude", "opencode"],
+      reason: "x",
+      source: "y",
+      fix: "z",
+    };
+    const cap = captureStderr();
+    let result;
+    try {
+      result = mergeIntoRegistry(builtin, emptyResult(), brokenResult(broken));
+    } finally {
+      cap.restore();
+    }
+
+    expect(result.brokenList).toHaveLength(1);
+    expect(result.brokenIndex.size).toBe(2);
+    expect(result.brokenIndex.has("claude/demo")).toBe(true);
+    expect(result.brokenIndex.has("opencode/demo")).toBe(true);
+  });
+});
+
+describe("mergeIntoRegistry — summary counts unique broken aliases not agent fan-out", () => {
+  test("one alias with two agents → summary says '1 skipped' not '2 skipped'", () => {
+    const builtin = createBuiltinRegistry();
+    const broken: BrokenWorkflow = {
+      alias: "fan-out-wf",
+      origin: "local",
+      agents: ["claude", "opencode"],
+      reason: "reason",
+      source: SETTINGS_PATH,
+      fix: "fix",
+    };
+    const cap = captureStderr();
+    let result;
+    try {
+      result = mergeIntoRegistry(builtin, emptyResult(), brokenResult(broken));
+    } finally {
+      cap.restore();
+    }
+
+    // brokenList.length = 1 alias; brokenIndex.size = 2 (one per agent)
+    expect(result.summary).toContain("1 skipped");
+    expect(result.summary).not.toContain("2 skipped");
+  });
+});
+
+describe("mergeIntoRegistry — §5.7.4+§8.3 healthy-override subtraction", () => {
+  test("global broken + local healthy same alias/agent: registry resolves local, brokenIndex has no entry", () => {
+    const builtin = createBuiltinRegistry();
+
+    const globalBroken: BrokenWorkflow = {
+      alias: "Z",
+      origin: "global",
+      agents: ["claude"],
+      reason: "global command not found",
+      source: SETTINGS_PATH,
+      fix: "install it",
+    };
+
+    const localWf = makeExternalWorkflow("Z", "claude");
+    const globalRes: LoadCustomWorkflowsResult = { loaded: [], broken: [globalBroken] };
+    const localRes: LoadCustomWorkflowsResult = {
+      loaded: [{ alias: "Z", origin: "local", workflow: localWf }],
+      broken: [],
+    };
+
+    const cap = captureStderr();
+    let result;
+    try {
+      result = mergeIntoRegistry(builtin, globalRes, localRes);
+    } finally {
+      cap.restore();
+    }
+
+    // (a) registry resolves the local healthy entry
+    const resolved = result.registry.resolve("Z", "claude");
+    expect(resolved).toBeDefined();
+    expect(resolved).toBe(localWf);
+
+    // (b) brokenIndex does NOT key "claude/Z" — subtraction kicked in
+    expect(result.brokenIndex.get("claude/Z")).toBeUndefined();
+
+    // (c) brokenList excludes fully-shadowed entries (RFC §5.7 filteredBrokenList).
+    //     All (alias, agent) pairs for globalBroken are covered by the healthy
+    //     local override, so the entry is removed from brokenList entirely.
+    expect(result.brokenList).toHaveLength(0);
+  });
+});
+
+describe("mergeIntoRegistry — §8.3 alias-vs-name divergence", () => {
+  test("local healthy alias overrides global broken even when workflow.name differs from alias", () => {
+    const builtin = createBuiltinRegistry();
+
+    const globalBroken: BrokenWorkflow = {
+      alias: "X",
+      origin: "global",
+      agents: ["claude"],
+      reason: "command not found",
+      source: SETTINGS_PATH,
+      fix: "install it",
+    };
+
+    // workflow.name differs from alias ("X-impl" vs "X")
+    const localWf = makeExternalWorkflow("X-impl", "claude");
+    const globalRes: LoadCustomWorkflowsResult = { loaded: [], broken: [globalBroken] };
+    const localRes: LoadCustomWorkflowsResult = {
+      loaded: [{ alias: "X", origin: "local", workflow: localWf }],
+      broken: [],
+    };
+
+    const cap = captureStderr();
+    let result;
+    try {
+      result = mergeIntoRegistry(builtin, globalRes, localRes);
+    } finally {
+      cap.restore();
+    }
+
+    // brokenIndex must NOT contain "claude/X" — the alias-keyed healthy set subsumed it
+    expect(result.brokenIndex.get("claude/X")).toBeUndefined();
+
+    // brokenList must be empty — the sole broken entry is fully shadowed
+    expect(result.brokenList).toHaveLength(0);
+
+    // registry resolves the local healthy entry by workflow.name
+    const resolved = result.registry.resolve("X-impl", "claude");
+    expect(resolved).toBeDefined();
+    expect(resolved).toBe(localWf);
+  });
+});
+
+describe("mergeIntoRegistry — §8.3 partial-agent shadow", () => {
+  test("local healthy for claude only: claude/X removed from brokenIndex, copilot/X retained", () => {
+    const builtin = createBuiltinRegistry();
+
+    const globalBroken: BrokenWorkflow = {
+      alias: "X",
+      origin: "global",
+      agents: ["claude", "copilot"],
+      reason: "command not found",
+      source: SETTINGS_PATH,
+      fix: "install it",
+    };
+
+    // Only claude is healthy; workflow.name === alias
+    const localWf = makeExternalWorkflow("X", "claude");
+    const globalRes: LoadCustomWorkflowsResult = { loaded: [], broken: [globalBroken] };
+    const localRes: LoadCustomWorkflowsResult = {
+      loaded: [{ alias: "X", origin: "local", workflow: localWf }],
+      broken: [],
+    };
+
+    const cap = captureStderr();
+    let result;
+    try {
+      result = mergeIntoRegistry(builtin, globalRes, localRes);
+    } finally {
+      cap.restore();
+    }
+
+    // claude is healthy → subtracted from brokenIndex
+    expect(result.brokenIndex.get("claude/X")).toBeUndefined();
+
+    // copilot is NOT healthy → still in brokenIndex
+    expect(result.brokenIndex.get("copilot/X")).toBe(globalBroken);
+
+    // At least one agent (copilot) is un-shadowed → entry survives in brokenList,
+    // but the brokenList entry is a NEW object with agents narrowed to only the
+    // un-shadowed agents (the fix narrows via map+filter).
+    expect(result.brokenList).toHaveLength(1);
+    expect(result.brokenList[0]!.alias).toBe(globalBroken.alias);
+    expect(result.brokenList[0]!.agents).toEqual(["copilot"]);
+    expect(result.brokenList[0]!.reason).toBe(globalBroken.reason);
+    expect(result.brokenList[0]!.source).toBe(globalBroken.source);
+    expect(result.brokenList[0]!.fix).toBe(globalBroken.fix);
+    expect(result.brokenList[0]!.origin).toBe(globalBroken.origin);
+  });
+});
+
+describe("mergeIntoRegistry — §8.3 brokenList vs brokenIndex consistency invariant", () => {
+  test("every brokenList entry appears in brokenIndex and every brokenIndex value appears in brokenList", () => {
+    const builtin = createBuiltinRegistry();
+
+    // Multi-alias, multi-agent, partial shadows — non-trivial mix
+    const brokenA: BrokenWorkflow = {
+      alias: "alpha",
+      origin: "global",
+      agents: ["claude", "opencode"],
+      reason: "reason-A",
+      source: SETTINGS_PATH,
+      fix: "fix-A",
+    };
+    const brokenB: BrokenWorkflow = {
+      alias: "beta",
+      origin: "global",
+      agents: ["copilot"],
+      reason: "reason-B",
+      source: SETTINGS_PATH,
+      fix: "fix-B",
+    };
+    const brokenC: BrokenWorkflow = {
+      alias: "gamma",
+      origin: "local",
+      agents: ["claude", "copilot"],
+      reason: "reason-C",
+      source: SETTINGS_PATH,
+      fix: "fix-C",
+    };
+
+    // Healthy local: shadows alpha/opencode (not alpha/claude) and all of gamma
+    const wfAlphaOpencode = makeExternalWorkflow("alpha-oc", "opencode");
+    const wfGammaClaude = makeExternalWorkflow("gamma", "claude");
+    const wfGammaCopilot = makeExternalWorkflow("gamma-cp", "copilot");
+
+    const globalRes: LoadCustomWorkflowsResult = { loaded: [], broken: [brokenA, brokenB] };
+    const localRes: LoadCustomWorkflowsResult = {
+      loaded: [
+        { alias: "alpha", origin: "local", workflow: wfAlphaOpencode },
+        { alias: "gamma", origin: "local", workflow: wfGammaClaude },
+        { alias: "gamma", origin: "local", workflow: wfGammaCopilot },
+      ],
+      broken: [brokenC],
+    };
+
+    const cap = captureStderr();
+    let result;
+    try {
+      result = mergeIntoRegistry(builtin, globalRes, localRes);
+    } finally {
+      cap.restore();
+    }
+
+    // Invariant 1: every entry in brokenList maps into brokenIndex for at least
+    // one (agent, alias) key. brokenList entries are new objects (map+filter),
+    // so compare by alias instead of reference equality.
+    for (const b of result.brokenList) {
+      const mapsIn = b.agents.some((a) => result.brokenIndex.get(`${a}/${b.alias}`)?.alias === b.alias);
+      expect(mapsIn).toBe(true);
+    }
+
+    // Invariant 2: every value in brokenIndex appears (by alias) in brokenList.
+    // brokenIndex still references the original allBroken objects, while
+    // brokenList contains new narrowed objects — so check by alias.
+    for (const [, b] of result.brokenIndex) {
+      expect(result.brokenList.some((x) => x.alias === b.alias)).toBe(true);
+    }
   });
 });
 

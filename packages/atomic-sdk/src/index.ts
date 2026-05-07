@@ -17,9 +17,13 @@ export {
 } from "./errors.ts";
 
 // ─── Authoring ──────────────────────────────────────────────────────────────
-export { defineWorkflow, WorkflowBuilder } from "./define-workflow.ts";
+export { defineWorkflow, WorkflowBuilder, getCompiledWorkflows } from "./define-workflow.ts";
 export { createRegistry } from "./registry.ts";
 export type { Registry } from "./registry.ts";
+
+// ─── Host dispatch ───────────────────────────────────────────────────────────
+export { hostWorkflows } from "./lib/host-workflows.ts";
+export type { HostWorkflowsOptions } from "./lib/host-workflows.ts";
 
 // ─── Shared types ───────────────────────────────────────────────────────────
 export type {

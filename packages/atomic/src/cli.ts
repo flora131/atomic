@@ -28,6 +28,7 @@ import { AGENT_CONFIG, isValidAgent } from "./services/config/index.ts";
 import { SUPPORTED_SHELLS, type Shell } from "./completions/index.ts";
 import { workflowCommand } from "./commands/cli/workflow.ts";
 import { addSessionSubcommand } from "./commands/cli/management-commands.ts";
+import { isInfoCommandArgv } from "./info-command-skip.ts";
 
 // The SDK ships its own orchestrator entry script; the dev's CLI never
 // has to opt in to re-entry handling. Session subcommand builders live
@@ -487,6 +488,57 @@ Install completions for your shell:
 export const program = createProgram();
 
 /**
+ * Discover and merge custom workflows from global + local settings into the
+ * active workflow command registry. Failures are non-fatal — atomic works
+ * without custom workflows.
+ */
+async function bootstrapCustomWorkflows(): Promise<void> {
+    try {
+        const [
+            { readAtomicConfigSplit, getGlobalSettingsPath, getLocalSettingsPath },
+            { loadCustomWorkflows, mergeIntoRegistry },
+            { createBuiltinRegistry },
+            { rebuildWorkflowCommand },
+        ] = await Promise.all([
+            import("@bastani/atomic-sdk/services/config/atomic-config"),
+            import("./commands/custom-workflows.ts"),
+            import("./commands/builtin-registry.ts"),
+            import("./commands/cli/workflow.ts"),
+        ]);
+
+        const { global: globalCfg, local: localCfg } =
+            await readAtomicConfigSplit(process.cwd());
+
+        const [globalRes, localRes] = await Promise.all([
+            loadCustomWorkflows(
+                globalCfg?.workflows,
+                "global",
+                getGlobalSettingsPath(),
+            ),
+            loadCustomWorkflows(
+                localCfg?.workflows,
+                "local",
+                getLocalSettingsPath(process.cwd()),
+            ),
+        ]);
+
+        const { registry, brokenList, brokenIndex, summary } = mergeIntoRegistry(
+            createBuiltinRegistry(),
+            globalRes,
+            localRes,
+        );
+        if (summary) process.stderr.write(summary + "\n");
+
+        rebuildWorkflowCommand(registry, brokenIndex, brokenList);
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        process.stderr.write(
+            `[atomic/workflows] failed to merge custom workflows: ${msg}\n`,
+        );
+    }
+}
+
+/**
  * Main entry point for the CLI.
  *
  * The SDK owns orchestrator re-entry now (see
@@ -511,21 +563,7 @@ async function main(): Promise<void> {
         // autosync's lazy psmux install (which adds ~/.atomic/bin to PATH
         // before installCommand can register a planted stub dir).
         const argv = process.argv.slice(2);
-        const isInfoCommand =
-            argv.includes("--version") ||
-            argv.includes("-v") ||
-            argv.includes("--help") ||
-            argv.includes("-h") ||
-            argv[0] === "install" ||
-            argv[0] === "uninstall" ||
-            argv[0] === "update" ||
-            argv[0] === "completions" ||
-            argv[0] === "_orchestrator-entry" ||
-            argv[0] === "_cc-debounce" ||
-            argv[0] === "_claude-stop-hook" ||
-            argv[0] === "_claude-ask-hook" ||
-            argv[0] === "_claude-session-start-hook" ||
-            argv[0] === "_claude-inflight-hook";
+        const isInfoCommand = isInfoCommandArgv(argv);
 
         if (!isInfoCommand) {
             const { autoSyncIfStale } = await import(
@@ -537,56 +575,8 @@ async function main(): Promise<void> {
         // Merge custom workflows from ~/.atomic/settings.json (global) and
         // ./.atomic/settings.json (local) into the workflow command registry.
         // Skipped for info-only commands to avoid spawn cost.
-        // Bootstrap failures are non-fatal — atomic works without custom workflows.
         if (!isInfoCommand) {
-            try {
-                const {
-                    readAtomicConfigSplit,
-                    getGlobalSettingsPath,
-                    getLocalSettingsPath,
-                } = await import(
-                    "@bastani/atomic-sdk/services/config/atomic-config"
-                );
-                const { loadCustomWorkflows, mergeIntoRegistry } = await import(
-                    "./commands/custom-workflows.ts"
-                );
-                const { createBuiltinRegistry } = await import(
-                    "./commands/builtin-registry.ts"
-                );
-                const { rebuildWorkflowCommand } = await import(
-                    "./commands/cli/workflow.ts"
-                );
-
-                const { global: globalCfg, local: localCfg } =
-                    await readAtomicConfigSplit(process.cwd());
-
-                const [globalRes, localRes] = await Promise.all([
-                    loadCustomWorkflows(
-                        globalCfg?.workflows,
-                        "global",
-                        getGlobalSettingsPath(),
-                    ),
-                    loadCustomWorkflows(
-                        localCfg?.workflows,
-                        "local",
-                        getLocalSettingsPath(process.cwd()),
-                    ),
-                ]);
-
-                const { registry, brokenIndex, summary } = mergeIntoRegistry(
-                    createBuiltinRegistry(),
-                    globalRes,
-                    localRes,
-                );
-                if (summary) process.stderr.write(summary + "\n");
-
-                rebuildWorkflowCommand(registry, brokenIndex);
-            } catch (err) {
-                const msg = err instanceof Error ? err.message : String(err);
-                process.stderr.write(
-                    `[atomic/workflows] failed to merge custom workflows: ${msg}\n`,
-                );
-            }
+            await bootstrapCustomWorkflows();
         }
 
         await program.parseAsync();

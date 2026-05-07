@@ -35,7 +35,7 @@
     "test": "bun test --parallel packages tests",
     "test:coverage": "bun test --coverage packages tests",
     "typecheck": "bun --filter '*' typecheck",
-    "lint": "oxlint --config=oxlint.json packages",
+    "lint": "oxlint --config=oxlint.json packages && bun run scripts/lint-custom-workflows.ts",
     "lint:fix": "oxlint --config=oxlint.json --fix packages",
     "prepare": "prek install || true"
   },

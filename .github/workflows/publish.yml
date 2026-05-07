@@ -356,11 +356,13 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          # GitHub Actions pwsh sets $PSNativeCommandUseErrorActionPreference=$true
-          # plus $ErrorActionPreference='Stop', which turns any non-zero exit
-          # from a native command into a terminating error before we can read
-          # $LASTEXITCODE. Disable for this step so the deliberate exit-1
-          # refusal can be asserted against, not propagated.
+          # The GitHub Actions pwsh wrapper template ends with
+          # `exit $LASTEXITCODE`, which propagates the last native-command
+          # exit code as the step's exit code — so atomic's deliberate
+          # exit-1 here would fail the step even if every assertion below
+          # passes. Disable $PSNativeCommandUseErrorActionPreference so
+          # the non-zero exit doesn't ALSO throw mid-script, then reset
+          # $LASTEXITCODE to 0 once the assertions pass.
           $PSNativeCommandUseErrorActionPreference = $false
           $userPath = [Environment]::GetEnvironmentVariable('Path','User')
           if ($userPath) { $env:Path = "$env:Path;$userPath" }
@@ -379,6 +381,7 @@ jobs:
           if (-not (Get-Command atomic -ErrorAction SilentlyContinue)) {
             throw "atomic disappeared after refusal — must touch nothing"
           }
+          $global:LASTEXITCODE = 0
 
       # ── `atomic update` on a PM-managed install (no --check): refuses
       #    with exit 1 and tells the user to run `bun update -g`. Sister
@@ -405,6 +408,8 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          # See the prior step's comment for why we both disable
+          # $PSNativeCommandUseErrorActionPreference and clear $LASTEXITCODE.
           $PSNativeCommandUseErrorActionPreference = $false
           $userPath = [Environment]::GetEnvironmentVariable('Path','User')
           if ($userPath) { $env:Path = "$env:Path;$userPath" }
@@ -423,6 +428,7 @@ jobs:
           if (-not (Get-Command atomic -ErrorAction SilentlyContinue)) {
             throw "atomic disappeared after refusal — must touch nothing"
           }
+          $global:LASTEXITCODE = 0
 
       # ── Round-trip the documented pm uninstall path: `bun remove -g`
       #    is what the refusal message above tells users to run, so we

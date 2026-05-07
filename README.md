@@ -32,15 +32,42 @@
 
 ## Install in 60 seconds
 
+The easiest way to install Atomic is through the install script.
+
 ```bash
 # macOS / Linux
 curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
 
 # Windows (PowerShell 5.1+ or 7+)
 irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1 | iex
+```
 
-# Already have Bun? Skip the bootstrap script entirely
-bun install -g @bastani/atomic
+You can also install it with the following commands:
+
+##### Using Node.js
+
+**npm**
+
+```bash
+npm install -g @bastani/atomic
+```
+
+**Bun**
+
+```bash
+bun add -g @bastani/atomic
+```
+
+**pnpm**
+
+```bash
+pnpm add -g @bastani/atomic
+```
+
+**Yarn**
+
+```bash
+yarn global add @bastani/atomic
 ```
 
 Then kick off your first autonomous workflow:
@@ -151,16 +178,39 @@ bun add @anthropic-ai/claude-agent-sdk           # the provider SDK you target
 Skip steps 2–3 below (those use the CLI) and jump straight to [step 4](#4-build-your-own-workflow--sdk). The SDK is fully standalone — it bundles its own orchestrator dispatcher and never reaches into a sibling `@bastani/atomic` package, so `@bastani/atomic-sdk` is the only atomic dependency you need. You'll still need tmux/psmux + an authenticated agent CLI at runtime — see [Prerequisites](#prerequisites). To route self-exec through a globally installed `atomic` binary instead of the bundled dispatcher, pass `pathToAtomicExecutable` to `runWorkflow` — see [Overriding the self-exec target](#overriding-the-self-exec-target).
 
 <details>
-<summary><b>Alternative: Already have Bun? Install the CLI directly from npm</b></summary>
+<summary><b>Alternative: install from npm</b></summary>
+
+You can also install it with the following commands:
+
+##### Using Node.js
+
+**npm**
 
 ```bash
-bun install -g @bastani/atomic
+npm install -g @bastani/atomic
 ```
 
-This skips the Bun install step but doesn't set up shell completions — run `atomic completions <shell>` separately if you want them (see [Commands Reference](#atomic-completions--shell-completions)).
-If your shell cannot find `atomic` after the install, add the directory from `bun pm bin -g` to your PATH or use the bootstrap installer above to do it automatically.
+**Bun**
 
-**Prerelease builds:** `bun install -g @bastani/atomic@next` (may contain breaking changes).
+```bash
+bun add -g @bastani/atomic
+```
+
+**pnpm**
+
+```bash
+pnpm add -g @bastani/atomic
+```
+
+**Yarn**
+
+```bash
+yarn global add @bastani/atomic
+```
+
+The npm path doesn't set up shell completions — run `atomic completions <shell>` separately if you want them (see [Commands Reference](#atomic-completions--shell-completions)). If your shell cannot find `atomic` after install, add the directory from `bun pm bin -g` (or `npm bin -g`, `pnpm bin -g`, `yarn global bin`) to your PATH, or use the bootstrap installer above to wire it up automatically.
+
+**Prerelease builds:** append `@next` to any of the commands above (e.g. `bun add -g @bastani/atomic@next`). May contain breaking changes.
 
 </details>
 
@@ -220,6 +270,81 @@ bun install -g @bastani/atomic
 ```
 
 </details>
+
+#### Updating
+
+Use the same channel you installed through. `atomic` detects how it was installed and prints the right command if you mix them up — running `atomic update --check` is the safe way to see your current version, the latest release, and the recommended update command.
+
+If you used the install script (standalone binary), self-update in place:
+
+```bash
+atomic update
+```
+
+If you installed from npm, use your package manager:
+
+**npm**
+
+```bash
+npm update -g @bastani/atomic
+```
+
+**Bun**
+
+```bash
+bun update -g @bastani/atomic
+```
+
+**pnpm**
+
+```bash
+pnpm update -g @bastani/atomic
+```
+
+**Yarn**
+
+```bash
+yarn global upgrade @bastani/atomic
+```
+
+#### Uninstalling
+
+Match the channel you installed through. Running `atomic uninstall` on an npm-installed copy refuses with a hint pointing at the right `<pm> remove -g` command — `atomic` never deletes files it didn't put there.
+
+If you used the install script (standalone binary):
+
+```bash
+atomic uninstall              # removes launcher, PATH entries, shell completions; keeps ~/.atomic
+atomic uninstall --purge      # also wipes ~/.atomic (config + downloads + cache)
+```
+
+If you installed from npm, use your package manager:
+
+**npm**
+
+```bash
+npm uninstall -g @bastani/atomic
+```
+
+**Bun**
+
+```bash
+bun remove -g @bastani/atomic
+```
+
+**pnpm**
+
+```bash
+pnpm remove -g @bastani/atomic
+```
+
+**Yarn**
+
+```bash
+yarn global remove @bastani/atomic
+```
+
+> **Heads-up for Windows + Bun:** `bun remove -g` on Windows may leave the bin shim and the platform-specific package behind ([oven-sh/bun#11970](https://github.com/oven-sh/bun/issues/11970)). If `atomic` still resolves on PATH afterwards, also delete `%USERPROFILE%\.bun\bin\atomic.exe`, `%USERPROFILE%\.bun\bin\atomic.bunx`, and `%USERPROFILE%\.bun\install\global\node_modules\@bastani\atomic-windows-*`. The `atomic uninstall` refusal prints these exact paths when it detects this case.
 
 ### 2. Generate context files — CLI
 
@@ -1110,6 +1235,8 @@ During `atomic chat`, there is no Atomic-owned TUI — `atomic chat -a <agent>` 
 | `atomic session kill [name]`    | Kill one session, or pick sessions interactively when no name is given |
 | `atomic completions <shell>`    | Output shell completion script (bash, zsh, fish, powershell)      |
 | `atomic config set <k> <v>`     | Set configuration values (supports `telemetry` and `scm`)         |
+| `atomic update [--check]`       | Self-update the standalone binary; PM-managed installs print the matching `<pm> update -g` hint |
+| `atomic uninstall [--purge]`    | Remove the standalone binary, PATH entries, and shell completions; `--purge` also wipes `~/.atomic`. Refuses on PM-managed installs and points at the right `<pm> remove -g` command |
 
 #### Global Flags
 

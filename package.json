@@ -37,7 +37,7 @@
     "typecheck": "bun --filter '*' typecheck",
     "lint": "oxlint --config=oxlint.json packages && bun run scripts/lint-custom-workflows.ts",
     "lint:fix": "oxlint --config=oxlint.json --fix packages",
-    "prepare": "prek install || true"
+    "prepare": "[ -n \"$CI\" ] || prek install || true"
   },
   "devDependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.132",

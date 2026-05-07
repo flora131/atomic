@@ -612,13 +612,11 @@ export interface UninstallOptions {
     readonly detectInstall?: () => InstallMethod;
 }
 
-const PACKAGE_NAME = "@bastani/atomic";
-
-const PM_REMOVE_CMD: Record<"bun" | "npm" | "pnpm" | "yarn", string[]> = {
-    bun:  ["bun",  "remove",    "-g",     PACKAGE_NAME],
-    npm:  ["npm",  "uninstall", "-g",     PACKAGE_NAME],
-    pnpm: ["pnpm", "remove",    "-g",     PACKAGE_NAME],
-    yarn: ["yarn", "global",    "remove", PACKAGE_NAME],
+const PM_REMOVE_HINT: Record<"bun" | "npm" | "pnpm" | "yarn", string> = {
+    bun:  "bun remove -g @bastani/atomic",
+    npm:  "npm uninstall -g @bastani/atomic",
+    pnpm: "pnpm remove -g @bastani/atomic",
+    yarn: "yarn global remove @bastani/atomic",
 };
 
 function uninstallBinary(paths: InstallPaths): void {
@@ -696,60 +694,43 @@ function purgeAtomicHome(): void {
     }
 }
 
-async function spawnPmRemove(cmd: string[]): Promise<number> {
-    const pm = cmd[0];
-    const manualHint = `    You may need to run manually: ${cmd.join(" ")}\n`;
-    try {
-        const proc = Bun.spawn({ cmd, stdout: "inherit", stderr: "inherit" });
-        const code = await proc.exited;
-        if (code !== 0) {
-            process.stderr.write(`  ! ${pm} exited with code ${code}.\n${manualHint}`);
-        }
-        return code;
-    } catch (err) {
-        process.stderr.write(`  ! ${pm} spawn failed: ${(err as Error).message}\n${manualHint}`);
-        return 1;
-    }
-}
-
 export async function uninstallCommand(opts: UninstallOptions = {}): Promise<number> {
     const method = (opts.detectInstall ?? detectInstallMethod)();
-    const paths = getInstallPaths();
-    process.stdout.write(`Uninstalling atomic (install method: ${method})...\n`);
 
-    let pmExit = 0;
     switch (method) {
-        case "binary":
-            uninstallBinary(paths);
-            break;
         case "bun":
         case "npm":
         case "pnpm":
         case "yarn":
-            pmExit = await spawnPmRemove(PM_REMOVE_CMD[method]);
-            break;
+            process.stderr.write(
+                `Error: atomic was installed via ${method}.\n` +
+                `Please run: ${PM_REMOVE_HINT[method]}\n`,
+            );
+            return 1;
         case "source":
         case "unknown":
-            process.stdout.write(
-                `  · skipping package removal — atomic appears to run from ${process.execPath}\n` +
-                `    if you installed via a package manager, run its uninstall command manually.\n`,
+            process.stderr.write(
+                `Error: atomic appears to run from ${process.execPath}.\n` +
+                `Cannot determine how to uninstall — remove manually or use your package manager.\n`,
             );
-            break;
+            return 1;
+        case "binary": {
+            const paths = getInstallPaths();
+            process.stdout.write("Uninstalling atomic (install method: binary)...\n");
+            uninstallBinary(paths);
+            if (opts.purge) {
+                purgeAtomicHome();
+            } else {
+                // ~/.atomic/completions is a derived cache — always reap.
+                // --purge subsumes this by removing ~/.atomic outright.
+                try { rmSync(paths.completionsDir, { recursive: true, force: true }); }
+                catch { /* best-effort */ }
+                process.stdout.write(`(Run with --purge to also remove ${join(homedir(), ".atomic")})\n`);
+            }
+            process.stdout.write("\nAtomic uninstalled.\n");
+            return 0;
+        }
     }
-
-    if (opts.purge) {
-        purgeAtomicHome();
-    } else {
-        // Always reap the completions cache; --purge subsumes this by removing ~/.atomic.
-        try { rmSync(paths.completionsDir, { recursive: true, force: true }); }
-        catch { /* best-effort */ }
-        process.stdout.write(`(Run with --purge to also remove ${join(homedir(), ".atomic")})\n`);
-    }
-
-    if (pmExit === 0) {
-        process.stdout.write("\nAtomic uninstalled.\n");
-    }
-    return pmExit;
 }
 
 // ── Public entry ───────────────────────────────────────────────────────────

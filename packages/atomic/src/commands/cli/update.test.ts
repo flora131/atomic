@@ -405,6 +405,92 @@ describe("updateCommand", () => {
         }
     });
 
+    test("--check on yarn parses --json output", async () => {
+        detectInstallMethodResult = { kind: "yarn", binPath: "/usr/lib/node_modules/.bin/atomic" };
+
+        const yarnJson = JSON.stringify({ type: "inspect", data: "0.8.1" }) + "\n";
+        const spawnSpy = spyOn(Bun, "spawn").mockImplementation(((_opts: { cmd: string[] }) => ({
+            stdout: new Response(yarnJson).body,
+            stderr: new Response("").body,
+            exited: Promise.resolve(0),
+        })) as unknown as typeof Bun.spawn);
+
+        try {
+            const code = await updateCommand({ check: true });
+            expect(code).toBe(0);
+            const argv = (spawnSpy.mock.calls[0] as unknown as [{ cmd: string[] }])[0].cmd;
+            expect(argv).toEqual(["yarn", "info", "@bastani/atomic", "version", "--json"]);
+            const noteCalls = noteMock.mock.calls.map((c) => String(c[0]));
+            expect(noteCalls.some((m) => m.includes("target=0.8.1") && m.includes("method=yarn"))).toBe(true);
+        } finally {
+            spawnSpy.mockRestore();
+        }
+    });
+
+    test("--check on PM method renders fallback note when probe fails", async () => {
+        detectInstallMethodResult = { kind: "npm", binPath: "/usr/lib/node_modules/.bin/atomic" };
+
+        // Probe fails: non-zero exit + stderr.
+        const spawnSpy = spyOn(Bun, "spawn").mockImplementation(((_opts: { cmd: string[] }) => ({
+            stdout: new Response("").body,
+            stderr: new Response("npm ERR! E404\n").body,
+            exited: Promise.resolve(1),
+        })) as unknown as typeof Bun.spawn);
+
+        try {
+            const code = await updateCommand({ check: true });
+            expect(code).toBe(0);
+            const argv = (spawnSpy.mock.calls[0] as unknown as [{ cmd: string[] }])[0].cmd;
+            expect(argv).toEqual(["npm", "view", "@bastani/atomic", "version"]);
+            const noteCalls = noteMock.mock.calls.map((c) => String(c[0]));
+            expect(noteCalls.some((m) => m.includes("target lookup failed"))).toBe(true);
+        } finally {
+            spawnSpy.mockRestore();
+        }
+    });
+
+    test("binary path: confirm cancel returns 0 without downloading", async () => {
+        detectInstallMethodResult = { kind: "binary", binPath: FAKE_PATHS.binPath };
+        isNewerMock.mockImplementation(() => true);
+        confirmMock.mockImplementation(async () => false);
+
+        const code = await updateCommand({});
+        expect(code).toBe(0);
+        expect(downloadAssetFromUrlMock).not.toHaveBeenCalled();
+        expect(copyBinaryMock).not.toHaveBeenCalled();
+        const infoCalls = logInfoMock.mock.calls.map((c) => String(c[0]));
+        expect(infoCalls.some((m) => m.includes("cancelled"))).toBe(true);
+    });
+
+    test("binary path: missing host asset returns 1 with error", async () => {
+        detectInstallMethodResult = { kind: "binary", binPath: FAKE_PATHS.binPath };
+        isNewerMock.mockImplementation(() => true);
+        // Replace release with one that is missing the host asset.
+        getLatestReleaseMock.mockImplementation(async () => ({
+            tag_name: "v0.9.0",
+            assets: [{ name: "manifest.json", browser_download_url: "https://example.com/manifest.json" }],
+        }));
+
+        const code = await updateCommand({ yes: true });
+        expect(code).toBe(1);
+        const errorCalls = logErrorMock.mock.calls.map((c) => String(c[0]));
+        expect(errorCalls.some((m) => m.includes(HOST_ASSET) && m.includes("not found"))).toBe(true);
+    });
+
+    test("binary path: missing manifest asset returns 1 with error", async () => {
+        detectInstallMethodResult = { kind: "binary", binPath: FAKE_PATHS.binPath };
+        isNewerMock.mockImplementation(() => true);
+        getLatestReleaseMock.mockImplementation(async () => ({
+            tag_name: "v0.9.0",
+            assets: [{ name: HOST_ASSET, browser_download_url: `https://example.com/${HOST_ASSET}` }],
+        }));
+
+        const code = await updateCommand({ yes: true });
+        expect(code).toBe(1);
+        const errorCalls = logErrorMock.mock.calls.map((c) => String(c[0]));
+        expect(errorCalls.some((m) => m.includes("manifest.json") && m.includes("not found"))).toBe(true);
+    });
+
     test("--version 0.7.5 pinned skips isNewer", async () => {
         detectInstallMethodResult = { kind: "binary", binPath: FAKE_PATHS.binPath };
         // isNewer returns false (would short-circuit if pinned check is absent)

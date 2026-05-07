@@ -16,6 +16,7 @@
  * `status`, and `session` siblings on top of it.
  */
 
+import { randomBytes } from "node:crypto";
 import { Command } from "@commander-js/extra-typings";
 import {
   type AgentType,
@@ -33,8 +34,90 @@ import {
 import { buildInputUnion, toCamelCase } from "@bastani/atomic-sdk/worker-shared";
 import { createBuiltinRegistry } from "../builtin-registry.ts";
 import { WorkflowPickerPanel } from "@bastani/atomic-sdk/workflows/components";
+import type { BrokenWorkflow } from "../custom-workflows.ts";
 
-/** Resolve a workflow against the builtin registry, throwing with a usable hint. */
+// ─── Module-level mutable state (late-bound active registry) ─────────────────
+
+let activeRegistry: ReturnType<typeof createBuiltinRegistry> = createBuiltinRegistry();
+let activeBroken: ReadonlyMap<string, BrokenWorkflow> = new Map();
+
+export function getActiveRegistry(): ReturnType<typeof createBuiltinRegistry> {
+  return activeRegistry;
+}
+
+export function getActiveBroken(): ReadonlyMap<string, BrokenWorkflow> {
+  return activeBroken;
+}
+
+/**
+ * If `(agent, name)` matches a broken entry in the active index, write the
+ * standard 4-line diagnostic to stderr and `process.exit(2)`. No-op otherwise.
+ *
+ * Centralises the format used by `workflow` and `workflow inputs`.
+ */
+export function blockIfBroken(name: string, agent: AgentType): void {
+  const broken = activeBroken.get(`${agent}/${name}`);
+  if (!broken) return;
+  process.stderr.write(
+    `[atomic/workflows] cannot run "${name}" for agent "${agent}": this workflow failed to load.\n` +
+    `  reason · ${broken.reason}\n` +
+    `  source · ${broken.source}\n` +
+    `  fix    · ${broken.fix}\n`,
+  );
+  process.exit(2);
+}
+
+/**
+ * Strip all dynamic `--<input>` options from `cmd` and re-add them based
+ * on the merged union of inputs across all workflows in `registry`.
+ *
+ * Reserved flags (-n, -a, -d, --name, --agent, --detach) and Commander
+ * internals are left untouched.
+ */
+function resyncDynamicOptions(
+  cmd: Command,
+  registry: ReturnType<typeof createBuiltinRegistry>,
+): void {
+  const reservedLong = new Set(["--name", "--agent", "--detach", "--help", "--version"]);
+
+  // Remove existing dynamic options (everything that's not a reserved flag).
+  // Cast through unknown to work around Commander's readonly typing — the
+  // underlying JS property is a plain mutable array (Command constructor sets
+  // `this.options = []`).
+  (cmd as unknown as { options: Command["options"] }).options =
+    cmd.options.filter((o) => reservedLong.has(o.long ?? ""));
+
+  // Re-add from the merged union.
+  const all = listWorkflows(registry);
+  const unionInputs: Map<string, WorkflowInput> = buildInputUnion(all);
+  for (const [, input] of unionInputs) {
+    const desc =
+      input.description ??
+      (input.type === "enum"
+        ? `one of: ${(input.values ?? []).join(", ")}`
+        : input.type);
+    cmd.option(`--${input.name} <value>`, desc);
+  }
+}
+
+/**
+ * Rebuild the singleton workflow command against a merged registry.
+ *
+ * Called by cli.ts after custom workflows are loaded. All subsequent
+ * `parseAsync` calls dispatch against the merged set.
+ */
+export function rebuildWorkflowCommand(
+  registry: ReturnType<typeof createBuiltinRegistry>,
+  broken: ReadonlyMap<string, BrokenWorkflow>,
+): void {
+  activeRegistry = registry;
+  activeBroken = broken;
+  resyncDynamicOptions(workflowCommand, registry);
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Resolve a workflow against a registry, throwing with a usable hint. */
 function resolveWorkflow(
   registry: ReturnType<typeof createBuiltinRegistry>,
   name: string,
@@ -54,18 +137,66 @@ function resolveWorkflow(
   );
 }
 
+/**
+ * Build the argv and env for an external workflow subprocess dispatch.
+ * Extracted as a pure helper for testability.
+ */
+export function buildExternalDispatchArgv(
+  w: ExternalWorkflow,
+  cliInputs: Record<string, string>,
+  detach: boolean,
+  token: string,
+): string[] {
+  return [
+    w.source.command,
+    ...w.source.args,
+    "_atomic-run",
+    `--dispatch-token=${token}`,
+    "--name", w.name,
+    "--agent", w.agent,
+    ...(detach ? ["--detach"] : []),
+    ...Object.entries(cliInputs).flatMap(([k, v]) => [`--${k}`, v]),
+  ];
+}
+
+/**
+ * Build the environment for an external workflow subprocess dispatch.
+ * Extracted as a pure helper for testability.
+ */
+export function buildExternalDispatchEnv(
+  token: string,
+): Record<string, string> {
+  return {
+    ...process.env as Record<string, string>,
+    ATOMIC_HOST: "1",
+    ATOMIC_DISPATCH_TOKEN: token,
+  };
+}
+
+/** Dispatch an external workflow via subprocess. */
+async function dispatchExternal(
+  w: ExternalWorkflow,
+  cliInputs: Record<string, string>,
+  detach: boolean,
+): Promise<void> {
+  const token = randomBytes(16).toString("hex");
+  const child = Bun.spawn(buildExternalDispatchArgv(w, cliInputs, detach, token), {
+    cwd: process.cwd(),
+    stdio: ["inherit", "inherit", "inherit"],
+    env: buildExternalDispatchEnv(token),
+  });
+  const code = await child.exited;
+  if (code !== 0) process.exit(code);
+}
+
 /** Run a resolved workflow with merged inputs. */
-async function dispatch(
+export async function dispatch(
   workflow: WorkflowDefinition | ExternalWorkflow,
   cliInputs: Record<string, string>,
   detach: boolean,
 ): Promise<void> {
-  if ("kind" in workflow && workflow.kind === "external") {
-    // External workflows are dispatched via subprocess (_atomic-run).
-    // Full dispatch implementation is in §5.6 (separate task).
-    throw new Error(
-      `[atomic/workflow] External workflow dispatch not yet implemented for "${workflow.name}".`,
-    );
+  if (workflow.kind === "external") {
+    return dispatchExternal(workflow, cliInputs, detach);
   }
   // The SDK's `runWorkflow` auto-defaults `pathToAtomicExecutable` to
   // `process.execPath` in compiled-binary hosts, so atomic's compiled
@@ -107,9 +238,14 @@ async function runPicker(
  *
  * @param registry workflow registry to drive the dispatcher; defaults
  *   to the atomic CLI's builtin registry.
+ * @param liveRegistry when `true` the action handler reads `activeRegistry`
+ *   lazily at call time rather than closing over the initial `registry`
+ *   snapshot.  Used by the module singleton so that `rebuildWorkflowCommand`
+ *   can hot-swap the registry without rebuilding the Commander tree.
  */
 export function buildWorkflowCommand(
   registry: ReturnType<typeof createBuiltinRegistry> = createBuiltinRegistry(),
+  liveRegistry = false,
 ): Command {
   const all = listWorkflows(registry);
   const allNames = [...new Set(all.map((w) => w.name))];
@@ -171,6 +307,15 @@ export function buildWorkflowCommand(
     const agent = options["agent"] as AgentType | undefined;
     const detach = options["detach"] === true;
 
+    // Late-bind: the singleton uses activeRegistry so rebuildWorkflowCommand
+    // hot-swaps take effect; custom-registry builds use the closure snapshot.
+    const effectiveRegistry = liveRegistry ? activeRegistry : registry;
+
+    // Hard-block broken workflows before attempting dispatch.
+    if (name !== undefined && agent !== undefined) {
+      blockIfBroken(name, agent);
+    }
+
     const cliInputs: Record<string, string> = {};
     for (const [inputName] of unionInputs) {
       const camelKey = toCamelCase(inputName);
@@ -185,14 +330,14 @@ export function buildWorkflowCommand(
     // `ctx.inputs.prompt` regardless of declared schema.
     const promptStr = promptTokens.join(" ");
     if (promptStr !== "" && name && agent) {
-      const def = registry.resolve(name, agent);
+      const def = effectiveRegistry.resolve(name, agent);
       if (def && getInputSchema(def).length === 0) {
         cliInputs["prompt"] = promptStr;
       }
     }
 
     if (!name && agent && process.stdout.isTTY) {
-      await runPicker(registry, agent, detach);
+      await runPicker(effectiveRegistry, agent, detach);
       return;
     }
 
@@ -203,11 +348,11 @@ export function buildWorkflowCommand(
       return;
     }
 
-    const workflow = resolveWorkflow(registry, name, agent);
+    const workflow = resolveWorkflow(effectiveRegistry, name, agent);
     await dispatch(workflow, cliInputs, detach);
   });
 
   return cmd;
 }
 
-export const workflowCommand = buildWorkflowCommand();
+export const workflowCommand = buildWorkflowCommand(createBuiltinRegistry(), true);

@@ -11,6 +11,7 @@
 import { describe, test, expect, beforeAll, beforeEach, afterAll, afterEach, mock } from "bun:test";
 import { workflowListCommand } from "./workflow-list.ts";
 import type { AgentType, WorkflowDefinition } from "@bastani/atomic-sdk/workflows";
+import type { BrokenWorkflow } from "@bastani/atomic-sdk";
 
 function def(agent: AgentType, name: string, description = ""): WorkflowDefinition {
   return {
@@ -227,6 +228,149 @@ describe("workflowListCommand", () => {
     expect(cap.stdout).toContain("plan version B");
     // Two separate groups means "ralph" appears as a heading twice.
     expect(cap.stdout.match(/\bralph\b/g)?.length).toBe(2);
+  });
+});
+
+function brokenEntry(alias: string, reason: string, source = "/path/to/settings.json"): BrokenWorkflow {
+  return {
+    alias,
+    origin: "local",
+    agents: ["claude"],
+    reason,
+    source,
+    fix: "Check your settings.json",
+  };
+}
+
+describe("workflowListCommand — broken workflows", () => {
+  test("no skipped section when activeBroken empty", async () => {
+    const cap = captureOutput();
+    let code: number;
+    try {
+      code = await workflowListCommand(
+        {},
+        { list: () => fixture, broken: () => new Map() },
+      );
+    } finally {
+      cap.restore();
+    }
+    expect(code).toBe(0);
+    expect(cap.stdout).not.toContain("skipped");
+    expect(cap.stdout).not.toContain("✗");
+  });
+
+  test("skipped section appears after healthy section when broken non-empty", async () => {
+    const brokenMap = new Map<string, BrokenWorkflow>([
+      ["claude/bad-wf", brokenEntry("bad-wf", "SyntaxError: unexpected token")],
+    ]);
+    const cap = captureOutput();
+    let code: number;
+    try {
+      code = await workflowListCommand(
+        {},
+        { list: () => fixture, broken: () => brokenMap },
+      );
+    } finally {
+      cap.restore();
+    }
+    expect(code).toBe(0);
+    // healthy content appears first
+    const ralphIdx = cap.stdout.indexOf("ralph");
+    const skippedIdx = cap.stdout.indexOf("skipped");
+    expect(ralphIdx).toBeGreaterThan(-1);
+    expect(skippedIdx).toBeGreaterThan(ralphIdx);
+  });
+
+  test("skipped row format: ✗ <alias>   failed to load — <reason>", async () => {
+    const brokenMap = new Map<string, BrokenWorkflow>([
+      ["claude/my-wf", brokenEntry("my-wf", "TypeError: cannot read property")],
+    ]);
+    const cap = captureOutput();
+    try {
+      await workflowListCommand(
+        {},
+        { list: () => [], broken: () => brokenMap },
+      );
+    } finally {
+      cap.restore();
+    }
+    expect(cap.stdout).toContain("✗");
+    expect(cap.stdout).toContain("my-wf");
+    expect(cap.stdout).toContain("failed to load — TypeError: cannot read property");
+  });
+
+  test("summary line format: <N> custom workflow(s) skipped — fix at <path>", async () => {
+    const sourcePath = "/home/user/.config/atomic/settings.json";
+    const brokenMap = new Map<string, BrokenWorkflow>([
+      ["claude/wf-a", brokenEntry("wf-a", "some error", sourcePath)],
+      ["claude/wf-b", brokenEntry("wf-b", "another error", sourcePath)],
+    ]);
+    const cap = captureOutput();
+    try {
+      await workflowListCommand(
+        {},
+        { list: () => [], broken: () => brokenMap },
+      );
+    } finally {
+      cap.restore();
+    }
+    expect(cap.stdout).toContain(`2 custom workflow(s) skipped — fix at ${sourcePath}`);
+  });
+
+  test("multiple broken entries sorted deterministically by alias", async () => {
+    const brokenMap = new Map<string, BrokenWorkflow>([
+      ["claude/zebra-wf", brokenEntry("zebra-wf", "err")],
+      ["claude/alpha-wf", brokenEntry("alpha-wf", "err")],
+      ["claude/middle-wf", brokenEntry("middle-wf", "err")],
+    ]);
+    const cap = captureOutput();
+    try {
+      await workflowListCommand(
+        {},
+        { list: () => [], broken: () => brokenMap },
+      );
+    } finally {
+      cap.restore();
+    }
+    const alphaIdx = cap.stdout.indexOf("alpha-wf");
+    const middleIdx = cap.stdout.indexOf("middle-wf");
+    const zebraIdx = cap.stdout.indexOf("zebra-wf");
+    expect(alphaIdx).toBeGreaterThan(-1);
+    expect(alphaIdx).toBeLessThan(middleIdx);
+    expect(middleIdx).toBeLessThan(zebraIdx);
+  });
+
+  test("long reason truncated at 80 chars with ellipsis", async () => {
+    const longReason = "x".repeat(100);
+    const brokenMap = new Map<string, BrokenWorkflow>([
+      ["claude/wf", brokenEntry("wf", longReason)],
+    ]);
+    const cap = captureOutput();
+    try {
+      await workflowListCommand(
+        {},
+        { list: () => [], broken: () => brokenMap },
+      );
+    } finally {
+      cap.restore();
+    }
+    // Should NOT contain the full 100-char reason
+    expect(cap.stdout).not.toContain(longReason);
+    // Should contain the truncated prefix + ellipsis
+    expect(cap.stdout).toContain("x".repeat(80) + "…");
+  });
+
+  test("no broken section when deps.broken is omitted (backward compat)", async () => {
+    const cap = captureOutput();
+    let code: number;
+    try {
+      // deliberately omit broken field — old callers
+      code = await workflowListCommand({}, { list: () => fixture });
+    } finally {
+      cap.restore();
+    }
+    expect(code).toBe(0);
+    expect(cap.stdout).not.toContain("skipped");
   });
 });
 

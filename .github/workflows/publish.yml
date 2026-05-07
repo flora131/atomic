@@ -91,11 +91,15 @@ jobs:
           - { os: macos-latest,     arch: arm64, mux: true,  preflight: false, libc: glibc }
           - { os: windows-latest,   arch: x64,   mux: true,  preflight: false, libc: glibc }
           - { os: windows-11-arm,   arch: arm64, mux: false, preflight: false, libc: glibc }
-          # musl rows mirror the linux glibc rows' mux/preflight choices so
-          # auto-install + chat-preflight paths get exercised against musl too.
+          # musl row mirrors the linux x64 glibc row's mux/preflight choices
+          # so auto-install + chat-preflight paths get exercised against musl
+          # too. arm64 musl is intentionally absent: GitHub Actions blocks
+          # JavaScript actions inside Alpine containers on ARM64 runners
+          # (https://github.com/actions/runner/issues/801) — the runner ships
+          # no node externals for that combo, so `actions/checkout` aborts
+          # before any of our steps can run. x64 coverage is sufficient to
+          # catch musl-vs-glibc regressions in the install + launcher paths.
           - { os: ubuntu-latest,    arch: x64,   mux: true,  preflight: true,  libc: musl,
-              container: 'node:lts-alpine' }
-          - { os: ubuntu-24.04-arm, arch: arm64, mux: false, preflight: false, libc: musl,
               container: 'node:lts-alpine' }
     runs-on: ${{ matrix.os }}
     container: ${{ matrix.container || '' }}

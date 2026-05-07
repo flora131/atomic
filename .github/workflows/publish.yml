@@ -430,6 +430,42 @@ jobs:
           }
           $global:LASTEXITCODE = 0
 
+      # ── `atomic update --check` on a PM-managed install: exits 0 with
+      #    a note pointing at the PM's update command. Sister test to the
+      #    refusal above; runs while atomic is still bun-managed (BEFORE
+      #    `atomic install` migrates the launcher to the canonical bin
+      #    dir) so detectInstallMethod returns "bun" naturally without
+      #    PATH gymnastics. The end-to-end download/verify/swap path is
+      #    covered by release-fetch.test.ts at the unit level.
+      - name: atomic update --check on bun install (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          export PATH="$HOME/.bun/bin:$PATH"
+          out=$(atomic update --check 2>&1) || {
+            echo "$out"
+            echo "atomic update --check exited non-zero"
+            exit 1
+          }
+          echo "$out"
+          echo "$out" | grep -q "installed via bun"             || { echo "missing 'installed via bun'"; exit 1; }
+          echo "$out" | grep -q "bun update -g @bastani/atomic" || { echo "missing PM update hint"; exit 1; }
+
+      - name: atomic update --check on bun install (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $userPath = [Environment]::GetEnvironmentVariable('Path','User')
+          if ($userPath) { $env:Path = "$env:Path;$userPath" }
+          $out = atomic update --check 2>&1 | Out-String
+          if ($LASTEXITCODE -ne 0) {
+            Write-Output $out
+            throw "atomic update --check exited $LASTEXITCODE"
+          }
+          Write-Output $out
+          if ($out -notmatch 'installed via bun')             { throw "missing 'installed via bun'" }
+          if ($out -notmatch 'bun update -g @bastani/atomic') { throw "missing PM update hint" }
+
       # ── Round-trip the documented pm uninstall path: `bun remove -g`
       #    is what the refusal message above tells users to run, so we
       #    smoke-test it actually evicts atomic from PATH.
@@ -602,44 +638,6 @@ jobs:
           }
           Write-Output "wrapper OK: $($mux.Name) resolves to $($mux.Source)"
 
-      # ────────────────────────────────────────────────────────────────────
-      # ── `atomic update` lifecycle ──────────────────────────────────────
-      # ────────────────────────────────────────────────────────────────────
-      # `atomic update` is only a real upgrade path for the standalone
-      # binary install. PM-managed installs (bun/npm/pnpm/yarn) print
-      # guidance pointing at the PM's own update command, which is what
-      # we exercise here via `--check` against the bun-installed wrapper.
-      # The end-to-end download/verify/swap path is covered by
-      # release-fetch.test.ts at the unit level.
-      - name: atomic update --check (Unix)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          export PATH="$HOME/.bun/bin:$PATH"
-          out=$(atomic update --check 2>&1) || {
-            echo "$out"
-            echo "atomic update --check exited non-zero"
-            exit 1
-          }
-          echo "$out"
-          echo "$out" | grep -q "installed via bun"           || { echo "missing 'installed via bun'"; exit 1; }
-          echo "$out" | grep -q "bun update -g @bastani/atomic" || { echo "missing PM update hint"; exit 1; }
-
-      - name: atomic update --check (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $userPath = [Environment]::GetEnvironmentVariable('Path','User')
-          if ($userPath) { $env:Path = "$env:Path;$userPath" }
-          $out = atomic update --check 2>&1 | Out-String
-          if ($LASTEXITCODE -ne 0) {
-            Write-Output $out
-            throw "atomic update --check exited $LASTEXITCODE"
-          }
-          Write-Output $out
-          if ($out -notmatch 'installed via bun')             { throw "missing 'installed via bun'" }
-          if ($out -notmatch 'bun update -g @bastani/atomic') { throw "missing PM update hint" }
-
       # ── `atomic uninstall`: removes launcher / rc snippets / completions
       #    cache but preserves ~/.atomic (no --purge flag).
       - name: atomic uninstall (Unix)
@@ -662,10 +660,15 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          # Invoke the canonical binary directly so detectInstallMethod
+          # returns "binary" — Unix prepends ~/.local/bin via `export PATH=…`
+          # for the same reason. Bare `atomic` could resolve to bun's
+          # leftover shim (oven-sh/bun#11970) and refuse the uninstall.
           $userPath = [Environment]::GetEnvironmentVariable('Path','User')
           if ($userPath) { $env:Path = "$env:Path;$userPath" }
-          atomic uninstall
           $binary = Join-Path $env:LOCALAPPDATA "atomic\bin\atomic.exe"
+          & $binary uninstall
+          if ($LASTEXITCODE -ne 0) { throw "atomic uninstall exited $LASTEXITCODE" }
           $cache = Join-Path $env:USERPROFILE ".atomic\completions"
           $atomicHome = Join-Path $env:USERPROFILE ".atomic"
           $userPath2 = [Environment]::GetEnvironmentVariable('Path','User')
@@ -713,9 +716,14 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          # Direct invocation, same rationale as the non-purge step above:
+          # canonical bin path forces method=binary detection regardless
+          # of any bun-shim leftover on PATH.
           $userPath = [Environment]::GetEnvironmentVariable('Path','User')
           if ($userPath) { $env:Path = "$env:Path;$userPath" }
-          atomic uninstall --purge
+          $binary = Join-Path $env:LOCALAPPDATA "atomic\bin\atomic.exe"
+          & $binary uninstall --purge
+          if ($LASTEXITCODE -ne 0) { throw "atomic uninstall --purge exited $LASTEXITCODE" }
           $atomicHome = Join-Path $env:USERPROFILE ".atomic"
           if (Test-Path $atomicHome) {
             throw "~/.atomic was NOT purged (still at $atomicHome)"

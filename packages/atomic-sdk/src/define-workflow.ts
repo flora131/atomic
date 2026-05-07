@@ -19,6 +19,28 @@ import type {
   WorkflowInput,
 } from "./types.ts";
 
+// ─── Module-private compiled workflow registry ──────────────────────────────
+
+/**
+ * All `WorkflowDefinition`s compiled in this process via `.compile()`.
+ * Populated as a side-effect of each `.compile()` call so that the
+ * `_emit-workflow-meta` auto-dispatch handler can drain this list
+ * without any boilerplate from the third-party author.
+ *
+ * @internal — not part of the public API surface.
+ */
+const _compiledWorkflowRegistry: WorkflowDefinition[] = [];
+
+/**
+ * Return a snapshot of every `WorkflowDefinition` compiled in this process.
+ * Called by the `_emit-workflow-meta` auto-dispatch handler.
+ *
+ * @internal
+ */
+export function getCompiledWorkflows(): readonly WorkflowDefinition[] {
+  return _compiledWorkflowRegistry.slice();
+}
+
 type AnyInputs = readonly WorkflowInput[];
 
 /**
@@ -224,7 +246,7 @@ export class WorkflowBuilder<
       );
     }
 
-    return {
+    const definition: WorkflowDefinition<A, I> = {
       __brand: "WorkflowDefinition" as const,
       name: this.options.name,
       agent: this.agentValue as A,
@@ -234,6 +256,12 @@ export class WorkflowBuilder<
       source: this.options.source,
       run: runFn,
     };
+
+    // Register in the module-private compiled workflow list so the
+    // `_emit-workflow-meta` auto-dispatch handler can drain it.
+    _compiledWorkflowRegistry.push(definition as unknown as WorkflowDefinition);
+
+    return definition;
   }
 }
 

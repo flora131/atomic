@@ -17,4 +17,11 @@ const wf = defineWorkflow({
   .run(async () => {})
   .compile();
 
-await hostLocalWorkflows([wf], { argv: ["bun", "fixture.ts"], env: {} });
+// `_emit-workflow-meta` argv with no env tokens hits the silent-return
+// branch: the registry side-effect fires (which is what this fixture
+// exercises) but hostLocalWorkflows short-circuits before the bare-
+// invocation help printer would `process.exit` and tear down the test.
+await hostLocalWorkflows([wf], {
+  argv: ["bun", "fixture.ts", "_emit-workflow-meta"],
+  env: {},
+});

@@ -139,18 +139,26 @@ export interface HostLocalWorkflowsOptions {
  * Must be called **after** all `.compile()` calls so that `workflows` is
  * fully populated.
  *
- * Three execution modes:
+ * Always exits the process. Provides a turnkey standalone CLI
+ * experience with four modes:
  *   1. Atomic-dispatched `_emit-workflow-meta` (token-gated) — emits
  *      the metadata line and exits 0.
  *   2. Atomic-dispatched `_atomic-run` (token-gated) — runs the named
  *      workflow via `runWorkflow` and exits 0.
- *   3. Direct CLI invocation — `bun run script.ts --name <X> [--agent <Y>]
- *      [--<input> <v>]… [--detach]`. No dispatch token required; runs the
- *      workflow via `runWorkflow` and exits 0. When `--agent` is omitted
- *      it auto-resolves if exactly one workflow matches the name.
+ *   3. Direct CLI invocation — `bun run script.ts [--name <X>]
+ *      [--agent <Y>] [--<input> <v>]… [--detach]`. Resolves the target
+ *      workflow by `--name` (with `--agent` to disambiguate), or
+ *      auto-targets the only registered workflow when no `--name` is
+ *      supplied. Runs via `runWorkflow` and exits.
+ *   4. Bare invocation (`bun run script.ts` with no flags) — prints
+ *      registered workflows + invocation hint and exits 0.
  *
- * When none of these match, `hostLocalWorkflows` returns silently so the
- * caller's own `main()` can continue.
+ * **Opt-out by absence.** If you want to wire your custom workflow
+ * into your own commander/CLI parser, do not call
+ * `hostLocalWorkflows`. Import `runWorkflow` from
+ * `@bastani/atomic-sdk` and dispatch yourself; you'll lose atomic's
+ * automatic discovery (`_emit-workflow-meta`) but keep full argv
+ * control.
  *
  * @param workflows - Compiled workflow definitions to expose/dispatch.
  * @param options   - Optional argv/env overrides (useful in tests).
@@ -173,7 +181,14 @@ export async function hostLocalWorkflows(
   }
 
   const found = findHostSub(argv);
-  if (found && validateDispatchToken(env, argv)) {
+  if (found) {
+    // A dispatch sub-command is present. Validate the token before
+    // honouring it; without a matching token this is a hijack attempt
+    // (e.g. `bunx my-pkg _emit-workflow-meta --dispatch-token=fake`)
+    // — silent-return so the consumer's own main() runs as if the
+    // sub-command weren't there.
+    if (!validateDispatchToken(env, argv)) return;
+
     if (found.sub === "_emit-workflow-meta") {
       const meta = workflows.map(serializeMeta);
       process.stdout.write(`ATOMIC_WORKFLOW_META: ${JSON.stringify(meta)}\n`);
@@ -212,62 +227,28 @@ export async function hostLocalWorkflows(
     process.exit(0);
   }
 
-  // ─── Direct CLI mode ──────────────────────────────────────────────────
-  // No dispatch sub-command (or token failed validation). Fall through to
-  // direct `bun run script.ts --name <X> …` style invocation so consumers
-  // can run their custom workflow as a standalone CLI without going
-  // through atomic at all.
-  await maybeRunDirectCLI(workflows, argv, options);
-}
-
-/**
- * Direct-CLI handler. Triggers when `argv` carries `--name <X>` (and
- * optional `--agent <Y>`) outside of a token-gated dispatch context.
- * Otherwise returns without side-effect so the caller's own `main()`
- * continues normally.
- *
- * Argument shape mirrors `_atomic-run`'s flags exactly so consumers
- * learn one syntax for both invocation modes:
- *   `--name <X> [--agent <Y>] [--detach] [--<input> <value>…]`
- *
- * `--agent` is optional when exactly one registered workflow matches
- * `--name`; when multiple agents register the same name, `--agent` is
- * required to disambiguate.
- */
-async function maybeRunDirectCLI(
-  workflows: readonly HostableLocalWorkflow[],
-  argv: readonly string[],
-  options: HostLocalWorkflowsOptions | undefined,
-): Promise<void> {
+  // ─── No dispatch sub-command — direct CLI / bare invocation ─────────
   const cli = parseAtomicRunArgv(argv.slice(2));
-  if (!cli.name) return;
 
-  const matches = workflows.filter((w) => w.name === cli.name);
-  if (matches.length === 0) {
-    process.stderr.write(
-      `[hostLocalWorkflows] No registered workflow named "${cli.name}". ` +
-        `Available: ${workflows.map((w) => `${w.name}/${w.agent}`).join(", ") || "(none)"}\n`,
-    );
-    process.exit(1);
+  // Bare invocation with no flags → print registered workflows + invocation
+  // hint and exit. Consumers who don't want this behaviour should not call
+  // hostLocalWorkflows and should dispatch via runWorkflow directly.
+  if (argv.length <= 2) {
+    printHelp(workflows);
+    process.exit(0);
   }
 
+  // Resolve target workflow: explicit --name wins; otherwise auto-target
+  // the single registered workflow when there is exactly one.
   let workflow: HostableLocalWorkflow;
-  if (cli.agent) {
-    const exact = matches.find((w) => w.agent === cli.agent);
-    if (!exact) {
-      process.stderr.write(
-        `[hostLocalWorkflows] Workflow "${cli.name}" is not registered for agent "${cli.agent}". ` +
-          `Registered agents: ${matches.map((w) => w.agent).join(", ")}\n`,
-      );
-      process.exit(1);
-    }
-    workflow = exact;
-  } else if (matches.length === 1) {
-    workflow = matches[0]!;
+  if (cli.name) {
+    workflow = resolveByName(workflows, cli.name, cli.agent);
+  } else if (workflows.length === 1) {
+    workflow = workflows[0]!;
   } else {
     process.stderr.write(
-      `[hostLocalWorkflows] Workflow "${cli.name}" is registered for multiple agents ` +
-        `(${matches.map((w) => w.agent).join(", ")}). Specify --agent <name>.\n`,
+      `[hostLocalWorkflows] Multiple workflows registered ` +
+        `(${workflows.map((w) => `${w.name}/${w.agent}`).join(", ")}). Specify --name <name>.\n`,
     );
     process.exit(1);
   }
@@ -283,4 +264,64 @@ async function maybeRunDirectCLI(
     process.exit(1);
   }
   process.exit(0);
+}
+
+/**
+ * Resolve a workflow by name (and optional explicit agent). Exits 1 with
+ * a clear stderr message on miss / ambiguity. Pulled out so the
+ * resolution rules stay in one place.
+ */
+function resolveByName(
+  workflows: readonly HostableLocalWorkflow[],
+  name: string,
+  agent: string | undefined,
+): HostableLocalWorkflow {
+  const matches = workflows.filter((w) => w.name === name);
+  if (matches.length === 0) {
+    process.stderr.write(
+      `[hostLocalWorkflows] No registered workflow named "${name}". ` +
+        `Available: ${workflows.map((w) => `${w.name}/${w.agent}`).join(", ") || "(none)"}\n`,
+    );
+    process.exit(1);
+  }
+  if (agent) {
+    const exact = matches.find((w) => w.agent === agent);
+    if (!exact) {
+      process.stderr.write(
+        `[hostLocalWorkflows] Workflow "${name}" is not registered for agent "${agent}". ` +
+          `Registered agents: ${matches.map((w) => w.agent).join(", ")}\n`,
+      );
+      process.exit(1);
+    }
+    return exact;
+  }
+  if (matches.length === 1) return matches[0]!;
+  process.stderr.write(
+    `[hostLocalWorkflows] Workflow "${name}" is registered for multiple agents ` +
+      `(${matches.map((w) => w.agent).join(", ")}). Specify --agent <name>.\n`,
+  );
+  process.exit(1);
+}
+
+/** Print registered workflows + invocation hint to stdout. */
+function printHelp(workflows: readonly HostableLocalWorkflow[]): void {
+  const out = process.stdout;
+  if (workflows.length === 0) {
+    out.write("\nNo workflows registered with hostLocalWorkflows().\n\n");
+    return;
+  }
+  out.write("\nAvailable workflows:\n\n");
+  for (const w of workflows) {
+    out.write(`  ${w.name} (${w.agent}) — ${w.description}\n`);
+    for (const i of w.inputs) {
+      const required = i.required ? " (required)" : "";
+      const description = i.description ? ` — ${i.description}` : "";
+      out.write(`      --${i.name}${required}${description}\n`);
+    }
+  }
+  const hint =
+    workflows.length === 1
+      ? `\nRun:\n  bun run <script> [--<input> <value>…] [--detach]\n\n`
+      : `\nRun:\n  bun run <script> --name <name> [--agent <agent>] [--<input> <value>…] [--detach]\n\n`;
+  out.write(hint);
 }

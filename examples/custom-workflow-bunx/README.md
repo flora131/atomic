@@ -24,14 +24,19 @@ See `index.ts` for the `defineWorkflow → compile → hostLocalWorkflows([wf])`
 
 ## Run standalone
 
-`hostLocalWorkflows([wf])` doubles as a CLI runner. Pass `--name <workflow>` (and optional `--agent <agent>` when the same name is registered for multiple agents) along with any inputs:
+`hostLocalWorkflows([wf])` doubles as a CLI runner. With a single workflow registered, the `--name` flag is optional — just pass inputs:
 
 ```sh
-# Foreground (attaches to the orchestrator pane in tmux)
-bun run ./index.ts --name explain-file --path src/cli.ts
+# Bare — prints registered workflows + invocation hint
+bun run ./index.ts
 
-# Background (`--detach` returns immediately)
-bun run ./index.ts --name explain-file --agent claude --path src/cli.ts --detach
+# Foreground (attaches to the orchestrator pane in tmux)
+bun run ./index.ts --path src/cli.ts
+
+# Background — returns immediately
+bun run ./index.ts --path src/cli.ts --detach
 ```
 
-Bare `bun run ./index.ts` (no flags) returns silently so your own `main()` can take over if you've added one.
+When multiple workflows are registered, pass `--name <workflow>` to disambiguate (and `--agent <agent>` when the same name covers multiple agents).
+
+Want full control of argv? Don't call `hostLocalWorkflows`. Import `runWorkflow` from `@bastani/atomic-sdk` and dispatch yourself — you'll trade atomic auto-discovery for full CLI flexibility.

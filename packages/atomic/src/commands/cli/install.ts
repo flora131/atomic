@@ -699,12 +699,27 @@ export async function uninstallCommand(opts: UninstallOptions = {}): Promise<num
         case "bun":
         case "npm":
         case "pnpm":
-        case "yarn":
-            process.stderr.write(
+        case "yarn": {
+            let msg =
                 `Error: atomic was installed via ${method}.\n` +
-                `Please run: ${PM_REMOVE_HINT[method]}\n`,
-            );
+                `Please run: ${PM_REMOVE_HINT[method]}\n`;
+            // bun-on-Windows quirk (oven-sh/bun#11970): `bun remove -g`
+            // strips the wrapper but leaves the bin shim and the
+            // platform-specific optional-dep package behind, so atomic
+            // keeps resolving on PATH afterwards. Surface the manual
+            // cleanup paths so users aren't stuck.
+            if (method === "bun" && isWindows()) {
+                msg +=
+                    "\nNote: bun on Windows may leave the bin shim and platform package behind\n" +
+                    "(see https://github.com/oven-sh/bun/issues/11970). If `atomic` still\n" +
+                    "resolves after `bun remove -g`, also delete:\n" +
+                    "  %USERPROFILE%\\.bun\\bin\\atomic.exe\n" +
+                    "  %USERPROFILE%\\.bun\\bin\\atomic.bunx\n" +
+                    "  %USERPROFILE%\\.bun\\install\\global\\node_modules\\@bastani\\atomic-windows-*\n";
+            }
+            process.stderr.write(msg);
             return 1;
+        }
         case "source":
         case "unknown":
             process.stderr.write(

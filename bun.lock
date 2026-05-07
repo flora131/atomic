@@ -22,7 +22,7 @@
     },
     "examples/claude-background-subagents": {
       "name": "@bastani/example-claude-background-subagents",
-      "version": "0.7.10",
+      "version": "0.7.12-0",
       "dependencies": {
         "@bastani/atomic-sdk": "workspace:*",
         "@commander-js/extra-typings": "^14.0.0",
@@ -30,7 +30,7 @@
     },
     "examples/commander-embed": {
       "name": "@bastani/example-commander-embed",
-      "version": "0.7.10",
+      "version": "0.7.12-0",
       "dependencies": {
         "@bastani/atomic-sdk": "workspace:*",
         "@commander-js/extra-typings": "^14.0.0",
@@ -38,7 +38,7 @@
     },
     "examples/custom-workflow-bunx": {
       "name": "@example/custom-workflow-bunx",
-      "version": "0.0.0",
+      "version": "0.7.12-0",
       "bin": {
         "custom-workflow-bunx": "./index.ts",
       },
@@ -48,7 +48,7 @@
     },
     "examples/headless-test": {
       "name": "@bastani/example-headless-test",
-      "version": "0.7.10",
+      "version": "0.7.12-0",
       "dependencies": {
         "@bastani/atomic-sdk": "workspace:*",
         "@commander-js/extra-typings": "^14.0.0",
@@ -57,7 +57,7 @@
     },
     "examples/hello-world": {
       "name": "@bastani/example-hello-world",
-      "version": "0.7.10",
+      "version": "0.7.12-0",
       "dependencies": {
         "@bastani/atomic-sdk": "workspace:*",
         "@commander-js/extra-typings": "^14.0.0",
@@ -65,7 +65,7 @@
     },
     "examples/hil-favorite-color": {
       "name": "@bastani/example-hil-favorite-color",
-      "version": "0.7.10",
+      "version": "0.7.12-0",
       "dependencies": {
         "@bastani/atomic-sdk": "workspace:*",
         "@commander-js/extra-typings": "^14.0.0",
@@ -73,7 +73,7 @@
     },
     "examples/hil-favorite-color-headless": {
       "name": "@bastani/example-hil-favorite-color-headless",
-      "version": "0.7.10",
+      "version": "0.7.12-0",
       "dependencies": {
         "@bastani/atomic-sdk": "workspace:*",
         "@commander-js/extra-typings": "^14.0.0",
@@ -81,7 +81,7 @@
     },
     "examples/multi-workflow": {
       "name": "@bastani/example-multi-workflow",
-      "version": "0.7.10",
+      "version": "0.7.12-0",
       "dependencies": {
         "@bastani/atomic-sdk": "workspace:*",
         "@commander-js/extra-typings": "^14.0.0",
@@ -89,7 +89,7 @@
     },
     "examples/pane-navigation": {
       "name": "@bastani/example-pane-navigation",
-      "version": "0.7.10",
+      "version": "0.7.12-0",
       "dependencies": {
         "@bastani/atomic-sdk": "workspace:*",
         "@commander-js/extra-typings": "^14.0.0",
@@ -97,7 +97,7 @@
     },
     "examples/parallel-hello-world": {
       "name": "@bastani/example-parallel-hello-world",
-      "version": "0.7.10",
+      "version": "0.7.12-0",
       "dependencies": {
         "@bastani/atomic-sdk": "workspace:*",
         "@commander-js/extra-typings": "^14.0.0",
@@ -105,7 +105,7 @@
     },
     "examples/review-fix-loop": {
       "name": "@bastani/example-review-fix-loop",
-      "version": "0.7.10",
+      "version": "0.7.12-0",
       "dependencies": {
         "@bastani/atomic-sdk": "workspace:*",
         "@commander-js/extra-typings": "^14.0.0",
@@ -113,7 +113,7 @@
     },
     "examples/reviewer-tool-test": {
       "name": "@bastani/example-reviewer-tool-test",
-      "version": "0.7.10",
+      "version": "0.7.12-0",
       "dependencies": {
         "@bastani/atomic-sdk": "workspace:*",
         "@commander-js/extra-typings": "^14.0.0",
@@ -123,7 +123,7 @@
     },
     "examples/sequential-describe-summarize": {
       "name": "@bastani/example-sequential-describe-summarize",
-      "version": "0.7.10",
+      "version": "0.7.12-0",
       "dependencies": {
         "@bastani/atomic-sdk": "workspace:*",
         "@commander-js/extra-typings": "^14.0.0",
@@ -131,7 +131,7 @@
     },
     "examples/structured-output-demo": {
       "name": "@bastani/example-structured-output-demo",
-      "version": "0.7.10",
+      "version": "0.7.12-0",
       "dependencies": {
         "@bastani/atomic-sdk": "workspace:*",
         "@commander-js/extra-typings": "^14.0.0",
@@ -141,7 +141,7 @@
     },
     "packages/atomic": {
       "name": "@bastani/atomic",
-      "version": "0.7.10",
+      "version": "0.7.12-0",
       "bin": {
         "atomic": "src/cli.ts",
       },
@@ -164,7 +164,7 @@
     },
     "packages/atomic-sdk": {
       "name": "@bastani/atomic-sdk",
-      "version": "0.7.10",
+      "version": "0.7.12-0",
       "dependencies": {
         "@anthropic-ai/claude-agent-sdk": "^0.2.132",
         "@catppuccin/palette": "^1.8.0",
@@ -180,6 +180,9 @@
         "linguist-languages": "^9.3.2",
         "yaml": "^2.8.4",
         "zod": "^4.4.3",
+      },
+      "devDependencies": {
+        "ajv": "^8.20.0",
       },
       "peerDependencies": {
         "react": "^19.2.6",

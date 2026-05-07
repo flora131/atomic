@@ -616,6 +616,47 @@ describe("hostLocalWorkflows — direct CLI mode", () => {
     expect(runWorkflowMock.mock.calls[0]![0]!.inputs).toEqual({ path: "/some/file.ts" });
   });
 
+  test("silent-returns when argv contains _orchestrator-entry — guards against infinite recursion in re-imports", async () => {
+    const wf = makeWorkflow("demo", "claude");
+    const runWorkflowMock = makeRunMock();
+
+    // This is the argv shape SDK CLI sees inside the dispatched orchestrator
+    // pane: `bun /SDK/cli.ts _orchestrator-entry <name> <agent> <inputsB64> <source>`.
+    // hostLocalWorkflows must return silently after the registry side-effect
+    // so the auto-dispatch handler in auto-dispatch.ts can do its work
+    // without us re-spawning another workflow.
+    const argv = [
+      "bun",
+      "/SDK/cli.ts",
+      "_orchestrator-entry",
+      "demo",
+      "claude",
+      "",
+      "/path/to/user-cli.ts",
+    ];
+
+    await hostLocalWorkflows([wf], { argv, env: {}, runWorkflow: runWorkflowMock });
+
+    expect(runWorkflowMock).not.toHaveBeenCalled();
+    expect(capturedStdout.join("")).toBe("");
+    expect(capturedStderr.join("")).toBe("");
+    // Registry must still have been populated — that's the orchestrator
+    // pane's whole reason for re-importing this file.
+    expect(lookupLocalWorkflow("demo", "claude")).toBe(wf);
+  });
+
+  test("silent-returns when argv contains _cc-debounce — same auto-dispatch guard", async () => {
+    const wf = makeWorkflow("demo", "claude");
+    const runWorkflowMock = makeRunMock();
+
+    const argv = ["bun", "/SDK/cli.ts", "_cc-debounce", "%0"];
+
+    await hostLocalWorkflows([wf], { argv, env: {}, runWorkflow: runWorkflowMock });
+
+    expect(runWorkflowMock).not.toHaveBeenCalled();
+    expect(capturedStdout.join("")).toBe("");
+  });
+
   test("errors when no --name and multiple workflows are registered", async () => {
     const wfA = makeWorkflow("a", "claude");
     const wfB = makeWorkflow("b", "claude");

@@ -59,6 +59,16 @@ type HostableLocalWorkflow = {
 const HOST_SUBS = new Set(["_emit-workflow-meta", "_atomic-run"]);
 
 /**
+ * Sub-commands owned by `auto-dispatch.ts`. When any of these appear in
+ * `argv` we know the SDK is in the middle of an internal re-import
+ * (e.g. the orchestrator pane re-imports the user's CLI to resolve the
+ * workflow definition). Returning silently after the registry side-
+ * effect is critical — auto-running here would recursively spawn
+ * another tmux session inside the already-active orchestrator pane.
+ */
+const AUTODISPATCH_SUBS = new Set(["_orchestrator-entry", "_cc-debounce"]);
+
+/**
  * Module-scoped registry of workflows passed to `hostLocalWorkflows([…])`.
  *
  * Populated at every `hostLocalWorkflows()` call (before any argv inspection).
@@ -178,6 +188,15 @@ export async function hostLocalWorkflows(
   // consumer to also `export default` the workflow.
   for (const w of workflows) {
     localWorkflowRegistry.set(registryKey(w.agent, w.name), w);
+  }
+
+  // Silent-return when argv signals an auto-dispatch re-import (e.g. the
+  // orchestrator pane spawned by `_atomic-run` re-imports the user's CLI
+  // to resolve the workflow definition). Without this guard the direct-
+  // CLI / help branches below would auto-run a fresh workflow inside the
+  // already-spawned orchestrator pane — infinite recursion.
+  for (let i = 2; i < argv.length; i++) {
+    if (AUTODISPATCH_SUBS.has(argv[i]!)) return;
   }
 
   const found = findHostSub(argv);

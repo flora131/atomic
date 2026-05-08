@@ -36,6 +36,19 @@ export const WORKFLOW_OFFLOAD_RESUME_SUCCEEDED =
 export const WORKFLOW_OFFLOAD_RESUME_FAILED =
   "workflow.offload.resume.failed" as const;
 
+/** Fired when doResume's rollback path (best-effort tmux.killWindow after a
+ *  failed resume) itself throws — pathological tmux state (R2 fix observability). */
+export const WORKFLOW_OFFLOAD_RESUME_ROLLBACK_FAILED =
+  "workflow.offload.resume.rollback_failed" as const;
+
+/** Fired by OffloadManager.registerSession after metadata persisted. */
+export const WORKFLOW_OFFLOAD_REGISTER_PERSISTED =
+  "workflow.offload.register.persisted" as const;
+
+/** Fired per pane after Claude per-session marker reap during offload (RFC §7.2 v8). */
+export const WORKFLOW_OFFLOAD_CLAUDE_MARKER_CLEANUP =
+  "workflow.offload.claude_marker_cleanup" as const;
+
 /** Fired with the measured latency (ms) from focus event → pane ready. */
 export const WORKFLOW_OFFLOAD_RESUME_LATENCY_MS =
   "workflow.offload.resume.latency_ms" as const;
@@ -102,4 +115,35 @@ export interface WorkflowOffloadResumeLatencyPayload {
   agent: AgentKind;
   /** Elapsed time in milliseconds from focus event to pane-ready. */
   latencyMs: number;
+}
+
+/** Payload for {@link WORKFLOW_OFFLOAD_RESUME_ROLLBACK_FAILED}. */
+export interface WorkflowOffloadResumeRollbackFailedPayload {
+  /** Unique identifier for the workflow run. */
+  runId: string;
+  /** Stage name whose rollback failed. */
+  name: string;
+  /** Agent provider being re-spawned. */
+  agent: AgentKind;
+  /** Error message from the failed tmux.killWindow rollback. */
+  error: string;
+}
+
+/** Payload for {@link WORKFLOW_OFFLOAD_REGISTER_PERSISTED}. */
+export interface WorkflowOffloadRegisterPersistedPayload {
+  runId: string;
+  name: string;
+  agent: AgentKind;
+}
+
+/** Payload for {@link WORKFLOW_OFFLOAD_CLAUDE_MARKER_CLEANUP}. */
+export interface WorkflowOffloadClaudeMarkerCleanupPayload {
+  runId: string;
+  name: string;
+  agentSessionId: string;
+  readyCleared: boolean;
+  stopCleared: boolean;
+  pidCleared: boolean;
+  inflightCleared: boolean;
+  failures: number;
 }

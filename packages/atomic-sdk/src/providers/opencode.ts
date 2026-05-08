@@ -75,15 +75,19 @@ export async function withHeadlessOpencodeEnv<T>(
 /**
  * Build the `opencode` CLI argv fragment needed to resume an offloaded session.
  *
- * Produces: ["--session", "<sessionId>"]
+ * `meta.chatFlags` is the effective merged spawn-time flag set captured by
+ * `OffloadManager.registerSession` (RFC §5.4). It is required by the schema —
+ * there is no legacy fallback.
+ *
+ * Produces: ["--session", "<sessionId>", ...meta.chatFlags]
  */
 export function buildOpencodeResumeArgs(
-  meta: Pick<OffloadResumeMetadata, "agentSessionId">,
+  meta: Pick<OffloadResumeMetadata, "agentSessionId" | "chatFlags">,
 ): string[] {
   if (meta.agentSessionId == null || meta.agentSessionId === "") {
     throw new Error("empty agentSessionId on resume");
   }
-  return ["--session", meta.agentSessionId];
+  return ["--session", meta.agentSessionId, ...meta.chatFlags];
 }
 
 /**

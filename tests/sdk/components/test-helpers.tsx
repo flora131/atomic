@@ -5,11 +5,13 @@ import { createRoot } from "@opentui/react";
 import { act, type ReactNode } from "react";
 import { PanelStore } from "../../../packages/atomic-sdk/src/components/orchestrator-panel-store.ts";
 import {
+  OffloadManagerContext,
   StoreContext,
   ThemeContext,
   TmuxSessionContext,
 } from "../../../packages/atomic-sdk/src/components/orchestrator-panel-contexts.ts";
 import type { GraphTheme } from "../../../packages/atomic-sdk/src/components/graph-theme.ts";
+import type { OffloadManager } from "../../../packages/atomic-sdk/src/runtime/offload-manager.ts";
 
 export type ReactTestSetup = Awaited<ReturnType<typeof createTestRenderer>>;
 
@@ -190,22 +192,38 @@ export async function renderReact(
   return testSetup;
 }
 
+/**
+ * No-op OffloadManager stub for tests that don't exercise offload behavior.
+ * SessionGraphPanel reads `getStatus` and conditionally calls `requestResume`;
+ * stubs that return "alive" / resolve void let the panel render normally.
+ */
+const NOOP_OFFLOAD_MANAGER: OffloadManager = {
+  registerSession: () => Promise.resolve(),
+  onWorkflowCompletion: () => Promise.resolve(),
+  requestResume: () => Promise.resolve(),
+  getStatus: () => "alive",
+};
+
 export function TestProviders({
   store,
   theme,
   tmuxSession,
+  offloadManager,
   children,
 }: {
   store: PanelStore;
   theme?: GraphTheme;
   tmuxSession?: string;
+  offloadManager?: OffloadManager;
   children: ReactNode;
 }) {
   return (
     <StoreContext.Provider value={store}>
       <ThemeContext.Provider value={theme ?? TEST_THEME}>
         <TmuxSessionContext.Provider value={tmuxSession ?? "test-session"}>
-          {children}
+          <OffloadManagerContext.Provider value={offloadManager ?? NOOP_OFFLOAD_MANAGER}>
+            {children}
+          </OffloadManagerContext.Provider>
         </TmuxSessionContext.Provider>
       </ThemeContext.Provider>
     </StoreContext.Provider>

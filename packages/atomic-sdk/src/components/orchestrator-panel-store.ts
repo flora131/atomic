@@ -22,8 +22,12 @@ export class PanelStore {
 
   /** Current view mode — graph overview or attached to a specific agent. */
   viewMode: ViewMode = "graph";
-  /** ID of the agent currently attached to (only meaningful when viewMode === "attached"). */
+  /** ID of the agent currently attached to (only meaningful when viewMode === "attached" or "resuming"). */
   activeAgentId = "";
+
+  /** Active toast notifications. */
+  toasts: { id: number; message: string; createdAt: number }[] = [];
+  private nextToastId = 1;
 
   private listeners = new Set<Listener>();
 
@@ -150,14 +154,27 @@ export class PanelStore {
   }
 
   /**
-   * Switch between graph and attached view modes.
-   * When switching to "attached", provide the agent ID to attach to.
+   * Switch between graph, attached, and resuming view modes.
+   * When switching to "attached" or "resuming", provide the agent ID.
    * Switching to "graph" clears the active agent.
    */
   setViewMode(mode: ViewMode, agentId?: string): void {
     this.viewMode = mode;
-    this.activeAgentId = mode === "attached" && agentId ? agentId : "";
+    this.activeAgentId = (mode === "attached" || mode === "resuming") && agentId ? agentId : "";
     this.emit();
+  }
+
+  showToast(message: string): void {
+    this.toasts.push({ id: this.nextToastId++, message, createdAt: Date.now() });
+    this.emit();
+  }
+
+  dismissToast(id: number): void {
+    const idx = this.toasts.findIndex((t) => t.id === id);
+    if (idx >= 0) {
+      this.toasts.splice(idx, 1);
+      this.emit();
+    }
   }
 
   /** Safely invoke exitResolve at most once, guarding against rapid repeated calls. */

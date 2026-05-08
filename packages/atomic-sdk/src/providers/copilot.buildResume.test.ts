@@ -8,8 +8,11 @@
 import { test, expect, describe } from "bun:test";
 import { buildCopilotResumeArgs } from "./copilot.ts";
 
-const FIXTURE_META = {
+type CopilotMeta = Parameters<typeof buildCopilotResumeArgs>[0];
+
+const FIXTURE_META: CopilotMeta = {
   agentSessionId: "cop-session-abc123def456",
+  chatFlags: [],
 };
 
 describe("buildCopilotResumeArgs()", () => {
@@ -18,7 +21,7 @@ describe("buildCopilotResumeArgs()", () => {
     expect(args).toEqual([`--resume=${FIXTURE_META.agentSessionId}`]);
   });
 
-  test("array length is 1", () => {
+  test("array length is 1 when chatFlags empty", () => {
     const args = buildCopilotResumeArgs(FIXTURE_META);
     expect(args).toHaveLength(1);
   });
@@ -42,7 +45,7 @@ describe("buildCopilotResumeArgs()", () => {
   });
 
   test("different agentSessionId produces correct = form", () => {
-    const args = buildCopilotResumeArgs({ agentSessionId: "other-cop-id" });
+    const args = buildCopilotResumeArgs({ agentSessionId: "other-cop-id", chatFlags: [] });
     expect(args).toEqual(["--resume=other-cop-id"]);
   });
 });

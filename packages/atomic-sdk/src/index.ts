@@ -87,6 +87,11 @@ export type {
   RunWorkflowResult,
 } from "./primitives/run.ts";
 
+// ─── Telemetry ───────────────────────────────────────────────────────────────
+export type { TelemetrySink } from "./runtime/executor.ts";
+export { setExecutorTelemetrySinks } from "./runtime/executor.ts";
+export { getProductionTelemetrySink } from "./lib/telemetry/index.ts";
+
 // ─── Session management ─────────────────────────────────────────────────────
 export {
   listSessions,
@@ -107,3 +112,10 @@ export type {
   ListSessionsOptions,
   SessionPrimitiveDeps,
 } from "./primitives/sessions.ts";
+
+// ─── Offload / resume ────────────────────────────────────────────────────────
+export { filterSpawnEnv, persistResume } from "./runtime/offload-manager.ts";
+export type {
+  OffloadManager,
+  OffloadManagerDeps,
+} from "./runtime/offload-manager.ts";

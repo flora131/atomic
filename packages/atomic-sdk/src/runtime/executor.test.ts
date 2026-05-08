@@ -1117,9 +1117,9 @@ describe("buildPaneCommand", () => {
     expect(command).toContain("--extra-flag");
   });
 
-  test("extraChatFlags not appended to opencode command", () => {
+  test("extraChatFlags appended to opencode command", () => {
     const { command } = buildPaneCommand("opencode", {}, ["--extra-flag"]);
-    expect(command).not.toContain("--extra-flag");
+    expect(command).toContain("--extra-flag");
   });
 
   test("copilot: respects COPILOT_CLI_PATH env var for binary resolution", () => {

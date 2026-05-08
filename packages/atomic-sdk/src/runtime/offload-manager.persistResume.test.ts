@@ -1,6 +1,5 @@
-import { test, expect, beforeEach } from "bun:test";
+import { test, expect } from "bun:test";
 import { mkdtempSync, writeFileSync, statSync } from "node:fs";
-import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { MetadataJsonWithResume } from "./offload-types.ts";
@@ -98,6 +97,7 @@ test("patch fields overwrite existing resume fields", async () => {
       tmuxWindowName: "old-win",
       spawnEnv: {},
       spawnCwd: "/old",
+      chatFlags: [],
       lastPrompt: "old prompt",
       lastSeenAt: 1000,
       offloadedAt: null,
@@ -133,9 +133,13 @@ test("throws on unsupported schemaVersion", async () => {
   };
   writeFileSync(join(dir, "metadata.json"), JSON.stringify(badMeta));
 
-  await expect(persistResume(dir, { lastSeenAt: 1 })).rejects.toThrow(
-    "unsupported resume schemaVersion: 2",
-  );
+  let caught: unknown = null;
+  try {
+    await persistResume(dir, { lastSeenAt: 1 });
+  } catch (err) {
+    caught = err;
+  }
+  expect((caught as Error).message).toBe("unsupported resume schemaVersion: 2");
 });
 
 // ─── missing metadata.json ────────────────────────────────────────────────────
@@ -145,9 +149,13 @@ test("throws when metadata.json is missing", async () => {
   // no metadata.json written
 
   const metaPath = join(dir, "metadata.json");
-  await expect(persistResume(dir, { lastSeenAt: 1 })).rejects.toThrow(
-    `metadata.json not found at ${metaPath}`,
-  );
+  let caught: unknown = null;
+  try {
+    await persistResume(dir, { lastSeenAt: 1 });
+  } catch (err) {
+    caught = err;
+  }
+  expect((caught as Error).message).toBe(`metadata.json not found at ${metaPath}`);
 });
 
 // ─── file mode 0o600 ─────────────────────────────────────────────────────────
@@ -205,6 +213,31 @@ test("100 concurrent persistResume calls for same stageDir all complete", async 
   // All immutables intact
   expect(meta.name).toBe(IMMUTABLES.name);
   expect(meta.agent).toBe(IMMUTABLES.agent);
+});
+
+// ─── _resumeDefaults includes chatFlags: [] ──────────────────────────────────
+
+test("_resumeDefaults produces chatFlags: [] when no patch is supplied", async () => {
+  const dir = makeStageDir();
+  // Write metadata with no resume block so _resumeDefaults is applied
+  writeMetadata(dir, { ...IMMUTABLES });
+
+  // Apply a minimal patch that does NOT include chatFlags
+  await persistResume(dir, { agentSessionId: "sess-001" });
+
+  const meta = readMetadata(dir);
+  // chatFlags should default to [] from _resumeDefaults
+  expect(meta.resume?.chatFlags).toEqual([]);
+});
+
+test("_resumeDefaults chatFlags: [] is overridden when patch supplies chatFlags", async () => {
+  const dir = makeStageDir();
+  writeMetadata(dir, { ...IMMUTABLES });
+
+  await persistResume(dir, { chatFlags: ["--model", "claude-opus-4-5"] });
+
+  const meta = readMetadata(dir);
+  expect(meta.resume?.chatFlags).toEqual(["--model", "claude-opus-4-5"]);
 });
 
 // ─── concurrent calls for different stageDirs don't interfere ────────────────

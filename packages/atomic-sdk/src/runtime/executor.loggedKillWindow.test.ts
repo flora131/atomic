@@ -1,14 +1,14 @@
 /**
  * Tests for loggedKillWindow: reserved-name rejection emits telemetry + warn.
  *
- * Uses the test-only injection seam (_setLoggedKillWindowSinksForTest) to
- * capture telemetry and warn calls without touching real sinks or real tmux.
+ * Uses the production seam (setExecutorTelemetrySinks) to capture telemetry
+ * and warn calls without touching real sinks or real tmux.
  */
 
 import { test, expect, describe, afterEach } from "bun:test";
 import {
   _loggedKillWindowForTest,
-  _setLoggedKillWindowSinksForTest,
+  setExecutorTelemetrySinks,
   type TelemetrySink,
 } from "./executor.ts";
 
@@ -35,7 +35,7 @@ function makeSinks(): {
 
 afterEach(() => {
   // Restore default sinks after every test.
-  _setLoggedKillWindowSinksForTest({});
+  setExecutorTelemetrySinks({});
 });
 
 // ---------------------------------------------------------------------------
@@ -45,7 +45,7 @@ afterEach(() => {
 describe('loggedKillWindow — reserved name "orchestrator"', () => {
   test("does not throw", async () => {
     const { telemetry, warn } = makeSinks();
-    _setLoggedKillWindowSinksForTest({ telemetry, warn });
+    setExecutorTelemetrySinks({ telemetry, warn });
 
     const result = await _loggedKillWindowForTest("any-session", "orchestrator", "stage-error");
     expect(result).toBeUndefined();
@@ -53,7 +53,7 @@ describe('loggedKillWindow — reserved name "orchestrator"', () => {
 
   test("emits telemetry once with correct event and payload", async () => {
     const { telemetry, warn } = makeSinks();
-    _setLoggedKillWindowSinksForTest({ telemetry, warn });
+    setExecutorTelemetrySinks({ telemetry, warn });
 
     await _loggedKillWindowForTest("any-session", "orchestrator", "stage-error");
 
@@ -67,7 +67,7 @@ describe('loggedKillWindow — reserved name "orchestrator"', () => {
 
   test("calls warn once with windowName, origin, and error message", async () => {
     const { telemetry, warnCalls, warn } = makeSinks();
-    _setLoggedKillWindowSinksForTest({ telemetry, warn });
+    setExecutorTelemetrySinks({ telemetry, warn });
 
     await _loggedKillWindowForTest("any-session", "orchestrator", "stage-error");
 
@@ -85,7 +85,7 @@ describe('loggedKillWindow — reserved name "orchestrator"', () => {
 describe('loggedKillWindow — reserved name "0"', () => {
   test("does not throw", async () => {
     const { telemetry, warn } = makeSinks();
-    _setLoggedKillWindowSinksForTest({ telemetry, warn });
+    setExecutorTelemetrySinks({ telemetry, warn });
 
     const result = await _loggedKillWindowForTest("any-session", "0", "abort-cleanup");
     expect(result).toBeUndefined();
@@ -93,7 +93,7 @@ describe('loggedKillWindow — reserved name "0"', () => {
 
   test("emits telemetry with windowName='0' and origin='abort-cleanup'", async () => {
     const { telemetry, warn } = makeSinks();
-    _setLoggedKillWindowSinksForTest({ telemetry, warn });
+    setExecutorTelemetrySinks({ telemetry, warn });
 
     await _loggedKillWindowForTest("any-session", "0", "abort-cleanup");
 
@@ -106,7 +106,7 @@ describe('loggedKillWindow — reserved name "0"', () => {
 
   test("calls warn with '0', 'abort-cleanup', and error fragment", async () => {
     const { telemetry, warnCalls, warn } = makeSinks();
-    _setLoggedKillWindowSinksForTest({ telemetry, warn });
+    setExecutorTelemetrySinks({ telemetry, warn });
 
     await _loggedKillWindowForTest("any-session", "0", "abort-cleanup");
 
@@ -124,7 +124,7 @@ describe('loggedKillWindow — reserved name "0"', () => {
 describe("loggedKillWindow — empty windowName", () => {
   test("does not throw", async () => {
     const { telemetry, warn } = makeSinks();
-    _setLoggedKillWindowSinksForTest({ telemetry, warn });
+    setExecutorTelemetrySinks({ telemetry, warn });
 
     const result = await _loggedKillWindowForTest("any-session", "", "stage-error");
     expect(result).toBeUndefined();
@@ -132,7 +132,7 @@ describe("loggedKillWindow — empty windowName", () => {
 
   test("emits telemetry with windowName=''", async () => {
     const { telemetry, warn } = makeSinks();
-    _setLoggedKillWindowSinksForTest({ telemetry, warn });
+    setExecutorTelemetrySinks({ telemetry, warn });
 
     await _loggedKillWindowForTest("any-session", "", "stage-error");
 
@@ -153,7 +153,7 @@ describe("loggedKillWindow — already-dead window (tmux swallows internally)", 
     // killWindow catches tmuxExec failures internally and returns normally.
     // So passing a non-reserved name should always resolve (no tmux binary needed).
     const { telemetry, warn } = makeSinks();
-    _setLoggedKillWindowSinksForTest({ telemetry, warn });
+    setExecutorTelemetrySinks({ telemetry, warn });
 
     // "work-session-pane" is not reserved; killWindow will try tmuxExec and
     // swallow any error (no server running), returning normally.
@@ -164,7 +164,7 @@ describe("loggedKillWindow — already-dead window (tmux swallows internally)", 
 
   test("warn NOT called", async () => {
     const { telemetry, warnCalls, warn } = makeSinks();
-    _setLoggedKillWindowSinksForTest({ telemetry, warn });
+    setExecutorTelemetrySinks({ telemetry, warn });
 
     await _loggedKillWindowForTest("any-session", "work-pane", "abort-cleanup");
 
@@ -179,7 +179,7 @@ describe("loggedKillWindow — already-dead window (tmux swallows internally)", 
 describe("loggedKillWindow — happy path (successful kill)", () => {
   test("returns undefined without telemetry or warn", async () => {
     const { telemetry, warnCalls, warn } = makeSinks();
-    _setLoggedKillWindowSinksForTest({ telemetry, warn });
+    setExecutorTelemetrySinks({ telemetry, warn });
 
     // Non-reserved name; if tmux is not running tmuxExec failure is swallowed by killWindow itself.
     const result = await _loggedKillWindowForTest("any-session", "worker-1", "stage-error");
@@ -189,3 +189,4 @@ describe("loggedKillWindow — happy path (successful kill)", () => {
     expect(warnCalls).toHaveLength(0);
   });
 });
+

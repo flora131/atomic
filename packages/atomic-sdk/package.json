@@ -30,6 +30,7 @@
     "./providers/copilot": "./src/providers/copilot.ts",
     "./providers/claude-stop-hook": "./src/providers/claude-stop-hook.ts",
     "./providers/claude-inflight-hook": "./src/providers/claude-inflight-hook.ts",
+    "./lib/telemetry": "./src/lib/telemetry/index.ts",
     "./lib/atomic-temp": "./src/lib/atomic-temp.ts",
     "./lib/spawn": "./src/lib/spawn.ts",
     "./lib/terminal-env": "./src/lib/terminal-env.ts",

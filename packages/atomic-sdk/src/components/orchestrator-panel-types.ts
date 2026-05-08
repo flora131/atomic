@@ -2,7 +2,7 @@
 
 export type SessionStatus = "pending" | "running" | "complete" | "error" | "awaiting_input" | "offloaded" | "resuming";
 
-export type ViewMode = "graph" | "attached";
+export type ViewMode = "graph" | "attached" | "resuming";
 
 export interface PanelSession {
   name: string;

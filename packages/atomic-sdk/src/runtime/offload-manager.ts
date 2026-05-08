@@ -15,6 +15,44 @@ const WORKFLOW_OFFLOAD_COMPLETED = "workflow.offload.completed" as const;
 const WORKFLOW_OFFLOAD_RESUME_ATTEMPTED = "workflow.offload.resume.attempted" as const;
 const WORKFLOW_OFFLOAD_RESUME_SUCCEEDED = "workflow.offload.resume.succeeded" as const;
 const WORKFLOW_OFFLOAD_RESUME_FAILED = "workflow.offload.resume.failed" as const;
+const WORKFLOW_OFFLOAD_REGISTER_PERSISTED = "workflow.offload.register.persisted" as const;
+const WORKFLOW_OFFLOAD_RESUME_ROLLBACK_FAILED = "workflow.offload.resume.rollback_failed" as const;
+
+// ─── filterSpawnEnv ─────────────────────────────────────────────────────────
+
+const SPAWN_ENV_EXACT_ALLOW: ReadonlySet<string> = new Set([
+  "CLAUDECODE",
+  "PATH",
+  "HOME",
+  "LANG",
+  "SHELL",
+]);
+const SPAWN_ENV_PREFIX_ALLOW: readonly string[] = ["ATOMIC_", "LC_", "OPENCODE_", "COPILOT_"];
+const SPAWN_ENV_EXACT_DENY: ReadonlySet<string> = new Set([
+  "ANTHROPIC_API_KEY",
+  "ANTHROPIC_AUTH_TOKEN",
+  "OPENAI_API_KEY",
+  "GITHUB_TOKEN",
+  "GH_TOKEN",
+]);
+const SPAWN_ENV_SUFFIX_DENY = /_(API_KEY|AUTH_TOKEN|SECRET|TOKEN|PASSWORD)$/i;
+
+/**
+ * Allowlist filter applied to `spawnEnv` before persisting to disk.
+ *
+ * The in-memory spawnEnv (used for actual tmux exec) retains ALL keys so
+ * tokens stripped from disk are re-injected at resume time (RFC §7.1).
+ */
+export function filterSpawnEnv(env: Record<string, string>): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (SPAWN_ENV_EXACT_DENY.has(key) || SPAWN_ENV_SUFFIX_DENY.test(key)) continue;
+    if (SPAWN_ENV_EXACT_ALLOW.has(key) || SPAWN_ENV_PREFIX_ALLOW.some((p) => key.startsWith(p))) {
+      result[key] = value;
+    }
+  }
+  return result;
+}
 
 // ─── persistResume ──────────────────────────────────────────────────────────
 
@@ -32,6 +70,7 @@ const _resumeDefaults: Omit<OffloadResumeMetadata, "schemaVersion"> = {
   tmuxWindowName: "",
   spawnEnv: {},
   spawnCwd: "",
+  chatFlags: [],
   lastPrompt: "",
   lastSeenAt: 0,
   offloadedAt: null,
@@ -48,6 +87,18 @@ function isValidResumeBlock(value: unknown): value is OffloadResumeMetadata {
     !Array.isArray(value) &&
     (value as { schemaVersion?: unknown }).schemaVersion === 1
   );
+}
+
+/**
+ * Extract a useful `schemaVersion` value for the schema-mismatch error message.
+ * For non-object inputs, returns the value itself so the operator sees `null`,
+ * `42`, etc. instead of `undefined`.
+ */
+function describeInvalidResumeBlock(value: unknown): unknown {
+  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+    return (value as { schemaVersion?: unknown }).schemaVersion;
+  }
+  return value;
 }
 
 /**
@@ -71,23 +122,23 @@ export async function persistResume(
 ): Promise<void> {
   const metaPath = join(stageDir, "metadata.json");
 
-  // Mutex-order writes via tail-chaining. Isolate each link from the previous
-  // link's outcome so a queued caller's failure doesn't poison the chain.
+  // Mutex-order writes via tail-chaining. `.catch` isolates each link from
+  // the previous link's outcome so a queued caller's failure doesn't poison
+  // the chain (each call still observes its own outcome via `next`).
   const prev = _stageMutex.get(stageDir) ?? Promise.resolve();
   const next: Promise<void> = prev
     .catch(() => undefined)
     .then(() => _doPersist(metaPath, patch));
 
   // Register the new tail synchronously so callers arriving after this point
-  // append correctly.
+  // append correctly. The trailing `.catch` swallows the cleanup chain's
+  // mirrored rejection — the caller still observes failure via `next`.
   _stageMutex.set(stageDir, next);
-
-  // Drop the map entry once this link settles. `.catch(() => {})` silences the
-  // unhandled-rejection warning on the floating finally promise — the caller
-  // observes the rejection via the returned `next`.
-  next.finally(() => {
-    if (_stageMutex.get(stageDir) === next) _stageMutex.delete(stageDir);
-  }).catch(() => {});
+  next
+    .finally(() => {
+      if (_stageMutex.get(stageDir) === next) _stageMutex.delete(stageDir);
+    })
+    .catch(() => {});
 
   return next;
 }
@@ -96,7 +147,6 @@ async function _doPersist(
   metaPath: string,
   patch: Partial<OffloadResumeMetadata>,
 ): Promise<void> {
-  // Read
   let raw: string;
   try {
     raw = await fs.readFile(metaPath, "utf8");
@@ -109,12 +159,9 @@ async function _doPersist(
   // The `resume` slot must be either absent or a v1 plain object. Anything
   // else (null, primitive, array, foreign schemaVersion) is a schema mismatch.
   if (existing.resume !== undefined && !isValidResumeBlock(existing.resume)) {
-    const r = existing.resume as unknown;
-    const reported =
-      r !== null && typeof r === "object" && !Array.isArray(r)
-        ? (r as { schemaVersion?: unknown }).schemaVersion
-        : r;
-    throw new Error(`unsupported resume schemaVersion: ${reported}`);
+    throw new Error(
+      `unsupported resume schemaVersion: ${describeInvalidResumeBlock(existing.resume)}`,
+    );
   }
 
   // Merge precedence: defaults < existing.resume < patch; schemaVersion
@@ -126,7 +173,7 @@ async function _doPersist(
     schemaVersion: 1,
   };
 
-  // Top-level fields (immutable per write-once contract) are echoed verbatim;
+  // Top-level fields (immutable per write-once contract) echoed verbatim;
   // only `resume` mutates.
   const nextMeta: MetadataJsonWithResume = {
     name: existing.name,
@@ -161,8 +208,11 @@ export interface OffloadManager {
     tmuxWindow: string;
     spawnEnv: Record<string, string>;
     spawnCwd: string;
+    lastPrompt?: string;
     headless: boolean;
-  }): void;
+    /** Effective merged chatFlags used at original spawn time. Persisted into the resume block. */
+    chatFlags: string[];
+  }): Promise<void>;
   onWorkflowCompletion(): Promise<void>;
   requestResume(name: string): Promise<void>;
   getStatus(name: string): "alive" | "offloaded" | "resuming";
@@ -178,22 +228,49 @@ export interface OffloadManagerDeps {
   };
   tmux: {
     killWindow(session: string, window: string): Promise<void>;
-    createWindow(session: string, name: string, cwd: string): Promise<void>;
-    sendKeys(session: string, window: string, keys: string[]): Promise<void>;
+    createWindow(
+      session: string,
+      window: string,
+      command: string,
+      cwd: string,
+      envVars: Record<string, string>,
+    ): Promise<void>;
     selectWindow(session: string, window: string): Promise<void>;
   };
   providers: {
     claude: {
       buildResumeArgs(
-        meta: Pick<OffloadResumeMetadata, "agentSessionId">,
+        meta: Pick<OffloadResumeMetadata, "agentSessionId" | "chatFlags">,
         hookSettingsPath: string,
       ): string[];
     };
-    opencode: { buildResumeArgs(meta: Pick<OffloadResumeMetadata, "agentSessionId">): string[] };
-    copilot: { buildResumeArgs(meta: Pick<OffloadResumeMetadata, "agentSessionId">): string[] };
+    opencode: {
+      buildResumeArgs(
+        meta: Pick<OffloadResumeMetadata, "agentSessionId" | "chatFlags">,
+      ): string[];
+    };
+    copilot: {
+      buildResumeArgs(
+        meta: Pick<OffloadResumeMetadata, "agentSessionId" | "chatFlags">,
+      ): string[];
+    };
   };
   /** Resolve Claude hook-settings path lazily; only called on Claude resume. */
   hookSettingsPath(): string;
+  /**
+   * Join agent binary + argv into a single shell command string for
+   * `tmux new-window`. Each arg is single-quoted with embedded single-quotes
+   * escaped via `'\''` (RFC §9 Q12). Exposed on deps for testability.
+   */
+  shellQuote(argv: readonly string[]): string;
+  /**
+   * Wait for the agent process to signal readiness post-resume.
+   * The default production impl polls a per-agent marker (Claude:
+   * `~/.atomic/claude-ready/<id>`; OpenCode/Copilot: SDK probes).
+   * Tests pass an immediate-resolve mock to bypass real I/O.
+   * Implementations own their own timeout policy.
+   */
+  waitForReady(agent: AgentKind, agentSessionId: string, paneId: string): Promise<void>;
   now(): number;
   /** Telemetry sink — `event` is one of WORKFLOW_OFFLOAD_* constants. */
   emit(event: string, payload: Record<string, unknown>): void;
@@ -213,40 +290,60 @@ interface RegisteredSession {
   tmuxWindow: string;
   spawnEnv: Record<string, string>;
   spawnCwd: string;
+  lastPrompt: string;
   headless: boolean;
+  chatFlags: string[];
   state: SessionState;
 }
 
 // ─── Idempotency primitive ──────────────────────────────────────────────────
 
-const _moduleOpQueue = new Map<string, Promise<void>>();
-
 /**
- * Idempotency primitive: if an operation is already running for `name`,
- * return the same Promise.  Otherwise start a new one, register it, and
- * clear it from the map when it settles (success or failure).
+ * Idempotency primitive: if an operation is already running for `name` in
+ * `queue`, return the same Promise. Otherwise start a new one, register it,
+ * and clear it from the map when it settles (success or failure).
  *
- * Exported as `_testOnlyGetOrStartOp` for unit testing only.
- * Production callers use the instance-level wrapper returned by createOffloadManager.
+ * Exported as `_testOnlyGetOrStartOp` for unit testing only. Production
+ * callers use the instance-level wrapper returned by `createOffloadManager`.
  */
 export function _testOnlyGetOrStartOp(
   name: string,
   op: () => Promise<void>,
-  queue: Map<string, Promise<void>> = _moduleOpQueue,
+  queue: Map<string, Promise<void>>,
 ): Promise<void> {
   const existing = queue.get(name);
   if (existing !== undefined) return existing;
 
   const promise = op().finally(() => {
-    if (queue.get(name) === promise) {
-      queue.delete(name);
-    }
+    if (queue.get(name) === promise) queue.delete(name);
   });
   queue.set(name, promise);
   return promise;
 }
 
 // ─── Factory ────────────────────────────────────────────────────────────────
+
+/**
+ * Build the `[binary, ...argv]` for an agent resume command.
+ * Returned argv is fed straight to `deps.shellQuote` and then to
+ * `deps.tmux.createWindow` — the binary is execed directly, no shell.
+ */
+function buildResumeCommand(
+  sess: RegisteredSession,
+  deps: OffloadManagerDeps,
+  meta: Pick<OffloadResumeMetadata, "agentSessionId" | "chatFlags">,
+): string[] {
+  switch (sess.agent) {
+    case "claude":
+      return ["claude", ...deps.providers.claude.buildResumeArgs(meta, deps.hookSettingsPath())];
+    case "opencode":
+      return ["opencode", ...deps.providers.opencode.buildResumeArgs(meta)];
+    case "copilot":
+      return ["copilot", ...deps.providers.copilot.buildResumeArgs(meta)];
+    default:
+      throw new Error(`unsupported agent kind: ${sess.agent as string}`);
+  }
+}
 
 export function createOffloadManager(deps: OffloadManagerDeps): OffloadManager {
   const sessions = new Map<string, RegisteredSession>();
@@ -260,7 +357,9 @@ export function createOffloadManager(deps: OffloadManagerDeps): OffloadManager {
 
   /** Offload a single registered session. */
   async function killOnePane(sess: RegisteredSession): Promise<void> {
-    await persistResume(sess.stageDir, { offloadedAt: deps.now() });
+    const ts = deps.now();
+    // Patch is ONLY timestamps — snapshot fields already on disk from registerSession.
+    await persistResume(sess.stageDir, { offloadedAt: ts, lastSeenAt: ts });
     await deps.tmux.killWindow(sess.tmuxSession, sess.tmuxWindow);
     deps.panelStore.setSessionStatus(sess.name, "offloaded");
     sess.state = "offloaded";
@@ -280,57 +379,74 @@ export function createOffloadManager(deps: OffloadManagerDeps): OffloadManager {
     return panelEntry?.status === "complete";
   }
 
-  /** Re-spawn an offloaded session. */
+  /** Re-spawn an offloaded session (RFC §5.2.3). */
   async function doResume(sess: RegisteredSession): Promise<void> {
+    const startMs = deps.now();
     const baseEvent = { runId: sess.runId, name: sess.name, agent: sess.agent };
     sess.state = "resuming";
     deps.panelStore.setSessionStatus(sess.name, "resuming");
     deps.emit(WORKFLOW_OFFLOAD_RESUME_ATTEMPTED, baseEvent);
 
+    let windowCreated = false;
+
     try {
-      // Read + validate metadata.
+      // (a) Read + validate metadata.
       const metaPath = join(sess.stageDir, "metadata.json");
       const parsed = JSON.parse(await fs.readFile(metaPath, "utf8")) as MetadataJsonWithResume;
-      if (!isValidResumeBlock(parsed.resume)) {
-        throw new Error("SCHEMA_MISMATCH");
-      }
-      const meta: Pick<OffloadResumeMetadata, "agentSessionId"> = {
+      if (!isValidResumeBlock(parsed.resume)) throw new Error("SCHEMA_MISMATCH");
+      const meta = {
         agentSessionId: parsed.resume.agentSessionId,
+        chatFlags: parsed.resume.chatFlags,
       };
 
-      // Build argv per agent.
-      let argv: string[];
-      let binary: string;
-      switch (sess.agent) {
-        case "claude":
-          argv = deps.providers.claude.buildResumeArgs(meta, deps.hookSettingsPath());
-          binary = "claude";
-          break;
-        case "opencode":
-          argv = deps.providers.opencode.buildResumeArgs(meta);
-          binary = "opencode";
-          break;
-        case "copilot":
-          argv = deps.providers.copilot.buildResumeArgs(meta);
-          binary = "copilot";
-          break;
-        default:
-          throw new Error(`unsupported agent kind: ${sess.agent as string}`);
-      }
+      // (b)/(c) Build the command and quote for tmux.
+      const cmd = deps.shellQuote(buildResumeCommand(sess, deps, meta));
 
-      // Recreate the tmux window, send the resume command, and switch focus.
-      // TODO(spec §5.2.4 step 2.e): poll a per-agent readiness signal before
-      // selectWindow. Deferred — introduces per-provider I/O deps out of scope.
-      await deps.tmux.createWindow(sess.tmuxSession, sess.tmuxWindow, sess.spawnCwd);
-      await deps.tmux.sendKeys(sess.tmuxSession, sess.tmuxWindow, [binary, ...argv, "Enter"]);
+      // (d) Recreate the tmux window with the resume command and unfiltered
+      // in-memory spawnEnv (tokens re-injected from memory, not from disk).
+      await deps.tmux.createWindow(
+        sess.tmuxSession,
+        sess.tmuxWindow,
+        cmd,
+        sess.spawnCwd,
+        sess.spawnEnv,
+      );
+      windowCreated = true;
+
+      // (e) Wait for agent readiness — impl owns its own timeout.
+      // paneId is the tmux target "session:window" used by waitForServer
+      // to resolve the agent's PID and discover its listening port.
+      const paneId = `${sess.tmuxSession}:${sess.tmuxWindow}`;
+      await deps.waitForReady(sess.agent, meta.agentSessionId, paneId);
+
+      // (f) Only after readiness: switch focus.
       await deps.tmux.selectWindow(sess.tmuxSession, sess.tmuxWindow);
 
+      // (g) Success.
       sess.state = "alive";
       deps.panelStore.setSessionStatus(sess.name, "complete");
-      deps.emit(WORKFLOW_OFFLOAD_RESUME_SUCCEEDED, baseEvent);
+      deps.emit(WORKFLOW_OFFLOAD_RESUME_SUCCEEDED, {
+        ...baseEvent,
+        latencyMs: deps.now() - startMs,
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      const errorCode = msg === "SCHEMA_MISMATCH" ? "SCHEMA_MISMATCH" : "RESUME_FAILED";
+      const errorCode =
+        msg === "SCHEMA_MISMATCH" ? "SCHEMA_MISMATCH" :
+        msg.startsWith("RESUME_TIMEOUT_") ? "RESUME_TIMEOUT" :
+        "RESUME_FAILED";
+
+      // Best-effort tmux rollback: kill the newly-created window if it exists.
+      if (windowCreated) {
+        try {
+          await deps.tmux.killWindow(sess.tmuxSession, sess.tmuxWindow);
+        } catch (rollbackErr) {
+          deps.emit(WORKFLOW_OFFLOAD_RESUME_ROLLBACK_FAILED, {
+            ...baseEvent,
+            error: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+          });
+        }
+      }
 
       // Best-effort error persistence — never mask the original failure.
       try {
@@ -345,10 +461,33 @@ export function createOffloadManager(deps: OffloadManagerDeps): OffloadManager {
   }
 
   return {
-    registerSession(input) {
-      sessions.set(input.name, {
-        ...input,
-        state: "alive",
+    async registerSession(input): Promise<void> {
+      const lastPrompt = input.lastPrompt ?? "";
+      sessions.set(input.name, { ...input, lastPrompt, state: "alive" });
+
+      // Headless sessions: register in-memory only — skip disk write.
+      if (input.headless) return;
+
+      // Seed snapshot to disk. Use the op queue under a register-specific key
+      // so killOnePane (keyed by `name`) does not collide here, but per-stageDir
+      // mutex inside persistResume still serializes the actual disk writes.
+      await getOrStartOp(`register:${input.name}`, async () => {
+        await persistResume(input.stageDir, {
+          agentSessionId: input.agentSessionId,
+          tmuxSessionName: input.tmuxSession,
+          tmuxWindowName: input.tmuxWindow,
+          spawnEnv: filterSpawnEnv(input.spawnEnv),
+          spawnCwd: input.spawnCwd,
+          chatFlags: input.chatFlags,
+          lastPrompt,
+          lastSeenAt: deps.now(),
+          offloadedAt: null,
+        });
+        deps.emit(WORKFLOW_OFFLOAD_REGISTER_PERSISTED, {
+          runId: input.runId,
+          name: input.name,
+          agent: input.agent,
+        });
       });
     },
 

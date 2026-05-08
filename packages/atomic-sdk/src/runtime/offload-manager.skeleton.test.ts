@@ -21,7 +21,6 @@ function makeDeps(): OffloadManagerDeps {
     tmux: {
       killWindow: mock(async () => {}),
       createWindow: mock(async () => {}),
-      sendKeys: mock(async () => {}),
       selectWindow: mock(async () => {}),
     },
     providers: {
@@ -30,6 +29,8 @@ function makeDeps(): OffloadManagerDeps {
       copilot: { buildResumeArgs: mock(() => []) },
     },
     hookSettingsPath: mock(() => "/tmp/hook-settings.json"),
+    shellQuote: mock((argv: readonly string[]) => argv.join(" ")),
+    waitForReady: mock(async () => {}),
     now: mock(() => Date.now()),
     emit: mock(() => {}),
   };
@@ -46,7 +47,10 @@ function makeSessionInput(name = "review") {
     tmuxWindow: name,
     spawnEnv: { CLAUDECODE: "1" },
     spawnCwd: "/home/user/project",
-    headless: false,
+    chatFlags: [],
+    // Use headless:true for state-machine tests so they skip disk I/O and
+    // remain self-contained without needing a real stageDir on disk.
+    headless: true,
   };
 }
 

@@ -947,6 +947,118 @@ describe("PanelStore", () => {
       expect(store.viewMode).toBe("attached");
       expect(store.activeAgentId).toBe("");
     });
+
+    test('setViewMode("resuming", "stage-a") sets viewMode and activeAgentId', () => {
+      store.setViewMode("resuming", "stage-a");
+      expect(store.viewMode).toBe("resuming");
+      expect(store.activeAgentId).toBe("stage-a");
+    });
+
+    test('setViewMode("resuming") without agentId clears activeAgentId', () => {
+      store.setViewMode("attached", "old-agent");
+      store.setViewMode("resuming");
+      expect(store.viewMode).toBe("resuming");
+      expect(store.activeAgentId).toBe("");
+    });
+
+    test('setViewMode("resuming", "stage-a") bumps version', () => {
+      const before = store.version;
+      store.setViewMode("resuming", "stage-a");
+      expect(store.version).toBe(before + 1);
+    });
+  });
+
+  // ── showToast ──────────────────────────────────────────────────────────────
+
+  describe("showToast", () => {
+    test("appends toast to toasts array", () => {
+      store.showToast("hello world");
+      expect(store.toasts).toHaveLength(1);
+      expect(store.toasts[0]!.message).toBe("hello world");
+    });
+
+    test("assigns monotonically increasing id", () => {
+      store.showToast("first");
+      store.showToast("second");
+      expect(store.toasts[0]!.id).toBeLessThan(store.toasts[1]!.id);
+    });
+
+    test("sets createdAt to a positive epoch timestamp", () => {
+      store.showToast("ts test");
+      expect(store.toasts[0]!.createdAt).toBeGreaterThan(0);
+    });
+
+    test("bumps version by exactly 1", () => {
+      const before = store.version;
+      store.showToast("bump");
+      expect(store.version).toBe(before + 1);
+    });
+
+    test("notifies subscribed listener", () => {
+      const listener = mock(() => {});
+      store.subscribe(listener);
+      store.showToast("notify");
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    test("multiple showToast calls accumulate", () => {
+      store.showToast("a");
+      store.showToast("b");
+      store.showToast("c");
+      expect(store.toasts).toHaveLength(3);
+    });
+  });
+
+  // ── dismissToast ───────────────────────────────────────────────────────────
+
+  describe("dismissToast", () => {
+    test("removes toast by id", () => {
+      store.showToast("to remove");
+      const id = store.toasts[0]!.id;
+      store.dismissToast(id);
+      expect(store.toasts).toHaveLength(0);
+    });
+
+    test("removes only the targeted toast", () => {
+      store.showToast("keep");
+      store.showToast("remove");
+      const removeId = store.toasts[1]!.id;
+      store.dismissToast(removeId);
+      expect(store.toasts).toHaveLength(1);
+      expect(store.toasts[0]!.message).toBe("keep");
+    });
+
+    test("bumps version when toast removed", () => {
+      store.showToast("bump");
+      const id = store.toasts[0]!.id;
+      const before = store.version;
+      store.dismissToast(id);
+      expect(store.version).toBe(before + 1);
+    });
+
+    test("notifies listener when toast removed", () => {
+      store.showToast("notify");
+      const id = store.toasts[0]!.id;
+      const listener = mock(() => {});
+      store.subscribe(listener);
+      store.dismissToast(id);
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    test("is no-op for unknown id (no emit)", () => {
+      store.showToast("existing");
+      const before = store.version;
+      store.dismissToast(99999);
+      expect(store.version).toBe(before);
+      expect(store.toasts).toHaveLength(1);
+    });
+
+    test("does not notify listener for unknown id", () => {
+      const listener = mock(() => {});
+      store.subscribe(listener);
+      store.dismissToast(99999);
+      expect(listener).toHaveBeenCalledTimes(0);
+    });
   });
 
 });

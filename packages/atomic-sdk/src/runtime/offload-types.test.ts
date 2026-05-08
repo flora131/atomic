@@ -10,6 +10,7 @@ const validResume: OffloadResumeMetadata = {
   tmuxWindowName: "review",
   spawnEnv: { CLAUDECODE: "1" },
   spawnCwd: "/home/user/projects/foo",
+  chatFlags: [],
   lastPrompt: "Look at the diff and propose fixes",
   lastSeenAt: 1_717_804_900_000,
   offloadedAt: null,

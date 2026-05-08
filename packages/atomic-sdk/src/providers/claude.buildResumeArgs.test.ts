@@ -7,11 +7,15 @@ import { test, expect, describe } from "bun:test";
 import { statSync, readFileSync } from "node:fs";
 import { buildClaudeResumeArgs, ensureWorkflowHookSettings } from "./claude.ts";
 
+type ClaudeMeta = Parameters<typeof buildClaudeResumeArgs>[0];
+function meta(agentSessionId: string, chatFlags: string[] = []): ClaudeMeta {
+  return { agentSessionId, chatFlags };
+}
+
 describe("buildClaudeResumeArgs — pure argv builder", () => {
   test("returns argv with injected hook path", () => {
-    const meta = { agentSessionId: "uuid-fixture" };
     const hookSettingsPath = "/dev/null/fake-settings.json";
-    const args = buildClaudeResumeArgs(meta, hookSettingsPath);
+    const args = buildClaudeResumeArgs(meta("uuid-fixture"), hookSettingsPath);
 
     const resumeIdx = args.indexOf("--resume");
     expect(resumeIdx).toBeGreaterThan(-1);
@@ -26,15 +30,14 @@ describe("buildClaudeResumeArgs — pure argv builder", () => {
   });
 
   test("is referentially transparent — same inputs, same outputs, no I/O", () => {
-    const meta = { agentSessionId: "uuid-fixture" };
     const hookSettingsPath = "/dev/null/fake-settings.json";
 
     // Non-existent path must not throw (proves no I/O)
     let args1: string[];
     let args2: string[];
     expect(() => {
-      args1 = buildClaudeResumeArgs(meta, hookSettingsPath);
-      args2 = buildClaudeResumeArgs(meta, hookSettingsPath);
+      args1 = buildClaudeResumeArgs(meta("uuid-fixture"), hookSettingsPath);
+      args2 = buildClaudeResumeArgs(meta("uuid-fixture"), hookSettingsPath);
     }).not.toThrow();
 
     expect(args1!).toEqual(args2!);
@@ -43,23 +46,14 @@ describe("buildClaudeResumeArgs — pure argv builder", () => {
   // RFC §5.4 — empty agentSessionId guards
   test('throws "empty agentSessionId on resume" when agentSessionId is empty string', () => {
     expect(() =>
-      buildClaudeResumeArgs({ agentSessionId: "" }, "/dev/null/fake-settings.json"),
+      buildClaudeResumeArgs(meta(""), "/dev/null/fake-settings.json"),
     ).toThrow("empty agentSessionId on resume");
   });
 
   test('throws "empty agentSessionId on resume" when agentSessionId is null', () => {
     expect(() =>
       buildClaudeResumeArgs(
-        { agentSessionId: null as unknown as string },
-        "/dev/null/fake-settings.json",
-      ),
-    ).toThrow("empty agentSessionId on resume");
-  });
-
-  test('throws "empty agentSessionId on resume" when agentSessionId field is omitted', () => {
-    expect(() =>
-      buildClaudeResumeArgs(
-        {} as Pick<{ agentSessionId: string }, "agentSessionId">,
+        { agentSessionId: null as unknown as string, chatFlags: [] },
         "/dev/null/fake-settings.json",
       ),
     ).toThrow("empty agentSessionId on resume");
@@ -67,9 +61,42 @@ describe("buildClaudeResumeArgs — pure argv builder", () => {
 
   // RFC §5.4 §3 — no sentinel Enter token in valid resume args
   test("valid agentSessionId: returned args do not contain the string Enter", () => {
-    const meta = { agentSessionId: "uuid-fixture" };
-    const args = buildClaudeResumeArgs(meta, "/dev/null/fake-settings.json");
+    const args = buildClaudeResumeArgs(meta("uuid-fixture"), "/dev/null/fake-settings.json");
     expect(args).not.toContain("Enter");
+  });
+
+  // RFC §5.4 — chatFlags threading
+
+  test("chatFlags: [] (empty array) produces no extra flags between resume id and --settings", () => {
+    const args = buildClaudeResumeArgs(meta("abc-123", []), "/hooks.json");
+    expect(args).toEqual(["--resume", "abc-123", "--settings", "/hooks.json"]);
+  });
+
+  test("chatFlags: ['--model', 'opus'] → flags appear between resume id and --settings", () => {
+    const args = buildClaudeResumeArgs(meta("abc-123", ["--model", "opus"]), "/hooks.json");
+    expect(args).toEqual([
+      "--resume",
+      "abc-123",
+      "--model",
+      "opus",
+      "--settings",
+      "/hooks.json",
+    ]);
+  });
+
+  test("chatFlags: ['--add-dir', '/some/path'] → preserved verbatim", () => {
+    const args = buildClaudeResumeArgs(
+      meta("abc-123", ["--add-dir", "/some/path"]),
+      "/hooks.json",
+    );
+    expect(args).toEqual([
+      "--resume",
+      "abc-123",
+      "--add-dir",
+      "/some/path",
+      "--settings",
+      "/hooks.json",
+    ]);
   });
 });
 

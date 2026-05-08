@@ -23,6 +23,10 @@ export type { AgentType as AgentKind };
  *   `Date.now()` the moment the process is killed.
  * - All other fields are populated once at session registration time and then
  *   left untouched until the `error` field is written on resume failure.
+ *
+ * RFC §5.1: `chatFlags` carries the effective merged chat flags used at
+ * original spawn time; they are threaded into the resume command so the
+ * re-spawned process runs under the same flag set (e.g. `--model`, `--tools`).
  */
 export interface OffloadResumeMetadata {
   /** Always 1 — used by readers to gate on forward compatibility. */
@@ -37,6 +41,8 @@ export interface OffloadResumeMetadata {
   spawnEnv: Record<string, string>;
   /** Working directory used when the agent was originally spawned. */
   spawnCwd: string;
+  /** Effective merged chatFlags used at original spawn time. Threaded into the resume command. */
+  chatFlags: string[];
   /** The last user-visible prompt sent to the agent before offload. */
   lastPrompt: string;
   /**

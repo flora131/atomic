@@ -5,8 +5,11 @@
 import { test, expect, describe } from "bun:test";
 import { buildOpencodeResumeArgs } from "./opencode.ts";
 
-const FIXTURE_META = {
+type OpencodeMeta = Parameters<typeof buildOpencodeResumeArgs>[0];
+
+const FIXTURE_META: OpencodeMeta = {
   agentSessionId: "oc-session-7f3a2c1d-abcd-1234-5678-000000000001",
+  chatFlags: [],
 };
 
 describe("buildOpencodeResumeArgs()", () => {
@@ -15,7 +18,7 @@ describe("buildOpencodeResumeArgs()", () => {
     expect(args).toEqual(["--session", FIXTURE_META.agentSessionId]);
   });
 
-  test("array length is 2", () => {
+  test("array length is 2 when chatFlags empty", () => {
     const args = buildOpencodeResumeArgs(FIXTURE_META);
     expect(args).toHaveLength(2);
   });
@@ -31,7 +34,7 @@ describe("buildOpencodeResumeArgs()", () => {
   });
 
   test("different agentSessionId produces correct args", () => {
-    const args = buildOpencodeResumeArgs({ agentSessionId: "other-session" });
+    const args = buildOpencodeResumeArgs({ agentSessionId: "other-session", chatFlags: [] });
     expect(args).toEqual(["--session", "other-session"]);
   });
 });

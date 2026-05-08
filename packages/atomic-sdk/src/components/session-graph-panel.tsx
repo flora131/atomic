@@ -24,7 +24,9 @@ import {
   useGraphTheme,
   useStoreVersion,
   TmuxSessionContext,
+  useOffloadManager,
 } from "./orchestrator-panel-contexts.ts";
+import { errorMessage } from "../errors.ts";
 import { computeLayout, NODE_W, NODE_H, type LayoutNode } from "./layout.ts";
 import { buildConnector, buildMergeConnector } from "./connectors.ts";
 import type { ConnectorResult } from "./connectors.ts";
@@ -32,6 +34,7 @@ import { NodeCard } from "./node-card.tsx";
 import { Edge } from "./edge.tsx";
 import { Header } from "./header.tsx";
 import { CompactSwitcher } from "./compact-switcher.tsx";
+import type { ViewMode } from "./orchestrator-panel-types.ts";
 
 /** Interval (ms) between pulse animation frames — ~60fps feel. */
 const PULSE_INTERVAL_MS = 60;
@@ -40,10 +43,38 @@ const PULSE_FRAME_COUNT = 32;
 /** Timeout (ms) for "gg" double-tap to jump to root node. */
 const GG_DOUBLE_TAP_MS = 300;
 
+// ─── RFC §5.5 pure decision helper ───────────────────────────────────────────
+
+/**
+ * Decide what action to take when the user attempts to attach to a session.
+ * Pure function — no side effects, fully testable in isolation.
+ *
+ * Returns:
+ *   { kind: "skip" }              — node not found or session pending
+ *   { kind: "graphView" }         — id === "orchestrator"
+ *   { kind: "resume" }            — session is offloaded or resuming
+ *   { kind: "switchClient" }      — session is alive; issue switch-client
+ */
+export type AttachDecision =
+  | { kind: "skip" }
+  | { kind: "graphView" }
+  | { kind: "resume" }
+  | { kind: "switchClient" };
+
+export function decideAttachAction(
+  id: string,
+  offloadStatus: "alive" | "offloaded" | "resuming",
+): AttachDecision {
+  if (id === "orchestrator") return { kind: "graphView" };
+  if (offloadStatus === "offloaded" || offloadStatus === "resuming") return { kind: "resume" };
+  return { kind: "switchClient" };
+}
+
 export function SessionGraphPanel() {
   const store = useStore();
   const theme = useGraphTheme();
   const tmuxSession = useContext(TmuxSessionContext);
+  const offloadManager = useOffloadManager();
   useRenderer();
   const { width: termW, height: termH } = useTerminalDimensions();
 
@@ -103,7 +134,7 @@ export function SessionGraphPanel() {
   }, [hasRunning]);
 
   const doAttach = useCallback(
-    (id: string) => {
+    async (id: string) => {
       const n = layout.map[id];
       if (!n) return;
       // Only attach to started sessions (not pending)
@@ -117,10 +148,28 @@ export function SessionGraphPanel() {
       }
 
       setFocusedId(id);
+
+      // RFC §5.5 — gate switch-client on resume completion when offloaded.
+      const status = offloadManager.getStatus(id);
+      if (status === "offloaded" || status === "resuming") {
+        store.setViewMode("resuming", id);
+        try {
+          await offloadManager.requestResume(id);
+          store.setViewMode("attached", id);
+          // Resume succeeded — OffloadManager already issued selectWindow.
+        } catch (err) {
+          // OffloadManager already setSessionStatus(name, "offloaded") + emitted event.
+          store.showToast(`Failed to resume ${id}: ${errorMessage(err)}`);
+          // Stay on graph; do NOT issue switch-client against a dead window.
+          store.setViewMode("graph");
+        }
+        return;
+      }
+
       store.setViewMode("attached", id);
-      tmuxRun(["switch-client", "-t", `${tmuxSession}:${n.name}`]);
+      tmuxRun(["switch-client", "-t", `${tmuxSession}:${n.name}`]); // offload-exempt: status === "alive"
     },
-    [layout.map, tmuxSession],
+    [layout.map, tmuxSession, offloadManager],
   );
 
   const returnToGraph = useCallback(() => {
@@ -202,7 +251,7 @@ export function SessionGraphPanel() {
       if (key.name === "return") {
         const agent = store.sessions[switcherSel];
         closeSwitcher();
-        if (agent) doAttach(agent.name);
+        if (agent) void doAttach(agent.name);
         return;
       }
       return; // Swallow all other keys while switcher is open
@@ -246,7 +295,7 @@ export function SessionGraphPanel() {
     }
     // Enter: attach to focused node's tmux window
     if (key.name === "return") {
-      doAttach(focusedIdRef.current);
+      void doAttach(focusedIdRef.current);
       return;
     }
 
@@ -357,14 +406,28 @@ export function SessionGraphPanel() {
         if (store.viewMode !== "graph") {
           store.setViewMode("graph");
         }
-      } else if (store.viewMode !== "attached" || store.activeAgentId !== windowName) {
-        store.setViewMode("attached", windowName);
+      } else {
+        // Map offload status → panel viewMode. "offloaded" and "resuming" both
+        // render as "resuming"; only "alive" flips to "attached" (RFC §5.5 R3).
+        const targetStatus = offloadManager.getStatus(windowName);
+        const desiredMode: ViewMode = targetStatus === "alive" ? "attached" : "resuming";
+        if (store.viewMode !== desiredMode || store.activeAgentId !== windowName) {
+          store.setViewMode(desiredMode, windowName);
+        }
+        // Kick off resume only when actually offloaded; "resuming" means a
+        // prior tick already started one (requestResume coalesces but skip
+        // the redundant call), and "alive" needs no action.
+        if (targetStatus === "offloaded") {
+          void offloadManager.requestResume(windowName).catch(() => {
+            // OffloadManager already emitted RESUME_FAILED + reset status to "offloaded".
+          });
+        }
       }
     };
 
     const id = setInterval(check, 500);
     return () => clearInterval(id);
-  }, [tmuxSession, hasStartedAgent]);
+  }, [tmuxSession, hasStartedAgent, offloadManager]);
 
   return (
     <box width="100%" height="100%" flexDirection="column" backgroundColor={theme.background}>
@@ -435,6 +498,17 @@ export function SessionGraphPanel() {
 
       {/* Compact agent switcher overlay */}
       {switcherOpen ? <CompactSwitcher selectedIndex={switcherSel} /> : null}
+
+      {/* Toast notifications — RFC §5.5 */}
+      {store.toasts.length > 0 && (
+        <box position="absolute" bottom={1} right={1} flexDirection="column">
+          {store.toasts.slice(-3).map((t) => (
+            <box key={t.id} backgroundColor={theme.error} padding={1}>
+              <text><span fg="#ffffff">{t.message}</span></text>
+            </box>
+          ))}
+        </box>
+      )}
     </box>
   );
 }

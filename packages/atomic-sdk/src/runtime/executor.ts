@@ -21,7 +21,7 @@
 
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { writeFile } from "node:fs/promises";
+import { writeFile, access as fsAccess, stat as fsStat } from "node:fs/promises";
 import { statSync, accessSync, constants as fsConstants } from "node:fs";
 import type {
   WorkflowDefinition,
@@ -69,12 +69,14 @@ import {
 import { withHeadlessOpencodeEnv, buildOpencodeResumeArgs } from "../providers/opencode.ts";
 import { resolveCopilotCliPath, buildCopilotResumeArgs } from "../providers/copilot.ts";
 import { createOffloadManager, type OffloadManager } from "./offload-manager.ts";
+import { shellQuote } from "./shell-quote.ts";
 import { OrchestratorPanel } from "./panel.tsx";
 import { GraphFrontierTracker } from "./graph-inference.ts";
 import { buildSnapshot, writeSnapshot } from "./status-writer.ts";
 import { errorMessage } from "../errors.ts";
 import { createPainter } from "../theme/colors.ts";
 import { atomicTempEnv } from "../lib/atomic-temp.ts";
+import { getProductionTelemetrySink } from "../lib/telemetry/index.ts";
 
 /** Maximum time (ms) for the SDK probe to succeed after port is discovered. */
 export const SERVER_PROBE_TIMEOUT_MS = 60_000;
@@ -142,11 +144,11 @@ let _telemetrySink: TelemetrySink = _defaultTelemetry;
 let _warnSink: (msg: string) => void = _defaultWarn;
 
 /**
- * Test-only seam: swap telemetry + warn sinks. Call with `{}` from afterEach
- * to restore defaults.
- * @internal
+ * Production seam for injecting telemetry + warn sinks (RFC §5.11).
+ * Also used in tests to swap sinks without touching real infrastructure.
+ * Call with `{}` to restore defaults.
  */
-export function _setLoggedKillWindowSinksForTest(
+export function setExecutorTelemetrySinks(
   sinks: Partial<{ telemetry: TelemetrySink; warn: (msg: string) => void }>,
 ): void {
   _telemetrySink = sinks.telemetry ?? _defaultTelemetry;
@@ -179,6 +181,112 @@ async function loggedKillWindow(
 
 /** Exported for unit testing only. Not part of the public API. */
 export const _loggedKillWindowForTest = loggedKillWindow;
+
+// ---------------------------------------------------------------------------
+// Agent readiness wait — wired into OffloadManager via deps.waitForReady.
+// ---------------------------------------------------------------------------
+
+/** Polling interval for the Claude SessionStart marker file (ms). */
+const CLAUDE_READY_POLL_MS = 200;
+/** Total time to wait for the agent to signal readiness post-resume (ms). */
+const AGENT_READY_TIMEOUT_MS = 10_000;
+
+/**
+ * Claude readiness probe — poll the SessionStart hook marker file.
+ * Rejects markers whose mtime < startMs (stale from a prior session).
+ * Throws `RESUME_TIMEOUT_CLAUDE` after {@link AGENT_READY_TIMEOUT_MS}.
+ *
+ * @param agentSessionId - The agent session ID used as the marker filename.
+ * @param startMs - Resume-attempt start time (default: Date.now()). Markers
+ *   written before this time are treated as stale and skipped (RFC §5.5).
+ * @param markerBaseDir - Base directory for marker files. Defaults to
+ *   `~/.atomic/claude-ready`. Injectable for unit testing only.
+ */
+async function waitForClaudeReady(
+  agentSessionId: string,
+  startMs: number = Date.now(),
+  markerBaseDir: string = join(homedir(), ".atomic", "claude-ready"),
+): Promise<void> {
+  const marker = join(markerBaseDir, agentSessionId);
+  const deadline = Date.now() + AGENT_READY_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    try {
+      const st = await fsStat(marker);
+      if (st.mtimeMs >= startMs) return;
+      // Stale marker (pre-resume). Continue polling.
+    } catch {
+      // Marker not yet written — continue polling.
+    }
+    await Bun.sleep(CLAUDE_READY_POLL_MS);
+  }
+  throw new Error("RESUME_TIMEOUT_CLAUDE");
+}
+
+/** Exported for unit testing only. Not part of the public API. */
+export const _waitForClaudeReadyForTest = waitForClaudeReady;
+
+/**
+ * OpenCode readiness probe — wait for HTTP server, then poll `session.get`
+ * until the resumed session ID is registered.
+ * Throws `RESUME_TIMEOUT_OPENCODE` after {@link AGENT_READY_TIMEOUT_MS}.
+ */
+async function waitForOpencodeReady(agentSessionId: string, paneId: string): Promise<void> {
+  const serverUrl = await waitForServer("opencode", paneId);
+  const { createOpencodeClient } = await import("@opencode-ai/sdk/v2");
+  const client = createOpencodeClient({ baseUrl: serverUrl });
+  const deadline = Date.now() + AGENT_READY_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    try {
+      const result = await client.session.get({ sessionID: agentSessionId });
+      if (result.data) return;
+    } catch {
+      // Network error — keep polling.
+    }
+    await Bun.sleep(CLAUDE_READY_POLL_MS);
+  }
+  throw new Error("RESUME_TIMEOUT_OPENCODE");
+}
+
+/**
+ * Copilot readiness probe — wait for HTTP server, then confirm the resumed
+ * session is registered via `getSessionMetadata`. Single-shot (not a poll)
+ * since `waitForServer` already verified the SDK can connect.
+ * Throws `RESUME_TIMEOUT_COPILOT` if the session is not registered.
+ */
+async function waitForCopilotReady(agentSessionId: string, paneId: string): Promise<void> {
+  const serverUrl = await waitForServer("copilot", paneId);
+  const { CopilotClient } = await import("@github/copilot-sdk");
+  const probe = new CopilotClient({ cliUrl: serverUrl });
+  await probe.start();
+  try {
+    const metadata = await probe.getSessionMetadata(agentSessionId);
+    if (!metadata) throw new Error("RESUME_TIMEOUT_COPILOT");
+  } finally {
+    await probe.stop();
+  }
+}
+
+/**
+ * Default `waitForReady` impl wired into OffloadManager. Dispatches to a
+ * per-agent probe; each probe owns its own timeout and throws
+ * `RESUME_TIMEOUT_<AGENT>` on failure (RFC §9 Q11).
+ */
+export async function defaultWaitForAgentReady(
+  agent: AgentType,
+  agentSessionId: string,
+  paneId: string,
+): Promise<void> {
+  switch (agent) {
+    case "claude":
+      return waitForClaudeReady(agentSessionId);
+    case "opencode":
+      return waitForOpencodeReady(agentSessionId, paneId);
+    case "copilot":
+      return waitForCopilotReady(agentSessionId, paneId);
+    default:
+      return assertNever(agent);
+  }
+}
 
 /** Runtime guard for deserialized SavedMessage objects. */
 function isValidSavedMessage(msg: unknown): msg is SavedMessage {
@@ -356,7 +464,7 @@ export function buildPaneCommand(
   agent: AgentType,
   overrides: ProviderOverrides = {},
   extraChatFlags: string[] = [],
-): { command: string; envVars: Record<string, string> } {
+): { command: string; envVars: Record<string, string>; chatFlags: string[] } {
   const {
     cmd,
     chatFlags: defaultFlags,
@@ -368,6 +476,10 @@ export function buildPaneCommand(
     ? { ...defaultEnvVars, ...overrides.envVars }
     : defaultEnvVars;
   const mergedEnvVars = { ...envVars, ...claudeTempEnv, ...overrides.envVars };
+  // Effective spawn-time chatFlags: defaults/overrides plus extras (e.g. Copilot
+  // SCM-disable). Persisted into metadata.json#resume.chatFlags so resume re-spawns
+  // with byte-identical argv.
+  const mergedChatFlags = [...chatFlags, ...extraChatFlags];
 
   const resolvedCmd = quotePathIfNeeded(resolveCliBinary(cmd));
 
@@ -384,16 +496,17 @@ export function buildPaneCommand(
           "--ui-server",
           "--port",
           "0",
-          ...chatFlags,
-          ...extraChatFlags,
+          ...mergedChatFlags,
         ].join(" "),
         envVars: mergedEnvVars,
+        chatFlags: mergedChatFlags,
       };
     }
     case "opencode":
       return {
-        command: [resolvedCmd, "--port", "0", ...chatFlags].join(" "),
+        command: [resolvedCmd, "--port", "0", ...mergedChatFlags].join(" "),
         envVars: mergedEnvVars,
+        chatFlags: mergedChatFlags,
       };
     case "claude": {
       // Claude is started via createClaudeSession() in the workflow's run().
@@ -408,6 +521,7 @@ export function buildPaneCommand(
       return {
         command: quotePathIfNeeded(resolvedShell),
         envVars: mergedEnvVars,
+        chatFlags: mergedChatFlags,
       };
     }
     default:
@@ -1678,6 +1792,57 @@ async function cleanupProvider<A extends AgentType>(
   }
 }
 
+// ── §5.2.4 offload-wiring helper ─────────────────────────────────────────────
+
+/**
+ * Persist `metadata.json` to `sessionDir` then register the session with
+ * the `OffloadManager`.
+ *
+ * Invariants (RFC §5.2.4):
+ *  1. `Bun.write` resolves fully before `registerSession` is invoked.
+ *  2. `registerSession` is awaited (not fire-and-forget).
+ *  3. A rejected `registerSession` is swallowed with a `console.warn`; the
+ *     caller continues normally (the pane still runs, resume is just unavailable).
+ *
+ * Exported for contract-testing only — production callers use
+ * `createSessionRunner` which calls this function internally.
+ */
+export async function persistAndRegisterStage(
+  sessionDir: string,
+  metadata: {
+    name: string;
+    description: string;
+    agent: AgentType;
+    paneId: string;
+    serverUrl: string;
+    port: number;
+    startedAt: string;
+  },
+  offloadManager: OffloadManager,
+  registerInput: {
+    name: string;
+    runId: string;
+    stageDir: string;
+    agent: AgentType;
+    agentSessionId: string;
+    tmuxSession: string;
+    tmuxWindow: string;
+    spawnEnv: Record<string, string>;
+    spawnCwd: string;
+    chatFlags: string[];
+    headless: boolean;
+  },
+): Promise<void> {
+  await Bun.write(join(sessionDir, "metadata.json"), JSON.stringify(metadata, null, 2));
+  try {
+    await offloadManager.registerSession(registerInput);
+  } catch (err) {
+    console.warn(
+      `[offload] registerSession failed for stage ${registerInput.name}: ${errorMessage(err)}`,
+    );
+  }
+}
+
 /**
  * Create a `ctx.stage()` function bound to a parent name for graph edges.
  *
@@ -1751,7 +1916,7 @@ function createSessionRunner(
 
     try {
       // ── 6. Build pane command (OS allocates port via --port 0) ──
-      const { command: paneCmd, envVars: paneEnvVars } = buildPaneCommand(
+      const { command: paneCmd, envVars: paneEnvVars, chatFlags: stageChatFlags } = buildPaneCommand(
         shared.agent,
         shared.providerOverrides,
         shared.extraChatFlags,
@@ -1957,23 +2122,6 @@ function createSessionRunner(
         }
       }
 
-      // ── 12c. Register with OffloadManager (RFC §5.2.2) ──
-      // Called after provider session is initialised — agentSessionId is known.
-      // For headless Claude the session_id starts empty and is filled on first
-      // query(); registerSession captures the best-available value at spawn time.
-      shared.offloadManager.registerSession({
-        name,
-        runId: shared.workflowRunId,
-        stageDir: sessionDir,
-        agent: shared.agent,
-        agentSessionId: resolveProviderSessionId(shared.agent, providerSession),
-        tmuxSession: shared.tmuxSessionName,
-        tmuxWindow: name,
-        spawnEnv: paneEnvVars,
-        spawnCwd: shared.projectRoot,
-        headless: isHeadless,
-      });
-
       // ── 13. Construct SessionContext ──
       // Free-form workflows read their prompt via `s.inputs.prompt`;
       // structured workflows read their declared fields the same way.
@@ -2009,22 +2157,35 @@ function createSessionRunner(
         stage: createSessionRunner(shared, name) as SessionContext["stage"],
       };
 
-      // ── Write session metadata ──
-      await Bun.write(
-        join(sessionDir, "metadata.json"),
-        JSON.stringify(
-          {
-            name,
-            description: options.description ?? "",
-            agent: shared.agent,
-            paneId,
-            serverUrl,
-            port: serverUrl ? Number(serverUrl.split(":").pop()) : 0,
-            startedAt: new Date().toISOString(),
-          },
-          null,
-          2,
-        ),
+      // ── Write session metadata + register with OffloadManager (RFC §5.2.4) ──
+      // persistAndRegisterStage guarantees Bun.write completes before
+      // registerSession is called, registerSession is awaited, and a rejection
+      // is swallowed with console.warn so the stage continues regardless.
+      await persistAndRegisterStage(
+        sessionDir,
+        {
+          name,
+          description: options.description ?? "",
+          agent: shared.agent,
+          paneId,
+          serverUrl,
+          port: serverUrl ? Number(serverUrl.split(":").pop()) : 0,
+          startedAt: new Date().toISOString(),
+        },
+        shared.offloadManager,
+        {
+          name,
+          runId: shared.workflowRunId,
+          stageDir: sessionDir,
+          agent: shared.agent,
+          agentSessionId: resolveProviderSessionId(shared.agent, providerSession),
+          tmuxSession: shared.tmuxSessionName,
+          tmuxWindow: name,
+          spawnEnv: paneEnvVars,
+          spawnCwd: shared.projectRoot,
+          chatFlags: stageChatFlags,
+          headless: isHeadless,
+        },
       );
 
       // ── 14. Run user callback ──
@@ -2122,6 +2283,15 @@ export async function runOrchestrator(
 ): Promise<void> {
   const { workflowRunId, tmuxSessionName, agent, cwd } =
     validateOrchestratorEnv();
+
+  // RFC §5.11 — register the real telemetry sink so all WORKFLOW_OFFLOAD_*
+  // events reach disk at ~/.atomic/sessions/<runId>/telemetry.jsonl. Tests
+  // override via setExecutorTelemetrySinks before runOrchestrator is invoked.
+  // `warn` keeps its default (console.warn) — no override needed here.
+  setExecutorTelemetrySinks({
+    telemetry: getProductionTelemetrySink(workflowRunId),
+  });
+
   // A bare prompt string is still useful for the panel header and the
   // session-dir metadata.json — both just want something displayable.
   // Free-form workflows store their single positional prompt under the
@@ -2198,16 +2368,9 @@ export async function runOrchestrator(
   const offloadManager = createOffloadManager({
     panelStore: panel.getPanelStore(),
     tmux: {
-      killWindow: (session, window) => tmux.killWindow(session, window),
-      createWindow: async (session, name, cwd) => {
-        const shell = process.env.SHELL ?? "sh";
-        tmux.createWindow(session, name, shell, cwd);
-      },
-      sendKeys: async (session, window, keys) => {
-        const target = `${session}:${window}`;
-        for (const key of keys) {
-          tmux.sendLiteralText(target, key);
-        }
+      killWindow: tmux.killWindow,
+      createWindow: async (session, window, command, cwd, envVars) => {
+        tmux.createWindow(session, window, command, cwd, envVars);
       },
       selectWindow: async (session, window) => {
         tmux.selectWindow(`${session}:${window}`);
@@ -2218,10 +2381,16 @@ export async function runOrchestrator(
       opencode: { buildResumeArgs: buildOpencodeResumeArgs },
       copilot: { buildResumeArgs: buildCopilotResumeArgs },
     },
-    hookSettingsPath: () => ensureWorkflowHookSettings(),
-    now: () => Date.now(),
+    hookSettingsPath: ensureWorkflowHookSettings,
+    shellQuote,
+    waitForReady: defaultWaitForAgentReady,
+    now: Date.now,
     emit: (event, payload) => _telemetrySink.emit(event, payload),
   });
+
+  // RFC §5.6 — wire the offload manager into the panel so the React tree's
+  // OffloadManagerContext.Provider is non-null before any stage renders.
+  panel.attachOffloadManager(offloadManager);
 
   // Shared state for all session runners
   const shared: SharedRunnerState = {

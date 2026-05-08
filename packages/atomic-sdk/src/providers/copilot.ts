@@ -172,17 +172,21 @@ export function mergeCopilotSystemMessage(
 /**
  * Build the `copilot` CLI argv fragment needed to resume an offloaded session.
  *
- * Produces: ["--resume=<sessionId>"]
+ * `meta.chatFlags` is the effective merged spawn-time flag set captured by
+ * `OffloadManager.registerSession` (RFC §5.4). It is required by the schema —
+ * there is no legacy fallback.
+ *
+ * Produces: ["--resume=<sessionId>", ...meta.chatFlags]
  *
  * Note: Copilot CLI requires `=` syntax (not space-separated) per spec §5.4.
  */
 export function buildCopilotResumeArgs(
-  meta: Pick<OffloadResumeMetadata, "agentSessionId">,
+  meta: Pick<OffloadResumeMetadata, "agentSessionId" | "chatFlags">,
 ): string[] {
   if (meta.agentSessionId === "" || meta.agentSessionId == null) {
     throw new Error("empty agentSessionId on resume");
   }
-  return [`--resume=${meta.agentSessionId}`];
+  return [`--resume=${meta.agentSessionId}`, ...meta.chatFlags];
 }
 
 /**

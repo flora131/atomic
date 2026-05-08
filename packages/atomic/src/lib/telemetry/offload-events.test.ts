@@ -6,6 +6,9 @@ import {
   WORKFLOW_OFFLOAD_RESUME_SUCCEEDED,
   WORKFLOW_OFFLOAD_RESUME_FAILED,
   WORKFLOW_OFFLOAD_RESUME_LATENCY_MS,
+  WORKFLOW_OFFLOAD_RESUME_ROLLBACK_FAILED,
+  WORKFLOW_OFFLOAD_REGISTER_PERSISTED,
+  WORKFLOW_OFFLOAD_CLAUDE_MARKER_CLEANUP,
 } from "./offload-events.ts";
 
 test("WORKFLOW_OFFLOAD_SCHEDULED equals spec string", () => {
@@ -30,4 +33,22 @@ test("WORKFLOW_OFFLOAD_RESUME_FAILED equals spec string", () => {
 
 test("WORKFLOW_OFFLOAD_RESUME_LATENCY_MS equals spec string", () => {
   expect(WORKFLOW_OFFLOAD_RESUME_LATENCY_MS).toBe("workflow.offload.resume.latency_ms");
+});
+
+test("WORKFLOW_OFFLOAD_RESUME_ROLLBACK_FAILED equals spec string", () => {
+  expect(WORKFLOW_OFFLOAD_RESUME_ROLLBACK_FAILED).toBe(
+    "workflow.offload.resume.rollback_failed",
+  );
+});
+
+test("WORKFLOW_OFFLOAD_REGISTER_PERSISTED equals spec string", () => {
+  expect(WORKFLOW_OFFLOAD_REGISTER_PERSISTED).toBe(
+    "workflow.offload.register.persisted",
+  );
+});
+
+test("WORKFLOW_OFFLOAD_CLAUDE_MARKER_CLEANUP equals spec string", () => {
+  expect(WORKFLOW_OFFLOAD_CLAUDE_MARKER_CLEANUP).toBe(
+    "workflow.offload.claude_marker_cleanup",
+  );
 });

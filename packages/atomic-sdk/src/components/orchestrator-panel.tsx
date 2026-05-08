@@ -10,7 +10,8 @@ import { resolveTheme } from "../runtime/theme.ts";
 import { deriveGraphTheme } from "./graph-theme.ts";
 import type { GraphTheme } from "./graph-theme.ts";
 import { PanelStore } from "./orchestrator-panel-store.ts";
-import { StoreContext, ThemeContext, TmuxSessionContext } from "./orchestrator-panel-contexts.ts";
+import { OffloadManagerContext, StoreContext, ThemeContext, TmuxSessionContext } from "./orchestrator-panel-contexts.ts";
+import type { OffloadManager } from "../runtime/offload-manager.ts";
 import type { PanelSession, PanelOptions, SessionData } from "./orchestrator-panel-types.ts";
 import { SessionGraphPanel } from "./session-graph-panel.tsx";
 import { ErrorBoundary } from "./error-boundary.tsx";
@@ -35,6 +36,8 @@ export class OrchestratorPanel {
   private unsubscribeDiagnostics: (() => void) | null = null;
   private graphTheme: GraphTheme;
   private tmuxSession: string;
+  private offloadManager: OffloadManager | null = null;
+  private rerender: () => void = () => {};
 
   private constructor(
     renderer: CliRenderer,
@@ -57,33 +60,40 @@ export class OrchestratorPanel {
       ? store.subscribe(() => this.diagnostics?.capture("store-update"))
       : null;
 
-    createRoot(renderer).render(
-      <StoreContext.Provider value={store}>
-        <ThemeContext.Provider value={graphTheme}>
-          <TmuxSessionContext.Provider value={tmuxSession}>
-            <ErrorBoundary
-              fallback={(err) => (
-                <box
-                  width="100%"
-                  height="100%"
-                  justifyContent="center"
-                  alignItems="center"
-                  backgroundColor={graphTheme.background}
+    const root = createRoot(renderer);
+    const renderTree = (offloadManager: OffloadManager | null): void => {
+      root.render(
+        <StoreContext.Provider value={store}>
+          <ThemeContext.Provider value={graphTheme}>
+            <TmuxSessionContext.Provider value={tmuxSession}>
+              <OffloadManagerContext.Provider value={offloadManager}>
+                <ErrorBoundary
+                  fallback={(err) => (
+                    <box
+                      width="100%"
+                      height="100%"
+                      justifyContent="center"
+                      alignItems="center"
+                      backgroundColor={graphTheme.background}
+                    >
+                      <text>
+                        <span fg={graphTheme.error}>
+                          {`Fatal render error: ${err.message}`}
+                        </span>
+                      </text>
+                    </box>
+                  )}
                 >
-                  <text>
-                    <span fg={graphTheme.error}>
-                      {`Fatal render error: ${err.message}`}
-                    </span>
-                  </text>
-                </box>
-              )}
-            >
-              <SessionGraphPanel />
-            </ErrorBoundary>
-          </TmuxSessionContext.Provider>
-        </ThemeContext.Provider>
-      </StoreContext.Provider>,
-    );
+                  <SessionGraphPanel />
+                </ErrorBoundary>
+              </OffloadManagerContext.Provider>
+            </TmuxSessionContext.Provider>
+          </ThemeContext.Provider>
+        </StoreContext.Provider>,
+      );
+    };
+    this.rerender = () => renderTree(this.offloadManager);
+    renderTree(null);
     requestRendererBackgroundRepaint(this.renderer);
     this.diagnostics?.capture("post-mount");
   }
@@ -254,6 +264,18 @@ export class OrchestratorPanel {
    */
   getPanelStore(): PanelStore {
     return this.store;
+  }
+
+  /**
+   * Attach the {@link OffloadManager} after both panel and manager are
+   * constructed (the manager's deps include panel.getPanelStore(),
+   * so they cannot be wired in a single constructor). Re-renders the
+   * tree so the {@link OffloadManagerContext} provider reflects the
+   * new value. Idempotent — calling twice with the same manager is fine.
+   */
+  attachOffloadManager(manager: OffloadManager): void {
+    this.offloadManager = manager;
+    this.rerender();
   }
 
   /**

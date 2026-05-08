@@ -24,10 +24,20 @@ function cleanUp(dir: string): void {
 // Test 1: git rung — populated repo returns tracked files
 // ---------------------------------------------------------------------------
 
+// `Bun.which` with an explicit `PATH` reads the env at call time. The 1-arg
+// form caches PATH at process startup and would miss a binary installed
+// after the test process started. Same gotcha guarded against in
+// `spawn.ts:hasUv` — see its docstring. Using `Bun.spawnSync` for the
+// availability probe is wrong here: it throws synchronously with
+// `Executable not found in $PATH` when the binary is missing, so the
+// `success: false` skip branch never runs (this is the regression that
+// caused the test to fail on CI runners without `rg` pre-installed).
+function isOnPath(binary: string): boolean {
+  return Boolean(Bun.which(binary, { PATH: process.env.PATH ?? "" }));
+}
+
 test("listAllFiles: git rung — populated repo returns tracked files", () => {
-  // Skip if git not on PATH at test runtime.
-  const gitCheck = Bun.spawnSync({ cmd: ["git", "--version"], stdout: "pipe", stderr: "pipe" });
-  if (!gitCheck.success) {
+  if (!isOnPath("git")) {
     console.log("SKIP: git not available");
     return;
   }
@@ -63,9 +73,7 @@ test("listAllFiles: git rung — populated repo returns tracked files", () => {
 // ---------------------------------------------------------------------------
 
 test("listAllFiles: rg rung activates when git fails", () => {
-  // Skip if rg not on PATH.
-  const rgCheck = Bun.spawnSync({ cmd: ["rg", "--version"], stdout: "pipe", stderr: "pipe" });
-  if (!rgCheck.success) {
+  if (!isOnPath("rg")) {
     console.log("SKIP: rg not available");
     return;
   }

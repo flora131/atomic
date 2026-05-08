@@ -1028,22 +1028,26 @@ function InputPhase({
         </text>
       </box>
 
-      <box height={2} />
+      {isStructured ? (
+        <>
+          <box height={2} />
 
-      <box flexDirection="row" height={1}>
-        <text>
-          <span fg={theme.textDim}>
-            <strong>INPUTS</strong>
-          </span>
-        </text>
-        <box flexGrow={1} />
-        <text>
-          <span fg={theme.textDim}>
-            {isStructured ? `${focusedFieldIdx + 1} / ${fields.length}` : ""}
-          </span>
-        </text>
-      </box>
-      <box height={1} />
+          <box flexDirection="row" height={1}>
+            <text>
+              <span fg={theme.textDim}>
+                <strong>INPUTS</strong>
+              </span>
+            </text>
+            <box flexGrow={1} />
+            <text>
+              <span fg={theme.textDim}>
+                {`${focusedFieldIdx + 1} / ${fields.length}`}
+              </span>
+            </text>
+          </box>
+          <box height={1} />
+        </>
+      ) : null}
 
       <scrollbox
         ref={scrollboxRef}

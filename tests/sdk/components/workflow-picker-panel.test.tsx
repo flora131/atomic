@@ -717,8 +717,8 @@ describe("WorkflowPicker PROMPT keyboard", () => {
     }
     await press(setup, (i) => i.pressEnter());
     const frame = setup.captureCharFrame();
-    // Free-form uses the same INPUTS section label as structured workflows.
-    expect(frame).toContain("INPUTS");
+    // Workflows that declare zero inputs should not render the INPUTS header.
+    expect(frame).not.toContain("INPUTS");
     // Default field name is "prompt".
     expect(frame).toContain("prompt");
   });
@@ -1562,4 +1562,3 @@ describe("RFC §8.3 three-row snapshot: healthy + broken + healthy-selected", ()
     expect(frame).toContain("@acme/mmm-broken is installed");
   });
 });
-

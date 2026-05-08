@@ -1,0 +1,425 @@
+/**
+ * State-transition integration tests for OffloadManager bodies.
+ * Spec: specs/2026-05-08-workflow-pane-offload-and-resume.md §8.3
+ *
+ * Tests: onWorkflowCompletion (skip headless, skip active, skip non-complete,
+ * happy path, idempotency) + requestResume (unknown, alive, happy path,
+ * schema mismatch, sendKeys failure).
+ */
+
+import { test, expect, describe, mock } from "bun:test";
+import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createOffloadManager } from "./offload-manager.ts";
+import type { OffloadManagerDeps } from "./offload-manager.ts";
+import type { MetadataJsonWithResume } from "./offload-types.ts";
+import type { SessionData } from "../components/orchestrator-panel-types.ts";
+
+// ---------------------------------------------------------------------------
+// Fixtures
+// ---------------------------------------------------------------------------
+
+const FIXED_NOW = 1_717_804_800_000;
+const TMUX_SESSION = "atomic-wf-claude-test-1";
+
+const IMMUTABLES: Omit<MetadataJsonWithResume, "resume"> = {
+  name: "review",
+  description: "Review stage",
+  agent: "claude" as const,
+  paneId: "%7",
+  serverUrl: "",
+  port: 0,
+  startedAt: new Date(FIXED_NOW).toISOString(),
+};
+
+function makeStageDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), "offload-bodies-"));
+  writeFileSync(
+    join(dir, "metadata.json"),
+    JSON.stringify(
+      {
+        ...IMMUTABLES,
+        resume: {
+          schemaVersion: 1,
+          agentSessionId: "sess-abc",
+          tmuxSessionName: TMUX_SESSION,
+          tmuxWindowName: "review",
+          spawnEnv: { CLAUDECODE: "1" },
+          spawnCwd: "/home/user/project",
+          lastPrompt: "fix the bug",
+          lastSeenAt: 0,
+          offloadedAt: null,
+        },
+      } satisfies MetadataJsonWithResume,
+      null,
+      2,
+    ),
+    { mode: 0o600 },
+  );
+  return dir;
+}
+
+function readMetadata(stageDir: string): MetadataJsonWithResume {
+  return JSON.parse(readFileSync(join(stageDir, "metadata.json"), "utf8")) as MetadataJsonWithResume;
+}
+
+// ---------------------------------------------------------------------------
+// Mock factory
+// ---------------------------------------------------------------------------
+
+type EmitCall = { event: string; payload: Record<string, unknown> };
+
+/** Mutable panel-store backing state that `OffloadManagerDeps.panelStore` reads from. */
+interface MutablePanelStore {
+  sessions: SessionData[];
+  activeAgentId: string;
+  setSessionStatus: ReturnType<typeof mock>;
+}
+
+interface TestContext {
+  deps: OffloadManagerDeps;
+  panelStore: MutablePanelStore;
+  emitCalls: EmitCall[];
+  stageDir: string;
+}
+
+function makeTestDeps(stageDirOverride?: string): TestContext {
+  const emitCalls: EmitCall[] = [];
+  const stageDir = stageDirOverride ?? makeStageDir();
+
+  // Mutable backing store — tests mutate this; OffloadManagerDeps reads from it.
+  const panelStore: MutablePanelStore = {
+    sessions: [],
+    activeAgentId: "",
+    setSessionStatus: mock(() => {}),
+  };
+
+  const deps: OffloadManagerDeps = {
+    // Cast to satisfy the readonly interface; tests mutate via panelStore ref.
+    panelStore: panelStore as unknown as OffloadManagerDeps["panelStore"],
+    tmux: {
+      killWindow: mock(async () => {}),
+      createWindow: mock(async () => {}),
+      sendKeys: mock(async () => {}),
+      selectWindow: mock(async () => {}),
+    },
+    providers: {
+      claude: { buildResumeArgs: mock(() => ["--resume", "sess-abc"]) },
+      opencode: { buildResumeArgs: mock(() => ["--session", "sess-abc"]) },
+      copilot: { buildResumeArgs: mock(() => ["--session", "sess-abc"]) },
+    },
+    hookSettingsPath: mock(() => "/tmp/hook-settings.json"),
+    now: mock(() => FIXED_NOW),
+    emit: mock((event: string, payload: Record<string, unknown>) => {
+      emitCalls.push({ event, payload });
+    }),
+  };
+
+  return { deps, panelStore, emitCalls, stageDir };
+}
+
+function makeSessionInput(name: string, stageDir: string, overrides: Partial<{
+  headless: boolean;
+  agent: "claude" | "opencode" | "copilot";
+}> = {}) {
+  return {
+    name,
+    runId: "run-1",
+    stageDir,
+    agent: overrides.agent ?? ("claude" as const),
+    agentSessionId: "sess-abc",
+    tmuxSession: TMUX_SESSION,
+    tmuxWindow: name,
+    spawnEnv: { CLAUDECODE: "1" },
+    spawnCwd: "/home/user/project",
+    headless: overrides.headless ?? false,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 1. onWorkflowCompletion skips headless sessions
+// ---------------------------------------------------------------------------
+
+describe("onWorkflowCompletion: filter logic", () => {
+  test("skips headless session — no kill, no WORKFLOW_OFFLOAD_COMPLETED", async () => {
+    const { deps, panelStore, emitCalls, stageDir } = makeTestDeps();
+    // panelStore has a matching "complete" entry so eligibility would pass but for headless flag
+    panelStore.sessions = [{ name: "review", status: "complete", parents: [], startedAt: null, endedAt: null }];
+    const mgr = createOffloadManager(deps);
+    mgr.registerSession(makeSessionInput("review", stageDir, { headless: true }));
+
+    await mgr.onWorkflowCompletion();
+
+    expect(deps.tmux.killWindow).not.toHaveBeenCalled();
+    expect(panelStore.setSessionStatus).not.toHaveBeenCalledWith("review", "offloaded");
+    expect(emitCalls.some((c) => c.event === "workflow.offload.completed")).toBe(false);
+    // SCHEDULED may emit with count:0
+    const scheduled = emitCalls.find((c) => c.event === "workflow.offload.scheduled");
+    if (scheduled !== undefined) {
+      expect(scheduled.payload.count).toBe(0);
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // 2. onWorkflowCompletion skips active session
+  // ---------------------------------------------------------------------------
+
+  test("skips active session (panelStore.activeAgentId matches name)", async () => {
+    const { deps, panelStore, stageDir } = makeTestDeps();
+    panelStore.activeAgentId = "review";
+    panelStore.sessions = [{ name: "review", status: "complete", parents: [], startedAt: null, endedAt: null }];
+    const mgr = createOffloadManager(deps);
+    mgr.registerSession(makeSessionInput("review", stageDir));
+
+    await mgr.onWorkflowCompletion();
+
+    expect(deps.tmux.killWindow).not.toHaveBeenCalled();
+  });
+
+  // ---------------------------------------------------------------------------
+  // 3. onWorkflowCompletion skips sessions with non-complete panel status
+  // ---------------------------------------------------------------------------
+
+  test("skips session with panelStore status !== 'complete'", async () => {
+    const { deps, panelStore, stageDir } = makeTestDeps();
+    panelStore.sessions = [{ name: "review", status: "running", parents: [], startedAt: null, endedAt: null }];
+    const mgr = createOffloadManager(deps);
+    mgr.registerSession(makeSessionInput("review", stageDir));
+
+    await mgr.onWorkflowCompletion();
+
+    expect(deps.tmux.killWindow).not.toHaveBeenCalled();
+  });
+
+  // ---------------------------------------------------------------------------
+  // 4. onWorkflowCompletion happy path — eligible session is offloaded
+  // ---------------------------------------------------------------------------
+
+  test("offloads eligible session: killWindow + setSessionStatus('offloaded') + WORKFLOW_OFFLOAD_COMPLETED emitted", async () => {
+    const { deps, panelStore, emitCalls, stageDir } = makeTestDeps();
+    panelStore.sessions = [{ name: "review", status: "complete", parents: [], startedAt: null, endedAt: null }];
+    const mgr = createOffloadManager(deps);
+    mgr.registerSession(makeSessionInput("review", stageDir));
+
+    await mgr.onWorkflowCompletion();
+
+    // tmux.killWindow called exactly once with correct session+window
+    expect(deps.tmux.killWindow).toHaveBeenCalledTimes(1);
+    expect(deps.tmux.killWindow).toHaveBeenCalledWith(TMUX_SESSION, "review");
+
+    // status updated to offloaded
+    expect(panelStore.setSessionStatus).toHaveBeenCalledWith("review", "offloaded");
+
+    // WORKFLOW_OFFLOAD_COMPLETED emitted with correct payload
+    const completed = emitCalls.find((c) => c.event === "workflow.offload.completed");
+    expect(completed).toBeDefined();
+    expect(completed?.payload.runId).toBe("run-1");
+    expect(completed?.payload.name).toBe("review");
+    expect(completed?.payload.agent).toBe("claude");
+
+    // internal state is offloaded
+    expect(mgr.getStatus("review")).toBe("offloaded");
+
+    // metadata.json has offloadedAt set to the value returned by deps.now()
+    const meta = readMetadata(stageDir);
+    expect(typeof meta.resume?.offloadedAt).toBe("number");
+    expect(meta.resume?.offloadedAt).toBe(FIXED_NOW);
+  });
+
+  // ---------------------------------------------------------------------------
+  // 5. onWorkflowCompletion idempotency — calling twice doesn't double-kill
+  // ---------------------------------------------------------------------------
+
+  test("idempotent: two concurrent onWorkflowCompletion calls kill pane exactly once", async () => {
+    const { deps, panelStore, stageDir } = makeTestDeps();
+    panelStore.sessions = [{ name: "review", status: "complete", parents: [], startedAt: null, endedAt: null }];
+    const mgr = createOffloadManager(deps);
+    mgr.registerSession(makeSessionInput("review", stageDir));
+
+    // Fire both concurrently — getOrStartOp should dedup
+    await Promise.all([mgr.onWorkflowCompletion(), mgr.onWorkflowCompletion()]);
+
+    expect(deps.tmux.killWindow).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6. requestResume returns early when session is unknown
+// ---------------------------------------------------------------------------
+
+describe("requestResume: guard conditions", () => {
+  test("no-op for unknown session name", async () => {
+    const { deps, emitCalls } = makeTestDeps();
+    const mgr = createOffloadManager(deps);
+
+    const result = await mgr.requestResume("missing");
+
+    expect(result).toBeUndefined();
+    expect(emitCalls).toHaveLength(0);
+    expect(deps.tmux.createWindow).not.toHaveBeenCalled();
+  });
+
+  // ---------------------------------------------------------------------------
+  // 7. requestResume returns early when state is alive
+  // ---------------------------------------------------------------------------
+
+  test("no-op when session state is alive", async () => {
+    const { deps, emitCalls, stageDir } = makeTestDeps();
+    const mgr = createOffloadManager(deps);
+    mgr.registerSession(makeSessionInput("review", stageDir));
+
+    const result = await mgr.requestResume("review");
+
+    expect(result).toBeUndefined();
+    expect(emitCalls).toHaveLength(0);
+    expect(deps.tmux.createWindow).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8. requestResume happy path — resumes offloaded session
+// ---------------------------------------------------------------------------
+
+describe("requestResume: happy path", () => {
+  test("resumes offloaded session: createWindow + sendKeys + selectWindow + status complete + RESUME_SUCCEEDED", async () => {
+    const { deps, panelStore, emitCalls, stageDir } = makeTestDeps();
+    panelStore.sessions = [{ name: "review", status: "complete", parents: [], startedAt: null, endedAt: null }];
+    const mgr = createOffloadManager(deps);
+    mgr.registerSession(makeSessionInput("review", stageDir));
+
+    // Offload first via public API
+    await mgr.onWorkflowCompletion();
+    expect(mgr.getStatus("review")).toBe("offloaded");
+
+    // Clear call tracking for resume assertions
+    emitCalls.length = 0;
+
+    // Resume
+    await mgr.requestResume("review");
+
+    // tmux calls in order
+    expect(deps.tmux.createWindow).toHaveBeenCalledWith(TMUX_SESSION, "review", "/home/user/project");
+    expect(deps.tmux.sendKeys).toHaveBeenCalledWith(
+      TMUX_SESSION,
+      "review",
+      ["claude", "--resume", "sess-abc", "Enter"],
+    );
+    expect(deps.tmux.selectWindow).toHaveBeenCalledWith(TMUX_SESSION, "review");
+
+    // panel status set to complete
+    expect(panelStore.setSessionStatus).toHaveBeenCalledWith("review", "complete");
+
+    // RESUME_SUCCEEDED emitted
+    const succeeded = emitCalls.find((c) => c.event === "workflow.offload.resume.succeeded");
+    expect(succeeded).toBeDefined();
+    expect(succeeded?.payload.name).toBe("review");
+    expect(succeeded?.payload.agent).toBe("claude");
+    expect(succeeded?.payload.runId).toBe("run-1");
+
+    // state restored to alive
+    expect(mgr.getStatus("review")).toBe("alive");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 9. requestResume schemaVersion mismatch
+// ---------------------------------------------------------------------------
+
+describe("requestResume: error rollback", () => {
+  test("schema version mismatch: RESUME_FAILED with errorCode SCHEMA_MISMATCH + state rollback to offloaded", async () => {
+    const stageDir = makeStageDir();
+    const { deps, panelStore, emitCalls } = makeTestDeps(stageDir);
+    panelStore.sessions = [{ name: "review", status: "complete", parents: [], startedAt: null, endedAt: null }];
+    const mgr = createOffloadManager(deps);
+    mgr.registerSession(makeSessionInput("review", stageDir));
+
+    // Offload via public API
+    await mgr.onWorkflowCompletion();
+    expect(mgr.getStatus("review")).toBe("offloaded");
+
+    // Now corrupt schema version in metadata.json
+    const meta = readMetadata(stageDir);
+    writeFileSync(
+      join(stageDir, "metadata.json"),
+      JSON.stringify(
+        {
+          ...meta,
+          resume: { ...meta.resume, schemaVersion: 2 },
+        },
+        null,
+        2,
+      ),
+      { mode: 0o600 },
+    );
+
+    emitCalls.length = 0;
+
+    // requestResume should throw (doResume rethrows)
+    let err: unknown;
+    try {
+      await mgr.requestResume("review");
+    } catch (e) {
+      err = e;
+    }
+
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toBe("SCHEMA_MISMATCH");
+
+    // RESUME_FAILED emitted with correct errorCode
+    const failed = emitCalls.find((c) => c.event === "workflow.offload.resume.failed");
+    expect(failed).toBeDefined();
+    expect(failed?.payload.errorCode).toBe("SCHEMA_MISMATCH");
+    expect(failed?.payload.name).toBe("review");
+
+    // panel status rolled back to offloaded
+    expect(panelStore.setSessionStatus).toHaveBeenCalledWith("review", "offloaded");
+
+    // internal state rolled back
+    expect(mgr.getStatus("review")).toBe("offloaded");
+  });
+
+  // ---------------------------------------------------------------------------
+  // 10. requestResume mid-resume failure (sendKeys throws)
+  // ---------------------------------------------------------------------------
+
+  test("sendKeys failure: RESUME_FAILED with errorCode RESUME_FAILED + state rollback to offloaded", async () => {
+    const stageDir = makeStageDir();
+    const { deps, panelStore, emitCalls } = makeTestDeps(stageDir);
+    panelStore.sessions = [{ name: "review", status: "complete", parents: [], startedAt: null, endedAt: null }];
+
+    // Make sendKeys throw — rebuild deps.tmux with the throwing spy after makeTestDeps
+    // Use unknown cast because mock() returns a typed Mock but tmux.sendKeys is typed as async fn.
+    deps.tmux.sendKeys = mock(async () => {
+      throw new Error("tmux: send-keys failed");
+    }) as unknown as OffloadManagerDeps["tmux"]["sendKeys"];
+
+    const mgr = createOffloadManager(deps);
+    mgr.registerSession(makeSessionInput("review", stageDir));
+
+    // Offload
+    await mgr.onWorkflowCompletion();
+    expect(mgr.getStatus("review")).toBe("offloaded");
+
+    emitCalls.length = 0;
+
+    let err: unknown;
+    try {
+      await mgr.requestResume("review");
+    } catch (e) {
+      err = e;
+    }
+
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toContain("tmux: send-keys failed");
+
+    // RESUME_FAILED emitted
+    const failed = emitCalls.find((c) => c.event === "workflow.offload.resume.failed");
+    expect(failed).toBeDefined();
+    expect(failed?.payload.errorCode).toBe("RESUME_FAILED");
+
+    // state rolled back
+    expect(mgr.getStatus("review")).toBe("offloaded");
+    expect(panelStore.setSessionStatus).toHaveBeenCalledWith("review", "offloaded");
+  });
+});

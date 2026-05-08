@@ -12,6 +12,7 @@ import type {
   SessionConfig as CopilotSessionConfig,
 } from "@github/copilot-sdk";
 import { normalizedTerminalEnv } from "../lib/terminal-env.ts";
+import type { OffloadResumeMetadata } from "../runtime/offload-types.ts";
 import { getCommandPath } from "../services/system/detect.ts";
 import { createProviderValidator } from "../types.ts";
 
@@ -168,12 +169,6 @@ export function mergeCopilotSystemMessage(
 // Resume adapter
 // ---------------------------------------------------------------------------
 
-// TODO(task-4): replace with import from offload-types.ts once it lands
-interface OffloadResumeMetadata {
-  /** Agent-native session ID to pass to --resume=<id>. */
-  agentSessionId: string;
-}
-
 /**
  * Build the `copilot` CLI argv fragment needed to resume an offloaded session.
  *
@@ -181,7 +176,12 @@ interface OffloadResumeMetadata {
  *
  * Note: Copilot CLI requires `=` syntax (not space-separated) per spec §5.4.
  */
-export function buildCopilotResumeArgs(meta: OffloadResumeMetadata): string[] {
+export function buildCopilotResumeArgs(
+  meta: Pick<OffloadResumeMetadata, "agentSessionId">,
+): string[] {
+  if (meta.agentSessionId === "" || meta.agentSessionId == null) {
+    throw new Error("empty agentSessionId on resume");
+  }
   return [`--resume=${meta.agentSessionId}`];
 }
 

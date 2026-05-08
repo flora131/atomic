@@ -14,9 +14,9 @@ import type { OffloadManagerDeps } from "./offload-manager.ts";
 function makeDeps(): OffloadManagerDeps {
   return {
     panelStore: {
+      sessions: [],
+      activeAgentId: "",
       setSessionStatus: mock(() => {}),
-      activeAgentId: mock(() => null),
-      sessions: mock(() => new Map()),
     },
     tmux: {
       killWindow: mock(async () => {}),
@@ -29,7 +29,9 @@ function makeDeps(): OffloadManagerDeps {
       opencode: { buildResumeArgs: mock(() => []) },
       copilot: { buildResumeArgs: mock(() => []) },
     },
+    hookSettingsPath: mock(() => "/tmp/hook-settings.json"),
     now: mock(() => Date.now()),
+    emit: mock(() => {}),
   };
 }
 
@@ -44,6 +46,7 @@ function makeSessionInput(name = "review") {
     tmuxWindow: name,
     spawnEnv: { CLAUDECODE: "1" },
     spawnCwd: "/home/user/project",
+    headless: false,
   };
 }
 
@@ -62,16 +65,26 @@ test("getStatus of unknown name returns 'alive' (defensive)", () => {
   expect(mgr.getStatus("nonexistent")).toBe("alive");
 });
 
-test("onWorkflowCompletion rejects with 'not yet implemented (task-2)'", async () => {
-  const mgr = createOffloadManager(makeDeps());
-  mgr.registerSession(makeSessionInput("review"));
-  await expect(mgr.onWorkflowCompletion()).rejects.toThrow("not yet implemented (task-2)");
+test("onWorkflowCompletion resolves (no eligible panes — headless session)", async () => {
+  const deps = makeDeps();
+  const mgr = createOffloadManager(deps);
+  // headless:true sessions are skipped
+  mgr.registerSession({ ...makeSessionInput("review"), headless: true });
+  const result = await mgr.onWorkflowCompletion();
+  expect(result).toBeUndefined();
 });
 
-test("requestResume rejects with 'not yet implemented (task-13)'", async () => {
+test("requestResume resolves immediately for unknown name", async () => {
+  const mgr = createOffloadManager(makeDeps());
+  const result = await mgr.requestResume("nonexistent");
+  expect(result).toBeUndefined();
+});
+
+test("requestResume resolves immediately when session is alive", async () => {
   const mgr = createOffloadManager(makeDeps());
   mgr.registerSession(makeSessionInput("review"));
-  await expect(mgr.requestResume("review")).rejects.toThrow("not yet implemented (task-13)");
+  const result = await mgr.requestResume("review");
+  expect(result).toBeUndefined();
 });
 
 test("multiple registerSession calls coexist independently", () => {

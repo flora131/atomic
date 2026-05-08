@@ -63,9 +63,12 @@ import {
   ClaudeSessionWrapper,
   HeadlessClaudeClientWrapper,
   HeadlessClaudeSessionWrapper,
+  buildClaudeResumeArgs,
+  ensureWorkflowHookSettings,
 } from "../providers/claude.ts";
-import { withHeadlessOpencodeEnv } from "../providers/opencode.ts";
-import { resolveCopilotCliPath } from "../providers/copilot.ts";
+import { withHeadlessOpencodeEnv, buildOpencodeResumeArgs } from "../providers/opencode.ts";
+import { resolveCopilotCliPath, buildCopilotResumeArgs } from "../providers/copilot.ts";
+import { createOffloadManager, type OffloadManager } from "./offload-manager.ts";
 import { OrchestratorPanel } from "./panel.tsx";
 import { GraphFrontierTracker } from "./graph-inference.ts";
 import { buildSnapshot, writeSnapshot } from "./status-writer.ts";
@@ -119,6 +122,63 @@ function assertNever(value: never): never {
 
 // Re-export for backward compatibility (tests import from here)
 export { errorMessage } from "../errors.ts";
+
+// ---------------------------------------------------------------------------
+// Telemetry stub used by loggedKillWindow.
+//
+// atomic-sdk has no real telemetry sink yet; the shape mirrors
+// packages/atomic/src/lib/telemetry/offload-events.ts so the call site is
+// identical to the eventual real implementation.
+// ---------------------------------------------------------------------------
+
+export interface TelemetrySink {
+  emit(event: string, payload: Record<string, unknown>): void;
+}
+
+const _defaultTelemetry: TelemetrySink = { emit: () => {} };
+const _defaultWarn = (msg: string): void => console.warn(msg);
+
+let _telemetrySink: TelemetrySink = _defaultTelemetry;
+let _warnSink: (msg: string) => void = _defaultWarn;
+
+/**
+ * Test-only seam: swap telemetry + warn sinks. Call with `{}` from afterEach
+ * to restore defaults.
+ * @internal
+ */
+export function _setLoggedKillWindowSinksForTest(
+  sinks: Partial<{ telemetry: TelemetrySink; warn: (msg: string) => void }>,
+): void {
+  _telemetrySink = sinks.telemetry ?? _defaultTelemetry;
+  _warnSink = sinks.warn ?? _defaultWarn;
+}
+
+/**
+ * Kill a tmux window and surface any rejection via warn + telemetry.
+ *
+ * Reserved-name rejections (orchestrator-name leak, fixture leak) are bug
+ * conditions that must be observable — they must NOT be silently swallowed.
+ */
+async function loggedKillWindow(
+  sessionName: string,
+  windowName: string,
+  origin: "stage-error" | "abort-cleanup",
+): Promise<void> {
+  try {
+    await tmux.killWindow(sessionName, windowName);
+  } catch (err) {
+    const msg = errorMessage(err);
+    _warnSink(`killWindow rejected for ${windowName} (${origin}): ${msg}`);
+    _telemetrySink.emit("workflow.tmux.kill_window_rejected", {
+      windowName,
+      origin,
+      error: msg,
+    });
+  }
+}
+
+/** Exported for unit testing only. Not part of the public API. */
+export const _loggedKillWindowForTest = loggedKillWindow;
 
 /** Runtime guard for deserialized SavedMessage objects. */
 function isValidSavedMessage(msg: unknown): msg is SavedMessage {
@@ -1338,6 +1398,10 @@ interface SharedRunnerState {
   completedRegistry: Map<string, SessionResult>;
   /** Sessions that already failed before completing successfully. */
   failedRegistry: Set<string>;
+  /** Offload manager for pane offload/resume tracking (RFC §5.2). */
+  offloadManager: OffloadManager;
+  /** Workflow run ID (from ATOMIC_WF_ID env var). */
+  workflowRunId: string;
 }
 
 /**
@@ -1893,6 +1957,23 @@ function createSessionRunner(
         }
       }
 
+      // ── 12c. Register with OffloadManager (RFC §5.2.2) ──
+      // Called after provider session is initialised — agentSessionId is known.
+      // For headless Claude the session_id starts empty and is filled on first
+      // query(); registerSession captures the best-available value at spawn time.
+      shared.offloadManager.registerSession({
+        name,
+        runId: shared.workflowRunId,
+        stageDir: sessionDir,
+        agent: shared.agent,
+        agentSessionId: resolveProviderSessionId(shared.agent, providerSession),
+        tmuxSession: shared.tmuxSessionName,
+        tmuxWindow: name,
+        spawnEnv: paneEnvVars,
+        spawnCwd: shared.projectRoot,
+        headless: isHeadless,
+      });
+
       // ── 13. Construct SessionContext ──
       // Free-form workflows read their prompt via `s.inputs.prompt`;
       // structured workflows read their declared fields the same way.
@@ -2002,7 +2083,7 @@ function createSessionRunner(
       // Kill the tmux window if one was created (visible stages and headless OpenCode).
       // Headless Claude/Copilot have virtual paneIds ("headless-...") — no window to kill.
       if (paneId && !paneId.startsWith("headless-")) {
-        await tmux.killWindow(shared.tmuxSessionName, name).catch(() => {});
+        await loggedKillWindow(shared.tmuxSessionName, name, "stage-error");
       }
       // Ensure the done promise settles and the active entry is cleared.
       shared.activeRegistry.delete(name);
@@ -2113,6 +2194,35 @@ export async function runOrchestrator(
   const signalHandler = () => shutdown(1);
   process.on("SIGINT", signalHandler);
 
+  // Build OffloadManager with live panel store and tmux/provider deps.
+  const offloadManager = createOffloadManager({
+    panelStore: panel.getPanelStore(),
+    tmux: {
+      killWindow: (session, window) => tmux.killWindow(session, window),
+      createWindow: async (session, name, cwd) => {
+        const shell = process.env.SHELL ?? "sh";
+        tmux.createWindow(session, name, shell, cwd);
+      },
+      sendKeys: async (session, window, keys) => {
+        const target = `${session}:${window}`;
+        for (const key of keys) {
+          tmux.sendLiteralText(target, key);
+        }
+      },
+      selectWindow: async (session, window) => {
+        tmux.selectWindow(`${session}:${window}`);
+      },
+    },
+    providers: {
+      claude: { buildResumeArgs: buildClaudeResumeArgs },
+      opencode: { buildResumeArgs: buildOpencodeResumeArgs },
+      copilot: { buildResumeArgs: buildCopilotResumeArgs },
+    },
+    hookSettingsPath: () => ensureWorkflowHookSettings(),
+    now: () => Date.now(),
+    emit: (event, payload) => _telemetrySink.emit(event, payload),
+  });
+
   // Shared state for all session runners
   const shared: SharedRunnerState = {
     tmuxSessionName,
@@ -2126,6 +2236,8 @@ export async function runOrchestrator(
     activeRegistry: new Map(),
     completedRegistry: new Map(),
     failedRegistry: new Set(),
+    offloadManager,
+    workflowRunId,
   };
 
   try {
@@ -2169,6 +2281,14 @@ export async function runOrchestrator(
     });
     await Promise.race([definition.run(workflowCtx), abortPromise]);
 
+    // Notify OffloadManager that all stages have completed (RFC §5.11). Wrap
+    // to keep an offload failure from halting orchestrator teardown.
+    try {
+      await shared.offloadManager.onWorkflowCompletion();
+    } catch (err) {
+      console.warn(`offload onWorkflowCompletion failed: ${errorMessage(err)}`);
+    }
+
     panel.showCompletion(definition.name, sessionsBaseDir);
     await panel.waitForExit();
     shutdown(0);
@@ -2178,7 +2298,7 @@ export async function runOrchestrator(
     // SDK-managed processes are cleaned up by cleanupProvider().
     for (const [, active] of shared.activeRegistry) {
       if (active.paneId && !active.paneId.startsWith("headless-")) {
-        await tmux.killWindow(tmuxSessionName, active.name).catch(() => {});
+        await loggedKillWindow(tmuxSessionName, active.name, "abort-cleanup");
       }
     }
 

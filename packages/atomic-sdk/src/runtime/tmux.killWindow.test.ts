@@ -12,6 +12,7 @@ import {
   tmuxRun,
   killSession,
   getMuxBinary,
+  RESERVED_WINDOW_NAMES,
 } from "./tmux.ts";
 
 const hasTmux = !!Bun.which("tmux");
@@ -20,20 +21,37 @@ const hasTmux = !!Bun.which("tmux");
 const TEST_SESSION = `atomic-test-kw-${Math.random().toString(36).slice(2, 10)}`;
 
 // ---------------------------------------------------------------------------
-// Guard: orchestrator window ("0") and empty name
+// Guard: reserved window names and empty name
 // ---------------------------------------------------------------------------
 
-describe("killWindow — orchestrator window guard", () => {
+describe("killWindow — reserved window guard", () => {
   test("rejects when windowName is '0'", async () => {
     await expect(killWindow("any-session", "0")).rejects.toThrow(
-      "refuses to kill orchestrator window",
+      /refuses to kill reserved window: 0/,
+    );
+  });
+
+  test("rejects when windowName is 'orchestrator'", async () => {
+    await expect(killWindow("any-session", "orchestrator")).rejects.toThrow(
+      /refuses to kill reserved window: orchestrator/,
     );
   });
 
   test("rejects when windowName is empty string", async () => {
     await expect(killWindow("any-session", "")).rejects.toThrow(
-      "refuses to kill orchestrator window",
+      /refuses to kill reserved window: <empty>/,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RESERVED_WINDOW_NAMES invariant
+// ---------------------------------------------------------------------------
+
+describe("RESERVED_WINDOW_NAMES", () => {
+  test("contains '0' and 'orchestrator'", () => {
+    expect(RESERVED_WINDOW_NAMES.has("0")).toBe(true);
+    expect(RESERVED_WINDOW_NAMES.has("orchestrator")).toBe(true);
   });
 });
 
@@ -49,18 +67,11 @@ describe("killWindow — integration", () => {
     return;
   }
 
-  // Set up a session with two windows before running integration tests.
-  // We create the session in a nested beforeAll-equivalent: since bun:test
-  // doesn't allow top-level async describe setup, we do it lazily in the
-  // first test via a shared flag, but the cleaner approach is to keep the
-  // session creation synchronous here via tmuxRun.
-
-  // Session created once; torn down in afterAll.
+  // bun:test has no async describe setup, so create the session synchronously
+  // here and tear it down in afterAll.
   const WINDOW_KEEP = "keep-me";
   const WINDOW_KILL = "kill-me";
 
-  // Create the session with the first window named WINDOW_KEEP.
-  // tmux new-session always creates window 0; we rename it.
   const sessionResult = tmuxRun([
     "new-session",
     "-d",
@@ -70,7 +81,6 @@ describe("killWindow — integration", () => {
     WINDOW_KEEP,
   ]);
 
-  // Add a second window named WINDOW_KILL.
   let windowResult: string | null = null;
   if (sessionResult.ok) {
     const r = tmuxRun(["new-window", "-d", "-t", TEST_SESSION, "-n", WINDOW_KILL, "-P", "-F", "#{pane_id}", "sleep infinity"]);

@@ -10,19 +10,21 @@ export function statusColor(status: string, theme: GraphTheme): string {
       pending: theme.textDim,
       error: theme.error,
       awaiting_input: theme.info,
+      offloaded: theme.textDim,
+      resuming: theme.warning,
     }[status] ?? theme.textDim
   );
 }
 
 export function statusLabel(status: string): string {
   return (
-    { running: "running", complete: "done", pending: "waiting", error: "failed", awaiting_input: "input needed" }[status] ??
+    { running: "running", complete: "done", pending: "waiting", error: "failed", awaiting_input: "input needed", offloaded: "offloaded", resuming: "resuming…" }[status] ??
     status
   );
 }
 
 export function statusIcon(status: string): string {
-  return { running: "●", complete: "✓", pending: "○", error: "✗", awaiting_input: "?" }[status] ?? "○";
+  return { running: "●", complete: "✓", pending: "○", error: "✗", awaiting_input: "?", offloaded: "◌", resuming: "◐" }[status] ?? "○";
 }
 
 // ─── Duration ─────────────────────────────────────

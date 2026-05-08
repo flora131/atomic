@@ -1,29 +1,31 @@
 /**
  * OffloadManager — workflow pane offload & resume state machine.
- *
  * Spec: specs/2026-05-08-workflow-pane-offload-and-resume.md §5.2
- *
- * persistResume (task #10) is intentionally co-located in this file.
- * Tasks #2 and #13 will fill the bodies of onWorkflowCompletion and
- * requestResume respectively.
  */
 
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import type { OffloadResumeMetadata, MetadataJsonWithResume, AgentKind } from "./offload-types.ts";
+import type { SessionData } from "../components/orchestrator-panel-types.ts";
 
-// ---------------------------------------------------------------------------
-// persistResume — per-stage mutex map
-// ---------------------------------------------------------------------------
+// Telemetry event-name constants — kept in sync with
+// packages/atomic/src/lib/telemetry/offload-events.ts (avoids cross-package dep).
+const WORKFLOW_OFFLOAD_SCHEDULED = "workflow.offload.scheduled" as const;
+const WORKFLOW_OFFLOAD_COMPLETED = "workflow.offload.completed" as const;
+const WORKFLOW_OFFLOAD_RESUME_ATTEMPTED = "workflow.offload.resume.attempted" as const;
+const WORKFLOW_OFFLOAD_RESUME_SUCCEEDED = "workflow.offload.resume.succeeded" as const;
+const WORKFLOW_OFFLOAD_RESUME_FAILED = "workflow.offload.resume.failed" as const;
+
+// ─── persistResume ──────────────────────────────────────────────────────────
 
 /**
- * Module-level mutex map.  Key = stageDir absolute path.
- * Value = tail of the promise chain for that stage — each new call appends
- * to the tail so concurrent calls for the same stageDir serialize.
+ * Per-stageDir mutex map.  Each entry holds the tail of the promise chain
+ * for that stage; a new call appends onto the tail so concurrent writers
+ * for the same stage serialize.
  */
 const _stageMutex = new Map<string, Promise<void>>();
 
-/** Default values for required OffloadResumeMetadata fields when no existing resume present. */
+/** Defaults applied when the metadata has no `resume` block yet. */
 const _resumeDefaults: Omit<OffloadResumeMetadata, "schemaVersion"> = {
   agentSessionId: "",
   tmuxSessionName: "",
@@ -34,6 +36,19 @@ const _resumeDefaults: Omit<OffloadResumeMetadata, "schemaVersion"> = {
   lastSeenAt: 0,
   offloadedAt: null,
 };
+
+/**
+ * True iff `value` is a v1 `OffloadResumeMetadata` plain object.
+ * Used by both `_doPersist` (to gate writes) and `doResume` (to gate spawn).
+ */
+function isValidResumeBlock(value: unknown): value is OffloadResumeMetadata {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    (value as { schemaVersion?: unknown }).schemaVersion === 1
+  );
+}
 
 /**
  * Atomically read-modify-write the `resume` sub-object of
@@ -56,21 +71,22 @@ export async function persistResume(
 ): Promise<void> {
   const metaPath = join(stageDir, "metadata.json");
 
-  // Serialize by chaining onto the current tail for this stageDir.
+  // Mutex-order writes via tail-chaining. Isolate each link from the previous
+  // link's outcome so a queued caller's failure doesn't poison the chain.
   const prev = _stageMutex.get(stageDir) ?? Promise.resolve();
-  const next: Promise<void> = prev.then(() => _doPersist(metaPath, patch));
+  const next: Promise<void> = prev
+    .catch(() => undefined)
+    .then(() => _doPersist(metaPath, patch));
 
-  // Register the new tail immediately (before awaiting) so concurrent callers
-  // that arrive after this point append to the correct tail.
+  // Register the new tail synchronously so callers arriving after this point
+  // append correctly.
   _stageMutex.set(stageDir, next);
 
-  // Clean up map entry once this chain link settles so map doesn't grow unbounded.
-  // `.catch(() => {})` silences the unhandled-rejection warning on the floating
-  // finally promise — the caller handles the actual rejection via `return next`.
+  // Drop the map entry once this link settles. `.catch(() => {})` silences the
+  // unhandled-rejection warning on the floating finally promise — the caller
+  // observes the rejection via the returned `next`.
   next.finally(() => {
-    if (_stageMutex.get(stageDir) === next) {
-      _stageMutex.delete(stageDir);
-    }
+    if (_stageMutex.get(stageDir) === next) _stageMutex.delete(stageDir);
   }).catch(() => {});
 
   return next;
@@ -90,16 +106,19 @@ async function _doPersist(
 
   const existing = JSON.parse(raw) as MetadataJsonWithResume;
 
-  // Validate existing schemaVersion if resume sub-object is present.
-  if (existing.resume !== undefined && existing.resume.schemaVersion !== 1) {
-    throw new Error(
-      `unsupported resume schemaVersion: ${existing.resume.schemaVersion}`,
-    );
+  // The `resume` slot must be either absent or a v1 plain object. Anything
+  // else (null, primitive, array, foreign schemaVersion) is a schema mismatch.
+  if (existing.resume !== undefined && !isValidResumeBlock(existing.resume)) {
+    const r = existing.resume as unknown;
+    const reported =
+      r !== null && typeof r === "object" && !Array.isArray(r)
+        ? (r as { schemaVersion?: unknown }).schemaVersion
+        : r;
+    throw new Error(`unsupported resume schemaVersion: ${reported}`);
   }
 
-  // Merge: defaults < existing.resume < patch; schemaVersion always 1.
-  // Spreading undefined/null is a no-op in JS, so the fallback `?? {}` is
-  // unnecessary and rejected by the unicorn/no-useless-fallback-in-spread rule.
+  // Merge precedence: defaults < existing.resume < patch; schemaVersion
+  // always pinned to 1. Spreading `undefined` is a JS no-op.
   const nextResume: OffloadResumeMetadata = {
     ..._resumeDefaults,
     ...existing.resume,
@@ -107,7 +126,8 @@ async function _doPersist(
     schemaVersion: 1,
   };
 
-  // Rebuild with immutables verbatim from the read.
+  // Top-level fields (immutable per write-once contract) are echoed verbatim;
+  // only `resume` mutates.
   const nextMeta: MetadataJsonWithResume = {
     name: existing.name,
     description: existing.description,
@@ -119,21 +139,16 @@ async function _doPersist(
     resume: nextResume,
   };
 
+  // Atomic write: 0o600 tmp file + rename over the destination.
   const tmpPath = `${metaPath}.tmp`;
-
-  // Write tmp file with restricted permissions (mode 0o600).
   await fs.writeFile(tmpPath, JSON.stringify(nextMeta, null, 2), {
     mode: 0o600,
     encoding: "utf8",
   });
-
-  // Atomic rename over destination.
   await fs.rename(tmpPath, metaPath);
 }
 
-// ---------------------------------------------------------------------------
-// Public interfaces
-// ---------------------------------------------------------------------------
+// ─── Public interfaces ──────────────────────────────────────────────────────
 
 export interface OffloadManager {
   registerSession(input: {
@@ -146,6 +161,7 @@ export interface OffloadManager {
     tmuxWindow: string;
     spawnEnv: Record<string, string>;
     spawnCwd: string;
+    headless: boolean;
   }): void;
   onWorkflowCompletion(): Promise<void>;
   requestResume(name: string): Promise<void>;
@@ -154,12 +170,11 @@ export interface OffloadManager {
 
 export interface OffloadManagerDeps {
   panelStore: {
-    setSessionStatus(
-      name: string,
-      status: "offloaded" | "resuming" | "complete",
-    ): void;
-    activeAgentId(): string | null;
-    sessions(): ReadonlyMap<string, { headless: boolean; status: string }>;
+    /** Live array reference — caller must not mutate. */
+    readonly sessions: readonly SessionData[];
+    /** Empty-string sentinel for "no agent attached" — never null. */
+    readonly activeAgentId: string;
+    setSessionStatus(name: string, status: SessionData["status"]): void;
   };
   tmux: {
     killWindow(session: string, window: string): Promise<void>;
@@ -168,16 +183,23 @@ export interface OffloadManagerDeps {
     selectWindow(session: string, window: string): Promise<void>;
   };
   providers: {
-    claude: { buildResumeArgs(meta: OffloadResumeMetadata): string[] };
-    opencode: { buildResumeArgs(meta: OffloadResumeMetadata): string[] };
-    copilot: { buildResumeArgs(meta: OffloadResumeMetadata): string[] };
+    claude: {
+      buildResumeArgs(
+        meta: Pick<OffloadResumeMetadata, "agentSessionId">,
+        hookSettingsPath: string,
+      ): string[];
+    };
+    opencode: { buildResumeArgs(meta: Pick<OffloadResumeMetadata, "agentSessionId">): string[] };
+    copilot: { buildResumeArgs(meta: Pick<OffloadResumeMetadata, "agentSessionId">): string[] };
   };
+  /** Resolve Claude hook-settings path lazily; only called on Claude resume. */
+  hookSettingsPath(): string;
   now(): number;
+  /** Telemetry sink — `event` is one of WORKFLOW_OFFLOAD_* constants. */
+  emit(event: string, payload: Record<string, unknown>): void;
 }
 
-// ---------------------------------------------------------------------------
-// Internal state shape
-// ---------------------------------------------------------------------------
+// ─── Internal state ─────────────────────────────────────────────────────────
 
 type SessionState = "alive" | "offloaded" | "resuming";
 
@@ -191,13 +213,11 @@ interface RegisteredSession {
   tmuxWindow: string;
   spawnEnv: Record<string, string>;
   spawnCwd: string;
+  headless: boolean;
   state: SessionState;
 }
 
-// ---------------------------------------------------------------------------
-// Module-level idempotency primitive (shared across all manager instances
-// in tests and exposed for white-box testing via _testOnlyGetOrStartOp).
-// ---------------------------------------------------------------------------
+// ─── Idempotency primitive ──────────────────────────────────────────────────
 
 const _moduleOpQueue = new Map<string, Promise<void>>();
 
@@ -226,32 +246,103 @@ export function _testOnlyGetOrStartOp(
   return promise;
 }
 
-// ---------------------------------------------------------------------------
-// Factory
-// ---------------------------------------------------------------------------
+// ─── Factory ────────────────────────────────────────────────────────────────
 
 export function createOffloadManager(deps: OffloadManagerDeps): OffloadManager {
   const sessions = new Map<string, RegisteredSession>();
-
-  /**
-   * Per-pane operation serializer — instance-scoped queue so multiple
-   * managers in tests don't share state.
-   */
+  // Per-pane operation queue scoped to this manager so concurrent test
+  // instances do not share state.
   const opQueue = new Map<string, Promise<void>>();
 
-  /**
-   * Instance-level wrapper around the idempotency primitive using the
-   * per-instance queue.  Tasks #2 and #13 will call this.
-   */
   function getOrStartOp(name: string, op: () => Promise<void>): Promise<void> {
     return _testOnlyGetOrStartOp(name, op, opQueue);
   }
 
-  // Make getOrStartOp available to future task bodies via closure.
-  void getOrStartOp;
+  /** Offload a single registered session. */
+  async function killOnePane(sess: RegisteredSession): Promise<void> {
+    await persistResume(sess.stageDir, { offloadedAt: deps.now() });
+    await deps.tmux.killWindow(sess.tmuxSession, sess.tmuxWindow);
+    deps.panelStore.setSessionStatus(sess.name, "offloaded");
+    sess.state = "offloaded";
+    deps.emit(WORKFLOW_OFFLOAD_COMPLETED, {
+      runId: sess.runId,
+      name: sess.name,
+      agent: sess.agent,
+    });
+  }
 
-  // Suppress unused-variable lint for `deps` until task #2/#13 use it.
-  void deps;
+  /** True iff `sess` is eligible for offload right now. */
+  function isEligibleForOffload(sess: RegisteredSession): boolean {
+    if (sess.headless) return false;
+    const { activeAgentId } = deps.panelStore;
+    if (activeAgentId !== "" && activeAgentId === sess.name) return false;
+    const panelEntry = deps.panelStore.sessions.find((s) => s.name === sess.name);
+    return panelEntry?.status === "complete";
+  }
+
+  /** Re-spawn an offloaded session. */
+  async function doResume(sess: RegisteredSession): Promise<void> {
+    const baseEvent = { runId: sess.runId, name: sess.name, agent: sess.agent };
+    sess.state = "resuming";
+    deps.panelStore.setSessionStatus(sess.name, "resuming");
+    deps.emit(WORKFLOW_OFFLOAD_RESUME_ATTEMPTED, baseEvent);
+
+    try {
+      // Read + validate metadata.
+      const metaPath = join(sess.stageDir, "metadata.json");
+      const parsed = JSON.parse(await fs.readFile(metaPath, "utf8")) as MetadataJsonWithResume;
+      if (!isValidResumeBlock(parsed.resume)) {
+        throw new Error("SCHEMA_MISMATCH");
+      }
+      const meta: Pick<OffloadResumeMetadata, "agentSessionId"> = {
+        agentSessionId: parsed.resume.agentSessionId,
+      };
+
+      // Build argv per agent.
+      let argv: string[];
+      let binary: string;
+      switch (sess.agent) {
+        case "claude":
+          argv = deps.providers.claude.buildResumeArgs(meta, deps.hookSettingsPath());
+          binary = "claude";
+          break;
+        case "opencode":
+          argv = deps.providers.opencode.buildResumeArgs(meta);
+          binary = "opencode";
+          break;
+        case "copilot":
+          argv = deps.providers.copilot.buildResumeArgs(meta);
+          binary = "copilot";
+          break;
+        default:
+          throw new Error(`unsupported agent kind: ${sess.agent as string}`);
+      }
+
+      // Recreate the tmux window, send the resume command, and switch focus.
+      // TODO(spec §5.2.4 step 2.e): poll a per-agent readiness signal before
+      // selectWindow. Deferred — introduces per-provider I/O deps out of scope.
+      await deps.tmux.createWindow(sess.tmuxSession, sess.tmuxWindow, sess.spawnCwd);
+      await deps.tmux.sendKeys(sess.tmuxSession, sess.tmuxWindow, [binary, ...argv, "Enter"]);
+      await deps.tmux.selectWindow(sess.tmuxSession, sess.tmuxWindow);
+
+      sess.state = "alive";
+      deps.panelStore.setSessionStatus(sess.name, "complete");
+      deps.emit(WORKFLOW_OFFLOAD_RESUME_SUCCEEDED, baseEvent);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const errorCode = msg === "SCHEMA_MISMATCH" ? "SCHEMA_MISMATCH" : "RESUME_FAILED";
+
+      // Best-effort error persistence — never mask the original failure.
+      try {
+        await persistResume(sess.stageDir, { error: msg });
+      } catch {}
+
+      sess.state = "offloaded";
+      deps.panelStore.setSessionStatus(sess.name, "offloaded");
+      deps.emit(WORKFLOW_OFFLOAD_RESUME_FAILED, { ...baseEvent, errorCode, error: msg });
+      throw err;
+    }
+  }
 
   return {
     registerSession(input) {
@@ -265,13 +356,25 @@ export function createOffloadManager(deps: OffloadManagerDeps): OffloadManager {
       return sessions.get(name)?.state ?? "alive";
     },
 
-    onWorkflowCompletion(): Promise<void> {
-      return Promise.reject(new Error("not yet implemented (task-2)"));
+    async onWorkflowCompletion(): Promise<void> {
+      const eligible = Array.from(sessions.values()).filter(isEligibleForOffload);
+
+      deps.emit(WORKFLOW_OFFLOAD_SCHEDULED, {
+        runId: eligible[0]?.runId ?? "",
+        count: eligible.length,
+      });
+
+      await Promise.all(
+        eligible.map((sess) => getOrStartOp(sess.name, () => killOnePane(sess))),
+      );
     },
 
-    requestResume(name: string): Promise<void> {
-      void name;
-      return Promise.reject(new Error("not yet implemented (task-13)"));
+    async requestResume(name: string): Promise<void> {
+      const sess = sessions.get(name);
+      if (!sess || sess.state === "alive") return;
+      // "offloaded" → start resume; "resuming" → coalesce onto in-flight op.
+      const op = sess.state === "offloaded" ? () => doResume(sess) : () => Promise.resolve();
+      return getOrStartOp(name, op);
     },
   };
 }

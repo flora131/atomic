@@ -25,6 +25,7 @@ import {
   type Options as SDKOptions,
 } from "@anthropic-ai/claude-agent-sdk";
 import { respawnPane } from "../runtime/tmux.ts";
+import type { OffloadResumeMetadata } from "../runtime/offload-types.ts";
 import { escBash } from "../runtime/executor.ts";
 import { watch, unlink, mkdir, writeFile } from "node:fs/promises";
 import { existsSync, writeFileSync } from "node:fs";
@@ -429,7 +430,7 @@ async function spawnClaudeWithPrompt(
   chatFlags: string[],
   sessionId: string,
 ): Promise<void> {
-  const settingsPath = workflowHookSettingsPath();
+  const settingsPath = ensureWorkflowHookSettings();
   const argvPrompt = `"${escBash(readPromptInstruction(promptFile))}"`;
   const cmd = [
     "claude",
@@ -459,16 +460,18 @@ async function spawnClaudeWithPrompt(
   await waitForReadyMarker(sessionId);
 }
 
-function workflowHookSettingsPath(): string {
+/**
+ * Write the workflow hook-settings JSON to a content-addressed temp file
+ * and return its absolute path. Idempotent: the path is hash-stable and the
+ * file is rewritten with mode 0o600 each call.
+ */
+export function ensureWorkflowHookSettings(): string {
   const path = atomicContentTempPath(
     "claude-settings-atomic",
     ".json",
     WORKFLOW_HOOK_SETTINGS,
   );
-  writeFileSync(path, WORKFLOW_HOOK_SETTINGS, {
-    encoding: "utf-8",
-    mode: 0o600,
-  });
+  writeFileSync(path, WORKFLOW_HOOK_SETTINGS, { encoding: "utf-8", mode: 0o600 });
   return path;
 }
 
@@ -1426,14 +1429,10 @@ export class HeadlessClaudeSessionWrapper {
 // Resume adapter
 // ---------------------------------------------------------------------------
 
-// TODO(task-4): replace with import from offload-types.ts once it lands
-interface OffloadResumeMetadata {
-  /** Agent-native session ID to pass to --resume / --session. */
-  agentSessionId: string;
-}
-
 /**
- * Build the `claude` CLI argv fragment needed to resume an offloaded session.
+ * Pure: produce the `claude --resume <UUID>` argv. Caller threads the
+ * settings path from `ensureWorkflowHookSettings()`. No I/O, no throws on
+ * filesystem state.
  *
  * Produces:
  *   ["--resume", "<UUID>", ...DEFAULT_CHAT_FLAGS, "--settings", "<hooksPath>"]
@@ -1441,14 +1440,19 @@ interface OffloadResumeMetadata {
  * Placement: `--resume` before the standard chat flags so Claude Code's
  * last-wins flag semantics leave our `--settings` authoritative.
  */
-export function buildClaudeResumeArgs(meta: OffloadResumeMetadata): string[] {
-  const hooksPath = workflowHookSettingsPath();
+export function buildClaudeResumeArgs(
+  meta: Pick<OffloadResumeMetadata, "agentSessionId">,
+  hookSettingsPath: string,
+): string[] {
+  if (meta.agentSessionId === "" || meta.agentSessionId == null) {
+    throw new Error("empty agentSessionId on resume");
+  }
   return [
     "--resume",
     meta.agentSessionId,
     ...DEFAULT_CHAT_FLAGS,
     "--settings",
-    hooksPath,
+    hookSettingsPath,
   ];
 }
 

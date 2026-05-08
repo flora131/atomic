@@ -7,6 +7,7 @@
  * `question` tool out of headless stages.
  */
 
+import type { OffloadResumeMetadata } from "../runtime/offload-types.ts";
 import { createProviderValidator } from "../types.ts";
 
 /**
@@ -71,18 +72,17 @@ export async function withHeadlessOpencodeEnv<T>(
 // Resume adapter
 // ---------------------------------------------------------------------------
 
-// TODO(task-4): replace with import from offload-types.ts once it lands
-interface OffloadResumeMetadata {
-  /** Agent-native session ID to pass to --session. */
-  agentSessionId: string;
-}
-
 /**
  * Build the `opencode` CLI argv fragment needed to resume an offloaded session.
  *
  * Produces: ["--session", "<sessionId>"]
  */
-export function buildOpencodeResumeArgs(meta: OffloadResumeMetadata): string[] {
+export function buildOpencodeResumeArgs(
+  meta: Pick<OffloadResumeMetadata, "agentSessionId">,
+): string[] {
+  if (meta.agentSessionId == null || meta.agentSessionId === "") {
+    throw new Error("empty agentSessionId on resume");
+  }
   return ["--session", meta.agentSessionId];
 }
 

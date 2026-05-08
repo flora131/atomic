@@ -248,6 +248,15 @@ export class OrchestratorPanel {
   }
 
   /**
+   * Expose the internal PanelStore for consumers that need live mutable
+   * access (e.g. OffloadManager). Prefer `getSnapshot()` for read-only
+   * snapshots.
+   */
+  getPanelStore(): PanelStore {
+    return this.store;
+  }
+
+  /**
    * Read-only snapshot of the fields needed by the on-disk status
    * writer. Defined here (not in PanelStore) because the store keeps
    * full mutable references; this projection drops the renderer-only

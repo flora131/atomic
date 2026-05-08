@@ -39,6 +39,38 @@ describe("buildClaudeResumeArgs — pure argv builder", () => {
 
     expect(args1!).toEqual(args2!);
   });
+
+  // RFC §5.4 — empty agentSessionId guards
+  test('throws "empty agentSessionId on resume" when agentSessionId is empty string', () => {
+    expect(() =>
+      buildClaudeResumeArgs({ agentSessionId: "" }, "/dev/null/fake-settings.json"),
+    ).toThrow("empty agentSessionId on resume");
+  });
+
+  test('throws "empty agentSessionId on resume" when agentSessionId is null', () => {
+    expect(() =>
+      buildClaudeResumeArgs(
+        { agentSessionId: null as unknown as string },
+        "/dev/null/fake-settings.json",
+      ),
+    ).toThrow("empty agentSessionId on resume");
+  });
+
+  test('throws "empty agentSessionId on resume" when agentSessionId field is omitted', () => {
+    expect(() =>
+      buildClaudeResumeArgs(
+        {} as Pick<{ agentSessionId: string }, "agentSessionId">,
+        "/dev/null/fake-settings.json",
+      ),
+    ).toThrow("empty agentSessionId on resume");
+  });
+
+  // RFC §5.4 §3 — no sentinel Enter token in valid resume args
+  test("valid agentSessionId: returned args do not contain the string Enter", () => {
+    const meta = { agentSessionId: "uuid-fixture" };
+    const args = buildClaudeResumeArgs(meta, "/dev/null/fake-settings.json");
+    expect(args).not.toContain("Enter");
+  });
 });
 
 describe("ensureWorkflowHookSettings — side-effecting writer", () => {

@@ -75,8 +75,6 @@
 import { defineWorkflow, extractAssistantText } from "../../../index.ts";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import CodeGraph from "@colbymchenry/codegraph";
-
 import {
   getCodebaseRoot,
   listSourceFiles,
@@ -89,7 +87,9 @@ import {
   buildLayer2TaskSpec,
   buildLayer2Tasks,
   buildPartitionPaths,
+  closeGraph,
   logBatchRejections,
+  openGraphForRun,
   readLocatorOutputs,
   resolveEffectiveCounts,
   synthesizeExplorerHandles,
@@ -167,14 +167,7 @@ export default defineWorkflow({
     // Open one read-only handle for the whole workflow run; thread it through
     // listSourceFiles + writeExplorerScratchFile so synthesis shares one
     // connection. Closed in the finally block below regardless of errors.
-    const graph: CodeGraph | null = preflightResult.codegraphHealthy
-      ? await CodeGraph.open(root, { readOnly: true })
-      : null;
-    console.log(
-      graph !== null
-        ? "[codegraph] handle opened (readOnly)"
-        : "[codegraph] skipped — using legacy file walk",
-    );
+    const graph = await openGraphForRun(root, preflightResult.codegraphHealthy);
 
     try {
     // ── Stage 1a: codebase-scout (visible) ‖ Stage 1b: research-history pipeline (headless) ──
@@ -476,10 +469,7 @@ export default defineWorkflow({
       },
     );
     } finally {
-      if (graph !== null) {
-        graph.close();
-        console.log("[codegraph] handle closed");
-      }
+      closeGraph(graph);
     }
   })
   .compile();

@@ -234,31 +234,34 @@ test("§5.2.4 invariant 3 — rejected registerSession is swallowed and console.
 });
 
 test("§5.2.4 invariant 3 — registerSession rejection does not bubble as thrown error", async () => {
-  spyOn(console, "warn").mockImplementation(() => {});
-
-  const mockOffloadManager: OffloadManager = {
-    registerSession: mock(() => Promise.reject(new Error("boom"))),
-    offloadSession: mock(async () => {}),
-    onWorkflowCompletion: mock(async () => {}),
-    requestResume: mock(async () => {}),
-    getStatus: mock(() => "alive" as const),
-  };
-
-  // Must not throw
-  let caught: unknown = null;
-  let resolved: unknown = "unset";
+  const warnSpy3 = spyOn(console, "warn").mockImplementation(() => {});
   try {
-    resolved = await persistAndRegisterStage(
-      STAGE_DIR,
-      makeMetadata(),
-      mockOffloadManager,
-      makeRegisterInput(),
-    );
-  } catch (err) {
-    caught = err;
+    const mockOffloadManager: OffloadManager = {
+      registerSession: mock(() => Promise.reject(new Error("boom"))),
+      offloadSession: mock(async () => {}),
+      onWorkflowCompletion: mock(async () => {}),
+      requestResume: mock(async () => {}),
+      getStatus: mock(() => "alive" as const),
+    };
+
+    // Must not throw
+    let caught: unknown = null;
+    let resolved: unknown = "unset";
+    try {
+      resolved = await persistAndRegisterStage(
+        STAGE_DIR,
+        makeMetadata(),
+        mockOffloadManager,
+        makeRegisterInput(),
+      );
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeNull();
+    expect(resolved).toBeUndefined();
+  } finally {
+    warnSpy3.mockRestore();
   }
-  expect(caught).toBeNull();
-  expect(resolved).toBeUndefined();
 });
 
 // ─── 4. Headless skip ────────────────────────────────────────────────────────

@@ -34,6 +34,7 @@ import { NodeCard } from "./node-card.tsx";
 import { Edge } from "./edge.tsx";
 import { Header } from "./header.tsx";
 import { CompactSwitcher } from "./compact-switcher.tsx";
+import { ToastStack } from "./toast.tsx";
 import type { ViewMode } from "./orchestrator-panel-types.ts";
 
 /** Interval (ms) between pulse animation frames — ~60fps feel. */
@@ -499,16 +500,8 @@ export function SessionGraphPanel() {
       {/* Compact agent switcher overlay */}
       {switcherOpen ? <CompactSwitcher selectedIndex={switcherSel} /> : null}
 
-      {/* Toast notifications — RFC §5.5 */}
-      {store.toasts.length > 0 && (
-        <box position="absolute" bottom={1} right={1} flexDirection="column">
-          {store.toasts.slice(-3).map((t) => (
-            <box key={t.id} backgroundColor={theme.error} padding={1}>
-              <text><span fg="#ffffff">{t.message}</span></text>
-            </box>
-          ))}
-        </box>
-      )}
+      {/* Toast notifications — top-right, auto-dismiss (RFC §5.5) */}
+      <ToastStack />
     </box>
   );
 }

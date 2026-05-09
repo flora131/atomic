@@ -5,6 +5,18 @@ import type { SessionData, SessionStatus, PanelSession, ViewMode } from "./orche
 
 type Listener = () => void;
 
+export type ToastKind = "info" | "warning" | "error";
+
+export interface ToastEntry {
+  id: number;
+  message: string;
+  kind: ToastKind;
+  createdAt: number;
+}
+
+/** Default time-to-live for auto-dismissed toasts (ms). */
+export const TOAST_DEFAULT_TTL_MS = 5000;
+
 export class PanelStore {
   version = 0;
   workflowName = "";
@@ -26,8 +38,9 @@ export class PanelStore {
   activeAgentId = "";
 
   /** Active toast notifications. */
-  toasts: { id: number; message: string; createdAt: number }[] = [];
+  toasts: ToastEntry[] = [];
   private nextToastId = 1;
+  private toastTimers = new Map<number, ReturnType<typeof setTimeout>>();
 
   private listeners = new Set<Listener>();
 
@@ -164,17 +177,35 @@ export class PanelStore {
     this.emit();
   }
 
-  showToast(message: string): void {
-    this.toasts.push({ id: this.nextToastId++, message, createdAt: Date.now() });
+  /**
+   * Show a toast notification that auto-dismisses after `ttlMs`.
+   *
+   * Pass `ttlMs: 0` to disable auto-dismiss (caller owns the lifetime).
+   * The internal timer is `unref()`'d so it never blocks process exit.
+   */
+  showToast(message: string, kind: ToastKind = "error", ttlMs = TOAST_DEFAULT_TTL_MS): void {
+    const id = this.nextToastId++;
+    this.toasts.push({ id, message, kind, createdAt: Date.now() });
+    if (ttlMs > 0) {
+      const timer = setTimeout(() => this.dismissToast(id), ttlMs);
+      // Don't keep the event loop alive solely for a toast timeout.
+      const unref = (timer as { unref?: () => void }).unref;
+      if (typeof unref === "function") unref.call(timer);
+      this.toastTimers.set(id, timer);
+    }
     this.emit();
   }
 
   dismissToast(id: number): void {
     const idx = this.toasts.findIndex((t) => t.id === id);
-    if (idx >= 0) {
-      this.toasts.splice(idx, 1);
-      this.emit();
+    if (idx < 0) return;
+    this.toasts.splice(idx, 1);
+    const timer = this.toastTimers.get(id);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      this.toastTimers.delete(id);
     }
+    this.emit();
   }
 
   /** Safely invoke exitResolve at most once, guarding against rapid repeated calls. */

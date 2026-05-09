@@ -282,6 +282,8 @@ Render **CHEER**. Then close:
 
 > *"That's it. Workflows for ambiguous, complex, or long-running tasks. Skills for scoped work. Subagents under the hood. Questions, or you're set?"*
 > *"To come back: `/atomic what's new` for recent releases, `/atomic skills` or `/atomic workflows` to revisit a section."*
+>
+> *"**Get started inside Atomic today** — run the `deep-research-codebase` **workflow** (whole repo) or the `/research-codebase` **skill** (scoped slice) on a topic, then run the `ralph` **workflow** against the research file. Or if you have a workflow in mind, use the `/workflow-creator` **skill**. Go build!"*
 
 Write the completion state now: set `current: tour:complete` in `~/.atomic/tour-progress`. That's the only marker — future invocations see it and switch to "welcome back" mode.
 
@@ -361,6 +363,8 @@ Render **CHEER**. Then close:
 > *"Run `/atomic tour` for the 3-min walkthrough — you'll get a copy-pasteable `/workflow-creator` prompt for a two-pass PR review pipeline, the full 12-subagent roster so you can summon the right specialist directly when a workflow doesn't fit, and a fully worked `deep-research-codebase` → `ralph` example with real file paths."*
 >
 > *"Otherwise: `/atomic what's new` for recent releases, or `/atomic workflows`/`skills`/`subagents` to revisit a single section."*
+>
+> *"**Get started inside Atomic today** — run the `deep-research-codebase` **workflow** (whole repo) or the `/research-codebase` **skill** (scoped slice) on a topic, then run the `ralph` **workflow** against the research file. Or if you have a workflow in mind, use the `/workflow-creator` **skill**. Go build!"*
 
 Write the completion state: set `current: tour:complete-quick` in `~/.atomic/tour-progress`.
 

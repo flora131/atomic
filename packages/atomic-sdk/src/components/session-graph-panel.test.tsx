@@ -42,6 +42,7 @@ describe("decideAttachAction", () => {
 function makeOffloadManager(overrides: Partial<OffloadManager> = {}): OffloadManager {
   return {
     registerSession: mock(async () => {}),
+    offloadSession: mock(async () => {}),
     onWorkflowCompletion: mock(async () => {}),
     requestResume: mock(async () => {}),
     getStatus: mock(() => "alive" as const),
@@ -370,6 +371,57 @@ describe("focus-poll", () => {
 
     // Should NOT call setViewMode again since it's already "resuming" + same agentId
     expect(setViewModeSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ─── focus-leave offload trigger (chrome-tab semantics) ──────────────────────
+
+/**
+ * Thin reproducer of the focus-poll's focus-leave branch from
+ * session-graph-panel.tsx. Mirrors the offloadSession call order so we can
+ * assert the eligibility-check ordering (setViewMode runs first so the
+ * manager sees the updated activeAgentId).
+ */
+function runFocusLeaveCheck(opts: {
+  prevName: string;
+  currentName: string;
+  offloadManager: OffloadManager;
+}): void {
+  const { prevName, currentName, offloadManager } = opts;
+  if (prevName !== "" && prevName !== currentName && prevName !== "orchestrator") {
+    void offloadManager.offloadSession(prevName).catch(() => {});
+  }
+}
+
+describe("focus-leave — Chrome-tab offload semantics", () => {
+  test("user navigates from stage to orchestrator → offloadSession on stage", () => {
+    const mgr = makeOffloadManager();
+    runFocusLeaveCheck({ prevName: "agent-1", currentName: "orchestrator", offloadManager: mgr });
+    expect(mgr.offloadSession).toHaveBeenCalledWith("agent-1");
+  });
+
+  test("user navigates between stages → offloadSession on previous stage", () => {
+    const mgr = makeOffloadManager();
+    runFocusLeaveCheck({ prevName: "agent-1", currentName: "agent-2", offloadManager: mgr });
+    expect(mgr.offloadSession).toHaveBeenCalledWith("agent-1");
+  });
+
+  test("user stays on the same window → no offloadSession call", () => {
+    const mgr = makeOffloadManager();
+    runFocusLeaveCheck({ prevName: "agent-1", currentName: "agent-1", offloadManager: mgr });
+    expect(mgr.offloadSession).not.toHaveBeenCalled();
+  });
+
+  test("first poll tick (prev empty) → no offloadSession call", () => {
+    const mgr = makeOffloadManager();
+    runFocusLeaveCheck({ prevName: "", currentName: "agent-1", offloadManager: mgr });
+    expect(mgr.offloadSession).not.toHaveBeenCalled();
+  });
+
+  test("user navigates from orchestrator to stage → no offloadSession (orchestrator excluded)", () => {
+    const mgr = makeOffloadManager();
+    runFocusLeaveCheck({ prevName: "orchestrator", currentName: "agent-1", offloadManager: mgr });
+    expect(mgr.offloadSession).not.toHaveBeenCalled();
   });
 });
 

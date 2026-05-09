@@ -21,7 +21,7 @@
 
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { writeFile, access as fsAccess, stat as fsStat } from "node:fs/promises";
+import { writeFile, stat as fsStat } from "node:fs/promises";
 import { statSync, accessSync, constants as fsConstants } from "node:fs";
 import type {
   WorkflowDefinition,
@@ -2223,6 +2223,15 @@ function createSessionRunner(
         shared.panel.backgroundTaskFinished();
       } else {
         shared.panel.sessionSuccess(name);
+        // Per-stage offload: kill the tmux pane + agent CLI as soon as the
+        // stage callback resolves. Without this, idle agent CLIs from earlier
+        // stages accumulate memory until the entire workflow finishes.
+        // Wrapped so an offload failure can't block stage cleanup.
+        try {
+          await shared.offloadManager.offloadSession(name);
+        } catch (err) {
+          console.warn(`[offload] offloadSession failed for ${name}: ${errorMessage(err)}`);
+        }
       }
       const result: SessionResult = { name, sessionId, sessionDir, paneId };
       shared.completedRegistry.set(name, result);

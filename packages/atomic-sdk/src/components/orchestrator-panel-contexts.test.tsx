@@ -31,6 +31,7 @@ test("useOffloadManager returns value from OffloadManagerContext.Provider", () =
   // useOffloadManager returns it (white-box: hook is a thin useContext wrapper)
   const mockManager: OffloadManager = {
     registerSession: mock(async () => {}),
+    offloadSession: mock(async () => {}),
     onWorkflowCompletion: mock(async () => {}),
     requestResume: mock(async () => {}),
     getStatus: mock(() => "alive" as const),

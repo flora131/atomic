@@ -216,6 +216,12 @@ export interface OffloadManager {
     /** Effective merged chatFlags used at original spawn time. Persisted into the resume block. */
     chatFlags: string[];
   }): Promise<void>;
+  /**
+   * Offload a single stage as soon as its callback completes.
+   * No-op if the session is unknown, headless, not complete, or already offloaded.
+   * Idempotent — coalesces with `onWorkflowCompletion` via the per-name op queue.
+   */
+  offloadSession(name: string): Promise<void>;
   onWorkflowCompletion(): Promise<void>;
   requestResume(name: string): Promise<void>;
   getStatus(name: string): "alive" | "offloaded" | "resuming";
@@ -350,7 +356,7 @@ function buildResumeCommand(
     case "copilot":
       return ["copilot", ...deps.providers.copilot.buildResumeArgs(meta)];
     default:
-      throw new Error(`unsupported agent kind: ${sess.agent as string}`);
+      throw new Error(`unsupported agent kind: ${sess.agent}`);
   }
 }
 
@@ -401,7 +407,16 @@ export function createOffloadManager(deps: OffloadManagerDeps): OffloadManager {
     });
   }
 
-  /** True iff `sess` is eligible for offload right now. */
+  /**
+   * True iff `sess` is eligible for offload right now.
+   *
+   * Chrome-tab semantics: never offload the user's currently-focused pane.
+   * They're reading it. Offload fires when they navigate away (focus poller
+   * detects the transition) or at workflow completion for unfocused panes.
+   * Single-stage workflows: the user must navigate to the orchestrator
+   * window to release the only pane for offload — by design, the user
+   * controls when their active view goes dormant.
+   */
   function isEligibleForOffload(sess: RegisteredSession): boolean {
     if (sess.headless) return false;
     const { activeAgentId } = deps.panelStore;
@@ -462,10 +477,14 @@ export function createOffloadManager(deps: OffloadManagerDeps): OffloadManager {
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      const errorCode =
-        msg === "SCHEMA_MISMATCH" ? "SCHEMA_MISMATCH" :
-        msg.startsWith("RESUME_TIMEOUT_") ? "RESUME_TIMEOUT" :
-        "RESUME_FAILED";
+      let errorCode: "SCHEMA_MISMATCH" | "RESUME_TIMEOUT" | "RESUME_FAILED";
+      if (msg === "SCHEMA_MISMATCH") {
+        errorCode = "SCHEMA_MISMATCH";
+      } else if (msg.startsWith("RESUME_TIMEOUT_")) {
+        errorCode = "RESUME_TIMEOUT";
+      } else {
+        errorCode = "RESUME_FAILED";
+      }
 
       // Best-effort tmux rollback: kill the newly-created window if it exists.
       if (windowCreated) {
@@ -526,8 +545,20 @@ export function createOffloadManager(deps: OffloadManagerDeps): OffloadManager {
       return sessions.get(name)?.state ?? "alive";
     },
 
+    async offloadSession(name: string): Promise<void> {
+      const sess = sessions.get(name);
+      if (!sess) return;
+      if (sess.state !== "alive") return;
+      if (!isEligibleForOffload(sess)) return;
+      return getOrStartOp(name, () => killOnePane(sess));
+    },
+
     async onWorkflowCompletion(): Promise<void> {
-      const eligible = Array.from(sessions.values()).filter(isEligibleForOffload);
+      // Filter to sessions still alive — per-stage offload may have already
+      // killed most/all of them. Workflow completion is the final sweep.
+      const eligible = Array.from(sessions.values()).filter(
+        (sess) => sess.state === "alive" && isEligibleForOffload(sess),
+      );
 
       deps.emit(WORKFLOW_OFFLOAD_SCHEDULED, {
         runId: eligible[0]?.runId ?? "",

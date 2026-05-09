@@ -49,6 +49,7 @@ function makeStubRenderer(): CliRenderer {
 function makeStubOffloadManager(): OffloadManager {
   return {
     registerSession: mock(async () => {}),
+    offloadSession: mock(async () => {}),
     onWorkflowCompletion: mock(async () => {}),
     requestResume: mock(async () => {}),
     getStatus: mock(() => "alive" as const),

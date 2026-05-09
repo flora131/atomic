@@ -154,10 +154,15 @@ describe("onWorkflowCompletion: filter logic", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // 2. onWorkflowCompletion skips active session
+  // 2. onWorkflowCompletion skips the user's currently-focused pane
+  //
+  // Chrome-tab semantics: never offload the pane the user is reading. They
+  // must navigate away before the focus poller fires offloadSession, or
+  // workflow teardown reaps the pane. Single-stage workflows offload only
+  // after the user returns to the orchestrator window.
   // ---------------------------------------------------------------------------
 
-  test("skips active session (panelStore.activeAgentId matches name)", async () => {
+  test("skips focused session (panelStore.activeAgentId matches name)", async () => {
     const { deps, panelStore, stageDir } = makeTestDeps();
     panelStore.activeAgentId = "review";
     panelStore.sessions = [{ name: "review", status: "complete", parents: [], startedAt: null, endedAt: null }];
@@ -167,6 +172,40 @@ describe("onWorkflowCompletion: filter logic", () => {
     await mgr.onWorkflowCompletion();
 
     expect(deps.tmux.killWindow).not.toHaveBeenCalled();
+    expect(panelStore.setSessionStatus).not.toHaveBeenCalledWith("review", "offloaded");
+  });
+
+  test("offloadSession skips focused session", async () => {
+    const { deps, panelStore, stageDir } = makeTestDeps();
+    panelStore.activeAgentId = "review";
+    panelStore.sessions = [{ name: "review", status: "complete", parents: [], startedAt: null, endedAt: null }];
+    const mgr = createOffloadManager(deps);
+    await mgr.registerSession(makeSessionInput("review", stageDir));
+
+    await mgr.offloadSession("review");
+
+    expect(deps.tmux.killWindow).not.toHaveBeenCalled();
+    expect(mgr.getStatus("review")).toBe("alive");
+  });
+
+  test("offloadSession offloads after user navigates away (activeAgentId changes)", async () => {
+    const { deps, panelStore, stageDir } = makeTestDeps();
+    panelStore.activeAgentId = "review";
+    panelStore.sessions = [{ name: "review", status: "complete", parents: [], startedAt: null, endedAt: null }];
+    const mgr = createOffloadManager(deps);
+    await mgr.registerSession(makeSessionInput("review", stageDir));
+
+    // First call: user is still on the pane → skipped.
+    await mgr.offloadSession("review");
+    expect(deps.tmux.killWindow).not.toHaveBeenCalled();
+
+    // User navigates away — focus poller updates activeAgentId.
+    panelStore.activeAgentId = "";
+
+    // Second call: pane now eligible → offloaded.
+    await mgr.offloadSession("review");
+    expect(deps.tmux.killWindow).toHaveBeenCalledTimes(1);
+    expect(mgr.getStatus("review")).toBe("offloaded");
   });
 
   // ---------------------------------------------------------------------------
@@ -232,6 +271,69 @@ describe("onWorkflowCompletion: filter logic", () => {
     // Fire both concurrently — getOrStartOp should dedup
     await Promise.all([mgr.onWorkflowCompletion(), mgr.onWorkflowCompletion()]);
 
+    expect(deps.tmux.killWindow).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5b. offloadSession — per-stage offload triggered as each stage completes
+// ---------------------------------------------------------------------------
+
+describe("offloadSession: per-stage offload", () => {
+  test("offloads a single completed stage immediately", async () => {
+    const { deps, panelStore, stageDir } = makeTestDeps();
+    panelStore.sessions = [{ name: "describe", status: "complete", parents: [], startedAt: null, endedAt: null }];
+    const mgr = createOffloadManager(deps);
+    await mgr.registerSession(makeSessionInput("describe", stageDir));
+
+    await mgr.offloadSession("describe");
+
+    expect(deps.tmux.killWindow).toHaveBeenCalledTimes(1);
+    expect(deps.tmux.killWindow).toHaveBeenCalledWith(TMUX_SESSION, "describe");
+    expect(panelStore.setSessionStatus).toHaveBeenCalledWith("describe", "offloaded");
+    expect(mgr.getStatus("describe")).toBe("offloaded");
+  });
+
+  test("no-op for unknown session", async () => {
+    const { deps } = makeTestDeps();
+    const mgr = createOffloadManager(deps);
+    await mgr.offloadSession("does-not-exist");
+    expect(deps.tmux.killWindow).not.toHaveBeenCalled();
+  });
+
+  test("no-op for headless session", async () => {
+    const { deps, panelStore, stageDir } = makeTestDeps();
+    panelStore.sessions = [{ name: "bg", status: "complete", parents: [], startedAt: null, endedAt: null }];
+    const mgr = createOffloadManager(deps);
+    await mgr.registerSession(makeSessionInput("bg", stageDir, { headless: true }));
+
+    await mgr.offloadSession("bg");
+
+    expect(deps.tmux.killWindow).not.toHaveBeenCalled();
+  });
+
+  test("no-op when already offloaded (idempotent)", async () => {
+    const { deps, panelStore, stageDir } = makeTestDeps();
+    panelStore.sessions = [{ name: "describe", status: "complete", parents: [], startedAt: null, endedAt: null }];
+    const mgr = createOffloadManager(deps);
+    await mgr.registerSession(makeSessionInput("describe", stageDir));
+
+    await mgr.offloadSession("describe");
+    await mgr.offloadSession("describe");
+
+    expect(deps.tmux.killWindow).toHaveBeenCalledTimes(1);
+  });
+
+  test("subsequent onWorkflowCompletion skips already-offloaded sessions", async () => {
+    const { deps, panelStore, stageDir } = makeTestDeps();
+    panelStore.sessions = [{ name: "describe", status: "complete", parents: [], startedAt: null, endedAt: null }];
+    const mgr = createOffloadManager(deps);
+    await mgr.registerSession(makeSessionInput("describe", stageDir));
+
+    await mgr.offloadSession("describe");
+    await mgr.onWorkflowCompletion();
+
+    // Killed exactly once across both calls.
     expect(deps.tmux.killWindow).toHaveBeenCalledTimes(1);
   });
 });

@@ -389,6 +389,11 @@ export function SessionGraphPanel() {
     [storeVersion],
   );
 
+  // Last logical window the user was focused on, tracked across poll ticks
+  // so we can detect focus-leave transitions and fire offload on the pane
+  // they just exited (Chrome-tab semantics — RFC §5.5 R4).
+  const prevActiveRef = useRef<string>("");
+
   useEffect(() => {
     if (!hasStartedAgent) return;
 
@@ -403,6 +408,14 @@ export function SessionGraphPanel() {
       const idx = spaceIdx >= 0 ? output.slice(0, spaceIdx) : output;
       const windowName = spaceIdx >= 0 ? output.slice(spaceIdx + 1) : "";
 
+      // Logical name: window index 0 is always the orchestrator regardless
+      // of its tmux window name.
+      const currentName = idx === "0" ? "orchestrator" : windowName;
+
+      // Update viewMode FIRST so offloadSession (called below) reads the
+      // already-updated activeAgentId. Without this ordering, the focus
+      // guard inside isEligibleForOffload would see the stale prev name
+      // and skip the offload.
       if (idx === "0") {
         if (store.viewMode !== "graph") {
           store.setViewMode("graph");
@@ -424,6 +437,17 @@ export function SessionGraphPanel() {
           });
         }
       }
+
+      // Focus-leave: user just navigated AWAY from a stage pane. Offload it
+      // if eligible (non-headless, status === "complete"). The manager's own
+      // eligibility check filters out running/headless/already-offloaded
+      // sessions, so we can fire unconditionally.
+      const prevName = prevActiveRef.current;
+      if (prevName !== "" && prevName !== currentName && prevName !== "orchestrator") {
+        void offloadManager.offloadSession(prevName).catch(() => {});
+      }
+
+      prevActiveRef.current = currentName;
     };
 
     const id = setInterval(check, 500);

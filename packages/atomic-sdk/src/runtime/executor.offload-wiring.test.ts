@@ -92,6 +92,7 @@ test("§5.2.4 invariant 1 — Bun.write(metadata.json) is called BEFORE register
     registerSession: mock(async () => {
       calls.push(`register:${++order}`);
     }),
+    offloadSession: mock(async () => {}),
     onWorkflowCompletion: mock(async () => {}),
     requestResume: mock(async () => {}),
     getStatus: mock(() => "alive" as const),
@@ -123,6 +124,7 @@ test("§5.2.4 invariant 1 — Bun.write path ends with metadata.json", async () 
 
   const mockOffloadManager: OffloadManager = {
     registerSession: mock(async () => {}),
+    offloadSession: mock(async () => {}),
     onWorkflowCompletion: mock(async () => {}),
     requestResume: mock(async () => {}),
     getStatus: mock(() => "alive" as const),
@@ -156,6 +158,7 @@ test("§5.2.4 invariant 2 — registerSession is fully awaited before persistAnd
 
   const mockOffloadManager: OffloadManager = {
     registerSession: mock(delayedRegisterSession),
+    offloadSession: mock(async () => {}),
     onWorkflowCompletion: mock(async () => {}),
     requestResume: mock(async () => {}),
     getStatus: mock(() => "alive" as const),
@@ -196,6 +199,7 @@ test("§5.2.4 invariant 3 — rejected registerSession is swallowed and console.
   const errorMsg = "metadata.json not found at /tmp/foo";
   const mockOffloadManager: OffloadManager = {
     registerSession: mock(() => Promise.reject(new Error(errorMsg))),
+    offloadSession: mock(async () => {}),
     onWorkflowCompletion: mock(async () => {}),
     requestResume: mock(async () => {}),
     getStatus: mock(() => "alive" as const),
@@ -234,6 +238,7 @@ test("§5.2.4 invariant 3 — registerSession rejection does not bubble as throw
 
   const mockOffloadManager: OffloadManager = {
     registerSession: mock(() => Promise.reject(new Error("boom"))),
+    offloadSession: mock(async () => {}),
     onWorkflowCompletion: mock(async () => {}),
     requestResume: mock(async () => {}),
     getStatus: mock(() => "alive" as const),
@@ -272,6 +277,7 @@ test("§5.2.4 invariant 4 — headless:true still awaits registerSession fully",
 
   const mockOffloadManager: OffloadManager = {
     registerSession: mock(delayedRegisterSession),
+    offloadSession: mock(async () => {}),
     onWorkflowCompletion: mock(async () => {}),
     requestResume: mock(async () => {}),
     getStatus: mock(() => "alive" as const),
@@ -317,6 +323,7 @@ test("§5.2.4 invariant 4 — headless:true: Bun.write still called before regis
     registerSession: mock(async () => {
       calls.push(`register:${++order}`);
     }),
+    offloadSession: mock(async () => {}),
     onWorkflowCompletion: mock(async () => {}),
     requestResume: mock(async () => {}),
     getStatus: mock(() => "alive" as const),

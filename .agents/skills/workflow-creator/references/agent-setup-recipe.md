@@ -260,10 +260,13 @@ Common Mode-1 broken-entry causes — these all surface from the model's edits t
 
 The SDK ships pure primitives, not a CLI wrapper. The user composes them into whatever CLI library they prefer. Default to Commander unless they say otherwise.
 
+The standalone-cli scaffold (Step 3) produces a `<name>/mycli.ts` already wired to this exact pattern — a Commander tree, `getInputSchema(wf)` mounted as `--<flag>` options, and a `runWorkflow` action. The templates below show the same pattern in two layouts: the scaffolded one (`<name>/mycli.ts` at project root) and the legacy `src/`-rooted layout (used by some `examples/`).
+
 #### Single workflow worker
 
 ```ts
-// src/<agent>-worker.ts
+// Scaffolded layout: <name>/mycli.ts (at project root, from bun create --template=standalone-cli)
+// Legacy layout:    src/<agent>-worker.ts
 import { Command } from "@commander-js/extra-typings";
 import {
   getInputSchema,
@@ -271,6 +274,8 @@ import {
   MissingDependencyError,
   SessionNotFoundError,
 } from "@bastani/atomic-sdk/workflows";
+// Scaffolded layout imports from ./workflows/<wf>.ts;
+// legacy layout imports from ./workflows/<name>/<agent>.ts.
 import workflow from "./workflows/<name>/<agent>.ts";
 
 const program = new Command();
@@ -298,7 +303,8 @@ The typed-error catch is small but it pays for itself the first time `tmux` is m
 When the user picks "multiple workflows, one CLI", swap the worker for a registry-driven composition root:
 
 ```ts
-// src/cli.ts
+// Scaffolded layout: <name>/mycli.ts (replace the static `import hello` with a registry)
+// Legacy layout:    src/cli.ts
 import { Command } from "@commander-js/extra-typings";
 import {
   createRegistry,
@@ -366,7 +372,9 @@ If `refresh` reports the workflow as `BROKEN`, fix the issue surfaced in the `fi
 **Mode 2:**
 
 ```bash
-bun run src/<agent>-worker.ts --prompt "Reply with the single word 'ok'"
+bun run mycli.ts --prompt "Reply with the single word 'ok'"             # scaffolded layout
+# or
+bun run src/<agent>-worker.ts --prompt "Reply with the single word 'ok'" # legacy src/-rooted layout
 ```
 
 Three things to verify:
@@ -378,7 +386,8 @@ Three things to verify:
 After the attached run works, demonstrate the detached path:
 
 ```bash
-bun run src/<agent>-worker.ts --prompt "..." # then in your worker, set detach: true once the user wants it
+bun run mycli.ts --prompt "..."             # then set detach: true in the worker once the user wants it
+# or for the legacy layout: bun run src/<agent>-worker.ts --prompt "..."
 ```
 
 For a worker that supports both, expose `--detach` as a Commander flag and pass `detach: true` to `runWorkflow`. Sessions started detached show up in `atomic session list` (and via `listSessions({ scope: "workflow" })` from your own CLI) — they keep running on the shared `atomic` tmux socket regardless of the terminal.

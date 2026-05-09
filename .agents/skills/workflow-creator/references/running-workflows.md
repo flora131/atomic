@@ -30,27 +30,53 @@ roots. Two shapes exist — pick based on what the file calls:
 - **Multi-workflow CLI** (`createRegistry()` + `listWorkflows`) —
   a single file that registers many workflows and mounts one Commander
   subcommand per workflow. The subcommand name is the workflow name; each
-  subcommand's options are the workflow's declared inputs.
+  subcommand's options are the workflow's declared inputs. Entry-file
+  shape depends on layout: scaffolded standalone-cli uses
+  `<name>/mycli.ts`, the legacy `src/`-rooted layout uses `src/cli.ts`.
 
   ```bash
+  # Scaffolded layout (bun create --template=standalone-cli):
+  bun run mycli.ts <workflow-name> --<field>=<value>
+  # Legacy layout:
   bun run src/cli.ts <workflow-name> --<field>=<value>
   bun run src/cli.ts <workflow-name> "<prompt>"       # if the subcommand wires [prompt...]
   ```
 
 **Path B — repo-shipped examples.** Inside the Atomic repo each example
-directory ships one worker file per agent (`claude-worker.ts`,
-`copilot-worker.ts`, `opencode-worker.ts`). Each is a Commander entrypoint
-built with `getInputSchema(wf)`:
+directory ships a Commander entrypoint built with `getInputSchema(wf)`.
+Three entry-file shapes show up; pick the one that matches:
 
 ```bash
-bun run examples/<name>/claude-worker.ts --<field>=<value>
-bun run examples/<name>/copilot-worker.ts "<prompt>"    # if the worker wires [prompt...]
+# Shape 1 — per-agent worker files (most pattern demos):
+bun run examples/<name>/<agent>-worker.ts --<field>=<value>
+bun run examples/<name>/<agent>-worker.ts "<prompt>"    # if the worker wires [prompt...]
+
+# Shape 2 — single cli.ts that spans multiple workflows or commands:
+bun run examples/<name>/cli.ts <subcommand> --<field>=<value>
+
+# Shape 3 — single mycli.ts (the scaffolded standalone-cli output):
+bun run examples/<name>/mycli.ts <subcommand> --<field>=<value>
+
+# Shape 4 — single index.ts (Mode-1 atomic-managed shape, not directly run):
+bunx examples/<name>/index.ts                             # custom-workflow-bunx only
 ```
 
-Available examples: `hello-world`, `parallel-hello-world`, `headless-test`,
-`hil-favorite-color`, `hil-favorite-color-headless`, `structured-output-demo`,
-`reviewer-tool-test` (copilot only). Use these to demonstrate a specific SDK
-feature or as a copy-paste starting point.
+Available examples by shape:
+
+- **Per-agent workers** (`<agent>-worker.ts`): `hello-world`,
+  `parallel-hello-world`, `headless-test`, `hil-favorite-color`,
+  `hil-favorite-color-headless`, `structured-output-demo`,
+  `reviewer-tool-test` (copilot only), `review-fix-loop`,
+  `sequential-describe-summarize`, `claude-background-subagents`.
+- **Single `cli.ts`**: `commander-embed`, `multi-workflow`,
+  `pane-navigation`.
+- **Single `mycli.ts`**: `compiled-cli` (snapshot of `bun create
+  @bastani/atomic-cli --template=standalone-cli`).
+- **Single `index.ts`** (Mode 1): `custom-workflow-bunx` (registered
+  via `settings.json`, invoked through `atomic workflow -n`).
+
+Use these to demonstrate a specific SDK feature or as a copy-paste
+starting point.
 
 **Path C — atomic builtins.** Workflows shipped inside `@bastani/atomic-sdk`
 and registered via `createBuiltinRegistry()` inside the `atomic` CLI:
@@ -70,11 +96,13 @@ the command to return after spawning the workflow.
 
 1. Is the name one of the three builtins (`ralph`, `deep-research-codebase`,
    `open-claude-design`)? → **Path C** (`atomic workflow`).
-2. Does `examples/<name>/<agent>-worker.ts` exist in the current repo? →
-   **Path B** (`bun run examples/<name>/<agent>-worker.ts`).
-3. Does a composition root exist in `src/` (single-workflow
-   `runWorkflow({ workflow })` file, or a cli `createRegistry()` + `listWorkflows`
-   file)? → **Path A**.
+2. Does an example directory match (any of `examples/<name>/<agent>-worker.ts`,
+   `examples/<name>/cli.ts`, or `examples/<name>/mycli.ts`)? →
+   **Path B** (run the matching entry).
+3. Does a composition root exist in the project (any of: `mycli.ts` at
+   the project root from a `bun create --template=standalone-cli`
+   scaffold, `cli.ts`, `src/cli.ts`, or `src/<agent>-worker.ts` for the
+   legacy `src/`-rooted layout)? → **Path A**.
 4. None of the above → the workflow doesn't exist. Offer to author it
    (see below).
 

@@ -27,7 +27,7 @@ import {
 import { respawnPane } from "../runtime/tmux.ts";
 import type { OffloadResumeMetadata } from "../runtime/offload-types.ts";
 import { escBash } from "../runtime/executor.ts";
-import { watch, unlink, mkdir, writeFile } from "node:fs/promises";
+import { watch, unlink, mkdir, rm, writeFile } from "node:fs/promises";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { getDevCliPkgRoot } from "../lib/workspace-paths.ts";
@@ -251,7 +251,11 @@ const WORKFLOW_HOOK_SETTINGS = JSON.stringify({
   hooks: {
     SessionStart: [
       {
-        matcher: "startup",
+        // Match both fresh starts AND `--resume` so `claude-ready/<id>` is
+        // written for both spawn paths. Without `resume`, offload→resume
+        // hangs `waitForClaudeReady` until its timeout because the hook
+        // never fires after `claude --resume <id>`.
+        matcher: "startup|resume",
         hooks: [
           {
             type: "command",
@@ -480,7 +484,7 @@ export function ensureWorkflowHookSettings(): string {
  * `~/.atomic/claude-ready/<session_id>`.
  *
  * `atomic _claude-session-start-hook` is registered in
- * {@link WORKFLOW_HOOK_SETTINGS} with matcher `startup`; the Claude CLI
+ * {@link WORKFLOW_HOOK_SETTINGS} with matcher `startup|resume`; the Claude CLI
  * dispatches it during spawn, before the first API call and before the JSONL
  * transcript is created. Waiting on the resulting marker file gives us a
  * positive "Claude is alive" signal instead of racing the transcript writer.
@@ -1509,7 +1513,6 @@ export async function claudeOffloadCleanup(
     };
   }
 
-  const { rm: rmFs } = await import("node:fs/promises");
   const dirs = _dirs ?? claudeHookDirs();
 
   const tryUnlink = async (filePath: string): Promise<boolean> => {
@@ -1527,7 +1530,7 @@ export async function claudeOffloadCleanup(
 
   const tryRmRecursive = async (dirPath: string): Promise<boolean> => {
     try {
-      await rmFs(dirPath, { recursive: true, force: true });
+      await rm(dirPath, { recursive: true, force: true });
       return true;
     } catch (e: unknown) {
       if (e instanceof Error && "code" in e && (e as NodeJS.ErrnoException).code === "ENOENT") {

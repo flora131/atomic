@@ -129,6 +129,12 @@ function walkWithIgnore(root: string): string[] {
  *      for the universal-ignore baseline (`node_modules`, `.git`, etc.).
  */
 export function listAllFiles(root: string): string[] {
+  // Strip ambient GIT_* env vars (set by hooks like pre-push) so the child
+  // `git` walks `root`'s repo, not whatever GIT_DIR the parent inherited.
+  const childEnv = Object.fromEntries(
+    Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_")),
+  );
+
   // Bun.spawnSync throws (rather than returning success:false) when the
   // executable is missing from PATH, so each branch is wrapped in try/catch
   // and falls through to the next discovery strategy on error.
@@ -136,6 +142,7 @@ export function listAllFiles(root: string): string[] {
     const git = Bun.spawnSync({
       cmd: ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
       cwd: root,
+      env: childEnv,
       stdout: "pipe",
       stderr: "pipe",
     });
@@ -148,6 +155,7 @@ export function listAllFiles(root: string): string[] {
     const rg = Bun.spawnSync({
       cmd: ["rg", "--files", "--hidden"],
       cwd: root,
+      env: childEnv,
       stdout: "pipe",
       stderr: "pipe",
     });

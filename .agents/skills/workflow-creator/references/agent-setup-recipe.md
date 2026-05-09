@@ -4,10 +4,10 @@ A deterministic recipe for getting a user from "empty terminal" to "first workfl
 
 ## Pick the mode first (see SKILL.md §"Custom workflow modes")
 
-Two distinct setup tracks share Steps 1–3, then branch at Step 4:
+Two distinct setup tracks share Steps 1–2, then branch at Step 3 by which `bun create --template` flag you pass. The branch carries through Steps 4 and 5 with mode-specific sub-sections (e.g. **Step 4-Mode1**, **Step 5-Mode1**).
 
-- **Mode 1 — Atomic-managed.** The default. Workflow lives in `.atomic/workflows/<name>/` (project) or `~/.atomic/workflows/<name>/` (global) as a self-contained Bun package, registered in `settings.json`, invoked via `atomic workflow -n <name>`. Branch to **Step 4-Mode1** and **Step 5-Mode1**.
-- **Mode 2 — Dev-owned CLI.** Workflow lives in `<repo>/src/workflows/<name>/<agent>.ts` with a Commander composition root in `<repo>/src/<agent>-worker.ts`. Branch to **Step 4-Mode2** and **Step 5-Mode2**.
+- **Mode 1 — Atomic-managed.** The default. Workflow lives in `.atomic/workflows/<name>/` (project) or `~/.atomic/workflows/<name>/` (global) as a self-contained Bun package, registered in `settings.json`, invoked via `atomic workflow -n <name>`. Step 3: `--template=atomic-workflow`. Then continue at **Step 4-Mode1** + **Step 5-Mode1**.
+- **Mode 2 — Dev-owned CLI.** Workflow lives in `<name>/workflows/<wf>.ts` with a Commander composition root in `<name>/mycli.ts`. Step 3: `--template=standalone-cli`. Then continue at **Step 4-Mode2** + **Step 5-Mode2**.
 - **Combined.** Author as Mode 2 but call `await hostLocalWorkflows([wf])` *before* the `program.parseAsync()` so the file is also discoverable by `atomic workflow`.
 
 If the user does not specify, **default to Mode 1**. Confirm in one short question only when the wording is ambiguous (e.g. user says "a workflow I can reuse across projects" — that's a global Mode 1, not project-local).
@@ -52,8 +52,8 @@ If the user is on a devcontainer with `ghcr.io/flora131/atomic/<agent>:1` in `.d
 Ask the user which agent they're targeting and whether they want one or multiple. The answer drives steps 4 and 5.
 
 - **One agent** → scaffold one `<agent>.ts` workflow file + one `<agent>-worker.ts` composition root. This is the 90% case; recommend it unless the user pushes back.
-- **Multiple agents, same workflow logic** → scaffold one workflow file per agent under `src/workflows/<name>/` plus a single `src/cli.ts` that uses `createRegistry()` to dispatch.
-- **Multiple workflows, one agent** → scaffold each workflow under `src/workflows/<name>/` and either ship multiple worker files or use the registry pattern.
+- **Multiple agents, same workflow logic** → scaffold one workflow file per agent under `workflows/<name>/` plus a single `mycli.ts` (or `cli.ts`) that uses `createRegistry()` to dispatch.
+- **Multiple workflows, one agent** → scaffold each workflow under `workflows/<name>/` and either ship multiple worker files or use the registry pattern.
 
 Don't guess. Use `AskUserQuestion` (or the equivalent) when intent is unclear — picking wrong here means rewriting 100% of the scaffold.
 
@@ -158,7 +158,7 @@ Mode 2 typically wants one file per agent under `workflows/<name>/<agent>.ts` an
 #### Claude template
 
 ```ts
-// src/workflows/<name>/claude.ts
+// workflows/<name>/claude.ts
 import { defineWorkflow } from "@bastani/atomic-sdk/workflows";
 
 export default defineWorkflow({
@@ -403,7 +403,7 @@ Once the smoke test passes, the user owns the project. Tell them:
 
 - **Where the workflow lives** —
     - Mode 1: `.atomic/workflows/<name>/index.ts` (project) or `~/.atomic/workflows/<name>/index.ts` (global). Edits there change the pipeline shape.
-    - Mode 2: `src/workflows/<name>/<agent>.ts`. Edits there change the pipeline shape.
+    - Mode 2: `<name>/workflows/<wf>.ts` (the scaffolded standalone-cli layout) or `src/workflows/<name>/<agent>.ts` (the legacy `src/`-rooted layout used by some `examples/`). Edits there change the pipeline shape.
 - **Where the entry point lives** —
     - Mode 1: `.atomic/settings.json` (or `~/.atomic/settings.json`). Edits there change which workflows the `atomic` CLI registers — run `atomic workflow refresh` after any settings.json edit to surface broken-entry diagnostics immediately.
     - Mode 2: `src/<agent>-worker.ts` (or `src/cli.ts` for the registry shape). Edits there change the user-facing flag surface.
@@ -441,4 +441,4 @@ bun add @opencode-ai/sdk                   # only if OpenCode
 bun add @commander-js/extra-typings        # for the worker; swap for citty/yargs if the user prefers
 ```
 
-Write `src/workflows/<name>/<agent>.ts` from the Step 4-Mode2 template above and the composition root from the Step 5-Mode2 templates. The standalone-cli template the scaffold ships also writes a `build.ts` for `bun build --compile` — replicate it from [`examples/compiled-cli/build.ts`](https://github.com/flora131/atomic/tree/main/examples/compiled-cli) if you want single-binary distribution.
+Write `workflows/<wf>.ts` (or `src/workflows/<name>/<agent>.ts` if you prefer the legacy `src/`-rooted layout) from the Step 4-Mode2 template above and the composition root (`mycli.ts` or `src/<agent>-worker.ts`) from the Step 5-Mode2 templates. The standalone-cli template the scaffold ships also writes a `build.ts` for `bun build --compile` — replicate it from [`examples/compiled-cli/build.ts`](https://github.com/flora131/atomic/tree/main/examples/compiled-cli) if you want single-binary distribution.

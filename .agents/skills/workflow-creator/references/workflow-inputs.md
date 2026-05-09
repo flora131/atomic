@@ -54,8 +54,7 @@ workflow concern.
 they do not auto-register CLI flags. It is the developer's responsibility to
 wire flags using whatever CLI library they prefer. The canonical pattern is to
 iterate `getInputSchema(wf)` and call `.option(--<name> <value>)` for each
-declared input. See §"Scaffold a new workflow from scratch" in `SKILL.md` for
-the full template.
+declared input. See §"Composition root" in `SKILL.md` for the full template.
 
 The atomic CLI builds its own per-input flags internally by iterating
 `getInputSchema(wf)` when the user passes `-n <name> -a <agent>`. That is

@@ -64,7 +64,7 @@ For runnable reference workflows across both modes, study the in-repo examples f
 
 ### Mode 1 — Atomic-managed (project: `.atomic/workflows/<name>/`)
 
-Use this when the user wants a workflow that integrates with `atomic workflow` (list, picker, status, refresh). The detailed playbook lives in `references/agent-setup-recipe.md` §"Mode 1 setup". Shape:
+Use this when the user wants a workflow that integrates with `atomic workflow` (list, picker, status, refresh). The detailed playbook lives in `references/agent-setup-recipe.md` (§"Step 3 — Scaffold via `bun create`" through §"Step 5-Mode1 — Refresh and verify"). Shape:
 
 ```
 <repo>/
@@ -181,7 +181,7 @@ That generates `<cwd>/<name>/` with this shape — ready to compile into a singl
 └── README.md
 ```
 
-Edit `workflows/hello.ts` (or rename + add more files under `workflows/`) and `mycli.ts` to mount your real workflow. The entry point is `runWorkflow({ workflow, inputs })` inside the Commander action — already wired by the scaffold. Detailed playbook with the multi-agent and registry variants: `references/agent-setup-recipe.md` §"Mode 2 setup".
+Edit `workflows/hello.ts` (or rename + add more files under `workflows/`) and `mycli.ts` to mount your real workflow. The entry point is `runWorkflow({ workflow, inputs })` inside the Commander action — already wired by the scaffold. Detailed playbook with the multi-agent and registry variants: `references/agent-setup-recipe.md` (§"Step 3 — Scaffold via `bun create`" through §"Step 5-Mode2 — Composition root with Commander").
 
 The when-in-doubt rules within Mode 2:
 
@@ -705,31 +705,41 @@ caveats.
   `bun run examples/<name>/<agent>-worker.ts --<field>=<value>` (or a
   positional prompt string if the worker declares `[prompt...]`).
   Covers: `hello-world`, `sequential-describe-summarize`,
-  `parallel-hello-world`, `headless-test`, `hil-favorite-color`,
+  `parallel-hello-world`, `headless-test`, `claude-background-subagents`
+  (background subagents + in-flight gating), `hil-favorite-color`,
   `hil-favorite-color-headless`, `structured-output-demo`,
   `reviewer-tool-test` (copilot only), `review-fix-loop`,
   `multi-workflow`, `commander-embed`, `pane-navigation` (driver CLI for
-  the navigation primitives), and `custom-workflow-bunx` (Mode-1 entry
+  the navigation primitives), `custom-workflow-bunx` (Mode-1 entry
   shape — single file ending in `await hostLocalWorkflows([wf])`,
-  registered as a `workflows.<alias>` entry in `settings.json`).
+  registered as a `workflows.<alias>` entry in `settings.json`), and
+  `compiled-cli` (snapshot of `bun create @bastani/atomic-cli
+  --template=standalone-cli` — the canonical shape for a single-binary
+  third-party CLI).
 
 Both sets demonstrate shared helpers, context-aware prompt building,
 deterministic heuristics, and cross-SDK adaptation.
 
 ### 6. Wire, typecheck, run
 
-The composition root is always three lines (see §"Scaffold a new workflow from scratch" above for the exact template and multi-workflow variant). After writing it:
+The composition root is always three lines (see §"Composition root" above for the exact template and multi-workflow variant). After writing it, run typecheck + a smoke invocation. The exact path depends on the layout:
+
+- **Scaffolded standalone-cli** (`bun create --template=standalone-cli`): root is `<name>/mycli.ts`.
+- **Legacy `src/`-rooted layout** (used by some `examples/`): root is `src/<agent>-worker.ts`.
 
 ```bash
 bun typecheck
-bun run src/<agent>-worker.ts --prompt "<test task>"
+bun run mycli.ts --prompt "<test task>"             # scaffolded layout
+# or
+bun run src/<agent>-worker.ts --prompt "<test task>" # legacy src/-rooted layout
 ```
 
 Other invocation shapes you may want to demonstrate to the user once the workflow runs:
 
 ```bash
 # Single-workflow worker — flags match the workflow's declared inputs
-bun run src/<agent>-worker.ts --<field>=<value>             # structured inputs
+bun run mycli.ts --<field>=<value>                          # scaffolded layout
+bun run src/<agent>-worker.ts --<field>=<value>             # legacy layout
 bun run src/<agent>-worker.ts "free-form prompt text"       # positional fallback (if wired)
 
 # Multi-workflow CLI — one subcommand per workflow

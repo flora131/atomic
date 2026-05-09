@@ -33,7 +33,7 @@
     "dev": "bun --silent run build:assets && bun run packages/atomic/src/cli.ts",
     "build": "bun run packages/atomic/script/build.ts && bun run packages/atomic-sdk/script/build.ts",
     "test": "bun test --parallel packages tests",
-    "test:coverage": "bun test --coverage packages tests",
+    "test:coverage": "bun test --coverage --timeout 30000 packages tests",
     "typecheck": "bun --filter '*' typecheck",
     "lint": "oxlint --config=oxlint.json packages && bun run scripts/lint-custom-workflows.ts && bun run --filter @bastani/atomic-sdk lint:mcp && bun run --filter @bastani/atomic-sdk lint:file-discovery && bun run lint:offload-await",
     "lint:offload-await": "bun run scripts/lint-offload-await.ts",

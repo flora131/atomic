@@ -62,6 +62,25 @@ describe("resolveWorkflowDefinition", () => {
     expect(caught).toBeInstanceOf(InvalidWorkflowError);
   });
 
+  test("wraps OpenTUI resolve failure with external @opentui/core hint", async () => {
+    let caught: unknown;
+    try {
+      await resolveWorkflowDefinition(
+        join(FIXTURE_DIR, "missing-opentui-plugin.ts"),
+        "anything",
+        "claude",
+      );
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeInstanceOf(Error);
+    const msg = (caught as Error).message;
+    expect(msg).toContain("externalizing @opentui/core");
+    expect(msg).toContain('"@opentui/core-linux-x64"');
+    expect((caught as Error).cause).toBeDefined();
+  });
+
   test("empty workflowName skips registry lookup and uses mod.default directly", async () => {
     // Empty `workflowName` is the back-compat shape — older atomic CLIs
     // emit only `<agent> <inputsB64> <source>`. Resolution must still

@@ -34,6 +34,24 @@ function isWorkflowDefinition(value: unknown): value is WorkflowDefinition {
 }
 
 /**
+ * Matches `@opentui/core` and the platform-runtime variant
+ * `@opentui/core-<plat>-<arch>`, optionally followed by a subpath. Used to
+ * detect resolve failures from capsules that did not externalize `@opentui/*`
+ * at build time.
+ */
+const OPENTUI_CORE_SPECIFIER_RE = /@opentui\/core(-[a-z0-9-]+)?(\/|$)/;
+
+/** True when `err` looks like a Bun resolve failure for `@opentui/core*`. */
+function isOpenTuiResolveError(err: unknown): boolean {
+  if (err && typeof err === "object" && "specifier" in err) {
+    const specifier = String(err.specifier ?? "");
+    if (OPENTUI_CORE_SPECIFIER_RE.test(specifier)) return true;
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  return OPENTUI_CORE_SPECIFIER_RE.test(message);
+}
+
+/**
  * Resolve a `WorkflowDefinition` for the given source path.
  *
  * Imports the source (which lets any top-level `await hostLocalWorkflows([wf])`
@@ -59,7 +77,26 @@ export async function resolveWorkflowDefinition(
   workflowName: string,
   agent: AgentType,
 ): Promise<WorkflowDefinition> {
-  const mod: unknown = await import(sourcePath);
+  let mod: unknown;
+  try {
+    mod = await import(sourcePath);
+  } catch (err) {
+    if (!isOpenTuiResolveError(err)) throw err;
+    const original = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      "Capsule appears to have been built without externalizing @opentui/core. " +
+        'Add `external: ["@opentui/core", "@opentui/core-darwin-x64", ' +
+        '"@opentui/core-darwin-arm64", "@opentui/core-linux-x64", ' +
+        '"@opentui/core-linux-arm64", "@opentui/core-win32-x64", ' +
+        '"@opentui/core-win32-arm64"]` to your `Bun.build({...})` call. ' +
+        "OpenTUI's platform-native loader resolves at runtime from the capsule's location, " +
+        "which is outside any node_modules tree; externalizing leaves the bare specifier in " +
+        "the capsule so the host's already-loaded @opentui/core resolves it via " +
+        "ensureRuntimePluginSupport. " +
+        `Original error: ${original}`,
+      { cause: err },
+    );
+  }
 
   if (workflowName !== "") {
     const fromHost = lookupLocalWorkflow(workflowName, agent);

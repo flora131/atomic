@@ -59,6 +59,27 @@ if (found?.sub === "_orchestrator-entry") {
   const inputsB64 = process.argv[found.index + 3] ?? "";
   const source = process.argv[found.index + 4] ?? "";
   try {
+    // Install OpenTUI's runtime-plugin support exactly once per process.
+    // Capsules built with `external: ["@opentui/*"]` bundle this file, so the
+    // bundled TLA re-runs on capsule import; the sentinel — the same global
+    // that `ensureRuntimePluginSupport` writes — short-circuits the second
+    // call and avoids OpenTUI's identity assertion. Gated to this subprocess
+    // because the underlying `Bun.plugin()` installs a `filter: /.*/` async
+    // onLoad that would break sync `require()` of `.ts` modules elsewhere.
+    const SENTINEL_KEY = "__opentuiCoreRuntimePluginSupportInstalled__";
+    const alreadyInstalled = SENTINEL_KEY in globalThis;
+    if (!alreadyInstalled) {
+      const { ensureRuntimePluginSupport } = await import(
+        "@opentui/core/runtime-plugin-support/configure"
+      );
+      ensureRuntimePluginSupport({ core: () => import("@opentui/core") });
+    }
+    if (process.env.ATOMIC_DEBUG === "1") {
+      const message = alreadyInstalled
+        ? "[atomic-sdk:runtime-plugin] skipped install (already present)"
+        : "[atomic-sdk:runtime-plugin] registered core loader (orchestrator-entry)";
+      process.stderr.write(`${message}\n`);
+    }
     const { runOrchestratorEntry } = await import(
       "../runtime/orchestrator-entry.ts"
     );

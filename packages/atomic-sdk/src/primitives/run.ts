@@ -9,11 +9,22 @@
  * as soon as the daemon acknowledges the start.
  */
 
-import { ensureStarted } from "../runtime/daemon.ts";
+import { ensureStarted as _ensureStarted } from "../runtime/daemon.ts";
 import type { MessageConnection } from "vscode-jsonrpc";
 import type { RegistrableWorkflow } from "../types.ts";
 import { validateInputs } from "./inputs.ts";
 import { getSource, getName, getAgent } from "./metadata.ts";
+
+// ─── Dependency injection ───────────────────────────────────────────────────
+
+/** Dependencies for `runWorkflow` — injectable for testing. */
+export interface RunWorkflowDeps {
+  ensureStarted: typeof _ensureStarted;
+}
+
+const defaultDeps: RunWorkflowDeps = {
+  ensureStarted: _ensureStarted,
+};
 
 // ─── runWorkflow ────────────────────────────────────────────────────────────
 
@@ -79,12 +90,13 @@ export interface RunWorkflowResult {
  */
 export async function runWorkflow(
   options: RunWorkflowOptions,
+  _deps: RunWorkflowDeps = defaultDeps,
 ): Promise<RunWorkflowResult> {
   const { workflow, inputs = {}, detach, pathToAtomicExecutable, endpointFile, token } = options;
 
   const resolved = validateInputs(workflow, inputs);
 
-  const conn = await ensureStarted({
+  const conn = await _deps.ensureStarted({
     atomicBinary: pathToAtomicExecutable,
     endpointFile,
     token,

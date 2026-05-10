@@ -1,14 +1,16 @@
 /**
  * Tests for `src/primitives/run.ts`.
  *
- * Uses `mock.module` to mock `../runtime/daemon.ts` so no real daemon
- * connection is needed.
+ * Uses dependency injection to mock `ensureStarted` so no real daemon
+ * connection is needed, and `mock.module` leakage into other test files
+ * is avoided.
  */
 
 import { test, expect, describe, mock } from "bun:test";
 import type { RegistrableWorkflow } from "../types.ts";
+import { runWorkflow } from "./run.ts";
 
-// ─── Mock daemon module ───────────────────────────────────────────────────────
+// ─── Mock connection ──────────────────────────────────────────────────────────
 
 const mockSendRequest = mock(async (method: string, _params: unknown) => {
   if (method === "workflow/start") {
@@ -30,18 +32,13 @@ const mockConn = {
   sendRequest: mockSendRequest,
   onNotification: mockOnNotification,
   dispose: mockDispose,
-};
+} as unknown as import("vscode-jsonrpc").MessageConnection;
 
 const mockEnsureStarted = mock(async () => mockConn);
 
-mock.module("../runtime/daemon.ts", () => ({
+const mockDeps = {
   ensureStarted: mockEnsureStarted,
-  connectToDaemon: mock(async () => mockConn),
-}));
-
-// ─── Import after mock is registered ─────────────────────────────────────────
-
-import { runWorkflow } from "./run.ts";
+};
 
 // ─── Fake workflow ─────────────────────────────────────────────────────────────
 
@@ -63,10 +60,7 @@ describe("runWorkflow", () => {
     mockSendRequest.mockClear();
     mockEnsureStarted.mockClear();
 
-    const result = await runWorkflow({
-      workflow: fakeWorkflow,
-      detach: true,
-    });
+    const result = await runWorkflow({ workflow: fakeWorkflow, detach: true }, mockDeps);
 
     expect(result.runId).toBe("test-run-id-01");
     expect(result.daemon).toBeDefined();
@@ -86,10 +80,7 @@ describe("runWorkflow", () => {
     mockOnNotification.mockClear();
     mockSendRequest.mockClear();
 
-    const result = await runWorkflow({
-      workflow: fakeWorkflow,
-      detach: false,
-    });
+    const result = await runWorkflow({ workflow: fakeWorkflow, detach: false }, mockDeps);
 
     expect(result.runId).toBe("test-run-id-01");
     expect(mockOnNotification).toHaveBeenCalledWith("run/ended", expect.any(Function));
@@ -109,7 +100,7 @@ describe("runWorkflow", () => {
       workflow: workflowWithInputs,
       inputs: { greeting: "world" },
       detach: true,
-    });
+    }, mockDeps);
 
     expect(result.runId).toBe("test-run-id-01");
     const [, params] = mockSendRequest.mock.calls[0]!;
@@ -125,7 +116,7 @@ describe("runWorkflow", () => {
       workflow: fakeWorkflow,
       pathToAtomicExecutable: "/usr/local/bin/atomic",
       detach: true,
-    });
+    }, mockDeps);
 
     expect(mockEnsureStarted).toHaveBeenCalledWith(
       expect.objectContaining({ atomicBinary: "/usr/local/bin/atomic" }),
@@ -140,7 +131,7 @@ describe("runWorkflow", () => {
       endpointFile: "/custom/endpoint.json",
       token: "my-secret-token",
       detach: true,
-    });
+    }, mockDeps);
 
     expect(mockEnsureStarted).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -153,9 +144,10 @@ describe("runWorkflow", () => {
   test("default detach behavior (omitted) subscribes to run/ended", async () => {
     mockOnNotification.mockClear();
 
-    await runWorkflow({ workflow: fakeWorkflow });
+    await runWorkflow({ workflow: fakeWorkflow }, mockDeps);
 
     // Without detach:true, should have subscribed to run/ended
     expect(mockOnNotification).toHaveBeenCalledWith("run/ended", expect.any(Function));
   });
 });
+

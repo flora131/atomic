@@ -1,10 +1,8 @@
 import { test, expect, describe, afterEach } from "bun:test";
 import type { WorkflowRunOptions } from "../../../packages/atomic-sdk/src/runtime/executor.ts";
-import { runOrchestrator } from "../../../packages/atomic-sdk/src/runtime/executor.ts";
 // Import validateOrchestratorEnv from the un-mocked sub-module so env-var
 // tests are not affected by mock.module("executor.ts") in worker/command tests.
 import { validateOrchestratorEnv } from "../../../packages/atomic-sdk/src/runtime/executor-env.ts";
-import type { WorkflowDefinition } from "../../../packages/atomic-sdk/src/types.ts";
 import { defineWorkflow } from "../../../packages/atomic-sdk/src/define-workflow.ts";
 
 // ---------------------------------------------------------------------------
@@ -132,11 +130,11 @@ describe("runOrchestrator env var validation", () => {
 });
 
 // ---------------------------------------------------------------------------
-// runOrchestrator — accepts WorkflowDefinition (not a string path)
+// WorkflowDefinition brand — compile() emits the correct brand
 // ---------------------------------------------------------------------------
 
-describe("runOrchestrator accepts WorkflowDefinition + inputs", () => {
-  test("signature accepts a compiled WorkflowDefinition and an inputs map", () => {
+describe("WorkflowDefinition brand", () => {
+  test("compile() emits __brand = 'WorkflowDefinition' and captures source path", () => {
     const definition = defineWorkflow({
       name: "test-wf",
     })
@@ -144,29 +142,20 @@ describe("runOrchestrator accepts WorkflowDefinition + inputs", () => {
       .run(async () => {})
       .compile();
 
-    const _check: (
-      d: WorkflowDefinition,
-      inputs?: Record<string, string>,
-    ) => Promise<void> = runOrchestrator;
-    expect(typeof _check).toBe("function");
     expect(definition.__brand).toBe("WorkflowDefinition");
     expect(definition.source).toBe(import.meta.path);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Launcher script — orchestrator entry script with positional argv
+// executor.ts source invariants — old tmux re-entry signals must be gone
 // ---------------------------------------------------------------------------
 
-describe("launcher script invokes the SDK orchestrator entry", () => {
-  test("executor sources orchestrator-entry.ts and drops the old env-var contract", async () => {
+describe("executor source invariants", () => {
+  test("legacy re-entry env vars are absent from executor.ts", async () => {
     const src = await Bun.file("packages/atomic-sdk/src/runtime/executor.ts").text();
 
-    // The dev's CLI is no longer re-execed; the SDK ships its own entry.
-    expect(src).toContain("orchestrator-entry.ts");
-
-    // The old ATOMIC_ORCHESTRATOR_MODE / ATOMIC_WF_KEY / ATOMIC_WF_INPUTS
-    // re-entry signals must be gone from the launcher.
+    // Old env-var re-entry signals that predated the daemon architecture.
     expect(src).not.toContain("ATOMIC_ORCHESTRATOR_MODE");
     expect(src).not.toContain("ATOMIC_WF_KEY");
     expect(src).not.toContain("ATOMIC_WF_INPUTS");

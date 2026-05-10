@@ -14,12 +14,11 @@
  * silently in the background:
  *
  *     1. tmux / psmux            (terminal multiplexer for `chat` / `workflow`)
- *     2. uv (provides uvx)       (curl https://astral.sh/uv/install.sh | sh)
- *     3. global agent configs    (file copies — no network)
- *     4. @playwright/cli         (bun install -g)
- *     5. @llamaindex/liteparse   (bun install -g)
- *     6. @ast-grep/cli           (bun install -g)
- *     7. global skills           (file copies from bundled .agents/skills)
+ *     2. global agent configs    (file copies — no network)
+ *     3. @playwright/cli         (bun install -g)
+ *     4. @llamaindex/liteparse   (bun install -g)
+ *     5. @ast-grep/cli           (bun install -g)
+ *     6. global skills           (file copies from bundled .agents/skills)
  *
  * All steps run silently. The only user-facing loading bar lives in the
  * bootstrap installers (install.sh / install.ps1). Failures are swallowed;
@@ -32,9 +31,7 @@ import { homedir } from "node:os";
 import { VERSION } from "../../version.ts";
 import {
   hasRequiredMuxBinary,
-  hasUv,
   ensureTmuxInstalled,
-  ensureUvInstalled,
   upgradeGlobalToolPackages,
 } from "@bastani/atomic-sdk/lib/spawn";
 import { isInstalledPackage } from "@bastani/atomic-sdk/lib/runtime-env";
@@ -99,16 +96,12 @@ export async function autoSyncIfStale(): Promise<void> {
     stored = (await marker.text()).trim();
   }
 
-  if (stored === VERSION && hasRequiredMuxBinary() && hasUv()) return;
+  if (stored === VERSION && hasRequiredMuxBinary()) return;
 
   const steps = stored === VERSION
-    ? [
-        silentStep(() => ensureTmuxInstalled({ quiet: true })),
-        silentStep(() => ensureUvInstalled({ quiet: true })),
-      ]
+    ? [silentStep(() => ensureTmuxInstalled({ quiet: true }))]
     : [
         silentStep(() => ensureTmuxInstalled({ quiet: true })),
-        silentStep(() => ensureUvInstalled({ quiet: true })),
         silentStep(installGlobalAgents),
         silentStep(upgradeGlobalToolPackages),
         silentStep(installGlobalSkills),

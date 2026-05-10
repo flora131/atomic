@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   hasRequiredMuxBinary,
-  hasUv,
   isMuxBinaryRequiredForPlatform,
   prependPath,
   psmuxReleaseAssetSuffix,
@@ -88,28 +87,6 @@ describe("spawn PATH helpers", () => {
     const delimiter = process.platform === "win32" ? ";" : ":";
     const entries = (process.env.PATH ?? "").split(delimiter);
     expect(entries.filter((entry) => entry === tempDir)).toHaveLength(1);
-  });
-
-  // Regression guard for the `Bun.which` PATH-caching gotcha: the 1-arg form
-  // of `Bun.which` snapshots PATH at process startup and ignores subsequent
-  // mutations to `process.env.PATH`. `hasUv` must use a path-aware lookup
-  // (currently `resolveCommandFromCurrentPath`) so a freshly installed uv
-  // shows up immediately after `prependPath`. Without this, `ensureUvInstalled`
-  // throws "uv install completed but binary not found on PATH" on every CI
-  // run that exercises a real install (since the runner's pre-install PATH
-  // never contained the install dir).
-  test("hasUv reflects PATH mutations made during the current process", () => {
-    const binaryName = process.platform === "win32" ? "uvx.cmd" : "uvx";
-    const binaryPath = join(tempDir, binaryName);
-    const body = process.platform === "win32" ? "@echo off\r\n" : "#!/bin/sh\n";
-
-    writeFileSync(binaryPath, body);
-    chmodSync(binaryPath, 0o755);
-
-    process.env.PATH = originalPath ?? "";
-    prependPath(tempDir);
-
-    expect(hasUv()).toBe(true);
   });
 
   test("runCommand keeps stdout and stderr separate", async () => {

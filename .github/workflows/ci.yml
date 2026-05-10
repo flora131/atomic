@@ -345,18 +345,6 @@ jobs:
                   RUN_CI_E2E: "1"
               run: bun test tests/ci/onboarding.test.ts
 
-            # Sandboxed uv installer regression test. Spawns a child Bun
-            # process with HOME, UV_INSTALL_DIR, and PATH scrubbed so
-            # `ensureUvInstalled` exercises the actual install path on
-            # every OS — not whatever the runner image already has. Lives
-            # in this matrix job (rather than its own) so we reuse the
-            # cross-platform runner allocation.
-            - name: Run uv install test
-              shell: bash
-              env:
-                  RUN_CI_E2E: "1"
-              run: bun test tests/ci/uv-install.test.ts
-
     # `defineWorkflow` auto-captures `WorkflowOptions.source` from the
     # caller's stack frame so consumers don't have to pass
     # `source: import.meta.path` on every call. The parser handles V8/Bun

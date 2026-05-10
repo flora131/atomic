@@ -43,23 +43,7 @@ coveragePathIgnorePatterns = [
   # SDK: non-testable runtime modules (require running agent CLIs, terminals, filesystems)
   "packages/atomic-sdk/src/define-workflow.ts",
   "packages/atomic-sdk/src/providers/**",
-  "packages/atomic-sdk/src/runtime/attached-footer.ts",
-  "packages/atomic-sdk/src/runtime/cc-debounce.ts",
   "packages/atomic-sdk/src/runtime/executor.ts",
-  # `runtime/tmux.ts` is a thin wrapper around `tmuxExec(...)` subprocess
-  # calls into a real tmux/psmux server. The integration tests that
-  # exercised these wrappers were removed because they ran on the same
-  # `atomic` socket as the user's chat sessions and could detach an
-  # attached client mid-`bun test`. Pure helpers (parsers, env-var
-  # guards, hook builders) remain covered by tmux.test.ts.
-  "packages/atomic-sdk/src/runtime/tmux.ts",
-  # `runOrchestratorEntry` / `runOrchestratorWithDefinition` both delegate
-  # to `runOrchestrator` (tmux-bound), so the function bodies aren't unit-
-  # testable. The new `resolveWorkflowDefinition` helper IS unit-tested by
-  # `orchestrator-entry.resolve.test.ts` — excluding the whole file keeps
-  # the threshold honest without us needing to instantiate a tmux session
-  # in-process.
-  "packages/atomic-sdk/src/runtime/orchestrator-entry.ts",
   "packages/atomic-sdk/src/runtime/panel.tsx",
   "packages/atomic-sdk/src/runtime/theme.ts",
   "packages/atomic-sdk/src/components/error-boundary.tsx",
@@ -71,9 +55,7 @@ coveragePathIgnorePatterns = [
   # wrap subprocess calls into a running tmux/psmux server. The compile
   # path is covered by tui/compiler/parser.test.tsx and the consumer JSX
   # (attachedStatusline) is covered by runtime/attached-footer.test.ts.
-  "packages/atomic-sdk/src/tui/components.tsx",
-  "packages/atomic-sdk/src/tui/mux.ts",
-  "packages/atomic-sdk/src/tui/renderer.ts",
+  # (tui directory was removed in the daemon refactor)
   # Commander subcommand builder — action handlers call process.exit and
   # dynamically import subprocess orchestration modules.
   "packages/atomic/src/commands/cli/management-commands.ts",

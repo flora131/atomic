@@ -425,6 +425,137 @@ describe("RunState", () => {
     });
   });
 
+  describe("run/ended — terminal lifecycle emission", () => {
+    test("markCompletionReached emits run/ended with overall=complete", async () => {
+      const state = makeState();
+      const conn = fakeConnection();
+      state.subscribe(conn);
+
+      state.markCompletionReached();
+      await flushAsync();
+
+      const ended = conn.notifications.filter((n) => n.method === "run/ended");
+      expect(ended.length).toBe(1);
+      const p = ended[0]!.params as { runId: string; overall: string; fatalError?: string };
+      expect(p.runId).toBe("test-run-123");
+      expect(p.overall).toBe("complete");
+      expect(p.fatalError).toBeUndefined();
+      state.dispose();
+    });
+
+    test("setError emits run/ended with overall=error and fatalError set", async () => {
+      const state = makeState();
+      const conn = fakeConnection();
+      state.subscribe(conn);
+
+      state.setError("boom!");
+      await flushAsync();
+
+      const ended = conn.notifications.filter((n) => n.method === "run/ended");
+      expect(ended.length).toBe(1);
+      const p = ended[0]!.params as { runId: string; overall: string; fatalError?: string };
+      expect(p.overall).toBe("error");
+      expect(p.fatalError).toBe("boom!");
+      state.dispose();
+    });
+
+    test("cancel emits run/ended with overall=cancelled", async () => {
+      const state = makeState();
+      const conn = fakeConnection();
+      state.subscribe(conn);
+
+      state.cancel();
+      await flushAsync();
+
+      const ended = conn.notifications.filter((n) => n.method === "run/ended");
+      expect(ended.length).toBe(1);
+      const p = ended[0]!.params as { runId: string; overall: string };
+      expect(p.overall).toBe("cancelled");
+      state.dispose();
+    });
+
+    test("run/ended emitted exactly once even if markCompletionReached called twice", async () => {
+      const state = makeState();
+      const conn = fakeConnection();
+      state.subscribe(conn);
+
+      state.markCompletionReached();
+      state.markCompletionReached();
+      await flushAsync();
+
+      const ended = conn.notifications.filter((n) => n.method === "run/ended");
+      expect(ended.length).toBe(1);
+      state.dispose();
+    });
+
+    test("cancel after completion does not emit second run/ended", async () => {
+      const state = makeState();
+      const conn = fakeConnection();
+      state.subscribe(conn);
+
+      state.markCompletionReached();
+      state.cancel();
+      await flushAsync();
+
+      const ended = conn.notifications.filter((n) => n.method === "run/ended");
+      expect(ended.length).toBe(1);
+      const p = ended[0]!.params as { overall: string };
+      // First to fire wins — markCompletionReached fires synchronously first.
+      expect(p.overall).toBe("complete");
+      state.dispose();
+    });
+
+    test("emitRunEnded no-ops after dispose", async () => {
+      const state = makeState();
+      const conn = fakeConnection();
+      state.subscribe(conn);
+      state.dispose();
+
+      state.emitRunEnded("complete");
+      await flushAsync();
+
+      const ended = conn.notifications.filter((n) => n.method === "run/ended");
+      expect(ended.length).toBe(0);
+    });
+
+    test("run/ended broadcasts to all subscribers", async () => {
+      const state = makeState();
+      const conn1 = fakeConnection();
+      const conn2 = fakeConnection();
+      state.subscribe(conn1);
+      state.subscribe(conn2);
+
+      state.markCompletionReached();
+      await flushAsync();
+
+      expect(conn1.notifications.filter((n) => n.method === "run/ended").length).toBe(1);
+      expect(conn2.notifications.filter((n) => n.method === "run/ended").length).toBe(1);
+      state.dispose();
+    });
+
+    test("panel/update still fires alongside run/ended", async () => {
+      const state = makeState();
+      const conn = fakeConnection();
+      state.subscribe(conn);
+
+      state.addStage({ name: "final" });
+      state.markCompletionReached();
+      await flushAsync();
+
+      expect(conn.notifications.filter((n) => n.method === "panel/update").length).toBe(1);
+      expect(conn.notifications.filter((n) => n.method === "run/ended").length).toBe(1);
+      state.dispose();
+    });
+
+    test("isCancelled is false initially, true after cancel", () => {
+      const state = makeState();
+      expect(state.isCancelled).toBe(false);
+      state.cancel();
+      expect(state.isCancelled).toBe(true);
+      state.dispose();
+    });
+  });
+
   describe("schedulePersist stale snapshot fix (Cluster B.2)", () => {
     test("schedulePersist writes latest snapshot when bursts coalesce", async () => {
       const tmpDir = await mkdtemp(join(tmpdir(), "run-state-persist-test-"));

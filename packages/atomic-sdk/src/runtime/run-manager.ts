@@ -74,41 +74,48 @@ export class RunManager implements IRunManager {
     this.states.set(runId, state);
 
     // Fire async execution in the background.
-    this.startExecution(state, info, source, workflowName, agent, inputs).catch((e: unknown) => {
-      const msg = e instanceof Error ? e.message : String(e);
-      state.setError(msg);
-      const runInfo = this.runs.get(runId);
-      if (runInfo) {
-        runInfo.status = "error";
-        runInfo.endedAt = new Date().toISOString();
+    this.executeRun(state, info, source, inputs).catch((e: unknown) => {
+      // Do not overwrite terminal status set by a concurrent stop().
+      if (!state.isCancelled) {
+        const msg = e instanceof Error ? e.message : String(e);
+        state.setError(msg);
+        const runInfo = this.runs.get(runId);
+        if (runInfo) {
+          runInfo.status = "error";
+          runInfo.endedAt = new Date().toISOString();
+        }
       }
     });
 
     return { runId };
   }
 
-  private async startExecution(
+  private async executeRun(
     state: RunState,
     info: RunInfo,
     source: string,
-    workflowName: string,
-    agent: AgentType,
     inputs: Record<string, unknown>,
   ): Promise<void> {
     try {
       const mod = await import(source);
       if (mod.default && typeof mod.default.run === "function") {
-        const ctx = makeStubContext(inputs, agent);
+        const ctx = makeStubContext(inputs, info.agent);
         await mod.default.run(ctx);
       }
-      state.markCompletionReached();
-      info.status = "complete";
-      info.endedAt = new Date().toISOString();
+      // Do not overwrite terminal status set by a concurrent stop().
+      if (!state.isCancelled) {
+        state.markCompletionReached();
+        info.status = "complete";
+        info.endedAt = new Date().toISOString();
+      }
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      state.setError(msg);
-      info.status = "error";
-      info.endedAt = new Date().toISOString();
+      // Do not overwrite terminal status set by a concurrent stop().
+      if (!state.isCancelled) {
+        const msg = e instanceof Error ? e.message : String(e);
+        state.setError(msg);
+        info.status = "error";
+        info.endedAt = new Date().toISOString();
+      }
     }
   }
 
@@ -120,16 +127,22 @@ export class RunManager implements IRunManager {
       info.endedAt = new Date().toISOString();
     }
     if (state) {
+      state.cancel();   // emits run/ended exactly once before clearing subscribers
       state.dispose();
     }
   }
 
   list(scope?: "active" | "completed" | "all"): RunInfo[] {
     const all = [...this.runs.values()];
-    if (!scope || scope === "all") return all;
-    if (scope === "active") return all.filter((r) => r.status === "active");
-    if (scope === "completed") return all.filter((r) => r.status === "complete");
-    return all;
+    switch (scope) {
+      case "active":
+        return all.filter((r) => r.status === "active");
+      case "completed":
+        return all.filter((r) => r.status === "complete");
+      case "all":
+      case undefined:
+        return all;
+    }
   }
 
   get(runId: string): RunInfo | null {

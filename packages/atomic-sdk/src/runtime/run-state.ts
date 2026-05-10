@@ -49,8 +49,12 @@ export class RunState {
   private stages: StageRow[] = [];
   private fatalError: string | null = null;
   private completionReached = false;
+  private cancelled = false;
   private foregroundStage: string | null = null;
   private version = 0;
+
+  // ── terminal emission guard ──────────────────────────────────────────────────
+  private runEndedEmitted = false;
 
   // ── disk persistence ────────────────────────────────────────────────────────
   private readonly sessionDir: string;
@@ -150,11 +154,13 @@ export class RunState {
     this.fatalError = message;
     this.completionReached = true;
     this.scheduleBroadcast();
+    this.emitRunEnded("error");
   }
 
   markCompletionReached(): void {
     this.completionReached = true;
     this.scheduleBroadcast();
+    this.emitRunEnded("complete");
   }
 
   /**
@@ -169,6 +175,32 @@ export class RunState {
       runId: this.runId,
       stageName,
     });
+  }
+
+  /**
+   * Mark the run as cancelled and emit `run/ended` exactly once.
+   * No-op if `run/ended` was already emitted (e.g., completion beat the cancel).
+   */
+  cancel(): void {
+    this.cancelled = true;
+    this.emitRunEnded("cancelled");
+  }
+
+  /**
+   * Emit the terminal `run/ended` notification to all current subscribers.
+   * Idempotent — subsequent calls are silently ignored.
+   * Consistent with RFC §5.3: exactly one emission per run regardless of how
+   * many completion/error/cancel paths are triggered.
+   */
+  emitRunEnded(overall: "complete" | "error" | "cancelled"): void {
+    if (this.runEndedEmitted || this.disposed) return;
+    this.runEndedEmitted = true;
+    const params: { runId: string; overall: string; fatalError?: string } = {
+      runId: this.runId,
+      overall,
+    };
+    if (this.fatalError !== null) params.fatalError = this.fatalError;
+    this.broadcast("run/ended", params);
   }
 
   // ─── Lifecycle ───────────────────────────────────────────────────────────────
@@ -235,6 +267,11 @@ export class RunState {
   /** Current foreground stage name. Exposed for run/getAttachInfo. */
   getForeground(): string | null {
     return this.foregroundStage;
+  }
+
+  /** Whether the run was cancelled. */
+  get isCancelled(): boolean {
+    return this.cancelled;
   }
 
   /**

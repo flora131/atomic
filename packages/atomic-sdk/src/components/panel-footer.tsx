@@ -14,19 +14,19 @@ export type PanelFooterTone = "info" | "success" | "error";
 
 export interface PanelFooterStatusInput {
   readonly fatalError: string | null;
-  readonly completionReached: boolean;
+  readonly completionInfo: { readonly workflowName: string; readonly transcriptsPath: string } | null;
   readonly sessions: readonly Pick<SessionData, "status">[];
 }
 
 export function panelFooterToneFromStatus({
   fatalError,
-  completionReached,
+  completionInfo,
   sessions,
 }: PanelFooterStatusInput): PanelFooterTone {
   if (fatalError !== null || sessions.some((session) => session.status === "error")) {
     return "error";
   }
-  if (completionReached) return "success";
+  if (completionInfo !== null) return "success";
   return "info";
 }
 

@@ -6,7 +6,7 @@ describe("panelFooterToneFromStatus", () => {
     expect(
       panelFooterToneFromStatus({
         fatalError: null,
-        completionReached: false,
+        completionInfo: null,
         sessions: [{ status: "running" }],
       }),
     ).toBe("info");
@@ -16,7 +16,7 @@ describe("panelFooterToneFromStatus", () => {
     expect(
       panelFooterToneFromStatus({
         fatalError: null,
-        completionReached: true,
+        completionInfo: { workflowName: "wf", transcriptsPath: "/t" },
         sessions: [{ status: "complete" }],
       }),
     ).toBe("success");
@@ -26,7 +26,7 @@ describe("panelFooterToneFromStatus", () => {
     expect(
       panelFooterToneFromStatus({
         fatalError: "boom",
-        completionReached: true,
+        completionInfo: { workflowName: "wf", transcriptsPath: "/t" },
         sessions: [{ status: "complete" }],
       }),
     ).toBe("error");
@@ -36,7 +36,7 @@ describe("panelFooterToneFromStatus", () => {
     expect(
       panelFooterToneFromStatus({
         fatalError: null,
-        completionReached: false,
+        completionInfo: null,
         sessions: [{ status: "complete" }, { status: "error" }],
       }),
     ).toBe("error");

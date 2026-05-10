@@ -37,7 +37,7 @@ function githubApiBase(): string {
     return process.env.ATOMIC_GITHUB_API_BASE ?? DEFAULT_GITHUB_API_BASE;
 }
 
-function buildHeaders(): Record<string, string> {
+function buildApiHeaders(): Record<string, string> {
     const headers: Record<string, string> = {
         Accept: "application/vnd.github+json",
         "User-Agent": "atomic-cli",
@@ -47,8 +47,15 @@ function buildHeaders(): Record<string, string> {
     return headers;
 }
 
+// Asset downloads follow a 302 from github.com to release-assets.githubusercontent.com
+// (signed Azure blob). Forwarding Authorization to that signed URL slow-paths the CDN,
+// and Bun's fetch does not strip auth on cross-origin redirects the way curl does.
+function buildAssetDownloadHeaders(): Record<string, string> {
+    return { "User-Agent": "atomic-cli" };
+}
+
 async function githubGet(url: string): Promise<ReleaseInfo> {
-    const res = await fetch(url, { headers: buildHeaders() });
+    const res = await fetch(url, { headers: buildApiHeaders() });
 
     if (res.status === 403 && res.headers.get("X-RateLimit-Remaining") === "0") {
         throw new Error("Set GITHUB_TOKEN to lift the 60 req/h anonymous limit");
@@ -77,34 +84,54 @@ export async function getReleaseByTag(tag: string): Promise<ReleaseInfo> {
  *
  * Writes to a `.tmp.<pid>.<ts>` sibling first, then atomically renames to
  * `destPath` on success. Cleans up the partial file on any error.
+ *
+ * Pass `onProgress` to receive byte counts as the body streams in. `total` is
+ * the value of the `Content-Length` header, or `null` when not advertised
+ * (e.g. chunked transfer encoding).
  */
-export async function downloadAssetFromUrl(url: string, destPath: string): Promise<void> {
-    const res = await fetch(url, { headers: buildHeaders() });
+export async function downloadAssetFromUrl(
+    url: string,
+    destPath: string,
+    onProgress?: (received: number, total: number | null) => void,
+): Promise<void> {
+    const res = await fetch(url, { headers: buildAssetDownloadHeaders() });
     if (!res.ok) {
         throw new Error(`Failed to download asset: HTTP ${res.status}`);
     }
 
     const tmpPath = `${destPath}.tmp.${pid}.${Date.now()}`;
-    let placed = false;
     try {
-        await Bun.write(tmpPath, res);
+        if (onProgress && res.body) {
+            const lenHeader = res.headers.get("content-length");
+            const total = lenHeader ? parseInt(lenHeader, 10) : null;
+            const writer = Bun.file(tmpPath).writer();
+            let received = 0;
+            try {
+                for await (const chunk of res.body) {
+                    writer.write(chunk);
+                    received += chunk.byteLength;
+                    onProgress(received, total);
+                }
+            } finally {
+                await writer.end();
+            }
+        } else {
+            await Bun.write(tmpPath, res);
+        }
         try {
             renameSync(tmpPath, destPath);
-            placed = true;
         } catch (err) {
             if ((err as NodeJS.ErrnoException).code === "EXDEV") {
                 copyFileSync(tmpPath, destPath);
-                placed = true;
             } else {
                 throw err;
             }
         }
     } finally {
-        // best-effort cleanup. After successful rename tmpPath gone (ENOENT).
-        // After EXDEV fallback we need to remove it. After throw before write we need to remove it.
+        // best-effort cleanup. After successful rename tmpPath is gone (ENOENT).
+        // After EXDEV fallback or any error before/during write we need to remove it.
         try { unlinkSync(tmpPath); } catch { /* swallow */ }
     }
-    void placed;
 }
 
 /**

@@ -152,7 +152,28 @@ async function runBinaryUpdate(opts: UpdateOptions, target: string): Promise<num
             `Downloading ${assetName}...`,
             "Downloaded binary",
             "Download failed",
-            () => downloadAssetFromUrl(binaryAsset.browser_download_url, assetDest),
+            () => {
+                let lastTick = -1;
+                return downloadAssetFromUrl(
+                    binaryAsset.browser_download_url,
+                    assetDest,
+                    (received, total) => {
+                        if (total !== null && total > 0) {
+                            const pct = Math.floor((received / total) * 100);
+                            if (pct !== lastTick) {
+                                lastTick = pct;
+                                s.message(`Downloading ${assetName}... ${pct}%`);
+                            }
+                        } else {
+                            const mb = Math.floor(received / 1024 / 1024);
+                            if (mb !== lastTick) {
+                                lastTick = mb;
+                                s.message(`Downloading ${assetName}... ${mb} MB`);
+                            }
+                        }
+                    },
+                );
+            },
         );
         await step(
             s,

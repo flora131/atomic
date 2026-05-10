@@ -301,6 +301,72 @@ describe("downloadAssetFromUrl", () => {
         }
     });
 
+    // ── header isolation ──────────────────────────────────────────────────────
+    // Bun's fetch does not strip Authorization on cross-origin 302 redirects
+    // (github.com → release-assets.githubusercontent.com). Forwarding a PAT to
+    // the signed Azure blob URL slow-paths the CDN. Asset downloads must use a
+    // minimal header set distinct from the GitHub API JSON headers.
+    describe("asset download header isolation", () => {
+        test("does NOT send Authorization even when GITHUB_TOKEN is set", async () => {
+            process.env.GITHUB_TOKEN = "ghp_testtoken";
+            fetchSpy.mockResolvedValueOnce(fakeStreamResponse(new Uint8Array([0x00])));
+
+            const dir = mkdtempSync(join(tmpdir(), "release-fetch-hdr-"));
+            try {
+                await downloadAssetFromUrl("https://example.com/asset", join(dir, "out"));
+
+                const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+                const headers = init.headers as Record<string, string>;
+                expect(headers["Authorization"]).toBeUndefined();
+            } finally {
+                rmSync(dir, { recursive: true, force: true });
+            }
+        });
+
+        test("does NOT send Accept: application/vnd.github+json", async () => {
+            fetchSpy.mockResolvedValueOnce(fakeStreamResponse(new Uint8Array([0x00])));
+
+            const dir = mkdtempSync(join(tmpdir(), "release-fetch-hdr-"));
+            try {
+                await downloadAssetFromUrl("https://example.com/asset", join(dir, "out"));
+
+                const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+                const headers = init.headers as Record<string, string>;
+                expect(headers["Accept"]).toBeUndefined();
+            } finally {
+                rmSync(dir, { recursive: true, force: true });
+            }
+        });
+
+        test("still sends User-Agent: atomic-cli", async () => {
+            fetchSpy.mockResolvedValueOnce(fakeStreamResponse(new Uint8Array([0x00])));
+
+            const dir = mkdtempSync(join(tmpdir(), "release-fetch-hdr-"));
+            try {
+                await downloadAssetFromUrl("https://example.com/asset", join(dir, "out"));
+
+                const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+                const headers = init.headers as Record<string, string>;
+                expect(headers["User-Agent"]).toBe("atomic-cli");
+            } finally {
+                rmSync(dir, { recursive: true, force: true });
+            }
+        });
+
+        test("githubGet (via getLatestRelease) still sends Authorization with GITHUB_TOKEN", async () => {
+            // Sanity check: the API path is unaffected by the asset-header split.
+            process.env.GITHUB_TOKEN = "ghp_testtoken";
+            fetchSpy.mockResolvedValueOnce(fakeJsonResponse(makeRelease("v0.7.16")));
+
+            await getLatestRelease();
+
+            const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+            const headers = init.headers as Record<string, string>;
+            expect(headers["Authorization"]).toBe("Bearer ghp_testtoken");
+            expect(headers["Accept"]).toBe("application/vnd.github+json");
+        });
+    });
+
     // ── Cluster C — atomic download cleanup on rename failure ─────────────────
 
     // Use spyOn (not mock.module) — `mock.module("node:fs", ...)` is

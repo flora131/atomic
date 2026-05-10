@@ -94,16 +94,21 @@ export class RunManager implements IRunManager {
   ): Promise<void> {
     try {
       const mod = await import(source);
-      if (mod.default && typeof mod.default.run === "function") {
-        const ctx = new DaemonWorkflowContext({
-          runId: state.runId,
-          agent: info.agent,
-          inputs,
-          state,
-          supervisor: this.supervisor ?? noopSupervisor,
-        });
-        await mod.default.run(ctx);
+      // Validate the workflow module exports a callable run function.
+      if (!mod.default || typeof mod.default.run !== "function") {
+        throw new Error(
+          `Invalid workflow module "${source}": expected a default export with a run() function. ` +
+            `Got: ${mod.default === undefined ? "no default export" : typeof mod.default.run === "function" ? "ok" : `default.run is ${typeof mod.default.run}`}.`,
+        );
       }
+      const ctx = new DaemonWorkflowContext({
+        runId: state.runId,
+        agent: info.agent,
+        inputs,
+        state,
+        supervisor: this.supervisor ?? noopSupervisor,
+      });
+      await mod.default.run(ctx);
       // Do not overwrite terminal status set by a concurrent stop().
       if (!state.isCancelled) {
         state.markCompletionReached();

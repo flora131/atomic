@@ -303,4 +303,63 @@ describe("RunManager", () => {
       expect(p.overall).toBe("cancelled");
     });
   });
+
+  describe("executeRun — import validation", () => {
+    test("module with no default export emits run/ended=error", async () => {
+      const fixturePath = join(import.meta.dir, "__fixtures__/empty-module.ts");
+      const manager = new RunManager();
+      const { runId } = await manager.start({
+        source: fixturePath,
+        workflowName: "no-default-wf",
+        agent: "claude",
+        inputs: {},
+      });
+
+      const conn = fakeConnection();
+      manager.subscribe(conn, runId);
+
+      await flushAsync();
+
+      const ended = conn.notifications.filter((n) => n.method === "run/ended");
+      expect(ended.length).toBe(1);
+      const p = ended[0]!.params as { overall: string };
+      expect(p.overall).toBe("error");
+    });
+
+    test("module with no default export marks RunInfo status=error", async () => {
+      const fixturePath = join(import.meta.dir, "__fixtures__/empty-module.ts");
+      const manager = new RunManager();
+      const { runId } = await manager.start({
+        source: fixturePath,
+        workflowName: "no-default-status-wf",
+        agent: "claude",
+        inputs: {},
+      });
+
+      await flushAsync();
+
+      const info = manager.get(runId);
+      expect(info).not.toBeNull();
+      expect(info!.status).toBe("error");
+      expect(typeof info!.endedAt).toBe("string");
+    });
+
+    test("module with no-run default export surfaces descriptive error message", async () => {
+      const fixturePath = join(import.meta.dir, "__fixtures__/default-no-run.ts");
+      const manager = new RunManager();
+      const { runId } = await manager.start({
+        source: fixturePath,
+        workflowName: "no-run-wf",
+        agent: "claude",
+        inputs: {},
+      });
+
+      await flushAsync();
+
+      const info = manager.get(runId);
+      expect(info).not.toBeNull();
+      expect(info!.status).toBe("error");
+      expect(typeof info!.endedAt).toBe("string");
+    });
+  });
 });

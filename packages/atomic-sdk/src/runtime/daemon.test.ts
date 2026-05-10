@@ -944,7 +944,7 @@ describe("Daemon integration — workflow/list with real WorkflowRegistry", () =
 // ---------------------------------------------------------------------------
 
 describe("Daemon integration — run/stop via RPC kills active stage and emits cancelled", () => {
-  test("run/stop sends SIGTERM to spawned stage PID and emits run/ended=cancelled", async () => {
+  test("run/stop sends SIGKILL to spawned stage PID and emits run/ended=cancelled", async () => {
     const FIXTURES = path.join(import.meta.dir, "__fixtures__");
     const fixturePath = path.join(FIXTURES, "with-one-stage.ts");
 
@@ -1000,10 +1000,10 @@ describe("Daemon integration — run/stop via RPC kills active stage and emits c
         // Allow notifications to propagate over TCP.
         await flushAsync();
 
-        // Assert: supervisor.kill was called with the stage PID and SIGTERM.
+        // Assert: supervisor.kill was called with the stage PID and SIGKILL.
         expect(killCalls.length).toBeGreaterThanOrEqual(1);
         expect(killCalls[0]!.pid).toBe(77777);
-        expect(killCalls[0]!.signal).toBe("SIGTERM");
+        expect(killCalls[0]!.signal).toBe("SIGKILL");
 
         // Assert: run/ended notification with overall=cancelled was delivered.
         expect(runEndedNotifs.length).toBeGreaterThanOrEqual(1);

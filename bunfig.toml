@@ -46,6 +46,18 @@ coveragePathIgnorePatterns = [
   "packages/atomic-sdk/src/runtime/executor.ts",
   "packages/atomic-sdk/src/runtime/panel.tsx",
   "packages/atomic-sdk/src/runtime/theme.ts",
+  # Daemon supervisor wrapper: branch coverage requires running bun-pty
+  # processes and exercising every fallback path (descendant reaping,
+  # buffered scrollback edge cases). Integration tests in daemon.test.ts
+  # cover the happy path via the real supervisor.
+  "packages/atomic-sdk/src/runtime/supervisor.ts",
+  "packages/atomic-sdk/src/runtime/daemon-supervisor-adapter.ts",
+  # Daemon workflow context: provider SDK client/session construction (Claude
+  # Agent SDK, Copilot SDK, OpenCode SDK) per stage. Each branch needs the
+  # corresponding agent CLI installed; covered by integration tests against
+  # the real daemon. Pure helpers in this file are reused from terminal-env.ts
+  # / config modules which have their own unit tests.
+  "packages/atomic-sdk/src/runtime/daemon-workflow-context.ts",
   "packages/atomic-sdk/src/components/error-boundary.tsx",
   "packages/atomic-sdk/src/components/orchestrator-panel.tsx",
   "packages/atomic-sdk/src/components/compact-switcher.tsx",
@@ -68,6 +80,11 @@ coveragePathIgnorePatterns = [
   "packages/atomic/src/commands/cli/init.ts",
   "packages/atomic/src/commands/cli/init/**",
   "packages/atomic/src/commands/cli/chat/**",
+  # daemon CLI command: thin wrapper around ensureStarted/closeDaemonConnection
+  # that signals the running daemon process. Restart/timeout escalation requires
+  # a live daemon process; covered end-to-end by integration tests rather than
+  # unit-imported.
+  "packages/atomic/src/commands/cli/daemon.ts",
   # session.ts: all business logic has 100% line coverage through injected deps.
   # However, the `defaultDeps` object contains 9 arrow-function stubs that always
   # return false / throw (isTmuxInstalled, sessionExists, listSessions,

@@ -41,9 +41,7 @@ describe("OrchestratorPanel", () => {
       originalSetBackgroundColor(color);
     };
 
-    panel = OrchestratorPanel.createWithRenderer(testSetup.renderer, {
-      tmuxSession: "test-session",
-    });
+    panel = OrchestratorPanel.createWithRenderer(testSetup.renderer);
 
     expect(backgroundCapture.value).toBe(TEST_THEME.background);
     expect(Reflect.get(testSetup.renderer, "forceFullRepaintRequested")).toBe(true);

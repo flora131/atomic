@@ -5,7 +5,6 @@ import {
   resetRendererTerminalBackground,
   setRendererBackground,
   terminalBackgroundColorSequence,
-  wrapForTmuxIfNeeded,
 } from "../../../packages/atomic-sdk/src/components/renderer-background.ts";
 
 function createRendererStub(): CliRenderer {
@@ -27,30 +26,6 @@ describe("terminalBackgroundColorSequence", () => {
 
   test("rejects non-hex colors", () => {
     expect(() => terminalBackgroundColorSequence("transparent")).toThrow("Cannot sync terminal background");
-  });
-});
-
-describe("wrapForTmuxIfNeeded", () => {
-  test("returns raw sequence outside tmux", () => {
-    const previousTmux = process.env.TMUX;
-    delete process.env.TMUX;
-    try {
-      expect(wrapForTmuxIfNeeded("\x1b]11;rgb:1e/1e/2e\x07")).toBe("\x1b]11;rgb:1e/1e/2e\x07");
-    } finally {
-      if (previousTmux === undefined) delete process.env.TMUX;
-      else process.env.TMUX = previousTmux;
-    }
-  });
-
-  test("wraps OSC sequences for tmux passthrough", () => {
-    const previousTmux = process.env.TMUX;
-    process.env.TMUX = "/tmp/tmux-test";
-    try {
-      expect(wrapForTmuxIfNeeded("\x1b]11;rgb:1e/1e/2e\x07")).toBe("\x1bPtmux;\x1b\x1b]11;rgb:1e/1e/2e\x07\x1b\\");
-    } finally {
-      if (previousTmux === undefined) delete process.env.TMUX;
-      else process.env.TMUX = previousTmux;
-    }
   });
 });
 

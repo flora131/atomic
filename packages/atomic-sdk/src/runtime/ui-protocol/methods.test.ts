@@ -465,7 +465,9 @@ describe("run/status", () => {
 
 describe("run/transcript", () => {
   test("returns messages array", async () => {
-    const msgs = [{ role: "user", content: "hello" }];
+    const msgs = [
+      { provider: "claude" as const, data: { role: "user", content: "hello" } },
+    ];
     const runs = makeRunManager({ getTranscript: mock(() => Promise.resolve(msgs)) });
     const { dispatcher, conn } = makeDispatcher({ runs });
     await authenticate(dispatcher, conn);

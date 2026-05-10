@@ -8,9 +8,6 @@
  *  - buildLauncherEnv (used inside launcher scripts) keeps the in-script
  *    `export` set minimal — only terminal keys + explicit envVars — so the
  *    bash/pwsh script doesn't have to re-export the user's whole shell.
- *  - buildTmuxEnv (used for `tmux new-session -e KEY=VAL`) carries the full
- *    user shell env so vars updated between invocations override the
- *    persistent atomic tmux server's stale snapshot.
  *  - buildSpawnEnv (used for direct Bun.spawn) inherits full env + normalized
  *    terminal keys.
  *  - Normalized LANG, LC_ALL, LC_CTYPE, TERM, COLORTERM always appear in
@@ -23,7 +20,6 @@ import {
   resolveChatCommand,
   buildLauncherEnv,
   buildSpawnEnv,
-  buildTmuxEnv,
   TERMINAL_ENV_KEYS,
 } from "../../../../packages/atomic/src/commands/cli/chat/index.ts";
 import type { CommandPathResolver } from "../../../../packages/atomic-sdk/src/providers/copilot.ts";
@@ -217,97 +213,3 @@ describe("buildSpawnEnv – direct spawn env", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// buildTmuxEnv — env injected via `tmux new-session -e KEY=VALUE` so the
-// pane sees the user's *current* shell env rather than the persistent
-// atomic tmux server's stale snapshot.
-// ---------------------------------------------------------------------------
-
-describe("buildTmuxEnv – tmux session env (chat wiring)", () => {
-  const FULL_BASE: NodeJS.ProcessEnv = {
-    GH_TOKEN: "ghp_secret",
-    COPILOT_GITHUB_TOKEN: "ghu_secret",
-    ANTHROPIC_API_KEY: "sk-ant-secret",
-    OPENAI_API_KEY: "sk-openai-secret",
-    HOME: "/home/user",
-    PATH: "/usr/bin:/bin",
-    ARBITRARY_VAR: "user-set-value",
-    LANG: "en_US.UTF-8",
-    LC_ALL: "en_US.UTF-8",
-    LC_CTYPE: "en_US.UTF-8",
-    TERM: "xterm-256color",
-    COLORTERM: "truecolor",
-  };
-
-  test("forwards the user's shell env so values updated between atomic invocations override the daemon snapshot", () => {
-    const env = buildTmuxEnv({}, FULL_BASE);
-    expect(env["GH_TOKEN"]).toBe("ghp_secret");
-    expect(env["COPILOT_GITHUB_TOKEN"]).toBe("ghu_secret");
-    expect(env["ANTHROPIC_API_KEY"]).toBe("sk-ant-secret");
-    expect(env["OPENAI_API_KEY"]).toBe("sk-openai-secret");
-    expect(env["HOME"]).toBe("/home/user");
-    expect(env["PATH"]).toBe("/usr/bin:/bin");
-    expect(env["ARBITRARY_VAR"]).toBe("user-set-value");
-  });
-
-  test("strips outer-tmux/psmux identifiers so the new pane doesn't reuse the caller's TMUX/TMUX_PANE", () => {
-    const env = buildTmuxEnv({}, {
-      ...FULL_BASE,
-      TMUX: "/tmp/tmux-1000/default,123,0",
-      TMUX_PANE: "%5",
-      TMUX_TMPDIR: "/tmp",
-      PSMUX: "/tmp/psmux/default,123,0",
-      PSMUX_PANE: "%5",
-      WINDOWID: "12345",
-    });
-    expect("TMUX" in env).toBe(false);
-    expect("TMUX_PANE" in env).toBe(false);
-    expect("TMUX_TMPDIR" in env).toBe(false);
-    expect("PSMUX" in env).toBe(false);
-    expect("PSMUX_PANE" in env).toBe(false);
-    expect("WINDOWID" in env).toBe(false);
-  });
-
-  test("includes normalized LANG, LC_ALL, LC_CTYPE, TERM, COLORTERM", () => {
-    const env = buildTmuxEnv({}, { LANG: "C", TERM: "dumb" });
-    expect(env["LANG"]).toBe("en_US.UTF-8");
-    expect(env["LC_ALL"]).toBe("en_US.UTF-8");
-    expect(env["LC_CTYPE"]).toBe("en_US.UTF-8");
-    expect(env["TERM"]).toBe("xterm-256color");
-    expect(env["COLORTERM"]).toBe("truecolor");
-  });
-
-  test("all TERMINAL_ENV_KEYS present", () => {
-    const env = buildTmuxEnv({}, {});
-    for (const key of TERMINAL_ENV_KEYS) {
-      expect(key in env).toBe(true);
-    }
-  });
-
-  test("includes explicit ATOMIC_AGENT", () => {
-    const env = buildTmuxEnv({ ATOMIC_AGENT: "copilot" }, FULL_BASE);
-    expect(env["ATOMIC_AGENT"]).toBe("copilot");
-  });
-
-  test("includes explicit COPILOT_CUSTOM_INSTRUCTIONS_DIRS", () => {
-    const env = buildTmuxEnv({ COPILOT_CUSTOM_INSTRUCTIONS_DIRS: "/workspace/.github" }, FULL_BASE);
-    expect(env["COPILOT_CUSTOM_INSTRUCTIONS_DIRS"]).toBe("/workspace/.github");
-  });
-
-  test("explicit envVars override values inherited from the shell", () => {
-    const env = buildTmuxEnv(
-      { ANTHROPIC_API_KEY: "explicit-override" },
-      { ANTHROPIC_API_KEY: "from-shell" },
-    );
-    expect(env["ANTHROPIC_API_KEY"]).toBe("explicit-override");
-  });
-
-  test("buildTmuxEnv is symmetric with buildSpawnEnv — both expose the full shell env", () => {
-    const base: NodeJS.ProcessEnv = { HOME: "/root", PATH: "/usr/bin", GH_TOKEN: "ghp_x", LANG: "en_US.UTF-8", TERM: "xterm-256color", COLORTERM: "truecolor" };
-    const tmuxEnv = buildTmuxEnv({}, base);
-    const spawnEnv = buildSpawnEnv({}, base);
-    expect(tmuxEnv["HOME"]).toBe(spawnEnv["HOME"]);
-    expect(tmuxEnv["PATH"]).toBe(spawnEnv["PATH"]);
-    expect(tmuxEnv["GH_TOKEN"]).toBe(spawnEnv["GH_TOKEN"]);
-  });
-});

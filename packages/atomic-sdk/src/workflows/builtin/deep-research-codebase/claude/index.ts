@@ -73,46 +73,39 @@
  */
 
 import { defineWorkflow, extractAssistantText } from "../../../index.ts";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
+
 import {
   getCodebaseRoot,
-  listSourceFiles,
   partitionUnits,
   scoutCodebase,
 } from "../helpers/scout.ts";
 import {
-  buildLayer1TaskSpec,
-  buildLayer1Tasks,
-  buildLayer2TaskSpec,
-  buildLayer2Tasks,
-  buildPartitionPaths,
-  closeGraph,
-  logBatchRejections,
-  openGraphForRun,
-  readLocatorOutputs,
-  resolveEffectiveCounts,
-  synthesizeExplorerHandles,
-} from "../helpers/orchestration.ts";
-import {
   calculateExplorerCount,
-  CODEGRAPH_EXPLORER_FACTOR,
   explainHeuristic,
 } from "../helpers/heuristic.ts";
 import {
   buildAggregatorPrompt,
+  buildAnalyzerPrompt,
   buildBatchOrchestratorPrompt,
   buildHistoryAnalyzerPrompt,
   buildHistoryLocatorPrompt,
+  buildLocatorPrompt,
+  buildOnlineResearcherPrompt,
+  buildPatternFinderPrompt,
   buildScoutPrompt,
   slugifyPrompt,
+  wrapPromptForTaskDispatch,
 } from "../helpers/prompts.ts";
+import { writeExplorerScratchFile } from "../helpers/scratch.ts";
 import {
-  logPreflightResult,
-  preflight,
-  type PreflightResult,
-} from "../helpers/preflight.ts";
-import { chunkBatches, MAX_TASKS_PER_BATCH } from "../helpers/batching.ts";
+  chunkBatches,
+  MAX_TASKS_PER_BATCH,
+  SUBAGENT_TYPE,
+  type Layer1Task,
+  type Layer2Task,
+} from "../helpers/batching.ts";
 
 /**
  * Shared SDK options for every sub-agent dispatch. `permissionMode` +
@@ -139,6 +132,31 @@ const BATCH_DISPATCHER_OPTS = {
   agent: "orchestrator",
 } as const;
 
+/** Read a file as UTF-8, returning empty string if missing or unreadable. */
+async function safeReadFile(absPath: string): Promise<string> {
+  try {
+    return await readFile(absPath, "utf8");
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Log Promise.allSettled rejection reasons to stderr so an all-failed wave
+ * leaves a debugging trail instead of silently producing an empty report.
+ */
+function logBatchRejections(
+  label: string,
+  results: PromiseSettledResult<unknown>[],
+): void {
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
+    if (r?.status === "rejected") {
+      console.error(`[deep-research-codebase] ${label} batch ${i + 1} failed:`, r.reason);
+    }
+  }
+}
+
 export default defineWorkflow({
   name: "deep-research-codebase",
   description:
@@ -160,17 +178,6 @@ export default defineWorkflow({
     const isoDate = startedAt.toISOString().slice(0, 10);
     const slug = slugifyPrompt(prompt);
 
-    // ── Preflight: CodeGraph health + uv availability ─────────────────────
-    const preflightResult: PreflightResult = await preflight(root);
-    logPreflightResult(preflightResult);
-
-    // ── CodeGraph lifecycle (§5.4) ────────────────────────────────────────
-    // Open one read-only handle for the whole workflow run; thread it through
-    // listSourceFiles + writeExplorerScratchFile so synthesis shares one
-    // connection. Closed in the finally block below regardless of errors.
-    const graph = await openGraphForRun(root, preflightResult.codegraphHealthy);
-
-    try {
     // ── Stage 1a: codebase-scout (visible) ‖ Stage 1b: research-history pipeline (headless) ──
     //
     // Both pipelines are independent of each other and must complete before
@@ -188,14 +195,7 @@ export default defineWorkflow({
         {},
         {},
         async (s) => {
-          // Use listSourceFiles (CodeGraph-aware) for file counts + LOC;
-          // fall back to scoutCodebase for tree + partition units since
-          // buildPartitionUnits/renderTree are internal to scout.ts.
-          const [fileWalk, data] = await Promise.all([
-            listSourceFiles(root, { graph }),
-            Promise.resolve(scoutCodebase(root)),
-          ]);
-
+          const data = scoutCodebase(root);
           if (data.units.length === 0) {
             throw new Error(
               `deep-research-codebase: scout found no source files under ${root}. ` +
@@ -205,22 +205,7 @@ export default defineWorkflow({
             );
           }
 
-          const { effectiveFiles, effectiveLoc } = resolveEffectiveCounts({
-            graph,
-            fileWalk,
-            scoutTotalFiles: data.totalFiles,
-            scoutTotalLoc: data.totalLoc,
-          });
-
-          const targetCount = calculateExplorerCount(effectiveLoc, {
-            codegraphHealthy: preflightResult.codegraphHealthy,
-          });
-          const heuristicSuffix = preflightResult.codegraphHealthy
-            ? `, factor=${CODEGRAPH_EXPLORER_FACTOR}`
-            : "";
-          console.log(
-            `[deep-research-codebase] Heuristic: explorerCount=${targetCount} (codegraphHealthy=${preflightResult.codegraphHealthy}${heuristicSuffix})`,
-          );
+          const targetCount = calculateExplorerCount(data.totalLoc);
           const partitions = partitionUnits(data.units, targetCount);
           const actualCount = partitions.length;
 
@@ -236,8 +221,8 @@ export default defineWorkflow({
             buildScoutPrompt({
               question: prompt,
               tree: data.tree,
-              totalLoc: effectiveLoc,
-              totalFiles: effectiveFiles,
+              totalLoc: data.totalLoc,
+              totalFiles: data.totalFiles,
               explorerCount: actualCount,
               partitionPreview: partitions,
             }),
@@ -246,13 +231,13 @@ export default defineWorkflow({
 
           return {
             root,
-            totalLoc: effectiveLoc,
-            totalFiles: effectiveFiles,
+            totalLoc: data.totalLoc,
+            totalFiles: data.totalFiles,
             tree: data.tree,
             partitions,
             explorerCount: actualCount,
             scratchDir,
-            heuristicNote: explainHeuristic(effectiveLoc, actualCount),
+            heuristicNote: explainHeuristic(data.totalLoc, actualCount),
           };
         },
       ),
@@ -329,12 +314,39 @@ export default defineWorkflow({
     // Per-partition output paths, computed once and reused across both wave
     // task-list construction and synthesis. Specialists write these;
     // synthesis reads them.
-    const partitionPaths = buildPartitionPaths(scratchDir, partitions.length);
+    const partitionPaths = partitions.map((_, idx) => {
+      const i = idx + 1;
+      return {
+        locator: path.join(scratchDir, `locator-${i}.md`),
+        patternFinder: path.join(scratchDir, `pattern-finder-${i}.md`),
+        analyzer: path.join(scratchDir, `analyzer-${i}.md`),
+        online: path.join(scratchDir, `online-${i}.md`),
+        explorer: path.join(scratchDir, `explorer-${i}.md`),
+      };
+    });
 
     // Wave 1 task list — flat across partitions and specialist kinds so the
     // chunker can fill batches uniformly. Mixed-kind batches are fine: the
     // Task tool's `subagent_type` is set per call inside the orchestrator.
-    const wave1Tasks = buildLayer1Tasks(partitions, partitionPaths);
+    const wave1Tasks: Layer1Task[] = partitions.flatMap((partition, idx) => {
+      const i = idx + 1;
+      const paths = partitionPaths[idx]!;
+      return [
+        {
+          kind: "locator" as const,
+          partitionIndex: i,
+          partition,
+          outputPath: paths.locator,
+        },
+        {
+          kind: "pattern-finder" as const,
+          partitionIndex: i,
+          partition,
+          outputPath: paths.patternFinder,
+        },
+      ];
+    });
+
     const wave1Batches = chunkBatches(wave1Tasks, MAX_TASKS_PER_BATCH);
 
     // Wave 1: dispatch all batches in parallel. allSettled so a single batch
@@ -353,14 +365,26 @@ export default defineWorkflow({
           {},
           {},
           async (s) => {
-            const taskSpecs = batch.map((task) =>
-              buildLayer1TaskSpec({
-                task,
+            const taskSpecs = batch.map((t) => {
+              const builder =
+                t.kind === "locator" ? buildLocatorPrompt : buildPatternFinderPrompt;
+              const specialistPrompt = builder({
                 question: prompt,
+                partition: t.partition,
                 scoutOverview,
+                index: t.partitionIndex,
                 total: explorerCount,
-              }),
-            );
+              });
+              return {
+                subagentType: SUBAGENT_TYPE[t.kind],
+                outputPath: t.outputPath,
+                prompt: wrapPromptForTaskDispatch({
+                  specialistPrompt,
+                  outputPath: t.outputPath,
+                  agentLabel: t.kind.toUpperCase().replaceAll("-", "_"),
+                }),
+              };
+            });
 
             await s.session.query(
               buildBatchOrchestratorPrompt({
@@ -380,9 +404,36 @@ export default defineWorkflow({
 
     // Read locator outputs from disk for Wave 2 prompts. Layer 2 specialists
     // embed the locator's verbatim output rather than re-discovering it.
-    const locatorOutputs = await readLocatorOutputs(partitionPaths);
+    const locatorOutputs: Map<number, string> = new Map();
+    await Promise.all(
+      partitions.map(async (_p, idx) => {
+        const i = idx + 1;
+        locatorOutputs.set(i, await safeReadFile(partitionPaths[idx]!.locator));
+      }),
+    );
 
-    const wave2Tasks = buildLayer2Tasks(partitions, partitionPaths, locatorOutputs);
+    const wave2Tasks: Layer2Task[] = partitions.flatMap((partition, idx) => {
+      const i = idx + 1;
+      const paths = partitionPaths[idx]!;
+      const locatorOutput = locatorOutputs.get(i) ?? "";
+      return [
+        {
+          kind: "analyzer" as const,
+          partitionIndex: i,
+          partition,
+          outputPath: paths.analyzer,
+          locatorOutput,
+        },
+        {
+          kind: "online-researcher" as const,
+          partitionIndex: i,
+          partition,
+          outputPath: paths.online,
+          locatorOutput,
+        },
+      ];
+    });
+
     const wave2Batches = chunkBatches(wave2Tasks, MAX_TASKS_PER_BATCH);
 
     const wave2Results = await Promise.allSettled(
@@ -397,14 +448,34 @@ export default defineWorkflow({
           {},
           {},
           async (s) => {
-            const taskSpecs = batch.map((task) =>
-              buildLayer2TaskSpec({
-                task,
-                question: prompt,
-                scoutOverview,
-                total: explorerCount,
-              }),
-            );
+            const taskSpecs = batch.map((t) => {
+              const specialistPrompt =
+                t.kind === "analyzer"
+                  ? buildAnalyzerPrompt({
+                      question: prompt,
+                      partition: t.partition,
+                      locatorOutput: t.locatorOutput,
+                      scoutOverview,
+                      index: t.partitionIndex,
+                      total: explorerCount,
+                    })
+                  : buildOnlineResearcherPrompt({
+                      question: prompt,
+                      partition: t.partition,
+                      locatorOutput: t.locatorOutput,
+                      index: t.partitionIndex,
+                      total: explorerCount,
+                    });
+              return {
+                subagentType: SUBAGENT_TYPE[t.kind],
+                outputPath: t.outputPath,
+                prompt: wrapPromptForTaskDispatch({
+                  specialistPrompt,
+                  outputPath: t.outputPath,
+                  agentLabel: t.kind.toUpperCase().replaceAll("-", "_"),
+                }),
+              };
+            });
 
             await s.session.query(
               buildBatchOrchestratorPrompt({
@@ -427,13 +498,34 @@ export default defineWorkflow({
     // Missing files fall back to "" so the synthesis tolerates partial
     // batch failures — the aggregator's prompt already handles empty
     // sections via _(no … produced)_ placeholders in renderExplorerMarkdown.
-    const explorerHandles = await synthesizeExplorerHandles({
-      partitions,
-      paths: partitionPaths,
-      locatorOutputs,
-      explorerCount,
-      graph,
-    });
+    const explorerHandles = await Promise.all(
+      partitions.map(async (partition, idx) => {
+        const i = idx + 1;
+        const paths = partitionPaths[idx]!;
+
+        const [locatorOutput, patternsOutput, analyzerOutput, onlineOutput] =
+          await Promise.all([
+            // Layer 1 locator was already read into locatorOutputs above —
+            // reuse it instead of re-reading from disk.
+            Promise.resolve(locatorOutputs.get(i) ?? ""),
+            safeReadFile(paths.patternFinder),
+            safeReadFile(paths.analyzer),
+            safeReadFile(paths.online),
+          ]);
+
+        await writeExplorerScratchFile(paths.explorer, {
+          index: i,
+          total: explorerCount,
+          partition,
+          locatorOutput,
+          patternsOutput,
+          analyzerOutput,
+          onlineOutput,
+        });
+
+        return { index: i, scratchPath: paths.explorer, partition };
+      }),
+    );
 
     // ── Stage 3: aggregator (visible) ─────────────────────────────────────
     //
@@ -472,8 +564,5 @@ export default defineWorkflow({
         s.save(s.sessionId);
       },
     );
-    } finally {
-      closeGraph(graph);
-    }
   })
   .compile();

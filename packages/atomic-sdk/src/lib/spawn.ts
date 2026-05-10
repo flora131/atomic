@@ -119,23 +119,6 @@ export function hasRequiredMuxBinary(): boolean {
   );
 }
 
-/**
- * Whether `uv` (or `uvx`) is on PATH. Either is sufficient — `uvx` ships in
- * the same uv install and is what the ast-grep MCP server is launched with.
- *
- * Uses `resolveCommandFromCurrentPath` (not bare `Bun.which`) because the
- * 1-arg form of `Bun.which` caches PATH at process startup and does not
- * pick up our runtime `prependPath` mutations after `ensureUvInstalled`
- * has just installed uv into a new directory. Same caching gotcha is
- * documented at the call sites in `runtime/tmux.ts` and `providers/claude.ts`.
- */
-export function hasUv(): boolean {
-  return Boolean(
-    resolveCommandFromCurrentPath("uv") ||
-      resolveCommandFromCurrentPath("uvx"),
-  );
-}
-
 function prependPathIfDirectory(directory: string | undefined): void {
   if (!directory || !existsSync(directory)) return;
   prependPath(directory);
@@ -167,51 +150,6 @@ function prependWindowsMuxInstallPaths(): void {
   prependPathIfDirectory("C:\\ProgramData\\chocolatey\\bin");
   prependPathIfDirectory(home ? join(home, ".cargo", "bin") : undefined);
   prependPathIfDirectory(windowsAtomicBinDir());
-}
-
-/**
- * Candidate directories where the uv installer may have placed the `uv` /
- * `uvx` binaries, in priority order. Mirrors the "executable directory"
- * resolution documented at
- * https://docs.astral.sh/uv/reference/storage/#executable-directory plus the
- * `UV_INSTALL_DIR` override from the installer reference.
- *
- * Returns directories regardless of whether they exist on disk — callers
- * filter via `prependPathIfDirectory`, and the same list is shown verbatim
- * in error messages so the user knows which paths to inspect.
- */
-function uvInstallPathCandidates(): string[] {
-  const home = getHomeDir();
-  const candidates: (string | undefined)[] = [
-    process.env.UV_INSTALL_DIR,
-    process.env.XDG_BIN_HOME,
-    process.env.XDG_DATA_HOME ? join(process.env.XDG_DATA_HOME, "..", "bin") : undefined,
-    home ? join(home, ".local", "bin") : undefined,
-  ];
-
-  if (process.platform === "win32") {
-    candidates.push(
-      process.env.SCOOP ? join(process.env.SCOOP, "shims") : undefined,
-      home ? join(home, "scoop", "shims") : undefined,
-      process.env.LOCALAPPDATA
-        ? join(process.env.LOCALAPPDATA, "Microsoft", "WinGet", "Links")
-        : undefined,
-    );
-  }
-
-  return candidates.filter((p): p is string => Boolean(p));
-}
-
-function prependUvInstallPaths(): void {
-  for (const dir of uvInstallPathCandidates()) {
-    prependPathIfDirectory(dir);
-  }
-}
-
-async function refreshWindowsUvPath(): Promise<void> {
-  prependUvInstallPaths();
-  await refreshWindowsPathFromRegistry();
-  prependUvInstallPaths();
 }
 
 function prependBunInstallPaths(): void {
@@ -476,13 +414,12 @@ export async function upgradeGlobalPackages(pkgs: string[]): Promise<void> {
   }
 }
 
-/** Upgrade @playwright/cli, @llamaindex/liteparse, @ast-grep/cli, and @colbymchenry/codegraph globally in one pass. */
+/** Upgrade @playwright/cli, @llamaindex/liteparse, and @ast-grep/cli globally in one pass. */
 export async function upgradeGlobalToolPackages(): Promise<void> {
   return upgradeGlobalPackages([
     "@playwright/cli",
     "@llamaindex/liteparse",
     "@ast-grep/cli",
-    "@colbymchenry/codegraph",
   ]);
 }
 
@@ -609,61 +546,6 @@ export async function ensureTmuxInstalled(options: EnsureOptions = {}): Promise<
 
   throw new Error(
     capturedDetails || "Could not install tmux — no supported package manager succeeded.",
-  );
-}
-
-/**
- * Ensure uv (and uvx) is installed and available on PATH.
- * No-op when already present.
- *
- * When `quiet: true`, subprocess output is captured instead of inherited
- * so an outer spinner UI owns the display. On failure the captured tail
- * is re-thrown as the error message.
- */
-export async function ensureUvInstalled(options: EnsureOptions = {}): Promise<void> {
-  if (hasUv()) return;
-
-  const inherit = !(options.quiet ?? false);
-  const installCmd = process.platform === "win32"
-    ? ["powershell", "-ExecutionPolicy", "ByPass", "-c", "irm https://astral.sh/uv/install.ps1 | iex"]
-    : ["sh", "-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"];
-
-  const result = await runCommand(installCmd, { inherit });
-  if (result.success) {
-    if (process.platform === "win32") {
-      await refreshWindowsUvPath();
-    } else {
-      prependUvInstallPaths();
-    }
-  }
-
-  if (hasUv()) return;
-
-  // Install command exited successfully but the binary still isn't on PATH —
-  // surface the canonical install locations so the user can either add the
-  // right one to their shell profile or set UV_INSTALL_DIR. See
-  // https://docs.astral.sh/uv/reference/installer/ and
-  // https://docs.astral.sh/uv/reference/storage/#executable-directory.
-  const candidates = uvInstallPathCandidates();
-  const candidateList = candidates.length > 0
-    ? candidates.map((p) => `  - ${p}`).join("\n")
-    : "  (no candidate paths resolved; set $HOME or $UV_INSTALL_DIR)";
-  const shellHint = process.platform === "win32"
-    ? "[Environment]::SetEnvironmentVariable('Path', \"$env:USERPROFILE\\.local\\bin;$env:Path\", 'User')"
-    : "export PATH=\"$HOME/.local/bin:$PATH\"   # add to ~/.bashrc, ~/.zshrc, etc.";
-
-  throw new Error(
-    [
-      result.details || "uv install completed but binary not found on PATH.",
-      "",
-      "Looked for `uv` / `uvx` in:",
-      candidateList,
-      "",
-      "Add the directory containing `uv` to your PATH, or re-run the",
-      "installer with UV_INSTALL_DIR set to a directory already on PATH.",
-      "",
-      `Shell example: ${shellHint}`,
-    ].join("\n"),
   );
 }
 

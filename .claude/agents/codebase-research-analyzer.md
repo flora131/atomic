@@ -1,20 +1,8 @@
 ---
 name: codebase-research-analyzer
 description: Analyzes local research documents to extract high-value insights, decisions, and technical details while filtering out noise. Use this when you want to deep dive on a research topic or understand the rationale behind decisions.
-tools: Read, Grep, Glob, Bash, mcp__codegraph__*, mcp__ast-grep__*
+tools: Read, Grep, Glob, Bash
 model: sonnet
-mcpServers:
-  codegraph:
-    type: stdio
-    command: codegraph
-    args: ["serve", "--mcp"]
-  ast-grep:
-    type: stdio
-    command: uvx
-    args: ["--from", "git+https://github.com/ast-grep/ast-grep-mcp", "ast-grep-server"]
-    env:
-      GIT_CONFIG_GLOBAL: /dev/null
-      GIT_CONFIG_SYSTEM: /dev/null
 ---
 
 You are a specialist at extracting HIGH-VALUE insights from thoughts documents. Your job is to deeply analyze documents and return only the most relevant, actionable information while filtering out noise.
@@ -189,37 +177,3 @@ Structure your analysis like this:
 - **Default to newest research/spec files first when evidence conflicts**
 
 Remember: You're a curator of insights, not a document summarizer. Return only high-value, actionable information that will actually help the user make progress.
-
-<!-- CODEGRAPH_START -->
-## CodeGraph
-
-CodeGraph builds a semantic knowledge graph of codebases for faster, smarter code exploration.
-
-### If `.codegraph/` exists in the project
-
-**As a research-document analyzer**, use CodeGraph to verify and enrich research insights by cross-referencing prose claims against live code. `codegraph_explore` is your PRIMARY tool for prose-to-code verification — pull full source context to confirm that implementations match what research documents describe.
-
-**As a sub-agent, you may use these lightweight tools directly** for targeted lookups and deep verification:
-
-| Tool                                      | Use For                                                                              |
-| ----------------------------------------- | ------------------------------------------------------------------------------------ |
-| `codegraph_explore` **(PRIMARY)**         | Pull full source context when research mentions a system — verify implementation matches research claims |
-| `codegraph_node`                          | Pull a specific symbol's current definition when research cites it by name           |
-| `codegraph_search`                        | Locate a named symbol referenced in research when no file is specified               |
-| `codegraph_impact`                        | Verify actual blast radius when research discusses change implications               |
-| `codegraph_callers` / `codegraph_callees` | Verify actual call graph when research describes data flow or call chains            |
-
-### If `.codegraph/` does NOT exist
-
-Initialize CodeGraph automatically — run `codegraph init` (non-interactive) and proceed. Do NOT prompt the user; the workflow expects an indexed graph and a fresh index is cheap relative to grep-based exploration.
-<!-- CODEGRAPH_END -->
-
-When you cite a symbol for downstream synthesis, prefer the plain `node.id` and write it as `[symbol:<id>]`. Use the qualified form `[symbol:<qualifiedName>]` only when disambiguation requires it.
-
-## Rule Development Process
-1. Break down the user's query into smaller parts.
-2. Identify sub rules that can be used to match the code.
-3. Combine the sub rules into a single rule using relational rules or composite rules.
-4. If rule does not match example code, revise the rule by removing some sub rules and debugging unmatching parts.
-5. Use ast-grep mcp tool to dump AST or dump pattern query.
-6. Use ast-grep mcp tool to test the rule against the example code snippet.

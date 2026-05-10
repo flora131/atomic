@@ -98,14 +98,6 @@ coveragePathIgnorePatterns = [
   "packages/atomic/script/release-assets.ts",
   "packages/atomic-sdk/script/build.ts",
   "packages/atomic-sdk/script/publish.ts",
-  # Maintenance scripts: pure `main()` + `if (import.meta.main)` CLI entries.
-  # Their pure helpers (escape, generateSnippetsModule, lint helpers) are
-  # already covered by the corresponding *.test.ts files; the `main()`
-  # bootstrap is exercised end-to-end via `bun run` invocations, not unit-
-  # imported. Mirrors the build.ts/publish.ts exclusion pattern above.
-  "packages/atomic-sdk/script/build-snippets.ts",
-  "packages/atomic-sdk/script/lint-claude-mcp-allowlist.ts",
-  "packages/atomic-sdk/script/lint-file-discovery.ts",
   # Standalone scratch projects at the repo root — not part of the
   # core packages/ tree and not in `workspaces`.
   "rest-api/**",

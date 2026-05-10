@@ -64,13 +64,9 @@
   "scripts": {
     "build": "bun run script/build.ts",
     "release": "bun run script/publish.ts",
-    "typecheck": "bunx tsc --noEmit",
-    "lint:mcp": "bun run script/lint-claude-mcp-allowlist.ts",
-    "lint:file-discovery": "bun run script/lint-file-discovery.ts",
-    "build:snippets": "bun run script/build-snippets.ts"
+    "typecheck": "bunx tsc --noEmit"
   },
   "dependencies": {
-    "@colbymchenry/codegraph": "^0.7.3",
     "@anthropic-ai/claude-agent-sdk": "^0.2.132",
     "@catppuccin/palette": "^1.8.0",
     "@clack/prompts": "^1.3.0",

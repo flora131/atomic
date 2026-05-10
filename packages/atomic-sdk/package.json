@@ -16,6 +16,7 @@
     "./runtime/run-manager": "./src/runtime/run-manager.ts",
     "./runtime/registry": "./src/runtime/registry.ts",
     "./runtime/supervisor": "./src/runtime/supervisor.ts",
+    "./runtime/daemon-supervisor-adapter": "./src/runtime/daemon-supervisor-adapter.ts",
     "./components/panel-client": "./src/components/panel-client.tsx",
     "./primitives/metadata": "./src/primitives/metadata.ts",
     "./workflows": "./src/workflows/index.ts",

@@ -8,7 +8,7 @@
 import { Daemon } from "@bastani/atomic-sdk/runtime/daemon";
 import { WorkflowRegistry } from "@bastani/atomic-sdk/runtime/registry";
 import { RunManager } from "@bastani/atomic-sdk/runtime/run-manager";
-import { Supervisor } from "@bastani/atomic-sdk/runtime/supervisor";
+import { DaemonSupervisorAdapter } from "@bastani/atomic-sdk/runtime/daemon-supervisor-adapter";
 import { VERSION } from "../../version.ts";
 
 export async function runUiServer(): Promise<void> {
@@ -27,9 +27,7 @@ export async function runUiServer(): Promise<void> {
 
   const workflows = new WorkflowRegistry();
   const runs = new RunManager();
-  // Supervisor implements all ISupervisor methods; cast to satisfy the interface.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const supervisor = new Supervisor() as any;
+  const supervisor = new DaemonSupervisorAdapter();
 
   const daemon = new Daemon({
     workflows,

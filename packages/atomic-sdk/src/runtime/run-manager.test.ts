@@ -663,6 +663,101 @@ describe("RunManager", () => {
       await manager.stop(runB);
     });
 
+    test("stage exit after cancellation does not change terminal cancelled status", async () => {
+      // Scenario: stage is running (onExit never called yet), stop() fires,
+      // then the stage's onExit fires late with code=0.
+      // Invariant: run status must stay "cancelled", not flip to "complete".
+      const fixturePath = join(import.meta.dir, "__fixtures__/with-one-stage.ts");
+
+      let capturedOnExit: ((code: number) => void) | undefined;
+      const controllableSupervisor: ISupervisor & { spawnCalls: SpawnCall[] } = {
+        spawnCalls: [],
+        async spawn(params) {
+          (this as { spawnCalls: SpawnCall[] }).spawnCalls.push(params as SpawnCall);
+          // Capture onExit so we can fire it later (after stop).
+          if (params.onExit) capturedOnExit = params.onExit;
+          return { pid: 44444 };
+        },
+        sendInput: mock(() => {}),
+        getScrollback: mock(() => ({ data: "", headOffset: 0 })),
+        kill: mock(() => {}),
+      };
+
+      const manager = new RunManager({ supervisor: controllableSupervisor });
+      const { runId } = await manager.start({
+        source: fixturePath,
+        workflowName: "late-exit-after-cancel-wf",
+        agent: "claude",
+        inputs: {},
+      });
+
+      // Give spawn a chance to register onExit.
+      await flushAsync();
+
+      const conn = fakeConnection();
+      manager.subscribe(conn, runId);
+
+      // Cancel the run — status → "cancelled".
+      await manager.stop(runId);
+      await flushAsync();
+
+      const infoAfterStop = manager.get(runId);
+      expect(infoAfterStop!.status).toBe("cancelled");
+
+      // Now fire onExit with code=0 (simulates the OS delivering exit after kill).
+      if (capturedOnExit) capturedOnExit(0);
+      await flushAsync();
+
+      // Status must remain "cancelled" — late exit must not override terminal state.
+      const infoAfterLateExit = manager.get(runId);
+      expect(infoAfterLateExit!.status).toBe("cancelled");
+
+      // Exactly one run/ended notification, for "cancelled".
+      const ended = conn.notifications.filter((n) => n.method === "run/ended");
+      expect(ended.length).toBe(1);
+      expect((ended[0]!.params as { overall: string }).overall).toBe("cancelled");
+    });
+
+    test("stage exit with non-zero code after cancellation does not change terminal cancelled status", async () => {
+      // Same as above but stage exits with error code — still must not flip to "error".
+      const fixturePath = join(import.meta.dir, "__fixtures__/with-one-stage.ts");
+
+      let capturedOnExit: ((code: number) => void) | undefined;
+      const controllableSupervisor: ISupervisor & { spawnCalls: SpawnCall[] } = {
+        spawnCalls: [],
+        async spawn(params) {
+          (this as { spawnCalls: SpawnCall[] }).spawnCalls.push(params as SpawnCall);
+          if (params.onExit) capturedOnExit = params.onExit;
+          return { pid: 33333 };
+        },
+        sendInput: mock(() => {}),
+        getScrollback: mock(() => ({ data: "", headOffset: 0 })),
+        kill: mock(() => {}),
+      };
+
+      const manager = new RunManager({ supervisor: controllableSupervisor });
+      const { runId } = await manager.start({
+        source: fixturePath,
+        workflowName: "late-error-exit-after-cancel-wf",
+        agent: "claude",
+        inputs: {},
+      });
+
+      await flushAsync();
+
+      await manager.stop(runId);
+      await flushAsync();
+
+      expect(manager.get(runId)!.status).toBe("cancelled");
+
+      // Stage exits non-zero (error) after the run is already cancelled.
+      if (capturedOnExit) capturedOnExit(1);
+      await flushAsync();
+
+      // Must still be "cancelled", not "error".
+      expect(manager.get(runId)!.status).toBe("cancelled");
+    });
+
     test("PID removed from tracking after stage exits normally", async () => {
       const fixturePath = join(import.meta.dir, "__fixtures__/with-one-stage.ts");
       const killCalls: Array<{ pid: number }> = [];

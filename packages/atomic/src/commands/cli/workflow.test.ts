@@ -6,7 +6,7 @@
  *   - dispatch() return type is Promise<void> for both branches
  */
 
-import { describe, test, expect, beforeEach, mock } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import type { ExternalWorkflow } from "@bastani/atomic-sdk";
 
 // ─── Daemon RPC mock for dispatch() tests ────────────────────────────────────
@@ -16,21 +16,50 @@ import type { ExternalWorkflow } from "@bastani/atomic-sdk";
 const dispatchRpcCalls: Array<{ source: string; workflowName: string; agent: string; inputs: Record<string, string> }> = [];
 const rpcRunId = "workflow-test-run-id";
 
-const fakeRpcConn = {
-  sendRequest: mock(async (_method: string, params: unknown) => {
+/** Shared disposable returned by onNotification/onClose mocks. */
+const fakeDisposable = { dispose: mock(() => {}) };
+
+/**
+ * Build a fake MessageConnection for workflow.ts dispatch() tests.
+ *
+ * @param notifyOnRegister  When true, `onNotification("run/ended", h)` calls `h`
+ *                          synchronously (race/buffer path).
+ * @param closeOnRegister   When true, `onClose(h)` calls `h` synchronously
+ *                          (connection-drop path).
+ */
+function makeFakeConn({
+  notifyOnRegister = true,
+  closeOnRegister = false,
+}: { notifyOnRegister?: boolean; closeOnRegister?: boolean } = {}) {
+  const sendRequest = mock(async (_method: string, params: unknown) => {
     if (_method === "workflow/start") {
       dispatchRpcCalls.push(params as typeof dispatchRpcCalls[number]);
       return { runId: rpcRunId, attachable: true };
     }
     return {};
-  }),
-  onNotification: mock((_method: string, handler: (params: unknown) => void) => {
-    if (_method === "run/ended") {
+  });
+
+  const onNotification = mock((_event: string, handler: (params: unknown) => void) => {
+    if (_event === "run/ended" && notifyOnRegister) {
       handler({ runId: rpcRunId });
     }
-  }),
-  dispose: mock(() => {}),
-};
+    return fakeDisposable;
+  });
+
+  const onClose = mock((handler: () => void) => {
+    if (closeOnRegister) {
+      handler();
+    }
+    return fakeDisposable;
+  });
+
+  const dispose = mock(() => {});
+
+  return { sendRequest, onNotification, onClose, dispose };
+}
+
+// Default shared fake conn (notify-on-register so foreground dispatch resolves).
+const fakeRpcConn = makeFakeConn({ notifyOnRegister: true });
 
 const realDaemonMod = await import("@bastani/atomic-sdk/runtime/daemon");
 await mock.module("@bastani/atomic-sdk/runtime/daemon", () => ({
@@ -675,7 +704,9 @@ describe("dispatch() JSON-RPC routing for external workflows", () => {
     dispatchRpcCalls.length = 0;
     fakeRpcConn.sendRequest.mockClear();
     fakeRpcConn.onNotification.mockClear();
+    fakeRpcConn.onClose.mockClear();
     fakeRpcConn.dispose.mockClear();
+    fakeDisposable.dispose.mockClear();
     Object.defineProperty(process.stdout, "isTTY", { configurable: true, get: () => false });
   });
 
@@ -777,3 +808,193 @@ describe("dispatch() JSON-RPC routing for external workflows", () => {
     expect(exitCalled).toBe(false);
   });
 });
+
+// ─── dispatch() non-TTY foreground — deterministic completion ─────────────────
+//
+// These tests verify the non-TTY foreground path in dispatch() mirrors the
+// guarantees enforced in run.ts:
+//   1. run/ended handler registered BEFORE workflow/start is sent.
+//   2. Resolves after deferred run/ended (buffer path: notify fires inside sendRequest).
+//   3. Race/buffer path: resolves immediately when run/ended fires during handler
+//      registration (before sendRequest returns).
+//   4. Rejects when connection closes before run/ended.
+//   5. Both disposables are called after resolving.
+//   6. detach:true never subscribes to run/ended.
+//
+// All notification timing is controlled deterministically by the fake conn
+// rather than relying on microtask counts.
+
+const foregroundFixtureWf: ExternalWorkflow = {
+  kind: "external",
+  name: "fg-test-wf",
+  agent: "claude",
+  description: "foreground completion test workflow",
+  inputs: [],
+  source: { command: "/usr/bin/fg-runner", args: [] },
+};
+
+describe("dispatch() non-TTY foreground — deterministic completion", () => {
+  beforeEach(() => {
+    dispatchRpcCalls.length = 0;
+    Object.defineProperty(process.stdout, "isTTY", { configurable: true, get: () => false });
+  });
+
+  afterEach(async () => {
+    // Restore the shared default mock so subsequent tests see fakeRpcConn.
+    await mock.module("@bastani/atomic-sdk/runtime/daemon", () => ({
+      ...realDaemonMod,
+      ensureStarted: mock(async () => fakeRpcConn),
+    }));
+  });
+
+  test("handler registered before sendRequest (ordering invariant)", async () => {
+    // onNotification must be called BEFORE sendRequest.
+    // We verify this by asserting inside the onNotification mock that
+    // sendRequest has not yet been called.
+    let sendRequestCalled = false;
+    let orderingViolated = false;
+    let capturedHandler: ((params: { runId: string }) => void) | undefined;
+    const localDisposable = { dispose: mock(() => {}) };
+
+    const conn = {
+      sendRequest: mock(async (_method: string, params: unknown) => {
+        sendRequestCalled = true;
+        dispatchRpcCalls.push(params as typeof dispatchRpcCalls[number]);
+        // Fire the buffered notification after sendRequest so waitPromise resolves.
+        Promise.resolve().then(() => capturedHandler?.({ runId: rpcRunId }));
+        return { runId: rpcRunId, attachable: true };
+      }),
+      onNotification: mock((event: string, handler: (params: { runId: string }) => void) => {
+        if (event === "run/ended") {
+          // At this point, sendRequest must NOT have been called yet.
+          if (sendRequestCalled) orderingViolated = true;
+          capturedHandler = handler;
+        }
+        return localDisposable;
+      }),
+      onClose: mock((_handler: () => void) => localDisposable),
+      dispose: mock(() => {}),
+    };
+
+    await mock.module("@bastani/atomic-sdk/runtime/daemon", () => ({
+      ...realDaemonMod,
+      ensureStarted: mock(async () => conn),
+    }));
+
+    await dispatch(foregroundFixtureWf, {}, false);
+
+    expect(orderingViolated).toBe(false);
+    expect(dispatchRpcCalls).toHaveLength(1);
+  });
+
+  test("normal path: resolves after deferred run/ended (notify scheduled after sendRequest)", async () => {
+    // Notification is scheduled via Promise.resolve().then() inside sendRequest,
+    // so it fires AFTER sendRequest returns and pendingRunId is set — the normal
+    // post-sendRequest notification path.
+    let capturedHandler: ((params: { runId: string }) => void) | undefined;
+    const localDisposable = { dispose: mock(() => {}) };
+
+    const conn = {
+      sendRequest: mock(async (_method: string, params: unknown) => {
+        dispatchRpcCalls.push(params as typeof dispatchRpcCalls[number]);
+        // Schedule notification AFTER this async function returns and dispatch
+        // sets pendingRunId (params.runId === pendingRunId path).
+        Promise.resolve().then(() => capturedHandler?.({ runId: rpcRunId }));
+        return { runId: rpcRunId, attachable: true };
+      }),
+      onNotification: mock((event: string, handler: (params: { runId: string }) => void) => {
+        if (event === "run/ended") capturedHandler = handler;
+        return localDisposable;
+      }),
+      onClose: mock((_handler: () => void) => localDisposable),
+      dispose: mock(() => {}),
+    };
+
+    await mock.module("@bastani/atomic-sdk/runtime/daemon", () => ({
+      ...realDaemonMod,
+      ensureStarted: mock(async () => conn),
+    }));
+
+    await dispatch(foregroundFixtureWf, {}, false);
+
+    expect(dispatchRpcCalls).toHaveLength(1);
+    expect(conn.dispose).toHaveBeenCalled();
+  });
+
+  test("race/buffer path: resolves when run/ended fires synchronously during handler registration", async () => {
+    // notifyOnRegister=true: handler fires synchronously inside onNotification,
+    // before sendRequest is even called — tests the buffer-and-resolve path.
+    const conn = makeFakeConn({ notifyOnRegister: true });
+
+    await mock.module("@bastani/atomic-sdk/runtime/daemon", () => ({
+      ...realDaemonMod,
+      ensureStarted: mock(async () => conn),
+    }));
+
+    await dispatch(foregroundFixtureWf, {}, false);
+
+    expect(conn.onNotification).toHaveBeenCalledWith("run/ended", expect.any(Function));
+    expect(dispatchRpcCalls).toHaveLength(1);
+  });
+
+  test("rejects when connection closes before run/ended", async () => {
+    // closeOnRegister=true: onClose handler fires synchronously → rejectEnded.
+    const conn = makeFakeConn({ notifyOnRegister: false, closeOnRegister: true });
+
+    await mock.module("@bastani/atomic-sdk/runtime/daemon", () => ({
+      ...realDaemonMod,
+      ensureStarted: mock(async () => conn),
+    }));
+
+    await expect(dispatch(foregroundFixtureWf, {}, false)).rejects.toThrow(
+      "[atomic] daemon connection closed before run/ended",
+    );
+  });
+
+  test("disposes both notif and close handlers after foreground resolves", async () => {
+    const localDisposable = { dispose: mock(() => {}) };
+
+    const conn = {
+      sendRequest: mock(async (_method: string, params: unknown) => {
+        dispatchRpcCalls.push(params as typeof dispatchRpcCalls[number]);
+        return { runId: rpcRunId, attachable: true };
+      }),
+      onNotification: mock((event: string, handler: (params: { runId: string }) => void) => {
+        // Synchronous notify → buffer path resolves waitPromise.
+        if (event === "run/ended") handler({ runId: rpcRunId });
+        return localDisposable;
+      }),
+      onClose: mock((_handler: () => void) => localDisposable),
+      dispose: mock(() => {}),
+    };
+
+    await mock.module("@bastani/atomic-sdk/runtime/daemon", () => ({
+      ...realDaemonMod,
+      ensureStarted: mock(async () => conn),
+    }));
+
+    await dispatch(foregroundFixtureWf, {}, false);
+
+    // notifDisposable.dispose() + closeDisposable.dispose() = 2 calls total.
+    expect(localDisposable.dispose).toHaveBeenCalledTimes(2);
+  });
+
+  test("detach:true — sends workflow/start and returns without subscribing to run/ended", async () => {
+    const conn = makeFakeConn({ notifyOnRegister: false });
+
+    await mock.module("@bastani/atomic-sdk/runtime/daemon", () => ({
+      ...realDaemonMod,
+      ensureStarted: mock(async () => conn),
+    }));
+
+    await dispatch(foregroundFixtureWf, {}, true);
+
+    // No run/ended subscription in detach mode.
+    expect(conn.onNotification).not.toHaveBeenCalled();
+    // Connection disposed immediately.
+    expect(conn.dispose).toHaveBeenCalled();
+    // RPC was still sent.
+    expect(dispatchRpcCalls).toHaveLength(1);
+  });
+});
+

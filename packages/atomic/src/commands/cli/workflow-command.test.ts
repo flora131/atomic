@@ -30,6 +30,9 @@ import "@bastani/atomic-sdk/registry";
 const dispatchCalls: Array<{ source: string; workflowName: string; agent: string; inputs: Record<string, string> }> = [];
 const mockRunId = "test-run-id";
 
+/** Shared disposable for fakeConn subscriptions. */
+const fakeConnDisposable = { dispose: mock(() => {}) };
+
 const fakeConn = {
   sendRequest: mock(async (_method: string, params: unknown) => {
     if (_method === "workflow/start") {
@@ -40,10 +43,13 @@ const fakeConn = {
   }),
   onNotification: mock((_method: string, handler: (params: unknown) => void) => {
     // Immediately invoke with matching runId so dispatch() doesn't hang
+    // (race/buffer path — notification arrives before sendRequest returns).
     if (_method === "run/ended") {
       handler({ runId: mockRunId });
     }
+    return fakeConnDisposable;
   }),
+  onClose: mock((_handler: () => void) => fakeConnDisposable),
   dispose: mock(() => {}),
 };
 
@@ -117,7 +123,9 @@ beforeEach(() => {
   dispatchCalls.length = 0;
   fakeConn.sendRequest.mockClear();
   fakeConn.onNotification.mockClear();
+  fakeConn.onClose.mockClear();
   fakeConn.dispose.mockClear();
+  fakeConnDisposable.dispose.mockClear();
   panelMountMock.mockClear();
   // Set stdout to non-TTY for tests (avoids PanelClient mount)
   Object.defineProperty(process.stdout, "isTTY", { configurable: true, get: () => false });
@@ -133,6 +141,7 @@ beforeEach(() => {
     if (_method === "run/ended") {
       handler({ runId: mockRunId });
     }
+    return fakeConnDisposable;
   });
 });
 afterEach(() => {

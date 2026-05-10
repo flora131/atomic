@@ -7,7 +7,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
-import type { ExternalWorkflow } from "@bastani/atomic-sdk";
+import type { ExternalWorkflow, WorkflowDefinition } from "@bastani/atomic-sdk";
 
 // ─── Daemon RPC mock for dispatch() tests ────────────────────────────────────
 // dispatch() now calls ensureStarted() instead of Bun.spawn. Mock it here
@@ -580,41 +580,38 @@ describe("R1 regression — name validator reads activeRegistry lazily after reb
   });
 });
 
-// ─── R2 regression: custom-workflow-only inputs forwarded to subprocess ───────
+// ─── R2 regression: custom-workflow-only inputs forwarded via JSON-RPC ────────
 //
 // Previously the action closed over a build-time `unionInputs` snapshot, so
-// custom-workflow-only inputs were silently dropped before the _atomic-run
-// spawn.  Fix made the action recompute `effectiveInputs = buildInputUnion(
+// custom-workflow-only inputs were silently dropped before dispatch.
+// Fix made the action recompute `effectiveInputs = buildInputUnion(
 // listWorkflows(effectiveRegistry))` on every invocation.  These tests enforce:
-//   1. Positive  — custom-only input `uniq-input` appears in spawn argv.
+//   1. Positive  — custom-only input `uniq-input` is forwarded via JSON-RPC.
 //   2. Symmetric — builtin input `prompt` (from ralph/claude) still forwarded.
-//   3. Entrypoint — spawn argv contains `_atomic-run` and `--dispatch-token=`.
+//   3. Entrypoint — RPC call contains correct workflowName and agent.
 
-// External workflow that declares an input no builtin owns.
-const r2CustomWorkflow: ExternalWorkflow = {
-  kind: "external",
+// Builtin workflow that declares an input no other builtin owns.
+const r2CustomWorkflow = defineWorkflow({
   name: "r2-custom-wf",
-  agent: "claude",
-  description: "custom workflow for R2 regression test",
   inputs: [
     { name: "uniq-input", type: "text", required: false, description: "unique to this custom wf" },
   ],
-  source: { command: "/usr/bin/r2-runner", args: [] },
-};
+})
+  .for("claude")
+  .run(async () => {})
+  .compile();
 
-// External wrapper of ralph that forces the Bun.spawn path.
-// (The builtin ralph/claude is a WorkflowDefinition and uses runWorkflow, not Bun.spawn.)
-const r2RalphExternal: ExternalWorkflow = {
-  kind: "external",
+// Builtin override of ralph/claude that routes through JSON-RPC.
+const r2RalphOverride = defineWorkflow({
   name: "ralph",
-  agent: "claude",
-  description: "ralph external wrapper for R2 symmetric test",
   inputs: [
     { name: "prompt", type: "text", required: true, description: "task prompt" },
     { name: "max_loops", type: "integer", description: "max loops" },
   ],
-  source: { command: "/usr/bin/r2-ralph-runner", args: [] },
-};
+})
+  .for("claude")
+  .run(async () => {})
+  .compile();
 
 describe("R2 regression — custom-workflow-only inputs forwarded via spawn", () => {
   test("positive: custom-only --uniq-input value123 forwarded via JSON-RPC", async () => {
@@ -638,7 +635,7 @@ describe("R2 regression — custom-workflow-only inputs forwarded via spawn", ()
   });
 
   test("symmetric: builtin --prompt still forwarded when ralph overridden with external variant", async () => {
-    const registry = createBuiltinRegistry().upsert(r2RalphExternal);
+    const registry = createBuiltinRegistry().upsert(r2RalphOverride);
     const cmd = buildWorkflowCommand(registry, false);
     cmd.exitOverride();
 
@@ -679,15 +676,12 @@ describe("R2 regression — custom-workflow-only inputs forwarded via spawn", ()
   });
 });
 
-// ─── dispatch() routes through JSON-RPC ──────────────────────────────────────
+// ─── dispatch() routes external workflows through subprocess ──────────────────
 //
-// Covers the updated dispatch() path: CLI sends workflow/start via JSON-RPC
-// instead of spawning subprocesses. Signal propagation now happens daemon-side.
-// These tests verify the CLI correctly invokes ensureStarted() and sends the
-// workflow/start request with the correct parameters.
+// Covers the discriminator branch in dispatch(): workflow.kind === "external"
+// routes to dispatchExternal() (Bun.spawn) NOT to ensureStarted() JSON-RPC.
 
-describe("dispatch() JSON-RPC routing for external workflows", () => {
-  // A minimal ExternalWorkflow fixture for this suite.
+describe("dispatch() external workflow — subprocess path (dispatchExternal)", () => {
   const sigWf: ExternalWorkflow = {
     kind: "external",
     name: "sig-wf",
@@ -697,115 +691,99 @@ describe("dispatch() JSON-RPC routing for external workflows", () => {
     source: { command: "/usr/bin/sig-runner", args: [] },
   };
 
-  // Build a registry that contains sig-wf.
-  const sigRegistry = createBuiltinRegistry().upsert(sigWf);
+  const sigWfWithInput: ExternalWorkflow = {
+    kind: "external",
+    name: "sig-wf-with-input",
+    agent: "claude",
+    description: "test",
+    inputs: [{ name: "myinput", type: "text", required: false }],
+    source: { command: "/usr/bin/sig-runner", args: [] },
+  };
 
   beforeEach(() => {
     dispatchRpcCalls.length = 0;
     fakeRpcConn.sendRequest.mockClear();
-    fakeRpcConn.onNotification.mockClear();
-    fakeRpcConn.onClose.mockClear();
-    fakeRpcConn.dispose.mockClear();
-    fakeDisposable.dispose.mockClear();
-    Object.defineProperty(process.stdout, "isTTY", { configurable: true, get: () => false });
   });
 
-  test("dispatch sends workflow/start RPC for external workflow", async () => {
-    const cmd = buildWorkflowCommand(sigRegistry, false);
-    cmd.exitOverride();
+  test("dispatch does NOT call ensureStarted for external workflow", async () => {
+    const { spyOn } = await import("bun:test");
+    const spawnSpy = spyOn(Bun, "spawn").mockImplementation((() => ({
+      exited: Promise.resolve(0),
+      signalCode: null,
+    })) as unknown as typeof Bun.spawn);
 
-    await cmd.parseAsync(["node", "cli", "-n", "sig-wf", "-a", "claude"]);
-
-    expect(dispatchRpcCalls).toHaveLength(1);
-    expect(dispatchRpcCalls[0]!.workflowName).toBe("sig-wf");
-    expect(dispatchRpcCalls[0]!.agent).toBe("claude");
-  });
-
-  test("dispatch sends correct source for external workflow", async () => {
-    const cmd = buildWorkflowCommand(sigRegistry, false);
-    cmd.exitOverride();
-
-    await cmd.parseAsync(["node", "cli", "-n", "sig-wf", "-a", "claude"]);
-
-    expect(dispatchRpcCalls).toHaveLength(1);
-    // Source for ExternalWorkflow is the command path
-    expect(dispatchRpcCalls[0]!.source).toContain("/usr/bin/sig-runner");
-  });
-
-  test("dispatch with detach=true calls dispose immediately without waiting", async () => {
-    const cmd = buildWorkflowCommand(sigRegistry, false);
-    cmd.exitOverride();
-
-    await cmd.parseAsync(["node", "cli", "-n", "sig-wf", "-a", "claude", "--detach"]);
-
-    expect(dispatchRpcCalls).toHaveLength(1);
-    // In detach mode, dispose is called without waiting for run/ended
-    expect(fakeRpcConn.dispose).toHaveBeenCalled();
-    // onNotification should NOT be called in detach mode
-    expect(fakeRpcConn.onNotification).not.toHaveBeenCalled();
-  });
-
-  test("dispatch without detach waits for run/ended notification in non-TTY mode", async () => {
-    const cmd = buildWorkflowCommand(sigRegistry, false);
-    cmd.exitOverride();
-
-    await cmd.parseAsync(["node", "cli", "-n", "sig-wf", "-a", "claude"]);
-
-    expect(dispatchRpcCalls).toHaveLength(1);
-    // In non-TTY, non-detach mode, waits for run/ended notification
-    expect(fakeRpcConn.onNotification).toHaveBeenCalledWith("run/ended", expect.any(Function));
-    expect(fakeRpcConn.dispose).toHaveBeenCalled();
-  });
-
-  test("dispatch sends empty inputs when no inputs provided", async () => {
-    const cmd = buildWorkflowCommand(sigRegistry, false);
-    cmd.exitOverride();
-
-    await cmd.parseAsync(["node", "cli", "-n", "sig-wf", "-a", "claude"]);
-
-    expect(dispatchRpcCalls).toHaveLength(1);
-    expect(dispatchRpcCalls[0]!.inputs).toEqual({});
-  });
-
-  test("dispatch sends inputs when provided", async () => {
-    const wfWithInput: ExternalWorkflow = {
-      kind: "external",
-      name: "sig-wf-with-input",
-      agent: "claude",
-      description: "test",
-      inputs: [{ name: "myinput", type: "text", required: false }],
-      source: { command: "/usr/bin/sig-runner", args: [] },
-    };
-    const registry = createBuiltinRegistry().upsert(wfWithInput);
-    const cmd = buildWorkflowCommand(registry, false);
-    cmd.exitOverride();
-
-    dispatchRpcCalls.length = 0;
-    fakeRpcConn.sendRequest.mockClear();
-
-    await cmd.parseAsync(["node", "cli", "-n", "sig-wf-with-input", "-a", "claude", "--myinput", "hello"]);
-
-    expect(dispatchRpcCalls).toHaveLength(1);
-    expect(dispatchRpcCalls[0]!.inputs["myinput"]).toBe("hello");
-  });
-
-  test("zero exit: process.exit NOT called when RPC succeeds", async () => {
-    const cmd = buildWorkflowCommand(sigRegistry, false);
-    cmd.exitOverride();
-
-    let exitCalled = false;
-    const origExit = process.exit;
-    process.exit = (() => { exitCalled = true; throw new Error("process.exit"); }) as typeof process.exit;
+    let ensureStartedCallCount = 0;
+    const ensureStartedSpy = spyOn(
+      await import("@bastani/atomic-sdk/runtime/daemon"),
+      "ensureStarted",
+    ).mockImplementation((() => { ensureStartedCallCount++; return Promise.resolve(fakeRpcConn); }) as unknown as typeof import("@bastani/atomic-sdk/runtime/daemon")["ensureStarted"]);
 
     try {
-      await cmd.parseAsync(["node", "cli", "-n", "sig-wf", "-a", "claude"]);
-    } catch {
-      // ignore
+      await dispatch(sigWf, {}, false);
     } finally {
-      process.exit = origExit;
+      spawnSpy.mockRestore();
+      ensureStartedSpy.mockRestore();
     }
 
-    expect(exitCalled).toBe(false);
+    expect(ensureStartedCallCount).toBe(0);
+    expect(dispatchRpcCalls).toHaveLength(0);
+  });
+
+  test("dispatch calls Bun.spawn with correct command for external workflow", async () => {
+    const { spyOn } = await import("bun:test");
+    let capturedCmd: string[] | undefined;
+    const spawnSpy = spyOn(Bun, "spawn").mockImplementation(((argv: string[]) => {
+      capturedCmd = argv;
+      return { exited: Promise.resolve(0), signalCode: null };
+    }) as unknown as typeof Bun.spawn);
+
+    try {
+      await dispatch(sigWf, {}, false);
+    } finally {
+      spawnSpy.mockRestore();
+    }
+
+    expect(capturedCmd).toBeDefined();
+    expect(capturedCmd![0]).toBe("/usr/bin/sig-runner");
+    expect(capturedCmd).toContain("_atomic-run");
+    expect(capturedCmd).toContain("--name");
+    expect(capturedCmd).toContain("sig-wf");
+  });
+
+  test("dispatch forwards inputs in argv for external workflow", async () => {
+    const { spyOn } = await import("bun:test");
+    let capturedCmd: string[] | undefined;
+    const spawnSpy = spyOn(Bun, "spawn").mockImplementation(((argv: string[]) => {
+      capturedCmd = argv;
+      return { exited: Promise.resolve(0), signalCode: null };
+    }) as unknown as typeof Bun.spawn);
+
+    try {
+      await dispatch(sigWfWithInput, { myinput: "hello" }, false);
+    } finally {
+      spawnSpy.mockRestore();
+    }
+
+    expect(capturedCmd).toBeDefined();
+    expect(capturedCmd).toContain("--myinput");
+    expect(capturedCmd).toContain("hello");
+  });
+
+  test("dispatch passes --detach flag in argv when detach=true", async () => {
+    const { spyOn } = await import("bun:test");
+    let capturedCmd: string[] | undefined;
+    const spawnSpy = spyOn(Bun, "spawn").mockImplementation(((argv: string[]) => {
+      capturedCmd = argv;
+      return { exited: Promise.resolve(0), signalCode: null };
+    }) as unknown as typeof Bun.spawn);
+
+    try {
+      await dispatch(sigWf, {}, true);
+    } finally {
+      spawnSpy.mockRestore();
+    }
+
+    expect(capturedCmd).toContain("--detach");
   });
 });
 
@@ -824,14 +802,13 @@ describe("dispatch() JSON-RPC routing for external workflows", () => {
 // All notification timing is controlled deterministically by the fake conn
 // rather than relying on microtask counts.
 
-const foregroundFixtureWf: ExternalWorkflow = {
-  kind: "external",
+const foregroundFixtureWf = defineWorkflow({
   name: "fg-test-wf",
-  agent: "claude",
-  description: "foreground completion test workflow",
   inputs: [],
-  source: { command: "/usr/bin/fg-runner", args: [] },
-};
+})
+  .for("claude")
+  .run(async () => {})
+  .compile() as unknown as WorkflowDefinition;
 
 describe("dispatch() non-TTY foreground — deterministic completion", () => {
   beforeEach(() => {
@@ -1055,15 +1032,14 @@ describe("dispatch() with ATOMIC_DEBUG=1 — debug logging path (lines 485-489)"
       return true;
     }) as typeof process.stderr.write;
 
-    // Build a registry containing a test external workflow.
-    const debugWf: ExternalWorkflow = {
-      kind: "external",
+    // Build a registry containing a test builtin workflow.
+    const debugWf = defineWorkflow({
       name: "debug-test-wf",
-      agent: "claude",
-      description: "debug test workflow",
-      inputs: [{ name: "myInput", type: "string" as const, description: "an input", required: false }],
-      source: { command: "/usr/bin/debug-runner", args: [] },
-    };
+      inputs: [{ name: "myInput", type: "text", description: "an input", required: false }],
+    })
+      .for("claude")
+      .run(async () => {})
+      .compile();
     const registry = createRegistry().upsert(debugWf);
     rebuildWorkflowCommand(registry, new Map());
 

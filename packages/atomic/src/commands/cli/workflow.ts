@@ -266,38 +266,74 @@ export async function dispatch(
 
   const conn = await ensureStarted();
 
-  const result = await conn.sendRequest("workflow/start", {
-    source: getSource(workflow),
-    workflowName: getName(workflow),
-    agent: getAgent(workflow),
-    inputs: cliInputs,
-  }) as { runId: string; attachable: boolean };
-
-  const { runId } = result;
-
   if (detach) {
+    const result = await conn.sendRequest("workflow/start", {
+      source: getSource(workflow),
+      workflowName: getName(workflow),
+      agent: getAgent(workflow),
+      inputs: cliInputs,
+    }) as { runId: string; attachable: boolean };
     conn.dispose();
-    process.stdout.write(`[atomic/workflow] run started: ${runId}\n`);
+    process.stdout.write(`[atomic/workflow] run started: ${result.runId}\n`);
     return;
   }
 
   if (process.stdout.isTTY) {
+    const result = await conn.sendRequest("workflow/start", {
+      source: getSource(workflow),
+      workflowName: getName(workflow),
+      agent: getAgent(workflow),
+      inputs: cliInputs,
+    }) as { runId: string; attachable: boolean };
     conn.dispose();
     const { PanelClient } = await import("@bastani/atomic-sdk/components/panel-client");
-    await PanelClient.mount({ runId });
+    await PanelClient.mount({ runId: result.runId });
   } else {
-    await new Promise<void>((resolve) => {
-      conn.onNotification("run/ended", (params: unknown) => {
-        if (
-          params !== null &&
-          typeof params === "object" &&
-          "runId" in params &&
-          (params as { runId: string }).runId === runId
-        ) {
-          resolve();
-        }
-      });
+    // Non-TTY foreground: register run/ended BEFORE workflow/start to close race
+    // where daemon completes before the handler is subscribed.
+    //
+    // waitPromise is created first so resolveEnded/rejectEnded are always
+    // initialised before any handler can fire.
+    let pendingRunId: string | undefined;
+    const buffered: Array<{ runId: string }> = [];
+    let resolveEnded!: () => void;
+    let rejectEnded!: (err: Error) => void;
+
+    const waitPromise = new Promise<void>((resolve, reject) => {
+      resolveEnded = resolve;
+      rejectEnded = reject;
     });
+
+    const notifDisposable = conn.onNotification("run/ended", (params: { runId: string }) => {
+      if (pendingRunId === undefined) {
+        buffered.push(params);
+      } else if (params.runId === pendingRunId) {
+        resolveEnded();
+      }
+    });
+
+    const closeDisposable = conn.onClose(() => {
+      rejectEnded(new Error("[atomic] daemon connection closed before run/ended"));
+    });
+
+    const result = await conn.sendRequest("workflow/start", {
+      source: getSource(workflow),
+      workflowName: getName(workflow),
+      agent: getAgent(workflow),
+      inputs: cliInputs,
+    }) as { runId: string; attachable: boolean };
+
+    const { runId } = result;
+    pendingRunId = runId;
+
+    if (buffered.some((n) => n.runId === runId)) {
+      resolveEnded();
+    }
+
+    await waitPromise;
+
+    notifDisposable.dispose();
+    closeDisposable.dispose();
     conn.dispose();
   }
 }

@@ -102,6 +102,45 @@ export async function runWorkflow(
     token,
   });
 
+  if (detach) {
+    // Fire-and-forget: send request, return immediately.
+    const result = await conn.sendRequest("workflow/start", {
+      source: getSource(workflow),
+      workflowName: getName(workflow),
+      agent: getAgent(workflow),
+      inputs: resolved,
+    }) as { runId: string; attachable: true };
+    return { runId: result.runId, daemon: conn };
+  }
+
+  // Foreground mode: register run/ended handler BEFORE sending workflow/start
+  // to close the race where daemon completes before we subscribe.
+  //
+  // waitPromise is created first so resolveEnded/rejectEnded are always
+  // initialised before any handler can fire (including synchronous mocks).
+  let pendingRunId: string | undefined;
+  const buffered: Array<{ runId: string }> = [];
+  let resolveEnded!: () => void;
+  let rejectEnded!: (err: Error) => void;
+
+  const waitPromise = new Promise<void>((resolve, reject) => {
+    resolveEnded = resolve;
+    rejectEnded = reject;
+  });
+
+  const notifDisposable = conn.onNotification("run/ended", (params: { runId: string }) => {
+    if (pendingRunId === undefined) {
+      // runId not yet known — buffer for post-request check.
+      buffered.push(params);
+    } else if (params.runId === pendingRunId) {
+      resolveEnded();
+    }
+  });
+
+  const closeDisposable = conn.onClose(() => {
+    rejectEnded(new Error("[atomic] daemon connection closed before run/ended"));
+  });
+
   const result = await conn.sendRequest("workflow/start", {
     source: getSource(workflow),
     workflowName: getName(workflow),
@@ -110,17 +149,17 @@ export async function runWorkflow(
   }) as { runId: string; attachable: true };
 
   const { runId } = result;
+  pendingRunId = runId;
 
-  if (!detach) {
-    // Attach semantics: wait for run/ended notification for this run.
-    await new Promise<void>((resolve) => {
-      conn.onNotification("run/ended", (params: { runId: string }) => {
-        if (params.runId === runId) {
-          resolve();
-        }
-      });
-    });
+  // If notification already arrived during sendRequest, resolve immediately.
+  if (buffered.some((n) => n.runId === runId)) {
+    resolveEnded();
   }
+
+  await waitPromise;
+
+  notifDisposable.dispose();
+  closeDisposable.dispose();
 
   return { runId, daemon: conn };
 }

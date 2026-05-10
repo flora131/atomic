@@ -20,19 +20,17 @@ import { ensureDir } from "../system/copy.ts";
 
 /**
  * A single custom workflow entry declared in `settings.json` under the
- * `workflows` map. Each entry describes an external executable that the atomic
- * CLI will spawn to discover and run workflow definitions.
+ * `workflows` map. Each entry points directly at an importable workflow
+ * source file for daemon JSON-RPC dispatch.
  *
  * RFC §5.2 — schema-level representation of a `workflows.<alias>` value.
  */
 export interface CustomWorkflowEntry {
-  /** Executable to spawn (e.g., `"bunx"`, `"node"`, `"/abs/path/to/binary"`). */
+  /** Importable workflow source file path. */
   command: string;
-  /** Static arguments passed before atomic's hidden argv tokens. */
-  args?: string[];
   /**
    * Required. Non-empty subset of the known agent keys. Atomic registers one
-   * registry entry per listed agent; the spawned command must expose a
+   * registry entry per listed agent; the source module must export a
    * WorkflowDefinition for each one.
    */
   agents: AgentKey[];
@@ -122,7 +120,7 @@ function pickProviders(raw: unknown): Partial<Record<AgentKey, ProviderOverrides
 }
 
 /** Known property keys for a `CustomWorkflowEntry`. Used to detect unknown properties. */
-const KNOWN_WORKFLOW_PROPS = new Set(["command", "args", "agents"]);
+const KNOWN_WORKFLOW_PROPS = new Set(["command", "agents"]);
 
 /** Emit a single-line workflow diagnostic to stderr. */
 function workflowDiagnostic(alias: string, message: string): void {
@@ -167,18 +165,6 @@ export function pickWorkflows(raw: unknown): Record<string, CustomWorkflowEntry>
       continue;
     }
 
-    // Validate `args` if present.
-    if (entry.args !== undefined) {
-      if (
-        !Array.isArray(entry.args) ||
-        !(entry.args as unknown[]).every((a) => typeof a === "string")
-      ) {
-        const gotType = Array.isArray(entry.args) ? "array of non-strings" : typeof entry.args;
-        workflowDiagnostic(alias, `"args" must be array of strings (got ${gotType})`);
-        continue;
-      }
-    }
-
     // Validate `agents`: a non-empty array of known agent keys.
     const rawAgents = entry.agents;
     if (
@@ -200,10 +186,6 @@ export function pickWorkflows(raw: unknown): Record<string, CustomWorkflowEntry>
       command: entry.command,
       agents,
     };
-    if (entry.args !== undefined) {
-      validEntry.args = entry.args as string[];
-    }
-
     result[alias] = validEntry;
   }
 

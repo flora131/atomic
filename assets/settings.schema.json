@@ -29,7 +29,7 @@
     },
     "workflows": {
       "type": "object",
-      "description": "Each entry's `command` must be a CLI that imports `@bastani/atomic-sdk`, calls `defineWorkflow({…}).run(…).compile()`, and invokes `hostWorkflows([wf])` once afterward. The `hostWorkflows` call lets atomic discover and dispatch the workflow without relying on ESM module-load ordering.",
+      "description": "Each entry's `command` must point directly at an importable workflow source file that exports compiled WorkflowDefinition objects. Dispatch uses daemon JSON-RPC; hidden subprocess commands are not supported.",
       "additionalProperties": { "$ref": "#/$defs/customWorkflow" }
     }
   },
@@ -40,13 +40,7 @@
       "properties": {
         "command": {
           "type": "string",
-          "description": "Executable to spawn (e.g., 'bunx', 'node', '/abs/path/to/binary')."
-        },
-        "args": {
-          "type": "array",
-          "items": { "type": "string" },
-          "default": [],
-          "description": "Static arguments passed before atomic's hidden `_emit-workflow-meta` / `_atomic-run` argv."
+          "description": "Importable workflow source file path (.ts, .tsx, .js, .mjs, or .cjs)."
         },
         "agents": {
           "type": "array",
@@ -56,7 +50,7 @@
             "type": "string",
             "enum": ["claude", "opencode", "copilot"]
           },
-          "description": "Required. Agents this workflow supports. Atomic registers one entry per agent listed; the third-party command's WorkflowDefinitions must cover them."
+          "description": "Required. Agents this workflow supports. Atomic registers one entry per agent listed; the source module's WorkflowDefinitions must cover them."
         }
       },
       "additionalProperties": false

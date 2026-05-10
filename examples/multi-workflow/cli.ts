@@ -1,8 +1,8 @@
 /**
  * Multi-workflow CLI — two small Claude workflows under a single entrypoint.
  *
- * The SDK ships pure primitives (`listWorkflows`, `runWorkflow`,
- * `getInputSchema`, `getName`, `getAgent`) and the developer composes
+ * The SDK ships pure primitives (`listWorkflows`, `getInputSchema`,
+ * `getName`, `getAgent`) and the developer composes
  * them into whatever CLI library they prefer. Here we use Commander to
  * register one subcommand per workflow with each workflow's declared
  * inputs as `--<flag> <value>` options.
@@ -18,8 +18,8 @@ import {
   getInputSchema,
   getName,
   listWorkflows,
-  runWorkflow,
 } from "@bastani/atomic-sdk/workflows";
+import { runExampleWorkflow } from "../run-example-workflow.ts";
 import hello from "./hello/claude.ts";
 import goodbye from "./goodbye/claude.ts";
 
@@ -57,7 +57,7 @@ for (const workflow of listWorkflows(registry)) {
         collected[input.name] = value;
       }
     }
-    await runWorkflow({ workflow, inputs: collected });
+    await runExampleWorkflow({ workflow, inputs: collected });
   });
 }
 

@@ -1,8 +1,6 @@
 import { Command } from "@commander-js/extra-typings";
-import {
-  getInputSchema,
-  runWorkflow,
-} from "@bastani/atomic-sdk/workflows";
+import { getInputSchema } from "@bastani/atomic-sdk/workflows";
+import { runExampleWorkflow } from "../run-example-workflow.ts";
 import workflow from "./claude/index.ts";
 
 const program = new Command();
@@ -38,7 +36,7 @@ program.action(async function (this: Command) {
     collected["prompt"] = promptStr;
   }
 
-  await runWorkflow({ workflow, inputs: collected });
+  await runExampleWorkflow({ workflow, inputs: collected });
 });
 
 await program.parseAsync();

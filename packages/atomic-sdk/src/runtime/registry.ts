@@ -5,12 +5,13 @@
  * merges workflow registrations, dynamically imports each registered Mode 1
  * workflow file, and caches WorkflowDefinition objects with metadata.
  *
- * Replaces _emit-workflow-meta subprocess spawning for daemon-mode workflow
- * discovery. §4.3 / §5.7 of the 2026-05-09 UI server RFC.
+ * Direct-import daemon-mode workflow discovery. §4.3 / §5.7 of the
+ * 2026-05-09 UI server RFC.
  */
 
 import { existsSync } from "node:fs";
-import type { AgentType, WorkflowDefinition } from "../types.ts";
+import { resolve } from "node:path";
+import type { AgentType, WorkflowDefinition, WorkflowInput } from "../types.ts";
 import {
   readAtomicConfigSplit,
   getGlobalSettingsPath,
@@ -32,8 +33,8 @@ export interface WorkflowDescriptor {
   source: string;
   /** Agent this workflow targets. */
   agent: AgentType;
-  /** Declared input schema — workflow-specific, intentionally untyped here. */
-  inputs?: unknown;
+  /** Declared input schema for this workflow. */
+  inputs?: readonly WorkflowInput[];
 }
 
 /**
@@ -56,10 +57,15 @@ interface CacheEntry {
   source: string;
 }
 
+interface SourceRegistration {
+  source: string;
+  agents: readonly AgentType[];
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /** Runtime guard — checks the compiled workflow brand. */
-function isWorkflowDefinition(value: unknown): value is WorkflowDefinition {
+export function isWorkflowDefinition(value: unknown): value is WorkflowDefinition {
   return (
     typeof value === "object" &&
     value !== null &&
@@ -78,7 +84,7 @@ function isWorkflowDefinition(value: unknown): value is WorkflowDefinition {
  *
  * Returns all definitions found (a single file may compile multiple agents).
  */
-function extractDefinitions(mod: unknown): WorkflowDefinition[] {
+export function extractWorkflowDefinitions(mod: unknown): WorkflowDefinition[] {
   if (!mod || typeof mod !== "object") return [];
 
   const record = mod as Record<string, unknown> & {
@@ -126,7 +132,7 @@ async function importSource(
     };
   }
 
-  const definitions = extractDefinitions(mod);
+  const definitions = extractWorkflowDefinitions(mod);
 
   if (definitions.length === 0) {
     const record = mod as Record<string, unknown>;
@@ -154,6 +160,10 @@ function toDescriptor(def: WorkflowDefinition, source: string): WorkflowDescript
   };
 }
 
+function workflowKey(name: string, agent: AgentType): string {
+  return `${agent}/${name}`;
+}
+
 // ─── WorkflowRegistry ─────────────────────────────────────────────────────────
 
 /**
@@ -169,8 +179,8 @@ function toDescriptor(def: WorkflowDefinition, source: string): WorkflowDescript
  * over the in-memory cache — no subprocess spawn, no disk I/O after load.
  */
 export class WorkflowRegistry {
-  /** Keyed by workflow name (the alias / `def.name`). */
-  private readonly byName = new Map<string, CacheEntry>();
+  /** Keyed by `${agent}/${workflowName}`. */
+  private readonly byKey = new Map<string, CacheEntry>();
   /** Keyed by resolved source path. */
   private readonly bySource = new Map<string, CacheEntry[]>();
 
@@ -190,7 +200,7 @@ export class WorkflowRegistry {
    * a parallel import pass.
    */
   async load(): Promise<{ count: number; broken: BrokenEntry[] }> {
-    if (this.loaded) return { count: this.byName.size, broken: [] };
+    if (this.loaded) return { count: this.byKey.size, broken: [] };
     if (this.refreshInFlight) return this.refreshInFlight;
     if (this.loadInFlight) return this.loadInFlight;
 
@@ -204,7 +214,7 @@ export class WorkflowRegistry {
   list(): WorkflowDescriptor[] {
     const seen = new Set<WorkflowDefinition>();
     const result: WorkflowDescriptor[] = [];
-    for (const entry of this.byName.values()) {
+    for (const entry of this.byKey.values()) {
       if (!seen.has(entry.definition)) {
         seen.add(entry.definition);
         result.push(entry.descriptor);
@@ -213,24 +223,44 @@ export class WorkflowRegistry {
     return result;
   }
 
-  /** Look up a WorkflowDefinition by workflow name (alias). Returns null when not found. */
-  get(name: string): WorkflowDefinition | null {
-    return this.byName.get(name)?.definition ?? null;
-  }
-
-  /** Look up a WorkflowDescriptor by workflow name. Returns null when not found. */
-  getDescriptor(name: string): WorkflowDescriptor | null {
-    return this.byName.get(name)?.descriptor ?? null;
+  /**
+   * Look up a WorkflowDefinition by workflow name and optional agent.
+   * When `agent` is omitted, returns the first matching name for legacy callers.
+   */
+  get(name: string, agent?: AgentType): WorkflowDefinition | null {
+    if (agent) return this.byKey.get(workflowKey(name, agent))?.definition ?? null;
+    for (const entry of this.byKey.values()) {
+      if (entry.definition.name === name) return entry.definition;
+    }
+    return null;
   }
 
   /**
-   * Look up a WorkflowDefinition by source path.
-   * When a source exports multiple definitions, returns the first one.
-   * Use `list()` + filter by source for multi-definition sources.
+   * Look up a WorkflowDescriptor by workflow name and optional agent.
+   * When `agent` is omitted, returns the first matching name for legacy callers.
    */
-  getBySource(source: string): WorkflowDefinition | null {
-    const entries = this.bySource.get(source);
-    return entries?.[0]?.definition ?? null;
+  getDescriptor(name: string, agent?: AgentType): WorkflowDescriptor | null {
+    if (agent) return this.byKey.get(workflowKey(name, agent))?.descriptor ?? null;
+    for (const entry of this.byKey.values()) {
+      if (entry.definition.name === name) return entry.descriptor;
+    }
+    return null;
+  }
+
+  /**
+   * Look up a WorkflowDefinition by source path, optionally narrowed by
+   * workflowName + agent. When a source exports multiple definitions and no
+   * narrowing is provided, returns the first one.
+   */
+  getBySource(source: string, workflowName?: string, agent?: AgentType): WorkflowDefinition | null {
+    const entries = this.bySource.get(resolve(source)) ?? this.bySource.get(source);
+    if (!entries || entries.length === 0) return null;
+    if (workflowName && agent) {
+      return entries.find((entry) =>
+        entry.definition.name === workflowName && entry.definition.agent === agent,
+      )?.definition ?? null;
+    }
+    return entries[0]!.definition;
   }
 
   /**
@@ -250,7 +280,7 @@ export class WorkflowRegistry {
     this.refreshInFlight = predecessor
       .catch(() => { /* ignore load errors — we're refreshing regardless */ })
       .then(() => {
-        this.byName.clear();
+        this.byKey.clear();
         this.bySource.clear();
         this.loaded = false;
         return this._importAll();
@@ -276,27 +306,39 @@ export class WorkflowRegistry {
     let count = 0;
 
     await Promise.all(
-      sources.map(async (sourcePath) => {
-        const result = await importSource(sourcePath);
+      sources.map(async (registration) => {
+        const result = await importSource(registration.source);
 
         if (result.broken) {
           broken.push(result.broken);
           return;
         }
 
-        for (const def of result.definitions) {
+        const allowedAgents = new Set(registration.agents);
+        const matchingDefinitions = result.definitions.filter((def) => allowedAgents.has(def.agent));
+        if (matchingDefinitions.length === 0) {
+          broken.push({
+            source: registration.source,
+            error: `no WorkflowDefinition for configured agent(s): ${registration.agents.join(", ")}`,
+          });
+          return;
+        }
+
+        for (const def of matchingDefinitions) {
           const entry: CacheEntry = {
             definition: def,
-            descriptor: toDescriptor(def, sourcePath),
-            source: sourcePath,
+            descriptor: toDescriptor(def, registration.source),
+            source: registration.source,
           };
 
-          // Last-write wins on name collision (local > global handled via source ordering).
-          this.byName.set(def.name, entry);
+          // Last-write wins on exact workflow identity. This preserves the
+          // JSON-RPC refactor's `{ workflowName, agent, source }` identity and
+          // avoids dropping same-named workflows for different agents.
+          this.byKey.set(workflowKey(def.name, def.agent), entry);
 
-          const existing = this.bySource.get(sourcePath) ?? [];
+          const existing = this.bySource.get(registration.source) ?? [];
           existing.push(entry);
-          this.bySource.set(sourcePath, existing);
+          this.bySource.set(registration.source, existing);
 
           count++;
         }
@@ -316,7 +358,7 @@ export class WorkflowRegistry {
    * Mode 2 (external subprocess) entries are skipped; the daemon registry
    * only imports Mode 1 (direct import) workflow files.
    */
-  private async _collectSources(): Promise<string[]> {
+  private async _collectSources(): Promise<SourceRegistration[]> {
     let split: Awaited<ReturnType<typeof readAtomicConfigSplit>>;
     try {
       split = await readAtomicConfigSplit(process.cwd());
@@ -324,24 +366,38 @@ export class WorkflowRegistry {
       return [];
     }
 
-    // Merge alias → source path. Global first, local overrides on collision.
-    const merged: Record<string, string> = {};
+    // Merge alias → source registration. Global first, local overrides on
+    // collision. Preserve the configured agent list so daemon discovery does
+    // not expose extra definitions that happen to live in the same module.
+    const merged: Record<string, { source: string; agents: readonly AgentType[] }> = {};
     for (const cfg of [split.global, split.local]) {
       for (const [alias, entry] of Object.entries(cfg?.workflows ?? {})) {
-        if (isMode1Source(entry.command)) merged[alias] = entry.command;
+        if (isMode1Source(entry.command)) {
+          merged[alias] = { source: resolve(entry.command), agents: entry.agents };
+        }
       }
     }
 
-    // Deduplicate source paths (multiple aliases may point to same file).
-    return [...new Set(Object.values(merged))];
+    // Deduplicate source paths (multiple aliases may point to same file) while
+    // unioning their configured agents.
+    const bySource = new Map<string, Set<AgentType>>();
+    for (const registration of Object.values(merged)) {
+      const agents = bySource.get(registration.source) ?? new Set<AgentType>();
+      for (const agent of registration.agents) agents.add(agent);
+      bySource.set(registration.source, agents);
+    }
+
+    return [...bySource.entries()].map(([source, agents]) => ({
+      source,
+      agents: [...agents],
+    }));
   }
 }
 
 /**
  * Determine whether a workflow `command` string is a Mode 1 source — a
  * TypeScript/JavaScript file path that the daemon can import() directly —
- * as opposed to a Mode 2 external binary command (e.g. `bunx my-tool`) that
- * requires the _emit-workflow-meta subprocess protocol.
+ * as opposed to a legacy external binary command (e.g. `bunx my-tool`).
  *
  * Resolution order (RFC §5.5):
  *   1. Filesystem check: if the path resolves to an actual file on disk,

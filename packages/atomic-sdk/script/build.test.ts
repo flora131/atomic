@@ -14,9 +14,8 @@
  *
  * What we verify:
  *   1. `bun run build` completes without error and produces `dist/`.
- *   2. The `./cli` export IS present in the published manifest — the SDK's
- *      prebundled dispatcher is the only default resolver path
- *      (`resolveDispatcher` calls `import.meta.resolve("@bastani/atomic-sdk/cli")`).
+ *   2. The legacy `./cli` dispatcher export is absent from the published
+ *      manifest; workflow dispatch is daemon JSON-RPC only.
  */
 
 import { test, expect, describe, beforeAll } from "bun:test";
@@ -47,14 +46,14 @@ describe.skipIf(SKIP)("SDK build output", () => {
     expect(existsSync(DIST)).toBe(true);
   });
 
-  test("package.json declares ./cli export (prebundled dispatcher)", async () => {
+  test("package.json does not declare the removed ./cli dispatcher export", async () => {
     const pkg = (await Bun.file(join(SDK_PKG_ROOT, "package.json")).json()) as {
       exports: Record<string, string>;
     };
-    expect(typeof pkg.exports["./cli"]).toBe("string");
+    expect(pkg.exports["./cli"]).toBeUndefined();
   });
 
-  test("dist contains compiled cli.js for the dispatcher", () => {
-    expect(existsSync(join(DIST, "cli.js"))).toBe(true);
+  test("dist does not contain the removed dispatcher cli.js", () => {
+    expect(existsSync(join(DIST, "cli.js"))).toBe(false);
   });
 });

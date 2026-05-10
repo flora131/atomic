@@ -35,6 +35,7 @@ import {
   listSessions,
   nextWindow,
   previousWindow,
+  closeDaemonConnection,
   runWorkflow,
   SessionNotFoundError,
   stopSession,
@@ -70,6 +71,7 @@ program
     }
     const result = await runWorkflow({ workflow, detach: true });
     console.log(result.runId);
+    closeDaemonConnection(result.daemon);
   });
 
 program

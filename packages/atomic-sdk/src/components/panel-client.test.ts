@@ -9,6 +9,7 @@ import {
   DaemonPanelStore,
   castSnapshot,
   mapSnapshotSessions,
+  buildGraphSessions,
   applyForegroundStage,
   createDirectSessionRendererConfig,
   stopRunForPanelAbort,
@@ -37,6 +38,7 @@ import {
 } from "./terminal-mouse.ts";
 import type { MessageConnection } from "vscode-jsonrpc/node";
 import type { WorkflowStatusSnapshot } from "../runtime/status-writer.ts";
+import { computeLayout } from "./layout.ts";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -151,6 +153,117 @@ describe("mapSnapshotSessions", () => {
   test("returns empty array for snapshot with no sessions", () => {
     const snapshot = makeSnapshot({ sessions: [] });
     expect(mapSnapshotSessions(snapshot)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildGraphSessions
+// ---------------------------------------------------------------------------
+
+describe("buildGraphSessions", () => {
+  test("prepends a virtual orchestrator root for daemon snapshots without one", () => {
+    const sessions = buildGraphSessions(makeSnapshot({
+      sessions: [
+        {
+          name: "stage-a",
+          status: "running",
+          parents: [],
+          startedAt: 1000,
+          endedAt: null,
+        },
+        {
+          name: "stage-b",
+          status: "pending",
+          parents: [],
+          startedAt: null,
+          endedAt: null,
+        },
+      ],
+    }));
+
+    expect(sessions.map((s) => s.name)).toEqual(["orchestrator", "stage-a", "stage-b"]);
+    expect(sessions[0]).toMatchObject({
+      name: "orchestrator",
+      status: "running",
+      parents: [],
+      startedAt: 1000,
+      endedAt: null,
+    });
+  });
+
+  test("virtual orchestrator turns complete when the snapshot is complete", () => {
+    const sessions = buildGraphSessions(makeSnapshot({
+      completionReached: true,
+      sessions: [
+        {
+          name: "stage-a",
+          status: "complete",
+          parents: [],
+          startedAt: 1000,
+          endedAt: 2000,
+        },
+      ],
+    }));
+
+    expect(sessions[0]).toMatchObject({
+      name: "orchestrator",
+      status: "complete",
+      endedAt: 2000,
+    });
+  });
+
+  test("virtual orchestrator turns error when any stage errors", () => {
+    const sessions = buildGraphSessions(makeSnapshot({
+      sessions: [
+        {
+          name: "stage-a",
+          status: "error",
+          parents: [],
+          startedAt: 1000,
+          endedAt: 2000,
+          error: "boom",
+        },
+      ],
+    }));
+
+    expect(sessions[0]).toMatchObject({
+      name: "orchestrator",
+      status: "error",
+      endedAt: 2000,
+    });
+  });
+
+  test("does not duplicate an orchestrator already present in a snapshot", () => {
+    const sessions = buildGraphSessions(makeSnapshot());
+    expect(sessions.filter((s) => s.name === "orchestrator")).toHaveLength(1);
+  });
+
+  test("virtual orchestrator restores top-down graph layout for parentless daemon stages", () => {
+    const sessions = buildGraphSessions(makeSnapshot({
+      sessions: [
+        {
+          name: "stage-a",
+          status: "running",
+          parents: [],
+          startedAt: 1000,
+          endedAt: null,
+        },
+        {
+          name: "stage-b",
+          status: "pending",
+          parents: [],
+          startedAt: null,
+          endedAt: null,
+        },
+      ],
+    }));
+
+    const layout = computeLayout(sessions);
+    expect(layout.map["orchestrator"]!.depth).toBe(0);
+    expect(layout.map["stage-a"]!.depth).toBe(1);
+    expect(layout.map["stage-b"]!.depth).toBe(1);
+    expect(layout.map["stage-a"]!.y).toBeGreaterThan(layout.map["orchestrator"]!.y);
+    expect(layout.map["stage-b"]!.y).toBe(layout.map["stage-a"]!.y);
   });
 });
 

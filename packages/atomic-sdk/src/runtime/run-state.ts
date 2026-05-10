@@ -150,6 +150,22 @@ export class RunState {
     this.scheduleBroadcast();
   }
 
+  /** Mark a running stage as blocked on human input (HIL). */
+  sessionAwaitingInput(name: string): void {
+    const row = this.stages.find((s) => s.name === name);
+    if (!row || row.status !== "running") return;
+    row.status = "awaiting_input";
+    this.scheduleBroadcast();
+  }
+
+  /** Mark a HIL-blocked stage as resumed after the user answered/dismissed it. */
+  sessionResumed(name: string): void {
+    const row = this.stages.find((s) => s.name === name);
+    if (!row || row.status !== "awaiting_input") return;
+    row.status = "running";
+    this.scheduleBroadcast();
+  }
+
   setError(message: string): void {
     this.fatalError = message;
     this.completionReached = true;

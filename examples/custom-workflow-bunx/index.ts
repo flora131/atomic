@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
-import { defineWorkflow, hostLocalWorkflows } from "@bastani/atomic-sdk";
+import { defineWorkflow } from "@bastani/atomic-sdk";
 
-const explainFile = defineWorkflow({
+export default defineWorkflow({
   name: "explain-file",
   description: "Open a Claude pane that walks through a file",
   inputs: [
@@ -29,5 +29,3 @@ const explainFile = defineWorkflow({
     );
   })
   .compile();
-
-await hostLocalWorkflows([explainFile]);

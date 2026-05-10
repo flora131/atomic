@@ -22,12 +22,6 @@ describe("settings.schema.json — customWorkflow entry", () => {
     expect(validateEntry({ command: "bunx", agents: ["claude"] })).toBe(true);
   });
 
-  test("well-formed entry with args passes", () => {
-    expect(
-      validateEntry({ command: "bunx", args: ["@me/pkg", "--flag"], agents: ["copilot"] }),
-    ).toBe(true);
-  });
-
   test("well-formed entry with all three agents passes", () => {
     expect(
       validateEntry({ command: "node", agents: ["claude", "opencode", "copilot"] }),
@@ -38,7 +32,7 @@ describe("settings.schema.json — customWorkflow entry", () => {
     const valid = validate({
       workflows: {
         alpha: { command: "bunx", agents: ["claude"] },
-        beta: { command: "node", args: ["/bin.mjs"], agents: ["opencode"] },
+        beta: { command: "/bin.mjs", agents: ["opencode"] },
       },
     });
     expect(valid).toBe(true);
@@ -56,20 +50,6 @@ describe("settings.schema.json — customWorkflow entry", () => {
   test("command empty string — schema does NOT reject (pickWorkflows rejects at runtime)", () => {
     // This documents the gap: schema passes, pickWorkflows drops with error.
     expect(validateEntry({ command: "", agents: ["claude"] })).toBe(true);
-  });
-
-  // ── args ─────────────────────────────────────────────────────────────────────
-
-  test("args non-array → invalid", () => {
-    expect(validateEntry({ command: "bunx", agents: ["claude"], args: "not-array" })).toBe(false);
-  });
-
-  test("args array containing non-strings → invalid", () => {
-    expect(validateEntry({ command: "bunx", agents: ["claude"], args: [1, 2] })).toBe(false);
-  });
-
-  test("args empty array → valid (default: [])", () => {
-    expect(validateEntry({ command: "bunx", agents: ["claude"], args: [] })).toBe(true);
   });
 
   // ── agents ───────────────────────────────────────────────────────────────────

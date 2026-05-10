@@ -1,12 +1,12 @@
 /**
- * `atomic workflow refresh` — re-spawn the metadata loaders for every
- * `workflows.<alias>` entry in `~/.atomic/settings.json` (global) and
+ * `atomic workflow refresh` — re-import every workflow source file from
+ * `workflows.<alias>` entries in `~/.atomic/settings.json` (global) and
  * `<cwd>/.atomic/settings.json` (local), merge them into the active
  * registry, and report the result.
  *
  * Why this exists: when an LM authors a new custom workflow under
  * `.atomic/workflows/<name>/` and edits `settings.json`, it needs an
- * explicit confirmation that the entry parsed, the metadata subprocess
+ * explicit confirmation that the entry parsed, the source import
  * succeeded, and the workflow is now invocable via
  * `atomic workflow -n <name> -a <agent>`. Bootstrap runs on every CLI
  * invocation, so technically the refresh is a no-op in terms of process
@@ -38,7 +38,6 @@ import {
 } from "@bastani/atomic-sdk/theme/colors";
 import type {
   BrokenWorkflow,
-  ExternalWorkflow,
   WorkflowInput,
 } from "@bastani/atomic-sdk";
 import {
@@ -84,8 +83,7 @@ export interface RefreshLoadedJson {
   agent: string;
   description: string;
   inputs: WorkflowInput[];
-  command: string;
-  args: string[];
+  source: string;
   /** `workflows.<alias>` — the JSON Pointer-ish key the model edits in settings.json. */
   settingsKey: string;
   /** Absolute path of the settings.json the entry was read from. */
@@ -138,16 +136,15 @@ function loadedToJson(
   entry: LoadedWorkflow,
   paths: BootstrapResult["paths"],
 ): RefreshLoadedJson {
-  const wf: ExternalWorkflow = entry.workflow;
+  const wf = entry.workflow;
   return {
     alias: entry.alias,
     origin: entry.origin,
     name: wf.name,
     agent: wf.agent,
-    description: wf.description ?? "",
+    description: wf.description,
     inputs: [...wf.inputs],
-    command: wf.source.command,
-    args: [...wf.source.args],
+    source: wf.source,
     settingsKey: `workflows.${entry.alias}`,
     settingsPath: pickSettingsPath(entry.origin, paths),
   };
@@ -235,8 +232,7 @@ function renderText(payload: RefreshJsonPayload): string {
           ? paint("dim", "(none)")
           : w.inputs.map(formatInputForDisplay).join(", ");
       lines.push("    " + paint("dim", "inputs  · ") + inputsLine);
-      const cmdLine = [w.command, ...w.args].join(" ");
-      lines.push("    " + paint("dim", "command · ") + paint("text", cmdLine));
+      lines.push("    " + paint("dim", "source  · ") + paint("text", w.source));
       lines.push(
         "    " +
           paint("dim", "settings · ") +

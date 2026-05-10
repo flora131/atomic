@@ -6,12 +6,10 @@
  * every consumer to read directly off the object, so we can add lazy
  * derivation, deprecation warnings, or normalization in one place.
  *
- * All accessors accept both builtin (`WorkflowDefinition`) and external
- * (`ExternalWorkflow`) entries — they branch on `kind === "external"` and
- * return the corresponding field straight from the `ExternalWorkflow`.
+ * Accessors accept compiled `WorkflowDefinition`-compatible objects only.
  */
 
-import type { AgentType, ExternalWorkflow, WorkflowInput } from "../types.ts";
+import type { AgentType, WorkflowInput } from "../types.ts";
 
 /**
  * Structural shape for a builtin workflow that the metadata accessors read.
@@ -29,11 +27,7 @@ export interface BuiltinMetadataWorkflow {
   readonly minSDKVersion: string | null;
 }
 
-/**
- * The union type accepted by all metadata accessors — either a compiled
- * builtin workflow or a subprocess-dispatched external workflow.
- */
-export type MetadataWorkflow = BuiltinMetadataWorkflow | ExternalWorkflow;
+export type MetadataWorkflow = BuiltinMetadataWorkflow;
 
 /** Workflow's unique name. */
 export function getName(workflow: MetadataWorkflow): string {
@@ -42,7 +36,6 @@ export function getName(workflow: MetadataWorkflow): string {
 
 /** Human-readable description (empty string when none was declared). */
 export function getDescription(workflow: MetadataWorkflow): string {
-  if (workflow.kind === "external") return workflow.description ?? "";
   return workflow.description;
 }
 
@@ -59,25 +52,18 @@ export function getInputSchema(
 }
 
 /**
- * Source of the workflow:
- * - For builtins: the absolute file path (`import.meta.path`).
- * - For externals: a human-readable string representation of the command.
+ * Absolute source path of the workflow (`import.meta.path`).
  */
 export function getSource(workflow: MetadataWorkflow): string {
-  if (workflow.kind === "external") {
-    const { command, args } = workflow.source;
-    return args.length > 0 ? `${command} ${args.join(" ")}` : command;
-  }
   return workflow.source;
 }
 
 /**
  * Minimum SDK version this workflow declares (or `null` when none was
- * specified). External workflows have no version constraint — returns `null`.
+ * specified).
  */
 export function getMinSDKVersion(
   workflow: MetadataWorkflow,
 ): string | null {
-  if (workflow.kind === "external") return null;
   return workflow.minSDKVersion;
 }

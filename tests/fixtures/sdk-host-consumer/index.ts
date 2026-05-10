@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
-import { defineWorkflow, hostLocalWorkflows, type WorkflowDefinition } from "@bastani/atomic-sdk";
+import { defineWorkflow, type WorkflowDefinition } from "@bastani/atomic-sdk";
 
-const wf = defineWorkflow({
+export default defineWorkflow({
   name: "demo-wf",
   description: "Demo workflow for SDK host integration test",
   inputs: [],
@@ -12,7 +12,6 @@ const wf = defineWorkflow({
   })
   .compile() as unknown as WorkflowDefinition;
 
-await hostLocalWorkflows([wf]);
-
-// user main() continues here when not invoked under atomic
-console.log("user main ran");
+if (import.meta.main) {
+  console.log("user main ran");
+}

@@ -203,6 +203,43 @@ describe("RunState", () => {
     });
   });
 
+  describe("sessionAwaitingInput / sessionResumed", () => {
+    test("sessionAwaitingInput transitions a running stage to awaiting_input and overall needs_review", () => {
+      const state = makeState();
+      state.addStage({ name: "ask-user" });
+      state.sessionStarted("ask-user");
+      state.sessionAwaitingInput("ask-user");
+
+      const snap = state.getSnapshot();
+      const row = snap.sessions.find((s) => s.name === "ask-user")!;
+      expect(row.status).toBe("awaiting_input");
+      expect(snap.overall).toBe("needs_review");
+      state.dispose();
+    });
+
+    test("sessionResumed transitions awaiting_input back to running", () => {
+      const state = makeState();
+      state.addStage({ name: "ask-user" });
+      state.sessionStarted("ask-user");
+      state.sessionAwaitingInput("ask-user");
+      state.sessionResumed("ask-user");
+
+      const row = state.getSnapshot().sessions.find((s) => s.name === "ask-user")!;
+      expect(row.status).toBe("running");
+      state.dispose();
+    });
+
+    test("sessionAwaitingInput is a no-op for non-running stages", () => {
+      const state = makeState();
+      state.addStage({ name: "pending-stage" });
+      state.sessionAwaitingInput("pending-stage");
+
+      const row = state.getSnapshot().sessions.find((s) => s.name === "pending-stage")!;
+      expect(row.status).toBe("pending");
+      state.dispose();
+    });
+  });
+
   describe("panel/update broadcast (coalescing)", () => {
     test("single mutation → single panel/update notification", async () => {
       const state = makeState();

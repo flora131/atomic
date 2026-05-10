@@ -221,7 +221,7 @@ describe("RunManager", () => {
       const manager = new RunManager();
       const { runId } = await manager.start({
         source: fixturePath,
-        workflowName: "complete-path-wf",
+        workflowName: "default-only-wf",
         agent: "claude",
         inputs: {},
       });
@@ -244,7 +244,7 @@ describe("RunManager", () => {
       const manager = new RunManager();
       const { runId } = await manager.start({
         source: fixturePath,
-        workflowName: "complete-info-wf",
+        workflowName: "default-only-wf",
         agent: "claude",
         inputs: {},
       });
@@ -262,7 +262,7 @@ describe("RunManager", () => {
       const manager = new RunManager();
       const { runId } = await manager.start({
         source: fixturePath,
-        workflowName: "complete-active-filter-wf",
+        workflowName: "default-only-wf",
         agent: "claude",
         inputs: {},
       });
@@ -280,7 +280,7 @@ describe("RunManager", () => {
       const manager = new RunManager();
       const { runId } = await manager.start({
         source: fixturePath,
-        workflowName: "error-path-wf",
+        workflowName: "throws-on-run-wf",
         agent: "claude",
         inputs: {},
       });
@@ -302,7 +302,7 @@ describe("RunManager", () => {
       const manager = new RunManager();
       const { runId } = await manager.start({
         source: fixturePath,
-        workflowName: "error-info-wf",
+        workflowName: "throws-on-run-wf",
         agent: "claude",
         inputs: {},
       });
@@ -320,7 +320,7 @@ describe("RunManager", () => {
       const manager = new RunManager();
       const { runId } = await manager.start({
         source: fixturePath,
-        workflowName: "error-once-wf",
+        workflowName: "throws-on-run-wf",
         agent: "claude",
         inputs: {},
       });
@@ -341,7 +341,7 @@ describe("RunManager", () => {
       const manager = new RunManager();
       const { runId } = await manager.start({
         source: fixturePath,
-        workflowName: "cancel-vs-error-wf",
+        workflowName: "throws-on-run-wf",
         agent: "claude",
         inputs: {},
       });
@@ -428,7 +428,7 @@ describe("RunManager", () => {
       const manager = new RunManager({ supervisor });
       const { runId } = await manager.start({
         source: fixturePath,
-        workflowName: "stage-complete-wf",
+        workflowName: "with-one-stage-wf",
         agent: "claude",
         inputs: {},
       });
@@ -451,7 +451,7 @@ describe("RunManager", () => {
       const manager = new RunManager({ supervisor });
       const { runId } = await manager.start({
         source: fixturePath,
-        workflowName: "stage-info-complete-wf",
+        workflowName: "with-one-stage-wf",
         agent: "claude",
         inputs: {},
       });
@@ -470,7 +470,7 @@ describe("RunManager", () => {
       const manager = new RunManager({ supervisor });
       const { runId } = await manager.start({
         source: fixturePath,
-        workflowName: "stage-spawn-params-wf",
+        workflowName: "with-one-stage-wf",
         agent: "claude",
         inputs: {},
       });
@@ -489,7 +489,7 @@ describe("RunManager", () => {
       const manager = new RunManager({ supervisor });
       const { runId } = await manager.start({
         source: fixturePath,
-        workflowName: "stage-error-wf",
+        workflowName: "with-one-stage-wf",
         agent: "claude",
         inputs: {},
       });
@@ -512,7 +512,7 @@ describe("RunManager", () => {
       const manager = new RunManager({ supervisor });
       const { runId } = await manager.start({
         source: fixturePath,
-        workflowName: "stage-error-info-wf",
+        workflowName: "with-one-stage-wf",
         agent: "claude",
         inputs: {},
       });
@@ -543,7 +543,7 @@ describe("RunManager", () => {
       const manager = new RunManager({ supervisor: hangingSupervisor });
       const { runId } = await manager.start({
         source: fixturePath,
-        workflowName: "stage-cancel-wf",
+        workflowName: "with-one-stage-wf",
         agent: "claude",
         inputs: {},
       });
@@ -570,7 +570,7 @@ describe("RunManager", () => {
       const manager = new RunManager(); // no supervisor
       const { runId } = await manager.start({
         source: fixturePath,
-        workflowName: "no-supervisor-stage-wf",
+        workflowName: "with-one-stage-wf",
         agent: "claude",
         inputs: {},
       });
@@ -611,7 +611,7 @@ describe("RunManager", () => {
       const manager = new RunManager({ supervisor: hangingSupervisor });
       const { runId } = await manager.start({
         source: fixturePath,
-        workflowName: "pid-kill-wf",
+        workflowName: "with-one-stage-wf",
         agent: "claude",
         inputs: {},
       });
@@ -659,13 +659,13 @@ describe("RunManager", () => {
       const manager = new RunManager({ supervisor: hangingSupervisor });
       const { runId: runA } = await manager.start({
         source: fixturePath,
-        workflowName: "pid-isolation-A",
+        workflowName: "with-one-stage-wf",
         agent: "claude",
         inputs: {},
       });
       const { runId: runB } = await manager.start({
         source: fixturePath,
-        workflowName: "pid-isolation-B",
+        workflowName: "with-one-stage-wf",
         agent: "claude",
         inputs: {},
       });
@@ -708,7 +708,7 @@ describe("RunManager", () => {
       const manager = new RunManager({ supervisor: controllableSupervisor });
       const { runId } = await manager.start({
         source: fixturePath,
-        workflowName: "late-exit-after-cancel-wf",
+        workflowName: "with-one-stage-wf",
         agent: "claude",
         inputs: {},
       });
@@ -760,7 +760,7 @@ describe("RunManager", () => {
       const manager = new RunManager({ supervisor: controllableSupervisor });
       const { runId } = await manager.start({
         source: fixturePath,
-        workflowName: "late-error-exit-after-cancel-wf",
+        workflowName: "with-one-stage-wf",
         agent: "claude",
         inputs: {},
       });
@@ -793,7 +793,7 @@ describe("RunManager", () => {
       const manager = new RunManager({ supervisor });
       const { runId } = await manager.start({
         source: fixturePath,
-        workflowName: "pid-released-wf",
+        workflowName: "with-one-stage-wf",
         agent: "claude",
         inputs: {},
       });
@@ -1035,7 +1035,7 @@ describe("RunManager.unsubscribe()", () => {
     const conn = fakeConnection();
     const { runId } = await manager.start({
       source: join(import.meta.dir, "__fixtures__/throws-on-run.ts"),
-      workflowName: "unsub-test",
+      workflowName: "throws-on-run-wf",
       agent: "claude",
       inputs: {},
     });
@@ -1055,7 +1055,7 @@ describe("RunManager.unsubscribe()", () => {
     const conn = fakeConnection();
     const { runId } = await manager.start({
       source: join(import.meta.dir, "__fixtures__/throws-on-run.ts"),
-      workflowName: "inner-unsub-specific-wf",
+      workflowName: "throws-on-run-wf",
       agent: "claude",
       inputs: {},
     });
@@ -1079,13 +1079,13 @@ describe("RunManager.unsubscribe()", () => {
     // Start two runs so the all-runs subscribe wires into both states.
     const { runId: r1 } = await manager.start({
       source: join(import.meta.dir, "__fixtures__/throws-on-run.ts"),
-      workflowName: "inner-unsub-all-wf-1",
+      workflowName: "throws-on-run-wf",
       agent: "claude",
       inputs: {},
     });
     const { runId: r2 } = await manager.start({
       source: join(import.meta.dir, "__fixtures__/throws-on-run.ts"),
-      workflowName: "inner-unsub-all-wf-2",
+      workflowName: "throws-on-run-wf",
       agent: "claude",
       inputs: {},
     });
@@ -1117,7 +1117,7 @@ describe("noopSupervisor — sendInput and getScrollback throw descriptive error
 
     const { runId } = await manager.start({
       source: fixturePath,
-      workflowName: "noop-methods-wf",
+      workflowName: "access-noop-supervisor-wf",
       agent: "claude",
       inputs: {},
     });

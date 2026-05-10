@@ -1,10 +1,12 @@
-/**
- * Fixture: a workflow that calls ctx.stage("step-1") once.
- * Used by run-manager.test.ts integration tests to verify that RunManager
- * wires DaemonWorkflowContext + ISupervisor correctly end-to-end.
- */
-export default {
-  run: async (ctx: { stage: (name: string) => Promise<unknown> }) => {
-    await ctx.stage("step-1");
-  },
-};
+import { defineWorkflow } from "../../define-workflow.ts";
+
+export default defineWorkflow({
+  name: "with-one-stage-wf",
+  description: "fixture: calls ctx.stage once",
+  inputs: [],
+})
+  .for("claude")
+  .run(async (ctx) => {
+    await (ctx as unknown as { stage(name: string): Promise<unknown> }).stage("step-1");
+  })
+  .compile();

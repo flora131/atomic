@@ -104,9 +104,9 @@ function stripFileUrlAndPosition(location: string): string | null {
 
 /**
  * All `WorkflowDefinition`s compiled in this process via `.compile()`.
- * Populated as a side-effect of each `.compile()` call so that the
- * `_emit-workflow-meta` auto-dispatch handler can drain this list
- * without any boilerplate from the third-party author.
+ * Populated as a side-effect of each `.compile()` call so direct-import
+ * workflow registries can inspect modules that compile without exporting
+ * every definition explicitly.
  *
  * @internal — not part of the public API surface.
  */
@@ -114,7 +114,8 @@ const _compiledWorkflowRegistry: WorkflowDefinition[] = [];
 
 /**
  * Return a snapshot of every `WorkflowDefinition` compiled in this process.
- * Called by the `_emit-workflow-meta` auto-dispatch handler.
+ * Used as a direct-import fallback for modules that call `.compile()` but do
+ * not export the returned definition.
  *
  * @internal
  */
@@ -339,8 +340,8 @@ export class WorkflowBuilder<
       run: runFn,
     };
 
-    // Register in the module-private compiled workflow list so the
-    // `_emit-workflow-meta` auto-dispatch handler can drain it.
+    // Register in the module-private compiled workflow list so direct-import
+    // registry loading can discover definitions that are not exported.
     _compiledWorkflowRegistry.push(definition as unknown as WorkflowDefinition);
 
     return definition;

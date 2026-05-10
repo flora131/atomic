@@ -10,7 +10,6 @@
   },
   "exports": {
     ".": "./src/index.ts",
-    "./cli": "./src/cli.ts",
     "./sdk-protocol-version.json": "./sdk-protocol-version.json",
     "./runtime/daemon": "./src/runtime/daemon.ts",
     "./runtime/run-manager": "./src/runtime/run-manager.ts",

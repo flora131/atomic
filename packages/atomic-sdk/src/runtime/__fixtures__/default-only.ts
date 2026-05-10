@@ -1,15 +1,12 @@
 /**
  * Fixture: a workflow file that exports the compiled definition as the
- * module default and does NOT call `hostLocalWorkflows([…])`. Used by
- * `orchestrator-entry.resolve.test.ts` to confirm the legacy
- * `runWorkflow`-direct pattern (e.g. `examples/hello-world/claude/index.ts`)
- * still resolves correctly.
+ * module default.
  */
 import { defineWorkflow } from "../../define-workflow.ts";
 
 export default defineWorkflow({
   name: "default-only-wf",
-  description: "fixture: only export default, no hostLocalWorkflows",
+  description: "fixture: default-export workflow",
   inputs: [],
 })
   .for("claude")

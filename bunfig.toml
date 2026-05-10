@@ -18,18 +18,10 @@ coveragePathIgnorePatterns = [
   "**/var/folders/**",
   # Compiled workflow temp files generated at runtime
   "**/.atomic/.tmp/**",
-  # Entry points (not unit-testable). The SDK dispatcher mirrors the
-  # user-facing CLI: top-level `await program.parseAsync(...)` runs on
-  # import, so it can't be unit-imported from a test. Subprocess
-  # dispatch is exercised by `packages/atomic-sdk/script/build.test.ts`
-  # against the bundled `dist/cli.js`.
+  # Entry points (not unit-testable): top-level `await program.parseAsync(...)`
+  # runs on import, so these can't be unit-imported from a test.
   "packages/atomic/src/cli.ts",
   "packages/atomic/src/version.ts",
-  "packages/atomic-sdk/src/cli.ts",
-  # Auto-dispatch is a top-level argv side-effect that exits the
-  # process — same shape as the SDK cli entry; subprocess dispatch is
-  # exercised by `tests/fixtures/sdk-compiled-consumer/` end-to-end.
-  "packages/atomic-sdk/src/lib/auto-dispatch.ts",
   # React/OpenTUI components (require component test infrastructure)
   "packages/atomic-sdk/src/components/**",
   # Theme (React context + OpenTUI native resources)

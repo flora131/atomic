@@ -17,7 +17,7 @@ import { join } from "node:path";
 import { writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
-import { DaemonWorkflowContext } from "./daemon-workflow-context.ts";
+import { DaemonWorkflowContext, attachDaemonHILWatchers } from "./daemon-workflow-context.ts";
 import type { DaemonSessionContext } from "./daemon-workflow-context.ts";
 import type { ISupervisor } from "./ui-protocol/methods.ts";
 import { RunState } from "./run-state.ts";
@@ -277,6 +277,47 @@ describe("DaemonWorkflowContext", () => {
       expect(stageRow).toBeDefined();
       expect(stageRow!.status).toBe("error");
     });
+
+    test("infers sequential graph parents from awaited stage order", async () => {
+      const runId = randomUUID();
+      const state = makeRunState(runId);
+      const supervisor = makeFakeSupervisor(0);
+      const ctx = new DaemonWorkflowContext({
+        runId,
+        agent: "claude",
+        inputs: {},
+        state,
+        supervisor,
+      });
+
+      await ctx.stage("scout");
+      await ctx.stage("summarize");
+
+      const snap = state.getSnapshot();
+      expect(snap.sessions.find((s) => s.name === "scout")?.parents).toEqual(["orchestrator"]);
+      expect(snap.sessions.find((s) => s.name === "summarize")?.parents).toEqual(["scout"]);
+    });
+
+    test("infers parallel siblings and fan-in parents", async () => {
+      const runId = randomUUID();
+      const state = makeRunState(runId);
+      const supervisor = makeFakeSupervisor(0);
+      const ctx = new DaemonWorkflowContext({
+        runId,
+        agent: "claude",
+        inputs: {},
+        state,
+        supervisor,
+      });
+
+      await Promise.all([ctx.stage("left"), ctx.stage("right")]);
+      await ctx.stage("merge");
+
+      const snap = state.getSnapshot();
+      expect(snap.sessions.find((s) => s.name === "left")?.parents).toEqual(["orchestrator"]);
+      expect(snap.sessions.find((s) => s.name === "right")?.parents).toEqual(["orchestrator"]);
+      expect(snap.sessions.find((s) => s.name === "merge")?.parents).toEqual(["left", "right"]);
+    });
   });
 
   describe("stage() — spawn failure", () => {
@@ -306,6 +347,149 @@ describe("DaemonWorkflowContext", () => {
       const snap = state.getSnapshot();
       const stageRow = snap.sessions.find((s) => s.name === "bad-stage");
       expect(stageRow!.status).toBe("error");
+    });
+  });
+
+  describe("daemon HIL watcher bridge", () => {
+    type EventHandler = (event: { data?: unknown }) => void;
+
+    function makeEventSession() {
+      const handlers = new Map<string, Set<EventHandler>>();
+      return {
+        on(eventType: string, handler: EventHandler): () => void {
+          let bucket = handlers.get(eventType);
+          if (!bucket) {
+            bucket = new Set<EventHandler>();
+            handlers.set(eventType, bucket);
+          }
+          bucket.add(handler);
+          return () => bucket?.delete(handler);
+        },
+        emit(eventType: string, data: unknown): void {
+          for (const handler of handlers.get(eventType) ?? []) handler({ data });
+        },
+      };
+    }
+
+    test("Copilot ask_user events mark the stage awaiting_input and then running", async () => {
+      const state = makeRunState(randomUUID(), "copilot");
+      state.addStage({ name: "ask-color" });
+      state.sessionStarted("ask-color");
+      const session = makeEventSession();
+
+      const unsubscribe = await attachDaemonHILWatchers({
+        agent: "copilot",
+        stageName: "ask-color",
+        state,
+        client: {},
+        session,
+        getSessionId: () => "copilot-session-1",
+      });
+
+      session.emit("tool.execution_start", {
+        toolName: "ask_user",
+        toolCallId: "tool-1",
+      });
+      let snap = state.getSnapshot();
+      expect(snap.sessions.find((s) => s.name === "ask-color")?.status).toBe("awaiting_input");
+      expect(snap.overall).toBe("needs_review");
+
+      session.emit("tool.execution_complete", { toolCallId: "tool-1" });
+      snap = state.getSnapshot();
+      expect(snap.sessions.find((s) => s.name === "ask-color")?.status).toBe("running");
+
+      unsubscribe();
+      state.dispose();
+    });
+
+    test("Copilot elicitation events also drive awaiting_input status", async () => {
+      const state = makeRunState(randomUUID(), "copilot");
+      state.addStage({ name: "select-option" });
+      state.sessionStarted("select-option");
+      const session = makeEventSession();
+
+      const unsubscribe = await attachDaemonHILWatchers({
+        agent: "copilot",
+        stageName: "select-option",
+        state,
+        client: {},
+        session,
+        getSessionId: () => "copilot-session-2",
+      });
+
+      session.emit("elicitation.requested", { requestId: "req-1" });
+      expect(state.getSnapshot().sessions.find((s) => s.name === "select-option")?.status)
+        .toBe("awaiting_input");
+
+      session.emit("elicitation.completed", { requestId: "req-1" });
+      expect(state.getSnapshot().sessions.find((s) => s.name === "select-option")?.status)
+        .toBe("running");
+
+      unsubscribe();
+      state.dispose();
+    });
+
+    test("OpenCode question events from the daemon event stream drive awaiting_input status", async () => {
+      type OpencodeEvent = { type: string; properties: { sessionID?: string } };
+      const queue: OpencodeEvent[] = [];
+      let resolveNext: ((value: IteratorResult<OpencodeEvent>) => void) | null = null;
+      let closed = false;
+      const stream: AsyncIterable<OpencodeEvent> = {
+        [Symbol.asyncIterator]() {
+          return {
+            next(): Promise<IteratorResult<OpencodeEvent>> {
+              const value = queue.shift();
+              if (value) return Promise.resolve({ value, done: false });
+              if (closed) return Promise.resolve({ value: undefined, done: true });
+              return new Promise((resolve) => { resolveNext = resolve; });
+            },
+          };
+        },
+      };
+      const push = (event: OpencodeEvent): void => {
+        if (resolveNext) {
+          const resolve = resolveNext;
+          resolveNext = null;
+          resolve({ value: event, done: false });
+          return;
+        }
+        queue.push(event);
+      };
+      const close = (): void => {
+        closed = true;
+        if (resolveNext) {
+          const resolve = resolveNext;
+          resolveNext = null;
+          resolve({ value: undefined, done: true });
+        }
+      };
+
+      const state = makeRunState(randomUUID(), "opencode");
+      state.addStage({ name: "ask-color" });
+      state.sessionStarted("ask-color");
+
+      const unsubscribe = await attachDaemonHILWatchers({
+        agent: "opencode",
+        stageName: "ask-color",
+        state,
+        client: { event: { subscribe: async () => ({ stream }) } },
+        session: {},
+        getSessionId: () => "oc-session-1",
+      });
+
+      push({ type: "question.asked", properties: { sessionID: "oc-session-1" } });
+      await Promise.resolve();
+      expect(state.getSnapshot().sessions.find((s) => s.name === "ask-color")?.status)
+        .toBe("awaiting_input");
+
+      push({ type: "question.replied", properties: { sessionID: "oc-session-1" } });
+      await Promise.resolve();
+      expect(state.getSnapshot().sessions.find((s) => s.name === "ask-color")?.status)
+        .toBe("running");
+
+      close();
+      unsubscribe();
+      state.dispose();
     });
   });
 

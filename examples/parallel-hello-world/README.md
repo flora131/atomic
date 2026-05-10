@@ -14,6 +14,6 @@ bun run opencode-worker.ts --topic="Bun"
 ## What's here
 
 - `claude/`, `copilot/`, `opencode/` — workflow definitions per agent
-- `<agent>-worker.ts` — Commander entrypoint that calls `runWorkflow`
+- `<agent>-worker.ts` — Commander entrypoint that calls the shared `runExampleWorkflow` helper, which mounts the Atomic panel for foreground TTY runs
 
 Demonstrates that JavaScript control flow (`Promise.all`, `for`, `if`) is the only orchestration primitive you need.

@@ -11,6 +11,7 @@ import { readFile } from "node:fs/promises";
 import type { MessageConnection } from "vscode-jsonrpc";
 import type { AgentType } from "../types.ts";
 import { RunState } from "./run-state.ts";
+import { extractWorkflowDefinitions } from "./registry.ts";
 import type { IRunManager, ISupervisor, RunInfo } from "./ui-protocol/methods.ts";
 import { DaemonWorkflowContext } from "./daemon-workflow-context.ts";
 
@@ -209,19 +210,12 @@ export class RunManager implements IRunManager {
     terminalSize: { cols?: number; rows?: number } = {},
   ): Promise<void> {
     try {
-      const mod = await import(source);
-      // Validate the workflow module exports a callable run function.
-      if (!mod.default || typeof mod.default.run !== "function") {
-        const detail =
-          mod.default === undefined
-            ? "no default export"
-            : `default.run is ${typeof mod.default.run}`;
-
-        throw new Error(
-          `Invalid workflow module "${source}": expected a default export with a run() function. ` +
-            `Got: ${detail}.`,
-        );
-      }
+      const mod: unknown = await import(source);
+      const runnable = selectRunnableWorkflow(mod, {
+        source,
+        workflowName: info.workflowName,
+        agent: info.agent,
+      });
       const ctx = new DaemonWorkflowContext({
         runId: state.runId,
         agent: info.agent,
@@ -242,7 +236,7 @@ export class RunManager implements IRunManager {
           this.runPids.get(rId)?.delete(pid);
         },
       });
-      await mod.default.run(ctx);
+      await runnable.run(ctx);
       this.markRunComplete(state, info);
     } catch (e: unknown) {
       this.markRunError(state, info, e);
@@ -338,6 +332,56 @@ export class RunManager implements IRunManager {
     }
     this.subscriptions.delete(subscriptionId);
   }
+}
+
+interface RunnableWorkflow {
+  run(ctx: DaemonWorkflowContext): Promise<void>;
+}
+
+interface SelectRunnableWorkflowOptions {
+  source: string;
+  workflowName: string;
+  agent: AgentType;
+}
+
+function defaultExportDetail(mod: unknown): string {
+  if (!mod || typeof mod !== "object") return "module is not an object";
+  const defaultExport = (mod as { default?: unknown }).default;
+  if (defaultExport === undefined) return "no default export";
+  if (defaultExport === null) return "default export is null";
+  if (typeof defaultExport !== "object") return `default export is ${typeof defaultExport}`;
+  return `default.run is ${typeof (defaultExport as { run?: unknown }).run}`;
+}
+
+function selectRunnableWorkflow(
+  mod: unknown,
+  opts: SelectRunnableWorkflowOptions,
+): RunnableWorkflow {
+  const definitions = extractWorkflowDefinitions(mod);
+  if (definitions.length > 0) {
+    const match = definitions.find((definition) =>
+      definition.name === opts.workflowName && definition.agent === opts.agent,
+    );
+    if (!match) {
+      const available = definitions
+        .map((definition) => `${definition.agent}/${definition.name}`)
+        .join(", ");
+      throw new Error(
+        `Invalid workflow module "${opts.source}": no WorkflowDefinition for ` +
+          `workflowName="${opts.workflowName}" agent="${opts.agent}". ` +
+          `Available: ${available || "(none)"}.`,
+      );
+    }
+    return {
+      run: (ctx) => match.run(ctx as never),
+    };
+  }
+
+  throw new Error(
+    `Invalid workflow module "${opts.source}": expected a WorkflowDefinition ` +
+      `matching workflowName="${opts.workflowName}" agent="${opts.agent}". ` +
+      `Got: ${defaultExportDetail(mod)}.`,
+  );
 }
 
 // ─── noopSupervisor ───────────────────────────────────────────────────────────

@@ -5,7 +5,6 @@ import {
   InvalidWorkflowError,
   IncompatibleSDKError,
   SessionNotFoundError,
-  NoDispatcherError,
   errorMessage,
 } from "./errors";
 
@@ -67,51 +66,6 @@ describe("IncompatibleSDKError", () => {
     expect(err.message).toContain("v2.0.0");
     expect(err.message).toContain("v1.4.0");
     expect(err.message).toContain("Update Atomic");
-  });
-});
-
-describe("NoDispatcherError", () => {
-  test("is instanceof Error", () => {
-    const err = new NoDispatcherError({ searchedFor: ["@bastani/atomic-sdk/cli (host-bun)"] });
-    expect(err).toBeInstanceOf(Error);
-  });
-
-  test("name is NoDispatcherError", () => {
-    const err = new NoDispatcherError({ searchedFor: [] });
-    expect(err.name).toBe("NoDispatcherError");
-  });
-
-  test("searchedFor matches input", () => {
-    const searched = ["@bastani/atomic-sdk/cli (host-bun)"];
-    const err = new NoDispatcherError({ searchedFor: searched });
-    expect(err.searchedFor).toEqual(searched);
-  });
-
-  test("message contains 'runWorkflow() could not locate the atomic SDK dispatcher.'", () => {
-    const err = new NoDispatcherError({ searchedFor: ["@bastani/atomic-sdk/cli (host-bun)"] });
-    expect(err.message).toContain("runWorkflow() could not locate the atomic SDK dispatcher.");
-  });
-
-  test("message contains 'Searched:' with joined list", () => {
-    const err = new NoDispatcherError({
-      searchedFor: ["@bastani/atomic-sdk/cli (host-bun)"],
-    });
-    expect(err.message).toContain(
-      "Searched: @bastani/atomic-sdk/cli (host-bun).",
-    );
-  });
-
-  test("message contains pathToAtomicExecutable hint", () => {
-    const err = new NoDispatcherError({ searchedFor: [] });
-    expect(err.message).toContain("pathToAtomicExecutable");
-    expect(err.message).toContain("auto-default to `process.execPath`");
-  });
-
-  test("searchedFor is readonly (frozen shape)", () => {
-    const arr = ["@bastani/atomic-sdk/cli (host-bun)"] as const;
-    const err = new NoDispatcherError({ searchedFor: arr });
-    expect(Array.isArray(err.searchedFor)).toBe(true);
-    expect(err.searchedFor[0]).toBe("@bastani/atomic-sdk/cli (host-bun)");
   });
 });
 

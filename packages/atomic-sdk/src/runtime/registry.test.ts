@@ -396,7 +396,6 @@ describe("WorkflowRegistry — non-Mode1 command skipped", () => {
     await writeSettings(dirs.projectDir, {
       "external-wf": {
         command: "bunx",
-        args: ["@my/tool"],
         agents: ["claude"],
       },
     });

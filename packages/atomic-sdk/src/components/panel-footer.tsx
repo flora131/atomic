@@ -2,6 +2,7 @@
 
 import { memo } from "react";
 import { useGraphTheme } from "./orchestrator-panel-contexts.ts";
+import type { SessionData } from "./orchestrator-panel-types.ts";
 
 export interface PanelFooterHint {
   key: string;
@@ -9,10 +10,31 @@ export interface PanelFooterHint {
   dim?: boolean;
 }
 
+export type PanelFooterTone = "info" | "success" | "error";
+
+export interface PanelFooterStatusInput {
+  readonly fatalError: string | null;
+  readonly completionReached: boolean;
+  readonly sessions: readonly Pick<SessionData, "status">[];
+}
+
+export function panelFooterToneFromStatus({
+  fatalError,
+  completionReached,
+  sessions,
+}: PanelFooterStatusInput): PanelFooterTone {
+  if (fatalError !== null || sessions.some((session) => session.status === "error")) {
+    return "error";
+  }
+  if (completionReached) return "success";
+  return "info";
+}
+
 export interface PanelFooterProps {
   mode: string;
   subject?: string;
   runId?: string;
+  tone?: PanelFooterTone;
   hints: readonly PanelFooterHint[];
 }
 
@@ -21,20 +43,22 @@ export const PanelFooter = memo(function PanelFooter({
   mode,
   subject,
   runId,
+  tone = "info",
   hints,
 }: PanelFooterProps) {
   const theme = useGraphTheme();
+  const modeColor = tone === "success" ? theme.success : tone === "error" ? theme.error : theme.info;
 
   return (
     <box height={1} flexDirection="row" backgroundColor={theme.backgroundElement}>
       <box
-        backgroundColor={theme.info}
+        backgroundColor={modeColor}
         paddingLeft={1}
         paddingRight={1}
         alignItems="center"
       >
         <text>
-          <span fg={theme.backgroundElement} bg={theme.info}>
+          <span fg={theme.backgroundElement} bg={modeColor}>
             <strong>{mode}</strong>
           </span>
         </text>

@@ -13,17 +13,12 @@ export {
   WorkflowNotCompiledError,
   InvalidWorkflowError,
   SessionNotFoundError,
-  NoDispatcherError,
 } from "./errors.ts";
 
 // ─── Authoring ──────────────────────────────────────────────────────────────
 export { defineWorkflow, WorkflowBuilder, getCompiledWorkflows } from "./define-workflow.ts";
 export { createRegistry } from "./registry.ts";
 export type { Registry } from "./registry.ts";
-
-// ─── Host dispatch ───────────────────────────────────────────────────────────
-export { hostLocalWorkflows } from "./lib/host-local-workflows.ts";
-export type { HostLocalWorkflowsOptions } from "./lib/host-local-workflows.ts";
 
 // ─── Shared types ───────────────────────────────────────────────────────────
 export type {
@@ -38,7 +33,6 @@ export type {
   WorkflowContext,
   WorkflowOptions,
   WorkflowDefinition,
-  ExternalWorkflow,
   BrokenWorkflow,
   RegistrableWorkflow,
   WorkflowInput,
@@ -60,10 +54,10 @@ export {
 } from "./primitives/metadata.ts";
 
 // ─── Registry iteration helpers ─────────────────────────────────────────────
-import type { AgentType, ExternalWorkflow, Registry, WorkflowDefinition } from "./types.ts";
+import type { AgentType, Registry, WorkflowDefinition } from "./types.ts";
 
-/** Snapshot every workflow registered in `registry` (builtins + externals). */
-export function listWorkflows(registry: Registry): readonly (WorkflowDefinition | ExternalWorkflow)[] {
+/** Snapshot every workflow registered in `registry`. */
+export function listWorkflows(registry: Registry): readonly WorkflowDefinition[] {
   return registry.list();
 }
 
@@ -72,7 +66,7 @@ export function getWorkflow(
   registry: Registry,
   agent: AgentType,
   name: string,
-): WorkflowDefinition | ExternalWorkflow | undefined {
+): WorkflowDefinition | undefined {
   return registry.resolve(name, agent);
 }
 
@@ -82,6 +76,7 @@ export type { ResolvedInputs } from "./primitives/inputs.ts";
 
 // ─── Run a workflow ─────────────────────────────────────────────────────────
 export { runWorkflow } from "./primitives/run.ts";
+export { closeDaemonConnection } from "./runtime/daemon.ts";
 export type {
   RunWorkflowOptions,
   RunWorkflowResult,

@@ -12,7 +12,6 @@
 import type {
   AgentType,
   BrokenWorkflow,
-  ExternalWorkflow,
   WorkflowDefinition,
   WorkflowInput,
 } from "../types.ts";
@@ -20,8 +19,8 @@ import type { PickerTheme } from "./workflow-picker-theme.ts";
 
 // ─── Shared types ────────────────────────────────
 
-/** A registry entry the picker can display — either a compiled builtin or an external. */
-export type PickerWorkflow = WorkflowDefinition | ExternalWorkflow;
+/** A registry entry the picker can display. */
+export type PickerWorkflow = WorkflowDefinition;
 
 /** Two-phase UI state for the picker. */
 export type Phase = "pick" | "prompt";

@@ -4,26 +4,18 @@
  *
  * Validates the two SDK-distribution scenarios:
  *
- *   • Host-bun: third-party CLI runs under `bun cli.ts`. The SDK
- *     resolver picks the `host-bun` branch and spawns the SDK's
- *     prebundled `@bastani/atomic-sdk/cli` via the host bun.
+ *   • Host-bun: third-party CLI runs under `bun cli.ts` and talks to
+ *     the Atomic daemon over JSON-RPC.
  *
  *   • Compiled binary: third-party CLI is built with `bun build
- *     --compile`. The bundled SDK's cli.ts is bunfs-only, so the SDK
- *     auto-defaults `pathToAtomicExecutable` to `process.execPath` so
- *     the consumer's own binary self-dispatches the internal sub-
- *     command. The SDK barrel installs the dispatch handler at module-
- *     load time — no consumer boilerplate required.
+ *     --compile` and still talks to the Atomic daemon over JSON-RPC.
  *
- * Six-step matrix:
+ * Five-step matrix:
  *   1. `bun install`
  *   2. host-bun: `bun src/cli.ts greet` — assert "workflow:launched"
  *   3. `bun run compile` (bun build --compile → dist/my-app)
  *   4. compiled: `dist/my-app greet` — assert "workflow:launched"
- *   5. compiled with empty override: `dist/my-app greet
- *      --atomic-executable=""` — assert NoDispatcherError before tmux
- *      side-effect.
- *   6. host-bun: re-run after first invocation to confirm the SDK's
+ *   5. host-bun: re-run after first invocation to confirm the SDK's
  *      bundled cli.ts is repeatable (cache, idempotency).
  *
  * Usage:
@@ -176,36 +168,10 @@ if (!skipSteps.has(4)) {
   log("Step 4 SKIPPED");
 }
 
-// ── Step 5: NoDispatcherError when compiled has no resolvable dispatcher ────
+// ── Step 5: host-bun second run (idempotency) ────────────────────────────────
 
 if (!skipSteps.has(5)) {
-  log("Step 5 — compiled: pass --atomic-executable=__none__ to disable defaults → NoDispatcherError");
-  // Use ATOMIC_EXECUTABLE env var to feed an empty override; cli.ts
-  // treats explicit empty as "no override", which short-circuits the
-  // process.execPath default.  In compiled mode the SDK cli.ts is
-  // bunfs-rooted so host-bun resolution skips → NoDispatcherError.
-  const r = run(COMPILED, ["greet", "--who", "smoke-no-disp"], {
-    cwd: DIST_DIR,
-    env: { ATOMIC_DEBUG: "1", ATOMIC_DISABLE_DEFAULT_EXEC: "1" },
-  });
-  if (r.status === 0) {
-    fail(
-      "expected non-zero exit when no dispatcher available, got exit 0.\n" +
-      `stdout: ${r.stdout}\nstderr: ${r.stderr}`,
-    );
-  }
-  if (!r.stderr.includes("NoDispatcherError")) {
-    fail(`stderr did not contain "NoDispatcherError":\n  stderr: ${r.stderr}`);
-  }
-  log("Step 5 PASSED — NoDispatcherError raised before tmux side-effect");
-} else {
-  log("Step 5 SKIPPED");
-}
-
-// ── Step 6: host-bun second run (idempotency) ────────────────────────────────
-
-if (!skipSteps.has(6)) {
-  log("Step 6 — host-bun re-run: bun src/cli.ts greet --who=smoke-host-2");
+  log("Step 5 — host-bun re-run: bun src/cli.ts greet --who=smoke-host-2");
   const r = run("bun", ["src/cli.ts", "greet", "--who", "smoke-host-2"], {
     env: { ATOMIC_DEBUG: "1" },
   });
@@ -216,9 +182,9 @@ if (!skipSteps.has(6)) {
     fail(`stdout did not contain "workflow:launched":\n  stdout: ${r.stdout}`);
   }
   killSpawnedSessions();
-  log("Step 6 PASSED");
+  log("Step 5 PASSED");
 } else {
-  log("Step 6 SKIPPED");
+  log("Step 5 SKIPPED");
 }
 
 // ── Cleanup: ensure no leftover dist binary so subsequent runs are deterministic

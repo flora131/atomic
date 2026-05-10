@@ -23,6 +23,7 @@ import { mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import type { AgentType } from "../types.ts";
 import type { ISupervisor } from "./ui-protocol/methods.ts";
+import { GraphFrontierTracker } from "./graph-inference.ts";
 import type { RunState } from "./run-state.ts";
 import { AGENT_CONFIG } from "../services/config/definitions.ts";
 import { getProviderOverrides } from "../services/config/atomic-config.ts";
@@ -30,6 +31,13 @@ import { getCopilotScmDisableFlags } from "../services/config/scm-sync.ts";
 import { buildSpawnEnv } from "../lib/terminal-env.ts";
 import { getListeningPortForPid } from "./port-discovery.ts";
 import { errorMessage } from "../errors.ts";
+import {
+  type CopilotHILSessionSurface,
+  type OpenCodeHILEvent,
+  watchCopilotSessionForElicitation,
+  watchCopilotSessionForHIL,
+  watchOpencodeStreamForHIL,
+} from "./hil-watchers.ts";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -161,6 +169,66 @@ function readChatFlags(value: unknown): string[] | undefined {
     : undefined;
 }
 
+interface OpenCodeHILClientSurface {
+  event?: {
+    subscribe?: () => Promise<{ stream: AsyncIterable<OpenCodeHILEvent> }>;
+  };
+}
+
+/**
+ * Bridge provider-specific HIL events into RunState so daemon panel snapshots
+ * preserve the pre-daemon graph-node `awaiting_input` behaviour.
+ */
+export async function attachDaemonHILWatchers(opts: {
+  agent: AgentType;
+  stageName: string;
+  state: Pick<RunState, "sessionAwaitingInput" | "sessionResumed">;
+  client: object;
+  session: object;
+  getSessionId: () => string;
+}): Promise<() => void> {
+  let active = true;
+  const onHIL = (waiting: boolean): void => {
+    if (!active) return;
+    if (waiting) opts.state.sessionAwaitingInput(opts.stageName);
+    else opts.state.sessionResumed(opts.stageName);
+  };
+
+  if (opts.agent === "copilot") {
+    const session = opts.session as CopilotHILSessionSurface;
+    const unsubscribeTool = watchCopilotSessionForHIL(session, onHIL);
+    const unsubscribeElicitation = watchCopilotSessionForElicitation(session, onHIL);
+    return () => {
+      active = false;
+      unsubscribeTool();
+      unsubscribeElicitation();
+    };
+  }
+
+  if (opts.agent === "opencode") {
+    const client = opts.client as OpenCodeHILClientSurface;
+    const subscribe = client.event?.subscribe;
+    if (!subscribe) return () => { active = false; };
+
+    const sessionId = opts.getSessionId();
+    try {
+      const { stream } = await subscribe();
+      watchOpencodeStreamForHIL(stream, sessionId, onHIL).catch((err) => {
+        console.warn(
+          `[opencode] HIL event stream disconnected for session ${sessionId}: ${errorMessage(err)}`,
+        );
+      });
+    } catch (err) {
+      console.warn(
+        `[opencode] HIL event stream failed to subscribe for session ${sessionId}: ${errorMessage(err)}`,
+      );
+    }
+    return () => { active = false; };
+  }
+
+  return () => { active = false; };
+}
+
 // ─── Constructor options ──────────────────────────────────────────────────────
 
 export interface DaemonWorkflowContextOptions {
@@ -220,6 +288,8 @@ export class DaemonWorkflowContext {
 
   /** Completed stage records keyed by stage name. */
   private readonly completedStages = new Map<string, CompletedStageRecord>();
+  /** Infers graph parents from stage spawn/settle ordering. */
+  private readonly graphTracker = new GraphFrontierTracker("orchestrator");
 
   constructor(opts: DaemonWorkflowContextOptions) {
     this.runId = opts.runId;
@@ -376,6 +446,17 @@ export class DaemonWorkflowContext {
     }
   }
 
+  private startTrackedStage(name: string): void {
+    const parents = this.graphTracker.onSpawn();
+    this.state.addStage({ name, parents });
+    this.state.sessionStarted(name);
+  }
+
+  private endTrackedStage(name: string, status: "complete" | "error", error?: string): void {
+    this.graphTracker.onSettle(name);
+    this.state.sessionEnded(name, status, error);
+  }
+
   private async _runProviderStage<T>(opts: {
     name: string;
     description?: string;
@@ -388,8 +469,7 @@ export class DaemonWorkflowContext {
     const { name, sessionId, sessionDir, run } = opts;
 
     this.throwIfCancelled();
-    this.state.addStage({ name });
-    this.state.sessionStarted(name);
+    this.startTrackedStage(name);
     await mkdir(sessionDir, { recursive: true });
 
     let cleanup: (() => void | Promise<void>) | undefined;
@@ -415,11 +495,11 @@ export class DaemonWorkflowContext {
 
       const result = await run(ctx);
       this.completedStages.set(name, { sessionId, sessionDir });
-      this.state.sessionEnded(name, "complete");
+      this.endTrackedStage(name, "complete");
       return { name, id: sessionId, result };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      this.state.sessionEnded(name, "error", message);
+      this.endTrackedStage(name, "error", message);
       throw err;
     } finally {
       await cleanup?.();
@@ -438,11 +518,11 @@ export class DaemonWorkflowContext {
     const { name, sessionId, sessionDir, run } = opts;
 
     this.throwIfCancelled();
-    this.state.addStage({ name });
-    this.state.sessionStarted(name);
+    this.startTrackedStage(name);
     await mkdir(sessionDir, { recursive: true });
 
     let pid: number | undefined;
+    let unsubscribeHIL: (() => void) | undefined;
     let exitInfo: { exitCode: number; signal?: string } | undefined;
     let resolveExit!: (info: { exitCode: number; signal?: string }) => void;
     const exitPromise = new Promise<{ exitCode: number; signal?: string }>((resolve) => {
@@ -493,6 +573,14 @@ export class DaemonWorkflowContext {
         opts.sessionOpts ?? {},
       );
       cleanup = provider.cleanup;
+      unsubscribeHIL = await attachDaemonHILWatchers({
+        agent: this.agent,
+        stageName: name,
+        state: this.state,
+        client: provider.client,
+        session: provider.session,
+        getSessionId: provider.getSessionId,
+      });
 
       const save = this.createSaveFunction(sessionDir);
       const ctx: DaemonSessionContext = {
@@ -513,13 +601,14 @@ export class DaemonWorkflowContext {
 
       const result = await run(ctx);
       this.completedStages.set(name, { sessionId, sessionDir });
-      this.state.sessionEnded(name, "complete");
+      this.endTrackedStage(name, "complete");
       return { name, id: sessionId, result };
     } catch (err) {
       const message = errorMessage(err);
-      this.state.sessionEnded(name, "error", message);
+      this.endTrackedStage(name, "error", message);
       throw err;
     } finally {
+      unsubscribeHIL?.();
       await cleanup?.();
       if (pid !== undefined) {
         this.onStagePidReleased?.(this.runId, name, pid);
@@ -753,8 +842,7 @@ export class DaemonWorkflowContext {
     const { name, args, env, sessionId, sessionDir, run } = opts;
 
     // ── 1. Register in RunState ─────────────────────────────────────────────
-    this.state.addStage({ name });
-    this.state.sessionStarted(name);
+    this.startTrackedStage(name);
 
     // ── 2. Spawn subprocess + build exit promise ────────────────────────────
     let pid: number | undefined;
@@ -799,7 +887,7 @@ export class DaemonWorkflowContext {
       const msg = spawnErr instanceof Error ? spawnErr.message : String(spawnErr);
       // Release PID tracking if spawn had recorded a pid before failing.
       if (pid != null) this.onStagePidReleased?.(this.runId, name, pid);
-      this.state.sessionEnded(name, "error", msg);
+      this.endTrackedStage(name, "error", msg);
       throw spawnErr;
     }
 
@@ -808,9 +896,9 @@ export class DaemonWorkflowContext {
 
     // ── 6. Update RunState ──────────────────────────────────────────────────
     if (exitCode === 0) {
-      this.state.sessionEnded(name, "complete");
+      this.endTrackedStage(name, "complete");
     } else {
-      this.state.sessionEnded(
+      this.endTrackedStage(
         name,
         "error",
         `Stage "${name}" subprocess exited with code ${exitCode}`,

@@ -473,49 +473,23 @@ export interface BrokenWorkflow {
 }
 
 /**
- * An external workflow loaded from `settings.json` `workflows` entries.
- *
- * Carries the same user-visible metadata as a `WorkflowDefinition`
- * (name, agent, description, inputs) so it can be passed to `listWorkflows`,
- * picker, and `atomic workflow inputs` without special-casing those surfaces.
- *
- * `source` here is not a file path — it is the subprocess command needed
- * by the dispatcher to invoke the third-party binary via `_atomic-run`.
- */
-export interface ExternalWorkflow {
-  readonly kind: "external";
-  readonly name: string;
-  readonly agent: AgentType;
-  readonly description?: string;
-  readonly inputs: WorkflowInput[];
-  readonly source: { command: string; args: string[] };
-}
-
-/**
  * Structural constraint for workflows accepted by `Registry.register()`.
  *
- * A discriminated union narrowed via `kind`:
- * - builtin branch: structurally compatible with `WorkflowDefinition`
- * - external branch: subprocess-dispatched `ExternalWorkflow` from `settings.json`
- *
- * The builtin branch uses `run: (...args: never[]) => Promise<void>` instead of
- * the full `WorkflowDefinition<A, I>` constraint to avoid contravariance failures
- * under `--strictFunctionTypes`. Type narrowing on the accumulating `T` generic
- * is still preserved via `W["agent"]`/`W["name"]`.
+ * Clean-break daemon mode accepts only compiled WorkflowDefinition objects.
+ * Legacy subprocess-dispatched workflow records are intentionally not part of
+ * the public type surface anymore.
  */
-export type RegistrableWorkflow =
-  | {
-      readonly __brand: "WorkflowDefinition";
-      readonly kind?: "builtin";
-      readonly agent: AgentType;
-      readonly name: string;
-      readonly description: string;
-      readonly inputs: readonly WorkflowInput[];
-      readonly minSDKVersion: string | null;
-      readonly source: string;
-      readonly run: (...args: never[]) => Promise<void>;
-    }
-  | ExternalWorkflow;
+export type RegistrableWorkflow = {
+  readonly __brand: "WorkflowDefinition";
+  readonly kind?: "builtin";
+  readonly agent: AgentType;
+  readonly name: string;
+  readonly description: string;
+  readonly inputs: readonly WorkflowInput[];
+  readonly minSDKVersion: string | null;
+  readonly source: string;
+  readonly run: (...args: never[]) => Promise<void>;
+};
 
 /**
  * Immutable, chainable registry of workflow entries (builtins + externals).
@@ -525,10 +499,7 @@ export type RegistrableWorkflow =
  * `get()` a typed return without casting.
  */
 export type Registry<
-  T extends Record<string, WorkflowDefinition | ExternalWorkflow> = Record<
-    string,
-    WorkflowDefinition | ExternalWorkflow
-  >,
+  T extends Record<string, WorkflowDefinition> = Record<string, WorkflowDefinition>,
 > = {
   /**
    * Register a workflow definition. Returns a new Registry with the
@@ -556,7 +527,7 @@ export type Registry<
    */
   upsert(
     wf: RegistrableWorkflow,
-    onOverride?: (prior: WorkflowDefinition | ExternalWorkflow) => void,
+    onOverride?: (prior: WorkflowDefinition) => void,
   ): Registry<T>;
 
   /**
@@ -568,14 +539,14 @@ export type Registry<
   /** Return true if a workflow with the given composite key is registered. */
   has(key: string): boolean;
 
-  /** Return all registered entries (builtins + externals) as a readonly array. */
-  list(): readonly (WorkflowDefinition | ExternalWorkflow)[];
+  /** Return all registered workflow definitions as a readonly array. */
+  list(): readonly WorkflowDefinition[];
 
   /**
    * Resolve a workflow by name + agent. Composes the composite key
    * internally. Returns `undefined` when not found.
    */
-  resolve(name: string, agent: AgentType): WorkflowDefinition | ExternalWorkflow | undefined;
+  resolve(name: string, agent: AgentType): WorkflowDefinition | undefined;
 };
 
 /**
@@ -586,11 +557,7 @@ export interface WorkflowDefinition<
   I extends readonly WorkflowInput[] = readonly WorkflowInput[],
 > {
   readonly __brand: "WorkflowDefinition";
-  /**
-   * Discriminant for the registry's `WorkflowDefinition | ExternalWorkflow`
-   * union. Optional so existing `.compile()` output (which never sets it)
-   * remains assignable; consumers narrow via `wf.kind === "external"`.
-   */
+  /** Optional discriminant retained for typed registry compatibility. */
   readonly kind?: "builtin";
   readonly name: string;
   /** The agent this workflow targets. Set via `.for(agent)` in the builder. */

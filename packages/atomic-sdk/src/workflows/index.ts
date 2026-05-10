@@ -36,7 +36,6 @@ export type {
   ValidationWarning,
   WorkflowContext,
   WorkflowOptions,
-  ExternalWorkflow,
   WorkflowDefinition,
   WorkflowInput,
   WorkflowInputType,
@@ -94,6 +93,7 @@ export type { ResolvedInputs } from "../primitives/inputs.ts";
 
 // ─── Run a workflow ────────────────────────────────────────────────────────
 export { runWorkflow } from "../primitives/run.ts";
+export { closeDaemonConnection } from "../runtime/daemon.ts";
 export type {
   RunWorkflowOptions,
   RunWorkflowResult,

@@ -1,22 +1,22 @@
 /**
  * Custom workflow loader.
  *
- * Spawns each entry's command with `_emit-workflow-meta`, parses the emitted
- * JSON, and returns a `LoadCustomWorkflowsResult` containing successfully
- * loaded workflows and structured failure records.
- *
- * RFC §5.5 + §5.8.
+ * Clean-break daemon mode supports only direct-import workflow source files
+ * registered in settings.json. Legacy subprocess metadata/dispatch helpers
+ * (`_emit-workflow-meta`, `_atomic-run`, hostLocalWorkflows) are intentionally
+ * not supported.
  */
 
-import { randomBytes } from "node:crypto";
+import { resolve } from "node:path";
 import {
   getGlobalSettingsPath,
   getLocalSettingsPath,
   readAtomicConfigSplit,
   type CustomWorkflowEntry,
 } from "@bastani/atomic-sdk/services/config/atomic-config";
-import type { AgentType, BrokenWorkflow, ExternalWorkflow, WorkflowInput } from "@bastani/atomic-sdk";
+import type { AgentType, BrokenWorkflow, WorkflowDefinition } from "@bastani/atomic-sdk";
 import { listWorkflows } from "@bastani/atomic-sdk";
+import { extractWorkflowDefinitions, isMode1Source } from "@bastani/atomic-sdk/runtime/registry";
 import { createBuiltinRegistry } from "./builtin-registry.ts";
 
 // ─── Public types ────────────────────────────────────────────────────────────
@@ -24,7 +24,7 @@ import { createBuiltinRegistry } from "./builtin-registry.ts";
 export interface LoadedWorkflow {
   alias: string;
   origin: "local" | "global";
-  workflow: ExternalWorkflow;
+  workflow: WorkflowDefinition;
 }
 
 // Re-export the canonical BrokenWorkflow from atomic-sdk so callers can
@@ -36,39 +36,14 @@ export interface LoadCustomWorkflowsResult {
   broken: BrokenWorkflow[];
 }
 
-// ─── Emitted meta shape (from the SDK's _emit-workflow-meta handler) ─────────
-
-interface EmittedWorkflowDef {
-  name: string;
-  description?: string;
-  agent: AgentType;
-  inputs: WorkflowInput[];
-  source: string;
-  minSDKVersion: string | null;
-}
-
-// ─── Constants ───────────────────────────────────────────────────────────────
-
-const META_PREFIX = "ATOMIC_WORKFLOW_META: ";
-const DEFAULT_TIMEOUT_MS = 5000;
-const STDERR_TRUNCATE = 500;
-const JSON_TRUNCATE = 200;
-
-function resolveTimeoutMs(): number {
-  const raw = process.env.ATOMIC_WORKFLOWS_META_TIMEOUT_MS;
-  if (!raw) return DEFAULT_TIMEOUT_MS;
-  const parsed = parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TIMEOUT_MS;
-}
-
 // ─── Loader ──────────────────────────────────────────────────────────────────
 
 /**
  * Load custom workflows from a `settings.json` `workflows` map.
  *
- * Spawns each entry's command with `_emit-workflow-meta`, parses the output,
- * and returns loaded + broken workflows. Failures are isolated per-entry (and
- * per-agent for the "declared agent missing" case).
+ * Each entry's `command` must be an importable workflow source file (.ts/.tsx/
+ * .js/.mjs/.cjs or an existing extensionless file). Failures are isolated
+ * per-entry and per-agent.
  */
 export async function loadCustomWorkflows(
   workflows: Record<string, CustomWorkflowEntry> | undefined,
@@ -99,166 +74,64 @@ async function loadOne(
 ): Promise<LoadCustomWorkflowsResult> {
   const loaded: LoadedWorkflow[] = [];
   const broken: BrokenWorkflow[] = [];
-  const timeoutMs = resolveTimeoutMs();
-  const args = entry.args ?? [];
 
-  /**
-   * Emit a §5.8 diagnostic to stderr and append a `BrokenWorkflow` to the
-   * accumulator. Returns `{ loaded, broken }` so callers can early-return.
-   */
   function fail(
     failedAgents: AgentType[],
     reason: string,
     fix: string,
   ): LoadCustomWorkflowsResult {
-    process.stderr.write(`[atomic/workflows] ${reason}\n`);
+    process.stderr.write(`[atomic/workflows] ${reason}
+`);
     broken.push({ alias, origin, agents: failedAgents, reason, source: settingsPath, fix });
     return { loaded, broken };
   }
 
-  // ── Spawn ────────────────────────────────────────────────────────────────
+  if (!isMode1Source(entry.command)) {
+    return fail(
+      entry.agents,
+      `"${alias}": command must be an importable workflow source file in daemon mode (got "${entry.command}")`,
+      `replace "${alias}.command" with a .ts/.tsx/.js/.mjs/.cjs workflow file that exports a compiled workflow`,
+    );
+  }
 
-  const token = randomBytes(16).toString("hex");
-  const argv = [entry.command, ...args, "_emit-workflow-meta", `--dispatch-token=${token}`];
+  const source = resolve(entry.command);
 
-  let child: ReturnType<typeof Bun.spawn>;
+  let mod: unknown;
   try {
-    child = Bun.spawn(argv, {
-      stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, ATOMIC_HOST: "1", ATOMIC_DISPATCH_TOKEN: token },
-    });
+    mod = await import(source);
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
     return fail(
       entry.agents,
-      spawnErrorMessage(alias, entry.command, err),
-      isNotFoundError(err)
-        ? `install "${entry.command}" or use an absolute path`
-        : "check file permissions and PATH",
+      `"${alias}": failed to import workflow source "${source}": ${message}`,
+      `fix the import error in "${source}" or update "${alias}.command"`,
     );
   }
 
-  // ── Timeout race ─────────────────────────────────────────────────────────
-
-  let timedOut = false;
-  const timer = setTimeout(() => {
-    timedOut = true;
-    try { child.kill(); } catch { /* ignore kill errors */ }
-  }, timeoutMs);
-
-  const [stdoutText, stderrText] = await Promise.all([
-    readStream(child.stdout),
-    readStream(child.stderr),
-  ]);
-
-  await child.exited;
-  clearTimeout(timer);
-
-  if (timedOut) {
+  const definitions = extractWorkflowDefinitions(mod);
+  if (definitions.length === 0) {
     return fail(
       entry.agents,
-      `"${alias}": metadata emission timed out after ${timeoutMs}ms — ensure the third-party CLI invokes hostLocalWorkflows([…]) after compile()`,
-      `add 'await hostLocalWorkflows([wf])' after the .compile() call in "${entry.command}" (and verify it imports @bastani/atomic-sdk)`,
+      `"${alias}": workflow source did not export any compiled WorkflowDefinition`,
+      `export default defineWorkflow(...).for(...).run(...).compile() from "${source}"`,
     );
   }
-
-  // ── Exit code ────────────────────────────────────────────────────────────
-
-  const exitCode = child.exitCode;
-  if (exitCode !== 0) {
-    const cmdStr = [entry.command, ...args, "_emit-workflow-meta"].join(" ");
-    const capturedStderr = stderrText.slice(0, STDERR_TRUNCATE);
-    return fail(
-      entry.agents,
-      `"${alias}": "${cmdStr}" exited ${exitCode}; stderr: ${capturedStderr}`,
-      `check that "${entry.command}" supports _emit-workflow-meta`,
-    );
-  }
-
-  // ── Parse meta line ───────────────────────────────────────────────────────
-
-  const metaLine = stdoutText.split("\n").find((l) => l.startsWith(META_PREFIX));
-  if (!metaLine) {
-    return fail(
-      entry.agents,
-      `"${alias}": expected ATOMIC_WORKFLOW_META line — the third-party CLI may be missing the 'await hostLocalWorkflows([wf])' call after compile() (or it is not importing @bastani/atomic-sdk)`,
-      `add 'await hostLocalWorkflows([wf])' after the .compile() call in "${entry.command}"`,
-    );
-  }
-
-  const jsonStr = metaLine.slice(META_PREFIX.length);
-  let emitted: unknown;
-  try {
-    emitted = JSON.parse(jsonStr);
-  } catch (parseErr) {
-    const snippet = jsonStr.slice(0, JSON_TRUNCATE);
-    return fail(
-      entry.agents,
-      `"${alias}": failed to parse ATOMIC_WORKFLOW_META JSON — ${String(parseErr)}; offending substring: ${snippet}`,
-      `ensure "${entry.command}" emits valid JSON on the ATOMIC_WORKFLOW_META line`,
-    );
-  }
-  if (!Array.isArray(emitted)) {
-    return fail(
-      entry.agents,
-      `"${alias}": ATOMIC_WORKFLOW_META payload must be a JSON array (got ${
-        emitted === null ? "null" : typeof emitted
-      })`,
-      `ensure "${entry.command}" emits a JSON array on the ATOMIC_WORKFLOW_META line`,
-    );
-  }
-  const list = emitted as EmittedWorkflowDef[];
-
-  // ── Match per declared agent ──────────────────────────────────────────────
 
   for (const declaredAgent of entry.agents) {
-    const def = list.find((d) => d.agent === declaredAgent);
+    const def = definitions.find((d) => d.agent === declaredAgent);
     if (!def) {
       fail(
         [declaredAgent],
-        `"${alias}/${declaredAgent}": command did not register a workflow for agent "${declaredAgent}"`,
-        `add a .for("${declaredAgent}") branch to the workflow in "${entry.command}"`,
+        `"${alias}/${declaredAgent}": workflow source did not export a WorkflowDefinition for agent "${declaredAgent}"`,
+        `add a .for("${declaredAgent}") workflow export to "${source}" or remove that agent from settings`,
       );
       continue;
     }
 
-    loaded.push({
-      alias,
-      origin,
-      workflow: {
-        kind: "external",
-        name: def.name,
-        agent: declaredAgent,
-        description: def.description,
-        inputs: def.inputs ?? [],
-        source: { command: entry.command, args },
-      },
-    });
+    loaded.push({ alias, origin, workflow: def });
   }
 
   return { loaded, broken };
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-async function readStream(
-  stream: ReadableStream<Uint8Array<ArrayBufferLike>> | number | null | undefined,
-): Promise<string> {
-  if (!stream || typeof stream === "number") return "";
-  return new Response(stream as ReadableStream<Uint8Array>).text();
-}
-
-function isNotFoundError(err: unknown): boolean {
-  if (!err || typeof err !== "object") return false;
-  const code = (err as { code?: unknown }).code;
-  return code === "ENOENT" || code === "MODULE_NOT_FOUND";
-}
-
-function spawnErrorMessage(alias: string, cmd: string, err: unknown): string {
-  if (isNotFoundError(err)) {
-    return `"${alias}": command "${cmd}" not found on PATH; install it or use an absolute path`;
-  }
-  const errMsg = err instanceof Error ? err.message : String(err);
-  return `"${alias}": ${errMsg}`;
 }
 
 // ─── Registry merge ───────────────────────────────────────────────────────────

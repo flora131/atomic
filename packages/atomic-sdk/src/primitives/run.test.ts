@@ -279,6 +279,57 @@ describe("runWorkflow", () => {
     ).rejects.toThrow("[atomic] daemon connection closed before run/ended");
   });
 
+  test("detach:false — closes daemon connection when the run ends with an error", async () => {
+    let capturedHandler: ((params: { runId: string; overall?: string; fatalError?: string }) => void) | undefined;
+    const disposable = { dispose: mock(() => {}) };
+    const sendRequest = mock(async (method: string) => {
+      if (method === "workflow/start") return { runId: "test-run-id-01", attachable: true as const };
+      if (method === "run/getAttachInfo") return { subscriptionId: "sub-1", foregroundStage: null };
+      if (method === "run/get") return { runId: "test-run-id-01", status: "active" };
+      throw new Error(`Unexpected method: ${method}`);
+    });
+    const dispose = mock(() => {});
+    const conn = {
+      sendRequest,
+      onNotification: mock((event: string, handler: typeof capturedHandler) => {
+        if (event === "run/ended") capturedHandler = handler;
+        return disposable;
+      }),
+      onClose: mock(() => disposable),
+      dispose,
+    } as unknown as import("vscode-jsonrpc").MessageConnection;
+    const mockEnsureStarted = mock(async () => conn);
+
+    const runPromise = runWorkflow({ workflow: fakeWorkflow }, { ensureStarted: mockEnsureStarted });
+    await Promise.resolve();
+    await Promise.resolve();
+    capturedHandler?.({
+      runId: "test-run-id-01",
+      overall: "error",
+      fatalError: "boom",
+    });
+
+    await expect(runPromise).rejects.toThrow("boom");
+    expect(dispose).toHaveBeenCalledTimes(1);
+    expect(disposable.dispose).toHaveBeenCalledTimes(2);
+  });
+
+  test("detach:true — closes daemon connection when workflow/start fails", async () => {
+    const dispose = mock(() => {});
+    const conn = {
+      sendRequest: mock(async () => {
+        throw new Error("start failed");
+      }),
+      dispose,
+    } as unknown as import("vscode-jsonrpc").MessageConnection;
+    const mockEnsureStarted = mock(async () => conn);
+
+    await expect(
+      runWorkflow({ workflow: fakeWorkflow, detach: true }, { ensureStarted: mockEnsureStarted }),
+    ).rejects.toThrow("start failed");
+    expect(dispose).toHaveBeenCalledTimes(1);
+  });
+
   test("detach:false — disposes notif and close handlers after resolving", async () => {
     const { conn, disposable } = makeConn({ notifyOnRegister: true });
     const mockEnsureStarted = mock(async () => conn);

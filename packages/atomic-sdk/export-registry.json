@@ -93,13 +93,6 @@
       "notes": "Metadata accessors (getName, getDescription, getAgent, etc). Re-exported from root barrel. Subpath used by atomic CLI internals only."
     },
     {
-      "subpath": "./cli",
-      "target": "./src/cli.ts",
-      "classification": "cli-internal",
-      "owner": "atomic-cli",
-      "notes": "SDK-bundled internal CLI dispatcher entry point. Spawned by host-bun resolver for _orchestrator-entry and _cc-debounce. Not for external consumers."
-    },
-    {
       "subpath": "./worker-shared",
       "target": "./src/worker-shared.ts",
       "classification": "cli-internal",
@@ -245,14 +238,14 @@
       "target": "./src/lib/runtime-env.ts",
       "classification": "cli-internal",
       "owner": "atomic-cli",
-      "notes": "Runtime-environment detection (compiled binary vs dev). RFC §5.3."
+      "notes": "Runtime-environment detection (compiled binary vs dev). RFC \u00a75.3."
     },
     {
       "subpath": "./lib/runtime-assets",
       "target": "./src/lib/runtime-assets.ts",
       "classification": "cli-internal",
       "owner": "atomic-cli",
-      "notes": "Resolved paths to runtime sibling assets (tmuxConfPath, etc). RFC §5.1."
+      "notes": "Resolved paths to runtime sibling assets (tmuxConfPath, etc). RFC \u00a75.1."
     },
     {
       "subpath": "./services/config/definitions",

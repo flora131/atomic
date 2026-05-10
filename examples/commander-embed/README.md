@@ -1,6 +1,6 @@
 # commander-embed
 
-Mount an atomic workflow under a parent Commander CLI by calling `runWorkflow({ workflow, inputs })` inside a Commander action — alongside a plain Commander sibling command. No re-entry boilerplate: the SDK ships its own orchestrator entry script.
+Mount an atomic workflow under a parent Commander CLI with the shared `runExampleWorkflow` helper — alongside a plain Commander sibling command. In an interactive terminal, the helper starts the daemon workflow and mounts the Atomic panel so you can see the workflow pane. No re-entry boilerplate: the SDK talks to the Atomic daemon over JSON-RPC.
 
 ## Run
 
@@ -18,12 +18,6 @@ bun run cli.ts --help                # all commands
 
 ## Distribution (compiled binaries)
 
-`bun build --compile` works without any boilerplate. The SDK auto-
-defaults `pathToAtomicExecutable` to `process.execPath` in compiled-
-binary hosts, and the `@bastani/atomic-sdk/workflows` barrel installs
-an argv handler at module-load time so the spawned
-`_orchestrator-entry` self-dispatches before Commander parses argv.
+`bun build --compile` works without any boilerplate because workflow starts connect to the Atomic daemon instead of relying on hidden argv self-dispatch.
 
-See `packages/atomic-sdk/README.md → Distribution` for the canonical
-pattern and `tests/fixtures/sdk-compiled-consumer/` for an end-to-end
-example with a smoke matrix that runs across all supported platforms.
+See `tests/fixtures/sdk-compiled-consumer/` for an end-to-end example with a smoke matrix.

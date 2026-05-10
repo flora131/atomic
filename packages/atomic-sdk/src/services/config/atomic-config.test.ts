@@ -47,24 +47,10 @@ describe("pickWorkflows", () => {
     expect(result?.["all-agents"]?.agents).toEqual(["claude", "opencode", "copilot"]);
   });
 
-  test("accepts entry with valid args array", () => {
-    const result = pickWorkflows({
-      "with-args": { command: "bunx", args: ["@me/pkg", "--flag"], agents: ["copilot"] },
-    });
-    expect(result?.["with-args"]?.args).toEqual(["@me/pkg", "--flag"]);
-  });
-
-  test("does not include args key when args is absent", () => {
-    const result = pickWorkflows({
-      "no-args": { command: "bunx", agents: ["claude"] },
-    });
-    expect(Object.prototype.hasOwnProperty.call(result?.["no-args"], "args")).toBe(false);
-  });
-
   test("accepts multiple valid entries", () => {
     const result = pickWorkflows({
       alpha: { command: "bunx", agents: ["claude"] },
-      beta: { command: "node", args: ["/path/to/bin.mjs"], agents: ["opencode"] },
+      beta: { command: "/path/to/bin.mjs", agents: ["opencode"] },
     });
     expect(result).not.toBeUndefined();
     expect(Object.keys(result!)).toHaveLength(2);
@@ -165,34 +151,6 @@ describe("pickWorkflows", () => {
     expect(result).toBeUndefined();
     expect(lines).toHaveLength(1);
     expect(lines[0]).toContain(`"agents" must be a non-empty subset of [claude, opencode, copilot]`);
-  });
-
-  // ── args validation ─────────────────────────────────────────────────────────
-
-  test("skips entry when args is not an array", () => {
-    const { result, lines } = captureStderr(() =>
-      pickWorkflows({ "bad-args": { command: "bunx", args: "not-array", agents: ["claude"] } }),
-    );
-    expect(result).toBeUndefined();
-    expect(lines).toHaveLength(1);
-    expect(lines[0]).toContain(`"args" must be array of strings (got string)`);
-    expect(lines[0]).toContain(`"bad-args"`);
-  });
-
-  test("skips entry when args contains non-string elements", () => {
-    const { result, lines } = captureStderr(() =>
-      pickWorkflows({ "nonstr-args": { command: "bunx", args: [1, 2], agents: ["claude"] } }),
-    );
-    expect(result).toBeUndefined();
-    expect(lines).toHaveLength(1);
-    expect(lines[0]).toContain(`"args" must be array of strings (got array of non-strings)`);
-  });
-
-  test("accepts empty args array", () => {
-    const result = pickWorkflows({
-      "empty-args": { command: "bunx", args: [], agents: ["claude"] },
-    });
-    expect(result?.["empty-args"]?.args).toEqual([]);
   });
 
   // ── Unknown properties ──────────────────────────────────────────────────────
@@ -445,14 +403,14 @@ describe("pickWorkflows — agents de-duplication", () => {
     expect(lines[0]).toContain(`"agents" contains duplicates; de-duplicating to [claude, opencode]`);
   });
 
-  test("args preserved after de-dupe", () => {
+  test("command preserved after de-dupe", () => {
     const { result } = captureStderrSync(() =>
       pickWorkflows({
-        "wf": { command: "bunx", args: ["--flag"], agents: ["claude", "claude"] },
+        "wf": { command: "./workflow.ts", agents: ["claude", "claude"] },
       }),
     );
-    const entry = (result as Record<string, { agents: string[]; args?: string[] }>)?.["wf"];
+    const entry = (result as Record<string, { command: string; agents: string[] }>)?.["wf"];
     expect(entry?.agents).toEqual(["claude"]);
-    expect(entry?.args).toEqual(["--flag"]);
+    expect(entry?.command).toBe("./workflow.ts");
   });
 });

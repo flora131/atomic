@@ -651,19 +651,17 @@ describe("ensureStarted()", () => {
     }
   });
 
-  test("uses the workspace CLI source when invoked via bun run dev", async () => {
+  test("uses the workspace CLI source from a monorepo source checkout", async () => {
     const tmpDir = await makeTempDir();
     const missingFile = path.join(tmpDir, "nonexistent.json");
     const cliPath = path.resolve(import.meta.dir, "../../../atomic/src/cli.ts");
 
     const origBinary = process.env.ATOMIC_BINARY;
-    const origArgv1 = process.argv[1];
     const origWhich = Bun.which;
     const origSpawn = Bun.spawn;
     let spawnedCommand: string[] | undefined;
 
     delete process.env.ATOMIC_BINARY;
-    process.argv[1] = cliPath;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (Bun as any).which = () => "/tmp/global-atomic";
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -684,8 +682,6 @@ describe("ensureStarted()", () => {
       (Bun as any).which = origWhich;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (Bun as any).spawn = origSpawn;
-      if (origArgv1 === undefined) process.argv.splice(1, 1);
-      else process.argv[1] = origArgv1;
       if (origBinary !== undefined) process.env.ATOMIC_BINARY = origBinary;
       else delete process.env.ATOMIC_BINARY;
     }
@@ -982,7 +978,7 @@ describe("Daemon integration — run/stop via RPC kills active stage and emits c
         // Start the long-running workflow stage.
         const startResult = (await conn.sendRequest("workflow/start", {
           source: fixturePath,
-          workflowName: "stop-kill-integration",
+          workflowName: "with-one-stage-wf",
           agent: "claude",
           inputs: {},
         })) as { runId: string };

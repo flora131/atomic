@@ -16,12 +16,9 @@
  * `status`, and `session` siblings on top of it.
  */
 
-import { randomBytes } from "node:crypto";
-import { constants as osConstants } from "node:os";
 import { Command, Option } from "@commander-js/extra-typings";
 import {
   type AgentType,
-  type ExternalWorkflow,
   type WorkflowDefinition,
   type WorkflowInput,
   getInputSchema,
@@ -35,16 +32,6 @@ import { buildInputUnion, toCamelCase } from "@bastani/atomic-sdk/worker-shared"
 import { createBuiltinRegistry } from "../builtin-registry.ts";
 import { WorkflowPickerPanel } from "@bastani/atomic-sdk/workflows/components";
 import type { BrokenWorkflow } from "../custom-workflows.ts";
-
-// ─── Signal exit-code table ───────────────────────────────────────────────────
-
-/** Numeric IDs for signals atomic propagates as `128 + N` exit codes. Built from os.constants at module load for portability across platforms and future signals. */
-const SIGNAL_NAME_TO_NUMBER: Record<string, number> = Object.fromEntries(
-  Object.entries(osConstants.signals).map(([name, num]) => [name, num as number]),
-);
-
-/** Exit code used when a signal name is not present in os.constants.signals. */
-const UNKNOWN_SIGNAL_EXIT = 129;
 
 type WorkflowStartResult = {
   runId: string;
@@ -178,7 +165,7 @@ function resolveWorkflow(
   registry: ReturnType<typeof createBuiltinRegistry>,
   name: string,
   agent: AgentType,
-): WorkflowDefinition | ExternalWorkflow {
+): WorkflowDefinition {
   const def = registry.resolve(name, agent);
   if (def) return def;
   const sameName = listWorkflows(registry)
@@ -193,84 +180,13 @@ function resolveWorkflow(
   );
 }
 
-/**
- * Build the argv and env for an external workflow subprocess dispatch.
- * Extracted as a pure helper for testability.
- */
-export function buildExternalDispatchArgv(
-  w: ExternalWorkflow,
-  cliInputs: Record<string, string>,
-  detach: boolean,
-  token: string,
-): string[] {
-  return [
-    w.source.command,
-    ...w.source.args,
-    "_atomic-run",
-    `--dispatch-token=${token}`,
-    "--name", w.name,
-    "--agent", w.agent,
-    ...(detach ? ["--detach"] : []),
-    ...Object.entries(cliInputs).flatMap(([k, v]) => [`--${k}`, v]),
-  ];
-}
-
-/**
- * Build the environment for an external workflow subprocess dispatch.
- * Extracted as a pure helper for testability.
- */
-export function buildExternalDispatchEnv(
-  token: string,
-): Record<string, string> {
-  return {
-    ...process.env as Record<string, string>,
-    ATOMIC_HOST: "1",
-    ATOMIC_DISPATCH_TOKEN: token,
-  };
-}
-
-/** Dispatch an external workflow via subprocess. */
-async function dispatchExternal(
-  w: ExternalWorkflow,
-  cliInputs: Record<string, string>,
-  detach: boolean,
-): Promise<void> {
-  const token = randomBytes(16).toString("hex");
-  const child = Bun.spawn(buildExternalDispatchArgv(w, cliInputs, detach, token), {
-    cwd: process.cwd(),
-    stdio: ["inherit", "inherit", "inherit"],
-    env: buildExternalDispatchEnv(token),
-  });
-  const code = await child.exited;
-  const signal = child.signalCode;
-
-  if (signal) {
-    process.stderr.write(
-      `[atomic/workflows] "${w.name}": child terminated by signal ${signal}\n`,
-    );
-    const num = SIGNAL_NAME_TO_NUMBER[signal];
-    process.exit(num !== undefined ? 128 + num : UNKNOWN_SIGNAL_EXIT);
-  }
-  if (typeof code !== "number") {
-    process.stderr.write(
-      `[atomic/workflows] "${w.name}": child exited without numeric code (got ${String(code)})\n`,
-    );
-    process.exit(1);
-  }
-  if (code !== 0) process.exit(code);
-}
 
 /** Run a resolved workflow with merged inputs. */
 export async function dispatch(
-  workflow: WorkflowDefinition | ExternalWorkflow,
+  workflow: WorkflowDefinition,
   cliInputs: Record<string, string>,
   detach: boolean,
 ): Promise<void> {
-  if (workflow.kind === "external") {
-    await dispatchExternal(workflow, cliInputs, detach);
-    return;
-  }
-
   const { ensureStarted, closeDaemonConnection } = await import("@bastani/atomic-sdk/runtime/daemon");
   const { getSource, getName, getAgent } = await import("@bastani/atomic-sdk/primitives/metadata");
 
@@ -523,7 +439,7 @@ export function buildWorkflowCommand(
     if (process.env.ATOMIC_DEBUG === "1") {
       const keys = Object.keys(cliInputs).join(", ");
       process.stderr.write(
-        `[atomic/workflow] dispatching ${name}/${agent} kind=${workflow.kind ?? "builtin"} inputs=[${keys}]\n`,
+        `[atomic/workflow] dispatching ${name}/${agent} inputs=[${keys}]\n`,
       );
     }
 

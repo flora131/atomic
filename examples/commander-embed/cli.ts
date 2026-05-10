@@ -3,10 +3,9 @@
  * Commander CLI alongside plain Commander commands.
  *
  * The SDK exposes pure primitives — there's nothing to "embed" any more.
- * Just call `runWorkflow({ workflow, inputs })` from inside any
- * Commander action and the workflow spawns its own tmux session via the
- * SDK's orchestrator entry script. No `runCli` wrapper, no
- * orchestrator-mode env vars, no re-entry guards.
+ * The shared example helper starts the workflow and mounts the Atomic panel
+ * for foreground TTY runs. No `runCli` wrapper, no orchestrator-mode env
+ * vars, no re-entry guards.
  *
  * Try:
  *   bun run examples/commander-embed/cli.ts greet --who=Alex
@@ -15,7 +14,8 @@
  */
 
 import { Command } from "@commander-js/extra-typings";
-import { getInputSchema, runWorkflow } from "@bastani/atomic-sdk/workflows";
+import { getInputSchema } from "@bastani/atomic-sdk/workflows";
+import { runExampleWorkflow } from "../run-example-workflow.ts";
 import workflow from "./claude/index.ts";
 
 const program = new Command("my-app").description(
@@ -50,7 +50,7 @@ greet.action(async (rawOpts) => {
       collected[input.name] = value;
     }
   }
-  await runWorkflow({ workflow, inputs: collected });
+  await runExampleWorkflow({ workflow, inputs: collected });
 });
 
 // ── A plain Commander sibling — no atomic involvement ───────────────────

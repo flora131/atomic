@@ -32,7 +32,7 @@ import { Edge } from "./edge.tsx";
 import { Header } from "./header.tsx";
 import { CompactSwitcher } from "./compact-switcher.tsx";
 import { ToastStack } from "./toast.tsx";
-import { PanelFooter } from "./panel-footer.tsx";
+import { PanelFooter, panelFooterToneFromStatus } from "./panel-footer.tsx";
 
 /** Interval (ms) between pulse animation frames — ~60fps feel. */
 const PULSE_INTERVAL_MS = 60;
@@ -460,6 +460,7 @@ export function SessionGraphPanel({ runId, connection, onOpenPane, onDetach }: S
         mode="GRAPH"
         subject={focusedId || undefined}
         runId={runId}
+        tone={panelFooterToneFromStatus(store)}
         hints={[
           { key: "↵", label: "open pane" },
           { key: "hjkl/↑↓←→", label: "move" },

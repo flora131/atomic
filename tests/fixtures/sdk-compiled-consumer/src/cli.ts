@@ -7,21 +7,16 @@
  * Used by the smoke matrix to verify the third-party-compiled-binary
  * scenario described in the SDK README's "Distribution" section.
  *
- * Note: there is no boilerplate at the top of this file. The SDK's
- * `@bastani/atomic-sdk/workflows` barrel intercepts argv at module-load
- * time — when atomic spawns this binary as `<my-app> _orchestrator-entry
- * <args>`, the SDK side-effect runs the sub-command and exits before
- * Commander parses argv.
+ * Note: there is no boilerplate at the top of this file. The SDK talks to
+ * the Atomic daemon over JSON-RPC; no hidden argv self-dispatch is required.
  *
  * Environment variables honoured:
- *   ATOMIC_EXECUTABLE  — forwarded to `pathToAtomicExecutable` (use this
- *                         when you'd rather route through atomic's binary
- *                         than the consumer's own self-dispatch).
+ *   ATOMIC_EXECUTABLE  — forwarded to `pathToAtomicExecutable`.
  *   ATOMIC_DEBUG=1     — passed through to the SDK resolver for debug output.
  */
 
 import { Command } from "@commander-js/extra-typings";
-import { runWorkflow } from "@bastani/atomic-sdk/workflows";
+import { closeDaemonConnection, runWorkflow } from "@bastani/atomic-sdk/workflows";
 import { greetWorkflow } from "./workflow.ts";
 
 const program = new Command("my-app").description(
@@ -43,21 +38,15 @@ program
         ? opts.atomicExecutable
         : undefined;
 
-    // `ATOMIC_DISABLE_DEFAULT_EXEC` is a smoke-test seam for exercising
-    // the NoDispatcherError branch — it forces the SDK to skip its
-    // compiled-host auto-default by passing an empty string (falsy in
-    // the resolver but distinct from `undefined`, which would re-trigger
-    // the auto-default).
-    const disableDefault = process.env["ATOMIC_DISABLE_DEFAULT_EXEC"] === "1";
-    const pathToAtomicExecutable = explicitOverride
-      ?? (disableDefault ? "" : undefined);
+    const pathToAtomicExecutable = explicitOverride;
 
-    await runWorkflow({
+    const result = await runWorkflow({
       workflow: greetWorkflow,
       inputs: { who: opts.who },
       detach: true,
       pathToAtomicExecutable,
     });
+    closeDaemonConnection(result.daemon);
 
     // Success marker — smoke test asserts stdout contains this string.
     console.log("workflow:launched");

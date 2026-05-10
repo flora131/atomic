@@ -9,7 +9,10 @@
  * as soon as the daemon acknowledges the start.
  */
 
-import { ensureStarted as _ensureStarted } from "../runtime/daemon.ts";
+import {
+  closeDaemonConnection,
+  ensureStarted as _ensureStarted,
+} from "../runtime/daemon.ts";
 import type { MessageConnection } from "vscode-jsonrpc";
 import type { RegistrableWorkflow } from "../types.ts";
 import { validateInputs } from "./inputs.ts";
@@ -77,15 +80,17 @@ export interface RunWorkflowResult {
  * necessary), then sends `workflow/start`. In foreground mode (default),
  * waits for the `run/ended` notification before resolving. In
  * `detach: true` mode resolves as soon as the daemon acknowledges the
- * start request.
+ * start request. The returned daemon connection remains open; one-shot CLIs
+ * should call `closeDaemonConnection(result.daemon)` before exiting.
  *
  * @example
  * ```ts
  * import workflow from "./hello.ts";
- * import { runWorkflow } from "@bastani/atomic-sdk/workflows";
+ * import { closeDaemonConnection, runWorkflow } from "@bastani/atomic-sdk/workflows";
  *
- * const { runId } = await runWorkflow({ workflow, inputs: { greeting: "hi" } });
- * console.log("Run completed:", runId);
+ * const result = await runWorkflow({ workflow, inputs: { greeting: "hi" } });
+ * console.log("Run completed:", result.runId);
+ * closeDaemonConnection(result.daemon);
  * ```
  */
 export async function runWorkflow(
@@ -102,17 +107,30 @@ export async function runWorkflow(
     token,
   });
 
-  if (detach) {
-    // Fire-and-forget: send request, return immediately.
-    const result = await conn.sendRequest("workflow/start", {
-      source: getSource(workflow),
-      workflowName: getName(workflow),
-      agent: getAgent(workflow),
-      inputs: resolved,
-    }) as { runId: string; attachable: true };
-    return { runId: result.runId, daemon: conn };
-  }
+  try {
+    if (detach) {
+      // Fire-and-forget: send request, return immediately.
+      const result = await conn.sendRequest("workflow/start", {
+        source: getSource(workflow),
+        workflowName: getName(workflow),
+        agent: getAgent(workflow),
+        inputs: resolved,
+      }) as { runId: string; attachable: true };
+      return { runId: result.runId, daemon: conn };
+    }
 
+    return await runWorkflowForeground(conn, workflow, resolved);
+  } catch (err) {
+    closeDaemonConnection(conn);
+    throw err;
+  }
+}
+
+async function runWorkflowForeground(
+  conn: MessageConnection,
+  workflow: RegistrableWorkflow,
+  resolved: Record<string, string>,
+): Promise<RunWorkflowResult> {
   // Foreground mode: register the local notification handler before starting
   // the run, then subscribe to the daemon's RunState once the run id is known.
   // The extra `run/get` check closes the race where a very short run ends
@@ -154,38 +172,39 @@ export async function runWorkflow(
     if (!settled) rejectEnded(new Error("[atomic] daemon connection closed before run/ended"));
   });
 
-  const result = await conn.sendRequest("workflow/start", {
-    source: getSource(workflow),
-    workflowName: getName(workflow),
-    agent: getAgent(workflow),
-    inputs: resolved,
-  }) as { runId: string; attachable: true };
+  try {
+    const result = await conn.sendRequest("workflow/start", {
+      source: getSource(workflow),
+      workflowName: getName(workflow),
+      agent: getAgent(workflow),
+      inputs: resolved,
+    }) as { runId: string; attachable: true };
 
-  const { runId } = result;
-  pendingRunId = runId;
+    const { runId } = result;
+    pendingRunId = runId;
 
-  await conn.sendRequest("run/getAttachInfo", { runId });
+    await conn.sendRequest("run/getAttachInfo", { runId });
 
-  const runInfo = await conn.sendRequest("run/get", { runId }) as
-    | { status?: string }
-    | null;
-  if (runInfo?.status && runInfo.status !== "active") {
-    settleFromEnded({
-      runId,
-      overall: runInfo.status === "complete" ? "complete" : "error",
-    });
+    const runInfo = await conn.sendRequest("run/get", { runId }) as
+      | { status?: string }
+      | null;
+    if (runInfo?.status && runInfo.status !== "active") {
+      settleFromEnded({
+        runId,
+        overall: runInfo.status === "complete" ? "complete" : "error",
+      });
+    }
+
+    // If notification already arrived during sendRequest, resolve immediately.
+    const bufferedMatch = buffered.find((n) => n.runId === runId);
+    if (bufferedMatch) {
+      settleFromEnded(bufferedMatch);
+    }
+
+    await waitPromise;
+    return { runId, daemon: conn };
+  } finally {
+    notifDisposable.dispose();
+    closeDisposable.dispose();
   }
-
-  // If notification already arrived during sendRequest, resolve immediately.
-  const bufferedMatch = buffered.find((n) => n.runId === runId);
-  if (bufferedMatch) {
-    settleFromEnded(bufferedMatch);
-  }
-
-  await waitPromise;
-
-  notifDisposable.dispose();
-  closeDisposable.dispose();
-
-  return { runId, daemon: conn };
 }

@@ -546,7 +546,7 @@ export async function connectToDaemon(opts: ConnectOptions = {}): Promise<Messag
  * Auto-spawn resolution (§5.2):
  *   1. opts.atomicBinary
  *   2. process.env.ATOMIC_BINARY
- *   3. workspace CLI source when invoked via `bun run dev`
+ *   3. workspace CLI source when running from a monorepo source checkout
  *   4. bundled @bastani/atomic platform binary
  *   5. Bun.which("atomic")
  *   6. Throws MissingDependencyError
@@ -630,11 +630,7 @@ function resolveWorkspaceDevAtomicCommand(): string[] | null {
   }
 
   if (!fs.existsSync(cliPath)) return null;
-
-  const invokedScript = process.argv[1];
-  if (invokedScript === undefined) return null;
-
-  if (path.resolve(invokedScript) !== path.resolve(cliPath)) return null;
+  if (!isSdkSourceCheckout()) return null;
 
   return [process.execPath, cliPath];
 }

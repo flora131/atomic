@@ -64,10 +64,9 @@ Runs on all PRs to `main` that touch source code or config.
 ```
 
 `Checks` runs typecheck + lint + the full `bun test` suite (which
-includes `packages/atomic-sdk/script/build.test.ts`, an SDK-bundle
-structural assertion that builds the SDK and asserts `dist/cli.js`,
-`dist/runtime/footer-command.js`, and the relevant `package.json#exports`
-entries are present). `Validate publish` then publishes the SDK to a
+includes `packages/atomic-sdk/script/build.test.ts`, an SDK package
+structural assertion that builds the SDK and asserts the removed dispatcher
+export/artifact (`./cli`, `dist/cli.js`) stay absent). `Validate publish` then publishes the SDK to a
 throwaway verdaccio and runs the SDK self-containment verifier described
 below before exercising the wrapper install path.
 
@@ -211,38 +210,27 @@ Features are validated via schema checks during PRs and published after merge.
 
 ### SDK self-containment regression guard
 
-`@bastani/atomic-sdk` is published as a standalone library — consumers
-install only the SDK and never need the user-facing `@bastani/atomic`
-CLI package alongside. The SDK ships its own bundled orchestrator
-dispatcher at `dist/cli.js` and the runtime resolver
-(`resolveSdkCliPath`) delegates to `import.meta.resolve(...)` so it
-honours the SDK's own `package.json#exports` and never walks into a
-sibling package's tree.
+`@bastani/atomic-sdk` is published as a standalone library. Atomic 2 uses
+daemon JSON-RPC dispatch: SDK consumers do not need an SDK-bundled CLI
+dispatcher, and the package shape intentionally omits `./cli` and
+`dist/cli.js`.
 
 Three layers of CI catch regressions before they reach consumers:
 
-1. **Unit tests** — `packages/atomic-sdk/src/lib/self-exec.test.ts` pins
-   the resolver's branches: override returned verbatim, compiled-binary
-   runtime returns `process.execPath`, default resolution lands inside
-   `@bastani/atomic-sdk` and never escapes into a sibling `atomic`
-   directory. Runs on every PR via `Checks`.
+1. **Daemon resolver unit tests** — daemon lifecycle and `ensureStarted()` tests pin endpoint discovery, binary resolution, and JSON-RPC connection setup. Runs on every PR via `Checks`.
 
 2. **Build-output assertion** — `packages/atomic-sdk/script/build.test.ts`
-   builds the SDK and asserts `dist/cli.js` and
-   `dist/runtime/footer-command.js` exist, the published `package.json`
-   declares the matching exports, and Bun + Commander dispatch the
-   bundled `_orchestrator-entry` subcommand. Runs on every PR via
-   `Checks`. Skipped in the publish job (`ATOMIC_SKIP_SDK_BUILD_TEST=1`)
-   because the validate matrix covers the same ground end-to-end.
+   builds the SDK and asserts the legacy `./cli` dispatcher export and
+   `dist/cli.js` are absent. Workflow dispatch is daemon JSON-RPC only.
+   Runs on every PR via `Checks`. Skipped in the publish job
+   (`ATOMIC_SKIP_SDK_BUILD_TEST=1`) because the validate matrix covers the
+   same ground end-to-end.
 
 3. **End-to-end verifier** — `packages/atomic-sdk/script/verify-bundled-cli.ts`
    installs `@bastani/atomic-sdk` from verdaccio into a fresh, isolated
-   project (no monorepo, no user-facing CLI alongside) and asserts every
-   property the fix promises: `bun add` succeeds, the tarball contains
-   `dist/cli.js` + `dist/runtime/footer-command.js`, the published
-   manifest declares `./cli` + `./runtime/footer-command` exports, no
-   sibling `atomic` package is present, and Bun + Commander dispatch the
-   bundled CLI's hidden subcommands. Runs on:
+   project and asserts the clean-break package shape: `bun add` succeeds,
+   the legacy `./cli` export and `dist/cli.js` are absent, and optional
+   `@bastani/atomic-*` binary dependencies are declared. Runs on:
    - **PR CI (`ci.yml` `validate-publish`)** — Linux x64 only, cheap
      pre-merge check.
    - **Publish CI (`publish.yml` `validate`)** — full 6-platform matrix
@@ -438,20 +426,18 @@ targets. The fixture is a minimal `bun build --compile`d third-party CLI that im
 | `windows-x64` | `windows-latest` | — | Active |
 | `windows-arm64` | `windows-11-arm` | — | TODO: no windows-arm64 runner |
 
-### Six-step smoke matrix
+### Five-step smoke matrix
 
 | Step | Action | Assertion |
 |------|--------|-----------|
 | 1 | `bun install` (fixture) | Exit 0; SDK + optional deps installed |
-| 2 | `bun run compile` (`bun build --compile`) | `dist/my-app[.exe]` binary exists |
-| 3 | Copy `@bastani/atomic-{platform}-{arch}` next to binary | Colocated binary exists at `dist/node_modules/.../bin/atomic[.exe]` |
-| 4 | Run `dist/my-app greet` (default dispatcher) | stdout contains `workflow:launched` |
-| 5 | Run with `--atomic-executable <path>` (override dispatcher) | stdout contains `workflow:launched` |
-| 6 | Remove colocated binary; run again | Exit non-zero; stderr contains `NoDispatcherError` |
+| 2 | host-bun `bun src/cli.ts greet` | stdout contains `workflow:launched` |
+| 3 | `bun run compile` (`bun build --compile`) | `dist/my-app[.exe]` binary exists |
+| 4 | compiled `dist/my-app greet` | stdout contains `workflow:launched` |
+| 5 | host-bun re-run | stdout contains `workflow:launched` |
 
-Steps 4–6 require the published `@bastani/atomic-{platform}-{arch}` optional
-dependency to be present. On pre-publish / nightly runs they are skipped via
-`--skip-steps 4,5,6`; on post-publish (release trigger) the full matrix runs.
+Steps 2 and 4 require a reachable Atomic daemon/binary. Pre-publish or
+nightly runs may skip daemon-dependent steps via `--skip-steps`.
 
 ### Artifacts uploaded on failure
 

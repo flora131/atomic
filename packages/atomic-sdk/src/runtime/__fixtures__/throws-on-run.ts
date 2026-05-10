@@ -1,9 +1,12 @@
-/**
- * Fixture: a workflow whose run() throws synchronously.
- * Used by run-manager.test.ts to test the error lifecycle path (run/ended=error).
- */
-export default {
-  run: async () => {
+import { defineWorkflow } from "../../define-workflow.ts";
+
+export default defineWorkflow({
+  name: "throws-on-run-wf",
+  description: "fixture: run throws",
+  inputs: [],
+})
+  .for("claude")
+  .run(async () => {
     throw new Error("fixture deliberate run failure");
-  },
-};
+  })
+  .compile();

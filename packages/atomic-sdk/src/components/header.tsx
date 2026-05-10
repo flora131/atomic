@@ -7,6 +7,7 @@ import {
   useGraphTheme,
   useStoreVersion,
 } from "./orchestrator-panel-contexts.ts";
+import { panelFooterToneFromStatus, type PanelFooterTone } from "./panel-footer.tsx";
 
 function CountBadge({
   color,
@@ -27,6 +28,26 @@ function CountBadge({
   );
 }
 
+export interface HeaderBadgePresentationInput {
+  workflowName: string;
+  tone: PanelFooterTone;
+}
+
+export function headerBadgePresentation({
+  workflowName,
+  tone,
+}: HeaderBadgePresentationInput): { text: string; tone: PanelFooterTone } {
+  if (tone === "error") return { text: " ✗ Failed ", tone };
+  if (tone === "success") return { text: ` ✓ ${workflowName || "Orchestrator"} `, tone };
+  return { text: " Orchestrator ", tone };
+}
+
+function headerToneColor(tone: PanelFooterTone, theme: ReturnType<typeof useGraphTheme>): string {
+  if (tone === "error") return theme.error;
+  if (tone === "success") return theme.success;
+  return theme.info;
+}
+
 export function Header() {
   const store = useStore();
   const theme = useGraphTheme();
@@ -38,14 +59,11 @@ export function Header() {
     return c;
   }, [storeVersion]);
 
-  const isFailed = store.fatalError !== null;
-  const isDone = store.completionInfo !== null;
-  const badgeColor = isFailed ? theme.error : isDone ? theme.success : theme.info;
-  const badgeText = isFailed
-    ? " \u2717 Failed "
-    : isDone
-      ? ` \u2713 ${store.workflowName} `
-      : " Orchestrator ";
+  const badge = headerBadgePresentation({
+    workflowName: store.workflowName,
+    tone: panelFooterToneFromStatus(store),
+  });
+  const badgeColor = headerToneColor(badge.tone, theme);
 
   return (
     <box
@@ -57,7 +75,7 @@ export function Header() {
     >
       <text>
         <span fg={theme.backgroundElement} bg={badgeColor}>
-          <strong>{badgeText}</strong>
+          <strong>{badge.text}</strong>
         </span>
       </text>
 

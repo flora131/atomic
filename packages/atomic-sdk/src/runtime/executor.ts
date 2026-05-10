@@ -1,22 +1,10 @@
 /**
  * Workflow runtime executor.
  *
- * Architecture:
- * 1. `executeWorkflow()` is called by the CLI command (e.g. atomic) or by
- *    the SDK's `runWorkflow()` primitive
- * 2. It creates a tmux session with an orchestrator pane that runs the
- *    CLI's hidden `_orchestrator-entry` sub-command with four positional
- *    args: `<workflowName> <agent> <inputsB64> <workflowSource>`
- * 3. The CLI then attaches to the tmux session (user sees it live)
- * 4. The orchestrator pane resolves the workflow definition (via builtin
- *    registry in compiled-binary mode, or by dynamic-importing
- *    `<workflowSource>` in dev), calls `runOrchestrator(definition, inputs)`,
- *    which then calls `definition.run(workflowCtx)` — the user's callback
- *    uses `ctx.stage()` to spawn agent sessions
- *
- * The dev's CLI is never re-imported. The SDK orchestrator entry script
- * is the only re-exec target, so there is no orchestrator-mode env var
- * re-entry signal and no boilerplate in user code.
+ * This module contains the pre-daemon executor utilities that still back a
+ * few provider tests and telemetry helpers. Public workflow dispatch now goes
+ * through the daemon JSON-RPC surface (`workflow/start`) instead of hidden argv
+ * subcommands or SDK self-dispatch.
  */
 
 import { join } from "node:path";
@@ -74,6 +62,17 @@ import { errorMessage } from "../errors.ts";
 import { createPainter } from "../theme/colors.ts";
 import { atomicTempEnv } from "../lib/atomic-temp.ts";
 import { getProductionTelemetrySink } from "../lib/telemetry/index.ts";
+import {
+  wrapCopilotSend,
+  watchCopilotSessionForElicitation,
+  watchCopilotSessionForHIL,
+  watchOpencodeStreamForHIL,
+} from "./hil-watchers.ts";
+export type {
+  CopilotHILSessionSurface,
+  CopilotSendSessionSurface,
+  OpenCodeHILEvent,
+} from "./hil-watchers.ts";
 
 /** Maximum time (ms) for the SDK probe to succeed after port is discovered. */
 export const SERVER_PROBE_TIMEOUT_MS = 60_000;
@@ -297,17 +296,7 @@ export interface WorkflowRunOptions {
    * `atomic workflow session connect <name>`.
    */
   detach?: boolean;
-  /**
-   * Optional override for the dispatcher binary. When set, the SDK
-   * spawns this path verbatim for `_orchestrator-entry` / `_cc-debounce`
-   * instead of routing through its own bundled cli.ts. The override
-   * binary must accept the internal sub-commands directly — atomic's
-   * own CLI does, and any `bun build --compile`d host that imports
-   * `runWorkflow` from `@bastani/atomic-sdk/workflows` self-dispatches
-   * automatically (the SDK barrel intercepts argv at module-load time).
-   *
-   * Mirrors the Claude Agent SDK's `pathToClaudeCodeExecutable`.
-   */
+  /** Optional override for the Atomic executable used by legacy executor callers. */
   pathToAtomicExecutable?: string;
 }
 
@@ -917,222 +906,14 @@ function resolveRef(ref: SessionRef): string {
   return typeof ref === "string" ? ref : ref.name;
 }
 
-/**
- * Minimal Copilot session surface required by `wrapCopilotSend()`.
- * Uses a generic `on` signature to remain compatible with both the real
- * CopilotSession and lightweight test mocks.
- */
-export interface CopilotSendSessionSurface {
-  on(
-    eventType: string,
-    handler: (event: { data?: unknown }) => void,
-  ): () => void;
-}
-
-/**
- * Wraps a Copilot session's `send()` to block until `session.idle` fires.
- *
- * Copilot's `send()` is fire-and-forget — it returns immediately after
- * queuing the message.  This wrapper blocks the returned promise until the
- * session emits `session.idle` (turn complete) or `session.error`.
- *
- * HIL detection for Copilot is handled separately by
- * `watchCopilotSessionForHIL()`, which subscribes to the session's
- * `tool.execution_start` / `tool.execution_complete` events for the
- * `ask_user` built-in tool.  Those events fire regardless of whether
- * an `onUserInputRequest` handler is registered, so we can detect HIL
- * via native SDK events while the CLI continues to handle user input
- * locally in the tmux pane.
- *
- * Exported for unit testing.
- */
-export function wrapCopilotSend<O, R>(
-  session: CopilotSendSessionSurface,
-  nativeSend: (options: O) => Promise<R>,
-): (options: O) => Promise<R> {
-  return async (options: O): Promise<R> => {
-    const idle = new Promise<void>((resolve, reject) => {
-      let unsubIdle: (() => void) | undefined;
-      let unsubError: (() => void) | undefined;
-      const cleanup = () => {
-        unsubIdle?.();
-        unsubError?.();
-      };
-      unsubIdle = session.on("session.idle", () => {
-        cleanup();
-        resolve();
-      });
-      unsubError = session.on("session.error", (event) => {
-        cleanup();
-        const data = event.data as { message?: string } | undefined;
-        reject(new Error(data?.message ?? "Copilot session error"));
-      });
-    });
-    const result = await nativeSend(options);
-    await idle;
-    return result;
-  };
-}
-
-/**
- * Minimal shape of an event as produced by the OpenCode v2 SDK event stream.
- * Using a structural interface rather than the SDK's generated union type keeps
- * this helper independently unit-testable with plain objects.
- *
- * `sessionID` is optional because many OpenCode event types (e.g.
- * `file.edited`, `session.compacted`) carry properties without that field.
- * The `watchOpencodeStreamForHIL` implementation guards with a runtime check.
- */
-export interface OpenCodeHILEvent {
-  type: string;
-  properties: { sessionID?: string; [key: string]: unknown };
-}
-
-/**
- * Consume an OpenCode SSE event stream and call `onHIL` whenever the session
- * with `sessionId` enters or exits a human-in-the-loop (HIL) state:
- *
- *   - `question.asked`    → `onHIL(true)`   (agent awaiting user input)
- *   - `question.replied`  → `onHIL(false)`  (user answered, agent resumes)
- *   - `question.rejected` → `onHIL(false)`  (user dismissed, agent resumes)
- *
- * Events for other sessions are silently ignored.  The function returns when
- * the stream is exhausted (i.e. the server closes the connection).
- *
- * NOTE: OpenCode does not emit any bus event for MCP-server-initiated
- * elicitation requests — its MCP client never registers an
- * `ElicitRequestSchema` handler, so such requests are auto-rejected by the
- * MCP SDK at the protocol layer before reaching any OpenCode-level code.
- * As a result, the workflow UI **cannot** mark an OpenCode session as
- * "awaiting input" for MCP elicitation; this is an upstream limitation that
- * Atomic cannot work around.  If a future OpenCode release surfaces MCP
- * elicitation as a bus event, extend the switch below (or add a sibling
- * watcher) to map it onto `onHIL`.
- *
- * Exported for unit testing.
- */
-export async function watchOpencodeStreamForHIL(
-  stream: AsyncIterable<OpenCodeHILEvent>,
-  sessionId: string,
-  onHIL: (waiting: boolean) => void,
-): Promise<void> {
-  for await (const event of stream) {
-    if (
-      event.type === "question.asked" &&
-      event.properties.sessionID === sessionId
-    ) {
-      onHIL(true);
-    } else if (
-      (event.type === "question.replied" ||
-        event.type === "question.rejected") &&
-      event.properties.sessionID === sessionId
-    ) {
-      onHIL(false);
-    }
-  }
-}
-
-/**
- * Minimal Copilot session surface required by `watchCopilotSessionForHIL()`.
- * A structural `on()` signature keeps this helper independently unit-testable
- * with plain objects and compatible with both the real CopilotSession and
- * test mocks.
- */
-export interface CopilotHILSessionSurface {
-  on(
-    eventType: string,
-    handler: (event: { data?: unknown }) => void,
-  ): () => void;
-}
-
-/**
- * Subscribe to a Copilot session's tool-execution events to track HIL state
- * for the `ask_user` built-in tool:
- *
- *   - `tool.execution_start`    with `toolName === "ask_user"` → `onHIL(true)`
- *   - `tool.execution_complete` with matching `toolCallId`     → `onHIL(false)`
- *
- * These events fire regardless of whether an `onUserInputRequest` handler is
- * registered, so we can detect HIL without providing one — letting the CLI
- * keep its native tmux-pane dialog.
- *
- * Overlapping `ask_user` invocations are tracked by `toolCallId` so
- * `onHIL(false)` only fires after the last active request resolves.
- *
- * Returns an unsubscribe function that removes both listeners.
- *
- * Exported for unit testing.
- */
-export function watchCopilotSessionForHIL(
-  session: CopilotHILSessionSurface,
-  onHIL: (waiting: boolean) => void,
-): () => void {
-  const active = new Set<string>();
-  const unsubStart = session.on("tool.execution_start", (event) => {
-    const data = event.data as
-      | { toolName?: string; toolCallId?: string }
-      | undefined;
-    if (data?.toolName === "ask_user" && data.toolCallId) {
-      const wasEmpty = active.size === 0;
-      active.add(data.toolCallId);
-      if (wasEmpty) onHIL(true);
-    }
-  });
-  const unsubComplete = session.on("tool.execution_complete", (event) => {
-    const data = event.data as { toolCallId?: string } | undefined;
-    if (
-      data?.toolCallId &&
-      active.delete(data.toolCallId) &&
-      active.size === 0
-    ) {
-      onHIL(false);
-    }
-  });
-  return () => {
-    unsubStart();
-    unsubComplete();
-  };
-}
-
-/**
- * Subscribe to a Copilot session's elicitation events to track HIL state for
- * `session.ui.elicitation()`, `session.ui.select()`, `session.ui.input()`, and
- * MCP-server-initiated elicitation requests:
- *
- *   - `elicitation.requested`  → `onHIL(true)`  (set transitions empty→non-empty)
- *   - `elicitation.completed`  → `onHIL(false)` (set transitions non-empty→empty)
- *
- * Overlapping elicitation requests are tracked by `requestId` so
- * `onHIL(false)` only fires after the last in-flight request completes.
- *
- * Returns an unsubscribe function that removes both listeners.
- *
- * Exported for unit testing.
- */
-export function watchCopilotSessionForElicitation(
-  session: CopilotHILSessionSurface,
-  onHIL: (waiting: boolean) => void,
-): () => void {
-  const active = new Set<string>();
-  const unsubRequested = session.on("elicitation.requested", (event) => {
-    const data = event.data as { requestId?: string } | undefined;
-    if (data?.requestId) {
-      const wasEmpty = active.size === 0;
-      active.add(data.requestId);
-      if (wasEmpty) onHIL(true);
-    }
-  });
-  const unsubCompleted = session.on("elicitation.completed", (event) => {
-    const data = event.data as { requestId?: string } | undefined;
-    if (data?.requestId && active.delete(data.requestId) && active.size === 0) {
-      onHIL(false);
-    }
-  });
-  return () => {
-    unsubRequested();
-    unsubCompleted();
-  };
-}
+// Re-export provider HIL helpers from the legacy executor module for tests and
+// external callers that imported them here before the daemon split.
+export {
+  wrapCopilotSend,
+  watchCopilotSessionForElicitation,
+  watchCopilotSessionForHIL,
+  watchOpencodeStreamForHIL,
+} from "./hil-watchers.ts";
 
 // ============================================================================
 // Shared transcript / message readers

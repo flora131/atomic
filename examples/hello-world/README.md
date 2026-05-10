@@ -22,6 +22,6 @@ bun run opencode -- --greeting="Hello" --style=casual
 ## What's here
 
 - `claude/`, `copilot/`, `opencode/` — one workflow definition per agent
-- `<agent>-worker.ts` — Commander entrypoint that wires the workflow inputs to `--<flag>` options and calls `runWorkflow`
+- `<agent>-worker.ts` — Commander entrypoint that wires workflow inputs to `--<flag>` options and calls the shared `runExampleWorkflow` helper, which mounts the Atomic panel for foreground TTY runs
 
 Copy this directory as a starting point — swap the workflow import for your own and you're done.

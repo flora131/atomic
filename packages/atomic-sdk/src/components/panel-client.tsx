@@ -24,7 +24,7 @@ import {
 import { SessionGraphPanel } from "./session-graph-panel.tsx";
 import { CHAT_FOOTER_ROWS, ChatSessionPanel } from "./chat-session-panel.tsx";
 import { DirectPtyPane, PANE_FOOTER_ROWS } from "./pty-pane.tsx";
-import { PanelFooter } from "./panel-footer.tsx";
+import { PanelFooter, panelFooterToneFromStatus } from "./panel-footer.tsx";
 import { ErrorBoundary } from "./error-boundary.tsx";
 import {
   requestRendererBackgroundRepaint,
@@ -61,16 +61,7 @@ export class DaemonPanelStore extends PanelStore {
     this.prompt = snapshot.prompt;
     this.fatalError = snapshot.fatalError;
 
-    this.sessions = snapshot.sessions.map(
-      (s): SessionData => ({
-        name: s.name,
-        status: s.status as SessionStatus,
-        parents: s.parents,
-        error: s.error,
-        startedAt: s.startedAt,
-        endedAt: s.endedAt,
-      }),
-    );
+    this.sessions = buildGraphSessions(snapshot);
 
     // Mirror completionReached from the snapshot without double-firing if
     // it's already set (markCompletionReached would call emit a second time).
@@ -117,6 +108,54 @@ export function mapSnapshotSessions(snapshot: WorkflowStatusSnapshot): SessionDa
       endedAt: s.endedAt,
     }),
   );
+}
+
+function virtualOrchestratorStatus(snapshot: WorkflowStatusSnapshot): SessionStatus {
+  if (snapshot.fatalError !== null || snapshot.sessions.some((s) => s.status === "error")) {
+    return "error";
+  }
+  if (snapshot.completionReached) return "complete";
+  return "running";
+}
+
+function minStartedAt(sessions: readonly SessionData[]): number | null {
+  const values = sessions
+    .map((s) => s.startedAt)
+    .filter((value): value is number => typeof value === "number");
+  return values.length > 0 ? Math.min(...values) : null;
+}
+
+function maxEndedAt(sessions: readonly SessionData[]): number | null {
+  const values = sessions
+    .map((s) => s.endedAt)
+    .filter((value): value is number => typeof value === "number");
+  return values.length > 0 ? Math.max(...values) : null;
+}
+
+/**
+ * Build the graph-visible session list from daemon snapshots.
+ *
+ * Daemon snapshots contain only workflow stages, while the graph UI's layout
+ * expects an explicit orchestrator root. Without that root, stages whose
+ * parent list is empty are all treated as independent roots and Yoga renders
+ * them as a flat left-to-right row. Restoring the virtual root gives the graph
+ * a stable top-down hierarchy while preserving raw stage parent metadata.
+ */
+export function buildGraphSessions(snapshot: WorkflowStatusSnapshot): SessionData[] {
+  const sessions = mapSnapshotSessions(snapshot);
+  if (sessions.some((s) => s.name === "orchestrator")) return sessions;
+
+  const orchestratorStatus = virtualOrchestratorStatus(snapshot);
+  return [
+    {
+      name: "orchestrator",
+      status: orchestratorStatus,
+      parents: [],
+      startedAt: minStartedAt(sessions),
+      endedAt: orchestratorStatus === "running" ? null : maxEndedAt(sessions),
+    },
+    ...sessions,
+  ];
 }
 
 /**
@@ -545,6 +584,7 @@ export class PanelClient {
                   mode="PANE"
                   subject={stageName}
                   runId={runId}
+                  tone={panelFooterToneFromStatus(store)}
                   hints={[
                     { key: "Ctrl+G", label: "graph" },
                     { key: "Ctrl+D", label: "detach" },

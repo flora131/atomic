@@ -27,15 +27,10 @@
  *
  * ### What used to live here
  *
- * Earlier versions of atomic also exported `ccDebounceScriptPath` and
- * `orchestratorEntryPath` — pre-bundled `.script.js` files spawned by
- * tmux as fresh sub-processes. That pattern lifted `@opentui/core`'s
- * dynamic platform-binding import out of the `@opentui/core` package's
- * resolution context and broke at runtime. Following OpenCode's
- * single-binary model, both scripts now live as hidden CLI sub-commands
- * (`atomic _orchestrator-entry`, `atomic _cc-debounce`) that the
- * launcher self-re-execs into. No more standalone bundles, no more
- * materialisation for them.
+ * Earlier versions of atomic also exported pre-bundled executor helper
+ * scripts for hidden argv subcommands. Daemon mode removed those entrypoints;
+ * this module now materializes only static runtime assets such as tmux.conf
+ * for legacy executor tests.
  */
 
 import { existsSync, mkdirSync } from "node:fs";

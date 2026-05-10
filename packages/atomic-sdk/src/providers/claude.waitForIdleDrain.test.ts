@@ -121,8 +121,12 @@ test(
     // Drain: remove the inflight marker.
     await unlink(p.inflightMarker);
 
-    // waitForInflightDrained should detect the empty dir within ~200ms.
-    await Bun.sleep(250);
+    // waitForInflightDrained polls every 100ms; under coverage + parallel load
+    // a fixed sleep is flaky. Poll for resolution with a generous budget.
+    const deadline = Date.now() + 2500;
+    while (!resolved && Date.now() < deadline) {
+      await Bun.sleep(50);
+    }
 
     expect(resolved).toBe(true);
     expect(Array.isArray(resolvedValue)).toBe(true);

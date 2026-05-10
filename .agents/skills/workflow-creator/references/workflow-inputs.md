@@ -37,10 +37,10 @@ higher-precedence value supplies one.
 
 | Surface | How values are supplied | How they land in `ctx.inputs` |
 |---|---|---|
-| **Single-worker, positional** — `bun run src/claude-worker.ts "fix the bug"` | The dev wires a `[prompt...]` Commander argument; the collected string is passed as `prompt` | `{ prompt: "fix the bug" }` |
-| **Single-worker, structured** — `bun run src/claude-worker.ts --research_doc=notes.md --focus=standard` | The dev registers one `--<field> <value>` option per declared input via `getInputSchema(wf)` | `{ research_doc: "notes.md", focus: "standard" }` |
+| **Single-worker, positional** — `bun run src/<agent>-worker.ts "fix the bug"` | The dev wires a `[prompt...]` Commander argument; the collected string is passed as `prompt` | `{ prompt: "fix the bug" }` |
+| **Single-worker, structured** — `bun run src/<agent>-worker.ts --research_doc=notes.md --focus=standard` | The dev registers one `--<field> <value>` option per declared input via `getInputSchema(wf)` | `{ research_doc: "notes.md", focus: "standard" }` |
 | **Multi-workflow CLI** — `bun run src/cli.ts gen-spec --research_doc=notes.md` | The dev registers one Commander subcommand per workflow; the subcommand's `--<field>` options match the workflow's declared inputs | Same as above |
-| **Interactive picker** — `atomic workflow -a claude` (atomic builtins only) | User fills in a form rendered from the declared schema | Whatever the user typed, keyed by field name |
+| **Interactive picker** — `atomic workflow -a <agent>` (atomic registry) | User fills in a form rendered from the declared schema | Whatever the user typed, keyed by field name |
 | **Picker in user app** — dev mounts `WorkflowPickerPanel` from `@bastani/atomic-sdk/workflows/components` | Same form-based collection, against the dev's own registry | Same as above |
 | **Programmatic** — `runWorkflow({ workflow, inputs })` | Plain `Record<string, string>` passed directly — no argv parsing | Top-of-chain value; falls back to `defineWorkflow` defaults |
 
@@ -226,7 +226,7 @@ inputs: [
 ]
 ```
 
-Declaring `prompt` explicitly gives compile-time safety — `ctx.inputs.prompt` is typed and accessing an undeclared key is a type error. For atomic builtins you can still pass a positional string (`atomic workflow -n ralph -a claude "fix the bug"`); user-app workers handle positional args however the dev wired their Commander entrypoint (e.g., `program.argument("[prompt...]", ...)`), and the collected string is passed as the `prompt` input value.
+Declaring `prompt` explicitly gives compile-time safety — `ctx.inputs.prompt` is typed and accessing an undeclared key is a type error. For atomic registry workflows you can still pass a positional string (`atomic workflow -n ralph -a <agent> "fix the bug"`); user-app workers handle positional args however the dev wired their Commander entrypoint (e.g., `program.argument("[prompt...]", ...)`), and the collected string is passed as the `prompt` input value.
 
 For workflows that need both a free-form prompt AND structured parameters,
 declare all fields in the schema:
@@ -272,11 +272,11 @@ to the atomic CLI without needing to rename inputs later.
 
 ## The interactive picker
 
-### Atomic builtins — `atomic workflow -a <agent>`
+### Atomic registry — `atomic workflow -a <agent>`
 
 `atomic workflow -a <agent>` (no `-n`) launches the interactive picker for
-atomic builtins (TTY only — non-interactive contexts skip straight to
-`--help`). All direct attached or detached builtin runs should include
+registered atomic workflows (TTY only — non-interactive contexts skip straight to
+`--help`). All direct attached or detached registry runs should include
 `-n <workflow-name>` explicitly; omitting `-n` is the intentional
 picker-discovery path.
 
@@ -352,15 +352,15 @@ their own `--detach` Commander option.
 
 ```bash
 # User's own app — single-workflow worker
-bun run src/claude-worker.ts --focus=standard --research_doc=notes.md
-bun run src/claude-worker.ts --focus standard --research_doc notes.md
+bun run src/<agent>-worker.ts --focus=standard --research_doc=notes.md
+bun run src/<agent>-worker.ts --focus standard --research_doc notes.md
 
 # User's own app — multi-workflow CLI
 bun run src/cli.ts gen-spec --focus=standard --research_doc=notes.md
 
-# Atomic builtins — use atomic CLI's -n/-a/-d flags
-atomic workflow -n gen-spec -a claude --focus=standard --research_doc=notes.md
-atomic workflow -n gen-spec -a claude -d --focus=standard    # detached
+# Atomic registry — use atomic CLI's -n/-a/-d flags
+atomic workflow -n gen-spec -a <agent> --focus=standard --research_doc=notes.md
+atomic workflow -n gen-spec -a <agent> -d --focus=standard    # detached
 ```
 
 ## Pitfalls

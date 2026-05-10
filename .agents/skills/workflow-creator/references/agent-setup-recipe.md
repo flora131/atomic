@@ -214,7 +214,7 @@ atomic workflow refresh
 
 Inside an atomic chat session this auto-defaults to JSON; outside, it prints colourised text. Either way, every diagnostic field is on its own `key · value` line so the model can self-correct without prose parsing:
 
-- `loaded` entries confirm the workflow is invocable as `atomic workflow -n <workflow-name> -a claude`.
+- `loaded` entries confirm the workflow is invocable as `atomic workflow -n <workflow-name> -a <agent>`.
 - `broken` entries spell out `reason · …`, `fix · …`, `settings · <path> (workflows.<alias>)` so you know exactly which file and which JSON path to repair before re-running.
 
 Common Mode-1 broken-entry causes the model should self-diagnose:

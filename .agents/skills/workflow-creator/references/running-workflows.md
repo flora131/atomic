@@ -2,11 +2,34 @@
 
 When the user asks you to **run** (or "kick off" / "start" / "execute") a
 workflow — *not* author one — your job is to translate their request into the
-correct invocation and run it. This is the playbook for that flow. It is
-different from the authoring playbook in `SKILL.md`: the workflow already
-exists in a registry; you just need to invoke it correctly.
+correct invocation and run it. This includes natural-language requests such as
+"run ralph on this repo", "run workflow x with prompt y", or "start the release
+workflow with version 1.2.3". Do not reply with instructions for the user to run
+unless shell execution is unavailable in your environment; use your terminal
+tool to invoke the workflow yourself.
 
-**This playbook works from any context.** Whether you're running in a fresh terminal, inside `atomic chat -a <agent>`, or from a CI script, the decision tree below is the same — atomic builtins, repo examples, and user SDK workflows are all discoverable and invokable. If the user is chatting with you through `atomic chat` and says "start my hello-world workflow", walk the same three paths; the shared tmux socket means the workflow you spawn will be visible to every monitoring surface (the worker CLI's own `status` / `session` subcommands, `atomic workflow status`, and `bunx atomic …`) regardless of which path you used to start it.
+**This playbook works from any context.** Whether you're running in a fresh terminal, inside `atomic chat -a <agent>`, or from a CI script, the decision tree below is the same — registered atomic workflows, repo examples, and user SDK workflows are all discoverable and invokable. If the user is chatting with you through `atomic chat` and says "start my hello-world workflow", walk the same paths; the shared tmux socket means the workflow you spawn will be visible to every monitoring surface (the worker CLI's own `status` / `session` subcommands, `atomic workflow status`, and `bunx atomic …`) regardless of which path you used to start it.
+
+## Natural-language run contract
+
+Follow this contract whenever the user asks to run a workflow:
+
+1. **Run, don't recite.** If you have shell/tool access, execute the workflow command. Do not answer "I can't run it" or only print `atomic workflow -n ...`.
+2. **Use the current agent by default.** Resolve the agent in this order: user explicitly named an agent → `ATOMIC_AGENT` (`claude`, `copilot`, `opencode`) → ask once. Never silently default to Claude.
+3. **Prefer the atomic registry first.** Run `atomic workflow list -a <agent>` before probing examples or app-specific CLIs. This list includes builtins and registered custom workflows from `.atomic/settings.json` and `~/.atomic/settings.json`.
+4. **Inspect inputs before running.** Run `atomic workflow inputs <name> -a <agent>` for registered atomic workflows; parse the schema and ask only for required values the user did not provide.
+5. **Run detached from agent chats.** Add `-d` when starting via `atomic workflow` from a coding-agent chat unless the user explicitly wants to attach immediately.
+6. **Report the session id and attach command.** On successful spawn, give the exact session id and tell the user to open a new terminal and run `atomic workflow session connect <sessionId>`.
+
+Agent resolution details:
+
+```bash
+printenv ATOMIC_AGENT   # "claude" | "copilot" | "opencode" when launched by atomic chat
+```
+
+If `ATOMIC_AGENT=copilot`, run the Copilot variant (`-a copilot`). If
+`ATOMIC_AGENT=opencode`, run the OpenCode variant (`-a opencode`). Only use a
+different agent when the user explicitly requests it or confirms a switch.
 
 ## Three invocation paths
 
@@ -16,11 +39,11 @@ roots. Two shapes exist — pick based on what the file calls:
 - **Single-workflow worker** (`runWorkflow({ workflow, inputs })`) —
   one file per agent, bound to one `WorkflowDefinition`. The dev wires
   `--<input>` Commander options for each declared input using
-  `getInputSchema(wf)`. Typical name: `claude-worker.ts`.
+  `getInputSchema(wf)`. Typical name: `<agent>-worker.ts`.
 
   ```bash
-  bun run src/claude-worker.ts --<field>=<value>      # structured inputs
-  bun run src/claude-worker.ts "<prompt>"             # positional (if the worker wired [prompt...])
+  bun run src/<agent>-worker.ts --<field>=<value>      # structured inputs
+  bun run src/<agent>-worker.ts "<prompt>"             # positional (if the worker wired [prompt...])
   ```
 
   For detached runs, the dev passes `detach: true` to `runWorkflow` or
@@ -43,8 +66,8 @@ directory ships one worker file per agent (`claude-worker.ts`,
 built with `getInputSchema(wf)`:
 
 ```bash
-bun run examples/<name>/claude-worker.ts --<field>=<value>
-bun run examples/<name>/copilot-worker.ts "<prompt>"    # if the worker wires [prompt...]
+bun run examples/<name>/<agent>-worker.ts --<field>=<value>
+bun run examples/<name>/<agent>-worker.ts "<prompt>"    # if the worker wires [prompt...]
 ```
 
 Available examples: `hello-world`, `parallel-hello-world`, `headless-test`,
@@ -52,12 +75,14 @@ Available examples: `hello-world`, `parallel-hello-world`, `headless-test`,
 `reviewer-tool-test` (copilot only). Use these to demonstrate a specific SDK
 feature or as a copy-paste starting point.
 
-**Path C — atomic builtins.** Workflows shipped inside `@bastani/atomic-sdk`
-and registered via `createBuiltinRegistry()` inside the `atomic` CLI:
+**Path C — atomic registry.** Workflows registered with the `atomic` CLI. This
+includes builtins shipped inside `@bastani/atomic-sdk` and custom workflows
+declared in project/global settings (`.atomic/settings.json` and
+`~/.atomic/settings.json`):
 
 ```bash
 atomic workflow -n <name> -a <agent> [inputs...]
-atomic workflow list
+atomic workflow list -a <agent>
 ```
 
 Builtin names: `ralph`, `deep-research-codebase`, `open-claude-design`.
@@ -68,8 +93,8 @@ the command to return after spawning the workflow.
 
 **Identify the path before anything else.** Decision order:
 
-1. Is the name one of the three builtins (`ralph`, `deep-research-codebase`,
-   `open-claude-design`)? → **Path C** (`atomic workflow`).
+1. Does `atomic workflow list -a <agent>` include the requested name? →
+   **Path C** (`atomic workflow`). This covers builtins and custom workflows.
 2. Does `examples/<name>/<agent>-worker.ts` exist in the current repo? →
    **Path B** (`bun run examples/<name>/<agent>-worker.ts`).
 3. Does a composition root exist in `src/` (single-workflow
@@ -84,8 +109,8 @@ the command to return after spawning the workflow.
 call that confirms whether the named workflow actually exists:
 
 ```bash
-# Atomic builtins
-atomic workflow list
+# Atomic registry: builtins + registered custom workflows
+atomic workflow list -a <agent>
 
 # Repo-shipped examples (when inside the atomic repo)
 bun run examples/<name>/<agent>-worker.ts --help
@@ -139,11 +164,11 @@ its invocation shape:
 2. **Does it declare structured inputs?** If so, you pass `--<field>=<value>`
    flags, one per required field.
 
-**Use `atomic workflow inputs <name> -a <agent>` to get the schema for atomic builtins.** This prints a JSON envelope with every field's `name`, `type`, `required`, `default`, `description`, and (for enums) `values` — exactly what AskUserQuestion needs. The `freeform: true` flag tells you whether the workflow takes a positional prompt vs. structured flags, with a synthetic `prompt` field included so the JSON shape is uniform either way.
+**Use `atomic workflow inputs <name> -a <agent>` to get the schema for registered atomic workflows.** This works for builtins and registered custom workflows. It prints a JSON envelope with every field's `name`, `type`, `required`, `default`, `description`, and (for enums) `values` — exactly what AskUserQuestion needs. The `freeform: true` flag tells you whether the workflow takes a positional prompt vs. structured flags, with a synthetic `prompt` field included so the JSON shape is uniform either way.
 
 ```bash
-atomic workflow inputs gen-spec -a claude
-# {"workflow":"gen-spec","agent":"claude","freeform":false,
+atomic workflow inputs gen-spec -a copilot
+# {"workflow":"gen-spec","agent":"copilot","freeform":false,
 #  "inputs":[{"name":"research_doc","type":"string","required":true,...},
 #            {"name":"focus","type":"enum","values":["minimal","standard","exhaustive"],"default":"standard"}]}
 ```
@@ -153,9 +178,10 @@ inspect the TypeScript source — the schema is inline in `defineWorkflow({
 inputs: [...] })`. Reading the source is always in sync because `defineWorkflow`
 validates the schema at definition time.
 
-`atomic workflow inputs` is a builtin-only command — it queries the
-internal builtin registry and is not available for user apps. For user
-app workflows, always read the `defineWorkflow` source directly.
+`atomic workflow inputs` is for workflows visible to the atomic registry
+(builtins plus settings-registered custom workflows). For standalone user-app
+workers that are not registered with `atomic workflow list`, read the
+`defineWorkflow` source directly.
 
 Once you have the schema, use the **AskUserQuestion tool** to collect any
 values the user hasn't already provided in their message. One question per
@@ -171,22 +197,23 @@ Skip AskUserQuestion entirely when:
 
 ## End-to-end recipe
 
-1. **Identify the invocation path** — atomic builtin (`atomic workflow`),
+1. **Resolve the agent** — explicit user request, then `ATOMIC_AGENT`, then ask once. Do not default to Claude.
+2. **Identify the invocation path** — atomic registry (`atomic workflow`),
    repo-shipped example (`bun run examples/<name>/<agent>-worker.ts`), or
    the user's own app (single-workflow `src/<agent>-worker.ts` or
    multi-workflow `src/cli.ts`)?
-2. **List available workflows** — run the list command for the chosen path.
+3. **List available workflows** — run the list command for the chosen path.
    This is your ground truth.
-3. **Resolve the target**:
+4. **Resolve the target**:
    - Exact match in the list → continue.
    - Close match → confirm via AskUserQuestion before proceeding.
    - No match → tell the user what's available and offer to author it (see
      previous section). If they decline, stop.
-4. **Discover the inputs schema** — for builtins use `atomic workflow inputs
-   <name> -a <agent>`; for user apps inspect the `defineWorkflow` source.
-5. **Ask for missing inputs** — use AskUserQuestion, one question per
+5. **Discover the inputs schema** — for registered atomic workflows use
+   `atomic workflow inputs <name> -a <agent>`; for unregistered user apps inspect the `defineWorkflow` source.
+6. **Ask for missing inputs** — use AskUserQuestion, one question per
    unanswered required field. Enums become multiple-choice.
-6. **Invoke** — build one of these commands:
+7. **Invoke** — build and execute one of these commands:
 
    User's own app — single-workflow worker:
    - Free-form: `bun run src/<agent>-worker.ts "<prompt>"` (only if the worker wires `[prompt...]`)
@@ -202,19 +229,19 @@ Skip AskUserQuestion entirely when:
    - Free-form: `bun run examples/<name>/<agent>-worker.ts "<prompt>"` (only if wired)
    - Structured: `bun run examples/<name>/<agent>-worker.ts --field1=val1`
 
-   Atomic builtins:
+   Atomic registry:
    - Free-form: `atomic workflow -n <name> -a <agent> "<prompt>"`
    - Structured: `atomic workflow -n <name> -a <agent> --<field1>=<value1>`
    - Detached: add `-d`
 
-7. **Tell the user how to attach interactively** — the runtime printed a
-   session name like `atomic-wf-claude-<workflow>-a1b2c3d4`. Immediately
+8. **Tell the user how to attach interactively** — the runtime printed a
+   session name like `atomic-wf-<agent>-<workflow>-a1b2c3d4`. Immediately
    echo it back with the **new-terminal attach instruction** described in
    §"After starting: tell the user how to view it interactively" below.
    This is non-negotiable on every successful spawn. Also surface
    `atomic workflow status <sessionId>` (poll) and
    `atomic session kill <sessionId> -y` (stop).
-8. **If you started the workflow detached (`-d` or `detach: true`), poll
+9. **If you started the workflow detached (`-d` or `detach: true`), poll
    status until it terminates or pauses for input** — see "Polling rhythm
    after spawning" below. Surfacing a HIL pause to the user immediately is
    non-negotiable; an unattended `awaiting_input` / `needs_review` state
@@ -415,7 +442,7 @@ import {
 
 Because every workflow lands on the same atomic tmux socket regardless of
 which path spawned it, the `atomic` CLI commands work for Path A and B
-workflows just as well as for atomic builtins.
+workflows just as well as for registered atomic workflows.
 
 Detached workflows return immediately with a session name; the actual work
 runs in the background. Use `status` to check whether the workflow is still
@@ -479,54 +506,56 @@ in-scope session — only do that when the user has asked to stop everything.
 
 ## Worked examples
 
-**Example A — atomic builtin, structured inputs**
+**Example A — atomic registry, structured inputs**
 
 > **User:** "run gen-spec on research/docs/2026-04-11-auth.md"
 
 *(Note: `gen-spec` is a hypothetical builtin used here for pedagogical purposes. Real atomic builtins are `ralph`, `deep-research-codebase`, and `open-claude-design`.)*
 
-1. Path C (atomic builtin). Run `atomic workflow list`. Output includes `gen-spec`. Good.
-2. Target resolved exactly: `gen-spec`.
-3. Run `atomic workflow inputs gen-spec -a claude`. Parse the JSON:
+1. Resolve the agent from the user request or `ATOMIC_AGENT` (example: `copilot`).
+2. Path C (atomic registry). Run `atomic workflow list -a copilot`. Output includes `gen-spec`. Good.
+3. Target resolved exactly: `gen-spec`.
+4. Run `atomic workflow inputs gen-spec -a copilot`. Parse the JSON:
    `research_doc` (required string — already given), `focus` (required enum
    of `minimal|standard|exhaustive`, default `standard`), `notes`
    (optional text).
-4. Ask via AskUserQuestion once: "What focus level for the spec?" with
+5. Ask via AskUserQuestion once: "What focus level for the spec?" with
    choices `minimal`, `standard`, `exhaustive`. User picks `standard`. Skip
    `notes` since it's optional.
-5. Run: `atomic workflow -n gen-spec -a claude --research_doc=research/docs/2026-04-11-auth.md --focus=standard`
-6. The CLI prints a session name like `atomic-wf-claude-gen-spec-a1b2c3d4`.
+6. Run: `atomic workflow -n gen-spec -a copilot -d --research_doc=research/docs/2026-04-11-auth.md --focus=standard`
+7. The CLI prints a session name like `atomic-wf-copilot-gen-spec-a1b2c3d4`.
    Tell the user, using the §"After starting" template:
-   "Started workflow `gen-spec` (session id: `atomic-wf-claude-gen-spec-a1b2c3d4`).
+   "Started workflow `gen-spec` (session id: `atomic-wf-copilot-gen-spec-a1b2c3d4`).
    To watch it run interactively, **open a new terminal** and run:
-   `atomic workflow session connect atomic-wf-claude-gen-spec-a1b2c3d4`.
-   Status: `atomic workflow status atomic-wf-claude-gen-spec-a1b2c3d4`.
-   Stop: `atomic session kill atomic-wf-claude-gen-spec-a1b2c3d4 -y`."
+   `atomic workflow session connect atomic-wf-copilot-gen-spec-a1b2c3d4`.
+   Status: `atomic workflow status atomic-wf-copilot-gen-spec-a1b2c3d4`.
+   Stop: `atomic session kill atomic-wf-copilot-gen-spec-a1b2c3d4 -y`."
 
 **Example B — user app, free-form prompt**
 
 > **User:** "run the summarize-pr workflow on 'add OAuth to the API'"
 
-1. Path A. `src/claude-worker.ts` exists and calls `runWorkflow(summarizePrClaude)`.
+1. Resolve the agent from the user request or `ATOMIC_AGENT` (example: `opencode`).
+2. Path A. `src/opencode-worker.ts` exists and calls `runWorkflow(summarizePrOpenCode)`.
    (If instead the user had a `src/cli.ts` with `createRegistry()` + `listWorkflows`,
    run `bun run src/cli.ts --help` to see the registered subcommands and confirm `summarize-pr`.)
-2. Target resolved exactly: `summarize-pr`, agent `claude`.
-3. Prompt already given in user's message. No AskUserQuestion needed. Check
+3. Target resolved exactly: `summarize-pr`, agent `opencode`.
+4. Prompt already given in user's message. No AskUserQuestion needed. Check
    `defineWorkflow` source to confirm `prompt` is a declared input.
-4. Run: `bun run src/claude-worker.ts --prompt="add OAuth to the API"`.
+5. Run: `bun run src/opencode-worker.ts --prompt="add OAuth to the API"`.
    (If the worker was built with a `[prompt...]` Commander argument, the positional
-   form `bun run src/claude-worker.ts "add OAuth to the API"` works too.)
-   The runtime prints a session name like `atomic-wf-claude-summarize-pr-a1b2c3d4`.
+   form `bun run src/opencode-worker.ts "add OAuth to the API"` works too.)
+   The runtime prints a session name like `atomic-wf-opencode-summarize-pr-a1b2c3d4`.
    For a detached run, the worker must wire `detach: true` to `runWorkflow` or
    expose its own `--detach` Commander option — there is no built-in `-d` on
    user-app workers.
-5. Apply the §"After starting" rule. Tell the user:
-   "Started workflow `summarize-pr` (session id: `atomic-wf-claude-summarize-pr-a1b2c3d4`).
+6. Apply the §"After starting" rule. Tell the user:
+   "Started workflow `summarize-pr` (session id: `atomic-wf-opencode-summarize-pr-a1b2c3d4`).
    To watch it run interactively, **open a new terminal** and run:
-   `atomic workflow session connect atomic-wf-claude-summarize-pr-a1b2c3d4`.
-   Status: `atomic workflow status atomic-wf-claude-summarize-pr-a1b2c3d4`.
-   Stop: `atomic session kill atomic-wf-claude-summarize-pr-a1b2c3d4 -y`."
-6. `bunx atomic …` is equivalent if the global binary is not installed. Both
+   `atomic workflow session connect atomic-wf-opencode-summarize-pr-a1b2c3d4`.
+   Status: `atomic workflow status atomic-wf-opencode-summarize-pr-a1b2c3d4`.
+   Stop: `atomic session kill atomic-wf-opencode-summarize-pr-a1b2c3d4 -y`."
+7. `bunx atomic …` is equivalent if the global binary is not installed. Both
    talk to the same atomic tmux socket regardless of which path spawned the
    workflow.
 
@@ -534,30 +563,32 @@ in-scope session — only do that when the user has asked to stop everything.
 
 > **User:** "run the hello-world example with a formal greeting"
 
-1. Not a builtin name. Check `examples/hello-world/claude-worker.ts` — it exists.
+1. Resolve the agent from the user request or `ATOMIC_AGENT` (example: `copilot`).
+2. Not in the atomic registry for `copilot`. Check `examples/hello-world/copilot-worker.ts` — it exists.
    Path B.
-2. Target resolved: `hello-world`, via `examples/hello-world/claude-worker.ts`.
-3. Read `examples/hello-world/claude/index.ts` for the input schema:
+3. Target resolved: `hello-world`, via `examples/hello-world/copilot-worker.ts`.
+4. Read `examples/hello-world/copilot/index.ts` for the input schema:
    `greeting` (string, required), `style` (enum: formal/casual/robotic,
    default casual), `notes` (text, optional).
-4. Ask via AskUserQuestion: "What should the greeting text be?" User
+5. Ask via AskUserQuestion: "What should the greeting text be?" User
    supplies `"Hello there"`. `style=formal` is implied by the message.
-5. Run: `bun run examples/hello-world/claude-worker.ts --greeting="Hello there" --style=formal`
-6. Apply the §"After starting" rule. Tell the user:
+6. Run: `bun run examples/hello-world/copilot-worker.ts --greeting="Hello there" --style=formal`
+7. Apply the §"After starting" rule. Tell the user:
    "Started workflow `hello-world` (session id: `<sessionId from CLI>`).
    To watch it run interactively, **open a new terminal** and run:
    `atomic workflow session connect <sessionId>`."
 
-**Example B2 — atomic builtin, free-form prompt**
+**Example B2 — atomic registry, free-form prompt**
 
 > **User:** "run ralph on 'add OAuth to the API'"
 
-1. Path C (atomic builtin — `ralph` is shipped inside `@bastani/atomic-sdk`).
-   Run `atomic workflow list`. Confirms `ralph` is registered.
-2. Target resolved exactly: `ralph`, agent `claude`.
-3. Prompt already given in user's message. No AskUserQuestion needed.
-4. Run: `atomic workflow -n ralph -a claude "add OAuth to the API"`.
-5. Apply the §"After starting" rule. Tell the user:
+1. Resolve the agent from the user request or `ATOMIC_AGENT` (example: `copilot`).
+2. Path C (atomic registry — `ralph` is shipped inside `@bastani/atomic-sdk`).
+   Run `atomic workflow list -a copilot`. Confirms `ralph` is registered for Copilot.
+3. Target resolved exactly: `ralph`, agent `copilot`.
+4. Prompt already given in user's message. No AskUserQuestion needed.
+5. Run: `atomic workflow -n ralph -a copilot -d "add OAuth to the API"`.
+6. Apply the §"After starting" rule. Tell the user:
    "Started workflow `ralph` (session id: `<sessionId from CLI>`).
    To watch it run interactively, **open a new terminal** and run:
    `atomic workflow session connect <sessionId>`."
@@ -581,18 +612,18 @@ in-scope session — only do that when the user has asked to stop everything.
 ## Common mistakes to avoid
 
 - **Not identifying the invocation path** — using `atomic workflow` for a
-  user app, or `bun run src/worker.ts` for a builtin or a repo-shipped
-  example, leads to "not found". Check the three paths in order (builtin
-  → examples/ → user app) first.
+  user app, or `bun run src/worker.ts` for a registry workflow or a
+  repo-shipped example, leads to "not found". Check the three paths in order
+  (atomic registry → examples/ → user app) first.
 - **Skipping the list command** — leads to guessing and `workflow not found`
   errors. Always list first.
 - **Using `-n`/`-a`/`-d` on user-app workers** — these flags only exist on
-  the `atomic` binary for builtins. User-app workers expose per-input `--<flag>`
+  the `atomic` binary for registry workflows. User-app workers expose per-input `--<flag>`
   options and (optionally) a positional `[prompt...]` argument. There is no
   `-n`, `-a`, or `-d` built into user-app workers.
 - **Inventing a workflow name** — if it's not in the list, it doesn't exist.
   Say so and offer to author it.
-- **For builtins: reading the source to discover inputs** — use
+- **For registered atomic workflows: reading the source to discover inputs** — use
   `atomic workflow inputs <name> -a <agent>` instead. JSON, always in sync.
 - **Asking everything at once** — let AskUserQuestion drive one question per
   field. Enum fields are multiple-choice, not free text.

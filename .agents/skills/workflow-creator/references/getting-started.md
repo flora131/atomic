@@ -98,7 +98,7 @@ const { id, tmuxSessionName } = await runWorkflow({
 
 ### Interactive picker
 
-The same picker `atomic workflow -a claude` opens is exposed as a component:
+The same picker `atomic workflow -a <agent>` opens is exposed as a component:
 
 ```ts
 import { WorkflowPickerPanel } from "@bastani/atomic-sdk/workflows/components";

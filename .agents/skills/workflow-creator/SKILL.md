@@ -16,7 +16,7 @@ You also serve as a **context engineering advisor** — use the design skills li
 Two user journeys live in this skill:
 
 - **Authoring** a new workflow (or editing/debugging an existing one) → read on below.
-- **Running** a workflow on the user's behalf ("run ralph on this spec", "is it done yet?", "kill it") → go to `references/running-workflows.md`.
+- **Running** a workflow on the user's behalf ("run ralph on this spec", "run workflow x with prompt y", "is it done yet?", "kill it") → go to `references/running-workflows.md`. Treat natural-language run requests as executable tasks: detect the current agent, collect missing inputs, and run the workflow. Do not merely print the `atomic workflow ...` command unless your environment truly cannot execute shell commands.
 
 ## Reference Files
 
@@ -360,7 +360,7 @@ user runs with `bun`. The SDK exposes pure primitives:
 - **Session lifecycle** — `listSessions / getSession / stopSession / attachSession / getSessionStatus / getSessionTranscript` are exported from both the root `@bastani/atomic-sdk` barrel and the `/workflows` sub-barrel. `detachSession` is exported only from the **root** barrel (`@bastani/atomic-sdk`) — not from `/workflows`.
 - **Pane navigation** — `nextWindow / previousWindow / gotoOrchestrator` are exported only from the **root** `@bastani/atomic-sdk` barrel (not from `/workflows`). Pure tmux verbs: they update the session's current-window pointer and return immediately. Never auto-attach — an attached client sees the change live; if no client is watching, the next `attachSession` call lands on the new window. Compose `nextWindow(id) + attachSession(id)` for navigate-then-attach.
 - **Typed errors** (catch with `instanceof` to render friendly CLI messages) — `MissingDependencyError` (tmux/psmux/bun missing), `SessionNotFoundError` (id not on the atomic socket), `WorkflowNotCompiledError` (forgot `.compile()`), `InvalidWorkflowError` (default export not a `WorkflowDefinition`) all live on the `@bastani/atomic-sdk/workflows` barrel. `IncompatibleSDKError` (workflow's `minSDKVersion` newer than the installed `@bastani/atomic-sdk`) and `NoDispatcherError` (SDK can't locate its dispatcher — surfaces only when an explicit empty `pathToAtomicExecutable` defeats the auto-default) are exported separately from `@bastani/atomic-sdk/errors`. All thrown by SDK primitives; all carry the relevant payload field (`dependency`, `id`, `path`, version pair, or `searchedFor` for `NoDispatcherError`).
-- `WorkflowPickerPanel` (from `@bastani/atomic-sdk/workflows/components`) — the interactive picker `atomic workflow -a claude` uses.
+- `WorkflowPickerPanel` (from `@bastani/atomic-sdk/workflows/components`) — the interactive picker `atomic workflow -a <agent>` uses.
 
 You compose them into whatever CLI library you prefer. In `bun run` mode
 the SDK ships its own orchestrator entry script (bundled inside
@@ -467,8 +467,8 @@ Two invocation paths:
 
 ```bash
 # Single-workflow worker — flags match the workflow's declared inputs
-bun run src/claude-worker.ts --prompt "fix the bug"
-bun run src/claude-worker.ts --research_doc=notes.md --focus=standard
+bun run src/<agent>-worker.ts --prompt "fix the bug"
+bun run src/<agent>-worker.ts --research_doc=notes.md --focus=standard
 
 # Multi-workflow CLI — one subcommand per workflow
 bun run src/cli.ts review --target_branch=main
@@ -490,7 +490,7 @@ if (result) {
 
 **No boilerplate in the dev's file.** In `bun run` mode the SDK re-execs its own internal orchestrator entry script (bundled inside `@bastani/atomic-sdk`); in `bun build --compile`d hosts it re-execs the consumer's own binary, but the SDK's `@bastani/atomic-sdk/workflows` barrel intercepts the internal sub-command via a top-level argv handler at module-load time, so the dev's command tree never sees those argv tokens. No env-var dance, no manual `handleSelfDispatch`-style entry-point hook, and no peer dependency on the user-facing `@bastani/atomic` CLI package.
 
-**Atomic builtins** — workflows shipped inside `@bastani/atomic-sdk`, registered by atomic's internal `createBuiltinRegistry()`:
+**Atomic registry** — builtins shipped inside `@bastani/atomic-sdk` plus custom workflows registered in `.atomic/settings.json` or `~/.atomic/settings.json`:
 
 ```bash
 atomic workflow -n <name> -a <agent> [inputs...]
@@ -498,14 +498,14 @@ atomic workflow -n <name> -a <agent> [inputs...]
 
 | Surface                | Command                                                                          | When                                                                           |
 | ---------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| Named, with prompt     | `… -n hello -a claude "fix the bug"`                                             | Requires workflow to declare a `prompt` input                                  |
-| Named, structured      | `… -n gen-spec -a claude --research_doc=notes.md`                                | Structured inputs via `--<field>` flags                                        |
-| Interactive picker     | `atomic workflow -a claude`                                                      | Discovery — fuzzy list + form; this is the intentional no-`-n` path            |
-| List (atomic builtins) | `atomic workflow list`, `atomic workflow list -a <agent>`                        | Browse registered builtins + custom workflows, optionally filtered             |
+| Named, with prompt     | `… -n hello -a <agent> "fix the bug"`                                           | Requires workflow to declare a `prompt` input                                  |
+| Named, structured      | `… -n gen-spec -a <agent> --research_doc=notes.md`                              | Structured inputs via `--<field>` flags                                        |
+| Interactive picker     | `atomic workflow -a <agent>`                                                    | Discovery — fuzzy list + form; this is the intentional no-`-n` path            |
+| List (atomic registry) | `atomic workflow list`, `atomic workflow list -a <agent>`                       | Browse registered builtins + custom workflows, optionally filtered             |
 | Reload custom workflows | `atomic workflow refresh [--format json\|text]`                                  | Re-spawn metadata loaders after editing `.atomic/settings.json` or a workflow file. Auto-defaults to JSON inside an atomic chat session so the model can ingest broken-entry diagnostics directly. |
 | List (user cli)        | Iterate `listWorkflows(registry)` and add a `list` Commander subcommand yourself | No built-in `--list` flag                                                      |
 | List (single-workflow) | Not applicable — the file *is* the workflow                                      |
-| Inspect inputs         | `atomic workflow inputs <name> -a claude`                                        | Print input schema as JSON                                                     |
+| Inspect inputs         | `atomic workflow inputs <name> -a <agent>`                                      | Print input schema as JSON                                                     |
 | Status (one or all)    | `atomic workflow status [<session-id>]`                                          | Query state — `in_progress`, `error`, `completed`, `needs_review`, `awaiting_input` |
 | Read run/stage on disk | `atomic workflow read --sessionId <id> [--stageId <name>]`                       | Print path under `~/.atomic/sessions/<runId>/` for the run dir or a single stage. The model can then `Read` `messages.json` (raw `s.save()` output), `inbox.md` (rendered transcript), or `metadata.json` directly. Auto-defaults to JSON inside an atomic chat session. |
 | Kill non-interactively | `atomic session kill <id> -y`                                                    | Tear down without confirmation prompt — `-y` is mandatory for agents           |
@@ -768,12 +768,12 @@ bun run src/<agent>-worker.ts "free-form prompt text"       # positional fallbac
 bun run src/cli.ts <workflow-name> --<field>=<value>        # structured
 bun run src/cli.ts <workflow-name> "free-form prompt text"  # positional fallback (if wired)
 
-# Atomic builtins — these use -n/-a/-d (atomic CLI's own flags, not user-app flags)
+# Atomic registry — these use -n/-a/-d (atomic CLI's own flags, not user-app flags)
 atomic workflow -n <name> -a <agent> "<prompt>"             # attached run
 atomic workflow -n <name> -a <agent> -d "<prompt>"          # detached (background)
 ```
 
-For detached user-app runs, pass `detach: true` to `runWorkflow` or wire your own `--detach` flag in your Commander entrypoint. For the atomic builtins (`ralph`, `deep-research-codebase`, `open-claude-design`), see `references/running-workflows.md` for monitoring and teardown.
+For detached user-app runs, pass `detach: true` to `runWorkflow` or wire your own `--detach` flag in your Commander entrypoint. For atomic registry workflows (builtins plus registered custom workflows), see `references/running-workflows.md` for monitoring and teardown.
 
 ## Running an Existing Workflow
 
@@ -787,7 +787,7 @@ to invoke it correctly. That's a different playbook from authoring.
   by the dev, using Commander or another CLI library), repo-shipped examples
   at <https://github.com/flora131/atomic/tree/main/examples>, and atomic
   builtins + custom workflows (`atomic workflow -n … -a …`).
-- Why atomic builtins use `-n` + `-a` and how to add `-d` for background runs.
+- Why atomic registry workflows use `-n` + `-a` and how to add `-d` for background runs.
 - Why you must list workflows first — and why `atomic workflow refresh`
   is the right verification step right after editing `settings.json` or
   a Mode-1 workflow file.

@@ -221,61 +221,6 @@ export async function upgradeGlobalToolPackages(): Promise<void> {
 }
 
 /**
- * Ensure uv (and uvx) is installed and available on PATH.
- * No-op when already present.
- *
- * When `quiet: true`, subprocess output is captured instead of inherited
- * so an outer spinner UI owns the display. On failure the captured tail
- * is re-thrown as the error message.
- */
-export async function ensureUvInstalled(options: EnsureOptions = {}): Promise<void> {
-  if (hasUv()) return;
-
-  const inherit = !(options.quiet ?? false);
-  const installCmd = process.platform === "win32"
-    ? ["powershell", "-ExecutionPolicy", "ByPass", "-c", "irm https://astral.sh/uv/install.ps1 | iex"]
-    : ["sh", "-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"];
-
-  const result = await runCommand(installCmd, { inherit });
-  if (result.success) {
-    if (process.platform === "win32") {
-      await refreshWindowsUvPath();
-    } else {
-      prependUvInstallPaths();
-    }
-  }
-
-  if (hasUv()) return;
-
-  // Install command exited successfully but the binary still isn't on PATH —
-  // surface the canonical install locations so the user can either add the
-  // right one to their shell profile or set UV_INSTALL_DIR. See
-  // https://docs.astral.sh/uv/reference/installer/ and
-  // https://docs.astral.sh/uv/reference/storage/#executable-directory.
-  const candidates = uvInstallPathCandidates();
-  const candidateList = candidates.length > 0
-    ? candidates.map((p) => `  - ${p}`).join("\n")
-    : "  (no candidate paths resolved; set $HOME or $UV_INSTALL_DIR)";
-  const shellHint = process.platform === "win32"
-    ? "[Environment]::SetEnvironmentVariable('Path', \"$env:USERPROFILE\\.local\\bin;$env:Path\", 'User')"
-    : "export PATH=\"$HOME/.local/bin:$PATH\"   # add to ~/.bashrc, ~/.zshrc, etc.";
-
-  throw new Error(
-    [
-      result.details || "uv install completed but binary not found on PATH.",
-      "",
-      "Looked for `uv` / `uvx` in:",
-      candidateList,
-      "",
-      "Add the directory containing `uv` to your PATH, or re-run the",
-      "installer with UV_INSTALL_DIR set to a directory already on PATH.",
-      "",
-      `Shell example: ${shellHint}`,
-    ].join("\n"),
-  );
-}
-
-/**
  * Ensure bun is installed and available on PATH.
  * No-op when already present.
  */

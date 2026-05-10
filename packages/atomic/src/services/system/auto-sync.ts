@@ -13,12 +13,11 @@
  * production bootstrap installers (`install.sh` / `install.ps1`) provide,
  * silently in the background:
  *
- *     2. uv (provides uvx)       (curl https://astral.sh/uv/install.sh | sh)
- *     3. global agent configs    (file copies — no network)
- *     4. @playwright/cli         (bun install -g)
- *     5. @llamaindex/liteparse   (bun install -g)
- *     6. @ast-grep/cli           (bun install -g)
- *     7. global skills           (file copies from bundled .agents/skills)
+ *     1. global agent configs    (file copies — no network)
+ *     2. @playwright/cli         (bun install -g)
+ *     3. @llamaindex/liteparse   (bun install -g)
+ *     4. @ast-grep/cli           (bun install -g)
+ *     5. global skills           (file copies from bundled .agents/skills)
  *
  * All steps run silently. The only user-facing loading bar lives in the
  * bootstrap installers (install.sh / install.ps1). Failures are swallowed;
@@ -29,11 +28,7 @@
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { VERSION } from "../../version.ts";
-import {
-  hasUv,
-  ensureUvInstalled,
-  upgradeGlobalToolPackages,
-} from "@bastani/atomic-sdk/lib/spawn";
+import { upgradeGlobalToolPackages } from "@bastani/atomic-sdk/lib/spawn";
 import { isInstalledPackage } from "@bastani/atomic-sdk/lib/runtime-env";
 import { installGlobalAgents } from "./agents.ts";
 import { installGlobalSkills } from "./skills.ts";
@@ -98,18 +93,13 @@ export async function autoSyncIfStale(): Promise<void> {
     stored = (await marker.text()).trim();
   }
 
-  if (stored === VERSION && hasUv()) return;
+  if (stored === VERSION) return;
 
-  const steps = stored === VERSION
-    ? [
-        silentStep(() => ensureUvInstalled({ quiet: true })),
-      ]
-    : [
-        silentStep(() => ensureUvInstalled({ quiet: true })),
-        silentStep(installGlobalAgents),
-        silentStep(upgradeGlobalToolPackages),
-        silentStep(installGlobalSkills),
-      ];
+  const steps = [
+    silentStep(installGlobalAgents),
+    silentStep(upgradeGlobalToolPackages),
+    silentStep(installGlobalSkills),
+  ];
 
   // All steps run in parallel and silently. Failures are swallowed so the
   // CLI can proceed. The marker is only written when every step succeeds;

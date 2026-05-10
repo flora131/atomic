@@ -85,9 +85,9 @@ Inside the chat, run:
 <details>
 <summary><b>Prerequisites, version pinning, devcontainer, SDK-only</b></summary>
 
-**Prerequisites** — Atomic spawns coding agents inside a tmux session, so the host needs:
+**Prerequisites** — Atomic runs a per-user daemon (`atomic --ui-server`) backed by Bun and OpenTUI — no tmux required. The host needs:
 
-- A terminal multiplexer — [tmux](https://github.com/tmux/tmux) (macOS/Linux) or [psmux](https://github.com/psmux/psmux) (Windows). Auto-installed on first `atomic` run via your platform's package manager.
+- [Bun](https://bun.sh/) runtime (the daemon auto-starts on first use).
 - At least one authenticated coding agent CLI — [Claude Code](https://code.claude.com/docs/en/quickstart), [OpenCode](https://opencode.ai), or [GitHub Copilot CLI](https://github.com/features/copilot/cli). Install and `claude` / `opencode` / `copilot` to authenticate.
 
 **Pin a version:** `bash install.sh 0.4.47` (same trailing-arg form works for `.ps1` and `.cmd`).
@@ -108,7 +108,7 @@ Templates per agent live in [`.devcontainer/`](./.devcontainer/).
 bun init -y && bun add @bastani/atomic-sdk @anthropic-ai/claude-agent-sdk
 ```
 
-You still need tmux/psmux + an authenticated agent CLI at runtime.
+`@bastani/atomic-sdk` declares the platform `@bastani/atomic` binary as an `optionalDependency`, so the daemon binary installs automatically alongside the SDK. An authenticated agent CLI is still required at runtime.
 
 </details>
 
@@ -274,7 +274,7 @@ Atomic ships two things that share one workflow runtime — use either or both.
 | **What you get**      | `atomic chat`, three built-in workflows, sessions, the workflow panel, atomic skills | `defineWorkflow`, `runWorkflow`, session primitives, typed errors |
 | **When to reach for** | Autonomous out-of-the-box behavior or interactive chat | Encode your own multi-session pipelines                     |
 
-Both call the same runtime (tmux/psmux session graph, provider SDKs, detach/reattach). Neither depends on the other.
+Both call the same runtime (daemon-managed session graph, provider SDKs, detach/reattach). Neither depends on the other.
 
 ---
 
@@ -351,7 +351,7 @@ Wire it to a CLI in `src/claude-worker.ts` and run with `bun run src/claude-work
 
 | Capability                       | Description                                                                                          |
 | -------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| **Dynamic session spawning**     | `ctx.stage()` spawns sessions at runtime — each gets its own tmux window and graph node              |
+| **Dynamic session spawning**     | `ctx.stage()` spawns sessions at runtime — each gets its own PTY stage and graph node               |
 | **Native TS control flow**       | `for`, `if/else`, `Promise.all()`, `try/catch` — no framework DSL                                    |
 | **Review gates & approvals**     | Pause for human input, run review stages, decide whether the next stage continues                   |
 | **Session return values**        | Callbacks return data: `const h = await ctx.stage(...); h.result`                                    |
@@ -450,7 +450,7 @@ Each directory has its own `README.md` with the run command and explanation. Run
 
 `@bastani/atomic-sdk/workflows` is a library, not just a CLI. Use it directly to ship your own TypeScript app that runs your team's workflows.
 
-> **SDK-only users:** you don't need the global `atomic` binary, but you still need [Bun](https://bun.sh/) (the SDK does not run on Node.js), tmux/psmux, and at least one authenticated agent CLI.
+> **SDK-only users:** you don't need the global `atomic` binary, but you still need [Bun](https://bun.sh/) (the SDK does not run on Node.js) and at least one authenticated agent CLI.
 
 ### Primitives
 
@@ -461,9 +461,8 @@ Each directory has its own `README.md` with the run command and explanation. Run
 | `listWorkflows / getWorkflow`                                                                              | Iterate or resolve `(agent, name)` → workflow                        |
 | `getName / getAgent / getInputSchema / getDescription / getSource / getMinSDKVersion`                      | Read workflow metadata                                               |
 | `validateInputs(wf, raw)`                                                                                  | Run the same validation pipeline atomic uses                         |
-| `runWorkflow({ workflow, inputs, detach?, pathToAtomicExecutable? })`                                      | Spawn the orchestrator session and (optionally) attach               |
-| `listSessions / getSession / stopSession / attachSession / detachSession / getSessionStatus / getSessionTranscript` | Manage running tmux sessions on the shared atomic socket             |
-| `nextWindow / previousWindow / gotoOrchestrator`                                                           | Pure tmux pane-navigation verbs                                      |
+| `runWorkflow({ workflow, inputs, detach? })`                                                               | Dispatch workflow to the daemon via `workflow/start`; returns `{ runId }` immediately when `detach: true` |
+| `connectToDaemon() / ensureStarted()`                                                                      | Low-level: open an authenticated `MessageConnection` to the daemon (or auto-spawn it first)          |
 | `MissingDependencyError / SessionNotFoundError / WorkflowNotCompiledError / InvalidWorkflowError / IncompatibleSDKError` | Typed errors — catch with `instanceof` for friendly CLI output       |
 
 ### Single workflow
@@ -509,22 +508,18 @@ See [`examples/multi-workflow/`](./examples/multi-workflow) for a full runnable 
 `runWorkflow` is a plain async function — no CLI required:
 
 ```ts
-const { id, tmuxSessionName } = await runWorkflow({
+const { runId } = await runWorkflow({
   workflow,
   inputs: { target_branch: "main" },
   detach: true,
 });
 ```
 
-Combine with `getSessionStatus(tmuxSessionName)` and `attachSession(id)` to build your own monitoring UI.
-
-### Overriding the self-exec target
-
-By default the SDK self-execs into its own bundled dispatcher; pass `pathToAtomicExecutable: "atomic"` (or an absolute path) to route through a separately installed binary instead — useful for custom builds or version pinning.
+`runId` is the stable daemon run identifier. Use `atomic workflow status <runId>` to inspect, `atomic workflow attach <runId>` to open a panel client, or connect directly via the JSON-RPC daemon (see [`packages/atomic-sdk/docs/ui-server.md`](packages/atomic-sdk/docs/ui-server.md)).
 
 ### Registering workflows with the `atomic` CLI
 
-Add an entry to `.atomic/settings.json` under `workflows`. Each entry points at an external command that exposes its workflow via `hostLocalWorkflows([wf])`:
+Add an entry to `.atomic/settings.json` under `workflows`. Each entry points at a TypeScript file that exports the workflow as its default export:
 
 ```jsonc
 {
@@ -538,7 +533,7 @@ Add an entry to `.atomic/settings.json` under `workflows`. Each entry points at 
 }
 ```
 
-Inside the entry file, end with `await hostLocalWorkflows([workflow])`. After editing `settings.json`, run `atomic workflow refresh` to re-spawn the metadata loader. Inspect saved artifacts with `atomic workflow read --sessionId <id> [--stageId <name>]` — points at `~/.atomic/sessions/<runId>/`.
+Inside the entry file, use `export default workflow` (not `hostLocalWorkflows` — that call is removed in atomic 2.0). After editing `settings.json`, run `atomic workflow refresh` to reload the registry. Inspect saved artifacts with `atomic workflow read --sessionId <id> [--stageId <name>]` — points at `~/.atomic/sessions/<runId>/`.
 
 For the full authoring playbook see the [`workflow-creator` skill](.agents/skills/workflow-creator/SKILL.md). The `custom-workflow-bunx` example is the minimal reference.
 
@@ -559,6 +554,8 @@ Two breaking changes:
 ## Containerized execution
 
 Atomic ships **devcontainer features** that bundle the CLI, agent, and dependencies into isolated containers — the recommended way to run autonomous agents safely.
+
+The daemon and workflow agent processes run on **Bun + OpenTUI alone** — tmux is not required inside the container or on the host.
 
 | Feature                              | Installs             |
 | ------------------------------------ | -------------------- |
@@ -583,38 +580,56 @@ Minimal `devcontainer.json`:
 }
 ```
 
+Start the daemon explicitly (optional — it also auto-starts on first `atomic workflow` run):
+
+```bash
+atomic --ui-server
+```
+
 Templates per agent live in [`.devcontainer/`](./.devcontainer/). First run takes ~1 minute to warm up.
 
 ---
 
 ## Workflow panel
 
-During `atomic workflow` execution, Atomic renders a live workflow panel built on [OpenTUI](https://github.com/anomalyco/opentui) over the workflow's tmux session graph: nodes per `.stage()` with status, edges for sequential / parallel dependencies, Ralph's task list with dependency arrows updated in real time, pane previews, and visible `s.save()` / `s.transcript()` handoffs.
+`atomic workflow ...` mounts an **OpenTUI panel client** that subscribes to `panel/update` notifications from the daemon. The panel renders: nodes per `.stage()` with status, edges for sequential / parallel dependencies, Ralph's task list with dependency arrows updated in real time, inline PTY scrollback per stage, and visible `s.save()` / `s.transcript()` handoffs.
 
-`atomic chat -a <agent>` has no Atomic-owned UI — it spawns the native agent CLI directly inside a tmux session, so chat features (streaming, `@` mentions, `/slash-commands`, model selection) come from the agent CLI itself.
+The panel is a daemon-protocol client — not an in-process component and not a tmux window. The daemon is the single source of truth for all workflow state; the panel renders whatever state the daemon pushes.
+
+**Multi-attach is first-class.** Multiple terminals can observe the same run simultaneously:
+
+```bash
+atomic workflow attach <runId>   # attach from any terminal; each renders independently
+```
+
+Pressing `q` or `Ctrl+C` disconnects the panel client. The run continues in the daemon; reattach at any time with `atomic workflow attach <runId>`.
+
+`atomic chat -a <agent>` has no Atomic-owned UI — it spawns the native agent CLI directly, so chat features (streaming, `@` mentions, `/slash-commands`, model selection) come from the agent CLI itself.
 
 ---
 
 ## Managing sessions
 
-Every chat and workflow runs inside an isolated tmux session on a dedicated socket (your personal tmux is untouched).
+Workflows are tracked as **runs** by the daemon. Each run has a stable `runId` used for list, inspect, stop, and attach operations. The daemon maps to JSON-RPC methods internally (`run/list`, `run/get`, `run/stop`); the CLI surfaces them as subcommands:
 
 ```bash
-atomic session list                 # all sessions
-atomic session connect              # interactive picker
-atomic session connect <name>       # by name
-atomic session kill                 # interactive multi-select
-atomic session kill --all --yes     # kill all, skip prompts
+atomic workflow list                        # list all runs (active + completed)
+atomic workflow status <runId>              # inspect a single run
+atomic workflow attach <runId>              # reattach an OpenTUI panel to a running run
+atomic workflow stop <runId>               # stop a run (SIGTERM to agent subprocesses)
 ```
 
-Session names follow `atomic-chat-<id>` or `atomic-wf-<workflow>-<id>`. Scope with `atomic chat session …` or `atomic workflow session …`. Filter by agent with `-a <agent>` (repeatable).
+Filter by agent with `-a <agent>` (repeatable) on `workflow list`.
 
 Run a workflow in the background with `-d` / `--detach`:
 
 ```bash
 atomic workflow -n ralph -a claude -d "build the auth module"
-atomic workflow session connect atomic-wf-claude-ralph-<id>
+# prints the runId, returns immediately — daemon keeps running
+atomic workflow attach <runId>              # attach later, from any terminal
 ```
+
+Detach/reattach is a connection-layer operation: disconnecting the panel client leaves the run untouched in the daemon. Any number of clients can attach to the same run simultaneously.
 
 ---
 
@@ -622,15 +637,17 @@ atomic workflow session connect atomic-wf-claude-ralph-<id>
 
 | Command                                    | Description                                                                                       |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------- |
-| `atomic chat -a <agent>`                   | Spawn the native agent CLI inside a tmux session                                                  |
+| `atomic --ui-server`                       | Start the per-user singleton daemon (JSON-RPC 2.0 over LSP-framed TCP loopback). Auto-started by the SDK and CLI on first use; run manually for inspection or to pre-warm. |
+| `atomic chat -a <agent>`                   | Spawn the native agent CLI directly                                                               |
 | `atomic workflow -n <name> -a <agent>`     | Run a built-in or registered workflow                                                             |
 | `atomic workflow`                          | Interactive picker (no `-n`)                                                                      |
+| `atomic workflow attach <runId>`           | Mount an OpenTUI panel client subscribed to a running (or completed) run; detach with `q` / `Ctrl+C` |
 | `atomic workflow list [-a <agent>]`        | List available workflows, grouped by source                                                       |
 | `atomic workflow refresh`                  | Reload custom workflows from `settings.json` and report loaded + broken entries                   |
 | `atomic workflow read --sessionId <id>`    | Print on-disk path under `~/.atomic/sessions/<runId>/`; add `--stageId <name>` for a single stage |
-| `atomic workflow status [<id>]`            | Query workflow state                                                                              |
+| `atomic workflow status [<runId>]`         | Query workflow run state (maps to `run/get` + `run/status` on the daemon)                        |
+| `atomic workflow stop <runId>`             | Stop a running workflow (maps to `run/stop`; sends SIGTERM to agent subprocesses)                 |
 | `atomic workflow inputs <name> -a <agent>` | Print a workflow's declared input schema as JSON                                                  |
-| `atomic session list / connect / kill`     | See [Managing sessions](#managing-sessions)                                                       |
 | `atomic completions <shell>`               | Output shell completion script (bash, zsh, fish, powershell)                                     |
 | `atomic config set <k> <v>`                | Set configuration values (`telemetry`, `scm`)                                                     |
 | `atomic update [--check]`                  | Self-update; PM-managed installs print the matching `<pm> update -g` hint                         |
@@ -638,13 +655,14 @@ atomic workflow session connect atomic-wf-claude-ralph-<id>
 
 ### `atomic workflow` flags
 
-| Flag                 | Description                                                                                                              |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `-n, --name <name>`  | Workflow name (required for direct runs; omit for the picker)                                                            |
-| `-a, --agent <name>` | `claude` \| `opencode` \| `copilot`                                                                                      |
-| `-d, --detach`       | Start in the background; attach later with `atomic workflow session connect <name>`                                      |
-| `--<field>=<value>`  | Structured input for workflows that declare an `inputs` schema                                                           |
-| `[prompt...]`        | Positional prompt — requires the workflow to declare a `prompt` input                                                    |
+| Flag                       | Description                                                                                                              |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `-n, --name <name>`        | Workflow name (required for direct runs; omit for the picker)                                                            |
+| `-a, --agent <name>`       | `claude` \| `opencode` \| `copilot`                                                                                      |
+| `-d, --detach`             | Start in the background; attach later with `atomic workflow attach <runId>`                                              |
+| `--<field>=<value>`        | Structured input for workflows that declare an `inputs` schema                                                           |
+| `[prompt...]`              | Positional prompt — requires the workflow to declare a `prompt` input                                                    |
+| `--render-pane=<runId>`    | **Internal-but-public.** Used by the CLI when mounting a panel client process. Connects to the daemon, subscribes to `panel/update` for `<runId>`, and renders the OpenTUI tree. Visible in `--help`. |
 
 ### Global flags
 
@@ -713,7 +731,7 @@ The bootstrap installer sets this up automatically.
 | ----------- | -------------------------------------------------------------------------------------------------------------------- |
 | `scm`       | Source control provider — `github`, `azure-devops`, or `sapling`. Reconciles the matching MCP servers on startup.    |
 | `providers` | Per-agent overrides (`claude`, `opencode`, `copilot`). `chatFlags` replaces defaults entirely; `envVars` are merged. |
-| `workflows` | Custom workflow registry — each value is `{ command, args?, agents }` pointing at a `hostLocalWorkflows([wf])` entry. Run `atomic workflow refresh` after editing. |
+| `workflows` | Custom workflow registry — each value is `{ command, args?, agents }` pointing at a file with `export default workflow`. Run `atomic workflow refresh` after editing. |
 
 ### Agent-specific files
 
@@ -809,7 +827,7 @@ Markdown is great for guidance: conventions, commands, repo notes. Use Claude Co
 | **Agent SDKs**     | OpenAI-compatible API                   | Claude Code + OpenCode + Copilot CLI native SDKs                                        |
 | **Execution**      | DAG with conditional edges              | Deterministic — strict step ordering, frozen definitions, controlled transcript passing |
 | **Sub-agents**     | Researcher / coder / reporter           | 12 specialized sub-agents with scoped tools                                             |
-| **Interface**      | Web UI (Streamlit)                      | Terminal chat with tmux session management                                              |
+| **Interface**      | Web UI (Streamlit)                      | Terminal chat with OpenTUI panel client and daemon-managed sessions                     |
 | **Autonomous**     | Not available                           | Ralph — bounded plan/implement/review/debug loop                                        |
 
 </details>

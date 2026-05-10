@@ -1,0 +1,14 @@
+{
+  "name": "@bastani/example-ui-server-client",
+  "private": true,
+  "version": "0.7.13",
+  "type": "module",
+  "description": "Minimal Bun client for the atomic daemon JSON-RPC UI server — connect, panel/subscribe, log 5 events, exit",
+  "scripts": {
+    "start": "bun run index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "vscode-jsonrpc": "^8.2.1"
+  }
+}

@@ -69,22 +69,52 @@ export class RunManager implements IRunManager {
     this.runs.set(runId, info);
     this.states.set(runId, state);
 
-    // Fire async execution in the background.
-    this.executeRun(state, info, source, inputs).catch((e: unknown) => {
-      // Do not overwrite terminal status set by a concurrent stop().
-      if (!state.isCancelled) {
-        const msg = e instanceof Error ? e.message : String(e);
-        state.setError(msg);
-        const runInfo = this.runs.get(runId);
-        if (runInfo) {
-          runInfo.status = "error";
-          runInfo.endedAt = new Date().toISOString();
-        }
-      }
+    void this.executeRun(state, info, source, inputs).catch((e: unknown) => {
+      this.markRunError(state, info, e);
     });
 
     return { runId };
   }
+
+  // ─── Terminal lifecycle helpers ───────────────────────────────────────────────
+
+  /**
+   * Idempotent. Transitions run to "complete".
+   * No-op if info.status !== "active" or state is already cancelled.
+   */
+  private markRunComplete(state: RunState, info: RunInfo): void {
+    if (info.status !== "active") return;
+    if (state.isCancelled) return;
+    info.status = "complete";
+    info.endedAt = new Date().toISOString();
+    state.markCompletionReached();
+  }
+
+  /**
+   * Idempotent. Transitions run to "error".
+   * No-op if info.status !== "active" or state is already cancelled.
+   */
+  private markRunError(state: RunState, info: RunInfo, err: unknown): void {
+    if (info.status !== "active") return;
+    if (state.isCancelled) return;
+    info.status = "error";
+    info.endedAt = new Date().toISOString();
+    const msg = err instanceof Error ? err.message : String(err);
+    state.setError(msg);
+  }
+
+  /**
+   * Idempotent. Transitions run to "cancelled".
+   * No-op if info.status !== "active".
+   */
+  private markRunCancelled(state: RunState, info: RunInfo): void {
+    if (info.status !== "active") return;
+    info.status = "cancelled";
+    info.endedAt = new Date().toISOString();
+    state.cancel(); // emits run/ended exactly once before clearing subscribers
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
 
   private async executeRun(
     state: RunState,
@@ -96,9 +126,14 @@ export class RunManager implements IRunManager {
       const mod = await import(source);
       // Validate the workflow module exports a callable run function.
       if (!mod.default || typeof mod.default.run !== "function") {
+        const detail =
+          mod.default === undefined
+            ? "no default export"
+            : `default.run is ${typeof mod.default.run}`;
+
         throw new Error(
           `Invalid workflow module "${source}": expected a default export with a run() function. ` +
-            `Got: ${mod.default === undefined ? "no default export" : typeof mod.default.run === "function" ? "ok" : `default.run is ${typeof mod.default.run}`}.`,
+            `Got: ${detail}.`,
         );
       }
       const ctx = new DaemonWorkflowContext({
@@ -109,32 +144,19 @@ export class RunManager implements IRunManager {
         supervisor: this.supervisor ?? noopSupervisor,
       });
       await mod.default.run(ctx);
-      // Do not overwrite terminal status set by a concurrent stop().
-      if (!state.isCancelled) {
-        state.markCompletionReached();
-        info.status = "complete";
-        info.endedAt = new Date().toISOString();
-      }
+      this.markRunComplete(state, info);
     } catch (e: unknown) {
-      // Do not overwrite terminal status set by a concurrent stop().
-      if (!state.isCancelled) {
-        const msg = e instanceof Error ? e.message : String(e);
-        state.setError(msg);
-        info.status = "error";
-        info.endedAt = new Date().toISOString();
-      }
+      this.markRunError(state, info, e);
     }
   }
 
   async stop(runId: string): Promise<void> {
     const info = this.runs.get(runId);
     const state = this.states.get(runId);
-    if (info) {
-      info.status = "cancelled";
-      info.endedAt = new Date().toISOString();
+    if (info && state) {
+      this.markRunCancelled(state, info);
     }
     if (state) {
-      state.cancel();   // emits run/ended exactly once before clearing subscribers
       state.dispose();
     }
   }

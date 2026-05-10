@@ -562,6 +562,135 @@ describe("RunManager", () => {
       expect(p.overall).toBe("error");
     });
   });
+
+  // ─── PID tracking & kill-on-stop ─────────────────────────────────────────────
+
+  describe("stop() — PID tracking and kill", () => {
+    test("stop() calls supervisor.kill(pid, SIGTERM) for active stage PIDs", async () => {
+      const fixturePath = join(import.meta.dir, "__fixtures__/with-one-stage.ts");
+      // Hanging supervisor: never calls onExit so PID stays active.
+      const killCalls: Array<{ pid: number; signal: string | undefined }> = [];
+      const hangingSupervisor: ISupervisor & { spawnCalls: SpawnCall[] } = {
+        spawnCalls: [],
+        async spawn(params) {
+          (this as { spawnCalls: SpawnCall[] }).spawnCalls.push(params as SpawnCall);
+          return { pid: 55555 };
+        },
+        sendInput: mock(() => {}),
+        getScrollback: mock(() => ({ data: "", headOffset: 0 })),
+        kill(pid, signal) {
+          killCalls.push({ pid, signal });
+        },
+      };
+
+      const manager = new RunManager({ supervisor: hangingSupervisor });
+      const { runId } = await manager.start({
+        source: fixturePath,
+        workflowName: "pid-kill-wf",
+        agent: "claude",
+        inputs: {},
+      });
+
+      // Give spawn a chance to register the PID.
+      await flushAsync();
+
+      await manager.stop(runId);
+
+      // kill must have been called with the stage PID and SIGTERM.
+      expect(killCalls.length).toBeGreaterThanOrEqual(1);
+      const firstKill = killCalls[0]!;
+      expect(firstKill.pid).toBe(55555);
+      expect(firstKill.signal).toBe("SIGTERM");
+    });
+
+    test("stop() does not call kill when no supervisor is injected", async () => {
+      // RunManager without supervisor — stop() must not throw.
+      const manager = new RunManager();
+      const { runId } = await manager.start({
+        source: "/dev/null/nonexistent.ts",
+        workflowName: "no-supervisor-kill-wf",
+        agent: "claude",
+        inputs: {},
+      });
+      await expect(manager.stop(runId)).resolves.toBeUndefined();
+    });
+
+    test("stop() does not kill PIDs of other runs", async () => {
+      const fixturePath = join(import.meta.dir, "__fixtures__/with-one-stage.ts");
+      const killCalls: Array<{ pid: number }> = [];
+      let spawnCount = 0;
+      const pidMap: Record<number, number> = { 0: 11111, 1: 22222 };
+      const hangingSupervisor: ISupervisor & { spawnCalls: SpawnCall[] } = {
+        spawnCalls: [],
+        async spawn(params) {
+          (this as { spawnCalls: SpawnCall[] }).spawnCalls.push(params as SpawnCall);
+          const pid = pidMap[spawnCount++]!;
+          return { pid };
+        },
+        sendInput: mock(() => {}),
+        getScrollback: mock(() => ({ data: "", headOffset: 0 })),
+        kill(pid, _signal) {
+          killCalls.push({ pid });
+        },
+      };
+
+      const manager = new RunManager({ supervisor: hangingSupervisor });
+      const { runId: runA } = await manager.start({
+        source: fixturePath,
+        workflowName: "pid-isolation-A",
+        agent: "claude",
+        inputs: {},
+      });
+      const { runId: runB } = await manager.start({
+        source: fixturePath,
+        workflowName: "pid-isolation-B",
+        agent: "claude",
+        inputs: {},
+      });
+
+      // Allow both spawns to register PIDs.
+      await flushAsync();
+
+      // Stop only runA.
+      await manager.stop(runA);
+
+      // Only PID 11111 (runA) should be killed; PID 22222 (runB) must not be.
+      const killedPids = killCalls.map((c) => c.pid);
+      expect(killedPids).toContain(11111);
+      expect(killedPids).not.toContain(22222);
+
+      // Cleanup runB.
+      await manager.stop(runB);
+    });
+
+    test("PID removed from tracking after stage exits normally", async () => {
+      const fixturePath = join(import.meta.dir, "__fixtures__/with-one-stage.ts");
+      const killCalls: Array<{ pid: number }> = [];
+      const supervisor = makeFakeSupervisor(0); // stage exits immediately
+      const origKill = supervisor.kill.bind(supervisor);
+      (supervisor as ISupervisor).kill = (pid, signal) => {
+        killCalls.push({ pid });
+        origKill(pid, signal);
+      };
+
+      const manager = new RunManager({ supervisor });
+      const { runId } = await manager.start({
+        source: fixturePath,
+        workflowName: "pid-released-wf",
+        agent: "claude",
+        inputs: {},
+      });
+
+      // Wait for stage to exit and PID to be released.
+      await flushAsync();
+
+      // stop() after stage already completed — no PIDs to kill.
+      await manager.stop(runId);
+
+      // kill should NOT have been called for the already-exited stage PID.
+      expect(killCalls.length).toBe(0);
+    });
+  });
 });
 
 // ─── outer .catch() on executeRun (lines 73-82) ──────────────────────────────

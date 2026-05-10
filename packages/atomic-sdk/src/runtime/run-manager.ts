@@ -151,6 +151,17 @@ export class RunManager implements IRunManager {
         inputs,
         state,
         supervisor: this.supervisor ?? noopSupervisor,
+        onStagePidRegistered: (rId, _stageName, pid) => {
+          let pids = this.runPids.get(rId);
+          if (!pids) {
+            pids = new Set<number>();
+            this.runPids.set(rId, pids);
+          }
+          pids.add(pid);
+        },
+        onStagePidReleased: (rId, _stageName, pid) => {
+          this.runPids.get(rId)?.delete(pid);
+        },
       });
       await mod.default.run(ctx);
       this.markRunComplete(state, info);
@@ -160,6 +171,19 @@ export class RunManager implements IRunManager {
   }
 
   async stop(runId: string): Promise<void> {
+    // Kill all active stage PIDs owned by this run before cancelling state.
+    const pids = this.runPids.get(runId);
+    if (pids && pids.size > 0 && this.supervisor) {
+      for (const pid of pids) {
+        try {
+          this.supervisor.kill(pid, "SIGTERM");
+        } catch {
+          // best-effort: process may have already exited
+        }
+      }
+    }
+    this.runPids.delete(runId);
+
     const info = this.runs.get(runId);
     const state = this.states.get(runId);
     if (info && state) {

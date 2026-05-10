@@ -33,6 +33,11 @@ interface CompletedStageRecord {
   sessionDir: string;
 }
 
+interface CompletedStageLookup {
+  stageName: string;
+  record: CompletedStageRecord;
+}
+
 /** Subset of SessionRunOptions that the daemon context cares about. */
 interface StageNameOptions {
   name: string;
@@ -97,6 +102,16 @@ export interface DaemonWorkflowContextOptions {
    * Defaults to ~/.atomic/sessions.
    */
   sessionsBaseDir?: string;
+  /**
+   * Called immediately after a stage subprocess is spawned and its PID is
+   * known.  RunManager uses this to register the PID for kill-on-stop.
+   */
+  onStagePidRegistered?: (runId: string, stageName: string, pid: number) => void;
+  /**
+   * Called when a stage subprocess exits (for any reason, including error).
+   * RunManager uses this to remove the PID from its active-PIDs set.
+   */
+  onStagePidReleased?: (runId: string, stageName: string, pid: number) => void;
 }
 
 // ─── DaemonWorkflowContext ────────────────────────────────────────────────────
@@ -118,6 +133,12 @@ export class DaemonWorkflowContext {
   private readonly state: RunState;
   private readonly supervisor: ISupervisor;
   private readonly sessionsBaseDir: string;
+  private readonly onStagePidRegistered:
+    | ((runId: string, stageName: string, pid: number) => void)
+    | undefined;
+  private readonly onStagePidReleased:
+    | ((runId: string, stageName: string, pid: number) => void)
+    | undefined;
 
   /** Completed stage records keyed by stage name. */
   private readonly completedStages = new Map<string, CompletedStageRecord>();
@@ -131,6 +152,8 @@ export class DaemonWorkflowContext {
     this.sessionsBaseDir =
       opts.sessionsBaseDir ??
       join(homedir(), ".atomic", "sessions");
+    this.onStagePidRegistered = opts.onStagePidRegistered;
+    this.onStagePidReleased = opts.onStagePidReleased;
   }
 
   // ─── stage() ───────────────────────────────────────────────────────────────
@@ -189,15 +212,7 @@ export class DaemonWorkflowContext {
   async transcript(
     ref: string | DaemonSessionHandle<unknown>,
   ): Promise<{ path: string; content: string }> {
-    const stageName = typeof ref === "string" ? ref : ref.name;
-    const record = this.completedStages.get(stageName);
-    if (!record) {
-      const available =
-        [...this.completedStages.keys()].join(", ") || "(none)";
-      throw new Error(
-        `No transcript for "${stageName}". Available: ${available}`,
-      );
-    }
+    const { record } = this.completedStage(ref, "transcript");
     const filePath = join(record.sessionDir, "inbox.md");
     const content = await readFile(filePath, "utf-8");
     return { path: filePath, content };
@@ -214,15 +229,7 @@ export class DaemonWorkflowContext {
   async getMessages(
     ref: string | DaemonSessionHandle<unknown>,
   ): Promise<Record<string, unknown>[]> {
-    const stageName = typeof ref === "string" ? ref : ref.name;
-    const record = this.completedStages.get(stageName);
-    if (!record) {
-      const available =
-        [...this.completedStages.keys()].join(", ") || "(none)";
-      throw new Error(
-        `No messages for "${stageName}". Available: ${available}`,
-      );
-    }
+    const { stageName, record } = this.completedStage(ref, "messages");
     const filePath = join(record.sessionDir, "messages.json");
     const raw = await readFile(filePath, "utf-8");
     const parsed: unknown = JSON.parse(raw);
@@ -235,6 +242,24 @@ export class DaemonWorkflowContext {
   }
 
   // ─── Private helpers ────────────────────────────────────────────────────────
+
+  private completedStage(
+    ref: string | DaemonSessionHandle<unknown>,
+    artifact: "messages" | "transcript",
+  ): CompletedStageLookup {
+    const stageName = typeof ref === "string" ? ref : ref.name;
+    const record = this.completedStages.get(stageName);
+    if (!record) {
+      throw new Error(
+        `No ${artifact} for "${stageName}". Available: ${this.availableStages()}`,
+      );
+    }
+    return { stageName, record };
+  }
+
+  private availableStages(): string {
+    return [...this.completedStages.keys()].join(", ") || "(none)";
+  }
 
   private async _runStage<T>(opts: {
     name: string;
@@ -252,7 +277,7 @@ export class DaemonWorkflowContext {
     this.state.sessionStarted(name);
 
     // ── 2. Spawn subprocess + build exit promise ────────────────────────────
-    let pid: number;
+    let pid: number | undefined;
     const exitPromise = new Promise<number>((resolveExit, rejectExit) => {
       this.supervisor
         .spawn({
@@ -265,6 +290,7 @@ export class DaemonWorkflowContext {
         })
         .then((result) => {
           pid = result.pid;
+          this.onStagePidRegistered?.(this.runId, name, pid);
         })
         .catch((spawnErr: unknown) => {
           rejectExit(spawnErr);
@@ -291,11 +317,16 @@ export class DaemonWorkflowContext {
       exitCode = await exitPromise;
     } catch (spawnErr: unknown) {
       const msg = spawnErr instanceof Error ? spawnErr.message : String(spawnErr);
+      // Release PID tracking if spawn had recorded a pid before failing.
+      if (pid != null) this.onStagePidReleased?.(this.runId, name, pid);
       this.state.sessionEnded(name, "error", msg);
       throw spawnErr;
     }
 
-    // ── 5. Update RunState ──────────────────────────────────────────────────
+    // ── 5. Release PID tracking ─────────────────────────────────────────────
+    if (pid != null) this.onStagePidReleased?.(this.runId, name, pid);
+
+    // ── 6. Update RunState ──────────────────────────────────────────────────
     if (exitCode === 0) {
       this.state.sessionEnded(name, "complete");
     } else {
@@ -306,7 +337,7 @@ export class DaemonWorkflowContext {
       );
     }
 
-    // ── 6. Record completion for transcript / getMessages lookup ────────────
+    // ── 7. Record completion for transcript / getMessages lookup ────────────
     this.completedStages.set(name, { sessionId, sessionDir });
 
     if (exitCode !== 0) {
@@ -327,7 +358,7 @@ export class DaemonWorkflowContext {
     name: string,
     sessionId: string,
     sessionDir: string,
-    getPid: () => number,
+    getPid: () => number | undefined,
   ): DaemonSessionContext {
     return {
       agent: this.agent,

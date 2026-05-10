@@ -41,6 +41,7 @@ const defaultSpawn: SpawnFn = async (cmd) => {
         const exitCode = await proc.exited;
         return { exitCode, stdout };
     } catch {
+        // Spawn or I/O failure (e.g. ENOENT for missing binary) — treat probe as failed.
         return { exitCode: null, stdout: "" };
     } finally {
         clearTimeout(timer);
@@ -88,6 +89,7 @@ export async function pmListsAtomic(
         if (exitCode !== 0) return false;
         return stdout.split("\n").some((line) => line.includes(ATOMIC_PACKAGE_NAME));
     } catch {
+        // Spawn, I/O, or JSON-parse failure — conservatively report package as unlisted.
         return false;
     }
 }
@@ -141,6 +143,7 @@ export function isInsideRepoCheckout(cwd: string = process.cwd()): boolean {
             if (parent === dir) return false;
             dir = parent;
         } catch {
+            // I/O error during walk (e.g. permission denied on readFileSync) — conservatively report as non-checkout.
             return false;
         }
     }

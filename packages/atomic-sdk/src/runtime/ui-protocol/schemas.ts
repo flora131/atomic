@@ -10,12 +10,77 @@ export type AgentType = z.infer<typeof AgentTypeSchema>;
 export const WorkflowOverallStatusSchema = z.enum(["complete", "error", "cancelled"]);
 export type WorkflowOverallStatus = z.infer<typeof WorkflowOverallStatusSchema>;
 
-// Opaque passthrough for WorkflowStatusSnapshot — spec says "passthrough record"
-export const WorkflowStatusSnapshotSchema = z.record(z.string(), z.unknown());
+// ---------------------------------------------------------------------------
+// WorkflowStatusSnapshot — runtime-owned disk/wire format (typed)
+// ---------------------------------------------------------------------------
+
+/** Status values for individual sessions within a snapshot. */
+export const WorkflowStatusSessionStatusSchema = z.enum([
+  "pending",
+  "running",
+  "complete",
+  "error",
+  "awaiting_input",
+]);
+export type WorkflowStatusSessionStatus = z.infer<typeof WorkflowStatusSessionStatusSchema>;
+
+/** Per-session entry within a WorkflowStatusSnapshot. */
+export const WorkflowStatusSessionSchema = z.object({
+  name: z.string(),
+  status: WorkflowStatusSessionStatusSchema,
+  parents: z.array(z.string()),
+  error: z.string().optional(),
+  startedAt: z.number().nullable(),
+  endedAt: z.number().nullable(),
+});
+export type WorkflowStatusSessionEntry = z.infer<typeof WorkflowStatusSessionSchema>;
+
+/**
+ * Overall status values for a snapshot (distinct from run/ended wire statuses).
+ * Matches status-writer.ts WorkflowOverallStatus.
+ */
+export const WorkflowStatusSnapshotOverallSchema = z.enum([
+  "in_progress",
+  "error",
+  "completed",
+  "needs_review",
+]);
+export type WorkflowStatusSnapshotOverall = z.infer<typeof WorkflowStatusSnapshotOverallSchema>;
+
+/**
+ * Typed snapshot persisted to disk and returned on run/status + panel/get.
+ * Schema is versioned (schemaVersion: 1). Runtime owns this shape entirely.
+ */
+export const WorkflowStatusSnapshotSchema = z.object({
+  schemaVersion: z.literal(1),
+  workflowRunId: z.string(),
+  tmuxSession: z.string(),
+  workflowName: z.string(),
+  /** Agent backend identifier — kept as string for forward compat. */
+  agent: z.string(),
+  prompt: z.string(),
+  overall: WorkflowStatusSnapshotOverallSchema,
+  completionReached: z.boolean(),
+  fatalError: z.string().nullable(),
+  /** ISO-8601 wall-clock time of the snapshot. */
+  updatedAt: z.string(),
+  sessions: z.array(WorkflowStatusSessionSchema),
+});
 export type WorkflowStatusSnapshot = z.infer<typeof WorkflowStatusSnapshotSchema>;
 
-// Opaque passthrough for SavedMessage — spec says "passthrough"
-export const SavedMessageSchema = z.record(z.string(), z.unknown());
+// ---------------------------------------------------------------------------
+// SavedMessage — discriminated union on provider; data is provider-owned
+// ---------------------------------------------------------------------------
+
+/**
+ * Saved transcript message from any provider.
+ * The `data` payload is opaque (provider SDK type) — intentionally z.unknown().
+ */
+export const SavedMessageSchema = z.discriminatedUnion("provider", [
+  z.object({ provider: z.literal("copilot"), data: z.unknown() }),
+  z.object({ provider: z.literal("opencode"), data: z.unknown() }),
+  z.object({ provider: z.literal("claude"), data: z.unknown() }),
+]);
 export type SavedMessage = z.infer<typeof SavedMessageSchema>;
 
 export const WorkflowInputTypeSchema = z.enum(["string", "text", "enum", "integer"]);
@@ -52,6 +117,7 @@ export const RunInfoSchema = z.object({
   status: z.string(),
   startedAt: z.string(),
   endedAt: z.string().optional(),
+  type: z.enum(["workflow", "chat"]).optional(),
 });
 export type RunInfo = z.infer<typeof RunInfoSchema>;
 
@@ -113,6 +179,10 @@ export const WorkflowStartParamsSchema = z.object({
   workflowName: z.string(),
   agent: AgentTypeSchema,
   inputs: z.record(z.string(), z.unknown()),
+  /** Initial PTY columns for visible workflow stages. */
+  cols: z.number().int().positive().optional(),
+  /** Initial PTY rows for visible workflow stages. */
+  rows: z.number().int().positive().optional(),
 });
 export type WorkflowStartParams = z.infer<typeof WorkflowStartParamsSchema>;
 
@@ -121,6 +191,23 @@ export const WorkflowStartResultSchema = z.object({
   attachable: z.literal(true),
 });
 export type WorkflowStartResult = z.infer<typeof WorkflowStartResultSchema>;
+
+// chat/start
+export const ChatStartParamsSchema = z.object({
+  agent: AgentTypeSchema,
+  args: z.array(z.string()),
+  env: z.record(z.string(), z.string()).optional(),
+  cwd: z.string().optional(),
+  cols: z.number().int().positive().optional(),
+  rows: z.number().int().positive().optional(),
+});
+export type ChatStartParams = z.infer<typeof ChatStartParamsSchema>;
+
+export const ChatStartResultSchema = z.object({
+  runId: z.string(),
+  attachable: z.literal(true),
+});
+export type ChatStartResult = z.infer<typeof ChatStartResultSchema>;
 
 // run/list
 export const RunListParamsSchema = z.object({
@@ -193,6 +280,37 @@ export type PaneSendInputParams = z.infer<typeof PaneSendInputParamsSchema>;
 export const PaneSendInputResultSchema = z.object({ ok: z.literal(true) });
 export type PaneSendInputResult = z.infer<typeof PaneSendInputResultSchema>;
 
+// pane/subscribeOutput
+export const PaneSubscribeOutputParamsSchema = z.object({
+  runId: z.string(),
+  stageName: z.string(),
+});
+export type PaneSubscribeOutputParams = z.infer<typeof PaneSubscribeOutputParamsSchema>;
+
+export const PaneSubscribeOutputResultSchema = z.object({
+  subscriptionId: z.string(),
+});
+export type PaneSubscribeOutputResult = z.infer<typeof PaneSubscribeOutputResultSchema>;
+
+// pane/unsubscribeOutput
+export const PaneUnsubscribeOutputParamsSchema = z.object({ subscriptionId: z.string() });
+export type PaneUnsubscribeOutputParams = z.infer<typeof PaneUnsubscribeOutputParamsSchema>;
+
+export const PaneUnsubscribeOutputResultSchema = z.object({ ok: z.literal(true) });
+export type PaneUnsubscribeOutputResult = z.infer<typeof PaneUnsubscribeOutputResultSchema>;
+
+// pane/resize
+export const PaneResizeParamsSchema = z.object({
+  runId: z.string(),
+  stageName: z.string(),
+  cols: z.number().int().positive(),
+  rows: z.number().int().positive(),
+});
+export type PaneResizeParams = z.infer<typeof PaneResizeParamsSchema>;
+
+export const PaneResizeResultSchema = z.object({ ok: z.literal(true) });
+export type PaneResizeResult = z.infer<typeof PaneResizeResultSchema>;
+
 // pane/getScrollback
 export const PaneGetScrollbackParamsSchema = z.object({
   runId: z.string(),
@@ -220,7 +338,10 @@ export const PanelSubscribeParamsSchema = z.object({
 });
 export type PanelSubscribeParams = z.infer<typeof PanelSubscribeParamsSchema>;
 
-export const PanelSubscribeResultSchema = z.object({ subscriptionId: z.string() });
+export const PanelSubscribeResultSchema = z.object({
+  subscriptionId: z.string(),
+  foregroundStage: z.string().nullable().optional(),
+});
 export type PanelSubscribeResult = z.infer<typeof PanelSubscribeResultSchema>;
 
 // panel/unsubscribe
@@ -344,6 +465,10 @@ export const MethodSchemas: Record<string, MethodSchemaEntry> = {
     params: WorkflowStartParamsSchema,
     result: WorkflowStartResultSchema,
   },
+  "chat/start": {
+    params: ChatStartParamsSchema,
+    result: ChatStartResultSchema,
+  },
   "run/list": {
     params: RunListParamsSchema,
     result: RunListResultSchema,
@@ -375,6 +500,18 @@ export const MethodSchemas: Record<string, MethodSchemaEntry> = {
   "pane/sendInput": {
     params: PaneSendInputParamsSchema,
     result: PaneSendInputResultSchema,
+  },
+  "pane/subscribeOutput": {
+    params: PaneSubscribeOutputParamsSchema,
+    result: PaneSubscribeOutputResultSchema,
+  },
+  "pane/unsubscribeOutput": {
+    params: PaneUnsubscribeOutputParamsSchema,
+    result: PaneUnsubscribeOutputResultSchema,
+  },
+  "pane/resize": {
+    params: PaneResizeParamsSchema,
+    result: PaneResizeResultSchema,
   },
   "pane/getScrollback": {
     params: PaneGetScrollbackParamsSchema,

@@ -963,10 +963,15 @@ describe("dispatch() non-TTY foreground — deterministic completion", () => {
     const conn = {
       sendRequest: mock(async (_method: string, params: unknown) => {
         sendRequestCalled = true;
-        dispatchRpcCalls.push(params as typeof dispatchRpcCalls[number]);
-        // Fire the buffered notification after sendRequest so waitPromise resolves.
-        Promise.resolve().then(() => capturedHandler?.({ runId: rpcRunId }));
-        return { runId: rpcRunId, attachable: true };
+        if (_method === "workflow/start") {
+          dispatchRpcCalls.push(params as typeof dispatchRpcCalls[number]);
+          // Fire the buffered notification after sendRequest so waitPromise resolves.
+          Promise.resolve().then(() => capturedHandler?.({ runId: rpcRunId }));
+          return { runId: rpcRunId, attachable: true };
+        }
+        if (_method === "run/get") return { runId: rpcRunId, status: "active" };
+        if (_method === "run/getAttachInfo") return { subscriptionId: "sub-1", foregroundStage: null };
+        return {};
       }),
       onNotification: mock((event: string, handler: (params: { runId: string }) => void) => {
         if (event === "run/ended") {
@@ -1000,11 +1005,16 @@ describe("dispatch() non-TTY foreground — deterministic completion", () => {
 
     const conn = {
       sendRequest: mock(async (_method: string, params: unknown) => {
-        dispatchRpcCalls.push(params as typeof dispatchRpcCalls[number]);
-        // Schedule notification AFTER this async function returns and dispatch
-        // sets pendingRunId (params.runId === pendingRunId path).
-        Promise.resolve().then(() => capturedHandler?.({ runId: rpcRunId }));
-        return { runId: rpcRunId, attachable: true };
+        if (_method === "workflow/start") {
+          dispatchRpcCalls.push(params as typeof dispatchRpcCalls[number]);
+          // Schedule notification AFTER this async function returns and dispatch
+          // sets pendingRunId (params.runId === pendingRunId path).
+          Promise.resolve().then(() => capturedHandler?.({ runId: rpcRunId }));
+          return { runId: rpcRunId, attachable: true };
+        }
+        if (_method === "run/get") return { runId: rpcRunId, status: "active" };
+        if (_method === "run/getAttachInfo") return { subscriptionId: "sub-1", foregroundStage: null };
+        return {};
       }),
       onNotification: mock((event: string, handler: (params: { runId: string }) => void) => {
         if (event === "run/ended") capturedHandler = handler;
@@ -1060,8 +1070,13 @@ describe("dispatch() non-TTY foreground — deterministic completion", () => {
 
     const conn = {
       sendRequest: mock(async (_method: string, params: unknown) => {
-        dispatchRpcCalls.push(params as typeof dispatchRpcCalls[number]);
-        return { runId: rpcRunId, attachable: true };
+        if (_method === "workflow/start") {
+          dispatchRpcCalls.push(params as typeof dispatchRpcCalls[number]);
+          return { runId: rpcRunId, attachable: true };
+        }
+        if (_method === "run/get") return { runId: rpcRunId, status: "active" };
+        if (_method === "run/getAttachInfo") return { subscriptionId: "sub-1", foregroundStage: null };
+        return {};
       }),
       onNotification: mock((event: string, handler: (params: { runId: string }) => void) => {
         // Synchronous notify → buffer path resolves waitPromise.
@@ -1091,12 +1106,17 @@ describe("dispatch() non-TTY foreground — deterministic completion", () => {
 
     const conn = {
       sendRequest: mock(async (_method: string, params: unknown) => {
-        dispatchRpcCalls.push(params as typeof dispatchRpcCalls[number]);
-        // Use a macrotask (setTimeout 0) so the notification fires AFTER dispatch
-        // resumes from await-sendRequest and sets pendingRunId.
-        // This exercises the `else if (params.runId === pendingRunId)` branch (line 310-311).
-        setTimeout(() => capturedHandler?.({ runId: rpcRunId }), 0);
-        return { runId: rpcRunId, attachable: true };
+        if (_method === "workflow/start") {
+          dispatchRpcCalls.push(params as typeof dispatchRpcCalls[number]);
+          // Use a macrotask (setTimeout 0) so the notification fires AFTER dispatch
+          // resumes from await-sendRequest and sets pendingRunId.
+          // This exercises the `else if (params.runId === pendingRunId)` branch (line 310-311).
+          setTimeout(() => capturedHandler?.({ runId: rpcRunId }), 0);
+          return { runId: rpcRunId, attachable: true };
+        }
+        if (_method === "run/get") return { runId: rpcRunId, status: "active" };
+        if (_method === "run/getAttachInfo") return { subscriptionId: "sub-1", foregroundStage: null };
+        return {};
       }),
       onNotification: mock((event: string, handler: (params: { runId: string }) => void) => {
         if (event === "run/ended") capturedHandler = handler;

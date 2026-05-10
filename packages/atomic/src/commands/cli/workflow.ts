@@ -271,7 +271,7 @@ export async function dispatch(
     return;
   }
 
-  const { ensureStarted } = await import("@bastani/atomic-sdk/runtime/daemon");
+  const { ensureStarted, closeDaemonConnection } = await import("@bastani/atomic-sdk/runtime/daemon");
   const { getSource, getName, getAgent } = await import("@bastani/atomic-sdk/primitives/metadata");
 
   const conn = await ensureStarted();
@@ -280,6 +280,8 @@ export async function dispatch(
     workflowName: getName(workflow),
     agent: getAgent(workflow),
     inputs: cliInputs,
+    cols: process.stdout.columns ?? 120,
+    rows: Math.max(1, (process.stdout.rows ?? 40) - 1),
   };
   async function startWorkflow(): Promise<WorkflowStartResult> {
     return await conn.sendRequest("workflow/start", startParams) as WorkflowStartResult;
@@ -287,24 +289,24 @@ export async function dispatch(
 
   if (detach) {
     const result = await startWorkflow();
-    conn.dispose();
+    closeDaemonConnection(conn);
     process.stdout.write(`[atomic/workflow] run started: ${result.runId}\n`);
     return;
   }
 
   if (process.stdout.isTTY) {
     const result = await startWorkflow();
-    conn.dispose();
+    closeDaemonConnection(conn);
     const { PanelClient } = await import("@bastani/atomic-sdk/components/panel-client");
     await PanelClient.mount({ runId: result.runId });
   } else {
-    // Non-TTY foreground: register run/ended BEFORE workflow/start to close race
-    // where daemon completes before the handler is subscribed.
-    //
-    // waitPromise is created first so resolveEnded/rejectEnded are always
-    // initialised before any handler can fire.
+    // Non-TTY foreground: register the local handler before workflow/start,
+    // then subscribe to the run once the daemon returns its run id. `run/get`
+    // closes the race where a short failing run ends before the subscription
+    // exists; without it CI/agent callers can wait forever.
     let pendingRunId: string | undefined;
-    const buffered: Array<{ runId: string }> = [];
+    const buffered: Array<{ runId: string; overall?: string; fatalError?: string }> = [];
+    let settled = false;
     let resolveEnded!: () => void;
     let rejectEnded!: (err: Error) => void;
 
@@ -313,16 +315,29 @@ export async function dispatch(
       rejectEnded = reject;
     });
 
-    const notifDisposable = conn.onNotification("run/ended", (params: { runId: string }) => {
-      if (pendingRunId === undefined) {
-        buffered.push(params);
-      } else if (params.runId === pendingRunId) {
-        resolveEnded();
+    const settleFromEnded = (params: { runId: string; overall?: string; fatalError?: string }) => {
+      if (settled) return;
+      settled = true;
+      if (params.overall === "error") {
+        rejectEnded(new Error(params.fatalError ?? `[atomic] workflow ${params.runId} failed`));
+        return;
       }
-    });
+      resolveEnded();
+    };
+
+    const notifDisposable = conn.onNotification(
+      "run/ended",
+      (params: { runId: string; overall?: string; fatalError?: string }) => {
+        if (pendingRunId === undefined) {
+          buffered.push(params);
+        } else if (params.runId === pendingRunId) {
+          settleFromEnded(params);
+        }
+      },
+    );
 
     const closeDisposable = conn.onClose(() => {
-      rejectEnded(new Error("[atomic] daemon connection closed before run/ended"));
+      if (!settled) rejectEnded(new Error("[atomic] daemon connection closed before run/ended"));
     });
 
     const result = await startWorkflow();
@@ -330,15 +345,28 @@ export async function dispatch(
     const { runId } = result;
     pendingRunId = runId;
 
-    if (buffered.some((n) => n.runId === runId)) {
-      resolveEnded();
+    await conn.sendRequest("run/getAttachInfo", { runId });
+
+    const runInfo = await conn.sendRequest("run/get", { runId }) as
+      | { status?: string }
+      | null;
+    if (runInfo?.status && runInfo.status !== "active") {
+      settleFromEnded({
+        runId,
+        overall: runInfo.status === "complete" ? "complete" : "error",
+      });
+    }
+
+    const bufferedMatch = buffered.find((n) => n.runId === runId);
+    if (bufferedMatch) {
+      settleFromEnded(bufferedMatch);
     }
 
     await waitPromise;
 
     notifDisposable.dispose();
     closeDisposable.dispose();
-    conn.dispose();
+    closeDaemonConnection(conn);
   }
 }
 
@@ -421,7 +449,7 @@ export function buildWorkflowCommand(
   // on every call so post-rebuild custom inputs are still parsed.
   applyDynamicOptions(cmd, registry);
 
-  cmd.option("-d, --detach", "Run workflow in background (detach from tmux)");
+  cmd.option("-d, --detach", "Run workflow in background (detach the panel client)");
 
   cmd.addOption(
     new Option("--render-pane <runId>", "Internal: run ID to attach the panel client to (used by the CLI daemon path)")
@@ -461,13 +489,19 @@ export function buildWorkflowCommand(
       }
     }
 
-    // Free-form workflows: collapse the trailing positional args into
-    // `inputs.prompt` so workflow authors can keep reading
-    // `ctx.inputs.prompt` regardless of declared schema.
+    // Collapse trailing positional args into `inputs.prompt` for both
+    // free-form workflows and workflows that explicitly declare a `prompt`
+    // input (e.g. ralph). Previously the daemon path forwarded an empty input
+    // map for declared-prompt workflows, so runs started with `ctx.inputs.prompt`
+    // blank and failed server-side instead of receiving the user's task.
     const promptStr = promptTokens.join(" ");
     if (promptStr !== "" && name && agent) {
       const def = effectiveRegistry.resolve(name, agent);
-      if (def && getInputSchema(def).length === 0) {
+      const schema = def ? getInputSchema(def) : [];
+      if (
+        cliInputs["prompt"] === undefined &&
+        (schema.length === 0 || schema.some((input) => input.name === "prompt"))
+      ) {
         cliInputs["prompt"] = promptStr;
       }
     }

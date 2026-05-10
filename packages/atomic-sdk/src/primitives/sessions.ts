@@ -2,11 +2,11 @@
  * Session-management primitives.
  *
  * Thin RPC clients over the atomic daemon JSON-RPC. Consumers (atomic CLI,
- * third-party CLIs, embedding TUIs) call these instead of touching tmux
- * commands or the status-writer schema directly.
+ * third-party CLIs, embedding TUIs) call these instead of touching daemon
+ * internals or the status-writer schema directly.
  */
 
-import { connectToDaemon } from "../runtime/daemon.ts";
+import { ensureStarted } from "../runtime/daemon.ts";
 import type { RunInfo } from "../runtime/ui-protocol/schemas.ts";
 import type { WorkflowStatusSnapshot } from "../runtime/status-writer.ts";
 import type { AgentType, SavedMessage } from "../types.ts";
@@ -21,7 +21,7 @@ export type StatusSnapshot = WorkflowStatusSnapshot;
 
 /** Single session entry returned by `listSessions` / `getSession`. */
 export interface SessionInfo {
-  /** Run id (replaces tmux session name). */
+  /** Daemon run id. */
   id: string;
   /** Always "workflow" for daemon-managed runs. */
   type?: "workflow" | "chat";
@@ -43,6 +43,8 @@ export interface ListSessionsOptions {
   agent?: AgentType | readonly AgentType[];
   /** Restrict by session kind. Defaults to `"all"`. */
   scope?: SessionScope;
+  /** Restrict by daemon run lifecycle. Defaults to `"active"` for session UX. */
+  status?: "active" | "completed" | "all";
 }
 
 /**
@@ -69,10 +71,10 @@ export interface SessionPrimitiveDeps {
   setForeground(runId: string, stageName?: string): Promise<void>;
 }
 
-/** Default deps — wires through to the real daemon JSON-RPC implementations. */
+/** Default deps — auto-start the daemon, then wire through to JSON-RPC implementations. */
 const defaultDeps: SessionPrimitiveDeps = {
   listRuns: async (scope) => {
-    const conn = await connectToDaemon();
+    const conn = await ensureStarted();
     try {
       return await conn.sendRequest("run/list", { scope }) as RunInfo[];
     } finally {
@@ -80,7 +82,7 @@ const defaultDeps: SessionPrimitiveDeps = {
     }
   },
   getRun: async (runId) => {
-    const conn = await connectToDaemon();
+    const conn = await ensureStarted();
     try {
       return await conn.sendRequest("run/get", { runId }) as RunInfo | null;
     } finally {
@@ -88,7 +90,7 @@ const defaultDeps: SessionPrimitiveDeps = {
     }
   },
   stopRun: async (runId) => {
-    const conn = await connectToDaemon();
+    const conn = await ensureStarted();
     try {
       await conn.sendRequest("run/stop", { runId });
     } finally {
@@ -96,7 +98,7 @@ const defaultDeps: SessionPrimitiveDeps = {
     }
   },
   getRunStatus: async (runId) => {
-    const conn = await connectToDaemon();
+    const conn = await ensureStarted();
     try {
       return await conn.sendRequest("run/status", { runId }) as StatusSnapshot | null;
     } finally {
@@ -104,7 +106,7 @@ const defaultDeps: SessionPrimitiveDeps = {
     }
   },
   getRunTranscript: async (runId, sessionName) => {
-    const conn = await connectToDaemon();
+    const conn = await ensureStarted();
     try {
       return await conn.sendRequest("run/transcript", { runId, sessionName }) as SavedMessage[];
     } finally {
@@ -112,7 +114,7 @@ const defaultDeps: SessionPrimitiveDeps = {
     }
   },
   getAttachInfo: async (runId) => {
-    const conn = await connectToDaemon();
+    const conn = await ensureStarted();
     try {
       return await conn.sendRequest("run/getAttachInfo", { runId }) as { subscriptionId: string; foregroundStage: string | null };
     } finally {
@@ -120,7 +122,7 @@ const defaultDeps: SessionPrimitiveDeps = {
     }
   },
   setForeground: async (runId, stageName) => {
-    const conn = await connectToDaemon();
+    const conn = await ensureStarted();
     try {
       await conn.sendRequest("run/setForeground", { runId, stageName });
     } finally {
@@ -135,7 +137,7 @@ const defaultDeps: SessionPrimitiveDeps = {
 function runInfoToSessionInfo(r: RunInfo): SessionInfo {
   return {
     id: r.runId,
-    type: "workflow",
+    type: r.type ?? "workflow",
     agent: r.agent,
     created: r.startedAt,
     attached: false,
@@ -168,7 +170,7 @@ export async function listSessions(
   // SessionScope ("chat" | "workflow" | "all") is a session-type filter.
   // run/list uses "active" | "completed" | "all". Always fetch "all" and
   // let the session-type filter below narrow the results.
-  const runs = await deps.listRuns("all");
+  const runs = await deps.listRuns(options.status ?? "active");
   let sessions = runs.map(runInfoToSessionInfo);
 
   if (options.scope === "chat") sessions = sessions.filter((s) => s.type === "chat");

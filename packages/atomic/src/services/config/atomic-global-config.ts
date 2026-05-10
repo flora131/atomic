@@ -158,6 +158,7 @@ async function removeEmptyDirectoryIfPresent(pathToDirectory: string): Promise<v
       return;
     }
   } catch {
+    // lstat failed — directory absent or inaccessible; nothing to remove.
     return;
   }
 

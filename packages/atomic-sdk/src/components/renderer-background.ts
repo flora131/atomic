@@ -7,7 +7,7 @@ export function setRendererBackground(
 ): void {
   renderer.setBackgroundColor(color);
   if (syncTerminalDefault) {
-    process.stdout.write(wrapForTmuxIfNeeded(terminalBackgroundColorSequence(color)));
+    process.stdout.write(terminalBackgroundColorSequence(color));
   }
 }
 
@@ -20,11 +20,6 @@ export function requestRendererBackgroundRepaint(renderer: CliRenderer): void {
 }
 
 export function resetRendererTerminalBackground(renderer: CliRenderer): void {
-  if (process.env.TMUX) {
-    process.stdout.write(wrapForTmuxIfNeeded("\x1b]111\x07"));
-    return;
-  }
-
   renderer.resetTerminalBgColor();
 }
 
@@ -38,12 +33,3 @@ export function terminalBackgroundColorSequence(color: string): string {
   return `\x1b]11;rgb:${hex.slice(0, 2)}/${hex.slice(2, 4)}/${hex.slice(4, 6)}\x07`;
 }
 
-export function wrapForTmuxIfNeeded(sequence: string): string {
-  if (!process.env.TMUX) return sequence;
-
-  let escaped = "";
-  for (const char of sequence) {
-    escaped += char === "\x1b" ? "\x1b\x1b" : char;
-  }
-  return `\x1bPtmux;${escaped}\x1b\\`;
-}

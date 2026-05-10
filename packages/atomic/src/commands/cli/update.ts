@@ -110,6 +110,7 @@ async function runBinaryUpdate(opts: UpdateOptions, target: string): Promise<num
             () => target === "latest" ? getLatestRelease() : getReleaseByTag(`v${target}`),
         );
     } catch {
+        // step() already displayed the error via the spinner; map to non-zero exit.
         return 1;
     }
 

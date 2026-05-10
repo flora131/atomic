@@ -14,6 +14,7 @@ export const INFO_COMMAND_ARGV0 = [
     "uninstall",
     "update",
     "completions",
+    "daemon",
     "_claude-stop-hook",
     "_claude-ask-hook",
     "_claude-session-start-hook",

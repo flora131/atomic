@@ -85,7 +85,7 @@ const AGENT_CLI: Record<
 > = {
   copilot: {
     cmd: "copilot",
-    chatFlags: ["--add-dir", ".", "--yolo", "--experimental"],
+    chatFlags: ["--add-dir", ".", "--yolo", "--experimental", "--no-mouse"],
     envVars: {
       COPILOT_ALLOW_ALL: "true",
     },

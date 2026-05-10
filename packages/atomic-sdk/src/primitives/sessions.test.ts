@@ -102,11 +102,11 @@ describe("listSessions", () => {
     expect(result.every((s) => s.type === "workflow")).toBe(true);
   });
 
-  test("scope 'chat' filters out workflow sessions (all filtered)", async () => {
-    const runs = [makeRun({ runId: "r1" })];
+  test("scope 'chat' returns chat sessions", async () => {
+    const runs = [makeRun({ runId: "r1", type: "chat", workflowName: "chat:claude" })];
     const result = await listSessions({ scope: "chat" }, makeDeps({ listRuns: async () => runs }));
-    // All daemon runs are type "workflow" so chat scope returns []
-    expect(result).toEqual([]);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.type).toBe("chat");
   });
 
   test("filters by agent", async () => {
@@ -308,15 +308,19 @@ describe("getSessionTranscript", () => {
 // ─── defaultDeps coverage — via mock.module ───────────────────────────────────
 //
 // The `defaultDeps` object contains 7 async functions that each call
-// `connectToDaemon()` and forward the RPC result. To cover these without
-// a real daemon, we intercept the `connectToDaemon` module export via
+// `ensureStarted()` and forward the RPC result. To cover these without
+// a real daemon, we intercept the `ensureStarted` module export via
 // `mock.module` and exercise each function by calling the public API
-// without injecting custom deps (so the defaults are used).
+// without injecting custom deps (so the defaults are used). This also
+// protects the dev-mode path: session primitives must use the same daemon
+// auto-spawn resolver as workflow runs, so source checkouts launch
+// `packages/atomic/src/cli.ts --ui-server` instead of requiring an installed
+// `@bastani/atomic` binary.
 //
 // Note: mock.module must be called before the module under test is imported,
 // so we use a fresh dynamic import after setting up the mock.
 
-describe("defaultDeps — connectToDaemon wiring", () => {
+describe("defaultDeps — ensureStarted wiring", () => {
   // Build a reusable fake connection factory.
   function makeFakeConn(sendRequest: (method: string, params: unknown) => Promise<unknown>) {
     return {
@@ -332,7 +336,7 @@ describe("defaultDeps — connectToDaemon wiring", () => {
     const fakeConn = makeFakeConn(async (_method) => fakeRunList);
 
     await mock.module("../runtime/daemon.ts", () => ({
-      connectToDaemon: mock(async () => fakeConn),
+      ensureStarted: mock(async () => fakeConn),
     }));
 
     const { listSessions: ls } = await import("./sessions.ts");
@@ -354,7 +358,7 @@ describe("defaultDeps — connectToDaemon wiring", () => {
     const fakeConn = makeFakeConn(async () => fakeRun);
 
     await mock.module("../runtime/daemon.ts", () => ({
-      connectToDaemon: mock(async () => fakeConn),
+      ensureStarted: mock(async () => fakeConn),
     }));
 
     const { getSession: gs } = await import("./sessions.ts");
@@ -369,7 +373,7 @@ describe("defaultDeps — connectToDaemon wiring", () => {
     const fakeConn = makeFakeConn(async () => undefined);
 
     await mock.module("../runtime/daemon.ts", () => ({
-      connectToDaemon: mock(async () => fakeConn),
+      ensureStarted: mock(async () => fakeConn),
     }));
 
     const { stopSession: ss } = await import("./sessions.ts");
@@ -384,7 +388,7 @@ describe("defaultDeps — connectToDaemon wiring", () => {
     const fakeConn = makeFakeConn(async () => fakeStatus);
 
     await mock.module("../runtime/daemon.ts", () => ({
-      connectToDaemon: mock(async () => fakeConn),
+      ensureStarted: mock(async () => fakeConn),
     }));
 
     const { getSessionStatus: gss } = await import("./sessions.ts");
@@ -399,7 +403,7 @@ describe("defaultDeps — connectToDaemon wiring", () => {
     const fakeConn = makeFakeConn(async () => fakeMessages);
 
     await mock.module("../runtime/daemon.ts", () => ({
-      connectToDaemon: mock(async () => fakeConn),
+      ensureStarted: mock(async () => fakeConn),
     }));
 
     const { getSessionTranscript: gst } = await import("./sessions.ts");
@@ -418,7 +422,7 @@ describe("defaultDeps — connectToDaemon wiring", () => {
     const fakeConn = makeFakeConn(async () => fakeAttach);
 
     await mock.module("../runtime/daemon.ts", () => ({
-      connectToDaemon: mock(async () => fakeConn),
+      ensureStarted: mock(async () => fakeConn),
     }));
 
     const { attachSession: as } = await import("./sessions.ts");
@@ -433,7 +437,7 @@ describe("defaultDeps — connectToDaemon wiring", () => {
     const fakeConn = makeFakeConn(async () => undefined);
 
     await mock.module("../runtime/daemon.ts", () => ({
-      connectToDaemon: mock(async () => fakeConn),
+      ensureStarted: mock(async () => fakeConn),
     }));
 
     const { nextWindow: nw } = await import("./sessions.ts");
@@ -450,7 +454,7 @@ describe("defaultDeps — connectToDaemon wiring", () => {
     // Restore the real daemon module exports to prevent mock.module leakage to
     // other test files sharing the same Bun worker. Without this, daemon.test.ts
     // (and any other file that imports daemon.ts) would receive a mock
-    // connectToDaemon instead of the real one.
+    // ensureStarted instead of the real one.
     await mock.module("../runtime/daemon.ts", () => ({
       connectToDaemon: _realConnectToDaemon,
       ensureStarted: _realEnsureStarted,

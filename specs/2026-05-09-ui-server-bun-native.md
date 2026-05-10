@@ -294,9 +294,10 @@ Standard JSON-RPC reserves `-32700`..`-32603`. Atomic-specific codes live in `-3
 
 **`atomicBinaryPath` resolution.**
 1. `process.env.ATOMIC_BINARY` (override).
-2. `require.resolve(\`@bastani/atomic-${platform}-${arch}/bin/atomic\`)` — the bundled platform binary.
-3. `Bun.which("atomic")` — globally-installed CLI on PATH.
-4. Fail with `MissingDependencyError("@bastani/atomic")`.
+2. Workspace developer mode: when the current process is `packages/atomic/src/cli.ts` (for example `bun run dev`), spawn `bun packages/atomic/src/cli.ts --ui-server`.
+3. `require.resolve(\`@bastani/atomic-${platform}-${arch}/bin/atomic\`)` — the bundled platform binary.
+4. `Bun.which("atomic")` — globally-installed CLI on PATH.
+5. Fail with `MissingDependencyError("@bastani/atomic")`.
 
 ### 5.3 Process Supervisor (replaces tmux)
 

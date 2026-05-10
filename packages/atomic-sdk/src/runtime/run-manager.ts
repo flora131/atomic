@@ -56,8 +56,10 @@ export class RunManager implements IRunManager {
     workflowName: string;
     agent: AgentType;
     inputs: Record<string, unknown>;
+    cols?: number;
+    rows?: number;
   }): Promise<{ runId: string }> {
-    const { source, workflowName, agent, inputs } = params;
+    const { source, workflowName, agent, inputs, cols, rows } = params;
     const runId = randomUUID();
 
     const state = new RunState({
@@ -71,6 +73,7 @@ export class RunManager implements IRunManager {
       runId,
       workflowName,
       agent,
+      type: "workflow",
       status: "active",
       startedAt: new Date().toISOString(),
     };
@@ -78,9 +81,82 @@ export class RunManager implements IRunManager {
     this.runs.set(runId, info);
     this.states.set(runId, state);
 
-    void this.executeRun(state, info, source, inputs).catch((e: unknown) => {
+    void this.executeRun(state, info, source, inputs, { cols, rows }).catch((e: unknown) => {
       this.markRunError(state, info, e);
     });
+
+    return { runId };
+  }
+
+  async startChat(params: {
+    agent: AgentType;
+    args: string[];
+    env?: Record<string, string>;
+    cwd?: string;
+    cols?: number;
+    rows?: number;
+  }): Promise<{ runId: string }> {
+    const runId = randomUUID();
+    const workflowName = `chat:${params.agent}`;
+    const state = new RunState({
+      runId,
+      workflowName,
+      agent: params.agent,
+      projectRoot: params.cwd ?? this.cwd,
+    });
+    const info: RunInfo = {
+      runId,
+      workflowName,
+      agent: params.agent,
+      type: "chat",
+      status: "active",
+      startedAt: new Date().toISOString(),
+    };
+
+    this.runs.set(runId, info);
+    this.states.set(runId, state);
+    state.addStage({ name: "chat", status: "running" });
+    state.sessionStarted("chat");
+
+    if (!this.supervisor) {
+      const err = new Error("No ISupervisor injected into RunManager — cannot start chat.");
+      this.markRunError(state, info, err);
+      throw err;
+    }
+
+    try {
+      let chatPid: number | undefined;
+      const result = await this.supervisor.spawn({
+        runId,
+        stageName: "chat",
+        agent: params.agent,
+        args: params.args,
+        env: params.env,
+        cwd: params.cwd,
+        cols: params.cols,
+        rows: params.rows,
+        onExit: (exitCode, signal) => {
+          if (chatPid !== undefined) this.runPids.get(runId)?.delete(chatPid);
+          if (info.status !== "active") return;
+          const ok = exitCode === 0;
+          state.sessionEnded(
+            "chat",
+            ok ? "complete" : "error",
+            ok ? undefined : `chat exited with code ${exitCode}${signal ? ` (${signal})` : ""}`,
+          );
+          if (ok) this.markRunComplete(state, info);
+          else this.markRunError(state, info, new Error(`chat exited with code ${exitCode}`));
+        },
+      });
+      chatPid = result.pid;
+      this.runPids.set(runId, new Set([result.pid]));
+      state.setForeground("chat");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      state.sessionEnded("chat", "error", msg);
+      this.markRunError(state, info, err);
+      throw err;
+    }
 
     return { runId };
   }
@@ -130,6 +206,7 @@ export class RunManager implements IRunManager {
     info: RunInfo,
     source: string,
     inputs: Record<string, unknown>,
+    terminalSize: { cols?: number; rows?: number } = {},
   ): Promise<void> {
     try {
       const mod = await import(source);
@@ -151,6 +228,8 @@ export class RunManager implements IRunManager {
         inputs,
         state,
         supervisor: this.supervisor ?? noopSupervisor,
+        initialCols: terminalSize.cols,
+        initialRows: terminalSize.rows,
         onStagePidRegistered: (rId, _stageName, pid) => {
           let pids = this.runPids.get(rId);
           if (!pids) {
@@ -172,11 +251,14 @@ export class RunManager implements IRunManager {
 
   async stop(runId: string): Promise<void> {
     // Kill all active stage PIDs owned by this run before cancelling state.
-    const pids = this.runPids.get(runId);
-    if (pids && pids.size > 0 && this.supervisor) {
+    const pids = [...(this.runPids.get(runId) ?? [])];
+    if (pids.length > 0 && this.supervisor) {
+      // Stop must be immediate for panel quit/session kill. Use SIGKILL right
+      // away instead of a graceful-delay cascade; Supervisor still routes this
+      // through bun-pty first-class cleanup and best-effort descendant reaping.
       for (const pid of pids) {
         try {
-          this.supervisor.kill(pid, "SIGTERM");
+          this.supervisor.kill(pid, "SIGKILL");
         } catch {
           // best-effort: process may have already exited
         }

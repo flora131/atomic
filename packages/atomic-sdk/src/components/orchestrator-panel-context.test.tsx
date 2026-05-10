@@ -1,21 +1,10 @@
 /** @jsxImportSource @opentui/react */
-/**
- * Tests for OrchestratorPanel.attachOffloadManager — setter-based wiring.
- */
 
 import { test, expect, mock } from "bun:test";
 import { OrchestratorPanel } from "./orchestrator-panel.tsx";
-import type { OffloadManager } from "../runtime/offload-manager.ts";
 import type { CliRenderer } from "@opentui/core";
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
 function makeStubRenderer(): CliRenderer {
-  // Minimal stub satisfying the surface used by createWithRenderer.
-  // Note: React's scheduler dispatches async reconciler work after render;
-  // this stub intentionally omits low-level renderer internals (getChildren,
-  // etc.) so those async tasks may throw unhandled errors. The synchronous
-  // test assertions below still pass correctly.
   return {
     themeMode: null,
     width: 80,
@@ -46,49 +35,18 @@ function makeStubRenderer(): CliRenderer {
   } as unknown as CliRenderer;
 }
 
-function makeStubOffloadManager(): OffloadManager {
-  return {
-    registerSession: mock(async () => {}),
-    offloadSession: mock(async () => {}),
-    onWorkflowCompletion: mock(async () => {}),
-    requestResume: mock(async () => {}),
-    getStatus: mock(() => "alive" as const),
-  };
-}
-
-// ─── Tests ────────────────────────────────────────────────────────────────────
-
-test("OrchestratorPanel exposes attachOffloadManager method", () => {
+test("OrchestratorPanel creates with renderer and exposes PanelStore", () => {
   const renderer = makeStubRenderer();
-  const panel = OrchestratorPanel.createWithRenderer(renderer, { tmuxSession: "test-session" });
-  expect(typeof panel.attachOffloadManager).toBe("function");
+  const panel = OrchestratorPanel.createWithRenderer(renderer);
+  expect(panel.getPanelStore()).toBeDefined();
   panel.destroy();
 });
 
-test("attachOffloadManager does not throw when called with valid manager", () => {
+test("OrchestratorPanel destroy is idempotent", () => {
   const renderer = makeStubRenderer();
-  const panel = OrchestratorPanel.createWithRenderer(renderer, { tmuxSession: "test-session" });
-  const mgr = makeStubOffloadManager();
-  expect(() => panel.attachOffloadManager(mgr)).not.toThrow();
-  panel.destroy();
-});
-
-test("attachOffloadManager is idempotent — calling twice does not throw", () => {
-  const renderer = makeStubRenderer();
-  const panel = OrchestratorPanel.createWithRenderer(renderer, { tmuxSession: "test-session" });
-  const mgr = makeStubOffloadManager();
+  const panel = OrchestratorPanel.createWithRenderer(renderer);
   expect(() => {
-    panel.attachOffloadManager(mgr);
-    panel.attachOffloadManager(mgr);
+    panel.destroy();
+    panel.destroy();
   }).not.toThrow();
-  panel.destroy();
-});
-
-test("attachOffloadManager returns void", () => {
-  const renderer = makeStubRenderer();
-  const panel = OrchestratorPanel.createWithRenderer(renderer, { tmuxSession: "test-session" });
-  const mgr = makeStubOffloadManager();
-  const result = panel.attachOffloadManager(mgr);
-  expect(result).toBeUndefined();
-  panel.destroy();
 });

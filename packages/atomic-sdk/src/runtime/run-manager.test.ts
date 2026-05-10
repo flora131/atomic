@@ -80,6 +80,31 @@ function makeFakeSupervisor(exitCode = 0): ISupervisor & { spawnCalls: SpawnCall
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe("RunManager", () => {
+  describe("startChat()", () => {
+    test("rejects instead of returning an attachable footer-only session when PTY spawn fails", async () => {
+      const supervisor: ISupervisor = {
+        spawn: mock(() => Promise.reject(new Error("agent binary missing"))),
+        sendInput: mock(() => {}),
+        getScrollback: mock(() => ({ data: "", headOffset: 0 })),
+        kill: mock(() => {}),
+      };
+      const manager = new RunManager({ supervisor });
+
+      await expect(
+        manager.startChat({
+          agent: "claude",
+          args: [],
+          env: { PATH: "/custom/bin" },
+          cwd: "/repo",
+        }),
+      ).rejects.toThrow("agent binary missing");
+
+      const chatInfo = manager.list("all").find((run) => run.workflowName === "chat:claude");
+      expect(chatInfo).toBeDefined();
+      expect(chatInfo!.status).toBe("error");
+    });
+  });
+
   describe("stop() — cancellation path", () => {
     test("stop() marks run as cancelled in RunInfo", async () => {
       const manager = new RunManager();
@@ -566,7 +591,7 @@ describe("RunManager", () => {
   // ─── PID tracking & kill-on-stop ─────────────────────────────────────────────
 
   describe("stop() — PID tracking and kill", () => {
-    test("stop() calls supervisor.kill(pid, SIGTERM) for active stage PIDs", async () => {
+    test("stop() immediately calls supervisor.kill(pid, SIGKILL) for active stage PIDs", async () => {
       const fixturePath = join(import.meta.dir, "__fixtures__/with-one-stage.ts");
       // Hanging supervisor: never calls onExit so PID stays active.
       const killCalls: Array<{ pid: number; signal: string | undefined }> = [];
@@ -596,11 +621,8 @@ describe("RunManager", () => {
 
       await manager.stop(runId);
 
-      // kill must have been called with the stage PID and SIGTERM.
-      expect(killCalls.length).toBeGreaterThanOrEqual(1);
-      const firstKill = killCalls[0]!;
-      expect(firstKill.pid).toBe(55555);
-      expect(firstKill.signal).toBe("SIGTERM");
+      // kill must have been called immediately with the stage PID and SIGKILL.
+      expect(killCalls).toEqual([{ pid: 55555, signal: "SIGKILL" }]);
     });
 
     test("stop() does not call kill when no supervisor is injected", async () => {

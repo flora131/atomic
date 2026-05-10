@@ -96,6 +96,8 @@ function defaultProbe(cmd: string[]): { exitCode: number; stdout: string } {
         const r = Bun.spawnSync({ cmd, stdout: "pipe", stderr: "pipe" });
         return { exitCode: r.exitCode ?? 1, stdout: r.stdout.toString() };
     } catch {
+        // Bun.spawnSync throws synchronously (e.g. ENOENT) when the binary
+        // is absent on PATH — treat as unsuccessful probe.
         return { exitCode: 1, stdout: "" };
     }
 }

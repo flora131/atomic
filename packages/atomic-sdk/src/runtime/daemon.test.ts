@@ -578,7 +578,7 @@ describe("isTransportError — transport error suppression in unhandledRejection
 });
 
 // ---------------------------------------------------------------------------
-// resolveAtomicBinary + ensureStarted (MissingDependencyError)
+// daemon command resolution + ensureStarted (MissingDependencyError)
 // ---------------------------------------------------------------------------
 
 describe("ensureStarted()", () => {
@@ -646,6 +646,46 @@ describe("ensureStarted()", () => {
         ensureStarted({ endpointFile: missingFile, timeoutMs: 1, pollIntervalMs: 1 }),
       ).rejects.toThrow(MissingDependencyError);
     } finally {
+      if (origBinary !== undefined) process.env.ATOMIC_BINARY = origBinary;
+      else delete process.env.ATOMIC_BINARY;
+    }
+  });
+
+  test("uses the workspace CLI source when invoked via bun run dev", async () => {
+    const tmpDir = await makeTempDir();
+    const missingFile = path.join(tmpDir, "nonexistent.json");
+    const cliPath = path.resolve(import.meta.dir, "../../../atomic/src/cli.ts");
+
+    const origBinary = process.env.ATOMIC_BINARY;
+    const origArgv1 = process.argv[1];
+    const origWhich = Bun.which;
+    const origSpawn = Bun.spawn;
+    let spawnedCommand: string[] | undefined;
+
+    delete process.env.ATOMIC_BINARY;
+    process.argv[1] = cliPath;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (Bun as any).which = () => "/tmp/global-atomic";
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (Bun as any).spawn = (cmd: string[]) => {
+      spawnedCommand = [...cmd];
+      return {} as ReturnType<typeof Bun.spawn>;
+    };
+
+    try {
+      const { ensureStarted } = await import("./daemon.ts");
+      await expect(
+        ensureStarted({ endpointFile: missingFile, timeoutMs: 1, pollIntervalMs: 1 }),
+      ).rejects.toThrow(MissingDependencyError);
+
+      expect(spawnedCommand).toEqual([process.execPath, cliPath, "--ui-server"]);
+    } finally {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (Bun as any).which = origWhich;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (Bun as any).spawn = origSpawn;
+      if (origArgv1 === undefined) process.argv.splice(1, 1);
+      else process.argv[1] = origArgv1;
       if (origBinary !== undefined) process.env.ATOMIC_BINARY = origBinary;
       else delete process.env.ATOMIC_BINARY;
     }

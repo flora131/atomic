@@ -198,6 +198,7 @@ export function releaseLock(
     unlinkSync(lockPath);
     return true;
   } catch {
+    // Unlink failed (e.g. ENOENT race or EPERM) — lock was not released.
     return false;
   }
 }
@@ -244,6 +245,8 @@ function isProcessAlive(pid: number): boolean {
     process.kill(pid, 0);
     return true;
   } catch {
+    // ESRCH (no such process) or EPERM (no permission to signal) —
+    // treat as dead for cleanup purposes.
     return false;
   }
 }

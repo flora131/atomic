@@ -159,9 +159,10 @@ Clients read this file to locate the daemon. The file is unlinked on clean daemo
 SDK resolves the atomic binary in this priority order:
 
 1. `process.env.ATOMIC_BINARY` (override).
-2. `require.resolve(\`@bastani/atomic-${platform}-${arch}/bin/atomic\`)` — bundled platform binary from `optionalDependencies`.
-3. `Bun.which("atomic")` — globally-installed CLI on PATH.
-4. Fail with `MissingDependencyError("@bastani/atomic")`.
+2. Workspace developer mode: when the current process is `packages/atomic/src/cli.ts` (for example `bun run dev`), spawn `bun packages/atomic/src/cli.ts --ui-server` so source checkouts do not accidentally launch a stale globally installed binary.
+3. `require.resolve(\`@bastani/atomic-${platform}-${arch}/bin/atomic\`)` — bundled platform binary from `optionalDependencies`.
+4. `Bun.which("atomic")` — globally-installed CLI on PATH.
+5. Fail with `MissingDependencyError("@bastani/atomic")`.
 
 ### SDK auto-spawn
 

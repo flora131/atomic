@@ -50,6 +50,8 @@ export interface RunInfo {
   runId: string;
   workflowName: string;
   agent: AgentType;
+  /** Session kind surfaced to `atomic session list`. */
+  type?: "workflow" | "chat";
   /** e.g. "active", "complete", "error", "cancelled" */
   status: string;
   /** ISO 8601 timestamp string */
@@ -75,6 +77,18 @@ export interface IRunManager {
     workflowName: string;
     agent: AgentType;
     inputs: Record<string, unknown>;
+    cols?: number;
+    rows?: number;
+  }): Promise<{ runId: string }>;
+
+  /** Start a daemon-managed standalone chat session. */
+  startChat(params: {
+    agent: AgentType;
+    args: string[];
+    env?: Record<string, string>;
+    cwd?: string;
+    cols?: number;
+    rows?: number;
   }): Promise<{ runId: string }>;
 
   /**
@@ -144,6 +158,15 @@ export interface ISupervisor {
     fromOffset?: number,
   ): { data: string; headOffset: number };
 
+  /** Subscribe a JSON-RPC connection to live `pane/output` notifications. */
+  subscribeOutput?(runId: string, stageName: string, connection: MessageConnection): string;
+
+  /** Remove a live pane output subscription. */
+  unsubscribeOutput?(subscriptionId: string): void;
+
+  /** Resize a supervised PTY. */
+  resize?(runId: string, stageName: string, cols: number, rows: number): void;
+
   /**
    * Spawn an agent subprocess for an existing run stage.
    * Returns the OS PID of the spawned process.
@@ -155,6 +178,9 @@ export interface ISupervisor {
     agent: AgentType;
     args: string[];
     env?: Record<string, string>;
+    cwd?: string;
+    cols?: number;
+    rows?: number;
     /**
      * Optional exit callback. Called once when the subprocess exits.
      * Implementors wire this to `StageCallbacks.onExit` so callers can
@@ -322,6 +348,17 @@ export class MethodDispatcher {
             workflowName: string;
             agent: AgentType;
             inputs: Record<string, unknown>;
+            cols?: number;
+            rows?: number;
+          },
+        );
+      case "chat/start":
+        return this.handleChatStart(
+          params as {
+            agent: AgentType;
+            args: string[];
+            env?: Record<string, string>;
+            cwd?: string;
           },
         );
       case "run/list":
@@ -343,6 +380,17 @@ export class MethodDispatcher {
       case "pane/sendInput":
         return this.handlePaneSendInput(
           params as { runId: string; stageName: string; data: string },
+        );
+      case "pane/subscribeOutput":
+        return this.handlePaneSubscribeOutput(
+          params as { runId: string; stageName: string },
+          connection,
+        );
+      case "pane/unsubscribeOutput":
+        return this.handlePaneUnsubscribeOutput(params as { subscriptionId: string });
+      case "pane/resize":
+        return this.handlePaneResize(
+          params as { runId: string; stageName: string; cols: number; rows: number },
         );
       case "pane/getScrollback":
         return this.handlePaneGetScrollback(
@@ -424,7 +472,8 @@ export class MethodDispatcher {
   // ── Handlers: workflow/* ──────────────────────────────────────────────────
 
   private async handleWorkflowList(): Promise<WorkflowDescriptor[]> {
-    await this.opts.workflows.load();
+    const maybeLoad = (this.opts.workflows as { load?: () => Promise<unknown> }).load;
+    if (maybeLoad) await maybeLoad.call(this.opts.workflows);
     return this.opts.workflows.list();
   }
 
@@ -437,8 +486,22 @@ export class MethodDispatcher {
     workflowName: string;
     agent: AgentType;
     inputs: Record<string, unknown>;
+    cols?: number;
+    rows?: number;
   }): Promise<{ runId: string; attachable: true }> {
     const { runId } = await this.opts.runs.start(params);
+    return { runId, attachable: true };
+  }
+
+  private async handleChatStart(params: {
+    agent: AgentType;
+    args: string[];
+    env?: Record<string, string>;
+    cwd?: string;
+    cols?: number;
+    rows?: number;
+  }): Promise<{ runId: string; attachable: true }> {
+    const { runId } = await this.opts.runs.startChat(params);
     return { runId, attachable: true };
   }
 
@@ -507,6 +570,42 @@ export class MethodDispatcher {
     return { ok: true };
   }
 
+  private handlePaneSubscribeOutput(
+    params: { runId: string; stageName: string },
+    connection: MessageConnection,
+  ): { subscriptionId: string } {
+    const supervisor = this.opts.supervisor as ISupervisor & {
+      subscribeOutput?: (runId: string, stageName: string, conn: MessageConnection) => string;
+    };
+    if (!supervisor.subscribeOutput) {
+      throw new AtomicRpcError(-32603, "internal error: supervisor does not support pane output subscriptions");
+    }
+    return {
+      subscriptionId: supervisor.subscribeOutput(params.runId, params.stageName, connection),
+    };
+  }
+
+  private handlePaneUnsubscribeOutput(params: { subscriptionId: string }): { ok: true } {
+    const supervisor = this.opts.supervisor as ISupervisor & {
+      unsubscribeOutput?: (subscriptionId: string) => void;
+    };
+    supervisor.unsubscribeOutput?.(params.subscriptionId);
+    return { ok: true };
+  }
+
+  private handlePaneResize(params: {
+    runId: string;
+    stageName: string;
+    cols: number;
+    rows: number;
+  }): { ok: true } {
+    const supervisor = this.opts.supervisor as ISupervisor & {
+      resize?: (runId: string, stageName: string, cols: number, rows: number) => void;
+    };
+    supervisor.resize?.(params.runId, params.stageName, params.cols, params.rows);
+    return { ok: true };
+  }
+
   private handlePaneGetScrollback(params: {
     runId: string;
     stageName: string;
@@ -530,8 +629,14 @@ export class MethodDispatcher {
   private handlePanelSubscribe(
     params: { runId?: string },
     connection: MessageConnection,
-  ): { subscriptionId: string } {
+  ): { subscriptionId: string; foregroundStage?: string | null } {
     const subscriptionId = this.opts.runs.subscribe(connection, params.runId);
+    if (params.runId) {
+      return {
+        subscriptionId,
+        foregroundStage: this.opts.runs.getState(params.runId)?.getForeground() ?? null,
+      };
+    }
     return { subscriptionId };
   }
 

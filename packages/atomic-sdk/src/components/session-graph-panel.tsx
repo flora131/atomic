@@ -10,20 +10,18 @@ import {
   useTerminalDimensions,
   useRenderer,
 } from "@opentui/react";
+import type { MessageConnection } from "vscode-jsonrpc/node";
 import {
   useState,
   useEffect,
   useMemo,
   useCallback,
   useRef,
-  useContext,
 } from "react";
 import {
   useStore,
   useGraphTheme,
   useStoreVersion,
-  TmuxSessionContext,
-  useOffloadManager,
 } from "./orchestrator-panel-contexts.ts";
 import { errorMessage } from "../errors.ts";
 import { computeLayout, NODE_W, NODE_H, type LayoutNode } from "./layout.ts";
@@ -34,7 +32,7 @@ import { Edge } from "./edge.tsx";
 import { Header } from "./header.tsx";
 import { CompactSwitcher } from "./compact-switcher.tsx";
 import { ToastStack } from "./toast.tsx";
-import type { ViewMode } from "./orchestrator-panel-types.ts";
+import { PanelFooter } from "./panel-footer.tsx";
 
 /** Interval (ms) between pulse animation frames — ~60fps feel. */
 const PULSE_INTERVAL_MS = 60;
@@ -43,40 +41,27 @@ const PULSE_FRAME_COUNT = 32;
 /** Timeout (ms) for "gg" double-tap to jump to root node. */
 const GG_DOUBLE_TAP_MS = 300;
 
-// ─── RFC §5.5 pure decision helper ───────────────────────────────────────────
-
-/**
- * Decide what action to take when the user attempts to attach to a session.
- * Pure function — no side effects, fully testable in isolation.
- *
- * Returns:
- *   { kind: "skip" }              — node not found or session pending
- *   { kind: "graphView" }         — id === "orchestrator"
- *   { kind: "resume" }            — session is offloaded or resuming
- *   { kind: "switchClient" }      — session is alive; issue switch-client
- */
-export type AttachDecision =
-  | { kind: "skip" }
-  | { kind: "graphView" }
-  | { kind: "resume" }
-  | { kind: "switchClient" };
-
-export function decideAttachAction(
-  id: string,
-  offloadStatus: "alive" | "offloaded" | "resuming",
-): AttachDecision {
-  if (id === "orchestrator") return { kind: "graphView" };
-  if (offloadStatus === "offloaded" || offloadStatus === "resuming") return { kind: "resume" };
-  return { kind: "switchClient" };
+export function isEnterKey(name: string): boolean {
+  return name === "enter" || name === "return";
 }
 
-export function SessionGraphPanel() {
+export interface SessionGraphPanelProps {
+  /** Daemon run id. When present with `connection`, Enter opens a direct PTY pane. */
+  runId?: string;
+  /** Authenticated daemon JSON-RPC connection used for pane foreground/input methods. */
+  connection?: MessageConnection;
+  /** Request a dedicated PTY renderer for a stage. */
+  onOpenPane?: (stageName: string) => void;
+  /** Detach the panel while leaving the workflow running in the daemon. */
+  onDetach?: () => void;
+}
+
+export function SessionGraphPanel({ runId, connection, onOpenPane, onDetach }: SessionGraphPanelProps = {}) {
   const store = useStore();
   const theme = useGraphTheme();
-  const tmuxSession = useContext(TmuxSessionContext);
-  const offloadManager = useOffloadManager();
   useRenderer();
   const { width: termW, height: termH } = useTerminalDimensions();
+  const daemonPaneEnabled = runId !== undefined && connection !== undefined;
 
   const storeVersion = useStoreVersion(store);
 
@@ -133,6 +118,23 @@ export function SessionGraphPanel() {
     return () => clearInterval(pulseId);
   }, [hasRunning]);
 
+  const setDaemonForeground = useCallback(
+    async (stageName: string | null): Promise<boolean> => {
+      if (!connection || !runId) return true;
+      try {
+        await connection.sendRequest(
+          "run/setForeground",
+          stageName === null ? { runId } : { runId, stageName },
+        );
+        return true;
+      } catch (err) {
+        store.showToast(`Failed to update foreground pane: ${errorMessage(err)}`);
+        return false;
+      }
+    },
+    [connection, runId, store],
+  );
+
   const doAttach = useCallback(
     async (id: string) => {
       const n = layout.map[id];
@@ -144,36 +146,33 @@ export function SessionGraphPanel() {
       // Orchestrator = the graph view itself
       if (id === "orchestrator") {
         store.setViewMode("graph");
+        void setDaemonForeground(null);
         return;
       }
 
       setFocusedId(id);
 
-      // RFC §5.5 — gate switch-client on resume completion when offloaded.
-      const status = offloadManager.getStatus(id);
-      if (status === "offloaded" || status === "resuming") {
-        store.setViewMode("resuming", id);
-        try {
-          await offloadManager.requestResume(id);
-          store.setViewMode("attached", id);
-          // Resume succeeded — OffloadManager already issued selectWindow.
-        } catch (err) {
-          // OffloadManager already setSessionStatus(name, "offloaded") + emitted event.
-          store.showToast(`Failed to resume ${id}: ${errorMessage(err)}`);
-          // Stay on graph; do NOT issue switch-client against a dead window.
-          store.setViewMode("graph");
-        }
+      if (!daemonPaneEnabled) {
+        store.showToast("No daemon connection available for pane navigation.", "warning");
+        return;
+      }
+
+      const ok = await setDaemonForeground(id);
+      if (!ok) return;
+
+      if (onOpenPane) {
+        onOpenPane(id);
         return;
       }
 
       store.setViewMode("attached", id);
     },
-    [layout.map, tmuxSession, offloadManager],
+    [layout.map, store, daemonPaneEnabled, setDaemonForeground, onOpenPane],
   );
 
   const returnToGraph = useCallback(() => {
     store.setViewMode("graph");
-  }, []);
+  }, [store]);
 
   const openSwitcher = useCallback(() => {
     // Pre-select the current agent or focused node
@@ -247,7 +246,7 @@ export function SessionGraphPanel() {
         setSwitcherSel((s) => Math.min(store.sessions.length - 1, s + 1));
         return;
       }
-      if (key.name === "return") {
+      if (isEnterKey(key.name)) {
         const agent = store.sessions[switcherSel];
         closeSwitcher();
         if (agent) void doAttach(agent.name);
@@ -256,16 +255,29 @@ export function SessionGraphPanel() {
       return; // Swallow all other keys while switcher is open
     }
 
-    // ── Global: Ctrl+C or q quits ──
+    // ── Global: Ctrl+D detaches, Ctrl+C or q quits ──
+    if (key.ctrl && key.name === "d") {
+      onDetach?.();
+      return;
+    }
+
     if ((key.ctrl && key.name === "c") || key.name === "q") {
       store.requestQuit();
       return;
     }
 
-    // ── Auto-reset: receiving keys while "attached" means user returned to the orchestrator window ──
+    // ── Attached pane ──
     if (store.viewMode === "attached") {
-      returnToGraph();
-      // Fall through to process the key in graph mode
+      if (daemonPaneEnabled) {
+        if (key.ctrl && key.name === "g") {
+          void setDaemonForeground(null);
+          returnToGraph();
+        }
+        // Let DirectPtyPane forward normal keystrokes to the daemon PTY.
+        return;
+      }
+
+      return;
     }
 
     // ── / opens agent switcher ──
@@ -292,8 +304,8 @@ export function SessionGraphPanel() {
       navigate("down");
       return;
     }
-    // Enter: attach to focused node's tmux window
-    if (key.name === "return") {
+    // Enter: open the focused node's pane
+    if (isEnterKey(key.name)) {
       void doAttach(focusedIdRef.current);
       return;
     }
@@ -334,8 +346,7 @@ export function SessionGraphPanel() {
 
   // Center the graph when it's smaller than the viewport.
   // viewportH = terminal height minus the panel's own header row (1).
-  // The tmux status line at the very bottom is reserved by tmux outside
-  // this pane, so it isn't subtracted here.
+  // The terminal status line is outside this pane, so it isn't subtracted here.
   const viewportH = Math.max(0, termH - 1);
   const padX = Math.max(0, Math.floor((termW - layout.width) / 2));
   const padY = Math.max(0, Math.floor((viewportH - layout.height) / 2));
@@ -377,7 +388,6 @@ export function SessionGraphPanel() {
       sb.scrollTo({ x: targetX, y: targetY });
     }
   }, [focusedId, focused, termW, termH, padX, padY, viewportH, layout.rowH]);
-
 
   return (
     <box width="100%" height="100%" flexDirection="column" backgroundColor={theme.background}>
@@ -445,6 +455,18 @@ export function SessionGraphPanel() {
           </box>
         </box>
       </scrollbox>
+
+      <PanelFooter
+        mode="GRAPH"
+        subject={focusedId || undefined}
+        runId={runId}
+        hints={[
+          { key: "↵", label: "open pane" },
+          { key: "hjkl/↑↓←→", label: "move" },
+          { key: "/", label: "switch" },
+          { key: "q", label: "quit" },
+        ]}
+      />
 
       {/* Compact agent switcher overlay */}
       {switcherOpen ? <CompactSwitcher selectedIndex={switcherSel} /> : null}

@@ -15,8 +15,6 @@ const STATUS_TABLE: Record<SessionStatus, StatusEntry> = {
   pending:        { color: (t) => t.textDim, label: "waiting",      icon: "○" },
   error:          { color: (t) => t.error,   label: "failed",       icon: "✗" },
   awaiting_input: { color: (t) => t.info,    label: "input needed", icon: "?" },
-  offloaded:      { color: (t) => t.textDim, label: "offloaded",    icon: "◌" },
-  resuming:       { color: (t) => t.warning, label: "resuming…",    icon: "◐" },
 };
 
 function lookup(status: string): StatusEntry | undefined {

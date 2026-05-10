@@ -67,7 +67,7 @@ class FakeSpawner implements IPtySpawner {
 
 function makeAdapter(spawner: FakeSpawner): { adapter: DaemonSupervisorAdapter; sup: Supervisor } {
   const sup = new Supervisor(spawner);
-  const adapter = new DaemonSupervisorAdapter(sup);
+  const adapter = new DaemonSupervisorAdapter({ supervisor: sup });
   return { adapter, sup };
 }
 
@@ -106,6 +106,50 @@ describe("DaemonSupervisorAdapter", () => {
       }
     });
 
+    it("resolves agent binary with the caller-provided PATH from env", async () => {
+      const originalWhich = Bun.which;
+      const which = mock((_cmd: string, _opts?: { PATH?: string }) => "/custom/bin/opencode");
+      (Bun as { which: typeof Bun.which }).which = which as typeof Bun.which;
+
+      try {
+        await adapter.spawn({
+          runId: "run-1",
+          stageName: "main",
+          agent: "opencode",
+          args: [],
+          env: { PATH: "/custom/bin" },
+        });
+
+        expect(which).toHaveBeenCalledWith("opencode", { PATH: "/custom/bin" });
+        expect(spawner.lastFile).toBe("/custom/bin/opencode");
+      } finally {
+        (Bun as { which: typeof Bun.which }).which = originalWhich;
+      }
+    });
+
+    it("uses COPILOT_CLI_PATH from env for Copilot chat spawns", async () => {
+      const originalWhich = Bun.which;
+      const which = mock(() => null);
+      (Bun as { which: typeof Bun.which }).which = which as typeof Bun.which;
+
+      try {
+        const result = await adapter.spawn({
+          runId: "run-1",
+          stageName: "main",
+          agent: "copilot",
+          args: ["--experimental"],
+          env: { COPILOT_CLI_PATH: "/custom/bin/copilot-native" },
+        });
+
+        expect(result.pid).toBe(1000);
+        expect(which).not.toHaveBeenCalled();
+        expect(spawner.lastFile).toBe("/custom/bin/copilot-native");
+        expect(spawner.lastArgs).toEqual(["--experimental"]);
+      } finally {
+        (Bun as { which: typeof Bun.which }).which = originalWhich;
+      }
+    });
+
     it("throws MISSING_DEPENDENCY when agent binary not in PATH", async () => {
       const originalWhich = Bun.which;
       (Bun as { which: typeof Bun.which }).which = mock(() => null);
@@ -124,7 +168,7 @@ describe("DaemonSupervisorAdapter", () => {
         spawn() { throw new Error("pty open failed"); },
       };
       const sup = new Supervisor(failSpawner);
-      const failAdapter = new DaemonSupervisorAdapter(sup);
+      const failAdapter = new DaemonSupervisorAdapter({ supervisor: sup });
 
       const originalWhich = Bun.which;
       (Bun as { which: typeof Bun.which }).which = mock(() => "/usr/local/bin/claude");

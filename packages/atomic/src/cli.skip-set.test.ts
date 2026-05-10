@@ -20,6 +20,7 @@ test("INFO_COMMAND_ARGV0 snapshot includes all expected entries", () => {
         "uninstall",
         "update",
         "completions",
+        "daemon",
         "_claude-stop-hook",
         "_claude-ask-hook",
         "_claude-session-start-hook",
@@ -66,6 +67,10 @@ describe("isInfoCommandArgv", () => {
 
     test("returns false for unrelated args", () => {
         expect(isInfoCommandArgv(["workflow", "list"])).toBe(false);
+    });
+
+    test("returns true for daemon management commands", () => {
+        expect(isInfoCommandArgv(["daemon", "reload"])).toBe(true);
     });
 });
 

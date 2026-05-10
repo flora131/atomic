@@ -26,11 +26,11 @@ export function addSessionSubcommand(
 ): Command {
   const sessionCmd = parent
     .command("session")
-    .description("Manage running tmux sessions on the atomic socket");
+    .description("Manage running atomic daemon sessions");
 
   sessionCmd
     .command("list")
-    .description("List running sessions on the atomic tmux socket")
+    .description("List active sessions in the atomic daemon")
     .option(
       "-a, --agent <name>",
       "Filter by agent backend (claude, copilot, opencode); repeatable",
@@ -99,7 +99,7 @@ export function addStatusSubcommand(parent: Command): void {
     .description(
       "Query workflow status (in_progress, error, completed, needs_review); omit id to list all",
     )
-    .argument("[session_id]", "Workflow tmux session id (omit to list all)")
+    .argument("[session_id]", "Workflow run id (omit to list all)")
     .option("--format <format>", "Output format: json | text", "json")
     .action(async (sessionId, localOpts) => {
       const { workflowStatusCommand } = await import("./workflow-status.ts");

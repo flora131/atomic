@@ -66,6 +66,8 @@ async function silentStep(fn: () => Promise<unknown>): Promise<boolean> {
     await fn();
     return true;
   } catch {
+    // Step failure is intentional — sync steps are best-effort; caller
+    // checks the boolean return value and only marks synced when all pass.
     return false;
   }
 }

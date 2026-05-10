@@ -45,6 +45,7 @@ function makeRunInfo(overrides: Partial<RunInfo> = {}): RunInfo {
 function makeRunManager(overrides: Partial<IRunManager> = {}): IRunManager {
   return {
     start: mock(() => Promise.resolve({ runId: "run-1" })),
+    startChat: mock(() => Promise.resolve({ runId: "chat-1" })),
     stop: mock(() => Promise.resolve()),
     list: mock(() => []),
     get: mock(() => null),
@@ -618,6 +619,57 @@ describe("pane/sendInput", () => {
 });
 
 // ---------------------------------------------------------------------------
+// pane/subscribeOutput + pane/unsubscribeOutput + pane/resize
+// ---------------------------------------------------------------------------
+
+describe("pane live output control", () => {
+  test("pane/subscribeOutput registers the caller connection", async () => {
+    const subscribeOutput = mock(() => "pane-sub-1");
+    const { dispatcher, conn } = makeDispatcher({ supervisor: { subscribeOutput } });
+    await authenticate(dispatcher, conn);
+
+    const result = await dispatcher.dispatch(
+      "pane/subscribeOutput",
+      { runId: "run-1", stageName: "chat" },
+      conn,
+    );
+
+    expect(result).toEqual({ subscriptionId: "pane-sub-1" });
+    expect(subscribeOutput).toHaveBeenCalledWith("run-1", "chat", conn);
+  });
+
+  test("pane/unsubscribeOutput removes the subscription", async () => {
+    const unsubscribeOutput = mock(() => {});
+    const { dispatcher, conn } = makeDispatcher({ supervisor: { unsubscribeOutput } });
+    await authenticate(dispatcher, conn);
+
+    const result = await dispatcher.dispatch(
+      "pane/unsubscribeOutput",
+      { subscriptionId: "pane-sub-1" },
+      conn,
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(unsubscribeOutput).toHaveBeenCalledWith("pane-sub-1");
+  });
+
+  test("pane/resize forwards dimensions to the supervisor", async () => {
+    const resize = mock(() => {});
+    const { dispatcher, conn } = makeDispatcher({ supervisor: { resize } });
+    await authenticate(dispatcher, conn);
+
+    const result = await dispatcher.dispatch(
+      "pane/resize",
+      { runId: "run-1", stageName: "chat", cols: 100, rows: 31 },
+      conn,
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(resize).toHaveBeenCalledWith("run-1", "chat", 100, 31);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // pane/getScrollback
 // ---------------------------------------------------------------------------
 
@@ -686,7 +738,7 @@ describe("panel/subscribe", () => {
     const { dispatcher, conn } = makeDispatcher({ runs });
     await authenticate(dispatcher, conn);
     const result = await dispatcher.dispatch("panel/subscribe", { runId: "run-1" }, conn);
-    expect(result).toEqual({ subscriptionId: "sub-xyz" });
+    expect(result).toEqual({ subscriptionId: "sub-xyz", foregroundStage: null });
     expect(subscribe).toHaveBeenCalledWith(conn, "run-1");
   });
 

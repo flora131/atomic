@@ -2,33 +2,36 @@
  * Session CLI commands — shared between `atomic chat session` and
  * `atomic workflow session`, and the top-level `atomic session` picker.
  *
- * Wraps tmux -L atomic list-sessions / attach-session so users can
- * inspect and reconnect to running atomic sessions without touching
- * tmux directly.
+ * Wraps the atomic daemon session APIs so users can inspect and reconnect
+ * to running chat/workflow sessions without touching the JSON-RPC protocol.
  */
 
 import { select, multiselect, confirm, isCancel, cancel } from "@clack/prompts";
 import { createPainter, type PaletteKey } from "@bastani/atomic-sdk/theme/colors";
-import type { Subprocess } from "bun";
+import {
+  getSession,
+  listSessions as listDaemonSessions,
+  stopSession,
+} from "@bastani/atomic-sdk/workflows";
+import { PanelClient, type PanelClientOptions } from "@bastani/atomic-sdk/components/panel-client";
+import type { AgentType } from "@bastani/atomic-sdk/types";
 
 export type SessionType = "chat" | "workflow";
-export interface TmuxSession { name: string; type?: SessionType; agent?: string; attached?: boolean; created: string; windows?: number; }
-const SOCKET_NAME = "atomic";
+export interface AtomicSession { name: string; type?: SessionType; agent?: string; attached?: boolean; created: string; windows?: number; status?: string; }
+const SESSION_BACKEND_LABEL = "atomic daemon";
+
+type MaybePromise<T> = T | Promise<T>;
 
 /** Scope controls which session types a command shows. */
 export type SessionScope = "chat" | "workflow" | "all";
 
-/** Injectable tmux dependencies for command functions. */
+/** Injectable daemon/session dependencies for command functions. */
 export interface SessionDeps {
-  isTmuxInstalled: () => boolean;
-  sessionExists: (name: string) => boolean;
-  listSessions: () => TmuxSession[];
-  isInsideAtomicSocket: () => boolean;
-  isInsideTmux: () => boolean;
-  switchClient: (name: string) => void;
-  spawnMuxAttach: (name: string) => Subprocess;
-  detachAndAttachAtomic: (name: string) => void;
-  killSession: (name: string) => void;
+  isDaemonAvailable: () => MaybePromise<boolean>;
+  sessionExists: (name: string) => MaybePromise<boolean>;
+  listSessions: () => MaybePromise<AtomicSession[]>;
+  connectSession: (name: string) => MaybePromise<void>;
+  killSession: (name: string) => MaybePromise<void>;
   /** Prompt function for the session picker — defaults to @clack/prompts select. */
   select: typeof select;
   /** Prompt function for the session kill picker — defaults to @clack/prompts multiselect. */
@@ -40,15 +43,25 @@ export interface SessionDeps {
 
 /** Default deps — wire through to the real implementations. */
 const defaultDeps: SessionDeps = {
-  isTmuxInstalled: () => false,
-  sessionExists: () => false,
-  listSessions: () => [],
-  isInsideAtomicSocket: () => false,
-  isInsideTmux: () => false,
-  switchClient: () => { throw new Error("not implemented: use daemon path"); },
-  spawnMuxAttach: () => { throw new Error("not implemented: use daemon path"); },
-  detachAndAttachAtomic: () => { throw new Error("not implemented: use daemon path"); },
-  killSession: () => { throw new Error("not implemented: use daemon path"); },
+  isDaemonAvailable: () => true,
+  sessionExists: async (name) => (await getSession(name)) !== undefined,
+  listSessions: async () => {
+    const sessions = await listDaemonSessions({ status: "active" });
+    return sessions.map((s): AtomicSession => ({
+      name: s.id,
+      type: s.type,
+      agent: s.agent,
+      attached: s.attached,
+      created: s.created,
+      windows: 1,
+      status: s.status,
+    }));
+  },
+  connectSession: async (name) => {
+    const session = await getSession(name);
+    await PanelClient.mount(panelClientOptionsForSession(name, session));
+  },
+  killSession: async (name) => { await stopSession(name); },
   select,
   multiselect,
   confirm,
@@ -63,7 +76,7 @@ const defaultDeps: SessionDeps = {
  * Layout mirrors the workflow list style — data-first count header,
  * session rows with metadata, dim footer hint.
  */
-export function renderSessionList(sessions: TmuxSession[]): string {
+export function renderSessionList(sessions: AtomicSession[]): string {
   const paint = createPainter();
   const lines: string[] = [];
 
@@ -83,7 +96,7 @@ export function renderSessionList(sessions: TmuxSession[]): string {
   lines.push("");
   lines.push(
     "  " + paint("text", String(count), { bold: true }) + " " + paint("dim", noun) +
-    paint("dim", ` on tmux -L ${SOCKET_NAME}`),
+    paint("dim", ` on ${SESSION_BACKEND_LABEL}`),
   );
   lines.push("");
 
@@ -140,32 +153,46 @@ const SCOPE_TO_TYPE: Record<SessionScope, SessionType | undefined> = {
 };
 
 /** Filter sessions by scope (chat-only, workflow-only, or all). */
-export function filterByScope(sessions: TmuxSession[], scope: SessionScope): TmuxSession[] {
+export function filterByScope(sessions: AtomicSession[], scope: SessionScope): AtomicSession[] {
   const required = SCOPE_TO_TYPE[scope];
   if (!required) return sessions;
   return sessions.filter((s) => s.type === required);
 }
 
 /** Filter sessions to only those matching at least one of the given agents. */
-export function filterByAgent(sessions: TmuxSession[], agents: string[]): TmuxSession[] {
+export function filterByAgent(sessions: AtomicSession[], agents: string[]): AtomicSession[] {
   if (agents.length === 0) return sessions;
   const allowed = new Set(agents.map((a) => a.toLowerCase()));
   return sessions.filter((s) => s.agent !== undefined && allowed.has(s.agent.toLowerCase()));
 }
 
+function isAgentType(agent: string | undefined): agent is AgentType {
+  return agent === "claude" || agent === "copilot" || agent === "opencode";
+}
+
+export function panelClientOptionsForSession(
+  runId: string,
+  session: Pick<AtomicSession, "type" | "agent"> | undefined,
+): PanelClientOptions {
+  if (session?.type === "chat" && isAgentType(session.agent)) {
+    return { runId, view: "chat", agentType: session.agent };
+  }
+  return { runId };
+}
+
 // ─── Session list command ───────────────────────────────────────────────────
 
 export async function sessionListCommand(agents: string[] = [], scope: SessionScope = "all", deps: SessionDeps = defaultDeps): Promise<number> {
-  if (!deps.isTmuxInstalled()) {
+  if (!(await deps.isDaemonAvailable())) {
     const paint = createPainter();
     process.stdout.write(
       "\n  " + paint("text", "no sessions running", { bold: true }) +
-      "\n\n  " + paint("dim", "tmux is not installed") + "\n\n",
+      "\n\n  " + paint("dim", "daemon unavailable") + "\n\n",
     );
     return 0;
   }
 
-  const sessions = filterByAgent(filterByScope(deps.listSessions(), scope), agents);
+  const sessions = filterByAgent(filterByScope(await deps.listSessions(), scope), agents);
   process.stdout.write(renderSessionList(sessions));
   return 0;
 }
@@ -173,25 +200,23 @@ export async function sessionListCommand(agents: string[] = [], scope: SessionSc
 // ─── Session connect command ────────────────────────────────────────────────
 
 /**
- * Connect to a named session. Handles the three tmux contexts:
- * already on atomic socket → switch-client, inside other tmux → detach+attach,
- * outside tmux → spawn attach.
+ * Connect to a named session by mounting a fresh OpenTUI panel client.
  */
 export async function sessionConnectCommand(sessionName: string, deps: SessionDeps = defaultDeps): Promise<number> {
   const paint = createPainter();
 
-  if (!deps.isTmuxInstalled()) {
+  if (!(await deps.isDaemonAvailable())) {
     process.stderr.write(
-      paint("error", "Error: tmux is not installed.") + "\n",
+      paint("error", "Error: atomic daemon is unavailable.") + "\n",
     );
     return 1;
   }
 
-  if (!deps.sessionExists(sessionName)) {
+  if (!(await deps.sessionExists(sessionName))) {
     process.stderr.write(
       paint("error", `Error: session '${sessionName}' not found.`) + "\n",
     );
-    const sessions = deps.listSessions();
+    const sessions = await deps.listSessions();
     if (sessions.length > 0) {
       process.stderr.write(
         "\n" + paint("dim", "Available sessions:") + "\n",
@@ -206,18 +231,8 @@ export async function sessionConnectCommand(sessionName: string, deps: SessionDe
     return 1;
   }
 
-  if (deps.isInsideAtomicSocket()) {
-    deps.switchClient(sessionName);
-    return 0;
-  }
-
-  if (deps.isInsideTmux()) {
-    deps.detachAndAttachAtomic(sessionName);
-    return 0;
-  }
-
-  const proc = deps.spawnMuxAttach(sessionName);
-  return await proc.exited;
+  await deps.connectSession(sessionName);
+  return 0;
 }
 
 // ─── Interactive session picker ─────────────────────────────────────────────
@@ -229,14 +244,14 @@ export async function sessionConnectCommand(sessionName: string, deps: SessionDe
 export async function sessionPickerCommand(agents: string[] = [], scope: SessionScope = "all", deps: SessionDeps = defaultDeps): Promise<number> {
   const paint = createPainter();
 
-  if (!deps.isTmuxInstalled()) {
+  if (!(await deps.isDaemonAvailable())) {
     process.stderr.write(
-      paint("error", "Error: tmux is not installed.") + "\n",
+      paint("error", "Error: atomic daemon is unavailable.") + "\n",
     );
     return 1;
   }
 
-  const sessions = filterByAgent(filterByScope(deps.listSessions(), scope), agents);
+  const sessions = filterByAgent(filterByScope(await deps.listSessions(), scope), agents);
 
   if (sessions.length === 0) {
     process.stdout.write(renderSessionList(sessions));
@@ -290,17 +305,17 @@ export async function sessionKillCommand(
   const selectAll = options.all === true;
   const paint = createPainter();
 
-  if (!deps.isTmuxInstalled()) {
+  if (!(await deps.isDaemonAvailable())) {
     process.stdout.write(
       "\n  " + paint("text", "no sessions running", { bold: true }) +
-      "\n\n  " + paint("dim", "tmux is not installed") + "\n\n",
+      "\n\n  " + paint("dim", "daemon unavailable") + "\n\n",
     );
     return 0;
   }
 
   // ── Named kill path ───────────────────────────────────────────────────────
   if (sessionId !== undefined) {
-    const inScope = filterByScope(deps.listSessions(), scope);
+    const inScope = filterByScope(await deps.listSessions(), scope);
     const target = inScope.find((s) => s.name === sessionId);
 
     if (!target) {
@@ -335,7 +350,7 @@ export async function sessionKillCommand(
     }
 
     if (answer === true) {
-      deps.killSession(sessionId);
+      await deps.killSession(sessionId);
       process.stdout.write(
         "\n  " + paint("success", "✓") + " killed " + paint("text", sessionId) + "\n\n",
       );
@@ -350,7 +365,7 @@ export async function sessionKillCommand(
   }
 
   // ── Multi-kill path ───────────────────────────────────────────────────────
-  const targets = filterByAgent(filterByScope(deps.listSessions(), scope), agents);
+  const targets = filterByAgent(filterByScope(await deps.listSessions(), scope), agents);
 
   if (targets.length === 0) {
     process.stdout.write(renderSessionList([]));
@@ -390,7 +405,7 @@ export async function sessionKillCommand(
 
   if (answer === true) {
     for (const t of selectedTargets) {
-      deps.killSession(t.name);
+      await deps.killSession(t.name);
     }
     process.stdout.write(
       "\n  " + paint("success", "✓") + " killed " + paint("text", String(selectedTargets.length)) + " " + paint("dim", noun) + "\n\n",
@@ -408,7 +423,7 @@ export async function sessionKillCommand(
 const SELECT_ALL_SESSIONS = "__atomic_select_all_sessions__";
 
 async function selectSessionsToKill(
-  targets: TmuxSession[],
+  targets: AtomicSession[],
   deps: SessionDeps,
 ): Promise<string[] | symbol> {
   const selected = await deps.multiselect({

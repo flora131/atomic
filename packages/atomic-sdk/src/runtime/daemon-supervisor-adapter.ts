@@ -42,15 +42,9 @@ export class DaemonSupervisorAdapter implements ISupervisor {
   private readonly supervisor: Supervisor;
   private readonly cwd: string;
 
-  constructor(opts: DaemonSupervisorAdapterOptions | Supervisor = {}) {
-    // Accept legacy positional `new DaemonSupervisorAdapter(supervisor)` form too.
-    if (opts instanceof Supervisor) {
-      this.supervisor = opts;
-      this.cwd = process.cwd();
-    } else {
-      this.supervisor = opts.supervisor ?? new Supervisor();
-      this.cwd = opts.cwd ?? process.cwd();
-    }
+  constructor(opts: DaemonSupervisorAdapterOptions = {}) {
+    this.supervisor = opts.supervisor ?? new Supervisor();
+    this.cwd = opts.cwd ?? process.cwd();
   }
 
   // ─── ISupervisor: spawn ─────────────────────────────────────────────────────
@@ -67,32 +61,57 @@ export class DaemonSupervisorAdapter implements ISupervisor {
     agent: AgentType;
     args: string[];
     env?: Record<string, string>;
+    cwd?: string;
+    cols?: number;
+    rows?: number;
     onExit?: (exitCode: number, signal?: string) => void;
   }): Promise<{ pid: number }> {
-    const { runId, stageName, agent, args, env, onExit } = params;
+    const { runId, stageName, agent, args, env, cwd, cols, rows, onExit } = params;
 
-    // Resolve binary safely — Bun.which never invokes a shell.
+    // Resolve binary safely — Bun.which never invokes a shell. Prefer the
+    // caller-provided PATH because chat clients may start a long-lived daemon
+    // from a different shell than the one where the agent CLI is installed.
     const cmd = AGENT_CONFIG[agent].cmd;
-    const file = Bun.which(cmd, { PATH: process.env["PATH"] ?? "" });
+    const pathEnv = env?.PATH ?? process.env["PATH"] ?? "";
+    const copilotCliPath = agent === "copilot" ? env?.COPILOT_CLI_PATH : undefined;
+    const file = copilotCliPath ?? Bun.which(cmd, { PATH: pathEnv });
     if (!file) {
       throw missingDependency(cmd);
     }
 
-    // Use the injected working directory as the subprocess cwd.
-    const cwd = this.cwd;
-
     // Wire onExit through StageCallbacks so callers can await subprocess exit.
     const callbacks = onExit ? { onExit } : undefined;
 
-    // spawn is synchronous inside Supervisor; wrap in Promise for interface compat.
-    const result = this.supervisor.spawn({ runId, stageName, agent, file, args, cwd, env, callbacks });
-    return Promise.resolve(result);
+    return this.supervisor.spawn({
+      runId,
+      stageName,
+      agent,
+      file,
+      args,
+      cwd: cwd ?? this.cwd,
+      env,
+      cols,
+      rows,
+      callbacks,
+    });
   }
 
   // ─── ISupervisor: sendInput ────────────────────────────────────────────────
 
   sendInput(runId: string, stageName: string, data: string): void {
     this.supervisor.sendInput(runId, stageName, data);
+  }
+
+  subscribeOutput(runId: string, stageName: string, conn: import("vscode-jsonrpc").MessageConnection): string {
+    return this.supervisor.subscribeOutput(runId, stageName, conn);
+  }
+
+  unsubscribeOutput(subscriptionId: string): void {
+    this.supervisor.unsubscribeOutput(subscriptionId);
+  }
+
+  resize(runId: string, stageName: string, cols: number, rows: number): void {
+    this.supervisor.resizeStage(runId, stageName, cols, rows);
   }
 
   // ─── ISupervisor: getScrollback ────────────────────────────────────────────

@@ -47,6 +47,12 @@ function makeConn({
     if (method === "workflow/start") {
       return { runId, attachable: true as const };
     }
+    if (method === "run/getAttachInfo") {
+      return { subscriptionId: "sub-1", foregroundStage: null };
+    }
+    if (method === "run/get") {
+      return { runId, status: "active" };
+    }
     throw new Error(`Unexpected method: ${method}`);
   });
 
@@ -128,6 +134,12 @@ describe("runWorkflow", () => {
         callOrder.push("sendRequest");
         return { runId: "test-run-id-01", attachable: true as const };
       }
+      if (method === "run/getAttachInfo") {
+        return { subscriptionId: "sub-1", foregroundStage: null };
+      }
+      if (method === "run/get") {
+        return { runId: "test-run-id-01", status: "active" };
+      }
       throw new Error(`Unexpected method: ${method}`);
     });
 
@@ -175,6 +187,12 @@ describe("runWorkflow", () => {
       if (method === "workflow/start") {
         return { runId: "test-run-id-01", attachable: true as const };
       }
+      if (method === "run/getAttachInfo") {
+        return { subscriptionId: "sub-1", foregroundStage: null };
+      }
+      if (method === "run/get") {
+        return { runId: "test-run-id-01", status: "active" };
+      }
       throw new Error(`Unexpected method: ${method}`);
     });
 
@@ -220,6 +238,32 @@ describe("runWorkflow", () => {
     );
 
     expect(result.runId).toBe("test-run-id-01");
+  });
+
+  test("detach:false — resolves if run is already terminal before subscription notification", async () => {
+    const { conn, sendRequest } = makeConn();
+    sendRequest.mockImplementation(async (method: string) => {
+      if (method === "workflow/start") {
+        return { runId: "test-run-id-01", attachable: true as const };
+      }
+      if (method === "run/getAttachInfo") {
+        return { subscriptionId: "sub-1", foregroundStage: null };
+      }
+      if (method === "run/get") {
+        return { runId: "test-run-id-01", status: "complete" };
+      }
+      throw new Error(`Unexpected method: ${method}`);
+    });
+    const mockEnsureStarted = mock(async () => conn);
+
+    const result = await runWorkflow(
+      { workflow: fakeWorkflow, detach: false },
+      { ensureStarted: mockEnsureStarted },
+    );
+
+    expect(result.runId).toBe("test-run-id-01");
+    expect(sendRequest).toHaveBeenCalledWith("run/getAttachInfo", { runId: "test-run-id-01" });
+    expect(sendRequest).toHaveBeenCalledWith("run/get", { runId: "test-run-id-01" });
   });
 
   test("detach:false — rejects when connection closes before run/ended", async () => {

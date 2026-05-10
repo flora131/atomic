@@ -1,17 +1,15 @@
 // ─── Orchestrator Panel Types ─────────────────────
 
-export type SessionStatus = "pending" | "running" | "complete" | "error" | "awaiting_input" | "offloaded" | "resuming";
+export type SessionStatus = "pending" | "running" | "complete" | "error" | "awaiting_input";
 
-export type ViewMode = "graph" | "attached" | "resuming";
+export type ViewMode = "graph" | "attached";
 
 export interface PanelSession {
   name: string;
   parents: string[];
 }
 
-export interface PanelOptions {
-  tmuxSession: string;
-}
+export interface PanelOptions {}
 
 export interface SessionData {
   name: string;

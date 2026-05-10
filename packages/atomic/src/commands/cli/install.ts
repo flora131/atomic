@@ -165,6 +165,7 @@ export function cleanupOldArtifacts(binDir: string, now: number = Date.now()): C
     try {
         entries = readdirSync(binDir);
     } catch {
+        // Directory unreadable (absent or permission denied) — skip cleanup.
         return { oldBinariesRemoved, tempFilesRemoved };
     }
 

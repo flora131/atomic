@@ -98,6 +98,7 @@ function makeConnection(): MessageConnection {
 function makeRunManager(overrides: Partial<IRunManager> = {}): IRunManager {
   return {
     start: mock(() => Promise.resolve({ runId: "run-1" })),
+    startChat: mock(() => Promise.resolve({ runId: "chat-1" })),
     stop: mock(() => Promise.resolve()),
     list: mock(() => [] as RunInfo[]),
     get: mock(() => null),
@@ -128,7 +129,7 @@ function makeDispatcherWithRealAdapter(
   spawner: IPtySpawner,
 ): { dispatcher: MethodDispatcher; conn: MessageConnection; adapter: DaemonSupervisorAdapter; supervisor: Supervisor } {
   const supervisor = new Supervisor(spawner);
-  const adapter = new DaemonSupervisorAdapter(supervisor);
+  const adapter = new DaemonSupervisorAdapter({ supervisor });
   const conn = makeConnection();
   const dispatcher = new MethodDispatcher({
     workflows: makeWorkflowRegistry() as never,

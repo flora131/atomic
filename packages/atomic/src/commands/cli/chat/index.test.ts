@@ -1,9 +1,14 @@
-import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, mock, test } from "bun:test";
 import {
+  buildAgentArgs,
   buildLauncherEnv,
   buildLauncherScript,
   buildSpawnEnv,
   resolveChatCommand,
+  startChatSessionViaDaemon,
 } from "./index.ts";
 import { atomicTempEnv } from "@bastani/atomic-sdk/lib/atomic-temp";
 
@@ -68,7 +73,7 @@ describe("buildLauncherScript", () => {
     expect(script).not.toContain("Invoke-AtomicSessionCleanup");
   });
 
-  test("builds a bash launcher without tmux input suppression", () => {
+  test("builds a bash launcher without terminal input suppression", () => {
     const { script, ext } = withMockPlatform("linux", () =>
       buildLauncherScript(
         "claude",
@@ -228,6 +233,49 @@ describe("chat env builders", () => {
     expect(script).not.toContain("anthropic-secret");
     expect(script).toContain('export LANG="en_US.UTF-8"');
     expect(script).toContain('export ATOMIC_AGENT="copilot"');
+  });
+});
+
+describe("buildAgentArgs", () => {
+  test("Copilot chat disables CLI mouse capture so terminal text selection works", async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "atomic-chat-args-"));
+    try {
+      const args = await buildAgentArgs("copilot", [], projectRoot);
+
+      expect(args).toContain("--no-mouse");
+      expect(args.indexOf("--no-mouse")).toBeGreaterThan(args.indexOf("--experimental"));
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("startChatSessionViaDaemon", () => {
+  test("sends chat/start with agent args env and cwd", async () => {
+    const sendRequest = mock(async (_method: string, _params: unknown) => ({
+      runId: "chat-run-1",
+      attachable: true,
+    }));
+    const dispose = mock(() => {});
+    const ensureStartedFn = mock(async () => ({ sendRequest, dispose }) as never);
+
+    const runId = await startChatSessionViaDaemon({
+      agentType: "claude",
+      args: ["--debug"],
+      env: { ATOMIC_AGENT: "claude" },
+      cwd: "/repo",
+      ensureStartedFn,
+    });
+
+    expect(runId).toBe("chat-run-1");
+    expect(ensureStartedFn).toHaveBeenCalledWith({ clientName: "@bastani/atomic/chat" });
+    expect(sendRequest).toHaveBeenCalledWith("chat/start", {
+      agent: "claude",
+      args: ["--debug"],
+      env: { ATOMIC_AGENT: "claude" },
+      cwd: "/repo",
+    });
+    expect(dispose).toHaveBeenCalled();
   });
 });
 

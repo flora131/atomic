@@ -135,6 +135,20 @@ Examples:
     // Chat session subcommands: atomic chat session list / connect
     addSessionSubcommand(chatCmd, "chat");
 
+    // ── Daemon command ───────────────────────────────────────────────────────
+    const daemonCmd = program
+        .command("daemon")
+        .description("Manage the atomic daemon");
+
+    daemonCmd
+        .command("restart")
+        .description("Restart the atomic daemon")
+        .action(async () => {
+            const { daemonRestartCommand } = await import("./commands/cli/daemon.ts");
+            const exitCode = await daemonRestartCommand();
+            process.exit(exitCode);
+        });
+
     // ── Workflow command ─────────────────────────────────────────────────────
     //
     // The base Command (with -n, -a, -d flags and workflow dispatch) is
@@ -242,7 +256,7 @@ Examples:
         .description(
             "Print the on-disk path to a workflow run or stage under ~/.atomic/sessions",
         )
-        .requiredOption("--sessionId <id>", "Tmux session name (atomic-wf-…) or bare 8-hex run id")
+        .requiredOption("--sessionId <id>", "Daemon run id")
         .option("--stageId <name>", "Stage name as it appears in `atomic workflow status` output")
         .option("--format <format>", "Output format: json | text (defaults to json inside an atomic chat session, text otherwise)")
         .action(async (localOpts) => {
@@ -266,7 +280,7 @@ Examples:
         .description(
             "Query workflow status (in_progress, error, completed, needs_review)",
         )
-        .argument("[session_id]", "Workflow tmux session id (omit to list all)")
+        .argument("[session_id]", "Workflow run id (omit to list all)")
         .option("--format <format>", "Output format: json | text", "json")
         .action(async (sessionId, localOpts) => {
             const { workflowStatusCommand } = await import(

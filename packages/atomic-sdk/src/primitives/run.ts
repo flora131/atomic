@@ -113,13 +113,13 @@ export async function runWorkflow(
     return { runId: result.runId, daemon: conn };
   }
 
-  // Foreground mode: register run/ended handler BEFORE sending workflow/start
-  // to close the race where daemon completes before we subscribe.
-  //
-  // waitPromise is created first so resolveEnded/rejectEnded are always
-  // initialised before any handler can fire (including synchronous mocks).
+  // Foreground mode: register the local notification handler before starting
+  // the run, then subscribe to the daemon's RunState once the run id is known.
+  // The extra `run/get` check closes the race where a very short run ends
+  // before `run/getAttachInfo` can attach this connection as a subscriber.
   let pendingRunId: string | undefined;
-  const buffered: Array<{ runId: string }> = [];
+  const buffered: Array<{ runId: string; overall?: string; fatalError?: string }> = [];
+  let settled = false;
   let resolveEnded!: () => void;
   let rejectEnded!: (err: Error) => void;
 
@@ -128,17 +128,30 @@ export async function runWorkflow(
     rejectEnded = reject;
   });
 
-  const notifDisposable = conn.onNotification("run/ended", (params: { runId: string }) => {
-    if (pendingRunId === undefined) {
-      // runId not yet known — buffer for post-request check.
-      buffered.push(params);
-    } else if (params.runId === pendingRunId) {
-      resolveEnded();
+  const settleFromEnded = (params: { runId: string; overall?: string; fatalError?: string }) => {
+    if (settled) return;
+    settled = true;
+    if (params.overall === "error") {
+      rejectEnded(new Error(params.fatalError ?? `[atomic] workflow ${params.runId} failed`));
+      return;
     }
-  });
+    resolveEnded();
+  };
+
+  const notifDisposable = conn.onNotification(
+    "run/ended",
+    (params: { runId: string; overall?: string; fatalError?: string }) => {
+      if (pendingRunId === undefined) {
+        // runId not yet known — buffer for post-request check.
+        buffered.push(params);
+      } else if (params.runId === pendingRunId) {
+        settleFromEnded(params);
+      }
+    },
+  );
 
   const closeDisposable = conn.onClose(() => {
-    rejectEnded(new Error("[atomic] daemon connection closed before run/ended"));
+    if (!settled) rejectEnded(new Error("[atomic] daemon connection closed before run/ended"));
   });
 
   const result = await conn.sendRequest("workflow/start", {
@@ -151,9 +164,22 @@ export async function runWorkflow(
   const { runId } = result;
   pendingRunId = runId;
 
+  await conn.sendRequest("run/getAttachInfo", { runId });
+
+  const runInfo = await conn.sendRequest("run/get", { runId }) as
+    | { status?: string }
+    | null;
+  if (runInfo?.status && runInfo.status !== "active") {
+    settleFromEnded({
+      runId,
+      overall: runInfo.status === "complete" ? "complete" : "error",
+    });
+  }
+
   // If notification already arrived during sendRequest, resolve immediately.
-  if (buffered.some((n) => n.runId === runId)) {
-    resolveEnded();
+  const bufferedMatch = buffered.find((n) => n.runId === runId);
+  if (bufferedMatch) {
+    settleFromEnded(bufferedMatch);
   }
 
   await waitPromise;

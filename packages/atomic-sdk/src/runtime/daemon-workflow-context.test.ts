@@ -24,11 +24,11 @@ import { RunState } from "./run-state.ts";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function makeRunState(runId = randomUUID()): RunState {
+function makeRunState(runId = randomUUID(), agent: "claude" | "opencode" | "copilot" = "claude"): RunState {
   return new RunState({
     runId,
     workflowName: "test-wf",
-    agent: "claude",
+    agent,
     projectRoot: "/tmp",
   });
 }
@@ -186,10 +186,32 @@ describe("DaemonWorkflowContext", () => {
         await s.stage("inner");
       });
 
-      // Both outer and inner should have been spawned.
+      // Claude full SDK-form stages stay on the daemon's headless provider
+      // path until Claude has a daemon-native pane transport; only the
+      // explicit simple-form nested stage uses the subprocess supervisor.
       const names = supervisor.calls.map((c) => c.stageName).sort();
-      expect(names).toContain("outer");
       expect(names).toContain("inner");
+    });
+
+    test("non-headless OpenCode SDK stages spawn a daemon PTY instead of silently running headless", async () => {
+      const runId = randomUUID();
+      const state = makeRunState(runId, "opencode");
+      const supervisor = makeFakeSupervisor(0);
+      const ctx = new DaemonWorkflowContext({
+        runId,
+        agent: "opencode",
+        inputs: {},
+        state,
+        supervisor,
+      });
+
+      await expect(
+        ctx.stage({ name: "visible-opencode" }, {}, {}, async () => undefined),
+      ).rejects.toThrow("waiting for opencode stage");
+
+      expect(supervisor.calls).toHaveLength(1);
+      expect(supervisor.calls[0]!.stageName).toBe("visible-opencode");
+      expect(supervisor.calls[0]!.args).toEqual(["--port", "0"]);
     });
   });
 

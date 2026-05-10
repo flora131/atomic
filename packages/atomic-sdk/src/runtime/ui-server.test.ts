@@ -48,6 +48,7 @@ function makePair(): [MessageConnection, MessageConnection] {
 function makeRunManager(overrides: Partial<IRunManager> = {}): IRunManager {
   return {
     start: mock(() => Promise.resolve({ runId: "run-1" })),
+    startChat: mock(() => Promise.resolve({ runId: "chat-1" })),
     stop: mock(() => Promise.resolve()),
     list: mock(() => []),
     get: mock(() => null),

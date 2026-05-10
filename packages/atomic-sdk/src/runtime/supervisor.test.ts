@@ -413,7 +413,7 @@ describe("Supervisor pane/output notifications", () => {
     expect((n.params as Record<string, unknown>)["runId"]).toBe("run-1");
     expect((n.params as Record<string, unknown>)["stageName"]).toBe("stage-1");
     expect((n.params as Record<string, unknown>)["data"]).toBe("hello");
-    expect((n.params as Record<string, unknown>)["offset"]).toBe(5);
+    expect((n.params as Record<string, unknown>)["offset"]).toBe(0);
   });
 
   it("broadcasts to multiple subscribers", () => {
@@ -428,11 +428,11 @@ describe("Supervisor pane/output notifications", () => {
 
   it("offset increments across multiple data events", () => {
     sup.subscribeOutput("run-1", "stage-1", conn as never);
-    spawner.lastPty.emitData("abc"); // offset=3
-    spawner.lastPty.emitData("de");  // offset=5
+    spawner.lastPty.emitData("abc"); // offset=0
+    spawner.lastPty.emitData("de");  // offset=3
 
     const offsets = conn.notifications.map(n => (n.params as Record<string, unknown>)["offset"]);
-    expect(offsets).toEqual([3, 5]);
+    expect(offsets).toEqual([0, 3]);
   });
 
   it("no notifications before subscribe", () => {

@@ -3,15 +3,22 @@
  * PtyPane — renders a stage's PTY scrollback and forwards focused keystrokes
  * to the daemon via `pane/sendInput`.
  *
- * §5.4 of specs/2026-05-09-ui-server-bun-native.md
+ * Important: the legacy PtyPane is a scrollback/log view, not a terminal
+ * emulator. DirectPtyPane is used for interactive workflow stage attachment:
+ * it switches OpenTUI into split-footer mode and streams PTY bytes to the real
+ * terminal so native full-screen agent TUIs interpret ANSI themselves.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useKeyboard } from "@opentui/react";
-import type { ScrollBoxRenderable } from "@opentui/core";
+import { useKeyboard, useRenderer } from "@opentui/react";
+import type { CliRenderer, ScrollBoxRenderable } from "@opentui/core";
 import type { MessageConnection } from "vscode-jsonrpc/node";
 import type { PaneOutputNotificationParams } from "../runtime/ui-protocol/schemas.ts";
 import { useLatest } from "./hooks.ts";
+import {
+  TERMINAL_MOUSE_REPORTING_DISABLE_SEQUENCE,
+  TerminalMouseReportingFilter,
+} from "./terminal-mouse.ts";
 
 // ---------------------------------------------------------------------------
 // Pure helpers (extracted for unit-testing)
@@ -25,15 +32,6 @@ import { useLatest } from "./hooks.ts";
  * appended. If `offset` equals `headOffset`, the data is concatenated in
  * full. If `offset` is greater, a gap marker is inserted to signal that
  * bytes were missed (e.g. during reconnect).
- *
- * Pure function — no side effects, fully unit-testable.
- *
- * @param existing   Current scrollback content.
- * @param headOffset Number of bytes already present at the head of the buffer.
- * @param incoming   New data string from the `pane/output` notification.
- * @param offset     Byte offset at which `incoming` begins in the stream.
- * @returns          `{ content: string; headOffset: number }` — the new
- *                   merged buffer and the updated head offset.
  */
 export function appendScrollback(
   existing: string,
@@ -48,18 +46,15 @@ export function appendScrollback(
   const incomingEnd = offset + incoming.length;
 
   if (incomingEnd <= headOffset) {
-    // Entirely within already-seen range — discard.
     return { content: existing, headOffset };
   }
 
   if (offset < headOffset) {
-    // Partial overlap — skip the bytes we already have.
     const tail = incoming.slice(headOffset - offset);
     return { content: existing + tail, headOffset: headOffset + tail.length };
   }
 
   if (offset > headOffset) {
-    // Gap — bytes were missed between headOffset and offset.
     const gap = `\r\n[…${offset - headOffset} bytes missing…]\r\n`;
     return {
       content: existing + gap + incoming,
@@ -67,12 +62,133 @@ export function appendScrollback(
     };
   }
 
-  // offset === headOffset — normal contiguous append.
   return { content: existing + incoming, headOffset: incomingEnd };
 }
 
+export const PANE_FOOTER_ROWS = 1;
+
+export interface PaneKeyLike {
+  name: string;
+  ctrl: boolean;
+  sequence?: string;
+  raw?: string;
+}
+
+export function panePtyRows(terminalRows: number | undefined, footerRows = PANE_FOOTER_ROWS): number {
+  return Math.max(1, Math.floor((terminalRows ?? 40) - footerRows));
+}
+
+export interface PaneTerminalDimensions {
+  width: number;
+  height: number;
+  terminalWidth: number;
+  terminalHeight: number;
+}
+
+export function getPaneTerminalSize(dimensions: PaneTerminalDimensions): { cols: number; rows: number } {
+  // In split-footer mode, renderer.height is only the footer render surface.
+  // The attached PTY must be sized from the physical terminal so native TUIs
+  // redraw into the full space above Atomic's footer instead of a 1-row pane.
+  const physicalWidth = dimensions.terminalWidth > 0 ? dimensions.terminalWidth : dimensions.width;
+  const physicalHeight = dimensions.terminalHeight > 0 ? dimensions.terminalHeight : dimensions.height;
+  return {
+    cols: Math.max(1, Math.floor(physicalWidth)),
+    rows: panePtyRows(physicalHeight),
+  };
+}
+
+function usePaneTerminalSize(renderer: CliRenderer): { cols: number; rows: number } {
+  const readSize = () => getPaneTerminalSize({
+    width: renderer.width,
+    height: renderer.height,
+    terminalWidth: renderer.terminalWidth,
+    terminalHeight: renderer.terminalHeight,
+  });
+  const [size, setSize] = useState(readSize);
+
+  useEffect(() => {
+    const onResize = () => setSize(readSize());
+    renderer.on("resize", onResize);
+    onResize();
+    return () => {
+      renderer.off("resize", onResize);
+    };
+  }, [renderer]);
+
+  return size;
+}
+
+/** True when a key belongs to the workflow panel shell and must not be forwarded to the PTY. */
+export function isPanelKey(key: PaneKeyLike): boolean {
+  return key.name === "q" || (key.ctrl && (key.name === "c" || key.name === "g"));
+}
+
+function ctrlLetterInput(name: string): string | null {
+  if (!/^[a-z]$/i.test(name)) return null;
+  return String.fromCharCode(name.toLowerCase().charCodeAt(0) - 96);
+}
+
+export function sliceNewPaneOutput(
+  headOffset: number,
+  data: string,
+  offset: number,
+): { data: string; headOffset: number } {
+  if (data.length === 0) return { data: "", headOffset };
+
+  const incomingEnd = offset + data.length;
+  if (incomingEnd <= headOffset) return { data: "", headOffset };
+
+  if (offset < headOffset) {
+    return {
+      data: data.slice(headOffset - offset),
+      headOffset: incomingEnd,
+    };
+  }
+
+  return { data, headOffset: incomingEnd };
+}
+
+export function paneKeyToPtyInput(key: PaneKeyLike): string {
+  if (key.ctrl) {
+    const ctrlLetter = ctrlLetterInput(key.name);
+    if (ctrlLetter !== null) return ctrlLetter;
+    if (key.name === "space") return "\x00";
+    if (key.name === "[" || key.name === "escape") return "\x1b";
+    if (key.name === "\\") return "\x1c";
+    if (key.name === "]") return "\x1d";
+    if (key.name === "^") return "\x1e";
+    if (key.name === "_") return "\x1f";
+  }
+
+  switch (key.name) {
+    case "escape":
+      return "\x1b";
+    case "return":
+    case "enter":
+      return "\r";
+    case "linefeed":
+      return "\n";
+    case "tab":
+      return "\t";
+    case "backspace":
+      return "\x7f";
+    case "delete":
+      return "\x1b[3~";
+    case "up":
+      return "\x1b[A";
+    case "down":
+      return "\x1b[B";
+    case "right":
+      return "\x1b[C";
+    case "left":
+      return "\x1b[D";
+    default:
+      return key.sequence ?? key.raw ?? "";
+  }
+}
+
 // ---------------------------------------------------------------------------
-// Component
+// Components
 // ---------------------------------------------------------------------------
 
 export interface PtyPaneProps {
@@ -87,11 +203,187 @@ export interface PtyPaneProps {
   height?: number | "auto" | `${number}%`;
 }
 
+
+/**
+ * Direct interactive stage pane.
+ *
+ * Unlike PtyPane, this component does not render PTY bytes into a React <text>
+ * node. It lets the user's real terminal interpret the agent TUI's ANSI
+ * control stream, while OpenTUI renders only a pinned footer in split-footer
+ * mode. This mirrors the direct chat attach path and avoids garbled escape
+ * sequences in full-screen Copilot/OpenCode workflow stages.
+ */
+export interface DirectPtyPaneProps extends PtyPaneProps {
+  onQuit: () => void;
+  onDetach: () => void;
+  onReturnToGraph: () => void;
+}
+
+export function DirectPtyPane({
+  runId,
+  stageName,
+  focused,
+  connection,
+  onQuit,
+  onDetach,
+  onReturnToGraph,
+}: DirectPtyPaneProps) {
+  const renderer = useRenderer();
+  const ptySize = usePaneTerminalSize(renderer);
+
+  useEffect(() => {
+    let disposed = false;
+    let outputSubscriptionId: string | null = null;
+    let snapshotLoaded = false;
+    let headOffset = 0;
+    const pendingLiveOutput: PaneOutputNotificationParams[] = [];
+    const mouseFilter = new TerminalMouseReportingFilter();
+
+    process.stdout.write(TERMINAL_MOUSE_REPORTING_DISABLE_SEQUENCE);
+
+    const write = (data: string) => {
+      if (!disposed && data.length > 0) {
+        const filtered = mouseFilter.write(data);
+        if (filtered.length > 0) process.stdout.write(filtered);
+        renderer.requestRender();
+      }
+    };
+
+    const writeOutputAtOffset = (data: string, offset: number) => {
+      const next = sliceNewPaneOutput(headOffset, data, offset);
+      headOffset = next.headOffset;
+      write(next.data);
+    };
+
+    const flushPendingLiveOutput = () => {
+      pendingLiveOutput.sort((a, b) => a.offset - b.offset);
+      for (const params of pendingLiveOutput) {
+        writeOutputAtOffset(params.data, params.offset);
+      }
+      pendingLiveOutput.length = 0;
+    };
+
+    const outputDisposable = connection.onNotification(
+      "pane/output",
+      (params: PaneOutputNotificationParams) => {
+        if (params.runId !== runId || params.stageName !== stageName) return;
+
+        if (!snapshotLoaded) {
+          pendingLiveOutput.push(params);
+          return;
+        }
+
+        writeOutputAtOffset(params.data, params.offset);
+      },
+    );
+
+    (async () => {
+      // Subscribe first, then fetch scrollback. This prevents losing the
+      // initial full-screen repaint if the agent writes between the fetch and
+      // subscription calls.
+      try {
+        const sub = (await connection.sendRequest("pane/subscribeOutput", {
+          runId,
+          stageName,
+        })) as { subscriptionId: string };
+
+        if (disposed) {
+          await connection
+            .sendRequest("pane/unsubscribeOutput", { subscriptionId: sub.subscriptionId })
+            .catch(() => {});
+        } else {
+          outputSubscriptionId = sub.subscriptionId;
+        }
+      } catch {
+        // If subscription fails, fall back to a one-time scrollback repaint.
+      }
+
+      try {
+        const scrollback = (await connection.sendRequest("pane/getScrollback", {
+          runId,
+          stageName,
+        })) as { data: string; headOffset: number };
+        if (!disposed) {
+          write(scrollback.data);
+          headOffset = scrollback.headOffset;
+        }
+      } catch {
+        // Non-fatal — the pane may not exist yet or scrollback unavailable.
+      }
+
+      snapshotLoaded = true;
+      flushPendingLiveOutput();
+    })();
+
+    return () => {
+      disposed = true;
+      process.stdout.write(mouseFilter.finish());
+      outputDisposable.dispose();
+      if (outputSubscriptionId) {
+        connection
+          .sendRequest("pane/unsubscribeOutput", { subscriptionId: outputSubscriptionId })
+          .catch(() => {});
+      }
+    };
+  }, [connection, renderer, runId, stageName]);
+
+  useEffect(() => {
+    connection
+      .sendRequest("pane/resize", {
+        runId,
+        stageName,
+        cols: ptySize.cols,
+        rows: ptySize.rows,
+      })
+      .catch(() => {});
+  }, [connection, runId, stageName, ptySize.cols, ptySize.rows]);
+
+  const focusedRef = useLatest(focused);
+
+  useKeyboard((key) => {
+    if (key.name === "q" || (key.ctrl && key.name === "c")) {
+      key.preventDefault?.();
+      key.stopPropagation?.();
+      onQuit();
+      return;
+    }
+
+    if (key.ctrl && key.name === "d") {
+      key.preventDefault?.();
+      key.stopPropagation?.();
+      onDetach();
+      return;
+    }
+
+    if (key.ctrl && key.name === "g") {
+      key.preventDefault?.();
+      key.stopPropagation?.();
+      onReturnToGraph();
+      return;
+    }
+
+    if (isPanelKey(key)) return;
+    if (!focusedRef.current) return;
+
+    const data = paneKeyToPtyInput(key);
+    if (data.length === 0) return;
+
+    key.preventDefault?.();
+    key.stopPropagation?.();
+
+    connection
+      .sendRequest("pane/sendInput", { runId, stageName, data })
+      .catch(() => {});
+  });
+
+  return null;
+}
+
 /**
  * Renders a stage's PTY scrollback and optionally forwards keystrokes.
  *
  * - On mount: fetches the initial scrollback via `pane/getScrollback`.
- * - Live updates: listens for `pane/output` notifications and appends data.
+ * - Live updates: subscribes via `pane/subscribeOutput` and appends data.
  * - When `focused`: forwards non-quit keystrokes via `pane/sendInput`.
  * - Scrolls to the bottom on new data unless the user has scrolled up.
  */
@@ -107,20 +399,16 @@ export function PtyPane({
   const [headOffset, setHeadOffset] = useState<number>(0);
   const [userScrolled, setUserScrolled] = useState<boolean>(false);
 
-  // Keep a ref to `scrollback` and `headOffset` so the notification handler
-  // (which closes over the initial values) always reads the latest state.
   const scrollbackRef = useLatest(scrollback);
   const headOffsetRef = useLatest(headOffset);
   const userScrolledRef = useLatest(userScrolled);
-
-  // Ref to the scrollbox so we can imperatively scroll to the bottom.
   const scrollboxRef = useRef<ScrollBoxRenderable | null>(null);
 
   // ── Fetch initial scrollback + register notification handler ─────────────
   useEffect(() => {
     let disposed = false;
+    let outputSubscriptionId: string | null = null;
 
-    // Fetch initial scrollback.
     (async () => {
       try {
         const result = (await connection.sendRequest("pane/getScrollback", {
@@ -131,16 +419,30 @@ export function PtyPane({
         if (!disposed) {
           setScrollback(result.data);
           setHeadOffset(result.headOffset);
-          // Scroll to bottom after loading initial content.
           const sb = scrollboxRef.current;
           if (sb) sb.scrollTo(Number.MAX_SAFE_INTEGER);
         }
       } catch {
         // Non-fatal — pane may not exist yet or scrollback unavailable.
       }
+
+      try {
+        const sub = (await connection.sendRequest("pane/subscribeOutput", {
+          runId,
+          stageName,
+        })) as { subscriptionId: string };
+        if (disposed) {
+          await connection
+            .sendRequest("pane/unsubscribeOutput", { subscriptionId: sub.subscriptionId })
+            .catch(() => {});
+        } else {
+          outputSubscriptionId = sub.subscriptionId;
+        }
+      } catch {
+        // Older daemon / tests may not provide output subscription support.
+      }
     })();
 
-    // Register live output notification handler.
     const disposable = connection.onNotification(
       "pane/output",
       (params: PaneOutputNotificationParams) => {
@@ -156,7 +458,6 @@ export function PtyPane({
         setScrollback(merged.content);
         setHeadOffset(merged.headOffset);
 
-        // Auto-scroll to bottom unless the user has manually scrolled up.
         if (!userScrolledRef.current) {
           const sb = scrollboxRef.current;
           if (sb) sb.scrollTo(Number.MAX_SAFE_INTEGER);
@@ -167,6 +468,11 @@ export function PtyPane({
     return () => {
       disposed = true;
       disposable.dispose();
+      if (outputSubscriptionId) {
+        connection
+          .sendRequest("pane/unsubscribeOutput", { subscriptionId: outputSubscriptionId })
+          .catch(() => {});
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runId, stageName, connection]);
@@ -183,12 +489,9 @@ export function PtyPane({
   }, []);
 
   useKeyboard((key) => {
-    // Don't intercept global quit keys — the parent panel handles those.
-    if (key.name === "q" || (key.ctrl && key.name === "c")) return;
-
+    if (isPanelKey(key)) return;
     if (!focusedRef.current) return;
 
-    // Scroll with arrow keys / PageUp / PageDown when focused.
     if (key.name === "up") {
       handleScroll(-1);
       return;
@@ -206,12 +509,12 @@ export function PtyPane({
       return;
     }
 
-    // Forward all other keystrokes to the remote PTY.
+    const data = paneKeyToPtyInput(key);
+    if (data.length === 0) return;
+
     connection
-      .sendRequest("pane/sendInput", { runId, stageName, data: key.sequence })
-      .catch(() => {
-        // Fire-and-forget — ignore errors (pane may have exited).
-      });
+      .sendRequest("pane/sendInput", { runId, stageName, data })
+      .catch(() => {});
   });
 
   return (

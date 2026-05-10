@@ -233,7 +233,7 @@ export interface OffloadManagerDeps {
     readonly sessions: readonly SessionData[];
     /** Empty-string sentinel for "no agent attached" — never null. */
     readonly activeAgentId: string;
-    setSessionStatus(name: string, status: SessionData["status"]): void;
+    setSessionStatus(name: string, status: string): void;
   };
   tmux: {
     killWindow(session: string, window: string): Promise<void>;

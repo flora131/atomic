@@ -14,14 +14,13 @@ import { COLORS } from "@bastani/atomic-sdk/theme/colors";
 import { getCommandPath } from "@bastani/atomic-sdk/services/system/detect";
 import { ensureAtomicGlobalAgentConfigs } from "../../../services/config/atomic-global-config.ts";
 import { getEmbeddedAsset } from "../../../lib/embedded-assets.ts";
-import { buildLauncherEnv, buildSpawnEnv, buildTmuxEnv } from "@bastani/atomic-sdk/lib/terminal-env";
+import { buildLauncherEnv, buildSpawnEnv } from "@bastani/atomic-sdk/lib/terminal-env";
 import { atomicTempEnv } from "@bastani/atomic-sdk/lib/atomic-temp";
 import { type CommandPathResolver, resolveCopilotCliPath } from "@bastani/atomic-sdk/providers/copilot";
 
 export {
   buildLauncherEnv,
   buildSpawnEnv,
-  buildTmuxEnv,
   TERMINAL_ENV_KEYS,
   type TerminalEnvKey,
 } from "@bastani/atomic-sdk/lib/terminal-env";
@@ -214,10 +213,9 @@ export function buildLauncherScript(
 /**
  * Spawn the native agent CLI as an interactive subprocess.
  *
- * Always creates a new session in the atomic tmux socket and attaches
- * to it, regardless of whether the user is already inside tmux.
- * Falls back to direct spawn only when no TTY is available or tmux
- * cannot be installed.
+ * Creates a daemon-managed chat session and mounts the OpenTUI panel client
+ * when a TTY is available. Detaching the panel leaves the daemon session alive;
+ * reconnect with `atomic chat session connect <runId>`.
  *
  * @param options - Chat command configuration options
  * @returns Exit code from the agent process
@@ -254,6 +252,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   };
 
   if (agentType === "copilot") {
+    envVars.COPILOT_CLI_PATH = executable;
     const dir = getAdditionalInstructionsDir(projectRoot);
     if (dir && dir.includes(",")) {
       console.error(`${COLORS.yellow}Warning: skipping COPILOT_CUSTOM_INSTRUCTIONS_DIRS entry because the path contains a comma, which Copilot CLI cannot escape: ${dir}${COLORS.reset}`);
@@ -263,27 +262,61 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     }
   }
 
-  buildSpawnEnv(envVars);
+  const spawnEnv = buildSpawnEnv(envVars);
   buildLauncherEnv(envVars);
-  buildTmuxEnv(envVars);
-  void args;
+  const { ensureStarted, closeDaemonConnection } = await import("@bastani/atomic-sdk/runtime/daemon");
+  const conn = await ensureStarted({ clientName: "@bastani/atomic/chat" });
 
-  throw new Error("not implemented: use daemon path");
+  try {
+    const result = await conn.sendRequest("chat/start", {
+      agent: agentType,
+      args,
+      env: spawnEnv,
+      cwd: projectRoot,
+      cols: process.stdout.columns ?? 120,
+      rows: Math.max(1, (process.stdout.rows ?? 40) - 2),
+    }) as { runId: string; attachable: true };
+
+    closeDaemonConnection(conn);
+
+    if (process.stdout.isTTY) {
+      const { PanelClient } = await import("@bastani/atomic-sdk/components/panel-client");
+      await PanelClient.mount({ runId: result.runId, view: "chat", agentType });
+    } else {
+      process.stdout.write(`[atomic/chat] session started: ${result.runId}\n`);
+    }
+
+    return 0;
+  } catch (err) {
+    closeDaemonConnection(conn);
+    throw err;
+  }
 }
-/**
- * Spawn the agent CLI directly with inherited stdio.
- * Used when not inside tmux.
- */
-async function spawnDirect(
-  cmd: string[],
-  projectRoot: string,
-  env: Record<string, string> = {},
-): Promise<number> {
-  const proc = Bun.spawn(cmd, {
-    stdio: ["inherit", "inherit", "inherit"],
-    cwd: projectRoot,
-    env,
-  });
 
-  return await proc.exited;
+/** Start a daemon-managed chat session without mounting a panel. Exported for tests. */
+export async function startChatSessionViaDaemon(input: {
+  agentType: AgentType;
+  args: string[];
+  env: Record<string, string>;
+  cwd: string;
+  cols?: number;
+  rows?: number;
+  ensureStartedFn?: typeof import("@bastani/atomic-sdk/runtime/daemon").ensureStarted;
+}): Promise<string> {
+  const { closeDaemonConnection } = await import("@bastani/atomic-sdk/runtime/daemon");
+  const ensureStartedFn = input.ensureStartedFn ?? (await import("@bastani/atomic-sdk/runtime/daemon")).ensureStarted;
+  const conn = await ensureStartedFn({ clientName: "@bastani/atomic/chat" });
+  try {
+    const result = await conn.sendRequest("chat/start", {
+      agent: input.agentType,
+      args: input.args,
+      env: input.env,
+      cwd: input.cwd,
+      ...(input.cols !== undefined ? { cols: input.cols } : {}),
+      ...(input.rows !== undefined ? { rows: input.rows } : {}),
+    }) as { runId: string; attachable: true };
+    return result.runId;
+  } finally {
+    closeDaemonConnection(conn);
+  }
 }

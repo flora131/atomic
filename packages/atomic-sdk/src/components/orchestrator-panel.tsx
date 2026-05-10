@@ -1,7 +1,9 @@
 /** @jsxImportSource @opentui/react */
 /**
- * OrchestratorPanel — public API class that bridges the imperative
- * executor interface with the React-based session graph TUI.
+ * OrchestratorPanel — imperative wrapper around the React session graph.
+ *
+ * This class is retained as a renderer/store facade for tests and embedded
+ * callers. Runtime attach/detach now goes through the daemon PanelClient.
  */
 
 import { createCliRenderer, type CliRenderer } from "@opentui/core";
@@ -10,8 +12,7 @@ import { resolveTheme } from "../runtime/theme.ts";
 import { deriveGraphTheme } from "./graph-theme.ts";
 import type { GraphTheme } from "./graph-theme.ts";
 import { PanelStore } from "./orchestrator-panel-store.ts";
-import { OffloadManagerContext, StoreContext, ThemeContext, TmuxSessionContext } from "./orchestrator-panel-contexts.ts";
-import type { OffloadManager } from "../runtime/offload-manager.ts";
+import { StoreContext, ThemeContext } from "./orchestrator-panel-contexts.ts";
 import type { PanelSession, PanelOptions, SessionData } from "./orchestrator-panel-types.ts";
 import { SessionGraphPanel } from "./session-graph-panel.tsx";
 import { ErrorBoundary } from "./error-boundary.tsx";
@@ -30,21 +31,16 @@ export class OrchestratorPanel {
   private diagnostics: TuiDiagnostics | null = null;
   private unsubscribeDiagnostics: (() => void) | null = null;
   private graphTheme: GraphTheme;
-  private tmuxSession: string;
-  private offloadManager: OffloadManager | null = null;
-  private rerender: () => void = () => {};
 
   private constructor(
     renderer: CliRenderer,
     store: PanelStore,
     graphTheme: GraphTheme,
-    tmuxSession: string,
     terminalBackgroundSynced: boolean,
   ) {
     this.renderer = renderer;
     this.store = store;
     this.graphTheme = graphTheme;
-    this.tmuxSession = tmuxSession;
     this.terminalBackgroundSynced = terminalBackgroundSynced;
     this.diagnostics = createTuiDiagnostics({
       renderer,
@@ -56,50 +52,35 @@ export class OrchestratorPanel {
       : null;
 
     const root = createRoot(renderer);
-    const renderTree = (offloadManager: OffloadManager | null): void => {
-      root.render(
-        <StoreContext.Provider value={store}>
-          <ThemeContext.Provider value={graphTheme}>
-            <TmuxSessionContext.Provider value={tmuxSession}>
-              <OffloadManagerContext.Provider value={offloadManager}>
-                <ErrorBoundary
-                  fallback={(err) => (
-                    <box
-                      width="100%"
-                      height="100%"
-                      justifyContent="center"
-                      alignItems="center"
-                      backgroundColor={graphTheme.background}
-                    >
-                      <text>
-                        <span fg={graphTheme.error}>
-                          {`Fatal render error: ${err.message}`}
-                        </span>
-                      </text>
-                    </box>
-                  )}
-                >
-                  {offloadManager ? <SessionGraphPanel /> : null}
-                </ErrorBoundary>
-              </OffloadManagerContext.Provider>
-            </TmuxSessionContext.Provider>
-          </ThemeContext.Provider>
-        </StoreContext.Provider>,
-      );
-    };
-    this.rerender = () => renderTree(this.offloadManager);
-    renderTree(null);
+    root.render(
+      <StoreContext.Provider value={store}>
+        <ThemeContext.Provider value={graphTheme}>
+          <ErrorBoundary
+            fallback={(err) => (
+              <box
+                width="100%"
+                height="100%"
+                justifyContent="center"
+                alignItems="center"
+                backgroundColor={graphTheme.background}
+              >
+                <text>
+                  <span fg={graphTheme.error}>{`Fatal render error: ${err.message}`}</span>
+                </text>
+              </box>
+            )}
+          >
+            <SessionGraphPanel />
+          </ErrorBoundary>
+        </ThemeContext.Provider>
+      </StoreContext.Provider>,
+    );
     requestRendererBackgroundRepaint(this.renderer);
     this.diagnostics?.capture("post-mount");
   }
 
-  /**
-   * Create a new OrchestratorPanel with the default CLI renderer.
-   *
-   * This is the primary entry point — it initialises the terminal renderer
-   * and mounts the React-based session graph TUI.
-   */
-  static async create(options: PanelOptions): Promise<OrchestratorPanel> {
+  /** Create a new OrchestratorPanel with the default CLI renderer. */
+  static async create(options: PanelOptions = {}): Promise<OrchestratorPanel> {
     const renderer = await createCliRenderer({
       exitOnCtrlC: false,
       exitSignals: ["SIGTERM", "SIGQUIT", "SIGABRT", "SIGHUP", "SIGPIPE", "SIGBUS", "SIGFPE"],
@@ -110,40 +91,29 @@ export class OrchestratorPanel {
   /** Create with an externally-provided renderer (e.g. a test renderer). */
   static createWithRenderer(
     renderer: CliRenderer,
-    options: PanelOptions,
+    options: PanelOptions = {},
     { syncTerminalBackground = false }: { syncTerminalBackground?: boolean } = {},
   ): OrchestratorPanel {
+    void options;
     const termTheme = resolveTheme(renderer.themeMode);
     setRendererBackground(renderer, termTheme.bg, { syncTerminalDefault: syncTerminalBackground });
     const graphTheme = deriveGraphTheme(termTheme);
     const store = new PanelStore();
-    return new OrchestratorPanel(renderer, store, graphTheme, options.tmuxSession, syncTerminalBackground);
+    return new OrchestratorPanel(renderer, store, graphTheme, syncTerminalBackground);
   }
 
-  /**
-   * Display the workflow overview in the TUI — name, agent, session graph,
-   * and the user prompt. Call once after construction before sessions start.
-   */
-  showWorkflowInfo(
-    name: string,
-    agent: string,
-    sessions: PanelSession[],
-    prompt: string,
-  ): void {
+  showWorkflowInfo(name: string, agent: string, sessions: PanelSession[], prompt: string): void {
     this.store.setWorkflowInfo(name, agent, sessions, prompt);
   }
 
-  /** Mark a session as running in the graph UI. */
   sessionStart(name: string): void {
     this.store.startSession(name);
   }
 
-  /** Mark a session as successfully completed in the graph UI. */
   sessionSuccess(name: string): void {
     this.store.completeSession(name);
   }
 
-  /** Mark a session as failed in the graph UI and display the error message. */
   sessionError(name: string, message: string): void {
     this.store.failSession(name, message);
   }
@@ -156,7 +126,6 @@ export class OrchestratorPanel {
     this.store.resumeSession(name);
   }
 
-  /** Dynamically add a new session node to the graph UI. */
   addSession(name: string, parents: string[]): void {
     this.store.addSession({
       name,
@@ -167,41 +136,22 @@ export class OrchestratorPanel {
     });
   }
 
-  /** Increment the background task counter (shown in the statusline footer). */
   backgroundTaskStarted(): void {
     this.store.incrementBackgroundTasks();
-    this.pushBackgroundTasksIndicator();
   }
 
-  /** Decrement the background task counter (shown in the statusline footer). */
   backgroundTaskFinished(): void {
     this.store.decrementBackgroundTasks();
-    this.pushBackgroundTasksIndicator();
   }
 
-  /**
-   * Push the pre-styled bg-tasks segment into the tmux user-option the
-   * orchestrator branch of the status-line references inline. Pushing
-   * scopes to this workflow's tmux session so concurrent atomic
-   * sessions on the shared socket don't clobber each other's count.
-   */
-  private pushBackgroundTasksIndicator(): void {
-  }
-
-  /** Show the workflow-complete banner with a link to saved transcripts. */
   showCompletion(workflowName: string, transcriptsPath: string): void {
     this.store.setCompletion(workflowName, transcriptsPath);
   }
 
-  /** Display a fatal error banner in the TUI. */
   showFatalError(message: string): void {
     this.store.setFatalError(message);
   }
 
-  /**
-   * Block until the user presses `q` or `Ctrl+C` in the TUI.
-   * Call after {@link showCompletion} or {@link showFatalError}.
-   */
   waitForExit(): Promise<void> {
     this.store.markCompletionReached();
     return new Promise<void>((resolve) => {
@@ -209,17 +159,12 @@ export class OrchestratorPanel {
     });
   }
 
-  /**
-   * Returns a promise that resolves when the user requests a mid-execution quit
-   * (via `q` or `Ctrl+C`). Race this against the workflow run.
-   */
   waitForAbort(): Promise<void> {
     return new Promise<void>((resolve) => {
       this.store.abortResolve = resolve;
     });
   }
 
-  /** Tear down the terminal renderer and release resources. Idempotent. */
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
@@ -229,51 +174,19 @@ export class OrchestratorPanel {
     this.diagnostics?.dispose();
     this.diagnostics = null;
     try {
-      if (this.terminalBackgroundSynced) {
-        resetRendererTerminalBackground(this.renderer);
-      }
+      if (this.terminalBackgroundSynced) resetRendererTerminalBackground(this.renderer);
       this.renderer.destroy();
     } catch {}
   }
 
-  /**
-   * Subscribe to store mutations. Returned function unsubscribes.
-   *
-   * Used by the orchestrator process to mirror the in-memory panel
-   * state to a `status.json` file on disk so out-of-process consumers
-   * (e.g. `atomic workflow status`) can read the live workflow state.
-   */
   subscribe(fn: () => void): () => void {
     return this.store.subscribe(fn);
   }
 
-  /**
-   * Expose the internal PanelStore for consumers that need live mutable
-   * access (e.g. OffloadManager). Prefer `getSnapshot()` for read-only
-   * snapshots.
-   */
   getPanelStore(): PanelStore {
     return this.store;
   }
 
-  /**
-   * Attach the {@link OffloadManager} after both panel and manager are
-   * constructed (the manager's deps include panel.getPanelStore(),
-   * so they cannot be wired in a single constructor). Re-renders the
-   * tree so the {@link OffloadManagerContext} provider reflects the
-   * new value. Idempotent — calling twice with the same manager is fine.
-   */
-  attachOffloadManager(manager: OffloadManager): void {
-    this.offloadManager = manager;
-    this.rerender();
-  }
-
-  /**
-   * Read-only snapshot of the fields needed by the on-disk status
-   * writer. Defined here (not in PanelStore) because the store keeps
-   * full mutable references; this projection drops the renderer-only
-   * promise resolvers and version counter.
-   */
   getSnapshot(): {
     workflowName: string;
     agent: string;

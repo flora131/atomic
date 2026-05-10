@@ -4,15 +4,15 @@
  *
  * Connects to daemon, subscribes to panel/update notifications,
  * mounts the OpenTUI session graph tree, and blocks until the user
- * presses q or Ctrl+C to detach.
+ * presses the panel detach shortcut to detach.
  *
  * §5.4, §5.5 of specs/2026-05-09-ui-server-bun-native.md
  */
 
-import { createCliRenderer, type CliRenderer } from "@opentui/core";
+import { createCliRenderer, type CliRenderer, type CliRendererConfig } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import type { MessageConnection } from "vscode-jsonrpc/node";
-import { connectToDaemon } from "../runtime/daemon.ts";
+import { closeDaemonConnection, connectToDaemon } from "../runtime/daemon.ts";
 import { resolveTheme } from "../runtime/theme.ts";
 import { deriveGraphTheme } from "./graph-theme.ts";
 import type { GraphTheme } from "./graph-theme.ts";
@@ -20,12 +20,12 @@ import { PanelStore } from "./orchestrator-panel-store.ts";
 import {
   StoreContext,
   ThemeContext,
-  TmuxSessionContext,
-  OffloadManagerContext,
 } from "./orchestrator-panel-contexts.ts";
 import { SessionGraphPanel } from "./session-graph-panel.tsx";
+import { CHAT_FOOTER_ROWS, ChatSessionPanel } from "./chat-session-panel.tsx";
+import { DirectPtyPane, PANE_FOOTER_ROWS } from "./pty-pane.tsx";
+import { PanelFooter } from "./panel-footer.tsx";
 import { ErrorBoundary } from "./error-boundary.tsx";
-import type { OffloadManager } from "../runtime/offload-manager.ts";
 import {
   requestRendererBackgroundRepaint,
   resetRendererTerminalBackground,
@@ -38,6 +38,7 @@ import type {
 } from "../runtime/ui-protocol/schemas.ts";
 import type { WorkflowStatusSnapshot } from "../runtime/status-writer.ts";
 import type { SessionData, SessionStatus } from "./orchestrator-panel-types.ts";
+import type { AgentType } from "../types.ts";
 
 // ---------------------------------------------------------------------------
 // DaemonPanelStore — extends PanelStore with snapshot-driven updates
@@ -86,23 +87,6 @@ export class DaemonPanelStore extends PanelStore {
 }
 
 // ---------------------------------------------------------------------------
-// Stub OffloadManager — satisfies the context requirement without tmux
-// ---------------------------------------------------------------------------
-
-/**
- * No-op OffloadManager for the panel-client context where tmux is not
- * available. SessionGraphPanel reads from this but only invokes it when
- * the user tries to attach to a session window — which is a no-op here.
- */
-const STUB_OFFLOAD_MANAGER: OffloadManager = {
-  getStatus: (_name: string) => "alive" as const,
-  offloadSession: async (_name: string) => {},
-  requestResume: async (_name: string) => {},
-  subscribe: (_fn: () => void) => () => {},
-  emit: () => {},
-} as unknown as OffloadManager;
-
-// ---------------------------------------------------------------------------
 // Pure helper — extract for testing
 // ---------------------------------------------------------------------------
 
@@ -135,6 +119,85 @@ export function mapSnapshotSessions(snapshot: WorkflowStatusSnapshot): SessionDa
   );
 }
 
+/**
+ * Apply daemon foreground-stage state to the local OpenTUI store.
+ * `null` means the graph overview is foregrounded; a stage name means the
+ * panel should show that stage's PTY pane.
+ */
+export function applyForegroundStage(store: PanelStore, stageName: string | null): void {
+  if (stageName === null) {
+    store.setViewMode("graph");
+    return;
+  }
+  store.setViewMode("attached", stageName);
+}
+
+export type PanelExitReason = "exit" | "abort";
+export type WorkflowPanelResult =
+  | { kind: PanelExitReason }
+  | { kind: "detach" }
+  | { kind: "pane"; stageName: string };
+export type WorkflowPaneResult = { kind: "graph" } | { kind: PanelExitReason } | { kind: "detach" };
+
+const PANEL_EXIT_SIGNALS: NodeJS.Signals[] = [
+  "SIGTERM",
+  "SIGQUIT",
+  "SIGABRT",
+  "SIGHUP",
+  "SIGPIPE",
+  "SIGBUS",
+  "SIGFPE",
+];
+
+export interface DirectSessionRendererConfigOptions {
+  footerHeight: number;
+  clearOnShutdown: boolean;
+}
+
+/**
+ * Renderer configuration for direct PTY sessions.
+ *
+ * Direct chat and workflow pane attaches stream the native agent TUI straight
+ * to the user's terminal, outside OpenTUI's render tree. Keeping OpenTUI mouse
+ * reporting disabled lets the terminal provide normal drag-to-select behavior
+ * for Claude Code, Copilot CLI, and OpenCode session output.
+ */
+export function createDirectSessionRendererConfig({
+  footerHeight,
+  clearOnShutdown,
+}: DirectSessionRendererConfigOptions): CliRendererConfig {
+  return {
+    exitOnCtrlC: false,
+    exitSignals: [...PANEL_EXIT_SIGNALS],
+    screenMode: "split-footer",
+    footerHeight,
+    externalOutputMode: "passthrough",
+    clearOnShutdown,
+    useMouse: false,
+  };
+}
+
+export async function stopRunForPanelAbort(
+  connection: MessageConnection,
+  runId: string,
+  timeoutMs = 1_500,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, timeoutMs);
+    timer.unref?.();
+  });
+
+  try {
+    await Promise.race([
+      connection.sendRequest("run/stop", { runId }),
+      timeout,
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -142,6 +205,10 @@ export function mapSnapshotSessions(snapshot: WorkflowStatusSnapshot): SessionDa
 export interface PanelClientOptions {
   /** Run ID to attach to. */
   runId: string;
+  /** Attach UI kind. Workflows use the graph; chat streams the native agent TUI with a footer. */
+  view?: "workflow" | "chat";
+  /** Required for `view: "chat"` so the footer can render the provider pill. */
+  agentType?: AgentType;
   /**
    * If provided, connect to this endpoint directly instead of reading the
    * default endpoint file.
@@ -165,12 +232,13 @@ export interface PanelClientOptions {
  *
  * Connects to the daemon, fetches the initial panel snapshot, subscribes
  * to live updates, mounts the OpenTUI session graph, and blocks until the
- * user presses q or Ctrl+C.
+ * user detaches.
  */
 export class PanelClient {
   private readonly connection: MessageConnection;
   private readonly store: DaemonPanelStore;
   private readonly renderer: CliRenderer;
+  private readonly root: ReturnType<typeof createRoot>;
   private readonly graphTheme: GraphTheme;
   private readonly runId: string;
   private subscriptionId: string | null = null;
@@ -182,12 +250,14 @@ export class PanelClient {
     connection: MessageConnection,
     store: DaemonPanelStore,
     renderer: CliRenderer,
+    root: ReturnType<typeof createRoot>,
     graphTheme: GraphTheme,
     runId: string,
   ) {
     this.connection = connection;
     this.store = store;
     this.renderer = renderer;
+    this.root = root;
     this.graphTheme = graphTheme;
     this.runId = runId;
   }
@@ -203,6 +273,8 @@ export class PanelClient {
       token,
       endpointFile,
       clientName = "@bastani/atomic-sdk/panel-client",
+      view = "workflow",
+      agentType,
     } = opts;
 
     // ── 1. Connect to daemon ──────────────────────────────────────────────
@@ -240,6 +312,15 @@ export class PanelClient {
       connection = await connectToDaemon({ endpointFile, token, clientName });
     }
 
+    if (view === "chat") {
+      if (!agentType) {
+        closeDaemonConnection(connection);
+        throw new Error('PanelClient.mount({ view: "chat" }) requires agentType.');
+      }
+      await PanelClient.mountChat({ connection, runId, agentType });
+      return;
+    }
+
     // ── 2. Fetch initial snapshot ─────────────────────────────────────────
     const initialOpaque = (await connection.sendRequest("panel/get", {
       runId,
@@ -249,28 +330,13 @@ export class PanelClient {
     // ── 3. Subscribe for live updates ─────────────────────────────────────
     const subResult = (await connection.sendRequest("panel/subscribe", {
       runId,
-    })) as { subscriptionId: string };
+    })) as { subscriptionId: string; foregroundStage?: string | null };
     const subscriptionId = subResult.subscriptionId;
 
-    // ── 4. Create renderer + store ────────────────────────────────────────
-    const renderer = await createCliRenderer({
-      exitOnCtrlC: false,
-      exitSignals: ["SIGTERM", "SIGQUIT", "SIGABRT", "SIGHUP", "SIGPIPE", "SIGBUS", "SIGFPE"],
-    });
-
-    const termTheme = resolveTheme(renderer.themeMode);
-    setRendererBackground(renderer, termTheme.bg, { syncTerminalDefault: true });
-    const graphTheme = deriveGraphTheme(termTheme);
-
+    // ── 4. Store + daemon notifications ──────────────────────────────────
     const store = new DaemonPanelStore();
-
-    // Apply initial snapshot before mounting so the first render has data.
     store.applySnapshot(initialSnapshot);
 
-    const client = new PanelClient(connection, store, renderer, graphTheme, runId);
-    client.subscriptionId = subscriptionId;
-
-    // ── 5. Register notification handlers ────────────────────────────────
     connection.onNotification(
       "panel/update",
       (params: PanelUpdateNotificationParams) => {
@@ -279,24 +345,110 @@ export class PanelClient {
       },
     );
 
+    let foregroundStage = subResult.foregroundStage ?? null;
     connection.onNotification(
       "panel/foregroundChange",
       (params: PanelForegroundChangeNotificationParams) => {
         if (params.runId !== runId) return;
-        client.foregroundStage = params.stageName;
+        foregroundStage = params.stageName;
       },
     );
 
-    // pane/output notifications are forwarded to PtyPane components via
-    // the shared connection reference — PtyPane registers its own handlers.
+    // ── 5. Mount graph and dedicated PTY renderers as needed ──────────────
+    try {
+      let done = false;
+      while (!done) {
+        const graphResult = await PanelClient.mountWorkflowGraph({
+          connection,
+          runId,
+          store,
+        });
 
-    // ── 6. Mount React tree ───────────────────────────────────────────────
+        if (graphResult.kind === "detach") {
+          done = true;
+          continue;
+        }
+
+        if (graphResult.kind === "pane") {
+          foregroundStage = graphResult.stageName;
+          const paneResult = await PanelClient.mountWorkflowPane({
+            connection,
+            runId,
+            stageName: graphResult.stageName,
+            store,
+          });
+
+          if (paneResult.kind === "graph") {
+            foregroundStage = null;
+            await connection.sendRequest("run/setForeground", { runId }).catch(() => {});
+            continue;
+          }
+
+          if (paneResult.kind === "detach") {
+            done = true;
+            continue;
+          }
+
+          if (paneResult.kind === "abort") {
+            await stopRunForPanelAbort(connection, runId).catch(() => {});
+          }
+          done = true;
+          continue;
+        }
+
+        if (graphResult.kind === "abort") {
+          await stopRunForPanelAbort(connection, runId).catch(() => {});
+        }
+        done = true;
+      }
+    } finally {
+      if (foregroundStage !== null) {
+        await connection.sendRequest("run/setForeground", { runId }).catch(() => {});
+      }
+      await connection.sendRequest("panel/unsubscribe", { subscriptionId }).catch(() => {});
+      closeDaemonConnection(connection);
+    }
+  }
+
+  private static async mountWorkflowGraph({
+    connection,
+    runId,
+    store,
+  }: {
+    connection: MessageConnection;
+    runId: string;
+    store: DaemonPanelStore;
+  }): Promise<WorkflowPanelResult> {
+    const renderer = await createCliRenderer({
+      exitOnCtrlC: false,
+      exitSignals: ["SIGTERM", "SIGQUIT", "SIGABRT", "SIGHUP", "SIGPIPE", "SIGBUS", "SIGFPE"],
+      screenMode: "alternate-screen",
+      clearOnShutdown: true,
+    });
+
+    const termTheme = resolveTheme(renderer.themeMode);
+    setRendererBackground(renderer, termTheme.bg, { syncTerminalDefault: true });
+    const graphTheme = deriveGraphTheme(termTheme);
     const root = createRoot(renderer);
-    root.render(
-      <StoreContext.Provider value={store}>
-        <ThemeContext.Provider value={graphTheme}>
-          <TmuxSessionContext.Provider value="">
-            <OffloadManagerContext.Provider value={STUB_OFFLOAD_MANAGER}>
+
+    try {
+      return await new Promise<WorkflowPanelResult>((resolve) => {
+        let settled = false;
+        const finish = (result: WorkflowPanelResult) => {
+          if (settled) return;
+          settled = true;
+          store.exitResolve = null;
+          store.abortResolve = null;
+          resolve(result);
+        };
+
+        store.setViewMode("graph");
+        store.exitResolve = () => finish({ kind: "exit" });
+        store.abortResolve = () => finish({ kind: "abort" });
+
+        root.render(
+          <StoreContext.Provider value={store}>
+            <ThemeContext.Provider value={graphTheme}>
               <ErrorBoundary
                 fallback={(err) => (
                   <box
@@ -314,24 +466,162 @@ export class PanelClient {
                   </box>
                 )}
               >
-                <SessionGraphPanel />
+                <SessionGraphPanel
+                  runId={runId}
+                  connection={connection}
+                  onOpenPane={(stageName) => finish({ kind: "pane", stageName })}
+                  onDetach={() => finish({ kind: "detach" })}
+                />
               </ErrorBoundary>
-            </OffloadManagerContext.Provider>
-          </TmuxSessionContext.Provider>
-        </ThemeContext.Provider>
-      </StoreContext.Provider>,
-    );
+            </ThemeContext.Provider>
+          </StoreContext.Provider>,
+        );
 
-    requestRendererBackgroundRepaint(renderer);
+        requestRendererBackgroundRepaint(renderer);
+      });
+    } finally {
+      try { root.unmount(); } catch {}
+      try {
+        resetRendererTerminalBackground(renderer);
+        renderer.destroy();
+      } catch {}
+    }
+  }
 
-    // ── 7. Block until user quits ─────────────────────────────────────────
+  private static async mountWorkflowPane({
+    connection,
+    runId,
+    stageName,
+    store,
+  }: {
+    connection: MessageConnection;
+    runId: string;
+    stageName: string;
+    store: DaemonPanelStore;
+  }): Promise<WorkflowPaneResult> {
+    const renderer = await createCliRenderer(createDirectSessionRendererConfig({
+      footerHeight: PANE_FOOTER_ROWS,
+      clearOnShutdown: true,
+    }));
+
+    const termTheme = resolveTheme(renderer.themeMode);
+    setRendererBackground(renderer, termTheme.bg, { syncTerminalDefault: true });
+    const graphTheme = deriveGraphTheme(termTheme);
+    const root = createRoot(renderer);
+
+    try {
+      return await new Promise<WorkflowPaneResult>((resolve) => {
+        let settled = false;
+        const finish = (result: WorkflowPaneResult) => {
+          if (settled) return;
+          settled = true;
+          resolve(result);
+        };
+
+        root.render(
+          <StoreContext.Provider value={store}>
+            <ThemeContext.Provider value={graphTheme}>
+              <ErrorBoundary
+                fallback={(err) => (
+                  <box height={PANE_FOOTER_ROWS} backgroundColor={graphTheme.backgroundElement}>
+                    <text>
+                      <span fg={graphTheme.error} bg={graphTheme.backgroundElement}>
+                        {`Fatal pane footer error: ${err.message}`}
+                      </span>
+                    </text>
+                  </box>
+                )}
+              >
+                <DirectPtyPane
+                  runId={runId}
+                  stageName={stageName}
+                  focused
+                  connection={connection}
+                  onQuit={() => finish({ kind: "abort" })}
+                  onDetach={() => finish({ kind: "detach" })}
+                  onReturnToGraph={() => finish({ kind: "graph" })}
+                />
+                <PanelFooter
+                  mode="PANE"
+                  subject={stageName}
+                  runId={runId}
+                  hints={[
+                    { key: "Ctrl+G", label: "graph" },
+                    { key: "Ctrl+D", label: "detach" },
+                    { key: "q", label: "quit" },
+                  ]}
+                />
+              </ErrorBoundary>
+            </ThemeContext.Provider>
+          </StoreContext.Provider>,
+        );
+
+        requestRendererBackgroundRepaint(renderer);
+      });
+    } finally {
+      try { root.unmount(); } catch {}
+      try {
+        resetRendererTerminalBackground(renderer);
+        renderer.destroy();
+      } catch {}
+    }
+  }
+
+  private static async mountChat({
+    connection,
+    runId,
+    agentType,
+  }: {
+    connection: MessageConnection;
+    runId: string;
+    agentType: AgentType;
+  }): Promise<void> {
+    const renderer = await createCliRenderer(createDirectSessionRendererConfig({
+      footerHeight: CHAT_FOOTER_ROWS,
+      clearOnShutdown: false,
+    }));
+
+    const termTheme = resolveTheme(renderer.themeMode);
+    setRendererBackground(renderer, termTheme.bg, { syncTerminalDefault: true });
+    const graphTheme = deriveGraphTheme(termTheme);
+
+    const root = createRoot(renderer);
     await new Promise<void>((resolve) => {
-      store.exitResolve = resolve;
-      store.abortResolve = resolve;
+      root.render(
+        <ThemeContext.Provider value={graphTheme}>
+          <ErrorBoundary
+            fallback={(err) => (
+              <box height={CHAT_FOOTER_ROWS} backgroundColor={graphTheme.backgroundElement}>
+                <text>
+                  <span fg={graphTheme.error} bg={graphTheme.backgroundElement}>
+                    {`Fatal chat footer error: ${err.message}`}
+                  </span>
+                </text>
+              </box>
+            )}
+          >
+            <ChatSessionPanel
+              runId={runId}
+              agentType={agentType}
+              connection={connection}
+              onDetach={resolve}
+            />
+          </ErrorBoundary>
+        </ThemeContext.Provider>,
+      );
+      requestRendererBackgroundRepaint(renderer);
     });
 
-    // ── 8. Cleanup ────────────────────────────────────────────────────────
-    await client.destroy();
+    try {
+      root.unmount();
+    } catch {}
+    try {
+      closeDaemonConnection(connection);
+    } catch {}
+    try {
+      resetRendererTerminalBackground(renderer);
+      renderer.destroy();
+    } catch {}
   }
 
   /**
@@ -354,9 +644,16 @@ export class PanelClient {
       this.subscriptionId = null;
     }
 
+    // Unmount React before destroying the renderer so keyboard hooks,
+    // animation intervals, and pane subscriptions cannot keep the process
+    // alive after the user detaches from the workflow panel.
+    try {
+      this.root.unmount();
+    } catch {}
+
     // Dispose the JSON-RPC connection.
     try {
-      this.connection.dispose();
+      closeDaemonConnection(this.connection);
     } catch {}
 
     // Tear down the renderer.

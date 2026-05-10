@@ -112,8 +112,6 @@ interface SupervisedStage {
   agent: AgentType;
   pty: IPty;
   scrollback: RingBuffer;
-  /** Monotonically increasing; equals `scrollback.headOffset` after each append. */
-  scrollbackHead: number;
   outputSubscribers: Set<MessageConnection>;
   startedAt: number;
   endedAt: number | null;
@@ -205,7 +203,6 @@ export class Supervisor {
       agent: opts.agent,
       pty,
       scrollback,
-      scrollbackHead: 0,
       outputSubscribers: new Set(),
       startedAt: Date.now(),
       endedAt: null,
@@ -216,9 +213,9 @@ export class Supervisor {
     };
 
     stage.dataDisposable = pty.onData((data) => {
+      const offset = scrollback.headOffset;
       scrollback.append(data);
-      stage.scrollbackHead = scrollback.headOffset;
-      this.broadcastOutput(stage, data);
+      this.broadcastOutput(stage, data, offset);
     });
 
     stage.exitDisposable = pty.onExit(({ exitCode, signal }) => {
@@ -248,7 +245,7 @@ export class Supervisor {
       throw stageNotFound("(unknown)", `pid ${pid}`);
     }
     const stage = this.stages.get(key)!;
-    stage.pty.kill(signal);
+    killPtyProcessTree(stage.pty, signal);
   }
 
   /**
@@ -258,7 +255,7 @@ export class Supervisor {
    */
   killStage(runId: string, stageName: string, signal: string = "SIGTERM"): void {
     const stage = this.requireStage(runId, stageName);
-    stage.pty.kill(signal);
+    killPtyProcessTree(stage.pty, signal);
   }
 
   // ─── sendInput ──────────────────────────────────────────────────────────────
@@ -271,6 +268,12 @@ export class Supervisor {
   sendInput(runId: string, stageName: string, data: string): void {
     const stage = this.requireStage(runId, stageName);
     stage.pty.write(data);
+  }
+
+  /** Resize the PTY for a stage. */
+  resizeStage(runId: string, stageName: string, cols: number, rows: number): void {
+    const stage = this.requireStage(runId, stageName);
+    stage.pty.resize(cols, rows);
   }
 
   // ─── getScrollback ──────────────────────────────────────────────────────────
@@ -288,7 +291,7 @@ export class Supervisor {
     const stage = this.requireStage(runId, stageName);
     return {
       data: stage.scrollback.getFrom(fromOffset),
-      headOffset: stage.scrollbackHead,
+      headOffset: stage.scrollback.headOffset,
     };
   }
 
@@ -361,7 +364,7 @@ export class Supervisor {
     if (this.disposed) return;
     this.disposed = true;
     for (const stage of this.stages.values()) {
-      try { stage.pty.kill("SIGKILL"); } catch { /* best-effort */ }
+      killPtyProcessTree(stage.pty, "SIGKILL");
       stage.dataDisposable.dispose();
       stage.exitDisposable.dispose();
       stage.outputSubscribers.clear();
@@ -402,12 +405,12 @@ export class Supervisor {
     for (const c of dead) subscribers.delete(c);
   }
 
-  private broadcastOutput(stage: SupervisedStage, data: string): void {
+  private broadcastOutput(stage: SupervisedStage, data: string, offset: number): void {
     this.fanOutNotification(stage.outputSubscribers, "pane/output", {
       runId: stage.runId,
       stageName: stage.stageName,
       data,
-      offset: stage.scrollbackHead,
+      offset,
     });
   }
 
@@ -429,4 +432,70 @@ export class Supervisor {
 
 function stageKey(runId: string, stageName: string): string {
   return `${runId}:${stageName}`;
+}
+
+function killPtyProcessTree(pty: IPty, signal: string): void {
+  const descendantPids = process.platform === "win32"
+    ? []
+    : collectDescendantPids(pty.pid).reverse();
+
+  if (process.platform !== "win32") {
+    // Native agent CLIs often spawn helper processes (language servers, MCP
+    // servers, node workers). Capture descendants before calling bun-pty's
+    // kill(), because bun-pty may reap/close the PTY child synchronously and
+    // make later process-tree discovery impossible.
+    for (const childPid of descendantPids) {
+      try {
+        process.kill(childPid, signal as NodeJS.Signals);
+      } catch {
+        // Child may have exited between `ps` and `kill`.
+      }
+    }
+
+    try {
+      process.kill(-pty.pid, signal as NodeJS.Signals);
+    } catch {
+      // Process may not be a group leader or may have already exited.
+    }
+  }
+
+  // Always use bun-pty's own lifecycle hook as the primary PTY cleanup path.
+  // It closes the native handle and emits onExit for RunManager bookkeeping.
+  try {
+    pty.kill(signal);
+  } catch {
+    // best-effort
+  }
+}
+
+function collectDescendantPids(rootPid: number): number[] {
+  try {
+    const proc = Bun.spawnSync(["ps", "-eo", "pid=,ppid="]);
+    if (proc.exitCode !== 0) return [];
+    const output = proc.stdout.toString("utf8");
+    const childrenByParent = new Map<number, number[]>();
+
+    for (const line of output.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const [pidText, ppidText] = trimmed.split(/\s+/);
+      const pid = Number(pidText);
+      const ppid = Number(ppidText);
+      if (!Number.isInteger(pid) || !Number.isInteger(ppid)) continue;
+      const children = childrenByParent.get(ppid) ?? [];
+      children.push(pid);
+      childrenByParent.set(ppid, children);
+    }
+
+    const result: number[] = [];
+    const stack = [...(childrenByParent.get(rootPid) ?? [])];
+    while (stack.length > 0) {
+      const pid = stack.pop()!;
+      result.push(pid);
+      stack.push(...(childrenByParent.get(pid) ?? []));
+    }
+    return result;
+  } catch {
+    return [];
+  }
 }

@@ -34,7 +34,7 @@ export class PanelStore {
 
   /** Current view mode — graph overview or attached to a specific agent. */
   viewMode: ViewMode = "graph";
-  /** ID of the agent currently attached to (only meaningful when viewMode === "attached" or "resuming"). */
+  /** ID of the agent currently attached to (only meaningful when viewMode === "attached"). */
   activeAgentId = "";
 
   /** Active toast notifications. */
@@ -167,13 +167,13 @@ export class PanelStore {
   }
 
   /**
-   * Switch between graph, attached, and resuming view modes.
-   * When switching to "attached" or "resuming", provide the agent ID.
+   * Switch between graph and attached view modes.
+   * When switching to "attached", provide the agent ID.
    * Switching to "graph" clears the active agent.
    */
   setViewMode(mode: ViewMode, agentId?: string): void {
     this.viewMode = mode;
-    this.activeAgentId = (mode === "attached" || mode === "resuming") && agentId ? agentId : "";
+    this.activeAgentId = mode === "attached" && agentId ? agentId : "";
     this.emit();
   }
 

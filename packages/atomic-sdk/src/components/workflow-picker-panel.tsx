@@ -40,8 +40,8 @@ import {
 } from "@opentui/react";
 import { useState, useEffect, useMemo, useRef, useCallback, useContext, createContext, memo } from "react";
 import { useLatest } from "./hooks.ts";
-import { resolveTheme, type TerminalTheme } from "../runtime/theme.ts";
-import type { AgentType, BrokenWorkflow, ExternalWorkflow, WorkflowInput, WorkflowDefinition, Registry } from "../types.ts";
+import { resolveTheme } from "../runtime/theme.ts";
+import type { AgentType, BrokenWorkflow, WorkflowInput, Registry } from "../types.ts";
 import { ErrorBoundary } from "./error-boundary.tsx";
 import {
   requestRendererBackgroundRepaint,
@@ -49,61 +49,41 @@ import {
   setRendererBackground,
 } from "./renderer-background.ts";
 
-/** A registry entry the picker can display — either a compiled builtin or an external. */
-type PickerWorkflow = WorkflowDefinition | ExternalWorkflow;
+// ─── Re-exports from extracted modules ──────────
+// Public API kept stable: callers and tests import from this file unchanged.
 
-/**
- * A unified navigable row in the picker list — either a healthy workflow or a
- * broken entry that failed to load. Arrow-key navigation indices over this
- * union so broken entries are fully traversable.
- */
-export type PickerRow =
-  | { kind: "healthy"; wf: PickerWorkflow }
-  | { kind: "broken"; alias: string; agent: AgentType; broken: BrokenWorkflow };
+export type { PickerTheme } from "./workflow-picker-theme.ts";
+export { buildPickerTheme } from "./workflow-picker-theme.ts";
 
-// ─── Theme ──────────────────────────────────────
-// The picker uses a slightly extended palette vs. the base terminal theme:
-// an `info` (sky) hue for built-in workflows and a `mauve` hue for global
-// ones — the same distinctions `atomic workflow list` already draws. The
-// rest is sourced from {@link resolveTheme} so light/dark mode tracks the
-// orchestrator panel.
-export interface PickerTheme {
-  background: string;
-  backgroundPanel: string;
-  backgroundElement: string;
-  surface: string;
-  text: string;
-  textMuted: string;
-  textDim: string;
-  primary: string;
-  success: string;
-  error: string;
-  warning: string;
-  info: string;
-  mauve: string;
-  border: string;
-  borderActive: string;
-}
+export type {
+  PickerWorkflow,
+  Phase,
+  PickerRow,
+  WorkflowPickerResult,
+  ListEntry,
+  ListRow,
+} from "./workflow-picker-model.ts";
+export {
+  AGENT_ORDER,
+  AGENT_COLOR,
+  fuzzyMatch,
+  combinedFuzzyScore,
+  buildEntries,
+  buildRows,
+  buildPickerRows,
+  isFieldValid,
+} from "./workflow-picker-model.ts";
 
-export function buildPickerTheme(base: TerminalTheme): PickerTheme {
-  return {
-    background: base.bg,
-    backgroundPanel: base.backgroundPanel,
-    backgroundElement: base.backgroundElement,
-    surface: base.surface,
-    text: base.text,
-    textMuted: base.textMuted,
-    textDim: base.dim,
-    primary: base.accent,
-    success: base.success,
-    error: base.error,
-    warning: base.warning,
-    info: base.info,
-    mauve: base.mauve,
-    border: base.borderDim,
-    borderActive: base.border,
-  };
-}
+// ─── Internal imports from extracted modules ─────
+
+import type { PickerTheme } from "./workflow-picker-theme.ts";
+import type { PickerWorkflow, Phase, PickerRow, WorkflowPickerResult } from "./workflow-picker-model.ts";
+import {
+  AGENT_COLOR,
+  buildPickerRows,
+  isFieldValid,
+} from "./workflow-picker-model.ts";
+import { buildPickerTheme } from "./workflow-picker-theme.ts";
 
 // ─── Theme Context ─────────────────────────────
 // Avoids drilling `theme` through every component in the tree.
@@ -114,215 +94,6 @@ function usePickerTheme(): PickerTheme {
   const theme = useContext(PickerThemeContext);
   if (!theme) throw new Error("usePickerTheme must be used within a PickerThemeContext provider");
   return theme;
-}
-
-// ─── Types ──────────────────────────────────────
-
-type Phase = "pick" | "prompt";
-
-/** The payload the picker resolves with on successful submission. */
-export interface WorkflowPickerResult {
-  /** The workflow the user committed to running. */
-  workflow: PickerWorkflow;
-  /** Populated form values, one per declared input (or { prompt } for free-form). */
-  inputs: Record<string, string>;
-}
-
-// ─── Helpers ────────────────────────────────────
-
-/** Per-agent display color in the picker list / section headers. */
-const AGENT_COLOR: Record<AgentType, keyof PickerTheme> = {
-  claude: "warning",
-  copilot: "success",
-  opencode: "mauve",
-};
-
-/**
- * Subsequence fuzzy match — Telescope-style. Returns a score (lower =
- * better) or null for no match. Adjacent matches are rewarded; jumps over
- * non-matching characters are penalized proportionally to the gap.
- */
-export function fuzzyMatch(query: string, target: string): number | null {
-  if (query === "") return 0;
-  const q = query.toLowerCase();
-  const t = target.toLowerCase();
-  let ti = 0;
-  let score = 0;
-  let prev = -2;
-  for (let qi = 0; qi < q.length; qi++) {
-    let found = -1;
-    while (ti < t.length) {
-      if (t[ti] === q[qi]) {
-        found = ti;
-        break;
-      }
-      ti++;
-    }
-    if (found === -1) return null;
-    score += found === prev + 1 ? 1 : 4 + (found - prev);
-    prev = found;
-    ti++;
-  }
-  return score;
-}
-
-// ─── List Building ──────────────────────────────
-
-interface ListEntry {
-  workflow: PickerWorkflow;
-  /** Agent the workflow belongs to — used for section grouping. */
-  section: AgentType;
-}
-
-type ListRow =
-  | { kind: "section"; agent: AgentType }
-  | { kind: "entry"; entry: ListEntry };
-
-/** Canonical agent display order for the empty-query grouping. */
-const AGENT_ORDER: readonly AgentType[] = ["claude", "copilot", "opencode"];
-
-/**
- * Combine name + description fuzzy scores into a single rank. Description
- * matches carry a +2 penalty so name hits win ties. Returns `null` when
- * neither field matched.
- */
-function combinedFuzzyScore(
-  query: string,
-  name: string,
-  description: string,
-): number | null {
-  const nameScore = fuzzyMatch(query, name);
-  const descScore = fuzzyMatch(query, description);
-  if (nameScore !== null && descScore !== null) {
-    return Math.min(nameScore, descScore + 2);
-  }
-  if (nameScore !== null) return nameScore;
-  if (descScore !== null) return descScore + 2;
-  return null;
-}
-
-export function buildEntries(
-  query: string,
-  workflows: PickerWorkflow[],
-): ListEntry[] {
-  type Scored = { wf: PickerWorkflow; score: number };
-  const scored: Scored[] = [];
-  for (const wf of workflows) {
-    const score = combinedFuzzyScore(query, wf.name, wf.description ?? "");
-    if (score !== null) scored.push({ wf, score });
-  }
-
-  if (query === "") {
-    const rest: ListEntry[] = [];
-    for (const agent of AGENT_ORDER) {
-      const group = scored
-        .filter((s) => s.wf.agent === agent)
-        .sort((a, b) => a.wf.name.localeCompare(b.wf.name));
-      for (const s of group) rest.push({ workflow: s.wf, section: agent });
-    }
-    return rest;
-  }
-
-  scored.sort((a, b) => a.score - b.score);
-  return scored.map<ListEntry>((s) => ({
-    workflow: s.wf,
-    section: s.wf.agent,
-  }));
-}
-
-export function buildRows(entries: ListEntry[], query: string): ListRow[] {
-  const rows: ListRow[] = [];
-  if (query === "") {
-    let lastSection: string | null = null;
-    for (const e of entries) {
-      if (e.section !== lastSection) {
-        rows.push({ kind: "section", agent: e.section });
-        lastSection = e.section;
-      }
-      rows.push({ kind: "entry", entry: e });
-    }
-  } else {
-    for (const e of entries) rows.push({ kind: "entry", entry: e });
-  }
-  return rows;
-}
-
-/**
- * Build the unified navigable list of `PickerRow` entries from healthy
- * workflows and a broken index. Broken rows are matched by alias + agent
- * against the query the same way healthy rows are.
- *
- * The returned array is the authoritative navigation list — arrow key
- * indices run over it directly (no separate entry array).
- */
-export function buildPickerRows(
-  query: string,
-  workflows: PickerWorkflow[],
-  brokenIndex: ReadonlyMap<string, BrokenWorkflow> = new Map(),
-): PickerRow[] {
-  // Score both row kinds with a uniform `{ row, score }` shape so the
-  // assemble step doesn't need to discriminate by source.
-  type Scored = { row: PickerRow; score: number };
-  const scored: Scored[] = [];
-
-  for (const wf of workflows) {
-    const score = combinedFuzzyScore(query, wf.name, wf.description ?? "");
-    if (score !== null) scored.push({ row: { kind: "healthy", wf }, score });
-  }
-
-  for (const [key, broken] of brokenIndex) {
-    const slash = key.indexOf("/");
-    if (slash === -1) continue;
-    const agent = key.slice(0, slash) as AgentType;
-    const alias = key.slice(slash + 1);
-    const score = fuzzyMatch(query, alias);
-    if (score !== null) {
-      scored.push({ row: { kind: "broken", alias, agent, broken }, score });
-    }
-  }
-
-  // With query: pure score sort, broken interleaved with healthy.
-  if (query !== "") {
-    scored.sort((a, b) => a.score - b.score);
-    return scored.map((s) => s.row);
-  }
-
-  // Empty query: group by agent in canonical order; healthy before broken
-  // per agent; alphabetic within each sub-group.
-  const rowAgent = (row: PickerRow): AgentType =>
-    row.kind === "healthy" ? row.wf.agent : row.agent;
-  const sortKey = (row: PickerRow): string =>
-    row.kind === "healthy" ? row.wf.name : row.alias;
-  const byKey = (a: { row: PickerRow }, b: { row: PickerRow }): number =>
-    sortKey(a.row).localeCompare(sortKey(b.row));
-
-  const rows: PickerRow[] = [];
-  for (const agent of AGENT_ORDER) {
-    const inAgent = scored.filter((s) => rowAgent(s.row) === agent);
-    const healthy = inAgent.filter((s) => s.row.kind === "healthy").sort(byKey);
-    const broken = inAgent.filter((s) => s.row.kind === "broken").sort(byKey);
-    for (const s of healthy) rows.push(s.row);
-    for (const s of broken) rows.push(s.row);
-  }
-  return rows;
-}
-
-// ─── Validation ─────────────────────────────────
-
-export function isFieldValid(field: WorkflowInput, value: string): boolean {
-  if (field.type === "integer") {
-    const trimmed = value.trim();
-    if (trimmed === "") return !field.required;
-    const parsed = Number.parseInt(trimmed, 10);
-    return (
-      Number.isFinite(parsed) &&
-      Number.isInteger(parsed) &&
-      String(parsed) === trimmed
-    );
-  }
-  if (!field.required) return true;
-  if (field.type === "enum") return value !== "";
-  return value.trim() !== "";
 }
 
 // ─── Components ─────────────────────────────────
@@ -1788,6 +1559,8 @@ export class WorkflowPickerPanel {
         "SIGBUS",
         "SIGFPE",
       ],
+      screenMode: "alternate-screen",
+      clearOnShutdown: true,
     });
     return new WorkflowPickerPanel(renderer, options, { syncTerminalBackground: true });
   }
@@ -1818,6 +1591,9 @@ export class WorkflowPickerPanel {
       this.resolveSelection(null);
       this.resolveSelection = null;
     }
+    try {
+      this.root.unmount();
+    } catch {}
     try {
       if (this.terminalBackgroundSynced) {
         resetRendererTerminalBackground(this.renderer);

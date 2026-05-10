@@ -3,11 +3,8 @@
 import { createContext, useContext, useSyncExternalStore } from "react";
 import type { PanelStore } from "./orchestrator-panel-store.ts";
 import type { GraphTheme } from "./graph-theme.ts";
-import type { OffloadManager } from "../runtime/offload-manager.ts";
-
 export const StoreContext = createContext<PanelStore | null>(null);
 export const ThemeContext = createContext<GraphTheme | null>(null);
-export const TmuxSessionContext = createContext("");
 
 export function useStore(): PanelStore {
   const ctx = useContext(StoreContext);
@@ -35,12 +32,3 @@ export function useStoreVersion(store: PanelStore): number {
   );
 }
 
-export const OffloadManagerContext = createContext<OffloadManager | null>(null);
-
-export function useOffloadManager(): OffloadManager {
-  const ctx = useContext(OffloadManagerContext);
-  if (!ctx) {
-    throw new Error("useOffloadManager must be used within OffloadManagerContext.Provider");
-  }
-  return ctx;
-}

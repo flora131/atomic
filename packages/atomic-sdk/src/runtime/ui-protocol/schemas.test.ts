@@ -3,6 +3,8 @@ import {
   AgentTypeSchema,
   WorkflowOverallStatusSchema,
   WorkflowStatusSnapshotSchema,
+  WorkflowStatusSessionSchema,
+  WorkflowStatusSnapshotOverallSchema,
   SavedMessageSchema,
   WorkflowDescriptorSchema,
   BrokenEntrySchema,
@@ -18,6 +20,8 @@ import {
   WorkflowRefreshResultSchema,
   WorkflowStartParamsSchema,
   WorkflowStartResultSchema,
+  ChatStartParamsSchema,
+  ChatStartResultSchema,
   RunListParamsSchema,
   RunListResultSchema,
   RunGetParamsSchema,
@@ -77,10 +81,128 @@ describe("WorkflowOverallStatusSchema", () => {
   });
 });
 
+describe("WorkflowStatusSnapshotOverallSchema", () => {
+  test("accepts all valid overall statuses", () => {
+    expect(WorkflowStatusSnapshotOverallSchema.parse("in_progress")).toBe("in_progress");
+    expect(WorkflowStatusSnapshotOverallSchema.parse("error")).toBe("error");
+    expect(WorkflowStatusSnapshotOverallSchema.parse("completed")).toBe("completed");
+    expect(WorkflowStatusSnapshotOverallSchema.parse("needs_review")).toBe("needs_review");
+  });
+
+  test("rejects invalid overall status", () => {
+    expect(() => WorkflowStatusSnapshotOverallSchema.parse("complete")).toThrow();
+    expect(() => WorkflowStatusSnapshotOverallSchema.parse("unknown")).toThrow();
+  });
+});
+
+describe("WorkflowStatusSessionSchema", () => {
+  test("accepts minimal session entry", () => {
+    const result = WorkflowStatusSessionSchema.parse({
+      name: "orchestrator",
+      status: "running",
+      parents: [],
+      startedAt: 1700000000000,
+      endedAt: null,
+    });
+    expect(result.name).toBe("orchestrator");
+    expect(result.status).toBe("running");
+    expect(result.error).toBeUndefined();
+  });
+
+  test("accepts all valid session statuses", () => {
+    const statuses = ["pending", "running", "complete", "error", "awaiting_input"] as const;
+    for (const status of statuses) {
+      expect(WorkflowStatusSessionSchema.parse({
+        name: "s",
+        status,
+        parents: [],
+        startedAt: null,
+        endedAt: null,
+      }).status).toBe(status);
+    }
+  });
+
+  test("rejects invalid session status", () => {
+    expect(() => WorkflowStatusSessionSchema.parse({
+      name: "s",
+      status: "unknown",
+      parents: [],
+      startedAt: null,
+      endedAt: null,
+    })).toThrow();
+  });
+
+  test("accepts optional error field", () => {
+    const result = WorkflowStatusSessionSchema.parse({
+      name: "s",
+      status: "error",
+      parents: ["root"],
+      error: "timeout",
+      startedAt: 100,
+      endedAt: 200,
+    });
+    expect(result.error).toBe("timeout");
+    expect(result.parents).toEqual(["root"]);
+  });
+});
+
 describe("WorkflowStatusSnapshotSchema", () => {
-  test("accepts arbitrary record", () => {
-    const result = WorkflowStatusSnapshotSchema.parse({ stage: "running", foo: 42 });
-    expect(result).toEqual({ stage: "running", foo: 42 });
+  const validSnapshot = {
+    schemaVersion: 1 as const,
+    workflowRunId: "abc12345",
+    tmuxSession: "atomic-wf-claude-main-abc12345",
+    workflowName: "main",
+    agent: "claude",
+    prompt: "fix tests",
+    overall: "in_progress" as const,
+    completionReached: false,
+    fatalError: null,
+    updatedAt: "2024-01-01T00:00:00.000Z",
+    sessions: [],
+  };
+
+  test("accepts valid snapshot with empty sessions", () => {
+    const result = WorkflowStatusSnapshotSchema.parse(validSnapshot);
+    expect(result.schemaVersion).toBe(1);
+    expect(result.workflowRunId).toBe("abc12345");
+    expect(result.overall).toBe("in_progress");
+    expect(result.fatalError).toBeNull();
+    expect(result.sessions).toEqual([]);
+  });
+
+  test("accepts snapshot with sessions", () => {
+    const result = WorkflowStatusSnapshotSchema.parse({
+      ...validSnapshot,
+      overall: "completed",
+      completionReached: true,
+      sessions: [
+        { name: "orchestrator", status: "complete", parents: [], startedAt: 100, endedAt: 200 },
+      ],
+    });
+    expect(result.sessions).toHaveLength(1);
+    expect(result.sessions[0]!.name).toBe("orchestrator");
+    expect(result.completionReached).toBe(true);
+  });
+
+  test("accepts fatalError string", () => {
+    const result = WorkflowStatusSnapshotSchema.parse({
+      ...validSnapshot,
+      overall: "error",
+      fatalError: "process crashed",
+    });
+    expect(result.fatalError).toBe("process crashed");
+  });
+
+  test("rejects missing required fields", () => {
+    expect(() => WorkflowStatusSnapshotSchema.parse({ workflowRunId: "x" })).toThrow();
+  });
+
+  test("rejects wrong schemaVersion", () => {
+    expect(() => WorkflowStatusSnapshotSchema.parse({ ...validSnapshot, schemaVersion: 2 })).toThrow();
+  });
+
+  test("rejects invalid overall value", () => {
+    expect(() => WorkflowStatusSnapshotSchema.parse({ ...validSnapshot, overall: "complete" })).toThrow();
   });
 });
 
@@ -203,6 +325,27 @@ describe("workflow/start", () => {
   });
 });
 
+describe("chat/start", () => {
+  test("params accepts agent args env cwd and PTY dimensions", () => {
+    const result = ChatStartParamsSchema.parse({
+      agent: "claude",
+      args: ["--help"],
+      env: { FOO: "bar" },
+      cwd: "/tmp/project",
+      cols: 120,
+      rows: 39,
+    });
+    expect(result.agent).toBe("claude");
+    expect(result.args).toEqual(["--help"]);
+    expect(result.cols).toBe(120);
+    expect(result.rows).toBe(39);
+  });
+
+  test("result has runId and attachable true", () => {
+    expect(ChatStartResultSchema.parse({ runId: "chat-1", attachable: true }).runId).toBe("chat-1");
+  });
+});
+
 describe("run/list", () => {
   test("params accepts empty scope", () => {
     expect(RunListParamsSchema.parse({})).toEqual({});
@@ -238,9 +381,27 @@ describe("run/status", () => {
     expect(RunStatusResultSchema.parse(null)).toBeNull();
   });
 
-  test("result can be WorkflowStatusSnapshot", () => {
-    const result = RunStatusResultSchema.parse({ stage: "main", progress: 50 });
-    expect(result).toEqual({ stage: "main", progress: 50 });
+  test("result can be a typed WorkflowStatusSnapshot", () => {
+    const snapshot = {
+      schemaVersion: 1 as const,
+      workflowRunId: "run-1",
+      tmuxSession: "",
+      workflowName: "main",
+      agent: "claude",
+      prompt: "",
+      overall: "in_progress" as const,
+      completionReached: false,
+      fatalError: null,
+      updatedAt: "2024-01-01T00:00:00.000Z",
+      sessions: [],
+    };
+    const result = RunStatusResultSchema.parse(snapshot);
+    expect(result?.workflowRunId).toBe("run-1");
+    expect(result?.schemaVersion).toBe(1);
+  });
+
+  test("result rejects opaque arbitrary record", () => {
+    expect(() => RunStatusResultSchema.parse({ stage: "main", progress: 50 })).toThrow();
   });
 });
 
@@ -300,7 +461,19 @@ describe("Notifications", () => {
   test("panel/update has runId, snapshot, and version", () => {
     const result = PanelUpdateNotificationParamsSchema.parse({
       runId: "r1",
-      snapshot: { stage: "main" },
+      snapshot: {
+        schemaVersion: 1,
+        workflowRunId: "r1",
+        tmuxSession: "",
+        workflowName: "main",
+        agent: "claude",
+        prompt: "",
+        overall: "in_progress",
+        completionReached: false,
+        fatalError: null,
+        updatedAt: "2024-01-01T00:00:00.000Z",
+        sessions: [],
+      },
       version: 3,
     });
     expect(result.runId).toBe("r1");
@@ -347,6 +520,7 @@ describe("MethodSchemas registry", () => {
     "workflow/list",
     "workflow/refresh",
     "workflow/start",
+    "chat/start",
     "run/list",
     "run/get",
     "run/status",
@@ -355,6 +529,9 @@ describe("MethodSchemas registry", () => {
     "run/getAttachInfo",
     "run/setForeground",
     "pane/sendInput",
+    "pane/subscribeOutput",
+    "pane/unsubscribeOutput",
+    "pane/resize",
     "pane/getScrollback",
     "panel/get",
     "panel/subscribe",
@@ -363,8 +540,8 @@ describe("MethodSchemas registry", () => {
     "agent/kill",
   ];
 
-  test("contains all 20 methods", () => {
-    expect(Object.keys(MethodSchemas)).toHaveLength(20);
+  test("contains all 24 methods", () => {
+    expect(Object.keys(MethodSchemas)).toHaveLength(24);
   });
 
   for (const method of expectedMethods) {

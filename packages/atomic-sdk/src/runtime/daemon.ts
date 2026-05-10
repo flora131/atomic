@@ -19,6 +19,8 @@ import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import {
   createMessageConnection,
   StreamMessageReader,
@@ -507,6 +509,18 @@ export class Daemon {
 // SDK helpers
 // ---------------------------------------------------------------------------
 
+const daemonConnectionSockets = new WeakMap<MessageConnection, net.Socket>();
+
+/** Dispose a daemon MessageConnection and force-close its underlying socket. */
+export function closeDaemonConnection(conn: MessageConnection): void {
+  try {
+    conn.dispose();
+  } finally {
+    daemonConnectionSockets.get(conn)?.destroy();
+    daemonConnectionSockets.delete(conn);
+  }
+}
+
 /**
  * Connect to a running daemon's endpoint.
  *
@@ -532,8 +546,10 @@ export async function connectToDaemon(opts: ConnectOptions = {}): Promise<Messag
  * Auto-spawn resolution (§5.2):
  *   1. opts.atomicBinary
  *   2. process.env.ATOMIC_BINARY
- *   3. Bun.which("atomic")
- *   4. Throws MissingDependencyError
+ *   3. workspace CLI source when invoked via `bun run dev`
+ *   4. bundled @bastani/atomic platform binary
+ *   5. Bun.which("atomic")
+ *   6. Throws MissingDependencyError
  *
  * Polls the endpoint file every pollIntervalMs for up to timeoutMs.
  * Returns an authenticated MessageConnection.
@@ -556,15 +572,19 @@ export async function ensureStarted(opts: EnsureStartedOptions = {}): Promise<Me
     await unlinkEndpointFile(endpointFile);
   }
 
-  // Resolve binary path.
-  const binary = resolveAtomicBinary(opts.atomicBinary);
+  // Resolve daemon command.
+  const command = resolveAtomicDaemonCommand(opts.atomicBinary);
 
-  // Spawn detached daemon.
-  Bun.spawn([binary, "--ui-server"], {
+  // Spawn detached daemon. `detached: true` starts a new process group, but
+  // Bun still keeps a child-process handle referenced unless we explicitly
+  // unref it. Without this, short-lived callers like `atomic workflow -d ...`
+  // print the run id and then hang until the daemon exits.
+  const child = Bun.spawn([...command, "--ui-server"], {
     stdio: ["ignore", "ignore", "ignore"],
     detached: true,
     env: process.env as Record<string, string>,
   });
+  (child as { unref?: () => void }).unref?.();
 
   // Poll for endpoint file.
   const deadline = Date.now() + timeoutMs;
@@ -586,12 +606,89 @@ export async function ensureStarted(opts: EnsureStartedOptions = {}): Promise<Me
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-function resolveAtomicBinary(override?: string): string {
-  if (override) return override;
-  if (process.env.ATOMIC_BINARY) return process.env.ATOMIC_BINARY;
+function resolveAtomicDaemonCommand(override?: string): string[] {
+  if (override) return [override];
+  if (process.env.ATOMIC_BINARY) return [process.env.ATOMIC_BINARY];
+
+  const workspaceDevCommand = resolveWorkspaceDevAtomicCommand();
+  if (workspaceDevCommand !== null) return workspaceDevCommand;
+
+  const packagedBinary = resolvePackagedAtomicBinary();
+  if (packagedBinary !== null) return [packagedBinary];
+
   const found = Bun.which("atomic");
-  if (found) return found;
+  if (found) return [found];
   throw new MissingDependencyError("@bastani/atomic");
+}
+
+function resolveWorkspaceDevAtomicCommand(): string[] | null {
+  let cliPath: string;
+  try {
+    cliPath = fileURLToPath(new URL("../../../atomic/src/cli.ts", import.meta.url));
+  } catch {
+    return null;
+  }
+
+  if (!fs.existsSync(cliPath)) return null;
+
+  const invokedScript = process.argv[1];
+  if (invokedScript === undefined) return null;
+
+  if (path.resolve(invokedScript) !== path.resolve(cliPath)) return null;
+
+  return [process.execPath, cliPath];
+}
+
+function resolvePackagedAtomicBinary(): string | null {
+  if (isSdkSourceCheckout()) return null;
+
+  const require = createRequire(import.meta.url);
+  const ext = process.platform === "win32" ? ".exe" : "";
+
+  for (const suffix of getPlatformPackageSuffixes()) {
+    try {
+      return require.resolve(`@bastani/atomic-${suffix}/bin/atomic${ext}`);
+    } catch {
+      // Try the next package candidate.
+    }
+  }
+
+  return null;
+}
+
+function isSdkSourceCheckout(): boolean {
+  try {
+    const here = fileURLToPath(import.meta.url);
+    return here.includes(`${path.sep}packages${path.sep}atomic-sdk${path.sep}src${path.sep}`);
+  } catch {
+    return false;
+  }
+}
+
+function getPlatformPackageSuffixes(): string[] {
+  const arch = process.arch;
+  if (arch !== "x64" && arch !== "arm64") return [];
+
+  switch (process.platform) {
+    case "linux":
+      return isLinuxMusl()
+        ? [`linux-${arch}-musl`, `linux-${arch}`]
+        : [`linux-${arch}`, `linux-${arch}-musl`];
+    case "darwin":
+      return [`darwin-${arch}`];
+    case "win32":
+      return [`windows-${arch}`];
+    default:
+      return [];
+  }
+}
+
+function isLinuxMusl(): boolean {
+  if (process.platform !== "linux") return false;
+  const report = process.report?.getReport?.() as
+    | { header?: { glibcVersionRuntime?: string } }
+    | undefined;
+  return report?.header?.glibcVersionRuntime === undefined;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -617,6 +714,8 @@ function openConnection(
       const reader = new StreamMessageReader(socket);
       const writer = new StreamMessageWriter(socket);
       const conn = createMessageConnection(reader, writer);
+      daemonConnectionSockets.set(conn, socket);
+      socket.on("close", () => daemonConnectionSockets.delete(conn));
       conn.listen();
 
       const connectParams: { token?: string; clientName: string } = { clientName };

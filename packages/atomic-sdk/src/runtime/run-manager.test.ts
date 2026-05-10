@@ -590,6 +590,137 @@ describe("RunManager.start() — outer executeRun rejection handler (lines 73-82
     expect(info).not.toBeNull();
     expect(info!.status).toBe("error");
   });
+
+  test("outer catch sets endedAt on RunInfo", async () => {
+    const manager = new RunManager();
+
+    (manager as unknown as Record<string, unknown>).executeRun = async () => {
+      throw new Error("Outer rejection — endedAt check");
+    };
+
+    const { runId } = await manager.start({
+      source: join(import.meta.dir, "__fixtures__/with-one-stage.ts"),
+      workflowName: "outer-catch-endedat-wf",
+      agent: "claude",
+      inputs: {},
+    });
+
+    await flushAsync();
+
+    const info = manager.get(runId);
+    expect(info).not.toBeNull();
+    expect(info!.status).toBe("error");
+    expect(typeof info!.endedAt).toBe("string");
+  });
+
+  test("outer catch stores fatalError message in RunState snapshot", async () => {
+    const manager = new RunManager();
+    const errMsg = "Outer rejection — fatalError check";
+
+    (manager as unknown as Record<string, unknown>).executeRun = async () => {
+      throw new Error(errMsg);
+    };
+
+    const { runId } = await manager.start({
+      source: join(import.meta.dir, "__fixtures__/with-one-stage.ts"),
+      workflowName: "outer-catch-fatalerror-wf",
+      agent: "claude",
+      inputs: {},
+    });
+
+    await flushAsync();
+
+    const state = manager.getState(runId);
+    expect(state).not.toBeNull();
+    const snapshot = state!.getSnapshot();
+    expect(snapshot.fatalError).toBe(errMsg);
+  });
+
+  test("outer catch emits run/ended with overall=error to subscribers", async () => {
+    const manager = new RunManager();
+
+    // Delay rejection via setTimeout so subscriber can be registered before the
+    // outer .catch() fires — microtask-immediate throws would fire before subscribe().
+    (manager as unknown as Record<string, unknown>).executeRun = (
+      _state: unknown,
+      _info: unknown,
+    ) =>
+      new Promise<void>((_, reject) => {
+        setTimeout(() => reject(new Error("Outer rejection — run/ended check")), 0);
+      });
+
+    const { runId } = await manager.start({
+      source: join(import.meta.dir, "__fixtures__/with-one-stage.ts"),
+      workflowName: "outer-catch-ended-wf",
+      agent: "claude",
+      inputs: {},
+    });
+
+    const conn = fakeConnection();
+    manager.subscribe(conn, runId);
+
+    await flushAsync();
+
+    const ended = conn.notifications.filter((n) => n.method === "run/ended");
+    expect(ended.length).toBe(1);
+    const p = ended[0]!.params as { runId: string; overall: string };
+    expect(p.runId).toBe(runId);
+    expect(p.overall).toBe("error");
+  });
+
+  test("outer catch — rejected run excluded from list('active')", async () => {
+    const manager = new RunManager();
+
+    (manager as unknown as Record<string, unknown>).executeRun = async () => {
+      throw new Error("Outer rejection — active list check");
+    };
+
+    const { runId } = await manager.start({
+      source: join(import.meta.dir, "__fixtures__/with-one-stage.ts"),
+      workflowName: "outer-catch-active-wf",
+      agent: "claude",
+      inputs: {},
+    });
+
+    await flushAsync();
+
+    const active = manager.list("active");
+    expect(active.find((r) => r.runId === runId)).toBeUndefined();
+  });
+
+  test("cancellation before outer rejection wins — status=cancelled, run/ended=cancelled", async () => {
+    const manager = new RunManager();
+
+    // Rejection delayed via setTimeout so stop() fires first.
+    (manager as unknown as Record<string, unknown>).executeRun = (
+      _state: unknown,
+      _info: unknown,
+    ) =>
+      new Promise<void>((_, reject) => {
+        setTimeout(() => reject(new Error("Late outer rejection")), 0);
+      });
+
+    const { runId } = await manager.start({
+      source: join(import.meta.dir, "__fixtures__/with-one-stage.ts"),
+      workflowName: "outer-catch-cancel-wins-wf",
+      agent: "claude",
+      inputs: {},
+    });
+
+    const conn = fakeConnection();
+    manager.subscribe(conn, runId);
+
+    // stop() before the setTimeout fires — cancellation wins.
+    await manager.stop(runId);
+    await flushAsync();
+
+    const info = manager.get(runId);
+    expect(info!.status).toBe("cancelled");
+
+    const ended = conn.notifications.filter((n) => n.method === "run/ended");
+    expect(ended.length).toBe(1);
+    expect((ended[0]!.params as { overall: string }).overall).toBe("cancelled");
+  });
 });
 
 // ─── getTranscript ────────────────────────────────────────────────────────────

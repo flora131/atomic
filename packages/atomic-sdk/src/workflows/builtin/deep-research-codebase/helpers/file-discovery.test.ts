@@ -46,8 +46,6 @@ test("listAllFiles: git rung — populated repo returns tracked files", () => {
   try {
     // Init git repo
     Bun.spawnSync({ cmd: ["git", "init"], cwd: root, stdout: "pipe", stderr: "pipe" });
-    Bun.spawnSync({ cmd: ["git", "config", "user.email", "test@test.com"], cwd: root, stdout: "pipe", stderr: "pipe" });
-    Bun.spawnSync({ cmd: ["git", "config", "user.name", "Test"], cwd: root, stdout: "pipe", stderr: "pipe" });
 
     // Write and add files
     writeFileSync(join(root, "alpha.ts"), "export const a = 1;");

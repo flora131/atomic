@@ -908,6 +908,15 @@ export async function waitForIdle(
     const sliced = msgs.length > transcriptBeforeCount
       ? msgs.slice(transcriptBeforeCount)
       : [];
+
+    // Stop hook fires on parent end_turn, but backgrounded Agent/Task
+    // sub-agents are launched as void promises in Claude Code (see
+    // src/tools/AgentTool/AgentTool.tsx in mehmoodosman/claude-code) and
+    // may still be running. Drain the inflight dir before signalling
+    // iteration-done so the orchestrator doesn't advance while children
+    // are still holding FDs/PTYs.
+    await waitForInflightDrained(sessionId);
+
     return [true, sliced];
   };
 

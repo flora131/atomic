@@ -1777,8 +1777,23 @@ async function cleanupProvider<A extends AgentType>(
       // Stateless HTTP client — no cleanup needed
       break;
     case "claude":
-      // Headless Claude stages have no tmux pane to clear.
-      if (!paneId.startsWith("headless-")) {
+      if (paneId.startsWith("headless-")) {
+        // Headless Claude has no tmux pane; instead, force the SDK to
+        // tear down its spawned `claude` child (closes stdin → SIGTERM
+        // after 2s → SIGKILL after 5s) and clear the per-session marker
+        // files that `claudeOffloadCleanup` manages. See
+        // `HeadlessClaudeSessionWrapper.disconnect` for the rationale —
+        // without this, headless stages that end cleanly with
+        // `stop_reason: end_turn` deadlock waiting for child exit.
+        const session = providerSession as ProviderSession<"claude">;
+        try {
+          await session.disconnect();
+        } catch (e) {
+          console.warn(
+            `[cleanup] claude headless disconnect failed: ${errorMessage(e)}`,
+          );
+        }
+      } else {
         try {
           await clearClaudeSession(paneId);
         } catch (e) {

@@ -20,6 +20,7 @@
 import {
   getSessionMessages,
   query as sdkQuery,
+  type Query as SDKQuery,
   type SessionMessage,
   type SDKUserMessage,
   type Options as SDKOptions,
@@ -1375,6 +1376,21 @@ export class HeadlessClaudeSessionWrapper {
    */
   private _lastStructuredOutput: unknown = undefined;
 
+  /**
+   * In-flight Agent SDK generator from the current `query()` call. Held so
+   * {@link disconnect} (or the per-stage cleanup path) can force the SDK
+   * to tear down the spawned `claude` child process — calling `.return()`
+   * on the generator triggers `transport.close()`, which closes the
+   * child's stdin and SIGTERMs it after a 2s grace window.
+   *
+   * Without this, headless stages that end cleanly with `stop_reason:
+   * end_turn` deadlock: the SDK's `stream-json` transport keeps the
+   * child alive across turns, the for-await loop below never observes a
+   * natural end-of-iterator, and `await session.query(...)` waits forever
+   * on the child process exit that never happens.
+   */
+  private _activeQuery: SDKQuery | undefined;
+
   get sessionId(): string {
     return this._lastSessionId;
   }
@@ -1406,21 +1422,50 @@ export class HeadlessClaudeSessionWrapper {
 
     let sdkSessionId = "";
     let structuredOutput: unknown = undefined;
+    let activeQuery: SDKQuery | undefined;
     try {
       await withAtomicTempEnv(async () => {
-        for await (const msg of sdkQuery({ prompt, options: headlessSdkOpts })) {
+        activeQuery = sdkQuery({ prompt, options: headlessSdkOpts });
+        this._activeQuery = activeQuery;
+        for await (const msg of activeQuery) {
           if (msg.type === "result") {
             const record = msg as Record<string, unknown>;
             sdkSessionId = String(record.session_id ?? "");
             if (record.subtype === "success" && "structured_output" in record) {
               structuredOutput = record.structured_output;
             }
+            // The wrapper's contract is one query → one result. Break here
+            // so the `finally` block can force the SDK to tear down the
+            // spawned `claude` child. Without breaking, the for-await loop
+            // would wait for the SDK's natural end-of-stream — but the
+            // `stream-json` transport keeps the child alive across turns,
+            // so on `end_turn` the loop hangs even after the API turn has
+            // cleanly completed.
+            break;
           }
         }
       });
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
       throw new Error(`Claude SDK query failed: ${detail}`);
+    } finally {
+      // Drive the SDK's `Query.return()` path so it closes stdin and
+      // SIGTERMs the child (with a SIGKILL fallback after ~5s). Safe to
+      // call even when the iterator already ran to completion — the SDK
+      // dedupes via an internal `cleanupPerformed` guard.
+      const toClose = activeQuery ?? this._activeQuery;
+      if (this._activeQuery === activeQuery) {
+        this._activeQuery = undefined;
+      }
+      if (toClose) {
+        try {
+          await toClose.return(undefined);
+        } catch {
+          // Best-effort — the SDK's cleanup path swallows transport errors
+          // already, so anything that escapes here is unexpected and not
+          // actionable from the wrapper.
+        }
+      }
     }
     if (!sdkSessionId) {
       throw new Error(
@@ -1435,7 +1480,35 @@ export class HeadlessClaudeSessionWrapper {
     return getSessionMessages(sdkSessionId, { dir: process.cwd() });
   }
 
-  async disconnect(): Promise<void> {}
+  /**
+   * Tear down any in-flight SDK query and clear the per-session marker
+   * files/dirs that interactive stages clean up via `clearClaudeSession`.
+   *
+   * Idempotent. Called by the runtime's `cleanupProvider` after a headless
+   * stage callback resolves or throws, so the spawned `claude` child does
+   * not outlive the stage (the upstream SDK bug — `query()` waits on child
+   * exit, but the `stream-json` child waits forever after `end_turn`).
+   */
+  async disconnect(): Promise<void> {
+    const active = this._activeQuery;
+    this._activeQuery = undefined;
+    if (active) {
+      try {
+        await active.return(undefined);
+      } catch {
+        // Best-effort — the SDK's cleanup is idempotent and already
+        // swallows transport-level errors internally.
+      }
+    }
+    if (this._lastSessionId) {
+      try {
+        await claudeOffloadCleanup(this._lastSessionId);
+      } catch {
+        // Best-effort — `claudeOffloadCleanup` is already non-throwing,
+        // but guard here in case the helper signature changes.
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

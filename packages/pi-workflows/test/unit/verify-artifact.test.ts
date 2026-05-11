@@ -124,6 +124,27 @@ function findLeakyRelativeImports(
   return leaky;
 }
 
+function findBundledMainImports(
+  fileAbs: string,
+  specifiers: string[],
+  mainPaths: string[]
+): string[] {
+  const leaky: string[] = [];
+  for (const spec of specifiers) {
+    if (!spec.startsWith(".")) continue;
+    const resolved = resolve(dirname(fileAbs), spec);
+    const candidates = [resolved, resolved + ".js"];
+    if (candidates.some((c) => mainPaths.includes(c))) {
+      leaky.push(spec);
+    }
+  }
+  return leaky;
+}
+
+function isMissingTypesDeclaration(pkg: { main?: string; types?: string }): boolean {
+  return Boolean(pkg.main) && !pkg.types;
+}
+
 // ---------------------------------------------------------------------------
 // Tests — path existence checks
 // ---------------------------------------------------------------------------
@@ -514,6 +535,189 @@ export { wf as default };`;
 
       expect(leakyFiles.length).toBe(1);
       expect(leakyFiles[0]).toContain("bad.js");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — isMissingTypesDeclaration (declaration guardrail)
+// ---------------------------------------------------------------------------
+
+describe("isMissingTypesDeclaration", () => {
+  test("returns false when both main and types are declared", () => {
+    expect(isMissingTypesDeclaration({ main: "dist/index.js", types: "dist/index.d.ts" })).toBe(false);
+  });
+
+  test("returns true when main declared but types is absent", () => {
+    expect(isMissingTypesDeclaration({ main: "dist/index.js" })).toBe(true);
+  });
+
+  test("returns false when neither main nor types declared", () => {
+    expect(isMissingTypesDeclaration({})).toBe(false);
+  });
+
+  test("returns false when types present but main absent", () => {
+    expect(isMissingTypesDeclaration({ types: "dist/index.d.ts" })).toBe(false);
+  });
+
+  test("verifyArtifact passes for package with both main and types", () => {
+    const pkg: PkgShape = { main: "dist/index.js", types: "dist/index.d.ts" };
+    const root = makePkgRoot(["dist/index.js", "dist/index.d.ts"], pkg);
+    try {
+      const missing = verifyArtifact(root, pkg);
+      expect(missing).toHaveLength(0);
+      expect(isMissingTypesDeclaration(pkg)).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("verifyArtifact: package with main but missing types file is caught", () => {
+    const pkg: PkgShape = { main: "dist/index.js", types: "dist/index.d.ts" };
+    const root = makePkgRoot(["dist/index.js"], pkg); // no .d.ts written
+    try {
+      const missing = verifyArtifact(root, pkg);
+      expect(missing).toContain("dist/index.d.ts");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("isMissingTypesDeclaration catches missing types field before file-existence check", () => {
+    // Package declares main but omits types entirely — isMissingTypesDeclaration
+    // catches this even when dist/index.d.ts is actually present on disk.
+    const pkg = { main: "dist/index.js" }; // no types field
+    expect(isMissingTypesDeclaration(pkg)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — findBundledMainImports (external pi-workflows guardrail)
+// ---------------------------------------------------------------------------
+
+describe("findBundledMainImports", () => {
+  const fileInDist = "/fake/pkg/dist/workflows/ralph.js";
+  const mainAbsPaths = ["/fake/pkg/dist/index.js"];
+
+  test("bare specifier 'pi-workflows' not flagged", () => {
+    const result = findBundledMainImports(fileInDist, ["pi-workflows"], mainAbsPaths);
+    expect(result).toHaveLength(0);
+  });
+
+  test("relative import resolving to dist/index.js is flagged", () => {
+    // From dist/workflows/ralph.js, ../index.js → dist/index.js
+    const result = findBundledMainImports(fileInDist, ["../index.js"], mainAbsPaths);
+    expect(result).toContain("../index.js");
+  });
+
+  test("relative import resolving to dist/index (no extension) is flagged via .js candidate", () => {
+    const result = findBundledMainImports(fileInDist, ["../index"], mainAbsPaths);
+    expect(result).toContain("../index");
+  });
+
+  test("relative import within dist/ but NOT main entry is not flagged", () => {
+    const result = findBundledMainImports(fileInDist, ["../other.js"], mainAbsPaths);
+    expect(result).toHaveLength(0);
+  });
+
+  test("multiple specifiers — only main-resolving one returned", () => {
+    const specifiers = ["pi-workflows", "../index.js", "./define-workflow.js"];
+    const result = findBundledMainImports(fileInDist, specifiers, mainAbsPaths);
+    expect(result).toContain("../index.js");
+    expect(result).not.toContain("pi-workflows");
+    expect(result).not.toContain("./define-workflow.js");
+  });
+
+  test("no mainPaths — nothing flagged", () => {
+    const result = findBundledMainImports(fileInDist, ["../index.js"], []);
+    expect(result).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — bundled pi-workflows import detection via simulated dist files
+// ---------------------------------------------------------------------------
+
+describe("verify-artifact — bundled pi-workflows import detection", () => {
+  test("workflow using bare 'pi-workflows' specifier passes bundled-main check", () => {
+    const content = `import { defineWorkflow } from "pi-workflows";
+var wf = defineWorkflow("ok").run(async () => ({})).compile();
+export { wf as default };`;
+
+    const fileAbs = "/fake/pkg/dist/workflows/ok.js";
+    const mainAbsPaths = ["/fake/pkg/dist/index.js"];
+
+    const specifiers = extractImportSpecifiers(content);
+    const result = findBundledMainImports(fileAbs, specifiers, mainAbsPaths);
+    expect(result).toHaveLength(0);
+  });
+
+  test("workflow importing ../index.js is flagged as bundled main import", () => {
+    const content = `import { defineWorkflow } from "../index.js";
+var wf = defineWorkflow("bad").run(async () => ({})).compile();
+export { wf as default };`;
+
+    const fileAbs = "/fake/pkg/dist/workflows/bad.js";
+    const mainAbsPaths = ["/fake/pkg/dist/index.js"];
+
+    const specifiers = extractImportSpecifiers(content);
+    const result = findBundledMainImports(fileAbs, specifiers, mainAbsPaths);
+    expect(result).toContain("../index.js");
+  });
+
+  test("workflow importing exports sub-path via relative is flagged", () => {
+    const content = `import { defineWorkflow } from "../index.js";
+export default {};`;
+
+    const fileAbs = "/fake/pkg/dist/workflows/sub.js";
+    const mainAbsPaths = ["/fake/pkg/dist/index.js", "/fake/pkg/dist/extension/index.js"];
+
+    const specifiers = extractImportSpecifiers(content);
+    const result = findBundledMainImports(fileAbs, specifiers, mainAbsPaths);
+    expect(result).toContain("../index.js");
+  });
+
+  test("verifier in temp dir: workflow with bundled main import is caught", () => {
+    const badContent = `import { defineWorkflow } from "../index.js";
+var wf = defineWorkflow("bad").run(async () => ({})).compile();
+export { wf as default };`;
+    const goodContent = `import { defineWorkflow } from "pi-workflows";
+var wf = defineWorkflow("ok").run(async () => ({})).compile();
+export { wf as default };`;
+
+    const pkg: PkgShape = {
+      main: "dist/index.js",
+      types: "dist/index.d.ts",
+      pi: { workflows: ["./dist/workflows"] },
+    };
+    const root = makePkgRoot(
+      ["dist/index.js", "dist/index.d.ts", "dist/workflows/ok.js", "dist/workflows/bad.js"],
+      pkg,
+      {
+        "dist/workflows/ok.js": goodContent,
+        "dist/workflows/bad.js": badContent,
+      }
+    );
+
+    try {
+      const mainAbsPaths = [resolve(root, "dist/index.js")];
+      const wfDir = resolve(root, "dist/workflows");
+      const jsFiles = readdirSync(wfDir)
+        .filter((f) => f.endsWith(".js"))
+        .map((f) => join(wfDir, f));
+
+      const flagged: string[] = [];
+      for (const jsFile of jsFiles) {
+        const content = readFileSync(jsFile, "utf-8");
+        const specifiers = extractImportSpecifiers(content);
+        const bundled = findBundledMainImports(jsFile, specifiers, mainAbsPaths);
+        if (bundled.length > 0) flagged.push(jsFile);
+      }
+
+      expect(flagged.length).toBe(1);
+      expect(flagged[0]).toContain("bad.js");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

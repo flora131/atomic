@@ -1,7 +1,7 @@
 import { Type } from "@sinclair/typebox";
 import { renderCall } from "./render-call.js";
 import { renderResult } from "./render-result.js";
-import type { WorkflowToolResult, RenderResultOpts } from "./render-result.js";
+import type { WorkflowToolResult, WorkflowInputEntry, RenderResultOpts } from "./render-result.js";
 import {
   renderRunBanner,
   renderStageChip,
@@ -283,6 +283,51 @@ function tryRegisterSlashCommand(pi: ExtensionAPI, opts: PiSlashCommandOpts): vo
   // Neither present — silently skip (degraded runtime).
 }
 
+/**
+ * Admin subcommands handled before workflow name resolution.
+ * Any first token NOT in this set is treated as a workflow name.
+ */
+const ADMIN_SUBCOMMANDS = new Set(["list", "status", "kill", "resume", "inputs"]);
+
+/**
+ * Parse remaining args tokens as key=value pairs.
+ * Tokens matching `key=value` are split on the first `=`.
+ * Tokens that are standalone valid JSON objects/arrays are merged in.
+ * All other tokens are ignored (non-kv positional args not supported).
+ */
+export function parseWorkflowArgs(tokens: string[]): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const token of tokens) {
+    // Try JSON object/array merge
+    if ((token.startsWith("{") && token.endsWith("}")) || (token.startsWith("[") && token.endsWith("]"))) {
+      try {
+        const parsed = JSON.parse(token) as unknown;
+        if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+          Object.assign(result, parsed as Record<string, unknown>);
+        }
+        continue;
+      } catch {
+        // not valid JSON — fall through to kv parse
+      }
+    }
+    // key=value
+    const eqIdx = token.indexOf("=");
+    if (eqIdx > 0) {
+      const key = token.slice(0, eqIdx);
+      const raw = token.slice(eqIdx + 1);
+      // Try to parse value as JSON for typed values (numbers, booleans, objects)
+      let value: unknown = raw;
+      try {
+        value = JSON.parse(raw) as unknown;
+      } catch {
+        // keep as string
+      }
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
 // ---------------------------------------------------------------------------
 // Factory — the default export consumed by the pi runtime
 // ---------------------------------------------------------------------------
@@ -316,12 +361,16 @@ const factory = (pi: ExtensionAPI): void => {
   tryRegisterSlashCommand(pi, {
     name: "workflow",
     description:
-      "Run or inspect pi workflows. Usage: /workflow [list|status|kill|resume|inputs] [name] [args]",
+      "Run or inspect pi workflows. Usage: /workflow <name> [key=value…] | /workflow [list|status|kill|resume|inputs] [args]",
     execute: async (args: string, ctx: PiCommandContext) => {
       const print = ctx.reply ?? ctx.print ?? ((_msg: string) => undefined);
-      const parts = args.trim().split(/\s+/);
+      const rawParts = args.trim().split(/\s+/);
+      const parts = rawParts[0] === "" ? [] : rawParts;
       const subcommand = parts[0] ?? "";
 
+      // -----------------------------------------------------------------------
+      // list (default when no subcommand)
+      // -----------------------------------------------------------------------
       if (!subcommand || subcommand === "list") {
         const names = runtime.registry.names();
         if (names.length === 0) {
@@ -332,6 +381,9 @@ const factory = (pi: ExtensionAPI): void => {
         return;
       }
 
+      // -----------------------------------------------------------------------
+      // status
+      // -----------------------------------------------------------------------
       if (subcommand === "status") {
         const runs = statusRuns({ all: false });
         if (runs.length === 0) {
@@ -346,6 +398,9 @@ const factory = (pi: ExtensionAPI): void => {
         return;
       }
 
+      // -----------------------------------------------------------------------
+      // kill
+      // -----------------------------------------------------------------------
       if (subcommand === "kill") {
         const target = parts[1] ?? "";
         if (!target) {
@@ -371,6 +426,9 @@ const factory = (pi: ExtensionAPI): void => {
         return;
       }
 
+      // -----------------------------------------------------------------------
+      // resume
+      // -----------------------------------------------------------------------
       if (subcommand === "resume") {
         const target = parts[1] ?? "";
         if (!target) {
@@ -392,21 +450,130 @@ const factory = (pi: ExtensionAPI): void => {
         return;
       }
 
+      // -----------------------------------------------------------------------
+      // inputs — show a workflow's input schema
+      // -----------------------------------------------------------------------
+      if (subcommand === "inputs") {
+        const workflowName = parts[1] ?? "";
+        if (!workflowName) {
+          print("Usage: /workflow inputs <name>");
+          return;
+        }
+        const result = await runtime.dispatch({
+          name: workflowName,
+          inputs: {},
+          action: "inputs",
+        });
+        if (result.action === "inputs" && "inputs" in result) {
+          const r = result as Extract<WorkflowToolResult, { action: "inputs" }>;
+          if (r.error) {
+            const available = runtime.registry.names();
+            print(
+              `${r.error}\nAvailable: ${available.length > 0 ? available.join(", ") : "(none)"}`,
+            );
+          } else {
+            const lines = r.inputs.map((inp: WorkflowInputEntry) => {
+              const req = inp.required ? " (required)" : "";
+              const def = inp.default !== undefined ? ` [default: ${JSON.stringify(inp.default)}]` : "";
+              const desc = inp.description ? ` — ${inp.description}` : "";
+              return `  ${inp.name}: ${inp.type}${req}${def}${desc}`;
+            });
+            print(
+              lines.length > 0
+                ? `Inputs for "${workflowName}":\n${lines.join("\n")}`
+                : `Workflow "${workflowName}" has no declared inputs.`,
+            );
+          }
+        }
+        return;
+      }
+
+      // -----------------------------------------------------------------------
+      // Workflow name dispatch — non-admin first token resolved as workflow name
+      // -----------------------------------------------------------------------
+      const workflowName = subcommand;
+      if (!ADMIN_SUBCOMMANDS.has(workflowName)) {
+        const inputTokens = parts.slice(1);
+        const inputs = parseWorkflowArgs(inputTokens);
+        const result = await runtime.dispatch({
+          name: workflowName,
+          inputs,
+          action: "run",
+        });
+        if (result.action === "run" && "runId" in result) {
+          const r = result as Extract<WorkflowToolResult, { action: "run"; runId: string }>;
+          if (r.status === "failed" && r.runId === "") {
+            // Not found — show available names
+            const available = runtime.registry.names();
+            print(
+              `Workflow not found: ${workflowName}\nAvailable: ${available.length > 0 ? available.join(", ") : "(none)"}`,
+            );
+          } else if (r.status === "failed") {
+            print(`Workflow "${workflowName}" failed: ${r.error ?? "unknown error"}`);
+          } else {
+            print(
+              `Workflow "${workflowName}" completed (runId: ${r.runId})`,
+            );
+          }
+        }
+        return;
+      }
+
+      // Unreachable — all ADMIN_SUBCOMMANDS handled above, non-admin handled as workflow name.
       print(`/workflow ${args.trim()} — unknown subcommand. Try: list, status, kill, resume, inputs`);
     },
     getArgumentCompletions: async (partial: string): Promise<PiArgumentCompletion[]> => {
-      const subcommands: PiArgumentCompletion[] = [
+      const adminCompletions: PiArgumentCompletion[] = [
         { label: "list", description: "List registered workflows" },
         { label: "status", description: "List in-flight runs" },
         { label: "kill", description: "Abort a run" },
         { label: "resume", description: "Re-open overlay for a run" },
         { label: "inputs", description: "Show a workflow's input schema" },
       ];
-      return partial
-        ? subcommands.filter((c) => c.label.startsWith(partial))
-        : subcommands;
+      const workflowCompletions: PiArgumentCompletion[] = runtime.registry
+        .names()
+        .map((name) => ({ label: name, description: `Run workflow: ${name}` }));
+      const all = [...adminCompletions, ...workflowCompletions];
+      return partial ? all.filter((c) => c.label.startsWith(partial)) : all;
     },
   });
+
+  // -------------------------------------------------------------------------
+  // 2b. Register /workflow:<name> aliases for each discovered workflow
+  // -------------------------------------------------------------------------
+  for (const workflowName of runtime.registry.names()) {
+    const capturedName = workflowName;
+    tryRegisterSlashCommand(pi, {
+      name: `workflow:${capturedName}`,
+      description: `Run workflow: ${capturedName}`,
+      execute: async (args: string, ctx: PiCommandContext) => {
+        const print = ctx.reply ?? ctx.print ?? ((_msg: string) => undefined);
+        const rawParts = args.trim().split(/\s+/);
+        const tokens = rawParts[0] === "" ? [] : rawParts;
+        const inputs = parseWorkflowArgs(tokens);
+        const result = await runtime.dispatch({
+          name: capturedName,
+          inputs,
+          action: "run",
+        });
+        if (result.action === "run" && "runId" in result) {
+          const r = result as Extract<WorkflowToolResult, { action: "run"; runId: string }>;
+          if (r.status === "failed") {
+            print(`Workflow "${capturedName}" failed: ${r.error ?? "unknown error"}`);
+          } else {
+            print(
+              `Workflow "${capturedName}" completed (runId: ${r.runId})`,
+            );
+          }
+        }
+      },
+      getArgumentCompletions: async (partial: string): Promise<PiArgumentCompletion[]> => {
+        // No subcommand completions for aliases — they directly run
+        void partial;
+        return [];
+      },
+    });
+  }
 
   // -------------------------------------------------------------------------
   // 3. Register /workflows-doctor slash command

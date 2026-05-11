@@ -52,7 +52,7 @@ function makeRun(
 }
 
 function makeSnap(runs: RunSnapshot[]): StoreSnapshot {
-  return { runs, version: 1 };
+  return { runs, notices: [], version: 1 };
 }
 
 // ---------------------------------------------------------------------------

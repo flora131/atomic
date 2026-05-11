@@ -8,6 +8,11 @@ import type {
   WorkflowUIContext,
   WorkflowUIAdapter,
   WorkflowInputSchema,
+  StageOptions,
+  WorkflowMcpPort,
+  WorkflowPersistencePort,
+  WorkflowOverlayAdapter,
+  CancellationRegistry,
 } from "../../shared/types.js";
 import type { StageAdapters } from "./stage-runner.js";
 import type { RunStatus, StageSnapshot, RunSnapshot } from "../../store-types.js";
@@ -22,12 +27,22 @@ export interface RunOpts {
   adapters?: StageAdapters;
   /** HIL adapter injected by the pi runtime or test harness. */
   ui?: WorkflowUIAdapter;
+  /** Store override (for testing; defaults to singleton store) */
+  store?: Store;
+  /** Persistence port for writing session entries (run.start, stage.start, etc.). */
+  persistence?: WorkflowPersistencePort;
+  /** MCP scope-gating port; forwards per-stage allow/deny to the MCP adapter. */
+  mcp?: WorkflowMcpPort;
+  /** Cancellation registry; the executor registers an ActiveRunController per run. */
+  cancellation?: CancellationRegistry;
+  /** Overlay adapter for displaying run progress in the UI layer. */
+  overlay?: WorkflowOverlayAdapter;
+  /** AbortSignal that requests cancellation from the caller side. */
+  signal?: AbortSignal;
   onRunStart?: (snapshot: RunSnapshot) => void;
   onStageStart?: (runId: string, snapshot: StageSnapshot) => void;
   onStageEnd?: (runId: string, snapshot: StageSnapshot) => void;
   onRunEnd?: (runId: string, status: RunStatus, result?: Record<string, unknown>, error?: string) => void;
-  /** Store override (for testing; defaults to singleton store) */
-  store?: Store;
 }
 
 export interface RunResult {
@@ -119,7 +134,7 @@ export async function run(
     inputs: resolvedInputs,
     ui: opts.ui ?? makeUnavailableUIContext(),
 
-    stage(name: string) {
+    stage(name: string, options?: StageOptions) {
       // a. Generate stageId
       const stageId = crypto.randomUUID();
 
@@ -150,6 +165,13 @@ export async function run(
           stageSnapshot.startedAt = Date.now();
           activeStore.recordStageStart(runId, stageSnapshot);
 
+          // Apply MCP scope gating if port + options provided
+          const mcpAllow = options?.mcp?.allow ?? null;
+          const mcpDeny = options?.mcp?.deny ?? null;
+          if (opts.mcp && (mcpAllow !== null || mcpDeny !== null)) {
+            opts.mcp.setScope(stageId, mcpAllow, mcpDeny);
+          }
+
           try {
             const result = await method(...args);
             stageSnapshot.status = "completed";
@@ -165,6 +187,11 @@ export async function run(
               stageSnapshot.startedAt !== undefined
                 ? stageSnapshot.endedAt - stageSnapshot.startedAt
                 : undefined;
+
+            // Clear MCP scope after stage settles
+            if (opts.mcp && (mcpAllow !== null || mcpDeny !== null)) {
+              opts.mcp.clearScope(stageId);
+            }
 
             activeStore.recordStageEnd(runId, stageSnapshot);
             opts.onStageEnd?.(runId, stageSnapshot);
@@ -201,7 +228,7 @@ export async function run(
     const errorMessage = err instanceof Error ? err.message : String(err);
 
     // 9. recordRunEnd "failed"
-    activeStore.recordRunEnd(runId, "failed");
+    activeStore.recordRunEnd(runId, "failed", undefined, errorMessage);
     opts.onRunEnd?.(runId, "failed", undefined, errorMessage);
 
     return {

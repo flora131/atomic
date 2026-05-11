@@ -42,5 +42,21 @@ export interface RunSnapshot {
 
 export interface StoreSnapshot {
   readonly runs: readonly RunSnapshot[];
+  readonly notices: readonly WorkflowNotice[];
   readonly version: number;
+}
+
+/** Lightweight notice attached to a run or stage. */
+export type NoticeLevel = "info" | "warning" | "error";
+
+export interface WorkflowNotice {
+  readonly id: string;
+  readonly runId?: string;
+  readonly stageId?: string;
+  readonly level: NoticeLevel;
+  readonly message: string;
+  readonly createdAt: number;
+  readonly requiresAck?: boolean;
+  /** Set once acknowledged. */
+  ackedAt?: number;
 }

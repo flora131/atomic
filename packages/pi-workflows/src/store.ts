@@ -9,23 +9,47 @@ import type {
   StoreSnapshot,
   ToolEvent,
   RunStatus,
+  WorkflowNotice,
 } from "./store-types.js";
+
+/** Statuses that represent a terminal run state — cannot be overwritten. */
+const TERMINAL_STATUSES: ReadonlySet<RunStatus> = new Set(["completed", "failed", "killed"]);
 
 export interface Store {
   runs(): readonly RunSnapshot[];
+  notices(): readonly WorkflowNotice[];
   activeRunId(): string | null;
   recordRunStart(run: RunSnapshot): void;
   recordStageStart(runId: string, stage: StageSnapshot): void;
   recordToolStart(runId: string, stageId: string, evt: ToolEvent): void;
   recordToolEnd(runId: string, stageId: string, evt: ToolEvent): void;
   recordStageEnd(runId: string, stage: StageSnapshot): void;
-  recordRunEnd(runId: string, status: RunStatus, result?: Record<string, unknown>): void;
+  /**
+   * Records the end of a run.
+   * Returns `true` if state changed, `false` if the run was not found or
+   * already in a terminal state (completed | failed | killed).
+   * `result` is only applied for status "completed".
+   * `error` is only applied for status "failed" | "killed".
+   */
+  recordRunEnd(
+    runId: string,
+    status: RunStatus,
+    result?: Record<string, unknown>,
+    error?: string,
+  ): boolean;
+  recordNotice(notice: WorkflowNotice): void;
+  /**
+   * Acknowledges a notice by id.
+   * Returns `true` if notice was found and not yet acked, `false` otherwise.
+   */
+  ackNotice(id: string): boolean;
   snapshot(): StoreSnapshot;
   subscribe(fn: (snap: StoreSnapshot) => void): () => void;
 }
 
 export function createStore(): Store {
   const _runs: RunSnapshot[] = [];
+  const _notices: WorkflowNotice[] = [];
   const _listeners: Set<(snap: StoreSnapshot) => void> = new Set();
   let _version = 0;
 
@@ -37,7 +61,9 @@ export function createStore(): Store {
   }
 
   function snapshot(): StoreSnapshot {
-    return JSON.parse(JSON.stringify({ runs: _runs, version: _version })) as StoreSnapshot;
+    return JSON.parse(
+      JSON.stringify({ runs: _runs, notices: _notices, version: _version }),
+    ) as StoreSnapshot;
   }
 
   function findRun(runId: string): RunSnapshot | undefined {
@@ -51,6 +77,10 @@ export function createStore(): Store {
   return {
     runs(): readonly RunSnapshot[] {
       return _runs;
+    },
+
+    notices(): readonly WorkflowNotice[] {
+      return _notices;
     },
 
     activeRunId(): string | null {
@@ -128,17 +158,43 @@ export function createStore(): Store {
       notify();
     },
 
-    recordRunEnd(runId: string, status: RunStatus, result?: Record<string, unknown>): void {
+    recordRunEnd(
+      runId: string,
+      status: RunStatus,
+      result?: Record<string, unknown>,
+      error?: string,
+    ): boolean {
       const run = findRun(runId);
-      if (!run) return;
+      if (!run) return false;
+      // Terminal guard — once in a terminal state, refuse overwrite.
+      if (TERMINAL_STATUSES.has(run.status)) return false;
       run.status = status;
       run.endedAt = Date.now();
       run.durationMs = run.endedAt - run.startedAt;
-      if (result !== undefined) {
+      if (status === "completed" && result !== undefined) {
         run.result = result;
+      }
+      if ((status === "failed" || status === "killed") && error !== undefined) {
+        run.error = error;
       }
       _version++;
       notify();
+      return true;
+    },
+
+    recordNotice(notice: WorkflowNotice): void {
+      _notices.push(notice);
+      _version++;
+      notify();
+    },
+
+    ackNotice(id: string): boolean {
+      const notice = _notices.find((n) => n.id === id);
+      if (!notice || notice.ackedAt !== undefined) return false;
+      notice.ackedAt = Date.now();
+      _version++;
+      notify();
+      return true;
     },
 
     snapshot,

@@ -38,6 +38,7 @@ function makeRun(stages: StageSnapshot[]): RunSnapshot {
 function makeSnap(stages: StageSnapshot[]): StoreSnapshot {
   return {
     runs: [makeRun(stages)],
+    notices: [],
     version: 1,
   };
 }
@@ -45,13 +46,16 @@ function makeSnap(stages: StageSnapshot[]): StoreSnapshot {
 function makeStore(snap: StoreSnapshot): Store {
   return {
     runs: () => snap.runs as RunSnapshot[],
+    notices: () => [],
     activeRunId: () => snap.runs[0]?.id ?? null,
     recordRunStart: () => {},
     recordStageStart: () => {},
     recordToolStart: () => {},
     recordToolEnd: () => {},
     recordStageEnd: () => {},
-    recordRunEnd: () => {},
+    recordRunEnd: () => false,
+    recordNotice: () => {},
+    ackNotice: () => false,
     snapshot: () => snap,
     subscribe: () => () => {},
   };

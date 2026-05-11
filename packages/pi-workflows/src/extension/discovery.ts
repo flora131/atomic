@@ -1,38 +1,63 @@
 /**
  * Workflow discovery for pi-workflows extension startup.
  *
- * Loads bundled workflow definitions from the package manifest, validates
- * each definition, registers valid ones into a shared WorkflowRegistry, and
- * returns a DiscoveryResult with the registry, source records, and diagnostics.
+ * Supports bundled workflows (shipped with this package) as well as
+ * project-local, user-global, settings-project, and settings-global sources
+ * loaded from the file system via dynamic import.
+ *
+ * Precedence order (highest wins on duplicate normalizedName):
+ *   1. project-local    — {cwd}/.pi/workflows/*.{ts,js}
+ *   2. settings-project — paths listed in config.projectWorkflows
+ *   3. user-global      — {homeDir}/.pi/workflows/*.{ts,js}
+ *   4. settings-global  — paths listed in config.globalWorkflows
+ *   5. bundled          — shipped workflows (skipped when includeBundled=false)
  *
  * Usage:
- *   const result = await discoverBundledWorkflows();
- *   result.registry  // WorkflowRegistry with all valid bundled workflows
- *   result.sources   // per-workflow source metadata
- *   result.errors    // validation + duplicate diagnostics
+ *   // Full discovery (all sources):
+ *   const result = await discoverWorkflows({ cwd: process.cwd(), homeDir: os.homedir() });
  *
- * Future: custom root discovery can be added without changing this API.
+ *   // Bundled-only (backward compat):
+ *   const result = await discoverBundledWorkflows();
+ *   const result = discoverBundledWorkflowsSync();
  */
 
+import { readdir } from "node:fs/promises";
+import { join, resolve, extname, isAbsolute } from "node:path";
 import type { WorkflowDefinition } from "../shared/types.js";
 import { createRegistry } from "../workflows/registry.js";
 import type { WorkflowRegistry } from "../workflows/registry.js";
+import * as bundledManifest from "../../workflows/index.js";
 
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 
+/**
+ * The source kind for a discovered workflow.
+ *
+ *   bundled          — shipped with the pi-workflows package
+ *   project-local    — found in {cwd}/.pi/workflows/
+ *   user-global      — found in {homeDir}/.pi/workflows/
+ *   settings-project — listed in DiscoveryConfig.projectWorkflows
+ *   settings-global  — listed in DiscoveryConfig.globalWorkflows
+ */
+export type DiscoveryKind =
+  | "bundled"
+  | "project-local"
+  | "user-global"
+  | "settings-project"
+  | "settings-global";
+
 /** Identifies the origin of a discovered workflow definition. */
 export interface DiscoverySource {
   /** The workflow's normalizedName (registry key). */
   readonly id: string;
-  /**
-   * Discovery kind.  "bundled" = shipped with the pi-workflows package.
-   * Future kinds: "custom-root", "plugin".
-   */
-  readonly kind: "bundled";
+  /** Where this workflow was discovered from. */
+  readonly kind: DiscoveryKind;
   /** Human-readable display name as authored. */
   readonly name: string;
+  /** Absolute file path (undefined for bundled). */
+  readonly filePath?: string;
 }
 
 /** Severity of a discovery diagnostic. */
@@ -42,33 +67,66 @@ export type DiagnosticLevel = "error" | "warn";
  * A diagnostic emitted during discovery.
  * Errors indicate a definition was rejected; warnings indicate a recoverable
  * condition (e.g. a duplicate that was skipped).
+ *
+ * Codes:
+ *   INVALID_DEFINITION — failed structural validation
+ *   DUPLICATE_NAME     — normalizedName already registered; skipped (warn)
+ *   IMPORT_FAILED      — dynamic import of a workflow file threw
+ *   PATH_NOT_FOUND     — a config-specified path does not exist
+ *   CONFIG_INVALID     — DiscoveryConfig has an invalid structure
  */
 export interface DiscoveryDiagnostic {
   readonly level: DiagnosticLevel;
-  /**
-   * Short machine-readable code.
-   * Defined codes:
-   *   INVALID_DEFINITION   — failed structural validation
-   *   DUPLICATE_NAME       — normalizedName already registered; skipped
-   */
-  readonly code: "INVALID_DEFINITION" | "DUPLICATE_NAME";
+  readonly code:
+    | "INVALID_DEFINITION"
+    | "DUPLICATE_NAME"
+    | "IMPORT_FAILED"
+    | "PATH_NOT_FOUND"
+    | "CONFIG_INVALID";
   readonly message: string;
-  /** The export key or workflow name associated with this diagnostic, if known. */
+  /** Export key, workflow name, or file path associated with this diagnostic. */
   readonly source?: string;
 }
 
-/** Result returned by discoverBundledWorkflows(). */
+/**
+ * Optional config for settings-based workflow paths.
+ * Entries are absolute paths (or resolvable relative paths) to .ts/.js files
+ * that export a default WorkflowDefinition.
+ */
+export interface DiscoveryConfig {
+  /** Paths to project-scoped workflow files (settings-project). */
+  projectWorkflows?: string[];
+  /** Paths to globally-scoped workflow files (settings-global). */
+  globalWorkflows?: string[];
+}
+
+/**
+ * Options for discoverWorkflows().
+ * All fields have sensible defaults so callers can pass Partial<DiscoveryOptions>.
+ */
+export interface DiscoveryOptions {
+  /** Working directory; used as root for project-local discovery. Default: process.cwd() */
+  cwd: string;
+  /** User's home directory; used as root for user-global discovery. Default: os.homedir() */
+  homeDir: string;
+  /** Optional extra paths from project/global config. */
+  config?: DiscoveryConfig;
+  /** When false, bundled workflows are excluded. Default: true */
+  includeBundled?: boolean;
+}
+
+/** Result returned by discoverWorkflows() and discoverBundledWorkflows(). */
 export interface DiscoveryResult {
-  /** Registry populated with all valid, non-duplicate bundled definitions. */
+  /** Registry populated with all valid, non-duplicate definitions (precedence-ordered). */
   readonly registry: WorkflowRegistry;
   /** One record per successfully registered workflow. */
   readonly sources: readonly DiscoverySource[];
-  /** Validation errors and duplicate warnings. Empty when all is well. */
+  /** All diagnostics (errors + warnings). Empty when all is well. */
   readonly errors: readonly DiscoveryDiagnostic[];
 }
 
 // ---------------------------------------------------------------------------
-// Validation
+// Internal helpers
 // ---------------------------------------------------------------------------
 
 /**
@@ -96,22 +154,275 @@ function validateDefinition(value: unknown): string | null {
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// Bundled manifest import
-// ---------------------------------------------------------------------------
-
 /**
- * Statically import the bundled workflows manifest.
- * Resolved at module load time — no dynamic eval or TS loader required.
+ * Validate DiscoveryConfig shape.
+ * Returns null when valid, or a description of the problem.
  */
-async function loadBundledManifest(): Promise<Record<string, unknown>> {
-  // Static import keeps bundler-friendliness; the module is always present.
-  const mod = await import("../../workflows/index.js");
-  return mod as Record<string, unknown>;
+function validateConfig(config: unknown): string | null {
+  if (config === null || typeof config !== "object") {
+    return "config must be an object";
+  }
+  const c = config as Record<string, unknown>;
+  for (const field of ["projectWorkflows", "globalWorkflows"] as const) {
+    const val = c[field];
+    if (val !== undefined) {
+      if (!Array.isArray(val)) return `config.${field} must be an array`;
+      for (const entry of val) {
+        if (typeof entry !== "string") return `config.${field} entries must be strings`;
+      }
+    }
+  }
+  return null;
+}
+
+/** Merge a batch of candidates into registry state, first-seen wins. */
+function applyBatch(
+  candidates: Array<{ value: unknown; exportKey: string; kind: DiscoveryKind; filePath?: string }>,
+  registry: WorkflowRegistry,
+  sources: DiscoverySource[],
+  diagnostics: DiscoveryDiagnostic[],
+): WorkflowRegistry {
+  for (const { value, exportKey, kind, filePath } of candidates) {
+    const reason = validateDefinition(value);
+    if (reason !== null) {
+      diagnostics.push({
+        level: "error",
+        code: "INVALID_DEFINITION",
+        message: `${kind} export "${exportKey}" rejected: ${reason}`,
+        source: filePath ?? exportKey,
+      });
+      continue;
+    }
+
+    const def = value as WorkflowDefinition;
+    const key = def.normalizedName;
+
+    if (registry.has(key)) {
+      diagnostics.push({
+        level: "warn",
+        code: "DUPLICATE_NAME",
+        message: `${kind} export "${exportKey}" skipped: normalizedName "${key}" already registered`,
+        source: filePath ?? exportKey,
+      });
+      continue;
+    }
+
+    registry = registry.register(def);
+    sources.push({
+      id: key,
+      kind,
+      name: def.name,
+      ...(filePath !== undefined ? { filePath } : {}),
+    });
+  }
+  return registry;
+}
+
+/** Scan a directory for .ts/.js files, returning sorted absolute paths. */
+async function scanWorkflowDir(dir: string): Promise<string[] | null> {
+  try {
+    const entries = await readdir(dir, { withFileTypes: true });
+    return entries
+      .filter((e) => e.isFile() && (extname(e.name) === ".ts" || extname(e.name) === ".js"))
+      .map((e) => join(dir, e.name))
+      .sort();
+  } catch {
+    // Directory doesn't exist or isn't readable — not an error, just empty
+    return null;
+  }
+}
+
+/** Dynamically import a file and extract all WorkflowDefinition candidates. */
+async function importWorkflowFile(
+  filePath: string,
+  kind: DiscoveryKind,
+  diagnostics: DiscoveryDiagnostic[],
+): Promise<Array<{ value: unknown; exportKey: string; kind: DiscoveryKind; filePath: string }>> {
+  let mod: Record<string, unknown>;
+  try {
+    mod = (await import(filePath)) as Record<string, unknown>;
+  } catch (err) {
+    diagnostics.push({
+      level: "error",
+      code: "IMPORT_FAILED",
+      message: `Failed to import "${filePath}": ${err instanceof Error ? err.message : String(err)}`,
+      source: filePath,
+    });
+    return [];
+  }
+
+  const candidates: Array<{ value: unknown; exportKey: string; kind: DiscoveryKind; filePath: string }> = [];
+
+  // Check default export first
+  if ("default" in mod && mod["default"] !== undefined) {
+    candidates.push({ value: mod["default"], exportKey: "default", kind, filePath });
+  } else {
+    // Fall back to named exports (each may be a WorkflowDefinition)
+    for (const [key, val] of Object.entries(mod)) {
+      candidates.push({ value: val, exportKey: key, kind, filePath });
+    }
+  }
+
+  return candidates;
+}
+
+/** Load workflows from a scanned directory. */
+async function loadFromDir(
+  dir: string,
+  kind: DiscoveryKind,
+  diagnostics: DiscoveryDiagnostic[],
+): Promise<Array<{ value: unknown; exportKey: string; kind: DiscoveryKind; filePath: string }>> {
+  const files = await scanWorkflowDir(dir);
+  if (files === null) return [];
+
+  const all: Array<{ value: unknown; exportKey: string; kind: DiscoveryKind; filePath: string }> = [];
+  for (const filePath of files) {
+    const candidates = await importWorkflowFile(filePath, kind, diagnostics);
+    all.push(...candidates);
+  }
+  return all;
+}
+
+/** Load workflows from an explicit path list (from config). */
+async function loadFromPaths(
+  paths: string[],
+  kind: DiscoveryKind,
+  baseCwd: string,
+  diagnostics: DiscoveryDiagnostic[],
+): Promise<Array<{ value: unknown; exportKey: string; kind: DiscoveryKind; filePath: string }>> {
+  const all: Array<{ value: unknown; exportKey: string; kind: DiscoveryKind; filePath: string }> = [];
+
+  for (const rawPath of paths) {
+    const absPath = isAbsolute(rawPath) ? rawPath : resolve(baseCwd, rawPath);
+
+    // Check existence via import (IMPORT_FAILED covers not found too), but
+    // give a specific PATH_NOT_FOUND when we can detect the file is absent.
+    let exists = false;
+    try {
+      const { stat } = await import("node:fs/promises");
+      await stat(absPath);
+      exists = true;
+    } catch {
+      exists = false;
+    }
+
+    if (!exists) {
+      diagnostics.push({
+        level: "error",
+        code: "PATH_NOT_FOUND",
+        message: `Workflow path not found: "${absPath}"`,
+        source: absPath,
+      });
+      continue;
+    }
+
+    const candidates = await importWorkflowFile(absPath, kind, diagnostics);
+    all.push(...candidates);
+  }
+  return all;
 }
 
 // ---------------------------------------------------------------------------
-// Core discovery logic
+// Main API
+// ---------------------------------------------------------------------------
+
+/**
+ * Discover workflows from all configured sources, applying precedence order.
+ *
+ * Precedence (highest first; first-registered wins on duplicate normalizedName):
+ *   1. project-local    — {cwd}/.pi/workflows/*.{ts,js}
+ *   2. settings-project — config.projectWorkflows paths
+ *   3. user-global      — {homeDir}/.pi/workflows/*.{ts,js}
+ *   4. settings-global  — config.globalWorkflows paths
+ *   5. bundled          — shipped workflows (omitted when includeBundled=false)
+ */
+export async function discoverWorkflows(
+  options?: Partial<DiscoveryOptions>,
+): Promise<DiscoveryResult> {
+  const cwd = options?.cwd ?? process.cwd();
+  const homeDir = options?.homeDir ?? (await defaultHomeDir());
+  const config = options?.config;
+  const includeBundled = options?.includeBundled !== false;
+
+  const diagnostics: DiscoveryDiagnostic[] = [];
+  const sources: DiscoverySource[] = [];
+  let registry = createRegistry();
+
+  // Validate config if provided
+  if (config !== undefined) {
+    const configErr = validateConfig(config);
+    if (configErr !== null) {
+      diagnostics.push({
+        level: "error",
+        code: "CONFIG_INVALID",
+        message: `DiscoveryConfig is invalid: ${configErr}`,
+        source: "config",
+      });
+      // Continue with empty config paths
+    }
+  }
+
+  // 1. project-local
+  {
+    const dir = join(cwd, ".pi", "workflows");
+    const candidates = await loadFromDir(dir, "project-local", diagnostics);
+    registry = applyBatch(candidates, registry, sources, diagnostics);
+  }
+
+  // 2. settings-project
+  if (config !== undefined && Array.isArray(config.projectWorkflows) && config.projectWorkflows.length > 0) {
+    const candidates = await loadFromPaths(config.projectWorkflows, "settings-project", cwd, diagnostics);
+    registry = applyBatch(candidates, registry, sources, diagnostics);
+  }
+
+  // 3. user-global
+  {
+    const dir = join(homeDir, ".pi", "workflows");
+    const candidates = await loadFromDir(dir, "user-global", diagnostics);
+    registry = applyBatch(candidates, registry, sources, diagnostics);
+  }
+
+  // 4. settings-global
+  if (config !== undefined && Array.isArray(config.globalWorkflows) && config.globalWorkflows.length > 0) {
+    const candidates = await loadFromPaths(config.globalWorkflows, "settings-global", cwd, diagnostics);
+    registry = applyBatch(candidates, registry, sources, diagnostics);
+  }
+
+  // 5. bundled
+  if (includeBundled) {
+    const bundledResult = discoverBundledWorkflowsSync();
+    // Merge bundled: only register names not already present (lower precedence)
+    for (const def of bundledResult.registry.all()) {
+      const key = def.normalizedName;
+      if (registry.has(key)) {
+        diagnostics.push({
+          level: "warn",
+          code: "DUPLICATE_NAME",
+          message: `Bundled workflow "${key}" skipped: already registered by higher-precedence source`,
+          source: key,
+        });
+        continue;
+      }
+      registry = registry.register(def);
+      sources.push({ id: key, kind: "bundled", name: def.name });
+    }
+    // Propagate bundled diagnostics (e.g. INVALID_DEFINITION within bundled)
+    for (const d of bundledResult.errors) {
+      diagnostics.push(d);
+    }
+  }
+
+  return { registry, sources, errors: diagnostics };
+}
+
+/** Resolve default homeDir using os.homedir(). */
+async function defaultHomeDir(): Promise<string> {
+  const { homedir } = await import("node:os");
+  return homedir();
+}
+
+// ---------------------------------------------------------------------------
+// Bundled-only API (backward compat)
 // ---------------------------------------------------------------------------
 
 /**
@@ -119,16 +430,13 @@ async function loadBundledManifest(): Promise<Record<string, unknown>> {
  * ones into a new WorkflowRegistry.
  *
  * Duplicate policy: first-seen wins (insertion order of the manifest export).
- * Subsequent definitions with the same normalizedName are skipped and a
- * DUPLICATE_NAME warning is appended to errors.
- *
- * @example
- * const { registry, sources, errors } = await discoverBundledWorkflows();
- * if (errors.length) console.warn(errors);
- * const workflow = registry.get("ralph");
  */
 export async function discoverBundledWorkflows(): Promise<DiscoveryResult> {
-  const manifest = await loadBundledManifest();
+  return discoverBundledWorkflowsSync();
+}
+
+export function discoverBundledWorkflowsSync(): DiscoveryResult {
+  const manifest = bundledManifest as Record<string, unknown>;
   const diagnostics: DiscoveryDiagnostic[] = [];
   const sources: DiscoverySource[] = [];
   let registry = createRegistry();
@@ -145,12 +453,10 @@ export async function discoverBundledWorkflows(): Promise<DiscoveryResult> {
       continue;
     }
 
-    // Safe cast — validation passed.
     const def = value as WorkflowDefinition;
     const key = def.normalizedName;
 
     if (registry.has(key)) {
-      // Duplicate — first-seen wins, emit warning.
       diagnostics.push({
         level: "warn",
         code: "DUPLICATE_NAME",
@@ -168,11 +474,7 @@ export async function discoverBundledWorkflows(): Promise<DiscoveryResult> {
     });
   }
 
-  return {
-    registry,
-    sources,
-    errors: diagnostics,
-  };
+  return { registry, sources, errors: diagnostics };
 }
 
 // ---------------------------------------------------------------------------

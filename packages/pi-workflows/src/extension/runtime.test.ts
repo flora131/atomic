@@ -357,4 +357,142 @@ describe("WorkflowUIAdapter — runtime forwarding", () => {
     expect(run.status).toBe("failed");
     expect(run.error).toContain("ui.input is unavailable");
   });
+
+  // ---- confirm ---------------------------------------------------------------
+
+  const confirmWorkflow = defineWorkflow("confirm-test")
+    .description("Tests confirm forwarding")
+    .run(async (ctx) => {
+      const agreed = await ctx.ui.confirm("Proceed?");
+      return { agreed };
+    })
+    .compile() as WorkflowDefinition;
+
+  test("confirm primitive forwarded through createExtensionRuntime dispatch", async () => {
+    let capturedMsg: string | undefined;
+    const mockUI: WorkflowUIAdapter = {
+      input: async () => "",
+      confirm: async (message) => { capturedMsg = message; return true; },
+      select: async <T extends string>(_msg: string, options: readonly T[]): Promise<T> => options[0]!,
+      editor: async () => "",
+    };
+
+    const runtime = createExtensionRuntime({
+      definitions: [confirmWorkflow],
+      ui: mockUI,
+      store: createStore(),
+    });
+
+    const result = await runtime.dispatch({ name: "confirm-test", inputs: {}, action: "run" });
+    const run = asRun(result);
+    expect(run.status).toBe("completed");
+    expect(run.result?.["agreed"]).toBe(true);
+    expect(capturedMsg).toBe("Proceed?");
+  });
+
+  test("omitting ui causes confirm call to fail with unavailable error", async () => {
+    const runtime = createExtensionRuntime({
+      definitions: [confirmWorkflow],
+      store: createStore(),
+    });
+
+    const result = await runtime.dispatch({ name: "confirm-test", inputs: {}, action: "run" });
+    const run = asRun(result);
+    expect(run.status).toBe("failed");
+    expect(run.error).toContain("ui.confirm is unavailable");
+  });
+
+  // ---- select ----------------------------------------------------------------
+
+  const selectWorkflow = defineWorkflow("select-test")
+    .description("Tests select forwarding")
+    .run(async (ctx) => {
+      const choice = await ctx.ui.select("Pick one", ["alpha", "beta", "gamma"] as const);
+      return { choice };
+    })
+    .compile() as WorkflowDefinition;
+
+  test("select primitive forwarded through createExtensionRuntime dispatch", async () => {
+    let capturedMsg: string | undefined;
+    let capturedOptions: readonly string[] | undefined;
+    const mockUI: WorkflowUIAdapter = {
+      input: async () => "",
+      confirm: async () => false,
+      select: async <T extends string>(message: string, options: readonly T[]): Promise<T> => {
+        capturedMsg = message;
+        capturedOptions = options;
+        return options[1]!;
+      },
+      editor: async () => "",
+    };
+
+    const runtime = createExtensionRuntime({
+      definitions: [selectWorkflow],
+      ui: mockUI,
+      store: createStore(),
+    });
+
+    const result = await runtime.dispatch({ name: "select-test", inputs: {}, action: "run" });
+    const run = asRun(result);
+    expect(run.status).toBe("completed");
+    expect(run.result?.["choice"]).toBe("beta");
+    expect(capturedMsg).toBe("Pick one");
+    expect(capturedOptions).toEqual(["alpha", "beta", "gamma"]);
+  });
+
+  test("omitting ui causes select call to fail with unavailable error", async () => {
+    const runtime = createExtensionRuntime({
+      definitions: [selectWorkflow],
+      store: createStore(),
+    });
+
+    const result = await runtime.dispatch({ name: "select-test", inputs: {}, action: "run" });
+    const run = asRun(result);
+    expect(run.status).toBe("failed");
+    expect(run.error).toContain("ui.select is unavailable");
+  });
+
+  // ---- editor ----------------------------------------------------------------
+
+  const editorWorkflow = defineWorkflow("editor-test")
+    .description("Tests editor forwarding")
+    .run(async (ctx) => {
+      const content = await ctx.ui.editor("# draft");
+      return { content };
+    })
+    .compile() as WorkflowDefinition;
+
+  test("editor primitive forwarded through createExtensionRuntime dispatch", async () => {
+    let capturedInitial: string | undefined;
+    const mockUI: WorkflowUIAdapter = {
+      input: async () => "",
+      confirm: async () => false,
+      select: async <T extends string>(_msg: string, options: readonly T[]): Promise<T> => options[0]!,
+      editor: async (initial) => { capturedInitial = initial; return "final content"; },
+    };
+
+    const runtime = createExtensionRuntime({
+      definitions: [editorWorkflow],
+      ui: mockUI,
+      store: createStore(),
+    });
+
+    const result = await runtime.dispatch({ name: "editor-test", inputs: {}, action: "run" });
+    const run = asRun(result);
+    expect(run.status).toBe("completed");
+    expect(run.result?.["content"]).toBe("final content");
+    expect(capturedInitial).toBe("# draft");
+  });
+
+  test("omitting ui causes editor call to fail with unavailable error", async () => {
+    const runtime = createExtensionRuntime({
+      definitions: [editorWorkflow],
+      store: createStore(),
+    });
+
+    const result = await runtime.dispatch({ name: "editor-test", inputs: {}, action: "run" });
+    const run = asRun(result);
+    expect(run.status).toBe("failed");
+    expect(run.error).toContain("ui.editor is unavailable");
+  });
 });

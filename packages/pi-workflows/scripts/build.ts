@@ -8,7 +8,7 @@
  *   5. Run artifact verifier
  */
 
-import { rmSync, mkdirSync } from "fs";
+import { cpSync, mkdirSync, rmSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 
@@ -54,7 +54,21 @@ run("bun", [
   "bun",
 ]);
 
-// 4. Emit declarations
+// 4. Bundle workflows → dist/workflows/ (pi-workflows treated as external peer)
+const workflowSources = ["deep-research-codebase", "ralph", "open-claude-design", "index"];
+mkdirSync(resolve(pkgRoot, "dist/workflows"), { recursive: true });
+run("bun", [
+  "build",
+  ...workflowSources.map((n) => `workflows/${n}.ts`),
+  "--outdir",
+  "dist/workflows",
+  "--target",
+  "bun",
+  "--external",
+  "pi-workflows",
+]);
+
+// 6. Emit declarations
 run("bun", [
   "x",
   "tsc",
@@ -62,7 +76,13 @@ run("bun", [
   "tsconfig.build.json",
 ]);
 
-// 5. Verify artifact
+// Declaration emit uses rootDir "." because extension discovery imports bundled
+// workflow sources from ../workflows. Move src declarations to package root to
+// match package.json main/types/extension paths.
+cpSync(resolve(pkgRoot, "dist/src"), distDir, { recursive: true });
+rmSync(resolve(pkgRoot, "dist/src"), { recursive: true, force: true });
+
+// 7. Verify artifact
 run("bun", [
   "run",
   "scripts/verify-artifact.ts",

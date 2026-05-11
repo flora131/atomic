@@ -8,10 +8,13 @@
     "declarationMap": true,
     "emitDeclarationOnly": true,
     "outDir": "dist",
-    "rootDir": "src",
+    "rootDir": ".",
     "esModuleInterop": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "paths": {
+      "pi-workflows": ["./src/index.ts"]
+    }
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "workflows/**/*"],
   "exclude": ["node_modules", "dist", "test"]
 }

@@ -17,6 +17,7 @@ interface PackageJson {
   exports?: Record<string, { import?: string; types?: string }>;
   pi?: {
     extensions?: string[];
+    workflows?: string[];
     [key: string]: unknown;
   };
 }
@@ -40,6 +41,12 @@ if (pkg.exports) {
 if (pkg.pi?.extensions) {
   for (const ext of pkg.pi.extensions) {
     required.push(ext);
+  }
+}
+
+if (pkg.pi?.workflows) {
+  for (const wfDir of pkg.pi.workflows) {
+    required.push(wfDir);
   }
 }
 

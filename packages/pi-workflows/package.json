@@ -9,7 +9,7 @@
     "url": "https://github.com/alilavaee/atomic-pi-rewrite"
   },
   "homepage": "https://github.com/alilavaee/atomic-pi-rewrite#readme",
-  "files": ["dist", "workflows", "README.md", "LICENSE"],
+  "files": ["dist", "README.md", "LICENSE"],
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -20,7 +20,7 @@
   },
   "pi": {
     "extensions": ["./dist/extension/index.js"],
-    "workflows": ["./workflows"]
+    "workflows": ["./dist/workflows"]
   },
   "scripts": {
     "build": "bun run scripts/build.ts",

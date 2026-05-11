@@ -19,6 +19,12 @@ import type { CancellationRegistry } from "../detach/cancellation-registry.js";
 import { createStageContext } from "./stage-runner.js";
 import { GraphFrontierTracker } from "../shared/graph-inference.js";
 import { store as defaultStore } from "../../store.js";
+import {
+  appendRunStart,
+  appendStageStart,
+  appendStageEnd,
+  appendRunEnd,
+} from "../../persistence/session-entries.js";
 
 export interface ResolvedInputs extends Record<string, unknown> {}
 
@@ -125,6 +131,16 @@ export async function run(
   activeStore.recordRunStart(runSnapshot);
   opts.onRunStart?.(runSnapshot);
 
+  // Persistence: append run.start entry
+  if (opts.persistence) {
+    appendRunStart(opts.persistence, {
+      runId,
+      name: def.name,
+      inputs: resolvedInputs,
+      ts: runSnapshot.startedAt,
+    });
+  }
+
   // 4. Create GraphFrontierTracker
   const tracker = new GraphFrontierTracker();
 
@@ -147,6 +163,10 @@ export async function run(
         status: "pending",
         parentIds: Object.freeze(parentIds),
         toolEvents: [],
+        // Store mcp scope options on snapshot when provided
+        ...(options?.mcp !== undefined
+          ? { mcpScope: { allow: options.mcp.allow ?? null, deny: options.mcp.deny ?? null } }
+          : {}),
       };
 
       // d. Record stage start in store (as pending), call onStageStart
@@ -163,6 +183,17 @@ export async function run(
           stageSnapshot.status = "running";
           stageSnapshot.startedAt = Date.now();
           activeStore.recordStageStart(runId, stageSnapshot);
+
+          // Persistence: append stage.start entry
+          if (opts.persistence) {
+            appendStageStart(opts.persistence, {
+              runId,
+              stageId,
+              name,
+              parentIds: stageSnapshot.parentIds,
+              ts: stageSnapshot.startedAt,
+            });
+          }
 
           // Apply MCP scope gating if port + options provided
           const mcpAllow = options?.mcp?.allow ?? null;
@@ -194,6 +225,17 @@ export async function run(
 
             activeStore.recordStageEnd(runId, stageSnapshot);
             opts.onStageEnd?.(runId, stageSnapshot);
+
+            // Persistence: append stage.end entry
+            if (opts.persistence) {
+              appendStageEnd(opts.persistence, {
+                runId,
+                stageId,
+                status: stageSnapshot.status,
+                durationMs: stageSnapshot.durationMs,
+              });
+            }
+
             tracker.onSettle(stageId);
           }
         };
@@ -213,8 +255,18 @@ export async function run(
     const result = await def.run(ctx);
 
     // 7. recordRunEnd "completed"
-    activeStore.recordRunEnd(runId, "completed", result);
+    const recorded = activeStore.recordRunEnd(runId, "completed", result);
     opts.onRunEnd?.(runId, "completed", result);
+
+    // Persistence: append run.end only if state changed (terminal guard)
+    if (opts.persistence && recorded) {
+      appendRunEnd(opts.persistence, {
+        runId,
+        status: "completed",
+        result,
+        ts: Date.now(),
+      });
+    }
 
     // 8. Return RunResult
     return {
@@ -227,8 +279,17 @@ export async function run(
     const errorMessage = err instanceof Error ? err.message : String(err);
 
     // 9. recordRunEnd "failed"
-    activeStore.recordRunEnd(runId, "failed", undefined, errorMessage);
+    const recorded = activeStore.recordRunEnd(runId, "failed", undefined, errorMessage);
     opts.onRunEnd?.(runId, "failed", undefined, errorMessage);
+
+    // Persistence: append run.end only if state changed (terminal guard)
+    if (opts.persistence && recorded) {
+      appendRunEnd(opts.persistence, {
+        runId,
+        status: "failed",
+        ts: Date.now(),
+      });
+    }
 
     return {
       runId,

@@ -25,6 +25,12 @@ export interface StageSnapshot {
   result?: string;
   error?: string;
   readonly toolEvents: ToolEvent[];
+  /**
+   * MCP server gating config stored at stage creation time.
+   * Null allow/deny entries mean unrestricted for that dimension.
+   * Absent when no mcp options were passed to ctx.stage().
+   */
+  mcpScope?: { allow: string[] | null; deny: string[] | null };
 }
 
 export interface RunSnapshot {

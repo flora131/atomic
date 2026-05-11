@@ -36,7 +36,7 @@ export interface SubagentAdapter {
    *                 injected by the stage-runner; overrides ambient process.env
    *                 fallback in the adapter implementation.
    */
-  subagent(opts: SubagentStageOpts, meta: SubagentStageMeta): Promise<string>;
+  subagent(opts: SubagentStageOpts, meta?: SubagentStageMeta): Promise<string>;
 }
 
 export interface StageAdapters {

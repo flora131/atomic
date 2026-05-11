@@ -157,6 +157,7 @@ export function buildRuntimeAdapters(pi: RuntimeWiringSurface): StageAdapters {
     // Explicit meta overrides ambient
     if (meta?.runId) out["PI_WORKFLOW_RUN_ID"] = meta.runId;
     if (meta?.stageId) out["PI_WORKFLOW_STAGE_ID"] = meta.stageId;
+    if (meta?.stageName) out["PI_WORKFLOW_STAGE_NAME"] = meta.stageName;
     return out;
   }
 

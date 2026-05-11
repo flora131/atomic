@@ -11,7 +11,7 @@ export type * from "./types.js";
 
 export { run, resolveInputs } from "./runs/sync/executor.js";
 export type { RunOpts, RunResult, ResolvedInputs } from "./runs/sync/executor.js";
-export type { PromptAdapter, CompleteAdapter, SubagentAdapter, StageAdapters } from "./runs/sync/stage-runner.js";
+export type { PromptAdapter, CompleteAdapter, SubagentAdapter, SubagentStageMeta, StageAdapters } from "./runs/sync/stage-runner.js";
 export { GraphFrontierTracker } from "./runs/shared/graph-inference.js";
 export type { StageNode } from "./runs/shared/graph-inference.js";
 export { createStore, store } from "./store.js";

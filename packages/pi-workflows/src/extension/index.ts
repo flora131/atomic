@@ -1,18 +1,3 @@
-/**
- * Extension entry point — Phase B + Phase D.
- * Factory function called by the pi runtime: `factory(pi)`.
- * Registers: workflow tool, /workflow slash command, /workflows-doctor slash
- * command, message renderers for lifecycle events, CLI flags, persistence
- * hooks (session_start restore, session_before_compact), and status/kill/resume
- * controls.
- *
- * All registration calls are guarded against missing optional methods so the
- * extension degrades gracefully when running against older pi runtimes.
- *
- * cross-ref: pi-subagents src/extension/index.ts
- * cross-ref: spec §5.2, §5.3, §5.6, §5.13, §8.1 Phase B, §8.1 Phase D
- */
-
 import { Type } from "@sinclair/typebox";
 import { renderCall } from "./render-call.js";
 import { renderResult } from "./render-result.js";
@@ -31,6 +16,13 @@ import { installCompactionHook } from "../persistence/compaction-policy.js";
 import { statusRuns, killRun, killAllRuns, resumeRun } from "../runs/detach/status.js";
 import { registerIntercomParentSession } from "../integrations/intercom/intercom-bridge.js";
 import { subscribeIntercomControl } from "../integrations/intercom/result-intercom.js";
+import { installStoreWidget, installToolExecutionHooks } from "../tui/store-widget-installer.js";
+import type { WidgetFactory } from "../tui/store-widget-installer.js";
+import { createExtensionRuntime } from "./runtime.js";
+import type { ExtensionRuntime } from "./runtime.js";
+import { discoverBundledWorkflows } from "./discovery.js";
+import { buildDoctorReport } from "./doctor.js";
+import type { DoctorSiblingStatus } from "./doctor.js";
 
 // ---------------------------------------------------------------------------
 // Minimal ExtensionAPI structural types
@@ -155,6 +147,9 @@ export interface ExtensionAPI {
   // Session manager (§5.6 restore)
   // -------------------------------------------------------------------------
   sessionManager?: SessionManager;
+  ui?: {
+    setWidget?: (key: string, factory: WidgetFactory | undefined, opts?: { placement?: string }) => void;
+  };
   [key: string]: unknown;
 }
 
@@ -188,94 +183,90 @@ const workflowParameters = Type.Object({
 });
 
 // ---------------------------------------------------------------------------
-// Tool execute — dispatch with real status/kill/resume (Phase D)
+// Tool execute — dispatch with real registry for list/inputs/run (Phase E)
+//                + real status/kill/resume (Phase D)
 // ---------------------------------------------------------------------------
 
-async function executeWorkflowTool(
-  args: WorkflowToolArgs,
-  _ctx: PiExecuteContext,
-): Promise<WorkflowToolResult> {
-  const action = args.action ?? "run";
+function makeExecuteWorkflowTool(runtime: ExtensionRuntime) {
+  return async function executeWorkflowTool(
+    args: WorkflowToolArgs,
+    _ctx: PiExecuteContext,
+  ): Promise<WorkflowToolResult> {
+    const action = args.action ?? "run";
 
-  switch (action) {
-    case "list":
-      return { action: "list", workflows: [] };
+    switch (action) {
+      case "list":
+      case "inputs":
+      case "run":
+        // Delegate to registry-backed dispatcher.
+        // Real errors propagate — no broad catch.
+        return runtime.dispatch(args);
 
-    case "status": {
-      const runs = statusRuns({ all: false });
-      return {
-        action: "status",
-        runs: runs.map((r) => ({ runId: r.runId, name: r.name, status: r.status })),
-      };
-    }
-
-    case "inputs":
-      return { action: "inputs", name: args.name, inputs: [] };
-
-    case "run":
-      return {
-        action: "run",
-        runId: "(not-yet-implemented)",
-        status: "pending",
-        message: "Workflow execution not yet implemented (Phase C).",
-      };
-
-    case "kill": {
-      // Support "kill --all" via name sentinel
-      if (args.name === "--all") {
-        const results = killAllRuns();
-        const killed = results.filter((r) => r.ok).length;
+      case "status": {
+        const runs = statusRuns({ all: false });
         return {
-          action: "kill",
-          runId: "--all",
-          status: killed > 0 ? "killed" : "noop",
-          message: killed > 0
-            ? `Killed ${killed} run(s).`
-            : "No in-flight runs to kill.",
+          action: "status",
+          runs: runs.map((r) => ({ runId: r.runId, name: r.name, status: r.status })),
         };
       }
-      const result = killRun(args.name);
-      if (result.ok) {
+
+      case "kill": {
+        // Support "kill --all" via name sentinel
+        if (args.name === "--all") {
+          const results = killAllRuns();
+          const killed = results.filter((r) => r.ok).length;
+          return {
+            action: "kill",
+            runId: "--all",
+            status: killed > 0 ? "killed" : "noop",
+            message: killed > 0
+              ? `Killed ${killed} run(s).`
+              : "No in-flight runs to kill.",
+          };
+        }
+        const result = killRun(args.name);
+        if (result.ok) {
+          return {
+            action: "kill",
+            runId: result.runId,
+            status: "killed",
+            message: `Run ${result.runId} killed (was ${result.previousStatus}).`,
+          };
+        }
         return {
           action: "kill",
-          runId: result.runId,
-          status: "killed",
-          message: `Run ${result.runId} killed (was ${result.previousStatus}).`,
+          runId: args.name,
+          status: "noop",
+          message: result.reason === "not_found"
+            ? `Run not found: ${args.name}`
+            : `Run already ended: ${args.name}`,
         };
       }
-      return {
-        action: "kill",
-        runId: args.name,
-        status: "noop",
-        message: result.reason === "not_found"
-          ? `Run not found: ${args.name}`
-          : `Run already ended: ${args.name}`,
-      };
-    }
 
-    case "resume": {
-      const result = resumeRun(args.name);
-      if (result.ok) {
+      case "resume": {
+        const result = resumeRun(args.name);
+        if (result.ok) {
+          return {
+            action: "resume",
+            runId: result.runId,
+            status: "ok",
+            message: `Run ${result.runId} (${result.snapshot.name}) — status: ${result.snapshot.status}`,
+          };
+        }
         return {
           action: "resume",
-          runId: result.runId,
-          status: "ok",
-          message: `Run ${result.runId} (${result.snapshot.name}) — status: ${result.snapshot.status}`,
+          runId: args.name,
+          status: "noop",
+          message: result.reason === "not_found"
+            ? `Run not found: ${args.name}`
+            : `Run ${args.name} is still active — no resume needed.`,
         };
       }
-      return {
-        action: "resume",
-        runId: args.name,
-        status: "noop",
-        message: result.reason === "not_found"
-          ? `Run not found: ${args.name}`
-          : `Run ${args.name} is still active — no resume needed.`,
-      };
-    }
 
-    default:
-      return { action, message: `Unknown action: ${action}` };
-  }
+      default:
+        return { action, message: `Unknown action: ${action}` };
+    }
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -297,6 +288,12 @@ function tryRegisterSlashCommand(pi: ExtensionAPI, opts: PiSlashCommandOpts): vo
 // ---------------------------------------------------------------------------
 
 const factory = (pi: ExtensionAPI): void => {
+  // -------------------------------------------------------------------------
+  // 0. Create ExtensionRuntime (registry + dispatcher)
+  // -------------------------------------------------------------------------
+  const runtime = createExtensionRuntime();
+  const executeWorkflowTool = makeExecuteWorkflowTool(runtime);
+
   // -------------------------------------------------------------------------
   // 1. Register the `workflow` tool
   // -------------------------------------------------------------------------
@@ -325,7 +322,12 @@ const factory = (pi: ExtensionAPI): void => {
       const subcommand = parts[0] ?? "";
 
       if (!subcommand || subcommand === "list") {
-        print("Registered workflows: (none — registry not yet populated in Phase B)");
+        const names = runtime.registry.names();
+        if (names.length === 0) {
+          print("Registered workflows: (none)");
+        } else {
+          print(`Registered workflows: ${names.join(", ")}`);
+        }
         return;
       }
 
@@ -414,18 +416,15 @@ const factory = (pi: ExtensionAPI): void => {
       "Diagnostics: loaded workflows, sibling availability, config validation.",
     execute: async (_args: string, ctx: PiCommandContext) => {
       const print = ctx.reply ?? ctx.print ?? ((_msg: string) => undefined);
-      const lines: string[] = [
-        "pi-workflows doctor report",
-        "──────────────────────────",
-        "Registry: 0 workflows loaded (Phase B stub)",
-        "Executor: not yet implemented (Phase C)",
-        "Siblings:",
-        "  pi-subagents  — availability check not yet wired",
-        "  pi-mcp-adapter — availability check not yet wired",
-        "  pi-intercom    — availability check not yet wired",
-        "Config: defaults in effect (no config.json loaded yet)",
-      ];
-      print(lines.join("\n"));
+      const discovery = await discoverBundledWorkflows();
+      const siblings: DoctorSiblingStatus = {
+        subagents: pi.subagents !== undefined,
+        // pi-mcp-adapter exposes itself as pi["mcpAdapter"] (structural check)
+        mcpAdapter: (pi as Record<string, unknown>)["mcpAdapter"] !== undefined,
+        // pi-intercom registers setSessionName on the ExtensionAPI when present
+        intercom: typeof pi.setSessionName === "function",
+      };
+      print(buildDoctorReport(discovery, siblings));
     },
   });
 
@@ -499,8 +498,11 @@ const factory = (pi: ExtensionAPI): void => {
     installCompactionHook(pi, store);
   }
 
+  installStoreWidget(pi, store);
+  installToolExecutionHooks(pi, store);
+
   // -------------------------------------------------------------------------
-  // 6. Register sibling integrations (Phase G — §5.8, §5.9, §5.10)
+  // 8. Register sibling integrations (Phase G — §5.8, §5.9, §5.10)
   // All registration calls are guarded; no throw when sibling is absent.
   // -------------------------------------------------------------------------
 

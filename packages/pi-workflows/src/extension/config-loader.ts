@@ -263,6 +263,60 @@ function mergeConfigs(
 // Public API
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Defaults
+// ---------------------------------------------------------------------------
+
+/**
+ * Canonical default values for all WorkflowExtensionConfig tunables.
+ * Matches the constants used by buildDoctorReport in doctor.ts.
+ */
+export const WORKFLOW_CONFIG_DEFAULTS = {
+  maxDepth: 4,
+  defaultConcurrency: 4,
+  persistRuns: true,
+  statusFile: false,
+  resumeInFlight: "ask" as const,
+} as const;
+
+/**
+ * Effective config shape — all optional fields resolved to concrete values.
+ * The `workflows` map remains optional (no sensible scalar default).
+ */
+export interface WorkflowEffectiveConfig {
+  readonly maxDepth: number;
+  readonly defaultConcurrency: number;
+  readonly persistRuns: boolean;
+  readonly statusFile: boolean;
+  readonly resumeInFlight: "ask" | "auto" | "never";
+  readonly workflows?: Readonly<Record<string, WorkflowConfigEntry>>;
+}
+
+/**
+ * Apply default values to a WorkflowExtensionConfig, filling in every absent
+ * optional field with its RFC-specified default.
+ *
+ * Pure function — does not mutate the input.
+ */
+export function withWorkflowDefaults(
+  config: WorkflowExtensionConfig,
+): WorkflowEffectiveConfig {
+  return {
+    maxDepth: config.maxDepth ?? WORKFLOW_CONFIG_DEFAULTS.maxDepth,
+    defaultConcurrency:
+      config.defaultConcurrency ?? WORKFLOW_CONFIG_DEFAULTS.defaultConcurrency,
+    persistRuns: config.persistRuns ?? WORKFLOW_CONFIG_DEFAULTS.persistRuns,
+    statusFile: config.statusFile ?? WORKFLOW_CONFIG_DEFAULTS.statusFile,
+    resumeInFlight:
+      config.resumeInFlight ?? WORKFLOW_CONFIG_DEFAULTS.resumeInFlight,
+    ...(config.workflows !== undefined ? { workflows: config.workflows } : {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Discovery config mapping
+// ---------------------------------------------------------------------------
+
 /**
  * Map a WorkflowExtensionConfig into a DiscoveryConfig for use with discoverWorkflows().
  *

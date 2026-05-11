@@ -39,7 +39,8 @@ describe("SessionGraphPanel", () => {
       const store = createPopulatedStore();
       const setup = await renderPanel(store);
       const frame = setup.captureCharFrame();
-      expect(frame).toContain("orchestrator");
+      // The runtime "orchestrator" entry is filtered from the graph; only
+      // user-defined stages appear as nodes.
       expect(frame).toContain("worker-1");
       expect(frame).toContain("worker-2");
       expect(frame).toContain("merge");
@@ -91,16 +92,17 @@ describe("SessionGraphPanel", () => {
       const store = createPopulatedStore();
       const setup = await renderPanel(store);
 
-      // Initial focus is on "orchestrator"
+      // Initial focus lands on the first visible stage (worker-1 — the
+      // synthetic orchestrator entry is filtered before layout).
       let frame = setup.captureCharFrame();
-      expect(frame).toContain("orchestrator");
+      expect(frame).toContain("worker-1");
 
       // Press right arrow to move focus
       setup.mockInput.pressArrow("right");
       await setup.renderOnce();
       // Frame should still render (focus changed internally)
       frame = setup.captureCharFrame();
-      expect(frame).toContain("orchestrator");
+      expect(frame).toContain("worker-2");
     });
 
     test("arrow down moves focus to child node", async () => {
@@ -136,7 +138,8 @@ describe("SessionGraphPanel", () => {
       await setup.renderOnce();
 
       const frame = setup.captureCharFrame();
-      expect(frame).toContain("orchestrator");
+      // After a hjkl round-trip the graph still renders its stages.
+      expect(frame).toContain("worker-1");
     });
 
     test("G (shift+g) moves to deepest node", async () => {
@@ -165,7 +168,9 @@ describe("SessionGraphPanel", () => {
       await setup.renderOnce();
 
       const frame = setup.captureCharFrame();
-      expect(frame).toContain("orchestrator");
+      // gg returns to the first visible root stage rather than the
+      // (filtered) orchestrator entry.
+      expect(frame).toContain("worker-1");
     });
 
     test("enter triggers attach flash message", async () => {
@@ -324,7 +329,8 @@ describe("SessionGraphPanel", () => {
       await setup.renderOnce();
 
       const frame = setup.captureCharFrame();
-      expect(frame).toContain("orchestrator");
+      // After resize the visible stages still render somewhere on screen.
+      expect(frame).toContain("worker-1");
     });
   });
 });

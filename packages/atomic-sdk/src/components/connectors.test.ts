@@ -664,17 +664,18 @@ describe("buildMergeConnector", () => {
 // ─── Integration tests: connectors with computeLayout-produced nodes ──────
 
 describe("integration with computeLayout", () => {
-  test("connector from orchestrator to reclassified orphan child", () => {
+  test("orchestrator entry never reaches the connector layer", () => {
     const { computeLayout } = require("./layout.ts");
     const layout = computeLayout([
       { name: "orchestrator", status: "running", parents: [], startedAt: null, endedAt: null },
       { name: "orphan", status: "pending", parents: ["nonexistent"], startedAt: null, endedAt: null },
     ]);
-    const orch = layout.map["orchestrator"];
-    expect(orch.children).toHaveLength(1);
-    const conn = buildConnector(orch, layout.rowH, mockTheme);
-    expect(conn).not.toBeNull();
-    expect(conn!.height).toBeGreaterThan(0);
+    // Orchestrator is filtered out at layout time, so it has no node and
+    // contributes no connectors. Orphan collapses to a true root.
+    expect(layout.map["orchestrator"]).toBeUndefined();
+    const orphan = layout.map["orphan"];
+    expect(orphan.children).toHaveLength(0);
+    expect(buildConnector(orphan, layout.rowH, mockTheme)).toBeNull();
   });
 
   test("connector from parent to reclassified merge-to-single-parent node", () => {

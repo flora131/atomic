@@ -204,6 +204,10 @@ describe("computeLayout", () => {
   // ralph), each stage's parents array points at the prior stage instead
   // of the root "orchestrator". These tests assert that the layout treats
   // that shape as a linear chain (not a fan-out of siblings under the root).
+  //
+  // The orchestrator entry is filtered out of the layout — stages that
+  // declared it as their parent collapse to true roots — so depths shift
+  // down by one relative to the raw input order.
   describe("auto-inferred ralph chain", () => {
     test("single-iteration chain: plan → orch → review → debug", () => {
       const result = computeLayout([
@@ -213,21 +217,20 @@ describe("computeLayout", () => {
         makeSession("reviewer-1", ["orchestrator-1"]),
         makeSession("debugger-1", ["reviewer-1"]),
       ]);
-      expect(result.map["orchestrator"]!.depth).toBe(0);
-      expect(result.map["planner-1"]!.depth).toBe(1);
-      expect(result.map["orchestrator-1"]!.depth).toBe(2);
-      expect(result.map["reviewer-1"]!.depth).toBe(3);
-      expect(result.map["debugger-1"]!.depth).toBe(4);
+      expect(result.map["orchestrator"]).toBeUndefined();
+      expect(result.map["planner-1"]!.depth).toBe(0);
+      expect(result.map["orchestrator-1"]!.depth).toBe(1);
+      expect(result.map["reviewer-1"]!.depth).toBe(2);
+      expect(result.map["debugger-1"]!.depth).toBe(3);
 
       // Every node in a single chain lines up on the same x column.
-      const rootX = result.map["orchestrator"]!.x;
-      for (const n of ["planner-1", "orchestrator-1", "reviewer-1", "debugger-1"]) {
+      const rootX = result.map["planner-1"]!.x;
+      for (const n of ["orchestrator-1", "reviewer-1", "debugger-1"]) {
         expect(result.map[n]!.x).toBe(rootX);
       }
 
       // y increases monotonically as we descend the chain.
       const ys = [
-        result.map["orchestrator"]!.y,
         result.map["planner-1"]!.y,
         result.map["orchestrator-1"]!.y,
         result.map["reviewer-1"]!.y,
@@ -248,10 +251,10 @@ describe("computeLayout", () => {
         makeSession("planner-2", ["debugger-1"]),
         makeSession("orchestrator-2", ["planner-2"]),
       ]);
-      expect(result.map["planner-2"]!.depth).toBe(5);
-      expect(result.map["orchestrator-2"]!.depth).toBe(6);
+      expect(result.map["planner-2"]!.depth).toBe(4);
+      expect(result.map["orchestrator-2"]!.depth).toBe(5);
       // Still a single column.
-      const rootX = result.map["orchestrator"]!.x;
+      const rootX = result.map["planner-1"]!.x;
       expect(result.map["planner-2"]!.x).toBe(rootX);
       expect(result.map["orchestrator-2"]!.x).toBe(rootX);
     });
@@ -265,23 +268,24 @@ describe("computeLayout", () => {
         makeSession("reviewer-1", ["orchestrator-1"]),
         makeSession("reviewer-1-confirm", ["reviewer-1"]),
       ]);
-      expect(result.map["reviewer-1-confirm"]!.depth).toBe(4);
+      expect(result.map["reviewer-1-confirm"]!.depth).toBe(3);
       // No fan-out: reviewer-1 has exactly one child (reviewer-1-confirm)
       expect(result.map["reviewer-1"]!.children).toHaveLength(1);
       expect(result.map["reviewer-1"]!.children[0]!.name).toBe("reviewer-1-confirm");
     });
 
-    test("ralph chain never produces sibling fan-outs under orchestrator", () => {
+    test("ralph chain never produces sibling fan-outs at the root", () => {
       // Regression for the bug where planner-1 and orchestrator-1 appeared
-      // side by side under orchestrator because both used the default parent.
+      // side by side because both used the default parent. With orchestrator
+      // filtered, the chain must still resolve to a single-root linear
+      // spine (planner-1 → orchestrator-1) rather than two parallel roots.
       const result = computeLayout([
         makeSession("orchestrator"),
         makeSession("planner-1", ["orchestrator"]),
         makeSession("orchestrator-1", ["planner-1"]),
       ]);
-      // orchestrator has exactly one child (planner-1), not two.
-      expect(result.map["orchestrator"]!.children).toHaveLength(1);
-      expect(result.map["orchestrator"]!.children[0]!.name).toBe("planner-1");
+      expect(result.roots).toHaveLength(1);
+      expect(result.roots[0]!.name).toBe("planner-1");
       expect(result.map["planner-1"]!.children).toHaveLength(1);
       expect(result.map["planner-1"]!.children[0]!.name).toBe("orchestrator-1");
     });

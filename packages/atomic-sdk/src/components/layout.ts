@@ -74,26 +74,19 @@ function resolveOverlaps(map: Record<string, LayoutNode>): void {
 
 /**
  * Compute effective parents for each session by filtering out references
- * to sessions that don't exist in the map and deduplicating.  Orphaned
- * sessions (all parents missing) fall back to the "orchestrator" node
- * when one is present, instead of becoming disconnected roots.
+ * to sessions that don't exist in the map (including the runtime
+ * "orchestrator" pseudo-node, which the graph never renders) and
+ * deduplicating. Stages whose only declared parent was the orchestrator
+ * collapse to true roots with `parents: []`.
  */
 function normalizeParents(
   sessions: SessionData[],
   map: Record<string, LayoutNode>,
 ): Map<string, string[]> {
-  const hasOrchestrator = "orchestrator" in map;
   const effective = new Map<string, string[]>();
-
   for (const s of sessions) {
     const valid = [...new Set(s.parents)].filter((p) => p in map);
-    if (valid.length > 0) {
-      effective.set(s.name, valid);
-    } else if (hasOrchestrator && s.name !== "orchestrator") {
-      effective.set(s.name, ["orchestrator"]);
-    } else {
-      effective.set(s.name, []);
-    }
+    effective.set(s.name, valid);
   }
   return effective;
 }
@@ -103,7 +96,13 @@ export function computeLayout(sessions: SessionData[]): LayoutResult {
   const roots: LayoutNode[] = [];
   const mergeNodes: LayoutNode[] = [];
 
-  for (const s of sessions) {
+  // The runtime "orchestrator" entry is workflow-timing bookkeeping, not a
+  // user-defined stage — the graph treats it as invisible. Filter it before
+  // building the node map so every downstream pass (depths, placement,
+  // overlaps, connectors) operates only on real stages.
+  const visible = sessions.filter((s) => s.name !== "orchestrator");
+
+  for (const s of visible) {
     map[s.name] = {
       name: s.name,
       status: s.status,
@@ -118,11 +117,11 @@ export function computeLayout(sessions: SessionData[]): LayoutResult {
     };
   }
 
-  // Normalize parents: filter missing refs, dedupe, orchestrator fallback
-  const effective = normalizeParents(sessions, map);
+  // Normalize parents: drop refs to filtered/missing sessions, dedupe.
+  const effective = normalizeParents(visible, map);
 
   // Classify using effective parents (preserves LayoutNode.parents as raw metadata)
-  for (const s of sessions) {
+  for (const s of visible) {
     const ep = effective.get(s.name) ?? [];
     if (ep.length > 1) {
       mergeNodes.push(map[s.name]!);
@@ -146,7 +145,7 @@ export function computeLayout(sessions: SessionData[]): LayoutResult {
     depthCache.set(name, depth);
     return depth;
   }
-  for (const s of sessions) {
+  for (const s of visible) {
     map[s.name]!.depth = resolveDepth(s.name);
   }
 

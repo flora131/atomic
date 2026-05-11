@@ -924,26 +924,33 @@ describe("computeLayout", () => {
 
   // ─── Edge cases: parent normalization ─────────
 
-  describe("missing parent fallback", () => {
-    test("session with missing parent falls back to orchestrator child", () => {
+  describe("orchestrator filtering + missing parents", () => {
+    test("orchestrator entry is never placed in the layout map", () => {
+      const r = computeLayout([
+        session("orchestrator"),
+        session("step-1", ["orchestrator"]),
+      ]);
+      expect(r.map["orchestrator"]).toBeUndefined();
+      // step-1 declared "orchestrator" as its parent, but since orchestrator
+      // is filtered, the reference dissolves and step-1 becomes a true root.
+      expect(r.roots.map((n) => n.name)).toEqual(["step-1"]);
+      expect(r.map["step-1"]!.depth).toBe(0);
+    });
+
+    test("session with a missing parent becomes a root", () => {
       const r = computeLayout([
         session("orchestrator"),
         session("orphan", ["nonexistent"]),
       ]);
-      // orphan should be a child of orchestrator, not a root
-      expect(r.roots).toHaveLength(1);
-      expect(r.roots[0]!.name).toBe("orchestrator");
-      expect(r.map["orchestrator"]!.children).toHaveLength(1);
-      expect(r.map["orchestrator"]!.children[0]!.name).toBe("orphan");
-      expect(r.map["orphan"]!.depth).toBe(1);
+      expect(r.roots.map((n) => n.name)).toEqual(["orphan"]);
+      expect(r.map["orphan"]!.depth).toBe(0);
     });
 
-    test("session with missing parent and no orchestrator becomes root", () => {
+    test("session with a missing parent and no orchestrator becomes a root", () => {
       const r = computeLayout([
         session("A"),
         session("orphan", ["nonexistent"]),
       ]);
-      // Without orchestrator, orphan becomes a root alongside A
       expect(r.roots).toHaveLength(2);
       expect(r.roots.map((n) => n.name)).toContain("orphan");
     });
@@ -957,35 +964,33 @@ describe("computeLayout", () => {
       expect(r.map["orphan"]!.parents).toEqual(["nonexistent"]);
     });
 
-    test("multiple orphans all fall back to orchestrator", () => {
+    test("multiple orphans each become their own root", () => {
       const r = computeLayout([
         session("orchestrator"),
         session("a", ["ghost-1"]),
         session("b", ["ghost-2"]),
       ]);
-      expect(r.roots).toHaveLength(1);
-      expect(r.map["orchestrator"]!.children).toHaveLength(2);
-      expect(r.map["a"]!.depth).toBe(1);
-      expect(r.map["b"]!.depth).toBe(1);
+      expect(r.roots).toHaveLength(2);
+      expect(r.map["a"]!.depth).toBe(0);
+      expect(r.map["b"]!.depth).toBe(0);
     });
 
-    test("valid parent takes priority over orchestrator fallback", () => {
+    test("real ancestor chain is preserved across orchestrator filtering", () => {
       const r = computeLayout([
         session("orchestrator"),
         session("step-1", ["orchestrator"]),
         session("child", ["step-1"]),
       ]);
-      // child should be under step-1, not orchestrator
+      // child stays under step-1; the orchestrator hop is collapsed
       expect(r.map["step-1"]!.children).toHaveLength(1);
       expect(r.map["step-1"]!.children[0]!.name).toBe("child");
-      expect(r.map["child"]!.depth).toBe(2);
+      expect(r.map["child"]!.depth).toBe(1);
     });
 
-    test("orchestrator itself does not get reparented to itself", () => {
+    test("workflow with only an orchestrator entry has an empty layout", () => {
       const r = computeLayout([session("orchestrator")]);
-      expect(r.roots).toHaveLength(1);
-      expect(r.roots[0]!.name).toBe("orchestrator");
-      expect(r.map["orchestrator"]!.children).toHaveLength(0);
+      expect(r.roots).toEqual([]);
+      expect(r.map).toEqual({});
     });
   });
 
@@ -999,18 +1004,17 @@ describe("computeLayout", () => {
       // M should become a single-parent child of A (not a merge node)
       expect(r.map["A"]!.children).toHaveLength(1);
       expect(r.map["A"]!.children[0]!.name).toBe("M");
-      expect(r.map["M"]!.depth).toBe(2);
+      expect(r.map["M"]!.depth).toBe(1);
     });
 
-    test("merge with all missing parents falls back to orchestrator child", () => {
+    test("merge with all missing parents becomes a root", () => {
       const r = computeLayout([
         session("orchestrator"),
         session("M", ["ghost-1", "ghost-2"]),
       ]);
-      // All parents missing → falls back to orchestrator
-      expect(r.map["orchestrator"]!.children).toHaveLength(1);
-      expect(r.map["orchestrator"]!.children[0]!.name).toBe("M");
-      expect(r.map["M"]!.depth).toBe(1);
+      // Every declared parent is filtered → M is a root
+      expect(r.roots.map((n) => n.name)).toEqual(["M"]);
+      expect(r.map["M"]!.depth).toBe(0);
     });
 
     test("merge with duplicate parents after filtering is deduplicated", () => {
@@ -1069,7 +1073,7 @@ describe("computeLayout", () => {
   });
 
   describe("deeply nested tree", () => {
-    test("four levels of nesting with orchestrator", () => {
+    test("four-step chain shifts depths down once orchestrator is filtered", () => {
       const r = computeLayout([
         session("orchestrator"),
         session("step-1", ["orchestrator"]),
@@ -1077,14 +1081,14 @@ describe("computeLayout", () => {
         session("step-3", ["step-2"]),
         session("step-4", ["step-3"]),
       ]);
-      expect(r.map["orchestrator"]!.depth).toBe(0);
-      expect(r.map["step-1"]!.depth).toBe(1);
-      expect(r.map["step-2"]!.depth).toBe(2);
-      expect(r.map["step-3"]!.depth).toBe(3);
-      expect(r.map["step-4"]!.depth).toBe(4);
+      expect(r.map["orchestrator"]).toBeUndefined();
+      expect(r.map["step-1"]!.depth).toBe(0);
+      expect(r.map["step-2"]!.depth).toBe(1);
+      expect(r.map["step-3"]!.depth).toBe(2);
+      expect(r.map["step-4"]!.depth).toBe(3);
       // All share x (single chain)
-      const x0 = r.map["orchestrator"]!.x;
-      for (const name of ["step-1", "step-2", "step-3", "step-4"]) {
+      const x0 = r.map["step-1"]!.x;
+      for (const name of ["step-2", "step-3", "step-4"]) {
         expect(r.map[name]!.x).toBe(x0);
       }
     });
@@ -1114,10 +1118,10 @@ describe("computeLayout", () => {
         session("c2", ["parent"]),
         session("c3", ["parent"]),
       ]);
-      expect(r.map["parent"]!.depth).toBe(1);
-      expect(r.map["c1"]!.depth).toBe(2);
-      expect(r.map["c2"]!.depth).toBe(2);
-      expect(r.map["c3"]!.depth).toBe(2);
+      expect(r.map["parent"]!.depth).toBe(0);
+      expect(r.map["c1"]!.depth).toBe(1);
+      expect(r.map["c2"]!.depth).toBe(1);
+      expect(r.map["c3"]!.depth).toBe(1);
       // parent centered over children
       const parentX = r.map["parent"]!.x;
       const c1X = r.map["c1"]!.x;

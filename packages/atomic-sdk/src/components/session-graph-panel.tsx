@@ -109,11 +109,13 @@ export function SessionGraphPanel() {
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [switcherSel, setSwitcherSel] = useState(0);
 
-  // Update focus when sessions first appear
+  // Update focus when sessions first appear. The orchestrator is filtered
+  // from the layout, so prefer the first session that actually has a node
+  // in the graph rather than blindly picking sessions[0].
   useEffect(() => {
-    if (store.sessions.length > 0 && !layout.map[focusedId]) {
-      setFocusedId(store.sessions[0]!.name);
-    }
+    if (layout.map[focusedId]) return;
+    const firstVisible = store.sessions.find((s) => layout.map[s.name]);
+    if (firstVisible) setFocusedId(firstVisible.name);
   }, [storeVersion]);
 
   // Pulse animation for running nodes — paused when nothing is running

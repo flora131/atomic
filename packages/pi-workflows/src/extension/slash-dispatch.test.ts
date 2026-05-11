@@ -15,7 +15,7 @@
 
 import { test, expect, describe } from "bun:test";
 import { parseWorkflowArgs, stripDetachFlags } from "./index.js";
-import type { ExtensionAPI, PiCommandContext, PiSlashCommandOpts } from "./index.js";
+import type { ExtensionAPI, PiCommandContext, PiCommandOptions, PiSlashCommandOpts } from "./index.js";
 import { createRegistry } from "../workflows/registry.js";
 import { defineWorkflow } from "../workflows/define-workflow.js";
 import type { WorkflowDefinition } from "../shared/types.js";
@@ -78,8 +78,9 @@ interface RegisteredCommand {
 function buildMockPi(): { pi: ExtensionAPI; commands: RegisteredCommand[] } {
   const commands: RegisteredCommand[] = [];
   const pi: ExtensionAPI = {
-    registerCommand: (opts: PiSlashCommandOpts) => {
-      commands.push({ name: opts.name, opts });
+    registerCommand: (name: string, options: PiCommandOptions) => {
+      const opts: PiSlashCommandOpts = { name, description: options.description, execute: options.handler, getArgumentCompletions: options.getArgumentCompletions };
+      commands.push({ name, opts });
     },
   };
   return { pi, commands };

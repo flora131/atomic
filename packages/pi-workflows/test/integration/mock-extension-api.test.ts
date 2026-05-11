@@ -12,7 +12,9 @@ import factory, {
   type ExtensionAPI,
   type PiToolOpts,
   type PiSlashCommandOpts,
+  type PiCommandOptions,
   type PiFlagOpts,
+  type PiFlagNamedOpts,
   type WorkflowToolArgs,
 } from "../../src/extension/index.js";
 import type { WorkflowToolResult } from "../../src/extension/render-result.js";
@@ -66,16 +68,16 @@ function makeMock(): ExtensionAPI & {
       tools.push({ opts: opts as unknown as PiToolOpts<WorkflowToolArgs, WorkflowToolResult> });
     },
 
-    registerCommand(opts: PiSlashCommandOpts) {
-      commands.push({ opts });
+    registerCommand(name: string, options: PiCommandOptions) {
+      commands.push({ opts: { name, description: options.description, execute: options.handler, getArgumentCompletions: options.getArgumentCompletions } });
     },
 
     registerMessageRenderer(event: string, renderer: (payload: Record<string, unknown>) => string) {
       renderers.push({ event, renderer });
     },
 
-    registerFlag(opts: PiFlagOpts) {
-      flags.push({ opts });
+    registerFlag(name: string, opts: PiFlagNamedOpts) {
+      flags.push({ opts: { name, ...opts } });
     },
   };
 
@@ -345,8 +347,8 @@ describe("MockExtensionAPI — registerSlashCommand alias", () => {
     const commandLog: string[] = [];
     const slashLog: string[] = [];
     const api: ExtensionAPI = {
-      registerCommand(opts: PiSlashCommandOpts) {
-        commandLog.push(opts.name);
+      registerCommand(name: string, _options: PiCommandOptions) {
+        commandLog.push(name);
       },
       registerSlashCommand(opts: PiSlashCommandOpts) {
         slashLog.push(opts.name);
@@ -999,8 +1001,8 @@ describe("MockExtensionAPI — graceful degradation", () => {
 
   test("factory with partial API (only registerCommand) does not throw", () => {
     const api: ExtensionAPI = {
-      registerCommand(opts: PiSlashCommandOpts) {
-        void opts;
+      registerCommand(_name: string, options: PiCommandOptions) {
+        void options;
       },
     };
     expect(() => factory(api)).not.toThrow();
@@ -1018,8 +1020,8 @@ describe("MockExtensionAPI — graceful degradation", () => {
 
   test("factory with partial API (only registerFlag) does not throw", () => {
     const api: ExtensionAPI = {
-      registerFlag(opts: PiFlagOpts) {
-        void opts;
+      registerFlag(name: string, opts: PiFlagNamedOpts) {
+        void name; void opts;
       },
     };
     expect(() => factory(api)).not.toThrow();

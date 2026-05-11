@@ -32,6 +32,7 @@ import factory, {
   type ExtensionAPI,
   type PiToolOpts,
   type PiSlashCommandOpts,
+  type PiCommandOptions,
   type WorkflowToolArgs,
 } from "../../src/extension/index.js";
 import type { WorkflowToolResult } from "../../src/extension/render-result.js";
@@ -376,8 +377,8 @@ function makeMockApiForRuntime(): ExtensionAPI & {
     registerTool<TArgs, TResult>(opts: PiToolOpts<TArgs, TResult>) {
       tools.push({ opts: opts as unknown as MockTool["opts"] });
     },
-    registerCommand(opts: PiSlashCommandOpts) {
-      commands.push({ opts });
+    registerCommand(name: string, options: PiCommandOptions) {
+      commands.push({ opts: { name, description: options.description, execute: options.handler, getArgumentCompletions: options.getArgumentCompletions } });
     },
     registerMessageRenderer: () => undefined,
     registerFlag: () => undefined,

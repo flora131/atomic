@@ -18,7 +18,7 @@ import type { GraphOverlayPort, OverlayPiSurface } from "../../src/tui/overlay-a
 import type { PiCustomOverlayOpts, PiCustomOverlayHandle } from "../../src/extension/wiring.js";
 import { createStore, store as singletonStore } from "../../src/store.js";
 import factory from "../../src/extension/index.js";
-import type { ExtensionAPI, PiSlashCommandOpts, PiCommandContext } from "../../src/extension/index.js";
+import type { ExtensionAPI, PiSlashCommandOpts, PiCommandContext, PiCommandOptions } from "../../src/extension/index.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -65,7 +65,7 @@ function buildMockPi(overrides: Partial<ExtensionAPI> = {}): {
 
   const pi: ExtensionAPI = {
     registerTool: () => undefined,
-    registerCommand: (opts) => { commands[opts.name] = opts; },
+    registerCommand: (name: string, options: PiCommandOptions) => { commands[name] = { name, description: options.description, execute: options.handler, getArgumentCompletions: options.getArgumentCompletions }; },
     registerMessageRenderer: () => undefined,
     registerFlag: () => undefined,
     registerShortcut: (key, opts) => { shortcuts[key] = opts.handler; },

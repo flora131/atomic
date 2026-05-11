@@ -85,7 +85,22 @@ export interface PiArgumentCompletion {
   description?: string;
 }
 
-/** Slash command registration options (pi.registerCommand / pi.registerSlashCommand). */
+/**
+ * Canonical slash command options for pi.registerCommand(name, options).
+ * `handler` maps from the internal `execute` field.
+ * cross-ref: research/docs/2026-05-11-pi-coding-agent-reference.md §4.2
+ */
+export interface PiCommandOptions {
+  description: string;
+  handler: (args: string, ctx: PiCommandContext) => Promise<void> | void;
+  getArgumentCompletions?: (partial: string) => PiArgumentCompletion[] | Promise<PiArgumentCompletion[]>;
+}
+
+/**
+ * Internal slash command registration options — used throughout this module
+ * to build commands before adapting to the pi API call shape.
+ * `execute` is mapped to `handler` by tryRegisterSlashCommand before dispatch.
+ */
 export interface PiSlashCommandOpts {
   name: string;
   description: string;
@@ -100,10 +115,23 @@ export interface PiCommandContext {
 }
 
 /** Flag registration options. */
-export interface PiFlagOpts {
-  name: string;
+/**
+ * Canonical flag registration options (Pi >= 1.x).
+ * Name is passed as a separate first argument; not included here.
+ */
+export interface PiFlagNamedOpts {
   description: string;
   type?: "string" | "boolean";
+  default?: unknown;
+}
+
+/**
+ * Legacy object-shaped flag options (Pi < 1.x compat).
+ * Kept for backward-compatibility with older implementations.
+ * Prefer PiFlagNamedOpts + registerFlag(name, opts) for new code.
+ */
+export interface PiFlagOpts extends PiFlagNamedOpts {
+  name: string;
 }
 
 /** Tool registration options. */
@@ -130,12 +158,19 @@ export interface PiExecuteContext {
  */
 export interface ExtensionAPI {
   registerTool?: <TArgs, TResult>(opts: PiToolOpts<TArgs, TResult>) => void;
-  /** Canonical name (pi >= 1.x). */
-  registerCommand?: (opts: PiSlashCommandOpts) => void;
-  /** Alias used by some earlier pi builds. */
+  /**
+   * Canonical registration (pi >= 1.x): registerCommand(name, options).
+   * options.handler maps to the internal execute field.
+   * cross-ref: research/docs/2026-05-11-pi-coding-agent-reference.md §4.2
+   */
+  registerCommand?: (name: string, options: PiCommandOptions) => void;
+  /**
+   * Legacy alias used by older pi builds — accepts full object shape.
+   * Kept as explicit compatibility path only; not primary registration path.
+   */
   registerSlashCommand?: (opts: PiSlashCommandOpts) => void;
   registerMessageRenderer?: (event: string, renderer: (payload: unknown) => string) => void;
-  registerFlag?: (opts: PiFlagOpts) => void;
+  registerFlag?: (name: string, opts: PiFlagNamedOpts) => void;
   /**
    * Register a keyboard shortcut.
    * Present on pi >= 1.x; absent on older runtimes.
@@ -341,11 +376,20 @@ export function makeExecuteWorkflowTool(
 // Slash command helpers
 // ---------------------------------------------------------------------------
 
-/** Try both canonical and alias registration method names. */
+/** Try canonical then legacy registration. Maps internal execute → handler for canonical call. */
 function tryRegisterSlashCommand(pi: ExtensionAPI, opts: PiSlashCommandOpts): void {
   if (typeof pi.registerCommand === "function") {
-    pi.registerCommand(opts);
+    // Canonical: registerCommand(name, { description, handler, getArgumentCompletions? })
+    const options: PiCommandOptions = {
+      description: opts.description,
+      handler: opts.execute,
+    };
+    if (opts.getArgumentCompletions !== undefined) {
+      options.getArgumentCompletions = opts.getArgumentCompletions;
+    }
+    pi.registerCommand(opts.name, options);
   } else if (typeof pi.registerSlashCommand === "function") {
+    // Legacy compatibility path — older pi builds only.
     pi.registerSlashCommand(opts);
   }
   // Neither present — silently skip (degraded runtime).
@@ -445,6 +489,20 @@ export function parseWorkflowArgs(tokens: string[]): Record<string, unknown> {
     }
   }
   return result;
+}
+
+function hasSubagentsRun(pi: ExtensionAPI): boolean {
+  return typeof (pi.subagents as Record<string, unknown> | undefined)?.["run"] === "function";
+}
+
+function getSubagentAdapterVia(pi: ExtensionAPI): DoctorSiblingStatus["subagentAdapterVia"] {
+  if (hasSubagentsRun(pi)) {
+    return "pi.subagents";
+  }
+  if (typeof pi.callTool === "function") {
+    return "callTool";
+  }
+  return "unavailable";
 }
 
 // ---------------------------------------------------------------------------
@@ -822,10 +880,11 @@ function factory(pi: ExtensionAPI): void {
       const print = ctx.reply ?? ctx.print ?? ((_msg: string) => undefined);
       // Use already-discovered unified registry when available; fall back to bundled-only.
       const discovery = discoveryRef.current ?? (await discoverBundledWorkflows());
+      const execAvailable = typeof pi.exec === "function";
       const siblings: DoctorSiblingStatus = {
         subagents: pi.subagents !== undefined,
         // pi-subagents callable when run() method present on surface
-        subagentsCallable: typeof (pi.subagents as Record<string, unknown> | undefined)?.["run"] === "function",
+        subagentsCallable: hasSubagentsRun(pi),
         // pi-mcp-adapter exposes itself as pi["mcpAdapter"] (structural check)
         mcpAdapter: (pi as Record<string, unknown>)["mcpAdapter"] !== undefined,
         // mcp scope events: pi.events.emit present (used by setMcpScope to emit mcp.scope.set)
@@ -839,9 +898,13 @@ function factory(pi: ExtensionAPI): void {
         // F2/shortcut registration available
         shortcut: typeof pi.registerShortcut === "function",
         // exec abortable when pi.exec accepts AbortSignal (runtime capability)
-        execAbortable: typeof pi.exec === "function",
+        execAbortable: execAvailable,
         // persistence appendEntry available
         persistenceAppendEntry: typeof pi.appendEntry === "function",
+        // Runtime adapter capabilities mirror buildRuntimeAdapters surface checks.
+        promptAdapter: execAvailable,
+        completeAdapter: execAvailable,
+        subagentAdapterVia: getSubagentAdapterVia(pi),
       };
       print(buildDoctorReport(discovery, siblings, configLoadRef.current));
     },

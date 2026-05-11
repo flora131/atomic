@@ -2,10 +2,9 @@
  * Tests for tsconfig path mappings in packages/pi-workflows.
  *
  * Covers:
- *   - tsconfig.json: paths["pi-workflows"] === ["./src/index.ts"]
- *   - tsconfig.json: compilerOptions.baseUrl === "."
+ *   - tsconfig.json: no package self-alias needed for tests
  *   - tsconfig.build.json: paths["pi-workflows"] === ["./src/index.ts"]
- *   - tsconfig.build.json: compilerOptions.baseUrl === "."
+ *   - tsconfig.build.json: no baseUrl needed with bundler module resolution
  */
 
 import { test, expect, describe } from "bun:test";
@@ -24,13 +23,12 @@ describe("tsconfig path mappings", () => {
     const cfg = loadTsconfig("tsconfig.json");
     const opts = cfg["compilerOptions"] as Record<string, unknown>;
 
-    test('compilerOptions.baseUrl is "."', () => {
-      expect(opts["baseUrl"]).toBe(".");
+    test("compilerOptions.baseUrl is omitted", () => {
+      expect(opts["baseUrl"]).toBeUndefined();
     });
 
-    test('paths["pi-workflows"] maps to ["./src/index.ts"]', () => {
-      const paths = opts["paths"] as Record<string, string[]>;
-      expect(paths["pi-workflows"]).toEqual(["./src/index.ts"]);
+    test('paths["pi-workflows"] is omitted', () => {
+      expect(opts["paths"]).toBeUndefined();
     });
   });
 
@@ -38,8 +36,8 @@ describe("tsconfig path mappings", () => {
     const cfg = loadTsconfig("tsconfig.build.json");
     const opts = cfg["compilerOptions"] as Record<string, unknown>;
 
-    test('compilerOptions.baseUrl is "."', () => {
-      expect(opts["baseUrl"]).toBe(".");
+    test("compilerOptions.baseUrl is omitted", () => {
+      expect(opts["baseUrl"]).toBeUndefined();
     });
 
     test('paths["pi-workflows"] maps to ["./src/index.ts"]', () => {

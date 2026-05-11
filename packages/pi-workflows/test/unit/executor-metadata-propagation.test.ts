@@ -129,11 +129,16 @@ describe("executor → subagent env propagation (pi.subagents.run path)", () => 
     const result = await run(def, {}, {
       adapters,
       store: createStore(),
-      onStageStart: (_runId, snap) => { capturedStageId = snap.id; },
+      onStageStart: (_runId, snap) => {
+        capturedStageId = snap.id;
+      },
     });
 
     expect(result.status).toBe("completed");
     const env = subagentCalls[0]!["env"] as Record<string, string>;
+    if (capturedStageId === undefined) {
+      throw new Error("expected onStageStart to capture stage id");
+    }
     expect(env["PI_WORKFLOW_STAGE_ID"]).toBe(capturedStageId);
   });
 
@@ -359,7 +364,9 @@ describe("executor → stage-runner meta passthrough (spy adapter)", () => {
     await run(def, {}, {
       adapters: adapter,
       store: createStore(),
-      onStageStart: (_runId, snap) => { snapshotStageId = snap.id; },
+      onStageStart: (_runId, snap) => {
+        snapshotStageId = snap.id;
+      },
     });
 
     expect(calls[0]!.meta?.stageId).toBeDefined();

@@ -23,7 +23,9 @@ import factory, {
   type ExtensionAPI,
   type PiToolOpts,
   type PiSlashCommandOpts,
+  type PiCommandOptions,
   type PiFlagOpts,
+  type PiFlagNamedOpts,
   type WorkflowToolArgs,
 } from "../../src/extension/index.js";
 import type { WorkflowToolResult } from "../../src/extension/render-result.js";
@@ -124,11 +126,11 @@ function makeMockPi(overrides?: {
     registerTool<TArgs, TResult>(o: PiToolOpts<TArgs, TResult>) {
       tools.push({ opts: o as unknown as PiToolOpts<WorkflowToolArgs, WorkflowToolResult> });
     },
-    registerCommand(o: PiSlashCommandOpts) {
-      commands.push({ opts: o });
+    registerCommand(name: string, options: PiCommandOptions) {
+      commands.push({ opts: { name, description: options.description, execute: options.handler, getArgumentCompletions: options.getArgumentCompletions } });
     },
     registerMessageRenderer(_event: string, _renderer: unknown) {},
-    registerFlag(o: PiFlagOpts) { flags.push({ opts: o }); },
+    registerFlag(name: string, o: PiFlagNamedOpts) { flags.push({ opts: { name, ...o } }); },
     on: undefined,
 
     ui: piUiSurface,

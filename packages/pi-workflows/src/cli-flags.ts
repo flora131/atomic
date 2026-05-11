@@ -51,14 +51,12 @@ export type WorkflowCliResult =
 export function registerWorkflowCliFlags(pi: ExtensionAPI): void {
   if (typeof pi.registerFlag !== "function") return;
 
-  pi.registerFlag({
-    name: "workflow",
+  pi.registerFlag("workflow", {
     description: "Run the named workflow headlessly (e.g. pi -p --workflow=<name>).",
     type: "string",
   });
 
-  pi.registerFlag({
-    name: "workflow-input-key",
+  pi.registerFlag("workflow-input-key", {
     description:
       "Pass an input value to the workflow (repeat for multiple inputs, e.g. --workflow-input-<key>=<value>).",
     type: "string",

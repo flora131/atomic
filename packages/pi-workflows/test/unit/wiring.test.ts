@@ -18,6 +18,8 @@ import {
   type RuntimeWiringSurface,
   type PiExecResult,
 } from "../../src/extension/wiring.js";
+import { createStageContext } from "../../src/runs/sync/stage-runner.js";
+import type { StageAdapters } from "../../src/runs/sync/stage-runner.js";
 import type { SubagentStageOpts, CompleteStageOpts } from "../../src/shared/types.js";
 
 // ---------------------------------------------------------------------------
@@ -162,12 +164,12 @@ function makeNdjsonWithText(text: string): string {
 }
 
 describe("buildRuntimeAdapters — exec present", () => {
-  test("returns all three adapters when exec is present", () => {
+  test("returns prompt and complete adapters when only exec is present", () => {
     const { pi } = makeMockPi(makeNdjsonWithText("ok"));
     const adapters = buildRuntimeAdapters(pi);
     expect(adapters.prompt).toBeDefined();
     expect(adapters.complete).toBeDefined();
-    expect(adapters.subagent).toBeDefined();
+    expect(adapters.subagent).toBeUndefined();
   });
 });
 
@@ -373,35 +375,33 @@ describe("subagent adapter — pi.callTool fallback", () => {
   });
 });
 
-describe("subagent adapter — missing pi-subagents error", () => {
-  test("throws exact actionable error when neither pi.subagents nor pi.callTool available", async () => {
+describe("subagent adapter — unavailable runtime", () => {
+  test("subagent adapter is undefined when neither pi.subagents nor pi.callTool available", () => {
     const pi: RuntimeWiringSurface = {
       exec: async () => ({ stdout: "", stderr: "", code: 0, killed: false }),
     };
     const adapters = buildRuntimeAdapters(pi);
-    await expect(adapters.subagent!.subagent({ agent: "a", task: "t" })).rejects.toThrow(
-      "pi-workflows: subagent delegation requires pi-subagents — install npm:pi-subagents and restart pi.",
-    );
+    expect(adapters.subagent).toBeUndefined();
   });
 
-  test("exec is never called when pi-subagents missing", async () => {
-    const execCalls: Array<unknown> = [];
-    const pi: RuntimeWiringSurface = {
-      exec: async (...args) => { execCalls.push(args); return { stdout: "", stderr: "", code: 0, killed: false }; },
-    };
-    const adapters = buildRuntimeAdapters(pi);
-    await expect(adapters.subagent!.subagent({ agent: "a", task: "t" })).rejects.toThrow();
-    expect(execCalls).toHaveLength(0);
-  });
-
-  test("error message contains install instruction", async () => {
+  test("exec-only runtime configures prompt and complete only", () => {
     const pi: RuntimeWiringSurface = {
       exec: async () => ({ stdout: "", stderr: "", code: 0, killed: false }),
     };
     const adapters = buildRuntimeAdapters(pi);
-    await expect(adapters.subagent!.subagent({ agent: "a", task: "t" })).rejects.toThrow(
-      "install npm:pi-subagents",
-    );
+    expect(adapters.prompt).toBeDefined();
+    expect(adapters.complete).toBeDefined();
+    expect(adapters.subagent).toBeUndefined();
+  });
+
+  test("stage runner owns missing-subagent actionable error", async () => {
+    const ctx = createStageContext({
+      runId: "run",
+      stageId: "stage",
+      stageName: "missing-subagent",
+      adapters: {},
+    });
+    await expect(ctx.subagent({ agent: "a", task: "t" })).rejects.toThrow("pi-subagents");
   });
 });
 
@@ -560,9 +560,6 @@ describe("subagent adapter — explicit metadata merges env (pi.callTool path)",
 // ---------------------------------------------------------------------------
 // stage-runner — propagates runId/stageId/signal to SubagentAdapter
 // ---------------------------------------------------------------------------
-
-import { createStageContext } from "../../src/runs/sync/stage-runner.js";
-import type { StageAdapters } from "../../src/runs/sync/stage-runner.js";
 
 describe("stage-runner createStageContext — propagates metadata to subagent adapter", () => {
   test("passes runId from StageRunnerOpts to adapter meta", async () => {

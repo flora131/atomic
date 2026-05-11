@@ -23,7 +23,9 @@ import factory, {
   type ExtensionAPI,
   type PiToolOpts,
   type PiSlashCommandOpts,
+  type PiCommandOptions,
   type PiFlagOpts,
+  type PiFlagNamedOpts,
   type WorkflowToolArgs,
 } from "../../src/extension/index.js";
 import type { WorkflowToolResult } from "../../src/extension/render-result.js";
@@ -94,12 +96,12 @@ function makeMockApi(): MockApi {
     registerTool<TArgs, TResult>(opts: PiToolOpts<TArgs, TResult>) {
       tools.push({ opts: opts as unknown as PiToolOpts<WorkflowToolArgs, WorkflowToolResult> });
     },
-    registerCommand(opts: PiSlashCommandOpts) {
-      commands.push({ opts });
+    registerCommand(name: string, options: PiCommandOptions) {
+      commands.push({ opts: { name, description: options.description, execute: options.handler, getArgumentCompletions: options.getArgumentCompletions } });
     },
     registerMessageRenderer(_event: string, _renderer: unknown) {},
-    registerFlag(opts: PiFlagOpts) {
-      flags.push({ opts });
+    registerFlag(name: string, opts: PiFlagNamedOpts) {
+      flags.push({ opts: { name, ...opts } });
     },
   };
 }
@@ -196,12 +198,12 @@ describe("runtime-wiring — no exec surface → stub fires in test env", () => 
           opts: opts as unknown as PiToolOpts<WorkflowToolArgs, WorkflowToolResult>,
         });
       },
-      registerCommand(opts: PiSlashCommandOpts) {
-        (this as unknown as MockApi).commands.push({ opts });
+      registerCommand(name: string, options: PiCommandOptions) {
+        (this as unknown as MockApi).commands.push({ opts: { name, description: options.description, execute: options.handler, getArgumentCompletions: options.getArgumentCompletions } });
       },
       registerMessageRenderer(_event: string, _renderer: unknown) {},
-      registerFlag(opts: PiFlagOpts) {
-        (this as unknown as MockApi).flags.push({ opts });
+      registerFlag(name: string, opts: PiFlagNamedOpts) {
+        (this as unknown as MockApi).flags.push({ opts: { name, ...opts } });
       },
     };
     mock = stripped as unknown as MockApi;

@@ -133,7 +133,7 @@ describe("registerWorkflowCliFlags", () => {
   test("registers workflow and workflow-input-key flags", () => {
     const registered: Array<{ name: string; type?: string }> = [];
     const pi: ExtensionAPI = {
-      registerFlag: (opts) => { registered.push(opts); },
+      registerFlag: (name, opts) => { registered.push({ name, ...opts }); },
     };
     registerWorkflowCliFlags(pi);
     const names = registered.map((r) => r.name);

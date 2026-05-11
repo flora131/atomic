@@ -4,14 +4,15 @@
  * cross-ref: spec §5.4.4, §5.4.6, §8.1 Phase E
  */
 
-import { test, expect, describe } from "bun:test";
+import { describe, test } from "node:test";
+import assert from "node:assert/strict";
 import {
   renderWidgetLines,
   buildRunSummaryLine,
   buildSparkline,
   formatDuration,
 } from "../../src/tui/widget.js";
-import type { StoreSnapshot, RunSnapshot, StageSnapshot } from "../../src/store-types.js";
+import type { StoreSnapshot, RunSnapshot, StageSnapshot } from "../../src/shared/store-types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -61,20 +62,20 @@ function makeSnap(runs: RunSnapshot[]): StoreSnapshot {
 
 describe("formatDuration", () => {
   test("< 60 s → just seconds", () => {
-    expect(formatDuration(0)).toBe("0s");
-    expect(formatDuration(5000)).toBe("5s");
-    expect(formatDuration(59_000)).toBe("59s");
+    assert.equal(formatDuration(0), "0s");
+    assert.equal(formatDuration(5000), "5s");
+    assert.equal(formatDuration(59_000), "59s");
   });
 
   test(">= 60 s → minutes + seconds", () => {
-    expect(formatDuration(60_000)).toBe("1m 0s");
-    expect(formatDuration(84_000)).toBe("1m 24s");
-    expect(formatDuration(3600_000)).toBe("60m 0s");
+    assert.equal(formatDuration(60_000), "1m 0s");
+    assert.equal(formatDuration(84_000), "1m 24s");
+    assert.equal(formatDuration(3600_000), "60m 0s");
   });
 
   test("fractional ms is floored", () => {
-    expect(formatDuration(1999)).toBe("1s");
-    expect(formatDuration(61_999)).toBe("1m 1s");
+    assert.equal(formatDuration(1999), "1s");
+    assert.equal(formatDuration(61_999), "1m 1s");
   });
 });
 
@@ -85,7 +86,7 @@ describe("formatDuration", () => {
 describe("buildSparkline", () => {
   test("no stages → empty string", () => {
     const run = makeRun("r1", "test", "running");
-    expect(buildSparkline(run)).toBe("");
+    assert.equal(buildSparkline(run), "");
   });
 
   test("maps status to glyphs", () => {
@@ -95,7 +96,7 @@ describe("buildSparkline", () => {
       makeStage("s3", "c", "pending"),
       makeStage("s4", "d", "failed"),
     ]);
-    expect(buildSparkline(run)).toBe("█ ▶ · ✗");
+    assert.equal(buildSparkline(run), "█ ▶ · ✗");
   });
 
   test("truncates to maxWidth", () => {
@@ -104,8 +105,8 @@ describe("buildSparkline", () => {
     );
     const run = makeRun("r1", "test", "running", stages);
     const line = buildSparkline(run, 10);
-    expect(line.length).toBeLessThanOrEqual(10);
-    expect(line.endsWith("…")).toBe(true);
+    assert.ok(line.length <= 10);
+    assert.equal(line.endsWith("…"), true);
   });
 });
 
@@ -117,9 +118,9 @@ describe("buildRunSummaryLine", () => {
   test("no stages — shows stage 1/0", () => {
     const run = makeRun("r1", "my-workflow", "running", [], Date.now() - 1000);
     const line = buildRunSummaryLine(run);
-    expect(line).toContain("▶ my-workflow");
-    expect(line).toContain("stage 1");
-    expect(line).toContain("⏱");
+    assert.ok(line.includes("▶ my-workflow"));
+    assert.ok(line.includes("stage 1"));
+    assert.ok(line.includes("⏱"));
   });
 
   test("with stages — counts done and labels active", () => {
@@ -135,10 +136,10 @@ describe("buildRunSummaryLine", () => {
       Date.now() - 84_000,
     );
     const line = buildRunSummaryLine(run);
-    expect(line).toContain("▶ deep-research");
-    expect(line).toContain("stage 2/3");
-    expect(line).toContain("(specialist-1)");
-    expect(line).toContain("1m 24s");
+    assert.ok(line.includes("▶ deep-research"));
+    assert.ok(line.includes("stage 2/3"));
+    assert.ok(line.includes("(specialist-1)"));
+    assert.ok(line.includes("1m 24s"));
   });
 
   test("uses durationMs for ended runs", () => {
@@ -146,7 +147,7 @@ describe("buildRunSummaryLine", () => {
     const run = makeRun("r1", "wf", "completed", [], now - 10_000, now);
     run.durationMs = 10_000;
     const line = buildRunSummaryLine(run);
-    expect(line).toContain("10s");
+    assert.ok(line.includes("10s"));
   });
 });
 
@@ -157,20 +158,20 @@ describe("buildRunSummaryLine", () => {
 describe("renderWidgetLines", () => {
   test("no runs → empty array", () => {
     const snap = makeSnap([]);
-    expect(renderWidgetLines(snap)).toEqual([]);
+    assert.deepEqual(renderWidgetLines(snap), []);
   });
 
   test("all runs ended → empty array", () => {
     const now = Date.now();
     const snap = makeSnap([makeRun("r1", "wf", "completed", [], now - 1000, now)]);
-    expect(renderWidgetLines(snap)).toEqual([]);
+    assert.deepEqual(renderWidgetLines(snap), []);
   });
 
   test("single active run → line 1 only (no stages)", () => {
     const snap = makeSnap([makeRun("r1", "my-wf", "running")]);
     const lines = renderWidgetLines(snap);
-    expect(lines.length).toBe(1);
-    expect(lines[0]).toContain("▶ my-wf");
+    assert.equal(lines.length, 1);
+    assert.ok(lines[0].includes("▶ my-wf"));
   });
 
   test("single active run with stages → line 1 + sparkline", () => {
@@ -180,10 +181,10 @@ describe("renderWidgetLines", () => {
     ]);
     const snap = makeSnap([run]);
     const lines = renderWidgetLines(snap);
-    expect(lines.length).toBe(2);
-    expect(lines[0]).toContain("▶ my-wf");
-    expect(lines[1]).toContain("█");
-    expect(lines[1]).toContain("▶");
+    assert.equal(lines.length, 2);
+    assert.ok(lines[0].includes("▶ my-wf"));
+    assert.ok(lines[1].includes("█"));
+    assert.ok(lines[1].includes("▶"));
   });
 
   test("multiple active runs → line 2 multi-run badge + sparkline", () => {
@@ -192,19 +193,19 @@ describe("renderWidgetLines", () => {
     const snap = makeSnap([run1, run2]);
     const lines = renderWidgetLines(snap, 80);
     // line 1: primary (most recent = run2)
-    expect(lines[0]).toContain("▶ wf-2");
+    assert.ok(lines[0].includes("▶ wf-2"));
     // line 2: multi-run badge
-    expect(lines[1]).toContain("2 runs in flight");
+    assert.ok(lines[1].includes("2 runs in flight"));
     // line 3: sparkline
-    expect(lines[2]).toContain("▶");
+    assert.ok(lines[2].includes("▶"));
   });
 
   test("respects width — truncates line 1 with ellipsis", () => {
     const run = makeRun("r1", "very-long-workflow-name", "running", [], Date.now() - 100_000);
     const snap = makeSnap([run]);
     const lines = renderWidgetLines(snap, 20);
-    expect(lines[0]!.length).toBeLessThanOrEqual(20);
-    expect(lines[0]).toMatch(/…$/);
+    assert.ok(lines[0]!.length <= 20);
+    assert.match(lines[0], /…$/);
   });
 
   test("primary run = most recently started active run", () => {
@@ -213,6 +214,6 @@ describe("renderWidgetLines", () => {
     const snap = makeSnap([run1, run2]);
     const lines = renderWidgetLines(snap);
     // run2 is last in array (most recently started)
-    expect(lines[0]).toContain("▶ second");
+    assert.ok(lines[0].includes("▶ second"));
   });
 });

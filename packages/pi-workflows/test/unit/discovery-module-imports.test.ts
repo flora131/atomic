@@ -13,7 +13,8 @@
  * Uses temp directories created per test to exercise discoverWorkflows().
  */
 
-import { test, expect, describe, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, test } from "node:test";
+import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -132,8 +133,8 @@ describe("scanWorkflowDir — supported file extensions", () => {
       homeDir: join(tmpRoot, "home"),
       includeBundled: false,
     });
-    expect(result.registry.has("alpha")).toBe(true);
-    expect(result.errors.filter((e) => e.code === "INVALID_DEFINITION").length).toBe(0);
+    assert.equal(result.registry.has("alpha"), true);
+    assert.equal(result.errors.filter((e) => e.code === "INVALID_DEFINITION").length, 0);
   });
 
   test("discovers .mjs workflow files", async () => {
@@ -146,7 +147,7 @@ describe("scanWorkflowDir — supported file extensions", () => {
       homeDir: join(tmpRoot, "home"),
       includeBundled: false,
     });
-    expect(result.registry.has("beta")).toBe(true);
+    assert.equal(result.registry.has("beta"), true);
   });
 
   test("discovers .cjs workflow files", async () => {
@@ -180,7 +181,7 @@ module.exports = {
     );
     // Should either register it OR at most emit IMPORT_FAILED (not INVALID_DEFINITION for the ext)
     // Key assertion: the file was attempted (not silently ignored due to extension filtering)
-    expect(hasGamma || importFailed || result.errors.some((e) => e.source?.includes("gamma"))).toBe(true);
+    assert.equal(hasGamma || importFailed || result.errors.some((e) => e.source?.includes("gamma")), true);
   });
 
   test("ignores files with unsupported extensions (.txt, .json, .md)", async () => {
@@ -196,12 +197,12 @@ module.exports = {
       homeDir: join(tmpRoot, "home"),
       includeBundled: false,
     });
-    expect(result.registry.has("real")).toBe(true);
+    assert.equal(result.registry.has("real"), true);
     // No errors from trying to import md/json/txt
     const importErrors = result.errors.filter(
       (e) => e.code === "IMPORT_FAILED" && (e.source?.endsWith(".md") || e.source?.endsWith(".txt")),
     );
-    expect(importErrors.length).toBe(0);
+    assert.equal(importErrors.length, 0);
   });
 });
 
@@ -220,8 +221,8 @@ describe("importWorkflowFile — default AND named exports", () => {
       homeDir: join(tmpRoot, "home"),
       includeBundled: false,
     });
-    expect(result.registry.has("first")).toBe(true);
-    expect(result.registry.has("second")).toBe(true);
+    assert.equal(result.registry.has("first"), true);
+    assert.equal(result.registry.has("second"), true);
   });
 
   test("default export is registered first (wins on duplicate normalizedName with named export)", async () => {
@@ -245,11 +246,11 @@ export const named = {
       includeBundled: false,
     });
     // Default wins
-    expect(result.registry.has("conflict-alpha")).toBe(true);
-    expect(result.registry.get("conflict-alpha")?.name).toBe("Alpha Default");
+    assert.equal(result.registry.has("conflict-alpha"), true);
+    assert.equal(result.registry.get("conflict-alpha")?.name, "Alpha Default");
     // Named emits DUPLICATE_NAME
     const dupes = result.errors.filter((e) => e.code === "DUPLICATE_NAME");
-    expect(dupes.length).toBeGreaterThanOrEqual(1);
+    assert.ok(dupes.length >= 1);
   });
 
   test("named exports collected even when no default export exists", async () => {
@@ -262,7 +263,7 @@ export const named = {
       homeDir: join(tmpRoot, "home"),
       includeBundled: false,
     });
-    expect(result.registry.has("named-only")).toBe(true);
+    assert.equal(result.registry.has("named-only"), true);
   });
 
   test("named exports that fail validation emit INVALID_DEFINITION, others still register", async () => {
@@ -281,10 +282,10 @@ export const bad = { notAWorkflow: true };
       homeDir: join(tmpRoot, "home"),
       includeBundled: false,
     });
-    expect(result.registry.has("valid-default")).toBe(true);
+    assert.equal(result.registry.has("valid-default"), true);
     const invalids = result.errors.filter((e) => e.code === "INVALID_DEFINITION");
-    expect(invalids.length).toBeGreaterThanOrEqual(1);
-    expect(invalids[0]!.source).toContain("mixed-validity.js");
+    assert.ok(invalids.length >= 1);
+    assert.ok(invalids[0]!.source.includes("mixed-validity.js"));
   });
 });
 
@@ -304,10 +305,10 @@ describe("IMPORT_FAILED diagnostic", () => {
       includeBundled: false,
     });
     const importFailed = result.errors.filter((e) => e.code === "IMPORT_FAILED");
-    expect(importFailed.length).toBeGreaterThanOrEqual(1);
-    expect(importFailed[0]!.level).toBe("error");
-    expect(importFailed[0]!.source).toContain("broken.js");
-    expect(typeof importFailed[0]!.message).toBe("string");
+    assert.ok(importFailed.length >= 1);
+    assert.equal(importFailed[0]!.level, "error");
+    assert.ok(importFailed[0]!.source.includes("broken.js"));
+    assert.equal(typeof importFailed[0]!.message, "string");
   });
 
   test("IMPORT_FAILED does not block other files from being discovered", async () => {
@@ -321,9 +322,9 @@ describe("IMPORT_FAILED diagnostic", () => {
       homeDir: join(tmpRoot, "home"),
       includeBundled: false,
     });
-    expect(result.registry.has("good-workflow")).toBe(true);
+    assert.equal(result.registry.has("good-workflow"), true);
     const importFailed = result.errors.filter((e) => e.code === "IMPORT_FAILED");
-    expect(importFailed.length).toBeGreaterThanOrEqual(1);
+    assert.ok(importFailed.length >= 1);
   });
 });
 
@@ -343,9 +344,9 @@ describe("PATH_NOT_FOUND diagnostic", () => {
       },
     });
     const pathErrors = result.errors.filter((e) => e.code === "PATH_NOT_FOUND");
-    expect(pathErrors.length).toBe(1);
-    expect(pathErrors[0]!.level).toBe("error");
-    expect(pathErrors[0]!.source).toBe(missingPath);
+    assert.equal(pathErrors.length, 1);
+    assert.equal(pathErrors[0]!.level, "error");
+    assert.equal(pathErrors[0]!.source, missingPath);
   });
 
   test("emits PATH_NOT_FOUND for missing globalWorkflows path", async () => {
@@ -359,8 +360,8 @@ describe("PATH_NOT_FOUND diagnostic", () => {
       },
     });
     const pathErrors = result.errors.filter((e) => e.code === "PATH_NOT_FOUND");
-    expect(pathErrors.length).toBe(1);
-    expect(pathErrors[0]!.source).toBe(missingPath);
+    assert.equal(pathErrors.length, 1);
+    assert.equal(pathErrors[0]!.source, missingPath);
   });
 
   test("PATH_NOT_FOUND does not block other valid paths from loading", async () => {
@@ -376,8 +377,8 @@ describe("PATH_NOT_FOUND diagnostic", () => {
       },
     });
     const pathErrors = result.errors.filter((e) => e.code === "PATH_NOT_FOUND");
-    expect(pathErrors.length).toBe(1);
-    expect(result.registry.has("present")).toBe(true);
+    assert.equal(pathErrors.length, 1);
+    assert.equal(result.registry.has("present"), true);
   });
 });
 
@@ -397,10 +398,10 @@ describe("DiscoverySource.configuredName — named-map DiscoveryConfig", () => {
         projectWorkflows: { "my-custom-key": wfPath },
       },
     });
-    expect(result.registry.has("my-workflow")).toBe(true);
+    assert.equal(result.registry.has("my-workflow"), true);
     const src = result.sources.find((s) => s.id === "my-workflow");
-    expect(src).toBeDefined();
-    expect(src!.configuredName).toBe("my-custom-key");
+    assert.notEqual(src, undefined);
+    assert.equal(src!.configuredName, "my-custom-key");
   });
 
   test("configuredName is populated for globalWorkflows named map", async () => {
@@ -414,9 +415,9 @@ describe("DiscoverySource.configuredName — named-map DiscoveryConfig", () => {
         globalWorkflows: { "global-key": wfPath },
       },
     });
-    expect(result.registry.has("global-wf")).toBe(true);
+    assert.equal(result.registry.has("global-wf"), true);
     const src = result.sources.find((s) => s.id === "global-wf");
-    expect(src!.configuredName).toBe("global-key");
+    assert.equal(src!.configuredName, "global-key");
   });
 
   test("configuredName is undefined for dir-scanned (project-local) workflows", async () => {
@@ -430,8 +431,8 @@ describe("DiscoverySource.configuredName — named-map DiscoveryConfig", () => {
       includeBundled: false,
     });
     const src = result.sources.find((s) => s.id === "local");
-    expect(src).toBeDefined();
-    expect(src!.configuredName).toBeUndefined();
+    assert.notEqual(src, undefined);
+    assert.equal(src!.configuredName, undefined);
   });
 
   test("configuredName is undefined when using plain string[] projectWorkflows", async () => {
@@ -446,7 +447,7 @@ describe("DiscoverySource.configuredName — named-map DiscoveryConfig", () => {
       },
     });
     const src = result.sources.find((s) => s.id === "arr-wf");
-    expect(src!.configuredName).toBeUndefined();
+    assert.equal(src!.configuredName, undefined);
   });
 });
 
@@ -466,8 +467,8 @@ describe("DiscoverySource.filePath", () => {
       includeBundled: false,
     });
     const src = result.sources.find((s) => s.id === "fp-test");
-    expect(src).toBeDefined();
-    expect(src!.filePath).toBe(fp);
+    assert.notEqual(src, undefined);
+    assert.equal(src!.filePath, fp);
   });
 
   test("filePath is set for settings-project workflows", async () => {
@@ -480,7 +481,7 @@ describe("DiscoverySource.filePath", () => {
       config: { projectWorkflows: [wfPath] },
     });
     const src = result.sources.find((s) => s.id === "settings-wf");
-    expect(src!.filePath).toBe(wfPath);
+    assert.equal(src!.filePath, wfPath);
   });
 
   test("filePath is undefined for bundled workflows", async () => {
@@ -491,7 +492,7 @@ describe("DiscoverySource.filePath", () => {
     });
     const bundled = result.sources.filter((s) => s.kind === "bundled");
     for (const s of bundled) {
-      expect(s.filePath).toBeUndefined();
+      assert.equal(s.filePath, undefined);
     }
   });
 });
@@ -518,11 +519,11 @@ describe("discoverWorkflows — precedence order", () => {
       config: { projectWorkflows: [spPath] },
     });
     // settings-project registered first (higher precedence)
-    expect(result.registry.has("prec-conflict")).toBe(true);
-    expect(result.registry.get("prec-conflict")?.name).toBe("From Settings Project");
+    assert.equal(result.registry.has("prec-conflict"), true);
+    assert.equal(result.registry.get("prec-conflict")?.name, "From Settings Project");
     // project-local emits DUPLICATE_NAME
     const dupes = result.errors.filter((e) => e.code === "DUPLICATE_NAME");
-    expect(dupes.length).toBeGreaterThanOrEqual(1);
+    assert.ok(dupes.length >= 1);
   });
 
   test("project-local wins over settings-global (same normalizedName)", async () => {
@@ -539,7 +540,7 @@ describe("discoverWorkflows — precedence order", () => {
       includeBundled: false,
       config: { globalWorkflows: [sgPath] },
     });
-    expect(result.registry.get("pl-sg-conflict")?.name).toBe("From Project Local");
+    assert.equal(result.registry.get("pl-sg-conflict")?.name, "From Project Local");
   });
 
   test("settings-global wins over user-global (same normalizedName)", async () => {
@@ -556,7 +557,7 @@ describe("discoverWorkflows — precedence order", () => {
       includeBundled: false,
       config: { globalWorkflows: [sgPath] },
     });
-    expect(result.registry.get("sg-ug-conflict")?.name).toBe("From Settings Global");
+    assert.equal(result.registry.get("sg-ug-conflict")?.name, "From Settings Global");
   });
 
   test("user-global wins over bundled (same normalizedName)", async () => {
@@ -570,11 +571,11 @@ describe("discoverWorkflows — precedence order", () => {
       homeDir: join(tmpRoot, "home"),
       includeBundled: true,
     });
-    expect(result.registry.get("ralph")?.name).toBe("Custom Ralph");
+    assert.equal(result.registry.get("ralph")?.name, "Custom Ralph");
     const bundledWarning = result.errors.filter(
       (e) => e.code === "DUPLICATE_NAME" && e.source === "ralph",
     );
-    expect(bundledWarning.length).toBeGreaterThanOrEqual(1);
+    assert.ok(bundledWarning.length >= 1);
   });
 
   test("sources reflect correct kind for each precedence tier", async () => {
@@ -596,10 +597,10 @@ describe("discoverWorkflows — precedence order", () => {
     });
 
     const kindOf = (id: string) => result.sources.find((s) => s.id === id)?.kind;
-    expect(kindOf("sp-only")).toBe("settings-project");
-    expect(kindOf("pl-only")).toBe("project-local");
-    expect(kindOf("sg-only")).toBe("settings-global");
-    expect(kindOf("ug-only")).toBe("user-global");
+    assert.equal(kindOf("sp-only"), "settings-project");
+    assert.equal(kindOf("pl-only"), "project-local");
+    assert.equal(kindOf("sg-only"), "settings-global");
+    assert.equal(kindOf("ug-only"), "user-global");
   });
 });
 
@@ -618,10 +619,10 @@ describe("discoverWorkflows — user-global path", () => {
       homeDir: join(tmpRoot, "home"),
       includeBundled: false,
     });
-    expect(result.registry.has("user-global-wf")).toBe(true);
+    assert.equal(result.registry.has("user-global-wf"), true);
     const src = result.sources.find((s) => s.id === "user-global-wf");
-    expect(src?.kind).toBe("user-global");
-    expect(src?.filePath).toContain(join(".pi", "agent", "workflows"));
+    assert.equal(src?.kind, "user-global");
+    assert.ok(src?.filePath.includes(join(".pi", "agent", "workflows")));
   });
 
   test("missing ~/.pi/agent/workflows/ dir is silently skipped (no error)", async () => {
@@ -632,7 +633,7 @@ describe("discoverWorkflows — user-global path", () => {
       includeBundled: false,
     });
     const errors = result.errors.filter((e) => e.code !== "DUPLICATE_NAME");
-    expect(errors.length).toBe(0);
+    assert.equal(errors.length, 0);
   });
 });
 
@@ -650,6 +651,6 @@ describe("discoverWorkflows — CONFIG_INVALID diagnostic", () => {
       config: { projectWorkflows: [42] },
     });
     const configErrors = result.errors.filter((e) => e.code === "CONFIG_INVALID");
-    expect(configErrors.length).toBeGreaterThanOrEqual(1);
+    assert.ok(configErrors.length >= 1);
   });
 });

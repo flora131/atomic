@@ -1,60 +1,61 @@
-import { test, expect, describe } from "bun:test";
+import { describe, test } from "node:test";
+import assert from "node:assert/strict";
 import { normalizeWorkflowName, workflowNamesEqual } from "../../src/workflows/identity.js";
 
 describe("normalizeWorkflowName", () => {
   test("lowercases", () => {
-    expect(normalizeWorkflowName("MyWorkflow")).toBe("myworkflow");
+    assert.equal(normalizeWorkflowName("MyWorkflow"), "myworkflow");
   });
 
   test("trims surrounding whitespace", () => {
-    expect(normalizeWorkflowName("  hello  ")).toBe("hello");
+    assert.equal(normalizeWorkflowName("  hello  "), "hello");
   });
 
   test("replaces spaces with hyphens", () => {
-    expect(normalizeWorkflowName("deep research codebase")).toBe("deep-research-codebase");
+    assert.equal(normalizeWorkflowName("deep research codebase"), "deep-research-codebase");
   });
 
   test("replaces underscores with hyphens", () => {
-    expect(normalizeWorkflowName("my_workflow")).toBe("my-workflow");
+    assert.equal(normalizeWorkflowName("my_workflow"), "my-workflow");
   });
 
   test("collapses multiple separators", () => {
-    expect(normalizeWorkflowName("a   b__c")).toBe("a-b-c");
+    assert.equal(normalizeWorkflowName("a   b__c"), "a-b-c");
   });
 
   test("strips non-alphanumeric non-hyphen characters", () => {
-    expect(normalizeWorkflowName("hello!@#world")).toBe("helloworld");
+    assert.equal(normalizeWorkflowName("hello!@#world"), "helloworld");
   });
 
   test("strips leading and trailing hyphens", () => {
-    expect(normalizeWorkflowName("-hello-")).toBe("hello");
+    assert.equal(normalizeWorkflowName("-hello-"), "hello");
   });
 
   test("full example from spec", () => {
-    expect(normalizeWorkflowName("Deep Research Codebase")).toBe("deep-research-codebase");
+    assert.equal(normalizeWorkflowName("Deep Research Codebase"), "deep-research-codebase");
   });
 
   test("throws on empty string", () => {
-    expect(() => normalizeWorkflowName("")).toThrow("non-empty string");
+    assert.throws(() => normalizeWorkflowName(""), { message: "non-empty string" });
   });
 
   test("throws on non-string", () => {
     // @ts-expect-error intentional wrong type
-    expect(() => normalizeWorkflowName(null)).toThrow("non-empty string");
+    assert.throws(() => normalizeWorkflowName(null), { message: "non-empty string" });
   });
 });
 
 describe("workflowNamesEqual", () => {
   test("equal for same string", () => {
-    expect(workflowNamesEqual("my-workflow", "my-workflow")).toBe(true);
+    assert.equal(workflowNamesEqual("my-workflow", "my-workflow"), true);
   });
 
   test("equal across casing and separators", () => {
-    expect(workflowNamesEqual("My Workflow", "my-workflow")).toBe(true);
-    expect(workflowNamesEqual("my_workflow", "my-workflow")).toBe(true);
+    assert.equal(workflowNamesEqual("My Workflow", "my-workflow"), true);
+    assert.equal(workflowNamesEqual("my_workflow", "my-workflow"), true);
   });
 
   test("not equal for different names", () => {
-    expect(workflowNamesEqual("foo", "bar")).toBe(false);
+    assert.equal(workflowNamesEqual("foo", "bar"), false);
   });
 });

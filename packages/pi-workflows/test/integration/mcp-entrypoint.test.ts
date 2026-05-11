@@ -12,7 +12,8 @@
  *            packages/pi-workflows/src/cli-flags.ts (runWorkflowFromCliFlags)
  */
 
-import { test, expect, describe, beforeEach } from "bun:test";
+import { beforeEach, describe, test } from "node:test";
+import assert from "node:assert/strict";
 import {
   makeMcpPort,
   makeExecuteWorkflowTool,
@@ -23,9 +24,9 @@ import {
 } from "../../src/extension/index.js";
 import { createExtensionRuntime } from "../../src/extension/runtime.js";
 import { defineWorkflow } from "../../src/workflows/define-workflow.js";
-import { runWorkflowFromCliFlags } from "../../src/cli-flags.js";
-import type { McpScopeSetPayload } from "../../src/integrations/mcp.js";
-import type { StageAdapters } from "../../src/runs/sync/stage-runner.js";
+import { runWorkflowFromCliFlags } from "../../src/runs/shared/cli-flags.js";
+import type { McpScopeSetPayload } from "../../src/extension/mcp.js";
+import type { StageAdapters } from "../../src/runs/foreground/stage-runner.js";
 
 // ---------------------------------------------------------------------------
 // Test workflow fixture: single restricted stage with MCP scoping
@@ -101,7 +102,7 @@ function buildTestRuntime(pi: ExtensionAPI) {
 /** Assert the expected emit sequence: one set + one clear. */
 function assertScopeEmitSequence(emits: ScopeEmit[]): void {
   // Exactly two mcp.scope.set events: one with scope, one clear.
-  expect(emits.length).toBeGreaterThanOrEqual(2);
+  assert.ok(emits.length >= 2);
 
   const setEmit = emits.find(
     (e) =>
@@ -112,17 +113,17 @@ function assertScopeEmitSequence(emits: ScopeEmit[]): void {
     (e) => e.payload.allow === null && e.payload.deny === null,
   );
 
-  expect(setEmit).toBeDefined();
-  expect(clearEmit).toBeDefined();
+  assert.notEqual(setEmit, undefined);
+  assert.notEqual(clearEmit, undefined);
 
   // Correct scope values
-  expect(setEmit!.payload.allow).toEqual(["github"]);
-  expect(setEmit!.payload.deny).toEqual(["filesystem"]);
+  assert.deepEqual(setEmit!.payload.allow, ["github"]);
+  assert.deepEqual(setEmit!.payload.deny, ["filesystem"]);
 
   // Set fires BEFORE clear
   const setIdx = emits.indexOf(setEmit!);
   const clearIdx = emits.indexOf(clearEmit!);
-  expect(setIdx).toBeLessThan(clearIdx);
+  assert.ok(setIdx < clearIdx);
 }
 
 // ---------------------------------------------------------------------------
@@ -151,15 +152,15 @@ describe("MCP entrypoints — workflow tool execute", () => {
   test("set payload stageId is a non-empty string", async () => {
     await toolExecute({ action: "run", name: "mcp-restricted", inputs: {} }, {});
     const setEmit = emits.find((e) => e.payload.allow !== null);
-    expect(typeof setEmit!.payload.stageId).toBe("string");
-    expect(setEmit!.payload.stageId.length).toBeGreaterThan(0);
+    assert.equal(typeof setEmit!.payload.stageId, "string");
+    assert.ok(setEmit!.payload.stageId.length > 0);
   });
 
   test("clear payload uses same stageId as set payload", async () => {
     await toolExecute({ action: "run", name: "mcp-restricted", inputs: {} }, {});
     const setEmit = emits.find((e) => e.payload.allow !== null)!;
     const clearEmit = emits.find((e) => e.payload.allow === null)!;
-    expect(clearEmit.payload.stageId).toBe(setEmit.payload.stageId);
+    assert.equal(clearEmit.payload.stageId, setEmit.payload.stageId);
   });
 
   test("no mcp.scope.set emitted when pi.events absent", async () => {
@@ -179,7 +180,7 @@ describe("MCP entrypoints — workflow tool execute", () => {
     const execute = makeExecuteWorkflowTool(runtime, () => undefined);
     // Should not throw, should complete
     const result = await execute({ action: "run", name: "mcp-restricted", inputs: {} }, {});
-    expect((result as { action: string }).action).toBe("run");
+    assert.equal((result as { action: string }).action, "run");
     // No events because pi.events absent
   });
 });
@@ -247,7 +248,7 @@ describe("MCP entrypoints — CLI flag run", () => {
       argv: ["--workflow=mcp-restricted"],
     });
 
-    expect(result.handled).toBe(true);
+    assert.equal(result.handled, true);
     assertScopeEmitSequence(emits);
   });
 
@@ -258,9 +259,9 @@ describe("MCP entrypoints — CLI flag run", () => {
     });
 
     const clearEmit = emits.find((e) => e.payload.allow === null && e.payload.deny === null);
-    expect(clearEmit).toBeDefined();
-    expect(clearEmit!.payload.allow).toBeNull();
-    expect(clearEmit!.payload.deny).toBeNull();
+    assert.notEqual(clearEmit, undefined);
+    assert.equal(clearEmit!.payload.allow, null);
+    assert.equal(clearEmit!.payload.deny, null);
   });
 
   test("CLI set event fires before clear event", async () => {
@@ -271,7 +272,7 @@ describe("MCP entrypoints — CLI flag run", () => {
 
     const setIdx = emits.findIndex((e) => e.payload.allow !== null);
     const clearIdx = emits.findIndex((e) => e.payload.allow === null);
-    expect(setIdx).toBeGreaterThanOrEqual(0);
-    expect(clearIdx).toBeGreaterThan(setIdx);
+    assert.ok(setIdx >= 0);
+    assert.ok(clearIdx > setIdx);
   });
 });

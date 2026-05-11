@@ -4,11 +4,12 @@
  * cross-ref: spec §5.4.4, §5.4.6, §5.5, §8.1 Phase E
  */
 
-import { test, expect, describe, beforeEach } from "bun:test";
+import { beforeEach, describe, test } from "node:test";
+import assert from "node:assert/strict";
 import { installStoreWidget, installToolExecutionHooks } from "../../src/tui/store-widget-installer.js";
-import { createStore } from "../../src/store.js";
-import type { Store } from "../../src/store.js";
-import type { RunSnapshot, StageSnapshot } from "../../src/store-types.js";
+import { createStore } from "../../src/shared/store.js";
+import type { Store } from "../../src/shared/store.js";
+import type { RunSnapshot, StageSnapshot } from "../../src/shared/store-types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -98,9 +99,9 @@ describe("installStoreWidget", () => {
   test("calls setWidget(undefined) immediately when no active runs", () => {
     const { pi, widgetCalls } = makeMockPi();
     installStoreWidget(pi, storeInstance);
-    expect(widgetCalls.length).toBe(1);
-    expect(widgetCalls[0]!.key).toBe("workflow.run");
-    expect(widgetCalls[0]!.factory).toBeUndefined();
+    assert.equal(widgetCalls.length, 1);
+    assert.equal(widgetCalls[0]!.key, "workflow.run");
+    assert.equal(widgetCalls[0]!.factory, undefined);
   });
 
   test("calls setWidget with factory when active run exists", () => {
@@ -111,9 +112,9 @@ describe("installStoreWidget", () => {
     installStoreWidget(pi, storeInstance);
     // One initial call, one from recordRunStart subscription
     const lastCall = widgetCalls[widgetCalls.length - 1]!;
-    expect(lastCall.key).toBe("workflow.run");
-    expect(typeof lastCall.factory).toBe("function");
-    expect(lastCall.opts).toEqual({ placement: "aboveEditor" });
+    assert.equal(lastCall.key, "workflow.run");
+    assert.equal(typeof lastCall.factory, "function");
+    assert.deepEqual(lastCall.opts, { placement: "aboveEditor" });
   });
 
   test("factory returns component with render() that produces lines", () => {
@@ -125,9 +126,9 @@ describe("installStoreWidget", () => {
     const lastCall = widgetCalls[widgetCalls.length - 1]!;
     const component = lastCall.factory!(null, null);
     const lines = component.render(80);
-    expect(Array.isArray(lines)).toBe(true);
-    expect(lines.length).toBeGreaterThan(0);
-    expect(lines[0]).toContain("▶ my-wf");
+    assert.equal(Array.isArray(lines), true);
+    assert.ok(lines.length > 0);
+    assert.ok(lines[0].includes("▶ my-wf"));
   });
 
   test("clears widget when run ends", () => {
@@ -139,7 +140,7 @@ describe("installStoreWidget", () => {
     // End the run → should clear widget
     storeInstance.recordRunEnd("r1", "completed");
     const lastCall = widgetCalls[widgetCalls.length - 1]!;
-    expect(lastCall.factory).toBeUndefined();
+    assert.equal(lastCall.factory, undefined);
   });
 
   test("re-registers factory on each store change (snapshot capture)", () => {
@@ -151,7 +152,7 @@ describe("installStoreWidget", () => {
 
     // Add a stage — triggers another store change
     storeInstance.recordStageStart("r1", makeStage("s1", "scout"));
-    expect(widgetCalls.length).toBeGreaterThan(callsBefore);
+    assert.ok(widgetCalls.length > callsBefore);
   });
 
   test("returns unsubscribe — no more calls after unsubscribe", () => {
@@ -161,19 +162,19 @@ describe("installStoreWidget", () => {
     const countAfterUnsub = widgetCalls.length;
 
     storeInstance.recordRunStart(makeRun("r1", "my-wf"));
-    expect(widgetCalls.length).toBe(countAfterUnsub);
+    assert.equal(widgetCalls.length, countAfterUnsub);
   });
 
   test("no crash when pi.ui is absent", () => {
     const piNoUI: { ui?: undefined; events?: undefined } = {};
     const storeNoUI = createStore();
-    expect(() => installStoreWidget(piNoUI, storeNoUI)).not.toThrow();
+    assert.doesNotThrow(() => installStoreWidget(piNoUI, storeNoUI));
   });
 
   test("no crash when pi.ui.setWidget is absent", () => {
     const piNoSetWidget = { ui: {} };
     const storeNoWidget = createStore();
-    expect(() => installStoreWidget(piNoSetWidget, storeNoWidget)).not.toThrow();
+    assert.doesNotThrow(() => installStoreWidget(piNoSetWidget, storeNoWidget));
   });
 });
 
@@ -193,20 +194,20 @@ describe("installToolExecutionHooks", () => {
 
   test("no crash when pi.events is absent", () => {
     const piNoEvents: { ui?: undefined; events?: undefined } = {};
-    expect(() => installToolExecutionHooks(piNoEvents, storeInstance)).not.toThrow();
+    assert.doesNotThrow(() => installToolExecutionHooks(piNoEvents, storeInstance));
   });
 
   test("no crash when pi.events.on is absent", () => {
     const piNoOn = { events: {} };
-    expect(() => installToolExecutionHooks(piNoOn, storeInstance)).not.toThrow();
+    assert.doesNotThrow(() => installToolExecutionHooks(piNoOn, storeInstance));
   });
 
   test("subscribes to tool_execution_start, _update, _end", () => {
     const { pi, eventHandlers } = makeMockPi();
     installToolExecutionHooks(pi, storeInstance);
-    expect(eventHandlers.has("tool_execution_start")).toBe(true);
-    expect(eventHandlers.has("tool_execution_update")).toBe(true);
-    expect(eventHandlers.has("tool_execution_end")).toBe(true);
+    assert.equal(eventHandlers.has("tool_execution_start"), true);
+    assert.equal(eventHandlers.has("tool_execution_update"), true);
+    assert.equal(eventHandlers.has("tool_execution_end"), true);
   });
 
   test("tool_execution_start records tool on active stage (fallback heuristic)", () => {
@@ -219,8 +220,8 @@ describe("installToolExecutionHooks", () => {
     const snap = storeInstance.snapshot();
     const run = snap.runs.find((r) => r.id === "r1")!;
     const stage = run.stages.find((s) => s.id === "s1")!;
-    expect(stage.toolEvents.length).toBe(1);
-    expect(stage.toolEvents[0]!.name).toBe("bash");
+    assert.equal(stage.toolEvents.length, 1);
+    assert.equal(stage.toolEvents[0]!.name, "bash");
   });
 
   test("tool_execution_start with explicit runId+stageId routes correctly", () => {
@@ -237,9 +238,9 @@ describe("installToolExecutionHooks", () => {
     const run = snap.runs.find((r) => r.id === "r1")!;
     const s2 = run.stages.find((s) => s.id === "s2")!;
     const s1 = run.stages.find((s) => s.id === "s1")!;
-    expect(s2.toolEvents.length).toBe(1);
-    expect(s2.toolEvents[0]!.name).toBe("grep");
-    expect(s1.toolEvents.length).toBe(0);
+    assert.equal(s2.toolEvents.length, 1);
+    assert.equal(s2.toolEvents[0]!.name, "grep");
+    assert.equal(s1.toolEvents.length, 0);
   });
 
   test("tool_execution_end records tool end", () => {
@@ -257,9 +258,9 @@ describe("installToolExecutionHooks", () => {
     const run = snap.runs.find((r) => r.id === "r1")!;
     const stage = run.stages.find((s) => s.id === "s1")!;
     const evt = stage.toolEvents.find((e) => e.name === "bash");
-    expect(evt).toBeDefined();
-    expect(evt!.output).toBe("ok");
-    expect(evt!.endedAt).toBeDefined();
+    assert.notEqual(evt, undefined);
+    assert.equal(evt!.output, "ok");
+    assert.notEqual(evt!.endedAt, undefined);
   });
 
   test("malformed payloads do not crash", () => {
@@ -267,10 +268,10 @@ describe("installToolExecutionHooks", () => {
     installToolExecutionHooks(pi, storeInstance);
 
     const startHandler = eventHandlers.get("tool_execution_start")!;
-    expect(() => startHandler(null)).not.toThrow();
-    expect(() => startHandler(undefined)).not.toThrow();
-    expect(() => startHandler(42)).not.toThrow();
-    expect(() => startHandler({})).not.toThrow();
+    assert.doesNotThrow(() => startHandler(null));
+    assert.doesNotThrow(() => startHandler(undefined));
+    assert.doesNotThrow(() => startHandler(42));
+    assert.doesNotThrow(() => startHandler({}));
   });
 
   test("no-op when no active run exists", () => {
@@ -279,8 +280,8 @@ describe("installToolExecutionHooks", () => {
     installToolExecutionHooks(pi, emptyStore);
 
     const handler = eventHandlers.get("tool_execution_start")!;
-    expect(() => handler({ toolName: "bash", ts: Date.now() })).not.toThrow();
+    assert.doesNotThrow(() => handler({ toolName: "bash", ts: Date.now() }));
     const snap = emptyStore.snapshot();
-    expect(snap.runs.length).toBe(0);
+    assert.equal(snap.runs.length, 0);
   });
 });

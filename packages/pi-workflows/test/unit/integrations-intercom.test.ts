@@ -1,17 +1,18 @@
 /**
- * Unit tests — integrations/intercom/intercom-bridge.ts + result-intercom.ts
+ * Unit tests — intercom/intercom-bridge.ts + result-intercom.ts
  */
-import { test, expect, describe } from "bun:test";
+import { describe, test } from "node:test";
+import assert from "node:assert/strict";
 import {
   deriveCwdHash,
   buildParentSessionName,
   isIntercomPresent,
   registerIntercomParentSession,
   type PiIntercomExtensionAPI,
-} from "../../src/integrations/intercom/intercom-bridge.js";
-import { subscribeIntercomControl } from "../../src/integrations/intercom/result-intercom.js";
-import { buildIntercomCallbacks } from "../../src/integrations/intercom/intercom-routing.js";
-import { createStore } from "../../src/store.js";
+} from "../../src/intercom/intercom-bridge.js";
+import { subscribeIntercomControl } from "../../src/intercom/result-intercom.js";
+import { buildIntercomCallbacks } from "../../src/intercom/intercom-routing.js";
+import { createStore } from "../../src/shared/store.js";
 
 // ---------------------------------------------------------------------------
 // intercom-bridge
@@ -20,59 +21,59 @@ import { createStore } from "../../src/store.js";
 describe("deriveCwdHash", () => {
   test("returns 8-char hex string", () => {
     const h = deriveCwdHash("/home/user/project");
-    expect(h).toHaveLength(8);
-    expect(h).toMatch(/^[0-9a-f]{8}$/);
+    assert.equal(h.length, 8);
+    assert.match(h, /^[0-9a-f]{8}$/);
   });
 
   test("stable: same input same hash", () => {
-    expect(deriveCwdHash("/tmp/foo")).toBe(deriveCwdHash("/tmp/foo"));
+    assert.equal(deriveCwdHash("/tmp/foo"), deriveCwdHash("/tmp/foo"));
   });
 
   test("different inputs produce different hashes (high probability)", () => {
-    expect(deriveCwdHash("/a")).not.toBe(deriveCwdHash("/b"));
+    assert.notEqual(deriveCwdHash("/a"), deriveCwdHash("/b"));
   });
 });
 
 describe("buildParentSessionName", () => {
   test("returns string starting with pi-workflows-parent-", () => {
     const name = buildParentSessionName("/some/dir");
-    expect(name.startsWith("pi-workflows-parent-")).toBe(true);
+    assert.equal(name.startsWith("pi-workflows-parent-"), true);
   });
 
   test("hash portion is 8 chars", () => {
     const name = buildParentSessionName("/some/dir");
     const hash = name.replace("pi-workflows-parent-", "");
-    expect(hash).toHaveLength(8);
+    assert.equal(hash.length, 8);
   });
 });
 
 describe("isIntercomPresent", () => {
   test("returns false when setSessionName absent", () => {
-    expect(isIntercomPresent({})).toBe(false);
+    assert.equal(isIntercomPresent({}), false);
   });
 
   test("returns true when setSessionName is a function", () => {
-    expect(isIntercomPresent({ setSessionName: () => {} })).toBe(true);
+    assert.equal(isIntercomPresent({ setSessionName: () => {} }), true);
   });
 
   test("returns false when setSessionName is not a function", () => {
-    expect(isIntercomPresent({ setSessionName: "not-a-fn" } as unknown as PiIntercomExtensionAPI)).toBe(false);
+    assert.equal(isIntercomPresent({ setSessionName: "not-a-fn" } as unknown as PiIntercomExtensionAPI), false);
   });
 });
 
 describe("registerIntercomParentSession", () => {
   test("returns null when intercom absent", () => {
     const result = registerIntercomParentSession({});
-    expect(result).toBeNull();
+    assert.equal(result, null);
   });
 
   test("calls setSessionName and returns name when intercom present", () => {
     const calls: string[] = [];
     const pi = { setSessionName: (name: string) => { calls.push(name); } };
     const result = registerIntercomParentSession(pi, "/workspace/myproject");
-    expect(result).toMatch(/^pi-workflows-parent-[0-9a-f]{8}$/);
-    expect(calls).toHaveLength(1);
-    expect(calls[0]).toBe(result!);
+    assert.match(result, /^pi-workflows-parent-[0-9a-f]{8}$/);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0], result!);
   });
 
   test("uses cwd derived hash (stable for same cwd)", () => {
@@ -80,7 +81,7 @@ describe("registerIntercomParentSession", () => {
     const pi = { setSessionName: (name: string) => { calls.push(name); } };
     registerIntercomParentSession(pi, "/fixed/cwd");
     registerIntercomParentSession(pi, "/fixed/cwd");
-    expect(calls[0]).toBe(calls[1]);
+    assert.equal(calls[0], calls[1]);
   });
 });
 
@@ -91,12 +92,12 @@ describe("registerIntercomParentSession", () => {
 describe("subscribeIntercomControl", () => {
   test("returns null when events.on absent", () => {
     const cleanup = subscribeIntercomControl({}, {});
-    expect(cleanup).toBeNull();
+    assert.equal(cleanup, null);
   });
 
   test("returns null when events absent", () => {
     const cleanup = subscribeIntercomControl({ events: {} }, {});
-    expect(cleanup).toBeNull();
+    assert.equal(cleanup, null);
   });
 
   test("registers handler on subagent:control-intercom", () => {
@@ -109,8 +110,8 @@ describe("subscribeIntercomControl", () => {
       },
     };
     subscribeIntercomControl(pi, {});
-    expect(registrations).toHaveLength(1);
-    expect(registrations[0].event).toBe("subagent:control-intercom");
+    assert.equal(registrations.length, 1);
+    assert.equal(registrations[0].event, "subagent:control-intercom");
   });
 
   test("routes need_decision to onNeedDecision callback", async () => {
@@ -129,8 +130,8 @@ describe("subscribeIntercomControl", () => {
     capturedHandler!({ type: "need_decision", message: "approve?" });
     // allow async dispatch
     await new Promise((r) => setTimeout(r, 0));
-    expect(received).toHaveLength(1);
-    expect((received[0] as { message: string }).message).toBe("approve?");
+    assert.equal(received.length, 1);
+    assert.equal((received[0] as { message: string }).message, "approve?");
   });
 
   test("routes notify to onNotify callback", async () => {
@@ -148,7 +149,7 @@ describe("subscribeIntercomControl", () => {
     });
     capturedHandler!({ type: "notify", message: "stage complete" });
     await new Promise((r) => setTimeout(r, 0));
-    expect(received).toHaveLength(1);
+    assert.equal(received.length, 1);
   });
 
   test("routes unknown type to onUnknown callback", async () => {
@@ -166,7 +167,7 @@ describe("subscribeIntercomControl", () => {
     });
     capturedHandler!({ type: "future_type", message: "hi" });
     await new Promise((r) => setTimeout(r, 0));
-    expect(received).toHaveLength(1);
+    assert.equal(received.length, 1);
   });
 
   test("cleanup stops routing", async () => {
@@ -185,7 +186,7 @@ describe("subscribeIntercomControl", () => {
     cleanup!();
     capturedHandler!({ type: "notify", message: "after cleanup" });
     await new Promise((r) => setTimeout(r, 0));
-    expect(received).toHaveLength(0);
+    assert.equal(received.length, 0);
   });
 
   test("ignores malformed payload (no crash)", async () => {
@@ -198,9 +199,9 @@ describe("subscribeIntercomControl", () => {
       },
     };
     subscribeIntercomControl(pi, {});
-    expect(() => capturedHandler!(null)).not.toThrow();
-    expect(() => capturedHandler!("string")).not.toThrow();
-    expect(() => capturedHandler!(42)).not.toThrow();
+    assert.doesNotThrow(() => capturedHandler!(null));
+    assert.doesNotThrow(() => capturedHandler!("string"));
+    assert.doesNotThrow(() => capturedHandler!(42));
   });
 });
 
@@ -239,10 +240,10 @@ describe("result-intercom + intercom-routing — notify records notice", () => {
     await new Promise((r) => setTimeout(r, 0));
 
     const notices = store.notices();
-    expect(notices).toHaveLength(1);
-    expect(notices[0]!.level).toBe("info");
-    expect(notices[0]!.message).toBe("stage started");
-    expect(notices[0]!.requiresAck).toBeUndefined();
+    assert.equal(notices.length, 1);
+    assert.equal(notices[0]!.level, "info");
+    assert.equal(notices[0]!.message, "stage started");
+    assert.equal(notices[0]!.requiresAck, undefined);
   });
 
   test("notify event with warning level records warning notice", async () => {
@@ -254,7 +255,7 @@ describe("result-intercom + intercom-routing — notify records notice", () => {
     bus.fire({ type: "notify", message: "memory high", level: "warning" });
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(store.notices()[0]!.level).toBe("warning");
+    assert.equal(store.notices()[0]!.level, "warning");
   });
 
   test("notify does not ack the notice", async () => {
@@ -266,7 +267,7 @@ describe("result-intercom + intercom-routing — notify records notice", () => {
     bus.fire({ type: "notify", message: "info only" });
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(store.notices()[0]!.ackedAt).toBeUndefined();
+    assert.equal(store.notices()[0]!.ackedAt, undefined);
   });
 });
 
@@ -286,10 +287,10 @@ describe("result-intercom + intercom-routing — need_decision records requiresA
     await new Promise((r) => setTimeout(r, 10));
 
     const notices = store.notices();
-    expect(notices).toHaveLength(1);
-    expect(notices[0]!.level).toBe("warning");
-    expect(notices[0]!.requiresAck).toBe(true);
-    expect(notices[0]!.message).toBe("proceed?");
+    assert.equal(notices.length, 1);
+    assert.equal(notices[0]!.level, "warning");
+    assert.equal(notices[0]!.requiresAck, true);
+    assert.equal(notices[0]!.message, "proceed?");
   });
 
   test("need_decision emits response with accepted=false when confirm absent", async () => {
@@ -306,10 +307,10 @@ describe("result-intercom + intercom-routing — need_decision records requiresA
     bus.fire({ type: "need_decision", message: "ok?", requestId: "req-noui" });
     await new Promise((r) => setTimeout(r, 10));
 
-    expect(emitCalls).toHaveLength(1);
-    expect(emitCalls[0]!.event).toBe("subagent:control-intercom:response");
-    expect(emitCalls[0]!.payload["accepted"]).toBe(false);
-    expect(emitCalls[0]!.payload["requestId"]).toBe("req-noui");
+    assert.equal(emitCalls.length, 1);
+    assert.equal(emitCalls[0]!.event, "subagent:control-intercom:response");
+    assert.equal(emitCalls[0]!.payload["accepted"], false);
+    assert.equal(emitCalls[0]!.payload["requestId"], "req-noui");
   });
 
   test("need_decision notice is acked after response emitted", async () => {
@@ -325,7 +326,7 @@ describe("result-intercom + intercom-routing — need_decision records requiresA
     bus.fire({ type: "need_decision", message: "ack me" });
     await new Promise((r) => setTimeout(r, 10));
 
-    expect(store.notices()[0]!.ackedAt).toBeDefined();
+    assert.notEqual(store.notices()[0]!.ackedAt, undefined);
   });
 });
 
@@ -340,10 +341,10 @@ describe("result-intercom + intercom-routing — unknown event records warning",
     await new Promise((r) => setTimeout(r, 0));
 
     const notices = store.notices();
-    expect(notices).toHaveLength(1);
-    expect(notices[0]!.level).toBe("warning");
-    expect(notices[0]!.message).toContain("future_event");
-    expect(notices[0]!.message).toContain("unknown payload");
+    assert.equal(notices.length, 1);
+    assert.equal(notices[0]!.level, "warning");
+    assert.ok(notices[0]!.message.includes("future_event"));
+    assert.ok(notices[0]!.message.includes("unknown payload"));
   });
 
   test("unknown type does not ack notice", async () => {
@@ -355,7 +356,7 @@ describe("result-intercom + intercom-routing — unknown event records warning",
     bus.fire({ type: "novel_type", message: "hi" });
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(store.notices()[0]!.ackedAt).toBeUndefined();
+    assert.equal(store.notices()[0]!.ackedAt, undefined);
   });
 
   test("unknown type does not emit response event", async () => {
@@ -372,6 +373,6 @@ describe("result-intercom + intercom-routing — unknown event records warning",
     bus.fire({ type: "novel_type", message: "hi" });
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(emitCalls).toHaveLength(0);
+    assert.equal(emitCalls.length, 0);
   });
 });

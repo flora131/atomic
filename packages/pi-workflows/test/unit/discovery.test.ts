@@ -11,7 +11,8 @@
  *   - Duplicate normalizedName: first-wins, DUPLICATE_NAME warning
  */
 
-import { test, expect, describe, mock, afterAll } from "bun:test";
+import { after, describe, mock, test } from "node:test";
+import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -52,39 +53,39 @@ function makeValidDef(
 describe("discoverBundledWorkflows — bundled manifest", () => {
   test("returns a DiscoveryResult with registry, sources, errors", async () => {
     const result = await discoverBundledWorkflows();
-    expect(result).toBeDefined();
-    expect(result.registry).toBeDefined();
-    expect(Array.isArray(result.sources)).toBe(true);
-    expect(Array.isArray(result.errors)).toBe(true);
+    assert.notEqual(result, undefined);
+    assert.notEqual(result.registry, undefined);
+    assert.equal(Array.isArray(result.sources), true);
+    assert.equal(Array.isArray(result.errors), true);
   });
 
   test("registers exactly the three bundled workflows", async () => {
     const { registry } = await discoverBundledWorkflows();
     const names = registry.names();
-    expect(names).toContain("deep-research-codebase");
-    expect(names).toContain("ralph");
-    expect(names).toContain("open-claude-design");
-    expect(names.length).toBe(3);
+    assert.ok(names.includes("deep-research-codebase"));
+    assert.ok(names.includes("ralph"));
+    assert.ok(names.includes("open-claude-design"));
+    assert.equal(names.length, 3);
   });
 
   test("no errors on clean manifest", async () => {
     const { errors } = await discoverBundledWorkflows();
-    expect(errors.length).toBe(0);
+    assert.equal(errors.length, 0);
   });
 
   test("sources array has one entry per registered workflow", async () => {
     const { sources } = await discoverBundledWorkflows();
-    expect(sources.length).toBe(3);
+    assert.equal(sources.length, 3);
     const ids = sources.map((s: DiscoverySource) => s.id);
-    expect(ids).toContain("deep-research-codebase");
-    expect(ids).toContain("ralph");
-    expect(ids).toContain("open-claude-design");
+    assert.ok(ids.includes("deep-research-codebase"));
+    assert.ok(ids.includes("ralph"));
+    assert.ok(ids.includes("open-claude-design"));
   });
 
   test("every source has kind='bundled'", async () => {
     const { sources } = await discoverBundledWorkflows();
     for (const s of sources) {
-      expect(s.kind).toBe("bundled");
+      assert.equal(s.kind, "bundled");
     }
   });
 
@@ -92,8 +93,8 @@ describe("discoverBundledWorkflows — bundled manifest", () => {
     const { sources, registry } = await discoverBundledWorkflows();
     for (const s of sources) {
       const def = registry.get(s.id);
-      expect(def).toBeDefined();
-      expect(def!.normalizedName).toBe(s.id);
+      assert.notEqual(def, undefined);
+      assert.equal(def!.normalizedName, s.id);
     }
   });
 
@@ -101,7 +102,7 @@ describe("discoverBundledWorkflows — bundled manifest", () => {
     const { sources, registry } = await discoverBundledWorkflows();
     for (const s of sources) {
       const def = registry.get(s.id);
-      expect(def!.name).toBe(s.name);
+      assert.equal(def!.name, s.name);
     }
   });
 
@@ -109,10 +110,10 @@ describe("discoverBundledWorkflows — bundled manifest", () => {
     const { registry } = await discoverBundledWorkflows();
     for (const name of ["deep-research-codebase", "ralph", "open-claude-design"]) {
       const def = registry.get(name);
-      expect(def).toBeDefined();
-      expect(def!.__piWorkflow).toBe(true);
-      expect(typeof def!.run).toBe("function");
-      expect(def!.normalizedName).toBe(name);
+      assert.notEqual(def, undefined);
+      assert.equal(def!.__piWorkflow, true);
+      assert.equal(typeof def!.run, "function");
+      assert.equal(def!.normalizedName, name);
     }
   });
 
@@ -121,8 +122,8 @@ describe("discoverBundledWorkflows — bundled manifest", () => {
     const extra = makeValidDef("new-workflow", "new-workflow");
     const r2 = registry.register(extra);
     // original unchanged
-    expect(registry.has("new-workflow")).toBe(false);
-    expect(r2.has("new-workflow")).toBe(true);
+    assert.equal(registry.has("new-workflow"), false);
+    assert.equal(r2.has("new-workflow"), true);
   });
 });
 
@@ -149,16 +150,16 @@ describe("discoverBundledWorkflows — validation diagnostics", () => {
       message: "Bundled export \"foo\" rejected: export is not an object",
       source: "foo",
     };
-    expect(diag.level).toBe("error");
-    expect(diag.code).toBe("INVALID_DEFINITION");
-    expect(typeof diag.message).toBe("string");
-    expect(diag.source).toBe("foo");
+    assert.equal(diag.level, "error");
+    assert.equal(diag.code, "INVALID_DEFINITION");
+    assert.equal(typeof diag.message, "string");
+    assert.equal(diag.source, "foo");
   });
 
   test("no INVALID_DEFINITION errors for real bundled workflows", async () => {
     const { errors } = await discoverBundledWorkflows();
     const invalidErrors = errors.filter((e: DiscoveryDiagnostic) => e.code === "INVALID_DEFINITION");
-    expect(invalidErrors.length).toBe(0);
+    assert.equal(invalidErrors.length, 0);
   });
 });
 
@@ -170,7 +171,7 @@ describe("discoverBundledWorkflows — duplicate handling", () => {
   test("no DUPLICATE_NAME warnings for clean bundled manifest (all unique)", async () => {
     const { errors } = await discoverBundledWorkflows();
     const dupeWarnings = errors.filter((e: DiscoveryDiagnostic) => e.code === "DUPLICATE_NAME");
-    expect(dupeWarnings.length).toBe(0);
+    assert.equal(dupeWarnings.length, 0);
   });
 
   test("DUPLICATE_NAME diagnostic shape is correct", () => {
@@ -180,9 +181,9 @@ describe("discoverBundledWorkflows — duplicate handling", () => {
       message: 'Bundled export "ralph2" skipped: normalizedName "ralph" already registered',
       source: "ralph2",
     };
-    expect(diag.level).toBe("warn");
-    expect(diag.code).toBe("DUPLICATE_NAME");
-    expect(diag.source).toBe("ralph2");
+    assert.equal(diag.level, "warn");
+    assert.equal(diag.code, "DUPLICATE_NAME");
+    assert.equal(diag.source, "ralph2");
   });
 });
 
@@ -197,13 +198,13 @@ describe("DiscoveryResult contract", () => {
     // The array itself may not be frozen at runtime, but we confirm length is stable
     const lenBefore = sources.length;
     // Attempting to push would be a TS error; we simply confirm length is stable
-    expect(sources.length).toBe(lenBefore);
+    assert.equal(sources.length, lenBefore);
   });
 
   test("errors array is readonly (length stable)", async () => {
     const { errors } = await discoverBundledWorkflows();
     const lenBefore = errors.length;
-    expect(errors.length).toBe(lenBefore);
+    assert.equal(errors.length, lenBefore);
   });
 });
 
@@ -215,11 +216,11 @@ describe("DiscoverySource shape", () => {
   test("each source has id, kind, name fields", async () => {
     const { sources } = await discoverBundledWorkflows();
     for (const s of sources) {
-      expect(typeof s.id).toBe("string");
-      expect(s.id.length).toBeGreaterThan(0);
-      expect(s.kind).toBe("bundled");
-      expect(typeof s.name).toBe("string");
-      expect(s.name.length).toBeGreaterThan(0);
+      assert.equal(typeof s.id, "string");
+      assert.ok(s.id.length > 0);
+      assert.equal(s.kind, "bundled");
+      assert.equal(typeof s.name, "string");
+      assert.ok(s.name.length > 0);
     }
   });
 
@@ -227,7 +228,7 @@ describe("DiscoverySource shape", () => {
     const { sources } = await discoverBundledWorkflows();
     const ids = sources.map((s: DiscoverySource) => s.id);
     const unique = new Set(ids);
-    expect(unique.size).toBe(ids.length);
+    assert.equal(unique.size, ids.length);
   });
 });
 
@@ -239,12 +240,12 @@ describe("registry.all() after discovery", () => {
   test("all() returns three WorkflowDefinition objects", async () => {
     const { registry } = await discoverBundledWorkflows();
     const all = registry.all();
-    expect(all.length).toBe(3);
+    assert.equal(all.length, 3);
     for (const def of all) {
-      expect(def.__piWorkflow).toBe(true);
-      expect(typeof def.name).toBe("string");
-      expect(typeof def.normalizedName).toBe("string");
-      expect(typeof def.run).toBe("function");
+      assert.equal(def.__piWorkflow, true);
+      assert.equal(typeof def.name, "string");
+      assert.equal(typeof def.normalizedName, "string");
+      assert.equal(typeof def.run, "function");
     }
   });
 
@@ -252,9 +253,9 @@ describe("registry.all() after discovery", () => {
     const { registry, sources } = await discoverBundledWorkflows();
     const regNames = new Set(registry.names());
     const srcIds = new Set(sources.map((s: DiscoverySource) => s.id));
-    expect(regNames.size).toBe(srcIds.size);
+    assert.equal(regNames.size, srcIds.size);
     for (const id of srcIds) {
-      expect(regNames.has(id)).toBe(true);
+      assert.equal(regNames.has(id), true);
     }
   });
 });
@@ -325,7 +326,7 @@ function writeMissingSentinelWorkflowJs(dir: string, filename: string): string {
   return filePath;
 }
 
-afterAll(() => {
+after(() => {
   for (const dir of _tempDirs) {
     try {
       rmSync(dir, { recursive: true, force: true });
@@ -347,8 +348,8 @@ describe("discoverWorkflows — project-local", () => {
     writeWorkflowJs(wfDir, "my-wf.js", "My Workflow", "my-workflow");
 
     const result = await discoverWorkflows({ cwd, homeDir: makeTempDir("empty-home"), includeBundled: false });
-    expect(result.registry.has("my-workflow")).toBe(true);
-    expect(result.errors.length).toBe(0);
+    assert.equal(result.registry.has("my-workflow"), true);
+    assert.equal(result.errors.length, 0);
   });
 
   test("source kind is project-local", async () => {
@@ -359,8 +360,8 @@ describe("discoverWorkflows — project-local", () => {
 
     const { sources } = await discoverWorkflows({ cwd, homeDir: makeTempDir("empty-home2"), includeBundled: false });
     const src = sources.find((s) => s.id === "kind-test");
-    expect(src).toBeDefined();
-    expect(src!.kind).toBe("project-local");
+    assert.notEqual(src, undefined);
+    assert.equal(src!.kind, "project-local");
   });
 
   test("source has correct id, name, filePath", async () => {
@@ -371,9 +372,9 @@ describe("discoverWorkflows — project-local", () => {
 
     const { sources } = await discoverWorkflows({ cwd, homeDir: makeTempDir("empty-home3"), includeBundled: false });
     const src = sources.find((s) => s.id === "shape-workflow");
-    expect(src).toBeDefined();
-    expect(src!.name).toBe("Shape Workflow");
-    expect(src!.filePath).toBe(fp);
+    assert.notEqual(src, undefined);
+    assert.equal(src!.name, "Shape Workflow");
+    assert.equal(src!.filePath, fp);
   });
 
   test("empty .pi/workflows/ produces no sources and no errors", async () => {
@@ -381,14 +382,14 @@ describe("discoverWorkflows — project-local", () => {
     mkdirSync(join(cwd, ".pi", "workflows"), { recursive: true });
 
     const result = await discoverWorkflows({ cwd, homeDir: makeTempDir("empty-home4"), includeBundled: false });
-    expect(result.sources.length).toBe(0);
-    expect(result.errors.length).toBe(0);
+    assert.equal(result.sources.length, 0);
+    assert.equal(result.errors.length, 0);
   });
 
   test("missing .pi/workflows/ dir is silent (no error)", async () => {
     const cwd = makeTempDir("proj-local-nodir");
     const result = await discoverWorkflows({ cwd, homeDir: makeTempDir("empty-home5"), includeBundled: false });
-    expect(result.errors.filter((e) => e.code === "PATH_NOT_FOUND").length).toBe(0);
+    assert.equal(result.errors.filter((e) => e.code === "PATH_NOT_FOUND").length, 0);
   });
 });
 
@@ -405,8 +406,8 @@ describe("discoverWorkflows — user-global", () => {
 
     const cwd = makeTempDir("proj-empty");
     const result = await discoverWorkflows({ cwd, homeDir, includeBundled: false });
-    expect(result.registry.has("global-workflow")).toBe(true);
-    expect(result.errors.length).toBe(0);
+    assert.equal(result.registry.has("global-workflow"), true);
+    assert.equal(result.errors.length, 0);
   });
 
   test("source kind is user-global", async () => {
@@ -418,8 +419,8 @@ describe("discoverWorkflows — user-global", () => {
     const cwd = makeTempDir("proj-empty2");
     const { sources } = await discoverWorkflows({ cwd, homeDir, includeBundled: false });
     const src = sources.find((s) => s.id === "global-kind");
-    expect(src).toBeDefined();
-    expect(src!.kind).toBe("user-global");
+    assert.notEqual(src, undefined);
+    assert.equal(src!.kind, "user-global");
   });
 
   test("source has filePath set", async () => {
@@ -431,7 +432,7 @@ describe("discoverWorkflows — user-global", () => {
     const cwd = makeTempDir("proj-empty3");
     const { sources } = await discoverWorkflows({ cwd, homeDir, includeBundled: false });
     const src = sources.find((s) => s.id === "global-fp");
-    expect(src?.filePath).toBe(fp);
+    assert.equal(src?.filePath, fp);
   });
 });
 
@@ -451,10 +452,10 @@ describe("discoverWorkflows — configured projectWorkflows (string array)", () 
       includeBundled: false,
       config: { projectWorkflows: [fp] },
     });
-    expect(result.registry.has("cfg-project")).toBe(true);
+    assert.equal(result.registry.has("cfg-project"), true);
     const src = result.sources.find((s) => s.id === "cfg-project");
-    expect(src?.kind).toBe("settings-project");
-    expect(result.errors.length).toBe(0);
+    assert.equal(src?.kind, "settings-project");
+    assert.equal(result.errors.length, 0);
   });
 
   test("no configuredName when using string array", async () => {
@@ -469,7 +470,7 @@ describe("discoverWorkflows — configured projectWorkflows (string array)", () 
       config: { projectWorkflows: [fp] },
     });
     const src = sources.find((s) => s.id === "cfg-noname");
-    expect(src?.configuredName).toBeUndefined();
+    assert.equal(src?.configuredName, undefined);
   });
 });
 
@@ -485,11 +486,11 @@ describe("discoverWorkflows — configured projectWorkflows (named map)", () => 
       includeBundled: false,
       config: { projectWorkflows: { "my-custom-name": fp } },
     });
-    expect(result.registry.has("mapped-workflow")).toBe(true);
+    assert.equal(result.registry.has("mapped-workflow"), true);
     const src = result.sources.find((s) => s.id === "mapped-workflow");
-    expect(src?.kind).toBe("settings-project");
-    expect(src?.configuredName).toBe("my-custom-name");
-    expect(result.errors.length).toBe(0);
+    assert.equal(src?.kind, "settings-project");
+    assert.equal(src?.configuredName, "my-custom-name");
+    assert.equal(result.errors.length, 0);
   });
 
   test("multiple entries in named map all register", async () => {
@@ -504,9 +505,9 @@ describe("discoverWorkflows — configured projectWorkflows (named map)", () => 
       includeBundled: false,
       config: { projectWorkflows: { "alias-one": fp1, "alias-two": fp2 } },
     });
-    expect(registry.has("map-wf-one")).toBe(true);
-    expect(registry.has("map-wf-two")).toBe(true);
-    expect(errors.length).toBe(0);
+    assert.equal(registry.has("map-wf-one"), true);
+    assert.equal(registry.has("map-wf-two"), true);
+    assert.equal(errors.length, 0);
   });
 });
 
@@ -522,10 +523,10 @@ describe("discoverWorkflows — configured globalWorkflows", () => {
       includeBundled: false,
       config: { globalWorkflows: [fp] },
     });
-    expect(result.registry.has("global-cfg")).toBe(true);
+    assert.equal(result.registry.has("global-cfg"), true);
     const src = result.sources.find((s) => s.id === "global-cfg");
-    expect(src?.kind).toBe("settings-global");
-    expect(result.errors.length).toBe(0);
+    assert.equal(src?.kind, "settings-global");
+    assert.equal(result.errors.length, 0);
   });
 
   test("named map in globalWorkflows sets configuredName", async () => {
@@ -540,8 +541,8 @@ describe("discoverWorkflows — configured globalWorkflows", () => {
       config: { globalWorkflows: { "g-alias": fp } },
     });
     const src = sources.find((s) => s.id === "global-mapped");
-    expect(src?.kind).toBe("settings-global");
-    expect(src?.configuredName).toBe("g-alias");
+    assert.equal(src?.kind, "settings-global");
+    assert.equal(src?.configuredName, "g-alias");
   });
 });
 
@@ -558,8 +559,8 @@ describe("discoverWorkflows — INVALID_DEFINITION diagnostics", () => {
 
     const { errors } = await discoverWorkflows({ cwd, homeDir: makeTempDir("empty"), includeBundled: false });
     const inv = errors.filter((e) => e.code === "INVALID_DEFINITION");
-    expect(inv.length).toBeGreaterThan(0);
-    expect(inv[0]!.level).toBe("error");
+    assert.ok(inv.length > 0);
+    assert.equal(inv[0]!.level, "error");
   });
 
   test("missing __piWorkflow sentinel emits INVALID_DEFINITION", async () => {
@@ -570,8 +571,8 @@ describe("discoverWorkflows — INVALID_DEFINITION diagnostics", () => {
 
     const { errors } = await discoverWorkflows({ cwd, homeDir: makeTempDir("empty2"), includeBundled: false });
     const inv = errors.filter((e) => e.code === "INVALID_DEFINITION");
-    expect(inv.length).toBeGreaterThan(0);
-    expect(inv[0]!.message).toMatch(/missing or incorrect __piWorkflow sentinel/);
+    assert.ok(inv.length > 0);
+    assert.match(inv[0]!.message, /missing or incorrect __piWorkflow sentinel/);
   });
 
   test("INVALID_DEFINITION does not register a workflow", async () => {
@@ -581,7 +582,7 @@ describe("discoverWorkflows — INVALID_DEFINITION diagnostics", () => {
     writeInvalidWorkflowJs(wfDir, "bad.js");
 
     const { registry } = await discoverWorkflows({ cwd, homeDir: makeTempDir("empty3"), includeBundled: false });
-    expect(registry.names().length).toBe(0);
+    assert.equal(registry.names().length, 0);
   });
 
   test("PATH_NOT_FOUND for configured path that does not exist", async () => {
@@ -595,9 +596,9 @@ describe("discoverWorkflows — INVALID_DEFINITION diagnostics", () => {
       config: { projectWorkflows: [missingPath] },
     });
     const pathErr = errors.filter((e) => e.code === "PATH_NOT_FOUND");
-    expect(pathErr.length).toBe(1);
-    expect(pathErr[0]!.level).toBe("error");
-    expect(pathErr[0]!.source).toBe(missingPath);
+    assert.equal(pathErr.length, 1);
+    assert.equal(pathErr[0]!.level, "error");
+    assert.equal(pathErr[0]!.source, missingPath);
   });
 
   test("CONFIG_INVALID for bad config structure", async () => {
@@ -609,8 +610,8 @@ describe("discoverWorkflows — INVALID_DEFINITION diagnostics", () => {
       config: { projectWorkflows: 42 as unknown as string[] },
     });
     const cfgErr = errors.filter((e) => e.code === "CONFIG_INVALID");
-    expect(cfgErr.length).toBe(1);
-    expect(cfgErr[0]!.level).toBe("error");
+    assert.equal(cfgErr.length, 1);
+    assert.equal(cfgErr[0]!.level, "error");
   });
 });
 
@@ -638,17 +639,17 @@ describe("discoverWorkflows — DUPLICATE_NAME precedence", () => {
 
     // settings-project wins
     const def = registry.get("dup-wf");
-    expect(def?.name).toBe("SP Version");
+    assert.equal(def?.name, "SP Version");
 
     // project-local entry emits DUPLICATE_NAME
     const dupes = errors.filter((e) => e.code === "DUPLICATE_NAME");
-    expect(dupes.length).toBe(1);
-    expect(dupes[0]!.level).toBe("warn");
+    assert.equal(dupes.length, 1);
+    assert.equal(dupes[0]!.level, "warn");
 
     // only one source registered for dup-wf
     const srcs = sources.filter((s) => s.id === "dup-wf");
-    expect(srcs.length).toBe(1);
-    expect(srcs[0]!.kind).toBe("settings-project");
+    assert.equal(srcs.length, 1);
+    assert.equal(srcs[0]!.kind, "settings-project");
   });
 
   test("project-local beats settings-global: settings-global emits DUPLICATE_NAME", async () => {
@@ -668,14 +669,14 @@ describe("discoverWorkflows — DUPLICATE_NAME precedence", () => {
       config: { globalWorkflows: [sgPath] },
     });
 
-    expect(registry.get("dup-sg-wf")?.name).toBe("PL Winner");
+    assert.equal(registry.get("dup-sg-wf")?.name, "PL Winner");
     const dupes = errors.filter((e) => e.code === "DUPLICATE_NAME");
-    expect(dupes.length).toBe(1);
-    expect(dupes[0]!.level).toBe("warn");
+    assert.equal(dupes.length, 1);
+    assert.equal(dupes[0]!.level, "warn");
 
     const srcs = sources.filter((s) => s.id === "dup-sg-wf");
-    expect(srcs.length).toBe(1);
-    expect(srcs[0]!.kind).toBe("project-local");
+    assert.equal(srcs.length, 1);
+    assert.equal(srcs[0]!.kind, "project-local");
   });
 
   test("project-local beats user-global: user-global emits DUPLICATE_NAME", async () => {
@@ -692,13 +693,13 @@ describe("discoverWorkflows — DUPLICATE_NAME precedence", () => {
 
     const { registry, sources, errors } = await discoverWorkflows({ cwd, homeDir, includeBundled: false });
 
-    expect(registry.get("dup-ug-wf")?.name).toBe("PL Winner UG");
+    assert.equal(registry.get("dup-ug-wf")?.name, "PL Winner UG");
     const dupes = errors.filter((e) => e.code === "DUPLICATE_NAME");
-    expect(dupes.length).toBe(1);
+    assert.equal(dupes.length, 1);
 
     const srcs = sources.filter((s) => s.id === "dup-ug-wf");
-    expect(srcs.length).toBe(1);
-    expect(srcs[0]!.kind).toBe("project-local");
+    assert.equal(srcs.length, 1);
+    assert.equal(srcs[0]!.kind, "project-local");
   });
 
   test("project-local beats bundled: bundled emits DUPLICATE_NAME, name=ralph", async () => {
@@ -715,17 +716,17 @@ describe("discoverWorkflows — DUPLICATE_NAME precedence", () => {
     });
 
     // Custom wins
-    expect(registry.get("ralph")?.name).toBe("Custom Ralph");
+    assert.equal(registry.get("ralph")?.name, "Custom Ralph");
 
     // Bundled ralph emits DUPLICATE_NAME
     const dupes = errors.filter((e) => e.code === "DUPLICATE_NAME" && e.source === "ralph");
-    expect(dupes.length).toBe(1);
-    expect(dupes[0]!.level).toBe("warn");
+    assert.equal(dupes.length, 1);
+    assert.equal(dupes[0]!.level, "warn");
 
     // Only one source for ralph
     const ralphSrcs = sources.filter((s) => s.id === "ralph");
-    expect(ralphSrcs.length).toBe(1);
-    expect(ralphSrcs[0]!.kind).toBe("project-local");
+    assert.equal(ralphSrcs.length, 1);
+    assert.equal(ralphSrcs[0]!.kind, "project-local");
   });
 
   test("settings-global beats user-global: user-global emits DUPLICATE_NAME", async () => {
@@ -745,12 +746,12 @@ describe("discoverWorkflows — DUPLICATE_NAME precedence", () => {
       config: { globalWorkflows: [sgPath] },
     });
 
-    expect(registry.get("dup-sgug-wf")?.name).toBe("SG Winner UG");
+    assert.equal(registry.get("dup-sgug-wf")?.name, "SG Winner UG");
     const dupes = errors.filter((e) => e.code === "DUPLICATE_NAME");
-    expect(dupes.length).toBe(1);
+    assert.equal(dupes.length, 1);
 
     const srcs = sources.filter((s) => s.id === "dup-sgug-wf");
-    expect(srcs[0]!.kind).toBe("settings-global");
+    assert.equal(srcs[0]!.kind, "settings-global");
   });
 
   test("user-global beats bundled: bundled emits DUPLICATE_NAME, name=deep-research-codebase", async () => {
@@ -766,13 +767,13 @@ describe("discoverWorkflows — DUPLICATE_NAME precedence", () => {
       includeBundled: true,
     });
 
-    expect(registry.get("deep-research-codebase")?.name).toBe("Custom DRC");
+    assert.equal(registry.get("deep-research-codebase")?.name, "Custom DRC");
     const dupes = errors.filter((e) => e.code === "DUPLICATE_NAME" && e.source === "deep-research-codebase");
-    expect(dupes.length).toBe(1);
+    assert.equal(dupes.length, 1);
 
     const srcs = sources.filter((s) => s.id === "deep-research-codebase");
-    expect(srcs.length).toBe(1);
-    expect(srcs[0]!.kind).toBe("user-global");
+    assert.equal(srcs.length, 1);
+    assert.equal(srcs[0]!.kind, "user-global");
   });
 });
 
@@ -784,9 +785,9 @@ describe("discoverWorkflows — includeBundled", () => {
   test("includeBundled=true (default) loads bundled workflows", async () => {
     const cwd = makeTempDir("bundled-true");
     const { registry } = await discoverWorkflows({ cwd, homeDir: makeTempDir("empty-b") });
-    expect(registry.has("ralph")).toBe(true);
-    expect(registry.has("deep-research-codebase")).toBe(true);
-    expect(registry.has("open-claude-design")).toBe(true);
+    assert.equal(registry.has("ralph"), true);
+    assert.equal(registry.has("deep-research-codebase"), true);
+    assert.equal(registry.has("open-claude-design"), true);
   });
 
   test("includeBundled=false excludes all bundled workflows", async () => {
@@ -796,9 +797,9 @@ describe("discoverWorkflows — includeBundled", () => {
       homeDir: makeTempDir("empty-b2"),
       includeBundled: false,
     });
-    expect(registry.has("ralph")).toBe(false);
-    expect(registry.has("deep-research-codebase")).toBe(false);
-    expect(registry.has("open-claude-design")).toBe(false);
+    assert.equal(registry.has("ralph"), false);
+    assert.equal(registry.has("deep-research-codebase"), false);
+    assert.equal(registry.has("open-claude-design"), false);
   });
 
   test("includeBundled=false still loads project-local workflows", async () => {
@@ -812,7 +813,7 @@ describe("discoverWorkflows — includeBundled", () => {
       homeDir: makeTempDir("empty-b3"),
       includeBundled: false,
     });
-    expect(registry.has("local-only")).toBe(true);
-    expect(registry.has("ralph")).toBe(false);
+    assert.equal(registry.has("local-only"), true);
+    assert.equal(registry.has("ralph"), false);
   });
 });

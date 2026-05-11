@@ -1,14 +1,15 @@
 /**
- * Unit tests — integrations/intercom/intercom-routing.ts
+ * Unit tests — intercom/intercom-routing.ts
  *
  * Tests the buildIntercomCallbacks factory in isolation.
  * No full pi surface needed — only mock store + emit + confirm deps.
  */
-import { test, expect, describe, beforeEach } from "bun:test";
-import { createStore } from "../../src/store.js";
-import { buildIntercomCallbacks } from "../../src/integrations/intercom/intercom-routing.js";
-import type { Store } from "../../src/store.js";
-import type { IntercomRoutingDeps } from "../../src/integrations/intercom/intercom-routing.js";
+import { beforeEach, describe, test } from "node:test";
+import assert from "node:assert/strict";
+import { createStore } from "../../src/shared/store.js";
+import { buildIntercomCallbacks } from "../../src/intercom/intercom-routing.js";
+import type { Store } from "../../src/shared/store.js";
+import type { IntercomRoutingDeps } from "../../src/intercom/intercom-routing.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -48,10 +49,10 @@ describe("buildIntercomCallbacks — need_decision", () => {
     await cb.onNeedDecision!({ type: "need_decision", message: "approve this?" });
 
     const notices = store.notices();
-    expect(notices).toHaveLength(1);
-    expect(notices[0]!.requiresAck).toBe(true);
-    expect(notices[0]!.message).toBe("approve this?");
-    expect(notices[0]!.level).toBe("warning");
+    assert.equal(notices.length, 1);
+    assert.equal(notices[0]!.requiresAck, true);
+    assert.equal(notices[0]!.message, "approve this?");
+    assert.equal(notices[0]!.level, "warning");
   });
 
   test("calls confirm with title 'Subagent needs decision' and payload message", async () => {
@@ -62,9 +63,9 @@ describe("buildIntercomCallbacks — need_decision", () => {
 
     await cb.onNeedDecision!({ type: "need_decision", message: "proceed?" });
 
-    expect(confirm.calls).toHaveLength(1);
-    expect(confirm.calls[0]!.title).toBe("Subagent needs decision");
-    expect(confirm.calls[0]!.message).toBe("proceed?");
+    assert.equal(confirm.calls.length, 1);
+    assert.equal(confirm.calls[0]!.title, "Subagent needs decision");
+    assert.equal(confirm.calls[0]!.message, "proceed?");
   });
 
   test("emits subagent:control-intercom:response with requestId when accepted", async () => {
@@ -81,13 +82,13 @@ describe("buildIntercomCallbacks — need_decision", () => {
       stageId: "stage-2",
     });
 
-    expect(emit.calls).toHaveLength(1);
-    expect(emit.calls[0]!.event).toBe("subagent:control-intercom:response");
+    assert.equal(emit.calls.length, 1);
+    assert.equal(emit.calls[0]!.event, "subagent:control-intercom:response");
     const p = emit.calls[0]!.payload;
-    expect(p["requestId"]).toBe("req-abc");
-    expect(p["runId"]).toBe("run-1");
-    expect(p["stageId"]).toBe("stage-2");
-    expect(p["accepted"]).toBe(true);
+    assert.equal(p["requestId"], "req-abc");
+    assert.equal(p["runId"], "run-1");
+    assert.equal(p["stageId"], "stage-2");
+    assert.equal(p["accepted"], true);
   });
 
   test("emits accepted=false when confirm returns false", async () => {
@@ -104,8 +105,8 @@ describe("buildIntercomCallbacks — need_decision", () => {
       stageId: "stage-3",
     });
 
-    expect(emit.calls[0]!.payload["accepted"]).toBe(false);
-    expect(emit.calls[0]!.payload["requestId"]).toBe("req-xyz");
+    assert.equal(emit.calls[0]!.payload["accepted"], false);
+    assert.equal(emit.calls[0]!.payload["requestId"], "req-xyz");
   });
 
   test("emits empty string for missing requestId/runId/stageId", async () => {
@@ -117,9 +118,9 @@ describe("buildIntercomCallbacks — need_decision", () => {
     await cb.onNeedDecision!({ type: "need_decision", message: "hi" });
 
     const p = emit.calls[0]!.payload;
-    expect(p["requestId"]).toBe("");
-    expect(p["runId"]).toBe("");
-    expect(p["stageId"]).toBe("");
+    assert.equal(p["requestId"], "");
+    assert.equal(p["runId"], "");
+    assert.equal(p["stageId"], "");
   });
 
   test("acks notice after confirm", async () => {
@@ -131,8 +132,8 @@ describe("buildIntercomCallbacks — need_decision", () => {
     await cb.onNeedDecision!({ type: "need_decision", message: "approve?" });
 
     const notices = store.notices();
-    expect(notices[0]!.ackedAt).toBeDefined();
-    expect(typeof notices[0]!.ackedAt).toBe("number");
+    assert.notEqual(notices[0]!.ackedAt, undefined);
+    assert.equal(typeof notices[0]!.ackedAt, "number");
   });
 
   test("emits response even when confirm absent (accepted=false)", async () => {
@@ -142,9 +143,9 @@ describe("buildIntercomCallbacks — need_decision", () => {
 
     await cb.onNeedDecision!({ type: "need_decision", message: "hi", requestId: "req-no-confirm" });
 
-    expect(emit.calls).toHaveLength(1);
-    expect(emit.calls[0]!.payload["accepted"]).toBe(false);
-    expect(emit.calls[0]!.payload["requestId"]).toBe("req-no-confirm");
+    assert.equal(emit.calls.length, 1);
+    assert.equal(emit.calls[0]!.payload["accepted"], false);
+    assert.equal(emit.calls[0]!.payload["requestId"], "req-no-confirm");
   });
 
   test("stores runId and stageId on the notice", async () => {
@@ -161,8 +162,8 @@ describe("buildIntercomCallbacks — need_decision", () => {
     });
 
     const n = store.notices()[0]!;
-    expect(n.runId).toBe("run-99");
-    expect(n.stageId).toBe("stage-7");
+    assert.equal(n.runId, "run-99");
+    assert.equal(n.stageId, "stage-7");
   });
 });
 
@@ -179,10 +180,10 @@ describe("buildIntercomCallbacks — notify", () => {
     cb.onNotify!({ type: "notify", message: "stage complete" });
 
     const notices = store.notices();
-    expect(notices).toHaveLength(1);
-    expect(notices[0]!.level).toBe("info");
-    expect(notices[0]!.message).toBe("stage complete");
-    expect(notices[0]!.requiresAck).toBeUndefined();
+    assert.equal(notices.length, 1);
+    assert.equal(notices[0]!.level, "info");
+    assert.equal(notices[0]!.message, "stage complete");
+    assert.equal(notices[0]!.requiresAck, undefined);
   });
 
   test("records warning notice when payload.level is warning", () => {
@@ -192,7 +193,7 @@ describe("buildIntercomCallbacks — notify", () => {
 
     cb.onNotify!({ type: "notify", message: "something suspicious", level: "warning" });
 
-    expect(store.notices()[0]!.level).toBe("warning");
+    assert.equal(store.notices()[0]!.level, "warning");
   });
 
   test("records error notice when payload.level is error", () => {
@@ -202,7 +203,7 @@ describe("buildIntercomCallbacks — notify", () => {
 
     cb.onNotify!({ type: "notify", message: "fatal", level: "error" });
 
-    expect(store.notices()[0]!.level).toBe("error");
+    assert.equal(store.notices()[0]!.level, "error");
   });
 
   test("does not emit response event for notify", () => {
@@ -212,7 +213,7 @@ describe("buildIntercomCallbacks — notify", () => {
 
     cb.onNotify!({ type: "notify", message: "info" });
 
-    expect(emit.calls).toHaveLength(0);
+    assert.equal(emit.calls.length, 0);
   });
 
   test("stores runId and stageId on notify notice", () => {
@@ -223,8 +224,8 @@ describe("buildIntercomCallbacks — notify", () => {
     cb.onNotify!({ type: "notify", message: "done", runId: "run-5", stageId: "stage-1" });
 
     const n = store.notices()[0]!;
-    expect(n.runId).toBe("run-5");
-    expect(n.stageId).toBe("stage-1");
+    assert.equal(n.runId, "run-5");
+    assert.equal(n.stageId, "stage-1");
   });
 });
 
@@ -241,10 +242,10 @@ describe("buildIntercomCallbacks — unknown type", () => {
     cb.onUnknown!({ type: "future_type", message: "something" });
 
     const notices = store.notices();
-    expect(notices).toHaveLength(1);
-    expect(notices[0]!.level).toBe("warning");
-    expect(notices[0]!.message).toContain("future_type");
-    expect(notices[0]!.message).toContain("something");
+    assert.equal(notices.length, 1);
+    assert.equal(notices[0]!.level, "warning");
+    assert.ok(notices[0]!.message.includes("future_type"));
+    assert.ok(notices[0]!.message.includes("something"));
   });
 
   test("does not emit response event for unknown type", () => {
@@ -254,7 +255,7 @@ describe("buildIntercomCallbacks — unknown type", () => {
 
     cb.onUnknown!({ type: "future_type", message: "noop" });
 
-    expect(emit.calls).toHaveLength(0);
+    assert.equal(emit.calls.length, 0);
   });
 
   test("does not ack notice for unknown type", () => {
@@ -264,6 +265,6 @@ describe("buildIntercomCallbacks — unknown type", () => {
 
     cb.onUnknown!({ type: "future_type", message: "noop" });
 
-    expect(store.notices()[0]!.ackedAt).toBeUndefined();
+    assert.equal(store.notices()[0]!.ackedAt, undefined);
   });
 });

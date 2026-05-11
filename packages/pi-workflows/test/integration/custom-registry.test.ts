@@ -15,7 +15,8 @@
  * cross-ref: pi-workflows RFC §5.2, §5.3, §5.7, §5.13
  */
 
-import { test, expect, describe, beforeAll, afterAll } from "bun:test";
+import { after, before, describe, test } from "node:test";
+import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -27,7 +28,7 @@ import { createExtensionRuntime } from "../../src/extension/runtime.js";
 import type { ExtensionRuntime } from "../../src/extension/runtime.js";
 import { buildDoctorReport } from "../../src/extension/doctor.js";
 import type { DoctorSiblingStatus } from "../../src/extension/doctor.js";
-import { runWorkflowFromCliFlags } from "../../src/cli-flags.js";
+import { runWorkflowFromCliFlags } from "../../src/runs/shared/cli-flags.js";
 import factory, {
   type ExtensionAPI,
   type PiToolOpts,
@@ -88,7 +89,7 @@ const noSiblings: DoctorSiblingStatus = {
   subagentAdapterVia: "unavailable",
 };
 
-beforeAll(async () => {
+before(async () => {
   // Create isolated temp dirs
   tempRoot = join(tmpdir(), `pi-wf-int-${randomUUID()}`);
   cwdWorkflowDir = join(tempRoot, "cwd", ".pi", "workflows");
@@ -117,7 +118,7 @@ beforeAll(async () => {
   runtime = createExtensionRuntime({ registry: discoveryResult.registry });
 });
 
-afterAll(() => {
+after(() => {
   try {
     rmSync(tempRoot, { recursive: true, force: true });
   } catch {
@@ -131,39 +132,39 @@ afterAll(() => {
 
 describe("discoverWorkflows — custom sources from temp cwd/home", () => {
   test("result.registry includes project-local custom workflow name", () => {
-    expect(discoveryResult.registry.names()).toContain(CUSTOM_WF_NORM);
+    assert.ok(discoveryResult.registry.names().includes(CUSTOM_WF_NORM));
   });
 
   test("result.registry includes user-global custom workflow name", () => {
-    expect(discoveryResult.registry.names()).toContain(USER_WF_NORM);
+    assert.ok(discoveryResult.registry.names().includes(USER_WF_NORM));
   });
 
   test("result.registry includes bundled workflow names alongside custom", () => {
     const names = discoveryResult.registry.names();
-    expect(names).toContain("deep-research-codebase");
-    expect(names).toContain("ralph");
+    assert.ok(names.includes("deep-research-codebase"));
+    assert.ok(names.includes("ralph"));
   });
 
   test("result.sources contains a 'project-local' entry for custom workflow", () => {
     const src = discoveryResult.sources.find((s) => s.id === CUSTOM_WF_NORM);
-    expect(src).toBeDefined();
-    expect(src!.kind).toBe("project-local");
-    expect(src!.name).toBe(CUSTOM_WF_NAME);
-    expect(src!.filePath).toContain(CUSTOM_WF_NORM);
+    assert.notEqual(src, undefined);
+    assert.equal(src!.kind, "project-local");
+    assert.equal(src!.name, CUSTOM_WF_NAME);
+    assert.ok(src!.filePath.includes(CUSTOM_WF_NORM));
   });
 
   test("result.sources contains a 'user-global' entry for user-global workflow", () => {
     const src = discoveryResult.sources.find((s) => s.id === USER_WF_NORM);
-    expect(src).toBeDefined();
-    expect(src!.kind).toBe("user-global");
-    expect(src!.name).toBe(USER_WF_NAME);
+    assert.notEqual(src, undefined);
+    assert.equal(src!.kind, "user-global");
+    assert.equal(src!.name, USER_WF_NAME);
   });
 
   test("no discovery errors for valid custom workflows", () => {
     const hardErrors = discoveryResult.errors.filter(
       (e) => e.level === "error" && (e.source?.includes(CUSTOM_WF_NORM) || e.source?.includes(USER_WF_NORM)),
     );
-    expect(hardErrors).toHaveLength(0);
+    assert.equal(hardErrors.length, 0);
   });
 });
 
@@ -174,39 +175,39 @@ describe("discoverWorkflows — custom sources from temp cwd/home", () => {
 describe("ExtensionRuntime with custom registry — tool dispatch", () => {
   test("action='list' returns custom workflow name", async () => {
     const result = await runtime.dispatch({ name: "", inputs: {}, action: "list" });
-    expect(result.action).toBe("list");
+    assert.equal(result.action, "list");
     const r = result as { action: "list"; workflows: string[] };
-    expect(r.workflows).toContain(CUSTOM_WF_NORM);
+    assert.ok(r.workflows.includes(CUSTOM_WF_NORM));
   });
 
   test("action='list' returns user-global workflow name", async () => {
     const result = await runtime.dispatch({ name: "", inputs: {}, action: "list" });
     const r = result as { action: "list"; workflows: string[] };
-    expect(r.workflows).toContain(USER_WF_NORM);
+    assert.ok(r.workflows.includes(USER_WF_NORM));
   });
 
   test("action='list' includes bundled workflows alongside custom", async () => {
     const result = await runtime.dispatch({ name: "", inputs: {}, action: "list" });
     const r = result as { action: "list"; workflows: string[] };
-    expect(r.workflows).toContain("deep-research-codebase");
-    expect(r.workflows).toContain("ralph");
+    assert.ok(r.workflows.includes("deep-research-codebase"));
+    assert.ok(r.workflows.includes("ralph"));
   });
 
   test("action='inputs' for custom workflow returns declared inputs", async () => {
     const result = await runtime.dispatch({ name: CUSTOM_WF_NORM, inputs: {}, action: "inputs" });
-    expect(result.action).toBe("inputs");
+    assert.equal(result.action, "inputs");
     const r = result as { action: "inputs"; name: string; inputs: Array<{ name: string }> };
-    expect(r.name).toBe(CUSTOM_WF_NORM);
-    expect(r.inputs).toBeDefined();
+    assert.equal(r.name, CUSTOM_WF_NORM);
+    assert.notEqual(r.inputs, undefined);
     const names = r.inputs.map((i) => i.name);
-    expect(names).toContain("message");
-    expect(names).toContain("count");
+    assert.ok(names.includes("message"));
+    assert.ok(names.includes("count"));
   });
 
   test("action='inputs' for custom workflow has no error field", async () => {
     const result = await runtime.dispatch({ name: CUSTOM_WF_NORM, inputs: {}, action: "inputs" });
     const r = result as { action: "inputs"; error?: string };
-    expect(r.error).toBeUndefined();
+    assert.equal(r.error, undefined);
   });
 
   test("action='run' for custom workflow dispatches (returns run result, not unknown-action)", async () => {
@@ -215,12 +216,12 @@ describe("ExtensionRuntime with custom registry — tool dispatch", () => {
       inputs: { message: "hello" },
       action: "run",
     });
-    expect(result.action).toBe("run");
+    assert.equal(result.action, "run");
     const r = result as { action: "run"; runId: string; status: string };
     // runId must be a non-empty string
-    expect(typeof r.runId).toBe("string");
+    assert.equal(typeof r.runId, "string");
     // status must be terminal (completed or failed) — no stub/placeholder
-    expect(["completed", "failed"]).toContain(r.status);
+    assert.ok(["completed", "failed"].includes(r.status));
   });
 
   test("shared registry: list from tool equals registry.names()", async () => {
@@ -229,10 +230,10 @@ describe("ExtensionRuntime with custom registry — tool dispatch", () => {
     const registryNames = discoveryResult.registry.names();
     // Every name in the registry is in the tool list and vice versa
     for (const name of registryNames) {
-      expect(r.workflows).toContain(name);
+      assert.ok(r.workflows.includes(name));
     }
     for (const name of r.workflows) {
-      expect(registryNames).toContain(name);
+      assert.ok(registryNames.includes(name));
     }
   });
 });
@@ -244,33 +245,33 @@ describe("ExtensionRuntime with custom registry — tool dispatch", () => {
 describe("buildDoctorReport — custom sources from temp cwd/home", () => {
   test("report contains project-local custom workflow id", () => {
     const report = buildDoctorReport(discoveryResult, noSiblings);
-    expect(report).toContain(CUSTOM_WF_NORM);
+    assert.ok(report.includes(CUSTOM_WF_NORM));
   });
 
   test("report labels custom workflow source as '[project-local]'", () => {
     const report = buildDoctorReport(discoveryResult, noSiblings);
-    expect(report).toContain("[project-local]");
+    assert.ok(report.includes("[project-local]"));
   });
 
   test("report contains user-global workflow id", () => {
     const report = buildDoctorReport(discoveryResult, noSiblings);
-    expect(report).toContain(USER_WF_NORM);
+    assert.ok(report.includes(USER_WF_NORM));
   });
 
   test("report labels user-global source as '[user-global]'", () => {
     const report = buildDoctorReport(discoveryResult, noSiblings);
-    expect(report).toContain("[user-global]");
+    assert.ok(report.includes("[user-global]"));
   });
 
   test("registry count in report equals total names count (bundled + custom)", () => {
     const report = buildDoctorReport(discoveryResult, noSiblings);
     const totalCount = discoveryResult.registry.names().length;
-    expect(report).toContain(`Registry: ${totalCount} workflow(s) loaded`);
+    assert.ok(report.includes(`Registry: ${totalCount} workflow(s) loaded`));
   });
 
   test("report discovery diagnostics section is present", () => {
     const report = buildDoctorReport(discoveryResult, noSiblings);
-    expect(report).toContain("Discovery diagnostics:");
+    assert.ok(report.includes("Discovery diagnostics:"));
   });
 
   test("no error diagnostics for valid custom workflows in report", () => {
@@ -280,7 +281,7 @@ describe("buildDoctorReport — custom sources from temp cwd/home", () => {
     // Either way the report header should not contain error mentions for our workflows
     const errorSection = report.match(/Discovery diagnostics.*?(?=Siblings:)/s)?.[0] ?? "";
     // Only check no INVALID_DEFINITION for our custom workflows
-    expect(errorSection).not.toContain(`INVALID_DEFINITION`);
+    assert.ok(!errorSection.includes(`INVALID_DEFINITION`));
   });
 });
 
@@ -294,7 +295,7 @@ describe("runWorkflowFromCliFlags — custom runtime dispatch", () => {
       runtime,
       argv: ["--workflow", CUSTOM_WF_NORM],
     });
-    expect(result.handled).toBe(true);
+    assert.equal(result.handled, true);
   });
 
   test("--workflow <customName> result has status completed or failed (not silent)", async () => {
@@ -302,9 +303,9 @@ describe("runWorkflowFromCliFlags — custom runtime dispatch", () => {
       runtime,
       argv: ["--workflow", CUSTOM_WF_NORM],
     });
-    expect(result.handled).toBe(true);
+    assert.equal(result.handled, true);
     if (result.handled) {
-      expect(["completed", "failed"]).toContain(result.status);
+      assert.ok(["completed", "failed"].includes(result.status));
     }
   });
 
@@ -313,9 +314,9 @@ describe("runWorkflowFromCliFlags — custom runtime dispatch", () => {
       runtime,
       argv: ["--workflow", "unknown-xyz-custom"],
     });
-    expect(result.handled).toBe(true);
+    assert.equal(result.handled, true);
     if (result.handled) {
-      expect(result.status).toBe("failed");
+      assert.equal(result.status, "failed");
     }
   });
 
@@ -324,7 +325,7 @@ describe("runWorkflowFromCliFlags — custom runtime dispatch", () => {
       runtime,
       argv: ["--other-flag", "value"],
     });
-    expect(result.handled).toBe(false);
+    assert.equal(result.handled, false);
   });
 
   test("--workflow-input-message=hello passed to custom workflow dispatch", async () => {
@@ -332,23 +333,23 @@ describe("runWorkflowFromCliFlags — custom runtime dispatch", () => {
       runtime,
       argv: ["--workflow", CUSTOM_WF_NORM, "--workflow-input-message=hello"],
     });
-    expect(result.handled).toBe(true);
+    assert.equal(result.handled, true);
     // Result may be completed or failed (no real adapters), but it must have dispatched
     if (result.handled) {
-      expect(["completed", "failed"]).toContain(result.status);
+      assert.ok(["completed", "failed"].includes(result.status));
     }
   });
 
   test("CLI runtime uses same registry as tool: dispatches custom workflow that tool also sees", async () => {
     // Tool sees the workflow via action='inputs'
     const toolResult = await runtime.dispatch({ name: CUSTOM_WF_NORM, inputs: {}, action: "inputs" });
-    expect(toolResult.action).toBe("inputs");
+    assert.equal(toolResult.action, "inputs");
     // CLI can also run it (even if it fails in test env)
     const cliResult = await runWorkflowFromCliFlags({
       runtime,
       argv: ["--workflow", CUSTOM_WF_NORM],
     });
-    expect(cliResult.handled).toBe(true);
+    assert.equal(cliResult.handled, true);
   });
 });
 
@@ -395,7 +396,7 @@ describe("/workflow slash command — bundled-and-custom shared registry", () =>
   // we can verify slash command and tool see the same registry synchronously.
   let mock: ReturnType<typeof makeMockApiForRuntime>;
 
-  beforeAll(() => {
+  before(() => {
     mock = makeMockApiForRuntime();
     factory(mock);
   });
@@ -414,8 +415,8 @@ describe("/workflow slash command — bundled-and-custom shared registry", () =>
 
     // Every bundled name visible to tool is also in slash output
     for (const name of ["deep-research-codebase", "ralph", "open-claude-design"]) {
-      expect(toolWorkflows).toContain(name);
-      expect(combined).toContain(name);
+      assert.ok(toolWorkflows.includes(name));
+      assert.ok(combined.includes(name));
     }
   });
 
@@ -431,7 +432,7 @@ describe("/workflow slash command — bundled-and-custom shared registry", () =>
 
     // All tool names appear in the slash command output
     for (const name of toolWorkflows) {
-      expect(combined).toContain(name);
+      assert.ok(combined.includes(name));
     }
   });
 
@@ -441,7 +442,7 @@ describe("/workflow slash command — bundled-and-custom shared registry", () =>
     const labels = completions.map((c) => c.label);
 
     for (const name of ["deep-research-codebase", "ralph", "open-claude-design"]) {
-      expect(labels).toContain(name);
+      assert.ok(labels.includes(name));
     }
   });
 });
@@ -453,31 +454,31 @@ describe("/workflow slash command — bundled-and-custom shared registry", () =>
 describe("/workflow:<name> alias — dispatches same runtime path as tool", () => {
   let mock: ReturnType<typeof makeMockApiForRuntime>;
 
-  beforeAll(() => {
+  before(() => {
     mock = makeMockApiForRuntime();
     factory(mock);
   });
 
   test("alias workflow:ralph is registered and has matching description", () => {
     const alias = getCommand(mock.commands, "workflow:ralph");
-    expect(alias).toBeDefined();
-    expect(alias!.description).toContain("ralph");
+    assert.notEqual(alias, undefined);
+    assert.ok(alias!.description.includes("ralph"));
   });
 
   test("alias workflow:deep-research-codebase execute produces output (completed or failed, not silent)", async () => {
     const alias = getCommand(mock.commands, "workflow:deep-research-codebase");
-    expect(alias).toBeDefined();
+    assert.notEqual(alias, undefined);
     const messages: string[] = [];
     await alias!.execute("prompt=test", { reply: (m) => messages.push(m) });
     // Must produce at least one message — not silent
-    expect(messages.length).toBeGreaterThan(0);
+    assert.ok(messages.length > 0);
     const combined = messages.join("\n");
     // Must be either completed or a failure message — never "unknown subcommand"
     const dispatched =
       combined.includes("completed") ||
       combined.includes("failed") ||
       combined.includes("Workflow");
-    expect(dispatched).toBe(true);
+    assert.equal(dispatched, true);
   });
 
   test("alias dispatch and tool dispatch reach same registry (alias run returns same action='run')", async () => {
@@ -487,7 +488,7 @@ describe("/workflow:<name> alias — dispatches same runtime path as tool", () =
       { name: "ralph", inputs: { prompt: "test" }, action: "run" },
       {},
     );
-    expect(toolResult.action).toBe("run");
+    assert.equal(toolResult.action, "run");
 
     // Alias route must also produce action='run' (via runtimeProxy.dispatch)
     // We can't directly inspect alias result since it only calls reply/print.
@@ -495,7 +496,7 @@ describe("/workflow:<name> alias — dispatches same runtime path as tool", () =
     const alias = getCommand(mock.commands, "workflow:ralph");
     const messages: string[] = [];
     await alias!.execute("prompt=test", { reply: (m) => messages.push(m) });
-    expect(messages.some((m) => m.includes("unknown subcommand"))).toBe(false);
+    assert.equal(messages.some((m) => m.includes("unknown subcommand")), false);
   });
 
   test("all bundled workflow aliases are registered (one alias per bundled workflow)", () => {
@@ -503,9 +504,9 @@ describe("/workflow:<name> alias — dispatches same runtime path as tool", () =
       .filter((c) => c.opts.name.startsWith("workflow:"))
       .map((c) => c.opts.name.slice("workflow:".length));
 
-    expect(allAliases).toContain("deep-research-codebase");
-    expect(allAliases).toContain("ralph");
-    expect(allAliases).toContain("open-claude-design");
+    assert.ok(allAliases.includes("deep-research-codebase"));
+    assert.ok(allAliases.includes("ralph"));
+    assert.ok(allAliases.includes("open-claude-design"));
   });
 });
 
@@ -522,39 +523,39 @@ describe("shared registry invariant — all consumers see same workflows", () =>
     // 2. Doctor: registry count via buildDoctorReport
     const report = buildDoctorReport(discoveryResult, noSiblings);
     const match = report.match(/Registry:\s*(\d+)\s*workflow/);
-    expect(match).not.toBeNull();
+    assert.notEqual(match, null);
     const doctorCount = match ? parseInt(match[1]!, 10) : -1;
-    expect(doctorCount).toBe(toolNames.length);
+    assert.equal(doctorCount, toolNames.length);
 
     // 3. CLI: can handle one of the custom workflow names
     const cliResult = await runWorkflowFromCliFlags({
       runtime,
       argv: ["--workflow", CUSTOM_WF_NORM],
     });
-    expect(cliResult.handled).toBe(true);
+    assert.equal(cliResult.handled, true);
   });
 
   test("custom workflow visible to tool, doctor, and CLI but NOT in bundled-only registry", async () => {
     // Bundled-only discovery (no temp dirs)
     const { discoverBundledWorkflowsSync } = await import("../../src/extension/discovery.js");
     const bundledResult = discoverBundledWorkflowsSync();
-    expect(bundledResult.registry.names()).not.toContain(CUSTOM_WF_NORM);
+    assert.ok(!bundledResult.registry.names().includes(CUSTOM_WF_NORM));
 
     // Custom-inclusive runtime includes it
     const toolResult = await runtime.dispatch({ name: "", inputs: {}, action: "list" });
     const toolNames = (toolResult as { action: "list"; workflows: string[] }).workflows;
-    expect(toolNames).toContain(CUSTOM_WF_NORM);
+    assert.ok(toolNames.includes(CUSTOM_WF_NORM));
 
     // Doctor with full discovery shows it
     const report = buildDoctorReport(discoveryResult, noSiblings);
-    expect(report).toContain(CUSTOM_WF_NORM);
+    assert.ok(report.includes(CUSTOM_WF_NORM));
 
     // CLI with custom runtime handles it
     const cliResult = await runWorkflowFromCliFlags({
       runtime,
       argv: ["--workflow", CUSTOM_WF_NORM],
     });
-    expect(cliResult.handled).toBe(true);
+    assert.equal(cliResult.handled, true);
   });
 
   test("custom workflow inputs schema consistent across tool and CLI dispatch", async () => {
@@ -563,16 +564,16 @@ describe("shared registry invariant — all consumers see same workflows", () =>
     const r = inputsResult as { action: "inputs"; inputs: Array<{ name: string; type: string }> };
     const inputsByName = Object.fromEntries(r.inputs.map((i) => [i.name, i]));
 
-    expect(inputsByName["message"]).toBeDefined();
-    expect(inputsByName["message"]!.type).toBe("string");
-    expect(inputsByName["count"]).toBeDefined();
-    expect(inputsByName["count"]!.type).toBe("number");
+    assert.notEqual(inputsByName["message"], undefined);
+    assert.equal(inputsByName["message"]!.type, "string");
+    assert.notEqual(inputsByName["count"], undefined);
+    assert.equal(inputsByName["count"]!.type, "number");
 
     // CLI: dispatch with well-formed inputs (same schema path)
     const cliResult = await runWorkflowFromCliFlags({
       runtime,
       argv: ["--workflow", CUSTOM_WF_NORM, "--workflow-input-message=hello"],
     });
-    expect(cliResult.handled).toBe(true);
+    assert.equal(cliResult.handled, true);
   });
 });

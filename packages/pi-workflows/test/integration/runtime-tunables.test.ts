@@ -10,17 +10,18 @@
  * Tests are independent; no shared mutable state.
  *
  * cross-ref:
- *   src/runs/sync/executor.ts     — run(), maxDepth guard, ConcurrencyLimiter
+ *   src/runs/foreground/executor.ts     — run(), maxDepth guard, ConcurrencyLimiter
  *   src/extension/status-writer.ts — createStatusWriter, atomicWriteJson
  *   src/shared/types.ts            — WorkflowRuntimeConfig
  */
 
-import { test, expect, describe, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, test } from "node:test";
+import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { run } from "../../src/runs/sync/executor.js";
-import { createStore } from "../../src/store.js";
+import { run } from "../../src/runs/foreground/executor.js";
+import { createStore } from "../../src/shared/store.js";
 import { createStatusWriter } from "../../src/extension/status-writer.js";
 import { defineWorkflow } from "../../src/workflows/define-workflow.js";
 import type { WorkflowRuntimeConfig } from "../../src/shared/types.js";
@@ -60,9 +61,9 @@ describe("runtime tunables — maxDepth", () => {
       depth: 3,
     });
 
-    expect(result.status).toBe("failed");
-    expect(result.error).toBe("pi-workflows: maxDepth exceeded (max 3)");
-    expect(result.stages).toHaveLength(0);
+    assert.equal(result.status, "failed");
+    assert.equal(result.error, "pi-workflows: maxDepth exceeded (max 3)");
+    assert.equal(result.stages.length, 0);
   });
 
   test("depth > maxDepth returns failed with max in message", async () => {
@@ -76,8 +77,8 @@ describe("runtime tunables — maxDepth", () => {
       depth: 99,
     });
 
-    expect(result.status).toBe("failed");
-    expect(result.error).toBe("pi-workflows: maxDepth exceeded (max 2)");
+    assert.equal(result.status, "failed");
+    assert.equal(result.error, "pi-workflows: maxDepth exceeded (max 2)");
   });
 
   test("depth < maxDepth executes normally", async () => {
@@ -91,8 +92,8 @@ describe("runtime tunables — maxDepth", () => {
       depth: 3,
     });
 
-    expect(result.status).toBe("completed");
-    expect(result.result?.["ran"]).toBe(true);
+    assert.equal(result.status, "completed");
+    assert.equal(result.result?.["ran"], true);
   });
 
   test("no config → no depth limit (backward compat)", async () => {
@@ -106,7 +107,7 @@ describe("runtime tunables — maxDepth", () => {
       // config intentionally omitted
     });
 
-    expect(result.status).toBe("completed");
+    assert.equal(result.status, "completed");
   });
 
   test("failed result carries non-empty runId", async () => {
@@ -120,9 +121,9 @@ describe("runtime tunables — maxDepth", () => {
       depth: 1,
     });
 
-    expect(result.status).toBe("failed");
-    expect(typeof result.runId).toBe("string");
-    expect(result.runId.length).toBeGreaterThan(0);
+    assert.equal(result.status, "failed");
+    assert.equal(typeof result.runId, "string");
+    assert.ok(result.runId.length > 0);
   });
 
   test("pre-allocated runId preserved in maxDepth failure", async () => {
@@ -138,8 +139,8 @@ describe("runtime tunables — maxDepth", () => {
       runId: preId,
     });
 
-    expect(result.status).toBe("failed");
-    expect(result.runId).toBe(preId);
+    assert.equal(result.status, "failed");
+    assert.equal(result.runId, preId);
   });
 });
 
@@ -179,9 +180,9 @@ describe("runtime tunables — defaultConcurrency", () => {
       },
     });
 
-    expect(result.status).toBe("completed");
+    assert.equal(result.status, "completed");
     // With limit=1 only one stage may execute at a time.
-    expect(maxActive).toBe(1);
+    assert.equal(maxActive, 1);
   });
 
   test("defaultConcurrency:1 still completes all stages", async () => {
@@ -211,9 +212,9 @@ describe("runtime tunables — defaultConcurrency", () => {
       },
     });
 
-    expect(result.status).toBe("completed");
-    expect(completed).toHaveLength(3);
-    expect(completed.sort()).toEqual(["alpha", "beta", "gamma"]);
+    assert.equal(result.status, "completed");
+    assert.equal(completed.length, 3);
+    assert.deepEqual(completed.sort(), ["alpha", "beta", "gamma"]);
   });
 
   test("defaultConcurrency:2 allows up to 2 concurrent stages", async () => {
@@ -245,9 +246,9 @@ describe("runtime tunables — defaultConcurrency", () => {
       },
     });
 
-    expect(result.status).toBe("completed");
-    expect(maxActive).toBeLessThanOrEqual(2);
-    expect(maxActive).toBeGreaterThanOrEqual(1);
+    assert.equal(result.status, "completed");
+    assert.ok(maxActive <= 2);
+    assert.ok(maxActive >= 1);
   });
 
   test("slot released after stage failure — next stage can acquire", async () => {
@@ -278,9 +279,9 @@ describe("runtime tunables — defaultConcurrency", () => {
     });
 
     // allSettled → run completes even if one stage throws
-    expect(result.status).toBe("completed");
+    assert.equal(result.status, "completed");
     // The "pass" stage ran after the failing stage released its slot
-    expect(ran).toContain("pass");
+    assert.ok(ran.includes("pass"));
   });
 });
 
@@ -322,10 +323,10 @@ describe("runtime tunables — statusFile", () => {
 
     const raw = await readFile(filePath, "utf8");
     const snap = JSON.parse(raw) as { runs: Array<{ id: string; name: string }>; version: number };
-    expect(snap.runs).toHaveLength(1);
-    expect(snap.runs[0]?.id).toBe("rt-run-1");
-    expect(snap.runs[0]?.name).toBe("my-wf");
-    expect(snap.version).toBeGreaterThan(0);
+    assert.equal(snap.runs.length, 1);
+    assert.equal(snap.runs[0]?.id, "rt-run-1");
+    assert.equal(snap.runs[0]?.name, "my-wf");
+    assert.ok(snap.version > 0);
   });
 
   test("statusFile:true captures terminal status (completed)", async () => {
@@ -353,7 +354,7 @@ describe("runtime tunables — statusFile", () => {
     const snap = JSON.parse(await readFile(filePath, "utf8")) as {
       runs: Array<{ id: string; status: string }>;
     };
-    expect(snap.runs[0]?.status).toBe("completed");
+    assert.equal(snap.runs[0]?.status, "completed");
   });
 
   test("statusFile:true captures terminal status (failed)", async () => {
@@ -381,7 +382,7 @@ describe("runtime tunables — statusFile", () => {
     const snap = JSON.parse(await readFile(filePath, "utf8")) as {
       runs: Array<{ id: string; status: string; error?: string }>;
     };
-    expect(snap.runs[0]?.status).toBe("failed");
+    assert.equal(snap.runs[0]?.status, "failed");
   });
 
   test("statusFile:false writes no file", async () => {
@@ -405,7 +406,7 @@ describe("runtime tunables — statusFile", () => {
     await sleep(50);
     writer.unsubscribe();
 
-    await expect(readFile(filePath, "utf8")).rejects.toThrow();
+    await assert.rejects(readFile(filePath, "utf8"));
   });
 
   test("multiple store updates produce successive flushes", async () => {
@@ -442,7 +443,7 @@ describe("runtime tunables — statusFile", () => {
 
     const snap = JSON.parse(await readFile(filePath, "utf8")) as { runs: Array<{ id: string }> };
     // Both runs should be present after the second flush.
-    expect(snap.runs.map((r) => r.id).sort()).toEqual(["rt-multi-1", "rt-multi-2"]);
+    assert.deepEqual(snap.runs.map((r) => r.id).sort(), ["rt-multi-1", "rt-multi-2"]);
   });
 
   test("write uses projectRoot default path when statusFilePath not set", async () => {
@@ -469,7 +470,7 @@ describe("runtime tunables — statusFile", () => {
     writer.unsubscribe();
 
     const raw = await readFile(expectedPath, "utf8");
-    expect(JSON.parse(raw)).toBeTruthy();
+    assert.ok(JSON.parse(raw));
   });
 
   test("no flush after unsubscribe", async () => {
@@ -502,6 +503,6 @@ describe("runtime tunables — statusFile", () => {
 
     const snapAfter = await readFile(filePath, "utf8");
     // Content must be unchanged — no flush after unsubscribe
-    expect(snapAfter).toBe(snapBefore);
+    assert.equal(snapAfter, snapBefore);
   });
 });

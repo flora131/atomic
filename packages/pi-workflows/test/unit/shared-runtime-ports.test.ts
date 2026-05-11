@@ -4,17 +4,18 @@
  *   WorkflowOverlayAdapter (store-types), and RunOpts port fields.
  */
 
-import { test, expect, describe } from "bun:test";
+import { describe, test } from "node:test";
+import assert from "node:assert/strict";
 import type {
   StageOptions,
   StageMcpOptions,
   WorkflowMcpPort,
   WorkflowPersistencePort,
 } from "../../src/shared/types.js";
-import type { WorkflowOverlayAdapter, WorkflowNotice } from "../../src/store-types.js";
-import type { RunOpts } from "../../src/runs/sync/executor.js";
-import type { CancellationRegistry } from "../../src/runs/detach/cancellation-registry.js";
-import { run } from "../../src/runs/sync/executor.js";
+import type { WorkflowOverlayAdapter, WorkflowNotice } from "../../src/shared/store-types.js";
+import type { RunOpts } from "../../src/runs/foreground/executor.js";
+import type { CancellationRegistry } from "../../src/runs/background/cancellation-registry.js";
+import { run } from "../../src/runs/foreground/executor.js";
 import { defineWorkflow } from "../../src/workflows/define-workflow.js";
 
 // ---------------------------------------------------------------------------
@@ -24,24 +25,24 @@ import { defineWorkflow } from "../../src/workflows/define-workflow.js";
 describe("StageOptions", () => {
   test("empty options object is valid", () => {
     const opts: StageOptions = {};
-    expect(opts).toBeDefined();
+    assert.notEqual(opts, undefined);
   });
 
   test("mcp with allow", () => {
     const opts: StageOptions = { mcp: { allow: ["github", "fetch"] } };
-    expect(opts.mcp?.allow).toEqual(["github", "fetch"]);
+    assert.deepEqual(opts.mcp?.allow, ["github", "fetch"]);
   });
 
   test("mcp with deny", () => {
     const opts: StageOptions = { mcp: { deny: ["filesystem"] } };
-    expect(opts.mcp?.deny).toEqual(["filesystem"]);
+    assert.deepEqual(opts.mcp?.deny, ["filesystem"]);
   });
 
   test("mcp with both allow and deny", () => {
     const mcp: StageMcpOptions = { allow: ["a"], deny: ["b"] };
     const opts: StageOptions = { mcp };
-    expect(opts.mcp?.allow).toEqual(["a"]);
-    expect(opts.mcp?.deny).toEqual(["b"]);
+    assert.deepEqual(opts.mcp?.allow, ["a"]);
+    assert.deepEqual(opts.mcp?.deny, ["b"]);
   });
 });
 
@@ -64,9 +65,9 @@ describe("WorkflowMcpPort", () => {
     port.setScope("s1", ["a"], null);
     port.clearScope("s1");
 
-    expect(calls).toHaveLength(2);
-    expect(calls[0]).toMatchObject({ method: "setScope", args: ["s1", ["a"], null] });
-    expect(calls[1]).toMatchObject({ method: "clearScope", args: ["s1"] });
+    assert.equal(calls.length, 2);
+    assert.deepEqual(calls[0], { method: "setScope", args: ["s1", ["a"], null] }) // TODO: was toMatchObject — may need subset check;
+    assert.deepEqual(calls[1], { method: "clearScope", args: ["s1"] }) // TODO: was toMatchObject — may need subset check;
   });
 });
 
@@ -85,8 +86,8 @@ describe("WorkflowPersistencePort", () => {
     };
 
     const id = port.appendEntry("workflow.run.start", { runId: "r1" });
-    expect(id).toBe("entry-1");
-    expect(appended[0]!.type).toBe("workflow.run.start");
+    assert.equal(id, "entry-1");
+    assert.equal(appended[0]!.type, "workflow.run.start");
   });
 
   test("full stub with setLabel and appendCustomMessageEntry", () => {
@@ -101,8 +102,8 @@ describe("WorkflowPersistencePort", () => {
     port.setLabel?.("e1", "wf:test:abc123");
     port.appendCustomMessageEntry?.("stage completed");
 
-    expect(labels["e1"]).toBe("wf:test:abc123");
-    expect(messages).toContain("stage completed");
+    assert.equal(labels["e1"], "wf:test:abc123");
+    assert.ok(messages.includes("stage completed"));
   });
 });
 
@@ -130,9 +131,9 @@ describe("WorkflowOverlayAdapter", () => {
     adapter.show(notice);
     adapter.hide();
 
-    expect(shown).toHaveLength(1);
-    expect(shown[0]!.message).toBe("stage running");
-    expect(hidden).toBe(true);
+    assert.equal(shown.length, 1);
+    assert.equal(shown[0]!.message, "stage running");
+    assert.equal(hidden, true);
   });
 });
 
@@ -163,10 +164,10 @@ describe("RunOpts port fields", () => {
       signal: abortCtrl.signal,
     };
 
-    expect(opts.mcp).toBe(mcpPort);
-    expect(opts.persistence).toBe(persistencePort);
-    expect(opts.overlay).toBe(overlayAdapter);
-    expect(opts.signal).toBe(abortCtrl.signal);
+    assert.equal(opts.mcp, mcpPort);
+    assert.equal(opts.persistence, persistencePort);
+    assert.equal(opts.overlay, overlayAdapter);
+    assert.equal(opts.signal, abortCtrl.signal);
   });
 
   test("RunOpts accepts CancellationRegistry", () => {
@@ -180,7 +181,7 @@ describe("RunOpts port fields", () => {
     };
 
     const opts: RunOpts = { cancellation: registry };
-    expect(opts.cancellation).toBe(registry);
+    assert.equal(opts.cancellation, registry);
   });
 });
 
@@ -200,8 +201,8 @@ describe("ctx.stage with StageOptions", () => {
       .compile();
 
     const res = await run(wf, {});
-    expect(res.status).toBe("completed");
-    expect(res.stages[0]!.name).toBe("step");
+    assert.equal(res.status, "completed");
+    assert.equal(res.stages[0]!.name, "step");
   });
 
   test("stage(name, options) passes mcp opts to WorkflowMcpPort", async () => {
@@ -230,10 +231,10 @@ describe("ctx.stage with StageOptions", () => {
     const setCall = scopeCalls.find((c) => c.method === "setScope");
     const clearCall = scopeCalls.find((c) => c.method === "clearScope");
 
-    expect(setCall).toBeDefined();
-    expect(setCall?.allow).toEqual(["github"]);
-    expect(setCall?.deny).toEqual(["filesystem"]);
-    expect(clearCall).toBeDefined();
+    assert.notEqual(setCall, undefined);
+    assert.deepEqual(setCall?.allow, ["github"]);
+    assert.deepEqual(setCall?.deny, ["filesystem"]);
+    assert.notEqual(clearCall, undefined);
   });
 
   test("stage with mcp options but no mcp port is a no-op (no throw)", async () => {
@@ -247,7 +248,7 @@ describe("ctx.stage with StageOptions", () => {
       .compile();
 
     const res = await run(wf, {});
-    expect(res.status).toBe("completed");
+    assert.equal(res.status, "completed");
   });
 
   test("stage with empty mcp options ({}) does not call setScope", async () => {
@@ -268,6 +269,6 @@ describe("ctx.stage with StageOptions", () => {
 
     await run(wf, {}, { mcp: mcpPort });
     // No allow/deny → null/null → should NOT call setScope/clearScope
-    expect(scopeCalls).toHaveLength(0);
+    assert.equal(scopeCalls.length, 0);
   });
 });

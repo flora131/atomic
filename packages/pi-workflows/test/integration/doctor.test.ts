@@ -5,7 +5,8 @@
  * builder can be exercised without I/O or bundled workflow loading.
  */
 
-import { test, expect, describe } from "bun:test";
+import { describe, test } from "node:test";
+import assert from "node:assert/strict";
 import { buildDoctorReport } from "../../src/extension/doctor.js";
 import type { DoctorSiblingStatus } from "../../src/extension/doctor.js";
 import { createRegistry } from "../../src/workflows/registry.js";
@@ -97,27 +98,27 @@ function makeMockApi(extras: Partial<ExtensionAPI> = {}): ExtensionAPI & { comma
 describe("buildDoctorReport — header", () => {
   test("starts with 'pi-workflows doctor report'", () => {
     const report = buildDoctorReport(makeDiscovery(), noSiblings);
-    expect(report.startsWith("pi-workflows doctor report")).toBe(true);
+    assert.equal(report.startsWith("pi-workflows doctor report"), true);
   });
 
   test("contains separator line", () => {
     const report = buildDoctorReport(makeDiscovery(), noSiblings);
-    expect(report).toContain("──────────────────────────");
+    assert.ok(report.includes("──────────────────────────"));
   });
 
   test("does NOT contain 'Phase B stub'", () => {
     const report = buildDoctorReport(makeDiscovery(), noSiblings);
-    expect(report).not.toContain("Phase B stub");
+    assert.ok(!report.includes("Phase B stub"));
   });
 
   test("does NOT contain 'Executor: not yet implemented'", () => {
     const report = buildDoctorReport(makeDiscovery(), noSiblings);
-    expect(report).not.toContain("Executor: not yet implemented");
+    assert.ok(!report.includes("Executor: not yet implemented"));
   });
 
   test("does NOT contain 'availability check not yet wired'", () => {
     const report = buildDoctorReport(makeDiscovery(), noSiblings);
-    expect(report).not.toContain("availability check not yet wired");
+    assert.ok(!report.includes("availability check not yet wired"));
   });
 });
 
@@ -128,7 +129,7 @@ describe("buildDoctorReport — header", () => {
 describe("buildDoctorReport — registry count", () => {
   test("shows 0 workflows for empty registry", () => {
     const report = buildDoctorReport(makeDiscovery(), noSiblings);
-    expect(report).toContain("Registry: 0 workflow(s) loaded");
+    assert.ok(report.includes("Registry: 0 workflow(s) loaded"));
   });
 
   test("shows correct count from registry.names()", () => {
@@ -140,8 +141,8 @@ describe("buildDoctorReport — registry count", () => {
     });
     const report = buildDoctorReport(discovery, noSiblings);
     // registry is empty in this fixture; sources are listed separately
-    expect(report).toContain("Registry: 0 workflow(s) loaded");
-    expect(report).toContain("Bundled sources (2):");
+    assert.ok(report.includes("Registry: 0 workflow(s) loaded"));
+    assert.ok(report.includes("Bundled sources (2):"));
   });
 });
 
@@ -152,7 +153,7 @@ describe("buildDoctorReport — registry count", () => {
 describe("buildDoctorReport — bundled sources", () => {
   test("shows '(none)' when no sources", () => {
     const report = buildDoctorReport(makeDiscovery(), noSiblings);
-    expect(report).toContain("Bundled sources: (none)");
+    assert.ok(report.includes("Bundled sources: (none)"));
   });
 
   test("lists each source with kind, id, and name", () => {
@@ -162,9 +163,9 @@ describe("buildDoctorReport — bundled sources", () => {
       ],
     });
     const report = buildDoctorReport(discovery, noSiblings);
-    expect(report).toContain("[bundled]");
-    expect(report).toContain("my-workflow");
-    expect(report).toContain("My Workflow");
+    assert.ok(report.includes("[bundled]"));
+    assert.ok(report.includes("my-workflow"));
+    assert.ok(report.includes("My Workflow"));
   });
 
   test("shows count in header for multiple sources", () => {
@@ -176,7 +177,7 @@ describe("buildDoctorReport — bundled sources", () => {
       ],
     });
     const report = buildDoctorReport(discovery, noSiblings);
-    expect(report).toContain("Bundled sources (3):");
+    assert.ok(report.includes("Bundled sources (3):"));
   });
 });
 
@@ -187,7 +188,7 @@ describe("buildDoctorReport — bundled sources", () => {
 describe("buildDoctorReport — discovery diagnostics", () => {
   test("shows '(none)' when no errors", () => {
     const report = buildDoctorReport(makeDiscovery(), noSiblings);
-    expect(report).toContain("Discovery diagnostics: (none)");
+    assert.ok(report.includes("Discovery diagnostics: (none)"));
   });
 
   test("lists each error with level and code", () => {
@@ -202,9 +203,9 @@ describe("buildDoctorReport — discovery diagnostics", () => {
       ],
     });
     const report = buildDoctorReport(discovery, noSiblings);
-    expect(report).toContain("[error]");
-    expect(report).toContain("INVALID_DEFINITION");
-    expect(report).toContain("badWf");
+    assert.ok(report.includes("[error]"));
+    assert.ok(report.includes("INVALID_DEFINITION"));
+    assert.ok(report.includes("badWf"));
   });
 
   test("lists warn-level duplicate diagnostic", () => {
@@ -219,8 +220,8 @@ describe("buildDoctorReport — discovery diagnostics", () => {
       ],
     });
     const report = buildDoctorReport(discovery, noSiblings);
-    expect(report).toContain("[warn]");
-    expect(report).toContain("DUPLICATE_NAME");
+    assert.ok(report.includes("[warn]"));
+    assert.ok(report.includes("DUPLICATE_NAME"));
   });
 
   test("shows count in header for multiple diagnostics", () => {
@@ -231,7 +232,7 @@ describe("buildDoctorReport — discovery diagnostics", () => {
       ],
     });
     const report = buildDoctorReport(discovery, noSiblings);
-    expect(report).toContain("Discovery diagnostics (2):");
+    assert.ok(report.includes("Discovery diagnostics (2):"));
   });
 });
 
@@ -242,16 +243,16 @@ describe("buildDoctorReport — discovery diagnostics", () => {
 describe("buildDoctorReport — siblings", () => {
   test("shows 'not detected' for all siblings when none present", () => {
     const report = buildDoctorReport(makeDiscovery(), noSiblings);
-    expect(report).toContain("pi-subagents   — not detected");
-    expect(report).toContain("pi-mcp-adapter — not detected");
-    expect(report).toContain("pi-intercom    — not detected");
+    assert.ok(report.includes("pi-subagents   — not detected"));
+    assert.ok(report.includes("pi-mcp-adapter — not detected"));
+    assert.ok(report.includes("pi-intercom    — not detected"));
   });
 
   test("shows 'available' for all siblings when all present", () => {
     const report = buildDoctorReport(makeDiscovery(), allSiblings);
-    expect(report).toContain("pi-subagents   — available");
-    expect(report).toContain("pi-mcp-adapter — available");
-    expect(report).toContain("pi-intercom    — present");
+    assert.ok(report.includes("pi-subagents   — available"));
+    assert.ok(report.includes("pi-mcp-adapter — available"));
+    assert.ok(report.includes("pi-intercom    — present"));
   });
 
   test("shows mixed availability correctly", () => {
@@ -271,9 +272,9 @@ describe("buildDoctorReport — siblings", () => {
       subagentAdapterVia: "unavailable",
     };
     const report = buildDoctorReport(makeDiscovery(), mixed);
-    expect(report).toContain("pi-subagents   — available");
-    expect(report).toContain("pi-mcp-adapter — not detected");
-    expect(report).toContain("pi-intercom    — present");
+    assert.ok(report.includes("pi-subagents   — available"));
+    assert.ok(report.includes("pi-mcp-adapter — not detected"));
+    assert.ok(report.includes("pi-intercom    — present"));
   });
 });
 
@@ -286,11 +287,11 @@ describe("/workflows-doctor execute — integration", () => {
     const api = makeMockApi();
     factory(api);
     const cmd = api.commands.find((c) => c.opts.name === "workflows-doctor")?.opts;
-    expect(cmd).toBeDefined();
+    assert.notEqual(cmd, undefined);
     const messages: string[] = [];
     await cmd!.execute("", { reply: (m) => messages.push(m) });
     const combined = messages.join("\n");
-    expect(combined).toContain("pi-workflows doctor report");
+    assert.ok(combined.includes("pi-workflows doctor report"));
   });
 
   test("shows 'Registry:' line with number", async () => {
@@ -300,7 +301,7 @@ describe("/workflows-doctor execute — integration", () => {
     const messages: string[] = [];
     await cmd!.execute("", { reply: (m) => messages.push(m) });
     const combined = messages.join("\n");
-    expect(combined).toMatch(/Registry: \d+ workflow\(s\) loaded/);
+    assert.match(combined, /Registry: \d+ workflow\(s\) loaded/);
   });
 
   test("shows 'Discovery diagnostics:' section", async () => {
@@ -310,7 +311,7 @@ describe("/workflows-doctor execute — integration", () => {
     const messages: string[] = [];
     await cmd!.execute("", { reply: (m) => messages.push(m) });
     const combined = messages.join("\n");
-    expect(combined).toContain("Discovery diagnostics:");
+    assert.ok(combined.includes("Discovery diagnostics:"));
   });
 
   test("shows 'Capabilities:' section", async () => {
@@ -320,7 +321,7 @@ describe("/workflows-doctor execute — integration", () => {
     const messages: string[] = [];
     await cmd!.execute("", { reply: (m) => messages.push(m) });
     const combined = messages.join("\n");
-    expect(combined).toContain("Capabilities:");
+    assert.ok(combined.includes("Capabilities:"));
   });
 
   test("pi-subagents shows 'available' when pi.subagents present", async () => {
@@ -329,7 +330,7 @@ describe("/workflows-doctor execute — integration", () => {
     const cmd = api.commands.find((c) => c.opts.name === "workflows-doctor")?.opts;
     const messages: string[] = [];
     await cmd!.execute("", { reply: (m) => messages.push(m) });
-    expect(messages.join("\n")).toContain("pi-subagents   — available");
+    assert.ok(messages.join("\n").includes("pi-subagents   — available"));
   });
 
   test("pi-subagents shows 'not detected' when pi.subagents absent", async () => {
@@ -338,7 +339,7 @@ describe("/workflows-doctor execute — integration", () => {
     const cmd = api.commands.find((c) => c.opts.name === "workflows-doctor")?.opts;
     const messages: string[] = [];
     await cmd!.execute("", { reply: (m) => messages.push(m) });
-    expect(messages.join("\n")).toContain("pi-subagents   — not detected");
+    assert.ok(messages.join("\n").includes("pi-subagents   — not detected"));
   });
 
   test("pi-intercom shows 'present' when setSessionName present", async () => {
@@ -347,7 +348,7 @@ describe("/workflows-doctor execute — integration", () => {
     const cmd = api.commands.find((c) => c.opts.name === "workflows-doctor")?.opts;
     const messages: string[] = [];
     await cmd!.execute("", { reply: (m) => messages.push(m) });
-    expect(messages.join("\n")).toContain("pi-intercom    — present");
+    assert.ok(messages.join("\n").includes("pi-intercom    — present"));
   });
 
   test("does NOT say 'Phase B stub'", async () => {
@@ -356,7 +357,7 @@ describe("/workflows-doctor execute — integration", () => {
     const cmd = api.commands.find((c) => c.opts.name === "workflows-doctor")?.opts;
     const messages: string[] = [];
     await cmd!.execute("", { reply: (m) => messages.push(m) });
-    expect(messages.join("\n")).not.toContain("Phase B stub");
+    assert.ok(!messages.join("\n").includes("Phase B stub"));
   });
 
   test("does NOT say 'Executor: not yet implemented'", async () => {
@@ -365,7 +366,7 @@ describe("/workflows-doctor execute — integration", () => {
     const cmd = api.commands.find((c) => c.opts.name === "workflows-doctor")?.opts;
     const messages: string[] = [];
     await cmd!.execute("", { reply: (m) => messages.push(m) });
-    expect(messages.join("\n")).not.toContain("Executor: not yet implemented");
+    assert.ok(!messages.join("\n").includes("Executor: not yet implemented"));
   });
 
   test("falls back to ctx.print when ctx.reply absent", async () => {
@@ -374,8 +375,8 @@ describe("/workflows-doctor execute — integration", () => {
     const cmd = api.commands.find((c) => c.opts.name === "workflows-doctor")?.opts;
     const messages: string[] = [];
     await cmd!.execute("", { print: (m) => messages.push(m) });
-    expect(messages.length).toBeGreaterThan(0);
-    expect(messages.join("\n")).toContain("pi-workflows");
+    assert.ok(messages.length > 0);
+    assert.ok(messages.join("\n").includes("pi-workflows"));
   });
 });
 
@@ -386,18 +387,18 @@ describe("/workflows-doctor execute — integration", () => {
 describe("buildDoctorReport — config diagnostics", () => {
   test("shows '(not loaded)' when configLoad is undefined", () => {
     const report = buildDoctorReport(makeDiscovery(), noSiblings);
-    expect(report).toContain("Config diagnostics: (not loaded)");
+    assert.ok(report.includes("Config diagnostics: (not loaded)"));
   });
 
   test("shows '(not loaded)' when configLoad is null", () => {
     const report = buildDoctorReport(makeDiscovery(), noSiblings, null);
-    expect(report).toContain("Config diagnostics: (not loaded)");
+    assert.ok(report.includes("Config diagnostics: (not loaded)"));
   });
 
   test("shows '(none)' when configLoad has no diagnostics", () => {
     const configLoad: ConfigLoadResult = { config: null, globalConfig: null, projectConfig: null, diagnostics: [] };
     const report = buildDoctorReport(makeDiscovery(), noSiblings, configLoad);
-    expect(report).toContain("Config diagnostics: (none)");
+    assert.ok(report.includes("Config diagnostics: (none)"));
   });
 
   test("lists config diagnostic with level, code, source, and message", () => {
@@ -415,11 +416,11 @@ describe("buildDoctorReport — config diagnostics", () => {
       ],
     };
     const report = buildDoctorReport(makeDiscovery(), noSiblings, configLoad);
-    expect(report).toContain("Config diagnostics (1):");
-    expect(report).toContain("[error]");
-    expect(report).toContain("CONFIG_INVALID");
-    expect(report).toContain("/project/.pi/extensions/workflow/config.json");
-    expect(report).toContain("Invalid JSON in config file");
+    assert.ok(report.includes("Config diagnostics (1):"));
+    assert.ok(report.includes("[error]"));
+    assert.ok(report.includes("CONFIG_INVALID"));
+    assert.ok(report.includes("/project/.pi/extensions/workflow/config.json"));
+    assert.ok(report.includes("Invalid JSON in config file"));
   });
 
   test("shows count for multiple config diagnostics", () => {
@@ -433,7 +434,7 @@ describe("buildDoctorReport — config diagnostics", () => {
       ],
     };
     const report = buildDoctorReport(makeDiscovery(), noSiblings, configLoad);
-    expect(report).toContain("Config diagnostics (2):");
+    assert.ok(report.includes("Config diagnostics (2):"));
   });
 
   test("shows diagnostic without source when source absent", () => {
@@ -446,7 +447,7 @@ describe("buildDoctorReport — config diagnostics", () => {
       ],
     };
     const report = buildDoctorReport(makeDiscovery(), noSiblings, configLoad);
-    expect(report).toContain("CONFIG_INVALID: some error");
+    assert.ok(report.includes("CONFIG_INVALID: some error"));
   });
 });
 
@@ -458,22 +459,22 @@ describe("buildDoctorReport — tunables", () => {
   test("shows default tunables when config is null", () => {
     const configLoad: ConfigLoadResult = { config: null, globalConfig: null, projectConfig: null, diagnostics: [] };
     const report = buildDoctorReport(makeDiscovery(), noSiblings, configLoad);
-    expect(report).toContain("Tunables:");
-    expect(report).toContain("persistRuns        — true");
-    expect(report).toContain("resumeInFlight     — ask");
-    expect(report).toContain("defaultConcurrency — 4");
-    expect(report).toContain("maxDepth           — 4");
-    expect(report).toContain("statusFile         — false");
+    assert.ok(report.includes("Tunables:"));
+    assert.ok(report.includes("persistRuns        — true"));
+    assert.ok(report.includes("resumeInFlight     — ask"));
+    assert.ok(report.includes("defaultConcurrency — 4"));
+    assert.ok(report.includes("maxDepth           — 4"));
+    assert.ok(report.includes("statusFile         — false"));
   });
 
   test("shows default tunables when configLoad is undefined", () => {
     const report = buildDoctorReport(makeDiscovery(), noSiblings);
-    expect(report).toContain("Tunables:");
-    expect(report).toContain("persistRuns        — true");
-    expect(report).toContain("resumeInFlight     — ask");
-    expect(report).toContain("defaultConcurrency — 4");
-    expect(report).toContain("maxDepth           — 4");
-    expect(report).toContain("statusFile         — false");
+    assert.ok(report.includes("Tunables:"));
+    assert.ok(report.includes("persistRuns        — true"));
+    assert.ok(report.includes("resumeInFlight     — ask"));
+    assert.ok(report.includes("defaultConcurrency — 4"));
+    assert.ok(report.includes("maxDepth           — 4"));
+    assert.ok(report.includes("statusFile         — false"));
   });
 
   test("shows overridden tunables from config", () => {
@@ -490,11 +491,11 @@ describe("buildDoctorReport — tunables", () => {
       diagnostics: [],
     };
     const report = buildDoctorReport(makeDiscovery(), noSiblings, configLoad);
-    expect(report).toContain("persistRuns        — false");
-    expect(report).toContain("resumeInFlight     — auto");
-    expect(report).toContain("defaultConcurrency — 8");
-    expect(report).toContain("maxDepth           — 2");
-    expect(report).toContain("statusFile         — true");
+    assert.ok(report.includes("persistRuns        — false"));
+    assert.ok(report.includes("resumeInFlight     — auto"));
+    assert.ok(report.includes("defaultConcurrency — 8"));
+    assert.ok(report.includes("maxDepth           — 2"));
+    assert.ok(report.includes("statusFile         — true"));
   });
 
   test("shows partial overrides; unset fields fall back to defaults", () => {
@@ -505,9 +506,9 @@ describe("buildDoctorReport — tunables", () => {
       diagnostics: [],
     };
     const report = buildDoctorReport(makeDiscovery(), noSiblings, configLoad);
-    expect(report).toContain("maxDepth           — 10");
-    expect(report).toContain("persistRuns        — true");
-    expect(report).toContain("defaultConcurrency — 4");
+    assert.ok(report.includes("maxDepth           — 10"));
+    assert.ok(report.includes("persistRuns        — true"));
+    assert.ok(report.includes("defaultConcurrency — 4"));
   });
 });
 
@@ -519,12 +520,12 @@ describe("buildDoctorReport — configured workflows", () => {
   test("shows '(none configured)' when config has no workflows", () => {
     const configLoad: ConfigLoadResult = { config: {}, globalConfig: null, projectConfig: null, diagnostics: [] };
     const report = buildDoctorReport(makeDiscovery(), noSiblings, configLoad);
-    expect(report).toContain("Configured workflows: (none configured)");
+    assert.ok(report.includes("Configured workflows: (none configured)"));
   });
 
   test("shows '(none configured)' when configLoad is undefined", () => {
     const report = buildDoctorReport(makeDiscovery(), noSiblings);
-    expect(report).toContain("Configured workflows: (none configured)");
+    assert.ok(report.includes("Configured workflows: (none configured)"));
   });
 
   test("lists each configured workflow with name and path", () => {
@@ -539,8 +540,8 @@ describe("buildDoctorReport — configured workflows", () => {
       diagnostics: [],
     };
     const report = buildDoctorReport(makeDiscovery(), noSiblings, configLoad);
-    expect(report).toContain("Configured workflows (1):");
-    expect(report).toContain("my-workflow → ./workflows/my-workflow.ts");
+    assert.ok(report.includes("Configured workflows (1):"));
+    assert.ok(report.includes("my-workflow → ./workflows/my-workflow.ts"));
   });
 
   test("lists multiple configured workflows", () => {
@@ -556,9 +557,9 @@ describe("buildDoctorReport — configured workflows", () => {
       diagnostics: [],
     };
     const report = buildDoctorReport(makeDiscovery(), noSiblings, configLoad);
-    expect(report).toContain("Configured workflows (2):");
-    expect(report).toContain("alpha → /abs/alpha.ts");
-    expect(report).toContain("beta → ./beta.ts");
+    assert.ok(report.includes("Configured workflows (2):"));
+    assert.ok(report.includes("alpha → /abs/alpha.ts"));
+    assert.ok(report.includes("beta → ./beta.ts"));
   });
 
   test("does NOT print file contents — only name and path", () => {
@@ -574,8 +575,8 @@ describe("buildDoctorReport — configured workflows", () => {
     };
     const report = buildDoctorReport(makeDiscovery(), noSiblings, configLoad);
     // Only path, not any file content
-    expect(report).toContain("secret → ./secret-workflow.ts");
-    expect(report).not.toContain("FILE_CONTENTS");
+    assert.ok(report.includes("secret → ./secret-workflow.ts"));
+    assert.ok(!report.includes("FILE_CONTENTS"));
   });
 });
 
@@ -589,7 +590,7 @@ describe("buildDoctorReport — section ordering", () => {
     const report = buildDoctorReport(makeDiscovery(), noSiblings, configLoad);
     const configIdx = report.indexOf("Config diagnostics:");
     const tunablesIdx = report.indexOf("Tunables:");
-    expect(configIdx).toBeLessThan(tunablesIdx);
+    assert.ok(configIdx < tunablesIdx);
   });
 
   test("tunables appears before configured workflows", () => {
@@ -597,7 +598,7 @@ describe("buildDoctorReport — section ordering", () => {
     const report = buildDoctorReport(makeDiscovery(), noSiblings, configLoad);
     const tunablesIdx = report.indexOf("Tunables:");
     const workflowsIdx = report.indexOf("Configured workflows:");
-    expect(tunablesIdx).toBeLessThan(workflowsIdx);
+    assert.ok(tunablesIdx < workflowsIdx);
   });
 
   test("configured workflows appears before capabilities", () => {
@@ -605,7 +606,7 @@ describe("buildDoctorReport — section ordering", () => {
     const report = buildDoctorReport(makeDiscovery(), noSiblings, configLoad);
     const workflowsIdx = report.indexOf("Configured workflows:");
     const capabilitiesIdx = report.indexOf("Capabilities:");
-    expect(workflowsIdx).toBeLessThan(capabilitiesIdx);
+    assert.ok(workflowsIdx < capabilitiesIdx);
   });
 });
 
@@ -620,7 +621,7 @@ describe("/workflows-doctor execute — config sections integration", () => {
     const cmd = api.commands.find((c) => c.opts.name === "workflows-doctor")?.opts;
     const messages: string[] = [];
     await cmd!.execute("", { reply: (m) => messages.push(m) });
-    expect(messages.join("\n")).toContain("Config diagnostics:");
+    assert.ok(messages.join("\n").includes("Config diagnostics:"));
   });
 
   test("shows 'Tunables:' section", async () => {
@@ -629,7 +630,7 @@ describe("/workflows-doctor execute — config sections integration", () => {
     const cmd = api.commands.find((c) => c.opts.name === "workflows-doctor")?.opts;
     const messages: string[] = [];
     await cmd!.execute("", { reply: (m) => messages.push(m) });
-    expect(messages.join("\n")).toContain("Tunables:");
+    assert.ok(messages.join("\n").includes("Tunables:"));
   });
 
   test("shows 'Configured workflows:' section", async () => {
@@ -638,6 +639,6 @@ describe("/workflows-doctor execute — config sections integration", () => {
     const cmd = api.commands.find((c) => c.opts.name === "workflows-doctor")?.opts;
     const messages: string[] = [];
     await cmd!.execute("", { reply: (m) => messages.push(m) });
-    expect(messages.join("\n")).toContain("Configured workflows:");
+    assert.ok(messages.join("\n").includes("Configured workflows:"));
   });
 });

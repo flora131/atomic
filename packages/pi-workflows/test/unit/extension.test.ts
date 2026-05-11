@@ -1,11 +1,12 @@
-import { test, expect } from "bun:test";
+import { test } from "node:test";
+import assert from "node:assert/strict";
 import factory from "../../src/extension/index.js";
 
 test("extension factory is a function", () => {
-  expect(typeof factory).toBe("function");
+  assert.equal(typeof factory, "function");
 });
 
 test("extension factory runs without error (no-op)", () => {
   // Phase A: factory accepts any API object and does nothing.
-  expect(() => factory({})).not.toThrow();
+  assert.doesNotThrow(() => factory({}));
 });

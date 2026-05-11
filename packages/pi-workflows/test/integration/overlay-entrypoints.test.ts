@@ -12,11 +12,12 @@
  *   - /workflow resume with unknown runId does NOT call overlay.open.
  */
 
-import { test, expect, describe } from "bun:test";
+import { describe, test } from "node:test";
+import assert from "node:assert/strict";
 import { buildGraphOverlayAdapter } from "../../src/tui/overlay-adapter.js";
 import type { GraphOverlayPort, OverlayPiSurface } from "../../src/tui/overlay-adapter.js";
 import type { PiCustomOverlayOpts, PiCustomOverlayHandle } from "../../src/extension/wiring.js";
-import { createStore, store as singletonStore } from "../../src/store.js";
+import { createStore, store as singletonStore } from "../../src/shared/store.js";
 import factory from "../../src/extension/index.js";
 import type { ExtensionAPI, PiSlashCommandOpts, PiCommandContext, PiCommandOptions } from "../../src/extension/index.js";
 
@@ -93,16 +94,16 @@ describe("buildGraphOverlayAdapter — absent pi.ui.custom", () => {
     const store = createStore();
     const adapter = buildGraphOverlayAdapter({}, store);
     // noop adapter — calls don't throw
-    expect(() => adapter.open(null)).not.toThrow();
-    expect(() => adapter.open("run-1")).not.toThrow();
-    expect(() => adapter.close()).not.toThrow();
+    assert.doesNotThrow(() => adapter.open(null));
+    assert.doesNotThrow(() => adapter.open("run-1"));
+    assert.doesNotThrow(() => adapter.close());
   });
 
   test("returns noopOverlay when pi.ui.custom is absent", () => {
     const store = createStore();
     const adapter = buildGraphOverlayAdapter({ ui: {} }, store);
-    expect(() => adapter.open("run-1")).not.toThrow();
-    expect(() => adapter.close()).not.toThrow();
+    assert.doesNotThrow(() => adapter.open("run-1"));
+    assert.doesNotThrow(() => adapter.close());
   });
 });
 
@@ -118,8 +119,8 @@ describe("buildGraphOverlayAdapter — open with pi.ui.custom", () => {
 
     adapter.open("run-abc");
 
-    expect(calls).toHaveLength(1);
-    expect(calls[0]!.opts.overlay).toBe(true);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]!.opts.overlay, true);
   });
 
   test("open(runId) passes render callback that returns string[]", () => {
@@ -130,9 +131,9 @@ describe("buildGraphOverlayAdapter — open with pi.ui.custom", () => {
     adapter.open("run-abc");
 
     const { render } = calls[0]!.opts;
-    expect(typeof render).toBe("function");
+    assert.equal(typeof render, "function");
     const lines = render!(80);
-    expect(Array.isArray(lines)).toBe(true);
+    assert.equal(Array.isArray(lines), true);
   });
 
   test("open(runId) passes onInput callback", () => {
@@ -143,10 +144,10 @@ describe("buildGraphOverlayAdapter — open with pi.ui.custom", () => {
     adapter.open("run-abc");
 
     const { onInput } = calls[0]!.opts;
-    expect(typeof onInput).toBe("function");
+    assert.equal(typeof onInput, "function");
     // GraphView handles "q" as close key — returns true (consumed)
     const consumed = onInput!("q");
-    expect(typeof consumed).toBe("boolean");
+    assert.equal(typeof consumed, "boolean");
   });
 
   test("open(runId) passes onClose callback", () => {
@@ -156,7 +157,7 @@ describe("buildGraphOverlayAdapter — open with pi.ui.custom", () => {
 
     adapter.open("run-abc");
 
-    expect(typeof calls[0]!.opts.onClose).toBe("function");
+    assert.equal(typeof calls[0]!.opts.onClose, "function");
   });
 
   test("open(null) still calls pi.ui.custom", () => {
@@ -166,8 +167,8 @@ describe("buildGraphOverlayAdapter — open with pi.ui.custom", () => {
 
     adapter.open(null);
 
-    expect(calls).toHaveLength(1);
-    expect(calls[0]!.opts.overlay).toBe(true);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]!.opts.overlay, true);
   });
 
   test("second open() closes previous overlay before opening new one", () => {
@@ -189,9 +190,9 @@ describe("buildGraphOverlayAdapter — open with pi.ui.custom", () => {
     adapter.open("run-2");
 
     // First handle should be closed when second open() is called
-    expect(closedCount).toBeGreaterThanOrEqual(1);
+    assert.ok(closedCount >= 1);
     // Two custom calls total
-    expect(calls).toHaveLength(2);
+    assert.equal(calls.length, 2);
   });
 });
 
@@ -213,7 +214,7 @@ describe("buildGraphOverlayAdapter — close", () => {
     adapter.open("run-1");
     adapter.close();
 
-    expect(closedCount).toBe(1);
+    assert.equal(closedCount, 1);
   });
 
   test("close() before open() does not throw", () => {
@@ -221,7 +222,7 @@ describe("buildGraphOverlayAdapter — close", () => {
     const store = createStore();
     const adapter = buildGraphOverlayAdapter({ ui }, store);
 
-    expect(() => adapter.close()).not.toThrow();
+    assert.doesNotThrow(() => adapter.close());
   });
 
   test("close() via onClose callback cleans up state", () => {
@@ -244,7 +245,7 @@ describe("buildGraphOverlayAdapter — close", () => {
     adapter.close();
     // close() count: 1 from host close, 1 from adapter.close() calling handle again?
     // Actually after onClose runs, currentHandle is set to null, so adapter.close() is safe.
-    expect(closedCount).toBeGreaterThanOrEqual(1);
+    assert.ok(closedCount >= 1);
   });
 });
 
@@ -256,7 +257,7 @@ describe("extension factory — F2 shortcut", () => {
   test("F2 shortcut is registered when registerShortcut is present", () => {
     const { pi, shortcuts } = buildMockPi();
     factory(pi);
-    expect("F2" in shortcuts).toBe(true);
+    assert.equal("F2" in shortcuts, true);
   });
 
   test("F2 handler calls pi.ui.custom with overlay:true", () => {
@@ -265,15 +266,15 @@ describe("extension factory — F2 shortcut", () => {
 
     shortcuts["F2"]!();
 
-    expect(customCalls.length).toBeGreaterThanOrEqual(1);
-    expect(customCalls[0]!.opts.overlay).toBe(true);
+    assert.ok(customCalls.length >= 1);
+    assert.equal(customCalls[0]!.opts.overlay, true);
   });
 
   test("F2 handler does not throw when no active run", () => {
     const { pi, shortcuts } = buildMockPi();
     factory(pi);
     // store.activeRunId() → null when no run started
-    expect(() => shortcuts["F2"]!()).not.toThrow();
+    assert.doesNotThrow(() => shortcuts["F2"]!());
   });
 
   test("F2 shortcut NOT registered when registerShortcut absent", () => {
@@ -281,8 +282,8 @@ describe("extension factory — F2 shortcut", () => {
     delete pi.registerShortcut;
     const shortcuts: Record<string, () => void> = {};
     // Should not crash when registerShortcut is absent
-    expect(() => factory(pi)).not.toThrow();
-    expect("F2" in shortcuts).toBe(false);
+    assert.doesNotThrow(() => factory(pi));
+    assert.equal("F2" in shortcuts, false);
   });
 });
 
@@ -315,7 +316,7 @@ describe("/workflow resume — overlay integration", () => {
     // (overlay.open only called on success)
     // Note: the execute is async, check after microtasks settle
     // We use a simple synchronous assertion since store starts empty
-    expect(customCalls).toHaveLength(0);
+    assert.equal(customCalls.length, 0);
   });
 
   test("resume with no runId prints usage", async () => {
@@ -327,7 +328,7 @@ describe("/workflow resume — overlay integration", () => {
 
     await wfCmd.execute("resume", ctx);
 
-    expect(messages.some((m) => m.includes("Usage"))).toBe(true);
+    assert.equal(messages.some((m) => m.includes("Usage")), true);
   });
 
   test("resume subcommand is listed in argument completions", async () => {
@@ -337,7 +338,7 @@ describe("/workflow resume — overlay integration", () => {
     const wfCmd = commands["workflow"]!;
     const completions = await wfCmd.getArgumentCompletions?.("res") ?? [];
 
-    expect(completions.some((c) => c.label === "resume")).toBe(true);
+    assert.equal(completions.some((c) => c.label === "resume"), true);
   });
 
   // RFC regression gate: overlay.open MUST be called when resume succeeds.
@@ -365,8 +366,8 @@ describe("/workflow resume — overlay integration", () => {
     await wfCmd.execute(`resume ${runId}`, ctx);
 
     // overlay.open(runId) must have been called → pi.ui.custom fired
-    expect(customCalls.length).toBeGreaterThanOrEqual(1);
-    expect(customCalls[0]!.opts.overlay).toBe(true);
+    assert.ok(customCalls.length >= 1);
+    assert.equal(customCalls[0]!.opts.overlay, true);
   });
 
   test("resume with still-active runId calls overlay.open", async () => {
@@ -392,8 +393,8 @@ describe("/workflow resume — overlay integration", () => {
     await wfCmd.execute(`resume ${runId}`, ctx);
 
     // resumeRun now returns ok:true for active runs — overlay.open should be called
-    expect(customCalls).toHaveLength(1);
-    expect(customCalls[0]!.opts.overlay).toBe(true);
+    assert.equal(customCalls.length, 1);
+    assert.equal(customCalls[0]!.opts.overlay, true);
   });
 });
 
@@ -412,7 +413,7 @@ describe("/workflows-doctor — overlay capability fields", () => {
     await doctorCmd.execute("", ctx);
 
     const report = messages.join("\n");
-    expect(report).toContain("ui.custom");
+    assert.ok(report.includes("ui.custom"));
   });
 
   test("doctor report includes shortcut line", async () => {
@@ -425,6 +426,6 @@ describe("/workflows-doctor — overlay capability fields", () => {
     await doctorCmd.execute("", ctx);
 
     const report = messages.join("\n");
-    expect(report).toContain("shortcut");
+    assert.ok(report.includes("shortcut"));
   });
 });

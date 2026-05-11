@@ -1,4 +1,5 @@
-import { test, expect, describe } from "bun:test";
+import { describe, test } from "node:test";
+import assert from "node:assert/strict";
 import { defineWorkflow } from "../../src/workflows/define-workflow.js";
 import type { WorkflowDefinition } from "../../src/shared/types.js";
 
@@ -13,21 +14,20 @@ describe("defineWorkflow builder", () => {
       })
       .compile();
 
-    expect(def.__piWorkflow).toBe(true);
-    expect(def.name).toBe("my-workflow");
-    expect(def.description).toBe("test workflow");
-    expect(def.inputs["prompt"]).toEqual({ type: "text", required: true, description: "task" });
-    expect(typeof def.run).toBe("function");
+    assert.equal(def.__piWorkflow, true);
+    assert.equal(def.name, "my-workflow");
+    assert.equal(def.description, "test workflow");
+    assert.deepEqual(def.inputs["prompt"], { type: "text", required: true, description: "task" });
+    assert.equal(typeof def.run, "function");
   });
 
   test("compile throws if .run() not called", () => {
-    expect(() =>
-      (defineWorkflow("broken") as unknown as ReturnType<typeof defineWorkflow> & { compile(): unknown }).compile()
-    ).toThrow('.run(fn) must be called before .compile()');
+    assert.throws(() =>
+      (defineWorkflow("broken") as unknown as ReturnType<typeof defineWorkflow> & { compile(): unknown }).compile(), { message: '.run(fn) must be called before .compile()' });
   });
 
   test("defineWorkflow throws on empty name", () => {
-    expect(() => defineWorkflow("")).toThrow("name must be a non-empty string");
+    assert.throws(() => defineWorkflow(""), { message: "name must be a non-empty string" });
   });
 
   test("definition is frozen", () => {
@@ -35,10 +35,10 @@ describe("defineWorkflow builder", () => {
       .run(async () => ({}))
       .compile();
 
-    expect(() => {
+    assert.throws(() => {
       // @ts-expect-error intentionally mutating frozen object
       def.name = "mutated";
-    }).toThrow();
+    });
   });
 
   test("multiple inputs accumulate", () => {
@@ -48,7 +48,7 @@ describe("defineWorkflow builder", () => {
       .run(async () => ({}))
       .compile();
 
-    expect(Object.keys(def.inputs)).toEqual(["a", "b"]);
-    expect(def.inputs["b"]).toEqual({ type: "number", default: 4 });
+    assert.deepEqual(Object.keys(def.inputs), ["a", "b"]);
+    assert.deepEqual(def.inputs["b"], { type: "number", default: 4 });
   });
 });

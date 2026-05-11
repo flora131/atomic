@@ -7,10 +7,11 @@
  *  - StoreSnapshot includes notices
  */
 
-import { test, expect, describe, beforeEach } from "bun:test";
-import { createStore } from "../../src/store.js";
-import type { Store } from "../../src/store.js";
-import type { RunSnapshot, WorkflowNotice } from "../../src/store-types.js";
+import { beforeEach, describe, test } from "node:test";
+import assert from "node:assert/strict";
+import { createStore } from "../../src/shared/store.js";
+import type { Store } from "../../src/shared/store.js";
+import type { RunSnapshot, WorkflowNotice } from "../../src/shared/store-types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -50,18 +51,18 @@ describe("recordRunEnd — terminal guard", () => {
   });
 
   test("returns true when state changes (running → completed)", () => {
-    expect(s.recordRunEnd("r1", "completed")).toBe(true);
+    assert.equal(s.recordRunEnd("r1", "completed"), true);
   });
 
   test("returns false for unknown runId", () => {
-    expect(s.recordRunEnd("no-such-run", "completed")).toBe(false);
+    assert.equal(s.recordRunEnd("no-such-run", "completed"), false);
   });
 
   test("sets endedAt and durationMs on success", () => {
     s.recordRunEnd("r1", "completed");
     const run = s.runs().find((r) => r.id === "r1")!;
-    expect(run.endedAt).toBeDefined();
-    expect(run.durationMs).toBeGreaterThanOrEqual(0);
+    assert.notEqual(run.endedAt, undefined);
+    assert.ok(run.durationMs >= 0);
   });
 
   // --- completed is terminal ---
@@ -69,77 +70,77 @@ describe("recordRunEnd — terminal guard", () => {
   test("completed cannot be overwritten by completed", () => {
     s.recordRunEnd("r1", "completed");
     const changed = s.recordRunEnd("r1", "completed");
-    expect(changed).toBe(false);
+    assert.equal(changed, false);
   });
 
   test("completed cannot be overwritten by failed", () => {
     s.recordRunEnd("r1", "completed");
-    expect(s.recordRunEnd("r1", "failed")).toBe(false);
-    expect(s.runs().find((r) => r.id === "r1")!.status).toBe("completed");
+    assert.equal(s.recordRunEnd("r1", "failed"), false);
+    assert.equal(s.runs().find((r) => r.id === "r1")!.status, "completed");
   });
 
   test("completed cannot be overwritten by killed", () => {
     s.recordRunEnd("r1", "completed");
-    expect(s.recordRunEnd("r1", "killed")).toBe(false);
-    expect(s.runs().find((r) => r.id === "r1")!.status).toBe("completed");
+    assert.equal(s.recordRunEnd("r1", "killed"), false);
+    assert.equal(s.runs().find((r) => r.id === "r1")!.status, "completed");
   });
 
   // --- failed is terminal ---
 
   test("failed cannot be overwritten by completed", () => {
     s.recordRunEnd("r1", "failed");
-    expect(s.recordRunEnd("r1", "completed")).toBe(false);
-    expect(s.runs().find((r) => r.id === "r1")!.status).toBe("failed");
+    assert.equal(s.recordRunEnd("r1", "completed"), false);
+    assert.equal(s.runs().find((r) => r.id === "r1")!.status, "failed");
   });
 
   test("failed cannot be overwritten by killed", () => {
     s.recordRunEnd("r1", "failed");
-    expect(s.recordRunEnd("r1", "killed")).toBe(false);
+    assert.equal(s.recordRunEnd("r1", "killed"), false);
   });
 
   // --- killed is terminal ---
 
   test("killed cannot be overwritten by completed", () => {
     s.recordRunEnd("r1", "killed");
-    expect(s.recordRunEnd("r1", "completed")).toBe(false);
-    expect(s.runs().find((r) => r.id === "r1")!.status).toBe("killed");
+    assert.equal(s.recordRunEnd("r1", "completed"), false);
+    assert.equal(s.runs().find((r) => r.id === "r1")!.status, "killed");
   });
 
   test("killed cannot be overwritten by failed", () => {
     s.recordRunEnd("r1", "killed");
-    expect(s.recordRunEnd("r1", "failed")).toBe(false);
+    assert.equal(s.recordRunEnd("r1", "failed"), false);
   });
 
   // --- result/error field rules ---
 
   test("result stored only for completed", () => {
     s.recordRunEnd("r1", "completed", { answer: 42 });
-    expect(s.runs().find((r) => r.id === "r1")!.result).toEqual({ answer: 42 });
+    assert.deepEqual(s.runs().find((r) => r.id === "r1")!.result, { answer: 42 });
   });
 
   test("result NOT stored for failed (wrong status)", () => {
     s.recordRunEnd("r1", "failed", { answer: 42 });
-    expect(s.runs().find((r) => r.id === "r1")!.result).toBeUndefined();
+    assert.equal(s.runs().find((r) => r.id === "r1")!.result, undefined);
   });
 
   test("result NOT stored for killed", () => {
     s.recordRunEnd("r1", "killed", { answer: 42 });
-    expect(s.runs().find((r) => r.id === "r1")!.result).toBeUndefined();
+    assert.equal(s.runs().find((r) => r.id === "r1")!.result, undefined);
   });
 
   test("error stored for failed", () => {
     s.recordRunEnd("r1", "failed", undefined, "boom");
-    expect(s.runs().find((r) => r.id === "r1")!.error).toBe("boom");
+    assert.equal(s.runs().find((r) => r.id === "r1")!.error, "boom");
   });
 
   test("error stored for killed", () => {
     s.recordRunEnd("r1", "killed", undefined, "signal 9");
-    expect(s.runs().find((r) => r.id === "r1")!.error).toBe("signal 9");
+    assert.equal(s.runs().find((r) => r.id === "r1")!.error, "signal 9");
   });
 
   test("error NOT stored for completed", () => {
     s.recordRunEnd("r1", "completed", undefined, "ignored-error");
-    expect(s.runs().find((r) => r.id === "r1")!.error).toBeUndefined();
+    assert.equal(s.runs().find((r) => r.id === "r1")!.error, undefined);
   });
 
   // --- endedAt not overwritten on guard rejection ---
@@ -149,8 +150,8 @@ describe("recordRunEnd — terminal guard", () => {
     const endedAt = s.runs().find((r) => r.id === "r1")!.endedAt!;
     // small delay then attempt overwrite
     const changed = s.recordRunEnd("r1", "failed");
-    expect(changed).toBe(false);
-    expect(s.runs().find((r) => r.id === "r1")!.endedAt).toBe(endedAt);
+    assert.equal(changed, false);
+    assert.equal(s.runs().find((r) => r.id === "r1")!.endedAt, endedAt);
   });
 
   // --- subscriber notified exactly once per successful call ---
@@ -163,7 +164,7 @@ describe("recordRunEnd — terminal guard", () => {
     const versionAfterFirst = calls[calls.length - 1];
 
     s.recordRunEnd("r1", "failed"); // guard: no notify
-    expect(calls[calls.length - 1]).toBe(versionAfterFirst);
+    assert.equal(calls[calls.length - 1], versionAfterFirst);
   });
 });
 
@@ -179,28 +180,28 @@ describe("recordNotice and ackNotice", () => {
   });
 
   test("notices() initially empty", () => {
-    expect(s.notices()).toHaveLength(0);
+    assert.equal(s.notices().length, 0);
   });
 
   test("recordNotice stores notice", () => {
     s.recordNotice(makeNotice("n1"));
-    expect(s.notices()).toHaveLength(1);
-    expect(s.notices()[0]!.id).toBe("n1");
+    assert.equal(s.notices().length, 1);
+    assert.equal(s.notices()[0]!.id, "n1");
   });
 
   test("recordNotice increments version and notifies", () => {
     const versions: number[] = [];
     s.subscribe((snap) => versions.push(snap.version));
     s.recordNotice(makeNotice("n1"));
-    expect(versions.length).toBeGreaterThanOrEqual(1);
+    assert.ok(versions.length >= 1);
   });
 
   test("notices included in snapshot", () => {
     s.recordNotice(makeNotice("n1", { level: "warning", message: "watch out" }));
     const snap = s.snapshot();
-    expect(snap.notices).toHaveLength(1);
-    expect(snap.notices[0]!.level).toBe("warning");
-    expect(snap.notices[0]!.message).toBe("watch out");
+    assert.equal(snap.notices.length, 1);
+    assert.equal(snap.notices[0]!.level, "warning");
+    assert.equal(snap.notices[0]!.message, "watch out");
   });
 
   test("ackNotice returns true and sets ackedAt", () => {
@@ -208,20 +209,20 @@ describe("recordNotice and ackNotice", () => {
     const before = Date.now();
     const result = s.ackNotice("n1");
     const after = Date.now();
-    expect(result).toBe(true);
+    assert.equal(result, true);
     const notice = s.notices().find((n) => n.id === "n1")!;
-    expect(notice.ackedAt).toBeGreaterThanOrEqual(before);
-    expect(notice.ackedAt).toBeLessThanOrEqual(after);
+    assert.ok(notice.ackedAt >= before);
+    assert.ok(notice.ackedAt <= after);
   });
 
   test("ackNotice returns false for unknown id", () => {
-    expect(s.ackNotice("no-such-notice")).toBe(false);
+    assert.equal(s.ackNotice("no-such-notice"), false);
   });
 
   test("ackNotice returns false if already acked", () => {
     s.recordNotice(makeNotice("n1"));
     s.ackNotice("n1");
-    expect(s.ackNotice("n1")).toBe(false);
+    assert.equal(s.ackNotice("n1"), false);
   });
 
   test("ackNotice notifies subscriber", () => {
@@ -229,29 +230,29 @@ describe("recordNotice and ackNotice", () => {
     const versions: number[] = [];
     s.subscribe((snap) => versions.push(snap.version));
     s.ackNotice("n1");
-    expect(versions.length).toBeGreaterThanOrEqual(1);
+    assert.ok(versions.length >= 1);
   });
 
   test("ackNotice on unknown id does not notify", () => {
     const versions: number[] = [];
     s.subscribe((snap) => versions.push(snap.version));
     s.ackNotice("ghost");
-    expect(versions.length).toBe(0);
+    assert.equal(versions.length, 0);
   });
 
   test("multiple notices stored independently", () => {
     s.recordNotice(makeNotice("n1", { level: "info" }));
     s.recordNotice(makeNotice("n2", { level: "error" }));
     s.recordNotice(makeNotice("n3", { level: "warning" }));
-    expect(s.notices()).toHaveLength(3);
-    expect(s.notices()[1]!.level).toBe("error");
+    assert.equal(s.notices().length, 3);
+    assert.equal(s.notices()[1]!.level, "error");
   });
 
   test("notice can carry runId and stageId", () => {
     s.recordNotice(makeNotice("n1", { runId: "r1", stageId: "s1" }));
     const snap = s.snapshot();
-    expect(snap.notices[0]!.runId).toBe("r1");
-    expect(snap.notices[0]!.stageId).toBe("s1");
+    assert.equal(snap.notices[0]!.runId, "r1");
+    assert.equal(snap.notices[0]!.stageId, "s1");
   });
 
   test("snapshot notices are deep-cloned (immutable from outside)", () => {
@@ -259,6 +260,6 @@ describe("recordNotice and ackNotice", () => {
     const snap = s.snapshot();
     // Mutating snapshot should not affect store
     (snap.notices[0] as WorkflowNotice).message = "mutated";
-    expect(s.notices()[0]!.message).toBe("original");
+    assert.equal(s.notices()[0]!.message, "original");
   });
 });

@@ -1,4 +1,5 @@
-import { test, expect, describe } from "bun:test";
+import { describe, test } from "node:test";
+import assert from "node:assert/strict";
 import { createRegistry } from "../../src/workflows/registry.js";
 import { defineWorkflow } from "../../src/workflows/define-workflow.js";
 
@@ -11,19 +12,19 @@ function makeWorkflow(name: string, description = "") {
 
 describe("WorkflowRegistry extended operations", () => {
   test("has() returns false for empty registry", () => {
-    expect(createRegistry().has("anything")).toBe(false);
+    assert.equal(createRegistry().has("anything"), false);
   });
 
   test("has() returns true after register", () => {
     const r = createRegistry().register(makeWorkflow("w1"));
-    expect(r.has("w1")).toBe(true);
+    assert.equal(r.has("w1"), true);
   });
 
   test("has() normalizes name before lookup", () => {
     const r = createRegistry().register(makeWorkflow("my workflow"));
-    expect(r.has("my-workflow")).toBe(true);
-    expect(r.has("My Workflow")).toBe(true);
-    expect(r.has("my_workflow")).toBe(true);
+    assert.equal(r.has("my-workflow"), true);
+    assert.equal(r.has("My Workflow"), true);
+    assert.equal(r.has("my_workflow"), true);
   });
 
   test("remove() returns new registry without the entry", () => {
@@ -31,50 +32,50 @@ describe("WorkflowRegistry extended operations", () => {
     const r2 = r1.remove("w1");
 
     // r1 unchanged
-    expect(r1.has("w1")).toBe(true);
+    assert.equal(r1.has("w1"), true);
     // r2 without w1
-    expect(r2.has("w1")).toBe(false);
-    expect(r2.has("w2")).toBe(true);
+    assert.equal(r2.has("w1"), false);
+    assert.equal(r2.has("w2"), true);
   });
 
   test("remove() is no-op when name not found", () => {
     const r = createRegistry([makeWorkflow("w1")]);
     const r2 = r.remove("nonexistent");
-    expect(r2.names()).toEqual(r.names());
+    assert.deepEqual(r2.names(), r.names());
   });
 
   test("remove() normalizes name", () => {
     const r = createRegistry([makeWorkflow("my workflow")]);
     const r2 = r.remove("my-workflow");
-    expect(r2.has("my-workflow")).toBe(false);
+    assert.equal(r2.has("my-workflow"), false);
   });
 
   test("upsert() is an alias for register()", () => {
     const w = makeWorkflow("w1");
     const r = createRegistry().upsert(w);
-    expect(r.has("w1")).toBe(true);
-    expect(r.get("w1")?.name).toBe("w1");
+    assert.equal(r.has("w1"), true);
+    assert.equal(r.get("w1")?.name, "w1");
   });
 
   test("upsert() replaces existing entry", () => {
     const w1a = makeWorkflow("w1", "original");
     const w1b = makeWorkflow("w1", "updated");
     const r = createRegistry().upsert(w1a).upsert(w1b);
-    expect(r.get("w1")?.description).toBe("updated");
-    expect(r.names().length).toBe(1);
+    assert.equal(r.get("w1")?.description, "updated");
+    assert.equal(r.names().length, 1);
   });
 
   test("get() normalizes lookup name", () => {
     const r = createRegistry([makeWorkflow("deep research codebase")]);
     const def = r.get("deep-research-codebase");
-    expect(def).not.toBeUndefined();
-    expect(def?.name).toBe("deep research codebase");
+    assert.notEqual(def, undefined);
+    assert.equal(def?.name, "deep research codebase");
   });
 
   test("registry keys are normalized names", () => {
     const r = createRegistry([makeWorkflow("My Workflow")]);
     // names() returns normalized form
-    expect(r.names()).toEqual(["my-workflow"]);
+    assert.deepEqual(r.names(), ["my-workflow"]);
   });
 });
 
@@ -85,15 +86,15 @@ describe("WorkflowRegistry merge collision behavior", () => {
     const rA = createRegistry([wA]);
     const rB = createRegistry([wB]);
     const merged = rA.merge(rB);
-    expect(merged.get("shared")?.description).toBe("from-B");
-    expect(merged.names().length).toBe(1);
+    assert.equal(merged.get("shared")?.description, "from-B");
+    assert.equal(merged.names().length, 1);
   });
 
   test("merge: non-colliding entries all present", () => {
     const rA = createRegistry([makeWorkflow("alpha"), makeWorkflow("beta")]);
     const rB = createRegistry([makeWorkflow("gamma")]);
     const merged = rA.merge(rB);
-    expect(merged.names().sort()).toEqual(["alpha", "beta", "gamma"]);
+    assert.deepEqual(merged.names().sort(), ["alpha", "beta", "gamma"]);
   });
 
   test("merge: original registries unchanged after collision", () => {
@@ -102,8 +103,8 @@ describe("WorkflowRegistry merge collision behavior", () => {
     const rA = createRegistry([wA]);
     const rB = createRegistry([wB]);
     rA.merge(rB);
-    expect(rA.get("shared")?.description).toBe("from-A");
-    expect(rB.get("shared")?.description).toBe("from-B");
+    assert.equal(rA.get("shared")?.description, "from-A");
+    assert.equal(rB.get("shared")?.description, "from-B");
   });
 });
 
@@ -113,7 +114,7 @@ describe("WorkflowRegistry insertion order", () => {
       .register(makeWorkflow("alpha"))
       .register(makeWorkflow("beta"))
       .register(makeWorkflow("gamma"));
-    expect(r.names()).toEqual(["alpha", "beta", "gamma"]);
+    assert.deepEqual(r.names(), ["alpha", "beta", "gamma"]);
   });
 
   test("all() preserves insertion order", () => {
@@ -121,7 +122,7 @@ describe("WorkflowRegistry insertion order", () => {
       .register(makeWorkflow("first"))
       .register(makeWorkflow("second"))
       .register(makeWorkflow("third"));
-    expect(r.all().map((d) => d.name)).toEqual(["first", "second", "third"]);
+    assert.deepEqual(r.all().map((d) => d.name), ["first", "second", "third"]);
   });
 
   test("re-registering same name preserves original insertion position", () => {
@@ -131,13 +132,13 @@ describe("WorkflowRegistry insertion order", () => {
       .register(makeWorkflow("beta"))
       .register(makeWorkflow("alpha", "updated"));
     // "alpha" retains its first-insertion position
-    expect(r.names()).toEqual(["alpha", "beta"]);
+    assert.deepEqual(r.names(), ["alpha", "beta"]);
     // but with updated description
-    expect(r.get("alpha")?.description).toBe("updated");
+    assert.equal(r.get("alpha")?.description, "updated");
   });
 
   test("initial array populates in array order", () => {
     const r = createRegistry([makeWorkflow("x"), makeWorkflow("y"), makeWorkflow("z")]);
-    expect(r.names()).toEqual(["x", "y", "z"]);
+    assert.deepEqual(r.names(), ["x", "y", "z"]);
   });
 });

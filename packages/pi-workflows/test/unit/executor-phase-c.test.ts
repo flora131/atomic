@@ -7,9 +7,10 @@
  *  - Missing complete adapter error.
  *  - Missing subagent adapter error (must mention pi-subagents install guidance).
  */
-import { test, expect, describe } from "bun:test";
-import { run, resolveInputs } from "../../src/runs/sync/executor.js";
-import { createStore } from "../../src/store.js";
+import { describe, test } from "node:test";
+import assert from "node:assert/strict";
+import { run, resolveInputs } from "../../src/runs/foreground/executor.js";
+import { createStore } from "../../src/shared/store.js";
 import { defineWorkflow } from "../../src/workflows/define-workflow.js";
 import type { WorkflowDefinition } from "../../src/shared/types.js";
 
@@ -28,50 +29,47 @@ function promptAdapter(fn: (text: string) => Promise<string> | string = (t) => `
 describe("resolveInputs — Phase C", () => {
   test("applies default when key absent", () => {
     const r = resolveInputs({ msg: { type: "text", default: "hello" } }, {});
-    expect(r["msg"]).toBe("hello");
+    assert.equal(r["msg"], "hello");
   });
 
   test("provided value overrides default", () => {
     const r = resolveInputs({ msg: { type: "text", default: "hello" } }, { msg: "world" });
-    expect(r["msg"]).toBe("world");
+    assert.equal(r["msg"], "world");
   });
 
   test("boolean false is preserved and not overridden by default", () => {
     const r = resolveInputs({ flag: { type: "boolean", default: true } }, { flag: false });
-    expect(r["flag"]).toBe(false);
+    assert.equal(r["flag"], false);
   });
 
   test("number default applied", () => {
     const r = resolveInputs({ count: { type: "number", default: 7 } }, {});
-    expect(r["count"]).toBe(7);
+    assert.equal(r["count"], 7);
   });
 
   test("required field present — no throw", () => {
     const r = resolveInputs({ q: { type: "text", required: true } }, { q: "value" });
-    expect(r["q"]).toBe("value");
+    assert.equal(r["q"], "value");
   });
 
   test("required field absent — throws with field name", () => {
-    expect(() => resolveInputs({ q: { type: "text", required: true } }, {})).toThrow(
-      'pi-workflows: required input "q" not provided',
-    );
+    assert.throws(() => resolveInputs({ q: { type: "text", required: true } }, {}), { message: 'pi-workflows: required input "q" not provided', });
   });
 
   test("multiple required fields — throws on first missing", () => {
-    expect(() =>
+    assert.throws(() =>
       resolveInputs(
         {
           a: { type: "text", required: true },
           b: { type: "text", required: true },
         },
         { a: "present" },
-      ),
-    ).toThrow('pi-workflows: required input "b" not provided');
+      ), { message: 'pi-workflows: required input "b" not provided' });
   });
 
   test("optional field with no default and not provided — stays undefined", () => {
     const r = resolveInputs({ x: { type: "text" } }, {});
-    expect(r["x"]).toBeUndefined();
+    assert.equal(r["x"], undefined);
   });
 });
 
@@ -93,8 +91,8 @@ describe("executor single-stage — Phase C", () => {
       store: createStore(),
     });
 
-    expect(result.status).toBe("completed");
-    expect(result.result?.["out"]).toBe("result:do work");
+    assert.equal(result.status, "completed");
+    assert.equal(result.result?.["out"], "result:do work");
   });
 
   test("returned stages array has length 1 with correct name", async () => {
@@ -106,8 +104,8 @@ describe("executor single-stage — Phase C", () => {
       .compile();
 
     const result = await run(def, {}, { adapters: promptAdapter(), store: createStore() });
-    expect(result.stages).toHaveLength(1);
-    expect(result.stages[0]?.name).toBe("the-stage");
+    assert.equal(result.stages.length, 1);
+    assert.equal(result.stages[0]?.name, "the-stage");
   });
 
   test("stage status is completed after successful run", async () => {
@@ -119,7 +117,7 @@ describe("executor single-stage — Phase C", () => {
       .compile();
 
     const result = await run(def, {}, { adapters: promptAdapter(), store: createStore() });
-    expect(result.stages[0]?.status).toBe("completed");
+    assert.equal(result.stages[0]?.status, "completed");
   });
 
   test("store records run snapshot as completed", async () => {
@@ -134,9 +132,9 @@ describe("executor single-stage — Phase C", () => {
     await run(def, {}, { adapters: promptAdapter(), store });
 
     const snap = store.snapshot();
-    expect(snap.runs).toHaveLength(1);
-    expect(snap.runs[0]?.status).toBe("completed");
-    expect(snap.runs[0]?.result?.["done"]).toBe(true);
+    assert.equal(snap.runs.length, 1);
+    assert.equal(snap.runs[0]?.status, "completed");
+    assert.equal(snap.runs[0]?.result?.["done"], true);
   });
 
   test("store records stage snapshot with completed status", async () => {
@@ -152,8 +150,8 @@ describe("executor single-stage — Phase C", () => {
 
     const snap = store.snapshot();
     const stage = snap.runs[0]?.stages[0];
-    expect(stage?.name).toBe("my-step");
-    expect(stage?.status).toBe("completed");
+    assert.equal(stage?.name, "my-step");
+    assert.equal(stage?.status, "completed");
   });
 
   test("onRunStart + onRunEnd callbacks fire", async () => {
@@ -172,8 +170,8 @@ describe("executor single-stage — Phase C", () => {
       onRunEnd: () => events.push("runEnd"),
     });
 
-    expect(events).toContain("runStart");
-    expect(events).toContain("runEnd");
+    assert.ok(events.includes("runStart"));
+    assert.ok(events.includes("runEnd"));
   });
 
   test("onStageStart + onStageEnd callbacks fire", async () => {
@@ -192,8 +190,8 @@ describe("executor single-stage — Phase C", () => {
       onStageEnd: () => events.push("stageEnd"),
     });
 
-    expect(events).toContain("stageStart");
-    expect(events).toContain("stageEnd");
+    assert.ok(events.includes("stageStart"));
+    assert.ok(events.includes("stageEnd"));
   });
 
   test("runId is a non-empty string", async () => {
@@ -205,8 +203,8 @@ describe("executor single-stage — Phase C", () => {
       .compile();
 
     const result = await run(def, {}, { adapters: promptAdapter(), store: createStore() });
-    expect(typeof result.runId).toBe("string");
-    expect(result.runId.length).toBeGreaterThan(0);
+    assert.equal(typeof result.runId, "string");
+    assert.ok(result.runId.length > 0);
   });
 });
 
@@ -224,8 +222,8 @@ describe("executor input resolution — Phase C", () => {
       .compile() as WorkflowDefinition;
 
     const result = await run(def, {}, { adapters: promptAdapter(), store: createStore() });
-    expect(result.status).toBe("completed");
-    expect(result.result?.["greeting"]).toBe("hi");
+    assert.equal(result.status, "completed");
+    assert.equal(result.result?.["greeting"], "hi");
   });
 
   test("caller-provided value takes precedence over default", async () => {
@@ -239,7 +237,7 @@ describe("executor input resolution — Phase C", () => {
       store: createStore(),
     });
 
-    expect(result.result?.["name"]).toBe("custom");
+    assert.equal(result.result?.["name"], "custom");
   });
 
   test("missing required input rejects before run starts", async () => {
@@ -248,9 +246,7 @@ describe("executor input resolution — Phase C", () => {
       .run(async (_ctx) => ({}))
       .compile() as WorkflowDefinition;
 
-    await expect(run(def, {}, { store: createStore() })).rejects.toThrow(
-      'pi-workflows: required input "query" not provided',
-    );
+    await assert.rejects(run(def, {}, { store: createStore() }), { message: 'pi-workflows: required input "query" not provided', });
   });
 });
 
@@ -275,8 +271,8 @@ describe("executor adapter errors — Phase C", () => {
       .compile();
 
     const result = await run(def, {}, { adapters: {}, store: createStore() });
-    expect(result.status).toBe("failed");
-    expect(result.error).toContain("complete adapter not configured");
+    assert.equal(result.status, "failed");
+    assert.ok(result.error.includes("complete adapter not configured"));
   });
 
   test("subagent adapter absent — stage fails and error mentions pi-subagents", async () => {
@@ -288,8 +284,8 @@ describe("executor adapter errors — Phase C", () => {
       .compile();
 
     const result = await run(def, {}, { adapters: {}, store: createStore() });
-    expect(result.status).toBe("failed");
-    expect(result.error).toContain("pi-subagents");
+    assert.equal(result.status, "failed");
+    assert.ok(result.error.includes("pi-subagents"));
   });
 
   test("subagent error mentions install guidance (npm:pi-subagents)", async () => {
@@ -301,9 +297,9 @@ describe("executor adapter errors — Phase C", () => {
       .compile();
 
     const result = await run(def, {}, { store: createStore() });
-    expect(result.error).toMatch(/pi-subagents/);
+    assert.match(result.error, /pi-subagents/);
     // Should mention install path
-    expect(result.error).toMatch(/install/i);
+    assert.match(result.error, /install/i);
   });
 
   test("stage snapshot has failed status when adapter is absent", async () => {
@@ -316,8 +312,8 @@ describe("executor adapter errors — Phase C", () => {
 
     const result = await run(def, {}, { adapters: {}, store: createStore() });
     const bad = result.stages.find((s) => s.name === "bad-stage");
-    expect(bad?.status).toBe("failed");
-    expect(bad?.error).toBeDefined();
+    assert.equal(bad?.status, "failed");
+    assert.notEqual(bad?.error, undefined);
   });
 });
 
@@ -339,7 +335,7 @@ describe("stage result propagation — Phase C", () => {
       store: createStore(),
     });
 
-    expect(result.result?.["answer"]).toBe("4");
+    assert.equal(result.result?.["answer"], "4");
   });
 
   test("stage snapshot result field matches adapter response", async () => {
@@ -355,6 +351,6 @@ describe("stage result propagation — Phase C", () => {
       store: createStore(),
     });
 
-    expect(result.stages[0]?.result).toBe("computed-value");
+    assert.equal(result.stages[0]?.result, "computed-value");
   });
 });

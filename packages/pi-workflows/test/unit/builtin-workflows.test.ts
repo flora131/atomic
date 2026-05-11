@@ -4,7 +4,8 @@
  * against a mock WorkflowRunContext.
  */
 
-import { test, expect, describe } from "bun:test";
+import { describe, test } from "node:test";
+import assert from "node:assert/strict";
 import type { WorkflowRunContext, StageContext, WorkflowUIContext } from "../../src/shared/types.js";
 import type { WorkflowDefinition } from "../../src/shared/types.js";
 
@@ -42,16 +43,16 @@ function makeMockCtx<TInputs extends Record<string, unknown>>(
 
 /** Assert a value is a valid WorkflowDefinition with the sentinel. */
 function assertWorkflowDefinition(def: unknown): asserts def is WorkflowDefinition {
-  expect(def).toBeDefined();
-  expect(typeof def).toBe("object");
+  assert.notEqual(def, undefined);
+  assert.equal(typeof def, "object");
   const d = def as WorkflowDefinition;
-  expect(d.__piWorkflow).toBe(true);
-  expect(typeof d.name).toBe("string");
-  expect(d.name.length).toBeGreaterThan(0);
-  expect(typeof d.normalizedName).toBe("string");
-  expect(typeof d.description).toBe("string");
-  expect(typeof d.run).toBe("function");
-  expect(typeof d.inputs).toBe("object");
+  assert.equal(d.__piWorkflow, true);
+  assert.equal(typeof d.name, "string");
+  assert.ok(d.name.length > 0);
+  assert.equal(typeof d.normalizedName, "string");
+  assert.equal(typeof d.description, "string");
+  assert.equal(typeof d.run, "function");
+  assert.equal(typeof d.inputs, "object");
 }
 
 // ---------------------------------------------------------------------------
@@ -66,24 +67,24 @@ describe("deep-research-codebase", () => {
     const mod = await import("../../workflows/deep-research-codebase.js");
     def = mod.default as unknown as WorkflowDefinition;
     assertWorkflowDefinition(def);
-    expect(def.name).toBe("deep-research-codebase");
-    expect(def.normalizedName).toBe("deep-research-codebase");
+    assert.equal(def.name, "deep-research-codebase");
+    assert.equal(def.normalizedName, "deep-research-codebase");
   });
 
   test("has required 'prompt' input", async () => {
     const mod = await import("../../workflows/deep-research-codebase.js");
     const d = mod.default;
-    expect(d.inputs["prompt"]).toBeDefined();
-    expect(d.inputs["prompt"].required).toBe(true);
-    expect(d.inputs["prompt"].type).toMatch(/^(text|string)$/);
+    assert.notEqual(d.inputs["prompt"], undefined);
+    assert.equal(d.inputs["prompt"].required, true);
+    assert.match(d.inputs["prompt"].type, /^(text|string)$/);
   });
 
   test("has 'max_partitions' input with default 4", async () => {
     const mod = await import("../../workflows/deep-research-codebase.js");
     const d = mod.default;
-    expect(d.inputs["max_partitions"]).toBeDefined();
-    expect(d.inputs["max_partitions"].type).toBe("number");
-    expect((d.inputs["max_partitions"] as { default?: number }).default).toBe(4);
+    assert.notEqual(d.inputs["max_partitions"], undefined);
+    assert.equal(d.inputs["max_partitions"].type, "number");
+    assert.equal((d.inputs["max_partitions"] as { default?: number }).default, 4);
   });
 
   test("run executes without throwing (mock ctx, 2 partitions)", async () => {
@@ -111,10 +112,10 @@ describe("deep-research-codebase", () => {
     };
 
     const result = await d.run(patchedCtx);
-    expect(result).toBeDefined();
-    expect(typeof result["findings"]).toBe("string");
-    expect(Array.isArray(result["partitions"])).toBe(true);
-    expect((result["partitions"] as string[]).length).toBeLessThanOrEqual(2);
+    assert.notEqual(result, undefined);
+    assert.equal(typeof result["findings"], "string");
+    assert.equal(Array.isArray(result["partitions"]), true);
+    assert.ok((result["partitions"] as string[]).length <= 2);
   });
 });
 
@@ -126,23 +127,23 @@ describe("ralph", () => {
   test("loads and has correct shape", async () => {
     const mod = await import("../../workflows/ralph.js");
     assertWorkflowDefinition(mod.default);
-    expect(mod.default.name).toBe("ralph");
+    assert.equal(mod.default.name, "ralph");
   });
 
   test("has required 'prompt' input", async () => {
     const mod = await import("../../workflows/ralph.js");
-    expect(mod.default.inputs["prompt"]).toBeDefined();
-    expect(mod.default.inputs["prompt"].required).toBe(true);
+    assert.notEqual(mod.default.inputs["prompt"], undefined);
+    assert.equal(mod.default.inputs["prompt"].required, true);
   });
 
   test("has 'max_iterations' input with numeric default", async () => {
     const mod = await import("../../workflows/ralph.js");
     const schema = mod.default.inputs["max_iterations"];
-    expect(schema).toBeDefined();
-    expect(schema.type).toBe("number");
+    assert.notEqual(schema, undefined);
+    assert.equal(schema.type, "number");
     const def = (schema as { default?: number }).default;
-    expect(typeof def).toBe("number");
-    expect(def).toBeGreaterThan(0);
+    assert.equal(typeof def, "number");
+    assert.ok(def > 0);
   });
 
   test("run completes one iteration when confirm returns false", async () => {
@@ -153,10 +154,10 @@ describe("ralph", () => {
     // confirm defaults to false → loop exits after first iteration
     const result = await d.run(ctx);
 
-    expect(result).toBeDefined();
-    expect(typeof result["result"]).toBe("string");
-    expect(typeof result["plan"]).toBe("string");
-    expect(typeof result["approved"]).toBe("boolean");
+    assert.notEqual(result, undefined);
+    assert.equal(typeof result["result"], "string");
+    assert.equal(typeof result["plan"], "string");
+    assert.equal(typeof result["approved"], "boolean");
   });
 
   test("run terminates early when approved", async () => {
@@ -181,7 +182,7 @@ describe("ralph", () => {
     };
 
     const result = await d.run(patchedCtx);
-    expect(result["approved"]).toBe(true);
+    assert.equal(result["approved"], true);
   });
 });
 
@@ -193,26 +194,26 @@ describe("open-claude-design", () => {
   test("loads and has correct shape", async () => {
     const mod = await import("../../workflows/open-claude-design.js");
     assertWorkflowDefinition(mod.default);
-    expect(mod.default.name).toBe("open-claude-design");
+    assert.equal(mod.default.name, "open-claude-design");
   });
 
   test("has 'reference', 'output_type', 'design_system' inputs", async () => {
     const mod = await import("../../workflows/open-claude-design.js");
     const d = mod.default;
-    expect(d.inputs["reference"]).toBeDefined();
-    expect(d.inputs["output_type"]).toBeDefined();
-    expect(d.inputs["design_system"]).toBeDefined();
+    assert.notEqual(d.inputs["reference"], undefined);
+    assert.notEqual(d.inputs["output_type"], undefined);
+    assert.notEqual(d.inputs["design_system"], undefined);
   });
 
   test("output_type is a select with expected choices", async () => {
     const mod = await import("../../workflows/open-claude-design.js");
     const schema = mod.default.inputs["output_type"];
-    expect(schema.type).toBe("select");
+    assert.equal(schema.type, "select");
     const choices = (schema as { choices: readonly string[] }).choices;
-    expect(choices).toContain("component");
-    expect(choices).toContain("page");
-    expect(choices).toContain("theme");
-    expect(choices).toContain("tokens");
+    assert.ok(choices.includes("component"));
+    assert.ok(choices.includes("page"));
+    assert.ok(choices.includes("theme"));
+    assert.ok(choices.includes("tokens"));
   });
 
   test("run executes without throwing (mock ctx, all inputs provided)", async () => {
@@ -226,10 +227,10 @@ describe("open-claude-design", () => {
     });
 
     const result = await d.run(ctx);
-    expect(result).toBeDefined();
-    expect(typeof result["artifact"]).toBe("string");
-    expect(typeof result["handoff"]).toBe("string");
-    expect(result["output_type"]).toBe("component");
+    assert.notEqual(result, undefined);
+    assert.equal(typeof result["artifact"], "string");
+    assert.equal(typeof result["handoff"], "string");
+    assert.equal(result["output_type"], "component");
   });
 
   test("run uses default output_type 'component' when not provided", async () => {
@@ -238,14 +239,14 @@ describe("open-claude-design", () => {
 
     const ctx = makeMockCtx({});
     const result = await d.run(ctx);
-    expect(result["output_type"]).toBe("component");
+    assert.equal(result["output_type"], "component");
   });
 
   test("definition is frozen (immutable)", async () => {
     const mod = await import("../../workflows/open-claude-design.js");
     const d = mod.default;
-    expect(Object.isFrozen(d)).toBe(true);
-    expect(Object.isFrozen(d.inputs)).toBe(true);
+    assert.equal(Object.isFrozen(d), true);
+    assert.equal(Object.isFrozen(d.inputs), true);
   });
 });
 
@@ -256,9 +257,9 @@ describe("open-claude-design", () => {
 describe("workflows/index manifest", () => {
   test("exports all three builtins by name", async () => {
     const mod = await import("../../workflows/index.js");
-    expect(mod.deepResearchCodebase).toBeDefined();
-    expect(mod.ralph).toBeDefined();
-    expect(mod.openClaudeDesign).toBeDefined();
+    assert.notEqual(mod.deepResearchCodebase, undefined);
+    assert.notEqual(mod.ralph, undefined);
+    assert.notEqual(mod.openClaudeDesign, undefined);
 
     // Each export is a valid definition
     assertWorkflowDefinition(mod.deepResearchCodebase);

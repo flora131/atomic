@@ -1,17 +1,18 @@
 /**
- * Unit tests for persistence/session-entries.ts
+ * Unit tests for shared/persistence-session-entries.ts
  * cross-ref: spec §5.6
  */
 
-import { test, expect, describe, beforeEach } from "bun:test";
+import { beforeEach, describe, test } from "node:test";
+import assert from "node:assert/strict";
 import {
   appendRunStart,
   appendStageStart,
   appendStageProgress,
   appendStageEnd,
   appendRunEnd,
-} from "../../src/persistence/session-entries.js";
-import type { PersistenceAPI } from "../../src/persistence/session-entries.js";
+} from "../../src/shared/persistence-session-entries.js";
+import type { PersistenceAPI } from "../../src/shared/persistence-session-entries.js";
 
 // ---------------------------------------------------------------------------
 // Mock PersistenceAPI
@@ -61,26 +62,26 @@ describe("appendRunStart", () => {
   test("calls appendEntry with workflow.run.start type", () => {
     const api = makeMockApi();
     appendRunStart(api, { runId: "abc-123", name: "my-wf", inputs: {}, ts: 1000 });
-    expect(api._entries).toHaveLength(1);
-    expect(api._entries[0]!.type).toBe("workflow.run.start");
+    assert.equal(api._entries.length, 1);
+    assert.equal(api._entries[0]!.type, "workflow.run.start");
   });
 
   test("payload contains runId, name, inputs, ts", () => {
     const api = makeMockApi();
     appendRunStart(api, { runId: "r1", name: "wf", inputs: { x: 1 }, ts: 42 });
     const p = api._entries[0]!.payload;
-    expect(p["runId"]).toBe("r1");
-    expect(p["name"]).toBe("wf");
-    expect(p["ts"]).toBe(42);
-    expect((p["inputs"] as Record<string, unknown>)["x"]).toBe(1);
+    assert.equal(p["runId"], "r1");
+    assert.equal(p["name"], "wf");
+    assert.equal(p["ts"], 42);
+    assert.equal((p["inputs"] as Record<string, unknown>)["x"], 1);
   });
 
   test("calls setLabel with wf:<name>:<short-id> format", () => {
     const api = makeMockApi();
     appendRunStart(api, { runId: "abcdefgh-1234", name: "my-workflow", inputs: {}, ts: 1 });
-    expect(api._labels.size).toBe(1);
+    assert.equal(api._labels.size, 1);
     const label = [...api._labels.values()][0];
-    expect(label).toBe("wf:my-workflow:abcdefgh");
+    assert.equal(label, "wf:my-workflow:abcdefgh");
   });
 
   test("no-op when appendEntry absent", () => {
@@ -100,7 +101,7 @@ describe("appendRunStart", () => {
     };
     // Should not throw
     appendRunStart(api, { runId: "r1", name: "wf", inputs: {}, ts: 1 });
-    expect(_entries).toHaveLength(1);
+    assert.equal(_entries.length, 1);
   });
 });
 
@@ -118,7 +119,7 @@ describe("appendStageStart", () => {
       parentIds: [],
       ts: 100,
     });
-    expect(api._entries[0]!.type).toBe("workflow.stage.start");
+    assert.equal(api._entries[0]!.type, "workflow.stage.start");
   });
 
   test("payload contains all required fields", () => {
@@ -132,18 +133,18 @@ describe("appendStageStart", () => {
       ts: 200,
     });
     const p = api._entries[0]!.payload;
-    expect(p["runId"]).toBe("r1");
-    expect(p["stageId"]).toBe("s2");
-    expect(p["name"]).toBe("analyze");
-    expect(p["parentIds"]).toEqual(["s1"]);
-    expect(p["model"]).toBe("sonnet");
-    expect(p["ts"]).toBe(200);
+    assert.equal(p["runId"], "r1");
+    assert.equal(p["stageId"], "s2");
+    assert.equal(p["name"], "analyze");
+    assert.deepEqual(p["parentIds"], ["s1"]);
+    assert.equal(p["model"], "sonnet");
+    assert.equal(p["ts"], 200);
   });
 
   test("model omitted when not provided", () => {
     const api = makeMockApi();
     appendStageStart(api, { runId: "r1", stageId: "s1", name: "n", parentIds: [], ts: 1 });
-    expect("model" in api._entries[0]!.payload).toBe(false);
+    assert.equal("model" in api._entries[0]!.payload, false);
   });
 
   test("no-op when appendEntry absent", () => {
@@ -160,13 +161,13 @@ describe("appendStageProgress", () => {
   test("calls appendEntry with workflow.stage.progress type", () => {
     const api = makeMockApi();
     appendStageProgress(api, { runId: "r1", stageId: "s1", kind: "tool_call", payload: { tool: "read_file" } });
-    expect(api._entries[0]!.type).toBe("workflow.stage.progress");
+    assert.equal(api._entries[0]!.type, "workflow.stage.progress");
   });
 
   test("payload contains kind", () => {
     const api = makeMockApi();
     appendStageProgress(api, { runId: "r1", stageId: "s1", kind: "message_delta", payload: "hello" });
-    expect(api._entries[0]!.payload["kind"]).toBe("message_delta");
+    assert.equal(api._entries[0]!.payload["kind"], "message_delta");
   });
 
   test("no-op when appendEntry absent", () => {
@@ -183,23 +184,23 @@ describe("appendStageEnd", () => {
   test("calls appendEntry with workflow.stage.end type", () => {
     const api = makeMockApi();
     appendStageEnd(api, { runId: "r1", stageId: "s1", status: "completed" });
-    expect(api._entries[0]!.type).toBe("workflow.stage.end");
+    assert.equal(api._entries[0]!.type, "workflow.stage.end");
   });
 
   test("includes durationMs and summary when provided", () => {
     const api = makeMockApi();
     appendStageEnd(api, { runId: "r1", stageId: "s1", status: "completed", durationMs: 500, summary: "done" });
     const p = api._entries[0]!.payload;
-    expect(p["durationMs"]).toBe(500);
-    expect(p["summary"]).toBe("done");
+    assert.equal(p["durationMs"], 500);
+    assert.equal(p["summary"], "done");
   });
 
   test("omits durationMs/summary when not provided", () => {
     const api = makeMockApi();
     appendStageEnd(api, { runId: "r1", stageId: "s1", status: "failed" });
     const p = api._entries[0]!.payload;
-    expect("durationMs" in p).toBe(false);
-    expect("summary" in p).toBe(false);
+    assert.equal("durationMs" in p, false);
+    assert.equal("summary" in p, false);
   });
 
   test("emitMessage=true calls appendCustomMessageEntry when summary provided", () => {
@@ -209,14 +210,14 @@ describe("appendStageEnd", () => {
       { runId: "r1", stageId: "s1", status: "completed", summary: "fetched 10 files" },
       { emitMessage: true },
     );
-    expect(api._messages).toHaveLength(1);
-    expect(api._messages[0]).toContain("fetched 10 files");
+    assert.equal(api._messages.length, 1);
+    assert.ok(api._messages[0].includes("fetched 10 files"));
   });
 
   test("emitMessage=true does NOT call appendCustomMessageEntry when summary absent", () => {
     const api = makeMockApi();
     appendStageEnd(api, { runId: "r1", stageId: "s1", status: "completed" }, { emitMessage: true });
-    expect(api._messages).toHaveLength(0);
+    assert.equal(api._messages.length, 0);
   });
 
   test("no-op when appendEntry absent", () => {
@@ -233,22 +234,22 @@ describe("appendRunEnd", () => {
   test("calls appendEntry with workflow.run.end type", () => {
     const api = makeMockApi();
     appendRunEnd(api, { runId: "r1", status: "completed", ts: 999 });
-    expect(api._entries[0]!.type).toBe("workflow.run.end");
+    assert.equal(api._entries[0]!.type, "workflow.run.end");
   });
 
   test("payload contains runId, status, ts", () => {
     const api = makeMockApi();
     appendRunEnd(api, { runId: "r1", status: "failed", ts: 123 });
     const p = api._entries[0]!.payload;
-    expect(p["runId"]).toBe("r1");
-    expect(p["status"]).toBe("failed");
-    expect(p["ts"]).toBe(123);
+    assert.equal(p["runId"], "r1");
+    assert.equal(p["status"], "failed");
+    assert.equal(p["ts"], 123);
   });
 
   test("includes result when provided", () => {
     const api = makeMockApi();
     appendRunEnd(api, { runId: "r1", status: "completed", result: { out: 42 }, ts: 1 });
-    expect((api._entries[0]!.payload["result"] as Record<string, unknown>)["out"]).toBe(42);
+    assert.equal((api._entries[0]!.payload["result"] as Record<string, unknown>)["out"], 42);
   });
 
   test("no-op when appendEntry absent", () => {

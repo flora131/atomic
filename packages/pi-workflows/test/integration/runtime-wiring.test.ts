@@ -15,10 +15,11 @@
  * Lower-level createExtensionRuntime tests cover the pre/post-swap invariant.
  *
  * cross-ref: src/extension/wiring.ts, src/extension/index.ts,
- *            src/runs/sync/stage-runner.ts, RFC runtime-wiring task
+ *            src/runs/foreground/stage-runner.ts, RFC runtime-wiring task
  */
 
-import { test, expect, describe, beforeEach } from "bun:test";
+import { beforeEach, describe, test } from "node:test";
+import assert from "node:assert/strict";
 import factory, {
   type ExtensionAPI,
   type PiToolOpts,
@@ -131,46 +132,46 @@ describe("runtime-wiring — exec surface invoked through workflow tool", () => 
   });
 
   test("factory registers workflow tool on mock api", () => {
-    expect(mock.tools.length).toBeGreaterThan(0);
-    expect(mock.tools[0]?.opts.name).toBe("workflow");
+    assert.ok(mock.tools.length > 0);
+    assert.equal(mock.tools[0]?.opts.name, "workflow");
   });
 
   test("exec is called when running deep-research-codebase through workflow tool", async () => {
     await runWorkflowTool(mock);
-    expect(mock.execCalls.length).toBeGreaterThan(0);
+    assert.ok(mock.execCalls.length > 0);
   });
 
   test("exec is called with pi command", async () => {
     await runWorkflowTool(mock);
     const commands = mock.execCalls.map((c) => c.command);
-    expect(commands.every((c) => c === "pi")).toBe(true);
+    assert.equal(commands.every((c) => c === "pi"), true);
   });
 
   test("exec args include --mode json and --no-session", async () => {
     await runWorkflowTool(mock);
     for (const call of mock.execCalls) {
-      expect(call.args).toContain("--mode");
-      expect(call.args).toContain("json");
-      expect(call.args).toContain("--no-session");
+      assert.ok(call.args.includes("--mode"));
+      assert.ok(call.args.includes("json"));
+      assert.ok(call.args.includes("--no-session"));
     }
   });
 
   test("exec args include -p with prompt text", async () => {
     await runWorkflowTool(mock);
     for (const call of mock.execCalls) {
-      expect(call.args).toContain("-p");
+      assert.ok(call.args.includes("-p"));
     }
   });
 
   test("dispatch result has action=run and status field", async () => {
     const result = await runWorkflowTool(mock);
-    expect(result).toMatchObject({ action: "run" });
+    assert.deepEqual(result, { action: "run" }) // TODO: was toMatchObject — may need subset check;
   });
 
   test("no 'prompt adapter not configured' error thrown", async () => {
     // If adapters are missing, stage-runner throws this message in non-test env.
     // With adapters wired, this must not appear.
-    await expect(runWorkflowTool(mock)).resolves.toBeDefined();
+    await assert.ok(await runWorkflowTool(mock));
   });
 });
 
@@ -214,13 +215,13 @@ describe("runtime-wiring — no exec surface → stub fires in test env", () => 
     // In NODE_ENV=test: stage-runner uses a deterministic stub string instead of
     // throwing — so the run completes (possibly with stub content) rather than erroring.
     const result = await runWorkflowTool(mock);
-    expect(result).toBeDefined();
+    assert.notEqual(result, undefined);
   });
 
   test("exec is NOT called when exec surface is absent", async () => {
     await runWorkflowTool(mock);
     // No exec surface → exec was never invoked
-    expect(mock.execCalls.length).toBe(0);
+    assert.equal(mock.execCalls.length, 0);
   });
 });
 
@@ -247,7 +248,7 @@ describe("runtime-wiring — pre-discovery: initial runtime carries adapters", (
     });
 
     // Adapter must have been called (not test stub, not "not configured" error)
-    expect(calls.length).toBeGreaterThan(0);
+    assert.ok(calls.length > 0);
   });
 
   test("initial runtime prompt adapter invoked with workflow prompt text", async () => {
@@ -266,7 +267,7 @@ describe("runtime-wiring — pre-discovery: initial runtime carries adapters", (
     });
 
     const promptCalls = calls.filter((c) => c.startsWith("prompt:"));
-    expect(promptCalls.length).toBeGreaterThan(0);
+    assert.ok(promptCalls.length > 0);
   });
 
   test("initial runtime complete adapter invoked", async () => {
@@ -285,7 +286,7 @@ describe("runtime-wiring — pre-discovery: initial runtime carries adapters", (
     });
 
     const completeCalls = calls.filter((c) => c.startsWith("complete:"));
-    expect(completeCalls.length).toBeGreaterThan(0);
+    assert.ok(completeCalls.length > 0);
   });
 });
 
@@ -312,7 +313,7 @@ describe("runtime-wiring — post-discovery: swapped runtime preserves adapters"
       inputs: { prompt: "test post-discovery" },
     });
 
-    expect(calls.length).toBeGreaterThan(0);
+    assert.ok(calls.length > 0);
   });
 
   test("post-discovery prompt adapter receives call with workflow text", async () => {
@@ -332,7 +333,7 @@ describe("runtime-wiring — post-discovery: swapped runtime preserves adapters"
     });
 
     const promptCalls = calls.filter((c) => c.startsWith("prompt:"));
-    expect(promptCalls.length).toBeGreaterThan(0);
+    assert.ok(promptCalls.length > 0);
   });
 
   test("same adapters object works identically in initial and swapped runtime", async () => {
@@ -350,7 +351,7 @@ describe("runtime-wiring — post-discovery: swapped runtime preserves adapters"
       inputs: { prompt: "initial" },
     });
     const callsAfterInitial = calls.length;
-    expect(callsAfterInitial).toBeGreaterThan(0);
+    assert.ok(callsAfterInitial > 0);
 
     // Swapped runtime (post-discovery) — same adapters reference
     const discoveredResult = await discoverWorkflows({ includeBundled: true });
@@ -365,12 +366,12 @@ describe("runtime-wiring — post-discovery: swapped runtime preserves adapters"
     });
 
     // Both runs must have invoked the adapters
-    expect(calls.length).toBeGreaterThan(callsAfterInitial);
+    assert.ok(calls.length > callsAfterInitial);
   });
 
   test("deep-research-codebase is present in discovered registry (bundled workflows survive swap)", async () => {
     const discoveredResult = await discoverWorkflows({ includeBundled: true });
-    expect(discoveredResult.registry.names()).toContain("deep-research-codebase");
+    assert.ok(discoveredResult.registry.names().includes("deep-research-codebase"));
   });
 });
 
@@ -386,9 +387,9 @@ describe("runtime-wiring — factory e2e: exec invoked immediately (initial runt
     // dispatch immediately — runtimeRef.current is still the initial sync-seeded runtime
     const result = await runWorkflowTool(mock);
 
-    expect(result).toBeDefined();
+    assert.notEqual(result, undefined);
     // exec must have been called (adapters active in initial runtime)
-    expect(mock.execCalls.length).toBeGreaterThan(0);
+    assert.ok(mock.execCalls.length > 0);
   });
 
   test("multiple dispatch calls → exec called each time (adapters stable)", async () => {
@@ -397,10 +398,10 @@ describe("runtime-wiring — factory e2e: exec invoked immediately (initial runt
 
     await runWorkflowTool(mock);
     const firstCount = mock.execCalls.length;
-    expect(firstCount).toBeGreaterThan(0);
+    assert.ok(firstCount > 0);
 
     await runWorkflowTool(mock);
     // Second run must also invoke exec (adapters still wired)
-    expect(mock.execCalls.length).toBeGreaterThan(firstCount);
+    assert.ok(mock.execCalls.length > firstCount);
   });
 });

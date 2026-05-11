@@ -1,12 +1,13 @@
 /**
- * Unit tests for persistence/restore.ts
+ * Unit tests for shared/persistence-restore.ts
  * cross-ref: spec §5.6, §5.13
  */
 
-import { test, expect, describe } from "bun:test";
-import { scanInFlightRuns, restoreOnSessionStart } from "../../src/persistence/restore.js";
-import type { SessionEntry, InFlightRun } from "../../src/persistence/restore.js";
-import { createStore } from "../../src/store.js";
+import { describe, test } from "node:test";
+import assert from "node:assert/strict";
+import { scanInFlightRuns, restoreOnSessionStart } from "../../src/shared/persistence-restore.js";
+import type { SessionEntry, InFlightRun } from "../../src/shared/persistence-restore.js";
+import { createStore } from "../../src/shared/store.js";
 
 // ---------------------------------------------------------------------------
 // scanInFlightRuns
@@ -14,7 +15,7 @@ import { createStore } from "../../src/store.js";
 
 describe("scanInFlightRuns", () => {
   test("returns empty for empty entries", () => {
-    expect(scanInFlightRuns([])).toHaveLength(0);
+    assert.equal(scanInFlightRuns([]).length, 0);
   });
 
   test("returns empty when all runs have ended", () => {
@@ -22,7 +23,7 @@ describe("scanInFlightRuns", () => {
       { id: "e1", type: "workflow.run.start", payload: { runId: "r1", name: "wf", inputs: {}, ts: 1 } },
       { id: "e2", type: "workflow.run.end", payload: { runId: "r1", status: "completed", ts: 2 } },
     ];
-    expect(scanInFlightRuns(entries)).toHaveLength(0);
+    assert.equal(scanInFlightRuns(entries).length, 0);
   });
 
   test("returns in-flight run when run.start has no run.end", () => {
@@ -30,10 +31,10 @@ describe("scanInFlightRuns", () => {
       { id: "e1", type: "workflow.run.start", payload: { runId: "r1", name: "wf", inputs: {}, ts: 100 } },
     ];
     const result = scanInFlightRuns(entries);
-    expect(result).toHaveLength(1);
-    expect(result[0]!.runId).toBe("r1");
-    expect(result[0]!.name).toBe("wf");
-    expect(result[0]!.startTs).toBe(100);
+    assert.equal(result.length, 1);
+    assert.equal(result[0]!.runId, "r1");
+    assert.equal(result[0]!.name, "wf");
+    assert.equal(result[0]!.startTs, 100);
   });
 
   test("handles multiple runs: only unended ones returned", () => {
@@ -43,8 +44,8 @@ describe("scanInFlightRuns", () => {
       { id: "e3", type: "workflow.run.start", payload: { runId: "r2", name: "wf2", inputs: {}, ts: 3 } },
     ];
     const result = scanInFlightRuns(entries);
-    expect(result).toHaveLength(1);
-    expect(result[0]!.runId).toBe("r2");
+    assert.equal(result.length, 1);
+    assert.equal(result[0]!.runId, "r2");
   });
 
   test("collects stageIds from stage.start entries for in-flight run", () => {
@@ -54,7 +55,7 @@ describe("scanInFlightRuns", () => {
       { id: "e3", type: "workflow.stage.start",  payload: { runId: "r1", stageId: "s2", name: "analyze", parentIds: ["s1"], ts: 3 } },
     ];
     const result = scanInFlightRuns(entries);
-    expect(result[0]!.stageIds).toEqual(["s1", "s2"]);
+    assert.deepEqual(result[0]!.stageIds, ["s1", "s2"]);
   });
 
   test("does not duplicate stageIds from duplicate stage.start entries", () => {
@@ -64,7 +65,7 @@ describe("scanInFlightRuns", () => {
       { id: "e3", type: "workflow.stage.start", payload: { runId: "r1", stageId: "s1", name: "n", parentIds: [], ts: 2 } },
     ];
     const result = scanInFlightRuns(entries);
-    expect(result[0]!.stageIds).toEqual(["s1"]);
+    assert.deepEqual(result[0]!.stageIds, ["s1"]);
   });
 
   test("preserves inputs from run.start payload", () => {
@@ -72,7 +73,7 @@ describe("scanInFlightRuns", () => {
       { id: "e1", type: "workflow.run.start", payload: { runId: "r1", name: "wf", inputs: { key: "val" }, ts: 1 } },
     ];
     const result = scanInFlightRuns(entries);
-    expect((result[0]!.inputs as Record<string, unknown>)["key"]).toBe("val");
+    assert.equal((result[0]!.inputs as Record<string, unknown>)["key"], "val");
   });
 
   test("handles missing/malformed run.start payload gracefully", () => {
@@ -81,7 +82,7 @@ describe("scanInFlightRuns", () => {
     ];
     // Should not throw, and should return empty (invalid entry skipped)
     const result = scanInFlightRuns(entries);
-    expect(result).toHaveLength(0);
+    assert.equal(result.length, 0);
   });
 });
 
@@ -105,8 +106,8 @@ describe("restoreOnSessionStart", () => {
       st,
       { onCrashed: (r) => crashed.push(r) },
     );
-    expect(st.runs()).toHaveLength(0);
-    expect(crashed).toHaveLength(0);
+    assert.equal(st.runs().length, 0);
+    assert.equal(crashed.length, 0);
   });
 
   test("no-op when sessionManager.getEntries absent", () => {
@@ -116,7 +117,7 @@ describe("restoreOnSessionStart", () => {
       { resumeInFlight: "never", persistRuns: true },
       st,
     );
-    expect(st.runs()).toHaveLength(0);
+    assert.equal(st.runs().length, 0);
   });
 
   test("no-op when no in-flight runs found", () => {
@@ -131,8 +132,8 @@ describe("restoreOnSessionStart", () => {
       st,
       { onCrashed: (r) => crashed.push(r) },
     );
-    expect(crashed).toHaveLength(0);
-    expect(st.runs()).toHaveLength(0);
+    assert.equal(crashed.length, 0);
+    assert.equal(st.runs().length, 0);
   });
 
   test("resumeInFlight=never: marks run as failed and calls onCrashed", () => {
@@ -146,11 +147,11 @@ describe("restoreOnSessionStart", () => {
       st,
       { onCrashed: (r) => crashed.push(r) },
     );
-    expect(crashed).toHaveLength(1);
-    expect(crashed[0]!.runId).toBe("r1");
+    assert.equal(crashed.length, 1);
+    assert.equal(crashed[0]!.runId, "r1");
     const runs = st.runs();
-    expect(runs).toHaveLength(1);
-    expect(runs[0]!.status).toBe("failed");
+    assert.equal(runs.length, 1);
+    assert.equal(runs[0]!.status, "failed");
   });
 
   test("resumeInFlight=ask: same behavior as never for store/callback", () => {
@@ -164,8 +165,8 @@ describe("restoreOnSessionStart", () => {
       st,
       { onCrashed: (r) => crashed.push(r) },
     );
-    expect(crashed).toHaveLength(1);
-    expect(st.runs()[0]!.status).toBe("failed");
+    assert.equal(crashed.length, 1);
+    assert.equal(st.runs()[0]!.status, "failed");
   });
 
   test("resumeInFlight=auto: marks run as running and calls onResume", () => {
@@ -179,12 +180,12 @@ describe("restoreOnSessionStart", () => {
       st,
       { onResume: (r) => resumed.push(r) },
     );
-    expect(resumed).toHaveLength(1);
-    expect(resumed[0]!.runId).toBe("r1");
+    assert.equal(resumed.length, 1);
+    assert.equal(resumed[0]!.runId, "r1");
     // Store run should be "running" (auto resume)
     const runs = st.runs();
-    expect(runs).toHaveLength(1);
-    expect(runs[0]!.status).toBe("running");
+    assert.equal(runs.length, 1);
+    assert.equal(runs[0]!.status, "running");
   });
 
   test("crashed run has endedAt set (marked ended)", () => {
@@ -197,7 +198,7 @@ describe("restoreOnSessionStart", () => {
       st,
     );
     const run = st.runs()[0]!;
-    expect(run.endedAt).toBeDefined();
+    assert.notEqual(run.endedAt, undefined);
   });
 
   test("stage snapshots are rebuilt from session entries", () => {
@@ -211,11 +212,11 @@ describe("restoreOnSessionStart", () => {
     ];
     restoreOnSessionStart(makeSessionManager(entries), { resumeInFlight: "never", persistRuns: true }, st);
     const run = st.runs()[0]!;
-    expect(run.stages).toHaveLength(2);
+    assert.equal(run.stages.length, 2);
     const s1 = run.stages.find((s) => s.id === "s1");
     const s2 = run.stages.find((s) => s.id === "s2");
-    expect(s1!.status).toBe("completed");
-    expect(s2!.status).toBe("failed");
-    expect(s2!.error).toBeDefined();
+    assert.equal(s1!.status, "completed");
+    assert.equal(s2!.status, "failed");
+    assert.notEqual(s2!.error, undefined);
   });
 });

@@ -10,12 +10,13 @@
  *  - Parallel stages share the same PI_WORKFLOW_RUN_ID but get distinct
  *    PI_WORKFLOW_STAGE_ID values.
  */
-import { test, expect, describe } from "bun:test";
-import { run } from "../../src/runs/sync/executor.js";
-import { createStore } from "../../src/store.js";
+import { describe, test } from "node:test";
+import assert from "node:assert/strict";
+import { run } from "../../src/runs/foreground/executor.js";
+import { createStore } from "../../src/shared/store.js";
 import { defineWorkflow } from "../../src/workflows/define-workflow.js";
-import type { StageAdapters } from "../../src/runs/sync/stage-runner.js";
-import type { SubagentStageMeta } from "../../src/runs/sync/stage-runner.js";
+import type { StageAdapters } from "../../src/runs/foreground/stage-runner.js";
+import type { SubagentStageMeta } from "../../src/runs/foreground/stage-runner.js";
 import type { SubagentStageOpts } from "../../src/shared/types.js";
 import { buildRuntimeAdapters } from "../../src/extension/wiring.js";
 import type { RuntimeWiringSurface } from "../../src/extension/wiring.js";
@@ -90,10 +91,10 @@ describe("executor → subagent env propagation (pi.subagents.run path)", () => 
       .compile();
 
     const result = await run(def, {}, { adapters, store: createStore() });
-    expect(result.status).toBe("completed");
+    assert.equal(result.status, "completed");
 
     const env = subagentCalls[0]!["env"] as Record<string, string>;
-    expect(env["PI_WORKFLOW_RUN_ID"]).toBe(result.runId);
+    assert.equal(env["PI_WORKFLOW_RUN_ID"], result.runId);
   });
 
   test("PI_WORKFLOW_STAGE_ID is a non-empty string", async () => {
@@ -110,8 +111,8 @@ describe("executor → subagent env propagation (pi.subagents.run path)", () => 
     await run(def, {}, { adapters, store: createStore() });
 
     const env = subagentCalls[0]!["env"] as Record<string, string>;
-    expect(typeof env["PI_WORKFLOW_STAGE_ID"]).toBe("string");
-    expect(env["PI_WORKFLOW_STAGE_ID"].length).toBeGreaterThan(0);
+    assert.equal(typeof env["PI_WORKFLOW_STAGE_ID"], "string");
+    assert.ok(env["PI_WORKFLOW_STAGE_ID"].length > 0);
   });
 
   test("PI_WORKFLOW_STAGE_ID matches snapshot stageId from executor", async () => {
@@ -134,12 +135,12 @@ describe("executor → subagent env propagation (pi.subagents.run path)", () => 
       },
     });
 
-    expect(result.status).toBe("completed");
+    assert.equal(result.status, "completed");
     const env = subagentCalls[0]!["env"] as Record<string, string>;
     if (capturedStageId === undefined) {
       throw new Error("expected onStageStart to capture stage id");
     }
-    expect(env["PI_WORKFLOW_STAGE_ID"]).toBe(capturedStageId);
+    assert.equal(env["PI_WORKFLOW_STAGE_ID"], capturedStageId);
   });
 
   test("explicit executor meta overrides ambient process.env in subagents path", async () => {
@@ -163,9 +164,9 @@ describe("executor → subagent env propagation (pi.subagents.run path)", () => 
       const env = subagentCalls[0]!["env"] as Record<string, string>;
 
       // Executor-generated IDs must win over ambient process.env
-      expect(env["PI_WORKFLOW_RUN_ID"]).toBe(result.runId);
-      expect(env["PI_WORKFLOW_RUN_ID"]).not.toBe("ambient-run-should-be-overridden");
-      expect(env["PI_WORKFLOW_STAGE_ID"]).not.toBe("ambient-stage-should-be-overridden");
+      assert.equal(env["PI_WORKFLOW_RUN_ID"], result.runId);
+      assert.notEqual(env["PI_WORKFLOW_RUN_ID"], "ambient-run-should-be-overridden");
+      assert.notEqual(env["PI_WORKFLOW_STAGE_ID"], "ambient-stage-should-be-overridden");
     } finally {
       if (origRun !== undefined) process.env["PI_WORKFLOW_RUN_ID"] = origRun;
       else delete process.env["PI_WORKFLOW_RUN_ID"];
@@ -192,10 +193,10 @@ describe("executor → subagent env propagation (pi.callTool fallback path)", ()
       .compile();
 
     const result = await run(def, {}, { adapters, store: createStore() });
-    expect(result.status).toBe("completed");
+    assert.equal(result.status, "completed");
 
     const env = toolCalls[0]!.args["env"] as Record<string, string>;
-    expect(env["PI_WORKFLOW_RUN_ID"]).toBe(result.runId);
+    assert.equal(env["PI_WORKFLOW_RUN_ID"], result.runId);
   });
 
   test("PI_WORKFLOW_STAGE_ID is non-empty via callTool", async () => {
@@ -211,8 +212,8 @@ describe("executor → subagent env propagation (pi.callTool fallback path)", ()
 
     await run(def, {}, { adapters, store: createStore() });
     const env = toolCalls[0]!.args["env"] as Record<string, string>;
-    expect(typeof env["PI_WORKFLOW_STAGE_ID"]).toBe("string");
-    expect(env["PI_WORKFLOW_STAGE_ID"].length).toBeGreaterThan(0);
+    assert.equal(typeof env["PI_WORKFLOW_STAGE_ID"], "string");
+    assert.ok(env["PI_WORKFLOW_STAGE_ID"].length > 0);
   });
 
   test("explicit executor meta overrides ambient process.env in callTool path", async () => {
@@ -235,9 +236,9 @@ describe("executor → subagent env propagation (pi.callTool fallback path)", ()
       const result = await run(def, {}, { adapters, store: createStore() });
       const env = toolCalls[0]!.args["env"] as Record<string, string>;
 
-      expect(env["PI_WORKFLOW_RUN_ID"]).toBe(result.runId);
-      expect(env["PI_WORKFLOW_RUN_ID"]).not.toBe("ambient-run-calltool");
-      expect(env["PI_WORKFLOW_STAGE_ID"]).not.toBe("ambient-stage-calltool");
+      assert.equal(env["PI_WORKFLOW_RUN_ID"], result.runId);
+      assert.notEqual(env["PI_WORKFLOW_RUN_ID"], "ambient-run-calltool");
+      assert.notEqual(env["PI_WORKFLOW_STAGE_ID"], "ambient-stage-calltool");
     } finally {
       if (origRun !== undefined) process.env["PI_WORKFLOW_RUN_ID"] = origRun;
       else delete process.env["PI_WORKFLOW_RUN_ID"];
@@ -268,14 +269,14 @@ describe("parallel stages — shared runId, distinct stageId in subagent env", (
       .compile();
 
     const result = await run(def, {}, { adapters, store: createStore() });
-    expect(result.status).toBe("completed");
-    expect(subagentCalls).toHaveLength(2);
+    assert.equal(result.status, "completed");
+    assert.equal(subagentCalls.length, 2);
 
     const envA = subagentCalls[0]!["env"] as Record<string, string>;
     const envB = subagentCalls[1]!["env"] as Record<string, string>;
 
-    expect(envA["PI_WORKFLOW_RUN_ID"]).toBe(result.runId);
-    expect(envB["PI_WORKFLOW_RUN_ID"]).toBe(result.runId);
+    assert.equal(envA["PI_WORKFLOW_RUN_ID"], result.runId);
+    assert.equal(envB["PI_WORKFLOW_RUN_ID"], result.runId);
   });
 
   test("parallel stages produce distinct PI_WORKFLOW_STAGE_ID values", async () => {
@@ -293,14 +294,14 @@ describe("parallel stages — shared runId, distinct stageId in subagent env", (
       .compile();
 
     await run(def, {}, { adapters, store: createStore() });
-    expect(subagentCalls).toHaveLength(2);
+    assert.equal(subagentCalls.length, 2);
 
     const envA = subagentCalls[0]!["env"] as Record<string, string>;
     const envB = subagentCalls[1]!["env"] as Record<string, string>;
 
-    expect(envA["PI_WORKFLOW_STAGE_ID"]).toBeDefined();
-    expect(envB["PI_WORKFLOW_STAGE_ID"]).toBeDefined();
-    expect(envA["PI_WORKFLOW_STAGE_ID"]).not.toBe(envB["PI_WORKFLOW_STAGE_ID"]);
+    assert.notEqual(envA["PI_WORKFLOW_STAGE_ID"], undefined);
+    assert.notEqual(envB["PI_WORKFLOW_STAGE_ID"], undefined);
+    assert.notEqual(envA["PI_WORKFLOW_STAGE_ID"], envB["PI_WORKFLOW_STAGE_ID"]);
   });
 
   test("parallel stages via callTool — same runId, distinct stageId", async () => {
@@ -318,16 +319,16 @@ describe("parallel stages — shared runId, distinct stageId in subagent env", (
       .compile();
 
     const result = await run(def, {}, { adapters, store: createStore() });
-    expect(result.status).toBe("completed");
-    expect(toolCalls).toHaveLength(2);
+    assert.equal(result.status, "completed");
+    assert.equal(toolCalls.length, 2);
 
     const envA = toolCalls[0]!.args["env"] as Record<string, string>;
     const envB = toolCalls[1]!.args["env"] as Record<string, string>;
 
     // Same run, different stages
-    expect(envA["PI_WORKFLOW_RUN_ID"]).toBe(result.runId);
-    expect(envB["PI_WORKFLOW_RUN_ID"]).toBe(result.runId);
-    expect(envA["PI_WORKFLOW_STAGE_ID"]).not.toBe(envB["PI_WORKFLOW_STAGE_ID"]);
+    assert.equal(envA["PI_WORKFLOW_RUN_ID"], result.runId);
+    assert.equal(envB["PI_WORKFLOW_RUN_ID"], result.runId);
+    assert.notEqual(envA["PI_WORKFLOW_STAGE_ID"], envB["PI_WORKFLOW_STAGE_ID"]);
   });
 });
 
@@ -347,7 +348,7 @@ describe("executor → stage-runner meta passthrough (spy adapter)", () => {
       .compile();
 
     const result = await run(def, {}, { adapters: adapter, store: createStore() });
-    expect(calls[0]!.meta?.runId).toBe(result.runId);
+    assert.equal(calls[0]!.meta?.runId, result.runId);
   });
 
   test("subagent adapter receives stageId matching snapshot id", async () => {
@@ -369,8 +370,8 @@ describe("executor → stage-runner meta passthrough (spy adapter)", () => {
       },
     });
 
-    expect(calls[0]!.meta?.stageId).toBeDefined();
-    expect(calls[0]!.meta?.stageId).toBe(snapshotStageId);
+    assert.notEqual(calls[0]!.meta?.stageId, undefined);
+    assert.equal(calls[0]!.meta?.stageId, snapshotStageId);
   });
 
   test("parallel stage adapters each receive distinct stageId", async () => {
@@ -387,13 +388,13 @@ describe("executor → stage-runner meta passthrough (spy adapter)", () => {
       .compile();
 
     await run(def, {}, { adapters: adapter, store: createStore() });
-    expect(calls).toHaveLength(2);
+    assert.equal(calls.length, 2);
 
     const idA = calls[0]!.meta?.stageId;
     const idB = calls[1]!.meta?.stageId;
-    expect(idA).toBeDefined();
-    expect(idB).toBeDefined();
-    expect(idA).not.toBe(idB);
+    assert.notEqual(idA, undefined);
+    assert.notEqual(idB, undefined);
+    assert.notEqual(idA, idB);
   });
 
   test("parallel stage adapters each receive same runId", async () => {
@@ -410,7 +411,7 @@ describe("executor → stage-runner meta passthrough (spy adapter)", () => {
       .compile();
 
     const result = await run(def, {}, { adapters: adapter, store: createStore() });
-    expect(calls[0]!.meta?.runId).toBe(result.runId);
-    expect(calls[1]!.meta?.runId).toBe(result.runId);
+    assert.equal(calls[0]!.meta?.runId, result.runId);
+    assert.equal(calls[1]!.meta?.runId, result.runId);
   });
 });

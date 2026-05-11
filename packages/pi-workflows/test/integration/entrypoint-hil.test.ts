@@ -18,7 +18,8 @@
  *   workflows/ralph.ts            — bundled HIL workflow (ctx.ui.editor + ctx.ui.confirm)
  */
 
-import { test, expect, describe, beforeEach } from "bun:test";
+import { beforeEach, describe, test } from "node:test";
+import assert from "node:assert/strict";
 import factory, {
   type ExtensionAPI,
   type PiToolOpts,
@@ -33,10 +34,10 @@ import type { PiExecResult } from "../../src/extension/wiring.js";
 import type { PiUISurface } from "../../src/extension/wiring.js";
 import { buildUIAdapter } from "../../src/extension/wiring.js";
 import { createExtensionRuntime } from "../../src/extension/runtime.js";
-import { createStore } from "../../src/store.js";
+import { createStore } from "../../src/shared/store.js";
 import { defineWorkflow } from "../../src/workflows/define-workflow.js";
 import type { WorkflowDefinition } from "../../src/shared/types.js";
-import { runWorkflowFromCliFlags } from "../../src/cli-flags.js";
+import { runWorkflowFromCliFlags } from "../../src/runs/shared/cli-flags.js";
 
 // ---------------------------------------------------------------------------
 // Shared: NDJSON helper + mock pi builder
@@ -182,26 +183,26 @@ describe("entrypoint-hil — tool execute path calls pi.ui", () => {
 
   test("workflow tool is registered", () => {
     const tool = mock.tools.find((t) => t.opts.name === "workflow");
-    expect(tool).toBeDefined();
+    assert.notEqual(tool, undefined);
   });
 
   test("tool execute with ralph invokes pi.ui.editor (HIL checkpoint)", async () => {
     const execute = getToolExecute(mock);
     await execute(RALPH_ARGS, {});
     // ralph calls ctx.ui.editor() at the start of each iteration
-    expect(mock.editorCalls.length).toBeGreaterThan(0);
+    assert.ok(mock.editorCalls.length > 0);
   });
 
   test("tool execute result has action=run", async () => {
     const execute = getToolExecute(mock);
     const result = await execute(RALPH_ARGS, {});
-    expect(result.action).toBe("run");
+    assert.equal(result.action, "run");
   });
 
   test("tool execute with ralph completes successfully when all stages return APPROVED", async () => {
     const execute = getToolExecute(mock);
     const result = await execute(RALPH_ARGS, {}) as Extract<WorkflowToolResult, { action: "run"; runId: string }>;
-    expect(result.status).toBe("completed");
+    assert.equal(result.status, "completed");
   });
 
   test("editor receives the plan text as prefill (HIL signal routing confirmed)", async () => {
@@ -209,16 +210,16 @@ describe("entrypoint-hil — tool execute path calls pi.ui", () => {
     await execute(RALPH_ARGS, {});
     // Prefill from ralph contains "Iteration 1" header
     const prefill = mock.editorCalls[0]!;
-    expect(prefill).toContain("Iteration 1");
-    expect(prefill).toContain("APPROVED"); // plan text set by first prompt stage
+    assert.ok(prefill.includes("Iteration 1"));
+    assert.ok(prefill.includes("APPROVED")); // plan text set by first prompt stage
   });
 
   test("pi.ui not called when workflow not found (no HIL leak)", async () => {
     const execute = getToolExecute(mock);
     await execute({ name: "nonexistent-xyz", inputs: {}, action: "run" }, {});
     // no HIL dialog should fire for a missing workflow
-    expect(mock.editorCalls).toHaveLength(0);
-    expect(mock.confirmCalls).toHaveLength(0);
+    assert.equal(mock.editorCalls.length, 0);
+    assert.equal(mock.confirmCalls.length, 0);
   });
 });
 
@@ -236,14 +237,14 @@ describe("entrypoint-hil — /workflow slash execute calls pi.ui", () => {
 
   test("/workflow command is registered", () => {
     const cmd = mock.commands.find((c) => c.opts.name === "workflow");
-    expect(cmd).toBeDefined();
+    assert.notEqual(cmd, undefined);
   });
 
   test("/workflow ralph prompt=test max_iterations=1 invokes pi.ui.editor", async () => {
     const cmd = getCommand(mock, "workflow");
     const { ctx } = makeCtx();
     await cmd.execute("ralph prompt=test max_iterations=1", ctx);
-    expect(mock.editorCalls.length).toBeGreaterThan(0);
+    assert.ok(mock.editorCalls.length > 0);
   });
 
   test("/workflow ralph prints completed or failed (not unknown subcommand)", async () => {
@@ -251,24 +252,24 @@ describe("entrypoint-hil — /workflow slash execute calls pi.ui", () => {
     const { ctx, messages } = makeCtx();
     await cmd.execute("ralph prompt=test max_iterations=1", ctx);
     const combined = messages.join(" ");
-    expect(combined).not.toContain("unknown subcommand");
+    assert.ok(!combined.includes("unknown subcommand"));
     const dispatched = combined.includes("completed") || combined.includes("failed");
-    expect(dispatched).toBe(true);
+    assert.equal(dispatched, true);
   });
 
   test("/workflow ralph reports completed when all stages return APPROVED", async () => {
     const cmd = getCommand(mock, "workflow");
     const { ctx, messages } = makeCtx();
     await cmd.execute("ralph prompt=test max_iterations=1", ctx);
-    expect(messages.some((m) => m.includes("completed"))).toBe(true);
+    assert.equal(messages.some((m) => m.includes("completed")), true);
   });
 
   test("/workflow list does NOT call pi.ui (admin subcommand bypasses HIL)", async () => {
     const cmd = getCommand(mock, "workflow");
     const { ctx } = makeCtx();
     await cmd.execute("list", ctx);
-    expect(mock.editorCalls).toHaveLength(0);
-    expect(mock.confirmCalls).toHaveLength(0);
+    assert.equal(mock.editorCalls.length, 0);
+    assert.equal(mock.confirmCalls.length, 0);
   });
 });
 
@@ -286,26 +287,26 @@ describe("entrypoint-hil — /workflow:ralph alias execute calls pi.ui", () => {
 
   test("/workflow:ralph alias is registered by factory", () => {
     const cmd = mock.commands.find((c) => c.opts.name === "workflow:ralph");
-    expect(cmd).toBeDefined();
+    assert.notEqual(cmd, undefined);
   });
 
   test("/workflow:ralph execute invokes pi.ui.editor (HIL via alias path)", async () => {
     const cmd = getCommand(mock, "workflow:ralph");
     const { ctx } = makeCtx();
     await cmd.execute("prompt=test max_iterations=1", ctx);
-    expect(mock.editorCalls.length).toBeGreaterThan(0);
+    assert.ok(mock.editorCalls.length > 0);
   });
 
   test("/workflow:ralph execute prints completed when all stages return APPROVED", async () => {
     const cmd = getCommand(mock, "workflow:ralph");
     const { ctx, messages } = makeCtx();
     await cmd.execute("prompt=test max_iterations=1", ctx);
-    expect(messages.some((m) => m.includes("completed"))).toBe(true);
+    assert.equal(messages.some((m) => m.includes("completed")), true);
   });
 
   test("/workflow:ralph alias description mentions 'ralph'", () => {
     const cmd = getCommand(mock, "workflow:ralph");
-    expect(cmd.description).toContain("ralph");
+    assert.ok(cmd.description.includes("ralph"));
   });
 });
 
@@ -350,7 +351,7 @@ describe("entrypoint-hil — CLI flag path HIL-capable runtime", () => {
     };
 
     const uiAdapter = buildUIAdapter(piUiMock);
-    expect(uiAdapter).toBeDefined();
+    assert.notEqual(uiAdapter, undefined);
 
     const runtime = createExtensionRuntime({
       definitions: [hilInputWorkflow],
@@ -363,9 +364,9 @@ describe("entrypoint-hil — CLI flag path HIL-capable runtime", () => {
       argv: ["--workflow=hil-cli-test"],
     });
 
-    expect(result.handled).toBe(true);
+    assert.equal(result.handled, true);
     if (result.handled) {
-      expect(result.status).toBe("completed");
+      assert.equal(result.status, "completed");
     }
   });
 
@@ -394,7 +395,7 @@ describe("entrypoint-hil — CLI flag path HIL-capable runtime", () => {
       argv: ["--workflow=hil-cli-test"],
     });
 
-    expect(captured).toBe("Enter answer:");
+    assert.equal(captured, "Enter answer:");
   });
 
   test("CLI flag path with editor HIL workflow calls ui.editor", async () => {
@@ -422,8 +423,8 @@ describe("entrypoint-hil — CLI flag path HIL-capable runtime", () => {
       argv: ["--workflow=hil-cli-editor"],
     });
 
-    expect(editorCalled).toBe(true);
-    expect(result.handled).toBe(true);
+    assert.equal(editorCalled, true);
+    assert.equal(result.handled, true);
   });
 
   test("CLI flag path: absent pi.ui → HIL workflow fails with unavailable error", async () => {
@@ -438,17 +439,17 @@ describe("entrypoint-hil — CLI flag path HIL-capable runtime", () => {
       argv: ["--workflow=hil-cli-test"],
     });
 
-    expect(result.handled).toBe(true);
+    assert.equal(result.handled, true);
     if (result.handled) {
-      expect(result.status).toBe("failed");
-      expect(result.error).toContain("ui.input is unavailable");
+      assert.equal(result.status, "failed");
+      assert.ok(result.error.includes("ui.input is unavailable"));
     }
   });
 
   test("CLI flag path: buildUIAdapter(pi) returns undefined when pi.ui absent", () => {
     // No ui field → adapter is undefined → runtime degrades gracefully
     const adapter = buildUIAdapter({});
-    expect(adapter).toBeUndefined();
+    assert.equal(adapter, undefined);
   });
 
   test("CLI flag path: buildUIAdapter(pi) returns WorkflowUIAdapter when pi.ui has dialog methods", () => {
@@ -461,11 +462,11 @@ describe("entrypoint-hil — CLI flag path HIL-capable runtime", () => {
       },
     };
     const adapter = buildUIAdapter(pi);
-    expect(adapter).not.toBeUndefined();
-    expect(typeof adapter?.input).toBe("function");
-    expect(typeof adapter?.confirm).toBe("function");
-    expect(typeof adapter?.select).toBe("function");
-    expect(typeof adapter?.editor).toBe("function");
+    assert.notEqual(adapter, undefined);
+    assert.equal(typeof adapter?.input, "function");
+    assert.equal(typeof adapter?.confirm, "function");
+    assert.equal(typeof adapter?.select, "function");
+    assert.equal(typeof adapter?.editor, "function");
   });
 });
 
@@ -506,8 +507,8 @@ describe("entrypoint-hil — tool, slash, alias share same runtimeProxy", () => 
 
     // Both should mention the same bundled workflow names
     for (const name of ["ralph", "deep-research-codebase", "open-claude-design"]) {
-      expect(toolNames).toContain(name);
-      expect(slashMsg).toContain(name);
+      assert.ok(toolNames.includes(name));
+      assert.ok(slashMsg.includes(name));
     }
   });
 
@@ -522,8 +523,8 @@ describe("entrypoint-hil — tool, slash, alias share same runtimeProxy", () => 
     await slashCmd.execute("ralph prompt=test max_iterations=1", slashCtx);
 
     // Both should report 'ralph' in their output
-    expect(aliasMessages.join(" ")).toContain("ralph");
-    expect(slashMessages.join(" ")).toContain("ralph");
+    assert.ok(aliasMessages.join(" ").includes("ralph"));
+    assert.ok(slashMessages.join(" ").includes("ralph"));
   });
 
   test("pi.ui.editor called equal times for tool and slash when running ralph once each", async () => {
@@ -539,7 +540,7 @@ describe("entrypoint-hil — tool, slash, alias share same runtimeProxy", () => 
     const afterSlash = mock.editorCalls.length;
 
     // Each run calls editor at least once
-    expect(afterTool - editorCountBefore).toBeGreaterThan(0);
-    expect(afterSlash - afterTool).toBeGreaterThan(0);
+    assert.ok(afterTool - editorCountBefore > 0);
+    assert.ok(afterSlash - afterTool > 0);
   });
 });

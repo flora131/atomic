@@ -13,7 +13,8 @@
  *   - Both scopes invalid: both diagnostics returned, config null
  */
 
-import { test, expect, describe, beforeAll, afterAll } from "bun:test";
+import { after, before, describe, test } from "node:test";
+import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -54,20 +55,20 @@ describe("loadWorkflowConfig — missing files", () => {
   let tmpHome: string;
   let tmpProject: string;
 
-  beforeAll(async () => {
+  before(async () => {
     tmpHome = await mkdtemp(join(tmpdir(), "pi-config-test-home-"));
     tmpProject = await mkdtemp(join(tmpdir(), "pi-config-test-proj-"));
   });
 
-  afterAll(async () => {
+  after(async () => {
     await rm(tmpHome, { recursive: true, force: true });
     await rm(tmpProject, { recursive: true, force: true });
   });
 
   test("no config files → config null, no diagnostics", async () => {
     const result = await loadWorkflowConfig({ homeDir: tmpHome, projectRoot: tmpProject });
-    expect(result.config).toBeNull();
-    expect(result.diagnostics).toHaveLength(0);
+    assert.equal(result.config, null);
+    assert.equal(result.diagnostics.length, 0);
   });
 });
 
@@ -75,7 +76,7 @@ describe("loadWorkflowConfig — global config only", () => {
   let tmpHome: string;
   let tmpProject: string;
 
-  beforeAll(async () => {
+  before(async () => {
     tmpHome = await mkdtemp(join(tmpdir(), "pi-config-test-home-"));
     tmpProject = await mkdtemp(join(tmpdir(), "pi-config-test-proj-"));
     const globalDir = await makeDir(tmpHome, ".pi", "agent", "extensions", "workflow");
@@ -86,18 +87,18 @@ describe("loadWorkflowConfig — global config only", () => {
     });
   });
 
-  afterAll(async () => {
+  after(async () => {
     await rm(tmpHome, { recursive: true, force: true });
     await rm(tmpProject, { recursive: true, force: true });
   });
 
   test("global config loaded", async () => {
     const result = await loadWorkflowConfig({ homeDir: tmpHome, projectRoot: tmpProject });
-    expect(result.diagnostics).toHaveLength(0);
-    expect(result.config).not.toBeNull();
-    expect(result.config!.maxDepth).toBe(5);
-    expect(result.config!.defaultConcurrency).toBe(2);
-    expect(result.config!.persistRuns).toBe(false);
+    assert.equal(result.diagnostics.length, 0);
+    assert.notEqual(result.config, null);
+    assert.equal(result.config!.maxDepth, 5);
+    assert.equal(result.config!.defaultConcurrency, 2);
+    assert.equal(result.config!.persistRuns, false);
   });
 });
 
@@ -105,7 +106,7 @@ describe("loadWorkflowConfig — project-local config only (primary candidate)",
   let tmpHome: string;
   let tmpProject: string;
 
-  beforeAll(async () => {
+  before(async () => {
     tmpHome = await mkdtemp(join(tmpdir(), "pi-config-test-home-"));
     tmpProject = await mkdtemp(join(tmpdir(), "pi-config-test-proj-"));
     const projDir = await makeDir(tmpProject, ".pi", "extensions", "workflow");
@@ -115,17 +116,17 @@ describe("loadWorkflowConfig — project-local config only (primary candidate)",
     });
   });
 
-  afterAll(async () => {
+  after(async () => {
     await rm(tmpHome, { recursive: true, force: true });
     await rm(tmpProject, { recursive: true, force: true });
   });
 
   test("project-local (.pi/extensions) config loaded", async () => {
     const result = await loadWorkflowConfig({ homeDir: tmpHome, projectRoot: tmpProject });
-    expect(result.diagnostics).toHaveLength(0);
-    expect(result.config).not.toBeNull();
-    expect(result.config!.maxDepth).toBe(3);
-    expect(result.config!.resumeInFlight).toBe("auto");
+    assert.equal(result.diagnostics.length, 0);
+    assert.notEqual(result.config, null);
+    assert.equal(result.config!.maxDepth, 3);
+    assert.equal(result.config!.resumeInFlight, "auto");
   });
 });
 
@@ -133,7 +134,7 @@ describe("loadWorkflowConfig — project-local config only (secondary candidate)
   let tmpHome: string;
   let tmpProject: string;
 
-  beforeAll(async () => {
+  before(async () => {
     tmpHome = await mkdtemp(join(tmpdir(), "pi-config-test-home-"));
     tmpProject = await mkdtemp(join(tmpdir(), "pi-config-test-proj-"));
     // Only the secondary candidate path exists
@@ -143,16 +144,16 @@ describe("loadWorkflowConfig — project-local config only (secondary candidate)
     });
   });
 
-  afterAll(async () => {
+  after(async () => {
     await rm(tmpHome, { recursive: true, force: true });
     await rm(tmpProject, { recursive: true, force: true });
   });
 
   test("project-local (.pi/agent/extensions) config loaded when primary absent", async () => {
     const result = await loadWorkflowConfig({ homeDir: tmpHome, projectRoot: tmpProject });
-    expect(result.diagnostics).toHaveLength(0);
-    expect(result.config).not.toBeNull();
-    expect(result.config!.statusFile).toBe(true);
+    assert.equal(result.diagnostics.length, 0);
+    assert.notEqual(result.config, null);
+    assert.equal(result.config!.statusFile, true);
   });
 });
 
@@ -160,7 +161,7 @@ describe("loadWorkflowConfig — primary candidate wins over secondary", () => {
   let tmpHome: string;
   let tmpProject: string;
 
-  beforeAll(async () => {
+  before(async () => {
     tmpHome = await mkdtemp(join(tmpdir(), "pi-config-test-home-"));
     tmpProject = await mkdtemp(join(tmpdir(), "pi-config-test-proj-"));
     // Both candidates exist — primary should win
@@ -170,15 +171,15 @@ describe("loadWorkflowConfig — primary candidate wins over secondary", () => {
     await writeJson(secondaryDir, "config.json", { maxDepth: 99 });
   });
 
-  afterAll(async () => {
+  after(async () => {
     await rm(tmpHome, { recursive: true, force: true });
     await rm(tmpProject, { recursive: true, force: true });
   });
 
   test("primary candidate (.pi/extensions) used when both exist", async () => {
     const result = await loadWorkflowConfig({ homeDir: tmpHome, projectRoot: tmpProject });
-    expect(result.diagnostics).toHaveLength(0);
-    expect(result.config!.maxDepth).toBe(10);
+    assert.equal(result.diagnostics.length, 0);
+    assert.equal(result.config!.maxDepth, 10);
   });
 });
 
@@ -186,7 +187,7 @@ describe("loadWorkflowConfig — merge: project overrides global", () => {
   let tmpHome: string;
   let tmpProject: string;
 
-  beforeAll(async () => {
+  before(async () => {
     tmpHome = await mkdtemp(join(tmpdir(), "pi-config-test-home-"));
     tmpProject = await mkdtemp(join(tmpdir(), "pi-config-test-proj-"));
     const globalDir = await makeDir(tmpHome, ".pi", "agent", "extensions", "workflow");
@@ -202,26 +203,26 @@ describe("loadWorkflowConfig — merge: project overrides global", () => {
     });
   });
 
-  afterAll(async () => {
+  after(async () => {
     await rm(tmpHome, { recursive: true, force: true });
     await rm(tmpProject, { recursive: true, force: true });
   });
 
   test("project maxDepth overrides global maxDepth", async () => {
     const result = await loadWorkflowConfig({ homeDir: tmpHome, projectRoot: tmpProject });
-    expect(result.diagnostics).toHaveLength(0);
-    expect(result.config!.maxDepth).toBe(2);
+    assert.equal(result.diagnostics.length, 0);
+    assert.equal(result.config!.maxDepth, 2);
   });
 
   test("global-only fields preserved after merge", async () => {
     const result = await loadWorkflowConfig({ homeDir: tmpHome, projectRoot: tmpProject });
-    expect(result.config!.persistRuns).toBe(true);
-    expect(result.config!.resumeInFlight).toBe("ask");
+    assert.equal(result.config!.persistRuns, true);
+    assert.equal(result.config!.resumeInFlight, "ask");
   });
 
   test("project-only fields present after merge", async () => {
     const result = await loadWorkflowConfig({ homeDir: tmpHome, projectRoot: tmpProject });
-    expect(result.config!.statusFile).toBe(true);
+    assert.equal(result.config!.statusFile, true);
   });
 });
 
@@ -229,7 +230,7 @@ describe("loadWorkflowConfig — workflows map merge", () => {
   let tmpHome: string;
   let tmpProject: string;
 
-  beforeAll(async () => {
+  before(async () => {
     tmpHome = await mkdtemp(join(tmpdir(), "pi-config-test-home-"));
     tmpProject = await mkdtemp(join(tmpdir(), "pi-config-test-proj-"));
     const globalDir = await makeDir(tmpHome, ".pi", "agent", "extensions", "workflow");
@@ -248,27 +249,27 @@ describe("loadWorkflowConfig — workflows map merge", () => {
     });
   });
 
-  afterAll(async () => {
+  after(async () => {
     await rm(tmpHome, { recursive: true, force: true });
     await rm(tmpProject, { recursive: true, force: true });
   });
 
   test("workflows from both scopes merged", async () => {
     const result = await loadWorkflowConfig({ homeDir: tmpHome, projectRoot: tmpProject });
-    expect(result.diagnostics).toHaveLength(0);
-    expect(result.config!.workflows).toBeDefined();
-    expect(result.config!.workflows!["global-wf"]).toBeDefined();
-    expect(result.config!.workflows!["proj-wf"]).toBeDefined();
+    assert.equal(result.diagnostics.length, 0);
+    assert.notEqual(result.config!.workflows, undefined);
+    assert.notEqual(result.config!.workflows!["global-wf"], undefined);
+    assert.notEqual(result.config!.workflows!["proj-wf"], undefined);
   });
 
   test("project workflows override global on conflict", async () => {
     const result = await loadWorkflowConfig({ homeDir: tmpHome, projectRoot: tmpProject });
-    expect(result.config!.workflows!["shared-wf"].path).toBe("./workflows/shared-override.ts");
+    assert.equal(result.config!.workflows!["shared-wf"].path, "./workflows/shared-override.ts");
   });
 
   test("global-only workflow preserved", async () => {
     const result = await loadWorkflowConfig({ homeDir: tmpHome, projectRoot: tmpProject });
-    expect(result.config!.workflows!["global-wf"].path).toBe("/home/user/.pi/workflows/global.ts");
+    assert.equal(result.config!.workflows!["global-wf"].path, "/home/user/.pi/workflows/global.ts");
   });
 });
 
@@ -276,38 +277,38 @@ describe("loadWorkflowConfig — invalid JSON", () => {
   let tmpHome: string;
   let tmpProject: string;
 
-  beforeAll(async () => {
+  before(async () => {
     tmpHome = await mkdtemp(join(tmpdir(), "pi-config-test-home-"));
     tmpProject = await mkdtemp(join(tmpdir(), "pi-config-test-proj-"));
     const globalDir = await makeDir(tmpHome, ".pi", "agent", "extensions", "workflow");
     await writeBadJson(globalDir, "config.json");
   });
 
-  afterAll(async () => {
+  after(async () => {
     await rm(tmpHome, { recursive: true, force: true });
     await rm(tmpProject, { recursive: true, force: true });
   });
 
   test("invalid JSON produces CONFIG_INVALID diagnostic", async () => {
     const result = await loadWorkflowConfig({ homeDir: tmpHome, projectRoot: tmpProject });
-    expect(result.diagnostics).toHaveLength(1);
-    expect(result.diagnostics[0]!.code).toBe("CONFIG_INVALID");
-    expect(result.diagnostics[0]!.level).toBe("error");
+    assert.equal(result.diagnostics.length, 1);
+    assert.equal(result.diagnostics[0]!.code, "CONFIG_INVALID");
+    assert.equal(result.diagnostics[0]!.level, "error");
   });
 
   test("source path present in diagnostic", async () => {
     const result = await loadWorkflowConfig({ homeDir: tmpHome, projectRoot: tmpProject });
-    expect(result.diagnostics[0]!.source).toContain("config.json");
+    assert.ok(result.diagnostics[0]!.source.includes("config.json"));
   });
 
   test("config null when only source is invalid", async () => {
     const result = await loadWorkflowConfig({ homeDir: tmpHome, projectRoot: tmpProject });
-    expect(result.config).toBeNull();
+    assert.equal(result.config, null);
   });
 
   test("diagnostic message references JSON parse error", async () => {
     const result = await loadWorkflowConfig({ homeDir: tmpHome, projectRoot: tmpProject });
-    expect(result.diagnostics[0]!.message).toContain("Invalid JSON");
+    assert.ok(result.diagnostics[0]!.message.includes("Invalid JSON"));
   });
 });
 
@@ -315,23 +316,23 @@ describe("loadWorkflowConfig — invalid shape (wrong field types)", () => {
   let tmpHome: string;
   let tmpProject: string;
 
-  beforeAll(async () => {
+  before(async () => {
     tmpHome = await mkdtemp(join(tmpdir(), "pi-config-test-home-"));
     tmpProject = await mkdtemp(join(tmpdir(), "pi-config-test-proj-"));
     const projDir = await makeDir(tmpProject, ".pi", "extensions", "workflow");
     await writeJson(projDir, "config.json", { maxDepth: "not-a-number" });
   });
 
-  afterAll(async () => {
+  after(async () => {
     await rm(tmpHome, { recursive: true, force: true });
     await rm(tmpProject, { recursive: true, force: true });
   });
 
   test("bad maxDepth type → CONFIG_INVALID", async () => {
     const result = await loadWorkflowConfig({ homeDir: tmpHome, projectRoot: tmpProject });
-    expect(result.diagnostics).toHaveLength(1);
-    expect(result.diagnostics[0]!.code).toBe("CONFIG_INVALID");
-    expect(result.diagnostics[0]!.message).toContain("maxDepth");
+    assert.equal(result.diagnostics.length, 1);
+    assert.equal(result.diagnostics[0]!.code, "CONFIG_INVALID");
+    assert.ok(result.diagnostics[0]!.message.includes("maxDepth"));
   });
 });
 
@@ -339,23 +340,23 @@ describe("loadWorkflowConfig — invalid resumeInFlight enum", () => {
   let tmpHome: string;
   let tmpProject: string;
 
-  beforeAll(async () => {
+  before(async () => {
     tmpHome = await mkdtemp(join(tmpdir(), "pi-config-test-home-"));
     tmpProject = await mkdtemp(join(tmpdir(), "pi-config-test-proj-"));
     const projDir = await makeDir(tmpProject, ".pi", "extensions", "workflow");
     await writeJson(projDir, "config.json", { resumeInFlight: "maybe" });
   });
 
-  afterAll(async () => {
+  after(async () => {
     await rm(tmpHome, { recursive: true, force: true });
     await rm(tmpProject, { recursive: true, force: true });
   });
 
   test("unknown resumeInFlight value → CONFIG_INVALID", async () => {
     const result = await loadWorkflowConfig({ homeDir: tmpHome, projectRoot: tmpProject });
-    expect(result.diagnostics).toHaveLength(1);
-    expect(result.diagnostics[0]!.code).toBe("CONFIG_INVALID");
-    expect(result.diagnostics[0]!.message).toContain("resumeInFlight");
+    assert.equal(result.diagnostics.length, 1);
+    assert.equal(result.diagnostics[0]!.code, "CONFIG_INVALID");
+    assert.ok(result.diagnostics[0]!.message.includes("resumeInFlight"));
   });
 });
 
@@ -363,7 +364,7 @@ describe("loadWorkflowConfig — invalid workflows entry (missing path)", () => 
   let tmpHome: string;
   let tmpProject: string;
 
-  beforeAll(async () => {
+  before(async () => {
     tmpHome = await mkdtemp(join(tmpdir(), "pi-config-test-home-"));
     tmpProject = await mkdtemp(join(tmpdir(), "pi-config-test-proj-"));
     const projDir = await makeDir(tmpProject, ".pi", "extensions", "workflow");
@@ -374,16 +375,16 @@ describe("loadWorkflowConfig — invalid workflows entry (missing path)", () => 
     });
   });
 
-  afterAll(async () => {
+  after(async () => {
     await rm(tmpHome, { recursive: true, force: true });
     await rm(tmpProject, { recursive: true, force: true });
   });
 
   test("empty workflow path → CONFIG_INVALID", async () => {
     const result = await loadWorkflowConfig({ homeDir: tmpHome, projectRoot: tmpProject });
-    expect(result.diagnostics).toHaveLength(1);
-    expect(result.diagnostics[0]!.code).toBe("CONFIG_INVALID");
-    expect(result.diagnostics[0]!.message).toContain("path");
+    assert.equal(result.diagnostics.length, 1);
+    assert.equal(result.diagnostics[0]!.code, "CONFIG_INVALID");
+    assert.ok(result.diagnostics[0]!.message.includes("path"));
   });
 });
 
@@ -391,7 +392,7 @@ describe("loadWorkflowConfig — both scopes invalid", () => {
   let tmpHome: string;
   let tmpProject: string;
 
-  beforeAll(async () => {
+  before(async () => {
     tmpHome = await mkdtemp(join(tmpdir(), "pi-config-test-home-"));
     tmpProject = await mkdtemp(join(tmpdir(), "pi-config-test-proj-"));
     const globalDir = await makeDir(tmpHome, ".pi", "agent", "extensions", "workflow");
@@ -400,22 +401,22 @@ describe("loadWorkflowConfig — both scopes invalid", () => {
     await writeBadJson(projDir, "config.json");
   });
 
-  afterAll(async () => {
+  after(async () => {
     await rm(tmpHome, { recursive: true, force: true });
     await rm(tmpProject, { recursive: true, force: true });
   });
 
   test("two CONFIG_INVALID diagnostics", async () => {
     const result = await loadWorkflowConfig({ homeDir: tmpHome, projectRoot: tmpProject });
-    expect(result.diagnostics).toHaveLength(2);
+    assert.equal(result.diagnostics.length, 2);
     for (const d of result.diagnostics) {
-      expect(d.code).toBe("CONFIG_INVALID");
+      assert.equal(d.code, "CONFIG_INVALID");
     }
   });
 
   test("config null when both sources invalid", async () => {
     const result = await loadWorkflowConfig({ homeDir: tmpHome, projectRoot: tmpProject });
-    expect(result.config).toBeNull();
+    assert.equal(result.config, null);
   });
 });
 
@@ -423,7 +424,7 @@ describe("loadWorkflowConfig — one invalid, one valid", () => {
   let tmpHome: string;
   let tmpProject: string;
 
-  beforeAll(async () => {
+  before(async () => {
     tmpHome = await mkdtemp(join(tmpdir(), "pi-config-test-home-"));
     tmpProject = await mkdtemp(join(tmpdir(), "pi-config-test-proj-"));
     const globalDir = await makeDir(tmpHome, ".pi", "agent", "extensions", "workflow");
@@ -432,16 +433,16 @@ describe("loadWorkflowConfig — one invalid, one valid", () => {
     await writeJson(projDir, "config.json", { maxDepth: 6 }); // valid project
   });
 
-  afterAll(async () => {
+  after(async () => {
     await rm(tmpHome, { recursive: true, force: true });
     await rm(tmpProject, { recursive: true, force: true });
   });
 
   test("one diagnostic from global, config from project", async () => {
     const result = await loadWorkflowConfig({ homeDir: tmpHome, projectRoot: tmpProject });
-    expect(result.diagnostics).toHaveLength(1);
-    expect(result.config).not.toBeNull();
-    expect(result.config!.maxDepth).toBe(6);
+    assert.equal(result.diagnostics.length, 1);
+    assert.notEqual(result.config, null);
+    assert.equal(result.config!.maxDepth, 6);
   });
 });
 
@@ -449,23 +450,23 @@ describe("loadWorkflowConfig — workflows array rejected (not object)", () => {
   let tmpHome: string;
   let tmpProject: string;
 
-  beforeAll(async () => {
+  before(async () => {
     tmpHome = await mkdtemp(join(tmpdir(), "pi-config-test-home-"));
     tmpProject = await mkdtemp(join(tmpdir(), "pi-config-test-proj-"));
     const projDir = await makeDir(tmpProject, ".pi", "extensions", "workflow");
     await writeJson(projDir, "config.json", { workflows: ["array-not-allowed"] });
   });
 
-  afterAll(async () => {
+  after(async () => {
     await rm(tmpHome, { recursive: true, force: true });
     await rm(tmpProject, { recursive: true, force: true });
   });
 
   test("array workflows → CONFIG_INVALID", async () => {
     const result = await loadWorkflowConfig({ homeDir: tmpHome, projectRoot: tmpProject });
-    expect(result.diagnostics).toHaveLength(1);
-    expect(result.diagnostics[0]!.code).toBe("CONFIG_INVALID");
-    expect(result.diagnostics[0]!.message).toContain("workflows");
+    assert.equal(result.diagnostics.length, 1);
+    assert.equal(result.diagnostics[0]!.code, "CONFIG_INVALID");
+    assert.ok(result.diagnostics[0]!.message.includes("workflows"));
   });
 });
 
@@ -473,7 +474,7 @@ describe("loadWorkflowConfig — valid config with all fields", () => {
   let tmpHome: string;
   let tmpProject: string;
 
-  beforeAll(async () => {
+  before(async () => {
     tmpHome = await mkdtemp(join(tmpdir(), "pi-config-test-home-"));
     tmpProject = await mkdtemp(join(tmpdir(), "pi-config-test-proj-"));
     const projDir = await makeDir(tmpProject, ".pi", "extensions", "workflow");
@@ -489,21 +490,21 @@ describe("loadWorkflowConfig — valid config with all fields", () => {
     });
   });
 
-  afterAll(async () => {
+  after(async () => {
     await rm(tmpHome, { recursive: true, force: true });
     await rm(tmpProject, { recursive: true, force: true });
   });
 
   test("all valid fields parsed correctly", async () => {
     const result = await loadWorkflowConfig({ homeDir: tmpHome, projectRoot: tmpProject });
-    expect(result.diagnostics).toHaveLength(0);
+    assert.equal(result.diagnostics.length, 0);
     const c = result.config!;
-    expect(c.maxDepth).toBe(4);
-    expect(c.defaultConcurrency).toBe(4);
-    expect(c.persistRuns).toBe(true);
-    expect(c.statusFile).toBe(false);
-    expect(c.resumeInFlight).toBe("never");
-    expect(c.workflows!["my-workflow"]!.path).toBe("./workflows/my-workflow.ts");
+    assert.equal(c.maxDepth, 4);
+    assert.equal(c.defaultConcurrency, 4);
+    assert.equal(c.persistRuns, true);
+    assert.equal(c.statusFile, false);
+    assert.equal(c.resumeInFlight, "never");
+    assert.equal(c.workflows!["my-workflow"]!.path, "./workflows/my-workflow.ts");
   });
 });
 
@@ -511,7 +512,7 @@ describe("loadWorkflowConfig — config not top-level object", () => {
   let tmpHome: string;
   let tmpProject: string;
 
-  beforeAll(async () => {
+  before(async () => {
     tmpHome = await mkdtemp(join(tmpdir(), "pi-config-test-home-"));
     tmpProject = await mkdtemp(join(tmpdir(), "pi-config-test-proj-"));
     const projDir = await makeDir(tmpProject, ".pi", "extensions", "workflow");
@@ -519,16 +520,16 @@ describe("loadWorkflowConfig — config not top-level object", () => {
     await writeFile(join(projDir, "config.json"), JSON.stringify([1, 2, 3]), "utf8");
   });
 
-  afterAll(async () => {
+  after(async () => {
     await rm(tmpHome, { recursive: true, force: true });
     await rm(tmpProject, { recursive: true, force: true });
   });
 
   test("array at root → CONFIG_INVALID", async () => {
     const result = await loadWorkflowConfig({ homeDir: tmpHome, projectRoot: tmpProject });
-    expect(result.diagnostics).toHaveLength(1);
-    expect(result.diagnostics[0]!.code).toBe("CONFIG_INVALID");
-    expect(result.diagnostics[0]!.message).toContain("JSON object");
+    assert.equal(result.diagnostics.length, 1);
+    assert.equal(result.diagnostics[0]!.code, "CONFIG_INVALID");
+    assert.ok(result.diagnostics[0]!.message.includes("JSON object"));
   });
 });
 
@@ -540,9 +541,9 @@ describe("ConfigDiagnostic shape", () => {
       message: "Invalid JSON in config file: Unexpected token",
       source: "/home/user/.pi/agent/extensions/workflow/config.json",
     };
-    expect(diag.code).toBe("CONFIG_INVALID");
-    expect(diag.level).toBe("error");
-    expect(typeof diag.message).toBe("string");
-    expect(diag.source).toContain("config.json");
+    assert.equal(diag.code, "CONFIG_INVALID");
+    assert.equal(diag.level, "error");
+    assert.equal(typeof diag.message, "string");
+    assert.ok(diag.source.includes("config.json"));
   });
 });

@@ -7,7 +7,8 @@
  *            §5.6 renderer registration, §8.3 Phase B tests
  */
 
-import { test, expect, describe, beforeEach } from "bun:test";
+import { beforeEach, describe, test } from "node:test";
+import assert from "node:assert/strict";
 import factory, {
   type ExtensionAPI,
   type PiToolOpts,
@@ -69,7 +70,14 @@ function makeMock(): ExtensionAPI & {
     },
 
     registerCommand(name: string, options: PiCommandOptions) {
-      commands.push({ opts: { name, description: options.description, execute: options.handler, getArgumentCompletions: options.getArgumentCompletions } });
+      commands.push({
+        opts: {
+          name,
+          description: options.description,
+          execute: options.handler,
+          getArgumentCompletions: options.getArgumentCompletions,
+        },
+      });
     },
 
     registerMessageRenderer(event: string, renderer: (payload: Record<string, unknown>) => string) {
@@ -99,6 +107,38 @@ function getRenderer(
   return renderers.find((r) => r.event === event)?.renderer;
 }
 
+function getFlag(flags: RegisteredFlag[], name: string): PiFlagOpts | undefined {
+  return flags.find((f) => f.opts.name === name)?.opts;
+}
+
+function expectRegisteredCommand(
+  commands: RegisteredCommand[],
+  name: string,
+): PiSlashCommandOpts {
+  const cmd = getCommand(commands, name);
+  if (cmd === undefined) {
+    throw new Error(`Expected command "${name}" to be registered`);
+  }
+
+  assert.equal(cmd.name, name);
+  assert.equal(typeof cmd.description, "string");
+  assert.ok(cmd.description.length > 0);
+  assert.equal(typeof cmd.execute, "function");
+  return cmd;
+}
+
+function expectRegisteredFlag(flags: RegisteredFlag[], name: string): PiFlagOpts {
+  const flag = getFlag(flags, name);
+  if (flag === undefined) {
+    throw new Error(`Expected flag "${name}" to be registered`);
+  }
+
+  assert.equal(flag.name, name);
+  assert.equal(typeof flag.description, "string");
+  assert.ok(flag.description.length > 0);
+  return flag;
+}
+
 // ---------------------------------------------------------------------------
 // Describe blocks
 // ---------------------------------------------------------------------------
@@ -112,32 +152,32 @@ describe("MockExtensionAPI — tool registration", () => {
   });
 
   test("registers exactly one tool", () => {
-    expect(mock.tools).toHaveLength(1);
+    assert.equal(mock.tools.length, 1);
   });
 
   test("tool name is 'workflow'", () => {
-    expect(mock.tools[0]!.opts.name).toBe("workflow");
+    assert.equal(mock.tools[0]!.opts.name, "workflow");
   });
 
   test("tool has non-empty description", () => {
-    expect(typeof mock.tools[0]!.opts.description).toBe("string");
-    expect(mock.tools[0]!.opts.description.length).toBeGreaterThan(0);
+    assert.equal(typeof mock.tools[0]!.opts.description, "string");
+    assert.ok(mock.tools[0]!.opts.description.length > 0);
   });
 
   test("tool has parameters schema (TypeBox object)", () => {
     const params = mock.tools[0]!.opts.parameters as Record<string, unknown>;
-    expect(params).toBeDefined();
+    assert.notEqual(params, undefined);
     // TypeBox TObject has a 'type' property equal to 'object'
-    expect(params["type"]).toBe("object");
+    assert.equal(params["type"], "object");
   });
 
   test("tool parameters include 'name', 'inputs', 'action' properties", () => {
     const params = mock.tools[0]!.opts.parameters as {
       properties: Record<string, unknown>;
     };
-    expect(params.properties).toHaveProperty("name");
-    expect(params.properties).toHaveProperty("inputs");
-    expect(params.properties).toHaveProperty("action");
+    assert.ok("name" in params.properties);
+    assert.ok("inputs" in params.properties);
+    assert.ok("action" in params.properties);
   });
 
   test("tool 'action' schema covers all six literals", () => {
@@ -150,63 +190,63 @@ describe("MockExtensionAPI — tool registration", () => {
     // TypeBox Optional(Union([...])) wraps in anyOf
     const raw = JSON.stringify(actionSchema);
     for (const literal of ["run", "list", "status", "kill", "resume", "inputs"]) {
-      expect(raw).toContain(literal);
+      assert.ok(raw.includes(literal));
     }
   });
 
   test("tool execute returns run stub for default action", async () => {
     const execute = mock.tools[0]!.opts.execute;
     const result = await execute({ name: "my-workflow", inputs: {} }, {});
-    expect(result.action).toBe("run");
+    assert.equal(result.action, "run");
   });
 
   test("tool execute returns list stub for action='list'", async () => {
     const execute = mock.tools[0]!.opts.execute;
     const result = await execute({ name: "", inputs: {}, action: "list" }, {});
-    expect(result.action).toBe("list");
-    expect(Array.isArray((result as { action: "list"; workflows: string[] }).workflows)).toBe(true);
+    assert.equal(result.action, "list");
+    assert.equal(Array.isArray((result as { action: "list"; workflows: string[] }).workflows), true);
   });
 
   test("tool execute returns status stub for action='status'", async () => {
     const execute = mock.tools[0]!.opts.execute;
     const result = await execute({ name: "", inputs: {}, action: "status" }, {});
-    expect(result.action).toBe("status");
-    expect(Array.isArray((result as { action: "status"; runs: unknown[] }).runs)).toBe(true);
+    assert.equal(result.action, "status");
+    assert.equal(Array.isArray((result as { action: "status"; runs: unknown[] }).runs), true);
   });
 
   test("tool execute returns inputs stub for action='inputs'", async () => {
     const execute = mock.tools[0]!.opts.execute;
     const result = await execute({ name: "wf", inputs: {}, action: "inputs" }, {});
-    expect(result.action).toBe("inputs");
+    assert.equal(result.action, "inputs");
     const r = result as { action: "inputs"; name: string; inputs: unknown[] };
-    expect(r.name).toBe("wf");
-    expect(Array.isArray(r.inputs)).toBe(true);
+    assert.equal(r.name, "wf");
+    assert.equal(Array.isArray(r.inputs), true);
   });
 
   test("tool execute returns kill stub for action='kill'", async () => {
     const execute = mock.tools[0]!.opts.execute;
     const result = await execute({ name: "run-123", inputs: {}, action: "kill" }, {});
-    expect(result.action).toBe("kill");
+    assert.equal(result.action, "kill");
   });
 
   test("tool execute returns resume stub for action='resume'", async () => {
     const execute = mock.tools[0]!.opts.execute;
     const result = await execute({ name: "run-456", inputs: {}, action: "resume" }, {});
-    expect(result.action).toBe("resume");
+    assert.equal(result.action, "resume");
   });
 
   test("tool has renderCall slot", () => {
-    expect(typeof mock.tools[0]!.opts.renderCall).toBe("function");
+    assert.equal(typeof mock.tools[0]!.opts.renderCall, "function");
   });
 
   test("tool has renderResult slot", () => {
-    expect(typeof mock.tools[0]!.opts.renderResult).toBe("function");
+    assert.equal(typeof mock.tools[0]!.opts.renderResult, "function");
   });
 
   test("tool renderCall slot delegates correctly", () => {
     const slot = mock.tools[0]!.opts.renderCall!;
     const out = slot({ args: { name: "test-wf", inputs: {}, action: "run" } }, {}, {});
-    expect(out).toContain("test-wf");
+    assert.ok(out.includes("test-wf"));
   });
 
   test("tool renderResult slot delegates correctly", () => {
@@ -218,7 +258,7 @@ describe("MockExtensionAPI — tool registration", () => {
       message: "not yet implemented",
     };
     const out = slot({ result }, {}, {}, {});
-    expect(out).toContain("abc");
+    assert.ok(out.includes("abc"));
   });
 });
 
@@ -235,78 +275,92 @@ describe("MockExtensionAPI — slash command registration", () => {
   });
 
   test("registers at least two commands", () => {
-    expect(mock.commands.length).toBeGreaterThanOrEqual(2);
+    assert.ok(mock.commands.length >= 2);
   });
 
   test("/workflow command registered", () => {
-    expect(getCommand(mock.commands, "workflow")).toBeDefined();
+    assert.notEqual(getCommand(mock.commands, "workflow"), undefined);
   });
 
   test("/workflows-doctor command registered", () => {
-    expect(getCommand(mock.commands, "workflows-doctor")).toBeDefined();
+    assert.notEqual(getCommand(mock.commands, "workflows-doctor"), undefined);
+  });
+
+  test("/workflow registered through canonical (name, opts) tuple", () => {
+    expectRegisteredCommand(mock.commands, "workflow");
+  });
+
+  test("/workflows-doctor registered through canonical (name, opts) tuple", () => {
+    expectRegisteredCommand(mock.commands, "workflows-doctor");
+  });
+
+  test("registerSlashCommand NOT called when registerCommand present", () => {
+    const names = mock.commands.map((c) => c.opts.name);
+    assert.ok(names.includes("workflow"));
+    assert.ok(names.includes("workflows-doctor"));
   });
 
   test("/workflow has non-empty description", () => {
     const cmd = getCommand(mock.commands, "workflow")!;
-    expect(cmd.description.length).toBeGreaterThan(0);
+    assert.ok(cmd.description.length > 0);
   });
 
   test("/workflows-doctor has non-empty description", () => {
     const cmd = getCommand(mock.commands, "workflows-doctor")!;
-    expect(cmd.description.length).toBeGreaterThan(0);
+    assert.ok(cmd.description.length > 0);
   });
 
   test("/workflow execute with empty args calls reply/print", async () => {
     const cmd = getCommand(mock.commands, "workflow")!;
     const messages: string[] = [];
     await cmd.execute("", { reply: (m) => messages.push(m) });
-    expect(messages.length).toBeGreaterThan(0);
+    assert.ok(messages.length > 0);
   });
 
   test("/workflow execute 'list' calls reply/print", async () => {
     const cmd = getCommand(mock.commands, "workflow")!;
     const messages: string[] = [];
     await cmd.execute("list", { reply: (m) => messages.push(m) });
-    expect(messages.length).toBeGreaterThan(0);
+    assert.ok(messages.length > 0);
   });
 
   test("/workflow execute 'status' calls reply/print", async () => {
     const cmd = getCommand(mock.commands, "workflow")!;
     const messages: string[] = [];
     await cmd.execute("status", { reply: (m) => messages.push(m) });
-    expect(messages.length).toBeGreaterThan(0);
+    assert.ok(messages.length > 0);
   });
 
   test("/workflow execute unknown arg calls reply/print", async () => {
     const cmd = getCommand(mock.commands, "workflow")!;
     const messages: string[] = [];
     await cmd.execute("run my-wf", { reply: (m) => messages.push(m) });
-    expect(messages.length).toBeGreaterThan(0);
+    assert.ok(messages.length > 0);
   });
 
   test("/workflow execute falls back to ctx.print if no ctx.reply", async () => {
     const cmd = getCommand(mock.commands, "workflow")!;
     const messages: string[] = [];
     await cmd.execute("", { print: (m) => messages.push(m) });
-    expect(messages.length).toBeGreaterThan(0);
+    assert.ok(messages.length > 0);
   });
 
   test("/workflow getArgumentCompletions returns all subcommands for empty partial", async () => {
     const cmd = getCommand(mock.commands, "workflow")!;
     const completions = await cmd.getArgumentCompletions?.("");
-    expect(Array.isArray(completions)).toBe(true);
+    assert.equal(Array.isArray(completions), true);
     const labels = completions!.map((c) => c.label);
     for (const sub of ["list", "status", "kill", "resume", "inputs"]) {
-      expect(labels).toContain(sub);
+      assert.ok(labels.includes(sub));
     }
   });
 
   test("/workflow getArgumentCompletions filters by partial", async () => {
     const cmd = getCommand(mock.commands, "workflow")!;
     const completions = await cmd.getArgumentCompletions?.("li");
-    expect(completions).toBeDefined();
-    expect(completions!.length).toBeGreaterThan(0);
-    expect(completions!.every((c) => c.label.startsWith("li"))).toBe(true);
+    assert.notEqual(completions, undefined);
+    assert.ok(completions!.length > 0);
+    assert.equal(completions!.every((c) => c.label.startsWith("li")), true);
   });
 
   test("/workflows-doctor execute returns multi-line doctor report", async () => {
@@ -314,14 +368,14 @@ describe("MockExtensionAPI — slash command registration", () => {
     const messages: string[] = [];
     await cmd.execute("", { reply: (m) => messages.push(m) });
     const combined = messages.join("\n");
-    expect(combined).toContain("pi-workflows");
+    assert.ok(combined.includes("pi-workflows"));
   });
 
   test("/workflows-doctor execute falls back to ctx.print", async () => {
     const cmd = getCommand(mock.commands, "workflows-doctor")!;
     const messages: string[] = [];
     await cmd.execute("", { print: (m) => messages.push(m) });
-    expect(messages.length).toBeGreaterThan(0);
+    assert.ok(messages.length > 0);
   });
 });
 
@@ -339,8 +393,8 @@ describe("MockExtensionAPI — registerSlashCommand alias", () => {
     };
     factory(api);
     const names = commands.map((c) => c.opts.name);
-    expect(names).toContain("workflow");
-    expect(names).toContain("workflows-doctor");
+    assert.ok(names.includes("workflow"));
+    assert.ok(names.includes("workflows-doctor"));
   });
 
   test("prefers registerCommand over registerSlashCommand when both present", () => {
@@ -355,8 +409,8 @@ describe("MockExtensionAPI — registerSlashCommand alias", () => {
       },
     };
     factory(api);
-    expect(commandLog.length).toBeGreaterThan(0);
-    expect(slashLog).toHaveLength(0);
+    assert.ok(commandLog.length > 0);
+    assert.equal(slashLog.length, 0);
   });
 });
 
@@ -382,80 +436,80 @@ describe("MockExtensionAPI — message renderer registration", () => {
 
   for (const event of REQUIRED_EVENTS) {
     test(`registers renderer for '${event}'`, () => {
-      expect(getRenderer(mock.renderers, event)).toBeDefined();
+      assert.notEqual(getRenderer(mock.renderers, event), undefined);
     });
   }
 
   test("workflow.run.start renderer returns non-empty string", () => {
     const renderer = getRenderer(mock.renderers, "workflow.run.start")!;
     const out = renderer({ runId: "r1", name: "my-wf", inputs: { foo: "bar" } });
-    expect(typeof out).toBe("string");
-    expect(out.length).toBeGreaterThan(0);
-    expect(out).toContain("my-wf");
-    expect(out).toContain("r1");
+    assert.equal(typeof out, "string");
+    assert.ok(out.length > 0);
+    assert.ok(out.includes("my-wf"));
+    assert.ok(out.includes("r1"));
   });
 
   test("workflow.run.start renderer shows input count", () => {
     const renderer = getRenderer(mock.renderers, "workflow.run.start")!;
     const out = renderer({ runId: "r1", name: "wf", inputs: { a: 1, b: 2 } });
-    expect(out).toContain("2");
+    assert.ok(out.includes("2"));
   });
 
   test("workflow.stage.start renderer returns non-empty string", () => {
     const renderer = getRenderer(mock.renderers, "workflow.stage.start")!;
     const out = renderer({ runId: "r1", stageId: "s1", name: "stage-one" });
-    expect(typeof out).toBe("string");
-    expect(out).toContain("stage-one");
+    assert.equal(typeof out, "string");
+    assert.ok(out.includes("stage-one"));
   });
 
   test("workflow.stage.start renderer includes model if provided", () => {
     const renderer = getRenderer(mock.renderers, "workflow.stage.start")!;
     const out = renderer({ runId: "r1", stageId: "s1", name: "s", model: "gpt-4o" });
-    expect(out).toContain("gpt-4o");
+    assert.ok(out.includes("gpt-4o"));
   });
 
   test("workflow.stage.progress renderer returns non-empty string", () => {
     const renderer = getRenderer(mock.renderers, "workflow.stage.progress")!;
     const out = renderer({ runId: "r1", stageId: "s1", kind: "token" });
-    expect(typeof out).toBe("string");
-    expect(out).toContain("s1");
+    assert.equal(typeof out, "string");
+    assert.ok(out.includes("s1"));
   });
 
   test("workflow.stage.end renderer ok status shows checkmark", () => {
     const renderer = getRenderer(mock.renderers, "workflow.stage.end")!;
     const out = renderer({ runId: "r1", stageId: "s1", status: "ok", durationMs: 100 });
-    expect(out).toContain("✓");
-    expect(out).toContain("100");
+    assert.ok(out.includes("✓"));
+    assert.ok(out.includes("100"));
   });
 
   test("workflow.stage.end renderer error status shows error mark", () => {
     const renderer = getRenderer(mock.renderers, "workflow.stage.end")!;
     const out = renderer({ runId: "r1", stageId: "s1", status: "error" });
-    expect(out).toContain("✗");
+    assert.ok(out.includes("✗"));
   });
 
   test("workflow.stage.end renderer includes summary if provided", () => {
     const renderer = getRenderer(mock.renderers, "workflow.stage.end")!;
     const out = renderer({ runId: "r1", stageId: "s1", status: "ok", summary: "done well" });
-    expect(out).toContain("done well");
+    assert.ok(out.includes("done well"));
   });
 
   test("workflow.run.end renderer ok status shows success emoji", () => {
     const renderer = getRenderer(mock.renderers, "workflow.run.end")!;
     const out = renderer({ runId: "r1", status: "ok" });
-    expect(out).toContain("✅");
-    expect(out).toContain("r1");
+    assert.ok(out.includes("✅"));
+    assert.ok(out.includes("r1"));
   });
 
   test("workflow.run.end renderer error status shows failure emoji", () => {
     const renderer = getRenderer(mock.renderers, "workflow.run.end")!;
     const out = renderer({ runId: "r1", status: "error" });
-    expect(out).toContain("❌");
+    assert.ok(out.includes("❌"));
   });
 
   test("skips renderer registration when registerMessageRenderer absent", () => {
     // No error thrown even without the method.
-    expect(() => factory({})).not.toThrow();
+    assert.doesNotThrow(() => factory({}));
   });
 });
 
@@ -472,37 +526,33 @@ describe("MockExtensionAPI — CLI flag registration", () => {
   });
 
   test("registers at least two flags", () => {
-    expect(mock.flags.length).toBeGreaterThanOrEqual(2);
+    assert.ok(mock.flags.length >= 2);
   });
 
   test("registers 'workflow' flag", () => {
-    const flag = mock.flags.find((f) => f.opts.name === "workflow");
-    expect(flag).toBeDefined();
+    expectRegisteredFlag(mock.flags, "workflow");
   });
 
   test("'workflow' flag is type 'string'", () => {
-    const flag = mock.flags.find((f) => f.opts.name === "workflow")!;
-    expect(flag.opts.type).toBe("string");
+    assert.equal(expectRegisteredFlag(mock.flags, "workflow").type, "string");
   });
 
   test("'workflow' flag has non-empty description", () => {
-    const flag = mock.flags.find((f) => f.opts.name === "workflow")!;
-    expect(flag.opts.description.length).toBeGreaterThan(0);
+    expectRegisteredFlag(mock.flags, "workflow");
   });
 
-  test("registers 'workflow-input-key' flag", () => {
-    const flag = mock.flags.find((f) => f.opts.name === "workflow-input-key");
-    expect(flag).toBeDefined();
+  test("registers 'workflow-input-<key>' flag", () => {
+    expectRegisteredFlag(mock.flags, "workflow-input-<key>");
   });
 
-  test("'workflow-input-key' flag is type 'string'", () => {
-    const flag = mock.flags.find((f) => f.opts.name === "workflow-input-key")!;
-    expect(flag.opts.type).toBe("string");
+  test("'workflow-input-<key>' flag is type 'string'", () => {
+    assert.equal(expectRegisteredFlag(mock.flags, "workflow-input-<key>").type, "string");
   });
 
   test("skips flag registration when registerFlag absent", () => {
-    expect(() => factory({})).not.toThrow();
+    assert.doesNotThrow(() => factory({}));
   });
+
 });
 
 // ---------------------------------------------------------------------------
@@ -511,35 +561,35 @@ describe("MockExtensionAPI — CLI flag registration", () => {
 
 describe("renderCall — all action branches", () => {
   test("action='list' returns list string", () => {
-    expect(renderCall({ action: "list" })).toBe("workflow: list registered workflows");
+    assert.equal(renderCall({ action: "list" }), "workflow: list registered workflows");
   });
 
   test("action='status' returns status string", () => {
-    expect(renderCall({ action: "status" })).toBe("workflow: list in-flight runs");
+    assert.equal(renderCall({ action: "status" }), "workflow: list in-flight runs");
   });
 
   test("action='inputs' includes name", () => {
-    expect(renderCall({ name: "wf-a", action: "inputs" })).toContain("wf-a");
+    assert.ok(renderCall({ name: "wf-a", action: "inputs" }).includes("wf-a"));
   });
 
   test("action='run' includes name", () => {
-    expect(renderCall({ name: "wf-b", action: "run" })).toContain("wf-b");
+    assert.ok(renderCall({ name: "wf-b", action: "run" }).includes("wf-b"));
   });
 
   test("action='kill' includes name", () => {
-    expect(renderCall({ name: "run-1", action: "kill" })).toContain("run-1");
+    assert.ok(renderCall({ name: "run-1", action: "kill" }).includes("run-1"));
   });
 
   test("action='resume' includes name", () => {
-    expect(renderCall({ name: "run-2", action: "resume" })).toContain("run-2");
+    assert.ok(renderCall({ name: "run-2", action: "resume" }).includes("run-2"));
   });
 
   test("defaults to 'run' when action omitted", () => {
-    expect(renderCall({ name: "wf-c" })).toContain("run");
+    assert.ok(renderCall({ name: "wf-c" }).includes("run"));
   });
 
   test("falls back to '(unnamed)' when name omitted", () => {
-    expect(renderCall({})).toContain("(unnamed)");
+    assert.ok(renderCall({}).includes("(unnamed)"));
   });
 });
 
@@ -550,18 +600,18 @@ describe("renderCall — all action branches", () => {
 describe("renderResult — all action branches", () => {
   test("action='list' empty workflows", () => {
     const out = renderResult({ action: "list", workflows: [] });
-    expect(out).toContain("none");
+    assert.ok(out.includes("none"));
   });
 
   test("action='list' with workflows", () => {
     const out = renderResult({ action: "list", workflows: ["wf-a", "wf-b"] });
-    expect(out).toContain("wf-a");
-    expect(out).toContain("wf-b");
+    assert.ok(out.includes("wf-a"));
+    assert.ok(out.includes("wf-b"));
   });
 
   test("action='status' empty runs", () => {
     const out = renderResult({ action: "status", runs: [] });
-    expect(out).toContain("no in-flight");
+    assert.ok(out.includes("no in-flight"));
   });
 
   test("action='status' with runs", () => {
@@ -569,14 +619,14 @@ describe("renderResult — all action branches", () => {
       action: "status",
       runs: [{ runId: "r1", name: "wf", status: "running" }],
     });
-    expect(out).toContain("r1");
-    expect(out).toContain("running");
+    assert.ok(out.includes("r1"));
+    assert.ok(out.includes("running"));
   });
 
   test("action='inputs' empty inputs", () => {
     const out = renderResult({ action: "inputs", name: "wf-x", inputs: [] });
-    expect(out).toContain("wf-x");
-    expect(out).toContain("no declared inputs");
+    assert.ok(out.includes("wf-x"));
+    assert.ok(out.includes("no declared inputs"));
   });
 
   test("action='inputs' with inputs", () => {
@@ -587,8 +637,8 @@ describe("renderResult — all action branches", () => {
         { name: "param1", type: "string", required: true, description: "A param" },
       ],
     });
-    expect(out).toContain("param1");
-    expect(out).toContain("required");
+    assert.ok(out.includes("param1"));
+    assert.ok(out.includes("required"));
   });
 
   test("action='run' non-partial shows message", () => {
@@ -596,8 +646,8 @@ describe("renderResult — all action branches", () => {
       { action: "run", runId: "r42", status: "pending", message: "not yet" },
       { isPartial: false },
     );
-    expect(out).toContain("not yet");
-    expect(out).toContain("r42");
+    assert.ok(out.includes("not yet"));
+    assert.ok(out.includes("r42"));
   });
 
   test("action='run' isPartial shows 'in progress'", () => {
@@ -605,8 +655,8 @@ describe("renderResult — all action branches", () => {
       { action: "run", runId: "r42", status: "pending", message: "not yet" },
       { isPartial: true },
     );
-    expect(out).toContain("in progress");
-    expect(out).toContain("r42");
+    assert.ok(out.includes("in progress"));
+    assert.ok(out.includes("r42"));
   });
 
   test("action='kill' shows message", () => {
@@ -616,8 +666,8 @@ describe("renderResult — all action branches", () => {
       status: "noop",
       message: "Kill not yet implemented",
     });
-    expect(out).toContain("r10");
-    expect(out).toContain("Kill not yet implemented");
+    assert.ok(out.includes("r10"));
+    assert.ok(out.includes("Kill not yet implemented"));
   });
 
   test("action='resume' shows message", () => {
@@ -627,14 +677,14 @@ describe("renderResult — all action branches", () => {
       status: "noop",
       message: "Resume not yet implemented",
     });
-    expect(out).toContain("r20");
-    expect(out).toContain("Resume not yet implemented");
+    assert.ok(out.includes("r20"));
+    assert.ok(out.includes("Resume not yet implemented"));
   });
 
   test("unknown action falls through to default", () => {
     const out = renderResult({ action: "unknown-action", message: "oops" } as unknown as WorkflowToolResult);
-    expect(typeof out).toBe("string");
-    expect(out).toContain("oops");
+    assert.equal(typeof out, "string");
+    assert.ok(out.includes("oops"));
   });
 });
 
@@ -653,12 +703,12 @@ describe("MockExtensionAPI — tool list returns bundled workflow names", () => 
   test("action='list' returns bundled workflow names", async () => {
     const execute = mock.tools[0]!.opts.execute;
     const result = await execute({ name: "", inputs: {}, action: "list" }, {});
-    expect(result.action).toBe("list");
+    assert.equal(result.action, "list");
     const r = result as { action: "list"; workflows: string[] };
-    expect(r.workflows).toContain("deep-research-codebase");
-    expect(r.workflows).toContain("ralph");
-    expect(r.workflows).toContain("open-claude-design");
-    expect(r.workflows.length).toBeGreaterThanOrEqual(3);
+    assert.ok(r.workflows.includes("deep-research-codebase"));
+    assert.ok(r.workflows.includes("ralph"));
+    assert.ok(r.workflows.includes("open-claude-design"));
+    assert.ok(r.workflows.length >= 3);
   });
 });
 
@@ -673,24 +723,24 @@ describe("MockExtensionAPI — tool inputs returns schema for deep-research-code
   test("action='inputs' for deep-research-codebase returns prompt and max_partitions fields", async () => {
     const execute = mock.tools[0]!.opts.execute;
     const result = await execute({ name: "deep-research-codebase", inputs: {}, action: "inputs" }, {});
-    expect(result.action).toBe("inputs");
+    assert.equal(result.action, "inputs");
     const r = result as { action: "inputs"; name: string; inputs: Array<{ name: string; type: string; required?: boolean; default?: unknown }> };
-    expect(r.name).toBe("deep-research-codebase");
-    expect(r.inputs).toBeDefined();
+    assert.equal(r.name, "deep-research-codebase");
+    assert.notEqual(r.inputs, undefined);
     const byName = Object.fromEntries(r.inputs.map((i) => [i.name, i]));
-    expect(byName["prompt"]).toBeDefined();
-    expect(byName["prompt"]?.type).toBe("text");
-    expect(byName["prompt"]?.required).toBe(true);
-    expect(byName["max_partitions"]).toBeDefined();
-    expect(byName["max_partitions"]?.type).toBe("number");
-    expect(byName["max_partitions"]?.default).toBe(4);
+    assert.notEqual(byName["prompt"], undefined);
+    assert.equal(byName["prompt"]?.type, "text");
+    assert.equal(byName["prompt"]?.required, true);
+    assert.notEqual(byName["max_partitions"], undefined);
+    assert.equal(byName["max_partitions"]?.type, "number");
+    assert.equal(byName["max_partitions"]?.default, 4);
   });
 
   test("action='inputs' for deep-research-codebase has no error field", async () => {
     const execute = mock.tools[0]!.opts.execute;
     const result = await execute({ name: "deep-research-codebase", inputs: {}, action: "inputs" }, {});
     const r = result as { action: "inputs"; error?: string };
-    expect(r.error).toBeUndefined();
+    assert.equal(r.error, undefined);
   });
 });
 
@@ -711,7 +761,7 @@ describe("MockExtensionAPI — tool run returns non-placeholder runId and termin
       { name: "deep-research-codebase", inputs: { prompt: "test query" }, action: "run" },
       {},
     );
-    expect(result.action).toBe("run");
+    assert.equal(result.action, "run");
     const r = result as {
       action: "run";
       runId: string;
@@ -720,13 +770,13 @@ describe("MockExtensionAPI — tool run returns non-placeholder runId and termin
       error?: string;
     };
     // runId must be a non-empty non-placeholder value (real UUID)
-    expect(r.runId).toBeString();
-    expect(r.runId.length).toBeGreaterThan(0);
-    expect(r.runId).not.toBe("");
+    assert.equal(typeof r.runId, "string");
+    assert.ok(r.runId.length > 0);
+    assert.notEqual(r.runId, "");
     // status must be terminal (completed or failed) — not pending/running/placeholder
-    expect(["completed", "failed"]).toContain(r.status);
+    assert.ok(["completed", "failed"].includes(r.status));
     // stages must be an array
-    expect(Array.isArray(r.stages)).toBe(true);
+    assert.equal(Array.isArray(r.stages), true);
   });
 
   test("action='run' for deep-research-codebase without adapters reports honest failure, not stub", async () => {
@@ -745,22 +795,22 @@ describe("MockExtensionAPI — tool run returns non-placeholder runId and termin
     // When no adapters and complete adapter is missing, the workflow should fail honestly.
     // A "failed" run must carry an error message (not placeholder text like "not yet implemented").
     if (r.status === "failed") {
-      expect(r.error).toBeDefined();
-      expect(r.error).not.toContain("not yet implemented");
-      expect(r.error).not.toContain("Phase B stub");
+      assert.notEqual(r.error, undefined);
+      assert.ok(!r.error.includes("not yet implemented"));
+      assert.ok(!r.error.includes("Phase B stub"));
     }
     // Either way, runId must be real
-    expect(r.runId).not.toBe("");
+    assert.notEqual(r.runId, "");
   });
 
   test("action='run' for unknown workflow returns non-placeholder empty runId string with failed status", async () => {
     const execute = mock.tools[0]!.opts.execute;
     const result = await execute({ name: "nonexistent-workflow-xyz", inputs: {}, action: "run" }, {});
     const r = result as { action: "run"; runId: string; status: string; error?: string };
-    expect(r.status).toBe("failed");
-    expect(r.error).toContain("nonexistent-workflow-xyz");
+    assert.equal(r.status, "failed");
+    assert.ok(r.error.includes("nonexistent-workflow-xyz"));
     // not-found returns "" as runId (documented behaviour: empty sentinel for not-found)
-    expect(r.runId).toBe("");
+    assert.equal(r.runId, "");
   });
 });
 
@@ -777,22 +827,22 @@ describe("MockExtensionAPI — slash alias registration for bundled workflows", 
   });
 
   test("alias workflow:deep-research-codebase registered", () => {
-    expect(getCommand(mock.commands, "workflow:deep-research-codebase")).toBeDefined();
+    assert.notEqual(getCommand(mock.commands, "workflow:deep-research-codebase"), undefined);
   });
 
   test("alias workflow:ralph registered", () => {
-    expect(getCommand(mock.commands, "workflow:ralph")).toBeDefined();
+    assert.notEqual(getCommand(mock.commands, "workflow:ralph"), undefined);
   });
 
   test("alias workflow:open-claude-design registered", () => {
-    expect(getCommand(mock.commands, "workflow:open-claude-design")).toBeDefined();
+    assert.notEqual(getCommand(mock.commands, "workflow:open-claude-design"), undefined);
   });
 
   test("each alias command has non-empty description mentioning workflow name", () => {
     for (const name of ["deep-research-codebase", "ralph", "open-claude-design"]) {
       const cmd = getCommand(mock.commands, `workflow:${name}`)!;
-      expect(cmd.description.length).toBeGreaterThan(0);
-      expect(cmd.description).toContain(name);
+      assert.ok(cmd.description.length > 0);
+      assert.ok(cmd.description.includes(name));
     }
   });
 });
@@ -816,21 +866,21 @@ describe("MockExtensionAPI — completions include admin subcommands and workflo
 
     // Admin subcommands
     for (const sub of ["list", "status", "kill", "resume", "inputs"]) {
-      expect(labels).toContain(sub);
+      assert.ok(labels.includes(sub));
     }
 
     // Bundled workflow names
-    expect(labels).toContain("deep-research-codebase");
-    expect(labels).toContain("ralph");
-    expect(labels).toContain("open-claude-design");
+    assert.ok(labels.includes("deep-research-codebase"));
+    assert.ok(labels.includes("ralph"));
+    assert.ok(labels.includes("open-claude-design"));
   });
 
   test("/workflow completions filter partial 'deep' to workflow name", async () => {
     const cmd = getCommand(mock.commands, "workflow")!;
     const completions = await cmd.getArgumentCompletions?.("deep") ?? [];
     const labels = completions.map((c) => c.label);
-    expect(labels).toContain("deep-research-codebase");
-    expect(labels.every((l) => l.startsWith("deep"))).toBe(true);
+    assert.ok(labels.includes("deep-research-codebase"));
+    assert.equal(labels.every((l) => l.startsWith("deep")), true);
   });
 });
 
@@ -852,7 +902,7 @@ describe("MockExtensionAPI — /workflow <name> dispatches run not unknown-subco
     await cmd.execute("deep-research-codebase prompt=test", { reply: (m) => messages.push(m) });
 
     // Must not say "unknown subcommand"
-    expect(messages.some((m) => m.toLowerCase().includes("unknown subcommand"))).toBe(false);
+    assert.equal(messages.some((m) => m.toLowerCase().includes("unknown subcommand")), false);
 
     // Must print either completed, failed, or "Workflow not found" — never silent
     const dispatched = messages.some(
@@ -861,7 +911,7 @@ describe("MockExtensionAPI — /workflow <name> dispatches run not unknown-subco
         m.includes("failed") ||
         m.includes("Workflow not found"),
     );
-    expect(dispatched).toBe(true);
+    assert.equal(dispatched, true);
   });
 });
 
@@ -884,15 +934,15 @@ describe("MockExtensionAPI — /workflows-doctor reports real loaded count", () 
     const combined = messages.join("\n");
 
     // Must contain the pi-workflows header
-    expect(combined).toContain("pi-workflows");
+    assert.ok(combined.includes("pi-workflows"));
     // Must not contain placeholder stub text
-    expect(combined).not.toContain("Phase B stub");
-    expect(combined).not.toContain("Executor: not yet implemented");
+    assert.ok(!combined.includes("Phase B stub"));
+    assert.ok(!combined.includes("Executor: not yet implemented"));
     // Must report the bundled workflow count (at least 3)
     const match = combined.match(/Registry:\s*(\d+)\s*workflow/);
-    expect(match).not.toBeNull();
+    assert.notEqual(match, null);
     const count = match ? parseInt(match[1]!, 10) : 0;
-    expect(count).toBeGreaterThanOrEqual(3);
+    assert.ok(count >= 3);
   });
 
   test("/workflows-doctor names bundled sources (deep-research-codebase, ralph, open-claude-design)", async () => {
@@ -901,9 +951,9 @@ describe("MockExtensionAPI — /workflows-doctor reports real loaded count", () 
     await cmd.execute("", { reply: (m) => messages.push(m) });
     const combined = messages.join("\n");
 
-    expect(combined).toContain("deep-research-codebase");
-    expect(combined).toContain("ralph");
-    expect(combined).toContain("open-claude-design");
+    assert.ok(combined.includes("deep-research-codebase"));
+    assert.ok(combined.includes("ralph"));
+    assert.ok(combined.includes("open-claude-design"));
   });
 });
 
@@ -922,47 +972,47 @@ describe("MockExtensionAPI — tool list/status without name or inputs", () => {
   // Schema: name and inputs must NOT appear in the required array
   test("schema has no required fields — name absent from required", () => {
     const params = mock.tools[0]!.opts.parameters as { required?: string[] };
-    expect(params.required ?? []).not.toContain("name");
+    assert.ok(!params.required ?? [].includes("name"));
   });
 
   test("schema has no required fields — inputs absent from required", () => {
     const params = mock.tools[0]!.opts.parameters as { required?: string[] };
-    expect(params.required ?? []).not.toContain("inputs");
+    assert.ok(!params.required ?? [].includes("inputs"));
   });
 
   // Tool execute: { action: "list" } — no name, no inputs
   test("execute({ action: 'list' }) returns action='list'", async () => {
     const execute = mock.tools[0]!.opts.execute;
     const result = await execute({ action: "list" }, {});
-    expect(result.action).toBe("list");
+    assert.equal(result.action, "list");
   });
 
   test("execute({ action: 'list' }) returns workflows array", async () => {
     const execute = mock.tools[0]!.opts.execute;
     const result = await execute({ action: "list" }, {});
     const r = result as { action: "list"; workflows: unknown[] };
-    expect(Array.isArray(r.workflows)).toBe(true);
+    assert.equal(Array.isArray(r.workflows), true);
   });
 
   test("execute({ action: 'list' }) workflows includes bundled names", async () => {
     const execute = mock.tools[0]!.opts.execute;
     const result = await execute({ action: "list" }, {});
     const r = result as { action: "list"; workflows: string[] };
-    expect(r.workflows).toContain("deep-research-codebase");
+    assert.ok(r.workflows.includes("deep-research-codebase"));
   });
 
   // Tool execute: { action: "status" } — no name, no inputs
   test("execute({ action: 'status' }) returns action='status'", async () => {
     const execute = mock.tools[0]!.opts.execute;
     const result = await execute({ action: "status" }, {});
-    expect(result.action).toBe("status");
+    assert.equal(result.action, "status");
   });
 
   test("execute({ action: 'status' }) returns runs array", async () => {
     const execute = mock.tools[0]!.opts.execute;
     const result = await execute({ action: "status" }, {});
     const r = result as { action: "status"; runs: unknown[] };
-    expect(Array.isArray(r.runs)).toBe(true);
+    assert.equal(Array.isArray(r.runs), true);
   });
 
   // Results identical whether or not name/inputs are supplied (idempotent)
@@ -970,14 +1020,14 @@ describe("MockExtensionAPI — tool list/status without name or inputs", () => {
     const execute = mock.tools[0]!.opts.execute;
     const withName = await execute({ name: "", inputs: {}, action: "list" }, {});
     const withoutName = await execute({ action: "list" }, {});
-    expect(withoutName.action).toBe(withName.action);
+    assert.equal(withoutName.action, withName.action);
   });
 
   test("execute status with/without name yields same action", async () => {
     const execute = mock.tools[0]!.opts.execute;
     const withName = await execute({ name: "", inputs: {}, action: "status" }, {});
     const withoutName = await execute({ action: "status" }, {});
-    expect(withoutName.action).toBe(withName.action);
+    assert.equal(withoutName.action, withName.action);
   });
 });
 
@@ -987,7 +1037,7 @@ describe("MockExtensionAPI — tool list/status without name or inputs", () => {
 
 describe("MockExtensionAPI — graceful degradation", () => {
   test("factory({}) does not throw", () => {
-    expect(() => factory({})).not.toThrow();
+    assert.doesNotThrow(() => factory({}));
   });
 
   test("factory with partial API (only registerTool) does not throw", () => {
@@ -996,7 +1046,7 @@ describe("MockExtensionAPI — graceful degradation", () => {
         void opts;
       },
     };
-    expect(() => factory(api)).not.toThrow();
+    assert.doesNotThrow(() => factory(api));
   });
 
   test("factory with partial API (only registerCommand) does not throw", () => {
@@ -1005,7 +1055,7 @@ describe("MockExtensionAPI — graceful degradation", () => {
         void options;
       },
     };
-    expect(() => factory(api)).not.toThrow();
+    assert.doesNotThrow(() => factory(api));
   });
 
   test("factory with partial API (only registerMessageRenderer) does not throw", () => {
@@ -1015,7 +1065,7 @@ describe("MockExtensionAPI — graceful degradation", () => {
         void renderer;
       },
     };
-    expect(() => factory(api)).not.toThrow();
+    assert.doesNotThrow(() => factory(api));
   });
 
   test("factory with partial API (only registerFlag) does not throw", () => {
@@ -1024,6 +1074,6 @@ describe("MockExtensionAPI — graceful degradation", () => {
         void name; void opts;
       },
     };
-    expect(() => factory(api)).not.toThrow();
+    assert.doesNotThrow(() => factory(api));
   });
 });

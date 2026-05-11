@@ -2,7 +2,8 @@
  * Phase C tests — GraphFrontierTracker
  * Covers: sequential, parallel (Promise.all-like), fan-in parent inference, reset.
  */
-import { test, expect, describe } from "bun:test";
+import { describe, test } from "node:test";
+import assert from "node:assert/strict";
 import { GraphFrontierTracker } from "../../src/runs/shared/graph-inference.js";
 
 describe("GraphFrontierTracker — Phase C", () => {
@@ -14,7 +15,7 @@ describe("GraphFrontierTracker — Phase C", () => {
     test("first stage has no parents", () => {
       const tracker = new GraphFrontierTracker();
       const parents = tracker.onSpawn("s1", "first");
-      expect(parents).toEqual([]);
+      assert.deepEqual(parents, []);
     });
 
     test("each awaited stage depends on the previous settled stage", () => {
@@ -24,11 +25,11 @@ describe("GraphFrontierTracker — Phase C", () => {
       tracker.onSettle("s1");
 
       const p2 = tracker.onSpawn("s2", "stage-two");
-      expect(p2).toEqual(["s1"]);
+      assert.deepEqual(p2, ["s1"]);
       tracker.onSettle("s2");
 
       const p3 = tracker.onSpawn("s3", "stage-three");
-      expect(p3).toEqual(["s2"]);
+      assert.deepEqual(p3, ["s2"]);
       tracker.onSettle("s3");
     });
 
@@ -42,9 +43,9 @@ describe("GraphFrontierTracker — Phase C", () => {
       tracker.onSpawn("c", "gamma");
       tracker.onSettle("c");
 
-      expect(tracker.getParents("a")).toEqual([]);
-      expect(tracker.getParents("b")).toEqual(["a"]);
-      expect(tracker.getParents("c")).toEqual(["b"]);
+      assert.deepEqual(tracker.getParents("a"), []);
+      assert.deepEqual(tracker.getParents("b"), ["a"]);
+      assert.deepEqual(tracker.getParents("c"), ["b"]);
     });
 
     test("getNodes reflects correct parentIds after sequential run", () => {
@@ -56,10 +57,10 @@ describe("GraphFrontierTracker — Phase C", () => {
       tracker.onSettle("n2");
 
       const nodes = tracker.getNodes();
-      expect(nodes).toHaveLength(2);
+      assert.equal(nodes.length, 2);
 
       const n2 = nodes.find((n) => n.id === "n2");
-      expect(n2?.parentIds).toEqual(["n1"]);
+      assert.deepEqual(n2?.parentIds, ["n1"]);
     });
   });
 
@@ -79,8 +80,8 @@ describe("GraphFrontierTracker — Phase C", () => {
       const pA = tracker.onSpawn("branchA", "branch-a");
       const pB = tracker.onSpawn("branchB", "branch-b");
 
-      expect(pA).toEqual(["root"]);
-      expect(pB).toEqual(["root"]);
+      assert.deepEqual(pA, ["root"]);
+      assert.deepEqual(pB, ["root"]);
     });
 
     test("parallel root stages: both have empty parents", () => {
@@ -89,8 +90,8 @@ describe("GraphFrontierTracker — Phase C", () => {
       const pA = tracker.onSpawn("pA", "parallel-a");
       const pB = tracker.onSpawn("pB", "parallel-b");
 
-      expect(pA).toEqual([]);
-      expect(pB).toEqual([]);
+      assert.deepEqual(pA, []);
+      assert.deepEqual(pB, []);
     });
 
     test("settling order of parallel branches does not affect their parents", () => {
@@ -106,8 +107,8 @@ describe("GraphFrontierTracker — Phase C", () => {
       tracker.onSettle("b");
       tracker.onSettle("a");
 
-      expect(pA).toEqual(["r"]);
-      expect(pB).toEqual(["r"]);
+      assert.deepEqual(pA, ["r"]);
+      assert.deepEqual(pB, ["r"]);
     });
   });
 
@@ -126,9 +127,9 @@ describe("GraphFrontierTracker — Phase C", () => {
       tracker.onSettle("pB");
 
       const fanInParents = tracker.onSpawn("fanIn", "fan-in");
-      expect(fanInParents).toHaveLength(2);
-      expect(fanInParents).toContain("pA");
-      expect(fanInParents).toContain("pB");
+      assert.equal(fanInParents.length, 2);
+      assert.ok(fanInParents.includes("pA"));
+      assert.ok(fanInParents.includes("pB"));
     });
 
     test("fan-in stage node stores all parallel stages as parentIds", () => {
@@ -142,9 +143,9 @@ describe("GraphFrontierTracker — Phase C", () => {
       tracker.onSettle("z");
 
       const zNode = tracker.getNodes().find((n) => n.id === "z");
-      expect(zNode?.parentIds).toHaveLength(2);
-      expect(zNode?.parentIds).toContain("x");
-      expect(zNode?.parentIds).toContain("y");
+      assert.equal(zNode?.parentIds.length, 2);
+      assert.ok(zNode?.parentIds.includes("x"));
+      assert.ok(zNode?.parentIds.includes("y"));
     });
 
     test("stage after fan-in depends only on the fan-in stage", () => {
@@ -162,7 +163,7 @@ describe("GraphFrontierTracker — Phase C", () => {
 
       // Post fan-in
       const postParents = tracker.onSpawn("post", "post");
-      expect(postParents).toEqual(["fi"]);
+      assert.deepEqual(postParents, ["fi"]);
     });
   });
 
@@ -178,8 +179,8 @@ describe("GraphFrontierTracker — Phase C", () => {
       tracker.onSettle("s1");
       tracker.reset();
 
-      expect(tracker.getNodes()).toHaveLength(0);
-      expect(tracker.getParents("s1")).toEqual([]);
+      assert.equal(tracker.getNodes().length, 0);
+      assert.deepEqual(tracker.getParents("s1"), []);
     });
 
     test("after reset, new stages are root stages (empty frontier)", () => {
@@ -190,7 +191,7 @@ describe("GraphFrontierTracker — Phase C", () => {
       tracker.reset();
 
       const parents = tracker.onSpawn("fresh", "fresh");
-      expect(parents).toEqual([]);
+      assert.deepEqual(parents, []);
     });
 
     test("stages added after reset tracked independently", () => {
@@ -205,9 +206,9 @@ describe("GraphFrontierTracker — Phase C", () => {
       tracker.onSpawn("b", "b");
       tracker.onSettle("b");
 
-      expect(tracker.getParents("a")).toEqual([]);
-      expect(tracker.getParents("b")).toEqual(["a"]);
-      expect(tracker.getNodes()).toHaveLength(2);
+      assert.deepEqual(tracker.getParents("a"), []);
+      assert.deepEqual(tracker.getParents("b"), ["a"]);
+      assert.equal(tracker.getNodes().length, 2);
     });
   });
 });

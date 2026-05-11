@@ -1,4 +1,5 @@
-import { test, expect, describe } from "bun:test";
+import { describe, test } from "node:test";
+import assert from "node:assert/strict";
 import { defineWorkflow } from "../../src/workflows/define-workflow.js";
 
 describe("defineWorkflow immutable builder semantics", () => {
@@ -8,14 +9,14 @@ describe("defineWorkflow immutable builder semantics", () => {
     const b3 = b2.description("v2");
 
     // b2 and b3 are distinct objects
-    expect(b2).not.toBe(b3);
+    assert.notEqual(b2, b3);
 
     // Each compiles independently
     const d2 = b2.run(async () => ({})).compile();
     const d3 = b3.run(async () => ({})).compile();
 
-    expect(d2.description).toBe("v1");
-    expect(d3.description).toBe("v2");
+    assert.equal(d2.description, "v1");
+    assert.equal(d3.description, "v2");
   });
 
   test("input does not mutate previous builder", () => {
@@ -23,15 +24,15 @@ describe("defineWorkflow immutable builder semantics", () => {
     const b2 = b1.input("a", { type: "text" });
     const b3 = b2.input("b", { type: "number" });
 
-    expect(b2).not.toBe(b3);
+    assert.notEqual(b2, b3);
 
     const d2 = b2.run(async () => ({})).compile();
     const d3 = b3.run(async () => ({})).compile();
 
     // b2 only has input "a"
-    expect(Object.keys(d2.inputs)).toEqual(["a"]);
+    assert.deepEqual(Object.keys(d2.inputs), ["a"]);
     // b3 has both
-    expect(Object.keys(d3.inputs).sort()).toEqual(["a", "b"]);
+    assert.deepEqual(Object.keys(d3.inputs).sort(), ["a", "b"]);
   });
 
   test("run does not mutate previous builder", () => {
@@ -45,8 +46,8 @@ describe("defineWorkflow immutable builder semantics", () => {
     const d1 = c1.compile();
     const d2 = c2.compile();
 
-    expect(d1.run).toBe(fn1);
-    expect(d2.run).toBe(fn2);
+    assert.equal(d1.run, fn1);
+    assert.equal(d2.run, fn2);
   });
 });
 
@@ -63,9 +64,9 @@ describe("defineWorkflow select input", () => {
       .compile();
 
     const schema = def.inputs["mode"];
-    expect(schema.type).toBe("select");
+    assert.equal(schema.type, "select");
     if (schema.type === "select") {
-      expect(schema.choices).toEqual(["fast", "thorough", "balanced"]);
+      assert.deepEqual(schema.choices, ["fast", "thorough", "balanced"]);
     }
   });
 });
@@ -76,8 +77,8 @@ describe("defineWorkflow normalizedName", () => {
       .run(async () => ({}))
       .compile();
 
-    expect(def.normalizedName).toBe("deep-research-codebase");
-    expect(def.name).toBe("Deep Research Codebase");
+    assert.equal(def.normalizedName, "deep-research-codebase");
+    assert.equal(def.name, "Deep Research Codebase");
   });
 
   test("normalizedName used as registry key", () => {
@@ -85,7 +86,7 @@ describe("defineWorkflow normalizedName", () => {
       .run(async () => ({}))
       .compile();
 
-    expect(def.normalizedName).toBe("my-workflow");
+    assert.equal(def.normalizedName, "my-workflow");
   });
 });
 
@@ -96,12 +97,12 @@ describe("WorkflowDefinition deep freeze", () => {
       .run(async () => ({}))
       .compile();
 
-    expect(Object.isFrozen(def.inputs)).toBe(true);
+    assert.equal(Object.isFrozen(def.inputs), true);
 
-    expect(() => {
+    assert.throws(() => {
       // @ts-expect-error intentionally mutating frozen object
       def.inputs["y"] = { type: "text" };
-    }).toThrow();
+    });
   });
 
   test("top-level definition is frozen", () => {
@@ -109,6 +110,6 @@ describe("WorkflowDefinition deep freeze", () => {
       .run(async () => ({}))
       .compile();
 
-    expect(Object.isFrozen(def)).toBe(true);
+    assert.equal(Object.isFrozen(def), true);
   });
 });

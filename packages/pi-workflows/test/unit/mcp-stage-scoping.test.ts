@@ -6,9 +6,10 @@
  *
  * Also asserts mcpScope is stored on StageSnapshot.
  */
-import { test, expect, describe } from "bun:test";
-import { run } from "../../src/runs/sync/executor.js";
-import { createStore } from "../../src/store.js";
+import { describe, test } from "node:test";
+import assert from "node:assert/strict";
+import { run } from "../../src/runs/foreground/executor.js";
+import { createStore } from "../../src/shared/store.js";
 import { defineWorkflow } from "../../src/workflows/define-workflow.js";
 import type { WorkflowMcpPort } from "../../src/shared/types.js";
 
@@ -75,11 +76,11 @@ describe("MCP stage scoping — call order", () => {
     const idxMcpClear = order.indexOf("mcpClear");
     const idxStageEnd = order.indexOf("stageEnd");
 
-    expect(idxStageStart).toBeGreaterThanOrEqual(0);
-    expect(idxMcpSet).toBeGreaterThan(idxStageStart);
-    expect(idxAdapterCall).toBeGreaterThan(idxMcpSet);
-    expect(idxMcpClear).toBeGreaterThan(idxAdapterCall);
-    expect(idxStageEnd).toBeGreaterThan(idxMcpClear);
+    assert.ok(idxStageStart >= 0);
+    assert.ok(idxMcpSet > idxStageStart);
+    assert.ok(idxAdapterCall > idxMcpSet);
+    assert.ok(idxMcpClear > idxAdapterCall);
+    assert.ok(idxStageEnd > idxMcpClear);
   });
 
   test("clear fires in finally even when adapter throws", async () => {
@@ -114,10 +115,10 @@ describe("MCP stage scoping — call order", () => {
     const idxMcpClear = order.indexOf("mcpClear");
     const idxStageEnd = order.indexOf("stageEnd");
 
-    expect(idxMcpSet).toBeGreaterThanOrEqual(0);
-    expect(idxAdapterCall).toBeGreaterThan(idxMcpSet);
-    expect(idxMcpClear).toBeGreaterThan(idxAdapterCall);
-    expect(idxStageEnd).toBeGreaterThan(idxMcpClear);
+    assert.ok(idxMcpSet >= 0);
+    assert.ok(idxAdapterCall > idxMcpSet);
+    assert.ok(idxMcpClear > idxAdapterCall);
+    assert.ok(idxStageEnd > idxMcpClear);
   });
 
   test("no MCP calls when stage has no mcp options", async () => {
@@ -139,10 +140,10 @@ describe("MCP stage scoping — call order", () => {
       onStageEnd: () => order.push("stageEnd"),
     });
 
-    expect(order).not.toContain("mcpSet");
-    expect(order).not.toContain("mcpClear");
+    assert.ok(!order.includes("mcpSet"));
+    assert.ok(!order.includes("mcpClear"));
     // adapter still called
-    expect(order).toContain("adapterCall");
+    assert.ok(order.includes("adapterCall"));
   });
 
   test("concurrent stages: each gets distinct stageId in setScope", async () => {
@@ -172,19 +173,19 @@ describe("MCP stage scoping — call order", () => {
     });
 
     // Both stages should have called setScope with distinct stageIds
-    expect(setCalls).toHaveLength(2);
-    expect(clearCalls).toHaveLength(2);
+    assert.equal(setCalls.length, 2);
+    assert.equal(clearCalls.length, 2);
 
     const stageIds = setCalls.map((c) => c.stageId);
     // Distinct UUIDs
-    expect(stageIds[0]).not.toBe(stageIds[1]);
+    assert.notEqual(stageIds[0], stageIds[1]);
 
     // allow lists are stage-specific (not mixed)
     const aCall = setCalls.find((c) => c.allow?.includes("server-a"));
     const bCall = setCalls.find((c) => c.allow?.includes("server-b"));
-    expect(aCall).toBeDefined();
-    expect(bCall).toBeDefined();
-    expect(aCall!.stageId).not.toBe(bCall!.stageId);
+    assert.notEqual(aCall, undefined);
+    assert.notEqual(bCall, undefined);
+    assert.notEqual(aCall!.stageId, bCall!.stageId);
   });
 });
 
@@ -207,11 +208,11 @@ describe("MCP stage scoping — StageSnapshot.mcpScope", () => {
       adapters: { prompt: { prompt: async () => "ok" } },
     });
 
-    expect(result.status).toBe("completed");
+    assert.equal(result.status, "completed");
     const snap = result.stages[0];
-    expect(snap?.mcpScope).toBeDefined();
-    expect(snap?.mcpScope?.allow).toEqual(["github", "fetch"]);
-    expect(snap?.mcpScope?.deny).toEqual(["filesystem"]);
+    assert.notEqual(snap?.mcpScope, undefined);
+    assert.deepEqual(snap?.mcpScope?.allow, ["github", "fetch"]);
+    assert.deepEqual(snap?.mcpScope?.deny, ["filesystem"]);
   });
 
   test("mcpScope.allow is null when only deny provided", async () => {
@@ -229,8 +230,8 @@ describe("MCP stage scoping — StageSnapshot.mcpScope", () => {
     });
 
     const snap = result.stages[0];
-    expect(snap?.mcpScope?.allow).toBeNull();
-    expect(snap?.mcpScope?.deny).toEqual(["bad-server"]);
+    assert.equal(snap?.mcpScope?.allow, null);
+    assert.deepEqual(snap?.mcpScope?.deny, ["bad-server"]);
   });
 
   test("mcpScope.deny is null when only allow provided", async () => {
@@ -248,8 +249,8 @@ describe("MCP stage scoping — StageSnapshot.mcpScope", () => {
     });
 
     const snap = result.stages[0];
-    expect(snap?.mcpScope?.allow).toEqual(["safe-server"]);
-    expect(snap?.mcpScope?.deny).toBeNull();
+    assert.deepEqual(snap?.mcpScope?.allow, ["safe-server"]);
+    assert.equal(snap?.mcpScope?.deny, null);
   });
 
   test("mcpScope absent when no mcp options passed", async () => {
@@ -267,7 +268,7 @@ describe("MCP stage scoping — StageSnapshot.mcpScope", () => {
     });
 
     const snap = result.stages[0];
-    expect(snap?.mcpScope).toBeUndefined();
+    assert.equal(snap?.mcpScope, undefined);
   });
 
   test("mcpScope stored even when no mcp port configured", async () => {
@@ -287,7 +288,7 @@ describe("MCP stage scoping — StageSnapshot.mcpScope", () => {
     });
 
     const snap = result.stages[0];
-    expect(snap?.mcpScope).toBeDefined();
-    expect(snap?.mcpScope?.allow).toEqual(["x"]);
+    assert.notEqual(snap?.mcpScope, undefined);
+    assert.deepEqual(snap?.mcpScope?.allow, ["x"]);
   });
 });

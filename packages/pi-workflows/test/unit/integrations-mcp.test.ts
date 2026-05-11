@@ -1,12 +1,13 @@
 /**
  * Unit tests — integrations/mcp.ts
  */
-import { test, expect, describe } from "bun:test";
+import { describe, test } from "node:test";
+import assert from "node:assert/strict";
 import {
   setMcpScope,
   clearMcpScope,
   isMcpScopeSupported,
-} from "../../src/integrations/mcp.js";
+} from "../../src/extension/mcp.js";
 
 describe("setMcpScope", () => {
   test("emits mcp.scope.set with allow and deny", () => {
@@ -17,12 +18,12 @@ describe("setMcpScope", () => {
       },
     };
     setMcpScope(pi, { stageId: "s1", allow: ["github", "fetch"], deny: ["filesystem"] });
-    expect(emitted).toHaveLength(1);
-    expect(emitted[0].event).toBe("mcp.scope.set");
+    assert.equal(emitted.length, 1);
+    assert.equal(emitted[0].event, "mcp.scope.set");
     const p = emitted[0].payload as { stageId: string; allow: string[]; deny: string[] };
-    expect(p.stageId).toBe("s1");
-    expect(p.allow).toEqual(["github", "fetch"]);
-    expect(p.deny).toEqual(["filesystem"]);
+    assert.equal(p.stageId, "s1");
+    assert.deepEqual(p.allow, ["github", "fetch"]);
+    assert.deepEqual(p.deny, ["filesystem"]);
   });
 
   test("emits null allow/deny when not specified", () => {
@@ -34,12 +35,12 @@ describe("setMcpScope", () => {
     };
     setMcpScope(pi, { stageId: "s2" });
     const p = emitted[0].payload as { allow: null; deny: null };
-    expect(p.allow).toBeNull();
-    expect(p.deny).toBeNull();
+    assert.equal(p.allow, null);
+    assert.equal(p.deny, null);
   });
 
   test("no-op when pi.events absent", () => {
-    expect(() => setMcpScope({}, { stageId: "s1" })).not.toThrow();
+    assert.doesNotThrow(() => setMcpScope({}, { stageId: "s1" }));
   });
 });
 
@@ -52,24 +53,24 @@ describe("clearMcpScope", () => {
       },
     };
     clearMcpScope(pi, "stage-x");
-    expect(emitted[0].event).toBe("mcp.scope.set");
+    assert.equal(emitted[0].event, "mcp.scope.set");
     const p = emitted[0].payload as { stageId: string; allow: null; deny: null };
-    expect(p.stageId).toBe("stage-x");
-    expect(p.allow).toBeNull();
-    expect(p.deny).toBeNull();
+    assert.equal(p.stageId, "stage-x");
+    assert.equal(p.allow, null);
+    assert.equal(p.deny, null);
   });
 
   test("no-op when pi.events absent", () => {
-    expect(() => clearMcpScope({}, "s1")).not.toThrow();
+    assert.doesNotThrow(() => clearMcpScope({}, "s1"));
   });
 });
 
 describe("isMcpScopeSupported", () => {
   test("returns true when events present", () => {
-    expect(isMcpScopeSupported({ events: { emit: () => {} } })).toBe(true);
+    assert.equal(isMcpScopeSupported({ events: { emit: () => {} } }), true);
   });
 
   test("returns false when events absent", () => {
-    expect(isMcpScopeSupported({})).toBe(false);
+    assert.equal(isMcpScopeSupported({}), false);
   });
 });

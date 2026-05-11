@@ -1,10 +1,11 @@
 /**
- * Unit tests for runs/detach/cancellation-registry.ts
+ * Unit tests for runs/background/cancellation-registry.ts
  * cross-ref: spec §8.1 Phase D
  */
 
-import { test, expect, describe } from "bun:test";
-import { createCancellationRegistry } from "../../src/runs/detach/cancellation-registry.js";
+import { describe, test } from "node:test";
+import assert from "node:assert/strict";
+import { createCancellationRegistry } from "../../src/runs/background/cancellation-registry.js";
 
 // ---------------------------------------------------------------------------
 // register / isAborted
@@ -15,7 +16,7 @@ describe("register", () => {
     const reg = createCancellationRegistry();
     const ctrl = new AbortController();
     reg.register("r1", ctrl);
-    expect(reg.isAborted("r1")).toBe(false);
+    assert.equal(reg.isAborted("r1"), false);
   });
 
   test("re-registering same runId replaces primary controller", () => {
@@ -26,9 +27,9 @@ describe("register", () => {
     reg.register("r1", ctrl2);
     // abort via registry should signal ctrl2
     reg.abort("r1");
-    expect(ctrl2.signal.aborted).toBe(true);
+    assert.equal(ctrl2.signal.aborted, true);
     // ctrl1 was replaced — not aborted by registry
-    expect(ctrl1.signal.aborted).toBe(false);
+    assert.equal(ctrl1.signal.aborted, false);
   });
 });
 
@@ -39,20 +40,20 @@ describe("register", () => {
 describe("isAborted", () => {
   test("returns false for unknown runId", () => {
     const reg = createCancellationRegistry();
-    expect(reg.isAborted("unknown")).toBe(false);
+    assert.equal(reg.isAborted("unknown"), false);
   });
 
   test("returns false before abort", () => {
     const reg = createCancellationRegistry();
     reg.register("r1", new AbortController());
-    expect(reg.isAborted("r1")).toBe(false);
+    assert.equal(reg.isAborted("r1"), false);
   });
 
   test("returns true after abort", () => {
     const reg = createCancellationRegistry();
     reg.register("r1", new AbortController());
     reg.abort("r1");
-    expect(reg.isAborted("r1")).toBe(true);
+    assert.equal(reg.isAborted("r1"), true);
   });
 });
 
@@ -63,7 +64,7 @@ describe("isAborted", () => {
 describe("abort", () => {
   test("returns false for unknown runId", () => {
     const reg = createCancellationRegistry();
-    expect(reg.abort("nonexistent")).toBe(false);
+    assert.equal(reg.abort("nonexistent"), false);
   });
 
   test("returns true and aborts primary controller", () => {
@@ -71,8 +72,8 @@ describe("abort", () => {
     const ctrl = new AbortController();
     reg.register("r1", ctrl);
     const result = reg.abort("r1");
-    expect(result).toBe(true);
-    expect(ctrl.signal.aborted).toBe(true);
+    assert.equal(result, true);
+    assert.equal(ctrl.signal.aborted, true);
   });
 
   test("aborts child controllers", () => {
@@ -84,8 +85,8 @@ describe("abort", () => {
     reg.registerChild("r1", child1);
     reg.registerChild("r1", child2);
     reg.abort("r1");
-    expect(child1.signal.aborted).toBe(true);
-    expect(child2.signal.aborted).toBe(true);
+    assert.equal(child1.signal.aborted, true);
+    assert.equal(child2.signal.aborted, true);
   });
 
   test("aborts children before primary (children signaled first)", () => {
@@ -98,7 +99,7 @@ describe("abort", () => {
     reg.register("r1", primary);
     reg.registerChild("r1", child);
     reg.abort("r1");
-    expect(order).toEqual(["child", "primary"]);
+    assert.deepEqual(order, ["child", "primary"]);
   });
 
   test("passes reason to primary controller", () => {
@@ -106,7 +107,7 @@ describe("abort", () => {
     const ctrl = new AbortController();
     reg.register("r1", ctrl);
     reg.abort("r1", "user-requested");
-    expect(ctrl.signal.reason).toBe("user-requested");
+    assert.equal(ctrl.signal.reason, "user-requested");
   });
 
   test("does not re-abort already-aborted primary", () => {
@@ -115,8 +116,8 @@ describe("abort", () => {
     ctrl.abort("first");
     reg.register("r1", ctrl);
     // Should not throw; second abort is a no-op on the controller
-    expect(() => reg.abort("r1", "second")).not.toThrow();
-    expect(ctrl.signal.reason).toBe("first"); // reason unchanged
+    assert.doesNotThrow(() => reg.abort("r1", "second"));
+    assert.equal(ctrl.signal.reason, "first"); // reason unchanged
   });
 
   test("isolates aborts between runs", () => {
@@ -126,8 +127,8 @@ describe("abort", () => {
     reg.register("r1", ctrl1);
     reg.register("r2", ctrl2);
     reg.abort("r1");
-    expect(ctrl1.signal.aborted).toBe(true);
-    expect(ctrl2.signal.aborted).toBe(false);
+    assert.equal(ctrl1.signal.aborted, true);
+    assert.equal(ctrl2.signal.aborted, false);
   });
 });
 
@@ -138,7 +139,7 @@ describe("abort", () => {
 describe("abortAll", () => {
   test("returns 0 when no runs registered", () => {
     const reg = createCancellationRegistry();
-    expect(reg.abortAll()).toBe(0);
+    assert.equal(reg.abortAll(), 0);
   });
 
   test("aborts all registered runs and returns count", () => {
@@ -150,10 +151,10 @@ describe("abortAll", () => {
     reg.register("r2", ctrl2);
     reg.register("r3", ctrl3);
     const count = reg.abortAll("shutdown");
-    expect(count).toBe(3);
-    expect(ctrl1.signal.aborted).toBe(true);
-    expect(ctrl2.signal.aborted).toBe(true);
-    expect(ctrl3.signal.aborted).toBe(true);
+    assert.equal(count, 3);
+    assert.equal(ctrl1.signal.aborted, true);
+    assert.equal(ctrl2.signal.aborted, true);
+    assert.equal(ctrl3.signal.aborted, true);
   });
 
   test("passes reason to all controllers", () => {
@@ -163,8 +164,8 @@ describe("abortAll", () => {
     reg.register("r1", ctrl1);
     reg.register("r2", ctrl2);
     reg.abortAll("global-kill");
-    expect(ctrl1.signal.reason).toBe("global-kill");
-    expect(ctrl2.signal.reason).toBe("global-kill");
+    assert.equal(ctrl1.signal.reason, "global-kill");
+    assert.equal(ctrl2.signal.reason, "global-kill");
   });
 
   test("abortAll includes children", () => {
@@ -174,8 +175,8 @@ describe("abortAll", () => {
     reg.register("r1", primary);
     reg.registerChild("r1", child);
     reg.abortAll();
-    expect(child.signal.aborted).toBe(true);
-    expect(primary.signal.aborted).toBe(true);
+    assert.equal(child.signal.aborted, true);
+    assert.equal(primary.signal.aborted, true);
   });
 });
 
@@ -186,9 +187,7 @@ describe("abortAll", () => {
 describe("registerChild", () => {
   test("throws when runId not registered", () => {
     const reg = createCancellationRegistry();
-    expect(() => reg.registerChild("unknown", new AbortController())).toThrow(
-      'CancellationRegistry: cannot registerChild for unknown runId "unknown". Call register() first.',
-    );
+    assert.throws(() => reg.registerChild("unknown", new AbortController()), { message: 'CancellationRegistry: cannot registerChild for unknown runId "unknown". Call register() first.', });
   });
 
   test("multiple children all aborted on abort()", () => {
@@ -197,7 +196,7 @@ describe("registerChild", () => {
     const children = [new AbortController(), new AbortController(), new AbortController()];
     for (const c of children) reg.registerChild("r1", c);
     reg.abort("r1");
-    expect(children.every((c) => c.signal.aborted)).toBe(true);
+    assert.equal(children.every((c) => c.signal.aborted), true);
   });
 
   test("children preserved when primary re-registered", () => {
@@ -211,7 +210,7 @@ describe("registerChild", () => {
     reg.register("r1", ctrl2);
     reg.abort("r1");
     // Child should still be aborted
-    expect(child.signal.aborted).toBe(true);
+    assert.equal(child.signal.aborted, true);
   });
 });
 
@@ -222,7 +221,7 @@ describe("registerChild", () => {
 describe("unregister", () => {
   test("removing unknown runId is a no-op", () => {
     const reg = createCancellationRegistry();
-    expect(() => reg.unregister("nonexistent")).not.toThrow();
+    assert.doesNotThrow(() => reg.unregister("nonexistent"));
   });
 
   test("isAborted returns false after unregister", () => {
@@ -230,16 +229,16 @@ describe("unregister", () => {
     const ctrl = new AbortController();
     reg.register("r1", ctrl);
     reg.abort("r1");
-    expect(reg.isAborted("r1")).toBe(true);
+    assert.equal(reg.isAborted("r1"), true);
     reg.unregister("r1");
-    expect(reg.isAborted("r1")).toBe(false);
+    assert.equal(reg.isAborted("r1"), false);
   });
 
   test("abort returns false after unregister", () => {
     const reg = createCancellationRegistry();
     reg.register("r1", new AbortController());
     reg.unregister("r1");
-    expect(reg.abort("r1")).toBe(false);
+    assert.equal(reg.abort("r1"), false);
   });
 
   test("unregister does not affect other runs", () => {
@@ -250,7 +249,7 @@ describe("unregister", () => {
     reg.register("r2", ctrl2);
     reg.unregister("r1");
     reg.abort("r2");
-    expect(ctrl2.signal.aborted).toBe(true);
+    assert.equal(ctrl2.signal.aborted, true);
   });
 });
 
@@ -265,6 +264,6 @@ describe("createCancellationRegistry isolation", () => {
     const ctrl = new AbortController();
     reg1.register("r1", ctrl);
     reg2.abortAll();
-    expect(ctrl.signal.aborted).toBe(false);
+    assert.equal(ctrl.signal.aborted, false);
   });
 });

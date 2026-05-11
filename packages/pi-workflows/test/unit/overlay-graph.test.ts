@@ -1,9 +1,10 @@
 /**
  * Tests for overlay graph TUI module.
  */
-import { describe, it, expect, mock, beforeEach } from "bun:test";
-import type { Store } from "../../src/store.js";
-import type { StoreSnapshot, RunSnapshot, StageSnapshot } from "../../src/store-types.js";
+import { beforeEach, describe, it, mock } from "node:test";
+import assert from "node:assert/strict";
+import type { Store } from "../../src/shared/store.js";
+import type { StoreSnapshot, RunSnapshot, StageSnapshot } from "../../src/shared/store-types.js";
 import { computeLayout, NODE_W, NODE_H } from "../../src/tui/layout.js";
 import { buildConnector, buildMergeConnector } from "../../src/tui/connectors.js";
 import { statusColor, statusIcon, fmtDuration } from "../../src/tui/status-helpers.js";
@@ -71,15 +72,15 @@ describe("computeLayout", () => {
   it("single node gets col=0, row=0", () => {
     const stages = [makeStage("A")];
     const nodes = computeLayout(stages);
-    expect(nodes).toHaveLength(1);
-    expect(nodes[0]!.col).toBe(0);
-    expect(nodes[0]!.row).toBe(0);
-    expect(nodes[0]!.x).toBe(0);
-    expect(nodes[0]!.y).toBe(0);
+    assert.equal(nodes.length, 1);
+    assert.equal(nodes[0]!.col, 0);
+    assert.equal(nodes[0]!.row, 0);
+    assert.equal(nodes[0]!.x, 0);
+    assert.equal(nodes[0]!.y, 0);
   });
 
   it("empty input returns empty array", () => {
-    expect(computeLayout([])).toEqual([]);
+    assert.deepEqual(computeLayout([]), []);
   });
 
   it("linear chain A→B→C gets incrementing cols", () => {
@@ -90,9 +91,9 @@ describe("computeLayout", () => {
     ];
     const nodes = computeLayout(stages);
     const byId = new Map(nodes.map((n) => [n.stage.id, n]));
-    expect(byId.get("A")!.col).toBe(0);
-    expect(byId.get("B")!.col).toBe(1);
-    expect(byId.get("C")!.col).toBe(2);
+    assert.equal(byId.get("A")!.col, 0);
+    assert.equal(byId.get("B")!.col, 1);
+    assert.equal(byId.get("C")!.col, 2);
   });
 
   it("parallel branch root→[B,C]→D: B and C same col, D next col", () => {
@@ -104,12 +105,12 @@ describe("computeLayout", () => {
     ];
     const nodes = computeLayout(stages);
     const byId = new Map(nodes.map((n) => [n.stage.id, n]));
-    expect(byId.get("root")!.col).toBe(0);
-    expect(byId.get("B")!.col).toBe(1);
-    expect(byId.get("C")!.col).toBe(1);
+    assert.equal(byId.get("root")!.col, 0);
+    assert.equal(byId.get("B")!.col, 1);
+    assert.equal(byId.get("C")!.col, 1);
     // B and C should have different rows
-    expect(byId.get("B")!.row).not.toBe(byId.get("C")!.row);
-    expect(byId.get("D")!.col).toBe(2);
+    assert.notEqual(byId.get("B")!.row, byId.get("C")!.row);
+    assert.equal(byId.get("D")!.col, 2);
   });
 
   it("x and y coordinates computed from colGap and rowGap", () => {
@@ -119,8 +120,8 @@ describe("computeLayout", () => {
     ];
     const nodes = computeLayout(stages, { colGap: 4, rowGap: 2 });
     const byId = new Map(nodes.map((n) => [n.stage.id, n]));
-    expect(byId.get("A")!.x).toBe(0);
-    expect(byId.get("B")!.x).toBe(NODE_W + 4);
+    assert.equal(byId.get("A")!.x, 0);
+    assert.equal(byId.get("B")!.x, NODE_W + 4);
   });
 });
 
@@ -131,41 +132,41 @@ describe("computeLayout", () => {
 describe("buildConnector", () => {
   it("returns dashes spanning fromX to toX", () => {
     const result = buildConnector(0, 5);
-    expect(result.lines).toHaveLength(1);
-    expect(result.lines[0]!.chars).toBe("─────");
+    assert.equal(result.lines.length, 1);
+    assert.equal(result.lines[0]!.chars, "─────");
   });
 
   it("works with reversed order (toX < fromX)", () => {
     const result = buildConnector(5, 0);
-    expect(result.lines).toHaveLength(1);
-    expect(result.lines[0]!.chars).toBe("─────");
+    assert.equal(result.lines.length, 1);
+    assert.equal(result.lines[0]!.chars, "─────");
   });
 
   it("returns empty when fromX === toX", () => {
     const result = buildConnector(3, 3);
-    expect(result.lines[0]!.chars).toBe("");
+    assert.equal(result.lines[0]!.chars, "");
   });
 });
 
 describe("buildMergeConnector", () => {
   it("single source behaves like buildConnector", () => {
     const result = buildMergeConnector([0], 5);
-    expect(result.lines).toHaveLength(1);
-    expect(result.lines[0]!.chars).toBe("─────");
+    assert.equal(result.lines.length, 1);
+    assert.equal(result.lines[0]!.chars, "─────");
   });
 
   it("two sources produce multi-line fan-in", () => {
     const result = buildMergeConnector([0, 4], 2);
     // Should have 3 lines: top, mid, bottom
-    expect(result.lines.length).toBeGreaterThanOrEqual(2);
+    assert.ok(result.lines.length >= 2);
     // Top line should contain ┬ at source positions
     const topLine = result.lines[0]!.chars;
-    expect(topLine).toContain("┬");
+    assert.ok(topLine.includes("┬"));
   });
 
   it("returns empty for empty sources", () => {
     const result = buildMergeConnector([], 5);
-    expect(result.lines).toHaveLength(0);
+    assert.equal(result.lines.length, 0);
   });
 });
 
@@ -175,72 +176,72 @@ describe("buildMergeConnector", () => {
 
 describe("statusColor", () => {
   it("pending → #888888", () => {
-    expect(statusColor("pending")).toBe("#888888");
+    assert.equal(statusColor("pending"), "#888888");
   });
 
   it("running → #4fc3f7", () => {
-    expect(statusColor("running")).toBe("#4fc3f7");
+    assert.equal(statusColor("running"), "#4fc3f7");
   });
 
   it("completed → #66bb6a", () => {
-    expect(statusColor("completed")).toBe("#66bb6a");
+    assert.equal(statusColor("completed"), "#66bb6a");
   });
 
   it("failed → #ef5350", () => {
-    expect(statusColor("failed")).toBe("#ef5350");
+    assert.equal(statusColor("failed"), "#ef5350");
   });
 
   it("killed → #ff9800", () => {
-    expect(statusColor("killed")).toBe("#ff9800");
+    assert.equal(statusColor("killed"), "#ff9800");
   });
 });
 
 describe("statusIcon", () => {
   it("pending → ○", () => {
-    expect(statusIcon("pending")).toBe("○");
+    assert.equal(statusIcon("pending"), "○");
   });
 
   it("running → ◉", () => {
-    expect(statusIcon("running")).toBe("◉");
+    assert.equal(statusIcon("running"), "◉");
   });
 
   it("completed → ✓", () => {
-    expect(statusIcon("completed")).toBe("✓");
+    assert.equal(statusIcon("completed"), "✓");
   });
 
   it("failed → ✗", () => {
-    expect(statusIcon("failed")).toBe("✗");
+    assert.equal(statusIcon("failed"), "✗");
   });
 
   it("killed → ⊘", () => {
-    expect(statusIcon("killed")).toBe("⊘");
+    assert.equal(statusIcon("killed"), "⊘");
   });
 });
 
 describe("fmtDuration", () => {
   it("0ms → 0s", () => {
-    expect(fmtDuration(0)).toBe("0s");
+    assert.equal(fmtDuration(0), "0s");
   });
 
   it("45000ms → 45s", () => {
-    expect(fmtDuration(45000)).toBe("45s");
+    assert.equal(fmtDuration(45000), "45s");
   });
 
   it("84000ms → 1m24s", () => {
-    expect(fmtDuration(84000)).toBe("1m24s");
+    assert.equal(fmtDuration(84000), "1m24s");
   });
 
   it("3h2m → 3h2m", () => {
     const ms = 3 * 3600000 + 2 * 60000;
-    expect(fmtDuration(ms)).toBe("3h2m");
+    assert.equal(fmtDuration(ms), "3h2m");
   });
 
   it("60s → 1m", () => {
-    expect(fmtDuration(60000)).toBe("1m");
+    assert.equal(fmtDuration(60000), "1m");
   });
 
   it("3600000ms → 1h", () => {
-    expect(fmtDuration(3600000)).toBe("1h");
+    assert.equal(fmtDuration(3600000), "1h");
   });
 });
 
@@ -265,11 +266,11 @@ describe("GraphView keyboard navigation", () => {
   it("j moves focus down", () => {
     const stages = [makeStage("A"), makeStage("B", ["A"]), makeStage("C", ["B"])];
     const view = makeView(stages);
-    expect(view._focusedIndex).toBe(0);
+    assert.equal(view._focusedIndex, 0);
     view.handleInput("j");
-    expect(view._focusedIndex).toBe(1);
+    assert.equal(view._focusedIndex, 1);
     view.handleInput("j");
-    expect(view._focusedIndex).toBe(2);
+    assert.equal(view._focusedIndex, 2);
     view.dispose();
   });
 
@@ -278,9 +279,9 @@ describe("GraphView keyboard navigation", () => {
     const view = makeView(stages);
     view.handleInput("j");
     view.handleInput("j");
-    expect(view._focusedIndex).toBe(2);
+    assert.equal(view._focusedIndex, 2);
     view.handleInput("k");
-    expect(view._focusedIndex).toBe(1);
+    assert.equal(view._focusedIndex, 1);
     view.dispose();
   });
 
@@ -289,7 +290,7 @@ describe("GraphView keyboard navigation", () => {
     const view = makeView(stages);
     view.handleInput("j");
     view.handleInput("j");
-    expect(view._focusedIndex).toBe(0);
+    assert.equal(view._focusedIndex, 0);
     view.dispose();
   });
 
@@ -297,7 +298,7 @@ describe("GraphView keyboard navigation", () => {
     const stages = [makeStage("A"), makeStage("B")];
     const view = makeView(stages);
     view.handleInput("k");
-    expect(view._focusedIndex).toBe(0);
+    assert.equal(view._focusedIndex, 0);
     view.dispose();
   });
 
@@ -305,7 +306,7 @@ describe("GraphView keyboard navigation", () => {
     const stages = [makeStage("A"), makeStage("B")];
     const view = makeView(stages);
     view.handleInput("\x1b[B");
-    expect(view._focusedIndex).toBe(1);
+    assert.equal(view._focusedIndex, 1);
     view.dispose();
   });
 
@@ -314,7 +315,7 @@ describe("GraphView keyboard navigation", () => {
     const view = makeView(stages);
     view.handleInput("j");
     view.handleInput("\x1b[A");
-    expect(view._focusedIndex).toBe(0);
+    assert.equal(view._focusedIndex, 0);
     view.dispose();
   });
 
@@ -323,38 +324,38 @@ describe("GraphView keyboard navigation", () => {
     const view = makeView(stages);
     view.handleInput("j");
     view.handleInput("j");
-    expect(view._focusedIndex).toBe(2);
+    assert.equal(view._focusedIndex, 2);
     // Simulate gg: two g presses within 500ms
     view.handleInput("g");
     view.handleInput("g");
-    expect(view._focusedIndex).toBe(0);
+    assert.equal(view._focusedIndex, 0);
     view.dispose();
   });
 
   it("q calls onClose", () => {
     const stages = [makeStage("A")];
-    const onClose = mock(() => {});
+    const onClose = mock.fn(() => {});
     const view = makeView(stages, onClose);
     view.handleInput("q");
-    expect(onClose).toHaveBeenCalledTimes(1);
+    assert.equal(onClose.mock.calls.length, 1);
     view.dispose();
   });
 
   it("Escape calls onClose", () => {
     const stages = [makeStage("A")];
-    const onClose = mock(() => {});
+    const onClose = mock.fn(() => {});
     const view = makeView(stages, onClose);
     view.handleInput("\x1b");
-    expect(onClose).toHaveBeenCalledTimes(1);
+    assert.equal(onClose.mock.calls.length, 1);
     view.dispose();
   });
 
   it("/ opens switcher", () => {
     const stages = [makeStage("A")];
     const view = makeView(stages);
-    expect(view._switcherOpen).toBe(false);
+    assert.equal(view._switcherOpen, false);
     view.handleInput("/");
-    expect(view._switcherOpen).toBe(true);
+    assert.equal(view._switcherOpen, true);
     view.dispose();
   });
 
@@ -362,9 +363,9 @@ describe("GraphView keyboard navigation", () => {
     const stages = [makeStage("A")];
     const view = makeView(stages);
     view.handleInput("/");
-    expect(view._switcherOpen).toBe(true);
+    assert.equal(view._switcherOpen, true);
     view.handleInput("\x1b");
-    expect(view._switcherOpen).toBe(false);
+    assert.equal(view._switcherOpen, false);
     view.dispose();
   });
 
@@ -373,7 +374,7 @@ describe("GraphView keyboard navigation", () => {
     const view = makeView(stages);
     view.handleInput("/");
     view.handleInput("A");
-    expect(view._switcherState.query).toBe("A");
+    assert.equal(view._switcherState.query, "A");
     view.dispose();
   });
 
@@ -384,9 +385,9 @@ describe("GraphView keyboard navigation", () => {
     // ArrowDown to select index 1 (stage B)
     view.handleInput("\x1b[B");
     view.handleInput("\r");
-    expect(view._switcherOpen).toBe(false);
+    assert.equal(view._switcherOpen, false);
     // focusedIndex should now correspond to B (index 1 in layout)
-    expect(view._focusedIndex).toBe(1);
+    assert.equal(view._focusedIndex, 1);
     view.dispose();
   });
 
@@ -394,8 +395,8 @@ describe("GraphView keyboard navigation", () => {
     const stages = [makeStage("A"), makeStage("B", ["A"])];
     const view = makeView(stages);
     const lines = view.render(80);
-    expect(Array.isArray(lines)).toBe(true);
-    expect(lines.length).toBeGreaterThan(0);
+    assert.equal(Array.isArray(lines), true);
+    assert.ok(lines.length > 0);
     view.dispose();
   });
 
@@ -409,8 +410,8 @@ describe("GraphView keyboard navigation", () => {
       graphTheme: defaultTheme,
     });
     const lines = view.render(80);
-    expect(Array.isArray(lines)).toBe(true);
-    expect(lines.length).toBeGreaterThan(0);
+    assert.equal(Array.isArray(lines), true);
+    assert.ok(lines.length > 0);
     view.dispose();
   });
 });

@@ -13,8 +13,30 @@ export interface CompleteAdapter {
   complete(text: string, opts?: CompleteStageOpts): Promise<string>;
 }
 
+/**
+ * Execution metadata threaded from the executor into stage adapter calls.
+ * Not exposed to workflow authors — StageContext public API is unchanged.
+ */
+export interface SubagentStageMeta {
+  /** Run ID of the containing workflow execution. */
+  runId: string;
+  /** Stage ID of the current stage. */
+  stageId: string;
+  /** Human-readable stage name. */
+  stageName: string;
+  /** AbortSignal propagated from the executor's own AbortController. */
+  signal?: AbortSignal;
+}
+
 export interface SubagentAdapter {
-  subagent(opts: SubagentStageOpts): Promise<string>;
+  /**
+   * Delegate stage to a sub-agent.
+   * @param opts   - Public subagent options (agent, task, context).
+   * @param meta   - Execution metadata (runId, stageId, stageName, signal)
+   *                 injected by the stage-runner; overrides ambient process.env
+   *                 fallback in the adapter implementation.
+   */
+  subagent(opts: SubagentStageOpts, meta: SubagentStageMeta): Promise<string>;
 }
 
 export interface StageAdapters {
@@ -27,10 +49,14 @@ export interface StageRunnerOpts {
   stageId: string;
   stageName: string;
   adapters: StageAdapters;
+  /** Run ID of the containing workflow execution — forwarded to subagent adapter. */
+  runId: string;
+  /** AbortSignal from the executor's own AbortController — forwarded to subagent adapter. */
+  signal?: AbortSignal;
 }
 
 export function createStageContext(opts: StageRunnerOpts): StageContext {
-  const { stageName, adapters } = opts;
+  const { stageId, stageName, adapters, runId, signal } = opts;
 
   return {
     name: stageName,
@@ -59,7 +85,8 @@ export function createStageContext(opts: StageRunnerOpts): StageContext {
 
     async subagent(subagentOpts: SubagentStageOpts): Promise<string> {
       if (adapters.subagent) {
-        return adapters.subagent.subagent(subagentOpts);
+        const meta: SubagentStageMeta = { runId, stageId, stageName, signal };
+        return adapters.subagent.subagent(subagentOpts, meta);
       }
       throw new Error(
         "pi-workflows: subagent requires pi-subagents — install npm:pi-subagents",

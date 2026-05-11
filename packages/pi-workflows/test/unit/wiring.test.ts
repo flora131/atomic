@@ -404,3 +404,234 @@ describe("subagent adapter — missing pi-subagents error", () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// subagent adapter — explicit metadata injection (RFC: injecting-subagent-env)
+// ---------------------------------------------------------------------------
+
+import type { SubagentStageMeta } from "../../src/runs/sync/stage-runner.js";
+
+describe("subagent adapter — explicit metadata merges env (pi.subagents.run path)", () => {
+  function makeSubagentsPi(runCalls: Array<Record<string, unknown>>): RuntimeWiringSurface {
+    return {
+      exec: async () => ({ stdout: "", stderr: "", code: 0, killed: false }),
+      subagents: {
+        run: async (opts: Record<string, unknown>) => {
+          runCalls.push(opts);
+          return "ok";
+        },
+      },
+    };
+  }
+
+  test("injects PI_WORKFLOW_RUN_ID from explicit meta", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const adapters = buildRuntimeAdapters(makeSubagentsPi(calls));
+    const meta: SubagentStageMeta = { runId: "run-explicit-123", stageId: "stage-abc" };
+    await adapters.subagent!.subagent({ agent: "a", task: "t" }, meta);
+    const env = calls[0]!["env"] as Record<string, string>;
+    expect(env["PI_WORKFLOW_RUN_ID"]).toBe("run-explicit-123");
+  });
+
+  test("injects PI_WORKFLOW_STAGE_ID from explicit meta", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const adapters = buildRuntimeAdapters(makeSubagentsPi(calls));
+    const meta: SubagentStageMeta = { runId: "r", stageId: "stage-explicit-456" };
+    await adapters.subagent!.subagent({ agent: "a", task: "t" }, meta);
+    const env = calls[0]!["env"] as Record<string, string>;
+    expect(env["PI_WORKFLOW_STAGE_ID"]).toBe("stage-explicit-456");
+  });
+
+  test("explicit meta overrides ambient process.env values", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const adapters = buildRuntimeAdapters(makeSubagentsPi(calls));
+    // Set ambient env
+    const origRun = process.env["PI_WORKFLOW_RUN_ID"];
+    const origStage = process.env["PI_WORKFLOW_STAGE_ID"];
+    process.env["PI_WORKFLOW_RUN_ID"] = "ambient-run";
+    process.env["PI_WORKFLOW_STAGE_ID"] = "ambient-stage";
+    try {
+      const meta: SubagentStageMeta = { runId: "explicit-run", stageId: "explicit-stage" };
+      await adapters.subagent!.subagent({ agent: "a", task: "t" }, meta);
+      const env = calls[0]!["env"] as Record<string, string>;
+      expect(env["PI_WORKFLOW_RUN_ID"]).toBe("explicit-run");
+      expect(env["PI_WORKFLOW_STAGE_ID"]).toBe("explicit-stage");
+    } finally {
+      if (origRun !== undefined) process.env["PI_WORKFLOW_RUN_ID"] = origRun;
+      else delete process.env["PI_WORKFLOW_RUN_ID"];
+      if (origStage !== undefined) process.env["PI_WORKFLOW_STAGE_ID"] = origStage;
+      else delete process.env["PI_WORKFLOW_STAGE_ID"];
+    }
+  });
+
+  test("ambient process.env used as fallback when meta absent", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const adapters = buildRuntimeAdapters(makeSubagentsPi(calls));
+    const origRun = process.env["PI_WORKFLOW_RUN_ID"];
+    const origStage = process.env["PI_WORKFLOW_STAGE_ID"];
+    process.env["PI_WORKFLOW_RUN_ID"] = "ambient-fallback-run";
+    process.env["PI_WORKFLOW_STAGE_ID"] = "ambient-fallback-stage";
+    try {
+      await adapters.subagent!.subagent({ agent: "a", task: "t" });
+      const env = calls[0]!["env"] as Record<string, string>;
+      expect(env["PI_WORKFLOW_RUN_ID"]).toBe("ambient-fallback-run");
+      expect(env["PI_WORKFLOW_STAGE_ID"]).toBe("ambient-fallback-stage");
+    } finally {
+      if (origRun !== undefined) process.env["PI_WORKFLOW_RUN_ID"] = origRun;
+      else delete process.env["PI_WORKFLOW_RUN_ID"];
+      if (origStage !== undefined) process.env["PI_WORKFLOW_STAGE_ID"] = origStage;
+      else delete process.env["PI_WORKFLOW_STAGE_ID"];
+    }
+  });
+
+  test("does not mutate process.env when explicit meta provided", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const adapters = buildRuntimeAdapters(makeSubagentsPi(calls));
+    const before = process.env["PI_WORKFLOW_RUN_ID"];
+    const meta: SubagentStageMeta = { runId: "should-not-leak", stageId: "s" };
+    await adapters.subagent!.subagent({ agent: "a", task: "t" }, meta);
+    expect(process.env["PI_WORKFLOW_RUN_ID"]).toBe(before);
+  });
+
+  test("passes meta.signal to pi.subagents.run", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const adapters = buildRuntimeAdapters(makeSubagentsPi(calls));
+    const controller = new AbortController();
+    const meta: SubagentStageMeta = { runId: "r", stageId: "s", signal: controller.signal };
+    await adapters.subagent!.subagent({ agent: "a", task: "t" }, meta);
+    expect(calls[0]!["signal"]).toBe(controller.signal);
+  });
+
+  test("passes undefined signal when meta has no signal", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const adapters = buildRuntimeAdapters(makeSubagentsPi(calls));
+    const meta: SubagentStageMeta = { runId: "r", stageId: "s" };
+    await adapters.subagent!.subagent({ agent: "a", task: "t" }, meta);
+    expect(calls[0]!["signal"]).toBeUndefined();
+  });
+});
+
+describe("subagent adapter — explicit metadata merges env (pi.callTool path)", () => {
+  function makeCallToolPi(toolCalls: Array<{ name: string; args: Record<string, unknown> }>): RuntimeWiringSurface {
+    return {
+      exec: async () => ({ stdout: "", stderr: "", code: 0, killed: false }),
+      callTool: async (name, args) => {
+        toolCalls.push({ name, args });
+        return "ok";
+      },
+    };
+  }
+
+  test("injects PI_WORKFLOW_RUN_ID from explicit meta in callTool path", async () => {
+    const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+    const adapters = buildRuntimeAdapters(makeCallToolPi(calls));
+    const meta: SubagentStageMeta = { runId: "calltool-run-id", stageId: "s" };
+    await adapters.subagent!.subagent({ agent: "a", task: "t" }, meta);
+    const env = calls[0]!.args["env"] as Record<string, string>;
+    expect(env["PI_WORKFLOW_RUN_ID"]).toBe("calltool-run-id");
+  });
+
+  test("injects PI_WORKFLOW_STAGE_ID from explicit meta in callTool path", async () => {
+    const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+    const adapters = buildRuntimeAdapters(makeCallToolPi(calls));
+    const meta: SubagentStageMeta = { runId: "r", stageId: "calltool-stage-id" };
+    await adapters.subagent!.subagent({ agent: "a", task: "t" }, meta);
+    const env = calls[0]!.args["env"] as Record<string, string>;
+    expect(env["PI_WORKFLOW_STAGE_ID"]).toBe("calltool-stage-id");
+  });
+
+  test("explicit meta overrides ambient env in callTool path", async () => {
+    const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+    const adapters = buildRuntimeAdapters(makeCallToolPi(calls));
+    const origRun = process.env["PI_WORKFLOW_RUN_ID"];
+    process.env["PI_WORKFLOW_RUN_ID"] = "ambient-should-be-overridden";
+    try {
+      const meta: SubagentStageMeta = { runId: "override-wins", stageId: "s" };
+      await adapters.subagent!.subagent({ agent: "a", task: "t" }, meta);
+      const env = calls[0]!.args["env"] as Record<string, string>;
+      expect(env["PI_WORKFLOW_RUN_ID"]).toBe("override-wins");
+    } finally {
+      if (origRun !== undefined) process.env["PI_WORKFLOW_RUN_ID"] = origRun;
+      else delete process.env["PI_WORKFLOW_RUN_ID"];
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// stage-runner — propagates runId/stageId/signal to SubagentAdapter
+// ---------------------------------------------------------------------------
+
+import { createStageContext } from "../../src/runs/sync/stage-runner.js";
+import type { StageAdapters } from "../../src/runs/sync/stage-runner.js";
+
+describe("stage-runner createStageContext — propagates metadata to subagent adapter", () => {
+  test("passes runId from StageRunnerOpts to adapter meta", async () => {
+    const receivedMeta: SubagentStageMeta[] = [];
+    const adapters: StageAdapters = {
+      subagent: {
+        async subagent(_opts, meta) {
+          receivedMeta.push(meta ?? {});
+          return "done";
+        },
+      },
+    };
+    const ctx = createStageContext({ stageId: "s1", stageName: "test", adapters, runId: "run-from-opts" });
+    await ctx.subagent({ agent: "a", task: "t" });
+    expect(receivedMeta[0]!.runId).toBe("run-from-opts");
+  });
+
+  test("passes stageId from StageRunnerOpts to adapter meta", async () => {
+    const receivedMeta: SubagentStageMeta[] = [];
+    const adapters: StageAdapters = {
+      subagent: {
+        async subagent(_opts, meta) {
+          receivedMeta.push(meta ?? {});
+          return "done";
+        },
+      },
+    };
+    const ctx = createStageContext({ stageId: "stage-from-opts", stageName: "test", adapters, runId: "r" });
+    await ctx.subagent({ agent: "a", task: "t" });
+    expect(receivedMeta[0]!.stageId).toBe("stage-from-opts");
+  });
+
+  test("passes signal from StageRunnerOpts to adapter meta", async () => {
+    const receivedMeta: SubagentStageMeta[] = [];
+    const adapters: StageAdapters = {
+      subagent: {
+        async subagent(_opts, meta) {
+          receivedMeta.push(meta ?? {});
+          return "done";
+        },
+      },
+    };
+    const controller = new AbortController();
+    const ctx = createStageContext({
+      stageId: "s",
+      stageName: "test",
+      adapters,
+      runId: "r",
+      signal: controller.signal,
+    });
+    await ctx.subagent({ agent: "a", task: "t" });
+    expect(receivedMeta[0]!.signal).toBe(controller.signal);
+  });
+
+  test("meta is undefined-safe when StageRunnerOpts omit runId/signal", async () => {
+    const receivedMeta: Array<SubagentStageMeta | undefined> = [];
+    const adapters: StageAdapters = {
+      subagent: {
+        async subagent(_opts, meta) {
+          receivedMeta.push(meta);
+          return "done";
+        },
+      },
+    };
+    const ctx = createStageContext({ stageId: "s", stageName: "test", adapters });
+    await ctx.subagent({ agent: "a", task: "t" });
+    // meta is still passed as object; runId/stageId/signal may be undefined inside
+    expect(receivedMeta[0]).toBeDefined();
+    expect(receivedMeta[0]!.runId).toBeUndefined();
+    expect(receivedMeta[0]!.signal).toBeUndefined();
+  });
+});

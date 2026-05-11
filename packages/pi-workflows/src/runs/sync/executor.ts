@@ -68,14 +68,12 @@ export function resolveInputs(
 ): ResolvedInputs {
   const resolved: Record<string, unknown> = { ...provided };
 
-  // Apply defaults for missing keys
   for (const [key, schemaDef] of Object.entries(schema)) {
     if (resolved[key] === undefined && "default" in schemaDef && schemaDef.default !== undefined) {
       resolved[key] = schemaDef.default;
     }
   }
 
-  // Validate required fields
   for (const [key, schemaDef] of Object.entries(schema)) {
     if (schemaDef.required === true && resolved[key] === undefined) {
       throw new TypeError(`pi-workflows: required input "${key}" not provided`);
@@ -120,6 +118,46 @@ function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   });
 }
 
+function appendRunEndWhenRecorded(
+  persistence: WorkflowPersistencePort | undefined,
+  recorded: boolean,
+  payload: {
+    readonly runId: string;
+    readonly status: RunStatus;
+    readonly result?: Record<string, unknown>;
+    readonly ts: number;
+  },
+): void {
+  if (!persistence || !recorded) return;
+  appendRunEnd(persistence, payload);
+}
+
+// ---------------------------------------------------------------------------
+// Shared killed finalizer — used for catch-abort and post-body abort check
+// ---------------------------------------------------------------------------
+
+function finalizeKilled(
+  runId: string,
+  runSnapshot: RunSnapshot,
+  activeStore: Store,
+  persistence: WorkflowPersistencePort | undefined,
+  onRunEnd: RunOpts["onRunEnd"],
+): RunResult {
+  const recorded = activeStore.recordRunEnd(runId, "killed", undefined, "workflow killed");
+  onRunEnd?.(runId, "killed", undefined, "workflow killed");
+  appendRunEndWhenRecorded(persistence, recorded, {
+    runId,
+    status: "killed",
+    ts: Date.now(),
+  });
+  return {
+    runId,
+    status: "killed",
+    error: "workflow killed",
+    stages: [...runSnapshot.stages],
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Main executor
 // ---------------------------------------------------------------------------
@@ -140,11 +178,12 @@ export async function run(
 
   // 2a. Create own AbortController; forward caller signal if provided
   const ownController = new AbortController();
-  if (opts.signal) {
-    if (opts.signal.aborted) {
-      ownController.abort(opts.signal.reason);
+  const callerSignal = opts.signal;
+  if (callerSignal) {
+    if (callerSignal.aborted) {
+      ownController.abort(callerSignal.reason);
     } else {
-      opts.signal.addEventListener("abort", () => { ownController.abort(opts.signal!.reason); }, { once: true });
+      callerSignal.addEventListener("abort", () => { ownController.abort(callerSignal.reason); }, { once: true });
     }
   }
 
@@ -205,7 +244,7 @@ export async function run(
       opts.onStageStart?.(runId, stageSnapshot);
 
       // e. Create inner StageContext (raw, without wrapping)
-      const innerCtx = createStageContext({ stageId, stageName: name, adapters });
+      const innerCtx = createStageContext({ stageId, stageName: name, adapters, runId, signal: ownController.signal });
 
       const wrapMethod = <TArgs extends unknown[]>(
         method: (...args: TArgs) => Promise<string>,
@@ -226,10 +265,11 @@ export async function run(
             });
           }
 
-          // Apply MCP scope gating if port + options provided
           const mcpAllow = options?.mcp?.allow ?? null;
           const mcpDeny = options?.mcp?.deny ?? null;
-          if (opts.mcp && (mcpAllow !== null || mcpDeny !== null)) {
+          const hasMcpScope = mcpAllow !== null || mcpDeny !== null;
+
+          if (opts.mcp && hasMcpScope) {
             opts.mcp.setScope(stageId, mcpAllow, mcpDeny);
           }
 
@@ -249,8 +289,7 @@ export async function run(
                 ? stageSnapshot.endedAt - stageSnapshot.startedAt
                 : undefined;
 
-            // Clear MCP scope after stage settles
-            if (opts.mcp && (mcpAllow !== null || mcpDeny !== null)) {
+            if (opts.mcp && hasMcpScope) {
               opts.mcp.clearScope(stageId);
             }
 
@@ -283,65 +322,52 @@ export async function run(
 
   // 6. Call def.run(ctx)
   try {
-    try {
-      const result = await def.run(ctx);
+    const result = await def.run(ctx);
 
-      // 7. recordRunEnd "completed"
-      const recorded = activeStore.recordRunEnd(runId, "completed", result);
-      opts.onRunEnd?.(runId, "completed", result);
-
-      // Persistence: append run.end only if state changed (terminal guard)
-      if (opts.persistence && recorded) {
-        appendRunEnd(opts.persistence, {
-          runId,
-          status: "completed",
-          result,
-          ts: Date.now(),
-        });
-      }
-
-      // 8. Return RunResult
-      return {
-        runId,
-        status: "completed",
-        result,
-        stages: [...runSnapshot.stages],
-      };
-    } catch (err) {
-      // Check if abort caused this error
-      if (ownController.signal.aborted) {
-        activeStore.recordRunEnd(runId, "killed", undefined, "workflow killed");
-        opts.onRunEnd?.(runId, "killed", undefined, "workflow killed");
-        return {
-          runId,
-          status: "killed",
-          error: "workflow killed",
-          stages: [...runSnapshot.stages],
-        };
-      }
-
-      const errorMessage = err instanceof Error ? err.message : String(err);
-
-      // 9. recordRunEnd "failed"
-      const recorded = activeStore.recordRunEnd(runId, "failed", undefined, errorMessage);
-      opts.onRunEnd?.(runId, "failed", undefined, errorMessage);
-
-      // Persistence: append run.end only if state changed (terminal guard)
-      if (opts.persistence && recorded) {
-        appendRunEnd(opts.persistence, {
-          runId,
-          status: "failed",
-          ts: Date.now(),
-        });
-      }
-
-      return {
-        runId,
-        status: "failed",
-        error: errorMessage,
-        stages: [...runSnapshot.stages],
-      };
+    // Post-body abort check: if signal was aborted at any point before we record
+    // completion, the run must be finalized as "killed", never "completed".
+    if (ownController.signal.aborted) {
+      return finalizeKilled(runId, runSnapshot, activeStore, opts.persistence, opts.onRunEnd);
     }
+
+    const recorded = activeStore.recordRunEnd(runId, "completed", result);
+    opts.onRunEnd?.(runId, "completed", result);
+
+    appendRunEndWhenRecorded(opts.persistence, recorded, {
+      runId,
+      status: "completed",
+      result,
+      ts: Date.now(),
+    });
+
+    return {
+      runId,
+      status: "completed",
+      result,
+      stages: [...runSnapshot.stages],
+    };
+  } catch (err) {
+    if (ownController.signal.aborted) {
+      return finalizeKilled(runId, runSnapshot, activeStore, opts.persistence, opts.onRunEnd);
+    }
+
+    const errorMessage = err instanceof Error ? err.message : String(err);
+
+    const recorded = activeStore.recordRunEnd(runId, "failed", undefined, errorMessage);
+    opts.onRunEnd?.(runId, "failed", undefined, errorMessage);
+
+    appendRunEndWhenRecorded(opts.persistence, recorded, {
+      runId,
+      status: "failed",
+      ts: Date.now(),
+    });
+
+    return {
+      runId,
+      status: "failed",
+      error: errorMessage,
+      stages: [...runSnapshot.stages],
+    };
   } finally {
     opts.cancellation?.unregister(runId);
   }

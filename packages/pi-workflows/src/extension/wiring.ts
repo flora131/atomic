@@ -22,6 +22,7 @@
  */
 
 import type { StageAdapters } from "../runs/sync/stage-runner.js";
+import type { SubagentStageMeta } from "../runs/sync/stage-runner.js";
 import type { SubagentStageOpts, CompleteStageOpts, WorkflowUIAdapter } from "../shared/types.js";
 import { readWorkflowEnv } from "../integrations/subagents.js";
 
@@ -145,12 +146,17 @@ export function buildRuntimeAdapters(pi: RuntimeWiringSurface): StageAdapters {
     return text;
   }
 
-  /** Collect defined workflow env vars for injection into subagent child context. */
-  function workflowEnvRecord(): Record<string, string> {
+  /** Collect workflow env vars for injection into subagent child context.
+   * Explicit meta (runId/stageId from stage-runner) overrides ambient process.env fallback. */
+  function workflowEnvRecord(meta?: SubagentStageMeta): Record<string, string> {
     const raw = readWorkflowEnv();
     const out: Record<string, string> = {};
+    // Ambient fallback first
     if (raw.PI_WORKFLOW_RUN_ID) out["PI_WORKFLOW_RUN_ID"] = raw.PI_WORKFLOW_RUN_ID;
     if (raw.PI_WORKFLOW_STAGE_ID) out["PI_WORKFLOW_STAGE_ID"] = raw.PI_WORKFLOW_STAGE_ID;
+    // Explicit meta overrides ambient
+    if (meta?.runId) out["PI_WORKFLOW_RUN_ID"] = meta.runId;
+    if (meta?.stageId) out["PI_WORKFLOW_STAGE_ID"] = meta.stageId;
     return out;
   }
 
@@ -172,7 +178,7 @@ export function buildRuntimeAdapters(pi: RuntimeWiringSurface): StageAdapters {
     },
 
     subagent: {
-      async subagent(opts: SubagentStageOpts): Promise<string> {
+      async subagent(opts: SubagentStageOpts, meta?: SubagentStageMeta): Promise<string> {
         // Primary: delegate to pi-subagents public surface.
         // Narrowed at runtime — pi.subagents is typed unknown for ExtensionAPI compat.
         const subagentsAny = pi.subagents as Record<string, unknown> | undefined;
@@ -188,8 +194,8 @@ export function buildRuntimeAdapters(pi: RuntimeWiringSurface): StageAdapters {
             agent: opts.agent,
             task: opts.task,
             context: opts.context,
-            env: workflowEnvRecord(),
-            signal: undefined,
+            env: workflowEnvRecord(meta),
+            signal: meta?.signal,
           });
         }
 
@@ -199,7 +205,7 @@ export function buildRuntimeAdapters(pi: RuntimeWiringSurface): StageAdapters {
             action: "run",
             agent: opts.agent,
             task: opts.task,
-            env: workflowEnvRecord(),
+            env: workflowEnvRecord(meta),
           };
           if (opts.context !== undefined) {
             args["context"] = opts.context;

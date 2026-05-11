@@ -34,6 +34,8 @@ type RunResult = {
   stages?: StageSnapshot[];
   /** @deprecated legacy compat — prefer error/stages */
   message?: string;
+  /** Set when the run was dispatched in background via runDetached(). */
+  detached?: boolean;
 };
 type KillResult = { action: "kill"; runId: string; status: string; message: string };
 type ResumeResult = { action: "resume"; runId: string; status: string; message: string };
@@ -89,6 +91,10 @@ export function renderResult(result: WorkflowToolResult, opts?: RenderResultOpts
     case "run": {
       const r = result as RunResult;
       if (partial) return `workflow run ${r.runId}: ${r.status} (in progress…)`;
+      if (r.detached) {
+        const label = r.name ? ` (${r.name})` : "";
+        return `workflow run ${r.runId}${label}: started in background — ${r.message ?? "running"}`;
+      }
       if (r.error) {
         const label = r.name ? ` (${r.name})` : "";
         return `workflow run ${r.runId}${label}: ${r.status} — ${r.error}`;

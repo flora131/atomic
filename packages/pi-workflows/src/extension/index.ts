@@ -206,6 +206,8 @@ export interface WorkflowToolArgs {
   name?: string;
   inputs?: Record<string, unknown>;
   action?: "run" | "list" | "status" | "kill" | "resume" | "inputs";
+  /** When true, start the workflow in background and return runId immediately. */
+  detach?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -361,16 +363,20 @@ function registerWorkflowAlias(
     execute: async (args: string, ctx: PiCommandContext) => {
       const print = ctx.reply ?? ctx.print ?? ((_msg: string) => undefined);
       const rawParts = args.trim().split(/\s+/);
-      const tokens = rawParts[0] === "" ? [] : rawParts;
+      const allTokens = rawParts[0] === "" ? [] : rawParts;
+      const { tokens, detach } = stripDetachFlags(allTokens);
       const inputs = parseWorkflowArgs(tokens);
       const result = await runtimeProxy.dispatch({
         name: workflowName,
         inputs,
         action: "run",
+        detach: detach || undefined,
       });
       if (result.action === "run" && "runId" in result) {
         const r = result as Extract<WorkflowToolResult, { action: "run"; runId: string }>;
-        if (r.status === "failed") {
+        if (r.status === "running" && (r as { detached?: boolean }).detached) {
+          print(`Workflow "${workflowName}" started in background (runId: ${r.runId})`);
+        } else if (r.status === "failed") {
           print(`Workflow "${workflowName}" failed: ${r.error ?? "unknown error"}`);
         } else {
           print(`Workflow "${workflowName}" completed (runId: ${r.runId})`);
@@ -618,7 +624,9 @@ function factory(pi: ExtensionAPI): void {
     execute: async (args: string, ctx: PiCommandContext) => {
       const print = ctx.reply ?? ctx.print ?? ((_msg: string) => undefined);
       const rawParts = args.trim().split(/\s+/);
-      const parts = rawParts[0] === "" ? [] : rawParts;
+      const allTokens = rawParts[0] === "" ? [] : rawParts;
+      // Strip --detach / --bg before subcommand resolution — flags may appear anywhere.
+      const { tokens: parts, detach: globalDetach } = stripDetachFlags(allTokens);
       const subcommand = parts[0] ?? "";
 
       // -----------------------------------------------------------------------
@@ -750,6 +758,7 @@ function factory(pi: ExtensionAPI): void {
 
       // -----------------------------------------------------------------------
       // Workflow name dispatch — all admin subcommands returned above.
+      // Control flags (--detach, --bg) may appear anywhere in the token list.
       // -----------------------------------------------------------------------
       const workflowName = subcommand;
       const inputTokens = parts.slice(1);
@@ -758,6 +767,7 @@ function factory(pi: ExtensionAPI): void {
         name: workflowName,
         inputs,
         action: "run",
+        detach: globalDetach || undefined,
       });
       if (result.action === "run" && "runId" in result) {
         const r = result as Extract<WorkflowToolResult, { action: "run"; runId: string }>;
@@ -768,6 +778,8 @@ function factory(pi: ExtensionAPI): void {
           );
         } else if (r.status === "failed") {
           print(`Workflow "${workflowName}" failed: ${r.error ?? "unknown error"}`);
+        } else if ((r as { detached?: boolean }).detached) {
+          print(`Workflow "${workflowName}" started in background (runId: ${r.runId})`);
         } else {
           print(`Workflow "${workflowName}" completed (runId: ${r.runId})`);
         }

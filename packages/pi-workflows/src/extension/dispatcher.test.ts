@@ -216,3 +216,95 @@ describe("dispatch run forwards persistence", () => {
     expect(opts.persistence).toBe(persistence);
   });
 });
+
+// ---------------------------------------------------------------------------
+// dispatch("run", detach: true) — routes through runDetached, returns immediately
+// ---------------------------------------------------------------------------
+
+describe("dispatch run with detach: true", () => {
+  test("detach:true returns action:run, status:running, detached:true, stages:[]", async () => {
+    const wf = makeWorkflow("detach-wf");
+    const registry = createRegistry([wf]);
+    const result = await dispatch(
+      { action: "run", name: "detach-wf", inputs: {}, detach: true },
+      { registry, store: createStore() },
+    );
+    expect(result.action).toBe("run");
+    if (result.action === "run") {
+      expect(result.status).toBe("running");
+      expect((result as { detached?: boolean }).detached).toBe(true);
+      expect(result.stages).toEqual([]);
+      expect(result.runId).toBeTruthy();
+    }
+  });
+
+  test("detach:true returns immediately without waiting for workflow completion", async () => {
+    // Workflow that would take time if awaited — detached dispatch must return synchronously
+    let settled = false;
+    const slowWf = defineWorkflow("slow-detach-wf")
+      .run(async (_ctx) => {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        settled = true;
+        return {};
+      })
+      .compile() as WorkflowDefinition;
+
+    const registry = createRegistry([slowWf]);
+    const t0 = Date.now();
+    const result = await dispatch(
+      { action: "run", name: "slow-detach-wf", inputs: {}, detach: true },
+      { registry, store: createStore() },
+    );
+    const elapsed = Date.now() - t0;
+
+    expect(result.action).toBe("run");
+    expect(elapsed).toBeLessThan(100); // returned before workflow completed
+    expect(settled).toBe(false); // background not yet done
+  });
+
+  test("detach:true not-found workflow returns failed result (same as sync)", async () => {
+    const registry = createRegistry([]);
+    const result = await dispatch(
+      { action: "run", name: "ghost", inputs: {}, detach: true },
+      { registry, store: createStore() },
+    );
+    expect(result.action).toBe("run");
+    if (result.action === "run") {
+      expect(result.status).toBe("failed");
+      expect(result.error).toMatch(/not found/i);
+    }
+  });
+
+  test("detach:false (explicit) routes sync — status completed", async () => {
+    const wf = makeWorkflow("sync-explicit");
+    const registry = createRegistry([wf]);
+    const result = await dispatch(
+      { action: "run", name: "sync-explicit", inputs: {}, detach: false },
+      { registry, store: createStore() },
+    );
+    expect(result.action).toBe("run");
+    if (result.action === "run") {
+      expect(result.status).toBe("completed");
+      expect((result as { detached?: boolean }).detached).toBeFalsy();
+    }
+  });
+
+  test("detach:true result includes name and non-empty message", async () => {
+    const wf = makeWorkflow("named-detach");
+    const registry = createRegistry([wf]);
+    const result = await dispatch(
+      { action: "run", name: "named-detach", inputs: {}, detach: true },
+      { registry, store: createStore() },
+    );
+    if (result.action === "run") {
+      expect(result.name).toBe("named-detach");
+      expect((result as { message?: string }).message).toContain("named-detach");
+    }
+  });
+
+  test("DispatcherOpts accepts jobs field — type-level check", () => {
+    const registry = createRegistry([]);
+    const opts: DispatcherOpts = { registry, jobs: undefined };
+    expect(opts.jobs).toBeUndefined();
+  });
+});

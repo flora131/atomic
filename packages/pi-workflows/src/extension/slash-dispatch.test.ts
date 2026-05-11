@@ -14,7 +14,7 @@
  */
 
 import { test, expect, describe } from "bun:test";
-import { parseWorkflowArgs } from "./index.js";
+import { parseWorkflowArgs, stripDetachFlags } from "./index.js";
 import type { ExtensionAPI, PiCommandContext, PiSlashCommandOpts } from "./index.js";
 import { createRegistry } from "../workflows/registry.js";
 import { defineWorkflow } from "../workflows/define-workflow.js";
@@ -389,5 +389,157 @@ describe("/workflow <name> prompt=test dispatches run via factory", () => {
         m.includes("Workflow not found"),
     );
     expect(dispatched).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// stripDetachFlags
+// ---------------------------------------------------------------------------
+
+describe("stripDetachFlags", () => {
+  test("no flags — tokens unchanged, detach false", () => {
+    const result = stripDetachFlags(["key=val", "foo=bar"]);
+    expect(result.detach).toBe(false);
+    expect(result.tokens).toEqual(["key=val", "foo=bar"]);
+  });
+
+  test("--detach flag removed, detach true", () => {
+    const result = stripDetachFlags(["wf-name", "--detach", "key=val"]);
+    expect(result.detach).toBe(true);
+    expect(result.tokens).toEqual(["wf-name", "key=val"]);
+  });
+
+  test("--bg flag removed, detach true", () => {
+    const result = stripDetachFlags(["--bg", "wf-name"]);
+    expect(result.detach).toBe(true);
+    expect(result.tokens).toEqual(["wf-name"]);
+  });
+
+  test("both --detach and --bg removed", () => {
+    const result = stripDetachFlags(["--detach", "a=1", "--bg"]);
+    expect(result.detach).toBe(true);
+    expect(result.tokens).toEqual(["a=1"]);
+  });
+
+  test("empty tokens — detach false, empty tokens", () => {
+    const result = stripDetachFlags([]);
+    expect(result.detach).toBe(false);
+    expect(result.tokens).toEqual([]);
+  });
+
+  test("flag before name — name preserved", () => {
+    const result = stripDetachFlags(["--detach", "my-wf", "x=1"]);
+    expect(result.detach).toBe(true);
+    expect(result.tokens).toEqual(["my-wf", "x=1"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// /workflow <name> --detach slash dispatch (factory path)
+// ---------------------------------------------------------------------------
+
+describe("/workflow <name> --detach flag (factory execute)", () => {
+  async function buildFactoryWorkflowCmd(): Promise<{ cmd: PiSlashCommandOpts; messages: () => string[] }> {
+    const { pi, commands } = buildMockPi();
+    pi.registerTool = () => {};
+    pi.registerMessageRenderer = () => {};
+    pi.registerFlag = () => {};
+    pi.on = () => {};
+    pi.ui = { setWidget: () => {} };
+
+    const factoryModule = await import("./index.js");
+    factoryModule.default(pi);
+
+    const workflowCmd = commands.find((c) => c.name === "workflow")!;
+    const msgs: string[] = [];
+    const ctx: PiCommandContext = { reply: (m: string) => { msgs.push(m); } };
+    return { cmd: workflowCmd.opts, messages: () => msgs };
+  }
+
+  test("/workflow ralph --detach prints 'started in background'", async () => {
+    const { cmd, messages } = await buildFactoryWorkflowCmd();
+    const msgs: string[] = [];
+    const ctx: PiCommandContext = { reply: (m: string) => { msgs.push(m); } };
+    await cmd.execute("ralph --detach", ctx);
+    // Must say started in background, NOT unknown subcommand
+    expect(msgs.some((m) => m.includes("unknown subcommand"))).toBe(false);
+    expect(msgs.some((m) => m.includes("started in background") || m.includes("background"))).toBe(true);
+  });
+
+  test("/workflow ralph --bg prints 'started in background'", async () => {
+    const { cmd, messages } = await buildFactoryWorkflowCmd();
+    const msgs: string[] = [];
+    const ctx: PiCommandContext = { reply: (m: string) => { msgs.push(m); } };
+    await cmd.execute("ralph --bg", ctx);
+    expect(msgs.some((m) => m.includes("unknown subcommand"))).toBe(false);
+    expect(msgs.some((m) => m.includes("started in background") || m.includes("background"))).toBe(true);
+  });
+
+  test("/workflow --detach ralph (flag before name) prints 'started in background'", async () => {
+    const { cmd } = await buildFactoryWorkflowCmd();
+    const msgs: string[] = [];
+    const ctx: PiCommandContext = { reply: (m: string) => { msgs.push(m); } };
+    await cmd.execute("--detach ralph", ctx);
+    expect(msgs.some((m) => m.includes("unknown subcommand"))).toBe(false);
+    expect(msgs.some((m) => m.includes("started in background") || m.includes("background"))).toBe(true);
+  });
+
+  test("--detach removed before parseWorkflowArgs — not treated as input", async () => {
+    const { cmd } = await buildFactoryWorkflowCmd();
+    const msgs: string[] = [];
+    const ctx: PiCommandContext = { reply: (m: string) => { msgs.push(m); } };
+    // If --detach leaked into inputs it would be in result or cause no message about "background"
+    await cmd.execute("ralph --detach prompt=test", ctx);
+    expect(msgs.some((m) => m.includes("unknown subcommand"))).toBe(false);
+    // Should not contain "--detach" as a workflow input error
+    expect(msgs.every((m) => !m.includes("--detach"))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// workflow:<name> alias --detach flag (factory path)
+// ---------------------------------------------------------------------------
+
+describe("workflow:<name> alias --detach flag (factory execute)", () => {
+  test("workflow:ralph --detach prints 'started in background'", async () => {
+    const { pi, commands } = buildMockPi();
+    pi.registerTool = () => {};
+    pi.registerMessageRenderer = () => {};
+    pi.registerFlag = () => {};
+    pi.on = () => {};
+    pi.ui = { setWidget: () => {} };
+
+    const factoryModule = await import("./index.js");
+    factoryModule.default(pi);
+
+    const aliasCmd = commands.find((c) => c.name === "workflow:ralph");
+    expect(aliasCmd).toBeDefined();
+
+    const msgs: string[] = [];
+    const ctx: PiCommandContext = { reply: (m: string) => { msgs.push(m); } };
+    await aliasCmd!.opts.execute("--detach", ctx);
+
+    expect(msgs.some((m) => m.includes("unknown subcommand"))).toBe(false);
+    expect(msgs.some((m) => m.includes("started in background") || m.includes("background"))).toBe(true);
+  });
+
+  test("workflow:ralph --bg prints 'started in background'", async () => {
+    const { pi, commands } = buildMockPi();
+    pi.registerTool = () => {};
+    pi.registerMessageRenderer = () => {};
+    pi.registerFlag = () => {};
+    pi.on = () => {};
+    pi.ui = { setWidget: () => {} };
+
+    const factoryModule = await import("./index.js");
+    factoryModule.default(pi);
+
+    const aliasCmd = commands.find((c) => c.name === "workflow:ralph");
+    const msgs: string[] = [];
+    const ctx: PiCommandContext = { reply: (m: string) => { msgs.push(m); } };
+    await aliasCmd!.opts.execute("--bg prompt=hello", ctx);
+
+    expect(msgs.some((m) => m.includes("background"))).toBe(true);
+    expect(msgs.every((m) => !m.includes("--bg"))).toBe(true);
   });
 });

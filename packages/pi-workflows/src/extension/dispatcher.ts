@@ -11,7 +11,9 @@ import type { WorkflowRegistry } from "../workflows/registry.js";
 import type { StageAdapters } from "../runs/sync/stage-runner.js";
 import type { Store } from "../store.js";
 import type { CancellationRegistry } from "../runs/detach/cancellation-registry.js";
+import type { JobTracker } from "../runs/detach/job-tracker.js";
 import { run } from "../runs/sync/executor.js";
+import { runDetached } from "../runs/detach/runner.js";
 import type { WorkflowToolResult, WorkflowInputEntry } from "./render-result.js";
 import type { WorkflowToolArgs } from "./index.js";
 import type { WorkflowUIAdapter, WorkflowPersistencePort, WorkflowMcpPort } from "../shared/types.js";
@@ -31,6 +33,8 @@ export interface DispatcherOpts {
   store?: Store;
   /** Cancellation registry forwarded to the executor. */
   cancellation?: CancellationRegistry;
+  /** Job tracker forwarded to runDetached() for background run management. */
+  jobs?: JobTracker;
   /** Persistence port forwarded to the executor. */
   persistence?: WorkflowPersistencePort;
   /** MCP scope-gating port forwarded to the executor. */
@@ -101,6 +105,28 @@ export async function dispatch(
           runId: "",
           status: "failed",
           error: `Workflow not found: "${name}"`,
+          stages: [],
+        };
+      }
+
+      // Detached path — start background run and return immediately with runId.
+      if (args.detach === true) {
+        const accepted = runDetached(def, inputs, {
+          adapters: opts.adapters,
+          ui: opts.ui,
+          store: opts.store,
+          cancellation: opts.cancellation,
+          jobs: opts.jobs,
+          persistence: opts.persistence,
+          mcp: opts.mcp,
+        });
+        return {
+          action: "run",
+          name: accepted.name,
+          runId: accepted.runId,
+          status: accepted.status,
+          detached: true,
+          message: accepted.message,
           stages: [],
         };
       }

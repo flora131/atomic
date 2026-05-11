@@ -10,7 +10,7 @@ import {
   runWorkflowFromCliFlags,
 } from "./cli-flags.js";
 import type { WorkflowFlagValues } from "./cli-flags.js";
-import type { ExtensionAPI } from "./extension/index.js";
+import type { ExtensionAPI, PiFlagNamedOpts } from "./extension/index.js";
 import type { ExtensionRuntime } from "./extension/runtime.js";
 import type { WorkflowToolArgs } from "./extension/index.js";
 import type { WorkflowToolResult } from "./extension/render-result.js";
@@ -130,23 +130,45 @@ describe("parseWorkflowFlags", () => {
 // ---------------------------------------------------------------------------
 
 describe("registerWorkflowCliFlags", () => {
-  test("registers workflow and workflow-input-key flags", () => {
-    const registered: Array<{ name: string; type?: string }> = [];
-    const pi: ExtensionAPI = {
-      registerFlag: (name, opts) => { registered.push({ name, ...opts }); },
-    };
-    registerWorkflowCliFlags(pi);
-    const names = registered.map((r) => r.name);
+  function registeredFlags(): Array<{ name: string; opts: PiFlagNamedOpts }> {
+    const calls: Array<{ name: string; opts: PiFlagNamedOpts }> = [];
+    registerWorkflowCliFlags({
+      registerFlag: (name, opts) => {
+        calls.push({ name, opts });
+      },
+    });
+    return calls;
+  }
+
+  test("registers workflow and workflow-input-<key> flags", () => {
+    const flags = registeredFlags();
+    const names = flags.map((flag) => flag.name);
     expect(names).toContain("workflow");
-    expect(names).toContain("workflow-input-key");
-    const wf = registered.find((r) => r.name === "workflow");
-    expect(wf?.type).toBe("string");
+    expect(names).toContain("workflow-input-<key>");
+    expect(flags.find((flag) => flag.name === "workflow")?.opts.type).toBe("string");
   });
 
   test("degrades silently when registerFlag absent", () => {
     const pi: ExtensionAPI = {};
     // Should not throw
     expect(() => registerWorkflowCliFlags(pi)).not.toThrow();
+  });
+
+  test("opts exclude name; descriptions and types preserved (canonical Pi-shaped mock)", () => {
+    const flags = registeredFlags();
+    const workflow = flags.find((flag) => flag.name === "workflow");
+    const inputKey = flags.find((flag) => flag.name === "workflow-input-<key>");
+
+    expect(workflow).toBeDefined();
+    expect(inputKey).toBeDefined();
+    expect("name" in workflow!.opts).toBe(false);
+    expect("name" in inputKey!.opts).toBe(false);
+    expect(workflow!.opts.type).toBe("string");
+    expect(inputKey!.opts.type).toBe("string");
+    expect(typeof workflow!.opts.description).toBe("string");
+    expect(workflow!.opts.description.length).toBeGreaterThan(0);
+    expect(typeof inputKey!.opts.description).toBe("string");
+    expect(inputKey!.opts.description.length).toBeGreaterThan(0);
   });
 });
 

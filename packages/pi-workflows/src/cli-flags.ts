@@ -56,9 +56,9 @@ export function registerWorkflowCliFlags(pi: ExtensionAPI): void {
     type: "string",
   });
 
-  pi.registerFlag("workflow-input-key", {
+  pi.registerFlag("workflow-input-<key>", {
     description:
-      "Pass an input value to the workflow (repeat for multiple inputs, e.g. --workflow-input-<key>=<value>).",
+      "Pass a named input value to the workflow.  <key> is replaced by the actual input name at invocation time (e.g. --workflow-input-env=production, --workflow-input-count=3).  Repeat the flag for multiple inputs.",
     type: "string",
   });
 }

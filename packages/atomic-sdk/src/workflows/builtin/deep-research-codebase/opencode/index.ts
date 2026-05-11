@@ -29,6 +29,7 @@
  */
 
 import { defineWorkflow } from "../../../index.ts";
+import { existsSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -43,6 +44,7 @@ import {
 } from "../helpers/heuristic.ts";
 import {
   buildAggregatorPrompt,
+  buildAggregatorRetryPrompt,
   buildAnalyzerPrompt,
   buildBatchOrchestratorPrompt,
   buildHistoryAnalyzerPrompt,
@@ -522,7 +524,21 @@ export default defineWorkflow({
             },
           ],
         });
-        s.save(result.data!);
+        let lastResult = result;
+        if (!existsSync(finalPath)) {
+          lastResult = await s.client.session.prompt({
+            sessionID: s.session.id,
+            parts: [
+              { type: "text", text: buildAggregatorRetryPrompt(finalPath) },
+            ],
+          });
+        }
+        if (!existsSync(finalPath)) {
+          throw new Error(
+            `aggregator did not produce ${finalPath} after 2 attempts`,
+          );
+        }
+        s.save(lastResult.data!);
       },
     );
   })

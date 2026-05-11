@@ -30,6 +30,7 @@
 
 import { defineWorkflow } from "../../../index.ts";
 import type { SessionEvent } from "@github/copilot-sdk";
+import { existsSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -44,6 +45,7 @@ import {
 } from "../helpers/heuristic.ts";
 import {
   buildAggregatorPrompt,
+  buildAggregatorRetryPrompt,
   buildAnalyzerPrompt,
   buildBatchOrchestratorPrompt,
   buildHistoryAnalyzerPrompt,
@@ -473,6 +475,16 @@ export default defineWorkflow({
             historyOverview,
           }),
         });
+        if (!existsSync(finalPath)) {
+          await s.session.send({
+            prompt: buildAggregatorRetryPrompt(finalPath),
+          });
+        }
+        if (!existsSync(finalPath)) {
+          throw new Error(
+            `aggregator did not produce ${finalPath} after 2 attempts`,
+          );
+        }
         s.save(await s.session.getMessages());
       },
     );

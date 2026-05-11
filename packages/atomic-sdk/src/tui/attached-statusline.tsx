@@ -58,7 +58,11 @@ export const BACKGROUND_TASKS_OPTION = "bg-tasks";
 export function backgroundTasksValue(count: number, theme: GraphTheme): string {
   if (count <= 0) return "";
   const bg = theme.backgroundElement;
-  return ` #[fg=${theme.warning} bg=${bg}]◆ #[fg=${theme.textMuted} bg=${bg}]${count} background`;
+  // Two leading spaces: separates the indicator from the GRAPH pill that
+  // precedes it on the orchestrator window. One space looked cramped
+  // because the pill's own padding-right=1 only puts a single column
+  // outside the colored background.
+  return `  #[fg=${theme.warning} bg=${bg}]◆ #[fg=${theme.textMuted} bg=${bg}]${count} background`;
 }
 
 /**

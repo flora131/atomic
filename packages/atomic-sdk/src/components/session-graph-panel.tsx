@@ -35,6 +35,7 @@ import { Edge } from "./edge.tsx";
 import { Header } from "./header.tsx";
 import { CompactSwitcher } from "./compact-switcher.tsx";
 import { ToastStack } from "./toast.tsx";
+import { SYNTHETIC_ORCHESTRATOR_NAME } from "./orchestrator-panel-types.ts";
 import type { ViewMode } from "./orchestrator-panel-types.ts";
 
 /** Interval (ms) between pulse animation frames — ~60fps feel. */
@@ -82,7 +83,7 @@ export function SessionGraphPanel() {
   // Sessions visible in the switcher — same filter the switcher itself applies.
   // The synthetic orchestrator has no graph node and isn't attachable.
   const visibleSessions = useMemo(
-    () => store.sessions.filter((s) => s.name !== "orchestrator"),
+    () => store.getStageSessions(),
     [storeVersion],
   );
 
@@ -115,7 +116,7 @@ export function SessionGraphPanel() {
   // in the graph rather than blindly picking sessions[0].
   useEffect(() => {
     if (layout.map[focusedId]) return;
-    const firstVisible = store.sessions.find((s) => layout.map[s.name]);
+    const firstVisible = visibleSessions.find((s) => layout.map[s.name]);
     if (firstVisible) setFocusedId(firstVisible.name);
   }, [storeVersion]);
 
@@ -125,9 +126,10 @@ export function SessionGraphPanel() {
     [storeVersion],
   );
   const [pulsePhase, setPulsePhase] = useState(0);
-  // Pulse animation doubles as a live timer refresh — 60ms updates keep
-  // both the pulse animation and duration displays current, so a separate
-  // 1s tick interval is unnecessary.
+  // Pulse animation is paused while no stage is running. The header runs
+  // its own independent 1s ticker for the workflow duration so the timer
+  // keeps advancing between stages and after the graph panel unmounts —
+  // do not collapse the two intervals into one.
   useEffect(() => {
     if (!hasRunning) return;
     const pulseId = setInterval(
@@ -148,8 +150,10 @@ export function SessionGraphPanel() {
       setFocusedId(id);
 
       // RFC §5.5 — gate switch-client on resume completion when offloaded.
-      const status = offloadManager.getStatus(id);
-      if (status === "offloaded" || status === "resuming") {
+      // The branching is delegated to `decideAttachAction` so the production
+      // code path is the one covered by the helper's unit tests.
+      const decision = decideAttachAction(offloadManager.getStatus(id));
+      if (decision.kind === "resume") {
         store.setViewMode("resuming", id);
         try {
           await offloadManager.requestResume(id);
@@ -319,7 +323,7 @@ export function SessionGraphPanel() {
       if (lastKeyRef.current.key === "g" && now - lastKeyRef.current.time < GG_DOUBLE_TAP_MS) {
         // sessions[0] is the synthetic orchestrator, which is filtered out
         // of layout.map. Pick the first session that actually has a node.
-        const firstVisible = store.sessions.find((s) => layout.map[s.name]);
+        const firstVisible = visibleSessions.find((s) => layout.map[s.name]);
         setFocusedId(firstVisible?.name ?? "");
         lastKeyRef.current.key = "";
       } else {
@@ -385,7 +389,7 @@ export function SessionGraphPanel() {
   // never receives them.  Poll the active window to sync viewMode
   // with tmux-level navigation in both directions.
   const hasStartedAgent = useMemo(
-    () => store.sessions.some((s) => s.name !== "orchestrator" && s.status !== "pending"),
+    () => store.getStageSessions().some((s) => s.status !== "pending"),
     [storeVersion],
   );
 
@@ -410,7 +414,7 @@ export function SessionGraphPanel() {
 
       // Logical name: window index 0 is always the orchestrator regardless
       // of its tmux window name.
-      const currentName = idx === "0" ? "orchestrator" : windowName;
+      const currentName = idx === "0" ? SYNTHETIC_ORCHESTRATOR_NAME : windowName;
 
       // Update viewMode FIRST so offloadSession (called below) reads the
       // already-updated activeAgentId. Without this ordering, the focus
@@ -443,7 +447,7 @@ export function SessionGraphPanel() {
       // eligibility check filters out running/headless/already-offloaded
       // sessions, so we can fire unconditionally.
       const prevName = prevActiveRef.current;
-      if (prevName !== "" && prevName !== currentName && prevName !== "orchestrator") {
+      if (prevName !== "" && prevName !== currentName && prevName !== SYNTHETIC_ORCHESTRATOR_NAME) {
         void offloadManager.offloadSession(prevName).catch(() => {});
       }
 

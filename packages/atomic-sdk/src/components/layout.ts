@@ -1,5 +1,6 @@
 // ─── Layout ───────────────────────────────────────
 
+import { SYNTHETIC_ORCHESTRATOR_NAME } from "./orchestrator-panel-types.ts";
 import type { SessionData, SessionStatus } from "./orchestrator-panel-types.ts";
 
 // ─── Layout Constants ─────────────────────────────
@@ -75,8 +76,8 @@ function resolveOverlaps(map: Record<string, LayoutNode>): void {
 /**
  * Compute effective parents for each session by filtering out references
  * to sessions that don't exist in the map (including the runtime
- * "orchestrator" pseudo-node, which the graph never renders) and
- * deduplicating. Stages whose only declared parent was the orchestrator
+ * `SYNTHETIC_ORCHESTRATOR_NAME` pseudo-node, which the graph never renders)
+ * and deduplicating. Stages whose only declared parent was the orchestrator
  * collapse to true roots with `parents: []`.
  */
 function normalizeParents(
@@ -96,11 +97,11 @@ export function computeLayout(sessions: SessionData[]): LayoutResult {
   const roots: LayoutNode[] = [];
   const mergeNodes: LayoutNode[] = [];
 
-  // The runtime "orchestrator" entry is workflow-timing bookkeeping, not a
+  // The runtime orchestrator entry is workflow-timing bookkeeping, not a
   // user-defined stage — the graph treats it as invisible. Filter it before
   // building the node map so every downstream pass (depths, placement,
   // overlaps, connectors) operates only on real stages.
-  const visible = sessions.filter((s) => s.name !== "orchestrator");
+  const visible = sessions.filter((s) => s.name !== SYNTHETIC_ORCHESTRATOR_NAME);
 
   for (const s of visible) {
     map[s.name] = {

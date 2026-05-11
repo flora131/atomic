@@ -40,8 +40,7 @@ export function Header() {
   // separately as the workflow duration on the right.
   const counts = useMemo(() => {
     const c: Record<SessionStatus, number> = { complete: 0, running: 0, pending: 0, error: 0, awaiting_input: 0, offloaded: 0, resuming: 0 };
-    for (const s of store.sessions) {
-      if (s.name === "orchestrator") continue;
+    for (const s of store.getStageSessions()) {
       c[s.status]++;
     }
     return c;
@@ -62,7 +61,7 @@ export function Header() {
   // While running, a 1s ticker drives re-renders so the display stays live;
   // when terminal, the value freezes at endedAt and the ticker stops.
   const orchestrator = useMemo(
-    () => store.sessions.find((s) => s.name === "orchestrator"),
+    () => store.getOrchestratorSession(),
     [storeVersion],
   );
   const [tickNow, setTickNow] = useState(() => Date.now());

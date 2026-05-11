@@ -1,6 +1,6 @@
 /** @jsxImportSource @opentui/react */
 
-import { test, expect, describe, afterEach } from "bun:test";
+import { test, expect, describe, afterEach, setSystemTime } from "bun:test";
 import { PanelStore } from "../../../packages/atomic-sdk/src/components/orchestrator-panel-store.ts";
 import { Header } from "../../../packages/atomic-sdk/src/components/header.tsx";
 import { renderReact, TestProviders, type ReactTestSetup } from "./test-helpers.tsx";
@@ -10,6 +10,8 @@ let testSetup: ReactTestSetup | null = null;
 afterEach(() => {
   testSetup?.renderer.destroy();
   testSetup = null;
+  // Reset any test-controlled system clock so the next test sees real time.
+  setSystemTime();
 });
 
 describe("Header", () => {
@@ -103,20 +105,23 @@ describe("Header", () => {
     );
     await testSetup.renderOnce();
     const frame = testSetup.captureCharFrame();
-    // Pending badge shows the empty circle + count. Orchestrator-as-running
-    // would inflate the running count to 1; if exclusion works, the badge
-    // for running is absent entirely.
+    // Pending badge shows exactly 2 (two user-defined stages); the running
+    // badge is rendered as null when the count is zero (CountBadge returns
+    // null on count <= 0), so the filled-circle glyph must be absent
+    // entirely. Asserting absence of the glyph itself \u2014 rather than `\u25cf 1`
+    // \u2014 survives any future test that adds a real running stage.
     expect(frame).toContain("\u25cb 2"); // 2 pending stages, not 3
-    expect(frame).not.toContain("\u25cf 1"); // no running count from orchestrator
+    expect(frame).not.toContain("\u25cf"); // running badge is null, glyph absent
   });
 
   test("shows live workflow duration while running", async () => {
+    // Set the clock back 5.1s before startup so startedAt lands there;
+    // restore real time before render so the live ticker reads "now".
+    const start = new Date("2026-01-01T00:00:00Z");
+    setSystemTime(start);
     const store = new PanelStore();
     store.setWorkflowInfo("wf", "claude", [{ name: "s1", parents: [] }], "p");
-    // Force a known elapsed floor so we don't depend on render timing.
-    // sec = floor(ms / 1000); ms in [5000, 6000) → "0m 05s".
-    const orchestrator = store.sessions.find((s) => s.name === "orchestrator")!;
-    orchestrator.startedAt = Date.now() - 5_100;
+    setSystemTime(new Date(start.getTime() + 5_100));
 
     testSetup = await renderReact(
       <TestProviders store={store}>
@@ -132,17 +137,20 @@ describe("Header", () => {
   });
 
   test("freezes duration at the terminal value after completion", async () => {
+    // Drive Date.now() so setWorkflowInfo's startedAt and setCompletion's
+    // endedAt land at controlled values. Avoids mutating the session record
+    // directly (would silently bypass a future copy-on-write store layer).
+    const start = new Date("2026-01-01T00:00:00Z");
+    setSystemTime(start);
+
     const store = new PanelStore();
     store.setWorkflowInfo("wf", "claude", [{ name: "s1", parents: [] }], "p");
     store.startSession("s1");
     store.completeSession("s1");
-    // Pin startedAt and endedAt to a fixed delta — setCompletion will set
-    // endedAt to Date.now(), so override both after.
-    const orchestrator = store.sessions.find((s) => s.name === "orchestrator")!;
-    const start = Date.now();
-    orchestrator.startedAt = start;
+
+    // Advance the clock 12s before setCompletion stamps endedAt.
+    setSystemTime(new Date(start.getTime() + 12_000));
     store.setCompletion("wf", "/tmp/transcripts");
-    orchestrator.endedAt = start + 12_000; // exactly 12s elapsed
 
     testSetup = await renderReact(
       <TestProviders store={store}>
@@ -157,13 +165,14 @@ describe("Header", () => {
   });
 
   test("freezes duration at the terminal value after fatal error", async () => {
+    const start = new Date("2026-01-01T00:00:00Z");
+    setSystemTime(start);
+
     const store = new PanelStore();
     store.setWorkflowInfo("wf", "claude", [{ name: "s1", parents: [] }], "p");
-    const orchestrator = store.sessions.find((s) => s.name === "orchestrator")!;
-    const start = Date.now();
-    orchestrator.startedAt = start;
+
+    setSystemTime(new Date(start.getTime() + 7_000));
     store.setFatalError("kaboom");
-    orchestrator.endedAt = start + 7_000;
 
     testSetup = await renderReact(
       <TestProviders store={store}>

@@ -19,7 +19,7 @@ export function CompactSwitcher({ selectedIndex }: CompactSwitcherProps) {
 
   // Filter the synthetic orchestrator entry — it has no node in the graph
   // and selecting it would no-op inside doAttach.
-  const agents = store.sessions.filter((s) => s.name !== "orchestrator");
+  const agents = store.getStageSessions();
   const headerHint = "\u2191\u2193 select \u00B7 \u21B5 jump \u00B7 Esc close";
 
   return (

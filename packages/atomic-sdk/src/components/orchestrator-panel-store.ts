@@ -1,6 +1,7 @@
 // ─── State Store ──────────────────────────────────
 // Bridges the imperative OrchestratorPanel API with the React component tree.
 
+import { SYNTHETIC_ORCHESTRATOR_NAME } from "./orchestrator-panel-types.ts";
 import type { SessionData, SessionStatus, PanelSession, ViewMode } from "./orchestrator-panel-types.ts";
 
 type Listener = () => void;
@@ -65,7 +66,7 @@ export class PanelStore {
     this.prompt = prompt;
     this.sessions = [
       {
-        name: "orchestrator",
+        name: SYNTHETIC_ORCHESTRATOR_NAME,
         status: "running",
         parents: [],
         startedAt: Date.now(),
@@ -74,7 +75,7 @@ export class PanelStore {
       ...sessions.map((s) => ({
         name: s.name,
         status: "pending" as SessionStatus,
-        parents: s.parents.length > 0 ? s.parents : ["orchestrator"],
+        parents: s.parents.length > 0 ? s.parents : [SYNTHETIC_ORCHESTRATOR_NAME],
         startedAt: null,
         endedAt: null,
       })),
@@ -135,9 +136,28 @@ export class PanelStore {
     this.emit();
   }
 
+  /**
+   * The synthetic orchestrator session — the timing bookkeeping entry
+   * prepended by `setWorkflowInfo`. Single source of truth for header
+   * duration and completion/failure timestamps.
+   */
+  getOrchestratorSession(): SessionData | undefined {
+    return this.sessions.find((s) => s.name === SYNTHETIC_ORCHESTRATOR_NAME);
+  }
+
+  /**
+   * Sessions excluding the synthetic orchestrator entry — i.e. the
+   * user-defined stages that render as nodes in the graph and appear in
+   * the agent switcher. Single source of truth for everything that wants
+   * "the real stages".
+   */
+  getStageSessions(): SessionData[] {
+    return this.sessions.filter((s) => s.name !== SYNTHETIC_ORCHESTRATOR_NAME);
+  }
+
   setCompletion(workflowName: string, transcriptsPath: string): void {
     this.completionInfo = { workflowName, transcriptsPath };
-    const orch = this.sessions.find((s) => s.name === "orchestrator");
+    const orch = this.getOrchestratorSession();
     if (orch) {
       orch.status = "complete";
       orch.endedAt = Date.now();
@@ -148,7 +168,7 @@ export class PanelStore {
   setFatalError(message: string): void {
     this.fatalError = message;
     this.completionReached = true;
-    const orch = this.sessions.find((s) => s.name === "orchestrator");
+    const orch = this.getOrchestratorSession();
     if (orch) {
       orch.status = "error";
       orch.endedAt = Date.now();

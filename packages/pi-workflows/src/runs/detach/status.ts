@@ -1,0 +1,138 @@
+/**
+ * Status / kill / resume control helpers for in-flight workflow runs.
+ *
+ * These helpers operate against the singleton store and are consumed by:
+ *   - The `workflow` tool execute handler (action: "status" | "kill" | "resume")
+ *   - The /workflow slash command
+ *
+ * cross-ref: spec §5.5, §8.1 Phase D
+ */
+
+import type { Store } from "../../store.js";
+import type { RunSnapshot, RunStatus } from "../../store-types.js";
+import { store as defaultStore } from "../../store.js";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface RunStatusEntry {
+  readonly runId: string;
+  readonly name: string;
+  readonly status: RunStatus;
+  readonly startedAt: number;
+  readonly durationMs?: number;
+  readonly stageCount: number;
+}
+
+export type KillResult =
+  | { ok: true; runId: string; previousStatus: RunStatus }
+  | { ok: false; runId: string; reason: "not_found" | "already_ended" };
+
+export type ResumeResult =
+  | { ok: true; runId: string; snapshot: RunSnapshot }
+  | { ok: false; runId: string; reason: "not_found" | "not_ended" };
+
+// ---------------------------------------------------------------------------
+// statusRuns
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns a summary of all in-flight (not-yet-ended) runs in the store.
+ * If `all` is true, returns completed/failed runs too.
+ */
+export function statusRuns(opts?: { all?: boolean; store?: Store }): RunStatusEntry[] {
+  const activeStore = opts?.store ?? defaultStore;
+  const runs = activeStore.runs();
+  const result: RunStatusEntry[] = [];
+
+  for (const run of runs) {
+    if (!opts?.all && run.endedAt !== undefined) continue;
+    result.push({
+      runId: run.id,
+      name: run.name,
+      status: run.status,
+      startedAt: run.startedAt,
+      durationMs: run.durationMs,
+      stageCount: run.stages.length,
+    });
+  }
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// killRun
+// ---------------------------------------------------------------------------
+
+/**
+ * Marks a run as "killed" in the store.
+ *
+ * If the run has already ended (completed/failed/killed), returns ok:false with
+ * reason "already_ended". If the runId is unknown, returns ok:false "not_found".
+ *
+ * Note: does NOT abort an in-progress async executor — callers that hold an
+ * AbortController should call `controller.abort()` separately. This helper
+ * only updates store state.
+ */
+export function killRun(runId: string, opts?: { store?: Store }): KillResult {
+  const activeStore = opts?.store ?? defaultStore;
+  const runs = activeStore.runs();
+  const run = runs.find((r) => r.id === runId);
+
+  if (!run) {
+    return { ok: false, runId, reason: "not_found" };
+  }
+  if (run.endedAt !== undefined) {
+    return { ok: false, runId, reason: "already_ended" };
+  }
+
+  const previousStatus = run.status;
+  activeStore.recordRunEnd(runId, "killed");
+  return { ok: true, runId, previousStatus };
+}
+
+/**
+ * Kills all in-flight runs. Returns array of KillResult for each run acted on.
+ */
+export function killAllRuns(opts?: { store?: Store }): KillResult[] {
+  const activeStore = opts?.store ?? defaultStore;
+  const inFlight = activeStore.runs().filter((r) => r.endedAt === undefined);
+  return inFlight.map((r) => killRun(r.id, { store: activeStore }));
+}
+
+// ---------------------------------------------------------------------------
+// resumeRun
+// ---------------------------------------------------------------------------
+
+/**
+ * "Resumes" a run by returning its snapshot so callers can re-open the overlay
+ * or re-display progress. Does NOT re-execute the workflow.
+ *
+ * Returns ok:false with reason "not_ended" if the run is still in-flight
+ * (nothing to resume — it's already active). Returns ok:false "not_found" if
+ * the runId is unknown.
+ *
+ * The caller (slash command / tool action) should use the returned snapshot
+ * to drive UI display (e.g. re-summon the graph overlay).
+ */
+export function resumeRun(
+  runId: string,
+  opts?: { store?: Store },
+): ResumeResult {
+  const activeStore = opts?.store ?? defaultStore;
+  const runs = activeStore.runs();
+  const run = runs.find((r) => r.id === runId);
+
+  if (!run) {
+    return { ok: false, runId, reason: "not_found" };
+  }
+  if (run.endedAt === undefined) {
+    // Still running — nothing to resume (already live)
+    return { ok: false, runId, reason: "not_ended" };
+  }
+
+  // Return a deep copy of the snapshot for safe consumption
+  const snapshot: RunSnapshot = JSON.parse(JSON.stringify(run)) as RunSnapshot;
+  return { ok: true, runId, snapshot };
+}

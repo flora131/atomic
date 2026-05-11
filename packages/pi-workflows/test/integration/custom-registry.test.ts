@@ -73,9 +73,15 @@ let runtime: ExtensionRuntime;
 
 const noSiblings: DoctorSiblingStatus = {
   subagents: false,
+  subagentsCallable: false,
   mcpAdapter: false,
+  mcpScopeEvents: false,
   intercom: false,
   hil: false,
+  uiCustom: false,
+  shortcut: false,
+  execAbortable: false,
+  persistenceAppendEntry: false,
 };
 
 beforeAll(async () => {

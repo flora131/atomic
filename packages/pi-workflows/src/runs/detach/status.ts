@@ -10,6 +10,7 @@
 
 import type { Store } from "../../store.js";
 import type { RunSnapshot, RunStatus } from "../../store-types.js";
+import type { CancellationRegistry } from "./cancellation-registry.js";
 import { store as defaultStore } from "../../store.js";
 
 // ---------------------------------------------------------------------------
@@ -75,8 +76,12 @@ export function statusRuns(opts?: { all?: boolean; store?: Store }): RunStatusEn
  * AbortController should call `controller.abort()` separately. This helper
  * only updates store state.
  */
-export function killRun(runId: string, opts?: { store?: Store }): KillResult {
+export function killRun(runId: string, opts?: { store?: Store; cancellation?: CancellationRegistry }): KillResult {
   const activeStore = opts?.store ?? defaultStore;
+
+  // Abort active executor first (no-op if not registered)
+  opts?.cancellation?.abort(runId, "workflow killed");
+
   const runs = activeStore.runs();
   const run = runs.find((r) => r.id === runId);
 
@@ -88,17 +93,17 @@ export function killRun(runId: string, opts?: { store?: Store }): KillResult {
   }
 
   const previousStatus = run.status;
-  activeStore.recordRunEnd(runId, "killed");
+  activeStore.recordRunEnd(runId, "killed", undefined, "workflow killed");
   return { ok: true, runId, previousStatus };
 }
 
 /**
  * Kills all in-flight runs. Returns array of KillResult for each run acted on.
  */
-export function killAllRuns(opts?: { store?: Store }): KillResult[] {
+export function killAllRuns(opts?: { store?: Store; cancellation?: CancellationRegistry }): KillResult[] {
   const activeStore = opts?.store ?? defaultStore;
   const inFlight = activeStore.runs().filter((r) => r.endedAt === undefined);
-  return inFlight.map((r) => killRun(r.id, { store: activeStore }));
+  return inFlight.map((r) => killRun(r.id, { store: activeStore, cancellation: opts?.cancellation }));
 }
 
 // ---------------------------------------------------------------------------

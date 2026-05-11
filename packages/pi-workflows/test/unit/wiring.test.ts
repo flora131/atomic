@@ -270,8 +270,8 @@ describe("subagent adapter — pi.subagents.run delegation", () => {
     const pi: RuntimeWiringSurface = {
       exec: async () => ({ stdout: "", stderr: "", code: 0, killed: false }),
       subagents: {
-        run: async (opts) => {
-          runCalls.push(opts as unknown as Record<string, unknown>);
+        run: async (opts: Record<string, unknown>) => {
+          runCalls.push(opts);
           return "subagent-result";
         },
       },
@@ -288,7 +288,7 @@ describe("subagent adapter — pi.subagents.run delegation", () => {
     const pi: RuntimeWiringSurface = {
       exec: async () => ({ stdout: "", stderr: "", code: 0, killed: false }),
       subagents: {
-        run: async (opts) => { runCalls.push(opts as unknown as Record<string, unknown>); return "done"; },
+        run: async (opts: Record<string, unknown>) => { runCalls.push(opts); return "done"; },
       },
     };
     const adapters = buildRuntimeAdapters(pi);
@@ -314,7 +314,7 @@ describe("subagent adapter — pi.subagents.run delegation", () => {
     const pi: RuntimeWiringSurface = {
       exec: async () => ({ stdout: "", stderr: "", code: 0, killed: false }),
       subagents: {
-        run: async (opts) => { runCalls.push(opts as unknown as Record<string, unknown>); return "done"; },
+        run: async (opts: Record<string, unknown>) => { runCalls.push(opts); return "done"; },
       },
     };
     const adapters = buildRuntimeAdapters(pi);

@@ -101,6 +101,26 @@ function makeUnavailableUIContext(): WorkflowUIContext {
 }
 
 // ---------------------------------------------------------------------------
+// raceAbort — races a promise against an AbortSignal
+// ---------------------------------------------------------------------------
+
+function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    return Promise.reject(signal.reason ?? new DOMException("workflow killed", "AbortError"));
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => {
+      reject(signal.reason ?? new DOMException("workflow killed", "AbortError"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (val) => { signal.removeEventListener("abort", onAbort); resolve(val); },
+      (err: unknown) => { signal.removeEventListener("abort", onAbort); reject(err); },
+    );
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Main executor
 // ---------------------------------------------------------------------------
 
@@ -118,6 +138,16 @@ export async function run(
   // 2. Generate runId
   const runId = crypto.randomUUID();
 
+  // 2a. Create own AbortController; forward caller signal if provided
+  const ownController = new AbortController();
+  if (opts.signal) {
+    if (opts.signal.aborted) {
+      ownController.abort(opts.signal.reason);
+    } else {
+      opts.signal.addEventListener("abort", () => { ownController.abort(opts.signal!.reason); }, { once: true });
+    }
+  }
+
   // 3. Create RunSnapshot + register
   const runSnapshot: RunSnapshot = {
     id: runId,
@@ -129,6 +159,7 @@ export async function run(
   };
 
   activeStore.recordRunStart(runSnapshot);
+  opts.cancellation?.register(runId, ownController);
   opts.onRunStart?.(runSnapshot);
 
   // Persistence: append run.start entry
@@ -203,7 +234,7 @@ export async function run(
           }
 
           try {
-            const result = await method(...args);
+            const result = await raceAbort(method(...args), ownController.signal);
             stageSnapshot.status = "completed";
             stageSnapshot.result = result;
             return result;
@@ -252,50 +283,66 @@ export async function run(
 
   // 6. Call def.run(ctx)
   try {
-    const result = await def.run(ctx);
+    try {
+      const result = await def.run(ctx);
 
-    // 7. recordRunEnd "completed"
-    const recorded = activeStore.recordRunEnd(runId, "completed", result);
-    opts.onRunEnd?.(runId, "completed", result);
+      // 7. recordRunEnd "completed"
+      const recorded = activeStore.recordRunEnd(runId, "completed", result);
+      opts.onRunEnd?.(runId, "completed", result);
 
-    // Persistence: append run.end only if state changed (terminal guard)
-    if (opts.persistence && recorded) {
-      appendRunEnd(opts.persistence, {
+      // Persistence: append run.end only if state changed (terminal guard)
+      if (opts.persistence && recorded) {
+        appendRunEnd(opts.persistence, {
+          runId,
+          status: "completed",
+          result,
+          ts: Date.now(),
+        });
+      }
+
+      // 8. Return RunResult
+      return {
         runId,
         status: "completed",
         result,
-        ts: Date.now(),
-      });
-    }
+        stages: [...runSnapshot.stages],
+      };
+    } catch (err) {
+      // Check if abort caused this error
+      if (ownController.signal.aborted) {
+        activeStore.recordRunEnd(runId, "killed", undefined, "workflow killed");
+        opts.onRunEnd?.(runId, "killed", undefined, "workflow killed");
+        return {
+          runId,
+          status: "killed",
+          error: "workflow killed",
+          stages: [...runSnapshot.stages],
+        };
+      }
 
-    // 8. Return RunResult
-    return {
-      runId,
-      status: "completed",
-      result,
-      stages: [...runSnapshot.stages],
-    };
-  } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
+      const errorMessage = err instanceof Error ? err.message : String(err);
 
-    // 9. recordRunEnd "failed"
-    const recorded = activeStore.recordRunEnd(runId, "failed", undefined, errorMessage);
-    opts.onRunEnd?.(runId, "failed", undefined, errorMessage);
+      // 9. recordRunEnd "failed"
+      const recorded = activeStore.recordRunEnd(runId, "failed", undefined, errorMessage);
+      opts.onRunEnd?.(runId, "failed", undefined, errorMessage);
 
-    // Persistence: append run.end only if state changed (terminal guard)
-    if (opts.persistence && recorded) {
-      appendRunEnd(opts.persistence, {
+      // Persistence: append run.end only if state changed (terminal guard)
+      if (opts.persistence && recorded) {
+        appendRunEnd(opts.persistence, {
+          runId,
+          status: "failed",
+          ts: Date.now(),
+        });
+      }
+
+      return {
         runId,
         status: "failed",
-        ts: Date.now(),
-      });
+        error: errorMessage,
+        stages: [...runSnapshot.stages],
+      };
     }
-
-    return {
-      runId,
-      status: "failed",
-      error: errorMessage,
-      stages: [...runSnapshot.stages],
-    };
+  } finally {
+    opts.cancellation?.unregister(runId);
   }
 }

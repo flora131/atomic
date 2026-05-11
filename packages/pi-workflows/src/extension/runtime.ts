@@ -15,6 +15,7 @@ import type { WorkflowRegistry } from "../workflows/registry.js";
 import type { WorkflowDefinition, WorkflowUIAdapter } from "../shared/types.js";
 import type { StageAdapters } from "../runs/sync/stage-runner.js";
 import type { Store } from "../store.js";
+import type { CancellationRegistry } from "../runs/detach/cancellation-registry.js";
 import { store as defaultStore } from "../store.js";
 import { dispatch } from "./dispatcher.js";
 import type { WorkflowToolArgs } from "./index.js";
@@ -41,6 +42,8 @@ export interface ExtensionRuntimeOpts {
   ui?: WorkflowUIAdapter;
   /** Store override (defaults to the singleton store). */
   store?: Store;
+  /** Cancellation registry forwarded to the executor. */
+  cancellation?: CancellationRegistry;
 }
 
 // ---------------------------------------------------------------------------
@@ -83,6 +86,7 @@ export function createExtensionRuntime(opts: ExtensionRuntimeOpts = {}): Extensi
   const adapters = opts.adapters;
   const ui = opts.ui;
   const activeStore = opts.store ?? defaultStore;
+  const cancellation = opts.cancellation;
 
   return {
     get registry(): WorkflowRegistry {
@@ -90,7 +94,7 @@ export function createExtensionRuntime(opts: ExtensionRuntimeOpts = {}): Extensi
     },
 
     dispatch(args: WorkflowToolArgs): Promise<WorkflowToolResult> {
-      return dispatch(args, { registry, adapters, ui, store: activeStore });
+      return dispatch(args, { registry, adapters, ui, store: activeStore, cancellation });
     },
   };
 }

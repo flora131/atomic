@@ -37,7 +37,6 @@ type RunResult = {
 };
 type KillResult = { action: "kill"; runId: string; status: string; message: string };
 type ResumeResult = { action: "resume"; runId: string; status: string; message: string };
-type FallbackResult = { action: string; message: string };
 
 export type WorkflowToolResult =
   | ListResult
@@ -45,8 +44,7 @@ export type WorkflowToolResult =
   | InputsResult
   | RunResult
   | KillResult
-  | ResumeResult
-  | FallbackResult;
+  | ResumeResult;
 
 export interface RenderResultOpts {
   isPartial?: boolean;
@@ -113,7 +111,10 @@ export function renderResult(result: WorkflowToolResult, opts?: RenderResultOpts
       return `workflow resume ${r.runId}: ${r.message}`;
     }
 
-    default:
-      return `workflow: ${"message" in result ? result.message : JSON.stringify(result)}`;
+    default: {
+      // Runtime guard — handles values coerced from external sources.
+      const fallback = result as { action: string; message?: string };
+      return `workflow: ${fallback.message ?? JSON.stringify(result)}`;
+    }
   }
 }

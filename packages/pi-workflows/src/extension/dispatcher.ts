@@ -10,6 +10,7 @@
 import type { WorkflowRegistry } from "../workflows/registry.js";
 import type { StageAdapters } from "../runs/sync/stage-runner.js";
 import type { Store } from "../store.js";
+import type { CancellationRegistry } from "../runs/detach/cancellation-registry.js";
 import { run } from "../runs/sync/executor.js";
 import type { WorkflowToolResult, WorkflowInputEntry } from "./render-result.js";
 import type { WorkflowToolArgs } from "./index.js";
@@ -28,6 +29,8 @@ export interface DispatcherOpts {
   ui?: WorkflowUIAdapter;
   /** Store override (for testing; falls back to executor default). */
   store?: Store;
+  /** Cancellation registry forwarded to the executor. */
+  cancellation?: CancellationRegistry;
 }
 
 // ---------------------------------------------------------------------------
@@ -45,6 +48,8 @@ export async function dispatch(
   opts: DispatcherOpts,
 ): Promise<WorkflowToolResult> {
   const action = args.action ?? "run";
+  const name = args.name ?? "";
+  const inputs = args.inputs ?? {};
 
   switch (action) {
     // -----------------------------------------------------------------------
@@ -57,51 +62,52 @@ export async function dispatch(
     // inputs — return a workflow's input schema, or a clear not-found result
     // -----------------------------------------------------------------------
     case "inputs": {
-      const def = opts.registry.get(args.name);
+      const def = opts.registry.get(name);
       if (!def) {
         return {
           action: "inputs",
-          name: args.name,
+          name,
           inputs: [],
-          error: `Workflow not found: "${args.name}"`,
+          error: `Workflow not found: "${name}"`,
         };
       }
-      const inputs: WorkflowInputEntry[] = Object.entries(def.inputs).map(
-        ([name, schema]) => ({
-          name,
+      const inputSchema: WorkflowInputEntry[] = Object.entries(def.inputs).map(
+        ([iname, schema]) => ({
+          name: iname,
           type: schema.type,
           description: schema.description,
           required: schema.required,
           default: "default" in schema ? schema.default : undefined,
         }),
       );
-      return { action: "inputs", name: args.name, inputs };
+      return { action: "inputs", name, inputs: inputSchema };
     }
 
     // -----------------------------------------------------------------------
     // run — validate inputs, execute, return real RunResult fields
     // -----------------------------------------------------------------------
     case "run": {
-      const def = opts.registry.get(args.name);
+      const def = opts.registry.get(name);
       if (!def) {
         // Return structured failed result — not-found is a user error, not a bug.
         // Status "failed" is honest; action is "run" for tool consumers to dispatch on.
         return {
           action: "run",
-          name: args.name,
+          name,
           runId: "",
           status: "failed",
-          error: `Workflow not found: "${args.name}"`,
+          error: `Workflow not found: "${name}"`,
           stages: [],
         };
       }
 
       // run() handles input validation (resolveInputs) and execution.
       // Let real errors propagate — no broad catch here.
-      const runResult = await run(def, args.inputs, {
+      const runResult = await run(def, inputs, {
         adapters: opts.adapters,
         ui: opts.ui,
         store: opts.store,
+        cancellation: opts.cancellation,
       });
 
       return {

@@ -21,10 +21,13 @@ import { restoreOnSessionStart } from "../persistence/restore.js";
 import type { SessionManager } from "../persistence/restore.js";
 import { installCompactionHook } from "../persistence/compaction-policy.js";
 import { statusRuns, killRun, killAllRuns, resumeRun } from "../runs/detach/status.js";
+import { cancellationRegistry } from "../runs/detach/cancellation-registry.js";
 import { registerIntercomParentSession } from "../integrations/intercom/intercom-bridge.js";
 import { subscribeIntercomControl } from "../integrations/intercom/result-intercom.js";
 import { installStoreWidget, installToolExecutionHooks } from "../tui/store-widget-installer.js";
 import type { WidgetFactory } from "../tui/store-widget-installer.js";
+import { buildGraphOverlayAdapter } from "../tui/overlay-adapter.js";
+import type { GraphOverlayPort } from "../tui/overlay-adapter.js";
 import { createExtensionRuntime } from "./runtime.js";
 import type { ExtensionRuntime } from "./runtime.js";
 import {
@@ -232,6 +235,7 @@ function makeExecuteWorkflowTool(runtime: ExtensionRuntime) {
     _ctx: PiExecuteContext,
   ): Promise<WorkflowToolResult> {
     const action = args.action ?? "run";
+    const runId = args.name ?? "";
 
     switch (action) {
       case "list":
@@ -251,8 +255,8 @@ function makeExecuteWorkflowTool(runtime: ExtensionRuntime) {
 
       case "kill": {
         // Support "kill --all" via name sentinel
-        if (args.name === "--all") {
-          const results = killAllRuns();
+        if (runId === "--all") {
+          const results = killAllRuns({ cancellation: cancellationRegistry });
           const killed = results.filter((r) => r.ok).length;
           return {
             action: "kill",
@@ -263,7 +267,7 @@ function makeExecuteWorkflowTool(runtime: ExtensionRuntime) {
               : "No in-flight runs to kill.",
           };
         }
-        const result = killRun(args.name);
+        const result = killRun(runId, { cancellation: cancellationRegistry });
         if (result.ok) {
           return {
             action: "kill",
@@ -274,36 +278,39 @@ function makeExecuteWorkflowTool(runtime: ExtensionRuntime) {
         }
         return {
           action: "kill",
-          runId: args.name,
+          runId,
           status: "noop",
           message: result.reason === "not_found"
-            ? `Run not found: ${args.name}`
-            : `Run already ended: ${args.name}`,
+            ? `Run not found: ${runId}`
+            : `Run already ended: ${runId}`,
         };
       }
 
       case "resume": {
-        const result = resumeRun(args.name);
+        const result = resumeRun(runId);
         if (result.ok) {
           return {
             action: "resume",
             runId: result.runId,
             status: "ok",
-            message: `Run ${result.runId} (${result.snapshot.name}) — status: ${result.snapshot.status}`,
+            message: `Run ${result.runId} (${result.snapshot.name}) \u2014 status: ${result.snapshot.status}`,
           };
         }
         return {
           action: "resume",
-          runId: args.name,
+          runId,
           status: "noop",
           message: result.reason === "not_found"
-            ? `Run not found: ${args.name}`
-            : `Run ${args.name} is still active — no resume needed.`,
+            ? `Run not found: ${runId}`
+            : `Run ${runId} is still active \u2014 no resume needed.`,
         };
       }
 
-      default:
-        return { action, message: `Unknown action: ${action}` };
+      default: {
+        // Exhaustive — all action variants handled above.
+        const _exhaustive: never = action;
+        throw new Error(`Workflow extension: unknown action "${_exhaustive}"`);
+      }
     }
   };
 }
@@ -415,6 +422,10 @@ function factory(pi: ExtensionAPI): void {
   const adapters = buildRuntimeAdapters(pi);
   const ui = buildUIAdapter(pi);
 
+  // Build graph overlay adapter — wraps GraphView + pi.ui.custom.
+  // noopOverlay returned when pi.ui?.custom is absent (degraded runtime).
+  const overlay: GraphOverlayPort = buildGraphOverlayAdapter(pi, store);
+
   // -------------------------------------------------------------------------
   // 1. Create ExtensionRuntime — mutable ref seeded from sync bundled discovery,
   //    upgraded to unified async discovery once discoverWorkflows() resolves.
@@ -424,7 +435,7 @@ function factory(pi: ExtensionAPI): void {
   //    needing to be re-registered.
   // -------------------------------------------------------------------------
   const runtimeRef: { current: ExtensionRuntime } = {
-    current: createExtensionRuntime({ registry: discoverBundledWorkflowsSync().registry, adapters, ui }),
+    current: createExtensionRuntime({ registry: discoverBundledWorkflowsSync().registry, adapters, ui, cancellation: cancellationRegistry }),
   };
   const discoveryRef: { current: DiscoveryResult | null } = { current: null };
   const configLoadRef: { current: ConfigLoadResult | null } = { current: null };
@@ -457,7 +468,7 @@ function factory(pi: ExtensionAPI): void {
 
     const result = await discoverWorkflows({ config: discoveryConfig });
     discoveryRef.current = result;
-    runtimeRef.current = createExtensionRuntime({ registry: result.registry, adapters, ui });
+    runtimeRef.current = createExtensionRuntime({ registry: result.registry, adapters, ui, cancellation: cancellationRegistry });
 
     // Register /workflow:<name> aliases for workflows discovered beyond the
     // initial bundled set (project-local, user-global, settings).
@@ -535,11 +546,11 @@ function factory(pi: ExtensionAPI): void {
           return;
         }
         if (target === "--all") {
-          const results = killAllRuns();
+          const results = killAllRuns({ cancellation: cancellationRegistry });
           const killed = results.filter((r) => r.ok).length;
           print(killed > 0 ? `Killed ${killed} run(s).` : "No in-flight runs to kill.");
         } else {
-          const result = killRun(target);
+          const result = killRun(target, { cancellation: cancellationRegistry });
           if (result.ok) {
             print(`Run ${result.runId} killed (was ${result.previousStatus}).`);
           } else {
@@ -564,14 +575,15 @@ function factory(pi: ExtensionAPI): void {
         }
         const result = resumeRun(target);
         if (result.ok) {
+          overlay.open(result.runId);
           print(
-            `Run ${result.runId} (${result.snapshot.name}) — status: ${result.snapshot.status}, stages: ${result.snapshot.stages.length}`,
+            `Run ${result.runId} (${result.snapshot.name}) \u2014 status: ${result.snapshot.status}, stages: ${result.snapshot.stages.length}`,
           );
         } else {
           print(
             result.reason === "not_found"
               ? `Run not found: ${target}`
-              : `Run ${target} is still active — no resume needed.`,
+              : `Run ${target} is still active \u2014 no resume needed.`,
           );
         }
         return;
@@ -778,6 +790,21 @@ function factory(pi: ExtensionAPI): void {
 
   installStoreWidget(pi, store);
   installToolExecutionHooks(pi, store);
+
+  // -------------------------------------------------------------------------
+  // 7b. Register F2 keyboard shortcut — open graph overlay for active run.
+  //     Falls back to noop when pi.registerShortcut is absent (degraded runtime).
+  //     Existing API shape: (key, { description, handler }).
+  // -------------------------------------------------------------------------
+  if (typeof pi.registerShortcut === "function") {
+    pi.registerShortcut("F2", {
+      description: "Open workflow graph overlay for the active run",
+      handler: () => {
+        const activeRunId = store.activeRunId();
+        overlay.open(activeRunId);
+      },
+    });
+  }
 
   // -------------------------------------------------------------------------
   // 8. Register sibling integrations (Phase G — §5.8, §5.9, §5.10)

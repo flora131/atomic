@@ -630,7 +630,7 @@ describe("renderResult — all action branches", () => {
   });
 
   test("unknown action falls through to default", () => {
-    const out = renderResult({ action: "unknown-action", message: "oops" } as WorkflowToolResult);
+    const out = renderResult({ action: "unknown-action", message: "oops" } as unknown as WorkflowToolResult);
     expect(typeof out).toBe("string");
     expect(out).toContain("oops");
   });

@@ -160,7 +160,7 @@ describe("runWorkflowFromCliFlags", () => {
       get registry() {
         return { names: () => [], get: () => undefined } as unknown as ExtensionRuntime["registry"];
       },
-      dispatch: (args) => dispatchImpl({ name: args.name, inputs: args.inputs as Record<string, unknown> }),
+      dispatch: (args) => dispatchImpl({ name: args.name ?? "", inputs: args.inputs ?? {} }),
     };
   }
 

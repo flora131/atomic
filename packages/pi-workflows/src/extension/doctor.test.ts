@@ -27,58 +27,181 @@ function emptyDiscovery(): DiscoveryResult {
 
 const allAbsent: DoctorSiblingStatus = {
   subagents: false,
+  subagentsCallable: false,
   mcpAdapter: false,
+  mcpScopeEvents: false,
   intercom: false,
   hil: false,
+  uiCustom: false,
+  shortcut: false,
+  execAbortable: false,
+  persistenceAppendEntry: false,
 };
 
 const allPresent: DoctorSiblingStatus = {
   subagents: true,
+  subagentsCallable: true,
   mcpAdapter: true,
+  mcpScopeEvents: true,
   intercom: true,
   hil: true,
+  uiCustom: true,
+  shortcut: true,
+  execAbortable: true,
+  persistenceAppendEntry: true,
 };
 
 // ---------------------------------------------------------------------------
-// hil field — core feature under test
+// hil field
 // ---------------------------------------------------------------------------
 
 describe("buildDoctorReport — hil field", () => {
-  test('hil: false renders "hil            — unavailable"', () => {
+  test("hil: false renders unavailable", () => {
     const report = buildDoctorReport(emptyDiscovery(), { ...allAbsent, hil: false });
     expect(report).toContain("hil            — unavailable");
   });
 
-  test('hil: true renders "hil            — available"', () => {
+  test("hil: true renders available", () => {
     const report = buildDoctorReport(emptyDiscovery(), { ...allAbsent, hil: true });
     expect(report).toContain("hil            — available");
   });
 });
 
 // ---------------------------------------------------------------------------
-// Siblings section — all fields present
+// pi-subagents available / callable
 // ---------------------------------------------------------------------------
 
-describe("buildDoctorReport — siblings section", () => {
-  test("all siblings absent renders not-detected / unavailable", () => {
-    const report = buildDoctorReport(emptyDiscovery(), allAbsent);
+describe("buildDoctorReport — pi-subagents callable", () => {
+  test("subagents absent renders not detected", () => {
+    const report = buildDoctorReport(emptyDiscovery(), { ...allAbsent, subagents: false, subagentsCallable: false });
     expect(report).toContain("pi-subagents   — not detected");
-    expect(report).toContain("pi-mcp-adapter — not detected");
-    expect(report).toContain("pi-intercom    — not detected");
-    expect(report).toContain("hil            — unavailable");
   });
 
-  test("all siblings present renders available", () => {
-    const report = buildDoctorReport(emptyDiscovery(), allPresent);
+  test("subagents present but not callable renders available", () => {
+    const report = buildDoctorReport(emptyDiscovery(), { ...allAbsent, subagents: true, subagentsCallable: false });
     expect(report).toContain("pi-subagents   — available");
-    expect(report).toContain("pi-mcp-adapter — available");
-    expect(report).toContain("pi-intercom    — available");
-    expect(report).toContain("hil            — available");
+  });
+
+  test("subagents present and callable renders available (callable)", () => {
+    const report = buildDoctorReport(emptyDiscovery(), { ...allAbsent, subagents: true, subagentsCallable: true });
+    expect(report).toContain("pi-subagents   — available (callable)");
   });
 });
 
 // ---------------------------------------------------------------------------
-// Smoke — report includes header + registry line
+// pi-mcp-adapter + mcp scope events
+// ---------------------------------------------------------------------------
+
+describe("buildDoctorReport — mcp scope events", () => {
+  test("mcpScopeEvents false renders unknown", () => {
+    const report = buildDoctorReport(emptyDiscovery(), { ...allAbsent, mcpScopeEvents: false });
+    expect(report).toContain("mcp scope evts — unknown");
+  });
+
+  test("mcpScopeEvents true renders known", () => {
+    const report = buildDoctorReport(emptyDiscovery(), { ...allAbsent, mcpScopeEvents: true });
+    expect(report).toContain("mcp scope evts — known");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ui.custom capability
+// ---------------------------------------------------------------------------
+
+describe("buildDoctorReport — ui.custom", () => {
+  test("uiCustom false renders unavailable", () => {
+    const report = buildDoctorReport(emptyDiscovery(), { ...allAbsent, uiCustom: false });
+    expect(report).toContain("ui.custom      — unavailable");
+  });
+
+  test("uiCustom true renders available", () => {
+    const report = buildDoctorReport(emptyDiscovery(), { ...allAbsent, uiCustom: true });
+    expect(report).toContain("ui.custom      — available");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// shortcut capability
+// ---------------------------------------------------------------------------
+
+describe("buildDoctorReport — shortcut", () => {
+  test("shortcut false renders unavailable", () => {
+    const report = buildDoctorReport(emptyDiscovery(), { ...allAbsent, shortcut: false });
+    expect(report).toContain("shortcut       — unavailable");
+  });
+
+  test("shortcut true renders available", () => {
+    const report = buildDoctorReport(emptyDiscovery(), { ...allAbsent, shortcut: true });
+    expect(report).toContain("shortcut       — available");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// exec abortable capability
+// ---------------------------------------------------------------------------
+
+describe("buildDoctorReport — exec abortable", () => {
+  test("execAbortable false renders unavailable", () => {
+    const report = buildDoctorReport(emptyDiscovery(), { ...allAbsent, execAbortable: false });
+    expect(report).toContain("exec abortable — unavailable");
+  });
+
+  test("execAbortable true renders yes", () => {
+    const report = buildDoctorReport(emptyDiscovery(), { ...allAbsent, execAbortable: true });
+    expect(report).toContain("exec abortable — yes");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// persistence appendEntry capability
+// ---------------------------------------------------------------------------
+
+describe("buildDoctorReport — persistence appendEntry", () => {
+  test("persistenceAppendEntry false renders unavailable", () => {
+    const report = buildDoctorReport(emptyDiscovery(), { ...allAbsent, persistenceAppendEntry: false });
+    expect(report).toContain("persistence    — unavailable");
+  });
+
+  test("persistenceAppendEntry true renders appendEntry available", () => {
+    const report = buildDoctorReport(emptyDiscovery(), { ...allAbsent, persistenceAppendEntry: true });
+    expect(report).toContain("persistence    — appendEntry available");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Capabilities section — all fields
+// ---------------------------------------------------------------------------
+
+describe("buildDoctorReport — capabilities section", () => {
+  test("all absent renders not-detected / unavailable / unknown", () => {
+    const report = buildDoctorReport(emptyDiscovery(), allAbsent);
+    expect(report).toContain("pi-subagents   — not detected");
+    expect(report).toContain("pi-mcp-adapter — not detected");
+    expect(report).toContain("mcp scope evts — unknown");
+    expect(report).toContain("pi-intercom    — not detected");
+    expect(report).toContain("hil            — unavailable");
+    expect(report).toContain("ui.custom      — unavailable");
+    expect(report).toContain("shortcut       — unavailable");
+    expect(report).toContain("exec abortable — unavailable");
+    expect(report).toContain("persistence    — unavailable");
+  });
+
+  test("all present renders available / known / yes", () => {
+    const report = buildDoctorReport(emptyDiscovery(), allPresent);
+    expect(report).toContain("pi-subagents   — available (callable)");
+    expect(report).toContain("pi-mcp-adapter — available");
+    expect(report).toContain("mcp scope evts — known");
+    expect(report).toContain("pi-intercom    — present");
+    expect(report).toContain("hil            — available");
+    expect(report).toContain("ui.custom      — available");
+    expect(report).toContain("shortcut       — available");
+    expect(report).toContain("exec abortable — yes");
+    expect(report).toContain("persistence    — appendEntry available");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Smoke — report structure
 // ---------------------------------------------------------------------------
 
 describe("buildDoctorReport — structure", () => {
@@ -92,8 +215,8 @@ describe("buildDoctorReport — structure", () => {
     expect(report).toContain("Registry: 0 workflow(s) loaded");
   });
 
-  test("includes Siblings section", () => {
+  test("includes Capabilities section header", () => {
     const report = buildDoctorReport(emptyDiscovery(), allAbsent);
-    expect(report).toContain("Siblings:");
+    expect(report).toContain("Capabilities:");
   });
 });

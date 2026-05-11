@@ -22,16 +22,28 @@ import factory, {
 
 const noSiblings: DoctorSiblingStatus = {
   subagents: false,
+  subagentsCallable: false,
   mcpAdapter: false,
+  mcpScopeEvents: false,
   intercom: false,
   hil: false,
+  uiCustom: false,
+  shortcut: false,
+  execAbortable: false,
+  persistenceAppendEntry: false,
 };
 
 const allSiblings: DoctorSiblingStatus = {
   subagents: true,
+  subagentsCallable: true,
   mcpAdapter: true,
+  mcpScopeEvents: true,
   intercom: true,
   hil: true,
+  uiCustom: true,
+  shortcut: true,
+  execAbortable: true,
+  persistenceAppendEntry: true,
 };
 
 function makeDiscovery(overrides: Partial<DiscoveryResult> = {}): DiscoveryResult {
@@ -222,20 +234,26 @@ describe("buildDoctorReport — siblings", () => {
     const report = buildDoctorReport(makeDiscovery(), allSiblings);
     expect(report).toContain("pi-subagents   — available");
     expect(report).toContain("pi-mcp-adapter — available");
-    expect(report).toContain("pi-intercom    — available");
+    expect(report).toContain("pi-intercom    — present");
   });
 
   test("shows mixed availability correctly", () => {
     const mixed: DoctorSiblingStatus = {
       subagents: true,
+      subagentsCallable: false,
       mcpAdapter: false,
+      mcpScopeEvents: false,
       intercom: true,
       hil: false,
+      uiCustom: false,
+      shortcut: false,
+      execAbortable: false,
+      persistenceAppendEntry: false,
     };
     const report = buildDoctorReport(makeDiscovery(), mixed);
     expect(report).toContain("pi-subagents   — available");
     expect(report).toContain("pi-mcp-adapter — not detected");
-    expect(report).toContain("pi-intercom    — available");
+    expect(report).toContain("pi-intercom    — present");
   });
 });
 
@@ -275,14 +293,14 @@ describe("/workflows-doctor execute — integration", () => {
     expect(combined).toContain("Discovery diagnostics:");
   });
 
-  test("shows 'Siblings:' section", async () => {
+  test("shows 'Capabilities:' section", async () => {
     const api = makeMockApi();
     factory(api);
     const cmd = api.commands.find((c) => c.opts.name === "workflows-doctor")?.opts;
     const messages: string[] = [];
     await cmd!.execute("", { reply: (m) => messages.push(m) });
     const combined = messages.join("\n");
-    expect(combined).toContain("Siblings:");
+    expect(combined).toContain("Capabilities:");
   });
 
   test("pi-subagents shows 'available' when pi.subagents present", async () => {
@@ -303,13 +321,13 @@ describe("/workflows-doctor execute — integration", () => {
     expect(messages.join("\n")).toContain("pi-subagents   — not detected");
   });
 
-  test("pi-intercom shows 'available' when setSessionName present", async () => {
+  test("pi-intercom shows 'present' when setSessionName present", async () => {
     const api = makeMockApi({ setSessionName: () => undefined });
     factory(api);
     const cmd = api.commands.find((c) => c.opts.name === "workflows-doctor")?.opts;
     const messages: string[] = [];
     await cmd!.execute("", { reply: (m) => messages.push(m) });
-    expect(messages.join("\n")).toContain("pi-intercom    — available");
+    expect(messages.join("\n")).toContain("pi-intercom    — present");
   });
 
   test("does NOT say 'Phase B stub'", async () => {
@@ -546,12 +564,12 @@ describe("buildDoctorReport — section ordering", () => {
     expect(tunablesIdx).toBeLessThan(workflowsIdx);
   });
 
-  test("configured workflows appears before siblings", () => {
+  test("configured workflows appears before capabilities", () => {
     const configLoad: ConfigLoadResult = { config: null, diagnostics: [] };
     const report = buildDoctorReport(makeDiscovery(), noSiblings, configLoad);
     const workflowsIdx = report.indexOf("Configured workflows:");
-    const siblingsIdx = report.indexOf("Siblings:");
-    expect(workflowsIdx).toBeLessThan(siblingsIdx);
+    const capabilitiesIdx = report.indexOf("Capabilities:");
+    expect(workflowsIdx).toBeLessThan(capabilitiesIdx);
   });
 });
 

@@ -40,7 +40,7 @@ import { loadWorkflowConfig, toDiscoveryConfig } from "./config-loader.js";
 import type { ConfigLoadResult } from "./config-loader.js";
 import { buildRuntimeAdapters } from "./wiring.js";
 import { buildUIAdapter } from "./wiring.js";
-import type { PiUISurface } from "./wiring.js";
+import type { PiUISurface, PiCustomOverlayOpts, PiCustomOverlayHandle } from "./wiring.js";
 
 // ---------------------------------------------------------------------------
 // Minimal ExtensionAPI structural types
@@ -184,10 +184,10 @@ export interface ExtensionAPI {
     setWidget?: (key: string, factory: WidgetFactory | undefined, opts?: { placement?: string }) => void;
     /**
      * Spawn a custom TUI component (overlay or inline).
-     * Returns a Promise resolving to whatever done(value) is called with.
-     * Overlay mode (overlay: true) floats over existing content.
+     * When overlay: true, the panel floats over existing content.
+     * Returns a handle with close() to dismiss, or undefined when unsupported.
      */
-    custom?: (factory: unknown, opts?: { overlay?: boolean; overlayOptions?: unknown; onHandle?: unknown }) => Promise<unknown>;
+    custom?: (opts: PiCustomOverlayOpts) => PiCustomOverlayHandle | undefined;
   } & PiUISurface;
   [key: string]: unknown;
 }
@@ -197,8 +197,8 @@ export interface ExtensionAPI {
 // ---------------------------------------------------------------------------
 
 export interface WorkflowToolArgs {
-  name: string;
-  inputs: Record<string, unknown>;
+  name?: string;
+  inputs?: Record<string, unknown>;
   action?: "run" | "list" | "status" | "kill" | "resume" | "inputs";
 }
 
@@ -691,8 +691,8 @@ function factory(pi: ExtensionAPI): void {
         subagentsCallable: typeof (pi.subagents as Record<string, unknown> | undefined)?.["run"] === "function",
         // pi-mcp-adapter exposes itself as pi["mcpAdapter"] (structural check)
         mcpAdapter: (pi as Record<string, unknown>)["mcpAdapter"] !== undefined,
-        // mcp scope events present when mcpAdapter has scopeEvents surface
-        mcpScopeEvents: typeof ((pi as Record<string, unknown>)["mcpAdapter"] as Record<string, unknown> | undefined)?.["scopeEvents"] === "object",
+        // mcp scope events: pi.events.emit present (used by setMcpScope to emit mcp.scope.set)
+        mcpScopeEvents: typeof pi.events?.emit === "function",
         // pi-intercom registers setSessionName on the ExtensionAPI when present
         intercom: typeof pi.setSessionName === "function",
         // HIL adapter available when pi.ui is present

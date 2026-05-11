@@ -22,10 +22,22 @@ import type { ConfigLoadResult } from "./config-loader.js";
  */
 export interface DoctorSiblingStatus {
   readonly subagents: boolean;
+  /** True when pi.subagents has a callable run() method. */
+  readonly subagentsCallable: boolean;
   readonly mcpAdapter: boolean;
+  /** True when pi-mcp-adapter emits scope-based events. */
+  readonly mcpScopeEvents: boolean;
   readonly intercom: boolean;
   /** True when pi.ui is present — HIL dialog adapter is available. */
   readonly hil: boolean;
+  /** True when pi.ui.custom is present — custom overlay panel available. */
+  readonly uiCustom: boolean;
+  /** True when pi.registerShortcut is present — F2 and other shortcuts available. */
+  readonly shortcut: boolean;
+  /** True when pi.exec is present — abortable stage execution available. */
+  readonly execAbortable: boolean;
+  /** True when pi.appendEntry is present — persistence transcript available. */
+  readonly persistenceAppendEntry: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -124,12 +136,40 @@ export function buildDoctorReport(
     lines.push("Configured workflows: (none configured)");
   }
 
-  // Sibling availability
-  lines.push("Siblings:");
-  lines.push(`  pi-subagents   — ${siblings.subagents ? "available" : "not detected"}`);
+  // Sibling availability + runtime capabilities
+  lines.push("Capabilities:");
+
+  // pi-subagents: available (callable) / available / not detected
+  const subagentsValue = !siblings.subagents
+    ? "not detected"
+    : siblings.subagentsCallable
+      ? "available (callable)"
+      : "available";
+  lines.push(`  pi-subagents   — ${subagentsValue}`);
+
+  // pi-mcp-adapter: available / not detected
   lines.push(`  pi-mcp-adapter — ${siblings.mcpAdapter ? "available" : "not detected"}`);
-  lines.push(`  pi-intercom    — ${siblings.intercom ? "available" : "not detected"}`);
+
+  // mcp scope events: known / unknown
+  lines.push(`  mcp scope evts — ${siblings.mcpScopeEvents ? "known" : "unknown"}`);
+
+  // pi-intercom: present / not detected
+  lines.push(`  pi-intercom    — ${siblings.intercom ? "present" : "not detected"}`);
+
+  // hil (pi.ui dialogs): available / unavailable
   lines.push(`  hil            — ${siblings.hil ? "available" : "unavailable"}`);
+
+  // ui.custom (custom overlay UI): available / unavailable
+  lines.push(`  ui.custom      — ${siblings.uiCustom ? "available" : "unavailable"}`);
+
+  // shortcut registration: available / unavailable
+  lines.push(`  shortcut       — ${siblings.shortcut ? "available" : "unavailable"}`);
+
+  // abortable exec: yes / unavailable
+  lines.push(`  exec abortable — ${siblings.execAbortable ? "yes" : "unavailable"}`);
+
+  // persistence appendEntry: appendEntry available / unavailable
+  lines.push(`  persistence    — ${siblings.persistenceAppendEntry ? "appendEntry available" : "unavailable"}`);
 
   return lines.join("\n");
 }

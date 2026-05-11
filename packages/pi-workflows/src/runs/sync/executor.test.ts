@@ -460,3 +460,222 @@ describe("executor.run — HIL adapter injection", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Lifecycle persistence — appendEntry ordering
+// ---------------------------------------------------------------------------
+
+describe("executor.run — lifecycle persistence", () => {
+  function makePersistence() {
+    const calls: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    const persistence = {
+      appendEntry(type: string, payload: Record<string, unknown>): string {
+        calls.push({ type, payload });
+        return `entry-${calls.length}`;
+      },
+      setLabel(_entryId: string, _label: string): void {},
+    };
+    return { persistence, calls };
+  }
+
+  test("appends ordered run.start → stage.start → stage.end → run.end on success", async () => {
+    const { persistence, calls } = makePersistence();
+
+    const def = defineWorkflow("persist-wf")
+      .run(async (ctx) => {
+        await ctx.stage("s1").prompt("go");
+        return { ok: true };
+      })
+      .compile();
+
+    const wfResult = await run(def, {}, {
+      adapters: { prompt: { prompt: async () => "done" } },
+      store: createStore(),
+      persistence,
+    });
+
+    expect(wfResult.status).toBe("completed");
+
+    const types = calls.map((c) => c.type);
+    expect(types).toEqual([
+      "workflow.run.start",
+      "workflow.stage.start",
+      "workflow.stage.end",
+      "workflow.run.end",
+    ]);
+  });
+
+  test("run.start payload contains runId, name, inputs, ts", async () => {
+    const { persistence, calls } = makePersistence();
+
+    const def = defineWorkflow("payload-wf")
+      .run(async (_ctx) => ({}))
+      .compile();
+
+    const wfResult = await run(def, { x: 1 }, {
+      store: createStore(),
+      persistence,
+    });
+
+    const runStart = calls.find((c) => c.type === "workflow.run.start");
+    expect(runStart).toBeDefined();
+    expect(runStart?.payload["runId"]).toBe(wfResult.runId);
+    expect(runStart?.payload["name"]).toBe("payload-wf");
+    expect(runStart?.payload["inputs"]).toMatchObject({ x: 1 });
+    expect(typeof runStart?.payload["ts"]).toBe("number");
+  });
+
+  test("stage.start payload contains runId, stageId, name, parentIds", async () => {
+    const { persistence, calls } = makePersistence();
+
+    const def = defineWorkflow("stage-payload-wf")
+      .run(async (ctx) => {
+        await ctx.stage("my-stage").prompt("x");
+        return {};
+      })
+      .compile();
+
+    const wfResult = await run(def, {}, {
+      adapters: { prompt: { prompt: async () => "r" } },
+      store: createStore(),
+      persistence,
+    });
+
+    const stageStart = calls.find((c) => c.type === "workflow.stage.start");
+    expect(stageStart).toBeDefined();
+    expect(stageStart?.payload["runId"]).toBe(wfResult.runId);
+    expect(stageStart?.payload["name"]).toBe("my-stage");
+    expect(Array.isArray(stageStart?.payload["parentIds"])).toBe(true);
+  });
+
+  test("stage.end payload contains status completed on success", async () => {
+    const { persistence, calls } = makePersistence();
+
+    const def = defineWorkflow("stage-end-wf")
+      .run(async (ctx) => {
+        await ctx.stage("s").prompt("x");
+        return {};
+      })
+      .compile();
+
+    await run(def, {}, {
+      adapters: { prompt: { prompt: async () => "r" } },
+      store: createStore(),
+      persistence,
+    });
+
+    const stageEnd = calls.find((c) => c.type === "workflow.stage.end");
+    expect(stageEnd?.payload["status"]).toBe("completed");
+  });
+
+  test("run.end payload contains status completed on success", async () => {
+    const { persistence, calls } = makePersistence();
+
+    const def = defineWorkflow("run-end-wf")
+      .run(async (_ctx) => ({ x: 1 }))
+      .compile();
+
+    await run(def, {}, { store: createStore(), persistence });
+
+    const runEnd = calls.find((c) => c.type === "workflow.run.end");
+    expect(runEnd?.payload["status"]).toBe("completed");
+    expect(typeof runEnd?.payload["ts"]).toBe("number");
+  });
+
+  test("failed stage: stage.end status=failed, run.end status=failed", async () => {
+    const { persistence, calls } = makePersistence();
+
+    const def = defineWorkflow("fail-persist-wf")
+      .run(async (ctx) => {
+        await ctx.stage("bad").prompt("x");
+        return {};
+      })
+      .compile();
+
+    const wfResult = await run(def, {}, {
+      adapters: { prompt: { prompt: async () => { throw new Error("boom"); } } },
+      store: createStore(),
+      persistence,
+    });
+
+    expect(wfResult.status).toBe("failed");
+
+    const stageEnd = calls.find((c) => c.type === "workflow.stage.end");
+    expect(stageEnd?.payload["status"]).toBe("failed");
+
+    const runEnd = calls.find((c) => c.type === "workflow.run.end");
+    expect(runEnd?.payload["status"]).toBe("failed");
+  });
+
+  test("no appendEntry calls when persistence not provided", async () => {
+    // Ensure no crash and no global side effects
+    const def = defineWorkflow("no-persist-wf")
+      .run(async (ctx) => {
+        await ctx.stage("s").prompt("x");
+        return {};
+      })
+      .compile();
+
+    const wfResult = await run(def, {}, {
+      adapters: { prompt: { prompt: async () => "r" } },
+      store: createStore(),
+      // no persistence
+    });
+
+    expect(wfResult.status).toBe("completed");
+  });
+
+  test("run.end not appended when recordRunEnd returns false (terminal guard)", async () => {
+    const { persistence, calls } = makePersistence();
+
+    // Custom store that returns false for recordRunEnd
+    const baseStore = createStore();
+    const guardedStore = {
+      ...baseStore,
+      recordRunEnd(): boolean {
+        // Simulate already-terminal: call real store but return false
+        return false;
+      },
+    };
+
+    const def = defineWorkflow("guard-wf")
+      .run(async (_ctx) => ({}))
+      .compile();
+
+    await run(def, {}, {
+      store: guardedStore as import("../../store.js").Store,
+      persistence,
+    });
+
+    const runEndCalls = calls.filter((c) => c.type === "workflow.run.end");
+    expect(runEndCalls).toHaveLength(0);
+  });
+
+  test("multi-stage: correct order run.start, stage.start×2, stage.end×2, run.end", async () => {
+    const { persistence, calls } = makePersistence();
+
+    const def = defineWorkflow("multi-persist-wf")
+      .run(async (ctx) => {
+        await ctx.stage("s1").prompt("a");
+        await ctx.stage("s2").prompt("b");
+        return {};
+      })
+      .compile();
+
+    await run(def, {}, {
+      adapters: { prompt: { prompt: async (t) => t } },
+      store: createStore(),
+      persistence,
+    });
+
+    const types = calls.map((c) => c.type);
+    expect(types).toEqual([
+      "workflow.run.start",
+      "workflow.stage.start",
+      "workflow.stage.end",
+      "workflow.stage.start",
+      "workflow.stage.end",
+      "workflow.run.end",
+    ]);
+  });
+});
+

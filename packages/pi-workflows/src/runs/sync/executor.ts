@@ -1,0 +1,223 @@
+/**
+ * Main DAG executor: run(def, inputs, opts) → RunResult
+ */
+
+import type { WorkflowDefinition, WorkflowRunContext, WorkflowUIContext } from "../../shared/types.js";
+import type { StageAdapters } from "./stage-runner.js";
+import type { RunStatus, StageSnapshot, RunSnapshot } from "../../store-types.js";
+import type { Store } from "../../store.js";
+import { createStageContext } from "./stage-runner.js";
+import { GraphFrontierTracker } from "../shared/graph-inference.js";
+import { store as defaultStore } from "../../store.js";
+
+export interface ResolvedInputs extends Record<string, unknown> {}
+
+export interface RunOpts {
+  adapters?: StageAdapters;
+  onRunStart?: (snapshot: RunSnapshot) => void;
+  onStageStart?: (runId: string, snapshot: StageSnapshot) => void;
+  onStageEnd?: (runId: string, snapshot: StageSnapshot) => void;
+  onRunEnd?: (runId: string, status: RunStatus, result?: Record<string, unknown>, error?: string) => void;
+  /** Store override (for testing; defaults to singleton store) */
+  store?: Store;
+}
+
+export interface RunResult {
+  readonly runId: string;
+  readonly status: RunStatus;
+  readonly result?: Record<string, unknown>;
+  readonly error?: string;
+  readonly stages: StageSnapshot[];
+}
+
+// ---------------------------------------------------------------------------
+// Input resolution / validation
+// ---------------------------------------------------------------------------
+
+import type { WorkflowInputSchema } from "../../shared/types.js";
+
+export function resolveInputs(
+  schema: Readonly<Record<string, WorkflowInputSchema>>,
+  provided: Record<string, unknown>,
+): ResolvedInputs {
+  const resolved: Record<string, unknown> = { ...provided };
+
+  // Apply defaults for missing keys
+  for (const [key, schemaDef] of Object.entries(schema)) {
+    if (resolved[key] === undefined && "default" in schemaDef && schemaDef.default !== undefined) {
+      resolved[key] = schemaDef.default;
+    }
+  }
+
+  // Validate required fields
+  for (const [key, schemaDef] of Object.entries(schema)) {
+    if (schemaDef.required === true && resolved[key] === undefined) {
+      throw new TypeError(`pi-workflows: required input "${key}" not provided`);
+    }
+  }
+
+  return resolved;
+}
+
+// ---------------------------------------------------------------------------
+// HIL stub — throws a clear error in the sync executor
+// ---------------------------------------------------------------------------
+
+function makeUIContext(): WorkflowUIContext {
+  const msg =
+    "pi-workflows: HIL (ctx.ui.*) not available in sync executor — wire pi dialog adapters";
+  return {
+    input: () => Promise.reject(new Error(msg)),
+    confirm: () => Promise.reject(new Error(msg)),
+    select: () => Promise.reject(new Error(msg)),
+    editor: () => Promise.reject(new Error(msg)),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Main executor
+// ---------------------------------------------------------------------------
+
+export async function run(
+  def: WorkflowDefinition,
+  inputs: Record<string, unknown>,
+  opts: RunOpts = {},
+): Promise<RunResult> {
+  const activeStore = opts.store ?? defaultStore;
+  const adapters = opts.adapters ?? {};
+
+  // 1. Resolve + validate inputs
+  const resolvedInputs = resolveInputs(def.inputs, inputs);
+
+  // 2. Generate runId
+  const runId = crypto.randomUUID();
+
+  // 3. Create RunSnapshot + register
+  const runSnapshot: RunSnapshot = {
+    id: runId,
+    name: def.name,
+    inputs: Object.freeze(resolvedInputs),
+    status: "running",
+    stages: [],
+    startedAt: Date.now(),
+  };
+
+  activeStore.recordRunStart(runSnapshot);
+  opts.onRunStart?.(runSnapshot);
+
+  // 4. Create GraphFrontierTracker
+  const tracker = new GraphFrontierTracker();
+
+  // 5. Build WorkflowRunContext
+  const ctx: WorkflowRunContext = {
+    inputs: resolvedInputs,
+    ui: makeUIContext(),
+
+    stage(name: string) {
+      // a. Generate stageId
+      const stageId = crypto.randomUUID();
+
+      // b. tracker.onSpawn → parentIds
+      const parentIds = tracker.onSpawn(stageId, name);
+
+      // c. Create StageSnapshot as "pending"
+      const stageSnapshot: StageSnapshot = {
+        id: stageId,
+        name,
+        status: "pending",
+        parentIds: Object.freeze(parentIds),
+        toolEvents: [],
+      };
+
+      // d. Record stage start in store (as pending), call onStageStart
+      activeStore.recordStageStart(runId, stageSnapshot);
+      opts.onStageStart?.(runId, stageSnapshot);
+
+      // e. Create inner StageContext (raw, without wrapping)
+      const innerCtx = createStageContext({ stageId, stageName: name, adapters });
+
+      // f. Wrap each method to record lifecycle
+      const wrapMethod = <TArgs extends unknown[]>(
+        method: (...args: TArgs) => Promise<string>,
+      ): ((...args: TArgs) => Promise<string>) => {
+        return async (...args: TArgs): Promise<string> => {
+          // Update status to "running"
+          stageSnapshot.status = "running";
+          stageSnapshot.startedAt = Date.now();
+          activeStore.recordStageStart(runId, stageSnapshot);
+
+          try {
+            const result = await method(...args);
+
+            // Completed
+            stageSnapshot.status = "completed";
+            stageSnapshot.result = result;
+            stageSnapshot.endedAt = Date.now();
+            stageSnapshot.durationMs =
+              stageSnapshot.startedAt !== undefined
+                ? stageSnapshot.endedAt - stageSnapshot.startedAt
+                : undefined;
+
+            activeStore.recordStageEnd(runId, stageSnapshot);
+            opts.onStageEnd?.(runId, stageSnapshot);
+            tracker.onSettle(stageId);
+
+            return result;
+          } catch (err) {
+            // Failed
+            stageSnapshot.status = "failed";
+            stageSnapshot.error = err instanceof Error ? err.message : String(err);
+            stageSnapshot.endedAt = Date.now();
+            stageSnapshot.durationMs =
+              stageSnapshot.startedAt !== undefined
+                ? stageSnapshot.endedAt - stageSnapshot.startedAt
+                : undefined;
+
+            activeStore.recordStageEnd(runId, stageSnapshot);
+            opts.onStageEnd?.(runId, stageSnapshot);
+            tracker.onSettle(stageId);
+
+            throw err;
+          }
+        };
+      };
+
+      return {
+        name,
+        prompt: wrapMethod(innerCtx.prompt.bind(innerCtx)),
+        complete: wrapMethod(innerCtx.complete.bind(innerCtx)),
+        subagent: wrapMethod(innerCtx.subagent.bind(innerCtx)),
+      };
+    },
+  };
+
+  // 6. Call def.run(ctx)
+  try {
+    const result = await def.run(ctx);
+
+    // 7. recordRunEnd "completed"
+    activeStore.recordRunEnd(runId, "completed", result);
+    opts.onRunEnd?.(runId, "completed", result);
+
+    // 8. Return RunResult
+    return {
+      runId,
+      status: "completed",
+      result,
+      stages: [...runSnapshot.stages],
+    };
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+
+    // 9. recordRunEnd "failed"
+    activeStore.recordRunEnd(runId, "failed");
+    opts.onRunEnd?.(runId, "failed", undefined, errorMessage);
+
+    return {
+      runId,
+      status: "failed",
+      error: errorMessage,
+      stages: [...runSnapshot.stages],
+    };
+  }
+}

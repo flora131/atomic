@@ -435,6 +435,57 @@ describe("stripDetachFlags", () => {
 });
 
 // ---------------------------------------------------------------------------
+// RFC §2 — /workflow ralph --bg prompt=test dispatches detached with
+//           parsed input { prompt: "test" }
+//
+// Verifies that stripDetachFlags + parseWorkflowArgs compose correctly so
+// that --bg is stripped before input parsing and prompt=test is extracted.
+// ---------------------------------------------------------------------------
+
+describe("--bg prompt=test → detach:true, parsed input { prompt: 'test' }", () => {
+  test("ralph --bg prompt=test: detach true, inputs { prompt: 'test' }", () => {
+    // Simulate how the /workflow execute handler processes "ralph --bg prompt=test"
+    const rawTokens = ["ralph", "--bg", "prompt=test"];
+    const { detach, tokens } = stripDetachFlags(rawTokens);
+    expect(detach).toBe(true);
+    // First token is workflow name; rest are inputs
+    const [_name, ...inputTokens] = tokens;
+    expect(_name).toBe("ralph");
+    const inputs = parseWorkflowArgs(inputTokens);
+    expect(inputs).toEqual({ prompt: "test" });
+  });
+
+  test("ralph --bg prompt=hello world: detach true, inputs { prompt: 'hello world' }", () => {
+    const rawTokens = ["ralph", "--bg", "prompt=hello world"];
+    const { detach, tokens } = stripDetachFlags(rawTokens);
+    expect(detach).toBe(true);
+    const [_name, ...inputTokens] = tokens;
+    const inputs = parseWorkflowArgs(inputTokens);
+    expect(inputs).toEqual({ prompt: "hello world" });
+  });
+
+  test("--bg ralph prompt=test (flag first): detach true, name ralph, inputs { prompt: 'test' }", () => {
+    const rawTokens = ["--bg", "ralph", "prompt=test"];
+    const { detach, tokens } = stripDetachFlags(rawTokens);
+    expect(detach).toBe(true);
+    const [name, ...inputTokens] = tokens;
+    expect(name).toBe("ralph");
+    const inputs = parseWorkflowArgs(inputTokens);
+    expect(inputs).toEqual({ prompt: "test" });
+  });
+
+  test("--bg does NOT appear in parsed inputs", () => {
+    const rawTokens = ["ralph", "--bg", "prompt=test", "count=3"];
+    const { tokens } = stripDetachFlags(rawTokens);
+    const [_name, ...inputTokens] = tokens;
+    // --bg must not leak into inputTokens
+    expect(inputTokens.includes("--bg")).toBe(false);
+    const inputs = parseWorkflowArgs(inputTokens);
+    expect(inputs).toEqual({ prompt: "test", count: 3 });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // /workflow <name> --detach slash dispatch (factory path)
 // ---------------------------------------------------------------------------
 

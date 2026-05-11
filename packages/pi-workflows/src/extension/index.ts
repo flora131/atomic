@@ -31,6 +31,7 @@ import type { DoctorSiblingStatus } from "./doctor.js";
 import { registerWorkflowCliFlags, runWorkflowFromCliFlags } from "../cli-flags.js";
 import { loadWorkflowConfig, toDiscoveryConfig } from "./config-loader.js";
 import type { ConfigLoadResult } from "./config-loader.js";
+import { buildRuntimeAdapters } from "./wiring.js";
 
 // ---------------------------------------------------------------------------
 // Minimal ExtensionAPI structural types
@@ -135,6 +136,17 @@ export interface ExtensionAPI {
   };
   /** Opaque pi-subagents surface — presence indicates pi-subagents is installed. */
   subagents?: unknown;
+  /**
+   * Execute a shell command and return stdout/stderr/exit code.
+   * Present on the real pi ExtensionAPI (pi >= 1.x).
+   * Used by buildRuntimeAdapters to spawn `pi --mode json` for stage execution.
+   */
+  exec?: (command: string, args: string[]) => Promise<{
+    stdout: string;
+    stderr: string;
+    code: number;
+    killed: boolean;
+  }>;
   // -------------------------------------------------------------------------
   // Persistence API (§5.6)
   // -------------------------------------------------------------------------
@@ -374,7 +386,14 @@ export function parseWorkflowArgs(tokens: string[]): Record<string, unknown> {
 
 function factory(pi: ExtensionAPI): void {
   // -------------------------------------------------------------------------
-  // 0. Create ExtensionRuntime — mutable ref seeded from sync bundled discovery,
+  // 0. Build StageAdapters from pi runtime surfaces.
+  //    adapters are passed into every createExtensionRuntime() call so that
+  //    stage.prompt() / stage.complete() / stage.subagent() work outside tests.
+  // -------------------------------------------------------------------------
+  const adapters = buildRuntimeAdapters(pi);
+
+  // -------------------------------------------------------------------------
+  // 1. Create ExtensionRuntime — mutable ref seeded from sync bundled discovery,
   //    upgraded to unified async discovery once discoverWorkflows() resolves.
   //
   //    runtimeProxy delegates all calls to runtimeRef.current so every
@@ -382,7 +401,7 @@ function factory(pi: ExtensionAPI): void {
   //    needing to be re-registered.
   // -------------------------------------------------------------------------
   const runtimeRef: { current: ExtensionRuntime } = {
-    current: createExtensionRuntime({ registry: discoverBundledWorkflowsSync().registry }),
+    current: createExtensionRuntime({ registry: discoverBundledWorkflowsSync().registry, adapters }),
   };
   /** Stores the full unified DiscoveryResult once async discovery completes. */
   const discoveryRef: { result: DiscoveryResult | null } = { result: null };
@@ -417,7 +436,7 @@ function factory(pi: ExtensionAPI): void {
 
     const result = await discoverWorkflows({ config: discoveryConfig });
     discoveryRef.result = result;
-    runtimeRef.current = createExtensionRuntime({ registry: result.registry });
+    runtimeRef.current = createExtensionRuntime({ registry: result.registry, adapters });
 
     // Register /workflow:<name> aliases for workflows discovered beyond the
     // initial bundled set (project-local, user-global, settings).

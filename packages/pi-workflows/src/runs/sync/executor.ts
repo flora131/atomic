@@ -19,6 +19,7 @@ import type { Store } from "../../store.js";
 import type { CancellationRegistry } from "../detach/cancellation-registry.js";
 import { createStageContext } from "./stage-runner.js";
 import { GraphFrontierTracker } from "../shared/graph-inference.js";
+import { createRunLimiter } from "../shared/concurrency.js";
 import { store as defaultStore } from "../../store.js";
 import {
   appendRunStart,
@@ -51,6 +52,13 @@ export interface RunOpts {
    * status writer) consume this; values are threaded here but not yet acted on.
    */
   config?: WorkflowRuntimeConfig;
+  /**
+   * Current nesting depth of this workflow run. Starts at 0 for top-level runs.
+   * Callers that spawn nested runs must increment this by 1 before passing to
+   * run()/runDetached() so the maxDepth guard can reject runs that exceed the
+   * configured limit.
+   */
+  depth?: number;
   /**
    * Pre-allocated runId. When provided, the executor uses this ID instead of
    * generating a new UUID. The detached runner uses this seam to preallocate
@@ -183,6 +191,18 @@ export async function run(
   const activeStore = opts.store ?? defaultStore;
   const adapters = opts.adapters ?? {};
 
+  // 0. maxDepth guard — reject before any store/persistence side effects.
+  const depth = opts.depth ?? 0;
+  if (opts.config !== undefined && depth >= opts.config.maxDepth) {
+    const max = opts.config.maxDepth;
+    return {
+      runId: opts.runId ?? crypto.randomUUID(),
+      status: "failed",
+      error: `pi-workflows: maxDepth exceeded (max ${max})`,
+      stages: [],
+    };
+  }
+
   // 1. Resolve + validate inputs
   const resolvedInputs = resolveInputs(def.inputs, inputs);
 
@@ -224,8 +244,9 @@ export async function run(
     });
   }
 
-  // 4. Create GraphFrontierTracker
+  // 4. Create GraphFrontierTracker and per-run ConcurrencyLimiter
   const tracker = new GraphFrontierTracker();
+  const limiter = createRunLimiter(opts.config?.defaultConcurrency);
 
   // 5. Build WorkflowRunContext
   const ctx: WorkflowRunContext = {
@@ -263,6 +284,9 @@ export async function run(
         method: (...args: TArgs) => Promise<string>,
       ): ((...args: TArgs) => Promise<string>) => {
         return async (...args: TArgs): Promise<string> => {
+          // Block here until a concurrency slot is available for this run.
+          await limiter.acquire();
+
           stageSnapshot.status = "running";
           stageSnapshot.startedAt = Date.now();
           activeStore.recordStageStart(runId, stageSnapshot);
@@ -320,6 +344,7 @@ export async function run(
             }
 
             tracker.onSettle(stageId);
+            limiter.release();
           }
         };
       };

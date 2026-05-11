@@ -679,6 +679,8 @@ function factory(pi: ExtensionAPI): void {
         mcpAdapter: (pi as Record<string, unknown>)["mcpAdapter"] !== undefined,
         // pi-intercom registers setSessionName on the ExtensionAPI when present
         intercom: typeof pi.setSessionName === "function",
+        // HIL adapter available when pi.ui is present
+        hil: pi.ui !== undefined,
       };
       print(buildDoctorReport(discovery, siblings, configLoadRef.current));
     },

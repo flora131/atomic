@@ -24,6 +24,8 @@ export interface DoctorSiblingStatus {
   readonly subagents: boolean;
   readonly mcpAdapter: boolean;
   readonly intercom: boolean;
+  /** True when pi.ui is present — HIL dialog adapter is available. */
+  readonly hil: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -127,6 +129,7 @@ export function buildDoctorReport(
   lines.push(`  pi-subagents   — ${siblings.subagents ? "available" : "not detected"}`);
   lines.push(`  pi-mcp-adapter — ${siblings.mcpAdapter ? "available" : "not detected"}`);
   lines.push(`  pi-intercom    — ${siblings.intercom ? "available" : "not detected"}`);
+  lines.push(`  hil            — ${siblings.hil ? "available" : "unavailable"}`);
 
   return lines.join("\n");
 }

@@ -75,6 +75,7 @@ const noSiblings: DoctorSiblingStatus = {
   subagents: false,
   mcpAdapter: false,
   intercom: false,
+  hil: false,
 };
 
 beforeAll(async () => {

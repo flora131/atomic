@@ -24,12 +24,14 @@ const noSiblings: DoctorSiblingStatus = {
   subagents: false,
   mcpAdapter: false,
   intercom: false,
+  hil: false,
 };
 
 const allSiblings: DoctorSiblingStatus = {
   subagents: true,
   mcpAdapter: true,
   intercom: true,
+  hil: true,
 };
 
 function makeDiscovery(overrides: Partial<DiscoveryResult> = {}): DiscoveryResult {
@@ -228,6 +230,7 @@ describe("buildDoctorReport — siblings", () => {
       subagents: true,
       mcpAdapter: false,
       intercom: true,
+      hil: false,
     };
     const report = buildDoctorReport(makeDiscovery(), mixed);
     expect(report).toContain("pi-subagents   — available");

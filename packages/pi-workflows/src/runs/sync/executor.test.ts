@@ -813,4 +813,82 @@ describe("executor.run — abort/kill wiring", () => {
     expect(result.status).toBe("killed");
     expect(testStore.snapshot().runs[0]?.status).toBe("killed");
   });
+
+  // ---------------------------------------------------------------------------
+  // Regression: post-stage abort race
+  // Abort fires AFTER final stage settles but BEFORE workflow body returns.
+  // The post-body abort check (executor.ts line ~329) must intercept and
+  // finalize as "killed" — never "completed".
+  // ---------------------------------------------------------------------------
+  test("abort after final stage settles but before body returns → killed", async () => {
+    const testStore = createStore();
+    const controller = new AbortController();
+
+    // Gate that holds the workflow body suspended after the stage resolves.
+    // Gives us a deterministic window to fire the abort signal.
+    let releaseWorkflow!: () => void;
+    const holdWorkflow = new Promise<void>((resolve) => {
+      releaseWorkflow = resolve;
+    });
+
+    const def = defineWorkflow("post-stage-abort-race-wf")
+      .run(async (ctx) => {
+        await ctx.stage("final").prompt("go");
+        // Stage has settled here. Suspend so the test can abort before we return.
+        await holdWorkflow;
+        return {};
+      })
+      .compile();
+
+    const onRunEndCalls: Array<{ status: string }> = [];
+    const persistenceCalls: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    const persistence = {
+      appendEntry(type: string, payload: Record<string, unknown>): string {
+        persistenceCalls.push({ type, payload });
+        return `entry-${persistenceCalls.length}`;
+      },
+    };
+
+    const runPromise = run(def, {}, {
+      // Adapter resolves immediately so the stage settles without delay.
+      adapters: { prompt: { prompt: async (_text: string) => "ok" } },
+      store: testStore,
+      signal: controller.signal,
+      persistence,
+      onRunEnd: (_runId, status) => { onRunEndCalls.push({ status }); },
+    });
+
+    // Wait for stage to complete and workflow body to reach holdWorkflow.
+    await new Promise<void>((resolve) => setTimeout(resolve, 20));
+
+    // Abort fires AFTER stage settled, BEFORE workflow body returns.
+    controller.abort();
+
+    // Release the workflow body so def.run(ctx) can try to return {}.
+    releaseWorkflow();
+
+    const result = await runPromise;
+
+    // Run result must be "killed"
+    expect(result.status).toBe("killed");
+    expect(result.error).toBe("workflow killed");
+
+    // Store must reflect "killed"
+    expect(testStore.snapshot().runs[0]?.status).toBe("killed");
+
+    // onRunEnd must see "killed"
+    expect(onRunEndCalls).toHaveLength(1);
+    expect(onRunEndCalls[0]?.status).toBe("killed");
+
+    // Persistence must have exactly one workflow.run.end entry and it must be "killed".
+    // No "completed" entry should exist.
+    const runEndEntries = persistenceCalls.filter((c) => c.type === "workflow.run.end");
+    expect(runEndEntries).toHaveLength(1);
+    expect(runEndEntries[0]?.payload["status"]).toBe("killed");
+
+    const completedEntries = persistenceCalls.filter(
+      (c) => c.type === "workflow.run.end" && c.payload["status"] === "completed",
+    );
+    expect(completedEntries).toHaveLength(0);
+  });
 });

@@ -24,6 +24,7 @@
   },
   "scripts": {
     "build": "bun run scripts/build.ts",
+    "verify-artifact": "bun run scripts/verify-artifact.ts",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "bun test"

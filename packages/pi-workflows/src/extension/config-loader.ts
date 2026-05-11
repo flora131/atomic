@@ -20,6 +20,7 @@
 
 import { join } from "node:path";
 import { homedir } from "node:os";
+import type { DiscoveryConfig } from "./discovery.js";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -233,30 +234,53 @@ function mergeConfigs(
   base: WorkflowExtensionConfig,
   override: WorkflowExtensionConfig,
 ): WorkflowExtensionConfig {
-  const mergedWorkflows: Record<string, WorkflowConfigEntry> | undefined =
+  const workflows =
     base.workflows || override.workflows
       ? { ...(base.workflows ?? {}), ...(override.workflows ?? {}) }
       : undefined;
 
   return {
-    ...(base.maxDepth !== undefined ? { maxDepth: base.maxDepth } : {}),
-    ...(base.defaultConcurrency !== undefined ? { defaultConcurrency: base.defaultConcurrency } : {}),
-    ...(base.persistRuns !== undefined ? { persistRuns: base.persistRuns } : {}),
-    ...(base.statusFile !== undefined ? { statusFile: base.statusFile } : {}),
-    ...(base.resumeInFlight !== undefined ? { resumeInFlight: base.resumeInFlight } : {}),
-    // Override wins on scalar fields
-    ...(override.maxDepth !== undefined ? { maxDepth: override.maxDepth } : {}),
-    ...(override.defaultConcurrency !== undefined ? { defaultConcurrency: override.defaultConcurrency } : {}),
-    ...(override.persistRuns !== undefined ? { persistRuns: override.persistRuns } : {}),
-    ...(override.statusFile !== undefined ? { statusFile: override.statusFile } : {}),
-    ...(override.resumeInFlight !== undefined ? { resumeInFlight: override.resumeInFlight } : {}),
-    ...(mergedWorkflows !== undefined ? { workflows: mergedWorkflows } : {}),
+    ...(base.maxDepth !== undefined || override.maxDepth !== undefined
+      ? { maxDepth: override.maxDepth ?? base.maxDepth }
+      : {}),
+    ...(base.defaultConcurrency !== undefined || override.defaultConcurrency !== undefined
+      ? { defaultConcurrency: override.defaultConcurrency ?? base.defaultConcurrency }
+      : {}),
+    ...(base.persistRuns !== undefined || override.persistRuns !== undefined
+      ? { persistRuns: override.persistRuns ?? base.persistRuns }
+      : {}),
+    ...(base.statusFile !== undefined || override.statusFile !== undefined
+      ? { statusFile: override.statusFile ?? base.statusFile }
+      : {}),
+    ...(base.resumeInFlight !== undefined || override.resumeInFlight !== undefined
+      ? { resumeInFlight: override.resumeInFlight ?? base.resumeInFlight }
+      : {}),
+    ...(workflows !== undefined ? { workflows } : {}),
   };
 }
 
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
+
+/**
+ * Map a WorkflowExtensionConfig into a DiscoveryConfig for use with discoverWorkflows().
+ *
+ * All config.workflows entries are treated as project-scoped (settings-project)
+ * since the merged config loses per-entry scope provenance.
+ *
+ * Returns an empty object when config.workflows is absent or empty.
+ */
+export function toDiscoveryConfig(config: WorkflowExtensionConfig): DiscoveryConfig {
+  const workflows = config.workflows;
+  if (workflows === undefined || Object.keys(workflows).length === 0) {
+    return {};
+  }
+  const projectWorkflows = Object.fromEntries(
+    Object.entries(workflows).map(([name, entry]) => [name, entry.path]),
+  );
+  return { projectWorkflows };
+}
 
 /**
  * Load and merge workflow extension config from all candidate locations.
@@ -303,14 +327,11 @@ export async function loadWorkflowConfig(
   // Load first existing project-local config
   let projectConfig: WorkflowExtensionConfig | null = null;
   for (const candidatePath of projectCandidates) {
-    const file = Bun.file(candidatePath);
-    const exists = await file.exists();
-    if (!exists) continue;
-
     const outcome = await loadConfigFile(candidatePath);
+    if (outcome.kind === "missing") continue;
     if (outcome.kind === "error") {
       diagnostics.push(outcome.diagnostic);
-    } else if (outcome.kind === "ok") {
+    } else {
       projectConfig = outcome.parsed;
     }
     break; // Only first existing candidate

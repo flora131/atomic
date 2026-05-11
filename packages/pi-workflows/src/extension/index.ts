@@ -29,7 +29,7 @@ import type { DiscoveryResult } from "./discovery.js";
 import { buildDoctorReport } from "./doctor.js";
 import type { DoctorSiblingStatus } from "./doctor.js";
 import { registerWorkflowCliFlags, runWorkflowFromCliFlags } from "../cli-flags.js";
-import { loadWorkflowConfig } from "./config-loader.js";
+import { loadWorkflowConfig, toDiscoveryConfig } from "./config-loader.js";
 import type { ConfigLoadResult } from "./config-loader.js";
 
 // ---------------------------------------------------------------------------
@@ -412,15 +412,8 @@ function factory(pi: ExtensionAPI): void {
 
     // Map config.workflows entries → DiscoveryConfig.projectWorkflows for
     // settings-based discovery (merged config — project wins over global).
-    const workflowsMap = configResult.config?.workflows;
     const discoveryConfig =
-      workflowsMap !== undefined && Object.keys(workflowsMap).length > 0
-        ? {
-            projectWorkflows: Object.fromEntries(
-              Object.entries(workflowsMap).map(([name, entry]) => [name, entry.path]),
-            ),
-          }
-        : undefined;
+      configResult.config !== null ? toDiscoveryConfig(configResult.config) : undefined;
 
     const result = await discoverWorkflows({ config: discoveryConfig });
     discoveryRef.result = result;
@@ -659,7 +652,7 @@ function factory(pi: ExtensionAPI): void {
         // pi-intercom registers setSessionName on the ExtensionAPI when present
         intercom: typeof pi.setSessionName === "function",
       };
-      print(buildDoctorReport(discovery, siblings));
+      print(buildDoctorReport(discovery, siblings, configLoadRef.result));
     },
   });
 

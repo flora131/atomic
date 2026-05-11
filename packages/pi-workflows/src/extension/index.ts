@@ -211,8 +211,13 @@ export interface WorkflowToolArgs {
 // ---------------------------------------------------------------------------
 
 const workflowParameters = Type.Object({
-  name: Type.String({ description: "Workflow ID (use {action:'list'} to enumerate)" }),
-  inputs: Type.Record(Type.String(), Type.Unknown(), { default: {} }),
+  name: Type.Optional(Type.String({ description: "Workflow ID (use {action:'list'} to enumerate)" })),
+  inputs: Type.Optional(
+    Type.Record(Type.String(), Type.Unknown(), {
+      default: {},
+      description: "Key/value inputs passed to the workflow run",
+    }),
+  ),
   action: Type.Optional(
     Type.Union([
       Type.Literal("run"),
@@ -230,7 +235,10 @@ const workflowParameters = Type.Object({
 //                + real status/kill/resume (Phase D)
 // ---------------------------------------------------------------------------
 
-function makeExecuteWorkflowTool(runtime: ExtensionRuntime) {
+function makeExecuteWorkflowTool(
+  runtime: ExtensionRuntime,
+  getPersistence: () => WorkflowPersistencePort | undefined,
+) {
   return async function executeWorkflowTool(
     args: WorkflowToolArgs,
     _ctx: PiExecuteContext,
@@ -257,7 +265,10 @@ function makeExecuteWorkflowTool(runtime: ExtensionRuntime) {
       case "kill": {
         // Support "kill --all" via name sentinel
         if (runId === "--all") {
-          const results = killAllRuns({ cancellation: cancellationRegistry });
+          const results = killAllRuns({
+            cancellation: cancellationRegistry,
+            persistence: getPersistence(),
+          });
           const killed = results.filter((r) => r.ok).length;
           return {
             action: "kill",
@@ -268,7 +279,10 @@ function makeExecuteWorkflowTool(runtime: ExtensionRuntime) {
               : "No in-flight runs to kill.",
           };
         }
-        const result = killRun(runId, { cancellation: cancellationRegistry });
+        const result = killRun(runId, {
+          cancellation: cancellationRegistry,
+          persistence: getPersistence(),
+        });
         if (result.ok) {
           return {
             action: "kill",
@@ -465,13 +479,16 @@ function factory(pi: ExtensionAPI): void {
   //    registration closure automatically uses the most-current registry without
   //    needing to be re-registered.
   // -------------------------------------------------------------------------
+  const persistenceRef: { current: WorkflowPersistencePort | undefined } = {
+    current: makePersistencePort(pi, WORKFLOW_CONFIG_DEFAULTS.persistRuns),
+  };
   const runtimeRef: { current: ExtensionRuntime } = {
     current: createExtensionRuntime({
       registry: discoverBundledWorkflowsSync().registry,
       adapters,
       ui,
       cancellation: cancellationRegistry,
-      persistence: makePersistencePort(pi, WORKFLOW_CONFIG_DEFAULTS.persistRuns),
+      persistence: persistenceRef.current,
     }),
   };
   const discoveryRef: { current: DiscoveryResult | null } = { current: null };
@@ -487,7 +504,7 @@ function factory(pi: ExtensionAPI): void {
     },
   };
 
-  const executeWorkflowTool = makeExecuteWorkflowTool(runtimeProxy);
+  const executeWorkflowTool = makeExecuteWorkflowTool(runtimeProxy, () => persistenceRef.current);
 
   // Start unified async discovery immediately.
   // On resolve: swap runtime ref and register /workflow:<name> aliases for any
@@ -506,12 +523,13 @@ function factory(pi: ExtensionAPI): void {
     const result = await discoverWorkflows({ config: discoveryConfig });
     discoveryRef.current = result;
     const resolvedPersistRuns = configResult.config?.persistRuns ?? WORKFLOW_CONFIG_DEFAULTS.persistRuns;
+    persistenceRef.current = makePersistencePort(pi, resolvedPersistRuns);
     runtimeRef.current = createExtensionRuntime({
       registry: result.registry,
       adapters,
       ui,
       cancellation: cancellationRegistry,
-      persistence: makePersistencePort(pi, resolvedPersistRuns),
+      persistence: persistenceRef.current,
     });
 
     // Register /workflow:<name> aliases for workflows discovered beyond the
@@ -590,11 +608,17 @@ function factory(pi: ExtensionAPI): void {
           return;
         }
         if (target === "--all") {
-          const results = killAllRuns({ cancellation: cancellationRegistry });
+          const results = killAllRuns({
+            cancellation: cancellationRegistry,
+            persistence: persistenceRef.current,
+          });
           const killed = results.filter((r) => r.ok).length;
           print(killed > 0 ? `Killed ${killed} run(s).` : "No in-flight runs to kill.");
         } else {
-          const result = killRun(target, { cancellation: cancellationRegistry });
+          const result = killRun(target, {
+            cancellation: cancellationRegistry,
+            persistence: persistenceRef.current,
+          });
           if (result.ok) {
             print(`Run ${result.runId} killed (was ${result.previousStatus}).`);
           } else {
@@ -672,38 +696,30 @@ function factory(pi: ExtensionAPI): void {
       }
 
       // -----------------------------------------------------------------------
-      // Workflow name dispatch — non-admin first token resolved as workflow name
+      // Workflow name dispatch — all admin subcommands returned above.
       // -----------------------------------------------------------------------
       const workflowName = subcommand;
-      if (!ADMIN_SUBCOMMANDS.has(workflowName)) {
-        const inputTokens = parts.slice(1);
-        const inputs = parseWorkflowArgs(inputTokens);
-        const result = await runtimeProxy.dispatch({
-          name: workflowName,
-          inputs,
-          action: "run",
-        });
-        if (result.action === "run" && "runId" in result) {
-          const r = result as Extract<WorkflowToolResult, { action: "run"; runId: string }>;
-          if (r.status === "failed" && r.runId === "") {
-            // Not found — show available names
-            const available = runtimeProxy.registry.names();
-            print(
-              `Workflow not found: ${workflowName}\nAvailable: ${available.length > 0 ? available.join(", ") : "(none)"}`,
-            );
-          } else if (r.status === "failed") {
-            print(`Workflow "${workflowName}" failed: ${r.error ?? "unknown error"}`);
-          } else {
-            print(
-              `Workflow "${workflowName}" completed (runId: ${r.runId})`,
-            );
-          }
+      const inputTokens = parts.slice(1);
+      const inputs = parseWorkflowArgs(inputTokens);
+      const result = await runtimeProxy.dispatch({
+        name: workflowName,
+        inputs,
+        action: "run",
+      });
+      if (result.action === "run" && "runId" in result) {
+        const r = result as Extract<WorkflowToolResult, { action: "run"; runId: string }>;
+        if (r.status === "failed" && r.runId === "") {
+          const available = runtimeProxy.registry.names();
+          print(
+            `Workflow not found: ${workflowName}\nAvailable: ${available.length > 0 ? available.join(", ") : "(none)"}`,
+          );
+        } else if (r.status === "failed") {
+          print(`Workflow "${workflowName}" failed: ${r.error ?? "unknown error"}`);
+        } else {
+          print(`Workflow "${workflowName}" completed (runId: ${r.runId})`);
         }
-        return;
       }
-
-      // Unreachable — all ADMIN_SUBCOMMANDS handled above, non-admin handled as workflow name.
-      print(`/workflow ${args.trim()} — unknown subcommand. Try: list, status, kill, resume, inputs`);
+      return;
     },
     getArgumentCompletions: async (partial: string): Promise<PiArgumentCompletion[]> => {
       const adminCompletions: PiArgumentCompletion[] = [

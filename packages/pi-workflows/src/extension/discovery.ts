@@ -422,7 +422,7 @@ export async function discoverWorkflows(
     const gw = config.globalWorkflows;
     const hasEntries = Array.isArray(gw) ? gw.length > 0 : Object.keys(gw).length > 0;
     if (hasEntries) {
-      const candidates = await loadFromPaths(gw, "settings-global", cwd, diagnostics);
+      const candidates = await loadFromPaths(gw, "settings-global", homeDir, diagnostics);
       registry = applyBatch(candidates, registry, sources, diagnostics);
     }
   }

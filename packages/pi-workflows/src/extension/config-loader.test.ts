@@ -1,12 +1,15 @@
 /**
  * Tests for pure helpers in config-loader:
  *   - toDiscoveryConfig — maps WorkflowExtensionConfig to DiscoveryConfig
+ *   - toScopedDiscoveryConfig — scope-aware DiscoveryConfig with provenance
  *   - withWorkflowDefaults — fills absent fields with RFC-specified defaults
  */
 
 import { test, expect, describe } from "bun:test";
+import { join } from "node:path";
 import {
   toDiscoveryConfig,
+  toScopedDiscoveryConfig,
   withWorkflowDefaults,
   WORKFLOW_CONFIG_DEFAULTS,
 } from "./config-loader.js";
@@ -226,3 +229,125 @@ describe("withWorkflowDefaults — WORKFLOW_CONFIG_DEFAULTS constants", () => {
     expect(WORKFLOW_CONFIG_DEFAULTS.resumeInFlight).toBe("ask");
   });
 });
+
+// ---------------------------------------------------------------------------
+// toScopedDiscoveryConfig
+// ---------------------------------------------------------------------------
+
+const PROJ_ROOT = "/home/user/myproject";
+const HOME_DIR = "/home/user";
+const GLOBAL_BASE = join(HOME_DIR, ".pi", "agent");
+const OPTS = { projectRoot: PROJ_ROOT, homeDir: HOME_DIR };
+
+describe("toScopedDiscoveryConfig — null inputs", () => {
+  test("both null → empty object", () => {
+    expect(toScopedDiscoveryConfig(null, null, OPTS)).toEqual({});
+  });
+
+  test("null globalConfig + null projectConfig → no projectWorkflows, no globalWorkflows", () => {
+    const r = toScopedDiscoveryConfig(null, null, OPTS);
+    expect("projectWorkflows" in r).toBe(false);
+    expect("globalWorkflows" in r).toBe(false);
+  });
+
+  test("both null or empty workflows → empty object", () => {
+    expect(toScopedDiscoveryConfig({ workflows: {} }, { workflows: {} }, OPTS)).toEqual({});
+  });
+});
+
+describe("toScopedDiscoveryConfig — project-only", () => {
+  test("projectConfig with absolute path → projectWorkflows with unchanged path", () => {
+    const project: WorkflowExtensionConfig = { workflows: { wf: { path: "/abs/wf.ts" } } };
+    const r = toScopedDiscoveryConfig(null, project, OPTS);
+    expect(r).toEqual({ projectWorkflows: { wf: "/abs/wf.ts" } });
+    expect("globalWorkflows" in r).toBe(false);
+  });
+
+  test("projectConfig with relative path → resolved under projectRoot", () => {
+    const project: WorkflowExtensionConfig = { workflows: { deploy: { path: "workflows/deploy.ts" } } };
+    const r = toScopedDiscoveryConfig(null, project, OPTS);
+    expect(r.projectWorkflows).toEqual({ deploy: join(PROJ_ROOT, "workflows/deploy.ts") });
+  });
+
+  test("projectConfig with dot-relative path → resolved under projectRoot", () => {
+    const project: WorkflowExtensionConfig = { workflows: { wf: { path: "./wf.ts" } } };
+    const r = toScopedDiscoveryConfig(null, project, OPTS);
+    expect(r.projectWorkflows).toEqual({ wf: join(PROJ_ROOT, "./wf.ts") });
+  });
+});
+
+describe("toScopedDiscoveryConfig — global-only", () => {
+  test("globalConfig with absolute path → globalWorkflows with unchanged path", () => {
+    const global: WorkflowExtensionConfig = { workflows: { shared: { path: "/shared/wf.ts" } } };
+    const r = toScopedDiscoveryConfig(global, null, OPTS);
+    expect(r).toEqual({ globalWorkflows: { shared: "/shared/wf.ts" } });
+    expect("projectWorkflows" in r).toBe(false);
+  });
+
+  test("globalConfig with relative path → resolved under <homeDir>/.pi/agent", () => {
+    const global: WorkflowExtensionConfig = { workflows: { shared: { path: "workflows/shared.ts" } } };
+    const r = toScopedDiscoveryConfig(global, null, OPTS);
+    expect(r.globalWorkflows).toEqual({ shared: join(GLOBAL_BASE, "workflows/shared.ts") });
+  });
+
+  test("globalConfig with dot-relative path → resolved under <homeDir>/.pi/agent", () => {
+    const global: WorkflowExtensionConfig = { workflows: { g: { path: "./g.ts" } } };
+    const r = toScopedDiscoveryConfig(global, null, OPTS);
+    expect(r.globalWorkflows).toEqual({ g: join(GLOBAL_BASE, "./g.ts") });
+  });
+});
+
+describe("toScopedDiscoveryConfig — mixed global + project", () => {
+  test("disjoint keys → both projectWorkflows and globalWorkflows populated", () => {
+    const global: WorkflowExtensionConfig = { workflows: { g: { path: "/g/wf.ts" } } };
+    const project: WorkflowExtensionConfig = { workflows: { p: { path: "/p/wf.ts" } } };
+    const r = toScopedDiscoveryConfig(global, project, OPTS);
+    expect(r.projectWorkflows).toEqual({ p: "/p/wf.ts" });
+    expect(r.globalWorkflows).toEqual({ g: "/g/wf.ts" });
+  });
+
+  test("overlapping key → project wins; global entry for that key excluded from globalWorkflows", () => {
+    const global: WorkflowExtensionConfig = { workflows: { shared: { path: "/g/shared.ts" }, "g-only": { path: "/g/only.ts" } } };
+    const project: WorkflowExtensionConfig = { workflows: { shared: { path: "/p/shared.ts" } } };
+    const r = toScopedDiscoveryConfig(global, project, OPTS);
+    // project "shared" wins
+    expect(r.projectWorkflows).toEqual({ shared: "/p/shared.ts" });
+    // global "shared" excluded; "g-only" kept
+    expect(r.globalWorkflows).toEqual({ "g-only": "/g/only.ts" });
+  });
+
+  test("all keys overlap → globalWorkflows absent", () => {
+    const global: WorkflowExtensionConfig = { workflows: { wf: { path: "/g/wf.ts" } } };
+    const project: WorkflowExtensionConfig = { workflows: { wf: { path: "/p/wf.ts" } } };
+    const r = toScopedDiscoveryConfig(global, project, OPTS);
+    expect(r.projectWorkflows).toEqual({ wf: "/p/wf.ts" });
+    expect("globalWorkflows" in r).toBe(false);
+  });
+
+  test("relative global path and relative project path resolve to their respective bases", () => {
+    const global: WorkflowExtensionConfig = { workflows: { g: { path: "g.ts" } } };
+    const project: WorkflowExtensionConfig = { workflows: { p: { path: "p.ts" } } };
+    const r = toScopedDiscoveryConfig(global, project, OPTS);
+    expect(r.projectWorkflows).toEqual({ p: join(PROJ_ROOT, "p.ts") });
+    expect(r.globalWorkflows).toEqual({ g: join(GLOBAL_BASE, "g.ts") });
+  });
+
+  test("absolute paths in both scopes are kept as-is", () => {
+    const global: WorkflowExtensionConfig = { workflows: { g: { path: "/abs/global/g.ts" } } };
+    const project: WorkflowExtensionConfig = { workflows: { p: { path: "/abs/project/p.ts" } } };
+    const r = toScopedDiscoveryConfig(global, project, OPTS);
+    expect(r.projectWorkflows).toEqual({ p: "/abs/project/p.ts" });
+    expect(r.globalWorkflows).toEqual({ g: "/abs/global/g.ts" });
+  });
+});
+
+describe("toScopedDiscoveryConfig — does not include non-workflow config fields", () => {
+  test("only projectWorkflows/globalWorkflows appear in result", () => {
+    const global: WorkflowExtensionConfig = { maxDepth: 8, workflows: { g: { path: "/g.ts" } } };
+    const project: WorkflowExtensionConfig = { persistRuns: false, workflows: { p: { path: "/p.ts" } } };
+    const r = toScopedDiscoveryConfig(global, project, OPTS);
+    const keys = Object.keys(r).sort();
+    expect(keys).toEqual(["globalWorkflows", "projectWorkflows"]);
+  });
+});
+

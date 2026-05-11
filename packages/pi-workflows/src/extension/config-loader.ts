@@ -18,7 +18,7 @@
  * The `workflows` map is merged key-by-key (project entries win on conflict).
  */
 
-import { join } from "node:path";
+import { join, isAbsolute } from "node:path";
 import { homedir } from "node:os";
 import type { DiscoveryConfig } from "./discovery.js";
 
@@ -72,6 +72,18 @@ export interface ConfigLoadResult {
    * Present (possibly empty object) when at least one valid file loaded.
    */
   readonly config: WorkflowExtensionConfig | null;
+  /**
+   * Pre-merge global config (from <homeDir>/.pi/agent/extensions/workflow/config.json).
+   * null when the global file is absent or invalid. Absent on results from callers
+   * that constructed ConfigLoadResult before this field was added.
+   */
+  readonly globalConfig?: WorkflowExtensionConfig | null;
+  /**
+   * Pre-merge project config (from first valid project-local candidate).
+   * null when no project-local file is found or all are invalid. Absent on results
+   * from callers that constructed ConfigLoadResult before this field was added.
+   */
+  readonly projectConfig?: WorkflowExtensionConfig | null;
   /** CONFIG_INVALID diagnostics from all sources. Empty when all is well. */
   readonly diagnostics: readonly ConfigDiagnostic[];
 }
@@ -324,6 +336,8 @@ export function withWorkflowDefaults(
  * since the merged config loses per-entry scope provenance.
  *
  * Returns an empty object when config.workflows is absent or empty.
+ *
+ * @deprecated Prefer toScopedDiscoveryConfig() which preserves scope provenance.
  */
 export function toDiscoveryConfig(config: WorkflowExtensionConfig): DiscoveryConfig {
   const workflows = config.workflows;
@@ -334,6 +348,73 @@ export function toDiscoveryConfig(config: WorkflowExtensionConfig): DiscoveryCon
     Object.entries(workflows).map(([name, entry]) => [name, entry.path]),
   );
   return { projectWorkflows };
+}
+
+/**
+ * Options for toScopedDiscoveryConfig().
+ */
+export interface ScopedDiscoveryConfigOpts {
+  /**
+   * Project root directory. Relative paths in projectConfig.workflows are
+   * resolved relative to this directory.
+   */
+  readonly projectRoot: string;
+  /**
+   * User home directory. Relative paths in globalConfig.workflows are
+   * resolved relative to <homeDir>/.pi/agent.
+   */
+  readonly homeDir: string;
+}
+
+/**
+ * Build a scope-aware DiscoveryConfig from the pre-merge global and project configs.
+ *
+ * Scope rules:
+ *   - globalConfig.workflows entries → DiscoveryConfig.globalWorkflows
+ *     Relative paths are resolved under <homeDir>/.pi/agent.
+ *   - projectConfig.workflows entries → DiscoveryConfig.projectWorkflows
+ *     Relative paths are resolved under projectRoot.
+ *   - When both configs define the same workflow key, the project entry wins
+ *     and the global entry for that key is excluded from globalWorkflows.
+ *
+ * Absolute paths are kept as-is regardless of scope.
+ * Returns an empty object when both configs are null or have no workflows.
+ */
+export function toScopedDiscoveryConfig(
+  globalConfig: WorkflowExtensionConfig | null,
+  projectConfig: WorkflowExtensionConfig | null,
+  opts: ScopedDiscoveryConfigOpts,
+): DiscoveryConfig {
+  const globalBase = join(opts.homeDir, ".pi", "agent");
+  const projectBase = opts.projectRoot;
+
+  const result: { projectWorkflows?: Record<string, string>; globalWorkflows?: Record<string, string> } = {};
+
+  // Project entries (highest priority)
+  if (projectConfig?.workflows != null && Object.keys(projectConfig.workflows).length > 0) {
+    result.projectWorkflows = Object.fromEntries(
+      Object.entries(projectConfig.workflows).map(([name, entry]) => {
+        const p = entry.path;
+        return [name, isAbsolute(p) ? p : join(projectBase, p)];
+      }),
+    );
+  }
+
+  // Global entries — exclude keys already claimed by project
+  if (globalConfig?.workflows != null && Object.keys(globalConfig.workflows).length > 0) {
+    const projectKeys = new Set(Object.keys(result.projectWorkflows ?? {}));
+    const globalEntries = Object.entries(globalConfig.workflows)
+      .filter(([name]) => !projectKeys.has(name))
+      .map(([name, entry]): [string, string] => {
+        const p = entry.path;
+        return [name, isAbsolute(p) ? p : join(globalBase, p)];
+      });
+    if (globalEntries.length > 0) {
+      result.globalWorkflows = Object.fromEntries(globalEntries);
+    }
+  }
+
+  return result;
 }
 
 /**
@@ -405,6 +486,8 @@ export async function loadWorkflowConfig(
   // If only diagnostics and no valid config, return null
   return {
     config: merged,
+    globalConfig,
+    projectConfig,
     diagnostics,
   };
 }

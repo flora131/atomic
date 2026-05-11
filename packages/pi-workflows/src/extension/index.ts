@@ -40,9 +40,9 @@ import type { DiscoveryResult } from "./discovery.js";
 import { buildDoctorReport } from "./doctor.js";
 import type { DoctorSiblingStatus } from "./doctor.js";
 import { registerWorkflowCliFlags, runWorkflowFromCliFlags } from "../cli-flags.js";
-import { loadWorkflowConfig, toDiscoveryConfig, WORKFLOW_CONFIG_DEFAULTS } from "./config-loader.js";
+import { loadWorkflowConfig, toDiscoveryConfig, toScopedDiscoveryConfig, WORKFLOW_CONFIG_DEFAULTS, withWorkflowDefaults } from "./config-loader.js";
 import type { ConfigLoadResult } from "./config-loader.js";
-import type { WorkflowPersistencePort, WorkflowMcpPort } from "../shared/types.js";
+import type { WorkflowPersistencePort, WorkflowMcpPort, WorkflowRuntimeConfig } from "../shared/types.js";
 import { buildRuntimeAdapters } from "./wiring.js";
 import { buildUIAdapter } from "./wiring.js";
 import type { PiUISurface, PiCustomOverlayOpts, PiCustomOverlayHandle } from "./wiring.js";
@@ -598,6 +598,23 @@ function factory(pi: ExtensionAPI): void {
     current: makePersistencePort(pi, WORKFLOW_CONFIG_DEFAULTS.persistRuns),
   };
   const mcpPort: WorkflowMcpPort | undefined = makeMcpPort(pi);
+
+  /**
+   * Mutable ref for the resolved runtime config.
+   * Seeded with WORKFLOW_CONFIG_DEFAULTS at startup; replaced after async config load.
+   * Injected into every createExtensionRuntime() call so the dispatcher, executor,
+   * and detached runner all receive the same resolved tunables.
+   */
+  const runtimeConfigRef: { current: WorkflowRuntimeConfig } = {
+    current: {
+      maxDepth: WORKFLOW_CONFIG_DEFAULTS.maxDepth,
+      defaultConcurrency: WORKFLOW_CONFIG_DEFAULTS.defaultConcurrency,
+      persistRuns: WORKFLOW_CONFIG_DEFAULTS.persistRuns,
+      statusFile: WORKFLOW_CONFIG_DEFAULTS.statusFile,
+      resumeInFlight: WORKFLOW_CONFIG_DEFAULTS.resumeInFlight,
+    },
+  };
+
   const runtimeRef: { current: ExtensionRuntime } = {
     current: createExtensionRuntime({
       registry: discoverBundledWorkflowsSync().registry,
@@ -606,6 +623,7 @@ function factory(pi: ExtensionAPI): void {
       cancellation: cancellationRegistry,
       persistence: persistenceRef.current,
       mcp: mcpPort,
+      config: runtimeConfigRef.current,
     }),
   };
   const discoveryRef: { current: DiscoveryResult | null } = { current: null };
@@ -632,15 +650,35 @@ function factory(pi: ExtensionAPI): void {
   const discoveryPromise = loadWorkflowConfig().then(async (configResult) => {
     configLoadRef.current = configResult;
 
-    // Map config.workflows entries → DiscoveryConfig.projectWorkflows for
-    // settings-based discovery (merged config — project wins over global).
+    // Build scope-aware DiscoveryConfig: global entries → globalWorkflows (resolved
+    // under <homeDir>/.pi/agent), project entries → projectWorkflows (resolved under
+    // projectRoot). Project keys override global keys. Paths pre-resolved to absolute.
+    const { homedir } = await import("node:os");
+    const hasGlobal = configResult.globalConfig != null;
+    const hasProject = configResult.projectConfig != null;
     const discoveryConfig =
-      configResult.config !== null ? toDiscoveryConfig(configResult.config) : undefined;
+      hasGlobal || hasProject
+        ? toScopedDiscoveryConfig(
+            configResult.globalConfig ?? null,
+            configResult.projectConfig ?? null,
+            { projectRoot: process.cwd(), homeDir: homedir() },
+          )
+        : undefined;
 
     const result = await discoverWorkflows({ config: discoveryConfig });
     discoveryRef.current = result;
-    const resolvedPersistRuns = configResult.config?.persistRuns ?? WORKFLOW_CONFIG_DEFAULTS.persistRuns;
-    persistenceRef.current = makePersistencePort(pi, resolvedPersistRuns);
+
+    // Resolve effective config (fills in all defaults) and build WorkflowRuntimeConfig.
+    const effectiveConfig = withWorkflowDefaults(configResult.config ?? {});
+    runtimeConfigRef.current = {
+      maxDepth: effectiveConfig.maxDepth,
+      defaultConcurrency: effectiveConfig.defaultConcurrency,
+      persistRuns: effectiveConfig.persistRuns,
+      statusFile: effectiveConfig.statusFile,
+      resumeInFlight: effectiveConfig.resumeInFlight,
+    };
+
+    persistenceRef.current = makePersistencePort(pi, effectiveConfig.persistRuns);
     runtimeRef.current = createExtensionRuntime({
       registry: result.registry,
       adapters,
@@ -648,6 +686,7 @@ function factory(pi: ExtensionAPI): void {
       cancellation: cancellationRegistry,
       persistence: persistenceRef.current,
       mcp: mcpPort,
+      config: runtimeConfigRef.current,
     });
 
     // Register /workflow:<name> aliases for workflows discovered beyond the

@@ -8,10 +8,11 @@
  */
 
 import { test, expect, describe, mock } from "bun:test";
-import type { WorkflowUIAdapter, WorkflowDefinition } from "../shared/types.js";
+import type { WorkflowUIAdapter, WorkflowDefinition, WorkflowPersistencePort } from "../shared/types.js";
 import { createRegistry } from "../workflows/registry.js";
 import { defineWorkflow } from "../workflows/define-workflow.js";
 import { dispatch } from "./dispatcher.js";
+import { createStore } from "../store.js";
 import type { DispatcherOpts } from "./dispatcher.js";
 
 // ---------------------------------------------------------------------------
@@ -129,5 +130,89 @@ describe("dispatch run forwards ui", () => {
       expect(result.status).toBe("failed");
       expect(result.error).toMatch(/not found/i);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// dispatch("run") — persistence forwarded to executor
+// ---------------------------------------------------------------------------
+
+describe("dispatch run forwards persistence", () => {
+  function makePersistence() {
+    const calls: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    const persistence: WorkflowPersistencePort = {
+      appendEntry(type: string, payload: Record<string, unknown>): string {
+        calls.push({ type, payload });
+        return `entry-${calls.length}`;
+      },
+    };
+    return { persistence, calls };
+  }
+
+  const stageWorkflow = defineWorkflow("dispatch-persist-test")
+    .run(async (ctx) => {
+      await ctx.stage("s1").prompt("go");
+      return { ok: true };
+    })
+    .compile() as WorkflowDefinition;
+
+  const noopAdapters = { prompt: { prompt: async () => "done" } };
+
+  test("dispatch passes persistence to executor — appendEntry called for lifecycle events", async () => {
+    const { persistence, calls } = makePersistence();
+    const registry = createRegistry([stageWorkflow]);
+
+    const result = await dispatch(
+      { action: "run", name: "dispatch-persist-test", inputs: {} },
+      { registry, adapters: noopAdapters, store: createStore(), persistence },
+    );
+
+    expect(result.action).toBe("run");
+    if (result.action === "run") {
+      expect(result.status).toBe("completed");
+    }
+
+    const types = calls.map((c) => c.type);
+    expect(types).toContain("workflow.run.start");
+    expect(types).toContain("workflow.run.end");
+  });
+
+  test("dispatch passes persistence to executor — full lifecycle order", async () => {
+    const { persistence, calls } = makePersistence();
+    const registry = createRegistry([stageWorkflow]);
+
+    await dispatch(
+      { action: "run", name: "dispatch-persist-test", inputs: {} },
+      { registry, adapters: noopAdapters, store: createStore(), persistence },
+    );
+
+    expect(calls.map((c) => c.type)).toEqual([
+      "workflow.run.start",
+      "workflow.stage.start",
+      "workflow.stage.end",
+      "workflow.run.end",
+    ]);
+  });
+
+  test("dispatch without persistence — no appendEntry, run still succeeds", async () => {
+    // Regression guard: omitting persistence must not crash
+    const registry = createRegistry([stageWorkflow]);
+
+    const result = await dispatch(
+      { action: "run", name: "dispatch-persist-test", inputs: {} },
+      { registry, adapters: noopAdapters, store: createStore() },
+    );
+
+    expect(result.action).toBe("run");
+    if (result.action === "run") {
+      expect(result.status).toBe("completed");
+    }
+  });
+
+  test("DispatcherOpts accepts persistence field — type-level check", () => {
+    const registry = createRegistry([]);
+    const { persistence } = makePersistence();
+    const opts: DispatcherOpts = { registry, persistence };
+    expect(opts.persistence).toBe(persistence);
   });
 });

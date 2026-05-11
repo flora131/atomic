@@ -10,7 +10,7 @@ import { createRegistry } from "../workflows/registry.js";
 import { defineWorkflow } from "../workflows/define-workflow.js";
 import { createStore } from "../store.js";
 import { renderResult } from "./render-result.js";
-import type { WorkflowDefinition, WorkflowUIAdapter } from "../shared/types.js";
+import type { WorkflowDefinition, WorkflowUIAdapter, WorkflowPersistencePort } from "../shared/types.js";
 import type { StageAdapters } from "../runs/sync/stage-runner.js";
 import type {
   WorkflowToolResult,
@@ -494,5 +494,109 @@ describe("WorkflowUIAdapter — runtime forwarding", () => {
     const run = asRun(result);
     expect(run.status).toBe("failed");
     expect(run.error).toContain("ui.editor is unavailable");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WorkflowPersistencePort — forwarding through createExtensionRuntime → dispatch → executor
+// ---------------------------------------------------------------------------
+
+describe("WorkflowPersistencePort — runtime persistence forwarding", () => {
+  function makePersistence() {
+    const calls: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    const persistence: WorkflowPersistencePort = {
+      appendEntry(type: string, payload: Record<string, unknown>): string {
+        calls.push({ type, payload });
+        return `entry-${calls.length}`;
+      },
+    };
+    return { persistence, calls };
+  }
+
+  const persistWorkflow = defineWorkflow("persist-forwarding-test")
+    .description("Tests persistence port forwarding through runtime")
+    .run(async (ctx) => {
+      const stage = ctx.stage("persist-stage");
+      await stage.prompt("hello");
+      return { done: true };
+    })
+    .compile() as WorkflowDefinition;
+
+  const noopAdaptersForPersist: StageAdapters = {
+    prompt: { prompt: async () => "ok" },
+  };
+
+  test("createExtensionRuntime forwards persistence — appendEntry called with run.start and run.end", async () => {
+    const { persistence, calls } = makePersistence();
+
+    const runtime = createExtensionRuntime({
+      definitions: [persistWorkflow],
+      adapters: noopAdaptersForPersist,
+      store: createStore(),
+      persistence,
+    });
+
+    const result = await runtime.dispatch({ name: "persist-forwarding-test", inputs: {}, action: "run" });
+    const run = asRun(result);
+    expect(run.status).toBe("completed");
+
+    const types = calls.map((c) => c.type);
+    expect(types).toContain("workflow.run.start");
+    expect(types).toContain("workflow.run.end");
+  });
+
+  test("createExtensionRuntime forwards persistence — full lifecycle order: run.start → stage.start → stage.end → run.end", async () => {
+    const { persistence, calls } = makePersistence();
+
+    const runtime = createExtensionRuntime({
+      definitions: [persistWorkflow],
+      adapters: noopAdaptersForPersist,
+      store: createStore(),
+      persistence,
+    });
+
+    const result = await runtime.dispatch({ name: "persist-forwarding-test", inputs: {}, action: "run" });
+    const run = asRun(result);
+    expect(run.status).toBe("completed");
+
+    expect(calls.map((c) => c.type)).toEqual([
+      "workflow.run.start",
+      "workflow.stage.start",
+      "workflow.stage.end",
+      "workflow.run.end",
+    ]);
+  });
+
+  test("createExtensionRuntime forwards persistence — run.start payload contains runId and name", async () => {
+    const { persistence, calls } = makePersistence();
+
+    const runtime = createExtensionRuntime({
+      definitions: [persistWorkflow],
+      adapters: noopAdaptersForPersist,
+      store: createStore(),
+      persistence,
+    });
+
+    const result = await runtime.dispatch({ name: "persist-forwarding-test", inputs: {}, action: "run" });
+    const run = asRun(result);
+
+    const runStart = calls.find((c) => c.type === "workflow.run.start");
+    expect(runStart).toBeDefined();
+    expect(runStart?.payload["runId"]).toBe(run.runId);
+    expect(runStart?.payload["name"]).toBe("persist-forwarding-test");
+    expect(typeof runStart?.payload["ts"]).toBe("number");
+  });
+
+  test("omitting persistence — no appendEntry calls, run still completes", async () => {
+    const runtime = createExtensionRuntime({
+      definitions: [persistWorkflow],
+      adapters: noopAdaptersForPersist,
+      store: createStore(),
+      // no persistence
+    });
+
+    const result = await runtime.dispatch({ name: "persist-forwarding-test", inputs: {}, action: "run" });
+    const run = asRun(result);
+    expect(run.status).toBe("completed");
   });
 });

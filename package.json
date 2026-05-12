@@ -41,7 +41,7 @@
     "prepare": "[ -n \"$CI\" ] || prek install || true"
   },
   "devDependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.132",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.139",
     "@j178/prek": "^0.3.13",
     "@opentui/core": "^0.2.3",
     "@opentui/react": "^0.2.3",

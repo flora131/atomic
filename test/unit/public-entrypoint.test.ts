@@ -1,0 +1,40 @@
+import { describe, test } from "node:test";
+import assert from "node:assert/strict";
+import {
+  GraphFrontierTracker,
+  createRegistry,
+  defineWorkflow,
+  normalizeWorkflowName,
+  resolveInputs,
+  workflowNamesEqual,
+} from "../../src/index.js";
+
+describe("public entrypoint", () => {
+  test("supports authoring and registry lookup through exported APIs", async () => {
+    const workflow = defineWorkflow("Example Task")
+      .description("Exercises the package entrypoint")
+      .input("prompt", { type: "text", required: true })
+      .run(async (ctx) => ({ echoed: ctx.inputs.prompt }))
+      .compile();
+
+    const registry = createRegistry().register(workflow as Parameters<ReturnType<typeof createRegistry>["register"]>[0]);
+
+    assert.equal(normalizeWorkflowName(" Example_Task! "), "example-task");
+    assert.equal(workflowNamesEqual("Example Task", "example_task"), true);
+    assert.equal(registry.has("example task"), true);
+    assert.equal(registry.get("example-task"), workflow);
+    assert.deepEqual(await workflow.run({ inputs: { prompt: "hello" } } as Parameters<typeof workflow.run>[0]), { echoed: "hello" });
+  });
+
+  test("exposes runtime helpers with observable edge-case behavior", () => {
+    assert.throws(
+      () => resolveInputs({ prompt: { type: "text", required: true } }, {}),
+      { message: 'pi-workflows: required input "prompt" not provided' },
+    );
+
+    const tracker = new GraphFrontierTracker();
+    assert.deepEqual(tracker.onSpawn("stage-1", "first"), []);
+    tracker.onSettle("stage-1");
+    assert.deepEqual(tracker.onSpawn("stage-2", "second"), ["stage-1"]);
+  });
+});

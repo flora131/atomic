@@ -1,0 +1,419 @@
+/**
+ * Extension runtime dispatcher tests.
+ *
+ * Covers the contract after foreground execution was removed:
+ *   - list / inputs are unchanged
+ *   - run is always background — dispatch returns synchronously with
+ *     `status: "running"`; final state lives on the store
+ *   - renderResult for the run variant emits "started in background"
+ *   - persistence forwarding still fires the full lifecycle
+ *
+ * HIL routing (ctx.ui.input/confirm/select/editor) is no longer driven by
+ * the runtime — that flow is tested in `background-runner-hil.test.ts` and
+ * `background-ui-adapter.test.ts`.
+ */
+
+import { describe, test } from "node:test";
+import assert from "node:assert/strict";
+import { dispatch } from "../../src/extension/dispatcher.js";
+import { createExtensionRuntime } from "../../src/extension/runtime.js";
+import { createRegistry } from "../../src/workflows/registry.js";
+import { defineWorkflow } from "../../src/workflows/define-workflow.js";
+import { createStore } from "../../src/shared/store.js";
+import { renderResult } from "../../src/extension/render-result.js";
+import type { WorkflowDefinition, WorkflowPersistencePort } from "../../src/shared/types.js";
+import type { StageAdapters } from "../../src/runs/foreground/stage-runner.js";
+import type {
+  WorkflowToolResult,
+  WorkflowInputEntry,
+  WorkflowRunEntry,
+} from "../../src/extension/render-result.js";
+
+// ---------------------------------------------------------------------------
+// Type-safe result narrowers
+// ---------------------------------------------------------------------------
+
+type ListResult   = Extract<WorkflowToolResult, { action: "list" }>;
+type InputsResult = Extract<WorkflowToolResult, { action: "inputs" }>;
+type RunResult    = Extract<WorkflowToolResult, { action: "run"; runId: string }>;
+
+function asList(r: WorkflowToolResult): ListResult {
+  if (r.action !== "list") throw new Error(`expected list, got ${r.action}`);
+  return r as ListResult;
+}
+function asInputs(r: WorkflowToolResult): InputsResult {
+  if (r.action !== "inputs") throw new Error(`expected inputs, got ${r.action}`);
+  return r as InputsResult;
+}
+function asRun(r: WorkflowToolResult): RunResult {
+  if (r.action !== "run" || !("runId" in r)) throw new Error(`expected run, got ${r.action}`);
+  return r as RunResult;
+}
+
+async function waitForRunEnded(
+  store: ReturnType<typeof createStore>,
+  runId: string,
+  timeoutMs = 1000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const run = store.runs().find((r) => r.id === runId);
+    if (run?.endedAt !== undefined) return;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  throw new Error(`run ${runId} did not end in time`);
+}
+
+// ---------------------------------------------------------------------------
+// Shared fixtures
+// ---------------------------------------------------------------------------
+
+const noopAdapters: StageAdapters = {
+  prompt: { prompt: async (text) => `echo:${text}` },
+  complete: { complete: async (text) => `echo:${text}` },
+};
+
+const helloWorkflow = defineWorkflow("hello-world")
+  .description("Simple greeting")
+  .input("name", { type: "text", required: true })
+  .run(async (ctx) => {
+    const stage = ctx.stage("greet");
+    const out = await stage.prompt(`Hello ${String(ctx.inputs["name"])}`);
+    return { greeting: out };
+  })
+  .compile() as WorkflowDefinition;
+
+const schemaWorkflow = defineWorkflow("schema-test")
+  .description("Multi-input schema")
+  .input("text", { type: "text", default: "hi" })
+  .input("count", { type: "number", required: false })
+  .input("flag", { type: "boolean", required: true })
+  .run(async (_ctx) => ({ ok: true }))
+  .compile() as WorkflowDefinition;
+
+// ---------------------------------------------------------------------------
+// dispatch: list
+// ---------------------------------------------------------------------------
+
+describe("dispatch — list", () => {
+  test("returns empty when registry is empty", async () => {
+    const registry = createRegistry();
+    const result = await dispatch({ name: "", inputs: {}, action: "list" }, { registry });
+    const list = asList(result);
+    assert.deepEqual(list.workflows, []);
+  });
+
+  test("returns all registered names", async () => {
+    const registry = createRegistry([helloWorkflow, schemaWorkflow]);
+    const result = await dispatch({ name: "", inputs: {}, action: "list" }, { registry });
+    const list = asList(result);
+    assert.ok(list.workflows.includes("hello-world"));
+    assert.ok(list.workflows.includes("schema-test"));
+    assert.equal(list.workflows.length, 2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// dispatch: inputs
+// ---------------------------------------------------------------------------
+
+describe("dispatch — inputs", () => {
+  test("returns not-found result (not throw) for unknown workflow", async () => {
+    const registry = createRegistry();
+    const result = await dispatch(
+      { name: "no-such-workflow", inputs: {}, action: "inputs" },
+      { registry },
+    );
+    const inp = asInputs(result);
+    assert.deepEqual(inp.inputs, []);
+    assert.ok(inp.error!.includes("no-such-workflow"));
+  });
+
+  test("returns schema entries for known workflow", async () => {
+    const registry = createRegistry([schemaWorkflow]);
+    const result = await dispatch(
+      { name: "schema-test", inputs: {}, action: "inputs" },
+      { registry },
+    );
+    const inp = asInputs(result);
+    assert.equal(inp.error, undefined);
+    const byName = Object.fromEntries(inp.inputs.map((i: WorkflowInputEntry) => [i.name, i]));
+    assert.equal(byName["text"]?.type, "text");
+    assert.equal(byName["text"]?.default, "hi");
+    assert.ok(!byName["count"]?.required);
+    assert.equal(byName["flag"]?.required, true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// dispatch: run (always background)
+// ---------------------------------------------------------------------------
+
+describe("dispatch — run", () => {
+  test("returns structured failed result when workflow not found", async () => {
+    const registry = createRegistry();
+    const result = await dispatch({ name: "ghost", inputs: {}, action: "run" }, { registry });
+    const run = asRun(result);
+    assert.equal(run.status, "failed");
+    assert.ok(run.error!.includes("ghost"));
+    assert.equal(run.runId, "");
+  });
+
+  test("background run reaches `completed` state on success", async () => {
+    const registry = createRegistry([helloWorkflow]);
+    const activeStore = createStore();
+    const result = await dispatch(
+      { name: "hello-world", inputs: { name: "Alice" }, action: "run" },
+      { registry, adapters: noopAdapters, store: activeStore },
+    );
+    const accepted = asRun(result);
+    assert.equal(accepted.status, "running");
+    assert.equal(accepted.name, "hello-world");
+    assert.ok(accepted.runId.length > 0);
+
+    await waitForRunEnded(activeStore, accepted.runId);
+    const settled = activeStore.runs().find((r) => r.id === accepted.runId);
+    assert.equal(settled?.status, "completed");
+    const greeting = settled?.result?.["greeting"];
+    assert.ok(typeof greeting === "string" && greeting.includes("Hello Alice"));
+  });
+
+  test("background run lands as `failed` when the workflow body throws", async () => {
+    const failingWorkflow = defineWorkflow("fail-me")
+      .run(async (_ctx) => {
+        throw new Error("intentional failure");
+      })
+      .compile() as WorkflowDefinition;
+    const registry = createRegistry([failingWorkflow]);
+    const activeStore = createStore();
+    const result = await dispatch(
+      { name: "fail-me", inputs: {}, action: "run" },
+      { registry, adapters: noopAdapters, store: activeStore },
+    );
+    const accepted = asRun(result);
+    assert.equal(accepted.status, "running");
+
+    await waitForRunEnded(activeStore, accepted.runId);
+    const settled = activeStore.runs().find((r) => r.id === accepted.runId);
+    assert.equal(settled?.status, "failed");
+    assert.ok(settled?.error?.includes("intentional failure"));
+  });
+
+  test("missing required input returns failed synchronously (no background scheduling)", async () => {
+    const registry = createRegistry([helloWorkflow]);
+    const activeStore = createStore();
+    const result = await dispatch(
+      { name: "hello-world", inputs: {}, action: "run" }, // missing required `name`
+      { registry, adapters: noopAdapters, store: activeStore },
+    );
+    const run = asRun(result);
+    assert.equal(run.status, "failed");
+    assert.equal(run.runId, "");
+    assert.match(run.error ?? "", /required input "name"/);
+    // No runId was minted → no run snapshot landed in the store.
+    assert.equal(activeStore.runs().length, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// dispatch: unknown action throws
+// ---------------------------------------------------------------------------
+
+describe("dispatch — unknown action", () => {
+  test("throws for unrecognised action", async () => {
+    const registry = createRegistry();
+    await assert.rejects(dispatch(
+        { name: "", inputs: {}, action: "status" as "list" },
+        { registry },
+      ), { message: /unknown action/ });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createExtensionRuntime
+// ---------------------------------------------------------------------------
+
+describe("createExtensionRuntime", () => {
+  test("empty registry by default", () => {
+    const runtime = createExtensionRuntime();
+    assert.deepEqual(runtime.registry.names(), []);
+  });
+
+  test("seeds registry from definitions array", () => {
+    const runtime = createExtensionRuntime({ definitions: [helloWorkflow] });
+    assert.ok(runtime.registry.names().includes("hello-world"));
+  });
+
+  test("accepts external registry", () => {
+    const external = createRegistry([helloWorkflow, schemaWorkflow]);
+    const runtime = createExtensionRuntime({ registry: external });
+    assert.equal(runtime.registry.names().length, 2);
+  });
+
+  test("dispatch delegates to registry", async () => {
+    const runtime = createExtensionRuntime({ definitions: [helloWorkflow] });
+    const result = await runtime.dispatch({ name: "", inputs: {}, action: "list" });
+    const list = asList(result);
+    assert.ok(list.workflows.includes("hello-world"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// renderResult — run variant
+// ---------------------------------------------------------------------------
+
+describe("renderResult — run variant", () => {
+  test("running run renders as 'started in background'", () => {
+    const out = renderResult({
+      action: "run",
+      name: "hello-world",
+      runId: "abc-123",
+      status: "running",
+      message: 'Workflow "hello-world" started in background (runId: abc-123).',
+      stages: [],
+    });
+    assert.ok(out.includes("abc-123"));
+    assert.ok(out.includes("hello-world"));
+    assert.ok(out.includes("started in background"));
+  });
+
+  test("failed run shows error", () => {
+    const out = renderResult({
+      action: "run",
+      name: "hello-world",
+      runId: "abc-123",
+      status: "failed",
+      error: "intentional failure",
+      stages: [],
+    });
+    assert.ok(out.includes("failed"));
+    assert.ok(out.includes("intentional failure"));
+  });
+
+  test("partial run shows in-progress", () => {
+    const out = renderResult(
+      {
+        action: "run",
+        name: "hello-world",
+        runId: "abc-123",
+        status: "running",
+        stages: [],
+      },
+      { isPartial: true },
+    );
+    assert.ok(out.includes("in progress"));
+  });
+
+  test("inputs not-found carries error field in result", async () => {
+    const registry = createRegistry();
+    const result = await dispatch(
+      { name: "ghost", inputs: {}, action: "inputs" },
+      { registry },
+    );
+    const inp = asInputs(result);
+    assert.ok(inp.error!.includes("ghost"));
+  });
+
+  test("status list uses WorkflowRunEntry shape", () => {
+    const runs: WorkflowRunEntry[] = [
+      { runId: "r1", name: "wf", status: "running" },
+    ];
+    const out = renderResult({ action: "status", runs });
+    assert.ok(out.includes("r1"));
+    assert.ok(out.includes("wf"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WorkflowPersistencePort — forwarding through createExtensionRuntime → dispatch
+// ---------------------------------------------------------------------------
+
+describe("WorkflowPersistencePort — runtime persistence forwarding", () => {
+  function makePersistence() {
+    const calls: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    const persistence: WorkflowPersistencePort = {
+      appendEntry(type: string, payload: Record<string, unknown>): string {
+        calls.push({ type, payload });
+        return `entry-${calls.length}`;
+      },
+    };
+    return { persistence, calls };
+  }
+
+  const persistWorkflow = defineWorkflow("persist-forwarding-test")
+    .description("Tests persistence port forwarding through runtime")
+    .run(async (ctx) => {
+      const stage = ctx.stage("persist-stage");
+      await stage.prompt("hello");
+      return { done: true };
+    })
+    .compile() as WorkflowDefinition;
+
+  const noopAdaptersForPersist: StageAdapters = {
+    prompt: { prompt: async () => "ok" },
+  };
+
+  test("appendEntry fires the full lifecycle for a background run", async () => {
+    const { persistence, calls } = makePersistence();
+    const activeStore = createStore();
+
+    const runtime = createExtensionRuntime({
+      definitions: [persistWorkflow],
+      adapters: noopAdaptersForPersist,
+      store: activeStore,
+      persistence,
+    });
+
+    const result = await runtime.dispatch({ name: "persist-forwarding-test", inputs: {}, action: "run" });
+    const accepted = asRun(result);
+    assert.equal(accepted.status, "running");
+    await waitForRunEnded(activeStore, accepted.runId);
+
+    assert.deepEqual(
+      calls.map((c) => c.type),
+      [
+        "workflow.run.start",
+        "workflow.stage.start",
+        "workflow.stage.end",
+        "workflow.run.end",
+      ],
+    );
+  });
+
+  test("run.start payload contains runId and name", async () => {
+    const { persistence, calls } = makePersistence();
+    const activeStore = createStore();
+
+    const runtime = createExtensionRuntime({
+      definitions: [persistWorkflow],
+      adapters: noopAdaptersForPersist,
+      store: activeStore,
+      persistence,
+    });
+
+    const result = await runtime.dispatch({ name: "persist-forwarding-test", inputs: {}, action: "run" });
+    const accepted = asRun(result);
+    await waitForRunEnded(activeStore, accepted.runId);
+
+    const runStart = calls.find((c) => c.type === "workflow.run.start");
+    assert.notEqual(runStart, undefined);
+    assert.equal(runStart?.payload["runId"], accepted.runId);
+    assert.equal(runStart?.payload["name"], "persist-forwarding-test");
+    assert.equal(typeof runStart?.payload["ts"], "number");
+  });
+
+  test("omitting persistence — no appendEntry calls, run still completes", async () => {
+    const activeStore = createStore();
+    const runtime = createExtensionRuntime({
+      definitions: [persistWorkflow],
+      adapters: noopAdaptersForPersist,
+      store: activeStore,
+    });
+
+    const result = await runtime.dispatch({ name: "persist-forwarding-test", inputs: {}, action: "run" });
+    const accepted = asRun(result);
+    await waitForRunEnded(activeStore, accepted.runId);
+    const settled = activeStore.runs().find((r) => r.id === accepted.runId);
+    assert.equal(settled?.status, "completed");
+  });
+});

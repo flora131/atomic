@@ -1,0 +1,5 @@
+{
+  "extensions": [
+    "./src/extension/index.ts"
+  ]
+}

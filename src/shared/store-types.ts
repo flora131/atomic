@@ -1,0 +1,112 @@
+/**
+ * Types for live run/stage snapshots.
+ * cross-ref: spec §5.5
+ */
+
+export type RunStatus = "pending" | "running" | "completed" | "failed" | "killed";
+export type StageStatus = "pending" | "running" | "completed" | "failed";
+
+/**
+ * Human-in-the-loop prompt kind. Mirrors the four `WorkflowUIContext` methods.
+ * cross-ref: src/shared/types.ts WorkflowUIContext
+ */
+export type PromptKind = "input" | "confirm" | "select" | "editor";
+
+/**
+ * A pending HIL prompt awaiting user response. Surfaced through the graph
+ * viewer overlay for background runs so the main chat editor is never
+ * blocked by a workflow.
+ *
+ * Resolver lives in `pendingPromptResolvers` (store-internal map) — only the
+ * JSON-cloneable descriptor lives on the snapshot.
+ */
+export interface PendingPrompt {
+  readonly id: string;
+  readonly kind: PromptKind;
+  readonly message: string;
+  /** Choices for `kind: "select"`. */
+  readonly choices?: readonly string[];
+  /** Initial value for `kind: "input"` and `kind: "editor"`. */
+  readonly initial?: string;
+  /** Issue timestamp (ms since epoch). */
+  readonly createdAt: number;
+}
+
+export interface ToolEvent {
+  name: string;
+  input?: Record<string, unknown>;
+  output?: string;
+  startedAt?: number;
+  endedAt?: number;
+}
+
+export interface StageSnapshot {
+  readonly id: string;
+  readonly name: string;
+  status: StageStatus;
+  readonly parentIds: readonly string[];
+  startedAt?: number;
+  endedAt?: number;
+  durationMs?: number;
+  result?: string;
+  error?: string;
+  readonly toolEvents: ToolEvent[];
+  /**
+   * MCP server gating config stored at stage creation time.
+   * Null allow/deny entries mean unrestricted for that dimension.
+   * Absent when no mcp options were passed to ctx.stage().
+   */
+  mcpScope?: { allow: string[] | null; deny: string[] | null };
+}
+
+export interface RunSnapshot {
+  readonly id: string;
+  readonly name: string;
+  readonly inputs: Readonly<Record<string, unknown>>;
+  status: RunStatus;
+  readonly stages: StageSnapshot[];
+  startedAt: number;
+  endedAt?: number;
+  durationMs?: number;
+  result?: Record<string, unknown>;
+  error?: string;
+  /**
+   * Pending human-in-the-loop prompt. Set when a background workflow calls
+   * `ctx.ui.input/confirm/select/editor`; cleared when the user responds via
+   * the graph viewer overlay. Foreground runs never set this (they route HIL
+   * straight to pi.ui dialogs).
+   */
+  pendingPrompt?: PendingPrompt;
+}
+
+export interface StoreSnapshot {
+  readonly runs: readonly RunSnapshot[];
+  readonly notices: readonly WorkflowNotice[];
+  readonly version: number;
+}
+
+/** Lightweight notice attached to a run or stage. */
+export type NoticeLevel = "info" | "warning" | "error";
+
+export interface WorkflowNotice {
+  readonly id: string;
+  readonly runId?: string;
+  readonly stageId?: string;
+  readonly level: NoticeLevel;
+  message: string;
+  readonly createdAt: number;
+  readonly requiresAck?: boolean;
+  /** Set once acknowledged. */
+  ackedAt?: number;
+}
+
+/**
+ * Adapter for displaying run progress / status in a UI layer.
+ * Implemented by the TUI widget or a test spy; injected via RunOpts.overlay.
+ */
+export interface WorkflowOverlayAdapter {
+  /** Show or update the overlay with the given notice. */
+  show(notice: WorkflowNotice): void;
+  /** Hide the overlay (called when the run completes or is cancelled). */
+  hide(): void;
+}

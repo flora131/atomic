@@ -284,7 +284,7 @@ gotty tmux new -A -s gotty top
 ### LazyVim / LunarVim - tmux integration
 Source: vim-tmux-navigator (christoomey)
 
-**Pattern:** Seamless Ctrl+hjkl navigation between vim splits and tmux panes.
+**Pattern:** Seamless ctrl+hjkl navigation between vim splits and tmux panes.
 
 LunarVim uses a **floating terminal** approach (toggleterm plugin) - avoids tmux entirely for terminal multiplexing, using nvim's built-in terminal with a float overlay.
 

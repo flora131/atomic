@@ -4,15 +4,22 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "strict": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
-    "outDir": "dist",
-    "rootDir": "src",
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "esModuleInterop": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "types": ["node"],
+    "lib": ["ESNext"],
+    "allowImportingTsExtensions": true,
+    "allowArbitraryExtensions": true,
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "paths": {
+      "@bastani/atomic-workflows": ["./src/index.ts"],
+      "@oh-my-pi/pi-coding-agent": ["./src/oh-my-pi-shim.d.ts"]
+    }
   },
-  "references": [
-    { "path": "packages/pi-workflows" }
-  ]
+  "include": ["src/**/*", "test/**/*", "workflows/**/*", "examples/**/*"],
+  "exclude": ["node_modules"]
 }

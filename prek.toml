@@ -1,0 +1,21 @@
+default_install_hook_types = ["pre-commit"]
+
+[[repos]]
+repo = "builtin"
+hooks = [
+  { id = "check-added-large-files" },
+  { id = "check-case-conflict" },
+  { id = "check-illegal-windows-names" },
+  { id = "check-json" },
+  { id = "check-merge-conflict" },
+  { id = "check-toml" },
+  { id = "check-yaml" },
+  { id = "detect-private-key" },
+]
+
+[[repos]]
+repo = "local"
+hooks = [
+  { id = "npm-lint", name = "npm run lint", entry = "npm run lint", language = "system", pass_filenames = false },
+  { id = "npm-test-unit", name = "npm run test:unit", entry = "npm run test:unit", language = "system", pass_filenames = false },
+]

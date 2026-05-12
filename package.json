@@ -1,13 +1,66 @@
 {
-  "name": "atomic-pi-rewrite",
-  "version": "0.0.0",
-  "private": true,
-  "workspaces": ["packages/*"],
+  "name": "@bastani/atomic-workflows",
+  "version": "0.0.1",
+  "description": "oh-my-pi extension for multi-stage workflow authoring and execution.",
+  "contributors": [
+    "Norin Lavaee",
+    "Alex Lavaee"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/flora131/atomic.git"
+  },
+  "homepage": "https://github.com/flora131/atomic#readme",
+  "bugs": {
+    "url": "https://github.com/flora131/atomic/issues"
+  },
+  "keywords": [
+    "omp-plugin",
+    "oh-my-pi",
+    "omp",
+    "workflow",
+    "orchestration",
+    "ai",
+    "cli"
+  ],
+  "bin": {
+    "atomic-workflows": "install.mjs"
+  },
+  "files": [
+    "src/**/*.ts",
+    "*.mjs",
+    "workflows/**/*.ts",
+    "README.md",
+    "CHANGELOG.md"
+  ],
   "scripts": {
-    "build": "bun run --filter='*' build",
-    "lint": "bun run --filter='*' lint",
-    "typecheck": "bun run --filter='*' typecheck",
-    "test": "bun run --filter='*' test",
-    "verify-artifact": "bun run --filter='*' verify-artifact"
+    "prepare": "node scripts/install-hooks.mjs",
+    "hooks:install": "prek install --prepare-hooks",
+    "hooks:run": "prek run --all-files",
+    "test": "npm run test:unit",
+    "test:unit": "node --experimental-transform-types --import ./test/support/register-loader.mjs --test test/unit/*.test.ts",
+    "test:integration": "node --experimental-transform-types --import ./test/support/register-loader.mjs --test test/integration/*.test.ts",
+    "test:all": "npm run test:unit && npm run test:integration",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit"
+  },
+  "omp": {
+    "extensions": [
+      "./src/extension/index.ts"
+    ],
+    "workflows": [
+      "./workflows"
+    ]
+  },
+  "peerDependencies": {
+    "@oh-my-pi/pi-coding-agent": ">=14.9.5"
+  },
+  "devDependencies": {
+    "@j178/prek": "^0.3.13",
+    "@oh-my-pi/pi-coding-agent": "^14.9.5",
+    "@types/node": "^25.7.0",
+    "typescript": "^6.0.3"
   }
 }

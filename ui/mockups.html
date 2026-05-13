@@ -1,0 +1,554 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>@bastani/atomic-workflows — chat-surface mockups</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      :root {
+        /* Catppuccin Mocha — must match src/tui/graph-theme.ts */
+        --crust: #11111b;
+        --mantle: #181825;
+        --base: #1e1e2e;
+        --surface0: #313244;
+        --surface1: #45475a;
+        --surface2: #585b70;
+        --overlay0: #6c7086;
+        --overlay1: #7f849c;
+        --text: #cdd6f4;
+        --subtext0: #a6adc8;
+        --blue: #89b4fa;
+        --green: #a6e3a1;
+        --yellow: #f9e2af;
+        --red: #f38ba8;
+        --mauve: #cba6f7;
+        --sky: #89dceb;
+        --teal: #94e2d5;
+      }
+      * { box-sizing: border-box; }
+
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: var(--mantle);
+        color: var(--text);
+        font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+        font-size: 13px;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+        font-feature-settings: "calt" 1, "liga" 0;
+      }
+      .page { max-width: 1280px; margin: 0 auto; padding: 2.5rem 1.5rem 6rem; }
+
+      h1 {
+        font-size: 1.05rem; font-weight: 600; margin: 0 0 0.25rem;
+        color: var(--text); letter-spacing: 0.01em;
+      }
+      h2 {
+        font-size: 0.92rem; font-weight: 600;
+        margin: 3rem 0 0.6rem; color: var(--text); letter-spacing: 0.04em;
+      }
+      h2 .num { color: var(--blue); margin-right: 0.5em; }
+      .lede {
+        color: var(--subtext0); margin: 0 0 2rem;
+        font-size: 0.82rem; max-width: 64ch; line-height: 1.6;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.5rem;
+        align-items: start;
+      }
+      @media (max-width: 1100px) { .row { grid-template-columns: 1fr; } }
+
+      .label {
+        text-transform: uppercase; letter-spacing: 0.14em;
+        font-size: 0.62rem; color: var(--overlay1);
+        margin-bottom: 0.4rem; font-weight: 600;
+      }
+      .label.before { color: var(--red); }
+      .label.after { color: var(--green); }
+
+      /* Terminal card — emulates the chat content area. The `customMessage`
+         strata in pi already paints this background per-line, so child bands
+         only need to layer their own surface tone on top. */
+      .terminal {
+        background: var(--base);
+        border-radius: 10px;
+        padding: 0;
+        overflow: hidden;
+        font-size: 12.5px;
+        line-height: 1.65;
+        border: 1px solid var(--surface0);
+        box-shadow: 0 1px 0 0 rgb(0 0 0 / 30%) inset;
+      }
+      .terminal pre,
+      .terminal .pre {
+        margin: 0;
+        padding: 1rem 1.1rem;
+        white-space: pre;
+        font-family: inherit;
+        font-size: inherit;
+        line-height: inherit;
+        color: inherit;
+        overflow-x: auto;
+      }
+
+      /* Full-width band — the surface0 strip that anchors every chrome
+         band in the design (BACKGROUND, DISPATCHED, WORKFLOWS, RUN <id>). */
+      .terminal .band {
+        display: block;
+        background: var(--surface0);
+        padding: 0.45rem 1.1rem 0.45rem 1.1rem;
+        white-space: pre;
+      }
+
+      /* Card body — the surface around a per-run or per-workflow card.
+         Uses a 1-cell-wide left bar in the status color, plus a top tab. */
+      .card {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        margin: 0.25rem 1.1rem 0.25rem 1.1rem;
+      }
+      .card .stripe {
+        background: currentColor;
+        width: 3px;
+        border-radius: 2px;
+        align-self: stretch;
+        margin-right: 0.7rem;
+      }
+      .card .body {
+        padding: 0.35rem 0 0.55rem 0;
+        white-space: pre;
+        color: var(--text);
+      }
+      .card .tag {
+        display: inline-block;
+        background: var(--surface0);
+        color: currentColor;
+        padding: 0 0.45rem;
+        border-radius: 3px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        margin-right: 0.6rem;
+      }
+      .card.green { color: var(--green); }
+      .card.yellow { color: var(--yellow); }
+      .card.red { color: var(--red); }
+      .card.dim { color: var(--overlay1); }
+      .card.mauve { color: var(--mauve); }
+      .card.blue { color: var(--blue); }
+
+      /* Inline atoms */
+      .blue { color: var(--blue); }
+      .green { color: var(--green); }
+      .yellow { color: var(--yellow); }
+      .red { color: var(--red); }
+      .mauve { color: var(--mauve); }
+      .sky { color: var(--sky); }
+      .teal { color: var(--teal); }
+      .text { color: var(--text); }
+      .dim { color: var(--overlay1); }
+      .muted { color: var(--subtext0); }
+      .faint { color: var(--overlay0); }
+      .b { font-weight: 700; }
+
+      .note {
+        font-size: 0.75rem; color: var(--overlay1);
+        margin: 0.5rem 0 0; padding-left: 0.2rem;
+      }
+      .note .k { color: var(--subtext0); }
+
+      hr {
+        border: none;
+        border-top: 1px dashed var(--surface1);
+        margin: 3rem 0;
+      }
+
+      .palette {
+        display: flex; gap: 0.75rem; flex-wrap: wrap;
+        margin: 0.5rem 0 2rem; font-size: 0.72rem;
+      }
+      .swatch {
+        display: inline-flex; align-items: center; gap: 0.4rem;
+        color: var(--subtext0);
+      }
+      .swatch i {
+        display: inline-block;
+        width: 14px; height: 14px;
+        border-radius: 3px;
+        border: 1px solid var(--surface0);
+      }
+
+      /* Hint row — the `▸ /slash command   verb-phrase hint` grammar
+         shared by every action prompt in the design. */
+      .hints { margin: 0.4rem 1.1rem 0 1.1rem; padding-bottom: 0.6rem; }
+      .hints .row-line {
+        display: flex; align-items: baseline; gap: 0.6rem;
+        padding: 0.05rem 0;
+      }
+      .hints .arrow { color: var(--overlay1); }
+      .hints .cmd { color: var(--blue); min-width: 28ch; }
+      .hints .hint { color: var(--overlay1); }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <h1>@bastani/atomic-workflows · chat-surface redesign</h1>
+      <p class="lede">
+        Three chat surfaces — the post-dispatch start toast, <code>/workflow status</code>, and <code>/workflow list</code> — rebuilt around the orchestrator panel's two load-bearing patterns: a <em>full-width <code>surface0</code> band</em> with an outlined pill, subtitle, and right-aligned status badges; and a <em>status-colored card</em> with an identity tab on the top edge for each item below. The list view collapses per-stage detail into a single horizontal progress strip so the surface scales to many stages without losing scannability.
+      </p>
+
+      <div class="palette">
+        <span class="swatch"><i style="background:#1e1e2e"></i> base (canvas)</span>
+        <span class="swatch"><i style="background:#313244"></i> surface0 (band)</span>
+        <span class="swatch"><i style="background:#89b4fa"></i> blue (live)</span>
+        <span class="swatch"><i style="background:#cba6f7"></i> mauve (catalogue)</span>
+        <span class="swatch"><i style="background:#a6e3a1"></i> success</span>
+        <span class="swatch"><i style="background:#f9e2af"></i> running</span>
+        <span class="swatch"><i style="background:#f38ba8"></i> error</span>
+        <span class="swatch"><i style="background:#7f849c"></i> killed / idle</span>
+      </div>
+
+      <!-- ============================================================
+           §1  DISPATCHED — after `/workflow <name> ...`
+      ============================================================ -->
+      <h2><span class="num">§1</span> after <code class="blue">/workflow run</code> — start confirmation</h2>
+      <p class="lede">
+        Current output stacks three restatements (a <code>✓ Workflow started</code> banner with plain-text hints, then a one-row <code>BACKGROUND</code> band that re-shows the same run). Redesign folds the confirmation into a single full-width <code>DISPATCHED</code> band — same pattern as the orchestrator panel header — with inputs in their canonical form and two next-step hints below.
+      </p>
+
+      <div class="row">
+        <div>
+          <div class="label before">▼ before — 6 lines, three restatements</div>
+          <div class="terminal">
+            <pre><span class="green">✓</span> <span class="b text">submitted</span>  <span class="faint">·</span>  <span class="dim">/workflow deep-research-codebase prompt=&quot;map the codebase&quot; max_partitions=4</span>
+
+<span class="green">✓</span> <span class="text">Workflow &quot;deep-research-codebase&quot; started</span>   <span class="muted">runId 0391c9c1</span>
+  <span class="muted">attach</span>   <span class="blue">/workflow connect 0391c9c1</span>
+  <span class="muted">monitor</span>  <span class="blue">/workflow status</span></pre>
+            <span class="band"><span class="blue b">[ BACKGROUND ]</span>  <span class="muted">1 run</span>                                          <span class="yellow">● 1</span></span>
+            <pre>   <span class="yellow">●</span>  <span class="blue">0391c9</span>  <span class="b text">deep-research-codebase</span>  <span class="yellow">running   </span><span class="muted">single · 0/1 · 0s</span></pre>
+          </div>
+          <p class="note"><span class="k">issues</span> · echoes the command we just typed · duplicates run identity across three places · plain-text hint lines drift away from the brand chrome</p>
+        </div>
+
+        <div>
+          <div class="label after">▶ after — one full-width band, one card</div>
+          <div class="terminal">
+            <pre><span class="green">✓</span> <span class="b text">submitted</span>  <span class="faint">·</span>  <span class="dim">/workflow deep-research-codebase</span></pre>
+            <span class="band"><span class="blue b">[ DISPATCHED ]</span>  <span class="muted">deep-research-codebase</span>                       <span class="yellow">●</span> <span class="muted">running</span></span>
+            <div class="card yellow">
+              <span class="stripe"></span>
+              <div class="body"><span class="tag">0391c9c1</span><span class="muted">run id</span>
+   <span class="muted">inputs</span>    <span class="text">prompt</span><span class="faint">=</span><span class="text">&quot;map the codebase&quot;</span>  <span class="faint">·</span>  <span class="text">max_partitions</span><span class="faint">=</span><span class="text">4</span>
+   <span class="muted">mode</span>      <span class="text">chain</span>  <span class="faint">·</span>  <span class="muted">starting…</span></div>
+            </div>
+            <div class="hints">
+              <div class="row-line"><span class="arrow">▸</span> <span class="cmd">/workflow connect 0391c9c1</span> <span class="hint">attach &amp; watch</span></div>
+              <div class="row-line"><span class="arrow">▸</span> <span class="cmd">/workflow status</span> <span class="hint">list in-flight runs</span></div>
+            </div>
+          </div>
+          <p class="note"><span class="k">why</span> · one event = one band · run identity rendered exactly once (the runId tab on the card) · hint grammar matches the orchestrator's bottom toolbar</p>
+        </div>
+      </div>
+
+      <!-- ============================================================
+           §2  /workflow status — list
+      ============================================================ -->
+      <h2><span class="num">§2</span> <code class="blue">/workflow status</code> — list of runs</h2>
+      <p class="lede">
+        Current layout uses indented stage rows under each run header. Five runs × six stages = thirty stage rows mixed in with five run rows; the eye cannot tell where one run ends and the next begins. Redesign replaces the indented stage list with a per-run <em>card</em> (status-colored stripe, runId tab, two body rows) and a horizontal <em>progress strip</em>; full per-stage detail moves into <code>/workflow status &lt;id&gt;</code>.
+      </p>
+
+      <div class="row">
+        <div>
+          <div class="label before">▼ before — 2 runs, 3 stages, already busy</div>
+          <div class="terminal">
+            <pre><span class="text">/workflow status</span></pre>
+            <span class="band"><span class="blue b">[ BACKGROUND ]</span>  <span class="muted">2 runs</span>                                          <span class="red">⊘ 2</span></span>
+            <pre>
+   <span class="red">⊘</span>  <span class="blue">939629</span>  <span class="b text">deep-research-codebase</span>  <span class="red">killed    </span><span class="muted">single · 8s ago</span>
+     <span class="red">✗</span> <span class="text">scout       </span>  <span class="red">failed    </span>          <span class="dim">6s</span>
+   <span class="red">⊘</span>  <span class="blue">0391c9</span>  <span class="b text">deep-research-codebase</span>  <span class="red">killed    </span><span class="muted">chain · 2/2 · 4m24s ago</span>
+     <span class="green">✓</span> <span class="text">scout       </span>  <span class="green">completed </span>          <span class="dim">22s</span>
+     <span class="red">✗</span> <span class="text">partition   </span>  <span class="red">failed    </span>          <span class="dim">0s</span>
+
+   <span class="dim">▸</span> <span class="blue">workflow status id=939629</span>  <span class="dim">for detail</span></pre>
+          </div>
+          <p class="note"><span class="k">issues</span> · run header and stages share the same indent + glyph alphabet → no visual grouping · scales linearly with stage count · five 8-stage chains = 40+ rows</p>
+        </div>
+
+        <div>
+          <div class="label after">▶ after — one card per run, status-coloured stripe</div>
+          <div class="terminal">
+            <pre><span class="text">/workflow status</span></pre>
+            <span class="band"><span class="blue b">[ BACKGROUND ]</span>  <span class="muted">2 runs</span>                                          <span class="red">⊘ 2</span></span>
+            <div class="card red">
+              <span class="stripe"></span>
+              <div class="body"><span class="tag">939629</span><span class="b text">deep-research-codebase</span>                          <span class="red">⊘ killed</span>
+   <span class="muted">single</span>    <span class="red">[✗]</span>                                       <span class="dim">scout · 6s · 8s ago</span></div>
+            </div>
+            <div class="card red">
+              <span class="stripe"></span>
+              <div class="body"><span class="tag">0391c9</span><span class="b text">deep-research-codebase</span>                          <span class="red">⊘ killed</span>
+   <span class="muted">chain </span>    <span class="green">[✓]</span><span class="red">[✗]</span>                                    <span class="dim">failed at partition · 4m24s ago</span></div>
+            </div>
+            <div class="hints">
+              <div class="row-line"><span class="arrow">▸</span> <span class="cmd">/workflow status 939629</span> <span class="hint">drill into a run</span></div>
+            </div>
+          </div>
+          <p class="note"><span class="k">why</span> · each card is two rows + a colored stripe — identity, then progress strip + meta · runId sits in a <code>surface0</code> tab on the stripe, mirroring the orchestrator's stage-tab pattern · status color is carried by frame + badge, not text shading</p>
+        </div>
+      </div>
+
+      <h2 style="margin-top:2.6rem"><span class="num">§2b</span> stress test — many stages, mixed states</h2>
+      <p class="lede">
+        Where the current layout falls apart. Same surface, four runs, two of them with 8-stage chains.
+      </p>
+
+      <div class="row">
+        <div>
+          <div class="label before">▼ before — 4 runs × up to 8 stages = wall</div>
+          <div class="terminal">
+            <pre><span class="text">/workflow status</span></pre>
+            <span class="band"><span class="blue b">[ BACKGROUND ]</span>  <span class="muted">4 runs</span>                            <span class="green">✓ 1</span>  <span class="yellow">● 1</span>  <span class="red">⊘ 2</span></span>
+            <pre>
+   <span class="yellow">●</span>  <span class="blue">a18f30</span>  <span class="b text">ship-feature        </span>  <span class="yellow">running   </span><span class="muted">chain · 3/8 · 1m42s</span>
+     <span class="green">✓</span> <span class="text">planner     </span>  <span class="green">completed </span>          <span class="dim">2.1s</span>
+     <span class="green">✓</span> <span class="text">build       </span>  <span class="green">completed </span>          <span class="dim">12.4s</span>
+     <span class="green">✓</span> <span class="text">test        </span>  <span class="green">completed </span>          <span class="dim">31.2s</span>
+     <span class="yellow">●</span> <span class="text">review-a    </span>  <span class="yellow">running   </span><span class="muted">codex · 18s   </span><span class="dim">20.4s</span>
+     <span class="yellow">●</span> <span class="text">review-b    </span>  <span class="yellow">running   </span><span class="muted">claude · 14s  </span><span class="dim">17.9s</span>
+     <span class="dim">○</span> <span class="text">merge       </span>  <span class="dim">pending   </span>          <span class="dim">—</span>
+     <span class="dim">○</span> <span class="text">deploy      </span>  <span class="dim">pending   </span>          <span class="dim">—</span>
+     <span class="dim">○</span> <span class="text">smoke       </span>  <span class="dim">pending   </span>          <span class="dim">—</span>
+   <span class="green">✓</span>  <span class="blue">5b91ee</span>  <span class="b text">open-claude-design  </span>  <span class="green">completed </span><span class="muted">single · 18s ago</span>
+     <span class="green">✓</span> <span class="text">primer      </span>  <span class="green">completed </span>          <span class="dim">11.3s</span>
+   <span class="red">⊘</span>  <span class="blue">939629</span>  <span class="b text">deep-research-codeb…</span>  <span class="red">killed    </span><span class="muted">single · 8s ago</span>
+     <span class="red">✗</span> <span class="text">scout       </span>  <span class="red">failed    </span>          <span class="dim">6s</span>
+   <span class="red">⊘</span>  <span class="blue">0391c9</span>  <span class="b text">deep-research-codeb…</span>  <span class="red">killed    </span><span class="muted">chain · 2/2 · 4m24s</span>
+     <span class="green">✓</span> <span class="text">scout       </span>  <span class="green">completed </span>          <span class="dim">22s</span>
+     <span class="red">✗</span> <span class="text">partition   </span>  <span class="red">failed    </span>          <span class="dim">0s</span></pre>
+          </div>
+          <p class="note"><span class="k">issues</span> · 17 stage rows compete with 4 run rows · runs no longer stand out · more than one viewport tall</p>
+        </div>
+
+        <div>
+          <div class="label after">▶ after — 4 cards, fits one viewport</div>
+          <div class="terminal">
+            <pre><span class="text">/workflow status</span></pre>
+            <span class="band"><span class="blue b">[ BACKGROUND ]</span>  <span class="muted">4 runs</span>                            <span class="green">✓ 1</span>  <span class="yellow">● 1</span>  <span class="red">⊘ 2</span></span>
+            <div class="card yellow">
+              <span class="stripe"></span>
+              <div class="body"><span class="tag">a18f30</span><span class="b text">ship-feature</span>                                <span class="yellow">● running</span>
+   <span class="muted">chain </span>    <span class="green">[✓]</span><span class="green">[✓]</span><span class="green">[✓]</span><span class="yellow">[●]</span><span class="yellow">[●]</span><span class="dim">[</span><span class="overlay1">○</span><span class="dim">]</span><span class="dim">[</span><span class="overlay1">○</span><span class="dim">]</span><span class="dim">[</span><span class="overlay1">○</span><span class="dim">]</span>            <span class="dim">3/8 · review-a, review-b · 1m42s</span></div>
+            </div>
+            <div class="card green">
+              <span class="stripe"></span>
+              <div class="body"><span class="tag">5b91ee</span><span class="b text">open-claude-design</span>                          <span class="green">✓ completed</span>
+   <span class="muted">single</span>    <span class="green">[✓]</span>                                       <span class="dim">primer · 11.3s · 18s ago</span></div>
+            </div>
+            <div class="card red">
+              <span class="stripe"></span>
+              <div class="body"><span class="tag">939629</span><span class="b text">deep-research-codebase</span>                      <span class="red">⊘ killed</span>
+   <span class="muted">single</span>    <span class="red">[✗]</span>                                       <span class="dim">scout · 6s · 8s ago</span></div>
+            </div>
+            <div class="card red">
+              <span class="stripe"></span>
+              <div class="body"><span class="tag">0391c9</span><span class="b text">deep-research-codebase</span>                      <span class="red">⊘ killed</span>
+   <span class="muted">chain </span>    <span class="green">[✓]</span><span class="red">[✗]</span>                                    <span class="dim">failed at partition · 4m24s ago</span></div>
+            </div>
+            <div class="hints">
+              <div class="row-line"><span class="arrow">▸</span> <span class="cmd">/workflow status a18f30</span> <span class="hint">drill into a run</span></div>
+              <div class="row-line"><span class="arrow">▸</span> <span class="cmd">/workflow status --all</span> <span class="hint">include ended runs older than 1h</span></div>
+            </div>
+          </div>
+          <p class="note"><span class="k">why</span> · two lines / card regardless of stage count · the colored stripe gives an instant aggregate read for the surface · the strip uses ASCII bracket cells so the plain-text fallback (<code>[✓][✗][○]</code>) carries the same shape, just without color</p>
+        </div>
+      </div>
+
+      <!-- ============================================================
+           §3  /workflow list
+      ============================================================ -->
+      <h2><span class="num">§3</span> <code class="blue">/workflow list</code> — registered workflows</h2>
+      <p class="lede">
+        A single comma-joined sentence buries the only thing that matters: what does each workflow do, and what does it expect? Redesign reuses the band-card frame, lists each workflow as a card with name tab, one-line description, and an input signature row. The mauve accent separates <em>catalogue</em> chrome from the blue <em>live-run</em> chrome in §1 / §2.
+      </p>
+
+      <div class="row">
+        <div>
+          <div class="label before">▼ before — comma-joined sentence</div>
+          <div class="terminal">
+            <pre><span class="text">/workflow list</span>
+
+<span class="muted">Registered workflows:</span> <span class="text">deep-research-codebase, open-claude-design, ralph</span></pre>
+          </div>
+          <p class="note"><span class="k">issues</span> · no description · no input hints · no entry path to inputs or run</p>
+        </div>
+
+        <div>
+          <div class="label after">▶ after — branded list, callable</div>
+          <div class="terminal">
+            <pre><span class="text">/workflow list</span></pre>
+            <span class="band"><span class="mauve b">[ WORKFLOWS ]</span>  <span class="muted">3 registered</span></span>
+            <div class="card mauve">
+              <span class="stripe"></span>
+              <div class="body"><span class="tag">deep-research-codebase</span>
+   <span class="muted">Partitioned, parallel research across a codebase.</span>
+   <span class="dim">inputs</span>    <span class="text">prompt</span>  <span class="faint">·</span>  <span class="text">max_partitions</span><span class="dim">?</span></div>
+            </div>
+            <div class="card mauve">
+              <span class="stripe"></span>
+              <div class="body"><span class="tag">open-claude-design</span>
+   <span class="muted">Open Claude Code primed with the impeccable design skill.</span>
+   <span class="dim">inputs</span>    <span class="text">target</span></div>
+            </div>
+            <div class="card mauve">
+              <span class="stripe"></span>
+              <div class="body"><span class="tag">ralph</span>
+   <span class="muted">Ralph-the-rabbit improvement loop until an exit condition trips.</span>
+   <span class="dim">inputs</span>    <span class="text">prompt</span>  <span class="faint">·</span>  <span class="text">iterations</span><span class="dim">?</span></div>
+            </div>
+            <div class="hints">
+              <div class="row-line"><span class="arrow">▸</span> <span class="cmd">/workflow &lt;name&gt; …</span> <span class="hint">run a workflow</span></div>
+              <div class="row-line"><span class="arrow">▸</span> <span class="cmd">/workflow inputs &lt;name&gt;</span> <span class="hint">inspect input schema</span></div>
+            </div>
+          </div>
+          <p class="note"><span class="k">why</span> · description and signature on the surface, not buried behind a second command · mauve stripe = catalogue (vs blue live runs) so the surfaces stay distinct when stacked in chat history</p>
+        </div>
+      </div>
+
+      <!-- ============================================================
+           §4  Edge cases — truncation
+      ============================================================ -->
+      <h2><span class="num">§4</span> edge cases — truncation</h2>
+      <p class="lede">
+        Inputs, descriptions, and identifiers can be arbitrarily long; the card must hold its shape. All overflow uses the single-character ellipsis <code>…</code> (never <code>...</code>) and never wraps onto a second line of the same field. Truncation policy varies by field so the surviving portion is the most useful slice.
+      </p>
+
+      <div class="row">
+        <div>
+          <div class="label after">▶ §1 dispatched — long &amp; many inputs</div>
+          <div class="terminal">
+            <pre><span class="green">✓</span> <span class="b text">submitted</span>  <span class="faint">·</span>  <span class="dim">/workflow ship-feature</span></pre>
+            <span class="band"><span class="blue b">[ DISPATCHED ]</span>  <span class="muted">enterprise-deep-research-codebase-with-multi-stage-fan…</span>            <span class="yellow">●</span> <span class="muted">running</span></span>
+            <div class="card yellow">
+              <span class="stripe"></span>
+              <div class="body"><span class="tag">7c4a91bf</span><span class="muted">run id</span>
+   <span class="muted">inputs</span>    <span class="text">prompt</span><span class="faint">=</span><span class="text">&quot;map every TypeScript file in the codebase, focu…&quot;</span>
+             <span class="text">model</span><span class="faint">=</span><span class="text">&quot;claude-opus-4&quot;</span>  <span class="faint">·</span>  <span class="text">max_partitions</span><span class="faint">=</span><span class="text">12</span>  <span class="dim">·</span>  <span class="dim b">+3 more</span>
+   <span class="muted">mode</span>      <span class="text">chain</span>  <span class="faint">·</span>  <span class="muted">starting…</span></div>
+            </div>
+            <div class="hints">
+              <div class="row-line"><span class="arrow">▸</span> <span class="cmd">/workflow inputs 7c4a91bf</span> <span class="hint">show full input values</span></div>
+              <div class="row-line"><span class="arrow">▸</span> <span class="cmd">/workflow connect 7c4a91bf</span> <span class="hint">attach &amp; watch</span></div>
+            </div>
+          </div>
+          <p class="note"><span class="k">policy</span> · long workflow name → end-ellipsis in subtitle · long single value → truncate inside the quotes, keep closing <code>"</code> · &gt;3 inputs → first 3 inline, rest collapsed to <code>+N more</code> · drill via <code>/workflow inputs &lt;id&gt;</code></p>
+        </div>
+
+        <div>
+          <div class="label after">▶ §2 status — long workflow + stage names</div>
+          <div class="terminal">
+            <pre><span class="text">/workflow status</span></pre>
+            <span class="band"><span class="blue b">[ BACKGROUND ]</span>  <span class="muted">2 runs</span>                                          <span class="yellow">● 1</span>  <span class="red">⊘ 1</span></span>
+            <div class="card yellow">
+              <span class="stripe"></span>
+              <div class="body"><span class="tag">7c4a91</span><span class="b text">enterprise-deep-research-codebase-with-mu…</span>      <span class="yellow">● running</span>
+   <span class="muted">chain </span>    <span class="green">[✓]</span><span class="green">[✓]</span><span class="yellow">[●]</span><span class="dim">[</span><span class="overlay1">○</span><span class="dim">]</span><span class="dim">[</span><span class="overlay1">○</span><span class="dim">]</span><span class="dim">[</span><span class="overlay1">○</span><span class="dim">]</span><span class="dim">[</span><span class="overlay1">○</span><span class="dim">]</span><span class="dim">[</span><span class="overlay1">○</span><span class="dim">]</span><span class="dim">[</span><span class="overlay1">○</span><span class="dim">]</span><span class="dim">[</span><span class="overlay1">○</span><span class="dim">]</span><span class="dim">[</span><span class="overlay1">○</span><span class="dim">]</span><span class="dim">[</span><span class="overlay1">○</span><span class="dim">]</span>     <span class="dim">3/12 · cross-repo-analy… · 1m42s</span></div>
+            </div>
+            <div class="card red">
+              <span class="stripe"></span>
+              <div class="body"><span class="tag">939629</span><span class="b text">deep-research-codebase</span>                          <span class="red">⊘ killed</span>
+   <span class="muted">single</span>    <span class="red">[✗]</span>                                       <span class="dim">scout-and-partition… · 6s · 8s ago</span></div>
+            </div>
+            <div class="hints">
+              <div class="row-line"><span class="arrow">▸</span> <span class="cmd">/workflow status 7c4a91</span> <span class="hint">full stage names + durations</span></div>
+            </div>
+          </div>
+          <p class="note"><span class="k">policy</span> · workflow name and stage label both end-truncate · progress strip <em>never</em> truncates — the cells are the truth · runId tag is fixed at 6 chars, so the tag width is constant regardless of input</p>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:1.5rem">
+        <div>
+          <div class="label after">▶ §3 list — long descriptions</div>
+          <div class="terminal">
+            <pre><span class="text">/workflow list</span></pre>
+            <span class="band"><span class="mauve b">[ WORKFLOWS ]</span>  <span class="muted">2 registered</span></span>
+            <div class="card mauve">
+              <span class="stripe"></span>
+              <div class="body"><span class="tag">enterprise-deep-research-codebase-with-multi-stage…</span>
+   <span class="muted">Partitioned, parallel research across a large codebase with specialist sub-agents fanning…</span>
+   <span class="dim">inputs</span>    <span class="text">prompt</span>  <span class="faint">·</span>  <span class="text">max_partitions</span><span class="dim">?</span>  <span class="faint">·</span>  <span class="text">model</span><span class="dim">?</span>  <span class="faint">·</span>  <span class="dim b">+2 more</span></div>
+            </div>
+            <div class="card mauve">
+              <span class="stripe"></span>
+              <div class="body"><span class="tag">ralph</span>
+   <span class="muted">Ralph-the-rabbit improvement loop until an exit condition trips.</span>
+   <span class="dim">inputs</span>    <span class="text">prompt</span>  <span class="faint">·</span>  <span class="text">iterations</span><span class="dim">?</span></div>
+            </div>
+            <div class="hints">
+              <div class="row-line"><span class="arrow">▸</span> <span class="cmd">/workflow inputs &lt;name&gt;</span> <span class="hint">full description + input schema</span></div>
+            </div>
+          </div>
+          <p class="note"><span class="k">policy</span> · description truncates at end-of-line · workflow name in tag also end-truncates · &gt;4 inputs → first 3 inline, rest as <code>+N more</code> · full text always reachable via <code>/workflow inputs &lt;name&gt;</code></p>
+        </div>
+
+        <div>
+          <div class="label after">▶ narrow terminal — 60 columns</div>
+          <div class="terminal" style="max-width: 60ch">
+            <pre><span class="text">/workflow status</span></pre>
+            <span class="band"><span class="blue b">[ BACKGROUND ]</span>  <span class="muted">2 runs</span>               <span class="yellow">● 1</span>  <span class="red">⊘ 1</span></span>
+            <div class="card yellow">
+              <span class="stripe"></span>
+              <div class="body"><span class="tag">7c4a91</span><span class="b text">enterprise-deep-resear…</span>  <span class="yellow">● running</span>
+   <span class="muted">chain </span>    <span class="green">[✓]</span><span class="green">[✓]</span><span class="yellow">[●]</span><span class="dim">[</span><span class="overlay1">○</span><span class="dim">]</span><span class="dim">[</span><span class="overlay1">○</span><span class="dim">]</span>…       <span class="dim">3/12 · 1m42s</span></div>
+            </div>
+            <div class="card red">
+              <span class="stripe"></span>
+              <div class="body"><span class="tag">939629</span><span class="b text">deep-research-codebase</span>  <span class="red">⊘ killed</span>
+   <span class="muted">single</span>    <span class="red">[✗]</span>                       <span class="dim">scout · 6s ago</span></div>
+            </div>
+            <div class="hints">
+              <div class="row-line"><span class="arrow">▸</span> <span class="cmd">/workflow status 7c4a91</span> <span class="hint">drill in</span></div>
+            </div>
+          </div>
+          <p class="note"><span class="k">policy</span> · width responds to <code>process.stdout.columns</code> · progress strip itself truncates with a trailing <code>…</code> when the run has more stages than fit · meta label drops second-tier detail first (loses stage names, keeps fraction + duration)</p>
+        </div>
+      </div>
+
+      <hr />
+
+      <!-- ============================================================
+           Notes
+      ============================================================ -->
+      <h2 style="margin-top:0"><span class="num">§5</span> notes &amp; implementation</h2>
+      <ul style="color: var(--subtext0); font-size: 0.82rem; line-height: 1.75; padding-left: 1.2rem;">
+        <li>
+          <b>Full-width bands</b> — the chat surface in pi paints each line with <code>customMessageBg</code>; the redesigned band emits a <code>surface0</code> fill that spans the line and a left-anchored outline pill. Implementation: a single <code>renderBand({ label, subtitle, badges, totalWidth })</code> helper replaces the current 64-cell <code>renderBandHeader</code>. Total width is read from <code>process.stdout.columns</code> (or a passed width on overlay surfaces).
+        </li>
+        <li>
+          <b>Status cards</b> — each card has a 1-cell coloured stripe (status family) on the left, a <code>surface0</code> <em>tag</em> on the top edge carrying the runId / workflow name, and a body of one or two indented rows. No top/bottom frame chars, so cards stack densely without becoming a wall of <code>╭─╮</code>.
+        </li>
+        <li>
+          <b>Progress strip</b> — one bracketed cell per stage <code>[✓] [●] [○]</code>, coloured by state. At very wide fan-outs the strip wraps; the trailing <span class="dim">dim italic</span> always names the meaningful stage (current activity, failure point), so the wrap stays decorative.
+        </li>
+        <li>
+          <b>Truncation</b> — uses <code>truncateToWidth(str, n, "…")</code> from <code>@earendil-works/pi-tui</code> (already a dep). Per-field budgets: <em>workflow name</em> 40 cells; <em>description</em> the rest of the row after <code>tag + 2 + status badge</code>; <em>single input value</em> half the row, with the closing quote preserved; <em>input list</em> 3 inline pairs then <code>+N more</code>; <em>stage activity label</em> 24 cells. Budgets shrink proportionally when <code>process.stdout.columns &lt; 80</code>.
+        </li>
+        <li>
+          <b>Hint rows</b> — one grammar everywhere: <code>▸&nbsp;&nbsp;<span class="blue">/slash command</span>&nbsp;&nbsp;<span class="dim">verb-phrase hint</span></code>. Echoes the orchestrator's bottom toolbar (<code>↵ attach · / stages · q quit</code>).
+        </li>
+        <li>
+          <b>Plain-text fallback</b> — bands collapse to <code>▎ BACKGROUND  2 runs   ⊘ 2</code> on uncoloured terminals; the card stripe degrades to <code>│</code>; the strip uses bare ASCII <code>[✓][✗][○]</code>. Same shape, no color.
+        </li>
+        <li>
+          <b>Surfaces</b> — bands and cards are emitted from <code>renderResult()</code> in <code>src/extension/render-result.ts</code>, which already returns a multi-line string. No new surface contract is required to land this — only the renderer functions in <code>src/tui/status-list.ts</code> and <code>src/tui/run-detail.ts</code> change.
+        </li>
+      </ul>
+    </div>
+  </body>
+</html>

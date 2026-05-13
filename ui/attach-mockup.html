@@ -1,0 +1,842 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>omp · attach interaction · two-step infographic</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      /* Catppuccin Mocha — DESIGN.md §2 tokens. */
+      :root {
+        --crust: #11111b;
+        --mantle: #181825;
+        --base: #1e1e2e;
+        --surface0: #313244;
+        --surface1: #45475a;
+        --surface2: #585b70;
+        --overlay0: #6c7086;
+        --overlay1: #7f849c;
+        --text: #cdd6f4;
+        --subtext0: #a6adc8;
+        --blue: #89b4fa;
+        --blue-deep: #5d8cf0;
+        --green: #a6e3a1;
+        --yellow: #f9e2af;
+        --red: #f38ba8;
+        --mauve: #cba6f7;
+        --sky: #89dceb;
+        --teal: #94e2d5;
+        --pink: #f5c2e7;
+      }
+      * { box-sizing: border-box; }
+
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: var(--mantle);
+        color: var(--text);
+        font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+        font-size: 13px;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+        font-feature-settings: "calt" 1, "liga" 0;
+      }
+      body { overflow-x: hidden; }
+
+      /* =============================================================
+         Story container — vertical scroll, infographic flow.
+         ============================================================= */
+      .story { display: flex; flex-direction: column; }
+
+      /* =============================================================
+         Step header — big numbered badge + title/subtitle.
+         ============================================================= */
+      .step-header {
+        display: flex;
+        align-items: center;
+        gap: 1.2rem;
+        padding: 1.5rem 1.5rem 1rem;
+      }
+      .step-num {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.8rem;
+        height: 2.8rem;
+        background: var(--base);
+        border: 1px solid var(--surface1);
+        border-radius: 8px;
+        color: var(--blue);
+        font-weight: 800;
+        font-size: 18px;
+        letter-spacing: -0.02em;
+        font-family: inherit;
+        flex-shrink: 0;
+      }
+      .step-header .meta { display: flex; flex-direction: column; min-width: 0; }
+      .step-header .title {
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--text);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        margin: 0;
+        line-height: 1.4;
+      }
+      .step-header .sub {
+        font-size: 12px;
+        color: var(--overlay1);
+        letter-spacing: 0.02em;
+        margin: 0.1rem 0 0;
+      }
+      .step-header .sub .h { color: var(--subtext0); }
+
+      .page {
+        min-height: calc(100vh - 6rem);
+        display: grid;
+        grid-template-rows: auto 1fr auto auto;
+        position: relative;
+      }
+
+      /* =============================================================
+         omp window — rounded popup, shared chrome both pages,
+         only the interior content differs.
+         ============================================================= */
+      .omp-frame {
+        position: relative;
+        padding: 0 14px;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .chrome-tag {
+        position: absolute;
+        top: -0.6em;
+        left: 28px;
+        z-index: 2;
+        background: var(--mantle);
+        color: var(--subtext0);
+        padding: 0 0.55em;
+        font-size: 11.5px;
+        letter-spacing: 0.02em;
+      }
+      .chrome-tag .sub { color: var(--overlay0); margin-left: 0.6ch; }
+      .chrome-tag .here { color: var(--blue); font-weight: 700; margin-left: 0.6ch; }
+
+      .omp-window {
+        flex: 1;
+        position: relative;
+        background: var(--base);
+        border: 1px solid var(--overlay0);
+        border-radius: 10px;
+        overflow: hidden;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+      }
+
+      /* =============================================================
+         In-chat back affordance — corner pill on page 2's omp window.
+         Lives inside the popup so back path is discoverable without
+         leaving the chat.
+         ============================================================= */
+      .back-pill {
+        position: absolute;
+        top: 11px;
+        right: 14px;
+        z-index: 3;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.7ch;
+        padding: 0.2rem 0.7rem 0.2rem 0.3rem;
+        background: var(--mantle);
+        border: 1px solid var(--surface1);
+        border-radius: 999px;
+        font-size: 11px;
+        color: var(--subtext0);
+      }
+      .back-pill .kc {
+        background: var(--surface0);
+        color: var(--text);
+        padding: 0.05rem 0.55em;
+        border-radius: 4px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        font-size: 10.5px;
+      }
+      .back-pill .lbl { color: var(--overlay1); padding-right: 0.1ch; }
+      .back-pill .arrow { color: var(--surface2); }
+
+      /* =============================================================
+         Atoms.
+         ============================================================= */
+      .band {
+        background: var(--surface0);
+        padding: 0.5rem 1rem;
+        display: flex;
+        align-items: center;
+        gap: 1ch;
+        font-size: 12px;
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+      .band .right {
+        margin-left: auto;
+        display: flex;
+        gap: 1.2ch;
+        color: var(--subtext0);
+      }
+      .pill-outline {
+        display: inline-flex;
+        align-items: center;
+        padding: 0 0.6em;
+        border: 1px solid currentColor;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        font-size: 11px;
+        line-height: 1.5;
+        border-radius: 3px;
+        color: var(--blue);
+      }
+      .pill-solid {
+        display: inline-flex;
+        align-items: center;
+        padding: 0 0.6em;
+        background: var(--blue);
+        color: var(--surface0);
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        font-size: 11px;
+        line-height: 1.5;
+        border-radius: 3px;
+      }
+      .hints {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1.1ch;
+        align-items: baseline;
+        color: var(--overlay1);
+        font-size: 11.5px;
+      }
+      .hints .key { color: var(--text); font-weight: 700; }
+      .hints .lbl { color: var(--subtext0); }
+      .hints .sep { color: var(--surface2); padding: 0 0.1ch; }
+
+      /* =============================================================
+         PAGE 1 INTERIOR — orchestrator.
+         ============================================================= */
+      .orch-pane {
+        flex: 1;
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        min-height: 0;
+      }
+      .dag {
+        position: relative;
+        padding: 2rem 1.5rem;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 2.4rem;
+        overflow: hidden;
+      }
+      .dag .layer { display: flex; gap: 5rem; position: relative; z-index: 1; }
+      .dag-svg { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
+      .node {
+        position: relative;
+        background: var(--base);
+        border: 1px solid currentColor;
+        border-radius: 8px;
+        padding: 1.1rem 2.4rem 0.85rem;
+        min-width: 180px;
+        text-align: center;
+        color: var(--overlay0);
+      }
+      .node .tab {
+        position: absolute;
+        top: -0.55em;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--base);
+        padding: 0 0.55em;
+        color: var(--subtext0);
+        font-weight: 500;
+        font-size: 12px;
+        letter-spacing: 0.02em;
+      }
+      .node .duration { font-size: 16px; color: currentColor; }
+      .node.complete { color: var(--green); }
+      .node.complete .duration { color: var(--green); }
+      .node.running { color: var(--yellow); }
+      .node.running .duration { color: var(--yellow); }
+      .node.pending { color: var(--surface2); }
+      .node.pending .duration { color: var(--overlay0); }
+      .node.cursor .tab {
+        color: var(--blue);
+        border: 1px solid var(--blue);
+        border-radius: 3px;
+        padding: 0 0.55em;
+        background: var(--base);
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        top: calc(-0.55em - 1px);
+      }
+      .node.cursor .tab::before { content: "▸ "; font-weight: 700; }
+
+      /* =============================================================
+         FLOW — infographic transitions with big keyboard caps.
+         ============================================================= */
+      .flow {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.55rem;
+        padding: 3rem 1rem 3rem;
+      }
+      .flow .arrow {
+        font-size: 22px;
+        color: var(--surface2);
+        line-height: 1;
+        letter-spacing: 0;
+      }
+      .flow .caption {
+        margin-top: 0.4rem;
+        font-size: 12px;
+        color: var(--subtext0);
+        text-align: center;
+        max-width: 56ch;
+        line-height: 1.65;
+      }
+      .flow .caption .target { color: var(--text); font-weight: 700; }
+      .flow .caption .verb { color: var(--overlay1); }
+
+      /* Physical-key cap — single character/word inside a 3D-feeling box. */
+      .kbd {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.45ch;
+        padding: 0.55em 0.95em;
+        min-width: 2.8em;
+        background: linear-gradient(180deg, var(--surface1) 0%, var(--surface0) 100%);
+        border: 1px solid var(--surface2);
+        border-bottom: 2px solid var(--overlay0);
+        border-radius: 7px;
+        color: var(--text);
+        font-weight: 700;
+        font-size: 15px;
+        font-family: inherit;
+        letter-spacing: 0.02em;
+        line-height: 1;
+        box-shadow:
+          0 1px 0 rgba(255, 255, 255, 0.04) inset,
+          0 0 0 1px var(--surface0) inset,
+          0 3px 7px rgba(0, 0, 0, 0.35);
+      }
+      .kbd .glyph { font-size: 18px; letter-spacing: 0; }
+      .kbd.wide { padding-left: 1.5em; padding-right: 1.5em; }
+
+      /* Primary (forward) — Enter key, blue accent. */
+      .kbd.primary {
+        background: linear-gradient(180deg, var(--blue) 0%, #7aa6f5 100%);
+        border: 1px solid #7aa6f5;
+        border-bottom: 2px solid var(--blue-deep);
+        color: var(--surface0);
+        font-weight: 800;
+        box-shadow:
+          0 1px 0 rgba(255, 255, 255, 0.22) inset,
+          0 0 0 1px rgba(255, 255, 255, 0.06) inset,
+          0 3px 10px rgba(98, 152, 240, 0.35),
+          0 3px 7px rgba(0, 0, 0, 0.35);
+      }
+      .kbd.primary .glyph { color: var(--surface0); }
+
+      /* =============================================================
+         PAGE 2 INTERIOR — omp welcome (faithful reproduction of
+         oh-my-pi.png).
+         ============================================================= */
+      .welcome-pane {
+        flex: 1;
+        display: grid;
+        grid-template-columns: minmax(260px, 340px) 1px 1fr;
+        min-height: 0;
+        padding: 1.4rem 1.6rem;
+        gap: 0;
+        align-items: stretch;
+      }
+      .welcome-left {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 0.5rem 2rem 0.5rem 0.5rem;
+        gap: 0.85rem;
+      }
+      .welcome-left h1 {
+        font-size: 14px;
+        font-weight: 700;
+        color: var(--text);
+        text-align: center;
+        margin: 0 0 0.4rem;
+      }
+      .pi-art {
+        font-family: inherit;
+        font-size: 34px;
+        line-height: 0.95;
+        letter-spacing: 0;
+        margin: 0 0 0.5rem;
+        white-space: pre;
+        font-weight: 700;
+        background: linear-gradient(140deg,
+          var(--pink) 0%,
+          var(--mauve) 30%,
+          var(--blue) 65%,
+          var(--sky) 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+        color: transparent;
+      }
+      .agent-name {
+        font-size: 14px;
+        color: var(--text);
+        font-weight: 500;
+        text-align: center;
+        margin: 0;
+      }
+      .agent-provider {
+        font-size: 11.5px;
+        color: var(--overlay1);
+        text-align: center;
+        margin: 0;
+      }
+      .welcome-divider { background: var(--surface0); }
+
+      .welcome-right {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        padding: 0.5rem 0.5rem 0.5rem 2rem;
+        min-width: 0;
+        justify-content: flex-start;
+      }
+      .welcome-right section { padding: 0.4rem 0 1rem; }
+      .welcome-right section + section {
+        border-top: 1px solid var(--surface0);
+        padding-top: 0.95rem;
+      }
+      .welcome-right h3 {
+        color: var(--yellow);
+        font-size: 13px;
+        font-weight: 700;
+        margin: 0 0 0.55rem;
+      }
+      .tip-row,
+      .lsp-row,
+      .session-row {
+        display: grid;
+        gap: 0.9ch;
+        font-size: 12.5px;
+        line-height: 1.75;
+        color: var(--subtext0);
+        align-items: baseline;
+      }
+      .tip-row { grid-template-columns: 1.5ch 1fr; }
+      .tip-row .k { color: var(--text); font-weight: 600; }
+      .lsp-row { grid-template-columns: 1.2ch auto auto; justify-content: start; }
+      .lsp-row .ok { color: var(--green); }
+      .lsp-row .name { color: var(--text); }
+      .lsp-row .ext { color: var(--overlay1); }
+      .session-row { grid-template-columns: 1.2ch 1fr auto; }
+      .session-row .dot { color: var(--overlay0); }
+      .session-row .title { color: var(--subtext0); }
+      .session-row .when { color: var(--overlay1); }
+      .session-row.live .dot { color: var(--yellow); }
+      .session-row.live .title { color: var(--text); font-weight: 600; }
+      .session-row.live .when { color: var(--yellow); }
+
+      /* =============================================================
+         omp chrome — statusline + prompt.
+         ============================================================= */
+      .statusline {
+        background: var(--surface0);
+        padding: 0.4rem 1rem;
+        font-size: 11.5px;
+        display: flex;
+        align-items: center;
+        gap: 1ch;
+        white-space: nowrap;
+        overflow: hidden;
+      }
+      .statusline .pi { color: var(--mauve); font-weight: 700; font-size: 13px; }
+      .statusline .ring { color: var(--green); }
+      .statusline .model { color: var(--text); font-weight: 500; }
+      .statusline .glyph { color: var(--mauve); }
+      .statusline .user { color: var(--subtext0); }
+      .statusline .folder { color: var(--overlay1); }
+      .statusline .path { color: var(--subtext0); }
+      .statusline .branch-icon { color: var(--overlay1); }
+      .statusline .branch { color: var(--green); }
+      .statusline .dirty { color: var(--yellow); }
+      .statusline .untracked { color: var(--blue); }
+      .statusline .budget-icon { color: var(--overlay1); }
+      .statusline .budget { color: var(--overlay1); }
+      .statusline .scissors { color: var(--overlay0); }
+      .statusline .sub-marker { color: var(--overlay1); font-weight: 700; }
+      .statusline .dot-sep { color: var(--surface2); padding: 0 0.1ch; }
+      .statusline .filler {
+        flex: 1;
+        border-top: 1px dotted var(--surface2);
+        margin: 0 0.7rem;
+        height: 0;
+      }
+      .statusline .pane-tag { color: var(--blue); font-weight: 700; }
+
+      .prompt-row {
+        background: var(--mantle);
+        padding: 0.55rem 1rem 0.7rem;
+        font-size: 13px;
+        display: flex;
+        align-items: center;
+        gap: 0.8ch;
+        color: var(--overlay0);
+      }
+      .prompt-row .glyph { color: var(--blue); font-weight: 700; }
+      .prompt-row .cursor {
+        display: inline-block;
+        width: 0.55ch;
+        height: 1.1em;
+        background: var(--text);
+        vertical-align: text-bottom;
+        animation: blink 1.1s steps(2, end) infinite;
+      }
+      @keyframes blink { 50% { opacity: 0; } }
+
+      /* Narrow viewport fallback */
+      @media (max-width: 900px) {
+        .welcome-pane { grid-template-columns: 1fr; gap: 1rem; }
+        .welcome-divider { display: none; }
+        .welcome-right { padding-left: 0; }
+        .welcome-left { padding-right: 0; border-bottom: 1px solid var(--surface0); padding-bottom: 1rem; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="story">
+
+      <!-- ================================================
+           STEP 1 — popup open, orchestrator in view.
+           ================================================ -->
+      <section class="page">
+        <div class="step-header">
+          <span class="step-num">01</span>
+          <div class="meta">
+            <div class="title">Orchestrator open</div>
+            <div class="sub"><span class="h">cursor on review-a</span> · status border yellow, focus tab blue — both signals live at once</div>
+          </div>
+        </div>
+
+        <div class="omp-frame">
+          <span class="chrome-tag">omp v14.9.8 <span class="sub">· ship-feature</span></span>
+          <div class="omp-window">
+            <aside class="orch-pane">
+              <div class="band">
+                <span class="pill-outline">[ ORCHESTRATOR ]</span>
+                <span style="color: var(--subtext0)">ship-feature</span>
+                <span class="right">
+                  <span><span style="color:var(--green)">✓</span> 2</span>
+                  <span><span style="color:var(--yellow)">●</span> 2</span>
+                  <span><span style="color:var(--overlay1)">○</span> 1</span>
+                </span>
+              </div>
+
+              <div class="dag" id="dag1">
+                <svg class="dag-svg" preserveAspectRatio="none"></svg>
+                <div class="layer">
+                  <div class="node complete">
+                    <span class="tab">planner</span>
+                    <div class="duration">2.1s</div>
+                  </div>
+                </div>
+                <div class="layer">
+                  <div class="node complete">
+                    <span class="tab">build</span>
+                    <div class="duration">12.4s</div>
+                  </div>
+                </div>
+                <div class="layer">
+                  <div class="node running cursor">
+                    <span class="tab">review</span>
+                    <div class="duration">20.4s</div>
+                  </div>
+                  <div class="node running">
+                    <span class="tab">review</span>
+                    <div class="duration">17.9s</div>
+                  </div>
+                </div>
+                <div class="layer">
+                  <div class="node pending">
+                    <span class="tab">ship</span>
+                    <div class="duration">—</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="band">
+                <div class="hints">
+                  <span class="pill-solid">[ GRAPH ]</span>
+                  <span class="sep">·</span>
+                  <span><span class="key">↑↓←→</span> <span class="lbl">navigate</span></span>
+                  <span class="sep">·</span>
+                  <span><span class="key">↵</span> <span class="lbl">attach</span></span>
+                  <span class="sep">·</span>
+                  <span><span class="key">/</span> <span class="lbl">stages</span></span>
+                  <span class="sep">·</span>
+                  <span><span class="key">ctrl+d</span> <span class="lbl">detach</span></span>
+                  <span class="sep">·</span>
+                  <span><span class="key">q</span> <span class="lbl">quit</span></span>
+                </div>
+              </div>
+            </aside>
+          </div>
+        </div>
+
+        <div class="statusline">
+          <span class="pi">π</span>
+          <span class="ring">○</span>
+          <span class="model">Opus 4.7</span>
+          <span class="dot-sep">·</span>
+          <span class="glyph">◆</span>
+          <span class="user">xhi</span>
+          <span class="folder">📁</span>
+          <span class="path">~/Documents/projects/github_work/atomic</span>
+          <span class="branch-icon">⎇</span>
+          <span class="branch">refactor/pi-rewrite</span>
+          <span class="dirty">*94</span>
+          <span class="untracked">?10</span>
+          <span class="budget-icon">🪲</span>
+          <span class="budget">0.0%/1M</span>
+          <span class="scissors">✄</span>
+          <span class="sub-marker">(sub)</span>
+          <span class="filler"></span>
+          <span class="pane-tag">pi-workflows-parent-393d4830</span>
+        </div>
+        <div class="prompt-row">
+          <span class="glyph">▎</span>
+          <span class="cursor"></span>
+        </div>
+      </section>
+
+      <!-- ================================================
+           FORWARD FLOW — ↵ Enter attaches.
+           ================================================ -->
+      <div class="flow">
+        <div class="arrow">▼</div>
+        <div class="kbd primary wide">
+          <span class="glyph">↵</span>
+          <span>Enter</span>
+        </div>
+        <div class="caption">
+          attach to <span class="target">review-a</span>
+          <span class="verb"> · swap popup interior to its pi chat, stage profile pre-loaded</span>
+        </div>
+      </div>
+
+      <!-- ================================================
+           STEP 2 — same popup, chat in-place.
+           ================================================ -->
+      <section class="page">
+        <div class="step-header">
+          <span class="step-num">02</span>
+          <div class="meta">
+            <div class="title">Chat in-place</div>
+            <div class="sub"><span class="h">same window · stage profile loaded</span> · only the popup interior swapped — outer chrome is unchanged</div>
+          </div>
+        </div>
+
+        <div class="omp-frame">
+          <span class="chrome-tag">omp v14.9.8 <span class="sub">· ship-feature</span><span class="here">/ review-a</span></span>
+          <div class="omp-window">
+
+            <!-- in-chat back affordance: corner pill, always visible -->
+            <div class="back-pill">
+              <span class="kc">Ctrl+D</span>
+              <span class="arrow">←</span>
+              <span class="lbl">back to graph</span>
+            </div>
+
+            <main class="welcome-pane">
+              <aside class="welcome-left">
+                <h1>Welcome back!</h1>
+                <pre class="pi-art">▟████████▙
+  ██  ██
+  ██  ██
+  ██  ██
+  ██  ██</pre>
+                <p class="agent-name">Codex GPT-5</p>
+                <p class="agent-provider">openai</p>
+              </aside>
+              <div class="welcome-divider"></div>
+              <div class="welcome-right">
+                <section>
+                  <h3>Tips</h3>
+                  <div class="tip-row"><span class="k">?</span><span>for keyboard shortcuts</span></div>
+                  <div class="tip-row"><span class="k">#</span><span>for prompt actions</span></div>
+                  <div class="tip-row"><span class="k">/</span><span>for commands</span></div>
+                  <div class="tip-row"><span class="k">!</span><span>to run bash</span></div>
+                  <div class="tip-row"><span class="k">$</span><span>to run python</span></div>
+                </section>
+                <section>
+                  <h3>LSP Servers</h3>
+                  <div class="lsp-row">
+                    <span class="ok">✓</span>
+                    <span class="name">typescript-language-server</span>
+                    <span class="ext">.ts .tsx .js</span>
+                  </div>
+                </section>
+                <section>
+                  <h3>Recent sessions</h3>
+                  <div class="session-row live">
+                    <span class="dot">●</span>
+                    <span class="title">ship-feature / review-a</span>
+                    <span class="when">just now</span>
+                  </div>
+                  <div class="session-row">
+                    <span class="dot">●</span>
+                    <span class="title">Untitled · 12:34 PM</span>
+                    <span class="when">(9m ago)</span>
+                  </div>
+                  <div class="session-row">
+                    <span class="dot">●</span>
+                    <span class="title">Fix Orchestrator Pane Hide Command</span>
+                    <span class="when">(32m ago)</span>
+                  </div>
+                  <div class="session-row">
+                    <span class="dot">●</span>
+                    <span class="title">Fix UI Spacing and Responsiveness</span>
+                    <span class="when">(52m ago)</span>
+                  </div>
+                </section>
+              </div>
+            </main>
+          </div>
+        </div>
+
+        <div class="statusline">
+          <span class="pi">π</span>
+          <span class="ring">○</span>
+          <span class="model">GPT-5</span>
+          <span class="dot-sep">·</span>
+          <span class="glyph">◆</span>
+          <span class="user">xhi</span>
+          <span class="folder">📁</span>
+          <span class="path">~/Documents/projects/github_work/atomic</span>
+          <span class="branch-icon">⎇</span>
+          <span class="branch">refactor/pi-rewrite</span>
+          <span class="dirty">*94</span>
+          <span class="untracked">?10</span>
+          <span class="budget-icon">🪲</span>
+          <span class="budget">1.2%/1M</span>
+          <span class="scissors">✄</span>
+          <span class="sub-marker">(sub)</span>
+          <span class="filler"></span>
+          <span class="pane-tag">pi-workflows/ship-feature/review-a</span>
+        </div>
+        <div class="prompt-row">
+          <span class="glyph">▎</span>
+          <span class="cursor"></span>
+        </div>
+      </section>
+
+      <!-- ================================================
+           BACKWARD FLOW — Ctrl+D detaches the sub-pane.
+           ================================================ -->
+      <div class="flow">
+        <div class="arrow">▲</div>
+        <div class="kbd"><span>Ctrl+D</span></div>
+        <div class="caption">
+          detach <span class="verb">·</span> popup interior swaps back to the orchestrator <span class="verb">·</span> cursor still on <span class="target">review-a</span>, ready to re-attach
+        </div>
+      </div>
+    </div>
+
+    <script>
+      /* DAG connectors drawn from real geometry so they always meet
+         the nodes — no hardcoded path coordinates. */
+      const SVG_NS = "http://www.w3.org/2000/svg";
+      const STROKE = "#585b70";
+
+      function drawConnectors(containerSel, svgSel, nodeSel) {
+        const container = document.querySelector(containerSel);
+        const svg = document.querySelector(svgSel);
+        if (!container || !svg) return;
+        const crect = container.getBoundingClientRect();
+        svg.setAttribute("viewBox", `0 0 ${crect.width} ${crect.height}`);
+        svg.setAttribute("width", crect.width);
+        svg.setAttribute("height", crect.height);
+        const layers = [...container.querySelectorAll(":scope > .layer")].map((layer) =>
+          [...layer.querySelectorAll(nodeSel)].map((node) => {
+            const r = node.getBoundingClientRect();
+            return {
+              cx: (r.left + r.right) / 2 - crect.left,
+              top: r.top - crect.top,
+              bottom: r.bottom - crect.top,
+            };
+          })
+        );
+        while (svg.firstChild) svg.removeChild(svg.firstChild);
+        const addPath = (d) => {
+          const p = document.createElementNS(SVG_NS, "path");
+          p.setAttribute("d", d);
+          p.setAttribute("stroke", STROKE);
+          p.setAttribute("stroke-width", "1");
+          p.setAttribute("fill", "none");
+          svg.appendChild(p);
+        };
+        for (let i = 0; i < layers.length - 1; i++) {
+          const upper = layers[i];
+          const lower = layers[i + 1];
+          if (!upper.length || !lower.length) continue;
+          const upperBottom = Math.max(...upper.map((n) => n.bottom));
+          const lowerTop = Math.min(...lower.map((n) => n.top));
+          const midY = (upperBottom + lowerTop) / 2;
+          if (upper.length === 1 && lower.length === 1) {
+            const u = upper[0], l = lower[0];
+            if (Math.abs(u.cx - l.cx) < 0.5) {
+              addPath(`M ${u.cx} ${u.bottom} L ${l.cx} ${l.top}`);
+            } else {
+              addPath(`M ${u.cx} ${u.bottom} L ${u.cx} ${midY} L ${l.cx} ${midY} L ${l.cx} ${l.top}`);
+            }
+          } else if (upper.length === 1 && lower.length > 1) {
+            const u = upper[0];
+            const xs = lower.map((n) => n.cx);
+            const left = Math.min(...xs), right = Math.max(...xs);
+            addPath(`M ${u.cx} ${u.bottom} L ${u.cx} ${midY}`);
+            addPath(`M ${left} ${midY} L ${right} ${midY}`);
+            for (const l of lower) addPath(`M ${l.cx} ${midY} L ${l.cx} ${l.top}`);
+          } else if (upper.length > 1 && lower.length === 1) {
+            const l = lower[0];
+            const xs = upper.map((n) => n.cx);
+            const left = Math.min(...xs), right = Math.max(...xs);
+            for (const u of upper) addPath(`M ${u.cx} ${u.bottom} L ${u.cx} ${midY}`);
+            addPath(`M ${left} ${midY} L ${right} ${midY}`);
+            addPath(`M ${l.cx} ${midY} L ${l.cx} ${l.top}`);
+          }
+        }
+      }
+
+      function redraw() {
+        drawConnectors("#dag1", "#dag1 .dag-svg", ".node");
+      }
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", redraw);
+      } else {
+        redraw();
+      }
+      window.addEventListener("resize", redraw);
+      if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(redraw);
+      }
+    </script>
+  </body>
+</html>

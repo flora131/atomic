@@ -68,7 +68,7 @@ const DEFAULTS = {
  * @param discovery  - Result from discoverBundledWorkflows().
  * @param siblings   - Detected sibling availability (structural checks on pi).
  * @param configLoad - Optional result from loadWorkflowConfig().
- * @returns Multi-line report string suitable for ctx.reply / ctx.print.
+ * @returns Multi-line report string suitable for `ctx.ui.notify`.
  */
 export function buildDoctorReport(
   discovery: DiscoveryResult,

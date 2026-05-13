@@ -16,17 +16,16 @@ import type { RunDetail } from "../runs/background/status.js";
 import { renderInputsSchema } from "../shared/render-inputs-schema.js";
 import { renderStatusList } from "../tui/status-list.js";
 import { renderRunDetail } from "../tui/run-detail.js";
+import { renderWorkflowList } from "../tui/workflow-list.js";
 import { deriveGraphTheme } from "../tui/graph-theme.js";
 
 // ---------------------------------------------------------------------------
 // Result variants
 // ---------------------------------------------------------------------------
 
-export interface WorkflowRunEntry {
-  runId: string;
-  name: string;
-  status: string;
-}
+/* WorkflowRunEntry — removed. The status surface now consumes the
+ * canonical `RunSnapshot` shape directly; the intermediate `runs` projection
+ * is gone. */
 
 export interface WorkflowInputEntry {
   name: string;
@@ -43,16 +42,23 @@ export interface WorkflowInputEntry {
   placeholder?: string;
 }
 
-type ListResult = { action: "list"; workflows: string[] };
+/**
+ * One entry per registered workflow, sourced from the live registry.
+ * Carries the metadata the catalogue surface needs.
+ */
+export interface WorkflowListItem {
+  name: string;
+  description: string;
+  inputs: ReadonlyArray<{ name: string; required?: boolean }>;
+}
+type ListResult = {
+  action: "list";
+  items: WorkflowListItem[];
+};
 type StatusResult = {
   action: "status";
-  runs: WorkflowRunEntry[];
-  /**
-   * Optional snapshot data for rich rendering. When present the
-   * canonical band-header status list is rendered; when absent the
-   * compact one-line-per-run text form is rendered (back-compat).
-   */
-  snapshots?: RunSnapshot[];
+  /** Live snapshots from the in-process store. */
+  snapshots: RunSnapshot[];
 };
 type StatusDetailResult =
   | {
@@ -118,20 +124,16 @@ export function renderResult(result: WorkflowToolResult, opts?: RenderResultOpts
   switch (result.action) {
     case "list": {
       const r = result as ListResult;
-      if (r.workflows.length === 0) return "workflow list: (none registered)";
-      return `workflow list: ${r.workflows.join(", ")}`;
+      return renderWorkflowList(r.items, {
+        theme: themed ? deriveGraphTheme({}) : undefined,
+      });
     }
 
     case "status": {
       const r = result as StatusResult;
-      if (r.snapshots) {
-        return renderStatusList(r.snapshots, {
-          theme: themed ? deriveGraphTheme({}) : undefined,
-        });
-      }
-      if (r.runs.length === 0) return "workflow status: (no in-flight runs)";
-      const lines = r.runs.map((run) => `  ${run.runId}  ${run.name}  ${run.status}`);
-      return `workflow status:\n${lines.join("\n")}`;
+      return renderStatusList(r.snapshots, {
+        theme: themed ? deriveGraphTheme({}) : undefined,
+      });
     }
 
     case "statusDetail": {

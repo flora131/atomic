@@ -41,7 +41,7 @@ export default defineWorkflow("ralph")
         : DEFAULT_MAX_ITERATIONS;
 
     // Stage 0 — Initial plan: produce a structured execution plan.
-    const planStage = await ctx.stage("plan");
+    const planStage = ctx.stage("plan");
     let plan = await planStage.prompt(
       `You are a planning agent. Produce a numbered, step-by-step execution plan for the following task. Be concrete and actionable.\n\nTask: ${prompt}`,
     );
@@ -59,14 +59,14 @@ export default defineWorkflow("ralph")
       plan = editedPlan.trim() || plan;
 
       // Stage N — Orchestrate: execute the (possibly edited) plan.
-      const orchestrator = await ctx.stage(`orchestrate-${iteration}`);
+      const orchestrator = ctx.stage(`orchestrate-${iteration}`);
       const result = await orchestrator.prompt(
         `You are an orchestrator agent. Execute the following plan step by step. Report your actions and outcomes.\n\nPlan:\n${plan}\n\nTask context: ${prompt}`,
       );
       lastResult = result;
 
       // Stage N — Review: evaluate the execution result.
-      const reviewer = await ctx.stage(`review-${iteration}`);
+      const reviewer = ctx.stage(`review-${iteration}`);
       const review = await reviewer.prompt(
         `Evaluate the orchestrator's execution result against the original task. Reply with EXACTLY one of:\n  APPROVED — task is complete and satisfactory.\n  REVISE: <brief feedback> — further iteration needed.\n\nTask: ${prompt}\n\nExecution result:\n${result}`,
       );
@@ -91,7 +91,7 @@ export default defineWorkflow("ralph")
       }
 
       // Incorporate reviewer feedback into the next plan.
-      const replanner = await ctx.stage(`replan-${iteration}`);
+      const replanner = ctx.stage(`replan-${iteration}`);
       plan = await replanner.prompt(
         `Revise the execution plan based on the reviewer's feedback.\n\nOriginal task: ${prompt}\n\nPrevious plan:\n${plan}\n\nReviewer feedback:\n${feedback}\n\nOutput the revised plan only.`,
       );

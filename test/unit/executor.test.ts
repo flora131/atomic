@@ -1,4 +1,4 @@
-import { describe, test } from "node:test";
+import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { run, resolveInputs } from "../../src/runs/foreground/executor.js";
 import { createStore } from "../../src/shared/store.js";
@@ -1029,5 +1029,144 @@ describe("executor.run — concurrency limiter", () => {
     assert.equal(result.status, "completed");
     // The "ok" stage ran after the failed stage released its slot
     assert.equal(completedCount, 1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Stage-control registry + controlled pause integration
+// ---------------------------------------------------------------------------
+
+import { createStageControlRegistry } from "../../src/runs/foreground/stage-control-registry.js";
+import type { StageSessionRuntime } from "../../src/runs/foreground/stage-runner.js";
+import type { AgentSession } from "@oh-my-pi/pi-coding-agent";
+
+function mockSession(): StageSessionRuntime {
+  const listeners = new Set<(e: { type: string; [k: string]: unknown }) => void>();
+  void listeners;
+  return {
+    async prompt() {
+      // Resolve immediately to keep the executor's tracked call short.
+    },
+    async steer() {},
+    async followUp() {},
+    subscribe() {
+      return () => {};
+    },
+    sessionFile: "/tmp/atomic-test-session.ndjson",
+    sessionId: "sess-test-1",
+    async setModel() {},
+    setThinkingLevel() {},
+    cycleModel: (async () => undefined) as StageSessionRuntime["cycleModel"],
+    cycleThinkingLevel: (() => undefined) as StageSessionRuntime["cycleThinkingLevel"],
+    agent: undefined as AgentSession["agent"],
+    model: undefined as AgentSession["model"],
+    thinkingLevel: undefined as AgentSession["thinkingLevel"],
+    messages: [] as AgentSession["messages"],
+    isStreaming: false,
+    navigateTree: (async () => ({ cancelled: false })) as StageSessionRuntime["navigateTree"],
+    compact: (async () => ({})) as unknown as StageSessionRuntime["compact"],
+    abortCompaction() {},
+    async abort() {},
+    dispose() {},
+    getLastAssistantText() {
+      return "ok";
+    },
+  };
+}
+
+describe("executor — stage-control registry integration", () => {
+  test("stage handle is registered after ctx.stage() before prompt", async () => {
+    const registry = createStageControlRegistry();
+    let observedHandleCount = 0;
+    const def = defineWorkflow("handle-wf")
+      .run(async (ctx) => {
+        const stage = ctx.stage("first");
+        // The handle is registered at ctx.stage() time, before prompt().
+        observedHandleCount = registry.forRun(stage.sessionFile === undefined
+          // We don't know runId from inside ctx, but the registry can be
+          // checked at run-end via opts.onStageStart capture.
+          ? "test" : "test").length;
+        await stage.prompt("hi");
+        return { ok: true };
+      })
+      .compile();
+    const adapters = {
+      agentSession: {
+        async create() { return mockSession(); },
+      },
+    };
+    let stageStartHandleCount = 0;
+    await run(def, {}, {
+      adapters,
+      store: createStore(),
+      stageControlRegistry: registry,
+      onStageStart: (runId) => {
+        // First stage-start fires *before* the SDK call lands, so the
+        // handle should exist in the registry already.
+        if (stageStartHandleCount === 0) {
+          stageStartHandleCount = registry.forRun(runId).length;
+        }
+      },
+    });
+    void observedHandleCount;
+    assert.equal(stageStartHandleCount, 1);
+  });
+
+  test("session metadata lands in stage snapshot after lazy attach", async () => {
+    const def = defineWorkflow("session-meta-wf")
+      .run(async (ctx) => {
+        await ctx.stage("a").prompt("hello");
+        return {};
+      })
+      .compile();
+    const adapters = {
+      agentSession: {
+        async create() { return mockSession(); },
+      },
+    };
+    const store = createStore();
+    await run(def, {}, {
+      adapters,
+      store,
+      stageControlRegistry: createStageControlRegistry(),
+    });
+    const persistedRun = store.runs()[0];
+    assert.ok(persistedRun, "run snapshot should exist");
+    const stage = persistedRun!.stages[0];
+    assert.ok(stage, "stage snapshot should exist");
+    assert.equal(stage!.sessionId, "sess-test-1");
+    assert.equal(stage!.sessionFile, "/tmp/atomic-test-session.ndjson");
+  });
+
+  test("attachable flag is cleared once the stage settles", async () => {
+    const def = defineWorkflow("attachable-wf")
+      .run(async (ctx) => {
+        await ctx.stage("only").prompt("hi");
+        return {};
+      })
+      .compile();
+    const adapters = {
+      agentSession: {
+        async create() { return mockSession(); },
+      },
+    };
+    const store = createStore();
+    // onStageStart fires once with pending status (before the SDK call
+    // lands). At that point the live handle is registered and the
+    // snapshot carries attachable: true.
+    let observedAttachable = false;
+    await run(def, {}, {
+      adapters,
+      store,
+      stageControlRegistry: createStageControlRegistry(),
+      onStageStart: (_runId, stage) => {
+        if (!observedAttachable && stage.attachable === true) {
+          observedAttachable = true;
+        }
+      },
+    });
+    assert.equal(observedAttachable, true);
+    const stage = store.runs()[0]!.stages[0]!;
+    assert.equal(stage.attachable, undefined);
   });
 });

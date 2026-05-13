@@ -8,7 +8,7 @@
  *   4. discoverWorkflows distinguishes settings-project vs settings-global source kinds
  */
 
-import { after, describe, test } from "node:test";
+import { afterAll, describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -33,7 +33,7 @@ function tempDir(label: string): string {
   return dir;
 }
 
-after(() => {
+afterAll(() => {
   for (const dir of createdDirs) {
     rmSync(dir, { recursive: true, force: true });
   }

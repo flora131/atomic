@@ -1,24 +1,38 @@
 /**
  * Tests for WorkflowGraphOverlayAdapter and overlay entrypoints.
  *
+ * Every mount path goes through Pi / oh-my-pi's real
+ * `ctx.ui.custom(factory, options)` primitive. There is no legacy
+ * object-shaped overlay path.
+ *
  * Verifies:
- *   - buildGraphOverlayAdapter returns noopOverlay when pi.ui.custom absent.
- *   - buildGraphOverlayAdapter builds GraphView with mode:"overlay" and calls pi.ui.custom.
- *   - open(runId) passes overlay:true to pi.ui.custom.
- *   - open(null) uses store.activeRunId().
- *   - close() calls handle.close() and disposes GraphView.
- *   - F2 shortcut registration in extension factory calls overlay.open(activeRunId).
- *   - /workflow resume calls overlay.open(runId) after successful resumeRun().
- *   - /workflow resume with unknown runId does NOT call overlay.open.
+ *   - buildGraphOverlayAdapter is a no-op when pi.ui.custom is absent.
+ *   - open(runId) calls pi.ui.custom with overlay:true and full-screen
+ *     overlayOptions (width/maxHeight 100%, margin 0).
+ *   - The factory returns a PiCustomComponent that paints overlay-style
+ *     content; when `tui.terminal.rows` is provided the component
+ *     renders that many lines (full-screen) instead of the constant
+ *     32-row fallback.
+ *   - toggle() uses `setHidden`/`focus` rather than remounting.
+ *   - close() releases the OverlayHandle (`hide`) and disposes the view.
+ *   - F2 shortcut registration in extension factory calls
+ *     overlay.open(activeRunId).
+ *   - /workflow resume + /workflow attach + /workflow pause routing.
+ *   - Graph-mode Ctrl+D / `h` never kills the run.
+ *   - `q` still kills the active run (regression gate).
  */
 
-import { describe, test } from "node:test";
+import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { buildGraphOverlayAdapter } from "../../src/tui/overlay-adapter.js";
 import type { OverlayPiSurface } from "../../src/tui/overlay-adapter.js";
 import type {
-  PiCustomOverlayOpts,
-  PiCustomOverlayHandle,
+  PiCustomComponent,
+  PiCustomOverlayFactory,
+  PiCustomOverlayFactoryTui,
+  PiCustomOverlayFunction,
+  PiCustomOverlayOptions,
+  PiOverlayHandle,
 } from "../../src/extension/wiring.js";
 import {
   createStore,
@@ -27,7 +41,6 @@ import {
 import factory from "../../src/extension/index.js";
 import type {
   ExtensionAPI,
-  PiSlashCommandOpts,
   PiCommandContext,
   PiCommandOptions,
 } from "../../src/extension/index.js";
@@ -37,82 +50,157 @@ import type {
 // ---------------------------------------------------------------------------
 
 interface CapturedCustomCall {
-  opts: PiCustomOverlayOpts;
-  handle: PiCustomOverlayHandle;
+  /** Real factory passed to ctx.ui.custom. */
+  factory: PiCustomOverlayFactory;
+  /** Options passed alongside the factory. */
+  options: PiCustomOverlayOptions;
+  /** Component returned by the factory after it was invoked. */
+  component: PiCustomComponent;
+  /** Handle surfaced to the adapter via options.onHandle. */
+  handle: PiOverlayHandle;
 }
 
-/** Build a pi.ui mock that captures custom() calls and returns a closable handle. */
-function buildMockUiWithCustom(): {
-  ui: OverlayPiSurface["ui"] & { setWidget?: () => void };
+/** A controllable in-memory `PiOverlayHandle` used by the mock. */
+function buildOverlayHandle(): {
+  handle: PiOverlayHandle;
+  state: {
+    hidden: boolean;
+    focused: boolean;
+    setHiddenCalls: boolean[];
+    focusCalls: number;
+    unfocusCalls: number;
+    hideCalls: number;
+  };
+} {
+  const state = {
+    hidden: false,
+    focused: true,
+    setHiddenCalls: [] as boolean[],
+    focusCalls: 0,
+    unfocusCalls: 0,
+    hideCalls: 0,
+  };
+  const handle: PiOverlayHandle = {
+    hide: () => {
+      state.hideCalls++;
+    },
+    setHidden: (h) => {
+      state.setHiddenCalls.push(h);
+      state.hidden = h;
+    },
+    isHidden: () => state.hidden,
+    focus: () => {
+      state.focusCalls++;
+      state.focused = true;
+    },
+    unfocus: () => {
+      state.unfocusCalls++;
+      state.focused = false;
+    },
+    isFocused: () => state.focused,
+  };
+  return { handle, state };
+}
+
+interface MockUiOpts {
+  /** Optional terminal-row hint surfaced to the factory's `tui.terminal.rows`. */
+  rows?: number;
+  /** Optional terminal-col hint surfaced to the factory's `tui.terminal.columns`. */
+  columns?: number;
+}
+
+/**
+ * Build a pi.ui mock whose `custom` matches the real factory/options
+ * signature. Invokes the factory immediately (mirroring Pi's runtime),
+ * surfaces an `OverlayHandle` via `options.onHandle`, and captures every
+ * call for assertion.
+ */
+function buildMockUi(mockOpts: MockUiOpts = {}): {
+  ui: NonNullable<OverlayPiSurface["ui"]>;
   calls: CapturedCustomCall[];
-  closedHandles: number;
 } {
   const calls: CapturedCustomCall[] = [];
-  let closedHandles = 0;
-
-  const ui = {
-    custom: (opts: PiCustomOverlayOpts): PiCustomOverlayHandle => {
-      const handle: PiCustomOverlayHandle = {
-        close: () => {
-          closedHandles++;
-        },
+  const ui: NonNullable<OverlayPiSurface["ui"]> = {
+    custom: (factoryArg, options) => {
+      const { handle } = buildOverlayHandle();
+      options.onHandle?.(handle);
+      const tui: PiCustomOverlayFactoryTui = {
+        requestRender: () => undefined,
+        terminal:
+          mockOpts.rows != null || mockOpts.columns != null
+            ? { rows: mockOpts.rows, columns: mockOpts.columns }
+            : undefined,
       };
-      calls.push({ opts, handle });
-      return handle;
+      const component = factoryArg(tui, {}, {}, () => undefined);
+      if (component instanceof Promise) {
+        throw new Error("test factory should be sync");
+      }
+      calls.push({ factory: factoryArg, options, component, handle });
+      return undefined;
     },
   };
-
-  return {
-    ui,
-    calls,
-    get closedHandles() {
-      return closedHandles;
-    },
-  };
+  return { ui, calls };
 }
 
-/** Create a minimal mock pi ExtensionAPI with custom overlay support. */
+/** Create a minimal mock pi ExtensionAPI with the real custom overlay surface. */
 function buildMockPi(overrides: Partial<ExtensionAPI> = {}): {
   pi: ExtensionAPI;
   shortcuts: Record<string, (ctx?: PiCommandContext) => void>;
-  commands: Record<string, PiSlashCommandOpts>;
+  commands: Record<string, { name: string; options: PiCommandOptions }>;
   customCalls: CapturedCustomCall[];
 } {
   const shortcuts: Record<string, (ctx?: PiCommandContext) => void> = {};
-  const commands: Record<string, PiSlashCommandOpts> = {};
-  const customCalls: CapturedCustomCall[] = [];
-  let closedHandles = 0;
+  const commands: Record<string, { name: string; options: PiCommandOptions }> = {};
+  const { ui, calls } = buildMockUi();
 
   const pi: ExtensionAPI = {
     registerTool: () => undefined,
     registerCommand: (name: string, options: PiCommandOptions) => {
-      commands[name] = {
-        name,
-        description: options.description,
-        execute: options.handler,
-        getArgumentCompletions: options.getArgumentCompletions,
-      };
+      commands[name] = { name, options };
     },
     registerMessageRenderer: () => undefined,
     registerFlag: () => undefined,
     registerShortcut: (key, opts) => {
       shortcuts[key] = opts.handler;
     },
-    ui: {
-      custom: (opts: PiCustomOverlayOpts): PiCustomOverlayHandle => {
-        const handle: PiCustomOverlayHandle = {
-          close: () => {
-            closedHandles++;
-          },
-        };
-        customCalls.push({ opts, handle });
-        return handle;
-      },
-    },
+    ui,
     ...overrides,
   };
 
-  return { pi, shortcuts, commands, customCalls };
+  return { pi, shortcuts, commands, customCalls: calls };
+}
+
+/** Build a slash-command ctx whose `ui.notify` captures the printed messages. */
+function buildPrintCtx(): { ctx: PiCommandContext; messages: string[] } {
+  const messages: string[] = [];
+  return {
+    ctx: {
+      ui: {
+        notify: (m: string) => {
+          messages.push(m);
+        },
+      },
+    },
+    messages,
+  };
+}
+
+function buildPrintCtxWithRealCustom(rows?: number): {
+  ctx: PiCommandContext;
+  messages: string[];
+  customCalls: CapturedCustomCall[];
+} {
+  const messages: string[] = [];
+  const { ui, calls } = buildMockUi({ rows });
+  const ctx: PiCommandContext = {
+    ui: {
+      notify: (m: string) => {
+        messages.push(m);
+      },
+      custom: ui.custom,
+    },
+  };
+  return { ctx, messages, customCalls: calls };
 }
 
 // ---------------------------------------------------------------------------
@@ -123,7 +211,6 @@ describe("buildGraphOverlayAdapter — absent pi.ui.custom", () => {
   test("returns noopOverlay when pi.ui is absent", () => {
     const store = createStore();
     const adapter = buildGraphOverlayAdapter({}, store);
-    // noop adapter — calls don't throw
     assert.doesNotThrow(() => adapter.open(null));
     assert.doesNotThrow(() => adapter.open("run-1"));
     assert.doesNotThrow(() => adapter.close());
@@ -138,93 +225,154 @@ describe("buildGraphOverlayAdapter — absent pi.ui.custom", () => {
 });
 
 // ---------------------------------------------------------------------------
-// buildGraphOverlayAdapter — open path
+// buildGraphOverlayAdapter — open path uses real factory/options shape
 // ---------------------------------------------------------------------------
 
 describe("buildGraphOverlayAdapter — open with pi.ui.custom", () => {
-  test("open(runId) calls pi.ui.custom with overlay:true", () => {
-    const { ui, calls } = buildMockUiWithCustom();
+  test("open(runId) calls pi.ui.custom with overlay:true and full-screen overlayOptions", () => {
+    const { ui, calls } = buildMockUi();
     const store = createStore();
     const adapter = buildGraphOverlayAdapter({ ui }, store);
 
     adapter.open("run-abc");
 
     assert.equal(calls.length, 1);
-    assert.equal(calls[0]!.opts.overlay, true);
+    assert.equal(calls[0]!.options.overlay, true);
+    assert.equal(calls[0]!.options.overlayOptions?.width, "100%");
+    assert.equal(calls[0]!.options.overlayOptions?.maxHeight, "100%");
+    assert.equal(calls[0]!.options.overlayOptions?.margin, 0);
+    assert.equal(calls[0]!.options.overlayOptions?.anchor, "center");
   });
 
-  test("open(runId) passes render callback that returns string[]", () => {
-    const { ui, calls } = buildMockUiWithCustom();
+  test("factory returns a PiCustomComponent that renders string[]", () => {
+    const { ui, calls } = buildMockUi();
     const store = createStore();
     const adapter = buildGraphOverlayAdapter({ ui }, store);
 
     adapter.open("run-abc");
 
-    const { render } = calls[0]!.opts;
-    assert.equal(typeof render, "function");
-    const lines = render!(80);
+    const lines = calls[0]!.component.render(80);
     assert.equal(Array.isArray(lines), true);
+    assert.ok(lines.length > 0);
   });
 
-  test("open(runId) passes onInput callback", () => {
-    const { ui, calls } = buildMockUiWithCustom();
+  test("component.handleInput is wired to the GraphView", () => {
+    const { ui, calls } = buildMockUi();
     const store = createStore();
     const adapter = buildGraphOverlayAdapter({ ui }, store);
 
     adapter.open("run-abc");
-
-    const { onInput } = calls[0]!.opts;
-    assert.equal(typeof onInput, "function");
-    // GraphView handles "q" as close key — returns true (consumed)
-    const consumed = onInput!("q");
-    assert.equal(typeof consumed, "boolean");
+    // `q` on an empty store completes without throwing — the input is
+    // accepted by the GraphView even when there is no live run to kill.
+    assert.doesNotThrow(() => calls[0]!.component.handleInput?.("q"));
   });
 
-  test("open(runId) passes onClose callback", () => {
-    const { ui, calls } = buildMockUiWithCustom();
-    const store = createStore();
-    const adapter = buildGraphOverlayAdapter({ ui }, store);
-
-    adapter.open("run-abc");
-
-    assert.equal(typeof calls[0]!.opts.onClose, "function");
-  });
-
-  test("open(null) still calls pi.ui.custom", () => {
-    const { ui, calls } = buildMockUiWithCustom();
+  test("open(null) still calls pi.ui.custom with overlay:true", () => {
+    const { ui, calls } = buildMockUi();
     const store = createStore();
     const adapter = buildGraphOverlayAdapter({ ui }, store);
 
     adapter.open(null);
 
     assert.equal(calls.length, 1);
-    assert.equal(calls[0]!.opts.overlay, true);
+    assert.equal(calls[0]!.options.overlay, true);
   });
 
-  test("second open() reuses the existing overlay (no re-mount)", () => {
-    const { calls } = buildMockUiWithCustom();
-    let closedCount = 0;
-    const spyUi: OverlayPiSurface["ui"] = {
-      custom: (opts: PiCustomOverlayOpts): PiCustomOverlayHandle => {
-        const handle: PiCustomOverlayHandle = {
-          close: () => {
-            closedCount++;
-          },
-        };
-        calls.push({ opts, handle });
-        return handle;
-      },
-    };
+  test("second open() reuses the existing overlay (no remount, no extra custom call)", () => {
+    const { ui, calls } = buildMockUi();
     const store = createStore();
-    const adapter = buildGraphOverlayAdapter({ ui: spyUi }, store);
+    const adapter = buildGraphOverlayAdapter({ ui }, store);
 
     adapter.open("run-1");
     adapter.open("run-2");
 
-    // open() is idempotent now — the second call brings the existing
-    // overlay to front rather than mounting a new one.
-    assert.equal(closedCount, 0);
+    // Already mounted ⇒ second open() is a no-op (or a setHidden(false)
+    // flip when hidden). Either way, no new mount.
     assert.equal(calls.length, 1);
+  });
+
+  test("toggle() on a visible mount calls setHidden(true)+unfocus (no remount)", () => {
+    const { ui, calls } = buildMockUi();
+    const store = createStore();
+    const adapter = buildGraphOverlayAdapter({ ui }, store);
+
+    adapter.open("run-1");
+    const { handle } = calls[0]!;
+    // Reach into the mock state by spying on setHidden calls.
+    const setHiddenCalls: boolean[] = [];
+    const focusCalls: number[] = [];
+    const unfocusCalls: number[] = [];
+    handle.setHidden = (h) => {
+      setHiddenCalls.push(h);
+    };
+    handle.isHidden = () => setHiddenCalls.length > 0 && setHiddenCalls[setHiddenCalls.length - 1] === true;
+    handle.focus = () => {
+      focusCalls.push(focusCalls.length);
+    };
+    handle.unfocus = () => {
+      unfocusCalls.push(unfocusCalls.length);
+    };
+
+    adapter.toggle("run-1");
+    assert.deepEqual(setHiddenCalls, [true]);
+    assert.equal(calls.length, 1, "toggle must not remount");
+
+    // Toggle back: should call setHidden(false) and focus().
+    adapter.toggle("run-1");
+    assert.deepEqual(setHiddenCalls, [true, false]);
+    assert.equal(focusCalls.length, 1);
+    assert.equal(calls.length, 1, "toggle must not remount when revealing");
+  });
+
+  test("subsequent open() after hiding calls setHidden(false) and focus()", () => {
+    const { ui, calls } = buildMockUi();
+    const store = createStore();
+    const adapter = buildGraphOverlayAdapter({ ui }, store);
+
+    adapter.open("run-1");
+    const { handle } = calls[0]!;
+    let hidden = false;
+    const setHiddenCalls: boolean[] = [];
+    let focusCalls = 0;
+    handle.setHidden = (h) => {
+      setHiddenCalls.push(h);
+      hidden = h;
+    };
+    handle.isHidden = () => hidden;
+    handle.focus = () => {
+      focusCalls++;
+    };
+    handle.unfocus = () => undefined;
+
+    // Hide via toggle.
+    adapter.toggle("run-1");
+    assert.equal(hidden, true);
+
+    // Re-open: adapter should detect the hidden state and reveal.
+    adapter.open("run-1");
+    assert.deepEqual(setHiddenCalls, [true, false]);
+    assert.equal(focusCalls, 1);
+    assert.equal(calls.length, 1, "open after hide must not remount");
+  });
+
+  test("fullscreen overlay renders terminal.rows lines when tui.terminal.rows is set", () => {
+    const { ui, calls } = buildMockUi({ rows: 50, columns: 120 });
+    const store = createStore();
+    const adapter = buildGraphOverlayAdapter({ ui }, store);
+
+    adapter.open("run-fullscreen");
+    const lines = calls[0]!.component.render(120);
+    assert.equal(lines.length, 50, "should fill the terminal-row viewport");
+  });
+
+  test("falls back to 32-row frame when tui.terminal is absent", () => {
+    const { ui, calls } = buildMockUi();
+    const store = createStore();
+    const adapter = buildGraphOverlayAdapter({ ui }, store);
+
+    adapter.open("run-fallback");
+    const lines = calls[0]!.component.render(120);
+    assert.equal(lines.length, 32, "fallback line count keeps the legacy rectangle");
   });
 });
 
@@ -233,59 +381,48 @@ describe("buildGraphOverlayAdapter — open with pi.ui.custom", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildGraphOverlayAdapter — close", () => {
-  test("close() calls handle.close()", () => {
-    let closedCount = 0;
-    const ui: OverlayPiSurface["ui"] = {
-      custom: (_opts: PiCustomOverlayOpts): PiCustomOverlayHandle => {
-        return {
-          close: () => {
-            closedCount++;
-          },
-        };
-      },
-    };
+  test("close() calls handle.hide and disposes the component", () => {
+    const { ui, calls } = buildMockUi();
     const store = createStore();
     const adapter = buildGraphOverlayAdapter({ ui }, store);
 
     adapter.open("run-1");
+    let hideCount = 0;
+    calls[0]!.handle.hide = () => {
+      hideCount++;
+    };
+    // Pi disposes the rendered component when the overlay unmounts.
+    // Mirror that here: the adapter's close() drives `finishMounted`
+    // which disposes the WorkflowAttachPane; once it has, calling
+    // `render` again should not throw — the view treats the second
+    // call as a re-render of an empty surface.
     adapter.close();
 
-    assert.equal(closedCount, 1);
+    assert.equal(hideCount, 1, "close() must release the overlay handle via hide()");
+    // After close(), the adapter has cleared `currentHandle`. Toggling
+    // would then re-mount, so calling open() again should issue a new
+    // pi.ui.custom invocation.
+    adapter.open("run-2");
+    assert.equal(calls.length, 2, "open() after close() must remount via pi.ui.custom");
   });
 
   test("close() before open() does not throw", () => {
-    const { ui } = buildMockUiWithCustom();
+    const { ui } = buildMockUi();
     const store = createStore();
     const adapter = buildGraphOverlayAdapter({ ui }, store);
-
     assert.doesNotThrow(() => adapter.close());
   });
 
-  test("close() via onClose callback cleans up state", () => {
-    let closedCount = 0;
-    let capturedOnClose: (() => void) | undefined;
-    const ui: OverlayPiSurface["ui"] = {
-      custom: (opts: PiCustomOverlayOpts): PiCustomOverlayHandle => {
-        capturedOnClose = opts.onClose;
-        return {
-          close: () => {
-            closedCount++;
-          },
-        };
-      },
-    };
+  test("close() is idempotent once the overlay has unmounted", () => {
+    const { ui, calls } = buildMockUi();
     const store = createStore();
     const adapter = buildGraphOverlayAdapter({ ui }, store);
 
     adapter.open("run-1");
-    // Simulate host UI closing the overlay
-    capturedOnClose?.();
-
-    // Calling adapter.close() again should be a no-op (already cleaned up)
     adapter.close();
-    // close() count: 1 from host close, 1 from adapter.close() calling handle again?
-    // Actually after onClose runs, currentHandle is set to null, so adapter.close() is safe.
-    assert.ok(closedCount >= 1);
+    // Second close — adapter has already cleared its handle/view refs.
+    assert.doesNotThrow(() => adapter.close());
+    assert.equal(calls.length, 1);
   });
 });
 
@@ -300,14 +437,16 @@ describe("extension factory — F2 shortcut", () => {
     assert.equal("F2" in shortcuts, true);
   });
 
-  test("F2 handler calls pi.ui.custom with overlay:true", () => {
+  test("F2 handler calls pi.ui.custom with overlay:true and full-screen options", () => {
     const { pi, shortcuts, customCalls } = buildMockPi();
     factory(pi);
 
     shortcuts["F2"]!();
 
     assert.ok(customCalls.length >= 1);
-    assert.equal(customCalls[0]!.opts.overlay, true);
+    assert.equal(customCalls[0]!.options.overlay, true);
+    assert.equal(customCalls[0]!.options.overlayOptions?.width, "100%");
+    assert.equal(customCalls[0]!.options.overlayOptions?.maxHeight, "100%");
   });
 
   test("F2 handler uses shortcut ctx.ui.custom when top-level pi.ui is absent", () => {
@@ -319,13 +458,13 @@ describe("extension factory — F2 shortcut", () => {
     shortcuts["F2"]!(ctx);
 
     assert.equal(customCalls.length, 1);
-    assert.equal(customCalls[0]!.overlay, true);
+    assert.equal(customCalls[0]!.options.overlay, true);
   });
 
   test("F2 handler does not throw when no active run", () => {
     const { pi, shortcuts } = buildMockPi();
     factory(pi);
-    // store.activeRunId() → null when no run started
+    // store.activeRunId() → null when no run started.
     assert.doesNotThrow(() => shortcuts["F2"]!());
   });
 
@@ -333,7 +472,7 @@ describe("extension factory — F2 shortcut", () => {
     const { pi } = buildMockPi();
     delete pi.registerShortcut;
     const shortcuts: Record<string, (ctx?: PiCommandContext) => void> = {};
-    // Should not crash when registerShortcut is absent
+    // Should not crash when registerShortcut is absent.
     assert.doesNotThrow(() => factory(pi));
     assert.equal("F2" in shortcuts, false);
   });
@@ -343,67 +482,6 @@ describe("extension factory — F2 shortcut", () => {
 // /workflow resume — calls overlay.open after successful resumeRun
 // ---------------------------------------------------------------------------
 
-function buildPrintCtx(): { ctx: PiCommandContext; messages: string[] } {
-  const messages: string[] = [];
-  return {
-    ctx: {
-      reply: (m: string) => {
-        messages.push(m);
-      },
-    },
-    messages,
-  };
-}
-
-function buildPrintCtxWithRealCustom(): {
-  ctx: PiCommandContext;
-  messages: string[];
-  customCalls: Array<{
-    overlay: boolean;
-    overlayOptions?: unknown;
-    lines: string[];
-  }>;
-} {
-  const messages: string[] = [];
-  const customCalls: Array<{
-    overlay: boolean;
-    overlayOptions?: unknown;
-    lines: string[];
-  }> = [];
-  const ctx: PiCommandContext = {
-    reply: (m: string) => {
-      messages.push(m);
-    },
-    ui: {
-      notify: (m: string) => {
-        messages.push(m);
-      },
-      custom: (factory, options) => {
-        if (typeof factory !== "function") {
-          throw new Error("expected real ctx.ui.custom(factory, options) call");
-        }
-        const component = factory(
-          { requestRender: () => undefined },
-          {},
-          {},
-          () => undefined,
-        );
-        if (component instanceof Promise) {
-          throw new Error("test factory should be sync");
-        }
-        customCalls.push({
-          overlay: options.overlay,
-          overlayOptions: options.overlayOptions,
-          lines: component.render(100),
-        });
-        component.dispose?.();
-        return undefined;
-      },
-    },
-  };
-  return { ctx, messages, customCalls };
-}
-
 describe("/workflow resume — overlay integration", () => {
   test("resume with unknown runId prints not-found, does NOT call custom", () => {
     const { pi, commands, customCalls } = buildMockPi();
@@ -412,13 +490,8 @@ describe("/workflow resume — overlay integration", () => {
     const wfCmd = commands["workflow"]!;
     const { ctx } = buildPrintCtx();
 
-    // Execute synchronously — command is async, use void
-    void wfCmd.execute("resume no-such-run", ctx);
+    void wfCmd.options.handler("resume no-such-run", ctx);
 
-    // Since the run doesn't exist in store, custom should NOT have been called
-    // (overlay.open only called on success)
-    // Note: the execute is async, check after microtasks settle
-    // We use a simple synchronous assertion since store starts empty
     assert.equal(customCalls.length, 0);
   });
 
@@ -429,7 +502,7 @@ describe("/workflow resume — overlay integration", () => {
     const wfCmd = commands["workflow"]!;
     const { ctx, messages } = buildPrintCtx();
 
-    await wfCmd.execute("resume", ctx);
+    await wfCmd.options.handler("resume", ctx);
 
     assert.equal(
       messages.some((m) => m.includes("Usage")),
@@ -442,7 +515,7 @@ describe("/workflow resume — overlay integration", () => {
     factory(pi);
 
     const wfCmd = commands["workflow"]!;
-    const completions = (await wfCmd.getArgumentCompletions?.("res")) ?? [];
+    const completions = (await wfCmd.options.getArgumentCompletions?.("res")) ?? [];
 
     assert.equal(
       completions.some((c) => c.label === "resume"),
@@ -451,11 +524,9 @@ describe("/workflow resume — overlay integration", () => {
   });
 
   // RFC regression gate: overlay.open MUST be called when resume succeeds.
-  // Fails if the runtime registers helpers but doesn't invoke overlay.open.
-  test("resume with known completed runId calls overlay.open (opens custom overlay)", async () => {
+  test("resume with known completed runId calls overlay.open", async () => {
     const runId = `test-resume-run-${Date.now()}`;
 
-    // Seed the singleton store — factory's resumeRun uses defaultStore
     singletonStore.recordRunStart({
       id: runId,
       name: "test-wf",
@@ -472,17 +543,15 @@ describe("/workflow resume — overlay integration", () => {
     const wfCmd = commands["workflow"]!;
     const { ctx } = buildPrintCtx();
 
-    await wfCmd.execute(`resume ${runId}`, ctx);
+    await wfCmd.options.handler(`resume ${runId}`, ctx);
 
-    // overlay.open(runId) must have been called → pi.ui.custom fired
     assert.ok(customCalls.length >= 1);
-    assert.equal(customCalls[0]!.opts.overlay, true);
+    assert.equal(customCalls[0]!.options.overlay, true);
   });
 
   test("resume with still-active runId calls overlay.open", async () => {
     const runId = `test-active-run-${Date.now()}`;
 
-    // Seed singleton store with an in-flight run (no endedAt) — resumeRun now returns ok:true
     singletonStore.recordRunStart({
       id: runId,
       name: "active-wf",
@@ -491,7 +560,6 @@ describe("/workflow resume — overlay integration", () => {
       stages: [],
       startedAt: Date.now(),
     });
-    // Do NOT call recordRunEnd — run stays active
 
     const { pi, commands, customCalls } = buildMockPi();
     factory(pi);
@@ -499,11 +567,10 @@ describe("/workflow resume — overlay integration", () => {
     const wfCmd = commands["workflow"]!;
     const { ctx } = buildPrintCtx();
 
-    await wfCmd.execute(`resume ${runId}`, ctx);
+    await wfCmd.options.handler(`resume ${runId}`, ctx);
 
-    // resumeRun now returns ok:true for active runs — overlay.open should be called
     assert.equal(customCalls.length, 1);
-    assert.equal(customCalls[0]!.opts.overlay, true);
+    assert.equal(customCalls[0]!.options.overlay, true);
   });
 
   test("resume uses real command ctx.ui.custom when top-level pi.ui is absent", async () => {
@@ -524,13 +591,13 @@ describe("/workflow resume — overlay integration", () => {
     const wfCmd = commands["workflow"]!;
     const { ctx, customCalls } = buildPrintCtxWithRealCustom();
 
-    await wfCmd.execute(`resume ${runId}`, ctx);
+    await wfCmd.options.handler(`resume ${runId}`, ctx);
 
     assert.equal(customCalls.length, 1);
-    assert.equal(customCalls[0]!.overlay, true);
+    assert.equal(customCalls[0]!.options.overlay, true);
   });
 
-  test("/workflow run does NOT auto-open the overlay (opt-in via F2/ctrl+h)", async () => {
+  test("/workflow run does NOT auto-open the overlay (opt-in via F2)", async () => {
     const { pi, commands } = buildMockPi();
     delete pi.ui;
     factory(pi);
@@ -538,12 +605,8 @@ describe("/workflow resume — overlay integration", () => {
     const wfCmd = commands["workflow"]!;
     const { ctx, customCalls } = buildPrintCtxWithRealCustom();
 
-    await wfCmd.execute("deep-research-codebase prompt=test", ctx);
+    await wfCmd.options.handler("deep-research-codebase prompt=test", ctx);
 
-    // The orchestrator pane no longer auto-opens on workflow dispatch.
-    // Users see live progress in the above-editor widget and open the
-    // pane on demand. /workflow resume <id> still auto-opens because
-    // re-attaching to a paused run is the whole point of the command.
     assert.equal(customCalls.length, 0);
   });
 });
@@ -560,7 +623,7 @@ describe("/workflows-doctor — overlay capability fields", () => {
     const doctorCmd = commands["workflows-doctor"]!;
     const { ctx, messages } = buildPrintCtx();
 
-    await doctorCmd.execute("", ctx);
+    await doctorCmd.options.handler("", ctx);
 
     const report = messages.join("\n");
     assert.ok(report.includes("ui.custom"));
@@ -573,9 +636,237 @@ describe("/workflows-doctor — overlay capability fields", () => {
     const doctorCmd = commands["workflows-doctor"]!;
     const { ctx, messages } = buildPrintCtx();
 
-    await doctorCmd.execute("", ctx);
+    await doctorCmd.options.handler("", ctx);
 
     const report = messages.join("\n");
     assert.ok(report.includes("shortcut"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// /workflow pause + /workflow attach + paused-resume — integration
+// ---------------------------------------------------------------------------
+
+describe("/workflow pause — top-level command", () => {
+  test("pause with no args and no active runs prints a hint", async () => {
+    singletonStore.clear();
+    const { pi, commands } = buildMockPi();
+    factory(pi);
+    const wfCmd = commands["workflow"]!;
+    const { ctx, messages } = buildPrintCtx();
+    await wfCmd.options.handler("pause", ctx);
+    const joined = messages.join("\n");
+    assert.ok(
+      joined.toLowerCase().includes("no active runs") ||
+        joined.toLowerCase().includes("picker requires"),
+      `unexpected output: ${joined}`,
+    );
+  });
+
+  test("pause <unknown> prints not-found", async () => {
+    singletonStore.clear();
+    const { pi, commands } = buildMockPi();
+    factory(pi);
+    const wfCmd = commands["workflow"]!;
+    const { ctx, messages } = buildPrintCtx();
+    await wfCmd.options.handler("pause no-such-run", ctx);
+    const joined = messages.join("\n");
+    assert.match(joined, /Run not found/);
+  });
+});
+
+describe("/workflow resume — paused vs non-paused branching", () => {
+  test("resume <runId> on a non-paused run still reopens the overlay", async () => {
+    singletonStore.clear();
+    const runId = `test-non-paused-${Date.now()}`;
+    singletonStore.recordRunStart({
+      id: runId,
+      name: "snap-only-wf",
+      inputs: {},
+      status: "running",
+      stages: [],
+      startedAt: Date.now(),
+    });
+    singletonStore.recordRunEnd(runId, "completed", {});
+    const { pi, commands, customCalls } = buildMockPi();
+    factory(pi);
+    const wfCmd = commands["workflow"]!;
+    const { ctx } = buildPrintCtx();
+    await wfCmd.options.handler(`resume ${runId}`, ctx);
+    assert.ok(customCalls.length >= 1);
+    assert.equal(customCalls[0]!.options.overlay, true);
+  });
+});
+
+describe("/workflow attach — top-level command", () => {
+  test("attach <runId> opens the overlay", async () => {
+    singletonStore.clear();
+    const runId = `test-attach-${Date.now()}`;
+    singletonStore.recordRunStart({
+      id: runId,
+      name: "attach-wf",
+      inputs: {},
+      status: "running",
+      stages: [],
+      startedAt: Date.now(),
+    });
+    const { pi, commands, customCalls } = buildMockPi();
+    factory(pi);
+    const wfCmd = commands["workflow"]!;
+    const { ctx } = buildPrintCtx();
+    await wfCmd.options.handler(`attach ${runId}`, ctx);
+    assert.ok(customCalls.length >= 1);
+    assert.equal(customCalls[0]!.options.overlay, true);
+  });
+
+  test("attach <unknown> prints not-found and does not open the overlay", async () => {
+    singletonStore.clear();
+    const { pi, commands, customCalls } = buildMockPi();
+    factory(pi);
+    const wfCmd = commands["workflow"]!;
+    const { ctx, messages } = buildPrintCtx();
+    await wfCmd.options.handler("attach not-a-run", ctx);
+    assert.match(messages.join("\n"), /Run not found/);
+    assert.equal(customCalls.length, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Graph-mode Ctrl+D / `h` — non-destructive hide, never kills the run
+// ---------------------------------------------------------------------------
+
+describe("buildGraphOverlayAdapter — Ctrl+D / h non-destructive hide", () => {
+  test("Ctrl+D without onHandle invokes factory done() and keeps the run alive", () => {
+    const runId = `ctrl-d-no-onhandle-${Date.now()}`;
+    const store = createStore();
+    store.recordRunStart({
+      id: runId,
+      name: "wf",
+      inputs: {},
+      status: "running",
+      stages: [],
+      startedAt: Date.now(),
+    });
+
+    let doneCalled = 0;
+    let capturedComponent: PiCustomComponent | undefined;
+    // Custom variant that skips `options.onHandle` so the adapter has
+    // no OverlayHandle to flip — `Ctrl+D` must fall back to `done()`.
+    const customFn: PiCustomOverlayFunction = (factoryArg, _options) => {
+      const tui: PiCustomOverlayFactoryTui = {
+        requestRender: () => undefined,
+      };
+      const component = factoryArg(tui, {}, {}, (_result) => {
+        doneCalled++;
+      });
+      if (component instanceof Promise) throw new Error("expected sync factory");
+      capturedComponent = component;
+      return undefined;
+    };
+
+    const adapter = buildGraphOverlayAdapter({ ui: { custom: customFn } }, store);
+    adapter.open(runId);
+
+    assert.ok(capturedComponent, "factory should return a component");
+    assert.equal(typeof capturedComponent!.handleInput, "function");
+
+    capturedComponent!.handleInput!("\x04");
+
+    assert.equal(doneCalled, 1, "Ctrl+D should invoke done(undefined) exactly once");
+    const run = store.runs().find((r) => r.id === runId);
+    assert.ok(run, "run should still exist in the store");
+    assert.notEqual(run!.status, "killed", "Ctrl+D must not transition status to killed");
+    assert.equal(run!.endedAt, undefined, "Ctrl+D must not end the run");
+  });
+
+  test("Ctrl+D WITH onHandle hides via setHidden(true)+unfocus and keeps the run alive", () => {
+    const runId = `ctrl-d-with-onhandle-${Date.now()}`;
+    const store = createStore();
+    store.recordRunStart({
+      id: runId,
+      name: "wf",
+      inputs: {},
+      status: "running",
+      stages: [],
+      startedAt: Date.now(),
+    });
+
+    let hidden = false;
+    const setHiddenCalls: boolean[] = [];
+    let unfocusCalls = 0;
+    let doneCalled = 0;
+    let capturedComponent: PiCustomComponent | undefined;
+    const overlayHandle: PiOverlayHandle = {
+      hide: () => undefined,
+      setHidden: (h) => {
+        setHiddenCalls.push(h);
+        hidden = h;
+      },
+      isHidden: () => hidden,
+      focus: () => undefined,
+      unfocus: () => {
+        unfocusCalls++;
+      },
+      isFocused: () => !hidden,
+    };
+    const customFn: PiCustomOverlayFunction = (factoryArg, options) => {
+      options.onHandle?.(overlayHandle);
+      const tui: PiCustomOverlayFactoryTui = {
+        requestRender: () => undefined,
+      };
+      const component = factoryArg(tui, {}, {}, () => {
+        doneCalled++;
+      });
+      if (component instanceof Promise) throw new Error("expected sync factory");
+      capturedComponent = component;
+      return undefined;
+    };
+
+    const adapter = buildGraphOverlayAdapter({ ui: { custom: customFn } }, store);
+    adapter.open(runId);
+
+    capturedComponent!.handleInput!("\x04");
+
+    assert.deepEqual(setHiddenCalls, [true], "Ctrl+D should call setHidden(true) once");
+    assert.equal(unfocusCalls, 1, "Ctrl+D should release focus once");
+    assert.equal(doneCalled, 0, "Ctrl+D with onHandle must NOT invoke done()");
+    const run = store.runs().find((r) => r.id === runId);
+    assert.notEqual(run!.status, "killed");
+    assert.equal(run!.endedAt, undefined);
+  });
+
+  test("`q` on a real custom mount DOES kill the active run (regression gate)", () => {
+    const runId = `q-kill-${Date.now()}`;
+    const store = createStore();
+    store.recordRunStart({
+      id: runId,
+      name: "wf",
+      inputs: {},
+      status: "running",
+      stages: [],
+      startedAt: Date.now(),
+    });
+
+    let capturedComponent: PiCustomComponent | undefined;
+    const customFn: PiCustomOverlayFunction = (factoryArg, options) => {
+      const { handle } = buildOverlayHandle();
+      options.onHandle?.(handle);
+      const tui: PiCustomOverlayFactoryTui = {
+        requestRender: () => undefined,
+      };
+      const component = factoryArg(tui, {}, {}, () => undefined);
+      if (component instanceof Promise) throw new Error("expected sync factory");
+      capturedComponent = component;
+      return undefined;
+    };
+
+    const adapter = buildGraphOverlayAdapter({ ui: { custom: customFn } }, store);
+    adapter.open(runId);
+
+    capturedComponent!.handleInput!("q");
+
+    const run = store.runs().find((r) => r.id === runId);
+    assert.equal(run!.status, "killed", "`q` must transition the run to killed");
+    assert.ok(run!.endedAt !== undefined, "`q` must mark the run as ended");
   });
 });

@@ -40,7 +40,16 @@
 import type { WorkflowInputEntry } from "../extension/render-result.js";
 import type { GraphTheme } from "./graph-theme.js";
 import { paint } from "./color-utils.js";
-import { matchesKey, truncateToWidth, visibleWidth } from "./text-helpers.js";
+import { truncateToWidth, visibleWidth } from "./text-helpers.js";
+import {
+  type KeybindingsLike,
+  deleteRange,
+  lineEnd,
+  lineStart,
+  matchesAction,
+  wordLeft,
+  wordRight,
+} from "./keybindings-adapter.js";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -635,29 +644,31 @@ export function handleInputsPickerInput(
   key: string,
   state: InputsPickerState,
   fields: readonly WorkflowInputEntry[],
+  keybindings?: KeybindingsLike,
 ): InputsPickerAction {
   if (fields.length === 0) {
     // Defensive: a workflow with zero declared inputs shouldn't reach the
     // picker (we gate on `fields.length > 0` at the open() site), but if
     // it does, treat any keystroke as a noop and let the host close us.
-    if (matchesKey(key, "escape")) return { kind: "cancel" };
+    if (key === "\x1b") return { kind: "cancel" };
     return { kind: "noop" };
   }
   if (state.confirmOpen) return handleConfirmKey(key, state, fields);
-  return handleFormKey(key, state, fields);
+  return handleFormKey(key, state, fields, keybindings);
 }
 
 function handleFormKey(
   key: string,
   state: InputsPickerState,
   fields: readonly WorkflowInputEntry[],
+  kb: KeybindingsLike | undefined,
 ): InputsPickerAction {
   const field = fields[state.focusedIdx]!;
   const name = field.name;
   const cur = state.rawText[name] ?? "";
 
-  // ── Global navigation ──
-  if (matchesKey(key, "escape")) return { kind: "cancel" };
+  // ── Global navigation (workflow form contract, not Pi actions) ──
+  if (key === "\x1b") return { kind: "cancel" };
   if (key === "\t") {
     moveFocus(state, fields, +1);
     return { kind: "noop" };
@@ -682,40 +693,100 @@ function handleFormKey(
 
   // ── Per-type edits ──
   if (field.type === "select") {
-    return handleSelectKey(key, field, state, fields);
+    return handleSelectKey(key, field, state, fields, kb);
   }
   if (field.type === "boolean") {
-    return handleBooleanKey(key, field, state, fields);
+    return handleBooleanKey(key, field, state, fields, kb);
   }
 
-  // string / text / number — text editing semantics.
-  if (matchesKey(key, "up")) {
+  // string / text / number — text editing semantics. All editor-mode keys
+  // (cursor, word jump, line jump, deletions) route through Pi's
+  // KeybindingsManager so user-configured bindings work uniformly.
+  const caret = Math.max(0, Math.min(state.caret, cur.length));
+
+  if (matchesAction(kb, key, "tui.editor.cursorUp")) {
     moveFocus(state, fields, -1);
     return { kind: "noop" };
   }
-  if (matchesKey(key, "down")) {
+  if (matchesAction(kb, key, "tui.editor.cursorDown")) {
     moveFocus(state, fields, +1);
     return { kind: "noop" };
   }
-  if (matchesKey(key, "left")) {
-    state.caret = Math.max(0, state.caret - 1);
+  if (matchesAction(kb, key, "tui.editor.cursorWordLeft")) {
+    state.caret = wordLeft(cur, caret);
     return { kind: "noop" };
   }
-  if (matchesKey(key, "right")) {
-    state.caret = Math.min(cur.length, state.caret + 1);
+  if (matchesAction(kb, key, "tui.editor.cursorWordRight")) {
+    state.caret = wordRight(cur, caret);
     return { kind: "noop" };
   }
-  if (key === "\x7f" || key === "\b") {
-    if (state.caret > 0) {
-      state.rawText[name] = cur.slice(0, state.caret - 1) + cur.slice(state.caret);
-      state.caret -= 1;
+  if (matchesAction(kb, key, "tui.editor.cursorLineStart")) {
+    state.caret = lineStart(cur, caret);
+    return { kind: "noop" };
+  }
+  if (matchesAction(kb, key, "tui.editor.cursorLineEnd")) {
+    state.caret = lineEnd(cur, caret);
+    return { kind: "noop" };
+  }
+  if (matchesAction(kb, key, "tui.editor.cursorLeft")) {
+    state.caret = Math.max(0, caret - 1);
+    return { kind: "noop" };
+  }
+  if (matchesAction(kb, key, "tui.editor.cursorRight")) {
+    state.caret = Math.min(cur.length, caret + 1);
+    return { kind: "noop" };
+  }
+  if (matchesAction(kb, key, "tui.editor.deleteWordBackward")) {
+    const start = wordLeft(cur, caret);
+    const r = deleteRange(cur, start, caret, caret);
+    state.rawText[name] = r.text;
+    state.caret = r.caret;
+    return { kind: "noop" };
+  }
+  if (matchesAction(kb, key, "tui.editor.deleteWordForward")) {
+    const end = wordRight(cur, caret);
+    const r = deleteRange(cur, caret, end, caret);
+    state.rawText[name] = r.text;
+    state.caret = r.caret;
+    return { kind: "noop" };
+  }
+  if (matchesAction(kb, key, "tui.editor.deleteToLineStart")) {
+    const start = lineStart(cur, caret);
+    const r = deleteRange(cur, start, caret, caret);
+    state.rawText[name] = r.text;
+    state.caret = r.caret;
+    return { kind: "noop" };
+  }
+  if (matchesAction(kb, key, "tui.editor.deleteToLineEnd")) {
+    const end = lineEnd(cur, caret);
+    const r = deleteRange(cur, caret, end, caret);
+    state.rawText[name] = r.text;
+    state.caret = r.caret;
+    return { kind: "noop" };
+  }
+  if (matchesAction(kb, key, "tui.editor.deleteCharBackward")) {
+    if (caret > 0) {
+      const r = deleteRange(cur, caret - 1, caret, caret);
+      state.rawText[name] = r.text;
+      state.caret = r.caret;
     }
     return { kind: "noop" };
   }
-  if (matchesKey(key, "enter")) {
+  if (matchesAction(kb, key, "tui.editor.deleteCharForward")) {
+    if (caret < cur.length) {
+      const r = deleteRange(cur, caret, caret + 1, caret);
+      state.rawText[name] = r.text;
+      state.caret = r.caret;
+    }
+    return { kind: "noop" };
+  }
+  if (
+    matchesAction(kb, key, "tui.input.submit") ||
+    matchesAction(kb, key, "tui.input.newLine")
+  ) {
     if (field.type === "text") {
-      state.rawText[name] = cur.slice(0, state.caret) + "\n" + cur.slice(state.caret);
-      state.caret += 1;
+      state.rawText[name] = cur.slice(0, caret) + "\n" + cur.slice(caret);
+      state.caret = caret + 1;
     } else {
       moveFocus(state, fields, +1);
     }
@@ -723,8 +794,8 @@ function handleFormKey(
   }
   // Printable insert.
   if (key.length === 1 && key >= " " && key <= "~") {
-    state.rawText[name] = cur.slice(0, state.caret) + key + cur.slice(state.caret);
-    state.caret += 1;
+    state.rawText[name] = cur.slice(0, caret) + key + cur.slice(caret);
+    state.caret = caret + 1;
     return { kind: "noop" };
   }
   return { kind: "noop" };
@@ -735,24 +806,25 @@ function handleSelectKey(
   field: WorkflowInputEntry,
   state: InputsPickerState,
   fields: readonly WorkflowInputEntry[],
+  kb: KeybindingsLike | undefined,
 ): InputsPickerAction {
   const choices = field.choices ?? [];
   if (choices.length === 0) return { kind: "noop" };
   const current = state.rawText[field.name] ?? choices[0]!;
   const idx = Math.max(0, choices.indexOf(current));
-  if (matchesKey(key, "left") || matchesKey(key, "h")) {
+  if (matchesAction(kb, key, "tui.editor.cursorLeft")) {
     state.rawText[field.name] = choices[(idx - 1 + choices.length) % choices.length]!;
     return { kind: "noop" };
   }
-  if (matchesKey(key, "right") || matchesKey(key, "l")) {
+  if (matchesAction(kb, key, "tui.editor.cursorRight")) {
     state.rawText[field.name] = choices[(idx + 1) % choices.length]!;
     return { kind: "noop" };
   }
-  if (matchesKey(key, "up")) {
+  if (matchesAction(kb, key, "tui.editor.cursorUp")) {
     moveFocus(state, fields, -1);
     return { kind: "noop" };
   }
-  if (matchesKey(key, "down")) {
+  if (matchesAction(kb, key, "tui.editor.cursorDown")) {
     moveFocus(state, fields, +1);
     return { kind: "noop" };
   }
@@ -764,21 +836,22 @@ function handleBooleanKey(
   field: WorkflowInputEntry,
   state: InputsPickerState,
   fields: readonly WorkflowInputEntry[],
+  kb: KeybindingsLike | undefined,
 ): InputsPickerAction {
   if (
     key === " " ||
-    matchesKey(key, "enter") ||
-    matchesKey(key, "left") ||
-    matchesKey(key, "right")
+    matchesAction(kb, key, "tui.input.submit") ||
+    matchesAction(kb, key, "tui.editor.cursorLeft") ||
+    matchesAction(kb, key, "tui.editor.cursorRight")
   ) {
     state.rawText[field.name] = state.rawText[field.name] === "true" ? "false" : "true";
     return { kind: "noop" };
   }
-  if (matchesKey(key, "up")) {
+  if (matchesAction(kb, key, "tui.editor.cursorUp")) {
     moveFocus(state, fields, -1);
     return { kind: "noop" };
   }
-  if (matchesKey(key, "down")) {
+  if (matchesAction(kb, key, "tui.editor.cursorDown")) {
     moveFocus(state, fields, +1);
     return { kind: "noop" };
   }
@@ -790,10 +863,13 @@ function handleConfirmKey(
   state: InputsPickerState,
   fields: readonly WorkflowInputEntry[],
 ): InputsPickerAction {
-  if (matchesKey(key, "y") || matchesKey(key, "enter")) {
+  // Confirm-modal answers are single-char prompts (`y`/`n`) plus the form's
+  // raw esc/enter contract. These do not flow through Pi action ids because
+  // they're a confirmation-modal contract, not an editor-mode action.
+  if (key === "y" || key === "Y" || key === "\r" || key === "\n") {
     return { kind: "run", values: coerceValues(fields, state.rawText) };
   }
-  if (matchesKey(key, "n") || matchesKey(key, "escape")) {
+  if (key === "n" || key === "N" || key === "\x1b") {
     state.confirmOpen = false;
     return { kind: "noop" };
   }

@@ -1,30 +1,34 @@
 /**
- * WorkflowGraphOverlayAdapter — mounts the orchestrator as a large centred
- * popup via pi.ui.custom + pi-tui's `setHidden` for cheap show/hide toggles.
- *
- * The popup is anchored center with ~85% width / ~80% height so it lands
- * as a focused, generously-sized pane on top of the chat. The toggle path
- * never re-mounts the overlay: it flips `OverlayHandle.setHidden(boolean)`
- * so state and animations survive across hide/show cycles.
+ * WorkflowGraphOverlayAdapter — mounts the orchestrator as a full-screen
+ * overlay via Pi / oh-my-pi's real `ctx.ui.custom(factory, options)`
+ * primitive. The overlay fills the terminal (`width: "100%"`,
+ * `maxHeight: "100%"`, `margin: 0`) and pi-tui's `setHidden` flag is used
+ * for cheap show/hide toggles — every remount commits the previous overlay
+ * frame into chat scrollback, so the adapter holds onto the OverlayHandle
+ * and flips visibility instead of unmounting.
  *
  * cross-ref:
  *   - src/tui/graph-view.ts
- *   - src/extension/wiring.ts  PiCustomOverlayRealOptions, PiOverlayHandle
+ *   - src/tui/workflow-attach-pane.ts
+ *   - src/extension/wiring.ts  PiCustomOverlayOptions, PiOverlayHandle
  *   - @earendil-works/pi-tui dist/tui.d.ts  OverlayOptions, OverlayHandle
- *   - github.com/flora131/atomic packages/atomic-sdk/src/components/orchestrator-panel.tsx
+ *   - @earendil-works/pi-coding-agent docs/tui.md (overlay primitives)
  */
 
 import type { Store } from "../shared/store.js";
-import { GraphView } from "./graph-view.js";
-import { deriveGraphTheme } from "./graph-theme.js";
+import { WorkflowAttachPane } from "./workflow-attach-pane.js";
+import { deriveGraphThemeFromPiTheme } from "./graph-theme.js";
 import { killRun } from "../runs/background/status.js";
 import { cancellationRegistry } from "../runs/background/cancellation-registry.js";
+import { stageControlRegistry as defaultStageControlRegistry } from "../runs/foreground/stage-control-registry.js";
+import type { StageControlRegistry } from "../runs/foreground/stage-control-registry.js";
 import type {
   PiCustomComponent,
+  PiCustomOverlayFactoryTui,
   PiCustomOverlayFunction,
-  PiCustomOverlayHandle,
-  PiCustomOverlayOpts,
+  PiCustomOverlayOptions,
   PiOverlayHandle,
+  PiOverlayOptions,
 } from "../extension/wiring.js";
 
 export interface OverlayUISurface {
@@ -40,80 +44,121 @@ export interface OverlayPiSurface {
  * `open(runId)`  — bring the pane to front (creating it if needed).
  * `toggle(runId)`— show if hidden, hide if visible, create if absent.
  * `close()`      — permanently dismiss.
+ *
+ * Optional `stageId` (on `open`) opens directly on the stage-chat
+ * surface for that node — used by `/workflow attach <runId> <stageId>`
+ * and the picker overlay's connect-to-stage flow.
  */
 export interface GraphOverlayPort {
-  open(runId: string | null, surface?: OverlayPiSurface): void;
+  open(runId: string | null, surface?: OverlayPiSurface, stageId?: string): void;
   toggle(runId: string | null, surface?: OverlayPiSurface): void;
   close(): void;
 }
 
 /**
- * Floating-popup positioning. NOTE: we currently mount the orchestrator
- * as a focused full-screen pane (`overlay: false`) because that's the
- * only pi-tui mode that keeps the orchestrator pane out of the chat's
- * scroll buffer. A floating overlay (`overlay: true`) lives in the same
- * terminal buffer as the chat — every chat scroll event captures the
- * overlay frame into scrollback, producing visible "duplicate" header
- * rows over time. These constants stay here for the legacy fallback
- * path and for an eventual switch back once pi-tui isolates overlays
- * from the scrollback.
+ * Aspirational full-screen overlay geometry. In a future host that
+ * forwards `overlayOptions` to pi-tui's `resolveOverlayLayout`,
+ * `width`/`maxHeight` would expand against terminal dimensions so the
+ * popup fills the entire frame, with `margin: 0` removing the breathing
+ * room a centered popup needs.
+ *
+ * Current oh-my-pi interactive `ExtensionUiController.custom` ignores
+ * this object: it always mounts overlays with `{ anchor:
+ * "bottom-center", width: "100%", maxHeight: "100%", margin: 0 }`. The
+ * value is retained for `onHandle`-based toggle support and forward
+ * compatibility — see `PiCustomOverlayOptions` for the host-compat
+ * note.
+ *
+ * Note: percent geometry is necessary but not sufficient for a true
+ * full-screen overlay — pi-tui positions the popup based on the
+ * rendered overlay line count, so the mounted component must also
+ * emit `terminal.rows` lines per frame. That row count is threaded
+ * through `WorkflowAttachPane.getViewportRows` below.
  */
-const CENTER_OVERLAY_OPTIONS = {
-  anchor: "center" as const,
-  width: "85%",
-  maxHeight: "90%",
-  margin: { top: 1 },
-} satisfies NonNullable<PiCustomOverlayOpts["overlayOptions"]>;
+const FULLSCREEN_OVERLAY_OPTIONS: PiOverlayOptions = {
+  anchor: "center",
+  width: "100%",
+  maxHeight: "100%",
+  margin: 0,
+};
+
+export interface BuildGraphOverlayAdapterOpts {
+  /**
+   * Live stage-control registry threaded through to the attach shell.
+   * Defaults to the singleton registry registered alongside the store.
+   */
+  stageControlRegistry?: StageControlRegistry;
+}
 
 export function buildGraphOverlayAdapter(
   pi: OverlayPiSurface,
   store: Store,
+  buildOpts: BuildGraphOverlayAdapterOpts = {},
 ): GraphOverlayPort {
-  let currentView: GraphView | null = null;
-  let currentLegacyHandle: PiCustomOverlayHandle | null = null;
-  // pi-tui returns an OverlayHandle when running the real `(factory, opts)`
-  // shape. We hold onto it so toggle() can flip `setHidden` rather than
-  // remounting the overlay — every remount commits the previous overlay
-  // frame into the chat scrollback, producing visible duplicates.
-  let currentRealHandle: PiOverlayHandle | null = null;
+  const registry = buildOpts.stageControlRegistry ?? defaultStageControlRegistry;
+  let currentView: WorkflowAttachPane | null = null;
+  // pi-tui returns an OverlayHandle via `options.onHandle`. We hold onto
+  // it so toggle() can flip `setHidden` rather than remounting the
+  // overlay — every remount commits the previous overlay frame into
+  // the chat scrollback, producing visible duplicates.
+  let currentHandle: PiOverlayHandle | null = null;
   let mounted = false;
   let finishMounted: (() => void) | null = null;
 
   function close(): void {
-    currentLegacyHandle?.close();
-    currentRealHandle?.hide();
+    currentHandle?.hide();
     finishMounted?.();
     currentView?.dispose();
-    currentLegacyHandle = null;
-    currentRealHandle = null;
+    currentHandle = null;
     finishMounted = null;
     currentView = null;
     mounted = false;
   }
 
+  /**
+   * Non-destructive close path used by graph-mode `Ctrl+D` / `h`. Goes
+   * through Pi/oh-my-pi public primitives in priority order:
+   *   1. `OverlayHandle.setHidden(true)` when the host exposed an
+   *      overlay handle via `options.onHandle`. Keeps the overlay
+   *      mounted so a subsequent `open()` can flip it back without
+   *      remounting (state and animations survive).
+   *   2. The factory `done(undefined)` callback when the host didn't
+   *      expose an OverlayHandle. Per oh-my-pi docs, this disposes the
+   *      component, hides the overlay if present, restores focus to
+   *      the editor, and resolves the custom() promise.
+   *
+   * Critically: this never touches `killRun`, `cancellationRegistry`,
+   * or any run-cancellation surface — the backing workflow keeps
+   * running and can be re-attached.
+   */
+  function hideMounted(): void {
+    if (currentHandle) {
+      currentHandle.setHidden(true);
+      currentHandle.unfocus();
+      return;
+    }
+    if (finishMounted) {
+      finishMounted();
+      return;
+    }
+  }
+
   function makeComponent(
-    view: GraphView,
-    tui?: { requestRender?: () => void },
+    view: WorkflowAttachPane,
+    tui: PiCustomOverlayFactoryTui,
   ): PiCustomComponent {
-    // No render interval. Polling pi to redraw the overlay every 120ms
-    // produced a fresh screen frame on each tick — tmux scrollback then
-    // captured every transitional frame as a separate row, which is
-    // what surfaced as duplicate `Orchestrator deep-research-codebase …`
-    // rows when watching a long-running workflow. Re-renders now flow
-    // only from store updates (pushed via `view.invalidate()`) and from
-    // genuine keyboard input.
     const onStoreUpdate = (): void => {
       view.invalidate();
-      tui?.requestRender?.();
+      tui.requestRender?.();
     };
     const unsubscribe = store.subscribe(onStoreUpdate);
     return {
       render: (width: number) => view.render(width),
       handleInput: (data: string) => {
         const consumed = view.handleInput(data);
-        if (consumed) tui?.requestRender?.();
+        if (consumed) tui.requestRender?.();
       },
-      invalidate: () => tui?.requestRender?.(),
+      invalidate: () => tui.requestRender?.(),
       dispose: () => {
         unsubscribe();
         view.dispose();
@@ -121,11 +166,15 @@ export function buildGraphOverlayAdapter(
     };
   }
 
-  function open(runId: string | null, surface?: OverlayPiSurface): void {
+  function open(
+    runId: string | null,
+    surface?: OverlayPiSurface,
+    stageId?: string,
+  ): void {
     // Already mounted but hidden — flip visibility without remounting.
-    if (mounted && currentRealHandle?.isHidden()) {
-      currentRealHandle.setHidden(false);
-      currentRealHandle.focus();
+    if (mounted && currentHandle?.isHidden()) {
+      currentHandle.setHidden(false);
+      currentHandle.focus();
       return;
     }
     if (mounted) return; // already showing.
@@ -133,110 +182,71 @@ export function buildGraphOverlayAdapter(
     const ui = surface?.ui ?? pi.ui;
     const custom = ui?.custom;
     if (typeof custom !== "function") return;
+    const uiStatus = ui as { setStatus?: (key: string, value: string | undefined) => void } | undefined;
 
-    if (custom.length >= 2) {
-      const realCustom = custom as (
-        factory: (
-          tui: { requestRender?: () => void },
-          theme: unknown,
-          keybindings: unknown,
-          done: (result: undefined) => void,
-        ) => PiCustomComponent,
-        options: {
-          overlay: boolean;
-          overlayOptions?: PiCustomOverlayOpts["overlayOptions"];
-          onHandle?: (handle: PiOverlayHandle) => void;
+    let settled = false;
+    const factory = (
+      tui: PiCustomOverlayFactoryTui,
+      theme: unknown,
+      _keybindings: unknown,
+      done: (result: undefined) => void,
+    ): PiCustomComponent => {
+      const finish = (): void => {
+        if (settled) return;
+        settled = true;
+        currentView?.dispose();
+        currentView = null;
+        currentHandle = null;
+        finishMounted = null;
+        mounted = false;
+        done(undefined);
+      };
+      const view = new WorkflowAttachPane({
+        store,
+        graphTheme: deriveGraphThemeFromPiTheme(theme),
+        runId,
+        stageControlRegistry: registry,
+        uiStatus,
+        onClose: finish,
+        onHide: hideMounted,
+        onKill: (id) => {
+          killRun(id, { store, cancellation: cancellationRegistry });
         },
-      ) => Promise<undefined> | undefined;
-
-      let settled = false;
-      void realCustom(
-        (tui, _theme, _keybindings, done) => {
-          const finish = (): void => {
-            if (settled) return;
-            settled = true;
-            currentView?.dispose();
-            currentView = null;
-            currentRealHandle = null;
-            finishMounted = null;
-            mounted = false;
-            done(undefined);
-          };
-          const view = new GraphView({
-            mode: "overlay",
-            runId,
-            store,
-            graphTheme: deriveGraphTheme({}),
-            onClose: finish,
-            onHide: () => {
-              currentRealHandle?.setHidden(true);
-              currentRealHandle?.unfocus();
-            },
-            onKill: (id) => {
-              killRun(id, { store, cancellation: cancellationRegistry });
-            },
-          });
-          currentView = view;
-          finishMounted = finish;
-          mounted = true;
-          return makeComponent(view, tui);
-        },
-        {
-          // True floating overlay: pi-tui's overlay layer paints on top
-          // of the chat without appending re-rendered frames to the
-          // buffer (doom-overlay updates at 35fps with this mode and
-          // stays in place). `overlay: false` mounts in editorContainer
-          // and ended up appending every redraw to scrollback.
-          overlay: true,
-          overlayOptions: CENTER_OVERLAY_OPTIONS,
-          onHandle: (handle) => {
-            currentRealHandle = handle;
-          },
-        },
-      );
-      return;
-    }
-
-    // Legacy test-only shape: pi.ui.custom(opts) → handle.
-    const view = new GraphView({
-      mode: "overlay",
-      runId,
-      store,
-      graphTheme: deriveGraphTheme({}),
-      onClose: () => close(),
-      onKill: (id) => {
-        killRun(id, { store, cancellation: cancellationRegistry });
-      },
-    });
-    const legacyOpts: PiCustomOverlayOpts = {
-      overlay: true,
-      overlayOptions: CENTER_OVERLAY_OPTIONS,
-      render: (width: number) => view.render(width),
-      onInput: (data: string) => view.handleInput(data),
-      onClose: close,
+        initialAttachStageId: stageId,
+        // Pi-tui owns terminal dimensions; thread its row count down
+        // so the overlay frame fills the actual viewport rather than
+        // a hard-coded 32-row rectangle. Returning `undefined` keeps
+        // the existing fallback for hosts that don't expose
+        // `tui.terminal`.
+        getViewportRows: () => tui.terminal?.rows,
+      });
+      currentView = view;
+      finishMounted = finish;
+      mounted = true;
+      return makeComponent(view, tui);
     };
-    const legacyCustom = custom as (opts: PiCustomOverlayOpts) => PiCustomOverlayHandle | undefined;
-    const handle = legacyCustom(legacyOpts);
-    if (!handle) {
-      view.dispose();
-      return;
-    }
-    currentView = view;
-    currentLegacyHandle = handle;
-    mounted = true;
+
+    const options: PiCustomOverlayOptions = {
+      overlay: true,
+      overlayOptions: FULLSCREEN_OVERLAY_OPTIONS,
+      onHandle: (handle) => {
+        currentHandle = handle;
+      },
+    };
+    void custom(factory, options);
   }
 
   function toggle(runId: string | null, surface?: OverlayPiSurface): void {
-    // Hide without unmounting if we have a real handle (no remount means
-    // no scroll-pollution). Falls back to close() for the legacy mock path.
-    if (mounted && currentRealHandle) {
-      const nowHidden = !currentRealHandle.isHidden();
-      currentRealHandle.setHidden(nowHidden);
-      if (!nowHidden) currentRealHandle.focus();
+    // Hide without unmounting if we have a handle (no remount means
+    // no scroll-pollution).
+    if (mounted && currentHandle) {
+      const nowHidden = !currentHandle.isHidden();
+      currentHandle.setHidden(nowHidden);
+      if (!nowHidden) currentHandle.focus();
       return;
     }
     if (mounted) {
-      close();
+      hideMounted();
       return;
     }
     open(runId, surface);

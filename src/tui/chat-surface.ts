@@ -1,0 +1,481 @@
+/**
+ * Static chat-surface primitives — bands, stripe cards, hint rows, and
+ * progress strips for the post-dispatch confirmation, `/workflow status`
+ * list, and `/workflow list` catalogue.
+ *
+ * Visual contract (ui/mockups.html · DESIGN.md §5):
+ *  - **Flat band**: one full-width line with a `surface0` fill, a bold
+ *    label in the accent / status colour, a muted subtitle, and
+ *    right-aligned status badges.
+ *  - **Tagged card**: a 1-cell coloured stripe (status family) on the
+ *    left, a `surface0` tag carrying the runId / workflow name, a
+ *    bolded title beside it, and one optional second row indented past
+ *    the stripe.
+ *  - **Progress strip**: bracketed `[✓]` / `[●]` / `[○]` / `[✗]` cells,
+ *    coloured by stage status. Truncates with a trailing `…` when the
+ *    rendered cells exceed the available budget.
+ *  - **Hint rows**: a single grammar — `▸ /slash command  verb-phrase
+ *    hint`.
+ *
+ * Plain mode (theme omitted) drops ANSI and degrades the stripe to a
+ * single `│` character so the same shape carries through to logs and
+ * tests.
+ *
+ * cross-ref:
+ *  - ui/mockups.html (§1 dispatched, §2 status, §3 list, §4 truncation)
+ *  - src/tui/header.ts renderBandHeader (3-row outline pill — kept for the
+ *    above-editor widget, distinct surface)
+ */
+
+import type { StageStatus } from "../shared/store-types.js";
+import type { GraphTheme } from "./graph-theme.js";
+import { hexToAnsi, hexBg, RESET, BOLD } from "./color-utils.js";
+import { visibleWidth, truncateToWidth } from "./text-helpers.js";
+
+/** Unicode end-of-line truncation marker. Mocks use it verbatim. */
+export const ELLIPSIS = "…";
+
+/** Default chat-surface width when `process.stdout.columns` is unavailable. */
+export const DEFAULT_WIDTH = 80;
+
+/**
+ * Cells of horizontal chrome pi's `customMessage` surface wraps around our
+ * rendered output. `notify(msg, "info")` (and the equivalent sendMessage
+ * path used by `registerMessageRenderer`) construct a `Text` component with
+ * `paddingX = 1` on each side, which subtracts two cells from the
+ * available content width before pi-tui's word-wrap kicks in. Sizing our
+ * bands and cards to `process.stdout.columns` directly produces a line
+ * that's two cells too long; pi-tui then wraps the trailing badge onto a
+ * second visual row. We pre-shrink the fallback width by the same amount
+ * so a band rendered without an explicit width fits the chat surface
+ * exactly.
+ *
+ * Explicit widths passed by callers (tests, narrow-terminal mocks) are
+ * honoured verbatim — they're already framed for the surface they target.
+ */
+const CHAT_HOST_PADDING_X = 2;
+
+const MIN_WIDTH = 32;
+
+/**
+ * Resolve the render width for a chat-surface primitive. Callers may pass
+ * an explicit width (tests, overlays); otherwise we infer from
+ * `process.stdout.columns`, pre-shrunk by the host's wrap margin.
+ */
+export function chatWidth(explicit?: number): number {
+  if (typeof explicit === "number" && explicit > 0) return Math.max(MIN_WIDTH, explicit);
+  const cols = process.stdout.columns;
+  if (typeof cols === "number" && cols > 0) {
+    return Math.max(MIN_WIDTH, cols - CHAT_HOST_PADDING_X);
+  }
+  return DEFAULT_WIDTH;
+}
+
+// ---------------------------------------------------------------------------
+// Flat band — full-width surface0 strip with a label, subtitle, and badges
+// ---------------------------------------------------------------------------
+
+export interface FlatBandBadge {
+  /** Glyph + count or status word, e.g. `"● running"`, `"✓ 2"`. */
+  text: string;
+  /** Role hex colour (theme.success / warning / error / dim / accent). */
+  fg?: string;
+}
+
+export interface RenderFlatBandOpts {
+  /** Pill label, e.g. `"BACKGROUND"`, `"DISPATCHED"`, `"WORKFLOWS"`. */
+  label: string;
+  /** Subtitle in `textMuted` after the label. May be empty. */
+  subtitle?: string;
+  /** Right-aligned status badges. Empty array renders no right column. */
+  badges?: readonly FlatBandBadge[];
+  /** Override label colour. Defaults to `theme.accent`. */
+  accent?: string;
+  /** Render width (cells). Defaults to `process.stdout.columns`. */
+  width?: number;
+  /** Provide for themed Catppuccin chrome; omit for plain ASCII. */
+  theme?: GraphTheme;
+}
+
+/**
+ * Render one full-width band. Themed mode paints the line with the
+ * `surface0` background and styles the label, subtitle, and badges with
+ * ANSI colours. Plain mode emits `▎ LABEL  subtitle    badge` so the
+ * shape carries through to logs.
+ */
+export function renderFlatBand(opts: RenderFlatBandOpts): string {
+  const width = chatWidth(opts.width);
+  const subtitle = opts.subtitle ?? "";
+  const badges = opts.badges ?? [];
+
+  // Pre-truncate the subtitle so the band never wraps. The badges and
+  // label are sized first because they carry semantic weight; the
+  // subtitle is the relegated text.
+  const labelText = `[ ${opts.label} ]`;
+  const badgeText = badges.map((b) => b.text).join("  ");
+  const padding = 2; // 1ch left + 1ch right
+  const fixed = visibleWidth(labelText) + (badgeText.length > 0 ? visibleWidth(badgeText) + 2 : 0) + padding;
+  const subtitleBudget = Math.max(0, width - fixed - 4);
+  const truncatedSubtitle = truncateToWidth(subtitle, subtitleBudget, ELLIPSIS);
+
+  if (opts.theme === undefined) {
+    return renderFlatBandPlain(opts.label, truncatedSubtitle, badges, width);
+  }
+  return renderFlatBandThemed(
+    opts.label,
+    truncatedSubtitle,
+    badges,
+    opts.accent ?? opts.theme.accent,
+    opts.theme,
+    width,
+  );
+}
+
+function renderFlatBandThemed(
+  label: string,
+  subtitle: string,
+  badges: readonly FlatBandBadge[],
+  accentHex: string,
+  theme: GraphTheme,
+  width: number,
+): string {
+  const accent = hexToAnsi(accentHex);
+  const muted = hexToAnsi(theme.textMuted);
+  const fillBg = hexBg(theme.backgroundPanel);
+
+  const labelText = `[ ${label} ]`;
+  const labelW = visibleWidth(labelText);
+  const subtitleW = subtitle.length > 0 ? visibleWidth(subtitle) + 2 : 0;
+  const badgeW = badges.length > 0
+    ? badges.reduce((a, b) => a + visibleWidth(b.text), 0) + (badges.length - 1) * 2
+    : 0;
+
+  const leftPad = 1;
+  const rightPad = 1;
+  const filler = Math.max(
+    1,
+    width - leftPad - labelW - subtitleW - badgeW - rightPad,
+  );
+
+  const subtitleStyled = subtitle.length > 0 ? `  ${muted}${subtitle}${RESET}${fillBg}` : "";
+  const badgeStyled = badges
+    .map((b) => `${b.fg ? hexToAnsi(b.fg) : muted}${b.text}${RESET}${fillBg}`)
+    .join(`${fillBg}  `);
+  const badgeSeg = badges.length > 0 ? `${badgeStyled}` : "";
+
+  return (
+    `${fillBg}` +
+    " " +
+    `${accent}${BOLD}${labelText}${RESET}${fillBg}` +
+    subtitleStyled +
+    " ".repeat(filler) +
+    badgeSeg +
+    " " +
+    RESET
+  );
+}
+
+function renderFlatBandPlain(
+  label: string,
+  subtitle: string,
+  badges: readonly FlatBandBadge[],
+  width: number,
+): string {
+  const labelText = `[ ${label} ]`;
+  const labelW = visibleWidth(labelText);
+  const subtitleSeg = subtitle.length > 0 ? `  ${subtitle}` : "";
+  const badgeSeg = badges.map((b) => b.text).join("  ");
+  // Plain-mode band sits 1 cell from the chat content edge, matching the
+  // themed band's leftPad and the card/hint left edges. Single-column
+  // alignment for the band marker, card stripe, and hint arrow.
+  const leftMarker = " ▎ ";
+  const leftW = visibleWidth(leftMarker);
+  const subtitleW = visibleWidth(subtitleSeg);
+  const badgeW = visibleWidth(badgeSeg);
+
+  const filler = Math.max(2, width - leftW - labelW - subtitleW - badgeW - 1);
+  const right = badges.length > 0 ? `${" ".repeat(filler)}${badgeSeg}` : "";
+
+  return `${leftMarker}${labelText}${subtitleSeg}${right}`;
+}
+
+// ---------------------------------------------------------------------------
+// Tagged card — coloured stripe + surface0 tag + body rows
+// ---------------------------------------------------------------------------
+
+export interface RenderTaggedCardOpts {
+  /** Text rendered inside the surface0 tag, e.g. a short runId or wf name. */
+  tag: string;
+  /** Optional muted suffix right after the tag (e.g. `"run id"`). */
+  tagSubtitle?: string;
+  /** Title rendered bold beside the tag on row 1. Long values are end-truncated. */
+  title?: string;
+  /** Right-aligned badge on row 1 (state badge). */
+  trailing?: { text: string; fg?: string };
+  /**
+   * Pre-rendered body rows. Each entry already includes its own indentation
+   * past the stripe column. Callers are responsible for ANSI styling inside
+   * each entry, but the renderer prepends the stripe glyph and a single
+   * cell of breathing room.
+   */
+  bodyRows?: readonly string[];
+  /** Stripe + tag accent colour (status family or catalogue mauve). */
+  accent: string;
+  /** Render width. Defaults to `process.stdout.columns`. */
+  width?: number;
+  /** Provide for themed chrome; omit for plain ASCII. */
+  theme?: GraphTheme;
+}
+
+const STRIPE_CHAR_THEMED = "▎";
+const STRIPE_CHAR_PLAIN = "│";
+
+/**
+ * Render a single status / catalogue card. Always emits the row-1
+ * header (tag + title + trailing badge); body rows are emitted in
+ * order, each prepended with the stripe glyph and an indent.
+ *
+ * Returns one styled string with embedded `\n` separators.
+ */
+export function renderTaggedCard(opts: RenderTaggedCardOpts): string {
+  const width = chatWidth(opts.width);
+  if (opts.theme === undefined) return renderTaggedCardPlain(opts, width);
+  return renderTaggedCardThemed(opts, opts.theme, width);
+}
+
+function renderTaggedCardThemed(
+  opts: RenderTaggedCardOpts,
+  theme: GraphTheme,
+  width: number,
+): string {
+  const stripe = hexToAnsi(opts.accent);
+  const muted = hexToAnsi(theme.textMuted);
+  const tagBg = hexBg(theme.backgroundPanel);
+  const tagFg = hexToAnsi(opts.accent);
+  const text = hexToAnsi(theme.text);
+
+  // Row 1: ▎ [tag]  title …            ● running
+  const tagSeg = `${tagBg}${tagFg}${BOLD} ${opts.tag} ${RESET}`;
+  const tagW = opts.tag.length + 2;
+  const tagSubtitleSeg = opts.tagSubtitle
+    ? `  ${muted}${opts.tagSubtitle}${RESET}`
+    : "";
+  const tagSubtitleW = opts.tagSubtitle ? visibleWidth(opts.tagSubtitle) + 2 : 0;
+
+  const trailingText = opts.trailing?.text ?? "";
+  const trailingW = trailingText.length > 0 ? visibleWidth(trailingText) : 0;
+  const trailingSeg = opts.trailing
+    ? `${opts.trailing.fg ? hexToAnsi(opts.trailing.fg) : muted}${opts.trailing.text}${RESET}`
+    : "";
+
+  // Row 1 sits one cell tighter against the stripe than the body rows
+  // (`▎ [tag] title …`) so that the tag pill's interior text starts at
+  // exactly the same column as every body row's leading character —
+  // `▎ ` (2 cells) + bg-pill leading pad (1 cell) lands tag text at col 4,
+  // and `▎  ` (3 cells) + body content also lands at col 4. The +1
+  // hanging indent on the body is what the mockup's §1 / §2 cards show
+  // (ui/mockups.html · `▎ [tag] title` over `▎  body`).
+  const row1StripePrefixW = 2; // "▎ "
+  const bodyStripePrefixW = 3; // "▎  "
+  const trailingPad = 2;
+  const titleBudget = Math.max(
+    8,
+    width - row1StripePrefixW - tagW - tagSubtitleW - trailingW - trailingPad - 2,
+  );
+
+  const titleVisible = truncateToWidth(opts.title ?? "", titleBudget, ELLIPSIS);
+  const titleW = visibleWidth(titleVisible);
+  const titleSeg = titleVisible
+    ? `  ${text}${BOLD}${titleVisible}${RESET}`
+    : "";
+  const titleSegW = titleVisible ? titleW + 2 : 0;
+
+  const gap = Math.max(
+    1,
+    width - row1StripePrefixW - tagW - titleSegW - tagSubtitleW - trailingW - 1,
+  );
+
+  // 1-cell leading space on every card line so the stripe `▎` lands at
+  // column 1 — column-aligned with the band's `[ LABEL ]` (which is itself
+  // offset by `leftPad` inside its surface0 fill) and with the hint rows'
+  // `▸` arrow. All three chat-surface families share the same left edge,
+  // matching the mockup's terminal-padding scheme.
+  const row1 =
+    ` ${stripe}${STRIPE_CHAR_THEMED}${RESET} ` +
+    tagSeg +
+    titleSeg +
+    tagSubtitleSeg +
+    (opts.trailing ? " ".repeat(gap) + trailingSeg : "");
+
+  const bodyPrefix = ` ${stripe}${STRIPE_CHAR_THEMED}${RESET}${" ".repeat(bodyStripePrefixW - 1)}`;
+  const rows: string[] = [row1];
+  for (const body of opts.bodyRows ?? []) {
+    rows.push(`${bodyPrefix}${body}`);
+  }
+  return rows.join("\n");
+}
+
+function renderTaggedCardPlain(opts: RenderTaggedCardOpts, width: number): string {
+  // See renderTaggedCardThemed for the rationale behind the +1 hanging
+  // indent. Plain mode preserves the same column alignment: row 1's
+  // `[tag]` brackets stand in for the surface0 bg pill — the opening
+  // bracket sits at col 3 so the tag text starts at col 4, which is also
+  // where every body row's leading character lands.
+  const row1StripePrefixW = 2; // "│ "
+  const bodyStripePrefixW = 3; // "│  "
+  const tagSeg = `[${opts.tag}]`;
+  const tagW = visibleWidth(tagSeg);
+  const tagSubtitleSeg = opts.tagSubtitle ? `  ${opts.tagSubtitle}` : "";
+  const tagSubtitleW = visibleWidth(tagSubtitleSeg);
+  const trailing = opts.trailing?.text ?? "";
+  const trailingW = visibleWidth(trailing);
+  const trailingPad = 2;
+
+  const titleBudget = Math.max(
+    8,
+    width - row1StripePrefixW - tagW - tagSubtitleW - trailingW - trailingPad - 2,
+  );
+  const titleVisible = truncateToWidth(opts.title ?? "", titleBudget, ELLIPSIS);
+  const titleSeg = titleVisible ? `  ${titleVisible}` : "";
+  const titleW = visibleWidth(titleSeg);
+
+  const gap = Math.max(
+    1,
+    width - row1StripePrefixW - tagW - titleW - tagSubtitleW - trailingW - 1,
+  );
+  const row1Trailing = opts.trailing ? `${" ".repeat(gap)}${trailing}` : "";
+  // See renderTaggedCardThemed for the leading-space rationale: every card
+  // line starts with one cell so the stripe lines up with the band label
+  // and the hint arrow.
+  const row1 = ` ${STRIPE_CHAR_PLAIN} ${tagSeg}${titleSeg}${tagSubtitleSeg}${row1Trailing}`;
+
+  const bodyPrefix = ` ${STRIPE_CHAR_PLAIN}${" ".repeat(bodyStripePrefixW - 1)}`;
+  const rows: string[] = [row1];
+  for (const body of opts.bodyRows ?? []) {
+    rows.push(`${bodyPrefix}${body}`);
+  }
+  return rows.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Progress strip — `[✓][●][○][✗]` cells, coloured by stage status
+// ---------------------------------------------------------------------------
+
+export interface ProgressCell {
+  status: StageStatus;
+}
+
+/**
+ * Render a progress strip whose visible width is at most `budget` cells.
+ * Each cell renders as a 3-character bracket-glyph-bracket sequence
+ * (`[✓]`). When the strip would exceed the budget, the rendered output
+ * is truncated and a trailing `…` is appended.
+ *
+ * Themed mode colours the glyphs by status; plain mode emits the same
+ * ASCII shape so logs remain readable.
+ */
+export function progressStrip(
+  cells: readonly ProgressCell[],
+  budget: number,
+  theme?: GraphTheme,
+): string {
+  const CELL_WIDTH = 3;
+  const usable = Math.max(0, Math.floor(budget));
+  const maxCells = Math.max(0, Math.floor(usable / CELL_WIDTH));
+  if (maxCells === 0 || cells.length === 0) return "";
+
+  const truncated = cells.length > maxCells;
+  // Reserve 1 cell of width for the trailing ellipsis if truncating, so the
+  // rendered output still fits.
+  const visibleCount = truncated
+    ? Math.max(0, Math.floor((usable - 1) / CELL_WIDTH))
+    : cells.length;
+  const slice = cells.slice(0, visibleCount);
+
+  let out = "";
+  if (theme) {
+    for (const cell of slice) {
+      out += renderCellThemed(cell.status, theme);
+    }
+  } else {
+    for (const cell of slice) {
+      out += renderCellPlain(cell.status);
+    }
+  }
+  if (truncated) {
+    out += theme ? `${hexToAnsi(theme.dim)}${ELLIPSIS}${RESET}` : ELLIPSIS;
+  }
+  return out;
+}
+
+function renderCellThemed(status: StageStatus, theme: GraphTheme): string {
+  const dim = hexToAnsi(theme.dim);
+  const glyph = stageGlyph(status);
+  const fg = stageColor(status, theme);
+  // Bracket lattice in dim, glyph in status colour.
+  return `${dim}[${RESET}${fg}${glyph}${RESET}${dim}]${RESET}`;
+}
+
+function renderCellPlain(status: StageStatus): string {
+  return `[${stageGlyph(status)}]`;
+}
+
+function stageGlyph(status: StageStatus): string {
+  switch (status) {
+    case "completed": return "✓";
+    case "running":   return "●";
+    case "failed":    return "✗";
+    case "pending":
+    default:          return "○";
+  }
+}
+
+function stageColor(status: StageStatus, theme: GraphTheme): string {
+  switch (status) {
+    case "completed": return hexToAnsi(theme.success);
+    case "running":   return hexToAnsi(theme.warning);
+    case "failed":    return hexToAnsi(theme.error);
+    case "pending":
+    default:          return hexToAnsi(theme.dim);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Hint rows — `▸ /slash command  verb-phrase hint`
+// ---------------------------------------------------------------------------
+
+export interface HintRow {
+  /** Full slash command (`/workflow connect <id>`). */
+  command: string;
+  /** Verb-phrase trailing hint (`attach & watch`). */
+  hint: string;
+}
+
+/**
+ * Render one indented hint row per entry. Themed mode colours the arrow
+ * dim, the command in `theme.accent`, and the hint in `theme.dim`.
+ * Plain mode emits the same shape without ANSI.
+ *
+ * The plan calls for a single grammar across every chat surface:
+ * `▸ /command   hint`.
+ */
+export function renderHintRows(rows: readonly HintRow[], theme?: GraphTheme): string {
+  if (rows.length === 0) return "";
+  // 1-cell leading space so the `▸` arrow column-aligns with the band's
+  // `[ LABEL ]` opening bracket and the card stripe `▎`. All three share
+  // column 1 — see renderTaggedCardThemed for the alignment contract.
+  const indent = " ";
+  if (!theme) {
+    return rows
+      .map((r) => `${indent}▸ ${r.command}  ${r.hint}`)
+      .join("\n");
+  }
+  const dim = hexToAnsi(theme.dim);
+  const accent = hexToAnsi(theme.accent);
+  return rows
+    .map(
+      (r) =>
+        `${indent}${dim}▸${RESET} ${accent}${r.command}${RESET}  ${dim}${r.hint}${RESET}`,
+    )
+    .join("\n");
+}

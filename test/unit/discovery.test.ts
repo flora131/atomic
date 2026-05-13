@@ -11,7 +11,7 @@
  *   - Duplicate normalizedName: first-wins, DUPLICATE_NAME warning
  */
 
-import { after, describe, test } from "node:test";
+import { afterAll, describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -325,7 +325,7 @@ function writeMissingSentinelWorkflowJs(dir: string, filename: string): string {
   return filePath;
 }
 
-after(() => {
+afterAll(() => {
   for (const dir of _tempDirs) {
     try {
       rmSync(dir, { recursive: true, force: true });

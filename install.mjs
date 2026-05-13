@@ -1,14 +1,16 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 
 /**
  * @bastani/atomic-workflows installer
  *
  * Usage:
- *   npx atomic-workflows          # Install to ~/.omp/agent/extensions/workflows
- *   npx atomic-workflows --remove # Remove the extension
+ *   bunx atomic-workflows          # Install to ~/.omp/agent/extensions/workflows
+ *   bunx atomic-workflows --remove # Remove the extension
+ *
+ * Recommended user install path: `omp plugin install @bastani/atomic-workflows`.
  */
 
-import { execSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -25,9 +27,9 @@ if (isHelp) {
 atomic-workflows - oh-my-pi extension for multi-stage workflow authoring and execution
 
 Usage:
-  npx atomic-workflows          Install the extension
-  npx atomic-workflows --remove Remove the extension
-  npx atomic-workflows --help   Show this help
+  bunx atomic-workflows          Install the extension
+  bunx atomic-workflows --remove Remove the extension
+  bunx atomic-workflows --help   Show this help
 
 Installation directory: ${EXTENSION_DIR}
 `);
@@ -45,6 +47,20 @@ if (isRemove) {
 	process.exit(0);
 }
 
+/**
+ * Run a command without going through a shell. Argument vector form avoids
+ * shell-quoting surprises on paths that contain spaces, quotes, or backticks.
+ */
+function runCommand(cmd, cmdArgs, options) {
+	const result = spawnSync(cmd, cmdArgs, { stdio: "inherit", ...options });
+	if (result.error) throw result.error;
+	if (result.status !== 0) {
+		const err = new Error(`${cmd} exited with status ${result.status}`);
+		err.status = result.status;
+		throw err;
+	}
+}
+
 console.log("Installing atomic-workflows...\n");
 
 const parentDir = path.dirname(EXTENSION_DIR);
@@ -57,22 +73,22 @@ if (fs.existsSync(EXTENSION_DIR)) {
 	if (isGitRepo) {
 		console.log("Updating existing installation...");
 		try {
-			execSync("git pull", { cwd: EXTENSION_DIR, stdio: "inherit" });
+			runCommand("git", ["pull"], { cwd: EXTENSION_DIR });
 			console.log("\natomic-workflows updated");
 		} catch {
 			console.error("Failed to update. Try removing and reinstalling:");
-			console.error("  npx atomic-workflows --remove && npx atomic-workflows");
+			console.error("  bunx atomic-workflows --remove && bunx atomic-workflows");
 			process.exit(1);
 		}
 	} else {
 		console.log(`Directory exists but is not a git repo: ${EXTENSION_DIR}`);
-		console.log("Remove it first with: npx atomic-workflows --remove");
+		console.log("Remove it first with: bunx atomic-workflows --remove");
 		process.exit(1);
 	}
 } else {
 	console.log(`Cloning to ${EXTENSION_DIR}...`);
 	try {
-		execSync(`git clone ${REPO_URL} "${EXTENSION_DIR}"`, { stdio: "inherit" });
+		runCommand("git", ["clone", REPO_URL, EXTENSION_DIR]);
 		console.log("\natomic-workflows installed");
 	} catch {
 		console.error("Failed to clone repository");

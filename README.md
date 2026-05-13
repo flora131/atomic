@@ -20,7 +20,7 @@
 <p align="center">
   <a href="./package.json"><img src="https://img.shields.io/badge/version-0.0.1-blue" alt="Version 0.0.1"></a>
   <a href="./package.json"><img src="https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white" alt="TypeScript"></a>
-  <a href="./package.json"><img src="https://img.shields.io/badge/Node-%E2%89%A522-339933?logo=node.js&logoColor=white" alt="Node ≥ 22"></a>
+  <a href="./package.json"><img src="https://img.shields.io/badge/Bun-%E2%89%A51.3.7-fbf0df?logo=bun&logoColor=000" alt="Bun ≥ 1.3.7"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
 </p>
 

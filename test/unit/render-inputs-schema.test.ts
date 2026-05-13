@@ -7,7 +7,7 @@
  *   - fail-fast on missing required CLI inputs
  */
 
-import { describe, test } from "node:test";
+import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { renderInputsSchema } from "../../src/shared/render-inputs-schema.js";
 

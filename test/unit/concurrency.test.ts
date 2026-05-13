@@ -1,4 +1,4 @@
-import { describe, test } from "node:test";
+import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { ConcurrencyLimiter, createRunLimiter } from "../../src/runs/shared/concurrency.js";
 

@@ -272,20 +272,46 @@ function renderFieldContent(
       paint("off", !on ? theme.text : theme.dim);
     return [clip(onCell + "   " + offCell, usable)];
   }
-  // string / number / integer / text — show raw value or focused-cursor.
+  // string / number / integer — single-line scalar input.
+  if (field.type !== "text") {
+    if (raw === "") {
+      if (focused) return [paint("▋", theme.accent)];
+      return [paint(field.placeholder ?? "", theme.dim)];
+    }
+    if (focused) {
+      const c = Math.max(0, Math.min(caret ?? raw.length, raw.length));
+      const before = raw.slice(0, c);
+      const after = raw.slice(c);
+      return [
+        clip(
+          paint(before, theme.text) + paint("▋", theme.accent) + paint(after, theme.text),
+          usable,
+        ),
+      ];
+    }
+    return [clip(paint(raw, theme.textMuted), usable)];
+  }
+  // text — multi-line prompt-box input. Newlines render as actual visual
+  // line breaks (no more `⏎` glyph) and long single lines wrap at the
+  // field's usable width. The box height grows to fit every visual row
+  // so the user sees their whole prompt; the surrounding card already
+  // lives in chat scrollback so vertical space is not at a premium.
   if (raw === "") {
     if (focused) return [paint("▋", theme.accent)];
     return [paint(field.placeholder ?? "", theme.dim)];
   }
-  // text fields collapse newlines visually so the card stays a fixed height.
-  if (focused) {
-    const c = Math.max(0, Math.min(caret ?? raw.length, raw.length));
-    const before = raw.slice(0, c).replace(/\n/g, " ⏎ ");
-    const after = raw.slice(c).replace(/\n/g, " ⏎ ");
-    return [clip(paint(before, theme.text) + paint("▋", theme.accent) + paint(after, theme.text), usable)];
+  const layout = layoutTextField(raw, usable, focused ? caret ?? raw.length : 0);
+  if (!focused) {
+    return layout.lines.map((line) => paint(line, theme.textMuted));
   }
-  const flat = raw.replace(/\n/g, " ⏎ ");
-  return [clip(paint(flat, theme.textMuted), usable)];
+  return layout.lines.map((line, row) => {
+    if (row !== layout.cursorRow) {
+      return paint(line, theme.text);
+    }
+    const before = line.slice(0, layout.cursorCol);
+    const after = line.slice(layout.cursorCol);
+    return paint(before, theme.text) + paint("▋", theme.accent) + paint(after, theme.text);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -332,4 +358,66 @@ function clip(ansi: string, budget: number): string {
   const plain = ansi.replace(/\x1b\[[0-9;]*m/g, "");
   if (plain.length <= budget) return ansi;
   return plain.slice(0, Math.max(0, budget - 1)) + "…";
+}
+
+/**
+ * Lay out a multi-line text field into visual rows while tracking where the
+ * caret should appear on screen. Newlines (`\n`) always start a new visual
+ * row; logical lines that exceed `usable` cells wrap at the character
+ * boundary (a deliberately simple rule — word-wrap would also be fine but
+ * adds noise for prompt-style inputs where every character is signal).
+ *
+ * Caret semantics:
+ *   - `caret` is the byte offset into `raw`.
+ *   - The returned `cursorRow`/`cursorCol` point to the visual cell where
+ *     the cursor glyph should render — the cell currently occupied by the
+ *     character AT `caret` (so the cursor visually sits BEFORE that
+ *     character). When `caret === raw.length`, the cursor lands at the
+ *     end of the last visual row.
+ *   - When `caret` falls on a wrap boundary, the cursor lands on the start
+ *     of the next visual row, matching how Pi's own editor positions the
+ *     caret after the last character that fit.
+ *
+ * cross-ref: pi-tui dist/components/editor.js `layoutText`/`wordWrapLine`.
+ */
+export function layoutTextField(
+  raw: string,
+  usable: number,
+  caret: number,
+): { lines: string[]; cursorRow: number; cursorCol: number } {
+  const width = Math.max(1, Math.floor(usable));
+  const safeCaret = Math.max(0, Math.min(caret, raw.length));
+  const visualLines: string[] = [];
+  let curLine = "";
+  let cursorRow = 0;
+  let cursorCol = 0;
+  let cursorRecorded = false;
+  const recordCursorIfMatched = (offset: number): void => {
+    if (offset === safeCaret && !cursorRecorded) {
+      cursorRow = visualLines.length;
+      cursorCol = curLine.length;
+      cursorRecorded = true;
+    }
+  };
+  for (let i = 0; i < raw.length; i++) {
+    recordCursorIfMatched(i);
+    const ch = raw[i]!;
+    if (ch === "\n") {
+      visualLines.push(curLine);
+      curLine = "";
+      continue;
+    }
+    curLine += ch;
+    if (curLine.length >= width) {
+      visualLines.push(curLine);
+      curLine = "";
+    }
+  }
+  recordCursorIfMatched(raw.length);
+  visualLines.push(curLine);
+  if (!cursorRecorded) {
+    cursorRow = visualLines.length - 1;
+    cursorCol = curLine.length;
+  }
+  return { lines: visualLines, cursorRow, cursorCol };
 }

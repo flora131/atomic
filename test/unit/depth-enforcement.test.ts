@@ -10,7 +10,7 @@
  * - runId is present even in the failed result
  */
 
-import { describe, test } from "node:test";
+import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { run } from "../../src/runs/foreground/executor.js";
 import { createStore } from "../../src/shared/store.js";

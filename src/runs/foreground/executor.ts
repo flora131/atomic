@@ -16,10 +16,12 @@ import type {
 } from "../../shared/types.js";
 import type { InternalStageContext, StageAdapters } from "./stage-runner.js";
 import type { RunStatus, StageSnapshot, RunSnapshot, WorkflowOverlayAdapter } from "../../shared/store-types.js";
+import type { StageControlHandle, StageControlRegistry, AgentSessionEventListener } from "./stage-control-registry.js";
 import type { Store } from "../../shared/store.js";
 import type { CancellationRegistry } from "../background/cancellation-registry.js";
 import { createStageContext } from "./stage-runner.js";
 import { GraphFrontierTracker } from "../shared/graph-inference.js";
+import { stageControlRegistry as defaultStageControlRegistry } from "./stage-control-registry.js";
 import { createRunLimiter } from "../shared/concurrency.js";
 import { store as defaultStore } from "../../shared/store.js";
 import {
@@ -60,6 +62,14 @@ export interface RunOpts {
    * configured limit.
    */
   depth?: number;
+  /**
+   * Live stage-control registry. The executor registers a handle per
+   * stage so attached panes can lazily prompt/steer/pause/resume the
+   * underlying Pi session without going through the JSON snapshot.
+   * Defaults to the process-wide singleton registered alongside the
+   * default store.
+   */
+  stageControlRegistry?: StageControlRegistry;
   /**
    * Pre-allocated runId. When provided, the executor uses this ID instead of
    * generating a new UUID. The detached runner uses this seam to preallocate
@@ -280,13 +290,15 @@ export async function run(
         ...(options?.mcp !== undefined
           ? { mcpScope: { allow: options.mcp.allow ?? null, deny: options.mcp.deny ?? null } }
           : {}),
+        // Mark attachable up-front: the live stage handle is registered
+        // below before the first onStageStart fires, so consumers that
+        // hook onStageStart see `attachable: true` for the pending stage.
+        attachable: true,
       };
 
-      // d. Record stage start in store (as pending), call onStageStart
-      activeStore.recordStageStart(runId, stageSnapshot);
-      opts.onStageStart?.(runId, stageSnapshot);
-
-      // e. Create inner AgentSession-like StageContext (raw, without lifecycle wrapping)
+      // d. Create inner AgentSession-like StageContext (raw, without lifecycle wrapping).
+      //    Must come before the registry registration because the handle
+      //    delegates to it for every operation.
       const innerCtx: InternalStageContext = createStageContext({
         stageId,
         stageName: name,
@@ -295,6 +307,69 @@ export async function run(
         signal: ownController.signal,
         stageOptions: options,
       });
+
+      // e. Register a live stage-control handle so attached panes can
+      //    prompt/steer/pause/resume the underlying Pi session lazily.
+      //    Pending stages are attachable from the moment they are spawned;
+      //    the chat surface only realises the SDK session when the user
+      //    types or the workflow body invokes a tracked call.
+      const stageRegistry = opts.stageControlRegistry ?? defaultStageControlRegistry;
+      const handle: StageControlHandle = {
+        runId,
+        stageId,
+        stageName: name,
+        get status() {
+          return stageSnapshot.status;
+        },
+        get sessionId() {
+          return innerCtx.__sessionMeta().sessionId;
+        },
+        get sessionFile() {
+          return innerCtx.__sessionMeta().sessionFile;
+        },
+        get isStreaming() {
+          return innerCtx.isStreaming;
+        },
+        get messages() {
+          return innerCtx.messages;
+        },
+        async ensureAttached() {
+          await innerCtx.__ensureSession();
+          const meta = innerCtx.__sessionMeta();
+          if (meta.sessionId !== undefined || meta.sessionFile !== undefined) {
+            activeStore.recordStageSession(runId, stageId, meta);
+          }
+        },
+        async prompt(text: string) {
+          await innerCtx.prompt(text);
+          const meta = innerCtx.__sessionMeta();
+          if (meta.sessionId !== undefined || meta.sessionFile !== undefined) {
+            activeStore.recordStageSession(runId, stageId, meta);
+          }
+        },
+        async steer(text: string) {
+          await innerCtx.steer(text);
+        },
+        async followUp(text: string) {
+          await innerCtx.followUp(text);
+        },
+        async pause() {
+          activeStore.recordStagePaused(runId, stageId);
+          await innerCtx.__requestPause();
+        },
+        async resume(message?: string) {
+          activeStore.recordStageResumed(runId, stageId);
+          await innerCtx.__resume(message);
+        },
+        subscribe(listener: AgentSessionEventListener) {
+          return innerCtx.subscribe(listener);
+        },
+      };
+      const unregisterStageHandle = stageRegistry.register(handle);
+
+      // f. Record stage start in store (as pending), call onStageStart.
+      activeStore.recordStageStart(runId, stageSnapshot);
+      opts.onStageStart?.(runId, stageSnapshot);
 
       const runTrackedStageCall = async (call: () => Promise<string>): Promise<string> => {
         // Block here until a concurrency slot is available for this run.
@@ -335,6 +410,15 @@ export async function run(
           } finally {
             ownController.signal.removeEventListener("abort", abortSession);
           }
+          // Capture SDK session metadata into the snapshot so the
+          // attached chat surface can reopen the persisted session
+          // via SessionManager.open(sessionFile) post-mortem.
+          {
+            const meta = innerCtx.__sessionMeta();
+            if (meta.sessionId !== undefined || meta.sessionFile !== undefined) {
+              activeStore.recordStageSession(runId, stageId, meta);
+            }
+          }
           stageSnapshot.status = "completed";
           const assistantText = innerCtx.__getLastAssistantText();
           if (assistantText !== undefined) {
@@ -370,8 +454,13 @@ export async function run(
           }
 
           tracker.onSettle(stageId);
-          innerCtx.__dispose();
-          limiter.release();
+          activeStore.recordStageAttachable(runId, stageId, false);
+          unregisterStageHandle();
+          try {
+            await innerCtx.__dispose();
+          } finally {
+            limiter.release();
+          }
         }
       };
 
@@ -399,12 +488,7 @@ export async function run(
         abortCompaction: () => innerCtx.abortCompaction(),
         abort: () => innerCtx.abort(),
       };
-      const stageHandle = Promise.resolve(stageContext) as Promise<StageContext> & StageContext;
-      for (const key of Reflect.ownKeys(stageContext)) {
-        const descriptor = Object.getOwnPropertyDescriptor(stageContext, key);
-        if (descriptor) Object.defineProperty(stageHandle, key, descriptor);
-      }
-      return stageHandle;
+      return stageContext;
     },
   };
 

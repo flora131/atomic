@@ -14,7 +14,7 @@
  *   - `persistence` is still forwarded so lifecycle entries are written.
  */
 
-import { describe, test } from "node:test";
+import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import type { WorkflowDefinition, WorkflowPersistencePort } from "../../src/shared/types.js";
 import { createRegistry } from "../../src/workflows/registry.js";
@@ -62,13 +62,16 @@ async function waitForRunEnded(
 // ---------------------------------------------------------------------------
 
 describe("dispatch list", () => {
-  test("returns workflow names", async () => {
+  test("returns workflow items with name + description + inputs", async () => {
     const wf = makeWorkflow("alpha");
     const registry = createRegistry([wf]);
     const result = await dispatch({ action: "list" }, { registry });
     assert.equal(result.action, "list");
     if (result.action === "list") {
-      assert.ok(result.workflows.includes("alpha"));
+      assert.ok(result.items.some((i) => i.name === "alpha"));
+      const alpha = result.items.find((i) => i.name === "alpha")!;
+      assert.equal(typeof alpha.description, "string");
+      assert.ok(Array.isArray(alpha.inputs));
     }
   });
 });

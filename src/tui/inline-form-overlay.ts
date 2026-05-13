@@ -232,10 +232,16 @@ export async function openInlineInputsForm(
       resolve(result);
     };
 
-    const factory: PiEditorFactory = (tui, _editorTheme, _kb): PiEditorComponent => {
+    const factory: PiEditorFactory = (tui, _editorTheme, kb): PiEditorComponent => {
       activeEditor = new InlineFormEditor(tui as { requestRender?: () => void }, {
         formId,
         theme: opts.theme,
+        // Pi injects its `KeybindingsManager` as the third factory arg; the
+        // editor uses it to route text-editing actions (delete word, line
+        // jump, etc.) through the user's resolved keybindings. Older hosts
+        // and tests pass a non-keybindings shape — the editor's
+        // `isKeybindingsLike` guard handles that gracefully.
+        keybindings: kb as ConstructorParameters<typeof InlineFormEditor>[1]["keybindings"],
         onExit: (outcome) => {
           if (outcome === "submit") {
             settle({ kind: "run", values: coerceValues(opts.fields, state.rawText) });

@@ -4,7 +4,7 @@
  * before dispatching a run.
  */
 
-import { describe, test } from "node:test";
+import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { validateInputs } from "../../src/runs/shared/validate-inputs.js";
 import type { WorkflowInputSchema } from "../../src/shared/types.js";

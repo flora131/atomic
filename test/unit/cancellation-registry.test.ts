@@ -3,7 +3,7 @@
  * cross-ref: spec §8.1 Phase D
  */
 
-import { describe, test } from "node:test";
+import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { createCancellationRegistry } from "../../src/runs/background/cancellation-registry.js";
 

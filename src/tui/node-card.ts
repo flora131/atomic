@@ -1,24 +1,35 @@
 /**
- * DAG node card — rounded, status-coloured, optionally pulsing.
+ * DAG node card — rounded, status-coloured, with an accent focus tab.
  *
  * Visual contract (DESIGN.md §5):
  *  - Rounded border `╭╮╰╯` only. No square or ASCII art.
- *  - Border colour carries status; running pulses via sine lerp against the
- *    dim border. Focused locks the pulse and lifts the interior one stratum
- *    (`base → surface0`).
- *  - Title centred inside the top border (title slot).
- *  - Single centred duration line.
- *  - No `[ focused ]` text — focus is signalled by border + stratum only.
+ *  - Border colour carries status. `running` pulses via sine lerp
+ *    against the dim border (focus locks the pulse). `completed` /
+ *    `failed` stay status-coloured regardless of focus. `pending`
+ *    sits on `borderDim` and lifts to `borderActive` when focused.
+ *  - When focused, the centred title segment becomes a compact accent
+ *    "tab": `▸ name` painted with `theme.accent` bg + `theme.surface`
+ *    fg + bold. The tab is the only focus signal — the surrounding
+ *    border is reserved for status. No `[focused]` text, no glow,
+ *    no resize.
+ *  - Single centred duration line in the body, coloured by status.
+ *
+ * Reuses the existing `paint(...)` color-utils helper (a thin wrapper
+ * over `hexBg` + `hexToAnsi` + `BOLD` + `RESET`) so the tab matches
+ * the same ANSI shape Pi's renderer uses for every other styled run.
  *
  * cross-ref:
  *   - github.com/flora131/atomic packages/atomic-sdk/src/components/node-card.tsx
  *   - DESIGN.md §5 "Node Cards (orchestrator graph)"
+ *   - src/tui/graph-theme.ts `deriveGraphThemeFromPiTheme` — the
+ *     accent/surface tokens used below are sourced from Pi's live
+ *     `Theme` when the overlay mounts.
  */
 
 import type { StageSnapshot, StageStatus } from "../shared/store-types.js";
 import type { GraphTheme } from "./graph-theme.js";
 import { fmtDuration } from "./status-helpers.js";
-import { lerpColor, hexToAnsi, hexBg, RESET, BOLD } from "./color-utils.js";
+import { lerpColor, hexToAnsi, hexBg, paint, RESET, BOLD } from "./color-utils.js";
 import { NODE_W, NODE_H } from "./layout.js";
 
 export interface NodeCardOpts {
@@ -29,6 +40,11 @@ export interface NodeCardOpts {
   pulsePhase?: number;
   theme: GraphTheme;
 }
+
+/** Glyph that prefixes the focused-tab title; matches the compact
+ * cursor `❯` vocabulary used elsewhere but rotated to fit inline
+ * inside the top border (`▸` reads as a small wedge in the slot). */
+const FOCUS_TAB_GLYPH = "▸";
 
 /** Sine-eased pulse `t ∈ [0, 1]`. Phase 0 ≈ quiet, 0.5 ≈ peak. */
 function pulseT(phase: number): number {
@@ -43,6 +59,7 @@ function pickBorder(
 ): string {
   switch (status) {
     case "running":
+      // Focus locks the pulse at peak. Status colour wins either way.
       if (focused) return theme.warning;
       return lerpColor(theme.borderDim, theme.warning, pulseT(phase));
     case "completed":
@@ -51,7 +68,9 @@ function pickBorder(
       return theme.error;
     case "pending":
     default:
-      return focused ? theme.text : theme.borderDim;
+      // Pending has no semantic colour; the focused-tab carries the
+      // cursor signal, so we only lift the border one step.
+      return focused ? theme.borderActive : theme.borderDim;
   }
 }
 
@@ -107,6 +126,49 @@ function centreColored(
 }
 
 /**
+ * Build the title slot — the run of cells between the rounded corners
+ * on the top border. Returns a pre-styled fragment plus its visible
+ * width so the caller can pad the surrounding dashes correctly.
+ *
+ * When `focused`, the slot reads as a small accent-coloured tab:
+ *   `╭── ▸ stage ──╮`
+ * Otherwise it falls back to the historical bold-title shape:
+ *   `╭── stage ──╮`
+ *
+ * The visible-width contract is preserved (length of the title slot
+ * is included in the dash math) so the card geometry never shifts
+ * between the two states — focus only changes the styling of the
+ * existing slot, not its size.
+ */
+function buildTitleSlot(
+  name: string,
+  innerWidth: number,
+  focused: boolean,
+  theme: GraphTheme,
+  cardBg: string,
+): { slot: string; visibleWidth: number } {
+  const overhead = focused ? FOCUS_TAB_GLYPH.length + 1 /* space */ : 0;
+  const maxName = Math.max(2, innerWidth - 4 - overhead);
+  const safeName = truncate(name, maxName);
+  if (focused) {
+    // ` ▸ name ` — flanking spaces sit on the accent tab so the
+    // pill reads as a single coloured run. Use `paint` to combine
+    // bg + fg + bold + RESET in one ANSI sequence (re-priming the
+    // card stratum afterwards so the dashes outside the slot stay
+    // on the body bg).
+    const tabText = ` ${FOCUS_TAB_GLYPH} ${safeName} `;
+    const styled = `${paint(tabText, theme.surface, {
+      bg: theme.accent,
+      bold: true,
+    })}${cardBg}`;
+    return { slot: styled, visibleWidth: tabText.length };
+  }
+  const titleRaw = ` ${safeName} `;
+  const styled = `${BOLD}${titleRaw}${RESET}${cardBg}`;
+  return { slot: styled, visibleWidth: titleRaw.length };
+}
+
+/**
  * Render a stage as a multi-line card string.
  * Returns array of exactly `height` lines, each `width` cells wide.
  */
@@ -127,15 +189,20 @@ export function renderNodeCard(stage: StageSnapshot, opts: NodeCardOpts): string
   const bg = hexBg(theme.bg);
   const innerWidth = Math.max(2, width - 2);
 
-  // Title sits inside the top border: ╭── name ──╮. Re-prime `bg`
-  // after the title's RESET so the dashes either side stay on the
-  // card stratum.
-  const titleRaw = ` ${truncate(stage.name, Math.max(2, innerWidth - 4))} `;
-  const titleStart = Math.max(1, Math.floor((innerWidth - titleRaw.length) / 2));
-  const titleEnd = titleStart + titleRaw.length;
+  // Title sits inside the top border: ╭── name ──╮ or, when focused,
+  // ╭── ▸ name ──╮ with an accent-coloured pill on the name slot.
+  const { slot: titleSlot, visibleWidth: titleVisibleWidth } = buildTitleSlot(
+    stage.name,
+    innerWidth,
+    focused,
+    theme,
+    bg,
+  );
+  const titleStart = Math.max(1, Math.floor((innerWidth - titleVisibleWidth) / 2));
+  const titleEnd = titleStart + titleVisibleWidth;
   const topMiddle =
     `${bc}${"─".repeat(titleStart)}` +
-    `${BOLD}${titleRaw}${RESET}${bg}${bc}` +
+    `${titleSlot}${bc}` +
     `${"─".repeat(Math.max(0, innerWidth - titleEnd))}`;
   const top = `${bg}${bc}╭${topMiddle}╮${RESET}`;
   const bottom = `${bg}${bc}╰${"─".repeat(innerWidth)}╯${RESET}`;

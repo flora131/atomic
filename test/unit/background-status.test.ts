@@ -3,9 +3,9 @@
  * cross-ref: spec §8.1 Phase D
  */
 
-import { describe, test } from "node:test";
+import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { statusRuns, killRun, killAllRuns, resumeRun } from "../../src/runs/background/status.js";
+import { statusRuns, killRun, killAllRuns, resumeRun, pauseRun } from "../../src/runs/background/status.js";
 import { createStore } from "../../src/shared/store.js";
 import type { RunSnapshot } from "../../src/shared/store-types.js";
 
@@ -182,6 +182,175 @@ describe("resumeRun", () => {
       (result.snapshot as { name: string }).name = "mutated";
       const stored = st.runs().find((r) => r.id === "r1");
       assert.equal(stored!.name, "my-wf");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// pauseRun
+// ---------------------------------------------------------------------------
+
+import { createStageControlRegistry } from "../../src/runs/foreground/stage-control-registry.js";
+import type { StageControlHandle, StageControlStatus } from "../../src/runs/foreground/stage-control-registry.js";
+import type { AgentSession } from "@oh-my-pi/pi-coding-agent";
+
+function registerStageHandle(
+  registry: ReturnType<typeof createStageControlRegistry>,
+  runId: string,
+  stageId: string,
+  state: { pauseCalls: number; resumeCalls: number; lastMessage?: string },
+  initialStatus: StageControlStatus = "running",
+): StageControlHandle {
+  let status: StageControlStatus = initialStatus;
+  const handle: StageControlHandle = {
+    runId,
+    stageId,
+    stageName: `stage-${stageId}`,
+    get status() {
+      return status;
+    },
+    sessionId: undefined,
+    sessionFile: undefined,
+    isStreaming: false,
+    messages: [] as AgentSession["messages"],
+    async ensureAttached() {},
+    async prompt() {},
+    async steer() {},
+    async followUp() {},
+    async pause() {
+      state.pauseCalls += 1;
+      status = "paused";
+    },
+    async resume(message?: string) {
+      state.resumeCalls += 1;
+      state.lastMessage = message;
+      status = "running";
+    },
+    subscribe() {
+      return () => {};
+    },
+  };
+  registry.register(handle);
+  return handle;
+}
+
+describe("pauseRun", () => {
+  test("rejects unknown runId without side effects", () => {
+    const st = createStore();
+    const result = pauseRun("unknown", { store: st });
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.reason, "not_found");
+  });
+
+  test("rejects already-ended runs", () => {
+    const st = createStore();
+    st.recordRunStart(makeRun({ id: "r1" }));
+    st.recordRunEnd("r1", "completed");
+    const result = pauseRun("r1", { store: st });
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.reason, "already_ended");
+  });
+
+  test("rejects when no live stages are pausable", () => {
+    const st = createStore();
+    st.recordRunStart(makeRun({ id: "r1" }));
+    const registry = createStageControlRegistry();
+    const result = pauseRun("r1", { store: st, stageControlRegistry: registry });
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.reason, "no_active_stages");
+  });
+
+  test("pauses every running stage and marks the run paused", () => {
+    const st = createStore();
+    st.recordRunStart(makeRun({ id: "r1" }));
+    st.recordStageStart("r1", {
+      id: "s-a",
+      name: "stage-s-a",
+      status: "running",
+      parentIds: [],
+      toolEvents: [],
+    });
+    st.recordStageStart("r1", {
+      id: "s-b",
+      name: "stage-s-b",
+      status: "running",
+      parentIds: [],
+      toolEvents: [],
+    });
+    const registry = createStageControlRegistry();
+    const a = { pauseCalls: 0, resumeCalls: 0 };
+    const b = { pauseCalls: 0, resumeCalls: 0 };
+    registerStageHandle(registry, "r1", "s-a", a);
+    registerStageHandle(registry, "r1", "s-b", b);
+
+    const result = pauseRun("r1", { store: st, stageControlRegistry: registry });
+    assert.equal(result.ok, true);
+    if (result.ok) assert.equal(result.paused.length, 2);
+    assert.equal(a.pauseCalls, 1);
+    assert.equal(b.pauseCalls, 1);
+    const run = st.runs().find((r) => r.id === "r1");
+    assert.equal(run?.status, "paused");
+  });
+
+  test("stage-targeted pause only pauses the requested stage", () => {
+    const st = createStore();
+    st.recordRunStart(makeRun({ id: "r1" }));
+    st.recordStageStart("r1", {
+      id: "s-a",
+      name: "stage-s-a",
+      status: "running",
+      parentIds: [],
+      toolEvents: [],
+    });
+    const registry = createStageControlRegistry();
+    const a = { pauseCalls: 0, resumeCalls: 0 };
+    registerStageHandle(registry, "r1", "s-a", a);
+    const result = pauseRun("r1", { store: st, stageControlRegistry: registry, stageId: "s-a" });
+    assert.equal(result.ok, true);
+    assert.equal(a.pauseCalls, 1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resumeRun — live pause/resume integration
+// ---------------------------------------------------------------------------
+
+describe("resumeRun — live paused stages", () => {
+  test("resumes paused stages through the registry", async () => {
+    const st = createStore();
+    st.recordRunStart(makeRun({ id: "r1" }));
+    st.recordStageStart("r1", {
+      id: "s-a",
+      name: "stage-s-a",
+      status: "running",
+      parentIds: [],
+      toolEvents: [],
+    });
+    const registry = createStageControlRegistry();
+    const a = { pauseCalls: 0, resumeCalls: 0, lastMessage: undefined as string | undefined };
+    registerStageHandle(registry, "r1", "s-a", a, "paused");
+    st.recordStagePaused("r1", "s-a");
+    st.recordRunPaused("r1");
+
+    const result = resumeRun("r1", { store: st, stageControlRegistry: registry, message: "carry on" });
+    assert.equal(result.ok, true);
+    if (result.ok) assert.equal(result.resumed.length, 1);
+    // The resume call is fire-and-forget; flush a microtask so the handle is invoked.
+    await new Promise<void>((r) => queueMicrotask(r));
+    assert.equal(a.resumeCalls, 1);
+    assert.equal(a.lastMessage, "carry on");
+    const run = st.runs().find((r) => r.id === "r1");
+    assert.equal(run?.status, "running");
+  });
+
+  test("non-paused run returns snapshot with empty resumed list", () => {
+    const st = createStore();
+    st.recordRunStart(makeRun({ id: "r1" }));
+    const result = resumeRun("r1", { store: st });
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.resumed.length, 0);
+      assert.equal(result.snapshot.id, "r1");
     }
   });
 });

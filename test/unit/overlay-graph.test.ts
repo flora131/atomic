@@ -1,7 +1,7 @@
 /**
  * Tests for overlay graph TUI module.
  */
-import { describe, it, mock } from "node:test";
+import { describe, it, mock } from "bun:test";
 import assert from "node:assert/strict";
 import type { Store } from "../../src/shared/store.js";
 import type { StoreSnapshot, RunSnapshot, StageSnapshot } from "../../src/shared/store-types.js";
@@ -60,6 +60,13 @@ function makeStore(snap: StoreSnapshot): Store {
     recordPendingPrompt: () => false,
     resolvePendingPrompt: () => false,
     awaitPendingPrompt: () => Promise.reject(new Error("test stub")),
+    recordStageSession: () => false,
+    recordStageAttachable: () => false,
+    recordStageAttached: () => false,
+    recordStagePaused: () => false,
+    recordStageResumed: () => false,
+    recordRunPaused: () => false,
+    recordRunResumed: () => false,
     snapshot: () => snap,
     clear: () => {},
     subscribe: () => () => {},
@@ -381,7 +388,7 @@ describe("GraphView keyboard navigation", () => {
 
   it("q calls onClose", () => {
     const stages = [makeStage("A")];
-    const onClose = mock.fn(() => {});
+    const onClose = mock(() => {});
     const view = makeView(stages, onClose);
     view.handleInput("q");
     assert.equal(onClose.mock.calls.length, 1);
@@ -390,7 +397,7 @@ describe("GraphView keyboard navigation", () => {
 
   it("Escape calls onClose", () => {
     const stages = [makeStage("A")];
-    const onClose = mock.fn(() => {});
+    const onClose = mock(() => {});
     const view = makeView(stages, onClose);
     view.handleInput("\x1b");
     assert.equal(onClose.mock.calls.length, 1);
@@ -460,6 +467,7 @@ describe("GraphView keyboard navigation", () => {
     assert.match(text, /navigate/);
     assert.match(text, /attach/);
     assert.match(text, /stages/);
+    assert.match(text, /detach/);
     view.dispose();
   });
 
@@ -475,6 +483,72 @@ describe("GraphView keyboard navigation", () => {
     const lines = view.render(80);
     assert.equal(Array.isArray(lines), true);
     assert.ok(lines.length > 0);
+    view.dispose();
+  });
+
+  it("renders the constant 32-line frame when no viewport provider is wired", () => {
+    // Fallback path: direct unit renders without a host-provided
+    // viewport accessor get the legacy OVERLAY_LINE_COUNT rectangle.
+    const stages = [makeStage("A"), makeStage("B", ["A"])];
+    const view = makeView(stages);
+    const lines = view.render(96);
+    assert.equal(lines.length, 32);
+    view.dispose();
+  });
+
+  it("expands overlay to the reported viewport row count", () => {
+    // Full-screen overlay path: when the host surfaces terminal.rows
+    // through `getViewportRows`, the renderer must paint that many
+    // lines so pi-tui anchors the popup as a full-frame overlay.
+    const stages = [makeStage("A"), makeStage("B", ["A"])];
+    const snap = makeSnap(stages);
+    const store = makeStore(snap);
+    const view = new GraphView({
+      mode: "overlay",
+      runId: "run-1",
+      store,
+      graphTheme: defaultTheme,
+      getViewportRows: () => 48,
+    });
+    const lines = view.render(96);
+    assert.equal(lines.length, 48);
+    view.dispose();
+  });
+
+  it("clamps to the constant minimum when reported viewport is smaller", () => {
+    // Tiny terminals (or a host with stale row data) should never
+    // drop below the 32-row minimum — the header/statusline budget
+    // would otherwise underflow.
+    const stages = [makeStage("A")];
+    const snap = makeSnap(stages);
+    const store = makeStore(snap);
+    const view = new GraphView({
+      mode: "overlay",
+      runId: "run-1",
+      store,
+      graphTheme: defaultTheme,
+      getViewportRows: () => 10,
+    });
+    const lines = view.render(96);
+    assert.equal(lines.length, 32);
+    view.dispose();
+  });
+
+  it("empty-state overlay also fills the reported viewport rows", () => {
+    // No active run — the empty welcome panel must respect the same
+    // viewport-row contract so the full-screen overlay doesn't snap
+    // to 32 rows when the user opens it before starting a workflow.
+    const snap: StoreSnapshot = { runs: [], notices: [], version: 1 };
+    const store = makeStore(snap);
+    const view = new GraphView({
+      mode: "overlay",
+      runId: null,
+      store,
+      graphTheme: defaultTheme,
+      getViewportRows: () => 42,
+    });
+    const lines = view.render(96);
+    assert.equal(lines.length, 42);
     view.dispose();
   });
 });

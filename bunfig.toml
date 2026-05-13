@@ -1,0 +1,10 @@
+telemetry = false
+
+[install]
+minimumReleaseAge = 259200 # 3 days in seconds
+linker = "hoisted"
+exact = true
+saveTextLockfile = true
+
+[run]
+bun = true

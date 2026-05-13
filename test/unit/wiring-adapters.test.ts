@@ -6,7 +6,7 @@
  * store-backed background adapter (see `background-ui-adapter.test.ts`).
  */
 
-import { describe, test } from "node:test";
+import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { buildRuntimeAdapters, extractAssistantText } from "../../src/extension/wiring.js";
 import type { CreateAgentSessionOptions } from "@oh-my-pi/pi-coding-agent";
@@ -69,6 +69,39 @@ describe("buildRuntimeAdapters — SDK AgentSession adapter", () => {
     });
     const session = await adapters.agentSession!.create({ cwd: "/tmp/project" });
     assert.equal(session.sessionId, "session-1");
+    assert.equal(calls[0]?.cwd, "/tmp/project");
+  });
+
+  test("agentSession.create injects sub-session safety defaults", async () => {
+    const calls: Array<CreateAgentSessionOptions | undefined> = [];
+    const adapters = buildRuntimeAdapters({}, {
+      createAgentSession: async (options) => { calls.push(options); return { session: fakeSession() }; },
+    });
+    await adapters.agentSession!.create({ cwd: "/tmp/project" });
+    assert.equal(calls[0]?.disableExtensionDiscovery, true);
+    assert.deepEqual(calls[0]?.skills, []);
+    assert.deepEqual(calls[0]?.promptTemplates, []);
+    assert.deepEqual(calls[0]?.slashCommands, []);
+    assert.equal(calls[0]?.cwd, "/tmp/project");
+  });
+
+  test("agentSession.create lets stage options override sub-session defaults", async () => {
+    const calls: Array<CreateAgentSessionOptions | undefined> = [];
+    const stageSkills: NonNullable<CreateAgentSessionOptions["skills"]> = [{
+      name: "stage-skill",
+      description: "Stage-specific skill",
+      filePath: "/tmp/stage-skill/SKILL.md",
+      baseDir: "/tmp/stage-skill",
+      source: "test",
+    }];
+    const adapters = buildRuntimeAdapters({}, {
+      createAgentSession: async (options) => { calls.push(options); return { session: fakeSession() }; },
+    });
+    await adapters.agentSession!.create({ cwd: "/tmp/project", skills: stageSkills });
+    assert.equal(calls[0]?.disableExtensionDiscovery, true);
+    assert.equal(calls[0]?.skills, stageSkills);
+    assert.deepEqual(calls[0]?.promptTemplates, []);
+    assert.deepEqual(calls[0]?.slashCommands, []);
     assert.equal(calls[0]?.cwd, "/tmp/project");
   });
 

@@ -2,7 +2,7 @@
  * Phase C tests — GraphFrontierTracker
  * Covers: sequential, parallel (Promise.all-like), fan-in parent inference, reset.
  */
-import { describe, test } from "node:test";
+import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { GraphFrontierTracker } from "../../src/runs/shared/graph-inference.js";
 

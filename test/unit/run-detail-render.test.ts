@@ -5,7 +5,7 @@
  * cross-ref: src/tui/run-detail.ts · src/runs/background/status.ts
  */
 
-import { describe, test } from "node:test";
+import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { renderRunDetail } from "../../src/tui/run-detail.js";
 import { inspectRun } from "../../src/runs/background/status.js";

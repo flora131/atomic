@@ -1,7 +1,7 @@
 /**
  * Unit tests for src/tui/session-confirm.ts and src/tui/session-list.ts.
  */
-import { test } from "node:test";
+import { test } from "bun:test";
 import assert from "node:assert/strict";
 import {
   createKillConfirmState,
@@ -90,7 +90,7 @@ test("session list renders the band-header chrome with both runs and a detail hi
   assert.match(out, /● 1/);
   assert.match(out, /✓ 1/);
   // Trailing hint nudges drill-down via the rich detail surface.
-  assert.match(out, /workflow status id=/);
+  assert.match(out, /\/workflow status \w+/);
 });
 
 test("session list emits the band-header chrome with a quiet empty state", () => {

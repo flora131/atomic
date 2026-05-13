@@ -13,7 +13,7 @@
  * `background-ui-adapter.test.ts`.
  */
 
-import { describe, test } from "node:test";
+import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { dispatch } from "../../src/extension/dispatcher.js";
 import { createExtensionRuntime } from "../../src/extension/runtime.js";
@@ -26,7 +26,6 @@ import type { StageAdapters } from "../../src/runs/foreground/stage-runner.js";
 import type {
   WorkflowToolResult,
   WorkflowInputEntry,
-  WorkflowRunEntry,
 } from "../../src/extension/render-result.js";
 
 // ---------------------------------------------------------------------------
@@ -96,20 +95,25 @@ const schemaWorkflow = defineWorkflow("schema-test")
 // ---------------------------------------------------------------------------
 
 describe("dispatch — list", () => {
-  test("returns empty when registry is empty", async () => {
+  test("returns empty items when registry is empty", async () => {
     const registry = createRegistry();
     const result = await dispatch({ name: "", inputs: {}, action: "list" }, { registry });
     const list = asList(result);
-    assert.deepEqual(list.workflows, []);
+    assert.deepEqual(list.items, []);
   });
 
-  test("returns all registered names", async () => {
+  test("returns one item per registered workflow with metadata", async () => {
     const registry = createRegistry([helloWorkflow, schemaWorkflow]);
     const result = await dispatch({ name: "", inputs: {}, action: "list" }, { registry });
     const list = asList(result);
-    assert.ok(list.workflows.includes("hello-world"));
-    assert.ok(list.workflows.includes("schema-test"));
-    assert.equal(list.workflows.length, 2);
+    const names = list.items.map((i) => i.name);
+    assert.ok(names.includes("hello-world"));
+    assert.ok(names.includes("schema-test"));
+    assert.equal(list.items.length, 2);
+    // Items carry descriptions and input metadata.
+    const hello = list.items.find((i) => i.name === "hello-world")!;
+    assert.equal(typeof hello.description, "string");
+    assert.ok(Array.isArray(hello.inputs));
   });
 });
 
@@ -254,7 +258,7 @@ describe("createExtensionRuntime", () => {
     const runtime = createExtensionRuntime({ definitions: [helloWorkflow] });
     const result = await runtime.dispatch({ name: "", inputs: {}, action: "list" });
     const list = asList(result);
-    assert.ok(list.workflows.includes("hello-world"));
+    assert.ok(list.items.some((i) => i.name === "hello-world"));
   });
 });
 
@@ -314,13 +318,22 @@ describe("renderResult — run variant", () => {
     assert.ok(inp.error!.includes("ghost"));
   });
 
-  test("status list uses WorkflowRunEntry shape", () => {
-    const runs: WorkflowRunEntry[] = [
-      { runId: "r1", name: "wf", status: "running" },
-    ];
-    const out = renderResult({ action: "status", runs });
-    assert.ok(out.includes("r1"));
+  test("status list renders from RunSnapshot[]", () => {
+    const out = renderResult({
+      action: "status",
+      snapshots: [
+        {
+          id: "run-1-uuid",
+          name: "wf",
+          inputs: {},
+          status: "running",
+          stages: [],
+          startedAt: Date.now() - 1_000,
+        },
+      ],
+    });
     assert.ok(out.includes("wf"));
+    assert.match(out, /running/);
   });
 });
 

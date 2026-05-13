@@ -1,27 +1,41 @@
 /**
  * Mount adapters for the session picker and kill-confirmation overlays.
- * Each function returns a Promise that resolves with the user's action,
- * so call sites read like clack: `const choice = await openPicker(...)`.
  *
- * Both helpers prefer pi-tui's real two-arg `(factory, opts)` signature
- * (returns a Promise that resolves on `done()`), and fall back to the
- * legacy single-arg `(opts)` shape used by older test mocks.
+ * Both overlays use Pi / oh-my-pi's real `ctx.ui.custom(factory, options)`
+ * primitive. There is no legacy object-shaped fallback — when the host
+ * doesn't expose `pi.ui.custom` the picker resolves with `close` and the
+ * kill-confirm falls back to `pi.ui.confirm` (or `false` when even that
+ * is absent, since the action is destructive).
  *
- * The picker auto-refreshes when the store changes — every store
- * mutation invalidates the overlay so a stage transitioning to "running"
- * is visible without keystrokes.
+ * Mount mode
+ * ----------
+ * The session picker uses `{ overlay: false }` — oh-my-pi's interactive
+ * `ExtensionUiController.custom` REPLACES the editor component with the
+ * mounted picker (`editorContainer.clear(); addChild(picker)`), so the
+ * picker renders **inline** in the chat layout at the editor's natural
+ * position. This is what gives us the target spacing in
+ * `ui/workflows/Screenshot 2026-05-13 at 1.11.49 AM.png`: the picker
+ * sits just below the submitted `/workflow …` command at the picker's
+ * natural ~9-row height, with no host `Working…` / widget / status bar
+ * chrome wedged between command and picker (those rows are owned by
+ * the editor area we just replaced).
+ *
+ * The kill-confirm intentionally stays on `{ overlay: true }` — it is a
+ * destructive modal and reads better as a centered popup over the
+ * editor, not as an inline replacement.
  *
  * cross-ref:
- *  - src/tui/overlay-adapter.ts (same mount pattern for the GraphView)
- *  - src/extension/wiring.ts PiCustomOverlayFunction shape definitions
+ *  - src/tui/session-picker.ts (state machine + render)
+ *  - src/tui/overlay-adapter.ts (overlay:true full-screen graph mount)
+ *  - src/extension/wiring.ts (PiCustomOverlayFunction / PiOverlayOptions)
+ *  - oh-my-pi docs/tui.md  Mount points and return contracts
  */
 
 import type {
   PiCustomComponent,
+  PiCustomOverlayFactoryTui,
   PiCustomOverlayFunction,
-  PiCustomOverlayHandle,
-  PiCustomOverlayOpts,
-  PiOverlayHandle,
+  PiOverlayOptions,
 } from "../extension/wiring.js";
 import type { Store } from "../shared/store.js";
 import type { GraphTheme } from "./graph-theme.js";
@@ -38,36 +52,57 @@ import {
 } from "./session-confirm.js";
 import type { RunSnapshot } from "../shared/store-types.js";
 
-const PICKER_OVERLAY = {
-  anchor: "center" as const,
-  width: "70%",
-  maxHeight: "80%",
-} satisfies NonNullable<PiCustomOverlayOpts["overlayOptions"]>;
-
-const CONFIRM_OVERLAY = {
-  anchor: "center" as const,
+/**
+ * Aspirational confirm-modal geometry. Current oh-my-pi interactive
+ * `custom()` does not forward `overlayOptions` to pi-tui's overlay
+ * layout (it always uses `{ anchor: "bottom-center", width: "100%",
+ * maxHeight: "100%", margin: 0 }`); the value is retained for future
+ * hosts that honour the option bag and for the test seam.
+ */
+const CONFIRM_OVERLAY: PiOverlayOptions = {
+  anchor: "center",
   width: "60%",
-} satisfies NonNullable<PiCustomOverlayOpts["overlayOptions"]>;
+};
 
 export interface UiSurface {
   custom?: PiCustomOverlayFunction;
 }
 
+export type SessionPickerIntent = "connect" | "kill" | "pause" | "resume";
+
 export type SessionPickerResult =
   | { kind: "connect"; runId: string }
   | { kind: "kill"; runId: string }
+  | { kind: "pause"; runId: string }
+  | { kind: "resume"; runId: string }
   | { kind: "close" };
 
 /**
- * Mount the session picker. Resolves when the user picks an action
- * (connect / kill) or dismisses with esc. The overlay handles its own
- * filter input + navigation; callers receive only the terminal action.
+ * Mount the session picker.
+ *
+ * `intent` (default `"connect"`) determines what Enter does on a row:
+ *   - `connect`: resolve with `{ kind: "connect", runId }`.
+ *   - `kill`: resolve with `{ kind: "kill", runId }` (caller still
+ *     owns the destructive confirm — `x` on a row preserves the
+ *     legacy fast-kill path).
+ *   - `pause`: resolve with `{ kind: "pause", runId }`.
+ *   - `resume`: resolve with `{ kind: "resume", runId }`.
  */
 export function openSessionPicker(
   ui: UiSurface,
   store: Store,
   theme: GraphTheme,
+  intent: SessionPickerIntent = "connect",
 ): Promise<SessionPickerResult> {
+  function toResult(action: { kind: "connect" | "kill"; runId: string }): SessionPickerResult {
+    if (action.kind === "kill") return { kind: "kill", runId: action.runId };
+    // Enter action arrives as `connect` from the picker; remap based on
+    // caller intent so a pause/resume picker doesn't open the graph.
+    if (intent === "pause") return { kind: "pause", runId: action.runId };
+    if (intent === "resume") return { kind: "resume", runId: action.runId };
+    if (intent === "kill") return { kind: "kill", runId: action.runId };
+    return { kind: "connect", runId: action.runId };
+  }
   return new Promise<SessionPickerResult>((resolve) => {
     const custom = ui.custom;
     if (typeof custom !== "function") {
@@ -82,8 +117,8 @@ export function openSessionPicker(
     let settled = false;
     let unsubscribe: (() => void) | null = null;
 
-    const factoryReal = (
-      tui: { requestRender?: () => void },
+    const factory = (
+      tui: PiCustomOverlayFactoryTui,
       _theme: unknown,
       _keys: unknown,
       done: (r: undefined) => void,
@@ -112,8 +147,8 @@ export function openSessionPicker(
             return;
           }
           if (action.kind === "close") finish({ kind: "close" });
-          else if (action.kind === "connect") finish({ kind: "connect", runId: action.runId });
-          else finish({ kind: "kill", runId: action.runId });
+          else if (action.kind === "connect") finish(toResult(action));
+          else finish(toResult(action));
         },
         invalidate: () => tui.requestRender?.(),
         dispose: () => {
@@ -127,50 +162,10 @@ export function openSessionPicker(
       };
     };
 
-    if (custom.length >= 2) {
-      const realCustom = custom as (
-        factory: typeof factoryReal,
-        opts: { overlay: boolean; overlayOptions?: PiCustomOverlayOpts["overlayOptions"] },
-      ) => Promise<undefined> | undefined;
-      void realCustom(factoryReal, { overlay: true, overlayOptions: PICKER_OVERLAY });
-      return;
-    }
-
-    // Legacy mock fallback.
-    const legacyCustom = custom as (opts: PiCustomOverlayOpts) => PiCustomOverlayHandle | undefined;
-    let handle: PiCustomOverlayHandle | undefined;
-    const finishLegacy = (result: SessionPickerResult): void => {
-      if (settled) return;
-      settled = true;
-      handle?.close();
-      resolve(result);
-    };
-    handle = legacyCustom({
-      overlay: true,
-      overlayOptions: PICKER_OVERLAY,
-      render: (width: number) => {
-        const rows = selectRunsForPicker(store.runs(), state.query, state.includeAll);
-        return renderSessionPicker({ width, theme, rows, state });
-      },
-      onInput: (data: string) => {
-        const rows = selectRunsForPicker(store.runs(), state.query, state.includeAll);
-        const action = handleSessionPickerInput(data, state, rows);
-        if (action.kind === "noop") return true;
-        if (action.kind === "close") finishLegacy({ kind: "close" });
-        else if (action.kind === "connect") finishLegacy({ kind: "connect", runId: action.runId });
-        else finishLegacy({ kind: "kill", runId: action.runId });
-        return true;
-      },
-      onClose: () => {
-        if (!settled) {
-          settled = true;
-          resolve({ kind: "close" });
-        }
-      },
-    });
-    if (!handle) {
-      resolve({ kind: "close" });
-    }
+    // overlay: false — picker replaces the editor in-place (see header
+    // comment). The host owns geometry/focus; no overlayOptions are
+    // forwarded by interactive oh-my-pi today.
+    void custom(factory, { overlay: false });
   });
 }
 
@@ -207,8 +202,8 @@ export function openKillConfirm(
     const state = createKillConfirmState();
     let settled = false;
 
-    const factoryReal = (
-      tui: { requestRender?: () => void },
+    const factory = (
+      tui: PiCustomOverlayFactoryTui,
       _theme: unknown,
       _keys: unknown,
       done: (r: undefined) => void,
@@ -239,40 +234,6 @@ export function openKillConfirm(
       };
     };
 
-    if (custom.length >= 2) {
-      const realCustom = custom as (
-        factory: typeof factoryReal,
-        opts: { overlay: boolean; overlayOptions?: PiCustomOverlayOpts["overlayOptions"]; onHandle?: (h: PiOverlayHandle) => void },
-      ) => Promise<undefined> | undefined;
-      void realCustom(factoryReal, { overlay: true, overlayOptions: CONFIRM_OVERLAY });
-      return;
-    }
-
-    const legacyCustom = custom as (opts: PiCustomOverlayOpts) => PiCustomOverlayHandle | undefined;
-    let handle: PiCustomOverlayHandle | undefined;
-    const finishLegacy = (result: boolean): void => {
-      if (settled) return;
-      settled = true;
-      handle?.close();
-      resolve(result);
-    };
-    handle = legacyCustom({
-      overlay: true,
-      overlayOptions: CONFIRM_OVERLAY,
-      render: (width: number) => renderKillConfirm({ width, theme, run, state }),
-      onInput: (data: string) => {
-        const action = handleKillConfirmInput(data, state);
-        if (action.kind === "noop") return true;
-        finishLegacy(action.kind === "confirm");
-        return true;
-      },
-      onClose: () => {
-        if (!settled) {
-          settled = true;
-          resolve(false);
-        }
-      },
-    });
-    if (!handle) resolve(false);
+    void custom(factory, { overlay: true, overlayOptions: CONFIRM_OVERLAY });
   });
 }

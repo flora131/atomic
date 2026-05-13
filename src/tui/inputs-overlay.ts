@@ -1,8 +1,11 @@
 /**
  * Mount adapter for the interactive argument picker. Reads like clack:
- *
- *     const result = await openInputsPicker(ui, workflow, fields, prefilled, theme);
- *     if (result.kind === "run") dispatch(workflow.name, result.values);
+ * a single overlay mounts the picker via the real Pi `ctx.ui.custom(factory, options)`
+ * primitive; user submit resolves the parent promise with the coerced
+ * typed values. Escape resolves with `cancel` so the calling slash
+ * command can short-circuit. When `pi.ui.custom` is unavailable the
+ * promise resolves with `cancel` so the slash command can fall back to
+ * the "missing required input" text path.
  *
  * The adapter handles the cursor-blink timer in addition to the standard
  * `pi.ui.custom` factory plumbing: a 530ms half-period interval (the
@@ -10,17 +13,28 @@
  * flag that's threaded into each render so single-line text fields show a
  * blinking caret instead of a static block.
  *
+ * Mount mode
+ * ----------
+ * Uses `{ overlay: false }`. oh-my-pi's interactive
+ * `ExtensionUiController.custom` REPLACES the editor with the mounted
+ * component (`editorContainer.clear(); addChild(component)`), so the
+ * picker renders **inline** at the editor's natural position in the
+ * chat layout. This avoids the bottom-anchored overlay regression
+ * captured in `ui/workflows/Screenshot 2026-05-13 at 1.09.32 AM.png`
+ * (host `Working…` / widget rows wedged between command and picker)
+ * without any overlay padding tricks — the host owns geometry.
+ *
  * cross-ref:
- *  - src/tui/inputs-picker.ts (renderer + state + key handler)
- *  - src/tui/session-overlays.ts (same factory two-shape pattern)
- *  - flora131/atomic research/designs/workflow-picker-tui.tsx (cursor cadence)
+ *   - src/tui/inputs-picker.ts (pure state + render)
+ *   - src/tui/session-overlays.ts (sibling picker; same mount mode)
+ *   - src/extension/wiring.ts (PiCustomOverlayFunction / PiOverlayOptions)
+ *   - oh-my-pi docs/tui.md  Mount points and return contracts
  */
 
 import type {
   PiCustomComponent,
+  PiCustomOverlayFactoryTui,
   PiCustomOverlayFunction,
-  PiCustomOverlayHandle,
-  PiCustomOverlayOpts,
 } from "../extension/wiring.js";
 import type { WorkflowInputEntry } from "../extension/render-result.js";
 import type { GraphTheme } from "./graph-theme.js";
@@ -31,12 +45,6 @@ import {
   renderInputsPicker,
 } from "./inputs-picker.js";
 
-const INPUTS_OVERLAY = {
-  anchor: "center" as const,
-  width: "70%",
-  maxHeight: "85%",
-} satisfies NonNullable<PiCustomOverlayOpts["overlayOptions"]>;
-
 export interface InputsUiSurface {
   custom?: PiCustomOverlayFunction;
 }
@@ -46,14 +54,10 @@ export type InputsPickerResult =
   | { kind: "cancel" };
 
 export interface OpenInputsPickerOpts {
-  /** Workflow name shown in the header chip. */
   workflowName: string;
-  /** Optional one-liner shown directly under the workflow name. */
   description?: string;
-  /** Declared input schema. The picker handles 0-field workflows defensively
-   *  but callers should gate on `fields.length > 0` before opening. */
-  fields: readonly WorkflowInputEntry[];
-  /** Values the user already supplied as CLI key=value tokens. The picker
+  fields: WorkflowInputEntry[];
+  /** Prefilled values (e.g. from `key=value` slash args). The form
    *  seeds these into the form so the user doesn't re-type what they typed. */
   prefilled?: Record<string, unknown>;
   theme: GraphTheme;
@@ -64,11 +68,10 @@ export interface OpenInputsPickerOpts {
  * confirm, or `cancel` on esc / no UI surface.
  *
  * Behaviour matrix:
- *   - real two-arg `pi.ui.custom`: mounted as an overlay, settled by `done()`
- *   - legacy single-arg mock:     uses `onInput`/`onClose`/`close()` shape
- *   - no `pi.ui.custom` at all:   resolves `cancel` immediately so the slash
- *                                 command can fall back to the "missing
- *                                 required input" text path
+ *   - `pi.ui.custom` present: mounted as an overlay, settled by `done()`
+ *   - no `pi.ui.custom` at all: resolves `cancel` immediately so the slash
+ *                               command can fall back to the "missing
+ *                               required input" text path
  */
 export function openInputsPicker(
   ui: InputsUiSurface,
@@ -93,10 +96,10 @@ export function openInputsPicker(
     let cursorOn = true;
     let cursorTimer: ReturnType<typeof setInterval> | null = null;
 
-    const factoryReal = (
-      tui: { requestRender?: () => void },
+    const factory = (
+      tui: PiCustomOverlayFactoryTui,
       _theme: unknown,
-      _keys: unknown,
+      keys: unknown,
       done: (r: undefined) => void,
     ): PiCustomComponent => {
       // Start the blink as soon as the overlay mounts. We tear it down
@@ -127,7 +130,13 @@ export function openInputsPicker(
             cursorOn,
           }),
         handleInput: (data: string) => {
-          const action = handleInputsPickerInput(data, state, fields);
+          // Pi's `KeybindingsManager` is the third factory arg — the
+          // picker uses it so user-configured text-editing actions
+          // (delete word, line jump, etc.) work the same in the
+          // fallback overlay as in the inline form. Pass it through
+          // structurally; the picker guards the shape itself.
+          const kb = keys as Parameters<typeof handleInputsPickerInput>[3];
+          const action = handleInputsPickerInput(data, state, fields, kb);
           if (action.kind === "noop") {
             tui.requestRender?.();
             return;
@@ -146,58 +155,9 @@ export function openInputsPicker(
       };
     };
 
-    if (custom.length >= 2) {
-      const realCustom = custom as (
-        factory: typeof factoryReal,
-        o: { overlay: boolean; overlayOptions?: PiCustomOverlayOpts["overlayOptions"] },
-      ) => Promise<undefined> | undefined;
-      void realCustom(factoryReal, { overlay: true, overlayOptions: INPUTS_OVERLAY });
-      return;
-    }
-
-    // Legacy mock fallback — same single-arg shape session-overlays uses.
-    const legacyCustom = custom as (opts: PiCustomOverlayOpts) => PiCustomOverlayHandle | undefined;
-    let handle: PiCustomOverlayHandle | undefined;
-    const finishLegacy = (result: InputsPickerResult): void => {
-      if (settled) return;
-      settled = true;
-      if (cursorTimer) clearInterval(cursorTimer);
-      cursorTimer = null;
-      handle?.close();
-      resolve(result);
-    };
-    handle = legacyCustom({
-      overlay: true,
-      overlayOptions: INPUTS_OVERLAY,
-      render: (width: number) =>
-        renderInputsPicker({
-          width,
-          theme,
-          workflowName,
-          description,
-          fields,
-          state,
-          cursorOn,
-        }),
-      onInput: (data: string) => {
-        const action = handleInputsPickerInput(data, state, fields);
-        if (action.kind === "noop") return true;
-        finishLegacy(action);
-        return true;
-      },
-      onClose: () => {
-        if (cursorTimer) clearInterval(cursorTimer);
-        cursorTimer = null;
-        if (!settled) {
-          settled = true;
-          resolve({ kind: "cancel" });
-        }
-      },
-    });
-    if (!handle) {
-      if (cursorTimer) clearInterval(cursorTimer);
-      cursorTimer = null;
-      resolve({ kind: "cancel" });
-    }
+    // overlay: false — picker replaces the editor in-place (see header
+    // comment). The host owns geometry/focus; no overlayOptions are
+    // forwarded by interactive oh-my-pi today.
+    void custom(factory, { overlay: false });
   });
 }

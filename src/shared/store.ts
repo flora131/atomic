@@ -77,6 +77,51 @@ export interface Store {
    */
   awaitPendingPrompt(runId: string, promptId: string): Promise<unknown>;
   /**
+   * Record Pi/oh-my-pi SDK session metadata for a stage after lazy
+   * attach. The serializable snapshot tracks this so post-mortem reopen
+   * via `SessionManager.open(sessionFile)` is possible without storing
+   * live handles in the store. Returns `true` when state changed.
+   */
+  recordStageSession(
+    runId: string,
+    stageId: string,
+    session: { sessionId?: string; sessionFile?: string },
+  ): boolean;
+  /**
+   * Toggle the `attachable` flag on a stage. The flag reflects whether
+   * a live `StageControlHandle` currently exists in the stage-control
+   * registry, which the attach UI uses to decide whether a stage's
+   * chat surface is interactive or inspect-only.
+   */
+  recordStageAttachable(runId: string, stageId: string, attachable: boolean): boolean;
+  /**
+   * Toggle the `attached` flag on a stage. Snapshot-only — the live
+   * pane keeps its own ref to the stage-control handle.
+   */
+  recordStageAttached(runId: string, stageId: string, attached: boolean): boolean;
+  /**
+   * Mark a stage as `paused` and record `pausedAt`. Returns `true` when
+   * the stage transitioned (was not already paused or terminal).
+   */
+  recordStagePaused(runId: string, stageId: string, pausedAt?: number): boolean;
+  /**
+   * Clear the `paused` state on a stage and record `resumedAt`. Returns
+   * `true` when the stage transitioned out of the `paused` status.
+   * Status is restored to `running` so downstream gating reflects the
+   * resumed Pi operation.
+   */
+  recordStageResumed(runId: string, stageId: string, resumedAt?: number): boolean;
+  /**
+   * Mark a run as `paused`. Idempotent on a paused run; refuses to
+   * change a terminal run. Returns `true` when state changed.
+   */
+  recordRunPaused(runId: string, pausedAt?: number): boolean;
+  /**
+   * Restore a run from `paused` back to `running`. Refuses terminal
+   * runs. Returns `true` when state changed.
+   */
+  recordRunResumed(runId: string, resumedAt?: number): boolean;
+  /**
    * Drop every run and notice. Invoked on session boundaries so workflow
    * state is scoped to the originating chat — once the chat ends or a
    * new session starts, prior-session runs no longer pollute the store
@@ -314,6 +359,115 @@ export function createStore(): Store {
         }
         _resolvers.set(promptId, { promptId, resolve, reject });
       });
+    },
+
+    recordStageSession(
+      runId: string,
+      stageId: string,
+      session: { sessionId?: string; sessionFile?: string },
+    ): boolean {
+      const run = findRun(runId);
+      if (!run) return false;
+      const stage = findStage(run, stageId);
+      if (!stage) return false;
+      let changed = false;
+      if (session.sessionId !== undefined && stage.sessionId !== session.sessionId) {
+        stage.sessionId = session.sessionId;
+        changed = true;
+      }
+      if (session.sessionFile !== undefined && stage.sessionFile !== session.sessionFile) {
+        stage.sessionFile = session.sessionFile;
+        changed = true;
+      }
+      if (!changed) return false;
+      _version++;
+      notify();
+      return true;
+    },
+
+    recordStageAttachable(runId: string, stageId: string, attachable: boolean): boolean {
+      const run = findRun(runId);
+      if (!run) return false;
+      const stage = findStage(run, stageId);
+      if (!stage) return false;
+      const next = attachable === true ? true : undefined;
+      if (stage.attachable === next) return false;
+      if (next === undefined) {
+        delete stage.attachable;
+      } else {
+        stage.attachable = next;
+      }
+      _version++;
+      notify();
+      return true;
+    },
+
+    recordStageAttached(runId: string, stageId: string, attached: boolean): boolean {
+      const run = findRun(runId);
+      if (!run) return false;
+      const stage = findStage(run, stageId);
+      if (!stage) return false;
+      const next = attached === true ? true : undefined;
+      if (stage.attached === next) return false;
+      if (next === undefined) {
+        delete stage.attached;
+      } else {
+        stage.attached = next;
+      }
+      _version++;
+      notify();
+      return true;
+    },
+
+    recordStagePaused(runId: string, stageId: string, pausedAt?: number): boolean {
+      const run = findRun(runId);
+      if (!run) return false;
+      if (TERMINAL_STATUSES.has(run.status)) return false;
+      const stage = findStage(run, stageId);
+      if (!stage) return false;
+      if (stage.status === "paused" || stage.status === "completed" || stage.status === "failed") return false;
+      stage.status = "paused";
+      stage.pausedAt = pausedAt ?? Date.now();
+      stage.resumedAt = undefined;
+      _version++;
+      notify();
+      return true;
+    },
+
+    recordStageResumed(runId: string, stageId: string, resumedAt?: number): boolean {
+      const run = findRun(runId);
+      if (!run) return false;
+      const stage = findStage(run, stageId);
+      if (!stage) return false;
+      if (stage.status !== "paused") return false;
+      stage.status = "running";
+      stage.resumedAt = resumedAt ?? Date.now();
+      stage.pausedAt = undefined;
+      _version++;
+      notify();
+      return true;
+    },
+
+    recordRunPaused(runId: string, _pausedAt?: number): boolean {
+      const run = findRun(runId);
+      if (!run) return false;
+      if (TERMINAL_STATUSES.has(run.status)) return false;
+      if (run.status === "paused") return false;
+      run.status = "paused";
+      _version++;
+      notify();
+      return true;
+    },
+
+    recordRunResumed(runId: string, _resumedAt?: number): boolean {
+      const run = findRun(runId);
+      if (!run) return false;
+      if (TERMINAL_STATUSES.has(run.status)) return false;
+      if (run.status !== "paused") return false;
+      run.status = "running";
+      _version++;
+      notify();
+      return true;
     },
 
     clear(): void {

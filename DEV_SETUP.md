@@ -6,13 +6,12 @@ This document covers setup, the local dev loop, testing patterns, and project la
 
 ## Prerequisites
 
-- **Node ≥ 22** — required for `--experimental-strip-types` / `--experimental-transform-types`
-- **npm ≥ 10**
-- **pi** — `npm install -g @earendil-works/pi-coding-agent`
+- **[Bun](https://bun.sh) ≥ 1.3.7** — the runtime, package manager, and test runner for this repo
+- **[oh-my-pi](https://github.com/can1357/oh-my-pi)** — the host that loads the extension
 
-This repo uses **npm + Node.js**.
+This repo uses **Bun** for all development, scripts, and testing.
 
-The package ships raw `.ts` files with no build step. Do not introduce `dist/`, `tsconfig.build.json`, `outDir`, or bundling. Tests run via `node --experimental-transform-types` + the `test/support/register-loader.mjs` hook.
+The package ships raw `.ts` files with no build step. Do not introduce `dist/`, `tsconfig.build.json`, `outDir`, or bundling. oh-my-pi imports the extension modules directly with Bun; tests run via Bun's built-in `bun:test` runner.
 
 ---
 
@@ -21,35 +20,37 @@ The package ships raw `.ts` files with no build step. Do not introduce `dist/`, 
 ```bash
 git clone git@github.com:flora131/atomic.git
 cd atomic
-npm install
+bun install
 ```
+
+`bun install` reads `bunfig.toml` for repo-wide settings (textual lockfile, hoisted linker, exact versions).
 
 ---
 
-## Local dev loop with pi
+## Local dev loop with oh-my-pi
 
 Three options, from heaviest to lightest:
 
-### A. `pi install` against the local path (persisted)
+### A. `omp plugin install` against the local path (persisted)
 
 ```bash
-pi install -l "$PWD"   # project-local
+omp plugin install -l "$PWD"   # project-local
 # or
-pi install    "$PWD"   # global
+omp plugin install    "$PWD"   # global
 ```
 
-Pi adds the absolute path to its settings file and resolves the package's `pi` manifest. From inside pi, `/reload` re-imports the extension after you edit source — no restart needed.
+oh-my-pi adds the absolute path to its settings file and resolves the package's `omp` manifest. From inside oh-my-pi, `/reload` re-imports the extension after you edit source — no restart needed.
 
 ### B. One-off load with `-e` (no settings write)
 
 ```bash
-pi -e "$PWD/src/extension/index.ts"
+omp -e "$PWD/src/extension/index.ts"
 ```
 
 The fastest iteration loop. Combine with `--no-extensions` to isolate the extension under test:
 
 ```bash
-pi --no-extensions \
+omp --no-extensions \
    -e "$PWD/src/extension/index.ts" \
    "/workflow list"
 ```
@@ -59,13 +60,13 @@ Pass an initial prompt at the end to drive a single command and exit (works with
 ### C. Symlink into the extensions directory
 
 ```bash
-mkdir -p ~/.pi/agent/extensions
-ln -s "$PWD" ~/.pi/agent/extensions/workflows
+mkdir -p ~/.omp/agent/extensions
+ln -s "$PWD" ~/.omp/agent/extensions/workflows
 ```
 
-Useful when you want the extension persisted globally but don't want pi to track it in settings.
+Useful when you want the extension persisted globally but don't want oh-my-pi to track it in settings.
 
-> Pi's docs explicitly call out `pi -e <path>` as the recommended path for "quick tests" and `pi install` / auto-discovered locations as the path for resources that need `/reload` hot-reload. See [pi docs/extensions.md](https://github.com/earendil-works/pi-mono/blob/main/docs/extensions.md).
+> oh-my-pi's docs call out `omp -e <path>` as the recommended path for "quick tests" and `omp plugin install` / auto-discovered locations as the path for resources that need `/reload` hot-reload. See [oh-my-pi extension-loading docs](https://github.com/can1357/oh-my-pi/blob/main/docs/extension-loading.md).
 
 ---
 
@@ -73,12 +74,12 @@ Useful when you want the extension persisted globally but don't want pi to track
 
 | Command                    | Description                 |
 | -------------------------- | --------------------------- |
-| `npm run typecheck`        | Type-check the package      |
-| `npm test`                 | Run unit tests              |
-| `npm run test:unit`        | Run unit tests              |
-| `npm run test:integration` | Run integration tests       |
-| `npm run test:all`         | Run both unit + integration |
-| `npm run lint`             | Alias for typecheck         |
+| `bun run typecheck`        | Type-check the package      |
+| `bun test`                 | Run unit tests              |
+| `bun run test:unit`        | Run unit tests              |
+| `bun run test:integration` | Run integration tests       |
+| `bun run test:all`         | Run both unit + integration |
+| `bun run lint`             | Alias for typecheck         |
 
 Both `typecheck` and `lint` run `tsc --noEmit`. There is no separate ESLint pipeline.
 
@@ -86,14 +87,14 @@ Both `typecheck` and `lint` run `tsc --noEmit`. There is no separate ESLint pipe
 
 ## Testing patterns
 
-All tests use `node:test` + `node:assert/strict`. Two tiers:
+All tests use **Bun's built-in `bun:test` runner** with `node:assert/strict` assertions. Two tiers:
 
 ### Unit tests (`test/unit/*.test.ts`)
 
-Pure-TS tests against modules in `src/`. They mock pi's `ExtensionAPI` surface with hand-built fakes — fast, deterministic, no pi runtime in the loop.
+Pure-TS tests against modules in `src/`. They mock oh-my-pi's `ExtensionAPI` surface with hand-built fakes — fast, deterministic, no oh-my-pi runtime in the loop.
 
 ```ts
-import { test } from "node:test";
+import { test } from "bun:test";
 import assert from "node:assert/strict";
 
 test("dispatcher rejects unknown workflow", async () => {
@@ -102,17 +103,17 @@ test("dispatcher rejects unknown workflow", async () => {
 });
 ```
 
-Run: `npm run test:unit`.
+Run: `bun run test:unit`.
 
 ### Integration tests (`test/integration/*.test.ts`)
 
-Higher-fidelity tests that compose multiple modules (runtime, wiring, overlay) and exercise the extension factory against a structural mock of `ExtensionAPI`. Still no real pi process — but they cover end-to-end registration, lifecycle, and overlay paths.
+Higher-fidelity tests that compose multiple modules (runtime, wiring, overlay) and exercise the extension factory against a structural mock of `ExtensionAPI`. Still no real oh-my-pi process — but they cover end-to-end registration, lifecycle, and overlay paths.
 
-Run: `npm run test:integration`.
+Run: `bun run test:integration`.
 
-### Improved coverage with pi's SDK (recommended for new end-to-end tests)
+### Improved coverage with oh-my-pi's SDK (recommended for new end-to-end tests)
 
-Pi exposes `DefaultResourceLoader.extensionFactories` for in-process extension injection. This is the highest-fidelity test path short of spawning a real `pi` process:
+oh-my-pi exposes `DefaultResourceLoader.extensionFactories` for in-process extension injection. This is the highest-fidelity test path short of spawning a real `omp` process:
 
 ```ts
 import {
@@ -120,7 +121,7 @@ import {
   DefaultResourceLoader,
   SessionManager,
   getAgentDir,
-} from "@earendil-works/pi-coding-agent";
+} from "@oh-my-pi/pi-coding-agent";
 import factory from "../src/extension/index.ts";
 
 const resourceLoader = new DefaultResourceLoader({
@@ -136,18 +137,17 @@ const { session } = await createAgentSession({
 });
 ```
 
-This pattern lets you assert against pi's real `ExtensionAPI`, real command dispatch, real tool registration, and real event bus — no manual mocks. It's the canonical pi pattern documented in [pi examples/sdk/06-extensions.ts](https://github.com/earendil-works/pi-mono/blob/main/examples/sdk/06-extensions.ts).
+This pattern lets you assert against oh-my-pi's real `ExtensionAPI`, real command dispatch, real tool registration, and real event bus — no manual mocks. It's the canonical oh-my-pi pattern documented under `docs/` in [`can1357/oh-my-pi`](https://github.com/can1357/oh-my-pi).
 
 Add an integration test that exercises this for the `workflow` tool + `/workflow list` slash command and you'll catch ExtensionAPI shape drift before it ships.
 
 ### Quiet output for AI agents
 
-`node:test`'s default reporter is already terse. For even less output:
+Bun's reporter is already terse. To shrink output further, target a single file or filter by test name:
 
 ```bash
-npm run test:unit 2>&1 | grep "^ℹ"   # just pass/fail/duration summary
-# or
-npm run test:unit -- --test-reporter=tap
+bun test test/unit/registry.test.ts
+bun test --test-name-pattern "dispatch"
 ```
 
 ---
@@ -155,11 +155,11 @@ npm run test:unit -- --test-reporter=tap
 ## Running examples
 
 ```bash
-node --experimental-transform-types --import ./test/support/register-loader.mjs examples/hello-world.ts
-node --experimental-transform-types --import ./test/support/register-loader.mjs examples/parallel-fan-out.ts
+bun examples/hello-world.ts
+bun examples/parallel-fan-out.ts
 ```
 
-The `register-loader.mjs` hook rewrites `.js` → `.ts` at resolve time (TypeScript ESM convention).
+Bun resolves `.js` import specifiers to the underlying `.ts` source files directly — no loader hook required.
 
 ---
 
@@ -167,9 +167,9 @@ The `register-loader.mjs` hook rewrites `.js` → `.ts` at resolve time (TypeScr
 
 ```
 .
-├── install.mjs              # npx atomic-workflows entrypoint (post-publish convenience)
+├── install.mjs              # bunx atomic-workflows entrypoint (post-publish convenience)
 ├── src/
-│   ├── extension/           # Pi extension entry point: tool, slash commands, hooks
+│   ├── extension/           # oh-my-pi extension entry point: tool, slash commands, hooks
 │   ├── intercom/            # pi-intercom adapter (HIL for detached runs)
 │   ├── runs/
 │   │   ├── foreground/      # Synchronous executor and stage runner
@@ -187,8 +187,9 @@ The `register-loader.mjs` hook rewrites `.js` → `.ts` at resolve time (TypeScr
 ├── test/
 │   ├── unit/                # Unit tests
 │   ├── integration/         # Integration tests
-│   └── support/             # ts-loader.mjs, register-loader.mjs, helpers.ts
+│   └── support/             # helpers.ts
 ├── examples/                # Runnable standalone examples
+├── bunfig.toml
 ├── package.json
 └── tsconfig.json
 ```
@@ -197,9 +198,9 @@ The `register-loader.mjs` hook rewrites `.js` → `.ts` at resolve time (TypeScr
 
 ## Best practices
 
-- **Source files use `.js` import extensions** (TypeScript ESM convention). The repo ships as `.ts` files; Node's loader + `test/support/ts-loader.mjs` rewrites `.js` → `.ts` at resolve time. Do not break this — pi's loader follows the same convention.
+- **Source files use `.js` import extensions** (TypeScript ESM convention). The repo ships as `.ts` files; Bun resolves `.js` specifiers to `.ts` sources directly — both oh-my-pi's loader and `bun test` follow the same convention. Do not break this.
 - **Avoid `any` and `unknown`.** Use specific types. The codebase compiles with `strict`, `noUnusedLocals`, `noUnusedParameters`.
-- **Mirror `pi-subagents` conventions.** When in doubt about a structural choice (extension shape, manifest layout, file naming), check [`nicobailon/pi-subagents`](https://github.com/nicobailon/pi-subagents) first — both extensions follow the same ship-as-source pattern.
+- **Mirror oh-my-pi extension conventions.** When in doubt about a structural choice (extension shape, manifest layout, file naming), check [`can1357/oh-my-pi`](https://github.com/can1357/oh-my-pi) (especially `packages/swarm-extension`) first — both extensions follow the same ship-as-source pattern.
 - **Track in-progress fixes in `issues.md`.** Delete the file once issues are resolved to keep the repo clean.
 
 ---
@@ -219,16 +220,16 @@ The `register-loader.mjs` hook rewrites `.js` → `.ts` at resolve time (TypeScr
 4. Open a PR to `main`.
 5. Once merged, publish with `npm publish --provenance`.
 
-Provenance is enabled in CI; no `NPM_TOKEN` is needed for OIDC-authenticated publishes. If you see steps configuring `NPM_TOKEN` / `NODE_AUTH_TOKEN` for publishing, they are mistakes — remove them.
+Bun is the development/test/runtime path. **npm is still the registry publication tool** because npm's provenance flow signs the published tarball via OIDC. Provenance is enabled in CI; no `NPM_TOKEN` is needed for OIDC-authenticated publishes. If you see steps configuring `NPM_TOKEN` / `NODE_AUTH_TOKEN` for publishing, they are mistakes — remove them.
 
 ---
 
 ## CI
 
-CI runs typecheck and `test:all` on PRs. See `.github/workflows/`.
+CI runs typecheck and `test:all` on PRs via Bun. See `.github/workflows/test.yml`.
 
 ---
 
 ## Known issues
 
-- A handful of unit tests in `test/unit/wiring.test.ts` assert against a stale ExtensionAPI mock shape and currently fail. Track in `issues.md` when you next pick this up.
+- Track in-progress fixes in `issues.md` if you encounter test ordering or shared-state issues that Bun exposes; fix them at the source rather than papering over with retries.

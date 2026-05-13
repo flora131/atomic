@@ -9,7 +9,7 @@
  *     records failed status (RFC §7).
  */
 
-import { describe, test } from "node:test";
+import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { runDetached } from "../../src/runs/background/runner.js";
 import { statusRuns, killRun } from "../../src/runs/background/status.js";

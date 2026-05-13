@@ -3,8 +3,8 @@
  * cross-ref: spec §5.5
  */
 
-export type RunStatus = "pending" | "running" | "completed" | "failed" | "killed";
-export type StageStatus = "pending" | "running" | "completed" | "failed";
+export type RunStatus = "pending" | "running" | "paused" | "completed" | "failed" | "killed";
+export type StageStatus = "pending" | "running" | "paused" | "completed" | "failed";
 
 /**
  * Human-in-the-loop prompt kind. Mirrors the four `WorkflowUIContext` methods.
@@ -57,6 +57,28 @@ export interface StageSnapshot {
    * Absent when no mcp options were passed to ctx.stage().
    */
   mcpScope?: { allow: string[] | null; deny: string[] | null };
+  /**
+   * Pi/oh-my-pi SDK session metadata, populated lazily once the stage
+   * acquires an AgentSession. Carried on the serializable snapshot so
+   * the attached chat surface can reopen completed sessions via
+   * `SessionManager.open(sessionFile)` without keeping live handles in
+   * the store.
+   */
+  sessionId?: string;
+  sessionFile?: string;
+  /**
+   * True while a live `StageControlHandle` exists for this stage in the
+   * stage-control registry. Used by the attach UI to decide whether to
+   * route prompts through the live handle or render an inspect-only
+   * view for a settled stage with no persisted session.
+   */
+  attachable?: boolean;
+  /** True while a user pane is actively attached to this stage. */
+  attached?: boolean;
+  /** Timestamp set when a controlled pause begins; cleared on resume. */
+  pausedAt?: number;
+  /** Timestamp recorded on the most recent resume from a paused state. */
+  resumedAt?: number;
 }
 
 export interface RunSnapshot {

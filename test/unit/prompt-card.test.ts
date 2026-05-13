@@ -8,7 +8,7 @@
  *  - handlePromptCardInput discriminates submit/cancel/noop correctly
  */
 
-import { describe, test } from "node:test";
+import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import {
   createPromptCardState,

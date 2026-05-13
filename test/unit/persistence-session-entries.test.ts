@@ -3,7 +3,7 @@
  * cross-ref: spec §5.6
  */
 
-import { describe, test } from "node:test";
+import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import {
   appendRunStart,

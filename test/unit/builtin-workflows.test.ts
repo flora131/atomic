@@ -4,7 +4,7 @@
  * against a mock WorkflowRunContext.
  */
 
-import { describe, test } from "node:test";
+import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import type { WorkflowRunContext, StageContext, WorkflowUIContext } from "../../src/shared/types.js";
 import type { WorkflowDefinition } from "../../src/shared/types.js";

@@ -7,7 +7,7 @@
  *  - Missing complete adapter error.
  *  - Missing subagent adapter error (must mention task delegation support guidance).
  */
-import { describe, test } from "node:test";
+import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { run, resolveInputs } from "../../src/runs/foreground/executor.js";
 import { createStore } from "../../src/shared/store.js";

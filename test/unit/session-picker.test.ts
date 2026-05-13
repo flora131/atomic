@@ -2,7 +2,7 @@
  * Unit tests for src/tui/session-picker.ts — selection logic, key handling,
  * and a render-smoke test (no thrown errors, expected content present).
  */
-import { test } from "node:test";
+import { test } from "bun:test";
 import assert from "node:assert/strict";
 import {
   createSessionPickerState,
@@ -133,4 +133,38 @@ test("renderSessionPicker shows empty state when no rows", () => {
   const state = createSessionPickerState();
   const lines = renderSessionPicker({ width: 80, theme, rows: [], state });
   assert.match(lines.join("\n"), /no workflow runs to show/);
+});
+
+test("renderSessionPicker emits a clean ╰────╯ bottom border with hints on a separate row below", () => {
+  // Regression gate: previously the hints text was embedded inside the
+  // bottom-corner row (`╰── ↑↓ navigate · …  ╯`), producing the broken
+  // border visible in the user's report. The fix renders the bottom
+  // corner as `╰─────╯` and emits the hints on the next line, outside
+  // the box.
+  const theme = deriveGraphTheme({});
+  const state = createSessionPickerState();
+  const rows = [
+    { run: makeRun({ id: "aaaa1111-0000-0000-0000-000000000000", name: "ralph" }), bucket: "active" as const },
+  ];
+  const lines = renderSessionPicker({ width: 80, theme, rows, state });
+  // The last visible chrome row is the hints text — no border glyphs.
+  const hintsLine = lines[lines.length - 1]!;
+  // Strip ANSI to inspect the printable characters.
+  // eslint-disable-next-line no-control-regex
+  const stripped = hintsLine.replace(/\u001b\[[0-9;]*m/g, "");
+  assert.match(stripped, /navigate/);
+  assert.ok(!stripped.includes("╰"), "hints row must not include the bottom-left corner glyph");
+  assert.ok(!stripped.includes("╯"), "hints row must not include the bottom-right corner glyph");
+
+  // The penultimate row is the clean bottom border with NO hint text
+  // embedded inside it.
+  const borderLine = lines[lines.length - 2]!;
+  // eslint-disable-next-line no-control-regex
+  const borderStripped = borderLine.replace(/\u001b\[[0-9;]*m/g, "");
+  assert.ok(borderStripped.startsWith("╰"), `bottom border should start with ╰; got ${JSON.stringify(borderStripped)}`);
+  assert.ok(borderStripped.endsWith("╯"), `bottom border should end with ╯; got ${JSON.stringify(borderStripped)}`);
+  assert.ok(!/navigate|connect|kill|filter/.test(borderStripped), "bottom border must not embed hint labels");
+  // Interior of the border is just `─` (plus the corner glyphs).
+  const interior = borderStripped.slice(1, -1);
+  assert.ok(/^─+$/.test(interior), `bottom border interior should be only ─; got ${JSON.stringify(interior)}`);
 });

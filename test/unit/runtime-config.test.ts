@@ -9,7 +9,7 @@
  * - Composition root default config contains required fields from WORKFLOW_CONFIG_DEFAULTS
  */
 
-import { describe, test } from "node:test";
+import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import type { WorkflowRuntimeConfig } from "../../src/shared/types.js";
 import type { ExtensionRuntimeOpts } from "../../src/extension/runtime.js";
@@ -125,7 +125,7 @@ describe("WorkflowRuntimeConfig — DispatcherOpts", () => {
     );
     assert.equal(result.action, "list");
     if (result.action === "list") {
-      assert.ok(result.workflows.includes("alpha"));
+      assert.ok(result.items.some((i) => i.name === "alpha"));
     }
   });
 });

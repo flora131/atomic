@@ -73,13 +73,40 @@ export interface GraphViewOpts {
    * GraphView itself stays UI-only.
    */
   onPromptResolve?: (runId: string, promptId: string, response: unknown) => void;
+  /**
+   * Invoked when the user presses Enter on a focused graph node — the
+   * parent attach shell swaps the popup interior to that stage's chat
+   * pane. When unset, Enter is a no-op (preserves graph mode).
+   */
+  onStageAttach?: (runId: string, stageId: string) => void;
+  /**
+   * Invoked when the user presses `Ctrl+D` while in graph mode. Mirrors
+   * the in-chat back affordance: detaches the whole popup (host calls
+   * `setHidden(true)`). Falls back to `onHide` when unset.
+   */
+  onDetach?: () => void;
+  /**
+   * When provided, GraphView restores focus to this stage on construction
+   * — used by the attach shell so returning from the chat lands the
+   * cursor on the same node the user just attached to.
+   */
+  initialFocusedStageId?: string;
+  /**
+   * Optional accessor returning the current terminal row count. When
+   * present in overlay mode the renderer expands the frame to roughly
+   * `viewportRows` lines (clamped to at least the header + statusline
+   * budget) so the popup fills the terminal under pi-tui's
+   * `width: "100%" / maxHeight: "100%"` geometry. Returning `undefined`
+   * falls back to the constant `OVERLAY_LINE_COUNT` rectangle.
+   */
+  getViewportRows?: () => number | undefined;
 }
 
 const HINT_KEYS: Array<{ key: string; label: string }> = [
   { key: "↑↓←→", label: "navigate" },
   { key: "↵", label: "attach" },
   { key: "/", label: "stages" },
-  { key: "h", label: "hide" },
+  { key: "ctrl+d", label: "detach" },
   { key: "q", label: "quit" },
 ];
 
@@ -119,6 +146,10 @@ export class GraphView implements Component {
   private onKill?: (runId: string) => void;
   private onHide?: () => void;
   private onPromptResolve?: (runId: string, promptId: string, response: unknown) => void;
+  private onStageAttach?: (runId: string, stageId: string) => void;
+  private onDetach?: () => void;
+  private initialFocusedStageId?: string;
+  private getViewportRows?: () => number | undefined;
 
   /** Active HIL prompt state, set when `_rebuildLayout` sees a new prompt id. */
   private promptState: PromptCardState | null = null;
@@ -145,6 +176,10 @@ export class GraphView implements Component {
     this.onKill = opts.onKill;
     this.onHide = opts.onHide;
     this.onPromptResolve = opts.onPromptResolve;
+    this.onStageAttach = opts.onStageAttach;
+    this.onDetach = opts.onDetach;
+    this.initialFocusedStageId = opts.initialFocusedStageId;
+    this.getViewportRows = opts.getViewportRows;
 
     this._unsubscribe = this.store.subscribe((snap) => {
       this.currentSnapshot = snap;
@@ -170,6 +205,17 @@ export class GraphView implements Component {
       return;
     }
     this.cachedLayout = computeLayout(run.stages, { orientation: "vertical" });
+    // One-shot: if the host passed `initialFocusedStageId`, snap the
+    // cursor to that stage now that the layout exists. The attach shell
+    // uses this when swapping back from chat mode so the focus lands on
+    // the same node the user just attached to.
+    if (this.initialFocusedStageId !== undefined) {
+      const idx = this.cachedLayout.findIndex(
+        (n) => n.stage.id === this.initialFocusedStageId,
+      );
+      if (idx >= 0) this.focusedIndex = idx;
+      this.initialFocusedStageId = undefined;
+    }
     this._syncPromptState(run.pendingPrompt);
   }
 
@@ -226,6 +272,29 @@ export class GraphView implements Component {
     return [...headerLines, ` ${trailer}`];
   }
 
+  /**
+   * Number of rows the overlay frame must paint. Pi-tui anchors the
+   * overlay vertically by counting rendered lines, so to truly fill the
+   * terminal under `maxHeight: "100%"` the component must emit
+   * approximately `terminal.rows` lines. We clamp to at least
+   * `OVERLAY_LINE_COUNT` so a tiny terminal or a host that doesn't
+   * surface terminal dimensions keeps the previous stable rectangle.
+   */
+  private _overlayLineCount(): number {
+    const reported = this.getViewportRows?.();
+    if (typeof reported !== "number" || !Number.isFinite(reported)) {
+      return OVERLAY_LINE_COUNT;
+    }
+    // Header (3) + statusline (3) is the absolute minimum; anything
+    // smaller would underflow the body band.
+    return Math.max(OVERLAY_LINE_COUNT, Math.floor(reported));
+  }
+
+  /** Rows available for the graph body (between header and statusline). */
+  private _overlayBodyRows(lineCount: number): number {
+    return Math.max(1, lineCount - 3 /* header */ - 3 /* statusline */);
+  }
+
   private _renderOverlay(width: number): string[] {
     const frameWidth = Math.max(40, width);
     const lines: string[] = [];
@@ -243,7 +312,7 @@ export class GraphView implements Component {
     // 2. Graph occupies the full body. No section labels, no focused-
     //    stage panel — status colour on each card carries that signal.
     const graphLines = this._renderGraph(frameWidth);
-    const bodyTarget = OVERLAY_LINE_COUNT - 3 /* header */ - 3; /* statusline */
+    const bodyTarget = this._overlayBodyRows(this._overlayLineCount());
     // Vertically centre the graph in the body band.
     const topPad = Math.max(
       0,
@@ -338,7 +407,7 @@ export class GraphView implements Component {
       `${chromeBg} ${RESET}${mid}${chromeBg}${idleLabel}${filler}${" ".repeat(2)}${RESET}`,
       `${chromeBg} ${RESET}${bot}${chromeBg}${" ".repeat(6 + fillerVisible)}${" ".repeat(2)}${RESET}`,
     ];
-    const bodyTarget = OVERLAY_LINE_COUNT - 3 - 3;
+    const bodyTarget = this._overlayBodyRows(this._overlayLineCount());
     const body: string[] = [
       this._canvasRow(`  ${muted}No active workflow run.${RESET}`, width),
       this._canvasRow(
@@ -826,10 +895,11 @@ export class GraphView implements Component {
   private _counts(run: RunSnapshot): {
     pending: number;
     running: number;
+    paused: number;
     completed: number;
     failed: number;
   } {
-    const c = { pending: 0, running: 0, completed: 0, failed: 0 };
+    const c = { pending: 0, running: 0, paused: 0, completed: 0, failed: 0 };
     for (const s of run.stages) c[s.status]++;
     return c;
   }
@@ -920,7 +990,29 @@ export class GraphView implements Component {
       return true;
     }
     if (matchesKey(data, "enter") || data === "\r" || data === "\n") {
+      // Enter attaches the popup interior to the focused stage. The
+      // attach shell swaps in the stage-chat view without remounting
+      // the overlay; without a callback, fall back to the legacy
+      // expand/collapse toggle so non-attach hosts still work.
+      if (this.onStageAttach) {
+        const node = this.cachedLayout[this.focusedIndex];
+        const run = this._getCurrentRun();
+        if (node && run) {
+          this.onStageAttach(run.id, node.stage.id);
+          return true;
+        }
+      }
       this.detailsExpanded = !this.detailsExpanded;
+      return true;
+    }
+    // `ctrl+d` detaches the whole popup (host hides the overlay). This
+    // is the graph-mode counterpart of the in-chat back affordance.
+    if (data === "\x04") {
+      if (this.onDetach) {
+        this.onDetach();
+      } else if (this.onHide) {
+        this.onHide();
+      }
       return true;
     }
     // `q` kills the active run (no confirm). `h` hides the pane via

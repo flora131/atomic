@@ -6,7 +6,7 @@
  *
  * Also asserts mcpScope is stored on StageSnapshot.
  */
-import { describe, test } from "node:test";
+import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { run } from "../../src/runs/foreground/executor.js";
 import { createStore } from "../../src/shared/store.js";

@@ -10,7 +10,7 @@
  *   - renderInputsPicker emits the section label, field rows, footer hints
  *   - renderInputsSchema pretty/plain modes both produce expected content
  */
-import { test } from "node:test";
+import { test } from "bun:test";
 import assert from "node:assert/strict";
 import {
   coerceValues,
@@ -22,6 +22,9 @@ import {
 import { renderInputsSchema } from "../../src/shared/render-inputs-schema.ts";
 import { deriveGraphTheme } from "../../src/tui/graph-theme.ts";
 import type { WorkflowInputEntry } from "../../src/extension/render-result.ts";
+import { makeFakeKeybindings } from "../support/fake-keybindings.ts";
+
+const KB = makeFakeKeybindings();
 
 const FIELDS: WorkflowInputEntry[] = [
   { name: "prompt", type: "text", required: true, description: "task to do" },
@@ -83,11 +86,11 @@ test("invalidForField rejects select values not in choices", () => {
 
 test("text field: typing inserts characters, backspace removes", () => {
   const s = createInputsPickerState(FIELDS);
-  handleInputsPickerInput("h", s, FIELDS);
-  handleInputsPickerInput("i", s, FIELDS);
+  handleInputsPickerInput("h", s, FIELDS, KB);
+  handleInputsPickerInput("i", s, FIELDS, KB);
   assert.equal(s.rawText.prompt, "hi");
   assert.equal(s.caret, 2);
-  handleInputsPickerInput("\x7f", s, FIELDS);
+  handleInputsPickerInput("\x7f", s, FIELDS, KB);
   assert.equal(s.rawText.prompt, "h");
   assert.equal(s.caret, 1);
 });
@@ -95,12 +98,12 @@ test("text field: typing inserts characters, backspace removes", () => {
 test("tab and shift+tab move focus, wrapping", () => {
   const s = createInputsPickerState(FIELDS);
   assert.equal(s.focusedIdx, 0);
-  handleInputsPickerInput("\t", s, FIELDS);
+  handleInputsPickerInput("\t", s, FIELDS, KB);
   assert.equal(s.focusedIdx, 1);
-  handleInputsPickerInput("\x1b[Z", s, FIELDS);
+  handleInputsPickerInput("\x1b[Z", s, FIELDS, KB);
   assert.equal(s.focusedIdx, 0);
   // Wrap backward from 0 → last
-  handleInputsPickerInput("\x1b[Z", s, FIELDS);
+  handleInputsPickerInput("\x1b[Z", s, FIELDS, KB);
   assert.equal(s.focusedIdx, FIELDS.length - 1);
 });
 
@@ -108,11 +111,11 @@ test("select field: arrows cycle through choices", () => {
   const s = createInputsPickerState(FIELDS);
   s.focusedIdx = 2; // focus on `focus` field
   assert.equal(s.rawText.focus, "standard");
-  handleInputsPickerInput("\x1b[C", s, FIELDS); // right
+  handleInputsPickerInput("\x1b[C", s, FIELDS, KB); // right
   assert.equal(s.rawText.focus, "exhaustive");
-  handleInputsPickerInput("\x1b[C", s, FIELDS); // wraps
+  handleInputsPickerInput("\x1b[C", s, FIELDS, KB); // wraps
   assert.equal(s.rawText.focus, "minimal");
-  handleInputsPickerInput("\x1b[D", s, FIELDS); // wraps back
+  handleInputsPickerInput("\x1b[D", s, FIELDS, KB); // wraps back
   assert.equal(s.rawText.focus, "exhaustive");
 });
 
@@ -120,22 +123,22 @@ test("boolean field: space and arrows flip", () => {
   const s = createInputsPickerState(FIELDS);
   s.focusedIdx = 3;
   assert.equal(s.rawText.verbose, "false");
-  handleInputsPickerInput(" ", s, FIELDS);
+  handleInputsPickerInput(" ", s, FIELDS, KB);
   assert.equal(s.rawText.verbose, "true");
-  handleInputsPickerInput("\x1b[D", s, FIELDS);
+  handleInputsPickerInput("\x1b[D", s, FIELDS, KB);
   assert.equal(s.rawText.verbose, "false");
 });
 
 test("esc cancels from form mode", () => {
   const s = createInputsPickerState(FIELDS);
-  const a = handleInputsPickerInput("\x1b", s, FIELDS);
+  const a = handleInputsPickerInput("\x1b", s, FIELDS, KB);
   assert.deepEqual(a, { kind: "cancel" });
 });
 
 test("ctrl+s with missing required fields opens no modal, focuses invalid", () => {
   const s = createInputsPickerState(FIELDS);
   // prompt is empty (required) — submit should be blocked.
-  const a = handleInputsPickerInput("\x13", s, FIELDS);
+  const a = handleInputsPickerInput("\x13", s, FIELDS, KB);
   assert.deepEqual(a, { kind: "noop" });
   assert.equal(s.confirmOpen, false);
   assert.equal(s.focusedIdx, 0); // jumped to first invalid field
@@ -144,7 +147,7 @@ test("ctrl+s with missing required fields opens no modal, focuses invalid", () =
 
 test("ctrl+s with all required filled opens confirm modal", () => {
   const s = createInputsPickerState(FIELDS, { prompt: "build something" });
-  handleInputsPickerInput("\x13", s, FIELDS);
+  handleInputsPickerInput("\x13", s, FIELDS, KB);
   assert.equal(s.confirmOpen, true);
 });
 
@@ -152,15 +155,15 @@ test("confirm modal: y returns coerced values; n returns to form", () => {
   const s = createInputsPickerState(FIELDS, { prompt: "hi", focus: "minimal" });
   s.rawText.iters = "8";
   s.rawText.verbose = "true";
-  handleInputsPickerInput("\x13", s, FIELDS);
+  handleInputsPickerInput("\x13", s, FIELDS, KB);
   assert.equal(s.confirmOpen, true);
   // n returns to form
-  const back = handleInputsPickerInput("n", s, FIELDS);
+  const back = handleInputsPickerInput("n", s, FIELDS, KB);
   assert.deepEqual(back, { kind: "noop" });
   assert.equal(s.confirmOpen, false);
   // Reopen and confirm
-  handleInputsPickerInput("\x13", s, FIELDS);
-  const run = handleInputsPickerInput("y", s, FIELDS);
+  handleInputsPickerInput("\x13", s, FIELDS, KB);
+  const run = handleInputsPickerInput("y", s, FIELDS, KB);
   assert.equal(run.kind, "run");
   if (run.kind === "run") {
     assert.deepEqual(run.values, {
@@ -451,4 +454,90 @@ test("renderInputsSchema (pretty) emits themed header and field blocks", () => {
 test("renderInputsSchema returns short string for zero-input workflows", () => {
   const out = renderInputsSchema("nullary", []);
   assert.equal(out, 'Workflow "nullary" has no declared inputs.');
+});
+
+// ── injected keybindings: word / line / char editing (picker overlay) ──────
+
+test("picker: ctrl+w deletes the word left of the caret", () => {
+  const s = createInputsPickerState(FIELDS, { prompt: "alpha beta gamma" });
+  s.caret = 16; // end of "gamma"
+  handleInputsPickerInput("\x17", s, FIELDS, KB);
+  assert.equal(s.rawText.prompt, "alpha beta ");
+  assert.equal(s.caret, 11);
+});
+
+test("picker: ctrl+u deletes from caret to logical line start", () => {
+  const s = createInputsPickerState(FIELDS, {
+    prompt: "line one\nline two\nline three",
+  });
+  s.caret = 14; // mid "line two": 9 + 5
+  handleInputsPickerInput("\x15", s, FIELDS, KB);
+  // Deletes "line " from line-two only; surrounding lines stay intact.
+  assert.equal(s.rawText.prompt, "line one\ntwo\nline three");
+  assert.equal(s.caret, 9);
+});
+
+test("picker: ctrl+k deletes from caret to logical line end without crossing newlines", () => {
+  const s = createInputsPickerState(FIELDS, {
+    prompt: "line one\nline two\nline three",
+  });
+  s.caret = 13; // mid "line two": 9 + 4 (after "line")
+  handleInputsPickerInput("\x0b", s, FIELDS, KB);
+  assert.equal(s.rawText.prompt, "line one\nline\nline three");
+  assert.equal(s.caret, 13);
+});
+
+test("picker: ctrl+a / ctrl+e jump to logical line start / end", () => {
+  const s = createInputsPickerState(FIELDS, {
+    prompt: "first line\nsecond line",
+  });
+  s.caret = 14; // inside "second line"
+  handleInputsPickerInput("\x01", s, FIELDS, KB);
+  assert.equal(s.caret, 11);
+  handleInputsPickerInput("\x05", s, FIELDS, KB);
+  assert.equal(s.caret, 22);
+});
+
+test("picker: alt+d deletes the word right of the caret", () => {
+  const s = createInputsPickerState(FIELDS, { prompt: "alpha beta gamma" });
+  s.caret = 6; // start of "beta"
+  handleInputsPickerInput("\x1bd", s, FIELDS, KB);
+  assert.equal(s.rawText.prompt, "alpha  gamma");
+  assert.equal(s.caret, 6);
+});
+
+test("picker: alt+left / alt+right jump by whole word", () => {
+  const s = createInputsPickerState(FIELDS, { prompt: "alpha beta gamma" });
+  s.caret = 16; // end
+  handleInputsPickerInput("\x1b[1;3D", s, FIELDS, KB);
+  assert.equal(s.caret, 11); // start of "gamma"
+  handleInputsPickerInput("\x1b[1;3D", s, FIELDS, KB);
+  assert.equal(s.caret, 6); // start of "beta"
+  handleInputsPickerInput("\x1b[1;3C", s, FIELDS, KB);
+  assert.equal(s.caret, 10); // end of "beta"
+});
+
+test("picker: ctrl+d deletes the char right of the caret", () => {
+  const s = createInputsPickerState(FIELDS, { prompt: "abc" });
+  s.caret = 1;
+  handleInputsPickerInput("\x04", s, FIELDS, KB);
+  assert.equal(s.rawText.prompt, "ac");
+  assert.equal(s.caret, 1);
+});
+
+test("picker: user-remapped delete word backward respects injected keybindings", () => {
+  const kb = makeFakeKeybindings({
+    "tui.editor.deleteWordBackward": ["\x18"], // ctrl+x
+  });
+  const s = createInputsPickerState(FIELDS, { prompt: "one two" });
+  s.caret = 7;
+  handleInputsPickerInput("\x18", s, FIELDS, kb);
+  assert.equal(s.rawText.prompt, "one ");
+  assert.equal(s.caret, 4);
+  // Original ctrl+w no longer triggers the action under override.
+  s.rawText.prompt = "alpha beta";
+  s.caret = 10;
+  handleInputsPickerInput("\x17", s, FIELDS, kb);
+  assert.equal(s.rawText.prompt, "alpha beta");
+  assert.equal(s.caret, 10);
 });

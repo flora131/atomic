@@ -200,4 +200,4 @@ packages/*/.opencode/
 
 # Verdaccio working state used by the publish-validation matrix
 .verdaccio-storage/
-.verdaccio-htpasswd
+.verdaccio-htpasswdui/

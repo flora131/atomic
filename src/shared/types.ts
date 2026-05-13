@@ -228,8 +228,9 @@ export interface WorkflowRunContext<TInputs extends Record<string, unknown> = Re
   /** Typed inputs provided by the caller, validated against the input schema. */
   readonly inputs: TInputs;
   /**
-   * Create and register a named stage.  Stages can be sequenced (await) or
-   * parallelised (Promise.all); the executor infers the DAG automatically.
+   * Create and register a named stage synchronously. Stage work starts when
+   * a stage method such as prompt(), complete(), or subagent() is awaited;
+   * the executor infers the DAG automatically from those method calls.
    *
    * @param name   Human-readable stage name (used in TUI + persistence).
    * @param options Optional per-stage configuration (mcp allow/deny, etc.).

@@ -59,8 +59,9 @@ export interface RuntimeAdapterBuildOptions {
 }
 
 
-function isNodeTestContext(): boolean {
-  return process.env["NODE_TEST_CONTEXT"] !== undefined;
+function isTestContext(): boolean {
+  // Node's test runner sets NODE_TEST_CONTEXT; Bun's test runner sets NODE_ENV=test.
+  return process.env["NODE_TEST_CONTEXT"] !== undefined || process.env["NODE_ENV"] === "test";
 }
 
 async function createTestAgentSession(_options?: CreateAgentSessionOptions): Promise<{ session: StageSessionRuntime }> {
@@ -157,13 +158,20 @@ export function buildRuntimeAdapters(
   pi: RuntimeWiringSurface,
   options: RuntimeAdapterBuildOptions = {},
 ): StageAdapters {
-  const createSession = options.createAgentSession ?? pi.createAgentSession ?? pi.pi?.createAgentSession ?? (isNodeTestContext() ? createTestAgentSession : undefined);
+  const createSession = options.createAgentSession ?? pi.createAgentSession ?? pi.pi?.createAgentSession ?? (isTestContext() ? createTestAgentSession : undefined);
   const adapters: StageAdapters = {};
 
   if (createSession !== undefined) {
     adapters.agentSession = {
       async create(stageOptions: StageOptions): Promise<StageSessionRuntime> {
-        const result = await createSession(stripWorkflowOnlyOptions(stageOptions));
+        const sessionOptions: CreateAgentSessionOptions = {
+          disableExtensionDiscovery: true,
+          skills: [],
+          promptTemplates: [],
+          slashCommands: [],
+          ...stripWorkflowOnlyOptions(stageOptions),
+        };
+        const result = await createSession(sessionOptions);
         return result.session;
       },
     };
@@ -204,32 +212,36 @@ export interface PiUIDialogOptions {
 }
 
 /**
- * Handle returned by pi.ui.custom() to dismiss the overlay.
+ * Structural subset of pi-tui's `OverlayOptions` that this extension
+ * consumes when mounting overlays via `ctx.ui.custom(factory, options)`.
+ * Mirrors @earendil-works/pi-tui dist/tui.d.ts `OverlayOptions`.
+ *
+ * Only the fields actually forwarded by this extension are typed. Pi may
+ * accept additional fields in the future; values pass through verbatim.
  */
-export interface PiCustomOverlayHandle {
-  close(): void;
-}
-
-/**
- * Legacy object-shaped options passed by older mocks to pi.ui.custom().
- * Real pi uses `ctx.ui.custom(factory, { overlay: true, overlayOptions })`.
- */
-export interface PiCustomOverlayOpts {
-  /** When true, renders as a full-screen overlay rather than an inline widget. */
-  overlay: true;
-  overlayOptions?: {
-    width?: number | string;
-    minWidth?: number;
-    maxHeight?: number | string;
-    anchor?: string;
-    margin?: number | { top?: number; right?: number; bottom?: number; left?: number };
-  };
-  /** Render callback — returns lines to display. width is terminal columns. */
-  render?: (width: number) => string[];
-  /** Keyboard input handler — returns true when the key was consumed. */
-  onInput?: (data: string) => boolean;
-  /** Called when the host UI closes the overlay (e.g. user navigates away). */
-  onClose?: () => void;
+export interface PiOverlayOptions {
+  /** Overlay width — number = columns, "N%" = percent of terminal columns. */
+  width?: number | string;
+  /** Minimum overlay width in columns. */
+  minWidth?: number;
+  /** Overlay maximum height — number = rows, "N%" = percent of terminal rows. */
+  maxHeight?: number | string;
+  /** Anchor edge / corner. Pi-tui accepts named anchors like "center". */
+  anchor?: string;
+  /** Horizontal offset (columns) applied after anchor resolution. */
+  offsetX?: number;
+  /** Vertical offset (rows) applied after anchor resolution. */
+  offsetY?: number;
+  /** Explicit overlay top row (0-indexed) — overrides anchor vertical. */
+  row?: number;
+  /** Explicit overlay left column (0-indexed) — overrides anchor horizontal. */
+  col?: number;
+  /** Margin inset, scalar or per-edge object. */
+  margin?: number | { top?: number; right?: number; bottom?: number; left?: number };
+  /** Responsive visibility predicate. */
+  visible?: boolean | ((terminal: { rows: number; columns: number }) => boolean);
+  /** When `true`, overlay does not capture focus. */
+  nonCapturing?: boolean;
 }
 
 export interface PiCustomComponent {
@@ -254,34 +266,76 @@ export interface PiOverlayHandle {
   isFocused(): boolean;
 }
 
-export interface PiCustomOverlayRealOptions {
+/**
+ * Options accepted by Pi/oh-my-pi's real `ctx.ui.custom(factory, options)`
+ * overlay primitive. Aligned with the shape documented in
+ * `@earendil-works/pi-coding-agent docs/tui.md` and
+ * `@earendil-works/pi-tui dist/tui.d.ts`.
+ *
+ * Host-compatibility note: oh-my-pi's interactive
+ * `ExtensionUiController.custom` hardcodes the overlay geometry when
+ * `overlay: true` to `{ anchor: "bottom-center", width: "100%",
+ * maxHeight: "100%", margin: 0 }`, and does NOT forward this object's
+ * `overlayOptions` field. Consumers MUST NOT rely on `overlayOptions`
+ * for actual placement in interactive oh-my-pi mode — the field is
+ * retained for forward-compatibility (future hosts and the test seam
+ * may consume it).
+ *
+ * Workflow pickers (`session-overlays.ts`, `inputs-overlay.ts`) mount
+ * with `overlay: false`, which causes the host to REPLACE the editor
+ * with the picker inline at the editor's natural position — see
+ * those files for rationale and `ui/workflows/Screenshot 2026-05-13
+ * at 1.11.49 AM.png` for the target spacing.
+ *
+ * `onHandle` is honoured today only by the full-screen graph overlay
+ * (`overlay-adapter.ts`); inline pickers leave it unset and dismiss
+ * via the factory `done()` callback.
+ */
+export interface PiCustomOverlayOptions {
   /**
-   * `true` mounts a floating popup; `false` mounts a focused full-screen
-   * pi-tui pane that takes keyboard focus and renders in place of the
-   * chat until the factory's `done()` callback fires.
+   * `true` mounts a floating popup; `false` mounts a focused
+   * full-screen pi-tui pane that takes keyboard focus and renders in
+   * place of the editor until the factory's `done()` callback fires.
    */
   overlay: boolean;
-  overlayOptions?: PiCustomOverlayOpts["overlayOptions"];
   /**
-   * Optional callback invoked with the OverlayHandle once pi-tui mounts
-   * the overlay. Use to drive show/hide toggles without re-mounting.
+   * Geometry / anchoring intended for pi-tui's `resolveOverlayLayout`.
+   * NOT forwarded by current oh-my-pi interactive `custom()` — see
+   * the host-compatibility note above. Treat as advisory metadata
+   * until the host wires it through.
+   */
+  overlayOptions?: PiOverlayOptions;
+  /**
+   * Optional callback invoked with the OverlayHandle once pi-tui
+   * mounts the overlay. Use to drive show/hide toggles without
+   * re-mounting. Only the full-screen graph overlay path consumes
+   * this today; inline pickers leave it unset and dismiss via the
+   * factory `done()` callback.
    */
   onHandle?: (handle: PiOverlayHandle) => void;
 }
 
+/**
+ * Surface of the Pi `TUI` instance exposed to overlay factories. The
+ * `terminal` accessor is optional because some host implementations and
+ * test mocks do not surface it; consumers must handle `undefined`.
+ */
+export interface PiCustomOverlayFactoryTui {
+  requestRender?: () => void;
+  terminal?: { rows?: number; columns?: number };
+}
+
 export type PiCustomOverlayFactory = (
-  tui: { requestRender?: () => void },
+  tui: PiCustomOverlayFactoryTui,
   theme: unknown,
   keybindings: unknown,
   done: (result: undefined) => void,
 ) => PiCustomComponent | Promise<PiCustomComponent>;
 
-export type PiCustomOverlayFunction =
-  | ((opts: PiCustomOverlayOpts) => PiCustomOverlayHandle | undefined)
-  | ((
-      factory: PiCustomOverlayFactory,
-      options: PiCustomOverlayRealOptions,
-    ) => Promise<undefined> | undefined);
+export type PiCustomOverlayFunction = (
+  factory: PiCustomOverlayFactory,
+  options: PiCustomOverlayOptions,
+) => Promise<undefined> | undefined;
 
 /**
  * Structural shape of oh-my-pi's custom editor component. Interactive mode

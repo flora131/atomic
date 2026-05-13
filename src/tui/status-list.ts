@@ -1,43 +1,49 @@
 /**
- * Canonical multi-run status list — the rich, themed alternative to
- * `formatAsyncRunList()` from pi-subagents.
+ * `/workflow status` list — chat-surface vocabulary from ui/mockups.html.
  *
- * Visual contract (DESIGN.md §5 · orchestrator-panel-ui.png):
- *  - 3-row outline-pill band header at the top:
- *      `[ BACKGROUND ]  N runs                ✓ a  ● b  ○ c  ✗ d`
- *  - One indented per-run header line per snapshot:
- *      `   <status glyph>  <short id>  <bold name>      state   mode · k/n · elapsed`
- *  - Indented per-stage rows beneath each run:
- *      `     <stage glyph> <name>   <state>   <activity?>   <duration?>`
- *  - Blank line between runs; trailing action hint in dim.
+ * Visual contract (ui/mockups.html §2 · DESIGN.md §5):
+ *  - One full-width `[ BACKGROUND ]` flat band with subtitle and badges.
+ *  - One **card** per run (replaces the indented per-stage rows):
+ *      row 1: ▎ stripe · [tag runId] · bold workflow · ● state badge
+ *      row 2: ▎ stripe · mode · progress strip · meta
+ *  - Status colour is carried by the stripe, the tag, and the trailing
+ *    badge — never by body text.
+ *  - One trailing hint row pointing at `/workflow status <id>` for the
+ *    most-recently-active run; full per-stage detail moves into
+ *    `/workflow status <id>` ({@link renderRunDetail}).
  *
- * Plain mode (theme omitted) uses the same shape minus ANSI escapes so
- * the renderer is snapshot-test friendly.
+ * Plain mode (theme omitted) preserves the shape: `▎ [ BACKGROUND ]`
+ * band, `│  [tag] title` cards, ASCII bracket cells `[✓][●][○][✗]`.
  *
  * Powers:
  *   - `renderResult({ action: "status" })` (LLM tool path)
- *   - `/workflow session list` chat output (via {@link renderSessionList})
+ *   - `/workflow session list` chat output (via renderSessionList)
  *   - `/workflow status` chat output
  *
  * cross-ref:
- *  - github.com/nicobailon/pi-subagents src/runs/background/async-status.ts
- *    `formatAsyncRunList` — the source UX pattern
- *  - src/tui/header.ts renderBandHeader
+ *  - ui/mockups.html §2 (run list), §4 (truncation)
+ *  - src/tui/chat-surface.ts shared primitives
+ *  - src/tui/run-detail.ts per-run drill-down surface (unchanged)
  */
 
-import type { RunSnapshot, StageSnapshot } from "../shared/store-types.js";
+import type { RunSnapshot, StageSnapshot, StageStatus } from "../shared/store-types.js";
 import type { GraphTheme } from "./graph-theme.js";
-import { renderBandHeader } from "./header.js";
-import type { BandBadge } from "./header.js";
-import { fmtDuration, statusIcon, statusColor } from "./status-helpers.js";
-import { hexToAnsi, RESET, BOLD } from "./color-utils.js";
+import { fmtDuration } from "./status-helpers.js";
+import {
+  renderFlatBand,
+  renderTaggedCard,
+  renderHintRows,
+  progressStrip,
+  ELLIPSIS,
+  chatWidth,
+} from "./chat-surface.js";
+import type { FlatBandBadge } from "./chat-surface.js";
+import { hexToAnsi, RESET } from "./color-utils.js";
+import { visibleWidth, truncateToWidth } from "./text-helpers.js";
 
 const SHORT_ID_LEN = 6;
-const NAME_COL = 20;
-const STAGE_NAME_COL = 12;
-const STAGE_STATUS_COL = 10;
-const STAGE_ACTIVITY_COL = 16;
-const BAND_WIDTH = 64;
+const MIN_TITLE_BUDGET = 12;
+const STAGE_LABEL_BUDGET = 24;
 
 export interface RenderStatusListOpts {
   /** Provide for ANSI Catppuccin; omit for plain text. */
@@ -46,17 +52,20 @@ export interface RenderStatusListOpts {
   now?: number;
   /** When true, show a trailing hint pointing at the detail action. */
   showDetailHint?: boolean;
+  /** Render width (cells). Defaults to `process.stdout.columns`. */
+  width?: number;
 }
 
 /**
- * Render a list of run snapshots as the canonical "▎ BACKGROUND" status block.
+ * Render a list of run snapshots as the canonical `[ BACKGROUND ]` chat
+ * surface: one band plus one card per run.
  */
 export function renderStatusList(
   runs: readonly RunSnapshot[],
   opts: RenderStatusListOpts = {},
 ): string {
   const now = opts.now ?? Date.now();
-  const themed = opts.theme !== undefined;
+  const width = opts.width;
 
   // The list shows active + recently-ended runs together. Sorting:
   // active first, then ended, each bucket by startedAt desc.
@@ -64,168 +73,227 @@ export function renderStatusList(
 
   // Header counts span the whole snapshot, not just the display window.
   const counts = countBuckets(runs);
-  const total = sorted.length;
-  const subtitle = `${total} run${total === 1 ? "" : "s"}`;
+  const subtitle = `${sorted.length} run${sorted.length === 1 ? "" : "s"}`;
+  const badges: FlatBandBadge[] | undefined = opts.theme
+    ? themedBadges(counts, opts.theme)
+    : plainBadges(counts);
 
   const lines: string[] = [];
-
-  if (themed) {
-    lines.push(...renderBandHeader({
-      label: "BACKGROUND",
-      subtitle,
-      badges: themedBadges(counts, opts.theme!),
-      width: BAND_WIDTH,
-      theme: opts.theme!,
-    }));
-  } else {
-    lines.push(...plainBand(subtitle, plainBadges(counts)));
-  }
+  lines.push(renderFlatBand({
+    label: "BACKGROUND",
+    subtitle,
+    badges,
+    theme: opts.theme,
+    width,
+  }));
+  // Blank line after the band — same header-vs-content separation used by
+  // /workflow list. Without it the band visually fuses into the first card.
   lines.push("");
 
   if (sorted.length === 0) {
-    lines.push(themed && opts.theme
-      ? `  ${hexToAnsi(opts.theme.dim)}no in-flight runs${RESET}`
-      : "  no in-flight runs");
+    lines.push(emptyStateLine(opts.theme));
     return lines.join("\n");
   }
 
+  // Blank line between run cards mirrors the mockup's per-card top/bottom
+  // margin (ui/mockups.html §2). Without it five runs collapse into one
+  // visual block.
   for (let i = 0; i < sorted.length; i++) {
-    const run = sorted[i]!;
-    if (themed && opts.theme) {
-      lines.push("   " + themedRunHeader(run, now, opts.theme));
-      for (const stage of run.stages) {
-        lines.push("     " + themedStageLine(stage, now, opts.theme));
-      }
-    } else {
-      lines.push("   " + plainRunHeader(run, now));
-      for (const stage of run.stages) {
-        lines.push("     " + plainStageLine(stage, now));
-      }
-    }
-    if (i < sorted.length - 1) lines.push("");
+    if (i > 0) lines.push("");
+    lines.push(renderRunCard(sorted[i]!, now, width, opts.theme));
   }
 
   if (opts.showDetailHint !== false && sorted.length > 0) {
     const sid = shortId(sorted[0]!.id);
     lines.push("");
-    if (themed && opts.theme) {
-      const dim = hexToAnsi(opts.theme.dim);
-      const accent = hexToAnsi(opts.theme.accent);
-      lines.push(`   ${dim}▸${RESET} ${accent}workflow status id=${sid}${RESET}${dim}  for detail${RESET}`);
-    } else {
-      lines.push(`   ▸ workflow status id=${sid}  for detail`);
-    }
+    lines.push(
+      renderHintRows(
+        [{ command: `/workflow status ${sid}`, hint: "drill into a run" }],
+        opts.theme,
+      ),
+    );
   }
 
   return lines.join("\n");
 }
 
 // ---------------------------------------------------------------------------
-// Run header line
+// Run card
 // ---------------------------------------------------------------------------
 
-function themedRunHeader(run: RunSnapshot, now: number, theme: GraphTheme): string {
-  const accent = hexToAnsi(theme.accent);
-  const text = hexToAnsi(theme.text);
-  const muted = hexToAnsi(theme.textMuted);
-  const dim = hexToAnsi(theme.dim);
-  const stateFg = hexToAnsi(statusColor(run.status, theme));
-  const glyphFg = stateFg;
-
-  const glyph = runHeaderGlyph(run);
+function renderRunCard(
+  run: RunSnapshot,
+  now: number,
+  width: number | undefined,
+  theme?: GraphTheme,
+): string {
   const sid = shortId(run.id);
-  const namePad = pad(run.name, NAME_COL);
-  const state = run.status;
-  const meta = runMeta(run, now);
+  const stateAccent = runAccent(run, theme);
+  const trailing = runTrailing(run, theme);
 
-  return `${glyphFg}${glyph}${RESET}  ${accent}${sid}${RESET}  ${text}${BOLD}${namePad}${RESET}  ${stateFg}${pad(state, 10)}${RESET}${muted}${meta}${RESET}${dim}${RESET}`;
+  const mode = run.stages.length > 1 ? "chain " : "single";
+  // Row 2 budget: the card body row sits past the stripe (3 cells) and
+  // shares its width with a mode label, the progress strip, and a meta
+  // tail. Reserve ~3 cells for the meta separator and ellipsis padding.
+  const cardWidth = effectiveWidth(width);
+  const stripPrefixW = 3; // "▎  "
+  const modeW = mode.length + 4; // 4-space separator after mode
+  const meta = runCardMeta(run, now);
+  const metaW = visibleWidth(meta);
+  const stripBudget = Math.max(0, cardWidth - stripPrefixW - modeW - metaW - 4);
+
+  const cells = stageCells(run);
+  const strip = progressStrip(cells, stripBudget, theme);
+  const stripVisibleW = visibleWidth(strip);
+
+  const interior = cardWidth - stripPrefixW;
+  const usedLeftW = modeW + stripVisibleW;
+  const gap = Math.max(2, interior - usedLeftW - metaW - 1);
+
+  const muted = theme ? hexToAnsi(theme.textMuted) : "";
+  const dim = theme ? hexToAnsi(theme.dim) : "";
+  const reset = theme ? RESET : "";
+
+  const modeSeg = theme ? `${muted}${mode}${reset}` : mode;
+  const metaSeg = theme ? `${dim}${meta}${reset}` : meta;
+  const row2 = `${modeSeg}    ${strip}${" ".repeat(gap)}${metaSeg}`;
+
+  return renderTaggedCard({
+    tag: sid,
+    title: run.name,
+    trailing,
+    bodyRows: [row2],
+    accent: stateAccent,
+    width,
+    theme,
+  });
 }
 
-function plainRunHeader(run: RunSnapshot, now: number): string {
-  const glyph = runHeaderGlyph(run);
-  const sid = shortId(run.id);
-  const namePad = pad(run.name, NAME_COL);
-  const state = pad(run.status, 10);
-  const meta = runMeta(run, now);
-  return `${glyph}  ${sid}  ${namePad}  ${state}${meta}`;
-}
-
-function runHeaderGlyph(run: RunSnapshot): string {
-  if (run.endedAt === undefined) {
-    return run.status === "running" ? "●" : "○";
+function runAccent(run: RunSnapshot, theme?: GraphTheme): string {
+  if (!theme) return "#000000";
+  switch (run.status) {
+    case "completed": return theme.success;
+    case "running":   return theme.warning;
+    case "failed":    return theme.error;
+    case "killed":    return theme.error;
+    case "pending":
+    default:          return theme.dim;
   }
-  if (run.status === "completed") return "✓";
-  if (run.status === "failed") return "✗";
-  if (run.status === "killed") return "⊘";
-  return "○";
 }
 
-function runMeta(run: RunSnapshot, now: number): string {
+function runTrailing(run: RunSnapshot, theme?: GraphTheme): { text: string; fg?: string } | undefined {
+  switch (run.status) {
+    case "completed": return { text: "✓ completed", fg: theme?.success };
+    case "running":   return { text: "● running", fg: theme?.warning };
+    case "failed":    return { text: "✗ failed", fg: theme?.error };
+    case "killed":    return { text: "⊘ killed", fg: theme?.error };
+    case "pending":
+    default:          return { text: "○ pending", fg: theme?.dim };
+  }
+}
+
+function runCardMeta(run: RunSnapshot, now: number): string {
+  // Builds the right-aligned meta tail.
+  //   running  → `3/8 · review-a · 1m42s`
+  //   failed   → `failed at partition · 4m24s ago`
+  //   killed   → `<stage> · <duration> · <when>` (mirrors mockup §2)
+  //   completed→ `<stage> · <duration> · <when>`
   const parts: string[] = [];
-  const mode = run.stages.length > 1 ? "chain" : "single";
-  if (run.stages.length > 1) {
-    const total = run.stages.length;
-    const done = run.stages.filter((s) => s.status === "completed" || s.status === "failed").length;
-    parts.push(`${mode} · ${done}/${total}`);
-  } else {
-    parts.push(mode);
+  const isChain = run.stages.length > 1;
+  const total = run.stages.length;
+  const done = run.stages.filter(
+    (s) => s.status === "completed" || s.status === "failed",
+  ).length;
+  const ago = run.endedAt !== undefined
+    ? `${fmtDuration(now - run.endedAt)} ago`
+    : run.startedAt != null
+      ? fmtDuration(now - run.startedAt)
+      : undefined;
+
+  if (run.status === "running") {
+    if (isChain) parts.push(`${done}/${total}`);
+    const labels = runningStageLabels(run);
+    if (labels) parts.push(labels);
+    if (ago) parts.push(ago);
+    return parts.join(" · ");
   }
-  if (run.endedAt !== undefined) {
-    parts.push(`${fmtDuration(now - run.endedAt)} ago`);
-  } else if (run.startedAt != null) {
-    parts.push(fmtDuration(now - run.startedAt));
+
+  if (run.status === "failed" || run.status === "killed") {
+    const failed = run.stages.find((s) => s.status === "failed");
+    if (failed && isChain) parts.push(`failed at ${failed.name}`);
+    else if (failed) parts.push(failed.name);
+    else if (!isChain && run.stages[0]) parts.push(run.stages[0].name);
+    const dur = lastStageDuration(run, now);
+    if (dur && parts.length < 2) parts.push(dur);
+    if (ago) parts.push(ago);
+    return parts.join(" · ");
   }
+
+  if (run.status === "completed") {
+    if (!isChain && run.stages[0]) parts.push(run.stages[0].name);
+    const dur = lastStageDuration(run, now);
+    if (dur) parts.push(dur);
+    if (ago) parts.push(ago);
+    return parts.join(" · ");
+  }
+
+  // pending
+  if (ago) parts.push(ago);
   return parts.join(" · ");
 }
 
-// ---------------------------------------------------------------------------
-// Stage line
-// ---------------------------------------------------------------------------
-
-function themedStageLine(stage: StageSnapshot, now: number, theme: GraphTheme): string {
-  const iconFg = hexToAnsi(statusColor(stage.status, theme));
-  const text = hexToAnsi(theme.text);
-  const muted = hexToAnsi(theme.textMuted);
-  const dim = hexToAnsi(theme.dim);
-  const stateFg = hexToAnsi(statusColor(stage.status, theme));
-
-  const icon = statusIcon(stage.status);
-  const namePad = pad(stage.name, STAGE_NAME_COL);
-  const state = pad(stage.status, STAGE_STATUS_COL);
-  const activity = stageActivity(stage) ?? "";
-  const activityPad = pad(activity, STAGE_ACTIVITY_COL);
-  const dur = stageDuration(stage, now) ?? "";
-
-  return `${iconFg}${icon}${RESET} ${text}${namePad}${RESET}  ${stateFg}${state}${RESET}${muted}${activityPad}${RESET}${dim}${dur}${RESET}`;
+function runningStageLabels(run: RunSnapshot): string | undefined {
+  const running = run.stages.filter((s) => s.status === "running").map((s) => s.name);
+  if (running.length === 0) return undefined;
+  const joined = running.join(", ");
+  return truncateToWidth(joined, STAGE_LABEL_BUDGET, ELLIPSIS);
 }
 
-function plainStageLine(stage: StageSnapshot, now: number): string {
-  const icon = statusIcon(stage.status);
-  const namePad = pad(stage.name, STAGE_NAME_COL);
-  const state = pad(stage.status, STAGE_STATUS_COL);
-  const activity = pad(stageActivity(stage) ?? "", STAGE_ACTIVITY_COL);
-  const dur = stageDuration(stage, now) ?? "";
-  return `${icon} ${namePad}  ${state}${activity}${dur}`;
+function lastStageDuration(run: RunSnapshot, now: number): string | undefined {
+  // Pick a representative stage duration: the most-recent terminal stage,
+  // or the running stage if everything's still in flight.
+  const candidate =
+    [...run.stages].reverse().find((s) => s.status === "completed" || s.status === "failed") ??
+    run.stages.find((s) => s.status === "running");
+  if (!candidate) return undefined;
+  return stageDurationString(candidate, now);
 }
 
-function stageActivity(stage: StageSnapshot): string | undefined {
-  if (stage.status !== "running") return undefined;
-  const last = stage.toolEvents.at(-1);
-  if (!last) return undefined;
-  const reference = last.startedAt;
-  if (reference !== undefined) {
-    const ended = last.endedAt ?? Date.now();
-    return `${last.name} · ${fmtDuration(ended - reference)}`;
-  }
-  return last.name;
-}
-
-function stageDuration(stage: StageSnapshot, now: number): string | undefined {
+function stageDurationString(stage: StageSnapshot, now: number): string | undefined {
   if (stage.durationMs !== undefined) return fmtDuration(stage.durationMs);
   if (stage.startedAt !== undefined && stage.endedAt === undefined) {
     return fmtDuration(now - stage.startedAt);
   }
   return undefined;
+}
+
+function stageCells(run: RunSnapshot): Array<{ status: StageStatus }> {
+  // Single-stage runs render a single cell mirroring run status. Chain
+  // runs render one cell per stage.
+  if (run.stages.length === 0) {
+    return [{ status: stageStatusFromRun(run) }];
+  }
+  return run.stages.map((s) => ({ status: s.status }));
+}
+
+function stageStatusFromRun(run: RunSnapshot): StageStatus {
+  switch (run.status) {
+    case "completed": return "completed";
+    case "running":   return "running";
+    case "failed":    return "failed";
+    case "killed":    return "failed";
+    case "pending":
+    default:          return "pending";
+  }
+}
+
+/**
+ * Resolve the render width for the status surface. Delegates to the
+ * shared `chatWidth()` helper which already accounts for the chat host's
+ * 2-cell horizontal padding when no explicit width is supplied.
+ */
+function effectiveWidth(width?: number): number {
+  return chatWidth(width);
 }
 
 // ---------------------------------------------------------------------------
@@ -251,39 +319,26 @@ function countBuckets(runs: readonly RunSnapshot[]): Counts {
   return c;
 }
 
-function themedBadges(c: Counts, theme: GraphTheme): BandBadge[] {
-  const out: BandBadge[] = [];
+function themedBadges(c: Counts, theme: GraphTheme): FlatBandBadge[] {
+  const out: FlatBandBadge[] = [];
   if (c.completed > 0) out.push({ text: `✓ ${c.completed}`, fg: theme.success });
   if (c.active > 0) out.push({ text: `● ${c.active}`, fg: theme.warning });
   if (c.pending > 0) out.push({ text: `○ ${c.pending}`, fg: theme.dim });
-  if (c.failed > 0) out.push({ text: `✗ ${c.failed}`, fg: theme.error });
+  if (c.failed > 0) out.push({ text: `⊘ ${c.failed}`, fg: theme.error });
   return out;
 }
 
-function plainBadges(c: Counts): string[] {
-  const out: string[] = [];
-  if (c.completed > 0) out.push(`✓ ${c.completed}`);
-  if (c.active > 0) out.push(`● ${c.active}`);
-  if (c.pending > 0) out.push(`○ ${c.pending}`);
-  if (c.failed > 0) out.push(`✗ ${c.failed}`);
+function plainBadges(c: Counts): FlatBandBadge[] {
+  const out: FlatBandBadge[] = [];
+  if (c.completed > 0) out.push({ text: `✓ ${c.completed}` });
+  if (c.active > 0) out.push({ text: `● ${c.active}` });
+  if (c.pending > 0) out.push({ text: `○ ${c.pending}` });
+  if (c.failed > 0) out.push({ text: `⊘ ${c.failed}` });
   return out;
-}
-
-function plainBand(subtitle: string, badges: string[]): string[] {
-  const innerLabel = " BACKGROUND ";
-  const inner = "─".repeat(innerLabel.length);
-  const subSeg = `  ${subtitle}`;
-  const badgeTail = badges.length > 0 ? `   ${badges.join("  ")}` : "";
-  const blank = " ".repeat(subSeg.length + badgeTail.length);
-  return [
-    ` ╭${inner}╮${blank}`,
-    ` │${innerLabel}│${subSeg}${badgeTail}`,
-    ` ╰${inner}╯${blank}`,
-  ];
 }
 
 // ---------------------------------------------------------------------------
-// Sorting
+// Sorting + helpers
 // ---------------------------------------------------------------------------
 
 function sortRuns(runs: readonly RunSnapshot[]): RunSnapshot[] {
@@ -297,7 +352,10 @@ function shortId(id: string): string {
   return id.length > SHORT_ID_LEN ? id.slice(0, SHORT_ID_LEN) : id;
 }
 
-function pad(s: string, n: number): string {
-  if (s.length >= n) return s;
-  return s + " ".repeat(n - s.length);
+function emptyStateLine(theme?: GraphTheme): string {
+  if (!theme) return "  no in-flight runs";
+  return `  ${hexToAnsi(theme.dim)}no in-flight runs${RESET}`;
 }
+
+// Re-export for callers that need to inspect width budgeting.
+export { MIN_TITLE_BUDGET };

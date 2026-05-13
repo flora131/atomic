@@ -11,7 +11,7 @@
  * sendMessage + setEditorComponent calls — same pattern as the existing
  * extension test suite.
  */
-import { test } from "node:test";
+import { test } from "bun:test";
 import assert from "node:assert/strict";
 import {
   _resetForms,
@@ -28,6 +28,7 @@ import {
 } from "../../src/tui/inline-form-overlay.ts";
 import { deriveGraphTheme } from "../../src/tui/graph-theme.ts";
 import type { WorkflowInputEntry } from "../../src/extension/render-result.ts";
+import { makeFakeKeybindings } from "../support/fake-keybindings.ts";
 
 const FIELDS: readonly WorkflowInputEntry[] = [
   { name: "prompt", type: "text", required: true, description: "task" },
@@ -186,6 +187,7 @@ function makeEditor(state = makeState()) {
   const editor = new InlineFormEditor(tui, {
     formId: state.formId,
     theme: deriveGraphTheme({}),
+    keybindings: makeFakeKeybindings(),
     onExit: (outcome) => { exited = { outcome }; },
   });
   return { editor, state, renders, getExited: () => exited, dispose: () => editor.dispose?.() };
@@ -411,7 +413,7 @@ test("overlay: openInlineInputsForm emits a custom message and swaps editor", as
 
   // Build the editor via the installed factory and submit it.
   const tui = { requestRender: () => {} };
-  const editor = installed!(tui, {}, {});
+  const editor = installed!(tui, {}, makeFakeKeybindings());
   // Fill required prompt and submit.
   editor.handleInput("h");
   editor.handleInput("i");
@@ -455,7 +457,7 @@ test("overlay: openInlineInputsForm works with oh-my-pi runtime UI shape", async
     | undefined;
   assert.equal(typeof installed, "function");
 
-  const editor = installed!({ requestRender: () => {} }, {}, {});
+  const editor = installed!({ requestRender: () => {} }, {}, makeFakeKeybindings());
   editor.setUseTerminalCursor(true);
   assert.equal(editor.getUseTerminalCursor(), true);
   editor.setAutocompleteMaxVisible(30);
@@ -520,7 +522,7 @@ test("overlay: host editor setup failure resolves unsupported without emitting c
         const editor = (factory as (tui: unknown, theme: unknown, kb: unknown) => InlineFormEditor)(
           { requestRender: () => {} },
           {},
-          {},
+          makeFakeKeybindings(),
         );
         assert.equal(typeof editor.setUseTerminalCursor, "function");
         throw new TypeError("nextEditor.setUseTerminalCursor is not a function");
@@ -549,7 +551,7 @@ test("overlay: cancelling via esc returns {kind:'cancel'} + freezes state", asyn
   });
   const factory = ctx.installed[0]!.factory as
     | ((tui: unknown, theme: unknown, kb: unknown) => InlineFormEditor);
-  const editor = factory({ requestRender: () => {} }, {}, {});
+  const editor = factory({ requestRender: () => {} }, {}, makeFakeKeybindings());
   editor.handleInput("\x1b");
   const result = await pending;
   assert.equal(result.kind, "cancel");
@@ -586,7 +588,7 @@ test("overlay: prefilled values seed rawText", async () => {
   // Cancel so the promise resolves and we don't leak a timer.
   const factory = ctx.installed[0]!.factory as
     | ((tui: unknown, theme: unknown, kb: unknown) => InlineFormEditor);
-  factory({ requestRender: () => {} }, {}, {}).handleInput("\x1b");
+  factory({ requestRender: () => {} }, {}, makeFakeKeybindings()).handleInput("\x1b");
   await pending;
 });
 
@@ -606,4 +608,501 @@ test("overlay: registerInlineFormRenderer preserves class-backed pi method bindi
   const second = pi.renderers.get("atomic-workflows:input-form");
   // Second call did not re-register (same fn reference, or unchanged).
   assert.equal(first, second);
+});
+// ── multi-line text field (rich-text prompt box) ──────────────────────────
+
+import { layoutTextField } from "../../src/tui/inline-form-card.ts";
+
+test("layoutTextField: short single-line content stays on one row", () => {
+  const r = layoutTextField("hello", 20, 0);
+  assert.deepEqual(r.lines, ["hello"]);
+  assert.equal(r.cursorRow, 0);
+  assert.equal(r.cursorCol, 0);
+});
+
+test("layoutTextField: caret in the middle of a single line", () => {
+  const r = layoutTextField("hello", 20, 2);
+  assert.deepEqual(r.lines, ["hello"]);
+  assert.equal(r.cursorRow, 0);
+  assert.equal(r.cursorCol, 2);
+});
+
+test("layoutTextField: newlines start new visual rows (no `⏎` glyph)", () => {
+  const r = layoutTextField("first\nsecond\nthird", 20, 8);
+  assert.deepEqual(r.lines, ["first", "second", "third"]);
+  // caret 8 → inside "second" at offset 2 (`se|cond`).
+  assert.equal(r.cursorRow, 1);
+  assert.equal(r.cursorCol, 2);
+});
+
+test("layoutTextField: caret at end of last line lands on last row", () => {
+  const raw = "a\nb\nc";
+  const r = layoutTextField(raw, 20, raw.length);
+  assert.deepEqual(r.lines, ["a", "b", "c"]);
+  assert.equal(r.cursorRow, 2);
+  assert.equal(r.cursorCol, 1);
+});
+
+test("layoutTextField: wraps long content at character boundary when no newline", () => {
+  const r = layoutTextField("abcdefghij", 4, 6);
+  assert.deepEqual(r.lines, ["abcd", "efgh", "ij"]);
+  assert.equal(r.cursorRow, 1);
+  assert.equal(r.cursorCol, 2);
+});
+
+test("layoutTextField: caret at hard wrap boundary lands on next visual row", () => {
+  // After typing 4 chars in a 4-cell box, caret advances past the wrap.
+  const r = layoutTextField("abcd", 4, 4);
+  assert.deepEqual(r.lines, ["abcd", ""]);
+  assert.equal(r.cursorRow, 1);
+  assert.equal(r.cursorCol, 0);
+});
+
+test("layoutTextField: empty content yields a single empty visual row", () => {
+  const r = layoutTextField("", 20, 0);
+  assert.deepEqual(r.lines, [""]);
+  assert.equal(r.cursorRow, 0);
+  assert.equal(r.cursorCol, 0);
+});
+
+test("card: focused multi-line text field renders newlines as real rows, no `⏎`", () => {
+  const state = makeState({
+    rawText: { prompt: "first line\nsecond line", iters: "5", focus: "standard", verbose: "false" },
+    focusedIdx: 0,
+    caret: 11, // start of "second line"
+  });
+  const txt = plain(renderInlineCard({ width: 80, state, theme: deriveGraphTheme({}) }));
+  // Real visual line break inside the prompt box.
+  assert.match(txt, /first line/);
+  assert.match(txt, /▋second line/);
+  // No literal `⏎` glyph anywhere — we render newlines as rows, not as a sigil.
+  assert.doesNotMatch(txt, /⏎/);
+});
+
+test("card: unfocused multi-line text field also renders rows, not collapsed", () => {
+  const state = makeState({
+    rawText: { prompt: "first line\nsecond line", iters: "5", focus: "standard", verbose: "false" },
+    focusedIdx: 1, // focus on iters, prompt is unfocused
+    caret: 1,
+  });
+  const txt = plain(renderInlineCard({ width: 80, state, theme: deriveGraphTheme({}) }));
+  assert.match(txt, /first line/);
+  assert.match(txt, /second line/);
+  assert.doesNotMatch(txt, /⏎/);
+});
+
+test("editor: down arrow inside multi-line text moves caret to next logical line", () => {
+  const e = makeEditor(
+    makeState({
+      rawText: { prompt: "first\nsecond\nthird", iters: "5", focus: "standard", verbose: "false" },
+      focusedIdx: 0,
+      caret: 2, // inside "first" at col 2 (`fi|rst`)
+    }),
+  );
+  e.editor.handleInput("\x1b[B"); // down
+  assert.equal(e.state.focusedIdx, 0, "focus must stay on the text field");
+  // Should land on "second" at col 2 → offset 6+2 = 8.
+  assert.equal(e.state.caret, 8);
+  e.dispose();
+});
+
+test("editor: up arrow inside multi-line text moves caret to previous logical line", () => {
+  const e = makeEditor(
+    makeState({
+      rawText: { prompt: "first\nsecond\nthird", iters: "5", focus: "standard", verbose: "false" },
+      focusedIdx: 0,
+      caret: 9, // inside "second" at col 3 (`sec|ond`)
+    }),
+  );
+  e.editor.handleInput("\x1b[A"); // up
+  assert.equal(e.state.focusedIdx, 0);
+  // Should land on "first" at col 3 → offset 3.
+  assert.equal(e.state.caret, 3);
+  e.dispose();
+});
+
+test("editor: down arrow on last logical line of text falls through to focus-next", () => {
+  const e = makeEditor(
+    makeState({
+      rawText: { prompt: "only one line", iters: "5", focus: "standard", verbose: "false" },
+      focusedIdx: 0,
+      caret: 4,
+    }),
+  );
+  e.editor.handleInput("\x1b[B"); // down — no next logical line, so focus advances
+  assert.equal(e.state.focusedIdx, 1);
+  e.dispose();
+});
+
+test("editor: up arrow on first logical line of text falls through to focus-prev", () => {
+  const e = makeEditor(
+    makeState({
+      rawText: { prompt: "single line", iters: "5", focus: "standard", verbose: "false" },
+      focusedIdx: 0,
+      caret: 3,
+    }),
+  );
+  e.editor.handleInput("\x1b[A"); // up — no previous logical line, focus wraps to last
+  assert.equal(e.state.focusedIdx, FIELDS.length - 1);
+  e.dispose();
+});
+
+test("editor: down arrow clamps caret to the next line's length on shorter targets", () => {
+  const e = makeEditor(
+    makeState({
+      rawText: { prompt: "longer first line\nhi", iters: "5", focus: "standard", verbose: "false" },
+      focusedIdx: 0,
+      caret: 10, // inside "longer first line" at col 10
+    }),
+  );
+  e.editor.handleInput("\x1b[B");
+  // Next line "hi" is only 2 chars; caret clamps to col 2 → offset 18+2 = 20.
+  assert.equal(e.state.caret, 20);
+  e.dispose();
+});
+
+test("editor: enter on text type inserts a real `\\n`, not the `⏎` glyph", () => {
+  const e = makeEditor(
+    makeState({
+      rawText: { prompt: "ab", iters: "5", focus: "standard", verbose: "false" },
+      focusedIdx: 0,
+      caret: 1,
+    }),
+  );
+  e.editor.handleInput("\r");
+  assert.equal(e.state.rawText.prompt, "a\nb");
+  assert.equal(e.state.caret, 2);
+  e.dispose();
+});
+
+test("editor: non-text field down arrow still moves focus, not caret", () => {
+  const e = makeEditor(
+    makeState({
+      rawText: { prompt: "x", iters: "5", focus: "standard", verbose: "false" },
+      focusedIdx: 1, // iters (number, single-line)
+      caret: 1,
+    }),
+  );
+  e.editor.handleInput("\x1b[B");
+  // Number type doesn't have multi-line; down should advance focus.
+  assert.equal(e.state.focusedIdx, 2);
+  e.dispose();
+});
+
+// ── paste handling (bracketed + fallback) ────────────────────────────────
+
+test("editor: bracketed paste inserts content at caret in a text field", () => {
+  const e = makeEditor(
+    makeState({
+      rawText: { prompt: "ab", iters: "5", focus: "standard", verbose: "false" },
+      focusedIdx: 0,
+      caret: 1,
+    }),
+  );
+  e.editor.handleInput("\x1b[200~XYZ\x1b[201~");
+  assert.equal(e.state.rawText.prompt, "aXYZb");
+  assert.equal(e.state.caret, 4);
+  e.dispose();
+});
+
+test("editor: bracketed paste preserves newlines in a text field (no `⏎` glyph)", () => {
+  const e = makeEditor(
+    makeState({
+      rawText: { prompt: "", iters: "5", focus: "standard", verbose: "false" },
+      focusedIdx: 0,
+      caret: 0,
+    }),
+  );
+  e.editor.handleInput("\x1b[200~line one\nline two\nline three\x1b[201~");
+  assert.equal(e.state.rawText.prompt, "line one\nline two\nline three");
+  assert.equal(e.state.caret, "line one\nline two\nline three".length);
+  e.dispose();
+});
+
+test("editor: bracketed paste normalises CRLF and stray CR to LF", () => {
+  const e = makeEditor();
+  e.editor.handleInput("\x1b[200~a\r\nb\rc\x1b[201~");
+  assert.equal(e.state.rawText.prompt, "a\nb\nc");
+  e.dispose();
+});
+
+test("editor: bracketed paste split across multiple handleInput calls is buffered", () => {
+  const e = makeEditor();
+  e.editor.handleInput("\x1b[200~hello ");
+  // Nothing applied yet — the close marker hasn't arrived.
+  assert.equal(e.state.rawText.prompt, "");
+  e.editor.handleInput("world");
+  assert.equal(e.state.rawText.prompt, "");
+  e.editor.handleInput("!\x1b[201~");
+  assert.equal(e.state.rawText.prompt, "hello world!");
+  e.dispose();
+});
+
+test("editor: data after the close marker still flows through normal routing", () => {
+  const e = makeEditor();
+  // Paste followed by a single typed char.
+  e.editor.handleInput("\x1b[200~xy\x1b[201~z");
+  assert.equal(e.state.rawText.prompt, "xyz");
+  e.dispose();
+});
+
+test("editor: paste into a non-text scalar takes only the first logical line", () => {
+  const e = makeEditor(
+    makeState({
+      rawText: { prompt: "x", iters: "", focus: "standard", verbose: "false" },
+      focusedIdx: 1, // `iters` is type: number
+      caret: 0,
+    }),
+  );
+  e.editor.handleInput("\x1b[200~42\nignored second line\x1b[201~");
+  // Number field accepts the first line; newline + remainder dropped.
+  assert.equal(e.state.rawText.iters, "42");
+  e.dispose();
+});
+
+test("editor: paste into a select field is a no-op", () => {
+  const e = makeEditor(
+    makeState({
+      rawText: { prompt: "", iters: "5", focus: "standard", verbose: "false" },
+      focusedIdx: 2, // `focus` is type: select
+      caret: 0,
+    }),
+  );
+  e.editor.handleInput("\x1b[200~exhaustive\x1b[201~");
+  // Select choices aren't text — paste leaves the value alone.
+  assert.equal(e.state.rawText.focus, "standard");
+  e.dispose();
+});
+
+test("editor: paste into a boolean field is a no-op", () => {
+  const e = makeEditor(
+    makeState({
+      rawText: { prompt: "", iters: "5", focus: "standard", verbose: "true" },
+      focusedIdx: 3, // `verbose` is type: boolean
+      caret: 0,
+    }),
+  );
+  e.editor.handleInput("\x1b[200~false\x1b[201~");
+  assert.equal(e.state.rawText.verbose, "true");
+  e.dispose();
+});
+
+test("editor: paste strips control bytes but keeps tabs and newlines", () => {
+  const e = makeEditor();
+  // Mix in a NUL and DEL — they must be filtered out, tab and newline retained.
+  e.editor.handleInput("\x1b[200~hi\x00\ttab\x7f\nnext\x1b[201~");
+  assert.equal(e.state.rawText.prompt, "hi\ttab\nnext");
+  e.dispose();
+});
+
+test("editor: fallback paste — multi-char printable burst is inserted as paste", () => {
+  // Hosts without bracketed paste send the raw chunk in one call.
+  const e = makeEditor();
+  e.editor.handleInput("hello world");
+  assert.equal(e.state.rawText.prompt, "hello world");
+  assert.equal(e.state.caret, "hello world".length);
+  e.dispose();
+});
+
+test("editor: fallback paste rejects chunks containing escape sequences", () => {
+  // `\x1b[A` is the up-arrow CSI sequence; must NOT be treated as paste.
+  const e = makeEditor(
+    makeState({
+      rawText: { prompt: "abc\nxyz", iters: "5", focus: "standard", verbose: "false" },
+      focusedIdx: 0,
+      caret: 5, // inside "xyz" at col 1 (`x|yz`)
+    }),
+  );
+  e.editor.handleInput("\x1b[A");
+  // Up-arrow moved caret to previous logical line, did not insert text.
+  assert.equal(e.state.rawText.prompt, "abc\nxyz");
+  assert.equal(e.state.caret, 1);
+  e.dispose();
+});
+
+test("editor: fallback paste — empty body after sanitising is a no-op", () => {
+  const e = makeEditor();
+  // Pure control bytes — nothing printable survives sanitisation.
+  e.editor.handleInput("\x1b[200~\x00\x01\x02\x1b[201~");
+  assert.equal(e.state.rawText.prompt, "");
+  e.dispose();
+});
+
+// ── injected keybindings: word / line / char editing ──────────────────────
+
+test("editor: ctrl+w deletes the word left of the caret", () => {
+  const e = makeEditor(
+    makeState({
+      rawText: { prompt: "hello world foo", iters: "5", focus: "standard", verbose: "false" },
+      focusedIdx: 0,
+      caret: 11, // end of "world"
+    }),
+  );
+  e.editor.handleInput("\x17"); // ctrl+w
+  assert.equal(e.state.rawText.prompt, "hello  foo");
+  assert.equal(e.state.caret, 6);
+  e.dispose();
+});
+
+test("editor: alt+backspace also deletes the word left (Pi action remap)", () => {
+  const e = makeEditor(
+    makeState({
+      rawText: { prompt: "one two three", iters: "5", focus: "standard", verbose: "false" },
+      focusedIdx: 0,
+      caret: 13, // end
+    }),
+  );
+  e.editor.handleInput("\x1b\x7f");
+  assert.equal(e.state.rawText.prompt, "one two ");
+  assert.equal(e.state.caret, 8);
+  e.dispose();
+});
+
+test("editor: alt+d deletes the word right of the caret", () => {
+  const e = makeEditor(
+    makeState({
+      rawText: { prompt: "alpha beta gamma", iters: "5", focus: "standard", verbose: "false" },
+      focusedIdx: 0,
+      caret: 6, // start of "beta"
+    }),
+  );
+  e.editor.handleInput("\x1bd");
+  assert.equal(e.state.rawText.prompt, "alpha  gamma");
+  assert.equal(e.state.caret, 6);
+  e.dispose();
+});
+
+test("editor: ctrl+u deletes from caret to logical line start (multi-line)", () => {
+  const e = makeEditor(
+    makeState({
+      rawText: { prompt: "first line\nsecond line\nthird line", iters: "5", focus: "standard", verbose: "false" },
+      focusedIdx: 0,
+      caret: 17, // mid "second line": "second" — 11+6=17
+    }),
+  );
+  e.editor.handleInput("\x15"); // ctrl+u
+  // Deletes "second" from start of its logical line; surrounding lines untouched.
+  assert.equal(e.state.rawText.prompt, "first line\n line\nthird line");
+  assert.equal(e.state.caret, 11);
+  e.dispose();
+});
+
+test("editor: ctrl+k deletes from caret to logical line end (multi-line)", () => {
+  const e = makeEditor(
+    makeState({
+      rawText: { prompt: "first line\nsecond line\nthird line", iters: "5", focus: "standard", verbose: "false" },
+      focusedIdx: 0,
+      caret: 17, // mid "second line"
+    }),
+  );
+  e.editor.handleInput("\x0b"); // ctrl+k
+  // Deletes " line" from caret to end of its logical line; the trailing
+  // \n and "third line" must NOT be touched.
+  assert.equal(e.state.rawText.prompt, "first line\nsecond\nthird line");
+  assert.equal(e.state.caret, 17);
+  e.dispose();
+});
+
+test("editor: ctrl+a / ctrl+e jump to logical line start / end", () => {
+  const e = makeEditor(
+    makeState({
+      rawText: { prompt: "first line\nsecond line", iters: "5", focus: "standard", verbose: "false" },
+      focusedIdx: 0,
+      caret: 14, // inside "second line"
+    }),
+  );
+  e.editor.handleInput("\x01"); // ctrl+a
+  assert.equal(e.state.caret, 11); // start of "second line"
+  e.editor.handleInput("\x05"); // ctrl+e
+  assert.equal(e.state.caret, 22); // end of "second line"
+  e.dispose();
+});
+
+test("editor: alt+left / alt+right jump by whole word", () => {
+  const e = makeEditor(
+    makeState({
+      rawText: { prompt: "alpha beta gamma", iters: "5", focus: "standard", verbose: "false" },
+      focusedIdx: 0,
+      caret: 16,
+    }),
+  );
+  e.editor.handleInput("\x1b[1;3D"); // alt+left
+  assert.equal(e.state.caret, 11);
+  e.editor.handleInput("\x1b[1;3D"); // alt+left
+  assert.equal(e.state.caret, 6);
+  e.editor.handleInput("\x1b[1;3C"); // alt+right
+  assert.equal(e.state.caret, 10);
+  e.dispose();
+});
+
+test("editor: ctrl+d deletes the char right of the caret", () => {
+  const e = makeEditor(
+    makeState({
+      rawText: { prompt: "abc", iters: "5", focus: "standard", verbose: "false" },
+      focusedIdx: 0,
+      caret: 1,
+    }),
+  );
+  e.editor.handleInput("\x04");
+  assert.equal(e.state.rawText.prompt, "ac");
+  assert.equal(e.state.caret, 1);
+  e.dispose();
+});
+
+test("editor: user-remapped delete word backward respects injected keybindings", () => {
+  // Drop ctrl+w; remap deleteWordBackward to a hypothetical ctrl+x sequence
+  // and verify the form picks up the new binding via the injected manager.
+  const state = makeState({
+    rawText: { prompt: "one two", iters: "5", focus: "standard", verbose: "false" },
+    focusedIdx: 0,
+    caret: 7,
+  });
+  const tui = { requestRender: () => {} };
+  let exited: { outcome: "submit" | "cancel" } | null = null;
+  const editor = new InlineFormEditor(tui, {
+    formId: state.formId,
+    theme: deriveGraphTheme({}),
+    keybindings: makeFakeKeybindings({
+      "tui.editor.deleteWordBackward": ["\x18"], // ctrl+x
+    }),
+    onExit: (outcome) => { exited = { outcome }; },
+  });
+  editor.handleInput("\x18"); // ctrl+x → delete word backward under override
+  assert.equal(state.rawText.prompt, "one ");
+  assert.equal(state.caret, 4);
+  // Default ctrl+w should NOT trigger the action now (overridden table).
+  state.rawText.prompt = "alpha beta";
+  state.caret = 10;
+  editor.handleInput("\x17");
+  assert.equal(state.rawText.prompt, "alpha beta");
+  assert.equal(state.caret, 10);
+  assert.equal(exited, null);
+  editor.dispose?.();
+});
+
+test("editor: without a keybindings manager, only form-level keys still work", () => {
+  // Verifies the "always rely on pi" contract: when no keybindings manager
+  // is wired, action-based keys (arrows, backspace, etc.) do nothing.
+  // Form-level keys (tab, esc, ctrl+s, printable insert) still function.
+  const state = makeState();
+  const tui = { requestRender: () => {} };
+  let exited: { outcome: "submit" | "cancel" } | null = null;
+  const editor = new InlineFormEditor(tui, {
+    formId: state.formId,
+    theme: deriveGraphTheme({}),
+    onExit: (outcome) => { exited = { outcome }; },
+  });
+  // Printable insert still works (raw byte check).
+  editor.handleInput("h");
+  assert.equal(state.rawText.prompt, "h");
+  // Backspace would normally delete; without kb, it's a no-op.
+  editor.handleInput("\x7f");
+  assert.equal(state.rawText.prompt, "h", "delete action requires kb");
+  // Tab still advances focus (form contract, not Pi action).
+  editor.handleInput("\t");
+  assert.equal(state.focusedIdx, 1);
+  // Esc still cancels.
+  editor.handleInput("\x1b");
+  assert.deepEqual(exited, { outcome: "cancel" });
+  editor.dispose?.();
 });

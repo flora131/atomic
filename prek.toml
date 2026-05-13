@@ -16,6 +16,6 @@ hooks = [
 [[repos]]
 repo = "local"
 hooks = [
-  { id = "npm-lint", name = "npm run lint", entry = "npm run lint", language = "system", pass_filenames = false },
-  { id = "npm-test-unit", name = "npm run test:unit", entry = "npm run test:unit", language = "system", pass_filenames = false },
+  { id = "bun-lint", name = "bun run lint", entry = "bun run lint", language = "system", pass_filenames = false },
+  { id = "bun-test-unit", name = "bun run test:unit", entry = "bun run test:unit", language = "system", pass_filenames = false },
 ]

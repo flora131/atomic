@@ -36,7 +36,7 @@ export interface StageSessionRuntime {
   compact: AgentSession["compact"];
   abortCompaction(): void;
   abort(): Promise<void>;
-  dispose(): void;
+  dispose(): void | Promise<void>;
   getLastAssistantText(): string | undefined;
 }
 
@@ -77,10 +77,36 @@ export interface StageRunnerOpts {
 
 export interface InternalStageContext extends StageContext {
   /** Internal cleanup hook; intentionally omitted from the public StageContext type. */
-  __dispose(): void;
+  __dispose(): Promise<void>;
   /** Internal result snapshot hook for the workflow store/TUI. */
   __getLastAssistantText(): string | undefined;
   getLastAssistantText(): string | undefined;
+  /**
+   * Internal: eagerly create the underlying SDK AgentSession without
+   * sending a prompt. Used by the live stage-control registry when a
+   * user attaches to a stage and types their first message before the
+   * workflow body's natural first `prompt()` lands.
+   */
+  __ensureSession(): Promise<void>;
+  /**
+   * Internal: snapshot of currently-known SDK session metadata. Returns
+   * `undefined` keys when the session has not yet been created.
+   */
+  __sessionMeta(): { sessionId: string | undefined; sessionFile: string | undefined };
+  /**
+   * Internal: register a controlled-pause request. The executor's
+   * tracked stage call uses this to distinguish a user-initiated pause
+   * from an unrelated abort and to wait for `__resume()` before
+   * resolving the awaiter.
+   */
+  __requestPause(): Promise<void>;
+  /**
+   * Internal: complete a pending controlled pause. If `message` is
+   * provided it is sent to the SDK session before the awaiter resolves.
+   */
+  __resume(message?: string): Promise<void>;
+  /** Internal: true while a controlled pause is in flight. */
+  __isPaused(): boolean;
 }
 
 function stripWorkflowOnlyOptions(options: StageOptions | undefined): CreateAgentSessionOptions {
@@ -112,6 +138,36 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
   let pendingThinkingLevel: Parameters<StageContext["setThinkingLevel"]>[0] | undefined;
   const pendingListeners = new Set<(event: Parameters<StageContext["subscribe"]>[0] extends (event: infer T) => void ? T : never) => void>();
   const listenerUnsubscribes = new Map<(event: Parameters<StageContext["subscribe"]>[0] extends (event: infer T) => void ? T : never) => void, () => void>();
+
+  /**
+   * Pause/resume coordination. `pauseRequest` is non-null while a
+   * controlled pause is pending. The executor's `runTrackedStageCall`
+   * inspects this in its catch handler to distinguish a user pause
+   * (await `pauseDeferred.promise`, then re-issue the call) from a
+   * genuine SDK abort that should fail the stage.
+   *
+   * `pendingResumeMessage` is the next user message to feed back into
+   * the SDK session when `__resume(message)` is called.
+   */
+  let pauseRequest: {
+    deferred: PromiseWithResolvers<{ message?: string }>;
+  } | null = null;
+
+  // Wire the executor's abort signal to the pause deferred so a kill
+  // (or other forced abort) doesn't leave a paused stage hanging on a
+  // resume signal that will never arrive.
+  if (signal) {
+    const onAbort = (): void => {
+      if (!pauseRequest) return;
+      const req = pauseRequest;
+      pauseRequest = null;
+      req.deferred.reject(
+        new Error(`pi-workflows: stage "${stageName}" aborted while paused`),
+      );
+    };
+    if (signal.aborted) onAbort();
+    else signal.addEventListener("abort", onAbort, { once: true });
+  }
 
   async function ensureSession(): Promise<StageSessionRuntime> {
     if (disposed) throw new Error(`pi-workflows: stage "${stageName}" session has been disposed`);
@@ -147,7 +203,25 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
         legacyMessages = assistantMessage(lastAssistantText);
         return lastAssistantText;
       }
-      await (await ensureSession()).prompt(text, options);
+      const s = await ensureSession();
+      // Pause/resume loop: when a controlled pause aborts the SDK call,
+      // swallow the resulting abort, suspend on `pauseRequest.deferred`,
+      // and either re-issue with the user's resume message or return the
+      // accumulated assistant text when resume carries no message.
+      let nextText: string | undefined = text;
+      while (nextText !== undefined) {
+        try {
+          await s.prompt(nextText, options);
+          nextText = undefined;
+        } catch (err) {
+          if (pauseRequest) {
+            const { message } = await pauseRequest.deferred.promise;
+            nextText = message;
+            continue;
+          }
+          throw err;
+        }
+      }
       lastAssistantText = session?.getLastAssistantText();
       return lastAssistantText ?? "";
     },
@@ -254,12 +328,12 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
       await session?.abort();
     },
 
-    __dispose() {
+    async __dispose() {
       disposed = true;
       for (const unsubscribe of listenerUnsubscribes.values()) unsubscribe();
       listenerUnsubscribes.clear();
       pendingListeners.clear();
-      session?.dispose();
+      await session?.dispose();
     },
 
     __getLastAssistantText() {
@@ -268,6 +342,37 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
 
     getLastAssistantText() {
       return session?.getLastAssistantText() ?? lastAssistantText;
+    },
+
+    async __ensureSession() {
+      await ensureSession();
+    },
+
+    __sessionMeta() {
+      return {
+        sessionId: session?.sessionId,
+        sessionFile: session?.sessionFile,
+      };
+    },
+
+    async __requestPause() {
+      if (pauseRequest) return;
+      pauseRequest = { deferred: Promise.withResolvers<{ message?: string }>() };
+      // Best-effort: stop the current Pi op so the awaiter races abort.
+      // The executor's `runTrackedStageCall` re-issues the call once
+      // `__resume()` settles `pauseRequest.deferred`.
+      await session?.abort();
+    },
+
+    async __resume(message?: string) {
+      const req = pauseRequest;
+      if (!req) return;
+      pauseRequest = null;
+      req.deferred.resolve({ message });
+    },
+
+    __isPaused() {
+      return pauseRequest !== null;
     },
   };
 }

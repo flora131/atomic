@@ -3,7 +3,7 @@
  * Covers: parseWorkflowFlags, registerWorkflowCliFlags, runWorkflowFromCliFlags.
  */
 
-import { describe, test } from "node:test";
+import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -248,7 +248,7 @@ describe("runWorkflowFromCliFlags", () => {
   }
 
   test("returns handled:false when --workflow absent", async () => {
-    const runtime = makeRuntime(async () => ({ action: "list", workflows: [] }));
+    const runtime = makeRuntime(async () => ({ action: "list", items: [] }));
     const result = await runWorkflowFromCliFlags({ runtime, argv: ["--headless"] });
     assert.equal(result.handled, false);
   });
@@ -350,7 +350,7 @@ describe("runWorkflowFromCliFlags", () => {
 
   test("uses process.argv when argv not provided (smoke, does not throw)", async () => {
     // process.argv won't have --workflow; handled:false expected
-    const runtime = makeRuntime(async () => ({ action: "list", workflows: [] }));
+    const runtime = makeRuntime(async () => ({ action: "list", items: [] }));
     const result = await runWorkflowFromCliFlags({ runtime });
     // We only verify it doesn't throw and returns a result
     assert.equal(typeof result.handled, "boolean");

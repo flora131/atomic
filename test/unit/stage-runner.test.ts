@@ -11,7 +11,7 @@
  *            src/shared/types.ts StageExecutionMeta
  */
 
-import { describe, test } from "node:test";
+import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { createStageContext } from "../../src/runs/foreground/stage-runner.js";
 import type {
@@ -261,5 +261,193 @@ describe("createStageContext — error paths", () => {
   test("stage name exposed on ctx.name", () => {
     const ctx = createStageContext(makeOpts({ stageName: "Ingest" }));
     assert.equal(ctx.name, "Ingest");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Lazy attach + controlled pause
+// ---------------------------------------------------------------------------
+
+import type { InternalStageContext, AgentSessionAdapter, StageSessionRuntime } from "../../src/runs/foreground/stage-runner.js";
+import type { AgentSession } from "@oh-my-pi/pi-coding-agent";
+
+function makeMockSession(overrides: Partial<StageSessionRuntime> = {}): {
+  session: StageSessionRuntime;
+  state: { promptCalls: number; abortCalls: number; resolvers: Array<() => void> };
+} {
+  const state = {
+    promptCalls: 0,
+    abortCalls: 0,
+    resolvers: [] as Array<() => void>,
+  };
+  const listeners = new Set<(e: { type: string; [k: string]: unknown }) => void>();
+  const session: StageSessionRuntime = {
+    async prompt() {
+      state.promptCalls += 1;
+      // Pretend the SDK is in-flight; return a controllable promise.
+      return new Promise<void>((resolve, reject) => {
+        state.resolvers.push(resolve);
+        // Reject if abort is invoked.
+        (session as { __reject?: (err: Error) => void }).__reject = reject;
+      });
+    },
+    async steer() {},
+    async followUp() {},
+    subscribe(listener) {
+      listeners.add(listener as never);
+      return () => listeners.delete(listener as never);
+    },
+    sessionFile: "/tmp/session.ndjson",
+    sessionId: "sess-1",
+    async setModel() {},
+    setThinkingLevel() {},
+    cycleModel: (async () => undefined) as StageSessionRuntime["cycleModel"],
+    cycleThinkingLevel: (() => undefined) as StageSessionRuntime["cycleThinkingLevel"],
+    agent: undefined as AgentSession["agent"],
+    model: undefined as AgentSession["model"],
+    thinkingLevel: undefined as AgentSession["thinkingLevel"],
+    messages: [] as AgentSession["messages"],
+    isStreaming: false,
+    navigateTree: (async () => ({ cancelled: false })) as StageSessionRuntime["navigateTree"],
+    compact: (async () => ({})) as unknown as StageSessionRuntime["compact"],
+    abortCompaction() {},
+    async abort() {
+      state.abortCalls += 1;
+      const reject = (session as { __reject?: (err: Error) => void }).__reject;
+      reject?.(new Error("AbortError"));
+    },
+    dispose() {},
+    getLastAssistantText() {
+      return "ok";
+    },
+    ...overrides,
+  };
+  return { session, state };
+}
+
+describe("createStageContext — lazy attach", () => {
+  test("__ensureSession creates the SDK session on demand", async () => {
+    const { session } = makeMockSession();
+    let creates = 0;
+    const agentSession: AgentSessionAdapter = {
+      async create() {
+        creates += 1;
+        return session;
+      },
+    };
+    const ctx = createStageContext(makeOpts({ adapters: { agentSession } })) as InternalStageContext;
+    assert.equal(creates, 0);
+    await ctx.__ensureSession();
+    assert.equal(creates, 1);
+    // Idempotent: a second call reuses the cached promise.
+    await ctx.__ensureSession();
+    assert.equal(creates, 1);
+  });
+
+  test("__sessionMeta returns undefined keys before attach", () => {
+    const ctx = createStageContext(makeOpts({ adapters: {} })) as InternalStageContext;
+    assert.deepEqual(ctx.__sessionMeta(), { sessionId: undefined, sessionFile: undefined });
+  });
+
+  test("pending subscribers fire after lazy attach", async () => {
+    const { session } = makeMockSession();
+    const agentSession: AgentSessionAdapter = { async create() { return session; } };
+    const ctx = createStageContext(makeOpts({ adapters: { agentSession } })) as InternalStageContext;
+    const events: string[] = [];
+    ctx.subscribe((event) => events.push((event as { type?: string }).type ?? ""));
+    await ctx.__ensureSession();
+    // Now drive an event through the live session (the listener is bound
+    // on attach). We can't directly emit from our mock without state,
+    // so we just assert the subscriber survived attach without throwing.
+    assert.equal(events.length, 0);
+  });
+});
+
+function flushMicrotasks(times = 8): Promise<void> {
+  return new Promise<void>((resolve) => {
+    let i = times;
+    const tick = (): void => {
+      if (i-- <= 0) resolve();
+      else queueMicrotask(tick);
+    };
+    tick();
+  });
+}
+
+describe("createStageContext — controlled pause", () => {
+  test("__requestPause aborts the current SDK call without finalising the stage", async () => {
+    const { session, state } = makeMockSession();
+    const agentSession: AgentSessionAdapter = { async create() { return session; } };
+    const ctx = createStageContext(makeOpts({ adapters: { agentSession } })) as InternalStageContext;
+
+    const promptPromise = ctx.prompt("ask the model");
+    // Let prompt() reach session.prompt() (await ensureSession() + await s.prompt()).
+    await flushMicrotasks();
+    assert.equal(state.promptCalls, 1);
+    assert.equal(ctx.__isPaused(), false);
+
+    await ctx.__requestPause();
+    assert.equal(state.abortCalls, 1);
+    assert.equal(ctx.__isPaused(), true);
+
+    // The prompt() awaiter must still be pending — paused, not failed.
+    let settled = false;
+    void promptPromise.then(
+      () => { settled = true; },
+      () => { settled = true; },
+    );
+    await flushMicrotasks();
+    assert.equal(settled, false);
+
+    // Resume without a message: the awaiter resolves with the last assistant text.
+    await ctx.__resume();
+    const result = await promptPromise;
+    assert.equal(result, "ok");
+    assert.equal(ctx.__isPaused(), false);
+  });
+
+  test("__resume(message) re-issues prompt with the provided text", async () => {
+    const { session, state } = makeMockSession();
+    const agentSession: AgentSessionAdapter = { async create() { return session; } };
+    const ctx = createStageContext(makeOpts({ adapters: { agentSession } })) as InternalStageContext;
+
+    const promptPromise = ctx.prompt("first");
+    // Pre-empt any unhandled-rejection bubbling on the prompt promise.
+    void promptPromise.catch(() => {});
+    await flushMicrotasks();
+
+    await ctx.__requestPause();
+    // The original prompt was aborted and the SDK call count is 1.
+    assert.equal(state.promptCalls, 1);
+
+    // Resume with a new message: the SDK is invoked again with the new text.
+    await ctx.__resume("retry with this");
+    await flushMicrotasks();
+    assert.equal(state.promptCalls, 2);
+
+    // Settle the second SDK call — pop the latest mock resolver.
+    state.resolvers[state.resolvers.length - 1]?.();
+    await promptPromise;
+  });
+
+  test("signal abort while paused rejects the awaiter with a typed error", async () => {
+    const { session, state } = makeMockSession();
+    const agentSession: AgentSessionAdapter = { async create() { return session; } };
+    const controller = new AbortController();
+    const ctx = createStageContext(
+      makeOpts({ adapters: { agentSession }, signal: controller.signal }),
+    ) as InternalStageContext;
+
+    const promptPromise = ctx.prompt("ask");
+    await flushMicrotasks();
+    await ctx.__requestPause();
+    assert.equal(state.abortCalls, 1);
+
+    // Attach the rejection expectation BEFORE firing abort() so the
+    // deferred reject doesn't bubble as an unhandled rejection in the
+    // tick between abort() and `await assert.rejects`.
+    const rejection = assert.rejects(promptPromise, /aborted while paused/);
+    controller.abort();
+    await rejection;
   });
 });

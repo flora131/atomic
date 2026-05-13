@@ -13,7 +13,7 @@
  * cross-ref: src/tui/widget.ts · orchestrator-panel-ui.png · DESIGN.md §5
  */
 
-import { describe, test } from "node:test";
+import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import {
   renderWidgetLines,

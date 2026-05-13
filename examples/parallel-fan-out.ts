@@ -5,11 +5,10 @@
  * infers that the three specialist stages run in parallel because they are
  * declared inside Promise.all. The aggregator stage waits for all three.
  *
- * Run: node --experimental-strip-types examples/parallel-fan-out.ts
+ * Run: bun examples/parallel-fan-out.ts
  */
 import { defineWorkflow, createRegistry } from "../src/index.js";
 import type { WorkflowDefinition } from "../src/shared/types.js";
-import { lastAssistantText } from "../workflows/helpers.js";
 
 const workflow = defineWorkflow("parallel-research")
   .description("Scout → three parallel specialist stages → aggregator.")
@@ -29,29 +28,25 @@ const workflow = defineWorkflow("parallel-research")
     // Stages inside Promise.all are inferred as parallel by GraphFrontierTracker.
     const [authReport, dbReport, apiReport] = await Promise.all([
       (async () => {
-        const stage = await ctx.stage("auth-specialist");
-        await stage.prompt(`Research authentication patterns for: ${topic}`);
-        return lastAssistantText(stage.messages);
+        const stage = ctx.stage("auth-specialist");
+        return await stage.prompt(`Research authentication patterns for: ${topic}`);
       })(),
       (async () => {
-        const stage = await ctx.stage("db-specialist");
-        await stage.prompt(`Research database layer for: ${topic}`);
-        return lastAssistantText(stage.messages);
+        const stage = ctx.stage("db-specialist");
+        return await stage.prompt(`Research database layer for: ${topic}`);
       })(),
       (async () => {
-        const stage = await ctx.stage("api-specialist");
-        await stage.prompt(`Research API surface for: ${topic}`);
-        return lastAssistantText(stage.messages);
+        const stage = ctx.stage("api-specialist");
+        return await stage.prompt(`Research API surface for: ${topic}`);
       })(),
     ]);
 
     // Aggregator stage waits for all three (fan-in).
-    const aggregator = await ctx.stage("aggregator");
-    await aggregator.prompt(
+    const aggregator = ctx.stage("aggregator");
+    const summary = await aggregator.prompt(
       `Synthesize these three specialist reports into a unified document:\n\n` +
       `## Auth\n${authReport}\n\n## Database\n${dbReport}\n\n## API\n${apiReport}`
     );
-    const summary = lastAssistantText(aggregator.messages);
 
     return { summary };
   })

@@ -13,16 +13,31 @@
  *   - parseWorkflowArgs correctly parses key=value pairs and JSON objects.
  */
 
-import { afterEach, describe, test } from "node:test";
+import { afterEach, describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { parseWorkflowArgs, makeExecuteWorkflowTool } from "../../src/extension/index.js";
-import type { ExtensionAPI, PiCommandContext, PiCommandOptions, PiSlashCommandOpts } from "../../src/extension/index.js";
+import {
+  parseWorkflowArgs,
+  tokenizeWorkflowArgs,
+  makeExecuteWorkflowTool,
+} from "../../src/extension/index.js";
+import type {
+  ExtensionAPI,
+  PiArgumentCompletion,
+  PiCommandContext,
+  PiCommandOptions,
+} from "../../src/extension/index.js";
 import { createRegistry } from "../../src/workflows/registry.js";
 import { defineWorkflow } from "../../src/workflows/define-workflow.js";
 import type { WorkflowDefinition } from "../../src/shared/types.js";
 import { createExtensionRuntime } from "../../src/extension/runtime.js";
 import { store } from "../../src/shared/store.js";
-import type { PiCustomOverlayOpts } from "../../src/extension/wiring.js";
+import type {
+  PiCustomComponent,
+  PiCustomOverlayFactoryTui,
+  PiCustomOverlayFunction,
+  PiCustomOverlayOptions,
+  PiOverlayHandle,
+} from "../../src/extension/wiring.js";
 import { killAllRuns } from "../../src/runs/background/status.js";
 import { cancellationRegistry } from "../../src/runs/background/cancellation-registry.js";
 import { jobTracker } from "../../src/runs/background/job-tracker.js";
@@ -79,35 +94,124 @@ describe("parseWorkflowArgs", () => {
 });
 
 // ---------------------------------------------------------------------------
+// tokenizeWorkflowArgs
+// ---------------------------------------------------------------------------
+
+describe("tokenizeWorkflowArgs", () => {
+  test("empty string → empty array", () => {
+    assert.deepEqual(tokenizeWorkflowArgs(""), []);
+  });
+
+  test("whitespace-only string → empty array", () => {
+    assert.deepEqual(tokenizeWorkflowArgs("   \t  "), []);
+  });
+
+  test("plain whitespace split for bare tokens", () => {
+    assert.deepEqual(
+      tokenizeWorkflowArgs("workflow-name a=1 b=foo"),
+      ["workflow-name", "a=1", "b=foo"],
+    );
+  });
+
+  test("double-quoted value preserves internal whitespace", () => {
+    // Regression: `prompt="map the codebase"` used to split into three
+    // tokens (`prompt="map`, `the`, `codebase"`), which then rendered as
+    // `prompt=""map"` in the dispatch confirm card.
+    assert.deepEqual(
+      tokenizeWorkflowArgs('workflow-name prompt="map the codebase" max=4'),
+      ["workflow-name", 'prompt="map the codebase"', "max=4"],
+    );
+  });
+
+  test("single-quoted value preserves internal whitespace", () => {
+    assert.deepEqual(
+      tokenizeWorkflowArgs("wf prompt='hello there' n=2"),
+      ["wf", "prompt='hello there'", "n=2"],
+    );
+  });
+
+  test("nested quotes of the opposite kind are treated as literal characters", () => {
+    assert.deepEqual(
+      tokenizeWorkflowArgs(`wf msg="she said 'hi'"`),
+      ["wf", `msg="she said 'hi'"`],
+    );
+  });
+
+  test("unterminated quote is recovered as a single tail token", () => {
+    // The user can paste a partial value mid-typing; we never throw on
+    // their input, the downstream JSON parse just falls back to string.
+    assert.deepEqual(
+      tokenizeWorkflowArgs('wf prompt="map the codebase'),
+      ["wf", 'prompt="map the codebase'],
+    );
+  });
+
+  test("collapses runs of whitespace", () => {
+    assert.deepEqual(
+      tokenizeWorkflowArgs("a   b\t\tc"),
+      ["a", "b", "c"],
+    );
+  });
+
+  test("end-to-end: tokenize + parse unquotes the string value", () => {
+    const tokens = tokenizeWorkflowArgs(
+      'deep-research-codebase prompt="map the codebase" max_partitions=4',
+    );
+    assert.deepEqual(tokens, [
+      "deep-research-codebase",
+      'prompt="map the codebase"',
+      "max_partitions=4",
+    ]);
+    assert.deepEqual(parseWorkflowArgs(tokens.slice(1)), {
+      prompt: "map the codebase",
+      max_partitions: 4,
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Shared test factory helpers
 // ---------------------------------------------------------------------------
 
 interface RegisteredCommand {
   name: string;
-  opts: PiSlashCommandOpts;
+  options: PiCommandOptions;
 }
 
-function buildMockPi(): { pi: ExtensionAPI; commands: RegisteredCommand[] } {
+interface SentMessage {
+  customType?: string;
+  content?: string;
+  display?: boolean;
+  details?: unknown;
+}
+
+function buildMockPi(): {
+  pi: ExtensionAPI;
+  commands: RegisteredCommand[];
+  sent: SentMessage[];
+} {
   const commands: RegisteredCommand[] = [];
+  const sent: SentMessage[] = [];
   const pi: ExtensionAPI = {
     registerCommand: (name: string, options: PiCommandOptions) => {
-      const opts: PiSlashCommandOpts = {
-        name,
-        description: options.description,
-        execute: options.handler,
-        getArgumentCompletions: options.getArgumentCompletions,
-      };
-      commands.push({ name, opts });
+      commands.push({ name, options });
+    },
+    // Chat surfaces dispatch via `emitChatSurface` → `pi.sendMessage`.
+    // Mirror the message store so tests can observe the message stream.
+    sendMessage: (msg: SentMessage) => {
+      sent.push(msg);
     },
   };
-  return { pi, commands };
+  return { pi, commands, sent };
 }
 
 function buildCtx(): { ctx: PiCommandContext; messages: string[] } {
   const messages: string[] = [];
   const ctx: PiCommandContext = {
-    reply(msg: string) {
-      messages.push(msg);
+    ui: {
+      notify(msg: string) {
+        messages.push(msg);
+      },
     },
   };
   return { ctx, messages };
@@ -186,7 +290,7 @@ describe("slash /workflow <name> dispatch", () => {
     let dispatchedArgs: { name: string; inputs: Record<string, unknown>; action: string } | null = null;
 
     const execute = async (args: string, execCtx: PiCommandContext) => {
-      const print = execCtx.reply ?? execCtx.print ?? ((_msg: string) => undefined);
+      const print = (msg: string): void => execCtx.ui.notify(msg, "info");
       const rawParts = args.trim().split(/\s+/);
       const parts = rawParts[0] === "" ? [] : rawParts;
       const subcommand = parts[0] ?? "";
@@ -237,7 +341,7 @@ describe("slash /workflow <name> dispatch", () => {
 
     const ADMIN = new Set(["list", "status", "kill", "resume", "inputs"]);
     const execute = async (args: string, execCtx: PiCommandContext) => {
-      const print = execCtx.reply ?? execCtx.print ?? ((_msg: string) => undefined);
+      const print = (msg: string): void => execCtx.ui.notify(msg, "info");
       const rawParts = args.trim().split(/\s+/);
       const parts = rawParts[0] === "" ? [] : rawParts;
       const subcommand = parts[0] ?? "";
@@ -303,7 +407,7 @@ describe("getArgumentCompletions includes workflow names", () => {
     const workflowCmd = commands.find((c) => c.name === "workflow");
     assert.notEqual(workflowCmd, undefined);
 
-    const completions = await workflowCmd!.opts.getArgumentCompletions?.("") ?? [];
+    const completions = await workflowCmd!.options.getArgumentCompletions?.("") ?? [];
     const labels = completions.map((c) => c.label);
 
     assert.ok(labels.includes("list"));
@@ -324,7 +428,7 @@ describe("getArgumentCompletions includes workflow names", () => {
     await runFactory(pi);
 
     const workflowCmd = commands.find((c) => c.name === "workflow");
-    const completions = await workflowCmd!.opts.getArgumentCompletions?.("li") ?? [];
+    const completions = await workflowCmd!.options.getArgumentCompletions?.("li") ?? [];
     assert.equal(completions.every((c) => c.label.startsWith("li")), true);
     assert.ok(completions.map((c) => c.label).includes("list"));
   });
@@ -334,8 +438,31 @@ describe("getArgumentCompletions includes workflow names", () => {
     await runFactory(pi);
 
     const workflowCmd = commands.find((c) => c.name === "workflow");
-    const completions = workflowCmd!.opts.getArgumentCompletions?.("kill -") ?? [];
+    const completions = workflowCmd!.options.getArgumentCompletions?.("kill -") ?? [];
     assert.ok(completions.some((c) => c.value === "kill -y "));
+  });
+
+  test("trailing-space completion does not throw on empty subcommand", async () => {
+    // Regression: typing `/workflow ` (just the slash command + space)
+    // forwards `partial = " "` to getArgumentCompletions, which used to
+    // fall through to `registry.get("")`, throwing
+    // `TypeError: normalizeWorkflowName: name must be a non-empty string`.
+    // The trailing-space case should produce the same admin + workflow-name
+    // menu as the no-args case (partial = "").
+    const { pi, commands } = buildMockPi();
+    await runFactory(pi);
+
+    const workflowCmd = commands.find((c) => c.name === "workflow");
+    let completions: PiArgumentCompletion[] | null | undefined;
+    assert.doesNotThrow(() => {
+      completions = workflowCmd!.options.getArgumentCompletions?.(" ") as
+        | PiArgumentCompletion[]
+        | null
+        | undefined;
+    });
+    const labels = (completions ?? []).map((c) => c.label);
+    assert.ok(labels.includes("list"), "admin subcommands offered");
+    assert.ok(labels.includes("deep-research-codebase"), "workflow names offered");
   });
 });
 
@@ -350,7 +477,7 @@ describe("/workflow session namespace removed", () => {
 
     const workflowCmd = commands.find((c) => c.name === "workflow");
     const { ctx, messages } = buildCtx();
-    await workflowCmd!.opts.execute("session kill abc12345", ctx);
+    await workflowCmd!.options.handler("session kill abc12345", ctx);
 
     const joined = messages.join("\n");
     assert.match(joined, /Workflow not found: session/);
@@ -369,7 +496,7 @@ describe("inputs subcommand", () => {
 
     const workflowCmd = commands.find((c) => c.name === "workflow");
     const { ctx, messages } = buildCtx();
-    await workflowCmd!.opts.execute("inputs", ctx);
+    await workflowCmd!.options.handler("inputs", ctx);
 
     assert.ok(messages[0].includes("Usage:"));
     assert.ok(messages[0].includes("inputs"));
@@ -381,7 +508,7 @@ describe("inputs subcommand", () => {
 
     const workflowCmd = commands.find((c) => c.name === "workflow");
     const { ctx, messages } = buildCtx();
-    await workflowCmd!.opts.execute("inputs no-such-workflow-xyz", ctx);
+    await workflowCmd!.options.handler("inputs no-such-workflow-xyz", ctx);
 
     assert.ok(messages[0].includes("no-such-workflow-xyz"));
     assert.ok(messages[0].includes("Available:"));
@@ -393,7 +520,7 @@ describe("inputs subcommand", () => {
 
     const workflowCmd = commands.find((c) => c.name === "workflow");
     const { ctx, messages } = buildCtx();
-    await workflowCmd!.opts.execute("inputs ralph", ctx);
+    await workflowCmd!.options.handler("inputs ralph", ctx);
 
     assert.ok(!messages[0].includes("Workflow not found"));
     assert.ok(messages[0].includes("ralph"));
@@ -406,23 +533,29 @@ describe("inputs subcommand", () => {
 
 describe("/workflow <name> prompt=test dispatches run via factory", () => {
   test("/workflow deep-research-codebase dispatches run action (not unknown subcommand)", async () => {
-    const { pi, commands } = buildMockPi();
+    const { pi, commands, sent } = buildMockPi();
     await runFactory(pi);
 
     const workflowCmd = commands.find((c) => c.name === "workflow");
     const { ctx, messages } = buildCtx();
 
-    await workflowCmd!.opts.execute("deep-research-codebase prompt=test", ctx);
+    await workflowCmd!.options.handler("deep-research-codebase prompt=test", ctx);
 
     assert.equal(messages.some((m) => m.includes("unknown subcommand")), false);
-    const dispatched = messages.some(
+    // Success path: the dispatch confirmation is now emitted as a
+    // chat-surface `kind: "dispatch"` message (sendMessage), not a string
+    // through ctx.ui.notify. Either error wording in `messages` or a
+    // dispatch payload in `sent` counts as evidence the handler resolved.
+    const dispatchSent = sent.some(
+      (m) => (m.details as { kind?: string } | undefined)?.kind === "dispatch",
+    );
+    const errored = messages.some(
       (m) =>
         m.includes("completed") ||
-        m.includes("started") ||
         m.includes("failed") ||
         m.includes("Workflow not found"),
     );
-    assert.equal(dispatched, true);
+    assert.equal(dispatchSent || errored, true);
   });
 });
 
@@ -438,7 +571,7 @@ describe("/workflow <name> --help prints schema without dispatching", () => {
     const workflowCmd = commands.find((c) => c.name === "workflow");
     const { ctx, messages } = buildCtx();
 
-    await workflowCmd!.opts.execute("deep-research-codebase --help", ctx);
+    await workflowCmd!.options.handler("deep-research-codebase --help", ctx);
 
     // Schema printer prints the pretty 'INPUTS FOR <NAME>' header (theme mode),
     // or the legacy 'Inputs for "<name>":' line in plain mode.
@@ -460,7 +593,7 @@ describe("/workflow <name> --help prints schema without dispatching", () => {
     const workflowCmd = commands.find((c) => c.name === "workflow");
     const { ctx, messages } = buildCtx();
 
-    await workflowCmd!.opts.execute("deep-research-codebase -h", ctx);
+    await workflowCmd!.options.handler("deep-research-codebase -h", ctx);
     assert.ok(
       messages.some((m) => /INPUTS FOR DEEP-RESEARCH-CODEBASE|Inputs for "deep-research-codebase":/.test(m)),
     );
@@ -476,50 +609,61 @@ interface RawRegisteredCommand {
   options: PiCommandOptions;
 }
 
-function buildRawMockPi(): { pi: ExtensionAPI; commands: RawRegisteredCommand[] } {
+function buildRawMockPi(): {
+  pi: ExtensionAPI;
+  commands: RawRegisteredCommand[];
+  sent: SentMessage[];
+} {
   const commands: RawRegisteredCommand[] = [];
+  const sent: SentMessage[] = [];
   const pi: ExtensionAPI = {
     registerCommand: (name: string, options: PiCommandOptions) => {
       commands.push({ name, options });
     },
+    sendMessage: (msg: SentMessage) => {
+      sent.push(msg);
+    },
   };
-  return { pi, commands };
+  return { pi, commands, sent };
 }
 
 describe("canonical registerCommand — opts.handler shape", () => {
-  async function runFactoryRaw(): Promise<RawRegisteredCommand[]> {
-    const { pi, commands } = buildRawMockPi();
+  async function runFactoryRaw(): Promise<{
+    commands: RawRegisteredCommand[];
+    sent: SentMessage[];
+  }> {
+    const { pi, commands, sent } = buildRawMockPi();
     await runFactory(pi);
-    return commands;
+    return { commands, sent };
   }
 
   test("registerCommand receives string name 'workflow'", async () => {
-    const commands = await runFactoryRaw();
+    const { commands } = await runFactoryRaw()
     const names = commands.map((c) => c.name);
     assert.ok(names.includes("workflow"));
   });
 
   test("registerCommand receives string name 'workflows-doctor'", async () => {
-    const commands = await runFactoryRaw();
+    const { commands } = await runFactoryRaw()
     const names = commands.map((c) => c.name);
     assert.ok(names.includes("workflows-doctor"));
   });
 
   test("registerCommand does not receive per-workflow alias names", async () => {
-    const commands = await runFactoryRaw();
+    const { commands } = await runFactoryRaw()
     const names = commands.map((c) => c.name);
     assert.equal(names.some((n) => n.startsWith("workflow:")), false);
   });
 
   test("opts passed to registerCommand have 'handler' (function)", async () => {
-    const commands = await runFactoryRaw();
+    const { commands } = await runFactoryRaw()
     for (const { name, options } of commands) {
       assert.equal(typeof options.handler, "function", `${name}: handler should be function`);
     }
   });
 
   test("opts passed to registerCommand do NOT have 'execute' property", async () => {
-    const commands = await runFactoryRaw();
+    const { commands } = await runFactoryRaw()
     for (const { name, options } of commands) {
       assert.equal(Object.prototype.hasOwnProperty.call(options, "execute"),
         false, `${name}: opts must not have execute — use handler`);
@@ -527,96 +671,37 @@ describe("canonical registerCommand — opts.handler shape", () => {
   });
 
   test("opts have 'description' string", async () => {
-    const commands = await runFactoryRaw();
+    const { commands } = await runFactoryRaw()
     for (const { name, options } of commands) {
       assert.equal(typeof options.description, "string", `${name}: description should be string`);
     }
   });
 
   test("handler for 'workflow' is callable — does not throw synchronously", async () => {
-    const commands = await runFactoryRaw();
+    const { commands, sent } = await runFactoryRaw();
     const workflowCmd = commands.find((c) => c.name === "workflow");
     assert.notEqual(workflowCmd, undefined);
     const msgs: string[] = [];
     const ctx: PiCommandContext = {
-      reply(message) {
-        msgs.push(message);
+      ui: {
+        notify(message: string) {
+          msgs.push(message);
+        },
       },
     };
     await workflowCmd!.options.handler("list", ctx);
-    assert.ok(msgs.length > 0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Canonical preference — registerCommand wins over registerSlashCommand
-// ---------------------------------------------------------------------------
-
-describe("canonical preference — registerCommand preferred over registerSlashCommand", () => {
-  test("when both present, registerCommand called and registerSlashCommand NOT called", async () => {
-    let canonicalCalls = 0;
-    let legacyCalls = 0;
-
-    const pi: ExtensionAPI = {
-      registerCommand() {
-        canonicalCalls++;
-      },
-      registerSlashCommand() {
-        legacyCalls++;
-      },
-    };
-
-    await runFactory(pi);
-
-    assert.ok(canonicalCalls > 0);
-    assert.equal(legacyCalls, 0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Legacy fallback — registerSlashCommand called when registerCommand absent
-// ---------------------------------------------------------------------------
-
-describe("legacy fallback — registerSlashCommand when registerCommand absent", () => {
-  async function runFactoryLegacy(): Promise<PiSlashCommandOpts[]> {
-    const legacyCommands: PiSlashCommandOpts[] = [];
-
-    const pi: ExtensionAPI = {
-      registerSlashCommand(opts: PiSlashCommandOpts) {
-        legacyCommands.push(opts);
-      },
-    };
-
-    await runFactory(pi);
-    return legacyCommands;
-  }
-
-  test("registerSlashCommand called for all commands when registerCommand absent", async () => {
-    const legacyCommands = await runFactoryLegacy();
-
-    assert.ok(legacyCommands.length > 0);
-    const names = legacyCommands.map((c) => c.name);
-    assert.ok(names.includes("workflow"));
-    assert.ok(names.includes("workflows-doctor"));
-  });
-
-  test("legacy opts have 'execute' function (not 'handler')", async () => {
-    const legacyCommands = await runFactoryLegacy();
-
-    for (const opts of legacyCommands) {
-      assert.equal(typeof opts.execute, "function", `${opts.name}: execute should be function on legacy path`);
-    }
-  });
-
-  test("legacy opts have 'name' string", async () => {
-    const legacyCommands = await runFactoryLegacy();
-
-    for (const opts of legacyCommands) {
-      assert.equal(typeof opts.name, "string", `${opts.name}: name should be string`);
+    // `/workflow list` now routes through `emitChatSurface` → pi.sendMessage,
+    // so the catalogue payload lands in `sent` rather than `msgs`. Either
+    // path counts as the handler having produced output.
+    assert.ok(msgs.length > 0 || sent.length > 0);
+    if (sent.length > 0) {
+      const listPayload = sent.find(
+        (m) => (m.details as { kind?: string } | undefined)?.kind === "list",
+      );
+      assert.ok(listPayload, "expected a chat-surface list message to be sent");
     }
   });
 });
-
 
 // ---------------------------------------------------------------------------
 // resume regression: /workflow resume opens overlay + no legacy message
@@ -653,7 +738,7 @@ describe("/workflow kill chat command", () => {
       },
     };
 
-    await workflowCmd.opts.execute("kill", ctx);
+    await workflowCmd.options.handler("kill", ctx);
 
     const run = store.runs().find((r) => r.id === runId);
     assert.equal(run?.status, "killed");
@@ -683,7 +768,7 @@ describe("/workflow kill chat command", () => {
       },
     };
 
-    await workflowCmd.opts.execute(`kill ${runId}`, ctx);
+    await workflowCmd.options.handler(`kill ${runId}`, ctx);
 
     const run = store.runs().find((r) => r.id === runId);
     assert.equal(confirmCalls, 0);
@@ -697,19 +782,36 @@ describe("/workflow kill chat command", () => {
 // ---------------------------------------------------------------------------
 
 describe("/workflow resume <runId> — overlay open + no legacy message", () => {
-  test("seeds active run; /workflow resume calls overlay.open (pi.ui.custom invoked with overlay:true)", async () => {
+  test("seeds active run; /workflow resume calls overlay.open with overlay:true", async () => {
     const runId = `resume-slash-overlay-${Date.now()}`;
     store.recordRunStart(makeInflightRun(runId));
 
     const openCalls: Array<{ overlay: boolean }> = [];
     const { pi, commands } = buildMockPi();
     addFactoryStubs(pi);
+    const customFn: PiCustomOverlayFunction = (factoryArg, options: PiCustomOverlayOptions) => {
+      openCalls.push({ overlay: options.overlay });
+      // Mirror Pi's runtime: invoke the factory and surface a handle
+      // so the adapter has the same control surface it would in prod.
+      const handle: PiOverlayHandle = {
+        hide: () => undefined,
+        setHidden: () => undefined,
+        isHidden: () => false,
+        focus: () => undefined,
+        unfocus: () => undefined,
+        isFocused: () => true,
+      };
+      options.onHandle?.(handle);
+      const tui: PiCustomOverlayFactoryTui = { requestRender: () => undefined };
+      const component = factoryArg(tui, {}, {}, () => undefined);
+      if (component instanceof Promise) throw new Error("expected sync factory");
+      // Touch render so the GraphView's render path is exercised.
+      (component as PiCustomComponent).render(80);
+      return undefined;
+    };
     pi.ui = {
       setWidget: () => {},
-      custom: (opts: PiCustomOverlayOpts) => {
-        openCalls.push({ overlay: !!opts.overlay });
-        return { close: () => {} };
-      },
+      custom: customFn,
     };
 
     const factoryModule = await import("../../src/extension/index.js");
@@ -717,9 +819,9 @@ describe("/workflow resume <runId> — overlay open + no legacy message", () => 
 
     const workflowCmd = commands.find((c) => c.name === "workflow")!;
     const msgs: string[] = [];
-    const ctx: PiCommandContext = { reply: (m: string) => { msgs.push(m); } };
+    const ctx: PiCommandContext = { ui: { notify: (m: string) => { msgs.push(m); } } };
 
-    await workflowCmd.opts.execute(`resume ${runId}`, ctx);
+    await workflowCmd.options.handler(`resume ${runId}`, ctx);
 
     assert.ok(openCalls.length > 0);
     assert.equal(openCalls[0].overlay, true);
@@ -731,9 +833,23 @@ describe("/workflow resume <runId> — overlay open + no legacy message", () => 
 
     const { pi, commands } = buildMockPi();
     addFactoryStubs(pi);
+    const customFn: PiCustomOverlayFunction = (factoryArg, options) => {
+      const handle: PiOverlayHandle = {
+        hide: () => undefined,
+        setHidden: () => undefined,
+        isHidden: () => false,
+        focus: () => undefined,
+        unfocus: () => undefined,
+        isFocused: () => true,
+      };
+      options.onHandle?.(handle);
+      const tui: PiCustomOverlayFactoryTui = { requestRender: () => undefined };
+      factoryArg(tui, {}, {}, () => undefined);
+      return undefined;
+    };
     pi.ui = {
       setWidget: () => {},
-      custom: () => ({ close: () => {} }),
+      custom: customFn,
     };
 
     const factoryModule = await import("../../src/extension/index.js");
@@ -741,9 +857,9 @@ describe("/workflow resume <runId> — overlay open + no legacy message", () => 
 
     const workflowCmd = commands.find((c) => c.name === "workflow")!;
     const msgs: string[] = [];
-    const ctx: PiCommandContext = { reply: (m: string) => { msgs.push(m); } };
+    const ctx: PiCommandContext = { ui: { notify: (m: string) => { msgs.push(m); } } };
 
-    await workflowCmd.opts.execute(`resume ${runId}`, ctx);
+    await workflowCmd.options.handler(`resume ${runId}`, ctx);
 
     assert.equal(msgs.every((m) => !m.includes("still active")), true);
     assert.equal(msgs.every((m) => !m.includes("no resume needed")), true);

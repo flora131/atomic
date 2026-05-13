@@ -128,9 +128,9 @@ function makeBuilder<TInputs extends Record<string, unknown>>(
  *   .input("prompt", { type: "text", required: true, description: "research question" })
  *   .input("max_partitions", { type: "number", default: 4 })
  *   .run(async (ctx) => {
- *     const scout = await ctx.stage("scout");
- *     await scout.prompt(`Scout: ${ctx.inputs.prompt}`);
- *     return { findings: scout.messages };
+ *     const scout = ctx.stage("scout");
+ *     const findings = await scout.prompt(`Scout: ${ctx.inputs.prompt}`);
+ *     return { findings };
  *   })
  *   .compile();
  */

@@ -4,10 +4,9 @@
  * Demonstrates defineWorkflow builder, input declaration, and compile().
  * Does NOT require a pi binary — inspects the compiled definition only.
  *
- * Run: node --experimental-strip-types examples/hello-world.ts
+ * Run: bun examples/hello-world.ts
  */
 import { defineWorkflow } from "../src/index.js";
-import { lastAssistantText } from "../workflows/helpers.js";
 
 const workflow = defineWorkflow("hello-world")
   .description("Greet the user with a single stage.")
@@ -20,11 +19,10 @@ const workflow = defineWorkflow("hello-world")
     // Stage bodies run inside an oh-my-pi sub-session at execution time.
     // This stub satisfies the type; replace with real ctx.stage() calls when
     // wired to an oh-my-pi runtime via the executor.
-    const greet = await ctx.stage("greet");
-    await greet.prompt(
+    const greet = ctx.stage("greet");
+    const greeting = await greet.prompt(
       `Say hello to ${String(ctx.inputs.name)} in a warm, one-sentence greeting.`
     );
-    const greeting = lastAssistantText(greet.messages);
     return { greeting };
   })
   .compile();

@@ -8,9 +8,9 @@ This repo houses `@bastani/atomic-workflows` — a first-party extension for [oh
 
 ## Tech Stack
 
-- Node.js ≥ 22 for the runtime (required for `--experimental-strip-types` / `--experimental-transform-types`)
+- **[Bun](https://bun.sh) ≥ 1.3.7** for the runtime, package manager, and test runner
 - TypeScript ≥ 5.x (strict, `noUnusedLocals`, `noUnusedParameters`)
-- `node:test` + `node:assert/strict` for tests
+- `bun:test` + `node:assert/strict` for tests
 - `@sinclair/typebox` for schema definitions
 - `jiti` for runtime TS loading where needed
 
@@ -18,20 +18,22 @@ This repo houses `@bastani/atomic-workflows` — a first-party extension for [oh
 
 ### Commands
 
-Default to using npm + Node, not Bun.
+Default to using **Bun**, not Node/npm/yarn/pnpm.
 
-- Use `node --experimental-strip-types <file.ts>` instead of `bun <file.ts>` or `ts-node <file>`
-- Use `node --experimental-transform-types --import ./test/support/register-loader.mjs --test test/...` instead of `bun test`
-- Use `npm run typecheck` to run TypeScript type checks (`tsc --noEmit`)
-- Use `npm install` instead of `bun install`, `yarn install`, or `pnpm install`
-- Use `npm run <script>` instead of `bun run <script>`
-- Use `npx <package> <command>` instead of `bunx <package> <command>`
-- Repo commands: `npm run test:unit`, `npm run test:integration`, `npm run test:all`, `npm run typecheck`
+- Use `bun <file.ts>` instead of `node --experimental-strip-types <file.ts>` or `ts-node <file>`
+- Use `bun test <path>` instead of `node --test` or Jest/Vitest CLIs
+- Use `bun run typecheck` to run TypeScript type checks (`tsc --noEmit`)
+- Use `bun install` instead of `npm install`, `yarn install`, or `pnpm install`
+- Use `bun run <script>` instead of `npm run <script>`
+- Use `bunx <package> <command>` instead of `npx <package> <command>`
+- Repo commands: `bun run test:unit`, `bun run test:integration`, `bun run test:all`, `bun run typecheck`, `bun run lint`
+
+**Exception — publishing:** `npm publish --provenance` is still the registry publish tool because npm's OIDC-signed provenance lives in the npm CLI. Everything else is Bun.
 
 ## Best Practices
 
 - Avoid ambiguous types like `any` and `unknown`. Use specific types instead.
-- Source files use `.js` import extensions (TypeScript ESM convention). The repo ships as `.ts` files; Node's loader + `test/support/ts-loader.mjs` rewrites `.js` → `.ts` at resolution time.
+- Source files use `.js` import extensions (TypeScript ESM convention). The repo ships as `.ts` files; Bun resolves `.js` specifiers to the underlying `.ts` source directly — no loader hook required. oh-my-pi's loader follows the same convention.
 - Do not add a build step (`dist/`, `tsconfig.build.json`, etc.). The package distributes raw TypeScript and oh-my-pi loads it directly.
 
 ## Design Context
@@ -40,10 +42,10 @@ Refer to `.impeccable.md`
 
 ## Testing
 
-Use `npm run test:unit` (or `test:integration`, `test:all`) and make use of your tdd skill to write high quality tests. Tests use `node:test` + `node:assert/strict`:
+Use `bun run test:unit` (or `test:integration`, `test:all`) and make use of your tdd skill to write high quality tests. Tests use `bun:test` + `node:assert/strict`:
 
 ```ts#test/unit/index.test.ts
-import { test } from "node:test";
+import { test } from "bun:test";
 import assert from "node:assert/strict";
 
 test("hello world", () => {
@@ -51,19 +53,22 @@ test("hello world", () => {
 });
 ```
 
+### Hook name compatibility
+
+Bun's `bun:test` exports `beforeAll`/`afterAll` (not `before`/`after`). Use `beforeAll`/`afterAll` for once-per-suite setup/teardown and `beforeEach`/`afterEach` for per-test hooks.
+
 ### AI Agent Integration
 
-`node:test`'s default reporter is already quiet enough for AI assistants. If you want even leaner output, pass `--test-reporter=tap` or filter for `^ℹ` summary lines:
+Bun's default reporter is already quiet enough for AI assistants. To narrow output further, target a single file or filter by name:
 
 ```bash
-npm run test:unit 2>&1 | grep "^ℹ"
+bun test test/unit/registry.test.ts
+bun test --test-name-pattern "dispatch"
 ```
-
-This prints just the pass/fail/duration summary without the per-test list.
 
 ### Code Quality
 
-- Frequently run linters and type checks using `npm run lint` and `npm run typecheck` (both are `tsc --noEmit`).
+- Frequently run linters and type checks using `bun run lint` and `bun run typecheck` (both are `tsc --noEmit`).
 - Avoid `any` and `unknown` types.
 - Modularize code and avoid re-inventing the wheel. Use functionality of libraries and SDKs whenever possible.
 
@@ -75,10 +80,10 @@ You are bound to run into errors when testing. As you test and run into issues/e
 
 Relevant resources (use your `playwright-cli` skill if the information is not available in the local docs):
 
-1. Node.js (runtime): `nodejs/node`
-    1. [`node:test` runner](https://nodejs.org/api/test.html)
-    2. [`node:assert`](https://nodejs.org/api/assert.html)
-    3. [Type stripping](https://nodejs.org/api/typescript.html#type-stripping)
+1. Bun (runtime + test runner): `oven-sh/bun`
+    1. [`bun:test`](https://bun.sh/docs/cli/test)
+    2. [Bun + TypeScript](https://bun.sh/docs/runtime/typescript)
+    3. [`bunfig.toml`](https://bun.sh/docs/runtime/bunfig)
 2. oh-my-pi: `can1357/oh-my-pi`
     1. Extension loading + SDK docs under `docs/`
 3. TypeScript: `microsoft/TypeScript`
@@ -88,33 +93,14 @@ Relevant resources (use your `playwright-cli` skill if the information is not av
     1. `@sinclair/typebox` for runtime-validated schemas
     2. `jiti` for on-demand TS loading
 
-### Coding Agent Configuration Locations
+### Coding Agent Configuration Location
 
-Note: oh-my-pi is the primary coding agent for this repo. Other agents (Claude Code, OpenCode, Copilot CLI) may be used for local development; their configurations live in standard locations:
-
-1. oh-my-pi:
-    - global:
-        - Linux/MacOS: `~/.omp/agent/`
-        - Windows: `%HOMEPATH%\\.omp\\agent\\`
-    - extensions: `~/.omp/agent/extensions/<name>/`
-    - local: `.omp/` in the project directory
-
-2. Claude Code:
-    - global:
-        - Linux/MacOS: `~/.claude`
-        - Windows: `%HOMEPATH%\\.claude`
-    - local: `.claude` in the project directory
-
-3. OpenCode:
-    - global:
-        - Linux/MacOS: `$XDG_CONFIG_HOME/.opencode` AND `~/.opencode`
-        - Windows: `%HOMEPATH%\\.opencode`
-
-4. Copilot CLI:
-    - global:
-        - Linux/MacOS: `$XDG_CONFIG_HOME/.copilot` AND `~/.copilot`
-        - Windows: `%HOMEPATH%\\.copilot`
-    - local: `.github` in the project directory
+oh-my-pi:
+ - global:
+     - Linux/MacOS: `~/.omp/agent/`
+     - Windows: `%HOMEPATH%\\.omp\\agent\\`
+ - extensions: `~/.omp/agent/extensions/<name>/`
+ - local: `.omp/` in the project directory
 
 **Agent Skill Locations**
     - local:
@@ -144,9 +130,9 @@ Update the `version` field in the root `package.json` directly.
 
 ## CI
 
-CI runs typecheck and test:all on PRs. See `.github/workflows/` (or add one if missing) for the canonical pipeline.
+CI runs typecheck and test:all on PRs via Bun. See `.github/workflows/test.yml` (or add one if missing) for the canonical pipeline.
 
-Note: Remember that npm publishing with provenance does NOT require a token. That's the whole point. So if you see any steps in the CI related to setting up npm tokens (e.g., `NPM_TOKEN` / `NODE_AUTH_TOKEN`) for publishing, those are likely mistakes and should be removed.
+Note: npm publishing with provenance does NOT require a token. That's the whole point. So if you see any steps in the CI related to setting up npm tokens (e.g., `NPM_TOKEN` / `NODE_AUTH_TOKEN`) for publishing, those are likely mistakes and should be removed.
 
 ## Tips
 
@@ -161,7 +147,7 @@ Note: Remember that npm publishing with provenance does NOT require a token. Tha
 4. When modifying this extension, follow oh-my-pi's extension and SDK conventions.
 
 <EXTREMELY_IMPORTANT>
-This repo uses npm + Node.js (≥ 22), NOT Bun. Do NOT use `bun`, `bunx`, `yarn`, or `pnpm` commands. Always use `npm`, `npx`, and `node`.
+This repo uses **Bun (≥ 1.3.7)** for development, scripts, and tests. Do NOT use `node`, `npm`, `npx`, `yarn`, or `pnpm` for development commands. Always use `bun`, `bunx`, and `bun run`. The only acceptable exception is `npm publish --provenance` for the release flow (OIDC provenance is npm-CLI-specific).
 
-`@bastani/atomic-workflows` ships raw `.ts` files with no build step — do NOT introduce `dist/`, `tsconfig.build.json`, `outDir`, or any bundling. Tests run via `node --experimental-strip-types` / `--experimental-transform-types` + the `test/support/register-loader.mjs` hook.
+`@bastani/atomic-workflows` ships raw `.ts` files with no build step — do NOT introduce `dist/`, `tsconfig.build.json`, `outDir`, or any bundling. Tests run via Bun's built-in `bun:test` runner. The Node `--experimental-strip-types` / `--experimental-transform-types` loader hooks have been removed and must not be reintroduced.
 </EXTREMELY_IMPORTANT>

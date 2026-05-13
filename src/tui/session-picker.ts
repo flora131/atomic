@@ -120,9 +120,23 @@ function renderHeader(width: number, theme: GraphTheme): string {
   return `${border}╭${"─".repeat(left)}${RESET}${accent}${padded}${RESET}${border}${"─".repeat(right)}╮${RESET}`;
 }
 
-function renderHints(width: number, theme: GraphTheme, state: SessionPickerState): string {
+/**
+ * Bottom corner row — clean `╰─────╯`, no embedded text. Pairs with
+ * `renderHeader` to close the box; the keyboard-hint line is emitted
+ * separately by `renderHintsRow` so the box border stays uncluttered.
+ */
+function renderBottomBorder(width: number, theme: GraphTheme): string {
   const inner = Math.max(4, width - 2);
   const border = hexToAnsi(theme.border);
+  return `${border}╰${"─".repeat(inner)}╯${RESET}`;
+}
+
+/**
+ * Footer keyboard hints, rendered as a plain text line **below** the
+ * picker's bottom border (no leading `╰` / trailing `╯`). Matches the
+ * spacing in `ui/workflows/Screenshot 2026-05-13 at 1.11.49 AM.png`.
+ */
+function renderHintsRow(width: number, theme: GraphTheme, state: SessionPickerState): string {
   const dim = hexToAnsi(theme.dim);
   const text = hexToAnsi(theme.text);
   const muted = hexToAnsi(theme.textMuted);
@@ -143,13 +157,16 @@ function renderHints(width: number, theme: GraphTheme, state: SessionPickerState
       ];
 
   const parts = hints.map(([k, l]) => `${text}${k}${RESET} ${muted}${l}${RESET}`);
-  const line = parts.join(sep);
-  // Inner format: "── <hints> <pad> ──"
-  const leftRule = "── ";
-  const visLine = visibleWidth(line);
-  const padLen = Math.max(1, inner - visLine - leftRule.length - 1);
-  const innerContent = `${border}${leftRule}${RESET}${line}${border}${" ".repeat(padLen)}${RESET}`;
-  return `${border}╰${RESET}${padTo(innerContent, inner)}${border}╯${RESET}`;
+  // Two-space indent matches `renderEmptyState` and the section-row
+  // chrome, keeping the hint glyphs aligned with the panel interior
+  // even though they live outside the box border.
+  const line = "  " + parts.join(sep);
+  // The renderer clamps each line to `width` in the host composite
+  // pass; explicit clip here keeps the test-time render() output
+  // width-safe as well.
+  const lineWidth = visibleWidth(line);
+  if (lineWidth >= width) return line;
+  return line + " ".repeat(width - lineWidth);
 }
 
 function renderBlankRow(inner: number, theme: GraphTheme): string {
@@ -270,7 +287,8 @@ export function renderSessionPicker(opts: SessionPickerRenderOpts): string[] {
   if (rows.length === 0) {
     lines.push(renderEmptyState(inner, theme));
     lines.push(renderBlankRow(inner, theme));
-    lines.push(renderHints(width, theme, state));
+    lines.push(renderBottomBorder(width, theme));
+    lines.push(renderHintsRow(width, theme, state));
     return lines;
   }
 
@@ -290,7 +308,8 @@ export function renderSessionPicker(opts: SessionPickerRenderOpts): string[] {
     lines.push(renderRunRow(row, absIndex === sel, inner, theme, now));
   }
   lines.push(renderBlankRow(inner, theme));
-  lines.push(renderHints(width, theme, state));
+  lines.push(renderBottomBorder(width, theme));
+  lines.push(renderHintsRow(width, theme, state));
   return lines;
 }
 

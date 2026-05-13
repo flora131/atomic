@@ -10,7 +10,7 @@
  * either drops responses or leaks promises.
  */
 
-import { describe, test } from "node:test";
+import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { createStore } from "../../src/shared/store.js";
 import type { Store } from "../../src/shared/store.js";

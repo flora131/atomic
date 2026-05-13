@@ -4,7 +4,7 @@
  * cross-ref: spec §5.4.4, §5.4.6, §5.5, §8.1 Phase E
  */
 
-import { beforeEach, describe, test } from "node:test";
+import { beforeEach, describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { installStoreWidget, installToolExecutionHooks } from "../../src/tui/store-widget-installer.js";
 import { createStore } from "../../src/shared/store.js";

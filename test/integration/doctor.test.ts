@@ -5,7 +5,7 @@
  * builder can be exercised without I/O or bundled workflow loading.
  */
 
-import { describe, test } from "node:test";
+import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { buildDoctorReport } from "../../src/extension/doctor.js";
 import type { DoctorSiblingStatus } from "../../src/extension/doctor.js";
@@ -15,7 +15,6 @@ import type { ConfigLoadResult } from "../../src/extension/config-loader.js";
 import factory, {
   type ExtensionAPI,
   type PiCommandOptions,
-  type PiSlashCommandOpts,
 } from "../../src/extension/index.js";
 
 // ---------------------------------------------------------------------------
@@ -60,7 +59,8 @@ function makeDiscovery(overrides: Partial<DiscoveryResult> = {}): DiscoveryResul
 }
 
 interface RegisteredCommand {
-  opts: PiSlashCommandOpts;
+  name: string;
+  options: PiCommandOptions;
 }
 
 function makeMockApi(extras: Partial<ExtensionAPI> = {}): ExtensionAPI & { commands: RegisteredCommand[] } {
@@ -68,17 +68,7 @@ function makeMockApi(extras: Partial<ExtensionAPI> = {}): ExtensionAPI & { comma
   return {
     commands,
     registerCommand(name: string, options: PiCommandOptions) {
-      const opts: PiSlashCommandOpts = {
-        name,
-        description: options.description,
-        execute: options.handler,
-      };
-      if (options.getArgumentCompletions !== undefined) {
-        opts.getArgumentCompletions = options.getArgumentCompletions;
-      }
-      commands.push({
-        opts,
-      });
+      commands.push({ name, options });
     },
     registerTool: () => undefined,
     registerMessageRenderer: () => undefined,
@@ -278,10 +268,10 @@ describe("/workflows-doctor execute — integration", () => {
   test("produces multi-line output containing header", async () => {
     const api = makeMockApi();
     factory(api);
-    const cmd = api.commands.find((c) => c.opts.name === "workflows-doctor")?.opts;
+    const cmd = api.commands.find((c) => c.name === "workflows-doctor");
     assert.notEqual(cmd, undefined);
     const messages: string[] = [];
-    await cmd!.execute("", { reply: (m) => messages.push(m) });
+    await cmd!.options.handler("", { ui: { notify: (m: string) => messages.push(m) } });
     const combined = messages.join("\n");
     assert.ok(combined.includes("atomic-workflows doctor report"));
   });
@@ -289,9 +279,9 @@ describe("/workflows-doctor execute — integration", () => {
   test("shows 'Registry:' line with number", async () => {
     const api = makeMockApi();
     factory(api);
-    const cmd = api.commands.find((c) => c.opts.name === "workflows-doctor")?.opts;
+    const cmd = api.commands.find((c) => c.name === "workflows-doctor");
     const messages: string[] = [];
-    await cmd!.execute("", { reply: (m) => messages.push(m) });
+    await cmd!.options.handler("", { ui: { notify: (m: string) => messages.push(m) } });
     const combined = messages.join("\n");
     assert.match(combined, /Registry: \d+ workflow\(s\) loaded/);
   });
@@ -299,9 +289,9 @@ describe("/workflows-doctor execute — integration", () => {
   test("shows 'Discovery diagnostics:' section", async () => {
     const api = makeMockApi();
     factory(api);
-    const cmd = api.commands.find((c) => c.opts.name === "workflows-doctor")?.opts;
+    const cmd = api.commands.find((c) => c.name === "workflows-doctor");
     const messages: string[] = [];
-    await cmd!.execute("", { reply: (m) => messages.push(m) });
+    await cmd!.options.handler("", { ui: { notify: (m: string) => messages.push(m) } });
     const combined = messages.join("\n");
     assert.ok(combined.includes("Discovery diagnostics:"));
   });
@@ -309,9 +299,9 @@ describe("/workflows-doctor execute — integration", () => {
   test("shows 'Capabilities:' section", async () => {
     const api = makeMockApi();
     factory(api);
-    const cmd = api.commands.find((c) => c.opts.name === "workflows-doctor")?.opts;
+    const cmd = api.commands.find((c) => c.name === "workflows-doctor");
     const messages: string[] = [];
-    await cmd!.execute("", { reply: (m) => messages.push(m) });
+    await cmd!.options.handler("", { ui: { notify: (m: string) => messages.push(m) } });
     const combined = messages.join("\n");
     assert.ok(combined.includes("Capabilities:"));
   });
@@ -319,56 +309,46 @@ describe("/workflows-doctor execute — integration", () => {
   test("task delegation shows 'available' when callTool is present", async () => {
     const api = makeMockApi({ callTool: async () => "ok" });
     factory(api);
-    const cmd = api.commands.find((c) => c.opts.name === "workflows-doctor")?.opts;
+    const cmd = api.commands.find((c) => c.name === "workflows-doctor");
     const messages: string[] = [];
-    await cmd!.execute("", { reply: (m) => messages.push(m) });
+    await cmd!.options.handler("", { ui: { notify: (m: string) => messages.push(m) } });
     assert.ok(messages.join("\n").includes("task delegation — available"));
   });
 
   test("task delegation shows 'unavailable' when callTool is absent", async () => {
     const api = makeMockApi();
     factory(api);
-    const cmd = api.commands.find((c) => c.opts.name === "workflows-doctor")?.opts;
+    const cmd = api.commands.find((c) => c.name === "workflows-doctor");
     const messages: string[] = [];
-    await cmd!.execute("", { reply: (m) => messages.push(m) });
+    await cmd!.options.handler("", { ui: { notify: (m: string) => messages.push(m) } });
     assert.ok(messages.join("\n").includes("task delegation — unavailable"));
   });
 
   test("session naming shows 'present' when setSessionName present", async () => {
     const api = makeMockApi({ setSessionName: () => undefined });
     factory(api);
-    const cmd = api.commands.find((c) => c.opts.name === "workflows-doctor")?.opts;
+    const cmd = api.commands.find((c) => c.name === "workflows-doctor");
     const messages: string[] = [];
-    await cmd!.execute("", { reply: (m) => messages.push(m) });
+    await cmd!.options.handler("", { ui: { notify: (m: string) => messages.push(m) } });
     assert.ok(messages.join("\n").includes("session naming  — present"));
   });
 
   test("does NOT say 'Phase B stub'", async () => {
     const api = makeMockApi();
     factory(api);
-    const cmd = api.commands.find((c) => c.opts.name === "workflows-doctor")?.opts;
+    const cmd = api.commands.find((c) => c.name === "workflows-doctor");
     const messages: string[] = [];
-    await cmd!.execute("", { reply: (m) => messages.push(m) });
+    await cmd!.options.handler("", { ui: { notify: (m: string) => messages.push(m) } });
     assert.ok(!messages.join("\n").includes("Phase B stub"));
   });
 
   test("does NOT say 'Executor: not yet implemented'", async () => {
     const api = makeMockApi();
     factory(api);
-    const cmd = api.commands.find((c) => c.opts.name === "workflows-doctor")?.opts;
+    const cmd = api.commands.find((c) => c.name === "workflows-doctor");
     const messages: string[] = [];
-    await cmd!.execute("", { reply: (m) => messages.push(m) });
+    await cmd!.options.handler("", { ui: { notify: (m: string) => messages.push(m) } });
     assert.ok(!messages.join("\n").includes("Executor: not yet implemented"));
-  });
-
-  test("falls back to ctx.print when ctx.reply absent", async () => {
-    const api = makeMockApi();
-    factory(api);
-    const cmd = api.commands.find((c) => c.opts.name === "workflows-doctor")?.opts;
-    const messages: string[] = [];
-    await cmd!.execute("", { print: (m) => messages.push(m) });
-    assert.ok(messages.length > 0);
-    assert.ok(messages.join("\n").includes("atomic-workflows"));
   });
 });
 
@@ -610,27 +590,27 @@ describe("/workflows-doctor execute — config sections integration", () => {
   test("shows 'Config diagnostics:' section", async () => {
     const api = makeMockApi();
     factory(api);
-    const cmd = api.commands.find((c) => c.opts.name === "workflows-doctor")?.opts;
+    const cmd = api.commands.find((c) => c.name === "workflows-doctor");
     const messages: string[] = [];
-    await cmd!.execute("", { reply: (m) => messages.push(m) });
+    await cmd!.options.handler("", { ui: { notify: (m: string) => messages.push(m) } });
     assert.ok(messages.join("\n").includes("Config diagnostics:"));
   });
 
   test("shows 'Tunables:' section", async () => {
     const api = makeMockApi();
     factory(api);
-    const cmd = api.commands.find((c) => c.opts.name === "workflows-doctor")?.opts;
+    const cmd = api.commands.find((c) => c.name === "workflows-doctor");
     const messages: string[] = [];
-    await cmd!.execute("", { reply: (m) => messages.push(m) });
+    await cmd!.options.handler("", { ui: { notify: (m: string) => messages.push(m) } });
     assert.ok(messages.join("\n").includes("Tunables:"));
   });
 
   test("shows 'Configured workflows:' section", async () => {
     const api = makeMockApi();
     factory(api);
-    const cmd = api.commands.find((c) => c.opts.name === "workflows-doctor")?.opts;
+    const cmd = api.commands.find((c) => c.name === "workflows-doctor");
     const messages: string[] = [];
-    await cmd!.execute("", { reply: (m) => messages.push(m) });
+    await cmd!.options.handler("", { ui: { notify: (m: string) => messages.push(m) } });
     assert.ok(messages.join("\n").includes("Configured workflows:"));
   });
 });

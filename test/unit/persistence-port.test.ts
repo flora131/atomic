@@ -5,7 +5,7 @@
  *            src/shared/types.ts WorkflowPersistencePort
  */
 
-import { describe, test } from "node:test";
+import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { makePersistencePort } from "../../src/extension/index.js";
 import type { ExtensionAPI } from "../../src/extension/index.js";

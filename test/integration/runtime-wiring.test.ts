@@ -18,14 +18,12 @@
  *            src/runs/foreground/stage-runner.ts, RFC runtime-wiring task
  */
 
-import { beforeEach, describe, test } from "node:test";
+import { beforeEach, describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import factory, {
   type ExtensionAPI,
   type PiToolOpts,
-  type PiSlashCommandOpts,
   type PiCommandOptions,
-  type PiFlagOpts,
   type PiFlagNamedOpts,
   type WorkflowToolArgs,
 } from "../../src/extension/index.js";
@@ -83,8 +81,8 @@ function makeSpyAdapters(calls: string[]) {
 /** Mock ExtensionAPI that records registrations and exposes an exec spy. */
 interface MockApi extends ExtensionAPI {
   tools: Array<{ opts: PiToolOpts<WorkflowToolArgs, WorkflowToolResult> }>;
-  commands: Array<{ opts: PiSlashCommandOpts }>;
-  flags: Array<{ opts: PiFlagOpts }>;
+  commands: Array<{ name: string; options: PiCommandOptions }>;
+  flags: Array<{ name: string; options: PiFlagNamedOpts }>;
   execCalls: Array<{ command: string; args: string[] }>;
 }
 
@@ -114,11 +112,11 @@ function makeMockApi(): MockApi {
       tools.push({ opts: opts as unknown as PiToolOpts<WorkflowToolArgs, WorkflowToolResult> });
     },
     registerCommand(name: string, options: PiCommandOptions) {
-      commands.push({ opts: { name, description: options.description, execute: options.handler, getArgumentCompletions: options.getArgumentCompletions } });
+      commands.push({ name, options });
     },
     registerMessageRenderer(_event: string, _renderer: unknown) {},
-    registerFlag(name: string, opts: PiFlagNamedOpts) {
-      flags.push({ opts: { name, ...opts } });
+    registerFlag(name: string, options: PiFlagNamedOpts) {
+      flags.push({ name, options });
     },
   };
 }
@@ -211,11 +209,11 @@ describe("runtime-wiring — no exec surface → stub fires in test env", () => 
         });
       },
       registerCommand(name: string, options: PiCommandOptions) {
-        (this as unknown as MockApi).commands.push({ opts: { name, description: options.description, execute: options.handler, getArgumentCompletions: options.getArgumentCompletions } });
+        (this as unknown as MockApi).commands.push({ name, options });
       },
       registerMessageRenderer(_event: string, _renderer: unknown) {},
-      registerFlag(name: string, opts: PiFlagNamedOpts) {
-        (this as unknown as MockApi).flags.push({ opts: { name, ...opts } });
+      registerFlag(name: string, options: PiFlagNamedOpts) {
+        (this as unknown as MockApi).flags.push({ name, options });
       },
     };
     mock = stripped as unknown as MockApi;

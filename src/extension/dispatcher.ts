@@ -64,10 +64,20 @@ export async function dispatch(
 
   switch (action) {
     // -----------------------------------------------------------------------
-    // list — enumerate registered workflow names
+    // list — enumerate registered workflow metadata: name, description,
+    // inputs. Single source of truth for the catalogue renderer.
     // -----------------------------------------------------------------------
-    case "list":
-      return { action: "list", workflows: opts.registry.names() };
+    case "list": {
+      const items = opts.registry.all().map((def) => ({
+        name: def.normalizedName,
+        description: def.description,
+        inputs: Object.entries(def.inputs).map(([iname, schema]) => ({
+          name: iname,
+          required: schema.required === true,
+        })),
+      }));
+      return { action: "list", items };
+    }
 
     // -----------------------------------------------------------------------
     // inputs — return a workflow's input schema, or a clear not-found result

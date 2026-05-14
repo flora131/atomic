@@ -4,20 +4,19 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "types": ["bun"],
+    "typeRoots": ["./node_modules/@types"],
     "lib": ["ESNext"],
     "allowImportingTsExtensions": true,
     "allowArbitraryExtensions": true,
     "noEmit": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
+    "verbatimModuleSyntax": true,
     "paths": {
-      "@bastani/atomic-workflows": ["./src/index.ts"],
-      "@oh-my-pi/pi-coding-agent": ["./src/oh-my-pi-shim.d.ts"]
+      "@bastani/atomic-workflows": ["./src/index.ts"]
     }
   },
   "include": ["src/**/*", "test/**/*", "workflows/**/*", "examples/**/*"],

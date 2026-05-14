@@ -1,8 +1,8 @@
 <h1 align="center">@bastani/atomic-workflows</h1>
 
 <p align="center">
-  <b>Multi-stage workflow authoring and execution for <a href="https://github.com/can1357/oh-my-pi">oh-my-pi</a>.</b><br>
-  An oh-my-pi extension — install it, author workflows in TypeScript, run them from chat.
+  <b>Multi-stage workflow authoring and execution for <a href="https://github.com/earendil-works/pi">pi</a>.</b><br>
+  An pi extension — install it, author workflows in TypeScript, run them from chat.
 </p>
 
 <p align="center">
@@ -26,31 +26,44 @@
 
 ---
 
-`@bastani/atomic-workflows` brings multi-stage, DAG-driven workflow execution to oh-my-pi. Workflows are plain TypeScript files that export a `WorkflowDefinition`; the DAG is inferred from your `async/await` and `Promise.all` call patterns at runtime — no YAML, no graph config. Each stage runs as an isolated sub-session. A live above-editor widget and on-demand DAG overlay give you real-time progress visibility. Completed runs are persisted to the session store and can be resumed.
+`@bastani/atomic-workflows` brings multi-stage, DAG-driven workflow execution to pi. Workflows are plain TypeScript files that export a `WorkflowDefinition`; the DAG is inferred from your `async/await` and `Promise.all` call patterns at runtime — no YAML, no graph config. Each stage runs as an isolated sub-session. A live above-editor widget and on-demand DAG overlay give you real-time progress visibility. Completed runs are persisted to the session store and can be resumed.
 
-The package ships as raw TypeScript (no build step) and is loaded by oh-my-pi directly from source. Workflow stages run through oh-my-pi's in-process SDK `AgentSession` surface, so stage options are forwarded to `createAgentSession()`.
+The package ships as raw TypeScript (no build step) and is loaded by pi directly from source. Workflow stages run through pi's in-process SDK `AgentSession` surface, so stage options are forwarded to `createAgentSession()`.
 
 ---
 
 ## Prerequisites
 
-- **oh-my-pi** — install [oh-my-pi](https://github.com/can1357/oh-my-pi#installation).
+- **pi** — install [pi](https://github.com/earendil-works/pi#installation).
 
 ## Install
 
-`@bastani/atomic-workflows` is an oh-my-pi extension package. Install from npm:
+`@bastani/atomic-workflows` is a pi extension package. Install from npm:
 
 ```bash
-omp plugin install @bastani/atomic-workflows
+pi install npm:@bastani/atomic-workflows
 ```
 
-oh-my-pi reads the package's `omp` manifest and auto-registers the extension entry at `src/extension/index.ts`. Reload from inside oh-my-pi with `/reload`.
+pi reads the package's `pi` manifest and auto-registers the extension entry at `src/extension/index.ts`. Reload from inside pi with `/reload`.
+
+### Companion pi packages
+
+`@bastani/atomic-workflows` orchestrates a few first-party pi packages at runtime. They are installed independently so pi's npm-identity deduplication can share them with any other extensions you already have:
+
+```bash
+pi install npm:pi-subagents
+pi install npm:pi-mcp-adapter
+pi install npm:pi-web-access
+pi install npm:pi-intercom
+```
+
+These are idempotent — if a package is already installed globally or per-project, `pi install` is a no-op for it. Inside pi, run **`/workflows-doctor`** to see a live status card listing which companions are installed, which are missing, and the exact `pi install` line to fix each gap. Detection is structural (slash-command + tool-registry inspection), so the card stays accurate across npm, git, and local-path installs.
 
 > Not yet published — until v0.0.1 lands on npm, see [DEV_SETUP.md](./DEV_SETUP.md) for the local-path install used while iterating on the extension itself.
 
 ### Custom workflow directories
 
-Adding workflow files under `.omp/workflows/` (project scope) or `~/.omp/agent/workflows/` (user scope) makes them discoverable automatically. To register additional discovery paths, edit your oh-my-pi settings (`~/.omp/agent/config.yml` for global, `.omp/settings.json` for project):
+Adding workflow files under `.pi/workflows/` (project scope) or `~/.pi/agent/workflows/` (user scope) makes them discoverable automatically. To register additional discovery paths, edit your pi settings (`~/.pi/agent/config.yml` for global, `.pi/settings.json` for project):
 
 ```json
 {
@@ -60,7 +73,7 @@ Adding workflow files under `.omp/workflows/` (project scope) or `~/.omp/agent/w
 }
 ```
 
-Run `/workflows-doctor` from inside oh-my-pi to verify what was discovered and which runtime capabilities are available.
+Run `/workflows-doctor` from inside pi to verify what was discovered and which runtime capabilities are available.
 
 ---
 
@@ -191,7 +204,7 @@ Workflows always run as **background tasks** — the chat editor stays free whil
 
 ### `workflow` tool (LLM-callable)
 
-When `@bastani/atomic-workflows` is installed, the oh-my-pi LLM gains access to the `workflow` tool:
+When `@bastani/atomic-workflows` is installed, the pi LLM gains access to the `workflow` tool:
 
 ```json
 {
@@ -214,17 +227,17 @@ Press **F2** while a workflow is running to open the DAG overlay for the active 
 
 ### CLI flags
 
-The extension registers two CLI flags: `--workflow=<name>` selects the workflow to run, and `--workflow-inputs=<json>` (or `--workflow-inputs-file=<path>`) supplies its inputs. Combine with oh-my-pi's `-p` for non-interactive execution:
+The extension registers two CLI flags: `--workflow=<name>` selects the workflow to run, and `--workflow-inputs=<json>` (or `--workflow-inputs-file=<path>`) supplies its inputs. Combine with pi's `-p` for non-interactive execution:
 
 ```bash
-omp -p --workflow=deep-research-codebase \
+pi -p --workflow=deep-research-codebase \
   --workflow-inputs='{"prompt":"Investigate the auth module","max_partitions":6}'
 ```
 
 For complex inputs you can store them in a JSON file and pass the path:
 
 ```bash
-omp -p --workflow=deep-research-codebase --workflow-inputs-file=./inputs.json
+pi -p --workflow=deep-research-codebase --workflow-inputs-file=./inputs.json
 ```
 
 `--workflow-inputs` is parsed as a single JSON object — keys map to your workflow's declared input names, values are typed (strings, numbers, booleans, arrays, nested objects). Parsed inputs are validated against the workflow's declared input schema before dispatch; a schema mismatch prints the schema and fails fast without running the workflow.
@@ -232,10 +245,10 @@ omp -p --workflow=deep-research-codebase --workflow-inputs-file=./inputs.json
 To inspect a workflow's input schema before invoking it:
 
 ```bash
-omp --workflow=deep-research-codebase --workflow-help
+pi --workflow=deep-research-codebase --workflow-help
 ```
 
-Or, from inside oh-my-pi, `/workflow inputs <name>` or `/workflow <name> --help`.
+Or, from inside pi, `/workflow inputs <name>` or `/workflow <name> --help`.
 
 > Why a single JSON flag rather than `--workflow-input-<key>=<value>` per input? The extension registers literal CLI flags only. A single typed JSON value stays expressive for arbitrary input shapes.
 
@@ -289,13 +302,13 @@ Design generation pipeline — produce mockups or interactive prototypes from a 
 
 `@bastani/atomic-workflows` automatically discovers workflow files from three locations:
 
-| Location                          | Scope      | Example path                              |
-| --------------------------------- | ---------- | ----------------------------------------- |
-| `.omp/workflows/*.ts`             | Project    | `.omp/workflows/my-workflow.ts`           |
-| `~/.omp/agent/workflows/*.ts`     | User       | `~/.omp/agent/workflows/my-workflow.ts`   |
-| `workflows.name.path` in settings | Configured | see `~/.omp/agent/config.yml` example     |
+| Location                          | Scope      | Example path                           |
+| --------------------------------- | ---------- | -------------------------------------- |
+| `.pi/workflows/*.ts`              | Project    | `.pi/workflows/my-workflow.ts`         |
+| `~/.pi/agent/workflows/*.ts`      | User       | `~/.pi/agent/workflows/my-workflow.ts` |
+| `workflows.name.path` in settings | Configured | see `~/.pi/agent/config.yml` example   |
 
-Settings-based discovery (`~/.omp/agent/config.yml` / `.omp/settings.json`):
+Settings-based discovery (`~/.pi/agent/config.yml` / `.pi/settings.json`):
 
 ```json
 {
@@ -309,14 +322,14 @@ Settings-based discovery (`~/.omp/agent/config.yml` / `.omp/settings.json`):
 
 ## Host integration
 
-`@bastani/atomic-workflows` targets oh-my-pi directly:
+`@bastani/atomic-workflows` targets pi directly:
 
 - task delegation is bridged through the built-in `subagent`/task tool surface
 - stage sessions use the host-provided `createAgentSession()` SDK
 - MCP scope gating uses host event emission when available
 - detached-run HIL uses host session naming + event routing when available
 
-Run `/workflows-doctor` from inside oh-my-pi to see exactly which runtime adapter paths are active.
+Run `/workflows-doctor` from inside pi to see exactly which runtime adapter paths are active.
 
 ---
 

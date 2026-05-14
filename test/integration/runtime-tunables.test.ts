@@ -448,7 +448,7 @@ describe("runtime tunables — statusFile", () => {
 
   test("write uses projectRoot default path when statusFilePath not set", async () => {
     const projectRoot = join(tmpDir, "project");
-    const expectedPath = join(projectRoot, ".omp", "workflows", "status.json");
+    const expectedPath = join(projectRoot, ".pi", "workflows", "status.json");
 
     const s = createStore();
     const writer = createStatusWriter(

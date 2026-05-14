@@ -37,6 +37,7 @@ function makeStage(opts: Partial<StageSnapshot> = {}): StageSnapshot {
     toolEvents: opts.toolEvents ?? [],
     durationMs: opts.durationMs,
     startedAt: opts.startedAt,
+    blockedByStageId: opts.blockedByStageId,
   };
 }
 
@@ -185,6 +186,44 @@ describe("renderNodeCard — status border colours", () => {
         "fallback path must not use theme.text as border colour",
       );
     }
+  });
+
+  test("blocked status uses dim border and renders cascade badge", () => {
+    const lines = renderNodeCard(
+      makeStage({ status: "blocked", blockedByStageId: "review-a" }),
+      {
+        theme,
+        stages: [makeStage({ id: "review-a", name: "review-a" })],
+      },
+    );
+    const dimFg = hexToAnsi(theme.dim);
+    assert.ok(
+      lines[0]!.includes(dimFg),
+      "blocked border must use dim warning tint",
+    );
+    assert.match(stripAnsi(lines[1]!), /↑ blocked by review-a/);
+  });
+
+  test("blocked badge drops upstream first when the card is narrow", () => {
+    const lines = renderNodeCard(
+      makeStage({
+        status: "blocked",
+        blockedByStageId: "very-long-upstream-stage",
+      }),
+      {
+        theme,
+        width: 12,
+        stages: [
+          makeStage({
+            id: "very-long-upstream-stage",
+            name: "very-long-upstream-stage",
+          }),
+        ],
+      },
+    );
+    const row = stripAnsi(lines[1]!);
+    assert.match(row, /↑ blocked/);
+    assert.doesNotMatch(row, /very-long-upstream-stage/);
   });
 });
 

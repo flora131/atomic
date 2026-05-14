@@ -2,19 +2,22 @@
  * Verify the `pi.on("input", …)` interceptor:
  *   1. Registers a handler under the `"input"` event.
  *   2. For `/workflow …` and `/workflows-doctor …` text, dispatches the
- *      registered command handler directly and returns `{ handled: true }`
- *      — short-circuiting oh-my-pi's `startPendingSubmission` flow that
- *      otherwise echoes the message into chat scrollback AND starts the
- *      `Working… (esc to interrupt)` loader before `session.prompt` runs.
+ *      registered command handler directly and returns
+ *      `{ action: "handled" }` — short-circuiting pi's
+ *      `startPendingSubmission` flow that otherwise echoes the message
+ *      into chat scrollback AND starts the `Working… (esc to interrupt)`
+ *      loader before `session.prompt` runs. The shape matches pi's
+ *      `InputEventResult` discriminated union; `{ handled: true }` is
+ *      silently ignored by the runner.
  *   3. For anything else (regular chat, unknown slash command), passes
  *      through without short-circuiting so the host can run its normal
  *      submission flow.
  *
  * cross-ref:
  *   - src/extension/index.ts  `installInputInterceptor`
- *   - oh-my-pi packages/coding-agent/src/modes/controllers/input-controller.ts
+ *   - pi packages/coding-agent/src/modes/controllers/input-controller.ts
  *     `setupEditorSubmitHandler`
- *   - oh-my-pi packages/coding-agent/src/extensibility/extensions/runner.ts
+ *   - pi packages/coding-agent/src/extensibility/extensions/runner.ts
  *     `emitInput`
  */
 import { describe, test } from "bun:test";
@@ -90,7 +93,7 @@ describe("installInputInterceptor — pi.on(\"input\") wiring", () => {
     assert.equal(handlers.length, 1, "exactly one input handler must be registered");
   });
 
-  test("/workflow text short-circuits with { handled: true } and dispatches the registered handler", async () => {
+  test("/workflow text short-circuits with { action: 'handled' } and dispatches the registered handler", async () => {
     const { pi, events, commandCalls } = buildMock();
     factory(pi);
 
@@ -100,13 +103,17 @@ describe("installInputInterceptor — pi.on(\"input\") wiring", () => {
     const ctx: PiCommandContext = { ui: { notify: () => undefined } };
     const result = await handler({ text: "/workflow list", source: "interactive" }, ctx);
 
-    assert.deepEqual(result, { handled: true }, "must short-circuit the host submit pipeline");
+    assert.deepEqual(
+      result,
+      { action: "handled" },
+      "must short-circuit the host submit pipeline using pi's InputEventResult shape",
+    );
     assert.equal(commandCalls.length, 1, "must dispatch the workflow command handler exactly once");
     assert.equal(commandCalls[0]!.name, "workflow");
     assert.equal(commandCalls[0]!.args, "list");
   });
 
-  test("/workflows-doctor text short-circuits with { handled: true }", async () => {
+  test("/workflows-doctor text short-circuits with { action: 'handled' }", async () => {
     const { pi, events, commandCalls } = buildMock();
     factory(pi);
 
@@ -115,7 +122,7 @@ describe("installInputInterceptor — pi.on(\"input\") wiring", () => {
 
     const result = await handler({ text: "/workflows-doctor", source: "interactive" }, ctx);
 
-    assert.deepEqual(result, { handled: true });
+    assert.deepEqual(result, { action: "handled" });
     assert.equal(commandCalls.length, 1);
     assert.equal(commandCalls[0]!.name, "workflows-doctor");
   });
@@ -198,9 +205,9 @@ describe("installInputInterceptor — pi.on(\"input\") wiring", () => {
       ctx,
     );
 
-    // Interceptor must still resolve with handled:true so the host
+    // Interceptor must still resolve with action:"handled" so the host
     // does not fall back to the streaming submit path.
-    assert.deepEqual(result, { handled: true });
+    assert.deepEqual(result, { action: "handled" });
     const errorEntry = errors.find((e) => e.type === "error");
     assert.ok(errorEntry, "error must be surfaced via ctx.ui.notify");
     assert.match(errorEntry!.msg, /\/workflow failed: boom in \/workflow/);

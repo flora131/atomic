@@ -142,7 +142,7 @@ export function renderHeader(run: RunSnapshot, opts: HeaderOpts): string[] {
   const { width, theme } = opts;
   const pill = pillFor(run, theme);
 
-  const counts = { pending: 0, running: 0, paused: 0, completed: 0, failed: 0 };
+  const counts = { pending: 0, running: 0, paused: 0, blocked: 0, completed: 0, failed: 0 };
   for (const s of run.stages) counts[s.status]++;
 
   const badges: BandBadge[] = [];

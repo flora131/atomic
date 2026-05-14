@@ -22,6 +22,8 @@ export function statusColor(
       return theme.error;
     case "killed":
       return theme.error;
+    case "blocked":
+      return theme.dim;
     case "pending":
     default:
       return theme.dim;
@@ -33,6 +35,8 @@ export function statusIcon(status: StageStatus | RunStatus): string {
   switch (status) {
     case "pending":
       return "○";
+    case "blocked":
+      return "↑";
     case "running":
       return "●";
     case "completed":

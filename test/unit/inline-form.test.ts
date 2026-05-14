@@ -279,7 +279,7 @@ test("editor: implements host resize methods (getTopBorderAvailableWidth / setTo
 });
 
 test("editor: survives the host's resize-handler call sequence at many widths", () => {
-  // This test simulates oh-my-pi InteractiveMode's #resizeHandler verbatim.
+  // This test simulates pi InteractiveMode's #resizeHandler verbatim.
   // The handler runs on every `process.stdout.resize` event:
   //
   //   #resizeHandler = () => {
@@ -433,7 +433,7 @@ test("overlay: openInlineInputsForm emits a custom message and swaps editor", as
   assert.equal(getForm(formId)?.status, "submitted");
 });
 
-test("overlay: openInlineInputsForm works with oh-my-pi runtime UI shape", async () => {
+test("overlay: openInlineInputsForm works with pi runtime UI shape", async () => {
   _resetForms();
   const { pi, sentMessages } = makeFakePi();
   const baseCtx = makeFakeCtx();
@@ -474,7 +474,7 @@ test("overlay: openInlineInputsForm works with oh-my-pi runtime UI shape", async
   assert.equal(ctx.installed[1]!.factory, undefined);
 });
 
-test("overlay: installed editor accepts oh-my-pi setup before card render", async () => {
+test("overlay: installed editor accepts pi setup before card render", async () => {
   _resetForms();
   const { pi, sentMessages } = makeFakePi();
   let editor: InlineFormEditor | undefined;

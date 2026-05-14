@@ -210,6 +210,18 @@ export interface RenderTaggedCardOpts {
   tagSubtitle?: string;
   /** Title rendered bold beside the tag on row 1. Long values are end-truncated. */
   title?: string;
+  /**
+   * Optional pre-styled inline content rendered after the title on row 1,
+   * separated from the title by a 2-cell gap. The caller is responsible
+   * for ANSI styling inside the string; `titleSuffixWidth` MUST report the
+   * visible width (excluding ANSI escapes) so the renderer can budget the
+   * title's truncation and the trailing gap correctly. Caller is also
+   * responsible for fitting the suffix to the available row-1 budget —
+   * the renderer never truncates a pre-styled string.
+   */
+  titleSuffix?: string;
+  /** Visible width of `titleSuffix`, in cells. Ignored when suffix is absent. */
+  titleSuffixWidth?: number;
   /** Right-aligned badge on row 1 (state badge). */
   trailing?: { text: string; fg?: string };
   /**
@@ -278,9 +290,11 @@ function renderTaggedCardThemed(
   const row1StripePrefixW = 2; // "▎ "
   const bodyStripePrefixW = 3; // "▎  "
   const trailingPad = 2;
+  const titleSuffixW = opts.titleSuffix ? Math.max(0, opts.titleSuffixWidth ?? 0) : 0;
+  const titleSuffixGap = opts.titleSuffix ? 2 : 0;
   const titleBudget = Math.max(
     8,
-    width - row1StripePrefixW - tagW - tagSubtitleW - trailingW - trailingPad - 2,
+    width - row1StripePrefixW - tagW - tagSubtitleW - titleSuffixGap - titleSuffixW - trailingW - trailingPad - 2,
   );
 
   const titleVisible = truncateToWidth(opts.title ?? "", titleBudget, ELLIPSIS);
@@ -290,9 +304,16 @@ function renderTaggedCardThemed(
     : "";
   const titleSegW = titleVisible ? titleW + 2 : 0;
 
+  // `titleSuffix` rides row 1 after the bold title. Caller pre-styles
+  // and pre-sizes the segment — the renderer simply prepends a 2-cell
+  // gap. Used by `renderDispatchConfirm` to inline a `k=v · k=v` input
+  // summary when it fits beside the workflow name.
+  const suffixSeg = opts.titleSuffix ? `  ${opts.titleSuffix}` : "";
+  const suffixSegW = opts.titleSuffix ? titleSuffixGap + titleSuffixW : 0;
+
   const gap = Math.max(
     1,
-    width - row1StripePrefixW - tagW - titleSegW - tagSubtitleW - trailingW - 1,
+    width - row1StripePrefixW - tagW - titleSegW - suffixSegW - tagSubtitleW - trailingW - 1,
   );
 
   // 1-cell leading space on every card line so the stripe `▎` lands at
@@ -304,6 +325,7 @@ function renderTaggedCardThemed(
     ` ${stripe}${STRIPE_CHAR_THEMED}${RESET} ` +
     tagSeg +
     titleSeg +
+    suffixSeg +
     tagSubtitleSeg +
     (opts.trailing ? " ".repeat(gap) + trailingSeg : "");
 
@@ -330,24 +352,32 @@ function renderTaggedCardPlain(opts: RenderTaggedCardOpts, width: number): strin
   const trailing = opts.trailing?.text ?? "";
   const trailingW = visibleWidth(trailing);
   const trailingPad = 2;
+  const titleSuffixW = opts.titleSuffix ? Math.max(0, opts.titleSuffixWidth ?? 0) : 0;
+  const titleSuffixGap = opts.titleSuffix ? 2 : 0;
 
   const titleBudget = Math.max(
     8,
-    width - row1StripePrefixW - tagW - tagSubtitleW - trailingW - trailingPad - 2,
+    width - row1StripePrefixW - tagW - tagSubtitleW - titleSuffixGap - titleSuffixW - trailingW - trailingPad - 2,
   );
   const titleVisible = truncateToWidth(opts.title ?? "", titleBudget, ELLIPSIS);
   const titleSeg = titleVisible ? `  ${titleVisible}` : "";
   const titleW = visibleWidth(titleSeg);
 
+  // Plain-mode suffix: same shape as themed (2-cell gap then verbatim
+  // payload). Caller is responsible for picking a plain-text payload when
+  // theme is absent.
+  const suffixSeg = opts.titleSuffix ? `  ${opts.titleSuffix}` : "";
+  const suffixSegW = opts.titleSuffix ? titleSuffixGap + titleSuffixW : 0;
+
   const gap = Math.max(
     1,
-    width - row1StripePrefixW - tagW - titleW - tagSubtitleW - trailingW - 1,
+    width - row1StripePrefixW - tagW - titleW - suffixSegW - tagSubtitleW - trailingW - 1,
   );
   const row1Trailing = opts.trailing ? `${" ".repeat(gap)}${trailing}` : "";
   // See renderTaggedCardThemed for the leading-space rationale: every card
   // line starts with one cell so the stripe lines up with the band label
   // and the hint arrow.
-  const row1 = ` ${STRIPE_CHAR_PLAIN} ${tagSeg}${titleSeg}${tagSubtitleSeg}${row1Trailing}`;
+  const row1 = ` ${STRIPE_CHAR_PLAIN} ${tagSeg}${titleSeg}${suffixSeg}${tagSubtitleSeg}${row1Trailing}`;
 
   const bodyPrefix = ` ${STRIPE_CHAR_PLAIN}${" ".repeat(bodyStripePrefixW - 1)}`;
   const rows: string[] = [row1];

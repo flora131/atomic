@@ -4,7 +4,7 @@
  *
  * Behaviour:
  * - Only active when config.statusFile === true.
- * - Default path: <projectRoot>/.omp/workflows/status.json
+ * - Default path: <projectRoot>/.pi/workflows/status.json
  * - Atomic write via temp-file + rename (no torn reads by CI consumers).
  * - Flushes on every store update; guaranteed to flush on run terminal states
  *   (completed | failed | killed).
@@ -26,7 +26,7 @@ import type { WorkflowRuntimeConfig } from "../shared/types.js";
 // Constants
 // ---------------------------------------------------------------------------
 
-const DEFAULT_STATUS_SUBPATH = join(".omp", "workflows", "status.json");
+const DEFAULT_STATUS_SUBPATH = join(".pi", "workflows", "status.json");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -54,7 +54,7 @@ export interface StatusWriter {
  *
  * Priority:
  * 1. config.statusFilePath (explicit override)
- * 2. <projectRoot>/.omp/workflows/status.json  (default)
+ * 2. <projectRoot>/.pi/workflows/status.json  (default)
  */
 export function resolveStatusFilePath(
   config: Pick<WorkflowRuntimeConfig, "statusFilePath">,

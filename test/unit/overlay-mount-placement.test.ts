@@ -2,7 +2,7 @@
  * Unit tests for workflow picker overlay mount placement.
  *
  * These exercise the wrappers in `src/tui/session-overlays.ts` and
- * `src/tui/inputs-overlay.ts` to verify they mount via oh-my-pi's
+ * `src/tui/inputs-overlay.ts` to verify they mount via pi's
  * `ctx.ui.custom(factory, { overlay: false })` — i.e. the **inline**
  * mount mode where the host's `ExtensionUiController.custom` REPLACES
  * the editor component with the mounted picker. Inline placement
@@ -13,7 +13,7 @@
  * cross-ref:
  *  - src/tui/session-overlays.ts
  *  - src/tui/inputs-overlay.ts
- *  - oh-my-pi packages/coding-agent/src/modes/controllers/extension-ui-controller.ts
+ *  - pi packages/coding-agent/src/modes/controllers/extension-ui-controller.ts
  */
 import { test } from "bun:test";
 import assert from "node:assert/strict";
@@ -95,7 +95,7 @@ test("openSessionPicker mounts via ctx.ui.custom with overlay:false (inline mode
   assert.equal(
     calls[0]!.options.overlay,
     false,
-    "session picker must mount inline; oh-my-pi replaces the editor with the picker",
+    "session picker must mount inline; pi replaces the editor with the picker",
   );
   // No `overlayOptions` / `onHandle` should leak — inline mode is host-managed.
   assert.equal(calls[0]!.options.overlayOptions, undefined);
@@ -150,7 +150,7 @@ test("openInputsPicker mounts via ctx.ui.custom with overlay:false (inline mode)
   assert.equal(
     calls[0]!.options.overlay,
     false,
-    "inputs picker must mount inline; oh-my-pi replaces the editor with the picker",
+    "inputs picker must mount inline; pi replaces the editor with the picker",
   );
   assert.equal(calls[0]!.options.overlayOptions, undefined);
   // Dispose to clean up the cursor-blink interval.

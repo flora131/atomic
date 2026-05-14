@@ -59,16 +59,16 @@ describe("resolveStatusFilePath", () => {
     assert.equal(resolveStatusFilePath(cfg, { projectRoot: "/some/root" }), "/explicit/status.json");
   });
 
-  test("defaults to <projectRoot>/.omp/workflows/status.json", () => {
+  test("defaults to <projectRoot>/.pi/workflows/status.json", () => {
     const cfg = makeConfig({ statusFilePath: undefined });
     const result = resolveStatusFilePath(cfg, { projectRoot: "/myproject" });
-    assert.equal(result, join("/myproject", ".omp", "workflows", "status.json"));
+    assert.equal(result, join("/myproject", ".pi", "workflows", "status.json"));
   });
 
   test("uses process.cwd() when projectRoot not provided", () => {
     const cfg = makeConfig({ statusFilePath: undefined });
     const result = resolveStatusFilePath(cfg);
-    assert.equal(result, join(process.cwd(), ".omp", "workflows", "status.json"));
+    assert.equal(result, join(process.cwd(), ".pi", "workflows", "status.json"));
   });
 });
 
@@ -310,7 +310,7 @@ describe("createStatusWriter — statusFile:true", () => {
   test("resolves default path relative to projectRoot", async () => {
     // Use a real nested path under tmpDir as projectRoot
     const projectRoot = join(tmpDir, "myproject");
-    const expectedPath = join(projectRoot, ".omp", "workflows", "status.json");
+    const expectedPath = join(projectRoot, ".pi", "workflows", "status.json");
 
     const s = createStore();
     const writer = createStatusWriter(

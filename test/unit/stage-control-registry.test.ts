@@ -17,7 +17,7 @@ import {
   type StageControlHandle,
   type StageControlStatus,
 } from "../../src/runs/foreground/stage-control-registry.js";
-import type { AgentSession } from "@oh-my-pi/pi-coding-agent";
+import type { AgentSession } from "@earendil-works/pi-coding-agent";
 
 interface MockHandleState {
   pauseCalls: number;

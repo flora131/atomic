@@ -1,7 +1,7 @@
 /**
  * Tests for WorkflowGraphOverlayAdapter and overlay entrypoints.
  *
- * Every mount path goes through Pi / oh-my-pi's real
+ * Every mount path goes through Pi / pi's real
  * `ctx.ui.custom(factory, options)` primitive. There is no legacy
  * object-shaped overlay path.
  *
@@ -868,5 +868,145 @@ describe("buildGraphOverlayAdapter — Ctrl+D / h non-destructive hide", () => {
     const run = store.runs().find((r) => r.id === runId);
     assert.equal(run!.status, "killed", "`q` must transition the run to killed");
     assert.ok(run!.endedAt !== undefined, "`q` must mark the run as ended");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildGraphOverlayAdapter — animation tick visibility gating
+// ---------------------------------------------------------------------------
+
+describe("buildGraphOverlayAdapter — animation tick visibility gating", () => {
+  test("requestRender from the view fires tui.requestRender while visible", async () => {
+    const runId = `tick-visible-${Date.now()}`;
+    const store = createStore();
+    store.recordRunStart({
+      id: runId,
+      name: "wf",
+      inputs: {},
+      status: "running",
+      stages: [],
+      startedAt: Date.now(),
+    });
+
+    let renderCalls = 0;
+    let component: PiCustomComponent | undefined;
+    const customFn: PiCustomOverlayFunction = (factoryArg, options) => {
+      const { handle } = buildOverlayHandle();
+      options.onHandle?.(handle);
+      const tui: PiCustomOverlayFactoryTui = {
+        requestRender: () => {
+          renderCalls++;
+        },
+      };
+      const c = factoryArg(tui, {}, {}, () => undefined);
+      if (c instanceof Promise) throw new Error("expected sync factory");
+      component = c;
+      return undefined;
+    };
+
+    const adapter = buildGraphOverlayAdapter({ ui: { custom: customFn } }, store);
+    adapter.open(runId);
+    assert.ok(component, "factory should return a component");
+    // Animation tick is 100ms; 250ms wall-clock gives at least two ticks.
+    await new Promise((r) => setTimeout(r, 250));
+    component!.dispose?.();
+    assert.ok(
+      renderCalls >= 2,
+      `expected tui.requestRender to fire on the animation tick (got ${renderCalls})`,
+    );
+  });
+
+  test("requestRender suppresses tui.requestRender while overlay is hidden", async () => {
+    const runId = `tick-hidden-${Date.now()}`;
+    const store = createStore();
+    store.recordRunStart({
+      id: runId,
+      name: "wf",
+      inputs: {},
+      status: "running",
+      stages: [],
+      startedAt: Date.now(),
+    });
+
+    let renderCalls = 0;
+    let component: PiCustomComponent | undefined;
+    let hidden = false;
+    const overlayHandle: PiOverlayHandle = {
+      hide: () => undefined,
+      setHidden: (h) => {
+        hidden = h;
+      },
+      isHidden: () => hidden,
+      focus: () => undefined,
+      unfocus: () => undefined,
+      isFocused: () => !hidden,
+    };
+    const customFn: PiCustomOverlayFunction = (factoryArg, options) => {
+      options.onHandle?.(overlayHandle);
+      const tui: PiCustomOverlayFactoryTui = {
+        requestRender: () => {
+          renderCalls++;
+        },
+      };
+      const c = factoryArg(tui, {}, {}, () => undefined);
+      if (c instanceof Promise) throw new Error("expected sync factory");
+      component = c;
+      return undefined;
+    };
+
+    const adapter = buildGraphOverlayAdapter({ ui: { custom: customFn } }, store);
+    adapter.open(runId);
+    // Flip to hidden before the first tick can fire.
+    overlayHandle.setHidden(true);
+    const before = renderCalls;
+    await new Promise((r) => setTimeout(r, 250));
+    const after = renderCalls;
+    component!.dispose?.();
+    assert.equal(
+      after,
+      before,
+      `tui.requestRender must not fire while overlay is hidden (before=${before}, after=${after})`,
+    );
+  });
+
+  test("tick stops after the component is disposed", async () => {
+    const runId = `tick-dispose-${Date.now()}`;
+    const store = createStore();
+    store.recordRunStart({
+      id: runId,
+      name: "wf",
+      inputs: {},
+      status: "running",
+      stages: [],
+      startedAt: Date.now(),
+    });
+
+    let renderCalls = 0;
+    let component: PiCustomComponent | undefined;
+    const customFn: PiCustomOverlayFunction = (factoryArg, options) => {
+      const { handle } = buildOverlayHandle();
+      options.onHandle?.(handle);
+      const tui: PiCustomOverlayFactoryTui = {
+        requestRender: () => {
+          renderCalls++;
+        },
+      };
+      const c = factoryArg(tui, {}, {}, () => undefined);
+      if (c instanceof Promise) throw new Error("expected sync factory");
+      component = c;
+      return undefined;
+    };
+
+    const adapter = buildGraphOverlayAdapter({ ui: { custom: customFn } }, store);
+    adapter.open(runId);
+    await new Promise((r) => setTimeout(r, 150));
+    component!.dispose?.();
+    const afterDispose = renderCalls;
+    await new Promise((r) => setTimeout(r, 250));
+    assert.equal(
+      renderCalls,
+      afterDispose,
+      "no further ticks should fire after dispose",
+    );
   });
 });

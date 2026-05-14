@@ -238,13 +238,14 @@ describe("createStageContext — subagent metadata propagation", () => {
       async subagent(opts) { receivedOpts.push(opts); return "ok"; },
     };
     const ctx = createStageContext(makeOpts({ adapters: { subagent: subagentAdapter } }));
-    await ctx.subagent({ agent: "reviewer", task: "review PR", context: "some context" });
-    assert.deepEqual(receivedOpts[0], { agent: "reviewer", task: "review PR", context: "some context" });
+    // pi-subagents v0.24.2: `context` is the literal union `"fresh" | "fork"`.
+    await ctx.subagent({ agent: "reviewer", task: "review PR", context: "fork" });
+    assert.deepEqual(receivedOpts[0], { agent: "reviewer", task: "review PR", context: "fork" });
   });
 
   test("throws when subagent adapter absent", async () => {
     const ctx = createStageContext(makeOpts({ adapters: {} }));
-    await assert.rejects(ctx.subagent({ agent: "x", task: "y" }), { message: /subagent requires oh-my-pi task delegation/ });
+    await assert.rejects(ctx.subagent({ agent: "x", task: "y" }), { message: /subagent requires pi task delegation/ });
   });
 });
 
@@ -269,7 +270,7 @@ describe("createStageContext — error paths", () => {
 // ---------------------------------------------------------------------------
 
 import type { InternalStageContext, AgentSessionAdapter, StageSessionRuntime } from "../../src/runs/foreground/stage-runner.js";
-import type { AgentSession } from "@oh-my-pi/pi-coding-agent";
+import type { AgentSession } from "@earendil-works/pi-coding-agent";
 
 function makeMockSession(overrides: Partial<StageSessionRuntime> = {}): {
   session: StageSessionRuntime;
@@ -303,9 +304,9 @@ function makeMockSession(overrides: Partial<StageSessionRuntime> = {}): {
     setThinkingLevel() {},
     cycleModel: (async () => undefined) as StageSessionRuntime["cycleModel"],
     cycleThinkingLevel: (() => undefined) as StageSessionRuntime["cycleThinkingLevel"],
-    agent: undefined as AgentSession["agent"],
+    agent: undefined as unknown as AgentSession["agent"],
     model: undefined as AgentSession["model"],
-    thinkingLevel: undefined as AgentSession["thinkingLevel"],
+    thinkingLevel: "medium" as AgentSession["thinkingLevel"],
     messages: [] as AgentSession["messages"],
     isStreaming: false,
     navigateTree: (async () => ({ cancelled: false })) as StageSessionRuntime["navigateTree"],

@@ -16,9 +16,9 @@ const workflow = defineWorkflow("hello-world")
     description: "Name to greet.",
   })
   .run(async (ctx) => {
-    // Stage bodies run inside an oh-my-pi sub-session at execution time.
+    // Stage bodies run inside an pi sub-session at execution time.
     // This stub satisfies the type; replace with real ctx.stage() calls when
-    // wired to an oh-my-pi runtime via the executor.
+    // wired to an pi runtime via the executor.
     const greet = ctx.stage("greet");
     const greeting = await greet.prompt(
       `Say hello to ${String(ctx.inputs.name)} in a warm, one-sentence greeting.`
@@ -34,4 +34,4 @@ console.log("description:    ", workflow.description);
 console.log("inputs:         ", JSON.stringify(workflow.inputs, null, 2));
 console.log("");
 console.log("Workflow compiled successfully. Register it with createRegistry() or");
-console.log("place this file in .omp/workflows/ to auto-discover it in oh-my-pi.");
+console.log("place this file in .pi/workflows/ to auto-discover it in pi.");

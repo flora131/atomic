@@ -1,7 +1,7 @@
 /**
  * Mount adapters for the session picker and kill-confirmation overlays.
  *
- * Both overlays use Pi / oh-my-pi's real `ctx.ui.custom(factory, options)`
+ * Both overlays use Pi / pi's real `ctx.ui.custom(factory, options)`
  * primitive. There is no legacy object-shaped fallback — when the host
  * doesn't expose `pi.ui.custom` the picker resolves with `close` and the
  * kill-confirm falls back to `pi.ui.confirm` (or `false` when even that
@@ -9,7 +9,7 @@
  *
  * Mount mode
  * ----------
- * The session picker uses `{ overlay: false }` — oh-my-pi's interactive
+ * The session picker uses `{ overlay: false }` — pi's interactive
  * `ExtensionUiController.custom` REPLACES the editor component with the
  * mounted picker (`editorContainer.clear(); addChild(picker)`), so the
  * picker renders **inline** in the chat layout at the editor's natural
@@ -28,7 +28,7 @@
  *  - src/tui/session-picker.ts (state machine + render)
  *  - src/tui/overlay-adapter.ts (overlay:true full-screen graph mount)
  *  - src/extension/wiring.ts (PiCustomOverlayFunction / PiOverlayOptions)
- *  - oh-my-pi docs/tui.md  Mount points and return contracts
+ *  - pi docs/tui.md  Mount points and return contracts
  */
 
 import type {
@@ -53,7 +53,7 @@ import {
 import type { RunSnapshot } from "../shared/store-types.js";
 
 /**
- * Aspirational confirm-modal geometry. Current oh-my-pi interactive
+ * Aspirational confirm-modal geometry. Current pi interactive
  * `custom()` does not forward `overlayOptions` to pi-tui's overlay
  * layout (it always uses `{ anchor: "bottom-center", width: "100%",
  * maxHeight: "100%", margin: 0 }`); the value is retained for future
@@ -164,7 +164,7 @@ export function openSessionPicker(
 
     // overlay: false — picker replaces the editor in-place (see header
     // comment). The host owns geometry/focus; no overlayOptions are
-    // forwarded by interactive oh-my-pi today.
+    // forwarded by interactive pi today.
     void custom(factory, { overlay: false });
   });
 }

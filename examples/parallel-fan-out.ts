@@ -61,5 +61,5 @@ console.log("Workflow:    ", workflow.name);
 console.log("Description: ", workflow.description);
 console.log("Inputs:      ", JSON.stringify(workflow.inputs, null, 2));
 console.log("");
-console.log("Place this file in .omp/workflows/ or register it programmatically.");
-console.log("Start it from oh-my-pi chat: /workflow parallel-research topic=\"auth migration\"");
+console.log("Place this file in .pi/workflows/ or register it programmatically.");
+console.log("Start it from pi chat: /workflow parallel-research topic=\"auth migration\"");

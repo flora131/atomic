@@ -7,11 +7,11 @@ This document covers setup, the local dev loop, testing patterns, and project la
 ## Prerequisites
 
 - **[Bun](https://bun.sh) ≥ 1.3.7** — the runtime, package manager, and test runner for this repo
-- **[oh-my-pi](https://github.com/can1357/oh-my-pi)** — the host that loads the extension
+- **[pi](https://github.com/earendil-works/pi)** — the host that loads the extension
 
 This repo uses **Bun** for all development, scripts, and testing.
 
-The package ships raw `.ts` files with no build step. Do not introduce `dist/`, `tsconfig.build.json`, `outDir`, or bundling. oh-my-pi imports the extension modules directly with Bun; tests run via Bun's built-in `bun:test` runner.
+The package ships raw `.ts` files with no build step. Do not introduce `dist/`, `tsconfig.build.json`, `outDir`, or bundling. pi imports the extension modules directly with Bun; tests run via Bun's built-in `bun:test` runner.
 
 ---
 
@@ -27,30 +27,30 @@ bun install
 
 ---
 
-## Local dev loop with oh-my-pi
+## Local dev loop with pi
 
 Three options, from heaviest to lightest:
 
-### A. `omp plugin install` against the local path (persisted)
+### A. `pi plugin install` against the local path (persisted)
 
 ```bash
-omp plugin install -l "$PWD"   # project-local
+pi plugin install -l "$PWD"   # project-local
 # or
-omp plugin install    "$PWD"   # global
+pi plugin install    "$PWD"   # global
 ```
 
-oh-my-pi adds the absolute path to its settings file and resolves the package's `omp` manifest. From inside oh-my-pi, `/reload` re-imports the extension after you edit source — no restart needed.
+pi adds the absolute path to its settings file and resolves the package's `pi` manifest. From inside pi, `/reload` re-imports the extension after you edit source — no restart needed.
 
 ### B. One-off load with `-e` (no settings write)
 
 ```bash
-omp -e "$PWD/src/extension/index.ts"
+pi -e "$PWD/src/extension/index.ts"
 ```
 
 The fastest iteration loop. Combine with `--no-extensions` to isolate the extension under test:
 
 ```bash
-omp --no-extensions \
+pi --no-extensions \
    -e "$PWD/src/extension/index.ts" \
    "/workflow list"
 ```
@@ -60,13 +60,13 @@ Pass an initial prompt at the end to drive a single command and exit (works with
 ### C. Symlink into the extensions directory
 
 ```bash
-mkdir -p ~/.omp/agent/extensions
-ln -s "$PWD" ~/.omp/agent/extensions/workflows
+mkdir -p ~/.pi/agent/extensions
+ln -s "$PWD" ~/.pi/agent/extensions/workflows
 ```
 
-Useful when you want the extension persisted globally but don't want oh-my-pi to track it in settings.
+Useful when you want the extension persisted globally but don't want pi to track it in settings.
 
-> oh-my-pi's docs call out `omp -e <path>` as the recommended path for "quick tests" and `omp plugin install` / auto-discovered locations as the path for resources that need `/reload` hot-reload. See [oh-my-pi extension-loading docs](https://github.com/can1357/oh-my-pi/blob/main/docs/extension-loading.md).
+> pi's docs call out `pi -e <path>` as the recommended path for "quick tests" and `pi plugin install` / auto-discovered locations as the path for resources that need `/reload` hot-reload. See [pi extension-loading docs](https://github.com/earendil-works/pi/blob/main/docs/extension-loading.md).
 
 ---
 
@@ -91,7 +91,7 @@ All tests use **Bun's built-in `bun:test` runner** with `node:assert/strict` ass
 
 ### Unit tests (`test/unit/*.test.ts`)
 
-Pure-TS tests against modules in `src/`. They mock oh-my-pi's `ExtensionAPI` surface with hand-built fakes — fast, deterministic, no oh-my-pi runtime in the loop.
+Pure-TS tests against modules in `src/`. They mock pi's `ExtensionAPI` surface with hand-built fakes — fast, deterministic, no pi runtime in the loop.
 
 ```ts
 import { test } from "bun:test";
@@ -107,13 +107,13 @@ Run: `bun run test:unit`.
 
 ### Integration tests (`test/integration/*.test.ts`)
 
-Higher-fidelity tests that compose multiple modules (runtime, wiring, overlay) and exercise the extension factory against a structural mock of `ExtensionAPI`. Still no real oh-my-pi process — but they cover end-to-end registration, lifecycle, and overlay paths.
+Higher-fidelity tests that compose multiple modules (runtime, wiring, overlay) and exercise the extension factory against a structural mock of `ExtensionAPI`. Still no real pi process — but they cover end-to-end registration, lifecycle, and overlay paths.
 
 Run: `bun run test:integration`.
 
-### Improved coverage with oh-my-pi's SDK (recommended for new end-to-end tests)
+### Improved coverage with pi's SDK (recommended for new end-to-end tests)
 
-oh-my-pi exposes `DefaultResourceLoader.extensionFactories` for in-process extension injection. This is the highest-fidelity test path short of spawning a real `omp` process:
+pi exposes `DefaultResourceLoader.extensionFactories` for in-process extension injection. This is the highest-fidelity test path short of spawning a real `pi` process:
 
 ```ts
 import {
@@ -121,7 +121,7 @@ import {
   DefaultResourceLoader,
   SessionManager,
   getAgentDir,
-} from "@oh-my-pi/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import factory from "../src/extension/index.ts";
 
 const resourceLoader = new DefaultResourceLoader({
@@ -137,7 +137,7 @@ const { session } = await createAgentSession({
 });
 ```
 
-This pattern lets you assert against oh-my-pi's real `ExtensionAPI`, real command dispatch, real tool registration, and real event bus — no manual mocks. It's the canonical oh-my-pi pattern documented under `docs/` in [`can1357/oh-my-pi`](https://github.com/can1357/oh-my-pi).
+This pattern lets you assert against pi's real `ExtensionAPI`, real command dispatch, real tool registration, and real event bus — no manual mocks. It's the canonical pi pattern documented under `docs/` in [`can1357/pi`](https://github.com/earendil-works/pi).
 
 Add an integration test that exercises this for the `workflow` tool + `/workflow list` slash command and you'll catch ExtensionAPI shape drift before it ships.
 
@@ -167,9 +167,8 @@ Bun resolves `.js` import specifiers to the underlying `.ts` source files direct
 
 ```
 .
-├── install.mjs              # bunx atomic-workflows entrypoint (post-publish convenience)
 ├── src/
-│   ├── extension/           # oh-my-pi extension entry point: tool, slash commands, hooks
+│   ├── extension/           # pi extension entry point: tool, slash commands, hooks
 │   ├── intercom/            # pi-intercom adapter (HIL for detached runs)
 │   ├── runs/
 │   │   ├── foreground/      # Synchronous executor and stage runner
@@ -198,9 +197,9 @@ Bun resolves `.js` import specifiers to the underlying `.ts` source files direct
 
 ## Best practices
 
-- **Source files use `.js` import extensions** (TypeScript ESM convention). The repo ships as `.ts` files; Bun resolves `.js` specifiers to `.ts` sources directly — both oh-my-pi's loader and `bun test` follow the same convention. Do not break this.
+- **Source files use `.js` import extensions** (TypeScript ESM convention). The repo ships as `.ts` files; Bun resolves `.js` specifiers to `.ts` sources directly — both pi's loader and `bun test` follow the same convention. Do not break this.
 - **Avoid `any` and `unknown`.** Use specific types. The codebase compiles with `strict`, `noUnusedLocals`, `noUnusedParameters`.
-- **Mirror oh-my-pi extension conventions.** When in doubt about a structural choice (extension shape, manifest layout, file naming), check [`can1357/oh-my-pi`](https://github.com/can1357/oh-my-pi) (especially `packages/swarm-extension`) first — both extensions follow the same ship-as-source pattern.
+- **Mirror pi extension conventions.** When in doubt about a structural choice (extension shape, manifest layout, file naming), check [`can1357/pi`](https://github.com/earendil-works/pi) (especially `packages/swarm-extension`) first — both extensions follow the same ship-as-source pattern.
 - **Track in-progress fixes in `issues.md`.** Delete the file once issues are resolved to keep the repo clean.
 
 ---

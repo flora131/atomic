@@ -1,13 +1,13 @@
 /**
  * Stage runner — creates an AgentSession-like StageContext for a workflow stage.
  *
- * The public stage surface mirrors the supported subset of oh-my-pi's SDK
+ * The public stage surface mirrors the supported subset of pi's SDK
  * AgentSession. The executor wraps prompt() for lifecycle tracking and owns
  * disposal; workflow authors get direct SDK session methods without a custom
  * prompt/subagent abstraction.
  */
 
-import type { AgentSession, CreateAgentSessionOptions, PromptOptions } from "@oh-my-pi/pi-coding-agent";
+import type { AgentSession, CreateAgentSessionOptions, PromptOptions } from "@earendil-works/pi-coding-agent";
 import type {
   CompleteStageOpts,
   StageContext,
@@ -240,7 +240,7 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
     async subagent(subagentOpts) {
       if (!adapters.subagent) {
         throw new Error(
-          "pi-workflows: subagent requires oh-my-pi task delegation support",
+          "pi-workflows: subagent requires pi task delegation support",
         );
       }
       lastAssistantText = await adapters.subagent.subagent(subagentOpts, meta);

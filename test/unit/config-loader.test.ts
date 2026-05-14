@@ -77,7 +77,7 @@ describe("loadWorkflowConfig — global config only", () => {
   beforeAll(async () => {
     tmpHome = await mkdtemp(join(tmpdir(), "pi-config-test-home-"));
     tmpProject = await mkdtemp(join(tmpdir(), "pi-config-test-proj-"));
-    const globalDir = await makeDir(tmpHome, ".omp", "agent", "extensions", "workflow");
+    const globalDir = await makeDir(tmpHome, ".pi", "agent", "extensions", "workflow");
     await writeJson(globalDir, "config.json", {
       maxDepth: 5,
       defaultConcurrency: 2,
@@ -107,7 +107,7 @@ describe("loadWorkflowConfig — project-local config only (primary candidate)",
   beforeAll(async () => {
     tmpHome = await mkdtemp(join(tmpdir(), "pi-config-test-home-"));
     tmpProject = await mkdtemp(join(tmpdir(), "pi-config-test-proj-"));
-    const projDir = await makeDir(tmpProject, ".omp", "extensions", "workflow");
+    const projDir = await makeDir(tmpProject, ".pi", "extensions", "workflow");
     await writeJson(projDir, "config.json", {
       maxDepth: 3,
       resumeInFlight: "auto",
@@ -119,7 +119,7 @@ describe("loadWorkflowConfig — project-local config only (primary candidate)",
     await rm(tmpProject, { recursive: true, force: true });
   });
 
-  test("project-local (.omp/extensions) config loaded", async () => {
+  test("project-local (.pi/extensions) config loaded", async () => {
     const result = await loadWorkflowConfig({ homeDir: tmpHome, projectRoot: tmpProject });
     assert.equal(result.diagnostics.length, 0);
     assert.notEqual(result.config, null);
@@ -128,7 +128,7 @@ describe("loadWorkflowConfig — project-local config only (primary candidate)",
   });
 });
 
-describe("loadWorkflowConfig — non-omp config ignored", () => {
+describe("loadWorkflowConfig — non-pi config ignored", () => {
   let tmpHome: string;
   let tmpProject: string;
 
@@ -146,21 +146,21 @@ describe("loadWorkflowConfig — non-omp config ignored", () => {
     await rm(tmpProject, { recursive: true, force: true });
   });
 
-  test("non-omp config is not loaded", async () => {
+  test("non-pi config is not loaded", async () => {
     const result = await loadWorkflowConfig({ homeDir: tmpHome, projectRoot: tmpProject });
     assert.equal(result.diagnostics.length, 0);
     assert.equal(result.config, null);
   });
 });
 
-describe("loadWorkflowConfig — .omp config wins over non-omp config", () => {
+describe("loadWorkflowConfig — .pi config wins over non-pi config", () => {
   let tmpHome: string;
   let tmpProject: string;
 
   beforeAll(async () => {
     tmpHome = await mkdtemp(join(tmpdir(), "pi-config-test-home-"));
     tmpProject = await mkdtemp(join(tmpdir(), "pi-config-test-proj-"));
-    const primaryDir = await makeDir(tmpProject, ".omp", "extensions", "workflow");
+    const primaryDir = await makeDir(tmpProject, ".pi", "extensions", "workflow");
     await writeJson(primaryDir, "config.json", { maxDepth: 10 });
     const ignoredDir = await makeDir(tmpProject, ".legacy", "agent", "extensions", "workflow");
     await writeJson(ignoredDir, "config.json", { maxDepth: 99 });
@@ -171,7 +171,7 @@ describe("loadWorkflowConfig — .omp config wins over non-omp config", () => {
     await rm(tmpProject, { recursive: true, force: true });
   });
 
-  test(".omp config used when non-omp config also exists", async () => {
+  test(".pi config used when non-pi config also exists", async () => {
     const result = await loadWorkflowConfig({ homeDir: tmpHome, projectRoot: tmpProject });
     assert.equal(result.diagnostics.length, 0);
     assert.equal(result.config!.maxDepth, 10);
@@ -185,13 +185,13 @@ describe("loadWorkflowConfig — merge: project overrides global", () => {
   beforeAll(async () => {
     tmpHome = await mkdtemp(join(tmpdir(), "pi-config-test-home-"));
     tmpProject = await mkdtemp(join(tmpdir(), "pi-config-test-proj-"));
-    const globalDir = await makeDir(tmpHome, ".omp", "agent", "extensions", "workflow");
+    const globalDir = await makeDir(tmpHome, ".pi", "agent", "extensions", "workflow");
     await writeJson(globalDir, "config.json", {
       maxDepth: 4,
       persistRuns: true,
       resumeInFlight: "ask",
     });
-    const projDir = await makeDir(tmpProject, ".omp", "extensions", "workflow");
+    const projDir = await makeDir(tmpProject, ".pi", "extensions", "workflow");
     await writeJson(projDir, "config.json", {
       maxDepth: 2,
       statusFile: true,
@@ -228,14 +228,14 @@ describe("loadWorkflowConfig — workflows map merge", () => {
   beforeAll(async () => {
     tmpHome = await mkdtemp(join(tmpdir(), "pi-config-test-home-"));
     tmpProject = await mkdtemp(join(tmpdir(), "pi-config-test-proj-"));
-    const globalDir = await makeDir(tmpHome, ".omp", "agent", "extensions", "workflow");
+    const globalDir = await makeDir(tmpHome, ".pi", "agent", "extensions", "workflow");
     await writeJson(globalDir, "config.json", {
       workflows: {
-        "global-wf": { path: "/home/user/.omp/workflows/global.ts" },
-        "shared-wf": { path: "/home/user/.omp/workflows/shared.ts" },
+        "global-wf": { path: "/home/user/.pi/workflows/global.ts" },
+        "shared-wf": { path: "/home/user/.pi/workflows/shared.ts" },
       },
     });
-    const projDir = await makeDir(tmpProject, ".omp", "extensions", "workflow");
+    const projDir = await makeDir(tmpProject, ".pi", "extensions", "workflow");
     await writeJson(projDir, "config.json", {
       workflows: {
         "proj-wf": { path: "./workflows/project.ts" },
@@ -264,7 +264,7 @@ describe("loadWorkflowConfig — workflows map merge", () => {
 
   test("global-only workflow preserved", async () => {
     const result = await loadWorkflowConfig({ homeDir: tmpHome, projectRoot: tmpProject });
-    assert.equal(result.config!.workflows!["global-wf"].path, "/home/user/.omp/workflows/global.ts");
+    assert.equal(result.config!.workflows!["global-wf"].path, "/home/user/.pi/workflows/global.ts");
   });
 });
 
@@ -275,7 +275,7 @@ describe("loadWorkflowConfig — invalid JSON", () => {
   beforeAll(async () => {
     tmpHome = await mkdtemp(join(tmpdir(), "pi-config-test-home-"));
     tmpProject = await mkdtemp(join(tmpdir(), "pi-config-test-proj-"));
-    const globalDir = await makeDir(tmpHome, ".omp", "agent", "extensions", "workflow");
+    const globalDir = await makeDir(tmpHome, ".pi", "agent", "extensions", "workflow");
     await writeBadJson(globalDir, "config.json");
   });
 
@@ -314,7 +314,7 @@ describe("loadWorkflowConfig — invalid shape (wrong field types)", () => {
   beforeAll(async () => {
     tmpHome = await mkdtemp(join(tmpdir(), "pi-config-test-home-"));
     tmpProject = await mkdtemp(join(tmpdir(), "pi-config-test-proj-"));
-    const projDir = await makeDir(tmpProject, ".omp", "extensions", "workflow");
+    const projDir = await makeDir(tmpProject, ".pi", "extensions", "workflow");
     await writeJson(projDir, "config.json", { maxDepth: "not-a-number" });
   });
 
@@ -338,7 +338,7 @@ describe("loadWorkflowConfig — invalid resumeInFlight enum", () => {
   beforeAll(async () => {
     tmpHome = await mkdtemp(join(tmpdir(), "pi-config-test-home-"));
     tmpProject = await mkdtemp(join(tmpdir(), "pi-config-test-proj-"));
-    const projDir = await makeDir(tmpProject, ".omp", "extensions", "workflow");
+    const projDir = await makeDir(tmpProject, ".pi", "extensions", "workflow");
     await writeJson(projDir, "config.json", { resumeInFlight: "maybe" });
   });
 
@@ -362,7 +362,7 @@ describe("loadWorkflowConfig — invalid workflows entry (missing path)", () => 
   beforeAll(async () => {
     tmpHome = await mkdtemp(join(tmpdir(), "pi-config-test-home-"));
     tmpProject = await mkdtemp(join(tmpdir(), "pi-config-test-proj-"));
-    const projDir = await makeDir(tmpProject, ".omp", "extensions", "workflow");
+    const projDir = await makeDir(tmpProject, ".pi", "extensions", "workflow");
     await writeJson(projDir, "config.json", {
       workflows: {
         "my-wf": { path: "" }, // empty path
@@ -390,9 +390,9 @@ describe("loadWorkflowConfig — both scopes invalid", () => {
   beforeAll(async () => {
     tmpHome = await mkdtemp(join(tmpdir(), "pi-config-test-home-"));
     tmpProject = await mkdtemp(join(tmpdir(), "pi-config-test-proj-"));
-    const globalDir = await makeDir(tmpHome, ".omp", "agent", "extensions", "workflow");
+    const globalDir = await makeDir(tmpHome, ".pi", "agent", "extensions", "workflow");
     await writeBadJson(globalDir, "config.json");
-    const projDir = await makeDir(tmpProject, ".omp", "extensions", "workflow");
+    const projDir = await makeDir(tmpProject, ".pi", "extensions", "workflow");
     await writeBadJson(projDir, "config.json");
   });
 
@@ -422,9 +422,9 @@ describe("loadWorkflowConfig — one invalid, one valid", () => {
   beforeAll(async () => {
     tmpHome = await mkdtemp(join(tmpdir(), "pi-config-test-home-"));
     tmpProject = await mkdtemp(join(tmpdir(), "pi-config-test-proj-"));
-    const globalDir = await makeDir(tmpHome, ".omp", "agent", "extensions", "workflow");
+    const globalDir = await makeDir(tmpHome, ".pi", "agent", "extensions", "workflow");
     await writeBadJson(globalDir, "config.json"); // invalid global
-    const projDir = await makeDir(tmpProject, ".omp", "extensions", "workflow");
+    const projDir = await makeDir(tmpProject, ".pi", "extensions", "workflow");
     await writeJson(projDir, "config.json", { maxDepth: 6 }); // valid project
   });
 
@@ -448,7 +448,7 @@ describe("loadWorkflowConfig — workflows array rejected (not object)", () => {
   beforeAll(async () => {
     tmpHome = await mkdtemp(join(tmpdir(), "pi-config-test-home-"));
     tmpProject = await mkdtemp(join(tmpdir(), "pi-config-test-proj-"));
-    const projDir = await makeDir(tmpProject, ".omp", "extensions", "workflow");
+    const projDir = await makeDir(tmpProject, ".pi", "extensions", "workflow");
     await writeJson(projDir, "config.json", { workflows: ["array-not-allowed"] });
   });
 
@@ -472,7 +472,7 @@ describe("loadWorkflowConfig — valid config with all fields", () => {
   beforeAll(async () => {
     tmpHome = await mkdtemp(join(tmpdir(), "pi-config-test-home-"));
     tmpProject = await mkdtemp(join(tmpdir(), "pi-config-test-proj-"));
-    const projDir = await makeDir(tmpProject, ".omp", "extensions", "workflow");
+    const projDir = await makeDir(tmpProject, ".pi", "extensions", "workflow");
     await writeJson(projDir, "config.json", {
       maxDepth: 4,
       defaultConcurrency: 4,
@@ -510,7 +510,7 @@ describe("loadWorkflowConfig — config not top-level object", () => {
   beforeAll(async () => {
     tmpHome = await mkdtemp(join(tmpdir(), "pi-config-test-home-"));
     tmpProject = await mkdtemp(join(tmpdir(), "pi-config-test-proj-"));
-    const projDir = await makeDir(tmpProject, ".omp", "extensions", "workflow");
+    const projDir = await makeDir(tmpProject, ".pi", "extensions", "workflow");
     // Valid JSON but not an object
     await writeFile(join(projDir, "config.json"), JSON.stringify([1, 2, 3]), "utf8");
   });
@@ -534,7 +534,7 @@ describe("ConfigDiagnostic shape", () => {
       level: "error",
       code: "CONFIG_INVALID",
       message: "Invalid JSON in config file: Unexpected token",
-      source: "/home/user/.omp/agent/extensions/workflow/config.json",
+      source: "/home/user/.pi/agent/extensions/workflow/config.json",
     };
     assert.equal(diag.code, "CONFIG_INVALID");
     assert.equal(diag.level, "error");

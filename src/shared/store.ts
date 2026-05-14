@@ -7,6 +7,7 @@ import type {
   PendingPrompt,
   RunSnapshot,
   StageSnapshot,
+  StageNotice,
   StoreSnapshot,
   ToolEvent,
   RunStatus,
@@ -77,7 +78,7 @@ export interface Store {
    */
   awaitPendingPrompt(runId: string, promptId: string): Promise<unknown>;
   /**
-   * Record Pi/oh-my-pi SDK session metadata for a stage after lazy
+   * Record Pi/pi SDK session metadata for a stage after lazy
    * attach. The serializable snapshot tracks this so post-mortem reopen
    * via `SessionManager.open(sessionFile)` is possible without storing
    * live handles in the store. Returns `true` when state changed.
@@ -101,16 +102,19 @@ export interface Store {
   recordStageAttached(runId: string, stageId: string, attached: boolean): boolean;
   /**
    * Mark a stage as `paused` and record `pausedAt`. Returns `true` when
-   * the stage transitioned (was not already paused or terminal).
+   * the stage transitioned (was not already paused, blocked, or terminal).
    */
   recordStagePaused(runId: string, stageId: string, pausedAt?: number): boolean;
   /**
-   * Clear the `paused` state on a stage and record `resumedAt`. Returns
-   * `true` when the stage transitioned out of the `paused` status.
+   * Clear `paused`/`blocked` state on a stage and record `resumedAt`.
+   * Returns `true` when the stage transitioned out of either status.
    * Status is restored to `running` so downstream gating reflects the
    * resumed Pi operation.
    */
   recordStageResumed(runId: string, stageId: string, resumedAt?: number): boolean;
+  recordStageBlocked(runId: string, stageId: string, blockedBy: string): boolean;
+  recordStageUnblocked(runId: string, stageId: string): boolean;
+  recordStageNotice(runId: string, stageId: string, notice: StageNotice): boolean;
   /**
    * Mark a run as `paused`. Idempotent on a paused run; refuses to
    * change a terminal run. Returns `true` when state changed.
@@ -419,13 +423,56 @@ export function createStore(): Store {
       return true;
     },
 
+    recordStageBlocked(runId: string, stageId: string, blockedBy: string): boolean {
+      const run = findRun(runId);
+      if (!run) return false;
+      if (TERMINAL_STATUSES.has(run.status)) return false;
+      const stage = findStage(run, stageId);
+      if (!stage) return false;
+      if (stage.status === "completed" || stage.status === "failed" || stage.status === "paused") return false;
+      if (stage.status === "blocked") {
+        if (stage.blockedByStageId === blockedBy) return false;
+        stage.blockedByStageId = blockedBy;
+      } else {
+        stage.status = "blocked";
+        stage.blockedByStageId = blockedBy;
+      }
+      _version++;
+      notify();
+      return true;
+    },
+
+    recordStageUnblocked(runId: string, stageId: string): boolean {
+      const run = findRun(runId);
+      if (!run) return false;
+      const stage = findStage(run, stageId);
+      if (!stage || stage.status !== "blocked") return false;
+      stage.status = "pending";
+      delete stage.blockedByStageId;
+      _version++;
+      notify();
+      return true;
+    },
+
+    recordStageNotice(runId: string, stageId: string, notice: StageNotice): boolean {
+      const run = findRun(runId);
+      if (!run) return false;
+      const stage = findStage(run, stageId);
+      if (!stage) return false;
+      if (!stage.notices) stage.notices = [];
+      stage.notices.push(notice);
+      _version++;
+      notify();
+      return true;
+    },
+
     recordStagePaused(runId: string, stageId: string, pausedAt?: number): boolean {
       const run = findRun(runId);
       if (!run) return false;
       if (TERMINAL_STATUSES.has(run.status)) return false;
       const stage = findStage(run, stageId);
       if (!stage) return false;
-      if (stage.status === "paused" || stage.status === "completed" || stage.status === "failed") return false;
+      if (stage.status === "paused" || stage.status === "blocked" || stage.status === "completed" || stage.status === "failed") return false;
       stage.status = "paused";
       stage.pausedAt = pausedAt ?? Date.now();
       stage.resumedAt = undefined;
@@ -439,10 +486,11 @@ export function createStore(): Store {
       if (!run) return false;
       const stage = findStage(run, stageId);
       if (!stage) return false;
-      if (stage.status !== "paused") return false;
+      if (stage.status !== "paused" && stage.status !== "blocked") return false;
       stage.status = "running";
       stage.resumedAt = resumedAt ?? Date.now();
       stage.pausedAt = undefined;
+      delete stage.blockedByStageId;
       _version++;
       notify();
       return true;

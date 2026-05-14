@@ -192,7 +192,7 @@ describe("resumeRun", () => {
 
 import { createStageControlRegistry } from "../../src/runs/foreground/stage-control-registry.js";
 import type { StageControlHandle, StageControlStatus } from "../../src/runs/foreground/stage-control-registry.js";
-import type { AgentSession } from "@oh-my-pi/pi-coding-agent";
+import type { AgentSession } from "@earendil-works/pi-coding-agent";
 
 function registerStageHandle(
   registry: ReturnType<typeof createStageControlRegistry>,

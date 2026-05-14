@@ -39,6 +39,8 @@ export interface NodeCardOpts {
   /** 0–1; ignored when status is terminal (complete/failed). */
   pulsePhase?: number;
   theme: GraphTheme;
+  /** Run stages, used to resolve blockedByStageId into a short upstream name. */
+  stages?: readonly StageSnapshot[];
 }
 
 /** Glyph that prefixes the focused-tab title; matches the compact
@@ -66,6 +68,8 @@ function pickBorder(
       return theme.success;
     case "failed":
       return theme.error;
+    case "blocked":
+      return theme.dim;
     case "pending":
     default:
       // Pending has no semantic colour; the focused-tab carries the
@@ -85,6 +89,21 @@ function durationColor(status: StageStatus, theme: GraphTheme): string {
     default:
       return theme.dim;
   }
+}
+
+function blockedBadgeText(
+  stage: StageSnapshot,
+  stages: readonly StageSnapshot[] | undefined,
+  width: number,
+): string {
+  const base = "↑ blocked";
+  const blockedBy = stage.blockedByStageId;
+  if (!blockedBy) return base;
+
+  const upstream = stages?.find((s) => s.id === blockedBy)?.name ?? blockedBy;
+  const withUpstream = `${base} by ${upstream}`;
+  if (withUpstream.length <= width) return withUpstream;
+  return base;
 }
 
 function durationText(stage: StageSnapshot): string {
@@ -210,10 +229,16 @@ export function renderNodeCard(stage: StageSnapshot, opts: NodeCardOpts): string
   // Interior — single centred duration line. Each `│` border is
   // followed by a `bg`-primed centred run so the inner cells stay on
   // the card stratum.
-  const durHex = durationColor(stage.status, theme);
+  const bodyText =
+    stage.status === "blocked"
+      ? blockedBadgeText(stage, opts.stages, innerWidth)
+      : durationText(stage);
+  const bodyHex = durationColor(stage.status, theme);
   const durLine =
     `${bg}${bc}│${RESET}` +
-    centreColored(durationText(stage), innerWidth, durHex, bg) +
+    centreColored(bodyText, innerWidth, bodyHex, bg, {
+      bold: stage.status === "blocked",
+    }) +
     `${bg}${bc}│${RESET}`;
 
   const interior: string[] = [durLine];

@@ -25,12 +25,14 @@
  *  - pi/dist/modes/interactive/components/custom-message.js — customRenderer hook
  */
 
+import type { DoctorPayload } from "../extension/doctor.js";
 import type { ExtensionAPI } from "../extension/index.js";
 import type { RunDetail } from "../runs/background/status.js";
 import type { RunSnapshot } from "../shared/store-types.js";
 import type { GraphTheme } from "./graph-theme.js";
 import type { WorkflowListEntry } from "./workflow-list.js";
 import { renderDispatchConfirm } from "./dispatch-confirm.js";
+import { renderDoctorCard } from "./doctor-card.js";
 import { renderRunDetail } from "./run-detail.js";
 import { renderStatusList } from "./status-list.js";
 import { renderWorkflowList } from "./workflow-list.js";
@@ -43,8 +45,11 @@ export const CHAT_SURFACE_CUSTOM_TYPE = "atomic-workflows:chat-surface";
 // ---------------------------------------------------------------------------
 
 /**
- * Dispatch confirm after `/workflow <name> …`. Renders the
- * `[ DISPATCHED ]` band + run-id card + connect/status hint rows.
+ * Dispatch confirm after `/workflow <name> …`. Renders a single tagged
+ * card carrying the runId, workflow name, inputs, and a `● running`
+ * badge, plus one `/workflow connect <id>` hint row. See
+ * `src/tui/dispatch-confirm.ts` for the visual contract and the legacy
+ * 7-row layout this replaced.
  */
 export interface DispatchPayload {
   kind: "dispatch";
@@ -75,11 +80,22 @@ export interface DetailPayload {
   detail: RunDetail;
 }
 
+/**
+ * `/workflows-doctor` card. The pre-built payload (see
+ * src/extension/doctor.ts) captures the state at command-invocation
+ * time; rendering is pure of stored state so resizes re-flow cleanly.
+ */
+export interface DoctorCardPayload {
+  kind: "doctor";
+  doctor: DoctorPayload;
+}
+
 export type ChatSurfacePayload =
   | DispatchPayload
   | StatusPayload
   | ListPayload
-  | DetailPayload;
+  | DetailPayload
+  | DoctorCardPayload;
 
 // ---------------------------------------------------------------------------
 // Renderer registration
@@ -170,6 +186,7 @@ function describePayload(payload: ChatSurfacePayload): string {
     case "status":   return `status · ${payload.runs.length} run${payload.runs.length === 1 ? "" : "s"}`;
     case "list":     return `workflows · ${payload.entries.length} registered`;
     case "detail":   return `run detail · ${payload.detail.runId.slice(0, 8)}`;
+    case "doctor":   return `doctor · ${payload.doctor.subtitle}`;
   }
 }
 
@@ -213,5 +230,7 @@ function renderPayload(
       // hint is unused — its surface mirrors the orchestrator panel
       // (outline-pill chrome), not the flex chat band.
       return renderRunDetail(payload.detail, { theme });
+    case "doctor":
+      return renderDoctorCard(payload.doctor, { theme, width });
   }
 }

@@ -94,7 +94,7 @@ describe("isSubagentsPresent", () => {
 describe("assertSubagentsPresent", () => {
   test("throws with actionable message when absent", () => {
     assert.throws(() => assertSubagentsPresent({}), {
-      message: "pi-workflows: subagent delegation requires oh-my-pi task delegation support.",
+      message: "pi-workflows: subagent delegation requires pi task delegation support.",
     });
   });
 

@@ -100,6 +100,16 @@ export interface GraphViewOpts {
    * falls back to the constant `OVERLAY_LINE_COUNT` rectangle.
    */
   getViewportRows?: () => number | undefined;
+  /**
+   * Invoked on each animation tick (~10 FPS) so the host can call
+   * `tui.requestRender()`. Only wired in `overlay` mode; supplying it
+   * starts the tick loop in the constructor so duration counters and
+   * the running-stage border pulse refresh without requiring a key
+   * press. The host is responsible for gating the underlying
+   * `requestRender` on overlay visibility / focus (see
+   * `overlay-adapter.ts`).
+   */
+  requestRender?: () => void;
 }
 
 const HINT_KEYS: Array<{ key: string; label: string }> = [
@@ -130,6 +140,22 @@ const MODE_PILL_LABEL = "GRAPH";
  */
 const OVERLAY_LINE_COUNT = 32;
 
+/**
+ * Animation tick period. Overlay re-renders fire on this cadence so
+ * duration counters (rendered from `Date.now() - stage.startedAt`)
+ * tick and the running-stage border lerps between `borderDim` and
+ * `warning` without a key press. The host-supplied `requestRender`
+ * gate prevents work while the overlay is hidden or unfocused.
+ */
+const ANIMATION_TICK_MS = 100;
+
+/**
+ * Full lerp period of `pulseT` for running-stage borders, in ms.
+ * `pulsePhase ∈ [0, 1)` cycles every `PULSE_PERIOD_MS` so the sine
+ * eased lerp inside `pickBorder` traces one full breath per cycle.
+ */
+const PULSE_PERIOD_MS = 2000;
+
 interface Component {
   render(width: number): string[];
   handleInput?(data: string): boolean | void;
@@ -150,6 +176,7 @@ export class GraphView implements Component {
   private onDetach?: () => void;
   private initialFocusedStageId?: string;
   private getViewportRows?: () => number | undefined;
+  private requestRender?: () => void;
 
   /** Active HIL prompt state, set when `_rebuildLayout` sees a new prompt id. */
   private promptState: PromptCardState | null = null;
@@ -158,7 +185,6 @@ export class GraphView implements Component {
   private switcherOpen = false;
   private switcherState: SwitcherState = { query: "", selectedIndex: 0 };
   private toastManager = createToastManager();
-  private pulsePhase = 0;
   private detailsExpanded = true;
   private cachedLayout: LayoutNode[] = [];
   private currentSnapshot: StoreSnapshot | null = null;
@@ -180,6 +206,7 @@ export class GraphView implements Component {
     this.onDetach = opts.onDetach;
     this.initialFocusedStageId = opts.initialFocusedStageId;
     this.getViewportRows = opts.getViewportRows;
+    this.requestRender = opts.requestRender;
 
     this._unsubscribe = this.store.subscribe((snap) => {
       this.currentSnapshot = snap;
@@ -188,13 +215,22 @@ export class GraphView implements Component {
     this.currentSnapshot = this.store.snapshot();
     this._rebuildLayout();
 
-    // No pulse animation timer. The previous 60ms interval forced pi
-    // to redraw every frame, and tmux preserved every redraw into the
-    // scrollback as a "ghost" overlay row. The static-glyph trade-off
-    // is acceptable; status is conveyed by the steady border colour.
-    // Toast TTL still expires correctly because it's checked on store
-    // updates via `_rebuildLayout` → render path.
-    this.pulsePhase = 0;
+    // Animation tick: while the overlay is mounted, fire a render
+    // request every `ANIMATION_TICK_MS` so the duration counter on
+    // each running stage advances and the border-pulse lerp animates
+    // even when the user isn't pressing keys. Only overlay mode owns
+    // visible animations; widget mode renders a single status line
+    // that never needs a steady cadence. The host's `requestRender`
+    // is responsible for gating on overlay visibility / focus — see
+    // `overlay-adapter.ts` and `workflow-attach-pane.ts`. With that
+    // gate in place the previous tmux scrollback "ghost overlay"
+    // failure mode does not apply: pi-tui owns the screen buffer
+    // and diff-blits frames in place.
+    if (this.mode === "overlay" && this.requestRender) {
+      this._intervalId = setInterval(() => {
+        this.requestRender?.();
+      }, ANIMATION_TICK_MS);
+    }
   }
 
   private _rebuildLayout(): void {
@@ -268,6 +304,7 @@ export class GraphView implements Component {
       `${counts.completed}/${run.stages.length} done` +
       (counts.running > 0 ? ` · ${counts.running} running` : "") +
       (counts.failed > 0 ? ` · ${counts.failed} failed` : "") +
+      (counts.blocked > 0 ? ` · ${counts.blocked} blocked` : "") +
       RESET;
     return [...headerLines, ` ${trailer}`];
   }
@@ -442,6 +479,12 @@ export class GraphView implements Component {
     // Centre the whole graph horizontally in the available canvas.
     const leftMargin = Math.max(2, Math.floor((graphInner - canvasWidth) / 2));
 
+    // Pulse phase ∈ [0, 1) derived from wall-clock time so cards lerp
+    // their border colour on the same beat regardless of how often
+    // render() fires. The animation tick (`ANIMATION_TICK_MS`) only
+    // controls render cadence — it does not advance the phase.
+    const pulsePhase = (Date.now() % PULSE_PERIOD_MS) / PULSE_PERIOD_MS;
+
     // 1. Plot parent → child edges into a sparse char canvas so they
     //    survive crisp through column gaps. Node-card bodies overwrite
     //    edge cells per-row when we compose the final output below.
@@ -480,8 +523,9 @@ export class GraphView implements Component {
         width: NODE_W,
         height: NODE_H,
         focused,
-        pulsePhase: this.pulsePhase,
+        pulsePhase,
         theme: this.graphTheme,
+        stages: run.stages,
       });
       for (let li = 0; li < cardLines.length; li++) {
         const rowIdx = node.y + li;
@@ -771,13 +815,17 @@ export class GraphView implements Component {
         .map((id) => byId.get(id)?.name ?? id)
         .filter((name) => name.length > 0);
       const parentLabel = parents.length > 0 ? ` ← ${parents.join(", ")}` : "";
+      const blockedBy = stage.blockedByStageId
+        ? (byId.get(stage.blockedByStageId)?.name ?? stage.blockedByStageId)
+        : "";
+      const blockedLabel = blockedBy ? ` · blocked by ${blockedBy}` : "";
       const dur = this._duration(stage);
       const cursor = focused ? `${accent}❯${RESET}` : ` `;
       const sc = hexToAnsi(statusColor(stage.status, t));
       const nameStyled = focused
         ? `${accent}${BOLD}${stage.name}${RESET}`
         : `${hexToAnsi(t.text)}${stage.name}${RESET}`;
-      const meta = `${dim}${stage.status}${dur ? ` · ${dur}` : ""}${parentLabel}${RESET}`;
+      const meta = `${dim}${stage.status}${dur ? ` · ${dur}` : ""}${blockedLabel}${parentLabel}${RESET}`;
       const line = `  ${cursor} ${sc}${statusIcon(stage.status)}${RESET} ${nameStyled}  ${meta}`;
       lines.push(truncateToWidth(line, width, "…", true));
     }
@@ -896,10 +944,18 @@ export class GraphView implements Component {
     pending: number;
     running: number;
     paused: number;
+    blocked: number;
     completed: number;
     failed: number;
   } {
-    const c = { pending: 0, running: 0, paused: 0, completed: 0, failed: 0 };
+    const c = {
+      pending: 0,
+      running: 0,
+      paused: 0,
+      blocked: 0,
+      completed: 0,
+      failed: 0,
+    };
     for (const s of run.stages) c[s.status]++;
     return c;
   }

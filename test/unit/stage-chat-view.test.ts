@@ -18,7 +18,7 @@ import { createStore } from "../../src/shared/store.js";
 import { StageChatView } from "../../src/tui/stage-chat-view.js";
 import { deriveGraphTheme } from "../../src/tui/graph-theme.js";
 import type { StageControlHandle } from "../../src/runs/foreground/stage-control-registry.js";
-import type { AgentSession, AgentSessionEvent } from "@oh-my-pi/pi-coding-agent";
+import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 
 interface HandleState {
   promptCalls: Array<string>;
@@ -29,14 +29,17 @@ interface HandleState {
   isStreaming: boolean;
 }
 
-function makeHandle(state: HandleState = {
-  promptCalls: [],
-  steerCalls: [],
-  followUpCalls: [],
-  pauseCalls: 0,
-  resumeCalls: [],
-  isStreaming: false,
-}): { handle: StageControlHandle; state: HandleState } {
+function makeHandle(
+  state: HandleState = {
+    promptCalls: [],
+    steerCalls: [],
+    followUpCalls: [],
+    pauseCalls: 0,
+    resumeCalls: [],
+    isStreaming: false,
+  },
+  messages: AgentSession["messages"] = [],
+): { handle: StageControlHandle; state: HandleState } {
   let listener: ((e: AgentSessionEvent) => void) | undefined;
   const handle: StageControlHandle = {
     runId: "run-1",
@@ -48,7 +51,7 @@ function makeHandle(state: HandleState = {
     get isStreaming() {
       return state.isStreaming;
     },
-    messages: [] as AgentSession["messages"],
+    messages,
     async ensureAttached() {},
     async prompt(text: string) {
       state.promptCalls.push(text);
@@ -76,7 +79,12 @@ function makeHandle(state: HandleState = {
   return { handle, state };
 }
 
-function setupRun(store: ReturnType<typeof createStore>, runId: string, stageId: string) {
+function setupRun(
+  store: ReturnType<typeof createStore>,
+  runId: string,
+  stageId: string,
+  status: "pending" | "running" | "paused" | "blocked" | "completed" | "failed" = "running",
+) {
   store.recordRunStart({
     id: runId,
     name: "test-wf",
@@ -88,7 +96,7 @@ function setupRun(store: ReturnType<typeof createStore>, runId: string, stageId:
   store.recordStageStart(runId, {
     id: stageId,
     name: "review-a",
-    status: "running",
+    status,
     parentIds: [],
     toolEvents: [],
   });
@@ -101,7 +109,7 @@ async function flush(): Promise<void> {
 describe("StageChatView", () => {
   test("idle Enter calls handle.prompt", async () => {
     const store = createStore();
-    setupRun(store, "run-1", "stage-a");
+    setupRun(store, "run-1", "stage-a", "pending");
     const { handle, state } = makeHandle();
     const view = new StageChatView({
       store,
@@ -223,6 +231,40 @@ describe("StageChatView", () => {
     view.dispose();
   });
 
+  test("blocked Enter is a no-op", async () => {
+    const store = createStore();
+    setupRun(store, "run-1", "stage-a");
+    store.recordStageBlocked("run-1", "stage-a", "review-a");
+    const { handle, state } = makeHandle({
+      promptCalls: [],
+      steerCalls: [],
+      followUpCalls: [],
+      pauseCalls: 0,
+      resumeCalls: [],
+      isStreaming: true,
+    });
+    const view = new StageChatView({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageId: "stage-a",
+      workflowName: "test-wf",
+      handle,
+      onDetach: () => {},
+      onClose: () => {},
+    });
+    for (const ch of "ignored") view.handleInput(ch);
+    view.handleInput("\r");
+    await flush();
+    await flush();
+    assert.deepEqual(state.promptCalls, []);
+    assert.deepEqual(state.steerCalls, []);
+    assert.deepEqual(state.resumeCalls, []);
+    assert.equal(view._inputBuffer, "");
+    assert.match(view.render(80).join("\n"), /BLOCKED/);
+    view.dispose();
+  });
+
   test("Ctrl+D calls onDetach", () => {
     const store = createStore();
     setupRun(store, "run-1", "stage-a");
@@ -264,6 +306,32 @@ describe("StageChatView", () => {
     });
     view.handleInput("\x1b");
     assert.equal(closed, 1);
+    view.dispose();
+  });
+
+  test("renders custom SDK snapshot messages instead of crashing", () => {
+    const store = createStore();
+    setupRun(store, "run-1", "stage-a");
+    const customMessage: AgentSession["messages"][number] = {
+      role: "custom",
+      customType: "workflow-note",
+      content: "custom rendered from SDK history",
+      display: true,
+      timestamp: Date.now(),
+    };
+    const { handle } = makeHandle(undefined, [customMessage]);
+    const view = new StageChatView({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageId: "stage-a",
+      workflowName: "test-wf",
+      handle,
+      onDetach: () => {},
+      onClose: () => {},
+    });
+    const text = view.render(96).join("\n");
+    assert.match(text, /custom rendered from SDK history/);
     view.dispose();
   });
 
@@ -316,12 +384,12 @@ describe("StageChatView", () => {
     // A larger viewport must surface more transcript entries inside
     // the body band; the fixed 32-row default would clip them.
     const store = createStore();
-    setupRun(store, "run-1", "stage-a");
+    setupRun(store, "run-1", "stage-a", "pending");
     const { handle, state } = makeHandle();
 
-    // Seed enough transcript entries that the 32-row body (≈23 rows)
-    // would truncate, but a 60-row viewport (≈51 body rows) keeps
-    // them all.
+    // Seed enough transcript entries that the 32-row body truncates; a
+    // larger viewport must render strictly more message content even now
+    // that Pi user-message boxes consume multiple terminal rows each.
     const view = new StageChatView({
       store,
       graphTheme: deriveGraphTheme({}),
@@ -342,11 +410,27 @@ describe("StageChatView", () => {
     // Sanity: stub handle recorded each prompt.
     assert.equal(state.promptCalls.length, 30);
 
-    const text = view.render(96).join("\n");
-    // Default 23-row body would have clipped the oldest messages.
-    // A 60-row viewport surfaces "you" entries for every message.
-    const youOccurrences = text.split("\n").filter((line) => line.includes("you")).length;
-    assert.ok(youOccurrences >= 25, `expected most transcript entries visible, got ${youOccurrences}`);
+    const wideText = view.render(96).join("\n");
+    const wideOccurrences = wideText.split("\n").filter((line) => line.includes("msg-")).length;
+    const narrow = new StageChatView({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageId: "stage-a",
+      workflowName: "test-wf",
+      handle,
+      onDetach: () => {},
+      onClose: () => {},
+    });
+    for (const entry of view._transcript) {
+      for (const ch of entry.text) narrow.handleInput(ch);
+      narrow.handleInput("\r");
+      await flush();
+      await flush();
+    }
+    const narrowOccurrences = narrow.render(96).join("\n").split("\n").filter((line) => line.includes("msg-")).length;
+    assert.ok(wideOccurrences > narrowOccurrences, `expected wider viewport to show more entries (${wideOccurrences} <= ${narrowOccurrences})`);
+    narrow.dispose();
     view.dispose();
   });
 });

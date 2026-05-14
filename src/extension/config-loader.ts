@@ -6,10 +6,10 @@
  *
  * Config file candidates (first readable wins per scope):
  *   Project-local:
- *     <projectRoot>/.omp/extensions/workflow/config.json
- *     <projectRoot>/.omp/agent/extensions/workflow/config.json
+ *     <projectRoot>/.pi/extensions/workflow/config.json
+ *     <projectRoot>/.pi/agent/extensions/workflow/config.json
  *   User-global:
- *     <homeDir>/.omp/agent/extensions/workflow/config.json
+ *     <homeDir>/.pi/agent/extensions/workflow/config.json
  * Invalid JSON or invalid shape → CONFIG_INVALID diagnostic (not silent success).
  * Missing file → silently skipped (not an error).
  *
@@ -41,7 +41,7 @@ export interface WorkflowExtensionConfig {
   readonly maxDepth?: number;
   /** Default stage concurrency. Default: 4. */
   readonly defaultConcurrency?: number;
-  /** Persist runs via oh-my-pi appendEntry. Default: true. */
+  /** Persist runs via pi appendEntry. Default: true. */
   readonly persistRuns?: boolean;
   /** Emit derived status.json for CI polling. Default: false. */
   readonly statusFile?: boolean;
@@ -71,7 +71,7 @@ export interface ConfigLoadResult {
    */
   readonly config: WorkflowExtensionConfig | null;
   /**
-   * Pre-merge global config (from <homeDir>/.omp/agent/extensions/workflow/config.json).
+   * Pre-merge global config (from <homeDir>/.pi/agent/extensions/workflow/config.json).
    * null when the global file is absent or invalid. Absent on results from callers
    * that constructed ConfigLoadResult before this field was added.
    */
@@ -341,7 +341,7 @@ export interface ScopedDiscoveryConfigOpts {
   readonly projectRoot: string;
   /**
    * User home directory. Relative paths in globalConfig.workflows are
-   * resolved relative to <homeDir>/.omp/agent.
+   * resolved relative to <homeDir>/.pi/agent.
    */
   readonly homeDir: string;
 }
@@ -378,7 +378,7 @@ function resolveWorkflowPaths(
  *
  * Scope rules:
  *   - globalConfig.workflows entries → DiscoveryConfig.globalWorkflows
- *     Relative paths are resolved under <homeDir>/.omp/agent.
+ *     Relative paths are resolved under <homeDir>/.pi/agent.
  *   - projectConfig.workflows entries → DiscoveryConfig.projectWorkflows
  *     Relative paths are resolved under projectRoot.
  *   - When both configs define the same workflow key, the project entry wins
@@ -392,7 +392,7 @@ export function toScopedDiscoveryConfig(
   projectConfig: WorkflowExtensionConfig | null,
   opts: ScopedDiscoveryConfigOpts,
 ): ScopedDiscoveryConfig {
-  const globalBase = join(opts.homeDir, ".omp", "agent");
+  const globalBase = join(opts.homeDir, ".pi", "agent");
   const projectBase = opts.projectRoot;
 
   const result: ScopedDiscoveryConfig = {};
@@ -426,10 +426,10 @@ export function toScopedDiscoveryConfig(
  *
  * Candidate paths (in resolution order):
  *   Global (lowest priority):
- *     <homeDir>/.omp/agent/extensions/workflow/config.json
+ *     <homeDir>/.pi/agent/extensions/workflow/config.json
  *   Project-local (highest priority, first existing wins):
- *     <projectRoot>/.omp/extensions/workflow/config.json
- *     <projectRoot>/.omp/agent/extensions/workflow/config.json
+ *     <projectRoot>/.pi/extensions/workflow/config.json
+ *     <projectRoot>/.pi/agent/extensions/workflow/config.json
  * Merge: project-local overrides global. Key-level merge for `workflows` map.
  * Missing files: silently ignored. Invalid files: CONFIG_INVALID diagnostic.
  */
@@ -442,12 +442,12 @@ export async function loadWorkflowConfig(
   const diagnostics: ConfigDiagnostic[] = [];
 
   // Global config path
-  const globalPath = join(home, ".omp", "agent", "extensions", "workflow", "config.json");
+  const globalPath = join(home, ".pi", "agent", "extensions", "workflow", "config.json");
 
   // Project-local config
   const projectCandidates: string[] = [
-    join(projectRoot, ".omp", "extensions", "workflow", "config.json"),
-    join(projectRoot, ".omp", "agent", "extensions", "workflow", "config.json"),
+    join(projectRoot, ".pi", "extensions", "workflow", "config.json"),
+    join(projectRoot, ".pi", "agent", "extensions", "workflow", "config.json"),
   ];
 
   // Load global config

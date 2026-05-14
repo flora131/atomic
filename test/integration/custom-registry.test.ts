@@ -81,18 +81,15 @@ const noSiblings: DoctorSiblingStatus = {
   hil: false,
   uiCustom: false,
   shortcut: false,
-  execAbortable: false,
   persistenceAppendEntry: false,
-  promptAdapter: false,
-  completeAdapter: false,
   subagentAdapterVia: "unavailable",
 };
 
 beforeAll(async () => {
   // Create isolated temp dirs
   tempRoot = join(tmpdir(), `pi-wf-int-${randomUUID()}`);
-  cwdWorkflowDir = join(tempRoot, "cwd", ".omp", "workflows");
-  homeWorkflowDir = join(tempRoot, "home", ".omp", "agent", "workflows");
+  cwdWorkflowDir = join(tempRoot, "cwd", ".pi", "workflows");
+  homeWorkflowDir = join(tempRoot, "home", ".pi", "agent", "workflows");
 
   mkdirSync(cwdWorkflowDir, { recursive: true });
   mkdirSync(homeWorkflowDir, { recursive: true });
@@ -254,9 +251,10 @@ describe("buildDoctorReport — custom sources from temp cwd/home", () => {
     assert.ok(report.includes(CUSTOM_WF_NORM));
   });
 
-  test("report labels custom workflow source as '[project-local]'", () => {
+  test("report labels custom workflow source as 'project-local'", () => {
     const report = buildDoctorReport(discoveryResult, noSiblings);
-    assert.ok(report.includes("[project-local]"));
+    // New format renders the source kind as a dim hint suffix `(project-local)`.
+    assert.ok(report.includes("(project-local)"));
   });
 
   test("report contains user-global workflow id", () => {
@@ -264,30 +262,28 @@ describe("buildDoctorReport — custom sources from temp cwd/home", () => {
     assert.ok(report.includes(USER_WF_NORM));
   });
 
-  test("report labels user-global source as '[user-global]'", () => {
+  test("report labels user-global source as 'user-global'", () => {
     const report = buildDoctorReport(discoveryResult, noSiblings);
-    assert.ok(report.includes("[user-global]"));
+    assert.ok(report.includes("(user-global)"));
   });
 
   test("registry count in report equals total names count (bundled + custom)", () => {
     const report = buildDoctorReport(discoveryResult, noSiblings);
     const totalCount = discoveryResult.registry.names().length;
-    assert.ok(report.includes(`Registry: ${totalCount} workflow(s) loaded`));
+    assert.ok(report.includes(`${totalCount} workflow${totalCount === 1 ? "" : "s"} loaded`));
   });
 
-  test("report discovery diagnostics section is present", () => {
+  test("report includes the [ DIAGNOSTICS ] section", () => {
     const report = buildDoctorReport(discoveryResult, noSiblings);
-    assert.ok(report.includes("Discovery diagnostics:"));
+    assert.ok(report.includes("[ DIAGNOSTICS ]"));
   });
 
   test("no error diagnostics for valid custom workflows in report", () => {
     const report = buildDoctorReport(discoveryResult, noSiblings);
-    // If diagnostics section is empty, it shows (none)
-    // If there are errors they would reference the custom workflow paths
-    // Either way the report header should not contain error mentions for our workflows
-    const errorSection = report.match(/Discovery diagnostics.*?(?=Siblings:)/s)?.[0] ?? "";
-    // Only check no INVALID_DEFINITION for our custom workflows
-    assert.ok(!errorSection.includes(`INVALID_DEFINITION`));
+    // Diagnostics section should not flag valid custom workflows as
+    // INVALID_DEFINITION.
+    const diagSection = report.match(/\[ DIAGNOSTICS \].*?(?=\n\[ |\nNext steps|$)/s)?.[0] ?? "";
+    assert.ok(!diagSection.includes("INVALID_DEFINITION"));
   });
 });
 
@@ -594,9 +590,12 @@ describe("shared registry invariant — all consumers see same workflows", () =>
     const listResult = await runtime.dispatch({ name: "", inputs: {}, action: "list" });
     const toolNames = (listResult as { action: "list"; items: { name: string }[] }).items.map((i) => i.name);
 
-    // 2. Doctor: registry count via buildDoctorReport
+    // 2. Doctor: registry count via buildDoctorReport. The new subtitle
+    //    format is `atomic-workflows · N workflow(s) · N/N companions`,
+    //    so we match the first "N workflow(s)" token after the program
+    //    name to extract the loaded count.
     const report = buildDoctorReport(discoveryResult, noSiblings);
-    const match = report.match(/Registry:\s*(\d+)\s*workflow/);
+    const match = report.match(/atomic-workflows[^\n]*?(\d+)\s+workflows?\b/);
     assert.notEqual(match, null);
     const doctorCount = match ? parseInt(match[1]!, 10) : -1;
     assert.equal(doctorCount, toolNames.length);

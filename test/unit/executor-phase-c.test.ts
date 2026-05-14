@@ -275,7 +275,7 @@ describe("executor adapter errors — Phase C", () => {
     assert.ok(result.error!.includes("complete adapter not configured"));
   });
 
-  test("subagent adapter absent — stage fails and error mentions oh-my-pi task delegation", async () => {
+  test("subagent adapter absent — stage fails and error mentions pi task delegation", async () => {
     const def = defineWorkflow("phaseC-no-subagent")
       .run(async (ctx) => {
         await ctx.stage("s").subagent({ agent: "my-agent", task: "do something" });
@@ -285,7 +285,7 @@ describe("executor adapter errors — Phase C", () => {
 
     const result = await run(def, {}, { adapters: {}, store: createStore() });
     assert.equal(result.status, "failed");
-    assert.ok(result.error!.includes("oh-my-pi task delegation"));
+    assert.ok(result.error!.includes("pi task delegation"));
   });
 
   test("subagent error is actionable without install guidance", async () => {
@@ -297,7 +297,7 @@ describe("executor adapter errors — Phase C", () => {
       .compile();
 
     const result = await run(def, {}, { store: createStore() });
-    assert.match(result.error!, /oh-my-pi task delegation/);
+    assert.match(result.error!, /pi task delegation/);
     assert.doesNotMatch(result.error!, /install/i);
   });
 

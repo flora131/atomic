@@ -8,7 +8,7 @@
  *     the host and other extensions can react.
  *  3. Expose a clear absent-capability surface for task delegation.
  *
- * cross-ref: oh-my-pi task tool and ExtensionAPI event bus
+ * cross-ref: pi task tool and ExtensionAPI event bus
  */
 
 // ---------------------------------------------------------------------------
@@ -124,7 +124,7 @@ export function isSubagentsPresent(pi: PiSubagentsExtensionAPI): boolean {
 export function assertSubagentsPresent(pi: PiSubagentsExtensionAPI): void {
   if (!isSubagentsPresent(pi)) {
     throw new Error(
-      "pi-workflows: subagent delegation requires oh-my-pi task delegation support.",
+      "pi-workflows: subagent delegation requires pi task delegation support.",
     );
   }
 }

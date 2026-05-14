@@ -405,12 +405,18 @@ describe("MockExtensionAPI — slash command registration", () => {
     assert.ok(flags?.some((c) => c.value === "deep-research-codebase --no-picker "));
   });
 
-  test("/workflows-doctor execute returns multi-line doctor report", async () => {
+  test("/workflows-doctor execute emits the doctor chat-surface message", async () => {
     const cmd = getCommand(mock.commands, "workflows-doctor")!;
-    const messages: string[] = [];
-    await cmd.options.handler("", { ui: { notify: (m: string) => messages.push(m) } });
-    const combined = messages.join("\n");
-    assert.ok(combined.includes("atomic-workflows"));
+    await cmd.options.handler("", { ui: { notify: () => undefined } });
+    // The command prefers pi.sendMessage when available (it is on the
+    // mock API). The emitted chat-surface message carries a `doctor`
+    // payload that the chat-card renderer turns into the [ DOCTOR ]
+    // card. Here we just verify the message reaches the bus.
+    const doctor = mock.sent.find((m) => {
+      const details = (m as { details?: { kind?: string } }).details;
+      return details?.kind === "doctor";
+    });
+    assert.notEqual(doctor, undefined);
   });
 });
 
@@ -910,31 +916,43 @@ describe("MockExtensionAPI — /workflows-doctor reports real loaded count", () 
 
   test("/workflows-doctor reports real loaded count (>= 3 bundled workflows)", async () => {
     const cmd = getCommand(mock.commands, "workflows-doctor")!;
-    const messages: string[] = [];
-    await cmd.options.handler("", { ui: { notify: (m: string) => messages.push(m) } });
-    const combined = messages.join("\n");
+    await cmd.options.handler("", { ui: { notify: () => undefined } });
 
-    // Must contain the atomic-workflows header
-    assert.ok(combined.includes("atomic-workflows"));
-    // Must not contain placeholder stub text
-    assert.ok(!combined.includes("Phase B stub"));
-    assert.ok(!combined.includes("Executor: not yet implemented"));
-    // Must report the bundled workflow count (at least 3)
-    const match = combined.match(/Registry:\s*(\d+)\s*workflow/);
+    const doctorMsg = mock.sent.find(
+      (m) => (m as { details?: { kind?: string } }).details?.kind === "doctor",
+    );
+    assert.notEqual(doctorMsg, undefined);
+    const payload = (doctorMsg as { details?: { doctor?: { subtitle: string } } }).details?.doctor;
+    assert.notEqual(payload, undefined);
+
+    // Subtitle: `atomic-workflows · N workflow(s) · N/N companions`.
+    assert.match(payload!.subtitle, /atomic-workflows/);
+    const match = payload!.subtitle.match(/(\d+)\s+workflows?\b/);
     assert.notEqual(match, null);
     const count = match ? parseInt(match[1]!, 10) : 0;
-    assert.ok(count >= 3);
+    assert.ok(count >= 3, `expected >= 3 bundled workflows, got ${count}`);
   });
 
   test("/workflows-doctor names bundled sources (deep-research-codebase, ralph, open-claude-design)", async () => {
     const cmd = getCommand(mock.commands, "workflows-doctor")!;
-    const messages: string[] = [];
-    await cmd.options.handler("", { ui: { notify: (m: string) => messages.push(m) } });
-    const combined = messages.join("\n");
+    await cmd.options.handler("", { ui: { notify: () => undefined } });
 
-    assert.ok(combined.includes("deep-research-codebase"));
-    assert.ok(combined.includes("ralph"));
-    assert.ok(combined.includes("open-claude-design"));
+    const doctorMsg = mock.sent.find(
+      (m) => (m as { details?: { kind?: string } }).details?.kind === "doctor",
+    );
+    const payload = (doctorMsg as {
+      details?: { doctor?: { sections: Array<{ label: string; rows: Array<{ label: string }> }> } };
+    }).details?.doctor;
+    assert.notEqual(payload, undefined);
+
+    // The REGISTRY section carries one row per bundled source
+    // (`label: section.name`, `value: section.id`).
+    const registry = payload!.sections.find((s) => s.label === "REGISTRY");
+    assert.notEqual(registry, undefined);
+    const sourceNames = registry!.rows.map((r) => r.label);
+    assert.ok(sourceNames.includes("deep-research-codebase"));
+    assert.ok(sourceNames.includes("ralph"));
+    assert.ok(sourceNames.includes("open-claude-design"));
   });
 });
 

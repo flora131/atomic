@@ -63,6 +63,9 @@ function makeStore(snap: StoreSnapshot): Store {
     recordStageSession: () => false,
     recordStageAttachable: () => false,
     recordStageAttached: () => false,
+    recordStageBlocked: () => false,
+    recordStageUnblocked: () => false,
+    recordStageNotice: () => false,
     recordStagePaused: () => false,
     recordStageResumed: () => false,
     recordRunPaused: () => false,
@@ -550,5 +553,126 @@ describe("GraphView keyboard navigation", () => {
     const lines = view.render(96);
     assert.equal(lines.length, 42);
     view.dispose();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GraphView animation timer
+// ---------------------------------------------------------------------------
+
+describe("GraphView animation timer", () => {
+  it("fires requestRender on a steady cadence in overlay mode", async () => {
+    const stages = [makeStage("A")];
+    const snap = makeSnap(stages);
+    const store = makeStore(snap);
+    const requestRender = mock(() => {});
+    const view = new GraphView({
+      mode: "overlay",
+      runId: "run-1",
+      store,
+      graphTheme: defaultTheme,
+      requestRender,
+    });
+    // Tick is 100ms; wait long enough for at least two ticks. Use real
+    // timers — Bun's interval scheduler runs concurrently with the
+    // test, so a small wall-clock wait is the simplest way to observe
+    // the steady cadence without introducing a fake-timer dependency.
+    await new Promise((r) => setTimeout(r, 250));
+    view.dispose();
+    assert.ok(
+      requestRender.mock.calls.length >= 2,
+      `expected ≥ 2 ticks in 250ms, got ${requestRender.mock.calls.length}`,
+    );
+  });
+
+  it("does not start the timer in widget mode", async () => {
+    const stages = [makeStage("A")];
+    const snap = makeSnap(stages);
+    const store = makeStore(snap);
+    const requestRender = mock(() => {});
+    const view = new GraphView({
+      mode: "widget",
+      runId: "run-1",
+      store,
+      graphTheme: defaultTheme,
+      requestRender,
+    });
+    await new Promise((r) => setTimeout(r, 250));
+    view.dispose();
+    assert.equal(requestRender.mock.calls.length, 0);
+  });
+
+  it("does not crash when requestRender is omitted in overlay mode", async () => {
+    const stages = [makeStage("A")];
+    const snap = makeSnap(stages);
+    const store = makeStore(snap);
+    const view = new GraphView({
+      mode: "overlay",
+      runId: "run-1",
+      store,
+      graphTheme: defaultTheme,
+    });
+    // No requestRender wired — the constructor must skip setInterval
+    // entirely so callers that drive the view manually (legacy unit
+    // tests, snapshot tooling) don't leak a dangling interval.
+    await new Promise((r) => setTimeout(r, 150));
+    view.dispose();
+  });
+
+  it("stops firing renders after dispose", async () => {
+    const stages = [makeStage("A")];
+    const snap = makeSnap(stages);
+    const store = makeStore(snap);
+    const requestRender = mock(() => {});
+    const view = new GraphView({
+      mode: "overlay",
+      runId: "run-1",
+      store,
+      graphTheme: defaultTheme,
+      requestRender,
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    const beforeDispose = requestRender.mock.calls.length;
+    view.dispose();
+    await new Promise((r) => setTimeout(r, 250));
+    assert.equal(
+      requestRender.mock.calls.length,
+      beforeDispose,
+      "render must not be requested after dispose",
+    );
+  });
+
+  it("running-stage border pulse advances with wall-clock time", () => {
+    // The pulse phase is computed from `Date.now()` at render time, so
+    // two renders at different timestamps must produce visibly
+    // different ANSI for an unfocused running stage. The focused node
+    // locks at the peak colour by design (see `pickBorder`), so we
+    // need at least two nodes — focus stays on the first and the
+    // second carries the animation we observe.
+    const startedAt = Date.now() - 100;
+    const stages: StageSnapshot[] = [
+      { ...makeStage("A"), status: "running" as const, startedAt },
+      { ...makeStage("B", ["A"]), status: "running" as const, startedAt },
+    ];
+    const snap = makeSnap(stages);
+    const store = makeStore(snap);
+    const view = new GraphView({
+      mode: "overlay",
+      runId: "run-1",
+      store,
+      graphTheme: defaultTheme,
+    });
+    const frameA = view.render(96).join("\n");
+    // Wait long enough to land at a clearly different point in the
+    // 2s pulse cycle (~25% of period). The sine eased lerp inside
+    // `pickBorder` produces a visibly different RGB triple.
+    const sleepUntil = Date.now() + 500;
+    while (Date.now() < sleepUntil) {
+      // busy-wait to advance Date.now() without yielding the event
+      // loop; we want a synchronous render with a newer timestamp.
+    }
+    const frameB = view.render(96).join("\n");
+    view.dispose();
+    assert.notEqual(frameA, frameB, "pulse phase must change between renders");
   });
 });

@@ -49,8 +49,9 @@ import {
   discoverBundledWorkflowsSync,
 } from "./discovery.js";
 import type { DiscoveryResult } from "./discovery.js";
-import { buildDoctorReport } from "./doctor.js";
+import { buildDoctorPayload, buildDoctorReport } from "./doctor.js";
 import type { DoctorSiblingStatus } from "./doctor.js";
+import { detectCompanions } from "./companions.js";
 import {
   registerWorkflowCliFlags,
   runWorkflowFromCliFlags,
@@ -74,12 +75,12 @@ import type { StatusWriter } from "./status-writer.js";
 import { setMcpScope, clearMcpScope } from "./mcp.js";
 import type { PiMcpExtensionAPI, PiEventBus } from "./mcp.js";
 import type { StageSessionRuntime } from "../runs/foreground/stage-runner.js";
-import type { CreateAgentSessionOptions } from "@oh-my-pi/pi-coding-agent";
+import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent";
 
 // ---------------------------------------------------------------------------
 // Minimal ExtensionAPI structural types
 // No `any`; all optional fields use explicit union with undefined.
-// cross-ref: oh-my-pi docs/skills/authoring-extensions.md (ExtensionAPI shape)
+// cross-ref: pi docs/skills/authoring-extensions.md (ExtensionAPI shape)
 // ---------------------------------------------------------------------------
 
 /** Theme object passed to renderCall/renderResult slots (opaque — not consumed in stubs). */
@@ -119,7 +120,7 @@ function textRenderComponent(text: string): PiRenderComponent {
  * `value` is the text inserted on selection; `label` is the menu display; the
  * optional `description` is the secondary line. Without `value`, pi-tui crashes
  * in `getBestAutocompleteMatchIndex` (`value.startsWith(prefix)`).
- * cross-ref: @oh-my-pi/pi-tui autocomplete AutocompleteItem
+ * cross-ref: @earendil-works/pi-tui autocomplete AutocompleteItem
  */
 export interface PiArgumentCompletion {
   value: string;
@@ -129,7 +130,7 @@ export interface PiArgumentCompletion {
 
 /**
  * Canonical slash command options for pi.registerCommand(name, options).
- * Mirrors `RegisteredCommand` from oh-my-pi's `extensibility/extensions/types.ts`
+ * Mirrors `RegisteredCommand` from pi's `extensibility/extensions/types.ts`
  * minus the `name` field (which is the first arg to registerCommand).
  * cross-ref: research/docs/2026-05-11-pi-coding-agent-reference.md §4.2
  */
@@ -144,7 +145,7 @@ export interface PiCommandOptions {
 }
 
 /**
- * Context provided to slash command handlers. Aligns with oh-my-pi's
+ * Context provided to slash command handlers. Aligns with pi's
  * `ExtensionCommandContext` (subset of what we actually consume): the
  * host always supplies `ui` and `ui.notify`, so callers print via
  * `ctx.ui.notify("…", "info")` directly — no wrapper indirection.
@@ -216,7 +217,7 @@ export interface PiExecuteContext {
 }
 
 /**
- * Structural subset of oh-my-pi's `ExtensionAPI` (see
+ * Structural subset of pi's `ExtensionAPI` (see
  * `packages/coding-agent/src/extensibility/extensions/types.ts`) covering
  * the methods this extension consumes. Fields are optional so test
  * mocks can stub a minimal surface; production runtime supplies all of
@@ -226,7 +227,7 @@ export interface ExtensionAPI {
   registerTool?: <TArgs, TResult>(opts: PiToolOpts<TArgs, TResult>) => void;
   /**
    * `pi.registerCommand(name, options)` — sole slash-command registration
-   * surface. Mirrors oh-my-pi's `ExtensionAPI.registerCommand`.
+   * surface. Mirrors pi's `ExtensionAPI.registerCommand`.
    */
   registerCommand?: (name: string, options: PiCommandOptions) => void;
   registerMessageRenderer?: (
@@ -264,20 +265,11 @@ export interface ExtensionAPI {
     },
   ) => void;
   /**
-   * Sets the current session name. Present on oh-my-pi's ExtensionAPI.
+   * Sets the current session name. Present on pi's ExtensionAPI.
    */
   setSessionName?: (name: string) => void | Promise<void>;
   /**
-   * oh-my-pi exports injected into the extension API. Used instead of bundling
-   * the host package at runtime.
-   */
-  pi?: {
-    createAgentSession?: (
-      options?: CreateAgentSessionOptions,
-    ) => Promise<{ session: StageSessionRuntime }>;
-  };
-  /**
-   * oh-my-pi events bus — used for workflow-scoped MCP events and subagent
+   * pi events bus — used for workflow-scoped MCP events and subagent
    * lifecycle/result routing.
    */
   events?: {
@@ -286,7 +278,7 @@ export interface ExtensionAPI {
   };
   /**
    * Execute a shell command and return stdout/stderr/exit code.
-   * Present on the oh-my-pi ExtensionAPI.
+   * Present on the pi ExtensionAPI.
    */
   exec?: (
     command: string,
@@ -298,7 +290,7 @@ export interface ExtensionAPI {
     code: number;
     killed: boolean;
   }>;
-  /** Test/degraded-runtime seam: skip host SDK exports and use a supplied session factory. */
+  /** Test seam: inject a stub session factory instead of importing the pi SDK at runtime. */
   createAgentSession?: (
     options?: CreateAgentSessionOptions,
   ) => Promise<{ session: StageSessionRuntime }>;
@@ -536,7 +528,7 @@ export function makeExecuteWorkflowTool(
  * Local registry of workflow command (name → handler). Populated by
  * `registerWorkflowCommand` alongside the host registration so the
  * `on("input", …)` interceptor below can dispatch our commands directly
- * — bypassing oh-my-pi's optimistic `startPendingSubmission` flow which
+ * — bypassing pi's optimistic `startPendingSubmission` flow which
  * fires the `Working… (esc to interrupt)` loader before the host knows
  * the input is a synchronous picker/connect UI, not a streaming turn.
  *
@@ -549,7 +541,7 @@ type WorkflowCommandHandler = PiCommandOptions["handler"];
  * the input interceptor can dispatch directly.
  *
  * `pi.registerCommand` is the sole supported registration surface
- * (mirrors oh-my-pi's `ExtensionAPI.registerCommand`). When the host
+ * (mirrors pi's `ExtensionAPI.registerCommand`). When the host
  * lacks `registerCommand` (degraded runtime — RPC mode, headless, or a
  * mock that didn't stub it) we still populate the registry so the
  * input interceptor can intercept the command text the user typed.
@@ -575,7 +567,7 @@ function registerWorkflowCommand(
  *
  * Why this exists
  * ---------------
- * oh-my-pi's editor `onSubmit` handler unconditionally calls
+ * pi's editor `onSubmit` handler unconditionally calls
  * `startPendingSubmission` for any text that isn't a built-in slash /
  * skill / bash / python command — this echoes the message into chat
  * scrollback AND starts the `Working… (esc to interrupt)` loader in
@@ -587,16 +579,21 @@ function registerWorkflowCommand(
  *
  * `runner.emitInput` runs BEFORE `startPendingSubmission` (see
  * `packages/coding-agent/src/modes/controllers/input-controller.ts`
- * `setupEditorSubmitHandler`). Returning `{ handled: true }` from an
+ * `setupEditorSubmitHandler`). Returning `{ action: "handled" }` from an
  * `on("input", …)` handler short-circuits the function: the host
  * clears the editor and returns without echoing or starting the
  * loader. We dispatch the command handler ourselves with the same
  * context the host would have passed.
  *
+ * Shape note: pi's `InputEventResult` is `{ action: "continue" } |
+ * { action: "transform"; text; images? } | { action: "handled" }`. The
+ * older `{ handled: true }` shape is silently ignored by the runner
+ * (`result?.action === "handled"` check), which lets the loader fire.
+ *
  * cross-ref:
- *   - oh-my-pi docs/extensions.md (input event)
- *   - oh-my-pi docs/slash-command-internals.md (#tryExecuteExtensionCommand)
- *   - oh-my-pi packages/coding-agent/src/modes/interactive-mode.ts
+ *   - pi docs/extensions.md (input event)
+ *   - pi docs/slash-command-internals.md (#tryExecuteExtensionCommand)
+ *   - pi packages/coding-agent/src/modes/interactive-mode.ts
  *     `startPendingSubmission` / `ensureLoadingAnimation`
  */
 function installInputInterceptor(
@@ -630,7 +627,7 @@ function installInputInterceptor(
       const message = err instanceof Error ? err.message : String(err);
       commandCtx.ui.notify(`/${name} failed: ${message}`, "error");
     }
-    return { handled: true };
+    return { action: "handled" };
   });
 }
 
@@ -957,7 +954,7 @@ function factory(pi: ExtensionAPI): void {
     configLoadRef.current = configResult;
 
     // Build scope-aware DiscoveryConfig: global entries → globalWorkflows (resolved
-    // under <homeDir>/.omp/agent), project entries → projectWorkflows (resolved under
+    // under <homeDir>/.pi/agent), project entries → projectWorkflows (resolved under
     // projectRoot). Project keys override global keys. Paths pre-resolved to absolute.
     const { homedir } = await import("node:os");
     const hasGlobal = configResult.globalConfig != null;
@@ -1845,17 +1842,43 @@ function factory(pi: ExtensionAPI): void {
   // -------------------------------------------------------------------------
   registerWorkflowCommand(pi, "workflows-doctor", {
     description:
-      "Diagnostics: loaded workflows, runtime capabilities, config validation.",
+      "Diagnostics: loaded workflows, runtime capabilities, companion packages, config validation.",
     handler: async (_args: string, ctx: PiCommandContext) => {
-      const print = (msg: string): void => ctx.ui.notify(msg, "info");
       // Use already-discovered unified registry when available; fall back to bundled-only.
       const discovery =
         discoveryRef.current ?? (await discoverBundledWorkflows());
+
+      // Companion-package detection is structural — it inspects pi's
+      // command/tool registries rather than `require()`ing the
+      // companion modules (which pi loads in isolated module roots).
+      // Computed before `siblings` so the doctor can derive
+      // subagent-adapter availability from the same source of truth.
+      const companions = detectCompanions(pi);
+      const piSubagentsInstalled = companions.some(
+        (c) => c.companion.name === "pi-subagents" && c.installed,
+      );
+
+      // Subagent delegation reaches the underlying runtime through one
+      // of two paths today:
+      //   - `"pi-subagents tool"` — pi-subagents companion is
+      //     installed; the LLM (or a future direct dispatcher) can
+      //     invoke the registered `subagent` tool.
+      //   - `"pi.callTool"` — reserved for hosts that add a direct
+      //     extension-to-extension call API. pi v0.74 does not
+      //     publish `callTool` on ExtensionAPI; this branch covers
+      //     forward-compat and bespoke embeddings (tests inject a
+      //     `callTool` to exercise the adapter path).
+      const subagentAdapterVia: DoctorSiblingStatus["subagentAdapterVia"] = piSubagentsInstalled
+        ? "pi-subagents tool"
+        : adapters.subagent !== undefined
+          ? "pi.callTool"
+          : "unavailable";
+
       const siblings: DoctorSiblingStatus = {
-        taskDelegation: adapters.subagent !== undefined,
+        taskDelegation: subagentAdapterVia !== "unavailable",
         // MCP scope events: pi.events.emit present (used by setMcpScope to emit mcp.scope.set)
         mcpScopeEvents: typeof pi.events?.emit === "function",
-        // oh-my-pi exposes setSessionName on the ExtensionAPI.
+        // pi exposes setSessionName on the ExtensionAPI.
         sessionNaming: typeof pi.setSessionName === "function",
         // HIL adapter available when command context exposes UI.
         hil: ctx.ui !== undefined,
@@ -1869,9 +1892,26 @@ function factory(pi: ExtensionAPI): void {
         persistenceAppendEntry: typeof pi.appendEntry === "function",
         // Runtime adapter capabilities mirror buildRuntimeAdapters.
         agentSessionAdapter: adapters.agentSession !== undefined,
-        subagentAdapterVia: adapters.subagent !== undefined ? "task tool" : "unavailable",
+        subagentAdapterVia,
       };
-      print(buildDoctorReport(discovery, siblings, configLoadRef.current));
+
+      const payload = buildDoctorPayload({
+        discovery,
+        siblings,
+        companions,
+        configLoad: configLoadRef.current,
+      });
+
+      // Prefer the rich chat-surface card when the renderer is wired
+      // (typical interactive run). Fall back to plain-text
+      // `ctx.ui.notify` for environments where `pi.sendMessage` is
+      // unavailable (RPC clients without custom-message rendering,
+      // some test harnesses).
+      if (typeof pi.sendMessage === "function") {
+        emitChatSurface(pi, { kind: "doctor", doctor: payload });
+      } else {
+        ctx.ui.notify(buildDoctorReport(payload), "info");
+      }
     },
   }, workflowCommands);
 
@@ -2040,11 +2080,11 @@ function factory(pi: ExtensionAPI): void {
   );
 
   // -------------------------------------------------------------------------
-  // 9. Suppress oh-my-pi's optimistic "Working… (esc to interrupt)" loader
+  // 9. Suppress pi's optimistic "Working… (esc to interrupt)" loader
   //    for our slash commands. Workflow commands are synchronous picker /
   //    connect / inspect UIs, not streaming turns — the loader is noise
   //    that pads chrome above the picker. The `on("input")` hook fires
-  //    BEFORE `startPendingSubmission`, so returning `{ handled: true }`
+  //    BEFORE `startPendingSubmission`, so returning `{ action: "handled" }`
   //    short-circuits the host before the loader starts. We dispatch the
   //    registered handler ourselves. See `installInputInterceptor` for
   //    the full rationale and host pipeline reference.

@@ -1,11 +1,15 @@
 /**
- * Runtime wiring helpers — construct StageAdapters from oh-my-pi runtime
+ * Runtime wiring helpers — construct StageAdapters from pi runtime
  * surfaces.
  *
- * `buildRuntimeAdapters` uses oh-my-pi's in-process SDK (`createAgentSession`)
- * for workflow stages. Workflow authors can pass createAgentSession options
- * directly to `ctx.stage(name, options?)`; the executor strips workflow-only
- * `mcp` before session creation.
+ * `buildRuntimeAdapters` uses pi's in-process SDK (`createAgentSession`)
+ * for workflow stages. The factory is imported directly from
+ * `@earendil-works/pi-coding-agent` (a peer dependency) because the
+ * modern pi `ExtensionAPI` does NOT inject `createAgentSession` onto the
+ * extension surface — it is a top-level package export. Workflow authors
+ * can pass `createAgentSession` options directly to
+ * `ctx.stage(name, options?)`; the executor strips workflow-only `mcp`
+ * before session creation.
  *
  * HIL routing (workflow `ctx.ui.input/confirm/select/editor`) does NOT live
  * here. Background workflows route through the store-backed background UI
@@ -14,21 +18,25 @@
  *
  * cross-ref: src/runs/foreground/stage-runner.ts
  *            src/extension/index.ts
- *            oh-my-pi docs/sdk.md createAgentSession
+ *            pi docs/sdk.md createAgentSession
  */
 
-import type { CreateAgentSessionOptions } from "@oh-my-pi/pi-coding-agent";
+import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent";
 import type { StageAdapters, StageSessionRuntime } from "../runs/foreground/stage-runner.js";
 import type { StageExecutionMeta, StageOptions, SubagentStageOpts } from "../shared/types.js";
-import { readWorkflowEnv } from "./subagents.js";
 
 // ---------------------------------------------------------------------------
-// Minimal oh-my-pi surface
+// Minimal pi surface
 // ---------------------------------------------------------------------------
 
 /**
- * Minimal oh-my-pi runtime surface needed to build stage adapters.
- * SDK stage creation uses the host-injected pi-coding-agent exports.
+ * Minimal pi runtime surface needed to build stage adapters.
+ *
+ * SDK stage creation imports `createAgentSession` directly from
+ * `@earendil-works/pi-coding-agent` (≥ 0.74 — the pi SDK exposes it as a
+ * top-level package export, NOT on the `ExtensionAPI` surface). The
+ * optional `createAgentSession` field here is a test seam so callers can
+ * inject a stub session factory; production code does not require it.
  */
 export interface PiExecResult {
   stdout: string;
@@ -44,17 +52,13 @@ export interface PiExecOpts {
 
 export interface RuntimeWiringSurface {
   exec?: (command: string, args: string[], opts?: PiExecOpts) => Promise<PiExecResult>;
+  /** Test seam: inject a stub session factory instead of importing the SDK. */
   createAgentSession?: (options?: CreateAgentSessionOptions) => Promise<{ session: StageSessionRuntime }>;
-  pi?: {
-    createAgentSession?: (options?: CreateAgentSessionOptions) => Promise<{ session: StageSessionRuntime }>;
-  };
   callTool?: (name: string, args: Record<string, unknown>) => Promise<string>;
 }
 
 export interface RuntimeAdapterBuildOptions {
-  /** Deprecated no-op retained only for callers that still pass it. */
-  preferSubprocess?: boolean;
-  /** Test-only seam for SDK session creation. */
+  /** Test seam for SDK session creation. */
   createAgentSession?: (options?: CreateAgentSessionOptions) => Promise<{ session: StageSessionRuntime }>;
 }
 
@@ -62,6 +66,29 @@ export interface RuntimeAdapterBuildOptions {
 function isTestContext(): boolean {
   // Node's test runner sets NODE_TEST_CONTEXT; Bun's test runner sets NODE_ENV=test.
   return process.env["NODE_TEST_CONTEXT"] !== undefined || process.env["NODE_ENV"] === "test";
+}
+
+/**
+ * Lazily-resolved pi SDK session factory. Imported from
+ * `@earendil-works/pi-coding-agent` on first use so the heavy SDK module
+ * (filesystem discovery, resource loader, model registry) is not loaded
+ * until an actual workflow stage runs. This is the canonical production
+ * default — the modern pi SDK (≥ 0.74) exposes `createAgentSession` as a
+ * top-level package export and does NOT inject it onto the ExtensionAPI,
+ * so the workflow extension must reach into the SDK directly.
+ *
+ * cross-ref: node_modules/@earendil-works/pi-coding-agent/docs/sdk.md
+ *            node_modules/@earendil-works/pi-coding-agent/dist/core/sdk.d.ts
+ */
+async function createPiSdkAgentSession(
+  options?: CreateAgentSessionOptions,
+): Promise<{ session: StageSessionRuntime }> {
+  const sdk = await import("@earendil-works/pi-coding-agent");
+  const result = await sdk.createAgentSession(options);
+  // `CreateAgentSessionResult` is `{ session, extensionsResult, modelFallbackMessage? }`;
+  // workflow stages only consume `.session` (structurally an `AgentSession`,
+  // which is a superset of our `StageSessionRuntime` projection).
+  return { session: result.session };
 }
 
 async function createTestAgentSession(_options?: CreateAgentSessionOptions): Promise<{ session: StageSessionRuntime }> {
@@ -107,84 +134,71 @@ async function createTestAgentSession(_options?: CreateAgentSessionOptions): Pro
   return { session };
 }
 
-export function extractAssistantText(ndjson: string): string {
-  const lines = ndjson.split("\n");
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i];
-    if (!line) continue;
-    try {
-      const event = JSON.parse(line) as Record<string, unknown>;
-      if (event["type"] !== "message_end") continue;
-      const message = event["message"] as Record<string, unknown> | undefined;
-      if (message?.["role"] !== "assistant") continue;
-      const content = message["content"];
-      if (!Array.isArray(content)) continue;
-      const text = (content as Array<Record<string, unknown>>)
-        .filter((block) => block["type"] === "text")
-        .map((block) => String(block["text"] ?? ""))
-        .join("");
-      if (text) return text;
-    } catch {
-      // Skip malformed NDJSON lines.
-    }
-  }
-  return "";
-}
-
 function stripWorkflowOnlyOptions(options: StageOptions | undefined): CreateAgentSessionOptions | undefined {
   if (!options) return options;
   const { mcp: _mcp, ...sessionOptions } = options;
   return sessionOptions;
 }
 
-function workflowEnvRecord(meta?: StageExecutionMeta): Record<string, string> {
-  const raw = readWorkflowEnv();
-  const out: Record<string, string> = {};
-  if (raw.PI_WORKFLOW_RUN_ID) out["PI_WORKFLOW_RUN_ID"] = raw.PI_WORKFLOW_RUN_ID;
-  if (raw.PI_WORKFLOW_STAGE_ID) out["PI_WORKFLOW_STAGE_ID"] = raw.PI_WORKFLOW_STAGE_ID;
-  if (meta?.runId) out["PI_WORKFLOW_RUN_ID"] = meta.runId;
-  if (meta?.stageId) out["PI_WORKFLOW_STAGE_ID"] = meta.stageId;
-  return out;
-}
-
 /**
- * Build StageAdapters from available oh-my-pi runtime surfaces.
+ * Build StageAdapters from available pi runtime surfaces.
  *
- * The resulting stage adapter creates an in-process oh-my-pi SDK AgentSession
+ * The resulting stage adapter creates an in-process pi SDK AgentSession
  * for each workflow stage. There is no subprocess and no custom NDJSON parsing
  * path here; stage.prompt() delegates directly to AgentSession.prompt().
+ *
+ * Session factory resolution (narrowest → widest):
+ *   1. `options.createAgentSession` — per-call test seam.
+ *   2. `pi.createAgentSession` — wiring-surface test seam.
+ *   3. in-process test stub when running under `bun:test` / `node:test`.
+ *   4. lazy dynamic import of `createAgentSession` from
+ *      `@earendil-works/pi-coding-agent` — the canonical production
+ *      default (pi SDK ≥ 0.74 exposes it as a top-level package export,
+ *      NOT on the `ExtensionAPI` surface).
  */
 export function buildRuntimeAdapters(
   pi: RuntimeWiringSurface,
   options: RuntimeAdapterBuildOptions = {},
 ): StageAdapters {
-  const createSession = options.createAgentSession ?? pi.createAgentSession ?? pi.pi?.createAgentSession ?? (isTestContext() ? createTestAgentSession : undefined);
-  const adapters: StageAdapters = {};
-
-  if (createSession !== undefined) {
-    adapters.agentSession = {
+  const createSession =
+    options.createAgentSession ??
+    pi.createAgentSession ??
+    (isTestContext() ? createTestAgentSession : createPiSdkAgentSession);
+  const adapters: StageAdapters = {
+    agentSession: {
       async create(stageOptions: StageOptions): Promise<StageSessionRuntime> {
-        const sessionOptions: CreateAgentSessionOptions = {
-          disableExtensionDiscovery: true,
-          skills: [],
-          promptTemplates: [],
-          slashCommands: [],
-          ...stripWorkflowOnlyOptions(stageOptions),
-        };
+        // The pi SDK (`@earendil-works/pi-coding-agent` ≥ 0.74) handles
+        // extension / skills / prompt-template / slash-command isolation
+        // via `SettingsManager` / `ResourceLoader` ctor args, so workflows
+        // do not pass those as per-call options. Stage sessions inherit
+        // the host's resource set unless the caller threads a custom
+        // `sessionManager` / `settingsManager` / `resourceLoader` through
+        // `stage(name, options)`.
+        const sessionOptions: CreateAgentSessionOptions = stripWorkflowOnlyOptions(stageOptions) ?? {};
         const result = await createSession(sessionOptions);
         return result.session;
       },
-    };
-  }
+    },
+  };
 
   if (typeof pi.callTool === "function") {
     adapters.subagent = {
-      subagent(opts: SubagentStageOpts, meta?: StageExecutionMeta): Promise<string> {
+      // pi-subagents v0.24.2 `SubagentParams` execution shape (see
+      // `nicobailon/pi-subagents@635112d:src/extension/schemas.ts` +
+      // `src/shared/types.ts:597 SUBAGENT_ACTIONS`) is:
+      //   { agent, task, context?: "fresh" | "fork", model?, cwd?, ... }
+      // with `action` OMITTED for execution. "run" is NOT a member of
+      // SUBAGENT_ACTIONS and is rejected by createSubagentExecutor.execute.
+      // pi-subagents has no `env` field on SubagentParams — it silently
+      // drops unknown keys, so threading workflow env through args is a
+      // no-op. Workflow metadata propagation through pi-subagents is
+      // unsupported in v0.24.2; do not pretend otherwise. The `meta`
+      // parameter is retained on the adapter signature for downstream
+      // adapters that *can* propagate it (e.g. tests).
+      subagent(opts: SubagentStageOpts, _meta?: StageExecutionMeta): Promise<string> {
         const args: Record<string, unknown> = {
-          action: "run",
           agent: opts.agent,
           task: opts.task,
-          env: workflowEnvRecord(meta),
         };
         if (opts.context !== undefined) args["context"] = opts.context;
         return pi.callTool!("subagent", args);
@@ -196,12 +210,12 @@ export function buildRuntimeAdapters(
 }
 
 // ---------------------------------------------------------------------------
-// UI adapter — maps oh-my-pi ctx.ui dialog surface to WorkflowUIAdapter
+// UI adapter — maps pi ctx.ui dialog surface to WorkflowUIAdapter
 // ---------------------------------------------------------------------------
 
 /**
- * Subset of oh-my-pi's ExtensionUIDialogOptions consumed by the adapter.
- * Structurally matched against @oh-my-pi/pi-coding-agent
+ * Subset of pi's ExtensionUIDialogOptions consumed by the adapter.
+ * Structurally matched against @earendil-works/pi-coding-agent
  * ExtensionUIDialogOptions.
  */
 export interface PiUIDialogOptions {
@@ -252,8 +266,8 @@ export interface PiCustomComponent {
 }
 
 /**
- * Handle exposed by oh-my-pi's TUI for controlling a live overlay. Mirrors the
- * shape from @oh-my-pi/pi-tui `OverlayHandle` — `setHidden(true)`
+ * Handle exposed by pi's TUI for controlling a live overlay. Mirrors the
+ * shape from @earendil-works/pi-tui `OverlayHandle` — `setHidden(true)`
  * temporarily hides the overlay (cheap to flip on/off, used for a
  * show/hide toggle), `hide()` permanently dismisses it.
  */
@@ -267,17 +281,17 @@ export interface PiOverlayHandle {
 }
 
 /**
- * Options accepted by Pi/oh-my-pi's real `ctx.ui.custom(factory, options)`
+ * Options accepted by Pi/pi's real `ctx.ui.custom(factory, options)`
  * overlay primitive. Aligned with the shape documented in
  * `@earendil-works/pi-coding-agent docs/tui.md` and
  * `@earendil-works/pi-tui dist/tui.d.ts`.
  *
- * Host-compatibility note: oh-my-pi's interactive
+ * Host-compatibility note: pi's interactive
  * `ExtensionUiController.custom` hardcodes the overlay geometry when
  * `overlay: true` to `{ anchor: "bottom-center", width: "100%",
  * maxHeight: "100%", margin: 0 }`, and does NOT forward this object's
  * `overlayOptions` field. Consumers MUST NOT rely on `overlayOptions`
- * for actual placement in interactive oh-my-pi mode — the field is
+ * for actual placement in interactive pi mode — the field is
  * retained for forward-compatibility (future hosts and the test seam
  * may consume it).
  *
@@ -300,7 +314,7 @@ export interface PiCustomOverlayOptions {
   overlay: boolean;
   /**
    * Geometry / anchoring intended for pi-tui's `resolveOverlayLayout`.
-   * NOT forwarded by current oh-my-pi interactive `custom()` — see
+   * NOT forwarded by current pi interactive `custom()` — see
    * the host-compatibility note above. Treat as advisory metadata
    * until the host wires it through.
    */
@@ -323,12 +337,19 @@ export interface PiCustomOverlayOptions {
 export interface PiCustomOverlayFactoryTui {
   requestRender?: () => void;
   terminal?: { rows?: number; columns?: number };
+  setFocus?: (target: unknown) => void;
+  start?: () => void;
+  stop?: () => void;
+  [key: string]: unknown;
 }
+
+export type PiTheme = unknown;
+export type PiKeybindings = unknown;
 
 export type PiCustomOverlayFactory = (
   tui: PiCustomOverlayFactoryTui,
-  theme: unknown,
-  keybindings: unknown,
+  theme: PiTheme,
+  keybindings: PiKeybindings,
   done: (result: undefined) => void,
 ) => PiCustomComponent | Promise<PiCustomComponent>;
 
@@ -338,7 +359,7 @@ export type PiCustomOverlayFunction = (
 ) => Promise<undefined> | undefined;
 
 /**
- * Structural shape of oh-my-pi's custom editor component. Interactive mode
+ * Structural shape of pi's custom editor component. Interactive mode
  * currently installs extension editors through `InteractiveMode.setEditorComponent`,
  * which expects the richer `CustomEditor` surface and configures these methods
  * before mounting. Keep the extra methods optional for lightweight tests and
@@ -387,8 +408,8 @@ export type PiEditorFactory = (
 ) => PiEditorComponent;
 
 /**
- * Structural type for the oh-my-pi UI dialog surface.
- * Matches @oh-my-pi/pi-coding-agent ExtensionUIContext dialog methods.
+ * Structural type for the pi UI dialog surface.
+ * Matches @earendil-works/pi-coding-agent ExtensionUIContext dialog methods.
  * All fields optional — presence is checked at runtime before building adapter.
  */
 export interface PiUISurface {

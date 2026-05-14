@@ -18,15 +18,16 @@
  * cross-ref:
  *   - src/runs/foreground/stage-runner.ts (InternalStageContext)
  *   - src/runs/foreground/executor.ts (registers/unregisters handles)
- *   - oh-my-pi docs/sdk.md (AgentSession.prompt/steer/followUp/abort)
+ *   - pi docs/sdk.md (AgentSession.prompt/steer/followUp/abort)
  */
 
-import type { AgentSession, AgentSessionEvent } from "@oh-my-pi/pi-coding-agent";
+import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 
 export type StageControlStatus =
   | "pending"
   | "running"
   | "paused"
+  | "blocked"
   | "completed"
   | "failed";
 
@@ -87,7 +88,9 @@ export interface WorkflowRunControlHandle {
   pausedStages(): readonly StageControlHandle[];
   /**
    * Pause every currently running stage (or the specific stage when
-   * `stageId` is supplied). Returns the handles that were paused.
+   * `stageId` is supplied). Returns every handle whose pause state changed,
+   * including cascade-blocked descendants; keeping the array return preserves
+   * existing slash-command iteration ergonomics.
    */
   pause(stageId?: string): Promise<readonly StageControlHandle[]>;
   /**
@@ -154,14 +157,18 @@ export function createStageControlRegistry(): StageControlRegistry {
           : [...runMap.values()].filter(
               (h) => h.status === "running" || h.status === "pending",
             );
-        const paused: StageControlHandle[] = [];
+        const before = new Map(
+          [...runMap.values()].map((handle) => [handle.stageId, handle.status]),
+        );
         for (const handle of targets) {
           if (handle.status === "paused") continue;
           if (handle.status === "completed" || handle.status === "failed") continue;
           await handle.pause();
-          paused.push(handle);
         }
-        return paused;
+        return [...runMap.values()].filter((handle) => {
+          const previous = before.get(handle.stageId);
+          return previous !== handle.status && (handle.status === "paused" || handle.status === "blocked");
+        });
       },
       async resume(
         stageId?: string,
@@ -169,16 +176,20 @@ export function createStageControlRegistry(): StageControlRegistry {
       ): Promise<readonly StageControlHandle[]> {
         const runMap = _byRun.get(runId);
         if (!runMap) return [];
+        const before = new Map(
+          [...runMap.values()].map((handle) => [handle.stageId, handle.status]),
+        );
         const targets = stageId
           ? [runMap.get(stageId)].filter((h): h is StageControlHandle => h !== undefined)
           : [...runMap.values()].filter((h) => h.status === "paused");
-        const resumed: StageControlHandle[] = [];
         for (const handle of targets) {
           if (handle.status !== "paused") continue;
           await handle.resume(message);
-          resumed.push(handle);
         }
-        return resumed;
+        return [...runMap.values()].filter((handle) => {
+          const previous = before.get(handle.stageId);
+          return (previous === "paused" || previous === "blocked") && previous !== handle.status;
+        });
       },
     };
   }

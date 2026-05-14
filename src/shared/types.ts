@@ -1,6 +1,6 @@
 /**
  * Cross-cutting shared types for atomic workflows.
- * cross-ref: oh-my-pi docs/sdk.md AgentSession
+ * cross-ref: pi docs/sdk.md AgentSession
  */
 
 import type {
@@ -10,7 +10,7 @@ import type {
   CreateAgentSessionOptions,
   ModelCycleResult,
   PromptOptions,
-} from "@oh-my-pi/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 
 export type { AgentSessionEvent, CompactionResult, ModelCycleResult, PromptOptions };
 
@@ -62,7 +62,7 @@ export type WorkflowInputSchema =
 /**
  * HIL surface available on WorkflowRunContext.ui.
  * Each primitive suspends the current stage until the user responds.
- * Mirrors oh-my-pi ctx.ui.input / confirm / select / editor methods.
+ * Mirrors pi ctx.ui.input / confirm / select / editor methods.
  */
 export interface WorkflowUIContext {
   /** Ask the user for a free-text value. */
@@ -76,14 +76,14 @@ export interface WorkflowUIContext {
 }
 
 /**
- * Adapter supplied by the oh-my-pi runtime (or test harness) to back the HIL
+ * Adapter supplied by the pi runtime (or test harness) to back the HIL
  * primitives.  Must implement the same surface as WorkflowUIContext so that
  * the executor can delegate directly.
  */
 export type WorkflowUIAdapter = WorkflowUIContext;
 
 // ---------------------------------------------------------------------------
-// StageOptions — per-stage configuration + oh-my-pi SDK session options
+// StageOptions — per-stage configuration + pi SDK session options
 // ---------------------------------------------------------------------------
 
 /**
@@ -100,7 +100,7 @@ export interface StageMcpOptions {
 
 /**
  * Options accepted by WorkflowRunContext.stage(name, options?).
- * All oh-my-pi SDK createAgentSession options are forwarded to the stage session;
+ * All pi SDK createAgentSession options are forwarded to the stage session;
  * `mcp` remains workflow-owned and is stripped before SDK session creation.
  */
 export interface StageOptions extends CreateAgentSessionOptions {
@@ -132,10 +132,20 @@ export interface CompleteStageOpts {
   maxTokens?: number;
 }
 
+/**
+ * Options for `ctx.stage(name).subagent({...})` — maps onto the
+ * pi-subagents v0.24.2 `subagent` tool execution shape.
+ *
+ * `context` is the literal union accepted by pi-subagents'
+ * `SubagentParams` (`"fresh" | "fork"`). Passing any other value is a
+ * type error — pi-subagents silently rejects unknown context values.
+ *
+ * cross-ref: pi-subagents/src/extension/schemas.ts SubagentParams
+ */
 export interface SubagentStageOpts {
   agent: string;
   task: string;
-  context?: string;
+  context?: "fresh" | "fork";
 }
 
 // ---------------------------------------------------------------------------

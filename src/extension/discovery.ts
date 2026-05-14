@@ -9,9 +9,9 @@
  *
  * Precedence order (highest wins on duplicate normalizedName):
  *   1. settings-project — paths listed in config.projectWorkflows
- *   2. project-local    — {cwd}/.omp/workflows/*.{ts,js,mjs,cjs}
+ *   2. project-local    — {cwd}/.pi/workflows/*.{ts,js,mjs,cjs}
  *   3. settings-global  — paths listed in config.globalWorkflows
- *   4. user-global      — {homeDir}/.omp/agent/workflows/*.{ts,js,mjs,cjs}
+ *   4. user-global      — {homeDir}/.pi/agent/workflows/*.{ts,js,mjs,cjs}
  *   5. bundled          — shipped workflows (skipped when includeBundled=false)
  *
  * Usage:
@@ -38,8 +38,8 @@ import * as bundledManifest from "../../workflows/index.js";
  * The source kind for a discovered workflow.
  *
  *   bundled          — shipped with the atomic-workflows package
- *   project-local    — found in {cwd}/.omp/workflows/
- *   user-global      — found in {homeDir}/.omp/agent/workflows/
+ *   project-local    — found in {cwd}/.pi/workflows/
+ *   user-global      — found in {homeDir}/.pi/agent/workflows/
  *   settings-project — listed in DiscoveryConfig.projectWorkflows
  *   settings-global  — listed in DiscoveryConfig.globalWorkflows
  */
@@ -367,9 +367,9 @@ async function loadFromPaths(
  *
  * Precedence (highest first; first-registered wins on duplicate normalizedName):
  *   1. settings-project — config.projectWorkflows paths
- *   2. project-local    — {cwd}/.omp/workflows/*.{ts,js,mjs,cjs}
+ *   2. project-local    — {cwd}/.pi/workflows/*.{ts,js,mjs,cjs}
  *   3. settings-global  — config.globalWorkflows paths
- *   4. user-global      — {homeDir}/.omp/agent/workflows/*.{ts,js,mjs,cjs}
+ *   4. user-global      — {homeDir}/.pi/agent/workflows/*.{ts,js,mjs,cjs}
  *   5. bundled          — shipped workflows (omitted when includeBundled=false)
  */
 export async function discoverWorkflows(
@@ -412,7 +412,7 @@ export async function discoverWorkflows(
 
   // 2. project-local
   {
-    const dir = join(cwd, ".omp", "workflows");
+    const dir = join(cwd, ".pi", "workflows");
     const candidates = await loadFromDir(dir, "project-local", diagnostics);
     registry = applyBatch(candidates, registry, sources, diagnostics);
   }
@@ -427,9 +427,9 @@ export async function discoverWorkflows(
     }
   }
 
-  // 4. user-global — canonical oh-my-pi path: ~/.omp/agent/workflows/
+  // 4. user-global — canonical pi path: ~/.pi/agent/workflows/
   {
-    const dir = join(homeDir, ".omp", "agent", "workflows");
+    const dir = join(homeDir, ".pi", "agent", "workflows");
     const candidates = await loadFromDir(dir, "user-global", diagnostics);
     registry = applyBatch(candidates, registry, sources, diagnostics);
   }

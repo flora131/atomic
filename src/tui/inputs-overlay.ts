@@ -15,7 +15,7 @@
  *
  * Mount mode
  * ----------
- * Uses `{ overlay: false }`. oh-my-pi's interactive
+ * Uses `{ overlay: false }`. pi's interactive
  * `ExtensionUiController.custom` REPLACES the editor with the mounted
  * component (`editorContainer.clear(); addChild(component)`), so the
  * picker renders **inline** at the editor's natural position in the
@@ -28,7 +28,7 @@
  *   - src/tui/inputs-picker.ts (pure state + render)
  *   - src/tui/session-overlays.ts (sibling picker; same mount mode)
  *   - src/extension/wiring.ts (PiCustomOverlayFunction / PiOverlayOptions)
- *   - oh-my-pi docs/tui.md  Mount points and return contracts
+ *   - pi docs/tui.md  Mount points and return contracts
  */
 
 import type {
@@ -157,7 +157,7 @@ export function openInputsPicker(
 
     // overlay: false — picker replaces the editor in-place (see header
     // comment). The host owns geometry/focus; no overlayOptions are
-    // forwarded by interactive oh-my-pi today.
+    // forwarded by interactive pi today.
     void custom(factory, { overlay: false });
   });
 }

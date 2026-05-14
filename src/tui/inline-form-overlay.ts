@@ -125,7 +125,7 @@ export function registerInlineFormRenderer(pi: ExtensionAPI, theme: GraphTheme):
   // The project's local `ExtensionAPI` types `registerMessageRenderer` as
   // returning a plain string. The real pi runtime also accepts a Component
   // (see docs/extensions.md §Custom UI). Cast through `unknown` so the call
-  // typechecks against both shapes. Call through `pi` so oh-my-pi's
+  // typechecks against both shapes. Call through `pi` so pi's
   // class-backed ExtensionAPI keeps its `this` binding.
   (register as unknown as (event: string, r: RawRenderer) => void).call(
     pi,
@@ -149,7 +149,7 @@ export function registerInlineFormRenderer(pi: ExtensionAPI, theme: GraphTheme):
  * Requirements:
  *   - `pi.sendMessage` is available to add the sticky form card
  *   - `ctx.ui.setEditorComponent` is available and accepts the richer
- *     oh-my-pi custom editor surface
+ *     pi custom editor surface
  *
  * On any missing or incompatible surface we resolve `unsupported` so the
  * caller can keep the existing missing-required-input path or use a supported

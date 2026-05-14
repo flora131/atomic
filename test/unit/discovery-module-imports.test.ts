@@ -97,18 +97,18 @@ export const second = {
 `;
 }
 
-/** Create a directory structure: <tmpRoot>/cwd/.omp/workflows/<file> */
+/** Create a directory structure: <tmpRoot>/cwd/.pi/workflows/<file> */
 async function createProjectWorkflowFile(filename: string, content: string): Promise<string> {
-  const dir = join(tmpRoot, "cwd", ".omp", "workflows");
+  const dir = join(tmpRoot, "cwd", ".pi", "workflows");
   await mkdir(dir, { recursive: true });
   const filePath = join(dir, filename);
   await writeFile(filePath, content, "utf8");
   return filePath;
 }
 
-/** Create a directory structure: <tmpRoot>/home/.omp/agent/workflows/<file> */
+/** Create a directory structure: <tmpRoot>/home/.pi/agent/workflows/<file> */
 async function createUserGlobalWorkflowFile(filename: string, content: string): Promise<string> {
-  const dir = join(tmpRoot, "home", ".omp", "agent", "workflows");
+  const dir = join(tmpRoot, "home", ".pi", "agent", "workflows");
   await mkdir(dir, { recursive: true });
   const filePath = join(dir, filename);
   await writeFile(filePath, content, "utf8");
@@ -150,7 +150,7 @@ describe("scanWorkflowDir — supported file extensions", () => {
 
   test("discovers .cjs workflow files", async () => {
     // .cjs files use module.exports syntax
-    const dir = join(tmpRoot, "cwd", ".omp", "workflows");
+    const dir = join(tmpRoot, "cwd", ".pi", "workflows");
     await mkdir(dir, { recursive: true });
     const cjsPath = join(dir, "gamma.cjs");
     await writeFile(
@@ -183,7 +183,7 @@ module.exports = {
   });
 
   test("ignores files with unsupported extensions (.txt, .json, .md)", async () => {
-    const dir = join(tmpRoot, "cwd", ".omp", "workflows");
+    const dir = join(tmpRoot, "cwd", ".pi", "workflows");
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, "readme.md"), "# not a workflow", "utf8");
     await writeFile(join(dir, "config.json"), '{"not":"workflow"}', "utf8");
@@ -603,11 +603,11 @@ describe("discoverWorkflows — precedence order", () => {
 });
 
 // ---------------------------------------------------------------------------
-// User-global path: ~/.omp/agent/workflows/
+// User-global path: ~/.pi/agent/workflows/
 // ---------------------------------------------------------------------------
 
 describe("discoverWorkflows — user-global path", () => {
-  test("scans ~/.omp/agent/workflows/ for user-global workflows", async () => {
+  test("scans ~/.pi/agent/workflows/ for user-global workflows", async () => {
     await createUserGlobalWorkflowFile(
       "user-wf.js",
       validDefaultExportSrc("User Global WF", "user-global-wf"),
@@ -620,10 +620,10 @@ describe("discoverWorkflows — user-global path", () => {
     assert.equal(result.registry.has("user-global-wf"), true);
     const src = result.sources.find((s) => s.id === "user-global-wf");
     assert.equal(src?.kind, "user-global");
-    assert.ok(src?.filePath!.includes(join(".omp", "agent", "workflows")));
+    assert.ok(src?.filePath!.includes(join(".pi", "agent", "workflows")));
   });
 
-  test("missing ~/.omp/agent/workflows/ dir is silently skipped (no error)", async () => {
+  test("missing ~/.pi/agent/workflows/ dir is silently skipped (no error)", async () => {
     // Don't create the user-global dir
     const result = await discoverWorkflows({
       cwd: join(tmpRoot, "cwd"),

@@ -2,9 +2,9 @@
 
 ## Overview
 
-This repo houses `@bastani/atomic-workflows` — a first-party extension for [oh-my-pi](https://github.com/can1357/oh-my-pi) that brings multi-stage, DAG-driven workflow execution to oh-my-pi sessions.
+This repo houses `@bastani/atomic-workflows` — a first-party extension for [pi](https://github.com/earendil-works/pi) that brings multi-stage, DAG-driven workflow execution to pi sessions.
 
-`@bastani/atomic-workflows` ships as **raw TypeScript** (no compile step) and is loaded directly by oh-my-pi. The layout mirrors oh-my-pi's extension conventions.
+`@bastani/atomic-workflows` ships as **raw TypeScript** (no compile step) and is loaded directly by pi. The layout mirrors pi's extension conventions.
 
 ## Tech Stack
 
@@ -33,8 +33,8 @@ Default to using **Bun**, not Node/npm/yarn/pnpm.
 ## Best Practices
 
 - Avoid ambiguous types like `any` and `unknown`. Use specific types instead.
-- Source files use `.js` import extensions (TypeScript ESM convention). The repo ships as `.ts` files; Bun resolves `.js` specifiers to the underlying `.ts` source directly — no loader hook required. oh-my-pi's loader follows the same convention.
-- Do not add a build step (`dist/`, `tsconfig.build.json`, etc.). The package distributes raw TypeScript and oh-my-pi loads it directly.
+- Source files use `.js` import extensions (TypeScript ESM convention). The repo ships as `.ts` files; Bun resolves `.js` specifiers to the underlying `.ts` source directly — no loader hook required. pi's loader follows the same convention.
+- Do not add a build step (`dist/`, `tsconfig.build.json`, etc.). The package distributes raw TypeScript and pi loads it directly.
 
 ## Design Context
 
@@ -84,7 +84,7 @@ Relevant resources (use your `playwright-cli` skill if the information is not av
     1. [`bun:test`](https://bun.sh/docs/cli/test)
     2. [Bun + TypeScript](https://bun.sh/docs/runtime/typescript)
     3. [`bunfig.toml`](https://bun.sh/docs/runtime/bunfig)
-2. oh-my-pi: `can1357/oh-my-pi`
+2. pi: `can1357/pi`
     1. Extension loading + SDK docs under `docs/`
 3. TypeScript: `microsoft/TypeScript`
     1. [Module resolution](https://www.typescriptlang.org/docs/handbook/module-resolution.html)
@@ -95,12 +95,12 @@ Relevant resources (use your `playwright-cli` skill if the information is not av
 
 ### Coding Agent Configuration Location
 
-oh-my-pi:
+pi:
  - global:
-     - Linux/MacOS: `~/.omp/agent/`
-     - Windows: `%HOMEPATH%\\.omp\\agent\\`
- - extensions: `~/.omp/agent/extensions/<name>/`
- - local: `.omp/` in the project directory
+     - Linux/MacOS: `~/.pi/agent/`
+     - Windows: `%HOMEPATH%\.pi\agent\\`
+ - extensions: `~/.pi/agent/extensions/<name>/`
+ - local: `.pi/` in the project directory
 
 **Agent Skill Locations**
     - local:
@@ -136,7 +136,7 @@ Note: npm publishing with provenance does NOT require a token. That's the whole 
 
 ## Tips
 
-1. The `@bastani/atomic-workflows` extension is installed under `~/.omp/agent/extensions/workflows` when linked locally or loaded by oh-my-pi. For local development, symlink this repo's checkout into that path if you want host-level discovery.
+1. The `@bastani/atomic-workflows` extension is installed under `~/.pi/agent/extensions/workflows` when linked locally or loaded by pi. For local development, symlink this repo's checkout into that path if you want host-level discovery.
 2. Rely on agent skills to provide information on best practices during implementation. Here is a short list of Agent Skills that are incredibly relevant to this project that you should try to use when applicable:
    - typescript-advanced-types
    - typescript-expert
@@ -144,10 +144,10 @@ Note: npm publishing with provenance does NOT require a token. That's the whole 
    - tdd
    - impeccable
 3. Ask for clarity if you are unsure about a change. The developer is your best friend and oftentimes can clarify intent.
-4. When modifying this extension, follow oh-my-pi's extension and SDK conventions.
+4. When modifying this extension, follow pi's extension and SDK conventions.
 
 <EXTREMELY_IMPORTANT>
-This repo uses **Bun (≥ 1.3.7)** for development, scripts, and tests. Do NOT use `node`, `npm`, `npx`, `yarn`, or `pnpm` for development commands. Always use `bun`, `bunx`, and `bun run`. The only acceptable exception is `npm publish --provenance` for the release flow (OIDC provenance is npm-CLI-specific).
+This repo uses **Bun (≥ 1.3.14)** for development, scripts, and tests. Do NOT use `node`, `npm`, `npx`, `yarn`, or `pnpm` for development commands. Always use `bun`, `bunx`, and `bun run`. The only acceptable exception is `npm publish --provenance` for the release flow (OIDC provenance is npm-CLI-specific).
 
 `@bastani/atomic-workflows` ships raw `.ts` files with no build step — do NOT introduce `dist/`, `tsconfig.build.json`, `outDir`, or any bundling. Tests run via Bun's built-in `bun:test` runner. The Node `--experimental-strip-types` / `--experimental-transform-types` loader hooks have been removed and must not be reintroduced.
 </EXTREMELY_IMPORTANT>

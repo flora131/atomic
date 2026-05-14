@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>@bastani/atomic-workflows — dispatch confirmation, compact</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      :root {
+        /* Catppuccin Mocha — must match src/tui/graph-theme.ts */
+        --crust: #11111b;
+        --mantle: #181825;
+        --base: #1e1e2e;
+        --surface0: #313244;
+        --surface1: #45475a;
+        --surface2: #585b70;
+        --overlay0: #6c7086;
+        --overlay1: #7f849c;
+        --text: #cdd6f4;
+        --subtext0: #a6adc8;
+        --blue: #89b4fa;
+        --green: #a6e3a1;
+        --yellow: #f9e2af;
+        --red: #f38ba8;
+        --mauve: #cba6f7;
+        --sky: #89dceb;
+        --teal: #94e2d5;
+      }
+      * { box-sizing: border-box; }
+
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: var(--mantle);
+        color: var(--text);
+        font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+        font-size: 13px;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+        font-feature-settings: "calt" 1, "liga" 0;
+      }
+      .page { max-width: 1280px; margin: 0 auto; padding: 2.5rem 1.5rem 6rem; }
+
+      h1 {
+        font-size: 1.05rem; font-weight: 600; margin: 0 0 0.25rem;
+        color: var(--text); letter-spacing: 0.01em;
+      }
+      h2 {
+        font-size: 0.92rem; font-weight: 600;
+        margin: 3rem 0 0.6rem; color: var(--text); letter-spacing: 0.04em;
+      }
+      h2 .num { color: var(--blue); margin-right: 0.5em; }
+      .lede {
+        color: var(--subtext0); margin: 0 0 2rem;
+        font-size: 0.82rem; max-width: 72ch; line-height: 1.6;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.5rem;
+        align-items: start;
+      }
+      @media (max-width: 1100px) { .row { grid-template-columns: 1fr; } }
+
+      .label {
+        text-transform: uppercase; letter-spacing: 0.14em;
+        font-size: 0.62rem; color: var(--overlay1);
+        margin-bottom: 0.4rem; font-weight: 600;
+      }
+      .label.before { color: var(--red); }
+      .label.after { color: var(--green); }
+
+      /* Terminal card — emulates the chat content area. */
+      .terminal {
+        background: var(--base);
+        border-radius: 10px;
+        padding: 0;
+        overflow: hidden;
+        font-size: 12.5px;
+        line-height: 1.65;
+        border: 1px solid var(--surface0);
+        box-shadow: 0 1px 0 0 rgb(0 0 0 / 30%) inset;
+      }
+      .terminal pre,
+      .terminal .pre {
+        margin: 0;
+        padding: 1rem 1.1rem;
+        white-space: pre;
+        font-family: inherit;
+        font-size: inherit;
+        line-height: inherit;
+        color: inherit;
+        overflow-x: auto;
+      }
+
+      /* Full-width band — the surface0 strip used in the CURRENT design. */
+      .terminal .band {
+        display: block;
+        background: var(--surface0);
+        padding: 0.45rem 1.1rem 0.45rem 1.1rem;
+        white-space: pre;
+      }
+
+      /* Card body — status-coloured stripe + body. Used in BOTH before and after,
+         but the after compresses it to a single line. */
+      .card {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        margin: 0.25rem 1.1rem 0.25rem 1.1rem;
+      }
+      .card .stripe {
+        background: currentColor;
+        width: 3px;
+        border-radius: 2px;
+        align-self: stretch;
+        margin-right: 0.7rem;
+      }
+      .card .body {
+        padding: 0.35rem 0 0.55rem 0;
+        white-space: pre;
+        color: var(--text);
+      }
+      /* Single-line card — tighter vertical padding, no body wrap. */
+      .card.tight .body { padding: 0.2rem 0; }
+      .card .tag {
+        display: inline-block;
+        background: var(--surface0);
+        color: currentColor;
+        padding: 0 0.45rem;
+        border-radius: 3px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        margin-right: 0.6rem;
+      }
+      .card.green { color: var(--green); }
+      .card.yellow { color: var(--yellow); }
+      .card.red { color: var(--red); }
+      .card.dim { color: var(--overlay1); }
+      .card.mauve { color: var(--mauve); }
+      .card.blue { color: var(--blue); }
+
+      /* Inline atoms */
+      .blue { color: var(--blue); }
+      .green { color: var(--green); }
+      .yellow { color: var(--yellow); }
+      .red { color: var(--red); }
+      .mauve { color: var(--mauve); }
+      .sky { color: var(--sky); }
+      .teal { color: var(--teal); }
+      .text { color: var(--text); }
+      .dim { color: var(--overlay1); }
+      .muted { color: var(--subtext0); }
+      .faint { color: var(--overlay0); }
+      .b { font-weight: 700; }
+
+      .note {
+        font-size: 0.75rem; color: var(--overlay1);
+        margin: 0.5rem 0 0; padding-left: 0.2rem;
+      }
+      .note .k { color: var(--subtext0); }
+      .note .ok { color: var(--green); }
+      .note .bad { color: var(--red); }
+
+      hr {
+        border: none;
+        border-top: 1px dashed var(--surface1);
+        margin: 3rem 0;
+      }
+
+      /* Hint row — same grammar as mockups.html (`▸ /slash command  verb-phrase hint`). */
+      .hints { margin: 0.4rem 1.1rem 0 1.1rem; padding-bottom: 0.6rem; }
+      .hints .row-line {
+        display: flex; align-items: baseline; gap: 0.6rem;
+        padding: 0.05rem 0;
+      }
+      .hints .arrow { color: var(--overlay1); }
+      .hints .cmd { color: var(--blue); min-width: 28ch; }
+      .hints .hint { color: var(--overlay1); }
+
+      /* Annotation overlay over the BEFORE screenshot — calls out each
+         redundancy. */
+      .anno {
+        position: relative;
+        margin: 0.6rem 1.1rem 0.4rem 1.1rem;
+        padding: 0.6rem 0.8rem;
+        background: rgb(243 139 168 / 8%);
+        border-left: 0; /* explicitly avoid side-stripe accent */
+        border-radius: 4px;
+        font-size: 0.72rem;
+        line-height: 1.55;
+        color: var(--subtext0);
+      }
+      .anno .count {
+        display: inline-block;
+        background: var(--red);
+        color: var(--surface0);
+        font-weight: 700;
+        padding: 0 0.45rem;
+        border-radius: 3px;
+        margin-right: 0.4rem;
+      }
+      .anno ul { margin: 0.35rem 0 0 1.1rem; padding: 0; }
+      .anno li { margin: 0.05rem 0; }
+      .anno code { color: var(--text); }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <h1>@bastani/atomic-workflows · dispatch confirmation, compact</h1>
+      <p class="lede">
+        After typing <code class="blue">/workflow deep-research-codebase prompt="explore the codebase" max_partitions=4</code>, the current chat surface emits <strong>seven lines of chrome</strong> for a single dispatch event. The run identity, workflow name, status, and inputs are each restated 2&ndash;3 times across a band, a tagged card, and two hint rows. Below: a side-by-side with the current rendering on the left and a compressed two-line replacement on the right, plus three edge cases (no inputs, long inputs, narrow terminal) showing the new layout holds shape.
+      </p>
+
+      <!-- ============================================================
+           §1  Dispatch confirmation — primary comparison
+      ============================================================ -->
+      <h2><span class="num">§1</span> <code class="blue">/workflow run</code> · primary comparison</h2>
+
+      <div class="row">
+        <!-- BEFORE -->
+        <div>
+          <div class="label before">▼ before — 7 chat-surface rows, 4 restatements</div>
+          <div class="terminal">
+            <pre><span class="green">✓</span> <span class="b text">submitted</span>  <span class="faint">·</span>  <span class="dim">/workflow deep-research-codebase prompt=&quot;explore the codebase&quot; max_partitions=4</span>
+
+<span class="green">✓</span> <span class="b text">submitted</span>  <span class="faint">·</span>  <span class="dim">/workflow deep-research-codebase</span></pre>
+            <span class="band"><span class="blue b">[ DISPATCHED ]</span>  <span class="muted">deep-research-codebase</span>                                                <span class="yellow">●</span> <span class="muted">running</span></span>
+            <div class="card yellow">
+              <span class="stripe"></span>
+              <div class="body"><span class="tag">be3181c1</span><span class="muted">run id</span>
+   <span class="muted">inputs</span>    <span class="text">prompt</span><span class="faint">=</span><span class="text">&quot;explore the codebase&quot;</span>  <span class="faint">·</span>  <span class="text">max_partitions</span><span class="faint">=</span><span class="text">4</span>
+   <span class="muted">status</span>    <span class="dim">starting…</span></div>
+            </div>
+            <div class="hints">
+              <div class="row-line"><span class="arrow">▸</span> <span class="cmd">/workflow connect be3181c1</span> <span class="hint">attach &amp; watch</span></div>
+              <div class="row-line"><span class="arrow">▸</span> <span class="cmd">/workflow status</span> <span class="hint">list in-flight runs</span></div>
+            </div>
+            <div class="anno">
+              <span class="count">4×</span> <strong>the same dispatch is restated four times</strong>
+              <ul>
+                <li>line&nbsp;1 — pi already echoes the user's slash command, with inputs</li>
+                <li>line&nbsp;3 — our renderer adds a second <code>✓ submitted</code> line that drops the inputs (a strict subset of line&nbsp;1)</li>
+                <li>line&nbsp;4 — <code>[ DISPATCHED ]</code> band repeats the workflow name a third time</li>
+                <li>lines&nbsp;5&ndash;7 — card repeats run identity (<em>tag + "run id"</em>), inputs (already on line&nbsp;1), and status (already on line&nbsp;4 as <code>● running</code>)</li>
+              </ul>
+            </div>
+          </div>
+          <p class="note"><span class="k bad">why it hurts</span> · seven lines of chrome for one event · run identity, status, and inputs are each said 2&ndash;3 times · scrolls the actual conversation out of view after a couple of dispatches</p>
+        </div>
+
+        <!-- AFTER -->
+        <div>
+          <div class="label after">▶ after — 2 chat-surface rows, identity said once</div>
+          <div class="terminal">
+            <pre><span class="green">✓</span> <span class="b text">submitted</span>  <span class="faint">·</span>  <span class="dim">/workflow deep-research-codebase prompt=&quot;explore the codebase&quot; max_partitions=4</span></pre>
+            <div class="card yellow tight">
+              <span class="stripe"></span>
+              <div class="body"><span class="tag">be3181c1</span><span class="b text">deep-research-codebase</span>  <span class="faint">·</span>  <span class="text">prompt</span><span class="faint">=</span><span class="text">&quot;explore the codebase&quot;</span>  <span class="faint">·</span>  <span class="text">max_partitions</span><span class="faint">=</span><span class="text">4</span>      <span class="yellow">●</span> <span class="muted">running</span></div>
+            </div>
+            <div class="hints">
+              <div class="row-line"><span class="arrow">▸</span> <span class="cmd">/workflow connect be3181c1</span> <span class="hint">attach &amp; watch</span></div>
+            </div>
+          </div>
+          <p class="note"><span class="k ok">why it works</span> · pi's echo is the confirmation; we don't restate it · one stripe-card carries id + name + inputs + status in a single row · one hint, because <code>/workflow status</code> is a separate intent and already discoverable from an empty <code>/workflow</code> · scales to many dispatches without burying the conversation</p>
+        </div>
+      </div>
+
+      <!-- ============================================================
+           §2  Edge cases — the after layout under stress
+      ============================================================ -->
+      <h2><span class="num">§2</span> edge cases — the after layout holds</h2>
+      <p class="lede">
+        Three stress tests on the compressed row: (a) no inputs at all, (b) more inputs than fit on a row, (c) a 60-column terminal. The card body shrinks gracefully; truncation uses the canonical <code>…</code> rule from <code>ui/mockups.html §4</code>.
+      </p>
+
+      <div class="row">
+        <!-- (a) no inputs -->
+        <div>
+          <div class="label after">▶ a · workflow with no inputs</div>
+          <div class="terminal">
+            <pre><span class="green">✓</span> <span class="b text">submitted</span>  <span class="faint">·</span>  <span class="dim">/workflow primer</span></pre>
+            <div class="card yellow tight">
+              <span class="stripe"></span>
+              <div class="body"><span class="tag">5b91ee54</span><span class="b text">primer</span>                                                                <span class="yellow">●</span> <span class="muted">running</span></div>
+            </div>
+            <div class="hints">
+              <div class="row-line"><span class="arrow">▸</span> <span class="cmd">/workflow connect 5b91ee54</span> <span class="hint">attach &amp; watch</span></div>
+            </div>
+          </div>
+          <p class="note"><span class="k">policy</span> · drop the inputs segment entirely (no <code>(none)</code> placeholder) · the badge anchors the right edge so the row stays visually balanced</p>
+        </div>
+
+        <!-- (b) long / overflowing inputs -->
+        <div>
+          <div class="label after">▶ b · long inputs (overflow)</div>
+          <div class="terminal">
+            <pre><span class="green">✓</span> <span class="b text">submitted</span>  <span class="faint">·</span>  <span class="dim">/workflow enterprise-research prompt=&quot;map every TypeScript file…&quot; model=&quot;claude-opus-4&quot; max_partitions=12 …</span></pre>
+            <div class="card yellow">
+              <span class="stripe"></span>
+              <div class="body"><span class="tag">7c4a91bf</span><span class="b text">enterprise-deep-research-codebase-with-multi-stage-fan…</span>                  <span class="yellow">●</span> <span class="muted">running</span>
+   <span class="text">prompt</span><span class="faint">=</span><span class="text">&quot;map every TypeScript file in the codebase, focu…&quot;</span>  <span class="faint">·</span>  <span class="text">model</span><span class="faint">=</span><span class="text">&quot;claude-opus-4&quot;</span>  <span class="faint">·</span>  <span class="dim b">+3 more</span></div>
+            </div>
+            <div class="hints">
+              <div class="row-line"><span class="arrow">▸</span> <span class="cmd">/workflow connect 7c4a91bf</span> <span class="hint">attach &amp; watch</span></div>
+            </div>
+          </div>
+          <p class="note"><span class="k">policy</span> · row 1 carries identity + status only when inputs would overflow · row 2 holds the inputs, end-truncating long values inside the quotes and collapsing past 2 pairs to <code>+N more</code> · max 2 rows + 1 hint regardless of input count · full inputs reachable via <code>/workflow inputs &lt;id&gt;</code></p>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top: 1.5rem">
+        <!-- (c) narrow terminal -->
+        <div>
+          <div class="label after">▶ c · narrow terminal (60 columns)</div>
+          <div class="terminal" style="max-width: 60ch">
+            <pre><span class="green">✓</span> <span class="b text">submitted</span>  <span class="faint">·</span>  <span class="dim">/workflow deep-research-codebase prompt=&quot;explore the c…&quot;</span></pre>
+            <div class="card yellow">
+              <span class="stripe"></span>
+              <div class="body"><span class="tag">be3181c1</span><span class="b text">deep-research-codebase</span>      <span class="yellow">●</span> <span class="muted">running</span>
+   <span class="text">prompt</span><span class="faint">=</span><span class="text">&quot;explore the codeb…&quot;</span>  <span class="faint">·</span>  <span class="text">max_partitions</span><span class="faint">=</span><span class="text">4</span></div>
+            </div>
+            <div class="hints">
+              <div class="row-line"><span class="arrow">▸</span> <span class="cmd">/workflow connect be3181c1</span> <span class="hint">attach</span></div>
+            </div>
+          </div>
+          <p class="note"><span class="k">policy</span> · width responds to <code>process.stdout.columns</code> · inputs wrap to a second body row when row 1 cannot hold both name + status badge · hint verb-phrase shortens when the wide form would clip</p>
+        </div>
+
+        <!-- (d) plain mode -->
+        <div>
+          <div class="label after">▶ d · plain mode (NO_COLOR / logs)</div>
+          <div class="terminal">
+            <pre><span class="muted">✓ submitted  ·  /workflow deep-research-codebase prompt=&quot;explore the codebase&quot; max_partitions=4</span>
+
+<span class="muted">│ be3181c1  deep-research-codebase  ·  prompt=&quot;explore the codebase&quot;  ·  max_partitions=4    ● running
+▸ /workflow connect be3181c1   attach &amp; watch</span></pre>
+          </div>
+          <p class="note"><span class="k">policy</span> · stripe degrades to <code>│</code>; same shape, no color · pi's chat echo prints once; we print one row + one hint · same 2-line footprint</p>
+        </div>
+      </div>
+
+      <hr />
+
+      <!-- ============================================================
+           §3  Specifics — what's removed, what survives
+      ============================================================ -->
+      <h2 style="margin-top: 0"><span class="num">§3</span> what changes — line-by-line</h2>
+      <ul style="color: var(--subtext0); font-size: 0.82rem; line-height: 1.75; padding-left: 1.2rem; max-width: 78ch">
+        <li>
+          <b class="red">remove</b> · the <code>✓ submitted · /workflow &lt;name&gt;</code> echo emitted by <code>submittedLine()</code> in <code>src/tui/dispatch-confirm.ts</code>. Pi's slash-input chat row is already that confirmation and carries the full original input.
+        </li>
+        <li>
+          <b class="red">remove</b> · the <code>[ DISPATCHED ]</code> band (<code>renderFlatBand</code> call). A band makes sense for ambient surfaces like <code>BACKGROUND</code> or <code>WORKFLOWS</code> that frame multiple cards; here it frames exactly one card and duplicates the workflow name into the subtitle.
+        </li>
+        <li>
+          <b class="red">remove</b> · the <code>statusRow()</code> body row (<code>status starting…</code>). The yellow <code>● running</code> badge says the same thing, in a slot that's already visible.
+        </li>
+        <li>
+          <b class="red">remove</b> · the <code>run id</code> caption next to the tag. The tag's surface0 chip + 8-char hex visually communicates "identifier" without a label.
+        </li>
+        <li>
+          <b class="red">remove</b> · the second <code>/workflow status</code> hint row. It is a separate intent (list other in-flight runs) and is already discoverable from a bare <code>/workflow</code> command and from the picker's confirm panel.
+        </li>
+        <li>
+          <b class="green">keep</b> · the stripe-card vocabulary. It is the same shape used by <code>/workflow status</code> and <code>/workflow list</code>; consistency across the three chat surfaces is load-bearing.
+        </li>
+        <li>
+          <b class="green">keep</b> · the yellow status colour for in-flight runs. <em>Status-Is-Truth</em> still holds — yellow stripe means "this run is running."
+        </li>
+        <li>
+          <b class="green">keep</b> · the connect hint. It carries the canonical <code>/workflow connect &lt;id&gt;</code> command with the freshly generated runId pre-filled — the most common next action.
+        </li>
+        <li>
+          <b class="green">keep</b> · the inputs echo, but inline on the identity row when it fits, and falling back to a second row only on overflow (with the existing <code>+N more</code> rule from <code>ui/mockups.html §4</code>).
+        </li>
+      </ul>
+
+      <h2><span class="num">§4</span> rendering contract — proposed</h2>
+      <ul style="color: var(--subtext0); font-size: 0.82rem; line-height: 1.75; padding-left: 1.2rem; max-width: 78ch">
+        <li><b>Shape.</b> Exactly one <code>renderTaggedCard</code> + one <code>renderHintRows</code> with a single entry. No band, no leading echo line.</li>
+        <li><b>Tag.</b> 8-char prefix of the run UUID (unchanged). No trailing "run id" caption.</li>
+        <li><b>Body row 1.</b> <code>&lt;workflow name&gt;</code> in <code>text</code> bold, then inputs as <code>k=v</code> pairs joined by <code>  ·  </code>, then a right-aligned <code>● running</code> badge in <code>yellow</code> + <code>textMuted</code>.</li>
+        <li><b>Body row 2 (conditional).</b> Emitted only when row 1's inline-input span would exceed the interior budget. Carries the inputs in the same <code>k=v · k=v · +N more</code> form, with row 1 reduced to identity + status badge.</li>
+        <li><b>Hint row.</b> One entry: <code>{ command: "/workflow connect &lt;id&gt;", hint: "attach & watch" }</code>.</li>
+        <li><b>Plain mode.</b> Stripe → <code>│</code>; badge → <code>● running</code>; same shape. Tag and bold degrade to plain text.</li>
+        <li><b>Tests.</b> The existing dispatch-confirm snapshot tests in <code>test/unit/dispatch-confirm.test.ts</code> need to update to the new shape; behaviour assertions (run id present, workflow name present, connect hint present) carry over unchanged.</li>
+      </ul>
+    </div>
+  </body>
+</html>

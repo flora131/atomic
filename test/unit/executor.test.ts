@@ -190,7 +190,7 @@ describe("executor.run", () => {
 
     const wfResult = await run(def, {}, { store: createStore() });
     assert.equal(wfResult.status, "failed");
-    assert.ok(wfResult.error!.includes("oh-my-pi task delegation"));
+    assert.ok(wfResult.error!.includes("pi task delegation"));
   });
 
   test("complete throws clear error when adapter absent", async () => {
@@ -1038,7 +1038,7 @@ describe("executor.run — concurrency limiter", () => {
 
 import { createStageControlRegistry } from "../../src/runs/foreground/stage-control-registry.js";
 import type { StageSessionRuntime } from "../../src/runs/foreground/stage-runner.js";
-import type { AgentSession } from "@oh-my-pi/pi-coding-agent";
+import type { AgentSession } from "@earendil-works/pi-coding-agent";
 
 function mockSession(): StageSessionRuntime {
   const listeners = new Set<(e: { type: string; [k: string]: unknown }) => void>();
@@ -1058,9 +1058,9 @@ function mockSession(): StageSessionRuntime {
     setThinkingLevel() {},
     cycleModel: (async () => undefined) as StageSessionRuntime["cycleModel"],
     cycleThinkingLevel: (() => undefined) as StageSessionRuntime["cycleThinkingLevel"],
-    agent: undefined as AgentSession["agent"],
+    agent: undefined as unknown as AgentSession["agent"],
     model: undefined as AgentSession["model"],
-    thinkingLevel: undefined as AgentSession["thinkingLevel"],
+    thinkingLevel: "medium" as AgentSession["thinkingLevel"],
     messages: [] as AgentSession["messages"],
     isStreaming: false,
     navigateTree: (async () => ({ cancelled: false })) as StageSessionRuntime["navigateTree"],

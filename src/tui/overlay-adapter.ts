@@ -1,6 +1,6 @@
 /**
  * WorkflowGraphOverlayAdapter — mounts the orchestrator as a full-screen
- * overlay via Pi / oh-my-pi's real `ctx.ui.custom(factory, options)`
+ * overlay via Pi / pi's real `ctx.ui.custom(factory, options)`
  * primitive. The overlay fills the terminal (`width: "100%"`,
  * `maxHeight: "100%"`, `margin: 0`) and pi-tui's `setHidden` flag is used
  * for cheap show/hide toggles — every remount commits the previous overlay
@@ -27,8 +27,10 @@ import type {
   PiCustomOverlayFactoryTui,
   PiCustomOverlayFunction,
   PiCustomOverlayOptions,
+  PiKeybindings,
   PiOverlayHandle,
   PiOverlayOptions,
+  PiTheme,
 } from "../extension/wiring.js";
 
 export interface OverlayUISurface {
@@ -62,7 +64,7 @@ export interface GraphOverlayPort {
  * popup fills the entire frame, with `margin: 0` removing the breathing
  * room a centered popup needs.
  *
- * Current oh-my-pi interactive `ExtensionUiController.custom` ignores
+ * Current pi interactive `ExtensionUiController.custom` ignores
  * this object: it always mounts overlays with `{ anchor:
  * "bottom-center", width: "100%", maxHeight: "100%", margin: 0 }`. The
  * value is retained for `onHandle`-based toggle support and forward
@@ -117,13 +119,13 @@ export function buildGraphOverlayAdapter(
 
   /**
    * Non-destructive close path used by graph-mode `Ctrl+D` / `h`. Goes
-   * through Pi/oh-my-pi public primitives in priority order:
+   * through Pi/pi public primitives in priority order:
    *   1. `OverlayHandle.setHidden(true)` when the host exposed an
    *      overlay handle via `options.onHandle`. Keeps the overlay
    *      mounted so a subsequent `open()` can flip it back without
    *      remounting (state and animations survive).
    *   2. The factory `done(undefined)` callback when the host didn't
-   *      expose an OverlayHandle. Per oh-my-pi docs, this disposes the
+   *      expose an OverlayHandle. Per pi docs, this disposes the
    *      component, hides the overlay if present, restores focus to
    *      the editor, and resolves the custom() promise.
    *
@@ -187,8 +189,8 @@ export function buildGraphOverlayAdapter(
     let settled = false;
     const factory = (
       tui: PiCustomOverlayFactoryTui,
-      theme: unknown,
-      _keybindings: unknown,
+      theme: PiTheme,
+      keybindings: PiKeybindings,
       done: (result: undefined) => void,
     ): PiCustomComponent => {
       const finish = (): void => {
@@ -213,12 +215,28 @@ export function buildGraphOverlayAdapter(
           killRun(id, { store, cancellation: cancellationRegistry });
         },
         initialAttachStageId: stageId,
+        piTui: tui,
+        piTheme: theme,
+        piKeybindings: keybindings,
         // Pi-tui owns terminal dimensions; thread its row count down
         // so the overlay frame fills the actual viewport rather than
         // a hard-coded 32-row rectangle. Returning `undefined` keeps
         // the existing fallback for hosts that don't expose
         // `tui.terminal`.
         getViewportRows: () => tui.terminal?.rows,
+        // Drive the graph-view animation tick. Short-circuit when the
+        // overlay is hidden so a `setHidden(true)`-ed overlay does
+        // not waste CPU on render passes the user can't see. The
+        // pane's own `mode === "graph"` gate covers the chat-view
+        // case (see workflow-attach-pane.ts).
+        requestRender: () => {
+          if (currentHandle?.isHidden() === true) return;
+          tui.requestRender?.();
+        },
+      } as ConstructorParameters<typeof WorkflowAttachPane>[0] & {
+        piTui?: PiCustomOverlayFactoryTui;
+        piTheme?: PiTheme;
+        piKeybindings?: PiKeybindings;
       });
       currentView = view;
       finishMounted = finish;

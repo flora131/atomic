@@ -128,8 +128,8 @@ export function deriveGraphTheme(theme: GenericTheme = {}): GraphTheme {
 /**
  * Structural subset of Pi's `Theme` class. The orchestrator overlay's
  * `ctx.ui.custom` factory receives a live `Theme` instance whose
- * concrete class lives in `@oh-my-pi/pi-coding-agent`; we cannot import
- * that runtime type from a `.ts` extension shipped to oh-my-pi without
+ * concrete class lives in `@earendil-works/pi-coding-agent`; we cannot import
+ * that runtime type from a `.ts` extension shipped to pi without
  * pulling the entire host into our type graph. Instead we accept any
  * object that exposes the two ANSI accessors we need and feature-detect
  * at call time. Hosts that don't expose them — or test mocks that
@@ -227,7 +227,7 @@ function bgHex(theme: PiRuntimeTheme, color: string): string | undefined {
 /**
  * Build a `GraphTheme` from a live Pi `Theme`-shaped object.
  *
- * Mapping rationale (see `node_modules/@oh-my-pi/pi-coding-agent
+ * Mapping rationale (see `node_modules/@earendil-works/pi-coding-agent
  * /src/modes/theme/theme.ts` for the canonical Pi token names):
  *
  *  - Strata: Pi has no first-class panel stratum but exposes

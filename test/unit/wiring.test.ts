@@ -4,9 +4,9 @@
 
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { buildRuntimeAdapters, extractAssistantText } from "../../src/extension/wiring.js";
+import { buildRuntimeAdapters } from "../../src/extension/wiring.js";
 import { createStageContext } from "../../src/runs/foreground/stage-runner.js";
-import type { CreateAgentSessionOptions } from "@oh-my-pi/pi-coding-agent";
+import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent";
 import type { RuntimeWiringSurface } from "../../src/extension/wiring.js";
 import type { StageSessionRuntime } from "../../src/runs/foreground/stage-runner.js";
 
@@ -39,20 +39,6 @@ function fakeSession(): StageSessionRuntime {
   };
 }
 
-describe("extractAssistantText", () => {
-  test("returns empty string for empty input", () => {
-    assert.equal(extractAssistantText(""), "");
-  });
-
-  test("extracts the last assistant message", () => {
-    const ndjson = [
-      JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "first" }] } }),
-      JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "second" }] } }),
-    ].join("\n");
-    assert.equal(extractAssistantText(ndjson), "second");
-  });
-});
-
 describe("buildRuntimeAdapters — SDK sessions", () => {
   test("always configures agentSession without pi.exec", () => {
     const adapters = buildRuntimeAdapters({});
@@ -66,9 +52,9 @@ describe("buildRuntimeAdapters — SDK sessions", () => {
     const adapters = buildRuntimeAdapters({}, {
       createAgentSession: async (options) => { calls.push(options); return { session: fakeSession() }; },
     });
-    await adapters.agentSession!.create({ cwd: "/repo", tools: ["read"], mcp: { deny: ["network"] } });
+    await adapters.agentSession!.create({ cwd: "/repo", tools: ["read"], mcp: { deny: ["network"] } } as unknown as Parameters<NonNullable<typeof adapters.agentSession>["create"]>[0]);
     assert.equal(calls[0]?.cwd, "/repo");
-    assert.deepEqual(calls[0]?.tools, ["read"]);
+    assert.deepEqual((calls[0] as unknown as { tools?: string[] })?.tools, ["read"]);
     assert.equal(Object.prototype.hasOwnProperty.call(calls[0], "mcp"), false);
   });
 
@@ -83,20 +69,29 @@ describe("buildRuntimeAdapters — SDK sessions", () => {
   });
 });
 
-describe("subagent adapter — oh-my-pi task bridge", () => {
-  test("calls pi.callTool task bridge when available", async () => {
-    const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
-    const pi: RuntimeWiringSurface = {
-      callTool: async (name, args) => { calls.push({ name, args }); return "ok"; },
-    };
-    const adapters = buildRuntimeAdapters(pi);
-    await adapters.subagent!.subagent({ agent: "worker", task: "do it" });
-    assert.equal(calls[0]?.name, "subagent");
-    assert.equal(calls[0]?.args["action"], "run");
-  });
+describe("subagent adapter — pi task bridge", () => {
+  test(
+    "calls pi.callTool('subagent', { agent, task }) without `action` (execution mode)",
+    async () => {
+      // pi-subagents v0.24.2: execution mode omits `action` entirely. The
+      // valid SUBAGENT_ACTIONS list is {list,get,create,update,delete,
+      // status,interrupt,resume,doctor} — "run" is NOT a member and is
+      // rejected by createSubagentExecutor.execute.
+      const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+      const pi: RuntimeWiringSurface = {
+        callTool: async (name, args) => { calls.push({ name, args }); return "ok"; },
+      };
+      const adapters = buildRuntimeAdapters(pi);
+      await adapters.subagent!.subagent({ agent: "worker", task: "do it" });
+      assert.equal(calls[0]?.name, "subagent");
+      assert.equal(calls[0]?.args["agent"], "worker");
+      assert.equal(calls[0]?.args["task"], "do it");
+      assert.equal(Object.prototype.hasOwnProperty.call(calls[0]?.args, "action"), false);
+    },
+  );
 
   test("stage runner owns missing-subagent actionable error", async () => {
     const stage = createStageContext({ stageId: "s", stageName: "Stage", runId: "r", adapters: {} });
-    await assert.rejects(stage.subagent({ agent: "a", task: "t" }), /oh-my-pi task delegation/);
+    await assert.rejects(stage.subagent({ agent: "a", task: "t" }), /pi task delegation/);
   });
 });

@@ -9,16 +9,21 @@
  * keybindings — Ctrl/Cmd+Backspace, Ctrl+W, Ctrl+U, Ctrl+K, Alt+Arrow,
  * Home/End, etc. — work consistently with the rest of the agent's TUI.
  *
- * We intentionally avoid a direct `@oh-my-pi/pi-tui` import:
- *   - This extension is loaded by the host, which already ships pi-tui as
- *     a transitive dep of `pi-coding-agent`. Linking it here would either
- *     pin a duplicate version or pretend to declare a dep we don't own.
- *   - A structural `{ matches(data, action): boolean }` shape is all this
- *     code needs and keeps the per-call surface tiny.
+ * We intentionally avoid a direct `KeybindingsManager` import from
+ * `@earendil-works/pi-tui` here:
+ *   - The manager is a runtime singleton owned by the host; constructing
+ *     a second one in the extension graph would duplicate state and
+ *     fight the host for action resolution.
+ *   - The structural `{ matches(data, action): boolean }` shape is all
+ *     this code needs and keeps the per-call surface tiny.
+ *
+ * Rendering primitives are different — `Box`, `Text`, `Spacer`,
+ * `Markdown`, etc. from `@earendil-works/pi-tui` are stateless and SHOULD be
+ * imported directly in extension code (per pi.dev/docs/latest/tui).
  *
  * cross-ref:
- *   - node_modules/@oh-my-pi/pi-tui/src/keybindings.ts → KeybindingsManager
- *   - node_modules/@oh-my-pi/pi-tui/src/components/editor.ts routes through
+ *   - node_modules/@earendil-works/pi-tui/src/keybindings.ts → KeybindingsManager
+ *   - node_modules/@earendil-works/pi-tui/src/components/editor.ts routes through
  *     the same action ids (`tui.editor.cursorWordLeft`, etc.).
  */
 

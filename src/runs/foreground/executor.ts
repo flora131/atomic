@@ -15,7 +15,7 @@ import type {
   WorkflowRuntimeConfig,
 } from "../../shared/types.js";
 import type { InternalStageContext, StageAdapters } from "./stage-runner.js";
-import type { RunStatus, StageSnapshot, RunSnapshot, WorkflowOverlayAdapter } from "../../shared/store-types.js";
+import type { RunStatus, StageNotice, StageSnapshot, RunSnapshot, WorkflowOverlayAdapter } from "../../shared/store-types.js";
 import type { StageControlHandle, StageControlRegistry, AgentSessionEventListener } from "./stage-control-registry.js";
 import type { Store } from "../../shared/store.js";
 import type { CancellationRegistry } from "../background/cancellation-registry.js";
@@ -266,6 +266,112 @@ export async function run(
   // 4. Create GraphFrontierTracker and per-run ConcurrencyLimiter
   const tracker = new GraphFrontierTracker();
   const limiter = createRunLimiter(opts.config?.defaultConcurrency);
+  interface ReleaseBarrier {
+    readonly promise: Promise<void>;
+    readonly resolve: () => void;
+    readonly reject: (reason?: unknown) => void;
+  }
+  const releaseBarriers = new Map<string, ReleaseBarrier>();
+
+  const makeReleaseBarrier = (): ReleaseBarrier => {
+    const resolver = Promise.withResolvers<void>();
+    return { promise: resolver.promise, resolve: resolver.resolve, reject: resolver.reject };
+  };
+
+  const isTerminalStage = (stage: StageSnapshot): boolean =>
+    stage.status === "completed" || stage.status === "failed";
+
+  const stageById = (stageId: string): StageSnapshot | undefined =>
+    runSnapshot.stages.find((stage) => stage.id === stageId);
+
+  const hasAncestor = (stage: StageSnapshot, ancestorId: string): boolean => {
+    const queue = [...stage.parentIds];
+    const seen = new Set<string>();
+    while (queue.length > 0) {
+      const next = queue.shift();
+      if (next === undefined || seen.has(next)) continue;
+      if (next === ancestorId) return true;
+      seen.add(next);
+      queue.push(...tracker.getParents(next));
+    }
+    return false;
+  };
+
+  const descendantsOf = (stageId: string): StageSnapshot[] =>
+    runSnapshot.stages.filter((stage) => stage.id !== stageId && hasAncestor(stage, stageId));
+
+  const blockingAncestorFor = (stage: StageSnapshot): string | undefined => {
+    const queue = [...stage.parentIds];
+    const seen = new Set<string>();
+    while (queue.length > 0) {
+      const next = queue.shift();
+      if (next === undefined || seen.has(next)) continue;
+      seen.add(next);
+      const ancestor = stageById(next);
+      if (ancestor?.status === "paused" || ancestor?.status === "blocked") return next;
+      queue.push(...tracker.getParents(next));
+    }
+    return undefined;
+  };
+
+  const ensureReleaseBarrier = (stageId: string): ReleaseBarrier => {
+    let barrier = releaseBarriers.get(stageId);
+    if (!barrier) {
+      barrier = makeReleaseBarrier();
+      releaseBarriers.set(stageId, barrier);
+    }
+    return barrier;
+  };
+
+  const blockStageUntilCascadeRelease = (stage: StageSnapshot, blockedBy: string): void => {
+    ensureReleaseBarrier(stage.id);
+    activeStore.recordStageBlocked(runId, stage.id, blockedBy);
+  };
+
+  const releaseStageBarrier = (stageId: string): void => {
+    const barrier = releaseBarriers.get(stageId);
+    if (!barrier) return;
+    releaseBarriers.delete(stageId);
+    barrier.resolve();
+  };
+
+  const cascadePauseFrom = async (pausedStageId: string): Promise<void> => {
+    for (const descendant of descendantsOf(pausedStageId)) {
+      if (isTerminalStage(descendant) || descendant.status === "paused" || descendant.status === "blocked") continue;
+      if (descendant.status === "running") {
+        const descendantHandle = (opts.stageControlRegistry ?? defaultStageControlRegistry).get(runId, descendant.id);
+        if (descendantHandle && descendantHandle.status === "running") {
+          await descendantHandle.pause();
+        }
+        continue;
+      }
+      blockStageUntilCascadeRelease(descendant, pausedStageId);
+    }
+  };
+
+  const cascadeResumeFrom = (resumedStageId: string): void => {
+    for (const descendant of descendantsOf(resumedStageId)) {
+      if (isTerminalStage(descendant) || descendant.status !== "blocked") continue;
+      if (blockingAncestorFor(descendant) !== undefined) continue;
+      if (activeStore.recordStageUnblocked(runId, descendant.id)) {
+        releaseStageBarrier(descendant.id);
+      }
+    }
+  };
+
+  const rejectReleaseBarriers = (reason: unknown): void => {
+    for (const [stageId, barrier] of releaseBarriers) {
+      releaseBarriers.delete(stageId);
+      activeStore.recordStageUnblocked(runId, stageId);
+      barrier.reject(reason);
+    }
+  };
+
+  ownController.signal.addEventListener(
+    "abort",
+    () => rejectReleaseBarriers(ownController.signal.reason ?? new Error("pi-workflows: run aborted")),
+    { once: true },
+  );
 
   // 5. Build WorkflowRunContext
   const ctx: WorkflowRunContext = {
@@ -354,11 +460,13 @@ export async function run(
           await innerCtx.followUp(text);
         },
         async pause() {
-          activeStore.recordStagePaused(runId, stageId);
+          const changed = activeStore.recordStagePaused(runId, stageId);
+          if (changed) await cascadePauseFrom(stageId);
           await innerCtx.__requestPause();
         },
         async resume(message?: string) {
-          activeStore.recordStageResumed(runId, stageId);
+          const changed = activeStore.recordStageResumed(runId, stageId);
+          if (changed) cascadeResumeFrom(stageId);
           await innerCtx.__resume(message);
         },
         subscribe(listener: AgentSessionEventListener) {
@@ -370,8 +478,25 @@ export async function run(
       // f. Record stage start in store (as pending), call onStageStart.
       activeStore.recordStageStart(runId, stageSnapshot);
       opts.onStageStart?.(runId, stageSnapshot);
+      const blockedBy = blockingAncestorFor(stageSnapshot);
+      if (blockedBy !== undefined) {
+        blockStageUntilCascadeRelease(stageSnapshot, blockedBy);
+      }
+
 
       const runTrackedStageCall = async (call: () => Promise<string>): Promise<string> => {
+        const barrier = releaseBarriers.get(stageId);
+        if (barrier) {
+          try {
+            await barrier.promise;
+          } catch (err) {
+            activeStore.recordStageAttachable(runId, stageId, false);
+            unregisterStageHandle();
+            await innerCtx.__dispose();
+            throw err;
+          }
+        }
+
         // Block here until a concurrency slot is available for this run.
         await limiter.acquire();
 
@@ -464,6 +589,36 @@ export async function run(
         }
       };
 
+      const noticeValue = (value: unknown): string => {
+        if (typeof value === "string") return value;
+        if (value === undefined || value === null) return "";
+        if (typeof value === "object") {
+          const candidate = value as { id?: unknown; name?: unknown; label?: unknown };
+          if (typeof candidate.id === "string") return candidate.id;
+          if (typeof candidate.name === "string") return candidate.name;
+          if (typeof candidate.label === "string") return candidate.label;
+        }
+        return String(value);
+      };
+
+      const recordStageNotice = (notice: Omit<StageNotice, "id" | "ts">): void => {
+        activeStore.recordStageNotice(runId, stageId, {
+          id: crypto.randomUUID(),
+          ts: Date.now(),
+          ...notice,
+        });
+      };
+
+      const compactionMeta = (result: unknown): string | undefined => {
+        if (result === undefined || result === null || typeof result !== "object") return undefined;
+        const compaction = result as { tokensBefore?: unknown; tokensAfter?: unknown; tokensKept?: unknown };
+        const before = typeof compaction.tokensBefore === "number" ? compaction.tokensBefore : undefined;
+        const keptRaw = compaction.tokensKept ?? compaction.tokensAfter;
+        const kept = typeof keptRaw === "number" ? keptRaw : undefined;
+        if (before === undefined || kept === undefined) return undefined;
+        return `${(before / 1000).toFixed(1)}k → ${(kept / 1000).toFixed(1)}k`;
+      };
+
       const stageContext: StageContext = {
         name: innerCtx.name,
         prompt: (text, promptOptions) => runTrackedStageCall(() => innerCtx.prompt(text, promptOptions)),
@@ -474,19 +629,46 @@ export async function run(
         subscribe: (listener) => innerCtx.subscribe(listener),
         get sessionFile() { return innerCtx.sessionFile; },
         get sessionId() { return innerCtx.sessionId; },
-        setModel: (model) => innerCtx.setModel(model),
-        setThinkingLevel: (level) => innerCtx.setThinkingLevel(level),
-        cycleModel: () => innerCtx.cycleModel(),
-        cycleThinkingLevel: () => innerCtx.cycleThinkingLevel(),
+        setModel: async (model) => {
+          await innerCtx.__ensureSession();
+          recordStageNotice({ kind: "model", from: noticeValue(innerCtx.model), to: noticeValue(model) });
+          await innerCtx.setModel(model);
+        },
+        setThinkingLevel: (level) => {
+          recordStageNotice({ kind: "thinking", from: noticeValue(innerCtx.thinkingLevel), to: noticeValue(level) });
+          innerCtx.setThinkingLevel(level);
+        },
+        cycleModel: async () => {
+          const from = noticeValue(innerCtx.model);
+          const result = await innerCtx.cycleModel();
+          recordStageNotice({ kind: "model", from, to: noticeValue(innerCtx.model) });
+          return result;
+        },
+        cycleThinkingLevel: () => {
+          const from = noticeValue(innerCtx.thinkingLevel);
+          const result = innerCtx.cycleThinkingLevel();
+          recordStageNotice({ kind: "thinking", from, to: noticeValue(innerCtx.thinkingLevel) });
+          return result;
+        },
         get agent() { return innerCtx.agent; },
         get model() { return innerCtx.model; },
         get thinkingLevel() { return innerCtx.thinkingLevel; },
         get messages() { return innerCtx.messages; },
         get isStreaming() { return innerCtx.isStreaming; },
-        navigateTree: (targetId, treeOptions) => innerCtx.navigateTree(targetId, treeOptions),
-        compact: (customInstructions) => innerCtx.compact(customInstructions),
+        navigateTree: async (targetId, treeOptions) => {
+          recordStageNotice({ kind: "tree", to: targetId });
+          return innerCtx.navigateTree(targetId, treeOptions);
+        },
+        compact: async (customInstructions) => {
+          const result = await innerCtx.compact(customInstructions);
+          recordStageNotice({ kind: "compaction", to: "summarized", meta: compactionMeta(result) });
+          return result;
+        },
         abortCompaction: () => innerCtx.abortCompaction(),
-        abort: () => innerCtx.abort(),
+        abort: async () => {
+          recordStageNotice({ kind: "abort", to: "interrupted" });
+          await innerCtx.abort();
+        },
       };
       return stageContext;
     },

@@ -1,11 +1,25 @@
 /**
- * Tests for buildDoctorReport.
+ * Doctor payload + text-formatter tests.
+ *
+ * The payload builder is the source of truth — both `/workflows-doctor`
+ * (chat-surface card) and `buildDoctorReport` (plain-text fallback)
+ * derive from it. We exercise:
+ *   - structured payload shape (sections, status rows, hints)
+ *   - companion presence/missing
+ *   - legacy 2-arg `buildDoctorReport(discovery, siblings, configLoad?)`
+ *     signature still produces text (used by RPC mode and any
+ *     environment without `pi.sendMessage`)
  */
 
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { buildDoctorReport } from "../../src/extension/doctor.js";
-import type { DoctorSiblingStatus } from "../../src/extension/doctor.js";
+import {
+  buildDoctorPayload,
+  buildDoctorReport,
+  type DoctorPayload,
+  type DoctorSiblingStatus,
+} from "../../src/extension/doctor.js";
+import { COMPANIONS, type CompanionStatus } from "../../src/extension/companions.js";
 import { createRegistry } from "../../src/workflows/registry.js";
 import type { DiscoveryResult } from "../../src/extension/discovery.js";
 
@@ -17,6 +31,19 @@ function emptyDiscovery(): DiscoveryResult {
   };
 }
 
+function findSection(payload: DoctorPayload, label: string) {
+  const section = payload.sections.find((s) => s.label === label);
+  if (!section) throw new Error(`expected section ${label} in payload`);
+  return section;
+}
+
+function findRow(payload: DoctorPayload, section: string, label: string) {
+  const sec = findSection(payload, section);
+  const row = sec.rows.find((r) => r.label === label);
+  if (!row) throw new Error(`expected row ${label} in section ${section}`);
+  return row;
+}
+
 const allAbsent: DoctorSiblingStatus = {
   taskDelegation: false,
   mcpScopeEvents: false,
@@ -24,10 +51,7 @@ const allAbsent: DoctorSiblingStatus = {
   hil: false,
   uiCustom: false,
   shortcut: false,
-  execAbortable: false,
   persistenceAppendEntry: false,
-  promptAdapter: false,
-  completeAdapter: false,
   subagentAdapterVia: "unavailable",
   agentSessionAdapter: false,
 };
@@ -39,65 +63,170 @@ const allPresent: DoctorSiblingStatus = {
   hil: true,
   uiCustom: true,
   shortcut: true,
-  execAbortable: true,
   persistenceAppendEntry: true,
-  promptAdapter: true,
-  completeAdapter: true,
-  subagentAdapterVia: "task tool",
+  subagentAdapterVia: "pi-subagents tool",
   agentSessionAdapter: true,
 };
 
-describe("buildDoctorReport", () => {
-  test("renders updated header", () => {
-    const report = buildDoctorReport(emptyDiscovery(), allAbsent);
-    assert.ok(report.startsWith("atomic-workflows doctor report"));
+const noCompanions: readonly CompanionStatus[] = COMPANIONS.map((companion) => ({
+  companion,
+  installed: false,
+}));
+
+const allCompanions: readonly CompanionStatus[] = COMPANIONS.map((companion) => ({
+  companion,
+  installed: true,
+  evidence: `tool ${companion.toolHints[0] ?? companion.commandHints[0] ?? "synthetic"}`,
+}));
+
+describe("buildDoctorPayload — structure", () => {
+  test("emits the standard section list in order", () => {
+    const payload = buildDoctorPayload({
+      discovery: emptyDiscovery(),
+      siblings: allAbsent,
+      companions: noCompanions,
+    });
+    const labels = payload.sections.map((s) => s.label);
+    assert.deepEqual(labels, [
+      "REGISTRY",
+      "DIAGNOSTICS",
+      "TUNABLES",
+      "CONFIGURED WORKFLOWS",
+      "HOST CAPABILITIES",
+      "RUNTIME ADAPTERS",
+      "COMPANIONS",
+    ]);
   });
 
-  test("renders absent host capabilities", () => {
-    const report = buildDoctorReport(emptyDiscovery(), allAbsent);
-    assert.ok(report.includes("task delegation — unavailable"));
-    assert.ok(report.includes("mcp scope evts  — unknown"));
-    assert.ok(report.includes("session naming  — unavailable"));
-    assert.ok(report.includes("hil            — unavailable"));
-    assert.ok(report.includes("ui.custom      — unavailable"));
-    assert.ok(report.includes("shortcut       — unavailable"));
-    assert.ok(report.includes("persistence    — unavailable"));
+  test("subtitle reflects workflow count and companion install ratio", () => {
+    const payload = buildDoctorPayload({
+      discovery: emptyDiscovery(),
+      siblings: allAbsent,
+      companions: noCompanions,
+    });
+    assert.match(payload.subtitle, /atomic-workflows · 0 workflows · 0\/\d+ companions/);
   });
 
-  test("renders present host capabilities", () => {
-    const report = buildDoctorReport(emptyDiscovery(), allPresent);
-    assert.ok(report.includes("task delegation — available"));
-    assert.ok(report.includes("mcp scope evts  — known"));
-    assert.ok(report.includes("session naming  — present"));
-    assert.ok(report.includes("hil            — available"));
-    assert.ok(report.includes("ui.custom      — available"));
-    assert.ok(report.includes("shortcut       — available"));
-    assert.ok(report.includes("persistence    — appendEntry available"));
+  test("host capability rows flip ok/warn based on detection", () => {
+    const ok = buildDoctorPayload({
+      discovery: emptyDiscovery(),
+      siblings: allPresent,
+      companions: noCompanions,
+    });
+    assert.equal(findRow(ok, "HOST CAPABILITIES", "task delegation").status, "ok");
+    assert.equal(findRow(ok, "HOST CAPABILITIES", "hil dialogs").value, "available");
+
+    const missing = buildDoctorPayload({
+      discovery: emptyDiscovery(),
+      siblings: allAbsent,
+      companions: noCompanions,
+    });
+    assert.equal(findRow(missing, "HOST CAPABILITIES", "task delegation").status, "warn");
+    assert.equal(findRow(missing, "HOST CAPABILITIES", "hil dialogs").value, "unavailable");
   });
 
-  test("renders runtime adapter capabilities", () => {
-    const report = buildDoctorReport(emptyDiscovery(), allPresent);
-    assert.ok(report.includes("Runtime adapters:"));
-    assert.ok(report.includes("exec             — available"));
-    assert.ok(report.includes("prompt adapter   — configured"));
-    assert.ok(report.includes("complete adapter — configured"));
-    assert.ok(report.includes("subagent adapter — configured via task tool"));
-    assert.ok(report.includes("agent session    — configured via oh-my-pi SDK"));
+  test("runtime adapter rows describe the subagent-via path", () => {
+    const payload = buildDoctorPayload({
+      discovery: emptyDiscovery(),
+      siblings: allPresent,
+      companions: noCompanions,
+    });
+    // `allPresent` sets subagentAdapterVia: "pi-subagents tool".
+    assert.equal(
+      findRow(payload, "RUNTIME ADAPTERS", "subagent").value,
+      "via pi-subagents tool",
+    );
+    assert.equal(findRow(payload, "RUNTIME ADAPTERS", "agent session").value, "configured via pi SDK");
+  });
+});
+
+describe("buildDoctorPayload — companions", () => {
+  test("missing companions produce one install hint each", () => {
+    const payload = buildDoctorPayload({
+      discovery: emptyDiscovery(),
+      siblings: allPresent,
+      companions: noCompanions,
+    });
+    assert.equal(payload.hints.length, COMPANIONS.length);
+    for (const hint of payload.hints) {
+      assert.match(hint.command, /^pi install npm:/);
+    }
   });
 
-  test("renders unavailable runtime adapters", () => {
-    const report = buildDoctorReport(emptyDiscovery(), allAbsent);
-    assert.ok(report.includes("exec             — unavailable"));
-    assert.ok(report.includes("prompt adapter   — unconfigured"));
-    assert.ok(report.includes("complete adapter — unconfigured"));
-    assert.ok(report.includes("subagent adapter — unavailable"));
-    assert.ok(report.includes("agent session    — unconfigured"));
+  test("all-installed companions produce zero install hints", () => {
+    const payload = buildDoctorPayload({
+      discovery: emptyDiscovery(),
+      siblings: allPresent,
+      companions: allCompanions,
+    });
+    assert.equal(payload.hints.length, 0);
   });
 
-  test("includes registry and discovery diagnostics sections", () => {
-    const report = buildDoctorReport(emptyDiscovery(), allAbsent);
-    assert.ok(report.includes("Registry: 0 workflow(s) loaded"));
-    assert.ok(report.includes("Discovery diagnostics: (none)"));
-    assert.ok(report.includes("Capabilities:"));
+  test("companion rows carry the right status colour", () => {
+    const payload = buildDoctorPayload({
+      discovery: emptyDiscovery(),
+      siblings: allPresent,
+      companions: COMPANIONS.map((c, i) => ({
+        companion: c,
+        installed: i % 2 === 0,
+        evidence: i % 2 === 0 ? "tool subagent" : undefined,
+      })),
+    });
+    const companions = findSection(payload, "COMPANIONS");
+    for (let i = 0; i < companions.rows.length; i++) {
+      const row = companions.rows[i]!;
+      const expected = i % 2 === 0 ? "ok" : "warn";
+      assert.equal(row.status, expected, `row ${row.label} should be ${expected}`);
+    }
+  });
+
+  test("counts aggregate ok/warn/fail across all sections", () => {
+    const payload = buildDoctorPayload({
+      discovery: emptyDiscovery(),
+      siblings: allAbsent,
+      companions: noCompanions,
+    });
+    assert.ok(payload.counts.warn > 0, "all-absent payload should have warnings");
+    assert.ok(payload.counts.ok < payload.counts.warn, "more warns than oks when nothing is wired");
+  });
+});
+
+describe("buildDoctorReport — text formatter (legacy + payload signatures)", () => {
+  test("legacy 2-arg signature still renders without companions section", () => {
+    const text = buildDoctorReport(emptyDiscovery(), allAbsent);
+    assert.ok(text.startsWith("atomic-workflows doctor report"));
+    assert.ok(text.includes("HOST CAPABILITIES"));
+    // No companion hints when called via the legacy signature.
+    assert.ok(!text.includes("NEXT STEPS"));
+  });
+
+  test("payload signature renders sections, glyphs, and install hints", () => {
+    const payload = buildDoctorPayload({
+      discovery: emptyDiscovery(),
+      siblings: allPresent,
+      companions: noCompanions,
+    });
+    const text = buildDoctorReport(payload);
+    assert.ok(text.includes("REGISTRY"));
+    assert.ok(text.includes("HOST CAPABILITIES"));
+    assert.ok(text.includes("COMPANIONS"));
+    assert.ok(text.includes("NEXT STEPS"));
+    for (const companion of COMPANIONS) {
+      assert.ok(
+        text.includes(`pi install ${companion.installSpec}`),
+        `text should advertise install command for ${companion.name}`,
+      );
+    }
+  });
+
+  test("text formatter chooses glyphs by status", () => {
+    const text = buildDoctorReport(
+      buildDoctorPayload({
+        discovery: emptyDiscovery(),
+        siblings: allPresent,
+        companions: allCompanions,
+      }),
+    );
+    assert.ok(text.includes("✓"), "expected at least one ok glyph");
   });
 });

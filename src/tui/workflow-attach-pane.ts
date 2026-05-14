@@ -76,6 +76,14 @@ export interface WorkflowAttachPaneOpts {
    * dimensions; views fall back to their constant row budget.
    */
   getViewportRows?: () => number | undefined;
+  /**
+   * Render-tick callback supplied by the overlay host. Forwarded to the
+   * embedded `GraphView` so its 10 FPS animation tick (running-stage
+   * border pulse, duration counter) can request frames without a key
+   * press. The host gates the underlying `tui.requestRender` on overlay
+   * visibility so a hidden pane stays cheap.
+   */
+  requestRender?: () => void;
 }
 
 export type WorkflowAttachPaneMode = "graph" | "stage-chat";
@@ -100,6 +108,7 @@ export class WorkflowAttachPane implements Component {
   private onKill?: (runId: string) => void;
   private onPromptResolve?: (runId: string, promptId: string, response: unknown) => void;
   private getViewportRows?: () => number | undefined;
+  private hostRequestRender?: () => void;
 
   private mode: WorkflowAttachPaneMode = "graph";
   private graphView: GraphView;
@@ -118,6 +127,7 @@ export class WorkflowAttachPane implements Component {
     this.onKill = opts.onKill;
     this.onPromptResolve = opts.onPromptResolve;
     this.getViewportRows = opts.getViewportRows;
+    this.hostRequestRender = opts.requestRender;
 
     this.graphView = this._buildGraphView();
 
@@ -144,6 +154,13 @@ export class WorkflowAttachPane implements Component {
       },
       initialFocusedStageId,
       getViewportRows: this.getViewportRows,
+      // Gate the host render tick on `graph` mode. While the chat view
+      // is attached, the GraphView is hidden behind the chat — firing
+      // pi-tui renders for a frame the user can't see is wasted work.
+      requestRender: () => {
+        if (this.mode !== "graph") return;
+        this.hostRequestRender?.();
+      },
     });
   }
 

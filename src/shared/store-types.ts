@@ -4,7 +4,7 @@
  */
 
 export type RunStatus = "pending" | "running" | "paused" | "completed" | "failed" | "killed";
-export type StageStatus = "pending" | "running" | "paused" | "completed" | "failed";
+export type StageStatus = "pending" | "running" | "paused" | "blocked" | "completed" | "failed";
 
 /**
  * Human-in-the-loop prompt kind. Mirrors the four `WorkflowUIContext` methods.
@@ -40,6 +40,15 @@ export interface ToolEvent {
   endedAt?: number;
 }
 
+export interface StageNotice {
+  readonly id: string;
+  readonly ts: number;
+  readonly kind: "model" | "thinking" | "compaction" | "tree" | "abort" | "mcp";
+  readonly from?: string;
+  readonly to: string;
+  readonly meta?: string;
+}
+
 export interface StageSnapshot {
   readonly id: string;
   readonly name: string;
@@ -51,6 +60,8 @@ export interface StageSnapshot {
   result?: string;
   error?: string;
   readonly toolEvents: ToolEvent[];
+  blockedByStageId?: string;
+  notices?: StageNotice[];
   /**
    * MCP server gating config stored at stage creation time.
    * Null allow/deny entries mean unrestricted for that dimension.
@@ -58,7 +69,7 @@ export interface StageSnapshot {
    */
   mcpScope?: { allow: string[] | null; deny: string[] | null };
   /**
-   * Pi/oh-my-pi SDK session metadata, populated lazily once the stage
+   * Pi/pi SDK session metadata, populated lazily once the stage
    * acquires an AgentSession. Carried on the serializable snapshot so
    * the attached chat surface can reopen completed sessions via
    * `SessionManager.open(sessionFile)` without keeping live handles in

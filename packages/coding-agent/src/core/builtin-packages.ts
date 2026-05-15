@@ -23,8 +23,6 @@ interface WorkspaceBuiltinSpec {
 	readonly requiredEntry: string;
 }
 
-const BUILTIN_EXTENSION_FILES = ["btw.ts", "goal.ts", "review.ts", "todos.ts", "whimsical.ts"] as const;
-
 const WORKSPACE_BUILTINS: readonly WorkspaceBuiltinSpec[] = [
 	{
 		packageName: "@bastani/workflows",
@@ -106,38 +104,12 @@ function firstExistingPackageDir(candidates: string[], descriptor: BuiltinPackag
 	return undefined;
 }
 
-function firstExistingBuiltinExtensionDir(candidates: string[]): string | undefined {
-	const seen = new Set<string>();
-
-	for (const candidate of candidates) {
-		const resolved = resolve(candidate);
-		if (seen.has(resolved)) {
-			continue;
-		}
-		seen.add(resolved);
-		if (BUILTIN_EXTENSION_FILES.every((file) => existsSync(join(resolved, file)))) {
-			return resolved;
-		}
-	}
-
-	return undefined;
-}
-
 function distCandidates(context: BuiltinPackageCandidateContext, descriptor: BuiltinPackageDescriptor): string[] {
 	const { here, packageDir } = context;
 	return [
 		join(here, "..", "builtin", descriptor.distDirName),
 		join(packageDir, "builtin", descriptor.distDirName),
 		join(packageDir, "dist", "builtin", descriptor.distDirName),
-	];
-}
-
-function builtinExtensionDirCandidates(context: BuiltinPackageCandidateContext): string[] {
-	const { here, packageDir } = context;
-	return [
-		join(here, "..", "builtin", "extensions"),
-		join(packageDir, "builtin", "extensions"),
-		join(packageDir, "dist", "builtin", "extensions"),
 	];
 }
 
@@ -151,24 +123,6 @@ function getBuiltinPackageCandidateContext(): BuiltinPackageCandidateContext {
 		...context,
 		isSourceCheckout: existsSync(join(context.packageDir, "src", "main.ts")),
 	};
-}
-
-/**
- * Built-in extension files shipped directly with this Atomic distribution.
- *
- * Development layout:
- *   packages/coding-agent/src/core -> packages/coding-agent/builtin/extensions
- *
- * npm/dist layout:
- *   packages/coding-agent/dist/core -> packages/coding-agent/dist/builtin/extensions
- *
- * Bun binary layout:
- *   process executable dir -> builtin/extensions
- */
-export function getBuiltinExtensionPaths(): string[] {
-	const context = getBuiltinPackageCandidateContext();
-	const extensionDir = firstExistingBuiltinExtensionDir(builtinExtensionDirCandidates(context));
-	return extensionDir ? BUILTIN_EXTENSION_FILES.map((file) => join(extensionDir, file)) : [];
 }
 
 /**

@@ -67,21 +67,45 @@ export {
 	type WriteToolInput,
 	type WriteToolOptions,
 } from "./write.js";
+export { createAskUserQuestionToolDefinition } from "./ask-user-question/index.js";
+export { createTodoToolDefinition } from "./todos.js";
 
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { ToolDefinition } from "../extensions/types.js";
+import { createAskUserQuestionToolDefinition } from "./ask-user-question/index.js";
 import { type BashToolOptions, createBashTool, createBashToolDefinition } from "./bash.js";
 import { createEditTool, createEditToolDefinition, type EditToolOptions } from "./edit.js";
 import { createFindTool, createFindToolDefinition, type FindToolOptions } from "./find.js";
 import { createGrepTool, createGrepToolDefinition, type GrepToolOptions } from "./grep.js";
 import { createLsTool, createLsToolDefinition, type LsToolOptions } from "./ls.js";
 import { createReadTool, createReadToolDefinition, type ReadToolOptions } from "./read.js";
+import { createTodoToolDefinition } from "./todos.js";
+import { wrapToolDefinition } from "./tool-definition-wrapper.js";
 import { createWriteTool, createWriteToolDefinition, type WriteToolOptions } from "./write.js";
 
 export type Tool = AgentTool<any>;
 export type ToolDef = ToolDefinition<any, any>;
-export type ToolName = "read" | "bash" | "edit" | "write" | "grep" | "find" | "ls";
-export const allToolNames: Set<ToolName> = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
+export type ToolName =
+	| "read"
+	| "bash"
+	| "edit"
+	| "write"
+	| "grep"
+	| "find"
+	| "ls"
+	| "ask_user_question"
+	| "todo";
+export const allToolNames: Set<ToolName> = new Set([
+	"read",
+	"bash",
+	"edit",
+	"write",
+	"grep",
+	"find",
+	"ls",
+	"ask_user_question",
+	"todo",
+]);
 
 export interface ToolsOptions {
 	read?: ReadToolOptions;
@@ -109,6 +133,10 @@ export function createToolDefinition(toolName: ToolName, cwd: string, options?: 
 			return createFindToolDefinition(cwd, options?.find);
 		case "ls":
 			return createLsToolDefinition(cwd, options?.ls);
+		case "ask_user_question":
+			return createAskUserQuestionToolDefinition();
+		case "todo":
+			return createTodoToolDefinition(cwd);
 		default:
 			throw new Error(`Unknown tool name: ${toolName}`);
 	}
@@ -130,6 +158,10 @@ export function createTool(toolName: ToolName, cwd: string, options?: ToolsOptio
 			return createFindTool(cwd, options?.find);
 		case "ls":
 			return createLsTool(cwd, options?.ls);
+		case "ask_user_question":
+			return wrapToolDefinition(createAskUserQuestionToolDefinition());
+		case "todo":
+			return wrapToolDefinition(createTodoToolDefinition(cwd));
 		default:
 			throw new Error(`Unknown tool name: ${toolName}`);
 	}
@@ -162,6 +194,8 @@ export function createAllToolDefinitions(cwd: string, options?: ToolsOptions): R
 		grep: createGrepToolDefinition(cwd, options?.grep),
 		find: createFindToolDefinition(cwd, options?.find),
 		ls: createLsToolDefinition(cwd, options?.ls),
+		ask_user_question: createAskUserQuestionToolDefinition(),
+		todo: createTodoToolDefinition(cwd),
 	};
 }
 
@@ -192,5 +226,7 @@ export function createAllTools(cwd: string, options?: ToolsOptions): Record<Tool
 		grep: createGrepTool(cwd, options?.grep),
 		find: createFindTool(cwd, options?.find),
 		ls: createLsTool(cwd, options?.ls),
+		ask_user_question: wrapToolDefinition(createAskUserQuestionToolDefinition()),
+		todo: wrapToolDefinition(createTodoToolDefinition(cwd)),
 	};
 }

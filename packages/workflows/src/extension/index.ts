@@ -1,7 +1,6 @@
 import { renderCall } from "./render-call.js";
 import { renderResult } from "./render-result.js";
 import type { RenderResultOpts, WorkflowInputEntry, WorkflowToolResult } from "./render-result.js";
-import { registerAskUserQuestionTool } from "./tools/ask-user-question/index.js";
 import { renderInputsSchema } from "../shared/render-inputs-schema.js";
 import { WorkflowParametersSchema } from "./workflow-schema.js";
 import { renderRunBanner, renderRunSummary } from "./renderers.js";
@@ -951,16 +950,7 @@ function factory(pi: ExtensionAPI): void {
   //    flow through the store-backed background adapter built inside
   //    `runDetached()` — they never touch pi.ui.
   // -------------------------------------------------------------------------
-  const adapters = buildRuntimeAdapters(pi, {
-    hil: {
-      onAwaitingInputStart(meta) {
-        store.recordStageAwaitingInput(meta.runId, meta.stageId, true);
-      },
-      onAwaitingInputEnd(meta) {
-        store.recordStageAwaitingInput(meta.runId, meta.stageId, false);
-      },
-    },
-  });
+  const adapters = buildRuntimeAdapters(pi);
 
   // Local registry of workflow command (name → handler). Populated by
   // `registerWorkflowCommand` calls below and consumed by the
@@ -1184,16 +1174,6 @@ function factory(pi: ExtensionAPI): void {
         textRenderComponent(renderResult(result.details, opts)),
     });
 
-    // Companion HIL tool ported from https://github.com/juicesharp/rpiv-mono
-    // (MIT — see src/extension/tools/ask-user-question/LICENSE.upstream).
-    // Registers the `ask_user_question` tool: a structured multi-question
-    // dialog with single/multi-select, "Type something" free-text fallback,
-    // "Chat about this" escape hatch, per-option markdown previews, and
-    // notes. Headless flows return `error: "no_ui"` cleanly. The cast adapts
-    // our local structural `ExtensionAPI` subset to the upstream
-    // `@earendil-works/pi-coding-agent` `ExtensionAPI` the port expects.
-    const piFull = pi as unknown as Parameters<typeof registerAskUserQuestionTool>[0];
-    registerAskUserQuestionTool(piFull);
   }
 
   // -------------------------------------------------------------------------

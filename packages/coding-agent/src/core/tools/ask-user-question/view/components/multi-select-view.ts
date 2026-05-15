@@ -1,4 +1,4 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { Theme } from "../../../../../modes/interactive/theme/theme.js";
 import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { ROW_INTENT_META } from "../../state/row-intent.js";
 import type { QuestionData } from "../../tool/types.js";

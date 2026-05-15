@@ -1,4 +1,4 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { Theme } from "../../../../modes/interactive/theme/theme.js";
 import { type Component, Container, type Input, Spacer, Text } from "@earendil-works/pi-tui";
 import { formatAnswerScalar } from "../tool/format-answer.js";
 import type { QuestionData } from "../tool/types.js";

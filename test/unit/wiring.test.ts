@@ -88,7 +88,7 @@ describe("buildRuntimeAdapters — SDK sessions", () => {
     assert.equal((calls[0] as { sessionDir?: string } | undefined)?.sessionDir, undefined);
   });
 
-  test("does not force ask_user_question into the active tool list", async () => {
+  test("does not inject custom tools per stage", async () => {
     const calls: CreateAgentSessionOptions[] = [];
     const adapters = buildRuntimeAdapters(
       { ui: { custom: () => undefined } },
@@ -108,17 +108,15 @@ describe("buildRuntimeAdapters — SDK sessions", () => {
     });
 
     assert.equal(calls[0]?.tools, undefined);
-    assert.equal(calls[0]?.customTools?.some((tool) => tool.name === "ask_user_question"), true);
+    assert.equal(calls[0]?.customTools, undefined);
   });
 
-  test("injects ask_user_question, binds pi UI, and emits HIL lifecycle callbacks", async () => {
-    const calls: CreateAgentSessionOptions[] = [];
+  test("binds pi UI context onto stage sessions when ui.custom is available", async () => {
     const bindCalls: Array<{
       uiContext?: Record<string, unknown> & {
         custom?: <T = undefined>(factory: unknown, options?: unknown) => Promise<T> | T | undefined;
       };
     }> = [];
-    const events: string[] = [];
     const session = {
       ...fakeSession(),
       async bindExtensions(bindings: {
@@ -131,64 +129,21 @@ describe("buildRuntimeAdapters — SDK sessions", () => {
     };
     const pi: RuntimeWiringSurface = {
       ui: {
-        custom: async () => ({
-          answers: [{
-            questionIndex: 0,
-            question: "Pick a color?",
-            kind: "option",
-            answer: "Blue",
-          }],
-          cancelled: false,
-        }),
+        custom: async () => undefined,
       },
     };
-    const meta = {
+    const adapters = buildRuntimeAdapters(pi, {
+      createAgentSession: async () => ({ session }),
+    });
+
+    await adapters.agentSession!.create({ tools: ["read"] }, {
       runId: "run-1",
       stageId: "stage-1",
       stageName: "worker-a",
       signal: new AbortController().signal,
-    };
-    const adapters = buildRuntimeAdapters(pi, {
-      createAgentSession: async (options) => {
-        calls.push(options ?? {});
-        return { session };
-      },
-      hil: {
-        onAwaitingInputStart: ({ stageId }) => events.push(`start:${stageId}`),
-        onAwaitingInputEnd: ({ stageId }) => events.push(`end:${stageId}`),
-      },
     });
 
-    await adapters.agentSession!.create({ tools: ["read"] }, meta);
-
-    const options = calls[0]!;
-    assert.deepEqual(options.tools, ["read"]);
-    const tool = options.customTools?.find((candidate) => candidate.name === "ask_user_question");
-    assert.ok(tool);
     assert.equal(typeof bindCalls[0]?.uiContext?.custom, "function");
-
-    type ToolExecuteContext = Parameters<typeof tool.execute>[4];
-    await tool.execute(
-      "call-1",
-      {
-        questions: [{
-          question: "Pick a color?",
-          header: "Color",
-          options: [
-            { label: "Blue", description: "Use blue." },
-            { label: "Green", description: "Use green." },
-          ],
-        }],
-      },
-      new AbortController().signal,
-      () => undefined,
-      {
-        hasUI: true,
-        ui: bindCalls[0]!.uiContext!,
-      } as unknown as ToolExecuteContext,
-    );
-
-    assert.deepEqual(events, ["start:stage-1", "end:stage-1"]);
   });
 });
 

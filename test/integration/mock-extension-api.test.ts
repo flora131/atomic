@@ -166,13 +166,13 @@ describe("MockExtensionAPI — tool registration", () => {
     factory(mock);
   });
 
-  test("registers the workflow tool plus the ask_user_question HIL tool", () => {
-    // `workflow` is the primary tool; `ask_user_question` ships as a
-    // companion HIL tool (ported from juicesharp/rpiv-mono — MIT, see
-    // src/extension/tools/ask-user-question/LICENSE.upstream).
-    assert.equal(mock.tools.length, 2);
+  test("registers only the workflow tool", () => {
+    // `workflow` is the workflows extension's sole registered tool;
+    // `ask_user_question` now ships as a base tool from the coding-agent
+    // package and is not registered here.
+    assert.equal(mock.tools.length, 1);
     const names = mock.tools.map((t) => t.opts.name).sort();
-    assert.deepEqual(names, ["ask_user_question", "workflow"]);
+    assert.deepEqual(names, ["workflow"]);
   });
 
   test("workflow tool is registered first (stable ordering)", () => {

@@ -1,5 +1,5 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 
 interface BuiltinCopy {
 	label: string;
@@ -10,10 +10,6 @@ interface BuiltinCopy {
 const packageRoot = resolve(import.meta.dir, "..");
 const distBuiltinDir = join(packageRoot, "dist", "builtin");
 const packagesRoot = resolve(packageRoot, "..");
-
-const LOCAL_BUILTINS = [
-	{ label: "Atomic extensions", sourceDirName: "extensions" },
-] as const;
 
 const WORKSPACE_BUILTINS = [
 	{ packageName: "@bastani/workflows", workspaceDirName: "workflows" },
@@ -80,19 +76,7 @@ function copyFilteredDirectory(sourceDir: string, destinationDir: string): void 
 }
 
 function getCopyPlan(): BuiltinCopy[] {
-	const localCopies = LOCAL_BUILTINS.map(({ label, sourceDirName }) => {
-		const sourceDir = resolve(packageRoot, "builtin", sourceDirName);
-		if (!existsSync(sourceDir)) {
-			throw new Error(`Local builtin directory not found: ${sourceDir}`);
-		}
-		return {
-			label,
-			destinationName: sourceDirName,
-			sourceDir,
-		};
-	});
-
-	const workspaceCopies = WORKSPACE_BUILTINS.map(({ packageName, workspaceDirName }) => {
+	return WORKSPACE_BUILTINS.map(({ packageName, workspaceDirName }) => {
 		const sourceDir = resolve(packagesRoot, workspaceDirName);
 		if (!existsSync(sourceDir)) {
 			throw new Error(`Workspace package directory not found: ${sourceDir}`);
@@ -104,8 +88,6 @@ function getCopyPlan(): BuiltinCopy[] {
 			sourceDir,
 		};
 	});
-
-	return [...localCopies, ...workspaceCopies];
 }
 
 rmSync(distBuiltinDir, { recursive: true, force: true });

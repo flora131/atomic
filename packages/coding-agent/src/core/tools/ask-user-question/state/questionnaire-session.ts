@@ -1,4 +1,4 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { Theme } from "../../../../modes/interactive/theme/theme.js";
 import { getKeybindings, type Input } from "@earendil-works/pi-tui";
 import type { QuestionData, QuestionnaireResult, QuestionParams } from "../tool/types.js";
 import type { WrappingSelectItem } from "../view/components/wrapping-select.js";

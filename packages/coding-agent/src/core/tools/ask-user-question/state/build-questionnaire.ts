@@ -1,4 +1,4 @@
-import { getMarkdownTheme, type Theme } from "@earendil-works/pi-coding-agent";
+import { getMarkdownTheme, type Theme } from "../../../../modes/interactive/theme/theme.js";
 import { Input } from "@earendil-works/pi-tui";
 import type { QuestionData } from "../tool/types.js";
 import {

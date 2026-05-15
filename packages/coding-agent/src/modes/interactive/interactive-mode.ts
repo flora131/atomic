@@ -65,6 +65,7 @@ import {
   type AgentSessionEvent,
   parseSkillBlock,
 } from "../../core/agent-session.js";
+import { pickWhimsicalWorkingMessage } from "./whimsical-messages.js";
 import {
   type AgentSessionRuntime,
   SessionImportFileNotFoundError,
@@ -3097,6 +3098,22 @@ export class InteractiveMode {
         }
         this.ui.requestRender();
         break;
+
+      case "turn_start": {
+        this.workingMessage = pickWhimsicalWorkingMessage();
+        if (this.loadingAnimation) {
+          this.loadingAnimation.setMessage(this.workingMessage);
+        }
+        break;
+      }
+
+      case "turn_end": {
+        this.workingMessage = undefined;
+        if (this.loadingAnimation) {
+          this.loadingAnimation.setMessage(this.defaultWorkingMessage);
+        }
+        break;
+      }
 
       case "queue_update":
         this.updatePendingMessagesDisplay();

@@ -7,22 +7,11 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { DefaultResourceLoader } from "../../packages/coding-agent/src/core/resource-loader.js";
 import { SettingsManager } from "../../packages/coding-agent/src/core/settings-manager.js";
-import {
-  getBuiltinExtensionPaths,
-  getBuiltinPackagePaths,
-} from "../../packages/coding-agent/src/core/builtin-packages.js";
+import { getBuiltinPackagePaths } from "../../packages/coding-agent/src/core/builtin-packages.js";
 
 function tempDir(prefix: string): string {
   return mkdtempSync(join(tmpdir(), prefix));
 }
-
-const expectedBuiltinExtensions = [
-  resolve("packages/coding-agent/builtin/extensions/btw.ts"),
-  resolve("packages/coding-agent/builtin/extensions/goal.ts"),
-  resolve("packages/coding-agent/builtin/extensions/review.ts"),
-  resolve("packages/coding-agent/builtin/extensions/todos.ts"),
-  resolve("packages/coding-agent/builtin/extensions/whimsical.ts"),
-];
 
 const expectedBuiltinPackages = [
   resolve("packages/workflows"),
@@ -33,8 +22,7 @@ const expectedBuiltinPackages = [
 ];
 
 describe("coding-agent builtin resources", () => {
-  test("discovers direct built-in Atomic extensions and bundled companion packages in development", () => {
-    assert.deepEqual(getBuiltinExtensionPaths(), expectedBuiltinExtensions);
+  test("discovers bundled companion packages in development", () => {
     assert.deepEqual(getBuiltinPackagePaths(), expectedBuiltinPackages);
   });
 
@@ -55,11 +43,6 @@ describe("coding-agent builtin resources", () => {
 
     const extensionPaths = extensions.extensions.map((extension) => extension.path.replace(/\\/g, "/"));
     for (const suffix of [
-      "packages/coding-agent/builtin/extensions/btw.ts",
-      "packages/coding-agent/builtin/extensions/goal.ts",
-      "packages/coding-agent/builtin/extensions/review.ts",
-      "packages/coding-agent/builtin/extensions/todos.ts",
-      "packages/coding-agent/builtin/extensions/whimsical.ts",
       "packages/workflows/src/extension/index.ts",
       "packages/subagents/src/extension/index.ts",
       "packages/mcp/index.ts",

@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve, sep } from "node:path";
+import { join, resolve, sep } from "node:path";
 import chalk from "chalk";
 import { CONFIG_DIR_NAME } from "../config.js";
 import { loadThemeFromPath, type Theme } from "../modes/interactive/theme/theme.js";
@@ -12,7 +12,6 @@ import { canonicalizePath, isLocalPath } from "../utils/paths.js";
 import { createEventBus, type EventBus } from "./event-bus.js";
 import { createExtensionRuntime, loadExtensionFromFactory, loadExtensions } from "./extensions/loader.js";
 import type { Extension, ExtensionFactory, ExtensionRuntime, LoadExtensionsResult } from "./extensions/types.js";
-import { getBuiltinExtensionPaths } from "./builtin-packages.js";
 import { DefaultPackageManager, type PathMetadata } from "./package-manager.js";
 import type { PromptTemplate } from "./prompt-templates.js";
 import { loadPromptTemplates } from "./prompt-templates.js";
@@ -359,21 +358,9 @@ export class DefaultResourceLoader implements ResourceLoader {
 		const enabledPrompts = getEnabledPaths(resolvedPaths.prompts);
 		const enabledThemes = getEnabledPaths(resolvedPaths.themes);
 
-		const builtinDirectExtensionPaths = this.noExtensions ? [] : getBuiltinExtensionPaths();
-		for (const extensionPath of builtinDirectExtensionPaths) {
-			if (!metadataByPath.has(extensionPath)) {
-				metadataByPath.set(extensionPath, {
-					source: "builtin",
-					scope: "temporary",
-					origin: "top-level",
-					baseDir: dirname(extensionPath),
-				});
-			}
-		}
-
 		const builtinEnabledExtensions = this.noExtensions
 			? []
-			: [...getEnabledPaths(builtinPackagePaths.extensions), ...builtinDirectExtensionPaths];
+			: getEnabledPaths(builtinPackagePaths.extensions);
 		const builtinEnabledSkillResources = this.noSkills ? [] : getEnabledResources(builtinPackagePaths.skills);
 		const builtinEnabledPrompts = this.noPromptTemplates ? [] : getEnabledPaths(builtinPackagePaths.prompts);
 		const builtinEnabledThemes = this.noThemes ? [] : getEnabledPaths(builtinPackagePaths.themes);

@@ -24,7 +24,6 @@
 import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent";
 import type { StageAdapters, StageSessionRuntime } from "../runs/foreground/stage-runner.js";
 import type { StageExecutionMeta, StageOptions, SubagentStageOpts } from "../shared/types.js";
-import { createAskUserQuestionTool } from "./tools/ask-user-question/index.js";
 
 // ---------------------------------------------------------------------------
 // Minimal pi surface
@@ -62,10 +61,6 @@ export interface RuntimeWiringSurface {
 export interface RuntimeAdapterBuildOptions {
   /** Test seam for SDK session creation. */
   createAgentSession?: (options?: CreateAgentSessionOptions) => Promise<{ session: StageSessionRuntime }>;
-  hil?: {
-    onAwaitingInputStart?: (meta: StageExecutionMeta) => void;
-    onAwaitingInputEnd?: (meta: StageExecutionMeta) => void;
-  };
 }
 
 type BindableStageSession = StageSessionRuntime & {
@@ -183,33 +178,6 @@ function stripWorkflowOnlyOptions(options: (StageOptions | CreateAgentSessionOpt
   return sessionOptions as CreateAgentSessionOptions;
 }
 
-function customToolNames(options: CreateAgentSessionOptions): Set<string> {
-  const tools = options.customTools ?? [];
-  return new Set(tools.map((tool) => tool.name));
-}
-
-function withAskUserQuestionTool(
-  options: CreateAgentSessionOptions,
-  meta: StageExecutionMeta | undefined,
-  hooks: RuntimeAdapterBuildOptions["hil"] | undefined,
-): CreateAgentSessionOptions {
-  if (!meta) return options;
-  if (customToolNames(options).has("ask_user_question")) return options;
-
-  const customTools = [
-    ...(options.customTools ?? []),
-    createAskUserQuestionTool({
-      beforeExecute: () => hooks?.onAwaitingInputStart?.(meta),
-      afterExecute: () => hooks?.onAwaitingInputEnd?.(meta),
-    }),
-  ];
-
-  return {
-    ...options,
-    customTools,
-  };
-}
-
 function makeStageExtensionUiContext(ui: PiUISurface) {
   return {
     select: ui.select ?? (async () => undefined),
@@ -270,7 +238,7 @@ export function buildRuntimeAdapters(
     (isTestContext() ? createTestAgentSession : createPiSdkAgentSession);
   const adapters: StageAdapters = {
     agentSession: {
-      async create(stageOptions: CreateAgentSessionOptions & Pick<StageOptions, "mcp" | "fallbackModels">, meta?: StageExecutionMeta): Promise<StageSessionRuntime> {
+      async create(stageOptions: CreateAgentSessionOptions & Pick<StageOptions, "mcp" | "fallbackModels">, _meta?: StageExecutionMeta): Promise<StageSessionRuntime> {
         // The pi SDK (`@earendil-works/pi-coding-agent` ≥ 0.74) handles
         // extension / skills / prompt-template / slash-command isolation
         // via `SettingsManager` / `ResourceLoader` ctor args. The production
@@ -279,11 +247,7 @@ export function buildRuntimeAdapters(
         // recursively loading pi-workflows/pi-intercom/pi-subagents. Callers
         // can still opt into a custom resource set by passing `resourceLoader`
         // through `stage(name, options)`.
-        const strippedOptions: CreateAgentSessionOptions = stripWorkflowOnlyOptions(stageOptions) ?? {};
-        const sessionOptions =
-          typeof pi.ui?.custom === "function"
-            ? withAskUserQuestionTool(strippedOptions, meta, options.hil)
-            : strippedOptions;
+        const sessionOptions: CreateAgentSessionOptions = stripWorkflowOnlyOptions(stageOptions) ?? {};
         const result = await createSession(sessionOptions);
         const bindable = result.session as BindableStageSession;
         if (typeof pi.ui?.custom === "function" && typeof bindable.bindExtensions === "function") {

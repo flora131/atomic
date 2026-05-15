@@ -1,4 +1,6 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+/**
+ * Whimsical working messages cycled into the interactive loader between turns.
+ */
 
 const messages = [
   // Short
@@ -459,16 +461,6 @@ const messages = [
   "Cherry-picking the commits...",
 ];
 
-function pickRandom(): string {
+export function pickWhimsicalWorkingMessage(): string {
   return messages[Math.floor(Math.random() * messages.length)];
-}
-
-export default function (pi: ExtensionAPI) {
-  pi.on("turn_start", async (_event, ctx) => {
-    ctx.ui.setWorkingMessage(pickRandom());
-  });
-
-  pi.on("turn_end", async (_event, ctx) => {
-    ctx.ui.setWorkingMessage(); // Reset for next time
-  });
 }

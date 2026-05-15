@@ -1,4 +1,5 @@
-import { DynamicBorder, type Theme } from "@earendil-works/pi-coding-agent";
+import { DynamicBorder } from "../../../../modes/interactive/components/index.js";
+import type { Theme } from "../../../../modes/interactive/theme/theme.js";
 import { type Component, Container, type Input, Spacer } from "@earendil-works/pi-tui";
 import type { QuestionnaireState } from "../state/state.js";
 import type { QuestionData } from "../tool/types.js";

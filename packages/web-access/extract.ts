@@ -446,6 +446,70 @@ export async function extractContent(
 	return { ...httpResult, error: guidance };
 }
 
+function stripElementBlocks(html: string, tagName: "script" | "style"): string {
+	let output = "";
+	let cursor = 0;
+	const lower = html.toLowerCase();
+	const startNeedle = `<${tagName}`;
+	const endNeedle = `</${tagName}`;
+
+	while (cursor < html.length) {
+		const start = lower.indexOf(startNeedle, cursor);
+		if (start === -1) {
+			output += html.slice(cursor);
+			break;
+		}
+
+		output += html.slice(cursor, start);
+		const end = lower.indexOf(endNeedle, start + startNeedle.length);
+		if (end === -1) {
+			break;
+		}
+
+		const endClose = lower.indexOf(">", end + endNeedle.length);
+		if (endClose === -1) {
+			break;
+		}
+		cursor = endClose + 1;
+	}
+
+	return output;
+}
+
+function stripTags(html: string): string {
+	let output = "";
+	let insideTag = false;
+	for (const char of html) {
+		if (char === "<") {
+			insideTag = true;
+			continue;
+		}
+		if (char === ">") {
+			insideTag = false;
+			continue;
+		}
+		if (!insideTag) output += char;
+	}
+	return output;
+}
+
+function collapseWhitespace(text: string): string {
+	let output = "";
+	let pendingSpace = false;
+	for (const char of text) {
+		if (/\s/.test(char)) {
+			pendingSpace = output.length > 0;
+			continue;
+		}
+		if (pendingSpace) {
+			output += " ";
+			pendingSpace = false;
+		}
+		output += char;
+	}
+	return output.trim();
+}
+
 function isLikelyJSRendered(html: string): boolean {
 	// Extract body content
 	const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
@@ -454,15 +518,10 @@ function isLikelyJSRendered(html: string): boolean {
 	const bodyHtml = bodyMatch[1];
 
 	// Strip tags to get text content
-	const textContent = bodyHtml
-		.replace(/<script[\s\S]*?<\/script>/gi, "")
-		.replace(/<style[\s\S]*?<\/style>/gi, "")
-		.replace(/<[^>]+>/g, "")
-		.replace(/\s+/g, " ")
-		.trim();
+	const textContent = collapseWhitespace(stripTags(stripElementBlocks(stripElementBlocks(bodyHtml, "script"), "style")));
 
 	// Count scripts
-	const scriptCount = (html.match(/<script/gi) || []).length;
+	const scriptCount = (html.match(/<script\b/gi) || []).length;
 
 	// Heuristic: little text content but many scripts suggests JS rendering
 	return textContent.length < 500 && scriptCount > 3;

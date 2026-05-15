@@ -143,7 +143,7 @@ function extractTitleFromURL(url: string): string {
     let filename = basename(pathname, ".pdf");
     
     // Handle arxiv URLs: /pdf/1706.03762 → "arxiv-1706.03762"
-    if (urlObj.hostname.includes("arxiv.org")) {
+    if (urlObj.hostname === "arxiv.org" || urlObj.hostname.endsWith(".arxiv.org")) {
       const match = pathname.match(/\/(?:pdf|abs)\/(\d+\.\d+)/);
       if (match) {
         filename = `arxiv-${match[1]}`;

@@ -1647,13 +1647,14 @@ export class DefaultPackageManager implements PackageManager {
 	}
 
 	private parseNpmSpec(spec: string): { name: string; version?: string } {
-		const match = spec.match(/^(@?[^@]+(?:\/[^@]+)?)(?:@(.+))?$/);
-		if (!match) {
+		const versionSeparator = spec.startsWith("@") ? spec.indexOf("@", spec.indexOf("/") + 1) : spec.indexOf("@");
+		if (versionSeparator <= 0) {
 			return { name: spec };
 		}
-		const name = match[1] ?? spec;
-		const version = match[2];
-		return { name, version };
+		return {
+			name: spec.slice(0, versionSeparator),
+			version: spec.slice(versionSeparator + 1),
+		};
 	}
 
 	private getNpmCommand(): { command: string; args: string[] } {
@@ -1719,7 +1720,7 @@ export class DefaultPackageManager implements PackageManager {
 		}
 		mkdirSync(dirname(targetDir), { recursive: true });
 
-		await this.runCommand("git", ["clone", source.repo, targetDir]);
+		await this.runCommand("git", ["clone", "--", source.repo, targetDir]);
 		if (source.ref) {
 			await this.runCommand("git", ["checkout", source.ref], { cwd: targetDir });
 		}

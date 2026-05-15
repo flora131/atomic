@@ -6,9 +6,25 @@ import { theme } from "../theme/theme.js";
  * Format: "+123 content" or "-123 content" or " 123 content" or "     ..."
  */
 function parseDiffLine(line: string): { prefix: string; lineNum: string; content: string } | null {
-	const match = line.match(/^([+-\s])(\s*\d*)\s(.*)$/);
-	if (!match) return null;
-	return { prefix: match[1], lineNum: match[2], content: match[3] };
+	if (line.length < 2) return null;
+	const prefix = line[0];
+	if (prefix !== "+" && prefix !== "-" && prefix !== " ") return null;
+
+	let cursor = 1;
+	while (cursor < line.length && line[cursor] === " ") cursor++;
+	const digitsStart = cursor;
+	while (cursor < line.length) {
+		const code = line.charCodeAt(cursor);
+		if (code < 48 || code > 57) break;
+		cursor++;
+	}
+	if (cursor >= line.length || line[cursor] !== " ") return null;
+
+	return {
+		prefix,
+		lineNum: line.slice(1, cursor),
+		content: line.slice(cursor + 1),
+	};
 }
 
 /**

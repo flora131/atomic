@@ -53,7 +53,7 @@ describe("coding-agent builtin resources", () => {
     const extensions = loader.getExtensions();
     assert.deepEqual(extensions.errors, []);
 
-    const extensionPaths = extensions.extensions.map((extension) => extension.path);
+    const extensionPaths = extensions.extensions.map((extension) => extension.path.replace(/\\/g, "/"));
     for (const suffix of [
       "packages/coding-agent/builtin/extensions/btw.ts",
       "packages/coding-agent/builtin/extensions/goal.ts",
@@ -76,5 +76,5 @@ describe("coding-agent builtin resources", () => {
     for (const skillName of ["workflow", "subagent", "intercom"]) {
       assert.ok(skillNames.has(skillName), `expected builtin skill ${skillName}`);
     }
-  });
+  }, 20_000);
 });

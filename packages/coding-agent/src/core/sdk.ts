@@ -125,6 +125,15 @@ function getDefaultAgentDir(): string {
 	return getAgentDir();
 }
 
+function isHostOrSubdomain(rawUrl: string, host: string): boolean {
+	try {
+		const { hostname } = new URL(rawUrl);
+		return hostname === host || hostname.endsWith(`.${host}`);
+	} catch {
+		return false;
+	}
+}
+
 function getAttributionHeaders(
 	model: Model<any>,
 	settingsManager: SettingsManager,
@@ -133,7 +142,7 @@ function getAttributionHeaders(
 		return undefined;
 	}
 
-	if (model.provider === "openrouter" || model.baseUrl.includes("openrouter.ai")) {
+	if (model.provider === "openrouter" || isHostOrSubdomain(model.baseUrl, "openrouter.ai")) {
 		return {
 			"HTTP-Referer": "https://pi.dev",
 			"X-OpenRouter-Title": "pi",
@@ -144,8 +153,8 @@ function getAttributionHeaders(
 	if (
 		model.provider === "cloudflare-workers-ai" ||
 		model.provider === "cloudflare-ai-gateway" ||
-		model.baseUrl.includes("api.cloudflare.com") ||
-		model.baseUrl.includes("gateway.ai.cloudflare.com")
+		isHostOrSubdomain(model.baseUrl, "api.cloudflare.com") ||
+		isHostOrSubdomain(model.baseUrl, "gateway.ai.cloudflare.com")
 	) {
 		return {
 			"User-Agent": "pi-coding-agent",

@@ -1,6 +1,6 @@
 import { getOAuthProviders } from "@earendil-works/pi-ai/oauth";
 import { Container, type Focusable, getKeybindings, Input, Spacer, Text, type TUI } from "@earendil-works/pi-tui";
-import { exec } from "child_process";
+import { execFile } from "child_process";
 import { theme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";
 import { keyHint } from "./keybinding-hints.js";
@@ -99,9 +99,13 @@ export class LoginDialogComponent extends Container implements Focusable {
 			this.contentContainer.addChild(new Text(theme.fg("warning", instructions), 1, 0));
 		}
 
-		// Try to open browser
-		const openCmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
-		exec(`${openCmd} "${url}"`);
+		// Try to open browser without shell interpolation.
+		const openCommand = process.platform === "darwin"
+			? { command: "open", args: [url] }
+			: process.platform === "win32"
+				? { command: "rundll32", args: ["url.dll,FileProtocolHandler", url] }
+				: { command: "xdg-open", args: [url] };
+		execFile(openCommand.command, openCommand.args, () => {});
 
 		this.tui.requestRender();
 	}

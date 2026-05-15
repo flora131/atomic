@@ -113,25 +113,54 @@ export function createStatusWriter(
   // re-entrant infinite loops when writes keep failing.
   let lastErrorMessage: string | null = null;
 
-  const unsubscribe = store.subscribe((snap: StoreSnapshot) => {
-    void atomicWriteJson(filePath, JSON.stringify(snap, null, 2))
-      .then(() => {
-        // Clear error dedup on successful write.
-        lastErrorMessage = null;
-      })
-      .catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        // Deduplicate: only record one notice per distinct error message.
-        if (msg === lastErrorMessage) return;
-        lastErrorMessage = msg;
-        store.recordNotice({
-          id: `status-writer-error-${Date.now()}`,
-          level: "warning",
-          message: `pi-workflows: status file write failed (${filePath}): ${msg}`,
-          createdAt: Date.now(),
-        });
-      });
+  let active = true;
+  let writing = false;
+  let pendingContent: string | null = null;
+
+  function recordWriteError(err: unknown): void {
+    const msg = err instanceof Error ? err.message : String(err);
+    // Deduplicate: only record one notice per distinct error message.
+    if (msg === lastErrorMessage) return;
+    lastErrorMessage = msg;
+    store.recordNotice({
+      id: `status-writer-error-${Date.now()}`,
+      level: "warning",
+      message: `pi-workflows: status file write failed (${filePath}): ${msg}`,
+      createdAt: Date.now(),
+    });
+  }
+
+  async function drainWrites(): Promise<void> {
+    if (writing) return;
+    writing = true;
+    try {
+      while (active && pendingContent !== null) {
+        const content = pendingContent;
+        pendingContent = null;
+        try {
+          await atomicWriteJson(filePath, content);
+          // Clear error dedup on successful write.
+          lastErrorMessage = null;
+        } catch (err: unknown) {
+          recordWriteError(err);
+        }
+      }
+    } finally {
+      writing = false;
+      if (active && pendingContent !== null) void drainWrites();
+    }
+  }
+
+  const unsubscribeStore = store.subscribe((snap: StoreSnapshot) => {
+    pendingContent = JSON.stringify(snap, null, 2);
+    void drainWrites();
   });
 
-  return { unsubscribe };
+  return {
+    unsubscribe() {
+      active = false;
+      pendingContent = null;
+      unsubscribeStore();
+    },
+  };
 }

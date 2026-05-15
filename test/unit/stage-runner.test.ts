@@ -4,7 +4,6 @@
  * Verifies:
  *  - prompt adapter receives { runId, stageId, stageName, signal } as meta
  *  - complete adapter receives meta and preserves CompleteStageOpts (model, maxTokens)
- *  - subagent adapter receives meta
  *  - AbortSignal threaded end-to-end through meta
  *
  * cross-ref: src/runs/foreground/stage-runner.ts
@@ -21,9 +20,8 @@ import type {
   StageRunnerOpts,
   PromptAdapter,
   CompleteAdapter,
-  SubagentAdapter,
 } from "../../packages/workflows/src/runs/foreground/stage-runner.js";
-import type { StageExecutionMeta, CompleteStageOpts, SubagentStageOpts } from "../../packages/workflows/src/shared/types.js";
+import type { StageExecutionMeta, CompleteStageOpts } from "../../packages/workflows/src/shared/types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -299,47 +297,13 @@ describe("createStageContext — complete metadata propagation", () => {
 });
 
 // ---------------------------------------------------------------------------
-// subagent — metadata propagation
+// Stage surface
 // ---------------------------------------------------------------------------
 
-describe("createStageContext — subagent metadata propagation", () => {
-  test("subagent adapter receives full meta", async () => {
-    const received: StageExecutionMeta[] = [];
-    const signal = makeSignal();
-    const subagentAdapter: SubagentAdapter = {
-      async subagent(_opts, meta) { received.push(meta!); return "done"; },
-    };
-    const ctx = createStageContext({
-      stageId: "s-sub",
-      stageName: "SubStage",
-      runId: "r-sub",
-      signal,
-      adapters: { subagent: subagentAdapter },
-    });
-    await ctx.subagent({ agent: "coder", task: "fix bug" });
-    assert.deepEqual(received[0], {
-      runId: "r-sub",
-      stageId: "s-sub",
-      stageName: "SubStage",
-      signal,
-      stageOptions: undefined,
-    });
-  });
-
-  test("subagent adapter receives SubagentStageOpts intact", async () => {
-    const receivedOpts: SubagentStageOpts[] = [];
-    const subagentAdapter: SubagentAdapter = {
-      async subagent(opts) { receivedOpts.push(opts); return "ok"; },
-    };
-    const ctx = createStageContext(makeOpts({ adapters: { subagent: subagentAdapter } }));
-    // pi-subagents v0.24.2: `context` is the literal union `"fresh" | "fork"`.
-    await ctx.subagent({ agent: "reviewer", task: "review PR", context: "fork" });
-    assert.deepEqual(receivedOpts[0], { agent: "reviewer", task: "review PR", context: "fork" });
-  });
-
-  test("throws when subagent adapter absent", async () => {
+describe("createStageContext — stage surface", () => {
+  test("does not expose a subagent helper", () => {
     const ctx = createStageContext(makeOpts({ adapters: {} }));
-    await assert.rejects(ctx.subagent({ agent: "x", task: "y" }), { message: /subagent requires pi task delegation/ });
+    assert.equal("subagent" in ctx, false);
   });
 });
 

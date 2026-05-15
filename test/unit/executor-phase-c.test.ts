@@ -5,7 +5,6 @@
  *  - Required/default input resolution.
  *  - Missing prompt adapter error.
  *  - Missing complete adapter error.
- *  - Missing subagent adapter error (must mention task delegation support guidance).
  */
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
@@ -259,9 +258,6 @@ describe("executor adapter errors — Phase C", () => {
     // NODE_ENV=test enables stub in stage-runner; force non-test to get real error
     // Instead: don't set adapters, verify via result (in test env, stub is used — test directly)
     // To test the real "no adapter" path: pass empty adapters object without using NODE_ENV
-    // Stage-runner checks adapters.prompt; if absent and not NODE_ENV=test, throws.
-    // In test env it uses stub — so let's test complete/subagent which have no stub.
-
     // complete — no adapter, no stub → must throw
     const def = defineWorkflow("phaseC-no-complete")
       .run(async (ctx) => {
@@ -275,31 +271,6 @@ describe("executor adapter errors — Phase C", () => {
     assert.ok(result.error!.includes("complete adapter not configured"));
   });
 
-  test("subagent adapter absent — stage fails and error mentions pi task delegation", async () => {
-    const def = defineWorkflow("phaseC-no-subagent")
-      .run(async (ctx) => {
-        await ctx.stage("s").subagent({ agent: "my-agent", task: "do something" });
-        return {};
-      })
-      .compile();
-
-    const result = await run(def, {}, { adapters: {}, store: createStore() });
-    assert.equal(result.status, "failed");
-    assert.ok(result.error!.includes("pi task delegation"));
-  });
-
-  test("subagent error is actionable without install guidance", async () => {
-    const def = defineWorkflow("phaseC-subagent-guidance")
-      .run(async (ctx) => {
-        await ctx.stage("s").subagent({ agent: "agent", task: "task" });
-        return {};
-      })
-      .compile();
-
-    const result = await run(def, {}, { store: createStore() });
-    assert.match(result.error!, /pi task delegation/);
-    assert.doesNotMatch(result.error!, /install/i);
-  });
 
   test("stage snapshot has failed status when adapter is absent", async () => {
     const def = defineWorkflow("phaseC-stage-fail-snap")

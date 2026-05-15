@@ -14,8 +14,6 @@ Use this skill for two user journeys:
 1. **Run or inspect an existing workflow** — use the workflow tool or `/workflow` surface. Load `references/running-workflows.md`.
 2. **Create or edit a workflow definition** — design the information flow, then author a `defineWorkflow(...).run(...).compile()` TypeScript file. Load `references/sdk-authoring.md` and `references/design-checklist.md`.
 
-Prefer `subagent` only for one-off delegation where the user does not need a reusable workflow, named stages, workflow UI/status, resumability, or durable artifacts.
-
 ## Reference Files
 
 Load references on demand. Keep this file lean; put details in references.
@@ -197,7 +195,7 @@ Input types: `text`, `string`, `number`, `boolean`, `select`. All support `descr
 | One LLM task with workflow tracking | `ctx.task(name, options)` |
 | Independent branches | `ctx.parallel(steps, { task? })` |
 | Dependent stages | `ctx.chain(steps, { task? })` |
-| Low-level session controls | `ctx.stage(name, options)` then `stage.prompt/complete/subagent` |
+| Low-level session controls | `ctx.stage(name, options)` then `stage.prompt/complete` |
 | User interaction during run | `ctx.ui` primitives |
 | Pure computation / file I/O / parsing | Plain TypeScript in `.run()` or helpers |
 

@@ -25,7 +25,7 @@ import type { WorkflowPersistencePort, WorkflowMcpPort, WorkflowRuntimeConfig, W
 export interface DispatcherOpts {
   /** Registry of compiled workflow definitions. */
   registry: WorkflowRegistry;
-  /** Stage adapters forwarded to the executor (prompt/complete/subagent). */
+  /** Stage adapters forwarded to the executor (prompt/complete). */
   adapters?: StageAdapters;
   /** Store override (defaults to executor's singleton). */
   store?: Store;

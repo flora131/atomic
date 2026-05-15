@@ -23,7 +23,7 @@
 
 import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent";
 import type { StageAdapters, StageSessionRuntime } from "../runs/foreground/stage-runner.js";
-import type { StageExecutionMeta, StageOptions, SubagentStageOpts } from "../shared/types.js";
+import type { StageExecutionMeta, StageOptions } from "../shared/types.js";
 
 // ---------------------------------------------------------------------------
 // Minimal pi surface
@@ -55,7 +55,6 @@ export interface RuntimeWiringSurface {
   ui?: PiUISurface;
   /** Test seam: inject a stub session factory instead of importing the SDK. */
   createAgentSession?: (options?: CreateAgentSessionOptions) => Promise<{ session: StageSessionRuntime }>;
-  callTool?: (name: string, args: Record<string, unknown>) => Promise<string>;
 }
 
 export interface RuntimeAdapterBuildOptions {
@@ -259,60 +258,6 @@ export function buildRuntimeAdapters(
       },
     },
   };
-
-  if (typeof pi.callTool === "function") {
-    adapters.subagent = {
-      // pi-subagents v0.24.2 `SubagentParams` execution shape (see
-      // `nicobailon/pi-subagents@635112d:src/extension/schemas.ts` +
-      // `src/shared/types.ts:597 SUBAGENT_ACTIONS`) is:
-      //   { agent, task, context?: "fresh" | "fork", model?, cwd?, ... }
-      // with `action` OMITTED for execution. "run" is NOT a member of
-      // SUBAGENT_ACTIONS and is rejected by createSubagentExecutor.execute.
-      // pi-subagents has no `env` field on SubagentParams — it silently
-      // drops unknown keys, so threading workflow env through args is a
-      // no-op. Workflow metadata propagation through pi-subagents is
-      // unsupported in v0.24.2; do not pretend otherwise. The `meta`
-      // parameter is retained on the adapter signature for downstream
-      // adapters that *can* propagate it (e.g. tests).
-      subagent(opts: SubagentStageOpts, _meta?: StageExecutionMeta): Promise<string> {
-        const args: Record<string, unknown> = {};
-        const setIfDefined = <K extends keyof SubagentStageOpts>(key: K): void => {
-          const value = opts[key];
-          if (value !== undefined) args[String(key)] = value;
-        };
-        setIfDefined("agent");
-        setIfDefined("task");
-        setIfDefined("action");
-        setIfDefined("id");
-        setIfDefined("runId");
-        setIfDefined("dir");
-        setIfDefined("index");
-        setIfDefined("message");
-        setIfDefined("chainName");
-        setIfDefined("config");
-        setIfDefined("output");
-        setIfDefined("outputMode");
-        setIfDefined("skill");
-        setIfDefined("model");
-        setIfDefined("tasks");
-        setIfDefined("concurrency");
-        setIfDefined("worktree");
-        setIfDefined("chain");
-        setIfDefined("context");
-        setIfDefined("chainDir");
-        setIfDefined("clarify");
-        setIfDefined("agentScope");
-        setIfDefined("async");
-        setIfDefined("cwd");
-        setIfDefined("artifacts");
-        setIfDefined("includeProgress");
-        setIfDefined("share");
-        setIfDefined("sessionDir");
-        setIfDefined("control");
-        return pi.callTool!("subagent", args);
-      },
-    };
-  }
 
   return adapters;
 }

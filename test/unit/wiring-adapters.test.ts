@@ -1,5 +1,5 @@
 /**
- * Tests for buildRuntimeAdapters — pi AgentSession wiring and task-tool fallback.
+ * Tests for buildRuntimeAdapters — pi AgentSession wiring.
  *
  * The legacy `buildUIAdapter` (pi.ui → WorkflowUIAdapter for HIL) was removed
  * when workflows became background-only — HIL prompts now route through the
@@ -10,16 +10,7 @@ import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { buildRuntimeAdapters } from "../../packages/workflows/src/extension/wiring.js";
 import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent";
-import type { RuntimeWiringSurface } from "../../packages/workflows/src/extension/wiring.js";
 import type { StageSessionRuntime } from "../../packages/workflows/src/runs/foreground/stage-runner.js";
-import type { StageExecutionMeta } from "../../packages/workflows/src/shared/types.js";
-
-// pi-subagents v0.24.2 SubagentParams contract — single execution mode:
-//   { agent, task, context?: "fresh" | "fork", ... }
-// Action is OMITTED for execution. "run" is NOT a valid action and is
-// rejected by createSubagentExecutor.execute.
-// `env` is not part of SubagentParams; pi-subagents silently drops it.
-const SCHEMA_FORBIDDEN_KEYS = ["action", "env"] as const;
 
 function fakeSession(): StageSessionRuntime {
   let last = "";
@@ -58,6 +49,7 @@ describe("buildRuntimeAdapters — SDK AgentSession adapter", () => {
     assert.notEqual(adapters.agentSession, undefined);
     assert.equal(adapters.prompt, undefined);
     assert.equal(adapters.complete, undefined);
+    assert.equal(Object.prototype.hasOwnProperty.call(adapters, "subagent"), false);
   });
 
   test(
@@ -150,62 +142,6 @@ describe("buildRuntimeAdapters — SDK AgentSession adapter", () => {
     await adapters.agentSession!.create({ cwd: "/tmp/project", mcp: { allow: ["github"] } });
     assert.equal(Object.prototype.hasOwnProperty.call(calls[0], "mcp"), false);
     assert.equal(calls[0]?.cwd, "/tmp/project");
-  });
-});
-
-describe("buildRuntimeAdapters — subagent adapter via pi task bridge", () => {
-  test("delegates to pi.callTool('subagent', args)", async () => {
-    const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
-    const pi: RuntimeWiringSurface = {
-      callTool: async (name, args) => { calls.push({ name, args }); return "done"; },
-    };
-    const adapters = buildRuntimeAdapters(pi);
-    await adapters.subagent!.subagent({ agent: "reviewer", task: "review", context: "fork" });
-    assert.equal(calls[0]?.name, "subagent");
-    assert.equal(calls[0]?.args["agent"], "reviewer");
-    assert.equal(calls[0]?.args["task"], "review");
-    assert.equal(calls[0]?.args["context"], "fork");
-  });
-
-  test(
-    "sends schema-compliant args — no `action`, no `env` (pi-subagents v0.24.2 SubagentParams contract)",
-    async () => {
-      // pi-subagents/src/shared/types.ts:597 — SUBAGENT_ACTIONS does NOT
-      // include "run"; execution requires omitting `action` entirely.
-      // pi-subagents/src/extension/schemas.ts — SubagentParams has no `env`
-      // field; sending it is silently dropped and gives a false sense of
-      // workflow-metadata propagation.
-      const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
-      const pi: RuntimeWiringSurface = {
-        callTool: async (name, args) => { calls.push({ name, args }); return "ok"; },
-      };
-      const adapters = buildRuntimeAdapters(pi);
-      const meta: StageExecutionMeta = {
-        runId: "run",
-        stageId: "stage",
-        stageName: "N",
-        signal: new AbortController().signal,
-      };
-      await adapters.subagent!.subagent({ agent: "a", task: "t" }, meta);
-      const args = calls[0]?.args ?? {};
-      for (const key of SCHEMA_FORBIDDEN_KEYS) {
-        assert.equal(
-          Object.prototype.hasOwnProperty.call(args, key),
-          false,
-          `subagent adapter MUST NOT send '${key}' — not part of pi-subagents SubagentParams`,
-        );
-      }
-    },
-  );
-
-  test("omits `context` when caller does not provide it", async () => {
-    const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
-    const pi: RuntimeWiringSurface = {
-      callTool: async (name, args) => { calls.push({ name, args }); return "ok"; },
-    };
-    const adapters = buildRuntimeAdapters(pi);
-    await adapters.subagent!.subagent({ agent: "a", task: "t" });
-    assert.equal(Object.prototype.hasOwnProperty.call(calls[0]?.args ?? {}, "context"), false);
   });
 });
 

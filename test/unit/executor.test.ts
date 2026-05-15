@@ -146,7 +146,7 @@ describe("executor.run", () => {
     assert.match(seenPrompts[1]!, /--- notes ---\nmanual notes/);
   });
 
-  test("ctx.chain follows pi-subagents direct-command previous defaults", async () => {
+  test("ctx.chain follows direct workflow previous defaults", async () => {
     const seenPrompts: string[] = [];
     const def = defineWorkflow("task-chain-wf")
       .run(async (ctx) => {
@@ -176,7 +176,7 @@ describe("executor.run", () => {
     assert.equal(wfResult.result?.["final"], "out:3");
   });
 
-  test("ctx.parallel follows pi-subagents direct-command shared task fallback", async () => {
+  test("ctx.parallel follows direct workflow shared task fallback", async () => {
     const seenPrompts: string[] = [];
     const def = defineWorkflow("task-parallel-wf")
       .run(async (ctx) => {
@@ -425,18 +425,6 @@ describe("executor.run", () => {
     assert.ok(badStage?.error!.includes("explode"));
   });
 
-  test("subagent throws clear error when adapter absent", async () => {
-    const def = defineWorkflow("sa-wf")
-      .run(async (ctx) => {
-        await ctx.stage("s").subagent({ agent: "foo", task: "bar" });
-        return {};
-      })
-      .compile();
-
-    const wfResult = await run(def, {}, { store: createStore() });
-    assert.equal(wfResult.status, "failed");
-    assert.ok(wfResult.error!.includes("pi task delegation"));
-  });
 
   test("complete throws clear error when adapter absent", async () => {
     const def = defineWorkflow("complete-wf")

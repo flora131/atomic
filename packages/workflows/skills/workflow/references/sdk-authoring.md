@@ -84,7 +84,7 @@ Prefer high-level primitives:
 
 Use `ctx.stage(name, options?)` only when you need lower-level session control. `StageContext` supports:
 
-- `prompt(text, options?)`, `complete(text, options?)`, `subagent(options)`
+- `prompt(text, options?)`, `complete(text, options?)`
 - `steer`, `followUp`, `subscribe`
 - session metadata: `sessionId`, `sessionFile`
 - model/thinking controls: `setModel`, `setThinkingLevel`, `cycleModel`, `cycleThinkingLevel`

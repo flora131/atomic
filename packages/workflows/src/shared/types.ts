@@ -189,119 +189,6 @@ export interface CompleteStageOpts extends WorkflowModelFallbackFields {
   maxTokens?: number;
 }
 
-/**
- * Options for `ctx.stage(name).subagent({...})` — maps onto the
- * pi-subagents v0.24.2 `subagent` tool execution shape.
- *
- * `context` is the literal union accepted by pi-subagents'
- * `SubagentParams` (`"fresh" | "fork"`). Passing any other value is a
- * type error — pi-subagents silently rejects unknown context values.
- *
- * cross-ref: pi-subagents/src/extension/schemas.ts SubagentParams
- */
-export type SubagentAction =
-  | "list"
-  | "get"
-  | "create"
-  | "update"
-  | "delete"
-  | "status"
-  | "interrupt"
-  | "resume"
-  | "doctor";
-
-export type SubagentSkillOverride = string | readonly string[] | boolean;
-export type SubagentReadsOverride = readonly string[] | boolean;
-export type SubagentOutputOverride = string | boolean;
-export type SubagentAgentScope = string;
-
-export interface SubagentTaskItem {
-  agent: string;
-  task: string;
-  cwd?: string;
-  count?: number;
-  output?: SubagentOutputOverride;
-  outputMode?: WorkflowOutputMode;
-  reads?: SubagentReadsOverride;
-  progress?: boolean;
-  model?: string;
-  skill?: SubagentSkillOverride;
-}
-
-export interface SubagentParallelTaskItem {
-  agent: string;
-  task?: string;
-  cwd?: string;
-  count?: number;
-  output?: SubagentOutputOverride;
-  outputMode?: WorkflowOutputMode;
-  reads?: SubagentReadsOverride;
-  progress?: boolean;
-  skill?: SubagentSkillOverride;
-  model?: string;
-}
-
-export interface SubagentChainItem {
-  agent?: string;
-  task?: string;
-  cwd?: string;
-  output?: SubagentOutputOverride;
-  outputMode?: WorkflowOutputMode;
-  reads?: SubagentReadsOverride;
-  progress?: boolean;
-  skill?: SubagentSkillOverride;
-  model?: string;
-  parallel?: readonly SubagentParallelTaskItem[];
-  concurrency?: number;
-  failFast?: boolean;
-  worktree?: boolean;
-}
-
-export interface SubagentControlOverrides {
-  enabled?: boolean;
-  needsAttentionAfterMs?: number;
-  activeNoticeAfterMs?: number;
-  activeNoticeAfterTurns?: number;
-  activeNoticeAfterTokens?: number;
-  failedToolAttemptsBeforeAttention?: number;
-  notifyOn?: readonly ("active_long_running" | "needs_attention")[];
-  notifyChannels?: readonly ("event" | "async" | "intercom")[];
-}
-
-export interface SubagentStageOpts {
-  /** Agent name for single mode, or target for management actions. */
-  agent?: string;
-  /** Task string for single mode. */
-  task?: string;
-  action?: SubagentAction;
-  id?: string;
-  runId?: string;
-  dir?: string;
-  index?: number;
-  message?: string;
-  chainName?: string;
-  config?: Record<string, unknown> | string;
-  tasks?: readonly SubagentTaskItem[];
-  concurrency?: number;
-  worktree?: boolean;
-  chain?: readonly SubagentChainItem[];
-  context?: "fresh" | "fork";
-  chainDir?: string;
-  async?: boolean;
-  agentScope?: SubagentAgentScope;
-  cwd?: string;
-  artifacts?: boolean;
-  includeProgress?: boolean;
-  share?: boolean;
-  sessionDir?: string;
-  clarify?: boolean;
-  control?: SubagentControlOverrides;
-  output?: SubagentOutputOverride;
-  outputMode?: WorkflowOutputMode;
-  skill?: SubagentSkillOverride;
-  model?: string;
-}
-
 // ---------------------------------------------------------------------------
 // Runtime ports — abstract adapters used by the executor
 // ---------------------------------------------------------------------------
@@ -332,10 +219,9 @@ export interface WorkflowPersistencePort {
 // ---------------------------------------------------------------------------
 
 /**
- * Reusable context passed between high-level workflow tasks. This mirrors
- * pi-subagents' `{previous}` / contextual handoff concept, but keeps it as a
- * typed SDK primitive instead of requiring authors to manually concatenate
- * prior agent output into every prompt.
+ * Reusable context passed between high-level workflow tasks. This keeps
+ * `{previous}` handoffs as a typed SDK primitive instead of requiring authors
+ * to manually concatenate prior output into every prompt.
  */
 export interface WorkflowTaskContext {
   /** Optional display label used when rendering the context block. */
@@ -362,13 +248,12 @@ export interface WorkflowTaskResult extends WorkflowTaskContext {
  * Higher-level task API: create a tracked stage, optionally inject prior task
  * output, prompt the agent, and return a reusable task result.
  *
- * This intentionally mirrors pi-subagents direct-command semantics:
  * `{previous}` means prior step output.
  */
 export interface WorkflowTaskOptions extends StageOptions, WorkflowTaskSessionFields {
   /** Prompt/task text. Supports `{previous}` placeholders. */
   prompt?: string;
-  /** Alias for `prompt`, matching pi-subagents' direct-command vocabulary. */
+  /** Alias for `prompt`, used by direct workflow orchestration helpers. */
   task?: string;
   /** Prior task output/context. If placeholders are absent, it is appended. */
   previous?: WorkflowTaskContextInput | readonly WorkflowTaskContextInput[];
@@ -403,15 +288,15 @@ export interface StageOutputOptions {
   output?: string | false;
   /** Return saved output inline or as a concise saved-file reference. */
   outputMode?: WorkflowOutputMode;
-  /** Accepted for parity with direct task/subagent options; stage creation options remain authoritative. */
+  /** Accepted for parity with direct task options; stage creation options remain authoritative. */
   context?: "fresh" | "fork";
-  /** Override working directory for output path resolution / subagent delegation. */
+  /** Override working directory for output path resolution. */
   cwd?: string;
   /** Final output truncation limits. */
   maxOutput?: WorkflowMaxOutput;
-  /** Whether to include debug artifacts when delegated to subagents. */
+  /** Whether to include debug artifacts. */
   artifacts?: boolean;
-  /** Override session log directory when delegated to subagents. */
+  /** Override session log directory. */
   sessionDir?: string;
 }
 
@@ -557,7 +442,6 @@ export interface StageContext {
   /** Send a prompt and wait for completion. */
   prompt(text: string, options?: StagePromptOptions): Promise<string>;
   complete(text: string, options?: CompleteStageOpts): Promise<string>;
-  subagent(options: SubagentStageOpts): Promise<string>;
 
   /** Queue messages during streaming. */
   steer(text: string): Promise<void>;
@@ -606,8 +490,8 @@ export interface WorkflowRunContext<TInputs extends Record<string, unknown> = Re
   readonly inputs: TInputs;
   /**
    * Create and register a named stage synchronously. Stage work starts when
-   * a stage method such as prompt(), complete(), or subagent() is awaited;
-   * the executor infers the DAG automatically from those method calls.
+   * a stage method such as prompt() or complete() is awaited; the executor
+   * infers the DAG automatically from those method calls.
    *
    * @param name   Human-readable stage name (used in TUI + persistence).
    * @param options Optional per-stage configuration (mcp allow/deny, etc.).
@@ -618,7 +502,7 @@ export interface WorkflowRunContext<TInputs extends Record<string, unknown> = Re
    * calling prompt(), with built-in context handoff support.
    */
   task(name: string, options: WorkflowTaskOptions): Promise<WorkflowTaskResult>;
-  /** Run tasks in sequence. Missing step tasks follow pi-subagents: first gets `{task}`, later steps get `{previous}`. */
+  /** Run tasks in sequence. Missing step tasks: first gets `{task}`, later steps get `{previous}`. */
   chain(steps: readonly WorkflowTaskStep[], options?: WorkflowChainOptions): Promise<WorkflowTaskResult[]>;
   /** Run tasks in parallel. Missing step tasks use the first available task as a fallback. */
   parallel(steps: readonly WorkflowTaskStep[], options?: WorkflowParallelOptions): Promise<WorkflowTaskResult[]>;

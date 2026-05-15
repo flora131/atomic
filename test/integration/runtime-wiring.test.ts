@@ -101,7 +101,7 @@ function makeMockApi(): MockApi {
     // exec surface — present on real pi runtime, used by buildRuntimeAdapters
     async exec(command: string, args: string[]): Promise<PiExecResult> {
       execCalls.push({ command, args });
-      // Return valid NDJSON for prompt and complete calls; also works for subagent.
+      // Return valid NDJSON for prompt and complete calls.
       // complete calls need partition-like output so the workflow can proceed.
       const isComplete = args.some((a) => a.includes("extract") || a.includes("partition"));
       const text = isComplete ? "partition-a\npartition-b" : "[spy-exec-response]";

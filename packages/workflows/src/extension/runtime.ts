@@ -55,7 +55,7 @@ export interface ExtensionRuntimeOpts {
    * Typically populated by the discovery worker at startup.
    */
   definitions?: WorkflowDefinition[];
-  /** Stage adapters forwarded to the executor (prompt/complete/subagent). */
+  /** Stage adapters forwarded to the executor (prompt/complete). */
   adapters?: StageAdapters;
 
   /** Store override (defaults to the singleton store). */

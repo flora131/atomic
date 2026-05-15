@@ -1353,7 +1353,6 @@ export async function run(
         name: innerCtx.name,
         prompt: (text, promptOptions) => runTrackedStageCall(() => innerCtx.prompt(text, promptOptions)),
         complete: (text, completeOptions) => runTrackedStageCall(() => innerCtx.complete(text, completeOptions)),
-        subagent: (subagentOptions) => runTrackedStageCall(() => innerCtx.subagent(subagentOptions)),
         steer: (text) => innerCtx.steer(text),
         followUp: (text) => innerCtx.followUp(text),
         subscribe: (listener) => innerCtx.subscribe(listener),

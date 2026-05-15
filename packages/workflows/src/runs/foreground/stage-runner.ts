@@ -4,7 +4,7 @@
  * The public stage surface mirrors the supported subset of pi's SDK
  * AgentSession. The executor wraps prompt() for lifecycle tracking and owns
  * disposal; workflow authors get direct SDK session methods without a custom
- * prompt/subagent abstraction.
+ * prompt abstraction.
  */
 
 import { mkdir, writeFile } from "node:fs/promises";
@@ -17,7 +17,6 @@ import type {
   StageOptions,
   StageOutputOptions,
   StagePromptOptions,
-  SubagentStageOpts,
   WorkflowMaxOutput,
   WorkflowModelAttempt,
   WorkflowModelCatalogPort,
@@ -75,15 +74,10 @@ export interface CompleteAdapter {
   complete(text: string, opts?: CompleteStageOpts, meta?: StageExecutionMeta): Promise<string>;
 }
 
-export interface SubagentAdapter {
-  subagent(opts: SubagentStageOpts, meta?: StageExecutionMeta): Promise<string>;
-}
-
 export interface StageAdapters {
   agentSession?: AgentSessionAdapter;
   prompt?: PromptAdapter;
   complete?: CompleteAdapter;
-  subagent?: SubagentAdapter;
 }
 
 export interface StageRunnerOpts {
@@ -564,17 +558,6 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
         );
       }
       lastAssistantText = await adapters.complete.complete(text, completeOpts, meta);
-      adapterMessages = assistantMessage(lastAssistantText);
-      return lastAssistantText;
-    },
-
-    async subagent(subagentOpts) {
-      if (!adapters.subagent) {
-        throw new Error(
-          "pi-workflows: subagent requires pi task delegation support",
-        );
-      }
-      lastAssistantText = await adapters.subagent.subagent(subagentOpts, meta);
       adapterMessages = assistantMessage(lastAssistantText);
       return lastAssistantText;
     },

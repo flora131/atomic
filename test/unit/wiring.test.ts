@@ -45,6 +45,7 @@ describe("buildRuntimeAdapters — SDK sessions", () => {
     assert.notEqual(adapters.agentSession, undefined);
     assert.equal(adapters.prompt, undefined);
     assert.equal(adapters.complete, undefined);
+    assert.equal(Object.prototype.hasOwnProperty.call(adapters, "subagent"), false);
   });
 
   test("forwards createAgentSession options from stage options", async () => {
@@ -147,101 +148,3 @@ describe("buildRuntimeAdapters — SDK sessions", () => {
   });
 });
 
-describe("subagent adapter — pi task bridge", () => {
-  test(
-    "calls pi.callTool('subagent', { agent, task }) without `action` (execution mode)",
-    async () => {
-      // pi-subagents v0.24.2: execution mode omits `action` entirely. The
-      // valid SUBAGENT_ACTIONS list is {list,get,create,update,delete,
-      // status,interrupt,resume,doctor} — "run" is NOT a member and is
-      // rejected by createSubagentExecutor.execute.
-      const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
-      const pi: RuntimeWiringSurface = {
-        callTool: async (name, args) => { calls.push({ name, args }); return "ok"; },
-      };
-      const adapters = buildRuntimeAdapters(pi);
-      await adapters.subagent!.subagent({ agent: "worker", task: "do it" });
-      assert.equal(calls[0]?.name, "subagent");
-      assert.equal(calls[0]?.args["agent"], "worker");
-      assert.equal(calls[0]?.args["task"], "do it");
-      assert.equal(Object.prototype.hasOwnProperty.call(calls[0]?.args, "action"), false);
-    },
-  );
-
-  test("forwards all subagent execution and management params to pi-subagents", async () => {
-    const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
-    const pi: RuntimeWiringSurface = {
-      callTool: async (name, args) => { calls.push({ name, args }); return "ok"; },
-    };
-    const adapters = buildRuntimeAdapters(pi);
-
-    await adapters.subagent!.subagent({
-      agent: "worker",
-      task: "do it",
-      action: "resume",
-      id: "run-123",
-      runId: "run-456",
-      dir: "/tmp/run",
-      index: 1,
-      message: "continue",
-      chainName: "handoff",
-      config: { name: "custom" },
-      output: "reports/out.md",
-      outputMode: "file-only",
-      skill: ["tdd"],
-      model: "google/gemini-3-pro",
-      tasks: [{ agent: "a", task: "t", cwd: "/repo/a", count: 2, output: false, outputMode: "inline", reads: false, progress: true, skill: false, model: "m" }],
-      concurrency: 2,
-      worktree: true,
-      chain: [{ agent: "planner", task: "plan {task}" }, { parallel: [{ agent: "worker", task: "do {previous}" }], concurrency: 2, failFast: true, worktree: true }],
-      context: "fork",
-      chainDir: "/tmp/chain",
-      clarify: false,
-      agentScope: "both",
-      async: true,
-      cwd: "/repo",
-      artifacts: false,
-      includeProgress: true,
-      share: true,
-      sessionDir: "/tmp/sessions",
-      control: { enabled: true, notifyOn: ["needs_attention"] },
-    });
-
-    assert.deepEqual(calls[0]?.args, {
-      agent: "worker",
-      task: "do it",
-      action: "resume",
-      id: "run-123",
-      runId: "run-456",
-      dir: "/tmp/run",
-      index: 1,
-      message: "continue",
-      chainName: "handoff",
-      config: { name: "custom" },
-      output: "reports/out.md",
-      outputMode: "file-only",
-      skill: ["tdd"],
-      model: "google/gemini-3-pro",
-      tasks: [{ agent: "a", task: "t", cwd: "/repo/a", count: 2, output: false, outputMode: "inline", reads: false, progress: true, skill: false, model: "m" }],
-      concurrency: 2,
-      worktree: true,
-      chain: [{ agent: "planner", task: "plan {task}" }, { parallel: [{ agent: "worker", task: "do {previous}" }], concurrency: 2, failFast: true, worktree: true }],
-      context: "fork",
-      chainDir: "/tmp/chain",
-      clarify: false,
-      agentScope: "both",
-      async: true,
-      cwd: "/repo",
-      artifacts: false,
-      includeProgress: true,
-      share: true,
-      sessionDir: "/tmp/sessions",
-      control: { enabled: true, notifyOn: ["needs_attention"] },
-    });
-  });
-
-  test("stage runner owns missing-subagent actionable error", async () => {
-    const stage = createStageContext({ stageId: "s", stageName: "Stage", runId: "r", adapters: {} });
-    await assert.rejects(stage.subagent({ agent: "a", task: "t" }), /pi task delegation/);
-  });
-});

@@ -200,6 +200,20 @@ jobs:
             if (pkg.private) failures.push("@bastani/atomic package.json must not set private=true");
             if (pkg.name !== "@bastani/atomic") failures.push(`unexpected package name: ${pkg.name}`);
             if (pkg.bin?.atomic !== "dist/cli.js") failures.push("bin.atomic must point at dist/cli.js");
+
+            for (const sectionName of ["dependencies", "optionalDependencies", "peerDependencies", "devDependencies"]) {
+              const dependencies = pkg[sectionName];
+              if (!dependencies) continue;
+              for (const [dependencyName, dependencyRange] of Object.entries(dependencies)) {
+                if (String(dependencyRange).startsWith("workspace:")) {
+                  failures.push(`${sectionName}.${dependencyName} must not use workspace protocol`);
+                }
+                if (dependencyName.startsWith("@bastani/")) {
+                  failures.push(`${sectionName}.${dependencyName} must not reference a private bundled package`);
+                }
+              }
+            }
+
             requirePath("main", pkg.main);
             requirePath("types", pkg.types);
             requirePath("bin.atomic", pkg.bin?.atomic);

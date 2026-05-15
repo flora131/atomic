@@ -3,12 +3,27 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import atomicPackageJson from "../../packages/coding-agent/package.json" with { type: "json" };
+import intercomPackageJson from "../../packages/intercom/package.json" with { type: "json" };
+import mcpPackageJson from "../../packages/mcp/package.json" with { type: "json" };
+import subagentsPackageJson from "../../packages/subagents/package.json" with { type: "json" };
+import webAccessPackageJson from "../../packages/web-access/package.json" with { type: "json" };
 import workflowsPackageJson from "../../packages/workflows/package.json" with { type: "json" };
 
 const STRICT_RELEASE_VERSION_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(0|[1-9]\d*))?$/;
 
-interface WorkspacePackageJson {
+type DependencySectionName = "dependencies" | "optionalDependencies" | "peerDependencies" | "devDependencies";
+
+type DependencyMap = Record<string, string>;
+
+interface PackageDependencySections {
   name: string;
+  dependencies?: DependencyMap;
+  optionalDependencies?: DependencyMap;
+  peerDependencies?: DependencyMap;
+  devDependencies?: DependencyMap;
+}
+
+interface WorkspacePackageJson extends PackageDependencySections {
   version: string;
   private?: boolean;
 }
@@ -35,10 +50,47 @@ async function workspacePackages(): Promise<WorkspacePackage[]> {
     .sort((a, b) => a.manifestPath.localeCompare(b.manifestPath));
 }
 
+const PUBLISHED_DEPENDENCY_SECTIONS: readonly DependencySectionName[] = [
+  "dependencies",
+  "optionalDependencies",
+  "peerDependencies",
+  "devDependencies",
+];
+
+const BUNDLED_PACKAGE_MANIFESTS: readonly PackageDependencySections[] = [
+  workflowsPackageJson,
+  subagentsPackageJson,
+  mcpPackageJson,
+  webAccessPackageJson,
+  intercomPackageJson,
+];
+
+const ATOMIC_RUNTIME_DEPENDENCIES: DependencyMap = {
+  ...atomicPackageJson.dependencies,
+  ...atomicPackageJson.optionalDependencies,
+};
+
 function markdownFiles(dir: string): string[] {
   return readdirSync(dir)
     .filter((name) => name.endsWith(".md"))
     .sort();
+}
+
+function dependencyEntries(
+  packageJson: PackageDependencySections,
+  sections: readonly DependencySectionName[] = PUBLISHED_DEPENDENCY_SECTIONS,
+): [DependencySectionName, string, string][] {
+  return sections.flatMap((sectionName) => {
+    const dependencies = packageJson[sectionName];
+    if (!dependencies) return [];
+    return Object.entries(dependencies).map(
+      ([name, range]): [DependencySectionName, string, string] => [sectionName, name, range],
+    );
+  });
+}
+
+function atomicRuntimeDependencyRange(name: string): string | undefined {
+  return ATOMIC_RUNTIME_DEPENDENCIES[name];
 }
 
 describe("package metadata", () => {
@@ -61,6 +113,32 @@ describe("package metadata", () => {
     for (const { manifestPath, packageJson } of packages) {
       if (packageJson.name === "@bastani/atomic") continue;
       assert.equal(packageJson.private, true, `${manifestPath} must remain private because it is bundled into @bastani/atomic`);
+    }
+  });
+
+  test("@bastani/atomic package manifest is installable outside the workspace", () => {
+    for (const [sectionName, dependencyName, dependencyRange] of dependencyEntries(atomicPackageJson)) {
+      assert.ok(
+        !dependencyRange.startsWith("workspace:"),
+        `${sectionName}.${dependencyName} must not use the workspace protocol in the published manifest`,
+      );
+      assert.ok(
+        !dependencyName.startsWith("@bastani/"),
+        `${sectionName}.${dependencyName} must not point at a private bundled workspace package`,
+      );
+    }
+  });
+
+  test("@bastani/atomic declares runtime dependencies required by bundled packages", () => {
+    for (const bundledPackageJson of BUNDLED_PACKAGE_MANIFESTS) {
+      for (const [, dependencyName, dependencyRange] of dependencyEntries(bundledPackageJson, ["dependencies"])) {
+        if (dependencyName.startsWith("@bastani/")) continue;
+        assert.equal(
+          atomicRuntimeDependencyRange(dependencyName),
+          dependencyRange,
+          `@bastani/atomic must directly depend on ${dependencyName} for bundled ${bundledPackageJson.name}`,
+        );
+      }
     }
   });
 

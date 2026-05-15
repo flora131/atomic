@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.8.1-0] - 2026-05-15
+
+### Fixed
+
+- Fixed the published `@bastani/atomic` package manifest so Bun can install it outside the monorepo without resolving private workspace-only bundled packages.
+
 ## [0.8.0] - 2026-05-15
 
 ### Added

@@ -28,12 +28,22 @@
  */
 
 import { defineWorkflow } from "../src/index.js";
-import type { WorkflowTaskResult, WorkflowTaskStep } from "../src/shared/types.js";
+import type {
+  WorkflowTaskResult,
+  WorkflowTaskStep,
+} from "../src/shared/types.js";
 import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const OUTPUT_TYPES = ["prototype", "wireframe", "page", "component", "theme", "tokens"] as const;
+const OUTPUT_TYPES = [
+  "prototype",
+  "wireframe",
+  "page",
+  "component",
+  "theme",
+  "tokens",
+] as const;
 type OutputType = (typeof OUTPUT_TYPES)[number];
 const DEFAULT_OUTPUT_TYPE: OutputType = "prototype";
 const DEFAULT_MAX_REFINEMENTS = 3;
@@ -53,7 +63,8 @@ function positiveInteger(value: number | undefined, fallback: number): number {
 }
 
 function normalizeOutputType(value: string | undefined): OutputType {
-  return value !== undefined && (OUTPUT_TYPES as readonly string[]).includes(value)
+  return value !== undefined &&
+    (OUTPUT_TYPES as readonly string[]).includes(value)
     ? (value as OutputType)
     : DEFAULT_OUTPUT_TYPE;
 }
@@ -78,7 +89,10 @@ function refinementComplete(text: string): boolean {
 
 function hasBlockingFindings(text: string): boolean {
   const normalized = text.toLowerCase();
-  if (normalized.includes("no blocking findings") || normalized.includes("no banned anti-patterns")) {
+  if (
+    normalized.includes("no blocking findings") ||
+    normalized.includes("no banned anti-patterns")
+  ) {
     return false;
   }
   return (
@@ -89,7 +103,9 @@ function hasBlockingFindings(text: string): boolean {
 }
 
 function joinResults(results: readonly WorkflowTaskResult[]): string {
-  return results.map((result) => `### ${result.name}\n\n${result.text}`).join("\n\n---\n\n");
+  return results
+    .map((result) => `### ${result.name}\n\n${result.text}`)
+    .join("\n\n---\n\n");
 }
 
 /**
@@ -155,12 +171,14 @@ export default defineWorkflow("open-claude-design")
   .input("prompt", {
     type: "text",
     required: true,
-    description: "What to design (for example, a dashboard, page, component, or prototype).",
+    description:
+      "What to design (for example, a dashboard, page, component, or prototype).",
   })
   .input("reference", {
     type: "text",
     required: false,
-    description: "URL, file path, screenshot path, or design doc to import as a reference.",
+    description:
+      "URL, file path, screenshot path, or design doc to import as a reference.",
   })
   .input("output_type", {
     type: "select",
@@ -192,7 +210,10 @@ export default defineWorkflow("open-claude-design")
     const reference = inputs.reference?.trim() ?? "";
     const outputType = normalizeOutputType(inputs.output_type);
     const designSystemInput = (inputs.design_system ?? "").trim();
-    const maxRefinements = positiveInteger(inputs.max_refinements, DEFAULT_MAX_REFINEMENTS);
+    const maxRefinements = positiveInteger(
+      inputs.max_refinements,
+      DEFAULT_MAX_REFINEMENTS,
+    );
 
     const { runId, artifactDir, previewPath, specPath } = prepareArtifactDir();
     const previewFileUrl = `file://${previewPath}`;
@@ -264,7 +285,10 @@ export default defineWorkflow("open-claude-design")
                 "role",
                 "You are an impeccable design-system locator. Apply the impeccable `extract` sub-skill (https://github.com/pbakaus/impeccable/blob/main/site/content/skills/extract.md) to find design-system evidence already living in this codebase.",
               ],
-              ["objective", `Find UI/design-system sources for this request: ${prompt}`],
+              [
+                "objective",
+                `Find UI/design-system sources for this request: ${prompt}`,
+              ],
               [
                 "impeccable_skill",
                 "extract — only flag patterns used three or more times with the same intent. Two usages are not a pattern. Identify tokens, components, composition patterns, type styles, and motion patterns.",
@@ -292,7 +316,10 @@ export default defineWorkflow("open-claude-design")
                 "role",
                 "You are an impeccable UI architecture auditor. Apply the impeccable `audit` sub-skill (https://github.com/pbakaus/impeccable/blob/main/site/content/skills/audit.md) to score the project's UI implementation across five dimensions.",
               ],
-              ["objective", `Audit the project UI constraints that must shape: ${prompt}`],
+              [
+                "objective",
+                `Audit the project UI constraints that must shape: ${prompt}`,
+              ],
               [
                 "impeccable_skill",
                 "audit — score 0–4 across Accessibility, Performance, Theming, Responsive, Anti-patterns. Tag every finding P0 (blocks release) → P3 (polish). Document, do not fix.",
@@ -329,7 +356,10 @@ export default defineWorkflow("open-claude-design")
                 "role",
                 "You are an impeccable pattern miner. Apply the impeccable `extract` sub-skill (https://github.com/pbakaus/impeccable/blob/main/site/content/skills/extract.md) to harvest reusable design and component patterns, plus the anti-patterns to avoid.",
               ],
-              ["objective", `Extract reusable patterns and anti-patterns for: ${prompt}`],
+              [
+                "objective",
+                `Extract reusable patterns and anti-patterns for: ${prompt}`,
+              ],
               [
                 "impeccable_skill",
                 "extract — only extract things used 3+ times with the same intent. Never extract speculatively. Always note migration implications.",
@@ -360,7 +390,10 @@ export default defineWorkflow("open-claude-design")
             "role",
             "You are an impeccable design-system author. Apply the impeccable `document` sub-skill (https://github.com/pbakaus/impeccable/blob/main/site/content/skills/document.md) to synthesize a project-specific DESIGN.md in the six-section Google Stitch format from the three onboarding analyses.",
           ],
-          ["objective", `Build the project DESIGN.md that will steer generation for: ${prompt}`],
+          [
+            "objective",
+            `Build the project DESIGN.md that will steer generation for: ${prompt}`,
+          ],
           [
             "impeccable_skill",
             "document — output the six fixed sections in fixed order: Overview, Colors, Typography, Elevation, Components, Do's and Don'ts. Pick a single named Creative North Star metaphor; use descriptive color names; commit to non-default fonts when justified.",
@@ -405,7 +438,10 @@ export default defineWorkflow("open-claude-design")
             "role",
             "You are an impeccable reference extractor for live web pages. Apply the impeccable `extract` sub-skill (https://github.com/pbakaus/impeccable/blob/main/site/content/skills/extract.md) to pull only the design traits that should transfer into the project — never just clone the source.",
           ],
-          ["objective", `Capture transferable design intent from this reference for: ${prompt}`],
+          [
+            "objective",
+            `Capture transferable design intent from this reference for: ${prompt}`,
+          ],
           ["reference_url", reference],
           [
             "impeccable_skill",
@@ -436,7 +472,10 @@ export default defineWorkflow("open-claude-design")
             "role",
             "You are an impeccable reference parser for local design files. Apply the impeccable `extract` sub-skill (https://github.com/pbakaus/impeccable/blob/main/site/content/skills/extract.md) to lift concrete, citable requirements out of supplied references.",
           ],
-          ["objective", `Extract actionable design requirements for: ${prompt}`],
+          [
+            "objective",
+            `Extract actionable design requirements for: ${prompt}`,
+          ],
           ["reference", reference],
           [
             "impeccable_skill",
@@ -460,7 +499,10 @@ export default defineWorkflow("open-claude-design")
       });
     }
 
-    const imports = importSteps.length > 0 ? await ctx.parallel(importSteps, { task: prompt }) : [];
+    const imports =
+      importSteps.length > 0
+        ? await ctx.parallel(importSteps, { task: prompt })
+        : [];
     const importContext =
       imports.length > 0
         ? joinResults(imports)
@@ -518,32 +560,37 @@ export default defineWorkflow("open-claude-design")
     let refinementCount = 0;
 
     // Try to display the freshly generated preview to the user via playwright-cli.
-    await ctx.task("preview-display-initial", {
-      prompt: taggedPrompt([
-        [
-          "role",
-          "You are a preview presenter. Your job is to make the just-generated HTML artifact visible to the user so they can give feedback.",
-        ],
-        ["objective", "Open the HTML preview file in a browser using playwright-cli and prompt the user for annotated feedback. Gracefully degrade if playwright-cli is unavailable."],
-        ["preview_path", previewPath],
-        ["preview_file_url", previewFileUrl],
-        [
-          "instructions",
+    await ctx
+      .task("preview-display-initial", {
+        prompt: taggedPrompt([
           [
-            "1. Probe for playwright-cli availability by running `playwright-cli --version` (or `npx --no-install playwright-cli --version`). Do not install anything.",
-            `2. If available, run: \`playwright-cli open ${previewFileUrl}\` then \`playwright-cli show --annotate\` so the user can draw boxes and leave notes directly on the live page.`,
-            "3. Once the user finishes annotating, capture the returned annotated snapshot path / notes and surface them in your output.",
-            `4. If playwright-cli is NOT available, do not attempt installation. Instead, print a clear instruction block telling the user to open the file manually at: ${previewPath} (or via the URL ${previewFileUrl}).`,
-            "5. Never block the workflow on unavailable tooling; always exit with a non-empty status string.",
-          ].join("\n"),
-        ],
-        [
-          "output_format",
-          "Markdown with: `display_method`, `preview_path`, `annotated_snapshot` (if available), `user_notes` (if available), `next_action_hint`.",
-        ],
-      ]),
-      ...designModelConfig,
-    }).catch(() => undefined);
+            "role",
+            "You are a preview presenter. Your job is to make the just-generated HTML artifact visible to the user so they can give feedback.",
+          ],
+          [
+            "objective",
+            "Open the HTML preview file in a browser using playwright-cli and prompt the user for annotated feedback. Gracefully degrade if playwright-cli is unavailable.",
+          ],
+          ["preview_path", previewPath],
+          ["preview_file_url", previewFileUrl],
+          [
+            "instructions",
+            [
+              "1. Probe for playwright-cli availability by running `playwright-cli --version` (or `npx --no-install playwright-cli --version`). Do not install anything.",
+              `2. If available, run: \`playwright-cli open ${previewFileUrl}\` then \`playwright-cli show --annotate\` so the user can draw boxes and leave notes directly on the live page.`,
+              "3. Once the user finishes annotating, capture the returned annotated snapshot path / notes and surface them in your output.",
+              `4. If playwright-cli is NOT available, do not attempt installation. Instead, print a clear instruction block telling the user to open the file manually at: ${previewPath} (or via the URL ${previewFileUrl}).`,
+              "5. Never block the workflow on unavailable tooling; always exit with a non-empty status string.",
+            ].join("\n"),
+          ],
+          [
+            "output_format",
+            "Markdown with: `display_method`, `preview_path`, `annotated_snapshot` (if available), `user_notes` (if available), `next_action_hint`.",
+          ],
+        ]),
+        ...designModelConfig,
+      })
+      .catch(() => undefined);
 
     for (let iteration = 1; iteration <= maxRefinements; iteration += 1) {
       refinementCount = iteration;
@@ -628,7 +675,10 @@ export default defineWorkflow("open-claude-design")
                 ].join("\n"),
               ],
             ]),
-            previous: [{ name: "current-design", text: latestDesign }, feedback],
+            previous: [
+              { name: "current-design", text: latestDesign },
+              feedback,
+            ],
             ...designModelConfig,
           },
           {
@@ -638,7 +688,10 @@ export default defineWorkflow("open-claude-design")
                 "role",
                 "You are an impeccable visual QA specialist for the rendered HTML preview. Apply the impeccable `audit` (https://github.com/pbakaus/impeccable/blob/main/site/content/skills/audit.md) plus `live` (https://github.com/pbakaus/impeccable/blob/main/site/content/skills/live.md) sub-skills to validate the rendered output against breakpoints, states, and accessibility.",
               ],
-              ["objective", `Validate visual implementation risks for: ${prompt}.`],
+              [
+                "objective",
+                `Validate visual implementation risks for: ${prompt}.`,
+              ],
               [
                 "impeccable_skill",
                 "audit + live — `audit` covers contrast, performance, theming, responsive, anti-patterns with P0–P3 severities; `live` validates against the actual rendered page in a real browser, not the source.",
@@ -660,7 +713,10 @@ export default defineWorkflow("open-claude-design")
                 "Markdown sections: Tooling used | Confirmed issues (with screenshot refs) | Needs rendering verification | Suggested fixes | Audit scores (0–4 per impeccable audit dimension).",
               ],
             ]),
-            previous: [{ name: "current-design", text: latestDesign }, feedback],
+            previous: [
+              { name: "current-design", text: latestDesign },
+              feedback,
+            ],
             ...designModelConfig,
           },
         ],
@@ -706,37 +762,46 @@ export default defineWorkflow("open-claude-design")
             ].join("\n"),
           ],
         ]),
-        previous: [{ name: "current-design", text: latestDesign }, feedback, ...validation],
+        previous: [
+          { name: "current-design", text: latestDesign },
+          feedback,
+          ...validation,
+        ],
         ...designModelConfig,
       });
       latestDesign = applied.text;
 
       // Re-display the freshly revised preview so the user can keep iterating.
-      await ctx.task(`preview-display-${iteration}`, {
-        prompt: taggedPrompt([
-          [
-            "role",
-            "You are a preview presenter. Re-open the revised HTML preview so the user can review the latest iteration.",
-          ],
-          ["objective", `Show the user the revised preview after iteration ${iteration}/${maxRefinements} and capture any new annotated feedback for the next loop.`],
-          ["preview_path", previewPath],
-          ["preview_file_url", previewFileUrl],
-          [
-            "instructions",
+      await ctx
+        .task(`preview-display-${iteration}`, {
+          prompt: taggedPrompt([
             [
-              `1. If playwright-cli is available, run \`playwright-cli goto ${previewFileUrl}\` (or open if no session is active), then \`playwright-cli show --annotate\` to invite annotated feedback.`,
-              `2. If playwright-cli is unavailable, surface the path clearly: ${previewPath} (URL: ${previewFileUrl}).`,
-              "3. Return any captured annotations as structured notes the next user-feedback step can read.",
-              "4. Do not block on unavailable tooling.",
-            ].join("\n"),
-          ],
-          [
-            "output_format",
-            "Markdown with: `display_method`, `preview_path`, `annotated_snapshot` (if any), `user_notes` (if any), `next_action_hint`.",
-          ],
-        ]),
-        ...designModelConfig,
-      }).catch(() => undefined);
+              "role",
+              "You are a preview presenter. Re-open the revised HTML preview so the user can review the latest iteration.",
+            ],
+            [
+              "objective",
+              `Show the user the revised preview after iteration ${iteration}/${maxRefinements} and capture any new annotated feedback for the next loop.`,
+            ],
+            ["preview_path", previewPath],
+            ["preview_file_url", previewFileUrl],
+            [
+              "instructions",
+              [
+                `1. If playwright-cli is available, run \`playwright-cli goto ${previewFileUrl}\` (or open if no session is active), then \`playwright-cli show --annotate\` to invite annotated feedback.`,
+                `2. If playwright-cli is unavailable, surface the path clearly: ${previewPath} (URL: ${previewFileUrl}).`,
+                "3. Return any captured annotations as structured notes the next user-feedback step can read.",
+                "4. Do not block on unavailable tooling.",
+              ].join("\n"),
+            ],
+            [
+              "output_format",
+              "Markdown with: `display_method`, `preview_path`, `annotated_snapshot` (if any), `user_notes` (if any), `next_action_hint`.",
+            ],
+          ]),
+          ...designModelConfig,
+        })
+        .catch(() => undefined);
     }
 
     const preExport = await ctx.task("pre-export-scan", {
@@ -868,36 +933,38 @@ export default defineWorkflow("open-claude-design")
     });
 
     // Final display attempt: open the spec.html for the user (or surface its path).
-    await ctx.task("final-display", {
-      prompt: taggedPrompt([
-        [
-          "role",
-          "You are a final-spec presenter. Make the rich HTML spec visible to the user.",
-        ],
-        [
-          "objective",
-          "Open the final spec.html in a browser via playwright-cli so the user can review the agreed design and implementation handoff. Degrade gracefully if playwright-cli is unavailable.",
-        ],
-        ["spec_path", specPath],
-        ["spec_file_url", specFileUrl],
-        ["preview_path", previewPath],
-        ["preview_file_url", previewFileUrl],
-        [
-          "instructions",
+    await ctx
+      .task("final-display", {
+        prompt: taggedPrompt([
           [
-            "1. Probe for playwright-cli (`playwright-cli --version` or `npx --no-install playwright-cli --version`). Never attempt installation.",
-            `2. If available, run \`playwright-cli open ${specFileUrl}\` then \`playwright-cli show --annotate\` so the user can capture any final notes.`,
-            `3. Always print, prominently, the absolute paths so the user can open them manually:\n   - Final spec: ${specPath}\n   - Approved preview: ${previewPath}`,
-            "4. Do not block the workflow; return a structured summary even if no tooling worked.",
-          ].join("\n"),
-        ],
-        [
-          "output_format",
-          "Markdown with: `display_method` | `spec_path` | `preview_path` | `annotated_snapshot` (if any) | `user_notes` (if any) | `manual_open_instructions`.",
-        ],
-      ]),
-      ...designModelConfig,
-    }).catch(() => undefined);
+            "role",
+            "You are a final-spec presenter. Make the rich HTML spec visible to the user.",
+          ],
+          [
+            "objective",
+            "Open the final spec.html in a browser via playwright-cli so the user can review the agreed design and implementation handoff. Degrade gracefully if playwright-cli is unavailable.",
+          ],
+          ["spec_path", specPath],
+          ["spec_file_url", specFileUrl],
+          ["preview_path", previewPath],
+          ["preview_file_url", previewFileUrl],
+          [
+            "instructions",
+            [
+              "1. Probe for playwright-cli (`playwright-cli --version` or `npx --no-install playwright-cli --version`). Never attempt installation.",
+              `2. If available, run \`playwright-cli open ${specFileUrl}\` then \`playwright-cli show --annotate\` so the user can capture any final notes.`,
+              `3. Always print, prominently, the absolute paths so the user can open them manually:\n   - Final spec: ${specPath}\n   - Approved preview: ${previewPath}`,
+              "4. Do not block the workflow; return a structured summary even if no tooling worked.",
+            ].join("\n"),
+          ],
+          [
+            "output_format",
+            "Markdown with: `display_method` | `spec_path` | `preview_path` | `annotated_snapshot` (if any) | `user_notes` (if any) | `manual_open_instructions`.",
+          ],
+        ]),
+        ...designModelConfig,
+      })
+      .catch(() => undefined);
 
     return {
       output_type: outputType,

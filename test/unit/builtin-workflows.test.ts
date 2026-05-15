@@ -130,7 +130,7 @@ describe("deep-research-codebase", () => {
     assert.equal(d.inputs["prompt"]?.required, true);
     assert.match(d.inputs["prompt"]?.type ?? "", /^(text|string)$/);
     assert.equal(d.inputs["max_partitions"]?.type, "number");
-    assert.equal((d.inputs["max_partitions"] as { default?: number }).default, 4);
+    assert.equal((d.inputs["max_partitions"] as { default?: number }).default, 100);
   });
 
   test("runs scout/history, specialist waves, and aggregator via task primitives", async () => {

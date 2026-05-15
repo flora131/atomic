@@ -1,51 +1,100 @@
 /**
  * Smoke tests for the three builtin workflows.
- * Validates: definition shape, sentinel, input schema, run function executes
- * against a mock WorkflowRunContext.
+ * Validates definition shape, input schema, and that builtins are authored with
+ * the high-level ctx.task / ctx.parallel / ctx.chain primitives.
  */
 
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import type { WorkflowRunContext, StageContext, WorkflowUIContext } from "../../src/shared/types.js";
-import type { WorkflowDefinition } from "../../src/shared/types.js";
+import type {
+  WorkflowChainOptions,
+  WorkflowDefinition,
+  WorkflowParallelOptions,
+  WorkflowRunContext,
+  WorkflowTaskOptions,
+  WorkflowTaskResult,
+  WorkflowTaskStep,
+  WorkflowUIContext,
+} from "../../src/shared/types.js";
 
-// ---------------------------------------------------------------------------
-// Mock helpers
-// ---------------------------------------------------------------------------
-
-/** Minimal mock StageContext that records calls and returns deterministic strings. */
-function makeStageContext(name: string): StageContext {
-  return {
-    name,
-    prompt: async (text: string) => `[mock-prompt:${name}] ${text.slice(0, 40)}`,
-    complete: async (text: string) => `[mock-complete:${name}] ${text.slice(0, 40)}`,
-    subagent: async (opts) => `[mock-subagent:${name}] agent=${opts.agent}`,
-  } as StageContext;
+interface MockCalls {
+  readonly stage: string[];
+  readonly task: string[];
+  readonly parallel: string[][];
+  readonly chain: string[][];
+  readonly prompts: Record<string, string[]>;
 }
 
-/** Mock WorkflowRunContext factory. */
+interface MockResponders {
+  task?: (name: string, options: WorkflowTaskOptions, calls: MockCalls) => string | undefined;
+}
+
+function promptText(options: WorkflowTaskOptions): string {
+  return options.prompt ?? options.task ?? "";
+}
+
+function makeTaskResult(name: string, text: string): WorkflowTaskResult {
+  return { name, stageName: name, text };
+}
+
+/** Mock WorkflowRunContext factory that records high-level SDK calls. */
 function makeMockCtx<TInputs extends Record<string, unknown>>(
   inputs: TInputs,
-): WorkflowRunContext<TInputs> {
+  responders: MockResponders = {},
+): WorkflowRunContext<TInputs> & { calls: MockCalls } {
+  const calls: MockCalls = {
+    stage: [],
+    task: [],
+    parallel: [],
+    chain: [],
+    prompts: {},
+  };
+
   const ui: WorkflowUIContext = {
     input: async (prompt: string) => `mock-input:${prompt.slice(0, 20)}`,
-    confirm: async (_message: string) => false, // default: don't continue loop
-    select: async <T extends string>(_message: string, options: readonly T[]) => options[0],
+    confirm: async () => false,
+    select: async <T extends string>(_message: string, options: readonly T[]) => options[0]!,
     editor: async (initial?: string) => initial ?? "mock-editor-content",
   };
 
-  return {
+  const runTask = async (name: string, options: WorkflowTaskOptions): Promise<WorkflowTaskResult> => {
+    calls.task.push(name);
+    const text = promptText(options);
+    calls.prompts[name] = [...(calls.prompts[name] ?? []), text];
+    const override = responders.task?.(name, options, calls);
+    return makeTaskResult(name, override ?? `[mock-task:${name}] ${text.slice(0, 80)}`);
+  };
+
+  const ctx: WorkflowRunContext<TInputs> & { calls: MockCalls } = {
     inputs,
-    stage: (name: string) => makeStageContext(name),
-    task: async (name, options) => ({
-      name,
-      stageName: name,
-      text: await makeStageContext(name).prompt(options.prompt ?? options.task ?? ""),
-    }),
-    chain: async () => [],
-    parallel: async () => [],
+    calls,
+    stage: (name: string) => {
+      calls.stage.push(name);
+      throw new Error(`ctx.stage should not be used by builtin workflow ${name}`);
+    },
+    task: runTask,
+    chain: async (
+      steps: readonly WorkflowTaskStep[],
+      _options?: WorkflowChainOptions,
+    ): Promise<WorkflowTaskResult[]> => {
+      calls.chain.push(steps.map((step) => step.name));
+      const results: WorkflowTaskResult[] = [];
+      for (const step of steps) {
+        results.push(await runTask(step.name, step));
+      }
+      return results;
+    },
+    parallel: async (
+      steps: readonly WorkflowTaskStep[],
+      _options?: WorkflowParallelOptions,
+    ): Promise<WorkflowTaskResult[]> => {
+      calls.parallel.push(steps.map((step) => step.name));
+      return Promise.all(steps.map((step) => runTask(step.name, step)));
+    },
     ui,
   };
+
+  return ctx;
 }
 
 /** Assert a value is a valid WorkflowDefinition with the sentinel. */
@@ -67,62 +116,47 @@ function assertWorkflowDefinition(def: unknown): asserts def is WorkflowDefiniti
 // ---------------------------------------------------------------------------
 
 describe("deep-research-codebase", () => {
-  let def: WorkflowDefinition;
-
-  // Dynamic import to avoid top-level static import issues with relative paths.
   test("loads and has correct shape", async () => {
     const mod = await import("../../workflows/deep-research-codebase.js");
-    def = mod.default as unknown as WorkflowDefinition;
+    const def = mod.default as unknown as WorkflowDefinition;
     assertWorkflowDefinition(def);
     assert.equal(def.name, "deep-research-codebase");
     assert.equal(def.normalizedName, "deep-research-codebase");
   });
 
-  test("has required 'prompt' input", async () => {
+  test("has prompt and max_partitions inputs", async () => {
     const mod = await import("../../workflows/deep-research-codebase.js");
     const d = mod.default;
-    assert.notEqual(d.inputs["prompt"], undefined);
-    assert.equal(d.inputs["prompt"].required, true);
-    assert.match(d.inputs["prompt"].type, /^(text|string)$/);
-  });
-
-  test("has 'max_partitions' input with default 4", async () => {
-    const mod = await import("../../workflows/deep-research-codebase.js");
-    const d = mod.default;
-    assert.notEqual(d.inputs["max_partitions"], undefined);
-    assert.equal(d.inputs["max_partitions"].type, "number");
+    assert.equal(d.inputs["prompt"]?.required, true);
+    assert.match(d.inputs["prompt"]?.type ?? "", /^(text|string)$/);
+    assert.equal(d.inputs["max_partitions"]?.type, "number");
     assert.equal((d.inputs["max_partitions"] as { default?: number }).default, 4);
   });
 
-  test("run executes without throwing (mock ctx, 2 partitions)", async () => {
+  test("runs scout/history, specialist waves, and aggregator via task primitives", async () => {
     const mod = await import("../../workflows/deep-research-codebase.js");
     const d = mod.default as unknown as WorkflowDefinition;
-
-    // The mock prompt returns a short string; partition stage will split by \n
-    // giving us 1 non-empty line. Override ctx.stage to control partition output.
-    let callCount = 0;
-    const ctx = makeMockCtx({ prompt: "What does the auth module do?", max_partitions: 2 });
-    const origStage = ctx.stage.bind(ctx);
-    const patchedCtx: WorkflowRunContext<Record<string, unknown>> = {
-      ...ctx,
-      stage: (name: string) => {
-        const sc = origStage(name);
-        if (name === "partition") {
-          return {
-            ...sc,
-            complete: async (_text: string) => "auth logic\ntoken validation",
-          };
-        }
-        callCount++;
-        return sc;
+    const ctx = makeMockCtx(
+      { prompt: "What does the auth module do?", max_partitions: 2 },
+      {
+        task: (name) => {
+          if (name === "partition") return "auth logic\ntoken validation";
+          return undefined;
+        },
       },
-    };
+    );
 
-    const result = await d.run(patchedCtx);
-    assert.notEqual(result, undefined);
+    const result = await d.run(ctx);
+
+    assert.deepEqual(ctx.calls.stage, []);
+    assert.ok(ctx.calls.parallel.some((names) => names.includes("codebase-scout") && names.includes("history-locator")));
+    assert.deepEqual(ctx.calls.chain[0], ["history-analyzer"]);
+    assert.ok(ctx.calls.parallel.some((names) => names.includes("locator-1") && names.includes("pattern-finder-2")));
+    assert.ok(ctx.calls.parallel.some((names) => names.includes("analyzer-1") && names.includes("online-researcher-2")));
+    assert.ok(ctx.calls.task.includes("aggregator"));
     assert.equal(typeof result["findings"], "string");
-    assert.equal(Array.isArray(result["partitions"]), true);
-    assert.ok((result["partitions"] as string[]).length <= 2);
+    assert.deepEqual(result["partitions"], ["auth logic", "token validation"]);
+    assert.equal(result["specialist_count"], 8);
   });
 });
 
@@ -137,163 +171,60 @@ describe("ralph", () => {
     assert.equal(mod.default.name, "ralph");
   });
 
-  test("has required 'prompt' input", async () => {
+  test("has prompt and max_loops inputs", async () => {
     const mod = await import("../../workflows/ralph.js");
-    assert.notEqual(mod.default.inputs["prompt"], undefined);
-    assert.equal(mod.default.inputs["prompt"].required, true);
+    assert.equal(mod.default.inputs["prompt"]?.required, true);
+    assert.equal(mod.default.inputs["max_iterations"], undefined);
+    assert.equal(mod.default.inputs["max_loops"]?.type, "number");
+    assert.equal((mod.default.inputs["max_loops"] as { default?: number }).default, 10);
   });
 
-  test("has 'max_iterations' input with numeric default", async () => {
-    const mod = await import("../../workflows/ralph.js");
-    const schema = mod.default.inputs["max_iterations"];
-    assert.notEqual(schema, undefined);
-    assert.equal(schema.type, "number");
-    const def = (schema as { default?: number }).default;
-    assert.equal(typeof def, "number");
-    assert.ok(def! > 0);
-  });
-
-  test("run completes one iteration when confirm returns false", async () => {
+  test("terminates after one iteration when both reviewers approve", async () => {
     const mod = await import("../../workflows/ralph.js");
     const d = mod.default as unknown as WorkflowDefinition;
+    const ctx = makeMockCtx(
+      { prompt: "Refactor tests", max_loops: 5 },
+      {
+        task: (name) => {
+          if (name.startsWith("reviewer-")) return "overall_correctness: patch is correct";
+          return undefined;
+        },
+      },
+    );
 
-    const ctx = makeMockCtx({ prompt: "Build a REST API", max_iterations: 3 });
-    // confirm defaults to false → loop exits after first iteration
     const result = await d.run(ctx);
 
-    assert.notEqual(result, undefined);
-    assert.equal(typeof result["result"], "string");
-    assert.equal(typeof result["plan"], "string");
-    assert.equal(typeof result["approved"], "boolean");
-  });
-
-  test("run terminates early when approved", async () => {
-    const mod = await import("../../workflows/ralph.js");
-    const d = mod.default as unknown as WorkflowDefinition;
-
-    // Patch stage to return APPROVED from review stage
-    const ctx = makeMockCtx({ prompt: "Refactor tests", max_iterations: 5 });
-    const origStage = ctx.stage.bind(ctx);
-    const patchedCtx: WorkflowRunContext<Record<string, unknown>> = {
-      ...ctx,
-      stage: (name: string) => {
-        const sc = origStage(name);
-        if (name.startsWith("review-")) {
-          return {
-            ...sc,
-            prompt: async (_: string) => "APPROVED — task is complete.",
-          };
-        }
-        return sc;
-      },
-    };
-
-    const result = await d.run(patchedCtx);
-    assert.equal(result["approved"], true);
-  });
-
-  test("orchestrator prompt receives edited plan and original task context", async () => {
-    const mod = await import("../../workflows/ralph.js");
-    const d = mod.default as unknown as WorkflowDefinition;
-
-    const orchestratorPrompts: string[] = [];
-    const ctx = makeMockCtx({ prompt: "test task", max_iterations: 1 });
-    const patchedCtx: WorkflowRunContext<Record<string, unknown>> = {
-      ...ctx,
-      ui: {
-        ...ctx.ui,
-        editor: async (_initial?: string) => "Edited execution plan",
-      },
-      stage: (name: string) => {
-        const sc = makeStageContext(name);
-        return {
-          ...sc,
-          prompt: async (text: string) => {
-            if (name === "plan") return "Initial generated plan";
-            if (name.startsWith("orchestrate-")) {
-              orchestratorPrompts.push(text);
-              return "orchestrated result";
-            }
-            if (name.startsWith("review-")) return "APPROVED";
-            return `[mock-prompt:${name}]`;
-          },
-        } as StageContext;
-      },
-    };
-
-    const result = await d.run(patchedCtx);
-
-    assert.equal(orchestratorPrompts.length, 1);
-    assert.ok(orchestratorPrompts[0]!.includes("You are an orchestrator agent."));
-    assert.ok(
-      orchestratorPrompts[0]!.includes(
-        "Plan:\nEdited execution plan\n\nTask context: test task",
-      ),
-    );
+    assert.deepEqual(ctx.calls.stage, []);
+    assert.ok(ctx.calls.task.includes("planner-1"));
+    assert.ok(ctx.calls.task.includes("orchestrator-1"));
+    assert.ok(ctx.calls.task.includes("code-simplifier-1"));
+    assert.ok(ctx.calls.parallel.some((names) => names.includes("infra-locate-1") && names.includes("infra-patterns-1")));
+    assert.ok(ctx.calls.parallel.some((names) => names.includes("reviewer-1-a") && names.includes("reviewer-1-b")));
     assert.equal(result["approved"], true);
     assert.equal(result["iterations_completed"], 1);
   });
 
-  test("revision feedback can replan and execute the next iteration", async () => {
+  test("feeds actionable review findings into the next planner iteration", async () => {
     const mod = await import("../../workflows/ralph.js");
     const d = mod.default as unknown as WorkflowDefinition;
-
-    const orchestratorPrompts: string[] = [];
-    const confirmPrompts: string[] = [];
-    let replanPrompt = "";
-
-    const ctx = makeMockCtx({ prompt: "test task", max_iterations: 2 });
-    const patchedCtx: WorkflowRunContext<Record<string, unknown>> = {
-      ...ctx,
-      ui: {
-        ...ctx.ui,
-        editor: async (_initial?: string) => "",
-        confirm: async (message: string) => {
-          confirmPrompts.push(message);
-          return true;
+    const ctx = makeMockCtx(
+      { prompt: "test task", max_loops: 2 },
+      {
+        task: (name) => {
+          if (name === "reviewer-1-a" || name === "reviewer-1-b") return "ACTIONABLE: cover edge cases";
+          if (name === "reviewer-2-a" || name === "reviewer-2-b") return "overall_correctness: patch is correct";
+          return undefined;
         },
       },
-      stage: (name: string) => {
-        const sc = makeStageContext(name);
-        return {
-          ...sc,
-          prompt: async (text: string) => {
-            if (name === "plan") return "Plan v1";
-            if (name === "orchestrate-1") {
-              orchestratorPrompts.push(text);
-              return "first execution result";
-            }
-            if (name === "review-1") return "REVISE: cover edge cases";
-            if (name === "replan-1") {
-              replanPrompt = text;
-              return "Plan v2 with edge cases";
-            }
-            if (name === "orchestrate-2") {
-              orchestratorPrompts.push(text);
-              return "second execution result";
-            }
-            if (name === "review-2") return "APPROVED";
-            return `[mock-prompt:${name}]`;
-          },
-        } as StageContext;
-      },
-    };
-
-    const result = await d.run(patchedCtx);
-
-    assert.equal(orchestratorPrompts.length, 2);
-    assert.ok(orchestratorPrompts[0]!.includes("Plan:\nPlan v1\n\nTask context: test task"));
-    assert.ok(
-      orchestratorPrompts[1]!.includes(
-        "Plan:\nPlan v2 with edge cases\n\nTask context: test task",
-      ),
     );
-    assert.equal(confirmPrompts.length, 1);
-    assert.ok(confirmPrompts[0]!.includes("cover edge cases"));
-    assert.ok(replanPrompt.includes("Reviewer feedback:\ncover edge cases"));
+
+    const result = await d.run(ctx);
+
+    assert.ok(ctx.calls.task.includes("planner-2"));
+    assert.ok(ctx.calls.prompts["planner-2"]?.[0]?.includes("Previous review findings"));
     assert.equal(result["approved"], true);
     assert.equal(result["iterations_completed"], 2);
-    assert.equal(result["plan"], "Plan v2 with edge cases");
+    assert.match(String(result["review_report"]), /patch is correct/);
   });
 });
 
@@ -308,49 +239,77 @@ describe("open-claude-design", () => {
     assert.equal(mod.default.name, "open-claude-design");
   });
 
-  test("has 'reference', 'output_type', 'design_system' inputs", async () => {
+  test("has design workflow inputs without compatibility aliases", async () => {
     const mod = await import("../../workflows/open-claude-design.js");
     const d = mod.default;
-    assert.notEqual(d.inputs["reference"], undefined);
-    assert.notEqual(d.inputs["output_type"], undefined);
-    assert.notEqual(d.inputs["design_system"], undefined);
+    for (const inputName of ["prompt", "reference", "output_type", "design_system", "max_refinements"]) {
+      assert.notEqual(d.inputs[inputName], undefined, inputName);
+    }
+    assert.equal(d.inputs["output-type"], undefined);
+    assert.equal(d.inputs["design-system"], undefined);
+    assert.equal(d.inputs["prompt"]?.required, true);
   });
 
-  test("output_type is a select with expected choices", async () => {
+  test("output_type supports canonical underscore choices", async () => {
     const mod = await import("../../workflows/open-claude-design.js");
     const schema = mod.default.inputs["output_type"];
     assert.equal(schema.type, "select");
     const choices = (schema as { choices: readonly string[] }).choices;
-    assert.ok(choices.includes("component"));
-    assert.ok(choices.includes("page"));
-    assert.ok(choices.includes("theme"));
-    assert.ok(choices.includes("tokens"));
+    for (const choice of ["prototype", "wireframe", "page", "component", "theme", "tokens"]) {
+      assert.ok(choices.includes(choice), choice);
+    }
+    assert.equal((schema as { default?: string }).default, "prototype");
   });
 
-  test("run executes without throwing (mock ctx, all inputs provided)", async () => {
+  test("runs onboarding, import, generation, refinement, scan, and export", async () => {
     const mod = await import("../../workflows/open-claude-design.js");
     const d = mod.default as unknown as WorkflowDefinition;
-
-    const ctx = makeMockCtx({
-      reference: "https://figma.com/file/abc",
-      output_type: "component",
-      design_system: "shadcn/ui",
-    });
+    const ctx = makeMockCtx(
+      {
+        prompt: "Design a kanban board",
+        reference: "https://example.com/reference",
+        output_type: "component",
+        max_refinements: 2,
+      },
+      {
+        task: (name) => {
+          if (name.startsWith("user-feedback-")) return "refinement complete";
+          if (name === "pre-export-scan") return "no blocking findings";
+          return undefined;
+        },
+      },
+    );
 
     const result = await d.run(ctx);
-    assert.notEqual(result, undefined);
+
+    assert.deepEqual(ctx.calls.stage, []);
+    assert.ok(ctx.calls.parallel.some((names) => names.includes("ds-locator") && names.includes("ds-patterns")));
+    assert.ok(ctx.calls.parallel.some((names) => names.includes("web-capture")));
+    assert.ok(ctx.calls.task.includes("design-system-builder"));
+    assert.ok(ctx.calls.task.includes("generator"));
+    assert.ok(ctx.calls.task.includes("user-feedback-1"));
+    assert.ok(ctx.calls.task.includes("pre-export-scan"));
+    assert.ok(ctx.calls.task.includes("exporter"));
+    assert.equal(result["output_type"], "component");
     assert.equal(typeof result["artifact"], "string");
     assert.equal(typeof result["handoff"], "string");
-    assert.equal(result["output_type"], "component");
   });
 
-  test("run uses default output_type 'component' when not provided", async () => {
+  test("uses default output_type 'prototype' when not provided", async () => {
     const mod = await import("../../workflows/open-claude-design.js");
     const d = mod.default as unknown as WorkflowDefinition;
-
-    const ctx = makeMockCtx({});
+    const ctx = makeMockCtx(
+      { prompt: "Design a dashboard" },
+      {
+        task: (name) => {
+          if (name.startsWith("user-feedback-")) return "refinement complete";
+          if (name === "pre-export-scan") return "no blocking findings";
+          return undefined;
+        },
+      },
+    );
     const result = await d.run(ctx);
-    assert.equal(result["output_type"], "component");
+    assert.equal(result["output_type"], "prototype");
   });
 
   test("definition is frozen (immutable)", async () => {
@@ -372,7 +331,6 @@ describe("workflows/index manifest", () => {
     assert.notEqual(mod.ralph, undefined);
     assert.notEqual(mod.openClaudeDesign, undefined);
 
-    // Each export is a valid definition
     assertWorkflowDefinition(mod.deepResearchCodebase);
     assertWorkflowDefinition(mod.ralph);
     assertWorkflowDefinition(mod.openClaudeDesign);

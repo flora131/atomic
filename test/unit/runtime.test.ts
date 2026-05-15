@@ -166,6 +166,26 @@ describe("runtime.runDirect — workflow intercom", () => {
     assert.deepEqual(details?.results?.map((item) => item.name), ["alpha", "beta"]);
   });
 
+  test("async direct invalid fallback models fail before background acceptance", async () => {
+    const activeStore = createStore();
+    const runtime = createExtensionRuntime({
+      store: activeStore,
+      adapters: noopAdapters,
+      models: {
+        listModels: async () => [{ provider: "openai", id: "fallback", fullId: "openai/fallback" }],
+      },
+    });
+
+    const result = await runtime.runDirect({
+      async: true,
+      task: { name: "solo", task: "inspect solo", model: "missing/model" },
+    });
+
+    assert.equal(result.status, "failed");
+    assert.match(result.error ?? "", /missing\/model \(not available\)/);
+    assert.equal(activeStore.runs().length, 0);
+  });
+
   test("foreground direct single runs keep intercom off unless requested", async () => {
     const emitted: Array<{ event: string; payload: Record<string, unknown> }> = [];
     const runtime = createExtensionRuntime({

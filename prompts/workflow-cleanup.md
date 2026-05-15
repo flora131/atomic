@@ -1,1 +1,0 @@
-Use workflow status and diagnostics to clean up orchestration state. Inspect active runs, interrupt stale work when appropriate, resume useful snapshots, and report retained artifacts or unresolved prompts.

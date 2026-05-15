@@ -176,10 +176,11 @@ async function createTestAgentSession(_options?: CreateAgentSessionOptions): Pro
   return { session };
 }
 
-function stripWorkflowOnlyOptions(options: StageOptions | undefined): CreateAgentSessionOptions | undefined {
+function stripWorkflowOnlyOptions(options: (StageOptions | CreateAgentSessionOptions) | undefined): CreateAgentSessionOptions | undefined {
   if (!options) return options;
-  const { mcp: _mcp, ...sessionOptions } = options;
-  return sessionOptions;
+  const maybeWorkflowOptions = options as StageOptions;
+  const { mcp: _mcp, fallbackModels: _fallbackModels, ...sessionOptions } = maybeWorkflowOptions;
+  return sessionOptions as CreateAgentSessionOptions;
 }
 
 function customToolNames(options: CreateAgentSessionOptions): Set<string> {
@@ -269,7 +270,7 @@ export function buildRuntimeAdapters(
     (isTestContext() ? createTestAgentSession : createPiSdkAgentSession);
   const adapters: StageAdapters = {
     agentSession: {
-      async create(stageOptions: StageOptions, meta?: StageExecutionMeta): Promise<StageSessionRuntime> {
+      async create(stageOptions: CreateAgentSessionOptions & Pick<StageOptions, "mcp" | "fallbackModels">, meta?: StageExecutionMeta): Promise<StageSessionRuntime> {
         // The pi SDK (`@earendil-works/pi-coding-agent` ≥ 0.74) handles
         // extension / skills / prompt-template / slash-command isolation
         // via `SettingsManager` / `ResourceLoader` ctor args. The production

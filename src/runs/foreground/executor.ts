@@ -27,6 +27,7 @@ import type {
   WorkflowMcpPort,
   WorkflowPersistencePort,
   WorkflowRuntimeConfig,
+  WorkflowModelCatalogPort,
 } from "../../shared/types.js";
 import type { InternalStageContext, StageAdapters } from "./stage-runner.js";
 import type { RunStatus, StageNotice, StageSnapshot, RunSnapshot, WorkflowOverlayAdapter } from "../../shared/store-types.js";
@@ -53,6 +54,7 @@ import {
   appendStageEnd,
   appendRunEnd,
 } from "../../shared/persistence-session-entries.js";
+import { validateWorkflowModels } from "../shared/model-fallback.js";
 
 export interface ResolvedInputs extends Record<string, unknown> {}
 
@@ -78,6 +80,8 @@ export interface RunOpts {
    * status writer) consume this; values are threaded here but not yet acted on.
    */
   config?: WorkflowRuntimeConfig;
+  /** Optional model catalog used for fallback validation/resolution. */
+  models?: WorkflowModelCatalogPort;
   /**
    * Current nesting depth of this workflow run. Starts at 0 for top-level runs.
    * Callers that spawn nested runs must increment this by 1 before passing to
@@ -295,6 +299,31 @@ function directTaskPrompt(item: WorkflowDirectTaskItem): string | undefined {
   return item.prompt ?? item.task;
 }
 
+function directModelRequestsFromChain(
+  chain: readonly WorkflowChainStep[],
+  options: WorkflowDirectOptions,
+): Array<{ readonly model?: WorkflowDirectTaskItem["model"]; readonly fallbackModels?: readonly string[] }> {
+  const requests: Array<{ readonly model?: WorkflowDirectTaskItem["model"]; readonly fallbackModels?: readonly string[] }> = [];
+  for (const step of chain) {
+    if ("parallel" in step) {
+      requests.push(...step.parallel.map((item) => directTaskWithDefaults(item, options)));
+    } else {
+      requests.push(directTaskWithDefaults(step, options));
+    }
+  }
+  return requests;
+}
+
+async function validateDirectModels(
+  tasks: readonly WorkflowDirectTaskItem[],
+  runOptions: RunOpts,
+): Promise<readonly string[]> {
+  return validateWorkflowModels({
+    requests: tasks.map((task) => ({ model: task.model, fallbackModels: task.fallbackModels })),
+    catalog: runOptions.models,
+  });
+}
+
 const DEFAULT_MAX_OUTPUT_BYTES = 200 * 1024;
 const DEFAULT_MAX_OUTPUT_LINES = 5000;
 
@@ -354,6 +383,7 @@ function directTaskWithDefaults(
     ...(item.maxOutput === undefined && options.maxOutput !== undefined ? { maxOutput: options.maxOutput } : {}),
     ...(item.artifacts === undefined && options.artifacts !== undefined ? { artifacts: options.artifacts } : {}),
     ...(item.sessionDir === undefined && options.sessionDir !== undefined ? { sessionDir: options.sessionDir } : {}),
+    ...(item.fallbackModels === undefined && options.fallbackModels !== undefined ? { fallbackModels: options.fallbackModels } : {}),
   };
 }
 
@@ -517,7 +547,8 @@ function isRunOpts(value: WorkflowDirectOptions | RunOpts | undefined): value is
     "onRunStart" in value ||
     "onStageStart" in value ||
     "onStageEnd" in value ||
-    "onRunEnd" in value
+    "onRunEnd" in value ||
+    "models" in value
   );
 }
 
@@ -545,11 +576,31 @@ async function writeDirectOutput(
   };
 }
 
+function failedDirectDetails(
+  mode: WorkflowDetails["mode"],
+  runId: string,
+  total: number,
+  error: unknown,
+  options: WorkflowDirectOptions = {},
+): WorkflowDetails {
+  return {
+    mode,
+    action: "run",
+    runId,
+    status: "failed",
+    ...(options.context !== undefined ? { context: options.context } : {}),
+    results: [],
+    progress: { completed: 0, total },
+    error: error instanceof Error ? error.message : String(error),
+  };
+}
+
 function workflowDetailsFromRun(
   mode: WorkflowDetails["mode"],
   runResult: RunResult,
   results: readonly WorkflowTaskResult[],
   options: WorkflowDirectOptions = {},
+  warnings: readonly string[] = [],
 ): WorkflowDetails {
   const sessionArtifacts = options.artifacts === false ? [] : results.flatMap((result) =>
     result.sessionFile === undefined
@@ -560,6 +611,8 @@ function workflowDetailsFromRun(
     ? runResult.result["artifacts"] as WorkflowArtifact[]
     : [];
   const artifacts = [...outputArtifacts, ...sessionArtifacts];
+  const resultWarnings = results.flatMap((result) => result.warnings ?? []);
+  const allWarnings = [...warnings, ...resultWarnings];
   return {
     mode,
     action: "run",
@@ -570,6 +623,7 @@ function workflowDetailsFromRun(
     output: runResult.result,
     progress: { completed: results.length, total: results.length },
     ...(artifacts.length > 0 ? { artifacts } : {}),
+    ...(allWarnings.length > 0 ? { warnings: allWarnings } : {}),
     ...(runResult.error !== undefined ? { error: runResult.error } : {}),
   };
 }
@@ -610,7 +664,14 @@ export async function runTask(
   const options = isRunOpts(optionsOrRunOptions) ? {} : optionsOrRunOptions;
   const runOptions = isRunOpts(optionsOrRunOptions) ? optionsOrRunOptions : maybeRunOptions;
   const runId = directRunId(runOptions);
-  const prepared = prepareDirectWorktrees([directTaskWithDefaults(task, options)], options, runId, "single");
+  const taskWithDefaults = directTaskWithDefaults(task, options);
+  let validationWarnings: readonly string[] = [];
+  try {
+    validationWarnings = await validateDirectModels([taskWithDefaults], runOptions);
+  } catch (err) {
+    return failedDirectDetails("single", runId, 1, err, options);
+  }
+  const prepared = prepareDirectWorktrees([taskWithDefaults], options, runId, "single");
   const preparedTask = prepared.tasks[0]!;
   const direct = defineDirectWorkflow("direct-task", async (ctx) => {
     try {
@@ -632,7 +693,7 @@ export async function runTask(
   });
   const runResult = await run(direct, {}, { ...runOptions, runId });
   const results = (runResult.result?.["results"] ?? []) as WorkflowTaskResult[];
-  return workflowDetailsFromRun("single", runResult, results, options);
+  return workflowDetailsFromRun("single", runResult, results, options, validationWarnings);
 }
 
 /** SDK helper for direct top-level parallel task execution. */
@@ -641,8 +702,15 @@ export async function runParallel(
   options: WorkflowDirectOptions = {},
   runOptions: RunOpts = {},
 ): Promise<WorkflowDetails> {
-  const expanded = expandedParallelTasks(tasks.map((task) => directTaskWithDefaults(task, options)));
+  const tasksWithDefaults = tasks.map((task) => directTaskWithDefaults(task, options));
+  const expanded = expandedParallelTasks(tasksWithDefaults);
   const runId = directRunId(runOptions);
+  let validationWarnings: readonly string[] = [];
+  try {
+    validationWarnings = await validateDirectModels(expanded, runOptions);
+  } catch (err) {
+    return failedDirectDetails("parallel", runId, expanded.length, err, options);
+  }
   const prepared = prepareDirectWorktrees(expanded, options, runId, "parallel");
   const direct = defineDirectWorkflow("direct-parallel", async (ctx) => {
     try {
@@ -669,7 +737,7 @@ export async function runParallel(
   });
   const runResult = await run(direct, {}, { ...runOptions, runId });
   const results = (runResult.result?.["results"] ?? []) as WorkflowTaskResult[];
-  return workflowDetailsFromRun("parallel", runResult, results, options);
+  return workflowDetailsFromRun("parallel", runResult, results, options, validationWarnings);
 }
 
 async function runDirectChainStep(
@@ -735,6 +803,15 @@ export async function runChain(
   runOptions: RunOpts = {},
 ): Promise<WorkflowDetails> {
   const runId = directRunId(runOptions);
+  let validationWarnings: readonly string[] = [];
+  try {
+    validationWarnings = await validateWorkflowModels({
+      requests: directModelRequestsFromChain(chain, options),
+      catalog: runOptions.models,
+    });
+  } catch (err) {
+    return failedDirectDetails("chain", runId, chain.length, err, options);
+  }
   const direct = defineDirectWorkflow("direct-chain", async (ctx) => {
     const results: WorkflowTaskResult[] = [];
     const artifacts: WorkflowArtifact[] = [];
@@ -749,7 +826,7 @@ export async function runChain(
   });
   const runResult = await run(direct, {}, { ...runOptions, runId });
   const results = (runResult.result?.["results"] ?? []) as WorkflowTaskResult[];
-  return workflowDetailsFromRun("chain", runResult, results, options);
+  return workflowDetailsFromRun("chain", runResult, results, options, validationWarnings);
 }
 
 function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
@@ -1031,6 +1108,7 @@ export async function run(
         runId,
         signal: ownController.signal,
         stageOptions: options,
+        models: opts.models,
       });
       const activeAskUserQuestionCalls = new Set<string>();
       const unsubscribeAskUserQuestionWatcher = innerCtx.subscribe((event) => {
@@ -1185,6 +1263,10 @@ export async function run(
             if (meta.sessionId !== undefined || meta.sessionFile !== undefined) {
               activeStore.recordStageSession(runId, stageId, meta);
             }
+            const modelMeta = innerCtx.__modelFallbackMeta();
+            if (modelMeta.model !== undefined) stageSnapshot.model = modelMeta.model;
+            if (modelMeta.attemptedModels !== undefined) stageSnapshot.attemptedModels = modelMeta.attemptedModels;
+            if (modelMeta.modelAttempts !== undefined) stageSnapshot.modelAttempts = modelMeta.modelAttempts;
           }
           stageSnapshot.status = "completed";
           const assistantText = innerCtx.__getLastAssistantText();
@@ -1202,6 +1284,11 @@ export async function run(
             stageSnapshot.startedAt !== undefined
               ? stageSnapshot.endedAt - stageSnapshot.startedAt
               : undefined;
+
+          const finalModelMeta = innerCtx.__modelFallbackMeta();
+          if (finalModelMeta.model !== undefined) stageSnapshot.model = finalModelMeta.model;
+          if (finalModelMeta.attemptedModels !== undefined) stageSnapshot.attemptedModels = finalModelMeta.attemptedModels;
+          if (finalModelMeta.modelAttempts !== undefined) stageSnapshot.modelAttempts = finalModelMeta.modelAttempts;
 
           if (opts.mcp && hasMcpScope) {
             opts.mcp.clearScope(stageId);
@@ -1261,7 +1348,7 @@ export async function run(
         return `${(before / 1000).toFixed(1)}k → ${(kept / 1000).toFixed(1)}k`;
       };
 
-      const stageContext: StageContext = {
+      const stageContext: StageContext & Pick<InternalStageContext, "__modelFallbackMeta"> = {
         name: innerCtx.name,
         prompt: (text, promptOptions) => runTrackedStageCall(() => innerCtx.prompt(text, promptOptions)),
         complete: (text, completeOptions) => runTrackedStageCall(() => innerCtx.complete(text, completeOptions)),
@@ -1311,6 +1398,7 @@ export async function run(
           recordStageNotice({ kind: "abort", to: "interrupted" });
           await innerCtx.abort();
         },
+        __modelFallbackMeta: () => innerCtx.__modelFallbackMeta(),
       };
       return stageContext;
     },
@@ -1326,12 +1414,17 @@ export async function run(
           return undefined;
         }
       })();
+      const stageMeta = (stage as InternalStageContext).__modelFallbackMeta?.() ?? {};
       return {
         name,
         stageName: name,
         text,
         ...(sessionId !== undefined ? { sessionId } : {}),
         ...(stage.sessionFile !== undefined ? { sessionFile: stage.sessionFile } : {}),
+        ...(stageMeta.model !== undefined ? { model: stageMeta.model } : {}),
+        ...(stageMeta.attemptedModels !== undefined ? { attemptedModels: stageMeta.attemptedModels } : {}),
+        ...(stageMeta.modelAttempts !== undefined ? { modelAttempts: stageMeta.modelAttempts } : {}),
+        ...(stageMeta.warnings !== undefined ? { warnings: stageMeta.warnings } : {}),
       };
     },
 

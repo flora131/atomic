@@ -4,7 +4,9 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import type {
   ExtensionAPI,
   ExtensionContext,
+  ReadonlyFooterDataProvider,
 } from "@earendil-works/pi-coding-agent";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 
 const STATE_TYPE = "goal";
@@ -259,6 +261,195 @@ Tokens remaining: ${goal.tokenBudget === undefined ? "unbounded" : Math.max(0, g
 If the goal is achieved and no required work remains, call update_goal with status "complete". Do not mark it complete merely because you are stopping or the budget is nearly exhausted.`;
 }
 
+type FooterTheme = ExtensionContext["ui"]["theme"];
+
+function sanitizeFooterStatusText(text: string): string {
+  return text
+    .replace(/[\r\n\t]/g, " ")
+    .replace(/ +/g, " ")
+    .trim();
+}
+
+function formatFooterTokens(count: number): string {
+  if (count < 1000) return count.toString();
+  if (count < 10000) return `${(count / 1000).toFixed(1)}k`;
+  if (count < 1000000) return `${Math.round(count / 1000)}k`;
+  if (count < 10000000) return `${(count / 1000000).toFixed(1)}M`;
+  return `${Math.round(count / 1000000)}M`;
+}
+
+function rightAlignFooterText(
+  left: string,
+  right: string,
+  width: number,
+  ellipsis: string,
+): string {
+  const rightWidth = visibleWidth(right);
+  if (rightWidth >= width) return truncateToWidth(right, width, ellipsis);
+
+  const minPadding = left ? 2 : 0;
+  const maxLeftWidth = Math.max(0, width - rightWidth - minPadding);
+  const fittedLeft =
+    left && maxLeftWidth > 0
+      ? truncateToWidth(left, maxLeftWidth, ellipsis)
+      : "";
+  const padding = " ".repeat(
+    Math.max(0, width - visibleWidth(fittedLeft) - rightWidth),
+  );
+  return `${fittedLeft}${padding}${right}`;
+}
+
+function goalFooterText(goal: Goal, theme: FooterTheme): string {
+  switch (goal.status) {
+    case "active": {
+      const usage =
+        goal.tokenBudget === undefined
+          ? ""
+          : ` (${formatTokensCompact(goal.tokensUsed)} / ${formatTokensCompact(goal.tokenBudget)})`;
+      return theme.fg("accent", `Pursuing goal${usage}`);
+    }
+    case "paused":
+      return theme.fg("warning", "Goal paused (/goal resume)");
+    case "budgetLimited":
+      return theme.fg("warning", "Goal budget reached");
+    case "complete":
+      return theme.fg("success", "Goal complete");
+  }
+}
+
+function defaultFooterLines(
+  ctx: ExtensionContext,
+  pi: ExtensionAPI,
+  footerData: ReadonlyFooterDataProvider,
+  theme: FooterTheme,
+  width: number,
+): string[] {
+  let totalInput = 0;
+  let totalOutput = 0;
+  let totalCacheRead = 0;
+  let totalCacheWrite = 0;
+  let totalCost = 0;
+
+  for (const entry of ctx.sessionManager.getEntries()) {
+    if (entry.type !== "message" || entry.message.role !== "assistant") continue;
+    totalInput += entry.message.usage.input;
+    totalOutput += entry.message.usage.output;
+    totalCacheRead += entry.message.usage.cacheRead;
+    totalCacheWrite += entry.message.usage.cacheWrite;
+    totalCost += entry.message.usage.cost.total;
+  }
+
+  const contextUsage = ctx.getContextUsage();
+  const contextWindow = contextUsage?.contextWindow ?? ctx.model?.contextWindow ?? 0;
+  const contextPercentValue = contextUsage?.percent ?? 0;
+  const contextPercent =
+    contextUsage?.percent !== null ? contextPercentValue.toFixed(1) : "?";
+
+  let pwd = ctx.sessionManager.getCwd();
+  const home = process.env.HOME || process.env.USERPROFILE;
+  if (home && pwd.startsWith(home)) pwd = `~${pwd.slice(home.length)}`;
+
+  const branch = footerData.getGitBranch();
+  if (branch) pwd = `${pwd} (${branch})`;
+
+  const sessionName = ctx.sessionManager.getSessionName();
+  if (sessionName) pwd = `${pwd} • ${sessionName}`;
+
+  const statsParts: string[] = [];
+  if (totalInput) statsParts.push(`↑${formatFooterTokens(totalInput)}`);
+  if (totalOutput) statsParts.push(`↓${formatFooterTokens(totalOutput)}`);
+  if (totalCacheRead) statsParts.push(`R${formatFooterTokens(totalCacheRead)}`);
+  if (totalCacheWrite) statsParts.push(`W${formatFooterTokens(totalCacheWrite)}`);
+
+  const usingSubscription = ctx.model
+    ? ctx.modelRegistry.isUsingOAuth(ctx.model)
+    : false;
+  if (totalCost || usingSubscription) {
+    statsParts.push(`$${totalCost.toFixed(3)}${usingSubscription ? " (sub)" : ""}`);
+  }
+
+  const autoIndicator = " (auto)";
+  const contextPercentDisplay =
+    contextPercent === "?"
+      ? `?/${formatFooterTokens(contextWindow)}${autoIndicator}`
+      : `${contextPercent}%/${formatFooterTokens(contextWindow)}${autoIndicator}`;
+  if (contextPercentValue > 90) {
+    statsParts.push(theme.fg("error", contextPercentDisplay));
+  } else if (contextPercentValue > 70) {
+    statsParts.push(theme.fg("warning", contextPercentDisplay));
+  } else {
+    statsParts.push(contextPercentDisplay);
+  }
+
+  let statsLeft = statsParts.join(" ");
+  let statsLeftWidth = visibleWidth(statsLeft);
+  if (statsLeftWidth > width) {
+    statsLeft = truncateToWidth(statsLeft, width, "...");
+    statsLeftWidth = visibleWidth(statsLeft);
+  }
+
+  const modelName = ctx.model?.id || "no-model";
+  let rightSideWithoutProvider = modelName;
+  if (ctx.model?.reasoning) {
+    const thinkingLevel = pi.getThinkingLevel() || "off";
+    rightSideWithoutProvider =
+      thinkingLevel === "off"
+        ? `${modelName} • thinking off`
+        : `${modelName} • ${thinkingLevel}`;
+  }
+
+  let rightSide = rightSideWithoutProvider;
+  if (footerData.getAvailableProviderCount() > 1 && ctx.model) {
+    rightSide = `(${ctx.model.provider}) ${rightSideWithoutProvider}`;
+    if (statsLeftWidth + 2 + visibleWidth(rightSide) > width) {
+      rightSide = rightSideWithoutProvider;
+    }
+  }
+
+  const rightSideWidth = visibleWidth(rightSide);
+  const totalNeeded = statsLeftWidth + 2 + rightSideWidth;
+  let statsLine: string;
+  if (totalNeeded <= width) {
+    statsLine = `${statsLeft}${" ".repeat(width - statsLeftWidth - rightSideWidth)}${rightSide}`;
+  } else {
+    const availableForRight = width - statsLeftWidth - 2;
+    if (availableForRight > 0) {
+      const truncatedRight = truncateToWidth(rightSide, availableForRight, "");
+      statsLine = `${statsLeft}${" ".repeat(
+        Math.max(0, width - statsLeftWidth - visibleWidth(truncatedRight)),
+      )}${truncatedRight}`;
+    } else {
+      statsLine = statsLeft;
+    }
+  }
+
+  const dimStatsLeft = theme.fg("dim", statsLeft);
+  const dimRemainder = theme.fg("dim", statsLine.slice(statsLeft.length));
+
+  return [
+    truncateToWidth(theme.fg("dim", pwd), width, theme.fg("dim", "...")),
+    dimStatsLeft + dimRemainder,
+  ];
+}
+
+function footerStatusLine(
+  footerData: ReadonlyFooterDataProvider,
+  theme: FooterTheme,
+  goalText: string,
+  width: number,
+): string | null {
+  const otherStatuses = Array.from(footerData.getExtensionStatuses().entries())
+    .filter(([key]) => key !== "goal")
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, text]) => sanitizeFooterStatusText(text));
+  const left = otherStatuses.join(" ");
+  const ellipsis = theme.fg("dim", "...");
+
+  if (goalText) return rightAlignFooterText(left, goalText, width, ellipsis);
+  if (!left) return null;
+  return truncateToWidth(left, width, ellipsis);
+}
+
 export default function goalExtension(pi: ExtensionAPI) {
   let goal: Goal | null = null;
   let activeSinceMs: number | null = null;
@@ -301,34 +492,41 @@ export default function goalExtension(pi: ExtensionAPI) {
 
   function updateStatus(ctx: ExtensionContext): void {
     if (!ctx.hasUI) return;
+
+    // The custom footer below renders the goal indicator itself so it can be
+    // right-aligned on the bottom footer row. Clear the normal extension
+    // status slot to avoid rendering the goal twice.
+    ctx.ui.setStatus("goal", undefined);
+
     if (!goal) {
-      ctx.ui.setStatus("goal", undefined);
+      ctx.ui.setFooter(undefined);
       return;
     }
-    const theme = ctx.ui.theme;
-    switch (goal.status) {
-      case "active": {
-        const snapshot = currentGoalSnapshot() ?? goal;
-        const usage =
-          snapshot.tokenBudget === undefined
-            ? ""
-            : ` (${formatTokensCompact(snapshot.tokensUsed)} / ${formatTokensCompact(snapshot.tokenBudget)})`;
-        ctx.ui.setStatus("goal", theme.fg("accent", `Pursuing goal${usage}`));
-        break;
-      }
-      case "paused":
-        ctx.ui.setStatus(
-          "goal",
-          theme.fg("warning", "Goal paused (/goal resume)"),
-        );
-        break;
-      case "budgetLimited":
-        ctx.ui.setStatus("goal", theme.fg("warning", "Goal budget reached"));
-        break;
-      case "complete":
-        ctx.ui.setStatus("goal", theme.fg("success", "Goal complete"));
-        break;
-    }
+
+    ctx.ui.setFooter((tui, theme, footerData) => {
+      const unsubscribeBranchChange = footerData.onBranchChange(() =>
+        tui.requestRender(),
+      );
+
+      return {
+        invalidate() {},
+        dispose() {
+          unsubscribeBranchChange();
+        },
+        render(width: number): string[] {
+          const lines = defaultFooterLines(ctx, pi, footerData, theme, width);
+          const snapshot = currentGoalSnapshot();
+          const statusLine = footerStatusLine(
+            footerData,
+            theme,
+            snapshot ? goalFooterText(snapshot, theme) : "",
+            width,
+          );
+          if (statusLine) lines.push(statusLine);
+          return lines;
+        },
+      };
+    });
   }
 
   function showGoalMessage(content: string): void {
@@ -446,6 +644,8 @@ export default function goalExtension(pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event, ctx) => reconstructState(ctx));
   pi.on("session_tree", async (_event, ctx) => reconstructState(ctx));
+  pi.on("model_select", async (_event, ctx) => updateStatus(ctx));
+  pi.on("thinking_level_select", async (_event, ctx) => updateStatus(ctx));
 
   pi.on("before_agent_start", async (event) => {
     const snapshot = currentGoalSnapshot();

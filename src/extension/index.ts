@@ -72,8 +72,9 @@ import type {
   WorkflowDirectTaskItem,
   WorkflowDetails,
   WorkflowMaxOutput,
-} from "../shared/types.js";
-import { buildRuntimeAdapters } from "./wiring.js";
+  WorkflowModelCatalogPort,
+  WorkflowModelInfo,
+} from "../shared/types.js";import { buildRuntimeAdapters } from "./wiring.js";
 import type { PiUISurface } from "./wiring.js";
 import { createStatusWriter } from "./status-writer.js";
 import type { StatusWriter } from "./status-writer.js";
@@ -155,7 +156,21 @@ export interface PiCommandOptions {
  * host always supplies `ui` and `ui.notify`, so callers print via
  * `ctx.ui.notify("…", "info")` directly — no wrapper indirection.
  */
-export interface PiCommandContext {
+interface PiRuntimeModel {
+  readonly provider: string;
+  readonly id: string;
+}
+
+interface PiRuntimeModelRegistry {
+  getAvailable(): PiRuntimeModel[];
+}
+
+interface PiModelContext {
+  readonly model?: PiRuntimeModel;
+  readonly modelRegistry?: PiRuntimeModelRegistry;
+}
+
+export interface PiCommandContext extends PiModelContext {
   ui: {
     notify: (message: string, type?: "info" | "warning" | "error") => void;
   } & PiUISurface;
@@ -214,7 +229,7 @@ export interface PiToolOpts<TArgs, TDetails> {
 }
 
 /** Execution context provided to tool execute handlers. */
-export interface PiExecuteContext {
+export interface PiExecuteContext extends PiModelContext {
   sessionId?: string;
   ui?: PiUISurface;
   hasUI?: boolean;
@@ -389,6 +404,7 @@ export interface WorkflowToolArgs {
   sessionDir?: string;
   progress?: boolean;
   worktree?: boolean;
+  fallbackModels?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -1078,12 +1094,49 @@ function factory(pi: ExtensionAPI): void {
     },
   };
 
-  // The runtime no longer depends on a per-command pi.ui adapter — all
-  // workflow runs are background-scoped and route HIL through the store.
-  // Kept as a function (rather than inlining `runtimeProxy`) so call sites
-  // that previously pass a context object keep type-checking.
-  function runtimeForContext(_ctx?: { ui?: PiUISurface }): ExtensionRuntime {
-    return runtimeProxy;
+  function modelFullId(model: PiRuntimeModel): string {
+    return `${String(model.provider)}/${model.id}`;
+  }
+
+  function workflowModelCatalogFromContext(ctx?: PiModelContext): WorkflowModelCatalogPort | undefined {
+    if (ctx?.modelRegistry === undefined && ctx?.model === undefined) return undefined;
+    return {
+      listModels: async (): Promise<readonly WorkflowModelInfo[]> => {
+        const available = ctx.modelRegistry?.getAvailable() ?? (ctx.model === undefined ? [] : [ctx.model]);
+        return available.map((model) => ({
+          provider: String(model.provider),
+          id: model.id,
+          fullId: modelFullId(model),
+          model: model as NonNullable<CreateAgentSessionOptions["model"]>,
+        }));
+      },
+      ...(ctx.model !== undefined
+        ? {
+            currentModel: ctx.model as NonNullable<CreateAgentSessionOptions["model"]>,
+            preferredProvider: String(ctx.model.provider),
+          }
+        : {}),
+    };
+  }
+
+  function runtimeWithModels(models: WorkflowModelCatalogPort | undefined): ExtensionRuntime {
+    if (models === undefined) return runtimeProxy;
+    return createExtensionRuntime({
+      registry: runtimeRef.current.registry,
+      adapters,
+      cancellation: cancellationRegistry,
+      persistence: persistenceRef.current,
+      mcp: mcpPort,
+      intercom: intercomPort,
+      config: runtimeConfigRef.current,
+      models,
+    });
+  }
+
+  // The runtime normally does not depend on per-command UI, but model fallback
+  // resolution uses the live command/tool context when pi exposes modelRegistry.
+  function runtimeForContext(ctx?: ({ ui?: PiUISurface } & PiModelContext)): ExtensionRuntime {
+    return runtimeWithModels(workflowModelCatalogFromContext(ctx));
   }
 
   let intercomControlUnsubscribe: (() => void) | null = null;

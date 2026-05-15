@@ -1,1 +1,0 @@
-Run parallel workflow review tasks over distinct risk areas. Ask reviewers to report concrete findings with file paths, line references, behavioral impact, and missing tests. Merge duplicate findings before presenting results.

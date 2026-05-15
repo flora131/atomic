@@ -35,6 +35,7 @@ const DirectTaskSchema = Type.Object({
   artifacts: Type.Optional(Type.Boolean()),
   sessionDir: Type.Optional(Type.String()),
   model: Type.Optional(Type.Any()),
+  fallbackModels: Type.Optional(Type.Array(Type.String())),
   tools: Type.Optional(Type.Any()),
   toolNames: Type.Optional(Type.Array(Type.String())),
   noTools: Type.Optional(Type.Any()),
@@ -96,6 +97,7 @@ export const WorkflowParametersSchema = Type.Object({
   sessionDir: Type.Optional(Type.String()),
   progress: Type.Optional(Type.Boolean()),
   worktree: Type.Optional(Type.Boolean()),
+  fallbackModels: Type.Optional(Type.Array(Type.String())),
 });
 
 export type WorkflowParameters = Static<typeof WorkflowParametersSchema>;

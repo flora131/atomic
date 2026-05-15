@@ -19,7 +19,16 @@ import type {
   StagePromptOptions,
   SubagentStageOpts,
   WorkflowMaxOutput,
+  WorkflowModelAttempt,
+  WorkflowModelCatalogPort,
 } from "../../shared/types.js";
+import {
+  buildModelCandidatesFromCatalog,
+  errorMessage,
+  isRetryableModelFailure,
+  workflowModelId,
+  type WorkflowResolvedModelCandidate,
+} from "../shared/model-fallback.js";
 
 export interface StageSessionRuntime {
   prompt(text: string, options?: PromptOptions): Promise<string | void>;
@@ -45,8 +54,17 @@ export interface StageSessionRuntime {
   getLastAssistantText?: () => string | undefined;
 }
 
+export type StageSessionCreateOptions = CreateAgentSessionOptions & Pick<StageOptions, "mcp" | "fallbackModels">;
+
 export interface AgentSessionAdapter {
-  create(options: StageOptions, meta?: StageExecutionMeta): Promise<StageSessionRuntime>;
+  create(options: StageSessionCreateOptions, meta?: StageExecutionMeta): Promise<StageSessionRuntime>;
+}
+
+export interface StageModelFallbackMeta {
+  readonly model?: string;
+  readonly attemptedModels?: readonly string[];
+  readonly modelAttempts?: readonly WorkflowModelAttempt[];
+  readonly warnings?: readonly string[];
 }
 
 export interface PromptAdapter {
@@ -78,6 +96,8 @@ export interface StageRunnerOpts {
   runId: string;
   /** AbortSignal from the executor's own AbortController — forwarded to session adapter metadata. */
   signal?: AbortSignal;
+  /** Optional model catalog used for fallback validation/resolution. */
+  models?: WorkflowModelCatalogPort;
 }
 
 export interface InternalStageContext extends StageContext {
@@ -98,6 +118,8 @@ export interface InternalStageContext extends StageContext {
    * `undefined` keys when the session has not yet been created.
    */
   __sessionMeta(): { sessionId: string | undefined; sessionFile: string | undefined };
+  /** Internal: selected/effective model and fallback attempt metadata. */
+  __modelFallbackMeta(): StageModelFallbackMeta;
   /**
    * Internal: register a controlled-pause request. The executor's
    * tracked stage call uses this to distinguish a user-initiated pause
@@ -118,6 +140,7 @@ function stripWorkflowOnlyOptions(options: StageOptions | undefined): CreateAgen
   if (!options) return {};
   const {
     mcp: _mcp,
+    fallbackModels: _fallbackModels,
     context,
     forkFromSessionFile,
     sessionDir,
@@ -131,7 +154,7 @@ function stripWorkflowOnlyOptions(options: StageOptions | undefined): CreateAgen
       sessionOptions.sessionManager = SessionManager.create(cwd, sessionDir);
     }
   }
-  return sessionOptions;
+  return sessionOptions as CreateAgentSessionOptions;
 }
 
 function missingAdapter(): never {
@@ -368,24 +391,146 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
     else signal.addEventListener("abort", onAbort, { once: true });
   }
 
+  const hasExplicitModelFallbackConfig =
+    stageOptions?.model !== undefined || (stageOptions?.fallbackModels?.length ?? 0) > 0;
+  let candidatesPromise: Promise<WorkflowResolvedModelCandidate[]> | undefined;
+  let activeCandidateIndex: number | undefined;
+  let selectedModel: string | undefined;
+  const modelAttempts: WorkflowModelAttempt[] = [];
+  const modelWarnings: string[] = [];
+  const modelCatalog = opts.models === undefined
+    ? undefined
+    : {
+        ...opts.models,
+        recordWarning: (warning: string): void => {
+          modelWarnings.push(warning);
+          opts.models?.recordWarning?.(warning);
+        },
+      } satisfies WorkflowModelCatalogPort;
+
+  function modelCandidates(): Promise<WorkflowResolvedModelCandidate[]> {
+    if (!candidatesPromise) {
+      candidatesPromise = buildModelCandidatesFromCatalog({
+        primaryModel: stageOptions?.model,
+        fallbackModels: stageOptions?.fallbackModels,
+        catalog: modelCatalog,
+      });
+    }
+    return candidatesPromise;
+  }
+
+  function stageOptionsForCandidate(candidate: WorkflowResolvedModelCandidate | undefined): StageOptions | undefined {
+    if (candidate === undefined) return stageOptions;
+    return { ...(stageOptions ?? {}), model: candidate.value, fallbackModels: undefined };
+  }
+
+  function attachSession(created: StageSessionRuntime): StageSessionRuntime {
+    session = created;
+    if (pendingThinkingLevel !== undefined) {
+      created.setThinkingLevel(pendingThinkingLevel);
+    }
+    for (const listener of pendingListeners) {
+      listenerUnsubscribes.set(listener, created.subscribe(listener));
+    }
+    return created;
+  }
+
+  async function createSession(candidate: WorkflowResolvedModelCandidate | undefined): Promise<StageSessionRuntime> {
+    const created = adapters.agentSession
+      ? await adapters.agentSession.create(stripWorkflowOnlyOptions(stageOptionsForCandidate(candidate)) as StageSessionCreateOptions, {
+        ...meta,
+        stageOptions: stageOptionsForCandidate(candidate),
+      })
+      : missingAdapter();
+    return attachSession(created);
+  }
+
   async function ensureSession(): Promise<StageSessionRuntime> {
     if (disposed) throw new Error(`pi-workflows: stage "${stageName}" session has been disposed`);
     if (!sessionPromise) {
       sessionPromise = (async () => {
-        const created = adapters.agentSession
-          ? await adapters.agentSession.create(stripWorkflowOnlyOptions(stageOptions), meta)
-          : missingAdapter();
-        session = created;
-        if (pendingThinkingLevel !== undefined) {
-          created.setThinkingLevel(pendingThinkingLevel);
-        }
-        for (const listener of pendingListeners) {
-          listenerUnsubscribes.set(listener, created.subscribe(listener));
-        }
-        return created;
+        if (!hasExplicitModelFallbackConfig) return createSession(undefined);
+        const candidates = await modelCandidates();
+        const first = candidates[0];
+        if (first === undefined) return createSession(undefined);
+        activeCandidateIndex = 0;
+        selectedModel = first.id;
+        return createSession(first);
       })();
     }
     return sessionPromise;
+  }
+
+  async function disposeCurrentSession(): Promise<void> {
+    const current = session;
+    session = undefined;
+    sessionPromise = undefined;
+    for (const unsubscribe of listenerUnsubscribes.values()) unsubscribe();
+    listenerUnsubscribes.clear();
+    await current?.dispose();
+  }
+
+  async function promptWithPauseResume(
+    activeSession: StageSessionRuntime,
+    initialText: string,
+    sdkOptions: PromptOptions | undefined,
+  ): Promise<void> {
+    // Pause/resume loop: when a controlled pause aborts the SDK call,
+    // swallow the resulting abort, suspend on `pauseRequest.deferred`,
+    // and either re-issue with the user's resume message or return the
+    // accumulated assistant text when resume carries no message.
+    let nextText: string | undefined = initialText;
+    while (nextText !== undefined) {
+      try {
+        await activeSession.prompt(nextText, sdkOptions);
+        nextText = undefined;
+      } catch (err) {
+        if (pauseRequest) {
+          const { message } = await pauseRequest.deferred.promise;
+          nextText = message;
+          continue;
+        }
+        throw err;
+      }
+    }
+  }
+
+  async function promptWithFallback(text: string, sdkOptions: PromptOptions | undefined): Promise<void> {
+    if (!hasExplicitModelFallbackConfig) {
+      await promptWithPauseResume(await ensureSession(), text, sdkOptions);
+      return;
+    }
+
+    const candidates = await modelCandidates();
+    if (candidates.length === 0) {
+      await promptWithPauseResume(await ensureSession(), text, sdkOptions);
+      return;
+    }
+
+    let index = activeCandidateIndex ?? 0;
+    while (index < candidates.length) {
+      const candidate = candidates[index]!;
+      const activeSession = session && activeCandidateIndex === index
+        ? session
+        : await createSession(candidate);
+      activeCandidateIndex = index;
+      selectedModel = candidate.id;
+      try {
+        await promptWithPauseResume(activeSession, text, sdkOptions);
+        modelAttempts.push({ model: candidate.id, success: true });
+        return;
+      } catch (err) {
+        const message = errorMessage(err);
+        modelAttempts.push({ model: candidate.id, success: false, error: message });
+        if (signal?.aborted || !isRetryableModelFailure(message) || index === candidates.length - 1) {
+          throw err;
+        }
+        const nextCandidate = candidates[index + 1]!;
+        modelWarnings.push(`[fallback] ${candidate.id} failed: ${message}. Retrying with ${nextCandidate.id}.`);
+        await disposeCurrentSession();
+        index += 1;
+      }
+    }
   }
 
   function requireSession(property: string): StageSessionRuntime {
@@ -406,25 +551,7 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
         adapterMessages = assistantMessage(lastAssistantText);
         return lastAssistantText;
       }
-      const s = await ensureSession();
-      // Pause/resume loop: when a controlled pause aborts the SDK call,
-      // swallow the resulting abort, suspend on `pauseRequest.deferred`,
-      // and either re-issue with the user's resume message or return the
-      // accumulated assistant text when resume carries no message.
-      let nextText: string | undefined = text;
-      while (nextText !== undefined) {
-        try {
-          await s.prompt(nextText, sdkOptions);
-          nextText = undefined;
-        } catch (err) {
-          if (pauseRequest) {
-            const { message } = await pauseRequest.deferred.promise;
-            nextText = message;
-            continue;
-          }
-          throw err;
-        }
-      }
+      await promptWithFallback(text, sdkOptions);
       const rawText = lastAssistantTextFromSession(session, lastAssistantText) ?? "";
       lastAssistantText = await finalizePromptOutput(rawText, outputOptions, runtimeCwd);
       return lastAssistantText;
@@ -556,6 +683,17 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
       return {
         sessionId: session?.sessionId,
         sessionFile: session?.sessionFile,
+      };
+    },
+
+    __modelFallbackMeta() {
+      const attemptedModels = modelAttempts.map((attempt) => attempt.model);
+      const model = selectedModel ?? workflowModelId(session?.model);
+      return {
+        ...(model !== undefined ? { model } : {}),
+        ...(attemptedModels.length > 0 ? { attemptedModels } : {}),
+        ...(modelAttempts.length > 0 ? { modelAttempts: [...modelAttempts] } : {}),
+        ...(modelWarnings.length > 0 ? { warnings: [...modelWarnings] } : {}),
       };
     },
 

@@ -132,6 +132,16 @@ describe("buildRuntimeAdapters — SDK AgentSession adapter", () => {
     assert.equal(calls[0]?.noTools, "all");
   });
 
+  test("strips workflow-only fallbackModels before calling createAgentSession", async () => {
+    const calls: Array<CreateAgentSessionOptions | undefined> = [];
+    const adapters = buildRuntimeAdapters({}, {
+      createAgentSession: async (options) => { calls.push(options); return { session: fakeSession() }; },
+    });
+    await adapters.agentSession!.create({ cwd: "/tmp/project", fallbackModels: ["openai/fallback"] });
+    assert.equal(Object.prototype.hasOwnProperty.call(calls[0], "fallbackModels"), false);
+    assert.equal(calls[0]?.cwd, "/tmp/project");
+  });
+
   test("strips workflow-only mcp options before calling createAgentSession", async () => {
     const calls: Array<CreateAgentSessionOptions | undefined> = [];
     const adapters = buildRuntimeAdapters({}, {

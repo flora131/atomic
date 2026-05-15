@@ -21,6 +21,7 @@ import type {
   WorkflowDirectOptions,
   WorkflowDirectTaskItem,
   WorkflowChainStep,
+  WorkflowModelCatalogPort,
 } from "../shared/types.js";
 import type { StageAdapters } from "../runs/foreground/stage-runner.js";
 import { runChain, runParallel, runTask, type RunOpts } from "../runs/foreground/executor.js";
@@ -37,6 +38,7 @@ import {
   type WorkflowIntercomDelivery,
   type WorkflowResultIntercomPort,
 } from "../intercom/result-intercom.js";
+import { validateWorkflowModels } from "../runs/shared/model-fallback.js";
 
 // ---------------------------------------------------------------------------
 // Options
@@ -71,6 +73,8 @@ export interface ExtensionRuntimeOpts {
    * merging file config with defaults. Forwarded to dispatch → run/runDetached.
    */
   config?: WorkflowRuntimeConfig;
+  /** Optional model catalog forwarded to workflow runs for fallback resolution. */
+  models?: WorkflowModelCatalogPort;
 }
 
 // ---------------------------------------------------------------------------
@@ -120,6 +124,7 @@ export function createExtensionRuntime(opts: ExtensionRuntimeOpts = {}): Extensi
   const mcp = opts.mcp;
   const config = opts.config;
   const intercom = opts.intercom;
+  const models = opts.models;
 
   function runOptions(args: WorkflowToolArgs): RunOpts {
     const argConcurrency =
@@ -144,6 +149,7 @@ export function createExtensionRuntime(opts: ExtensionRuntimeOpts = {}): Extensi
       persistence,
       mcp,
       config: effectiveConfig,
+      models,
     };
   }
 
@@ -163,6 +169,7 @@ export function createExtensionRuntime(opts: ExtensionRuntimeOpts = {}): Extensi
       ...(typeof args.sessionDir === "string" ? { sessionDir: args.sessionDir } : {}),
       ...(typeof args.progress === "boolean" ? { progress: args.progress } : {}),
       ...(typeof args.worktree === "boolean" ? { worktree: args.worktree } : {}),
+      ...(Array.isArray(args.fallbackModels) ? { fallbackModels: args.fallbackModels } : {}),
     };
   }
 
@@ -170,6 +177,24 @@ export function createExtensionRuntime(opts: ExtensionRuntimeOpts = {}): Extensi
     if (Array.isArray(args.chain)) return "chain";
     if (Array.isArray(args.tasks)) return "parallel";
     return "single";
+  }
+
+  function directModelRequests(args: WorkflowToolArgs): Array<{ readonly model?: WorkflowDirectTaskItem["model"]; readonly fallbackModels?: readonly string[] }> {
+    const options = directOptions(args);
+    const withFallbackDefault = (item: WorkflowDirectTaskItem) => ({
+      model: item.model,
+      fallbackModels: item.fallbackModels ?? options.fallbackModels,
+    });
+    if (args.task !== undefined && typeof args.task === "object") return [withFallbackDefault(args.task)];
+    if (Array.isArray(args.tasks)) return args.tasks.map(withFallbackDefault);
+    if (Array.isArray(args.chain)) {
+      return args.chain.flatMap((step) =>
+        "parallel" in step
+          ? step.parallel.map(withFallbackDefault)
+          : [withFallbackDefault(step)],
+      );
+    }
+    return [];
   }
 
   function directProgressTotal(args: WorkflowToolArgs): number {
@@ -261,11 +286,27 @@ export function createExtensionRuntime(opts: ExtensionRuntimeOpts = {}): Extensi
     throw new Error("WorkflowRuntime.runDirect: no direct execution mode supplied");
   }
 
-  function runDirectAsync(args: WorkflowToolArgs): WorkflowDetails {
+  async function runDirectAsync(args: WorkflowToolArgs): Promise<WorkflowDetails> {
     const runId = crypto.randomUUID();
     const mode = directMode(args);
     const delivery = effectiveIntercomDelivery(args, mode);
     const parentSession = intercomParentSession(args);
+    let warnings: readonly string[] = [];
+    try {
+      warnings = await validateWorkflowModels({
+        requests: directModelRequests(args),
+        catalog: runOptions(args).models,
+      });
+    } catch (error: unknown) {
+      return withIntercomSummary({
+        mode,
+        action: "run",
+        runId,
+        status: "failed",
+        progress: { completed: 0, total: directProgressTotal(args) },
+        error: error instanceof Error ? error.message : String(error),
+      }, delivery, parentSession);
+    }
     const background = runDirectForeground(args, runId);
     void background.then(
       (details) => {
@@ -289,6 +330,7 @@ export function createExtensionRuntime(opts: ExtensionRuntimeOpts = {}): Extensi
       runId,
       status: "accepted",
       progress: { completed: 0, total: directProgressTotal(args) },
+      ...(warnings.length > 0 ? { warnings: [...warnings] } : {}),
     }, delivery, parentSession);
   }
 
@@ -298,12 +340,12 @@ export function createExtensionRuntime(opts: ExtensionRuntimeOpts = {}): Extensi
     },
 
     dispatch(args: WorkflowToolArgs): Promise<WorkflowToolResult> {
-      return dispatch(args, { registry, adapters, store: activeStore, cancellation, persistence, mcp, config });
+      return dispatch(args, { registry, adapters, store: activeStore, cancellation, persistence, mcp, config, models });
     },
 
     runDirect(args: WorkflowToolArgs): Promise<WorkflowDetails> {
       if (args.async === true) {
-        return Promise.resolve(runDirectAsync(args));
+        return runDirectAsync(args);
       }
       const mode = directMode(args);
       const delivery = effectiveIntercomDelivery(args, mode);

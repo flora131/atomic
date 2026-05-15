@@ -339,6 +339,67 @@ describe("executor.run", () => {
     assert.ok(wfResult.error!.includes("stage error"));
   });
 
+  test("failed fallback attempts are recorded on the stage snapshot", async () => {
+    const def = defineWorkflow("failed-fallback-metadata")
+      .run(async (ctx) => {
+        await ctx.task("scout", { prompt: "inspect", model: "anthropic/primary", fallbackModels: ["openai/fallback"] });
+        return { ok: true };
+      })
+      .compile();
+
+    const result = await run(def, {}, {
+      adapters: {
+        agentSession: {
+          async create(options) {
+            const modelValue = (options as { readonly model?: string }).model;
+            const model = typeof modelValue === "string" ? modelValue : "object-model";
+            return {
+              ...mockSession(),
+              async prompt() {
+                throw new Error(`${model} rate limit exceeded`);
+              },
+            };
+          },
+        },
+      },
+      store: createStore(),
+    });
+
+    assert.equal(result.status, "failed");
+    assert.deepEqual(result.stages[0]?.attemptedModels, ["anthropic/primary", "openai/fallback"]);
+    assert.deepEqual(result.stages[0]?.modelAttempts?.map((attempt) => attempt.success), [false, false]);
+  });
+
+  test("invalid dynamic stage model fails before SDK session creation", async () => {
+    let creates = 0;
+    const def = defineWorkflow("invalid-stage-model")
+      .run(async (ctx) => {
+        await ctx.task("scout", { prompt: "inspect", model: "missing/model" });
+        return { ok: true };
+      })
+      .compile();
+
+    const result = await run(def, {}, {
+      models: {
+        listModels: async () => [{ provider: "openai", id: "fallback", fullId: "openai/fallback" }],
+      },
+      adapters: {
+        agentSession: {
+          async create() {
+            creates += 1;
+            return mockSession();
+          },
+        },
+      },
+      store: createStore(),
+    });
+
+    assert.equal(result.status, "failed");
+    assert.match(result.error ?? "", /missing\/model \(not available\)/);
+    assert.equal(creates, 0);
+    assert.equal(result.stages[0]?.status, "failed");
+  });
+
   test("stage snapshot records failed status when stage throws", async () => {
     const def = defineWorkflow("fail-stage-wf")
       .run(async (ctx) => {
@@ -524,6 +585,69 @@ describe("direct SDK helpers", () => {
     assert.equal(calls[0]?.thinkingLevel, "high");
   });
 
+  test("runTask retries fallback models and returns attempt metadata", async () => {
+    const calls: string[] = [];
+    const details = await runTask(
+      { name: "scout", prompt: "inspect repo", model: "anthropic/primary", fallbackModels: ["openai/fallback"] },
+      {},
+      {
+        adapters: {
+          agentSession: {
+            async create(options) {
+              const modelValue = (options as { readonly model?: string }).model;
+              const model = typeof modelValue === "string" ? modelValue : "object-model";
+              calls.push(model);
+              return {
+                ...mockSession(),
+                async prompt() {
+                  if (model === "anthropic/primary") throw new Error("rate limit exceeded");
+                },
+                getLastAssistantText() {
+                  return model === "openai/fallback" ? "fallback ok" : undefined;
+                },
+              };
+            },
+          },
+        },
+        store: createStore(),
+      },
+    );
+
+    assert.equal(details.status, "completed");
+    assert.deepEqual(calls, ["anthropic/primary", "openai/fallback"]);
+    assert.equal(details.results?.[0]?.text, "fallback ok");
+    assert.deepEqual(details.results?.[0]?.attemptedModels, ["anthropic/primary", "openai/fallback"]);
+    assert.deepEqual(details.results?.[0]?.modelAttempts?.map((attempt) => attempt.success), [false, true]);
+  });
+
+  test("runTask invalid fallback model fails before session and output side effects", async () => {
+    let creates = 0;
+    const output = join(mkdtempSync(join(tmpdir(), "atomic-workflow-invalid-model-")), "out.txt");
+    const details = await runTask(
+      { name: "scout", prompt: "inspect repo", model: "missing/model", output },
+      {},
+      {
+        models: {
+          listModels: async () => [{ provider: "openai", id: "fallback", fullId: "openai/fallback" }],
+        },
+        adapters: {
+          agentSession: {
+            async create() {
+              creates += 1;
+              return mockSession();
+            },
+          },
+        },
+        store: createStore(),
+      },
+    );
+
+    assert.equal(details.status, "failed");
+    assert.match(details.error ?? "", /missing\/model \(not available\)/);
+    assert.equal(creates, 0);
+    assert.throws(() => readFileSync(output, "utf8"));
+  });
+
   test("runTask direct options expose context and sessionDir", async () => {
     const calls: CreateAgentSessionOptions[] = [];
     const sessionDir = mkdtempSync(join(tmpdir(), "atomic-workflow-session-dir-"));
@@ -589,6 +713,39 @@ describe("direct SDK helpers", () => {
 
     assert.equal(readFileSync(output, "utf8"), "done:write private report");
     assert.equal(details.results?.[0]?.text, "");
+  });
+
+  test("runParallel applies top-level fallbackModels defaults to child tasks", async () => {
+    const calls: string[] = [];
+    const details = await runParallel(
+      [{ name: "reviewer", task: "review", model: "anthropic/primary" }],
+      { fallbackModels: ["openai/fallback"] },
+      {
+        adapters: {
+          agentSession: {
+            async create(options) {
+              const modelValue = (options as { readonly model?: string }).model;
+              const model = typeof modelValue === "string" ? modelValue : "object-model";
+              calls.push(model);
+              return {
+                ...mockSession(),
+                async prompt() {
+                  if (model === "anthropic/primary") throw new Error("rate limit exceeded");
+                },
+                getLastAssistantText() {
+                  return model === "openai/fallback" ? "fallback ok" : undefined;
+                },
+              };
+            },
+          },
+        },
+        store: createStore(),
+      },
+    );
+
+    assert.equal(details.status, "completed");
+    assert.deepEqual(calls, ["anthropic/primary", "openai/fallback"]);
+    assert.deepEqual(details.results?.[0]?.attemptedModels, calls);
   });
 
   test("runParallel expands count and keeps repeated task names unique", async () => {

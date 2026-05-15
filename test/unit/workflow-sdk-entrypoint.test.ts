@@ -142,7 +142,7 @@ describe("workflow SDK non-interactive entrypoint", () => {
     assert.equal(result.status, "completed");
     assert.equal(result.details.mode, "named");
     assert.equal(result.details.status, "completed");
-    assert.equal(result.details.output?.["specialist_count"], 1);
+    assert.equal(result.details.output?.["specialist_count"], 4);
     assert.ok(prompts.some((prompt) => prompt.includes("Research question: map workflow sdk")));
   });
 

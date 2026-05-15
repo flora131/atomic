@@ -86,6 +86,12 @@ export interface StageSnapshot {
    */
   sessionId?: string;
   sessionFile?: string;
+  /** Effective model selected for this stage after fallback resolution. */
+  model?: string;
+  /** Ordered model ids attempted by fallback orchestration. */
+  attemptedModels?: readonly string[];
+  /** Per-model fallback attempt outcomes. */
+  modelAttempts?: readonly import("./types.js").WorkflowModelAttempt[];
   /**
    * True while a live `StageControlHandle` exists for this stage in the
    * stage-control registry. Used by the attach UI to decide whether to

@@ -420,6 +420,103 @@ function makeMockSession(overrides: Partial<StageSessionRuntime> = {}): {
   return { session, state };
 }
 
+describe("createStageContext — model fallback", () => {
+  test("primary retryable failure tries fallback and records metadata", async () => {
+    const calls: string[] = [];
+    const disposed: string[] = [];
+    const agentSession: AgentSessionAdapter = {
+      async create(options) {
+        const model = typeof options.model === "string" ? options.model : `${String(options.model?.provider)}/${options.model?.id}`;
+        calls.push(model);
+        const { session } = makeMockSession({
+          async prompt() {
+            if (model === "anthropic/primary") throw new Error("429 rate limit exceeded");
+          },
+          dispose() {
+            disposed.push(model);
+          },
+          getLastAssistantText() {
+            return model === "openai/fallback" ? "fallback answer" : undefined;
+          },
+        });
+        return session;
+      },
+    };
+
+    const ctx = createStageContext(makeOpts({
+      adapters: { agentSession },
+      stageOptions: { model: "anthropic/primary", fallbackModels: ["openai/fallback"] },
+    })) as InternalStageContext;
+
+    const text = await ctx.prompt("go");
+
+    assert.equal(text, "fallback answer");
+    assert.deepEqual(calls, ["anthropic/primary", "openai/fallback"]);
+    assert.deepEqual(disposed, ["anthropic/primary"]);
+    assert.deepEqual(ctx.__modelFallbackMeta().attemptedModels, ["anthropic/primary", "openai/fallback"]);
+    assert.deepEqual(ctx.__modelFallbackMeta().modelAttempts?.map((attempt) => attempt.success), [false, true]);
+  });
+
+  test("current model is appended as an implicit final fallback", async () => {
+    const calls: string[] = [];
+    const agentSession: AgentSessionAdapter = {
+      async create(options) {
+        const modelValue = (options as { readonly model?: string }).model;
+        const model = typeof modelValue === "string" ? modelValue : "object-model";
+        calls.push(model);
+        const { session } = makeMockSession({
+          async prompt() {
+            if (model !== "current/model") throw new Error("503 service unavailable");
+          },
+          getLastAssistantText() {
+            return model === "current/model" ? "current answer" : undefined;
+          },
+        });
+        return session;
+      },
+    };
+
+    const ctx = createStageContext(makeOpts({
+      adapters: { agentSession },
+      stageOptions: { model: "anthropic/primary", fallbackModels: ["openai/fallback"] },
+      models: {
+        currentModel: "current/model",
+        listModels: async () => [
+          { provider: "anthropic", id: "primary", fullId: "anthropic/primary" },
+          { provider: "openai", id: "fallback", fullId: "openai/fallback" },
+          { provider: "current", id: "model", fullId: "current/model" },
+        ],
+      },
+    })) as InternalStageContext;
+
+    assert.equal(await ctx.prompt("go"), "current answer");
+    assert.deepEqual(calls, ["anthropic/primary", "openai/fallback", "current/model"]);
+    assert.deepEqual(ctx.__modelFallbackMeta().attemptedModels, calls);
+  });
+
+  test("non-retryable failure does not try fallback", async () => {
+    const calls: string[] = [];
+    const agentSession: AgentSessionAdapter = {
+      async create(options) {
+        calls.push(typeof options.model === "string" ? options.model : "object-model");
+        const { session } = makeMockSession({
+          async prompt() {
+            throw new Error("command failed: bun test");
+          },
+        });
+        return session;
+      },
+    };
+    const ctx = createStageContext(makeOpts({
+      adapters: { agentSession },
+      stageOptions: { model: "anthropic/primary", fallbackModels: ["openai/fallback"] },
+    }));
+
+    await assert.rejects(ctx.prompt("go"), /command failed/);
+    assert.deepEqual(calls, ["anthropic/primary"]);
+  });
+});
+
 describe("createStageContext — lazy attach", () => {
   test("__ensureSession creates the SDK session on demand", async () => {
     const { session } = makeMockSession();

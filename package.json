@@ -16,7 +16,6 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./cli/workflow-sdk": "./src/cli/workflow-sdk.ts",
     "./workflows": "./workflows/index.ts",
     "./workflows/*": "./workflows/*.ts"
   },
@@ -40,6 +39,7 @@
     "src/**/*.ts",
     "workflows/**/*.ts",
     "skills/**/*",
+    "agents/",
     "prompts/**/*",
     "README.md",
     "CHANGELOG.md",
@@ -53,7 +53,6 @@
     "test:unit": "bun test test/unit",
     "test:integration": "bun test test/integration",
     "test:all": "bun run test:unit && bun run test:integration",
-    "workflow:sdk": "bun src/cli/workflow-sdk.ts",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit"
   },
@@ -66,9 +65,6 @@
     ],
     "skills": [
       "./skills"
-    ],
-    "prompts": [
-      "./prompts"
     ]
   },
   "peerDependencies": {

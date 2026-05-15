@@ -16,7 +16,7 @@ import { resolveInputs } from "../runs/foreground/executor.js";
 import { runDetached } from "../runs/background/runner.js";
 import type { WorkflowToolResult, WorkflowInputEntry } from "./render-result.js";
 import type { WorkflowToolArgs } from "./index.js";
-import type { WorkflowPersistencePort, WorkflowMcpPort, WorkflowRuntimeConfig } from "../shared/types.js";
+import type { WorkflowPersistencePort, WorkflowMcpPort, WorkflowRuntimeConfig, WorkflowModelCatalogPort } from "../shared/types.js";
 
 // ---------------------------------------------------------------------------
 // Options
@@ -42,6 +42,8 @@ export interface DispatcherOpts {
    * tasks (maxDepth, concurrency, statusFile) can consume it.
    */
   config?: WorkflowRuntimeConfig;
+  /** Optional model catalog forwarded to workflow runs for fallback resolution. */
+  models?: WorkflowModelCatalogPort;
 }
 
 // ---------------------------------------------------------------------------
@@ -152,6 +154,7 @@ export async function dispatch(
         persistence: opts.persistence,
         mcp: opts.mcp,
         config: opts.config,
+        models: opts.models,
       });
       return {
         action: "run",

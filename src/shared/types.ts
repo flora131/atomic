@@ -14,6 +14,45 @@ import type {
 
 export type { AgentSessionEvent, CompactionResult, ModelCycleResult, PromptOptions };
 
+export type WorkflowModelValue = NonNullable<CreateAgentSessionOptions["model"]> | string;
+
+export interface WorkflowModelUsage {
+  readonly input?: number;
+  readonly output?: number;
+  readonly cacheRead?: number;
+  readonly cacheWrite?: number;
+  readonly cost?: number;
+  readonly turns?: number;
+}
+
+export interface WorkflowModelAttempt {
+  readonly model: string;
+  readonly success: boolean;
+  readonly error?: string;
+  readonly usage?: WorkflowModelUsage;
+}
+
+export interface WorkflowModelFallbackFields {
+  /** Ordered model IDs to try after `model` fails for a retryable provider/model reason. */
+  readonly fallbackModels?: readonly string[];
+}
+
+export interface WorkflowModelInfo {
+  readonly provider: string;
+  readonly id: string;
+  readonly fullId: string;
+  readonly model?: NonNullable<CreateAgentSessionOptions["model"]>;
+}
+
+export interface WorkflowModelCatalogPort {
+  listModels(): Promise<readonly WorkflowModelInfo[]>;
+  /** Current user-selected model used as the implicit final fallback. */
+  readonly currentModel?: WorkflowModelValue;
+  readonly preferredProvider?: string;
+  /** Optional warning sink for degraded catalog validation/fallback behavior. */
+  recordWarning?: (warning: string) => void;
+}
+
 // ---------------------------------------------------------------------------
 // Workflow input schema
 // ---------------------------------------------------------------------------
@@ -103,7 +142,9 @@ export interface StageMcpOptions {
  * All pi SDK createAgentSession options are forwarded to the stage session;
  * `mcp` remains workflow-owned and is stripped before SDK session creation.
  */
-export interface StageOptions extends CreateAgentSessionOptions {
+export interface StageOptions extends Omit<CreateAgentSessionOptions, "model">, WorkflowModelFallbackFields {
+  /** Model id or pi SDK model object used as the primary stage model. */
+  model?: WorkflowModelValue;
   /** Per-stage MCP server gating. No-op when no WorkflowMcpPort is configured. */
   mcp?: StageMcpOptions;
   /**
@@ -143,8 +184,8 @@ export interface StageExecutionMeta {
   signal?: AbortSignal;
 }
 
-export interface CompleteStageOpts {
-  model?: string;
+export interface CompleteStageOpts extends WorkflowModelFallbackFields {
+  model?: WorkflowModelValue;
   maxTokens?: number;
 }
 
@@ -311,6 +352,10 @@ export interface WorkflowTaskResult extends WorkflowTaskContext {
   readonly sessionId?: string;
   readonly sessionFile?: string;
   readonly artifacts?: WorkflowArtifact[];
+  readonly model?: string;
+  readonly attemptedModels?: readonly string[];
+  readonly modelAttempts?: readonly WorkflowModelAttempt[];
+  readonly warnings?: readonly string[];
 }
 
 /**
@@ -477,7 +522,7 @@ export interface WorkflowParallelChainStep {
 
 export type WorkflowChainStep = WorkflowDirectTaskItem | WorkflowParallelChainStep;
 
-export interface WorkflowDirectOptions {
+export interface WorkflowDirectOptions extends WorkflowModelFallbackFields {
   /** Shared/root task used for `{task}` in direct parallel or chain steps. */
   task?: string;
   /** Optional named chain identifier for status/artifact grouping. */

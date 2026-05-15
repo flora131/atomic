@@ -1,1 +1,0 @@
-Run parallel workflow research across independent areas of the codebase or problem. Assign each task a clear name, bounded scope, and expected artifact. Combine results into a concise synthesis after all branches finish.

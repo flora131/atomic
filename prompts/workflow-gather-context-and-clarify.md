@@ -1,1 +1,0 @@
-Use a workflow to gather enough context for the task, then ask only the blocking clarification questions. Prefer named workflow discovery first; if no named workflow fits, use a short direct chain with a researcher step followed by a clarifier step.

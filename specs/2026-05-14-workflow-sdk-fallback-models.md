@@ -9,7 +9,7 @@
 
 ## 1. Executive Summary
 
-This RFC proposes adding a workflow-native `fallbackModels` option to `@bastani/atomic-workflows` so SDK-authored stages, direct tasks, parallel tasks, and chain steps can retry model/provider failures with an ordered list of alternate models. The feature is modeled after `nicobailon/pi-subagents`, where agent configs include `fallbackModels`, candidate lists are deduplicated and resolved against available models, retryable provider/model failures trigger the next candidate, and results record attempted models plus per-attempt usage/error metadata. The workflow version should be programmatic: workflow authors can write `ctx.task("review", { prompt, model, fallbackModels: [...] })` or `runTask({ name, prompt, model, fallbackModels })` without creating `.pi/agents` files. If the explicit primary and fallback list is exhausted at runtime, the workflow should make one final attempt with the user's currently selected model. The change improves reliability during rate limits, quota exhaustion, provider outages, authentication/config drift, and unavailable model IDs while preserving current single-model behavior when no fallbacks are configured.
+This RFC proposes adding a workflow-native `fallbackModels` option to `@bastani/atomic-workflows` so SDK-authored stages, direct tasks, parallel tasks, and chain steps can retry model/provider failures with an ordered list of alternate models. The feature is modeled after `nicobailon/pi-subagents`, where agent configs include `fallbackModels`, candidate lists are deduplicated and resolved against available models, retryable provider/model failures trigger the next candidate, and results record attempted models plus per-attempt usage/error metadata. The workflow version should be programmatic: workflow authors can write `ctx.task("review", { prompt, model, fallbackModels: [...] })` or `runTask({ name, prompt, model, fallbackModels })` without creating `.pi/agents` files. If the explicit primary and fallback list is exhausted at runtime, the workflow should make one final attempt with the user's currently selected model. The change improves reliability during rate limits, quota exhaustion, provider outages, authentication/config drift, and unavailable model IDs while defining the canonical single-model behavior when no fallbacks are configured, without preserving legacy API shapes or aliases.
 
 Primary sources: local workflow SDK/runtime research (`research/docs/2026-05-14-local-atomic-workflows-api-analysis.md`, `research/docs/2026-05-14-local-atomic-workflows-locator.md`) and GitHub MCP inspection of `nicobailon/pi-subagents` fallback implementation (`src/runs/shared/model-fallback.ts`, `src/runs/foreground/execution.ts`, `src/runs/background/subagent-runner.ts`, `src/agents/agents.ts` at commit `635112deea068528d89694e58ca068ddc1fe4b2d`).
 
@@ -52,14 +52,15 @@ The current gap is that model configuration is single-shot:
 - [ ] Add a preflight model-availability validation step before starting any workflow run that uses user-specified `model` or `fallbackModels`; fail fast before store/session/workflow side effects if any requested model cannot be resolved to an available model.
 - [ ] Retry only failures classified as retryable provider/model failures by default, borrowing and adapting pi-subagents' classification patterns.
 - [ ] Append the user's currently selected model as an implicit final fallback candidate after explicit `model` and `fallbackModels` are exhausted, skipping it if already attempted.
-- [ ] Preserve current behavior exactly when `fallbackModels` is undefined or empty.
+- [ ] Define the canonical fallback behavior without adding backward-compatibility shims or legacy aliases; when `fallbackModels` is omitted, use the normal current/default model path as the canonical no-fallback behavior.
 - [ ] Record model fallback metadata in workflow results and status surfaces:
   - [ ] selected/effective `model`;
   - [ ] `attemptedModels`;
   - [ ] `modelAttempts` with model, success, exit/error, and token/usage data when available.
 - [ ] Ensure fallback attempts work for direct foreground SDK execution and background/named workflow execution because both share `createStageContext` and the foreground executor.
 - [ ] Strip `fallbackModels` before passing options into `createAgentSession()` so the workflow SDK remains compatible with current pi SDK types.
-- [ ] Add Bun test coverage for type/API propagation, candidate resolution, retryability classification, retry success/failure behavior, result metadata, and no-regression single-model behavior.
+- [ ] Add `fallbackModels` to the workflow tool schema for direct task, parallel task, and chain step payloads so tool calls can use the same fallback behavior as the SDK.
+- [ ] Add Bun test coverage for type/API propagation, candidate resolution, retryability classification, retry success/failure behavior, result metadata, tool schema validation, and canonical single-model behavior.
 - [ ] Keep the package raw TypeScript with no build step.
 
 ### 3.2 Non-Goals (Out of Scope)
@@ -133,7 +134,7 @@ This follows pi-subagents' pattern of wrapping execution attempts externally rat
 | Stage attempt loop            | Execute `createAgentSession` + `prompt` with candidate models                                             | `src/runs/foreground/stage-runner.ts`                        | All named/background/direct workflow execution eventually uses stage contexts.                 |
 | Direct option propagation     | Apply default `fallbackModels` from direct options to items/steps                                         | `src/runs/foreground/executor.ts`                            | Direct helpers already centralize defaults in `directTaskWithDefaults`.                        |
 | Metadata propagation          | Attach selected model and attempts to task results, details, store snapshots, persistence metadata        | `src/shared/types.ts`, `src/shared/store-types.ts`, executor | Users need to know when fallback happened and which model produced the output.                 |
-| Tool/schema parity            | Optionally expose `fallbackModels` through workflow direct tool schemas if direct tool parity is in scope | `src/extension/index.ts` / schema files                      | The workflow parity spec targets a pi-subagents-like tool surface.                             |
+| Tool/schema support           | Expose `fallbackModels` through workflow direct tool schemas for single, parallel, and chain execution | `src/extension/index.ts` / schema files                      | Tool calls should have the same fallback semantics as programmatic SDK/direct helper calls.     |
 
 ## 5. Detailed Design
 
@@ -263,9 +264,9 @@ Validation rules:
 
 For named workflows, static preflight can only validate model values visible in the workflow definition inputs/direct options before the workflow body starts. Dynamic model strings computed inside the run body should be validated at the point the stage/task is constructed, before that specific stage starts; this still prevents an invalid model from creating a session or partially executing the stage. If catalog lookup fails at either layer, resolve the task to the user's currently selected model when available and emit a warning rather than starting with an unvalidated user-specified model.
 
-#### 5.1.3 Future workflow tool schema addition
+#### 5.1.3 Workflow tool schema addition
 
-Resolved MVP scope: implement `fallbackModels` for the workflow SDK and direct helpers first. Do not require workflow tool schema support in the initial branch. If direct `workflow` tool parity is implemented later, add `fallbackModels` to direct task/chain item schemas:
+Updated scope: implement `fallbackModels` in the workflow tool schema in the same feature branch as the SDK/direct helpers. Direct tool payloads should accept the same field anywhere a programmatic task/stage option can specify `model`:
 
 ```ts
 workflow({
@@ -284,6 +285,14 @@ workflow({
   fallbackModels: ["claude-haiku-4"]
 })
 ```
+
+Schema requirements:
+
+- Add `fallbackModels?: string[]` to the direct single-task payload, direct parallel task items, sequential chain items, and chain-parallel task items.
+- Add top-level `fallbackModels?: string[]` to direct execution options so `workflow({ tasks: [...], fallbackModels: [...] })` and `workflow({ chain: [...], fallbackModels: [...] })` can provide defaults for child tasks that omit task-local fallbacks.
+- Reject non-array and non-string values at schema validation time. Empty strings should be normalized away; an empty resulting list is equivalent to no explicit fallback list.
+- Tool schema validation should share the same preflight model availability behavior as SDK helpers before starting the workflow.
+- Named workflow calls should not use top-level `fallbackModels` as a hidden override for code-authored workflow stages unless the named workflow/direct mode explicitly maps it through its inputs or direct task payloads.
 
 This is not required to satisfy the SDK-only use case, but it keeps the tool and SDK aligned with the pi-subagents parity direction documented in `specs/2026-05-14-workflow-sdk-pi-subagents-api-parity.md`.
 
@@ -362,7 +371,7 @@ Validation should reuse the fallback candidate resolver so the model that is val
 Recommended error format:
 
 ```text
-pi-workflows: model validation failed before starting workflow.
+atomic-workflows: model validation failed before starting workflow.
 Unavailable or ambiguous models:
 - claude-sonnet-4 (ambiguous: anthropic/claude-sonnet-4, github-copilot/claude-sonnet-4; specify provider/model)
 - openai/missing-model (not available)
@@ -495,12 +504,13 @@ For `stage.subagent(...)`:
 - The default policy should retry sequentially, not in parallel, to avoid unnecessary spend and provider load.
 - Direct parallel workflows may multiply fallback attempts across many tasks. Existing concurrency limits still bound active stage prompts; fallback attempts should occur within the same stage slot.
 
-### 7.4 Backward Compatibility
+### 7.4 Compatibility Policy — No Backward Compatibility Shims
 
-- Additive TypeScript fields should not break existing workflow authors.
-- Current behavior remains unchanged when no `fallbackModels` are supplied.
-- Existing tests that assert call shapes may need updates only to ensure `fallbackModels` is stripped from pi SDK session creation and preserved in workflow-owned metadata.
-- No migration is required for existing workflow definitions.
+- This feature should implement the new canonical `fallbackModels` contract directly; do not add compatibility shims for older or alternative API spellings.
+- Do not accept legacy/alias fields such as `fallback_models`, `fallbackModel`, `models`, `modelFallbacks`, or subagent-style `agent` aliases in workflow-native task payloads unless they are already part of the canonical workflow API.
+- Existing tests, docs, examples, and workflow definitions should be updated to the canonical contract rather than preserving old call shapes.
+- Existing user workflows that rely on replaced or non-canonical workflow tool/direct execution fields may need source updates; that is acceptable for this change.
+- Stripping workflow-owned fields such as `fallbackModels` before calling `createAgentSession()` is a runtime SDK-compatibility requirement, not a user-facing backward-compatibility promise.
 
 ## 8. Migration, Rollout, and Testing
 
@@ -524,10 +534,10 @@ For `stage.subagent(...)`:
   - Preserve fallback models through direct single, parallel, and chain helpers.
   - Attach metadata to `WorkflowTaskResult` and `WorkflowDetails`.
 
-- [ ] **Phase 4: Extension/tool/schema parity (deferred)**
-  - Defer initial implementation unless a later branch explicitly targets workflow tool direct-call parity.
-  - Add `fallbackModels` to direct workflow tool schemas and renderers when tool parity lands.
-  - Ensure `workflow` tool calls can pass direct task fallback options.
+- [ ] **Phase 4: Extension/tool/schema support**
+  - Add `fallbackModels` to direct workflow tool schemas and renderers.
+  - Ensure `workflow` tool calls can pass task-local and top-level default fallback options.
+  - Run the same model availability preflight for tool-supplied models before dispatch starts.
   - Update slash/docs only where direct tool syntax is exposed.
 
 - [ ] **Phase 5: Documentation and examples**
@@ -537,7 +547,7 @@ For `stage.subagent(...)`:
 
 ### 8.2 Data Migration Plan
 
-No persistent data migration is required. Existing run snapshots and session entries remain valid because new model metadata fields are optional.
+No persistent data migration is required. Existing run snapshots and session entries remain valid because new model metadata fields are optional. Source-level migrations may be required for workflows or tool calls that use non-canonical/legacy field names; do not add compatibility shims for those shapes.
 
 ### 8.3 Test Plan
 
@@ -564,6 +574,11 @@ Use Bun commands only.
     - direct options default fallback applies when task-local fallback is absent;
     - invalid direct models fail before worktree/session/output side effects;
     - invalid dynamic stage models fail before session creation.
+  - Workflow tool schema/dispatcher tests:
+    - accepts `fallbackModels` on direct single/parallel/chain payloads;
+    - applies top-level direct fallback defaults to child tasks;
+    - rejects invalid `fallbackModels` shapes before dispatch;
+    - fails fast before background run acceptance when tool-supplied models are invalid.
   - `test/unit/wiring-adapters.test.ts` for option stripping:
     - `fallbackModels` is not passed to `createAgentSession`;
     - `model` candidate is passed per attempt.
@@ -588,7 +603,7 @@ Use Bun commands only.
 ## 9. Open Questions / Unresolved Issues
 
 - [x] **Q1: Scope of the first implementation.** Should `fallbackModels` be SDK-only first, or should the same spec require `workflow` tool schema/direct-call support in the same implementation branch?
-  - Resolved: SDK + direct helper support first. Tool schema/direct-call support is deferred to a later parity branch.
+  - Updated resolution: include both SDK/direct helper support and workflow tool schema/direct-call support in the same implementation branch.
 
 - [x] **Q2: Session retry semantics.** Should fallback recreate a fresh `AgentSession` per candidate, or attempt `session.setModel(next)` on the same session and retry the prompt?
   - Resolved: recreate a fresh `AgentSession` per candidate, dispose failed sessions best-effort, and bind the stage to the first successful session.
@@ -610,6 +625,9 @@ Use Bun commands only.
 
 - [x] **Q8: Final fallback after explicit list exhaustion.** If the primary `model` and explicit `fallbackModels` all fail at runtime, should the workflow fail immediately or try the user's currently selected model?
   - Resolved: append the user's currently selected model as an implicit final fallback candidate. Skip it if already attempted; if it is unavailable or absent, fail with the last explicit candidate error.
+
+- [x] **Q9: Backward compatibility.** Should implementation preserve older workflow tool/direct execution spellings or add aliases for compatibility?
+  - Resolved: no backward compatibility shims. Implement the canonical `fallbackModels` contract only and update tests/docs/examples to the new shape.
 
 ## 10. References
 

@@ -16,14 +16,16 @@ Pull request / push
   ├─ bun run test:unit
   └─ bun run test:integration
 
-Release / prerelease merge
-  ├─ validate packages/coding-agent/package.json
+v<version> tag pushed
+  ├─ validate tag matches packages/coding-agent/package.json
   ├─ validate packages/workflows is private
-  ├─ cd packages/coding-agent && bun run build
+  ├─ bun run typecheck && bun run test:all
+  ├─ scripts/build-binaries.sh (regular build + cross-compile 6 targets)
   ├─ validate dist/builtin contains all bundled extensions
+  ├─ extract release notes from packages/coding-agent/CHANGELOG.md
   ├─ bun pm pack --dry-run from packages/coding-agent
   ├─ npm publish --provenance from packages/coding-agent
-  └─ create GitHub Release
+  └─ create GitHub Release with binaries attached
 ```
 
 ## Package Shape
@@ -91,25 +93,17 @@ Responds to `@claude` mentions in issues and pull requests.
 
 The publish pipeline (`publish.yml`) runs when:
 
-- a `release/*` or `prerelease/*` PR is merged into `main`
-- an existing GitHub Release is manually published
-- `workflow_dispatch` is run with a tag input such as `v0.8.0`
+- a `v<version>` tag is pushed (matches pi's `build-binaries.yml` trigger)
+- `workflow_dispatch` is run with an explicit tag input such as `v0.8.0`
 
-For pull request events, the publish job only runs when the PR was merged and the source branch starts with `release/` or `prerelease/`.
+### Tag Naming
 
-### Branch Naming
+| Tag | npm tag | GitHub Release |
+|-----|---------|----------------|
+| `v<major>.<minor>.<patch>` (e.g. `v0.8.0`) | `latest` | normal release, marked latest |
+| `v<major>.<minor>.<patch>-<prerelease>` (e.g. `v0.8.0-0`) | `next` | prerelease, not marked latest |
 
-| Branch type | Pattern | npm tag | GitHub Release |
-|-------------|---------|---------|----------------|
-| Release | `release/v<version>` | `latest` | normal release, marked latest |
-| Prerelease | `prerelease/v<version>` | `next` | prerelease, not marked latest |
-
-Examples:
-
-- `release/v0.8.0` → npm `latest`, GitHub Release `v0.8.0`
-- `prerelease/v0.8.0-0` → npm `next`, GitHub prerelease `v0.8.0-0`
-
-The branch version must match `packages/coding-agent/package.json` after removing the leading `v`.
+The tag must match `packages/coding-agent/package.json` after removing the leading `v`. All `packages/*` package versions stay in sync via `scripts/bump-version.ts`.
 
 ### Version Bump
 
@@ -118,7 +112,6 @@ Use the top-level script:
 ```sh
 bun run scripts/bump-version.ts 0.8.0
 bun run scripts/bump-version.ts 0.8.0-0
-bun run scripts/bump-version.ts --from-branch
 bun install
 ```
 
@@ -127,38 +120,41 @@ The script updates every `packages/*/package.json` version and any package READM
 ### Publish Flow
 
 ```text
-release/* or prerelease/* PR merged to main
+git push origin v0.8.0
        │
        ▼
 Publish @bastani/atomic
-  · checkout merge commit / requested tag
-  · setup Bun
-  · setup Node only for npm provenance publish
+  · checkout the tag
+  · setup Bun and Node (Node 24 only for npm provenance publish)
   · bun install --frozen-lockfile
-  · bun run typecheck
-  · bun run test:all
-  · cd packages/coding-agent && bun run build
-  · validate @bastani/atomic metadata
+  · bun run typecheck && bun run test:all
+  · validate tag matches packages/coding-agent/package.json
   · validate packages/workflows is private
+  · scripts/build-binaries.sh
+      - bun run build (regular dist/)
+      - bun build --compile --target=bun-<platform> for all 6 targets
+      - assemble per-platform asset trees
+      - produce atomic-<platform>.tar.gz / .zip in packages/coding-agent/binaries/
   · validate dist/builtin has workflows, pi-subagents, pi-mcp-adapter, pi-web-access, pi-intercom
+  · extract release notes from packages/coding-agent/CHANGELOG.md
   · determine npm tag: latest or next
-  · skip if package version already exists
+  · skip publish if version already exists on npm
   · cd packages/coding-agent && bun pm pack --dry-run
   · cd packages/coding-agent && npm publish --provenance --access public
        │
        ▼
 Create GitHub Release with softprops/action-gh-release@v3
+  · body: extracted CHANGELOG section
+  · files: 6 binary archives
 ```
 
 ### Why npm Publish Before GitHub Release?
 
-npm versions are immutable. The workflow publishes to npm first so a GitHub Release is only created after the npm package is available.
-
-The GitHub Release contains version metadata and generated release notes only.
+npm versions are immutable. The workflow publishes to npm first so the GitHub Release is only created after the npm package is available.
 
 ### GitHub Release Creation
 
-GitHub Releases are created with `softprops/action-gh-release@v3`, matching the release-action pattern used by `flora131/atomic`. The workflow does not shell out to `gh` for release creation.
+GitHub Releases are created with `softprops/action-gh-release@v3`, matching pi's release-action pattern. Release notes are extracted from `packages/coding-agent/CHANGELOG.md` using a pi-style awk filter on the `## [<version>]` heading.
 
 For prerelease versions (any version containing `-`):
 
@@ -171,6 +167,15 @@ For stable versions:
 - `prerelease: false`
 - `make_latest: true`
 - npm tag: `latest`
+
+Binaries attached to every release:
+
+- `atomic-darwin-arm64.tar.gz`
+- `atomic-darwin-x64.tar.gz`
+- `atomic-linux-x64.tar.gz`
+- `atomic-linux-arm64.tar.gz`
+- `atomic-windows-x64.zip`
+- `atomic-windows-arm64.zip`
 
 ---
 
@@ -210,7 +215,7 @@ The meaningful pre-publish checks are:
 | File | Trigger | Purpose |
 |------|---------|---------|
 | `test.yml` | Push to `main`, PR to `main` | Install, typecheck, build `@bastani/atomic`, unit tests, integration tests |
-| `publish.yml` | Merged `release/*`/`prerelease/*` PR, published release, manual dispatch | Publish `@bastani/atomic` and create GitHub Release |
+| `publish.yml` | `v*` tag push, manual dispatch with tag input | Build binaries, publish `@bastani/atomic` to npm with OIDC provenance, create GitHub Release with binaries |
 | `code-review.yml` | PR events | Claude-powered code review |
 | `pr-description.yml` | PR events | PR description generation |
 | `claude.yml` | `@claude` mentions and configured issue/PR events | Interactive Claude assistant |
@@ -219,20 +224,14 @@ The meaningful pre-publish checks are:
 
 ## Release Checklist
 
-1. Create a release branch:
+1. Bump versions on `main` (or a short-lived PR branch):
 
    ```sh
-   git checkout -b release/v0.8.0
-   # or
-   git checkout -b prerelease/v0.8.0-0
-   ```
-
-2. Bump versions:
-
-   ```sh
-   bun run scripts/bump-version.ts --from-branch
+   bun run scripts/bump-version.ts 0.8.0
    bun install
    ```
+
+2. Move the `[Unreleased]` section in `packages/coding-agent/CHANGELOG.md` to `## [0.8.0] - <YYYY-MM-DD>`. The publish workflow uses this section as the GitHub Release body.
 
 3. Run local validation:
 
@@ -244,13 +243,16 @@ The meaningful pre-publish checks are:
    bun run test:integration
    ```
 
-4. Commit:
+4. Commit and tag:
 
    ```sh
-   git add packages/*/package.json packages/*/README.md bun.lock
+   git add packages/*/package.json packages/*/README.md packages/coding-agent/CHANGELOG.md bun.lock
    git commit -m "chore(release): bump to v0.8.0"
+   git tag v0.8.0
+   git push origin main
+   git push origin v0.8.0
    ```
 
-5. Open a PR to `main`.
-6. Merge after checks pass.
-7. Confirm `publish.yml` publishes only `@bastani/atomic` to npm and creates the GitHub Release.
+5. Confirm `publish.yml` cross-compiles binaries, publishes `@bastani/atomic` to npm with OIDC provenance, and creates the GitHub Release with binaries attached.
+
+For prereleases, substitute `0.8.0-0` and tag `v0.8.0-0`.

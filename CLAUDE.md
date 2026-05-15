@@ -117,12 +117,7 @@ pi:
 
 ## Releasing
 
-### Branch Naming Convention
-
-- **Release branches**: `release/v<major>.<minor>.<patch>` (e.g. `release/v0.1.0`)
-- **Prerelease branches**: `prerelease/v<major>.<minor>.<patch>-<prerelease>` (e.g. `prerelease/v0.1.0-0`)
-
-The version in the branch name must match `packages/coding-agent/package.json` exactly after removing the leading `v`. All `packages/*` package versions should stay in sync.
+Atomic mirrors pi's tag-driven release flow: bump versions locally, commit, push a `v<version>` git tag, and CI publishes to npm with OIDC provenance and creates the GitHub Release with cross-compiled binaries attached.
 
 ### Bumping Versions
 
@@ -132,29 +127,26 @@ Use the top-level `scripts/bump-version.ts` script to update every `packages/*/p
 # Explicit version
 bun run scripts/bump-version.ts 0.1.0
 bun run scripts/bump-version.ts 0.1.0-0
-
-# Auto-detect version from the current branch name
-bun run scripts/bump-version.ts --from-branch
 ```
 
-The `--from-branch` flag extracts the version from the current branch name, so check out the release or prerelease branch first. Run `bun install` afterward to refresh `bun.lock`.
+Run `bun install` afterward to refresh `bun.lock`.
 
 ### Workflow
 
-1. Create a branch following the naming convention above.
-2. Run the bump-version script (prefer `--from-branch`) and then `bun install`.
+1. Bump versions with `bun run scripts/bump-version.ts <version>`, then `bun install`.
+2. Move the `[Unreleased]` section in `packages/coding-agent/CHANGELOG.md` to a new `## [<version>] - <YYYY-MM-DD>` section. The publish workflow extracts release notes from this section.
 3. Run `bun run typecheck`, `cd packages/coding-agent && bun run build`, and the relevant tests.
-4. Commit with the message `chore(release): bump to v<version>`.
-5. Open a PR to `main`.
-6. Once the PR is approved and merged, `.github/workflows/publish.yml` publishes the root package to npm with provenance and creates the GitHub Release automatically.
+4. Commit with `chore(release): bump to v<version>`.
+5. Tag with `git tag v<version>` and push both branch and tag: `git push && git push origin v<version>`.
+6. The `v*` tag push triggers `.github/workflows/publish.yml`, which validates the tag matches `packages/coding-agent/package.json`, runs typecheck/tests, cross-compiles binaries via `scripts/build-binaries.sh`, publishes `@bastani/atomic@<version>` to npm with OIDC provenance, and creates the GitHub Release with binaries attached.
 
 Release automation behavior:
 
-- Merging `release/v<version>` publishes only `@bastani/atomic@<version>` to npm with the `latest` tag and creates a non-prerelease GitHub Release `v<version>` marked as latest.
-- Merging `prerelease/v<version>` publishes only `@bastani/atomic@<version>` to npm with the `next` tag and creates a prerelease GitHub Release `v<version>` that is **not** marked latest.
-- `packages/workflows` and companion pi packages are bundled into `@bastani/atomic` at build time; they are not independently published by this repo's CI. The GitHub Release is version metadata and generated release notes only — no platform binaries or build artifacts are attached.
-- GitHub Release creation uses `softprops/action-gh-release@v3`, matching the release-action pattern in `flora131/atomic`, rather than shelling out to `gh` directly.
-- The publish workflow also supports manual `workflow_dispatch` with a tag and an existing published GitHub Release/tag path for recovery, but the normal path is merge release/prerelease PR → npm publish → automatic GitHub Release.
+- A `v<version>` tag (e.g. `v0.8.0`) publishes `@bastani/atomic@<version>` to npm with the `latest` tag and creates a non-prerelease GitHub Release marked as latest.
+- A prerelease tag like `v0.8.0-0` publishes with the `next` npm tag and creates a prerelease GitHub Release that is **not** marked latest.
+- `packages/workflows` and companion pi packages are bundled into `@bastani/atomic` at build time; they are not independently published.
+- GitHub Release uses `softprops/action-gh-release@v3` with release notes extracted from `packages/coding-agent/CHANGELOG.md` (pi-style awk extraction). Six binary archives are attached: `atomic-{darwin-arm64,darwin-x64,linux-x64,linux-arm64}.tar.gz` and `atomic-{windows-x64,windows-arm64}.zip`.
+- For recovery, `workflow_dispatch` accepts an explicit `tag` input.
 
 ## CI
 

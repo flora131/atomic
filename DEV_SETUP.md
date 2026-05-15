@@ -237,19 +237,21 @@ Examples import the workspace package `@bastani/workflows`.
 
 ## Releasing
 
-### Branch naming
-
-- Release: `release/v<major>.<minor>.<patch>` (e.g. `release/v0.1.1`)
-- Prerelease: `prerelease/v<major>.<minor>.<patch>-<prerelease>` (e.g. `prerelease/v0.1.1-0`)
+Atomic mirrors pi's tag-driven release flow: push a `v<version>` git tag and CI cross-compiles binaries, publishes to npm with OIDC provenance, and creates the GitHub Release with binaries attached.
 
 ### Workflow
 
-1. Create a branch following the naming convention above.
-2. Run `bun run scripts/bump-version.ts --from-branch` or pass an explicit version.
+1. Run `bun run scripts/bump-version.ts <version>` (e.g. `0.8.0` or `0.8.0-0`), then `bun install`.
+2. Move the `[Unreleased]` section in `packages/coding-agent/CHANGELOG.md` to a new `## [<version>] - <YYYY-MM-DD>` section. CI extracts release notes from this section.
 3. Run `bun run typecheck`, `cd packages/coding-agent && bun run build`, and `bun run test:all`.
-4. Commit `packages/*/package.json`, `packages/*/README.md`, `bun.lock`, and any changelog updates with `chore(release): bump to v<version>`.
-5. Open a PR to `main`.
-6. Once merged, `.github/workflows/publish.yml` publishes only `@bastani/atomic` to npm with provenance and creates the GitHub Release.
+4. Commit `packages/*/package.json`, `packages/*/README.md`, `packages/coding-agent/CHANGELOG.md`, and `bun.lock` with `chore(release): bump to v<version>`.
+5. Tag and push:
+   ```sh
+   git tag v<version>
+   git push origin main
+   git push origin v<version>
+   ```
+6. The tag push triggers `.github/workflows/publish.yml`, which publishes `@bastani/atomic` to npm with OIDC provenance and creates the GitHub Release with six binary archives attached (darwin/linux/windows × arm64/x64).
 
 Bun is the development/test/runtime path. **npm is still the registry publication tool** because npm's provenance flow signs the published tarball via OIDC. Provenance is enabled in CI; no `NPM_TOKEN` is needed.
 

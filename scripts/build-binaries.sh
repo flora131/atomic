@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+#
+# Build @bastani/atomic binaries for all platforms locally.
+# Mirrors .github/workflows/publish.yml binary build.
+#
+# Usage:
+#   ./scripts/build-binaries.sh [--skip-deps] [--platform <platform>]
+#
+# Options:
+#   --skip-deps         Skip installing cross-platform native bindings
+#   --platform <name>   Build only for specified platform
+#                       (darwin-arm64, darwin-x64, linux-x64, linux-arm64, windows-x64, windows-arm64)
+#
+# Output:
+#   packages/coding-agent/binaries/
+#     atomic-darwin-arm64.tar.gz
+#     atomic-darwin-x64.tar.gz
+#     atomic-linux-x64.tar.gz
+#     atomic-linux-arm64.tar.gz
+#     atomic-windows-x64.zip
+#     atomic-windows-arm64.zip
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+SKIP_DEPS=false
+PLATFORM=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --skip-deps)
+            SKIP_DEPS=true
+            shift
+            ;;
+        --platform)
+            PLATFORM="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
+
+if [[ -n "$PLATFORM" ]]; then
+    case "$PLATFORM" in
+        darwin-arm64|darwin-x64|linux-x64|linux-arm64|windows-x64|windows-arm64)
+            ;;
+        *)
+            echo "Invalid platform: $PLATFORM"
+            echo "Valid platforms: darwin-arm64, darwin-x64, linux-x64, linux-arm64, windows-x64, windows-arm64"
+            exit 1
+            ;;
+    esac
+fi
+
+echo "==> Installing dependencies..."
+bun install --frozen-lockfile
+
+if [[ "$SKIP_DEPS" == "false" ]]; then
+    echo "==> Installing cross-platform native bindings for clipboard..."
+    # bun (like npm) only installs optionalDependencies for the current
+    # platform/arch. For bun --compile to embed the right native module
+    # per target, force-install every platform binding via bun add --no-save.
+    # Failures here are non-fatal: clipboard is optional and the runtime
+    # call site has a try/catch fallback.
+    bun add --no-save \
+        @mariozechner/clipboard-darwin-arm64@0.3.2 \
+        @mariozechner/clipboard-darwin-x64@0.3.2 \
+        @mariozechner/clipboard-linux-x64-gnu@0.3.2 \
+        @mariozechner/clipboard-linux-arm64-gnu@0.3.2 \
+        @mariozechner/clipboard-win32-x64-msvc@0.3.2 \
+        @mariozechner/clipboard-win32-arm64-msvc@0.3.2 || \
+        echo "  warning: one or more clipboard bindings unavailable; binaries will fall back to no-op clipboard"
+else
+    echo "==> Skipping cross-platform native bindings (--skip-deps)"
+fi
+
+echo "==> Building @bastani/atomic package..."
+cd packages/coding-agent
+bun run build
+
+echo "==> Building binaries..."
+
+rm -rf binaries
+mkdir -p binaries
+
+if [[ -n "$PLATFORM" ]]; then
+    PLATFORMS=("$PLATFORM")
+else
+    PLATFORMS=(darwin-arm64 darwin-x64 linux-x64 linux-arm64 windows-x64 windows-arm64)
+fi
+
+for platform in "${PLATFORMS[@]}"; do
+    echo "Building for $platform..."
+    mkdir -p "binaries/$platform"
+    if [[ "$platform" == windows-* ]]; then
+        bun build --compile --target=bun-$platform ./dist/bun/cli.js --outfile "binaries/$platform/atomic.exe"
+    else
+        bun build --compile --target=bun-$platform ./dist/bun/cli.js --outfile "binaries/$platform/atomic"
+    fi
+done
+
+echo "==> Copying shared assets..."
+for platform in "${PLATFORMS[@]}"; do
+    cp package.json "binaries/$platform/"
+    cp README.md "binaries/$platform/"
+    cp CHANGELOG.md "binaries/$platform/"
+    cp ../../node_modules/@silvia-odwyer/photon-node/photon_rs_bg.wasm "binaries/$platform/"
+    mkdir -p "binaries/$platform/theme"
+    cp dist/modes/interactive/theme/*.json "binaries/$platform/theme/"
+    mkdir -p "binaries/$platform/assets"
+    cp dist/modes/interactive/assets/* "binaries/$platform/assets/"
+    cp -r dist/core/export-html "binaries/$platform/"
+    cp -r docs "binaries/$platform/"
+    cp -r examples "binaries/$platform/"
+done
+
+echo "==> Creating release archives..."
+cd binaries
+
+for platform in "${PLATFORMS[@]}"; do
+    if [[ "$platform" == windows-* ]]; then
+        echo "Creating atomic-$platform.zip..."
+        (cd "$platform" && zip -rq "../atomic-$platform.zip" .)
+    else
+        echo "Creating atomic-$platform.tar.gz..."
+        mv "$platform" atomic && tar -czf "atomic-$platform.tar.gz" atomic && mv atomic "$platform"
+    fi
+done
+
+echo ""
+echo "==> Build complete!"
+echo "Archives available in packages/coding-agent/binaries/"
+ls -lh *.tar.gz *.zip 2>/dev/null || true

@@ -67,7 +67,6 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -172,7 +171,7 @@ jobs:
             import pkg from "./package.json" with { type: "json" };
 
             const failures = [];
-            const expectedBuiltins = ["workflows", "pi-subagents", "pi-mcp-adapter", "pi-web-access", "pi-intercom"];
+            const expectedBuiltins = ["workflows", "subagents", "mcp", "web-access", "intercom"];
             const clean = (value) => String(value).replace(/^\.\//, "").replace(/\/$/, "");
             const walk = (dir) => {
               if (!existsSync(dir)) return [];

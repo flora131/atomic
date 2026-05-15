@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-05-15
+
+### Fixed
+
+- Fixed the Atomic changelog viewer to show only the current release notes instead of including older sections.
+- Fixed the published `@bastani/atomic` package manifest so Bun can install it outside the monorepo without resolving private workspace-only bundled packages.
+
 ## [0.8.1-1] - 2026-05-15
 
 ### Fixed

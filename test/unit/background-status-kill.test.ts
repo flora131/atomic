@@ -6,11 +6,11 @@
 
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { killRun, killAllRuns, resumeRun } from "../../src/runs/background/status.js";
-import { createStore } from "../../src/shared/store.js";
-import { createCancellationRegistry } from "../../src/runs/background/cancellation-registry.js";
-import type { WorkflowPersistencePort } from "../../src/shared/types.js";
-import type { RunSnapshot, StageSnapshot } from "../../src/shared/store-types.js";
+import { killRun, killAllRuns, resumeRun } from "../../packages/workflows/src/runs/background/status.js";
+import { createStore } from "../../packages/workflows/src/shared/store.js";
+import { createCancellationRegistry } from "../../packages/workflows/src/runs/background/cancellation-registry.js";
+import type { WorkflowPersistencePort } from "../../packages/workflows/src/shared/types.js";
+import type { RunSnapshot, StageSnapshot } from "../../packages/workflows/src/shared/store-types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

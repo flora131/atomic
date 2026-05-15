@@ -11,12 +11,12 @@ import type {
   StageMcpOptions,
   WorkflowMcpPort,
   WorkflowPersistencePort,
-} from "../../src/shared/types.js";
-import type { WorkflowOverlayAdapter, WorkflowNotice } from "../../src/shared/store-types.js";
-import type { RunOpts } from "../../src/runs/foreground/executor.js";
-import type { CancellationRegistry } from "../../src/runs/background/cancellation-registry.js";
-import { run } from "../../src/runs/foreground/executor.js";
-import { defineWorkflow } from "../../src/workflows/define-workflow.js";
+} from "../../packages/workflows/src/shared/types.js";
+import type { WorkflowOverlayAdapter, WorkflowNotice } from "../../packages/workflows/src/shared/store-types.js";
+import type { RunOpts } from "../../packages/workflows/src/runs/foreground/executor.js";
+import type { CancellationRegistry } from "../../packages/workflows/src/runs/background/cancellation-registry.js";
+import { run } from "../../packages/workflows/src/runs/foreground/executor.js";
+import { defineWorkflow } from "../../packages/workflows/src/workflows/define-workflow.js";
 
 // ---------------------------------------------------------------------------
 // StageOptions — structural type tests

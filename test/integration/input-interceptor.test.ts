@@ -1,7 +1,7 @@
 /**
  * Verify the `pi.on("input", …)` interceptor:
  *   1. Registers a handler under the `"input"` event.
- *   2. For `/workflow …` and `/workflows-doctor …` text, dispatches the
+ *   2. For `/workflow …` text, dispatches the
  *      registered command handler directly and returns
  *      `{ action: "handled" }` — short-circuiting pi's
  *      `startPendingSubmission` flow that otherwise echoes the message
@@ -22,12 +22,12 @@
  */
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import factory from "../../src/extension/index.js";
+import factory from "../../packages/workflows/src/extension/index.js";
 import type {
   ExtensionAPI,
   PiCommandContext,
   PiCommandOptions,
-} from "../../src/extension/index.js";
+} from "../../packages/workflows/src/extension/index.js";
 
 type EventHandler = (event?: unknown, ctx?: PiCommandContext) => Promise<unknown> | unknown;
 
@@ -111,20 +111,6 @@ describe("installInputInterceptor — pi.on(\"input\") wiring", () => {
     assert.equal(commandCalls.length, 1, "must dispatch the workflow command handler exactly once");
     assert.equal(commandCalls[0]!.name, "workflow");
     assert.equal(commandCalls[0]!.args, "list");
-  });
-
-  test("/workflows-doctor text short-circuits with { action: 'handled' }", async () => {
-    const { pi, events, commandCalls } = buildMock();
-    factory(pi);
-
-    const handler = (events.get("input") ?? [])[0]!;
-    const ctx: PiCommandContext = { ui: { notify: () => undefined } };
-
-    const result = await handler({ text: "/workflows-doctor", source: "interactive" }, ctx);
-
-    assert.deepEqual(result, { action: "handled" });
-    assert.equal(commandCalls.length, 1);
-    assert.equal(commandCalls[0]!.name, "workflows-doctor");
   });
 
   test("regular chat text falls through (returns undefined, no command dispatched)", async () => {

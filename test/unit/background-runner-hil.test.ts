@@ -16,12 +16,12 @@
 
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { runDetached } from "../../src/runs/background/runner.js";
-import { createStore } from "../../src/shared/store.js";
-import { createCancellationRegistry } from "../../src/runs/background/cancellation-registry.js";
-import { createJobTracker } from "../../src/runs/background/job-tracker.js";
-import { defineWorkflow } from "../../src/workflows/define-workflow.js";
-import type { WorkflowUIAdapter } from "../../src/shared/types.js";
+import { runDetached } from "../../packages/workflows/src/runs/background/runner.js";
+import { createStore } from "../../packages/workflows/src/shared/store.js";
+import { createCancellationRegistry } from "../../packages/workflows/src/runs/background/cancellation-registry.js";
+import { createJobTracker } from "../../packages/workflows/src/runs/background/job-tracker.js";
+import { defineWorkflow } from "../../packages/workflows/src/workflows/define-workflow.js";
+import type { WorkflowUIAdapter } from "../../packages/workflows/src/shared/types.js";
 
 interface UISpy extends WorkflowUIAdapter {
   inputCalls: string[];

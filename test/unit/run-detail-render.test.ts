@@ -7,12 +7,12 @@
 
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { renderRunDetail } from "../../src/tui/run-detail.js";
-import { inspectRun } from "../../src/runs/background/status.js";
-import { createStore } from "../../src/shared/store.js";
-import { deriveGraphTheme } from "../../src/tui/graph-theme.js";
-import type { RunDetail } from "../../src/runs/background/status.js";
-import type { RunSnapshot, StageSnapshot } from "../../src/shared/store-types.js";
+import { renderRunDetail } from "../../packages/workflows/src/tui/run-detail.js";
+import { inspectRun } from "../../packages/workflows/src/runs/background/status.js";
+import { createStore } from "../../packages/workflows/src/shared/store.js";
+import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.js";
+import type { RunDetail } from "../../packages/workflows/src/runs/background/status.js";
+import type { RunSnapshot, StageSnapshot } from "../../packages/workflows/src/shared/store-types.js";
 
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
 const stripAnsi = (s: string) => s.replace(ANSI_RE, "");

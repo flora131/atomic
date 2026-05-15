@@ -1,6 +1,6 @@
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { defineWorkflow } from "../../src/workflows/define-workflow.js";
+import { defineWorkflow } from "../../packages/workflows/src/workflows/define-workflow.js";
 
 describe("defineWorkflow immutable builder semantics", () => {
   test("description does not mutate previous builder", () => {

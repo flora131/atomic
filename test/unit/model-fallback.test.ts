@@ -5,8 +5,8 @@ import {
   isRetryableModelFailure,
   validateWorkflowModels,
   WorkflowModelValidationError,
-} from "../../src/runs/shared/model-fallback.js";
-import type { WorkflowModelInfo } from "../../src/shared/types.js";
+} from "../../packages/workflows/src/runs/shared/model-fallback.js";
+import type { WorkflowModelInfo } from "../../packages/workflows/src/shared/types.js";
 
 const models: readonly WorkflowModelInfo[] = [
   { provider: "anthropic", id: "claude-sonnet-4", fullId: "anthropic/claude-sonnet-4" },
@@ -67,7 +67,7 @@ describe("model fallback helpers", () => {
     });
 
     assert.deepEqual(warnings, [
-      "atomic-workflows: model catalog unavailable; using the current selected model for fallback validation.",
+      "workflows: model catalog unavailable; using the current selected model for fallback validation.",
     ]);
   });
 

@@ -3,7 +3,7 @@
  *
  * Covers:
  *   1. loadWorkflowConfig — globalConfig/projectConfig provenance fields in ConfigLoadResult
- *   2. Global workflow path ./workflows/foo.ts resolves under <homeDir>/.pi/agent
+ *   2. Global workflow path ./workflows/foo.ts resolves under <homeDir>/.atomic/agent
  *   3. Project workflow key overrides global key; scope changes to settings-project
  *   4. discoverWorkflows distinguishes settings-project vs settings-global source kinds
  */
@@ -17,8 +17,8 @@ import { randomUUID } from "node:crypto";
 import {
   loadWorkflowConfig,
   toScopedDiscoveryConfig,
-} from "../../src/extension/config-loader.js";
-import { discoverWorkflows } from "../../src/extension/discovery.js";
+} from "../../packages/workflows/src/extension/config-loader.js";
+import { discoverWorkflows } from "../../packages/workflows/src/extension/discovery.js";
 
 // ---------------------------------------------------------------------------
 // Temp-dir helpers
@@ -42,19 +42,17 @@ afterAll(() => {
 /**
  * Write a workflow extension config.json at the canonical path for scope.
  *
- * scope "global"   → <base>/.pi/agent/extensions/workflow/config.json
- * scope "project1" → <base>/.pi/extensions/workflow/config.json
- * scope "project2" → <base>/.pi/agent/extensions/workflow/config.json
+ * scope "global"  → <base>/.atomic/agent/extensions/workflow/config.json
+ * scope "project" → <base>/.atomic/extensions/workflow/config.json
  */
 function writeConfigFile(
   base: string,
-  scope: "global" | "project1" | "project2",
+  scope: "global" | "project",
   content: object,
 ): string {
   const paths: Record<string, string[]> = {
-    global:    [".pi", "agent", "extensions", "workflow", "config.json"],
-    project1:  [".pi", "extensions", "workflow", "config.json"],
-    project2:  [".pi", "agent", "extensions", "workflow", "config.json"],
+    global: [".atomic", "agent", "extensions", "workflow", "config.json"],
+    project: [".atomic", "extensions", "workflow", "config.json"],
   };
   const segments = paths[scope];
   const dir = join(base, ...segments.slice(0, -1));
@@ -119,24 +117,24 @@ describe("loadWorkflowConfig — provenance: globalConfig field", () => {
     const proj = tempDir("lc-global-wf-proj");
 
     writeConfigFile(home, "global", {
-      workflows: { foo: { path: "../../src/extension/workflows/foo.ts" } },
+      workflows: { foo: { path: "../../packages/workflows/src/extension/workflows/foo.ts" } },
     });
 
     const result = await loadWorkflowConfig({ homeDir: home, projectRoot: proj });
 
     assert.deepEqual(result.globalConfig?.workflows, {
-      foo: { path: "../../src/extension/workflows/foo.ts" },
+      foo: { path: "../../packages/workflows/src/extension/workflows/foo.ts" },
     });
     assert.equal(result.projectConfig ?? null, null);
   });
 });
 
 describe("loadWorkflowConfig — provenance: projectConfig field", () => {
-  test("project config (candidate 1) present → projectConfig populated, globalConfig null", async () => {
+  test("project config present → projectConfig populated, globalConfig null", async () => {
     const home = tempDir("lc-proj-only");
     const proj = tempDir("lc-proj-only-base");
 
-    writeConfigFile(proj, "project1", { defaultConcurrency: 8 });
+    writeConfigFile(proj, "project", { defaultConcurrency: 8 });
 
     const result = await loadWorkflowConfig({ homeDir: home, projectRoot: proj });
 
@@ -145,29 +143,18 @@ describe("loadWorkflowConfig — provenance: projectConfig field", () => {
     assert.equal(result.globalConfig ?? null, null);
   });
 
-  test("project config (candidate 2) present → projectConfig populated", async () => {
-    const home = tempDir("lc-proj-cand2");
-    const proj = tempDir("lc-proj-cand2-base");
-
-    writeConfigFile(proj, "project2", { persistRuns: false });
-
-    const result = await loadWorkflowConfig({ homeDir: home, projectRoot: proj });
-
-    assert.equal(result.projectConfig?.persistRuns, false);
-  });
-
   test("project config with workflows entry → projectConfig.workflows populated", async () => {
     const home = tempDir("lc-proj-wf");
     const proj = tempDir("lc-proj-wf-base");
 
-    writeConfigFile(proj, "project1", {
-      workflows: { bar: { path: "../../src/extension/workflows/bar.ts" } },
+    writeConfigFile(proj, "project", {
+      workflows: { bar: { path: "../../packages/workflows/src/extension/workflows/bar.ts" } },
     });
 
     const result = await loadWorkflowConfig({ homeDir: home, projectRoot: proj });
 
     assert.deepEqual(result.projectConfig?.workflows, {
-      bar: { path: "../../src/extension/workflows/bar.ts" },
+      bar: { path: "../../packages/workflows/src/extension/workflows/bar.ts" },
     });
   });
 });
@@ -178,7 +165,7 @@ describe("loadWorkflowConfig — provenance: both configs", () => {
     const proj = tempDir("lc-both-proj");
 
     writeConfigFile(home, "global", { maxDepth: 2 });
-    writeConfigFile(proj, "project1", { maxDepth: 6 });
+    writeConfigFile(proj, "project", { maxDepth: 6 });
 
     const result = await loadWorkflowConfig({ homeDir: home, projectRoot: proj });
 
@@ -194,57 +181,57 @@ describe("loadWorkflowConfig — provenance: both configs", () => {
 
     writeConfigFile(home, "global", {
       workflows: {
-        shared: { path: "../../src/extension/global-shared.ts" },
-        "g-only": { path: "../../src/extension/g-only.ts" },
+        shared: { path: "../../packages/workflows/src/extension/global-shared.ts" },
+        "g-only": { path: "../../packages/workflows/src/extension/g-only.ts" },
       },
     });
-    writeConfigFile(proj, "project1", {
+    writeConfigFile(proj, "project", {
       workflows: {
-        shared: { path: "../../src/extension/project-shared.ts" },
+        shared: { path: "../../packages/workflows/src/extension/project-shared.ts" },
       },
     });
 
     const result = await loadWorkflowConfig({ homeDir: home, projectRoot: proj });
 
     // Provenance: raw configs preserved as-is
-    assert.equal(result.globalConfig?.workflows?.["shared"]?.path, "../../src/extension/global-shared.ts");
-    assert.equal(result.projectConfig?.workflows?.["shared"]?.path, "../../src/extension/project-shared.ts");
+    assert.equal(result.globalConfig?.workflows?.["shared"]?.path, "../../packages/workflows/src/extension/global-shared.ts");
+    assert.equal(result.projectConfig?.workflows?.["shared"]?.path, "../../packages/workflows/src/extension/project-shared.ts");
 
     // Merged config: project entry wins
-    assert.equal(result.config?.workflows?.["shared"]?.path, "../../src/extension/project-shared.ts");
+    assert.equal(result.config?.workflows?.["shared"]?.path, "../../packages/workflows/src/extension/project-shared.ts");
     // g-only from global still present in merged
-    assert.equal(result.config?.workflows?.["g-only"]?.path, "../../src/extension/g-only.ts");
+    assert.equal(result.config?.workflows?.["g-only"]?.path, "../../packages/workflows/src/extension/g-only.ts");
   });
 });
 
 // ---------------------------------------------------------------------------
-// 2. Global path ./workflows/foo.ts resolves under <homeDir>/.pi/agent
+// 2. Global path ./workflows/foo.ts resolves under <homeDir>/.atomic/agent
 // ---------------------------------------------------------------------------
 
-describe("toScopedDiscoveryConfig — global path resolution under <homeDir>/.pi/agent", () => {
-  test("relative path in globalConfig.workflows resolves to <homeDir>/.pi/agent/<path>", () => {
+describe("toScopedDiscoveryConfig — global path resolution under <homeDir>/.atomic/agent", () => {
+  test("relative path in globalConfig.workflows resolves to <homeDir>/.atomic/agent/<path>", () => {
     const homeDir = "/fake/home";
-    const globalBase = join(homeDir, ".pi", "agent");
+    const globalBase = join(homeDir, ".atomic", "agent");
 
     const result = toScopedDiscoveryConfig(
-      { workflows: { foo: { path: "../../src/extension/workflows/foo.ts" } } },
+      { workflows: { foo: { path: "../../packages/workflows/src/extension/workflows/foo.ts" } } },
       null,
       { homeDir, projectRoot: "/fake/project" },
     );
 
     assert.deepEqual(result.globalWorkflows, {
-      foo: join(globalBase, "../../src/extension/workflows/foo.ts"),
+      foo: join(globalBase, "../../packages/workflows/src/extension/workflows/foo.ts"),
     });
     assert.equal("projectWorkflows" in result, false);
   });
 
-  test("../../src/extension/workflows/foo.ts global path resolves relative to <homeDir>/.pi/agent", () => {
+  test("../../packages/workflows/src/extension/workflows/foo.ts global path resolves relative to <homeDir>/.atomic/agent", () => {
     const homeDir = "/fake/home";
-    const globalBase = join(homeDir, ".pi", "agent");
-    const expected = join(globalBase, "../../src/extension/workflows/foo.ts");
+    const globalBase = join(homeDir, ".atomic", "agent");
+    const expected = join(globalBase, "../../packages/workflows/src/extension/workflows/foo.ts");
 
     const result = toScopedDiscoveryConfig(
-      { workflows: { foo: { path: "../../src/extension/workflows/foo.ts" } } },
+      { workflows: { foo: { path: "../../packages/workflows/src/extension/workflows/foo.ts" } } },
       null,
       { homeDir, projectRoot: "/fake/project" },
     );
@@ -252,12 +239,12 @@ describe("toScopedDiscoveryConfig — global path resolution under <homeDir>/.pi
     assert.equal(result.globalWorkflows?.["foo"], expected);
   });
 
-  test("loadWorkflowConfig result fed to toScopedDiscoveryConfig — global relative path uses .pi/agent base", async () => {
+  test("loadWorkflowConfig result fed to toScopedDiscoveryConfig — global relative path uses .atomic/agent base", async () => {
     const home = tempDir("scope-global-resolve");
     const proj = tempDir("scope-global-resolve-proj");
 
     writeConfigFile(home, "global", {
-      workflows: { foo: { path: "../../src/extension/workflows/foo.ts" } },
+      workflows: { foo: { path: "../../packages/workflows/src/extension/workflows/foo.ts" } },
     });
 
     const { globalConfig, projectConfig } = await loadWorkflowConfig({
@@ -270,7 +257,7 @@ describe("toScopedDiscoveryConfig — global path resolution under <homeDir>/.pi
       projectRoot: proj,
     });
 
-    const expected = join(home, ".pi", "agent", "../../src/extension/workflows/foo.ts");
+    const expected = join(home, ".atomic", "agent", "../../packages/workflows/src/extension/workflows/foo.ts");
     assert.equal(dc.globalWorkflows?.["foo"], expected);
     assert.equal("projectWorkflows" in dc, false);
   });
@@ -286,17 +273,17 @@ describe("toScopedDiscoveryConfig — project override changes scope", () => {
     const projectRoot = "/fake/project";
 
     const result = toScopedDiscoveryConfig(
-      { workflows: { shared: { path: "../../src/extension/global-shared.ts" }, "g-only": { path: "../../src/extension/g-only.ts" } } },
-      { workflows: { shared: { path: "../../src/extension/project-shared.ts" } } },
+      { workflows: { shared: { path: "../../packages/workflows/src/extension/global-shared.ts" }, "g-only": { path: "../../packages/workflows/src/extension/g-only.ts" } } },
+      { workflows: { shared: { path: "../../packages/workflows/src/extension/project-shared.ts" } } },
       { homeDir, projectRoot },
     );
 
     // project entry in projectWorkflows
-    assert.equal(result.projectWorkflows?.["shared"], join(projectRoot, "../../src/extension/project-shared.ts"));
+    assert.equal(result.projectWorkflows?.["shared"], join(projectRoot, "../../packages/workflows/src/extension/project-shared.ts"));
     // global entry for same key excluded
     assert.equal(result.globalWorkflows?.["shared"], undefined);
     // global-only key still present
-    assert.equal(result.globalWorkflows?.["g-only"], join(homeDir, ".pi", "agent", "../../src/extension/g-only.ts"));
+    assert.equal(result.globalWorkflows?.["g-only"], join(homeDir, ".atomic", "agent", "../../packages/workflows/src/extension/g-only.ts"));
   });
 
   test("loadWorkflowConfig result → toScopedDiscoveryConfig: shared key in projectWorkflows only", async () => {
@@ -304,10 +291,10 @@ describe("toScopedDiscoveryConfig — project override changes scope", () => {
     const proj = tempDir("scope-override-proj");
 
     writeConfigFile(home, "global", {
-      workflows: { shared: { path: "../../src/extension/global-shared.ts" } },
+      workflows: { shared: { path: "../../packages/workflows/src/extension/global-shared.ts" } },
     });
-    writeConfigFile(proj, "project1", {
-      workflows: { shared: { path: "../../src/extension/project-shared.ts" } },
+    writeConfigFile(proj, "project", {
+      workflows: { shared: { path: "../../packages/workflows/src/extension/project-shared.ts" } },
     });
 
     const { globalConfig, projectConfig } = await loadWorkflowConfig({
@@ -321,7 +308,7 @@ describe("toScopedDiscoveryConfig — project override changes scope", () => {
     });
 
     // shared key in projectWorkflows (project wins)
-    assert.equal(dc.projectWorkflows?.["shared"], join(proj, "../../src/extension/project-shared.ts"));
+    assert.equal(dc.projectWorkflows?.["shared"], join(proj, "../../packages/workflows/src/extension/project-shared.ts"));
     // shared NOT in globalWorkflows
     assert.equal(dc.globalWorkflows?.["shared"], undefined);
     // globalWorkflows absent (only key was shared, which is overridden)
@@ -339,7 +326,7 @@ describe("discoverWorkflows — settings-project vs settings-global source kinds
     const proj = tempDir("disc-global-kind-proj");
 
     // Write actual workflow file at the resolved path
-    const globalBase = join(home, ".pi", "agent");
+    const globalBase = join(home, ".atomic", "agent");
     const wfDir = join(globalBase, "workflows");
     const wfPath = writeWorkflowFile(wfDir, "Global Workflow", "global-wf-kind-test");
 
@@ -393,7 +380,7 @@ describe("discoverWorkflows — settings-project vs settings-global source kinds
     const proj = tempDir("disc-override-kind-proj");
 
     // Write two separate workflow files (same normalizedName would clash — use distinct names)
-    const globalBase = join(home, ".pi", "agent");
+    const globalBase = join(home, ".atomic", "agent");
     const globalWfPath = writeWorkflowFile(
       join(globalBase, "workflows"),
       "Override Workflow (Global)",
@@ -434,7 +421,7 @@ describe("discoverWorkflows — settings-project vs settings-global source kinds
     const proj = tempDir("disc-disjoint-kinds-proj");
 
     const globalWfPath = writeWorkflowFile(
-      join(home, ".pi", "agent", "workflows"),
+      join(home, ".atomic", "agent", "workflows"),
       "Global Distinct",
       "disjoint-global",
     );
@@ -471,7 +458,7 @@ describe("discoverWorkflows — settings-project vs settings-global source kinds
 
     // Write actual workflow files
     const globalWfPath = writeWorkflowFile(
-      join(home, ".pi", "agent", "workflows"),
+      join(home, ".atomic", "agent", "workflows"),
       "E2E Global",
       "e2e-global-wf",
     );
@@ -487,7 +474,7 @@ describe("discoverWorkflows — settings-project vs settings-global source kinds
     );
 
     // Global config: e2e-global-wf (absolute) + e2e-shared-wf (absolute, will be overridden)
-    const globalSharedPath = join(home, ".pi", "agent", "workflows", "e2e-shared-global.ts");
+    const globalSharedPath = join(home, ".atomic", "agent", "workflows", "e2e-shared-global.ts");
     writeFileSync(
       globalSharedPath,
       `export default {
@@ -507,7 +494,7 @@ describe("discoverWorkflows — settings-project vs settings-global source kinds
         "e2e-shared-wf":  { path: globalSharedPath },
       },
     });
-    writeConfigFile(proj, "project1", {
+    writeConfigFile(proj, "project", {
       workflows: {
         "e2e-project-wf": { path: projWfPath },
         "e2e-shared-wf":  { path: overriddenProjPath },

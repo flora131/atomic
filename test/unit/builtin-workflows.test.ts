@@ -15,7 +15,7 @@ import type {
   WorkflowTaskResult,
   WorkflowTaskStep,
   WorkflowUIContext,
-} from "../../src/shared/types.js";
+} from "../../packages/workflows/src/shared/types.js";
 
 interface MockCalls {
   readonly stage: string[];
@@ -117,7 +117,7 @@ function assertWorkflowDefinition(def: unknown): asserts def is WorkflowDefiniti
 
 describe("deep-research-codebase", () => {
   test("loads and has correct shape", async () => {
-    const mod = await import("../../workflows/deep-research-codebase.js");
+    const mod = await import("../../packages/workflows/builtin/deep-research-codebase.js");
     const def = mod.default as unknown as WorkflowDefinition;
     assertWorkflowDefinition(def);
     assert.equal(def.name, "deep-research-codebase");
@@ -125,7 +125,7 @@ describe("deep-research-codebase", () => {
   });
 
   test("has prompt and max_partitions inputs", async () => {
-    const mod = await import("../../workflows/deep-research-codebase.js");
+    const mod = await import("../../packages/workflows/builtin/deep-research-codebase.js");
     const d = mod.default;
     assert.equal(d.inputs["prompt"]?.required, true);
     assert.match(d.inputs["prompt"]?.type ?? "", /^(text|string)$/);
@@ -134,7 +134,7 @@ describe("deep-research-codebase", () => {
   });
 
   test("runs scout/history, specialist waves, and aggregator via task primitives", async () => {
-    const mod = await import("../../workflows/deep-research-codebase.js");
+    const mod = await import("../../packages/workflows/builtin/deep-research-codebase.js");
     const d = mod.default as unknown as WorkflowDefinition;
     const ctx = makeMockCtx(
       { prompt: "What does the auth module do?", max_partitions: 2 },
@@ -166,13 +166,13 @@ describe("deep-research-codebase", () => {
 
 describe("ralph", () => {
   test("loads and has correct shape", async () => {
-    const mod = await import("../../workflows/ralph.js");
+    const mod = await import("../../packages/workflows/builtin/ralph.js");
     assertWorkflowDefinition(mod.default);
     assert.equal(mod.default.name, "ralph");
   });
 
   test("has prompt and max_loops inputs", async () => {
-    const mod = await import("../../workflows/ralph.js");
+    const mod = await import("../../packages/workflows/builtin/ralph.js");
     assert.equal(mod.default.inputs["prompt"]?.required, true);
     assert.equal(mod.default.inputs["max_iterations"], undefined);
     assert.equal(mod.default.inputs["max_loops"]?.type, "number");
@@ -180,7 +180,7 @@ describe("ralph", () => {
   });
 
   test("terminates after one iteration when both reviewers approve", async () => {
-    const mod = await import("../../workflows/ralph.js");
+    const mod = await import("../../packages/workflows/builtin/ralph.js");
     const d = mod.default as unknown as WorkflowDefinition;
     const ctx = makeMockCtx(
       { prompt: "Refactor tests", max_loops: 5 },
@@ -205,7 +205,7 @@ describe("ralph", () => {
   });
 
   test("feeds actionable review findings into the next planner iteration", async () => {
-    const mod = await import("../../workflows/ralph.js");
+    const mod = await import("../../packages/workflows/builtin/ralph.js");
     const d = mod.default as unknown as WorkflowDefinition;
     const ctx = makeMockCtx(
       { prompt: "test task", max_loops: 2 },
@@ -234,13 +234,13 @@ describe("ralph", () => {
 
 describe("open-claude-design", () => {
   test("loads and has correct shape", async () => {
-    const mod = await import("../../workflows/open-claude-design.js");
+    const mod = await import("../../packages/workflows/builtin/open-claude-design.js");
     assertWorkflowDefinition(mod.default);
     assert.equal(mod.default.name, "open-claude-design");
   });
 
   test("has design workflow inputs without compatibility aliases", async () => {
-    const mod = await import("../../workflows/open-claude-design.js");
+    const mod = await import("../../packages/workflows/builtin/open-claude-design.js");
     const d = mod.default;
     for (const inputName of ["prompt", "reference", "output_type", "design_system", "max_refinements"]) {
       assert.notEqual(d.inputs[inputName], undefined, inputName);
@@ -251,7 +251,7 @@ describe("open-claude-design", () => {
   });
 
   test("output_type supports canonical underscore choices", async () => {
-    const mod = await import("../../workflows/open-claude-design.js");
+    const mod = await import("../../packages/workflows/builtin/open-claude-design.js");
     const schema = mod.default.inputs["output_type"];
     assert.equal(schema.type, "select");
     const choices = (schema as { choices: readonly string[] }).choices;
@@ -262,7 +262,7 @@ describe("open-claude-design", () => {
   });
 
   test("runs onboarding, import, generation, refinement, scan, and export", async () => {
-    const mod = await import("../../workflows/open-claude-design.js");
+    const mod = await import("../../packages/workflows/builtin/open-claude-design.js");
     const d = mod.default as unknown as WorkflowDefinition;
     const ctx = makeMockCtx(
       {
@@ -296,7 +296,7 @@ describe("open-claude-design", () => {
   });
 
   test("uses default output_type 'prototype' when not provided", async () => {
-    const mod = await import("../../workflows/open-claude-design.js");
+    const mod = await import("../../packages/workflows/builtin/open-claude-design.js");
     const d = mod.default as unknown as WorkflowDefinition;
     const ctx = makeMockCtx(
       { prompt: "Design a dashboard" },
@@ -313,7 +313,7 @@ describe("open-claude-design", () => {
   });
 
   test("definition is frozen (immutable)", async () => {
-    const mod = await import("../../workflows/open-claude-design.js");
+    const mod = await import("../../packages/workflows/builtin/open-claude-design.js");
     const d = mod.default;
     assert.equal(Object.isFrozen(d), true);
     assert.equal(Object.isFrozen(d.inputs), true);
@@ -321,12 +321,12 @@ describe("open-claude-design", () => {
 });
 
 // ---------------------------------------------------------------------------
-// workflows/index manifest
+// builtin/index manifest
 // ---------------------------------------------------------------------------
 
-describe("workflows/index manifest", () => {
+describe("builtin/index manifest", () => {
   test("exports all three builtins by name", async () => {
-    const mod = await import("../../workflows/index.js");
+    const mod = await import("../../packages/workflows/builtin/index.js");
     assert.notEqual(mod.deepResearchCodebase, undefined);
     assert.notEqual(mod.ralph, undefined);
     assert.notEqual(mod.openClaudeDesign, undefined);

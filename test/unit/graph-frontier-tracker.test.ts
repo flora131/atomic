@@ -4,7 +4,7 @@
  */
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { GraphFrontierTracker } from "../../src/runs/shared/graph-inference.js";
+import { GraphFrontierTracker } from "../../packages/workflows/src/runs/shared/graph-inference.js";
 
 describe("GraphFrontierTracker — Phase C", () => {
   // -------------------------------------------------------------------------

@@ -17,13 +17,13 @@ import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
-import type { WorkflowDefinition } from "../../src/shared/types.js";
+import type { WorkflowDefinition } from "../../packages/workflows/src/shared/types.js";
 import {
   discoverStartupWorkflowsSync,
   discoverWorkflows,
   type DiscoverySource,
   type DiscoveryDiagnostic,
-} from "../../src/extension/discovery.js";
+} from "../../packages/workflows/src/extension/discovery.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -336,13 +336,13 @@ afterAll(() => {
 });
 
 // ---------------------------------------------------------------------------
-// project-local: {cwd}/.pi/workflows/
+// project-local: {cwd}/.atomic/workflows/
 // ---------------------------------------------------------------------------
 
 describe("discoverWorkflows — project-local", () => {
-  test("loads workflow from .pi/workflows/ and registers it", async () => {
+  test("loads workflow from .atomic/workflows/ and registers it", async () => {
     const cwd = makeTempDir("proj-local");
-    const wfDir = join(cwd, ".pi", "workflows");
+    const wfDir = join(cwd, ".atomic", "workflows");
     mkdirSync(wfDir, { recursive: true });
     writeWorkflowJs(wfDir, "my-wf.js", "My Workflow", "my-workflow");
 
@@ -353,7 +353,7 @@ describe("discoverWorkflows — project-local", () => {
 
   test("source kind is project-local", async () => {
     const cwd = makeTempDir("proj-local-kind");
-    const wfDir = join(cwd, ".pi", "workflows");
+    const wfDir = join(cwd, ".atomic", "workflows");
     mkdirSync(wfDir, { recursive: true });
     writeWorkflowJs(wfDir, "wf.js", "Kind Test", "kind-test");
 
@@ -365,7 +365,7 @@ describe("discoverWorkflows — project-local", () => {
 
   test("source has correct id, name, filePath", async () => {
     const cwd = makeTempDir("proj-local-shape");
-    const wfDir = join(cwd, ".pi", "workflows");
+    const wfDir = join(cwd, ".atomic", "workflows");
     mkdirSync(wfDir, { recursive: true });
     const fp = writeWorkflowJs(wfDir, "shape.js", "Shape Workflow", "shape-workflow");
 
@@ -376,16 +376,16 @@ describe("discoverWorkflows — project-local", () => {
     assert.equal(src!.filePath, fp);
   });
 
-  test("empty .pi/workflows/ produces no sources and no errors", async () => {
+  test("empty .atomic/workflows/ produces no sources and no errors", async () => {
     const cwd = makeTempDir("proj-local-empty");
-    mkdirSync(join(cwd, ".pi", "workflows"), { recursive: true });
+    mkdirSync(join(cwd, ".atomic", "workflows"), { recursive: true });
 
     const result = await discoverWorkflows({ cwd, homeDir: makeTempDir("empty-home4"), includeBundled: false });
     assert.equal(result.sources.length, 0);
     assert.equal(result.errors.length, 0);
   });
 
-  test("missing .pi/workflows/ dir is silent (no error)", async () => {
+  test("missing .atomic/workflows/ dir is silent (no error)", async () => {
     const cwd = makeTempDir("proj-local-nodir");
     const result = await discoverWorkflows({ cwd, homeDir: makeTempDir("empty-home5"), includeBundled: false });
     assert.equal(result.errors.filter((e) => e.code === "PATH_NOT_FOUND").length, 0);
@@ -393,13 +393,13 @@ describe("discoverWorkflows — project-local", () => {
 });
 
 // ---------------------------------------------------------------------------
-// user-global: {homeDir}/.pi/agent/workflows/
+// user-global: {homeDir}/.atomic/workflows/
 // ---------------------------------------------------------------------------
 
 describe("discoverWorkflows — user-global", () => {
-  test("loads workflow from homeDir/.pi/agent/workflows/", async () => {
+  test("loads workflow from homeDir/.atomic/agent/workflows/", async () => {
     const homeDir = makeTempDir("user-global");
-    const wfDir = join(homeDir, ".pi", "agent", "workflows");
+    const wfDir = join(homeDir, ".atomic", "agent", "workflows");
     mkdirSync(wfDir, { recursive: true });
     writeWorkflowJs(wfDir, "global-wf.js", "Global Workflow", "global-workflow");
 
@@ -411,7 +411,7 @@ describe("discoverWorkflows — user-global", () => {
 
   test("source kind is user-global", async () => {
     const homeDir = makeTempDir("user-global-kind");
-    const wfDir = join(homeDir, ".pi", "agent", "workflows");
+    const wfDir = join(homeDir, ".atomic", "agent", "workflows");
     mkdirSync(wfDir, { recursive: true });
     writeWorkflowJs(wfDir, "gk.js", "Global Kind", "global-kind");
 
@@ -424,7 +424,7 @@ describe("discoverWorkflows — user-global", () => {
 
   test("source has filePath set", async () => {
     const homeDir = makeTempDir("user-global-fp");
-    const wfDir = join(homeDir, ".pi", "agent", "workflows");
+    const wfDir = join(homeDir, ".atomic", "agent", "workflows");
     mkdirSync(wfDir, { recursive: true });
     const fp = writeWorkflowJs(wfDir, "gfp.js", "Global FP", "global-fp");
 
@@ -552,7 +552,7 @@ describe("discoverWorkflows — configured globalWorkflows", () => {
 describe("discoverWorkflows — INVALID_DEFINITION diagnostics", () => {
   test("null default export emits INVALID_DEFINITION error", async () => {
     const cwd = makeTempDir("invalid-null");
-    const wfDir = join(cwd, ".pi", "workflows");
+    const wfDir = join(cwd, ".atomic", "workflows");
     mkdirSync(wfDir, { recursive: true });
     writeInvalidWorkflowJs(wfDir, "bad-null.js");
 
@@ -564,7 +564,7 @@ describe("discoverWorkflows — INVALID_DEFINITION diagnostics", () => {
 
   test("missing __piWorkflow sentinel emits INVALID_DEFINITION", async () => {
     const cwd = makeTempDir("invalid-sentinel");
-    const wfDir = join(cwd, ".pi", "workflows");
+    const wfDir = join(cwd, ".atomic", "workflows");
     mkdirSync(wfDir, { recursive: true });
     writeMissingSentinelWorkflowJs(wfDir, "bad-sentinel.js");
 
@@ -576,7 +576,7 @@ describe("discoverWorkflows — INVALID_DEFINITION diagnostics", () => {
 
   test("INVALID_DEFINITION does not register a workflow", async () => {
     const cwd = makeTempDir("invalid-no-reg");
-    const wfDir = join(cwd, ".pi", "workflows");
+    const wfDir = join(cwd, ".atomic", "workflows");
     mkdirSync(wfDir, { recursive: true });
     writeInvalidWorkflowJs(wfDir, "bad.js");
 
@@ -625,7 +625,7 @@ describe("discoverWorkflows — DUPLICATE_NAME precedence", () => {
     const spDir = makeTempDir("sp-files");
     const spPath = writeWorkflowJs(spDir, "sp.js", "SP Version", "dup-wf");
     // project-local: lower precedence
-    const wfDir = join(cwd, ".pi", "workflows");
+    const wfDir = join(cwd, ".atomic", "workflows");
     mkdirSync(wfDir, { recursive: true });
     writeWorkflowJs(wfDir, "pl.js", "PL Version", "dup-wf");
 
@@ -654,7 +654,7 @@ describe("discoverWorkflows — DUPLICATE_NAME precedence", () => {
   test("project-local beats settings-global: settings-global emits DUPLICATE_NAME", async () => {
     const cwd = makeTempDir("dup-pl-vs-sg");
     // project-local
-    const wfDir = join(cwd, ".pi", "workflows");
+    const wfDir = join(cwd, ".atomic", "workflows");
     mkdirSync(wfDir, { recursive: true });
     writeWorkflowJs(wfDir, "pl.js", "PL Winner", "dup-sg-wf");
     // settings-global
@@ -681,12 +681,12 @@ describe("discoverWorkflows — DUPLICATE_NAME precedence", () => {
   test("project-local beats user-global: user-global emits DUPLICATE_NAME", async () => {
     const cwd = makeTempDir("dup-pl-vs-ug");
     // project-local
-    const wfDir = join(cwd, ".pi", "workflows");
+    const wfDir = join(cwd, ".atomic", "workflows");
     mkdirSync(wfDir, { recursive: true });
     writeWorkflowJs(wfDir, "pl.js", "PL Winner UG", "dup-ug-wf");
     // user-global
     const homeDir = makeTempDir("home-ug");
-    const ugDir = join(homeDir, ".pi", "agent", "workflows");
+    const ugDir = join(homeDir, ".atomic", "agent", "workflows");
     mkdirSync(ugDir, { recursive: true });
     writeWorkflowJs(ugDir, "ug.js", "UG Loser", "dup-ug-wf");
 
@@ -703,7 +703,7 @@ describe("discoverWorkflows — DUPLICATE_NAME precedence", () => {
 
   test("project-local beats bundled: bundled emits DUPLICATE_NAME, name=ralph", async () => {
     const cwd = makeTempDir("dup-pl-vs-bundled");
-    const wfDir = join(cwd, ".pi", "workflows");
+    const wfDir = join(cwd, ".atomic", "workflows");
     mkdirSync(wfDir, { recursive: true });
     // Use same normalizedName as bundled "ralph"
     writeWorkflowJs(wfDir, "override-ralph.js", "Custom Ralph", "ralph");
@@ -730,7 +730,7 @@ describe("discoverWorkflows — DUPLICATE_NAME precedence", () => {
 
   test("settings-global beats user-global: user-global emits DUPLICATE_NAME", async () => {
     const homeDir = makeTempDir("home-sg-ug");
-    const ugDir = join(homeDir, ".pi", "agent", "workflows");
+    const ugDir = join(homeDir, ".atomic", "agent", "workflows");
     mkdirSync(ugDir, { recursive: true });
     writeWorkflowJs(ugDir, "ug.js", "UG Loser SG", "dup-sgug-wf");
 
@@ -755,7 +755,7 @@ describe("discoverWorkflows — DUPLICATE_NAME precedence", () => {
 
   test("user-global beats bundled: bundled emits DUPLICATE_NAME, name=deep-research-codebase", async () => {
     const homeDir = makeTempDir("home-ug-bundled");
-    const ugDir = join(homeDir, ".pi", "agent", "workflows");
+    const ugDir = join(homeDir, ".atomic", "agent", "workflows");
     mkdirSync(ugDir, { recursive: true });
     writeWorkflowJs(ugDir, "override-drc.js", "Custom DRC", "deep-research-codebase");
     const cwd = makeTempDir("proj-ug-bundled");
@@ -803,7 +803,7 @@ describe("discoverWorkflows — includeBundled", () => {
 
   test("includeBundled=false still loads project-local workflows", async () => {
     const cwd = makeTempDir("bundled-false-proj");
-    const wfDir = join(cwd, ".pi", "workflows");
+    const wfDir = join(cwd, ".atomic", "workflows");
     mkdirSync(wfDir, { recursive: true });
     writeWorkflowJs(wfDir, "local.js", "Local Only", "local-only");
 

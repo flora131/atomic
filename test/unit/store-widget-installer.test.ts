@@ -6,10 +6,10 @@
 
 import { beforeEach, describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { installStoreWidget, installToolExecutionHooks } from "../../src/tui/store-widget-installer.js";
-import { createStore } from "../../src/shared/store.js";
-import type { Store } from "../../src/shared/store.js";
-import type { RunSnapshot, StageSnapshot } from "../../src/shared/store-types.js";
+import { installStoreWidget, installToolExecutionHooks } from "../../packages/workflows/src/tui/store-widget-installer.js";
+import { createStore } from "../../packages/workflows/src/shared/store.js";
+import type { Store } from "../../packages/workflows/src/shared/store.js";
+import type { RunSnapshot, StageSnapshot } from "../../packages/workflows/src/shared/store-types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

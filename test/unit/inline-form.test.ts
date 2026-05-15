@@ -19,15 +19,15 @@ import {
   finalizeForm,
   getForm,
   touch,
-} from "../../src/tui/inline-form-store.ts";
-import { renderInlineCard } from "../../src/tui/inline-form-card.ts";
-import { InlineFormEditor } from "../../src/tui/inline-form-editor.ts";
+} from "../../packages/workflows/src/tui/inline-form-store.ts";
+import { renderInlineCard } from "../../packages/workflows/src/tui/inline-form-card.ts";
+import { InlineFormEditor } from "../../packages/workflows/src/tui/inline-form-editor.ts";
 import {
   openInlineInputsForm,
   registerInlineFormRenderer,
-} from "../../src/tui/inline-form-overlay.ts";
-import { deriveGraphTheme } from "../../src/tui/graph-theme.ts";
-import type { WorkflowInputEntry } from "../../src/extension/render-result.ts";
+} from "../../packages/workflows/src/tui/inline-form-overlay.ts";
+import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.ts";
+import type { WorkflowInputEntry } from "../../packages/workflows/src/extension/render-result.ts";
 import { makeFakeKeybindings } from "../support/fake-keybindings.ts";
 
 const FIELDS: readonly WorkflowInputEntry[] = [
@@ -400,7 +400,7 @@ test("overlay: openInlineInputsForm emits a custom message and swaps editor", as
 
   // The message was emitted synchronously.
   assert.equal(sentMessages.length, 1);
-  assert.equal(sentMessages[0]!.customType, "atomic-workflows:input-form");
+  assert.equal(sentMessages[0]!.customType, "workflows:input-form");
   const formId = sentMessages[0]!.details!.formId!;
   assert.match(formId, /^wf-/);
 
@@ -603,15 +603,15 @@ test("overlay: registerInlineFormRenderer preserves class-backed pi method bindi
 
   const pi = new ClassBackedPi();
   registerInlineFormRenderer(pi as never, deriveGraphTheme({}));
-  const first = pi.renderers.get("atomic-workflows:input-form");
+  const first = pi.renderers.get("workflows:input-form");
   registerInlineFormRenderer(pi as never, deriveGraphTheme({}));
-  const second = pi.renderers.get("atomic-workflows:input-form");
+  const second = pi.renderers.get("workflows:input-form");
   // Second call did not re-register (same fn reference, or unchanged).
   assert.equal(first, second);
 });
 // ── multi-line text field (rich-text prompt box) ──────────────────────────
 
-import { layoutTextField } from "../../src/tui/inline-form-card.ts";
+import { layoutTextField } from "../../packages/workflows/src/tui/inline-form-card.ts";
 
 test("layoutTextField: short single-line content stays on one row", () => {
   const r = layoutTextField("hello", 20, 0);

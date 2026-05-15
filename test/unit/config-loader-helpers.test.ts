@@ -11,8 +11,8 @@ import {
   toScopedDiscoveryConfig,
   withWorkflowDefaults,
   WORKFLOW_CONFIG_DEFAULTS,
-} from "../../src/extension/config-loader.js";
-import type { WorkflowExtensionConfig } from "../../src/extension/config-loader.js";
+} from "../../packages/workflows/src/extension/config-loader.js";
+import type { WorkflowExtensionConfig } from "../../packages/workflows/src/extension/config-loader.js";
 
 // ---------------------------------------------------------------------------
 // withWorkflowDefaults
@@ -148,7 +148,7 @@ describe("withWorkflowDefaults — WORKFLOW_CONFIG_DEFAULTS constants", () => {
 
 const PROJ_ROOT = "/home/user/myproject";
 const HOME_DIR = "/home/user";
-const GLOBAL_BASE = join(HOME_DIR, ".pi", "agent");
+const GLOBAL_BASE = join(HOME_DIR, ".atomic", "agent");
 const OPTS = { projectRoot: PROJ_ROOT, homeDir: HOME_DIR };
 
 describe("toScopedDiscoveryConfig — null inputs", () => {
@@ -182,9 +182,9 @@ describe("toScopedDiscoveryConfig — project-only", () => {
   });
 
   test("projectConfig with dot-relative path → resolved under projectRoot", () => {
-    const project: WorkflowExtensionConfig = { workflows: { wf: { path: "../../src/extension/wf.ts" } } };
+    const project: WorkflowExtensionConfig = { workflows: { wf: { path: "../../packages/workflows/src/extension/wf.ts" } } };
     const r = toScopedDiscoveryConfig(null, project, OPTS);
-    assert.deepEqual(r.projectWorkflows, { wf: join(PROJ_ROOT, "../../src/extension/wf.ts") });
+    assert.deepEqual(r.projectWorkflows, { wf: join(PROJ_ROOT, "../../packages/workflows/src/extension/wf.ts") });
   });
 });
 
@@ -196,16 +196,16 @@ describe("toScopedDiscoveryConfig — global-only", () => {
     assert.equal("projectWorkflows" in r, false);
   });
 
-  test("globalConfig with relative path → resolved under <homeDir>/.pi/agent", () => {
+  test("globalConfig with relative path → resolved under <homeDir>/.atomic/agent", () => {
     const global: WorkflowExtensionConfig = { workflows: { shared: { path: "workflows/shared.ts" } } };
     const r = toScopedDiscoveryConfig(global, null, OPTS);
     assert.deepEqual(r.globalWorkflows, { shared: join(GLOBAL_BASE, "workflows/shared.ts") });
   });
 
-  test("globalConfig with dot-relative path → resolved under <homeDir>/.pi/agent", () => {
-    const global: WorkflowExtensionConfig = { workflows: { g: { path: "../../src/extension/g.ts" } } };
+  test("globalConfig with dot-relative path → resolved under <homeDir>/.atomic/agent", () => {
+    const global: WorkflowExtensionConfig = { workflows: { g: { path: "../../packages/workflows/src/extension/g.ts" } } };
     const r = toScopedDiscoveryConfig(global, null, OPTS);
-    assert.deepEqual(r.globalWorkflows, { g: join(GLOBAL_BASE, "../../src/extension/g.ts") });
+    assert.deepEqual(r.globalWorkflows, { g: join(GLOBAL_BASE, "../../packages/workflows/src/extension/g.ts") });
   });
 });
 

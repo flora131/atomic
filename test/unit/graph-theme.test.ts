@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 import {
   deriveGraphTheme,
   deriveGraphThemeFromPiTheme,
-} from "../../src/tui/graph-theme.js";
+} from "../../packages/workflows/src/tui/graph-theme.js";
 
 /** Mirror Pi's truecolor SGR shape. */
 function truecolorFg(r: number, g: number, b: number): string {

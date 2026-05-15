@@ -8,7 +8,7 @@
 
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { renderInputsSchema } from "../../src/shared/render-inputs-schema.js";
+import { renderInputsSchema } from "../../packages/workflows/src/shared/render-inputs-schema.js";
 
 describe("renderInputsSchema", () => {
   test("renders header with workflow name and indented per-input lines", () => {

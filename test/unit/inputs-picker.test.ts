@@ -18,10 +18,10 @@ import {
   handleInputsPickerInput,
   invalidForField,
   renderInputsPicker,
-} from "../../src/tui/inputs-picker.ts";
-import { renderInputsSchema } from "../../src/shared/render-inputs-schema.ts";
-import { deriveGraphTheme } from "../../src/tui/graph-theme.ts";
-import type { WorkflowInputEntry } from "../../src/extension/render-result.ts";
+} from "../../packages/workflows/src/tui/inputs-picker.ts";
+import { renderInputsSchema } from "../../packages/workflows/src/shared/render-inputs-schema.ts";
+import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.ts";
+import type { WorkflowInputEntry } from "../../packages/workflows/src/extension/render-result.ts";
 import { makeFakeKeybindings } from "../support/fake-keybindings.ts";
 
 const KB = makeFakeKeybindings();

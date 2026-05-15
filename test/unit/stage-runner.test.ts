@@ -16,14 +16,14 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createStageContext } from "../../src/runs/foreground/stage-runner.js";
+import { createStageContext } from "../../packages/workflows/src/runs/foreground/stage-runner.js";
 import type {
   StageRunnerOpts,
   PromptAdapter,
   CompleteAdapter,
   SubagentAdapter,
-} from "../../src/runs/foreground/stage-runner.js";
-import type { StageExecutionMeta, CompleteStageOpts, SubagentStageOpts } from "../../src/shared/types.js";
+} from "../../packages/workflows/src/runs/foreground/stage-runner.js";
+import type { StageExecutionMeta, CompleteStageOpts, SubagentStageOpts } from "../../packages/workflows/src/shared/types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -363,7 +363,7 @@ describe("createStageContext — error paths", () => {
 // Lazy attach + controlled pause
 // ---------------------------------------------------------------------------
 
-import type { InternalStageContext, AgentSessionAdapter, StageSessionRuntime } from "../../src/runs/foreground/stage-runner.js";
+import type { InternalStageContext, AgentSessionAdapter, StageSessionRuntime } from "../../packages/workflows/src/runs/foreground/stage-runner.js";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 
 function makeMockSession(overrides: Partial<StageSessionRuntime> = {}): {

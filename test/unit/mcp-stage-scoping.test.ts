@@ -8,10 +8,10 @@
  */
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { run } from "../../src/runs/foreground/executor.js";
-import { createStore } from "../../src/shared/store.js";
-import { defineWorkflow } from "../../src/workflows/define-workflow.js";
-import type { WorkflowMcpPort } from "../../src/shared/types.js";
+import { run } from "../../packages/workflows/src/runs/foreground/executor.js";
+import { createStore } from "../../packages/workflows/src/shared/store.js";
+import { defineWorkflow } from "../../packages/workflows/src/workflows/define-workflow.js";
+import type { WorkflowMcpPort } from "../../packages/workflows/src/shared/types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

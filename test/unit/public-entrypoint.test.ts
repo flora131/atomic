@@ -7,7 +7,7 @@ import {
   normalizeWorkflowName,
   resolveInputs,
   workflowNamesEqual,
-} from "../../src/index.js";
+} from "../../packages/workflows/src/index.js";
 
 describe("public entrypoint", () => {
   test("supports authoring and registry lookup through exported APIs", async () => {

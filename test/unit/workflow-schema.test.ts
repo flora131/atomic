@@ -1,7 +1,7 @@
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { Value } from "typebox/value";
-import { WorkflowParametersSchema } from "../../src/extension/workflow-schema.js";
+import { WorkflowParametersSchema } from "../../packages/workflows/src/extension/workflow-schema.js";
 
 describe("WorkflowParametersSchema fallbackModels", () => {
   test("accepts fallbackModels on direct single, parallel, chain, and top-level defaults", () => {

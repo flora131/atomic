@@ -5,14 +5,14 @@
  * Run:  node --experimental-transform-types --import ./test/support/register-loader.mjs test/manual/render-preview.ts [width] [scenario]
  *   scenario ∈ "active" (default) | "empty" | "compact" | "completed" | "failed"
  */
-import type { Store } from "../../src/shared/store.js";
+import type { Store } from "../../packages/workflows/src/shared/store.js";
 import type {
   StoreSnapshot,
   RunSnapshot,
   StageSnapshot,
-} from "../../src/shared/store-types.js";
-import { GraphView } from "../../src/tui/graph-view.js";
-import { deriveGraphTheme } from "../../src/tui/graph-theme.js";
+} from "../../packages/workflows/src/shared/store-types.js";
+import { GraphView } from "../../packages/workflows/src/tui/graph-view.js";
+import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.js";
 
 function stage(
   id: string,

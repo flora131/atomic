@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { run, runChain, runParallel, runTask, resolveInputs } from "../../src/runs/foreground/executor.js";
-import { createStore } from "../../src/shared/store.js";
-import { defineWorkflow } from "../../src/workflows/define-workflow.js";
+import { run, runChain, runParallel, runTask, resolveInputs } from "../../packages/workflows/src/runs/foreground/executor.js";
+import { createStore } from "../../packages/workflows/src/shared/store.js";
+import { defineWorkflow } from "../../packages/workflows/src/workflows/define-workflow.js";
 import type { AgentSession, CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent";
 
 // ---------------------------------------------------------------------------
@@ -460,7 +460,7 @@ describe("executor.run", () => {
       })
       .compile();
 
-    const wfResult = await run(def as import("../../src/shared/types.js").WorkflowDefinition, {}, {
+    const wfResult = await run(def as import("../../packages/workflows/src/shared/types.js").WorkflowDefinition, {}, {
       adapters: { prompt: { prompt: async (text) => text } },
       store: createStore(),
     });
@@ -476,7 +476,7 @@ describe("executor.run", () => {
       .compile();
 
     // resolveInputs throws synchronously, but run() wraps it as async rejection
-    await assert.rejects(run(def as import("../../src/shared/types.js").WorkflowDefinition, {}, { store: createStore() }), { message: 'pi-workflows: required input "query" not provided', });
+    await assert.rejects(run(def as import("../../packages/workflows/src/shared/types.js").WorkflowDefinition, {}, { store: createStore() }), { message: 'pi-workflows: required input "query" not provided', });
   });
 
   test("store receives correct snapshots", async () => {
@@ -1190,7 +1190,7 @@ describe("executor.run — lifecycle persistence", () => {
       .compile();
 
     await run(def, {}, {
-      store: guardedStore as import("../../src/shared/store.js").Store,
+      store: guardedStore as import("../../packages/workflows/src/shared/store.js").Store,
       persistence,
     });
 
@@ -1233,7 +1233,7 @@ describe("executor.run — lifecycle persistence", () => {
 
 describe("executor.run — abort/kill wiring", () => {
   test("abort signal aborts in-flight stage, run finishes as killed", async () => {
-    const { createCancellationRegistry } = await import("../../src/runs/background/cancellation-registry.js");
+    const { createCancellationRegistry } = await import("../../packages/workflows/src/runs/background/cancellation-registry.js");
     const registry = createCancellationRegistry();
     const controller = new AbortController();
 
@@ -1270,8 +1270,8 @@ describe("executor.run — abort/kill wiring", () => {
   });
 
   test("external killRun + executor abort path: workflow.run.end appended exactly once", async () => {
-    const { createCancellationRegistry } = await import("../../src/runs/background/cancellation-registry.js");
-    const { killRun } = await import("../../src/runs/background/status.js");
+    const { createCancellationRegistry } = await import("../../packages/workflows/src/runs/background/cancellation-registry.js");
+    const { killRun } = await import("../../packages/workflows/src/runs/background/status.js");
 
     const registry = createCancellationRegistry();
     const testStore = createStore();
@@ -1329,7 +1329,7 @@ describe("executor.run — abort/kill wiring", () => {
   });
 
   test("later resolution doesn't overwrite killed status", async () => {
-    const { createCancellationRegistry } = await import("../../src/runs/background/cancellation-registry.js");
+    const { createCancellationRegistry } = await import("../../packages/workflows/src/runs/background/cancellation-registry.js");
     const testStore = createStore();
     const registry = createCancellationRegistry();
 
@@ -1594,8 +1594,8 @@ describe("executor.run — concurrency limiter", () => {
 // Stage-control registry + controlled pause integration
 // ---------------------------------------------------------------------------
 
-import { createStageControlRegistry } from "../../src/runs/foreground/stage-control-registry.js";
-import type { StageSessionRuntime } from "../../src/runs/foreground/stage-runner.js";
+import { createStageControlRegistry } from "../../packages/workflows/src/runs/foreground/stage-control-registry.js";
+import type { StageSessionRuntime } from "../../packages/workflows/src/runs/foreground/stage-runner.js";
 
 function mockSession(): StageSessionRuntime {
   const listeners = new Set<(e: { type: string; [k: string]: unknown }) => void>();

@@ -17,10 +17,10 @@ import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createStore } from "../../src/shared/store.js";
-import { StageChatView } from "../../src/tui/stage-chat-view.js";
-import { deriveGraphTheme } from "../../src/tui/graph-theme.js";
-import type { StageControlHandle } from "../../src/runs/foreground/stage-control-registry.js";
+import { createStore } from "../../packages/workflows/src/shared/store.js";
+import { StageChatView } from "../../packages/workflows/src/tui/stage-chat-view.js";
+import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.js";
+import type { StageControlHandle } from "../../packages/workflows/src/runs/foreground/stage-control-registry.js";
 import { SessionManager, type AgentSession, type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 
 interface HandleState {

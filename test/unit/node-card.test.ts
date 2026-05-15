@@ -17,11 +17,11 @@
 
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import type { StageSnapshot, StageStatus } from "../../src/shared/store-types.js";
-import { renderNodeCard } from "../../src/tui/node-card.js";
-import { deriveGraphTheme } from "../../src/tui/graph-theme.js";
-import { hexBg, hexToAnsi } from "../../src/tui/color-utils.js";
-import { NODE_W, NODE_H } from "../../src/tui/layout.js";
+import type { StageSnapshot, StageStatus } from "../../packages/workflows/src/shared/store-types.js";
+import { renderNodeCard } from "../../packages/workflows/src/tui/node-card.js";
+import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.js";
+import { hexBg, hexToAnsi } from "../../packages/workflows/src/tui/color-utils.js";
+import { NODE_W, NODE_H } from "../../packages/workflows/src/tui/layout.js";
 
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
 const stripAnsi = (s: string) => s.replace(ANSI_RE, "");

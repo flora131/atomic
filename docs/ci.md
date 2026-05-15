@@ -1,46 +1,52 @@
 # CI/CD Pipeline
 
-This document describes the GitHub Actions workflows for `@bastani/atomic-workflows`.
+This document describes the GitHub Actions workflows for the Atomic monorepo and the single publishable npm package, `@bastani/atomic`.
 
-`@bastani/atomic-workflows` is a pi package that ships raw TypeScript and resource files directly through npm. There is no binary build, no `dist/` output, and no Verdaccio pre-publish registry smoke test.
+`@bastani/atomic` lives in `packages/coding-agent`. It is the Atomic-branded coding-agent CLI package and now bundles the first-party workflows extension plus the companion pi packages into its published tarball under `dist/builtin/`.
+
+No other workspace package is published. In particular, `packages/workflows` is a private workspace package that is copied into `@bastani/atomic` at build time.
 
 ## Workflow Overview
 
-```
-                        ┌─────────────────────────────────────────────┐
-                        │              GitHub Actions CI              │
-                        └─────────────────────────────────────────────┘
+```text
+Pull request / push
+  ├─ bun install --frozen-lockfile
+  ├─ bun run typecheck
+  ├─ cd packages/coding-agent && bun run build
+  ├─ bun run test:unit
+  └─ bun run test:integration
 
-  ┌──────────────────────────────┐     ┌────────────────────────────────┐
-  │     On Pull Request (PR)     │     │   On Merge to main / Release   │
-  ├──────────────────────────────┤     ├────────────────────────────────┤
-  │                              │     │                                │
-  │  Tests .................. ✓  │     │  Publish .................. ✓  │
-  │    · install with Bun        │     │    · install with Bun          │
-  │    · typecheck               │     │    · typecheck + tests         │
-  │    · unit tests              │     │    · pi package validation     │
-  │    · integration tests       │     │    · npm publish               │
-  │                              │     │    · GitHub Release            │
-  │  Code Review ........... ✓   │     │                                │
-  │  PR Description ........ ✓   │     │                                │
-  │  Claude Interactive .... ✓   │     │                                │
-  └──────────────────────────────┘     └────────────────────────────────┘
+Release / prerelease merge
+  ├─ validate packages/coding-agent/package.json
+  ├─ validate packages/workflows is private
+  ├─ cd packages/coding-agent && bun run build
+  ├─ validate dist/builtin contains all bundled extensions
+  ├─ bun pm pack --dry-run from packages/coding-agent
+  ├─ npm publish --provenance from packages/coding-agent
+  └─ create GitHub Release
 ```
 
 ## Package Shape
 
-The package is published from the repository root as `@bastani/atomic-workflows`.
+The repository root is a private workspace package named `atomic-monorepo`.
 
-Important package metadata:
+The only publishable workspace package is `packages/coding-agent/package.json`:
 
-- `main`: `./src/index.ts`
-- `types`: `./src/index.ts`
-- pi extension manifest: `pi.extensions = ["./src/extension/index.ts"]`
-- bundled workflows: `pi.workflows = ["./workflows"]`
-- bundled skills: `pi.skills = ["./skills"]`
-- bundled themes: `pi.themes = ["themes/*.json"]`
+- package name: `@bastani/atomic`
+- CLI binary: `atomic` → `dist/cli.js`
+- `main`: `./dist/index.js`
+- `types`: `./dist/index.d.ts`
+- package version: shared by all `packages/*` packages
 
-Because pi loads TypeScript directly, the publish pipeline verifies package/resource paths and runs `bun pm pack --dry-run`, but does not compile or bundle anything.
+Bundled builtin pi packages copied into `packages/coding-agent/dist/builtin/` during `bun run build`:
+
+- `workflows` from `packages/workflows`
+- `pi-subagents`
+- `pi-mcp-adapter`
+- `pi-web-access`
+- `pi-intercom`
+
+`packages/workflows` remains in the workspace for source organization and tests, but is marked `private: true` and must not be published independently.
 
 ---
 
@@ -61,8 +67,9 @@ Steps:
 2. Set up Bun.
 3. Install dependencies with `bun install --frozen-lockfile`.
 4. Run `bun run typecheck`.
-5. Run `bun run test:unit`.
-6. Run `bun run test:integration`.
+5. Build `@bastani/atomic` with `cd packages/coding-agent && bun run build`.
+6. Run `bun run test:unit`.
+7. Run `bun run test:integration`.
 
 ### Code Review (`code-review.yml`)
 
@@ -86,7 +93,7 @@ The publish pipeline (`publish.yml`) runs when:
 
 - a `release/*` or `prerelease/*` PR is merged into `main`
 - an existing GitHub Release is manually published
-- `workflow_dispatch` is run with a tag input such as `v0.1.0`
+- `workflow_dispatch` is run with a tag input such as `v0.8.0`
 
 For pull request events, the publish job only runs when the PR was merged and the source branch starts with `release/` or `prerelease/`.
 
@@ -99,64 +106,55 @@ For pull request events, the publish job only runs when the PR was merged and th
 
 Examples:
 
-- `release/v0.1.0` → npm `latest`, GitHub Release `v0.1.0`
-- `prerelease/v0.1.0-0` → npm `next`, GitHub prerelease `v0.1.0-0`
+- `release/v0.8.0` → npm `latest`, GitHub Release `v0.8.0`
+- `prerelease/v0.8.0-0` → npm `next`, GitHub prerelease `v0.8.0-0`
 
-The branch version must match `package.json` after removing the leading `v`.
+The branch version must match `packages/coding-agent/package.json` after removing the leading `v`.
 
 ### Version Bump
 
 Use the top-level script:
 
 ```sh
-bun run scripts/bump-version.ts 0.1.0
-bun run scripts/bump-version.ts 0.1.0-0
+bun run scripts/bump-version.ts 0.8.0
+bun run scripts/bump-version.ts 0.8.0-0
 bun run scripts/bump-version.ts --from-branch
+bun install
 ```
 
-The script updates:
-
-- `package.json`
-- the version badge in `README.md`
+The script updates every `packages/*/package.json` version and any package README version badge. Run `bun install` afterward so `bun.lock` records the same workspace versions.
 
 ### Publish Flow
 
-```
-  release/* or prerelease/* PR merged to main
-         │
-         ▼
-  ┌─────────────────────────────────────────────┐
-  │ Publish @bastani/atomic-workflows            │
-  │                                             │
-  │ · checkout merge commit / requested tag      │
-  │ · setup Bun                                 │
-  │ · setup Node only for npm provenance publish │
-  │ · bun install --frozen-lockfile              │
-  │ · bun run typecheck                          │
-  │ · bun run test:all                           │
-  │ · validate pi package metadata               │
-  │ · determine npm tag: latest or next          │
-  │ · skip if package version already exists     │
-  │ · bun pm pack --dry-run                      │
-  │ · npm publish --provenance --access public   │
-  └────────────────────┬────────────────────────┘
-                       ▼
-  ┌─────────────────────────────────────────────┐
-  │ Create GitHub Release                        │
-  │                                             │
-  │ · softprops/action-gh-release@v3             │
-  │ · tag: v<package.json version>               │
-  │ · generate release notes                     │
-  │ · prerelease/latest flags from semver suffix │
-  │ · no binary assets attached                  │
-  └─────────────────────────────────────────────┘
+```text
+release/* or prerelease/* PR merged to main
+       │
+       ▼
+Publish @bastani/atomic
+  · checkout merge commit / requested tag
+  · setup Bun
+  · setup Node only for npm provenance publish
+  · bun install --frozen-lockfile
+  · bun run typecheck
+  · bun run test:all
+  · cd packages/coding-agent && bun run build
+  · validate @bastani/atomic metadata
+  · validate packages/workflows is private
+  · validate dist/builtin has workflows, pi-subagents, pi-mcp-adapter, pi-web-access, pi-intercom
+  · determine npm tag: latest or next
+  · skip if package version already exists
+  · cd packages/coding-agent && bun pm pack --dry-run
+  · cd packages/coding-agent && npm publish --provenance --access public
+       │
+       ▼
+Create GitHub Release with softprops/action-gh-release@v3
 ```
 
 ### Why npm Publish Before GitHub Release?
 
 npm versions are immutable. The workflow publishes to npm first so a GitHub Release is only created after the npm package is available.
 
-The GitHub Release contains version metadata and generated release notes only. Unlike the original `flora131/atomic` CLI pipeline, this package does not attach platform binaries, manifests, or config zip files.
+The GitHub Release contains version metadata and generated release notes only.
 
 ### GitHub Release Creation
 
@@ -176,20 +174,34 @@ For stable versions:
 
 ---
 
+## Single-Package Publish Rule
+
+CI must publish exactly one npm package: `@bastani/atomic` from `packages/coding-agent`.
+
+Do not add publish steps for:
+
+- `@bastani/workflows`
+- `pi-subagents`
+- `pi-mcp-adapter`
+- `pi-web-access`
+- `pi-intercom`
+- any other `packages/*` workspace
+
+Those extensions are bundled into `@bastani/atomic` by `packages/coding-agent/scripts/copy-builtin-packages.ts`.
+
+---
+
 ## No Verdaccio Validation
 
-Verdaccio is intentionally not used in this repository.
+Verdaccio is intentionally not used.
 
-The upstream `flora131/atomic` CLI pipeline used Verdaccio because it published multiple interdependent artifacts before the real npm publish: SDK package, wrapper package, and per-platform binary packages. A local registry caught optional-dependency and binary lifecycle failures before immutable npm publishes.
-
-`@bastani/atomic-workflows` publishes one root npm package containing raw TypeScript and pi resources. The meaningful pre-publish checks are:
+The meaningful pre-publish checks are:
 
 - TypeScript typechecking
 - unit and integration tests
-- pi package metadata/resource-path validation
-- `bun pm pack --dry-run`
-
-A local Verdaccio registry would mostly duplicate `bun pm pack --dry-run` for this package shape, so it is omitted.
+- `@bastani/atomic` build output validation
+- builtin extension/resource validation under `dist/builtin/`
+- `bun pm pack --dry-run` from `packages/coding-agent`
 
 ---
 
@@ -197,8 +209,8 @@ A local Verdaccio registry would mostly duplicate `bun pm pack --dry-run` for th
 
 | File | Trigger | Purpose |
 |------|---------|---------|
-| `test.yml` | Push to `main`, PR to `main` | Install, typecheck, unit tests, integration tests |
-| `publish.yml` | Merged `release/*`/`prerelease/*` PR, published release, manual dispatch | Publish npm package and create GitHub Release |
+| `test.yml` | Push to `main`, PR to `main` | Install, typecheck, build `@bastani/atomic`, unit tests, integration tests |
+| `publish.yml` | Merged `release/*`/`prerelease/*` PR, published release, manual dispatch | Publish `@bastani/atomic` and create GitHub Release |
 | `code-review.yml` | PR events | Claude-powered code review |
 | `pr-description.yml` | PR events | PR description generation |
 | `claude.yml` | `@claude` mentions and configured issue/PR events | Interactive Claude assistant |
@@ -210,21 +222,24 @@ A local Verdaccio registry would mostly duplicate `bun pm pack --dry-run` for th
 1. Create a release branch:
 
    ```sh
-   git checkout -b release/v0.1.0
+   git checkout -b release/v0.8.0
    # or
-   git checkout -b prerelease/v0.1.0-0
+   git checkout -b prerelease/v0.8.0-0
    ```
 
 2. Bump versions:
 
    ```sh
    bun run scripts/bump-version.ts --from-branch
+   bun install
    ```
 
 3. Run local validation:
 
    ```sh
    bun run typecheck
+   cd packages/coding-agent && bun run build
+   cd ../..
    bun run test:unit
    bun run test:integration
    ```
@@ -232,10 +247,10 @@ A local Verdaccio registry would mostly duplicate `bun pm pack --dry-run` for th
 4. Commit:
 
    ```sh
-   git add package.json README.md CHANGELOG.md
-   git commit -m "chore(release): bump to v0.1.0"
+   git add packages/*/package.json packages/*/README.md bun.lock
+   git commit -m "chore(release): bump to v0.8.0"
    ```
 
 5. Open a PR to `main`.
 6. Merge after checks pass.
-7. Confirm `publish.yml` publishes to npm and creates the GitHub Release.
+7. Confirm `publish.yml` publishes only `@bastani/atomic` to npm and creates the GitHub Release.

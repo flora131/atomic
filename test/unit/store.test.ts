@@ -1,7 +1,7 @@
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { createStore } from "../../src/shared/store.js";
-import type { RunSnapshot, StageNotice, StageSnapshot } from "../../src/shared/store-types.js";
+import { createStore } from "../../packages/workflows/src/shared/store.js";
+import type { RunSnapshot, StageNotice, StageSnapshot } from "../../packages/workflows/src/shared/store-types.js";
 
 function makeStage(id: string, overrides: Partial<StageSnapshot> = {}): StageSnapshot {
   return {

@@ -1,7 +1,8 @@
 import { describe, test } from "bun:test";
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import assert from "node:assert/strict";
-import packageJson from "../../package.json" with { type: "json" };
+import atomicPackageJson from "../../packages/coding-agent/package.json" with { type: "json" };
+import workflowsPackageJson from "../../packages/workflows/package.json" with { type: "json" };
 
 function markdownFiles(dir: string): string[] {
   return readdirSync(dir)
@@ -10,23 +11,28 @@ function markdownFiles(dir: string): string[] {
 }
 
 describe("package metadata", () => {
-  test("ships workflow, skill, and bundled agent assets through npm metadata", () => {
-    assert.ok(packageJson.files.includes("skills/**/*"));
-    assert.ok(packageJson.files.includes("agents/"));
-    assert.deepEqual(packageJson.pi.skills, ["./skills"]);
-    assert.deepEqual(packageJson.pi.workflows, ["./workflows"]);
+  test("all workspace packages share the same release version", () => {
+    assert.equal(atomicPackageJson.version, "0.8.0");
+    assert.equal(workflowsPackageJson.version, atomicPackageJson.version);
   });
 
-  test("bundled agents mirror the project-local .pi agents", () => {
-    const bundledAgents = markdownFiles("agents");
-    assert.deepEqual(bundledAgents, markdownFiles(".pi/agents"));
+  test("only @bastani/atomic is publishable", () => {
+    assert.equal(atomicPackageJson.name, "@bastani/atomic");
+    assert.equal(Object.prototype.hasOwnProperty.call(atomicPackageJson, "private"), false);
+    assert.equal(workflowsPackageJson.name, "@bastani/workflows");
+    assert.equal(workflowsPackageJson.private, true);
+  });
 
-    for (const fileName of bundledAgents) {
-      assert.equal(
-        readFileSync(`agents/${fileName}`, "utf-8"),
-        readFileSync(`.pi/agents/${fileName}`, "utf-8"),
-        `${fileName} should match its .pi/agents source`,
-      );
-    }
+  test("ships workflow, skill, and bundled agent assets through package metadata", () => {
+    assert.ok(workflowsPackageJson.files.includes("builtin/**/*.ts"));
+    assert.ok(workflowsPackageJson.files.includes("skills/**/*"));
+    assert.ok(workflowsPackageJson.files.includes("agents/"));
+    assert.deepEqual(workflowsPackageJson.pi.skills, ["./skills"]);
+    assert.deepEqual(workflowsPackageJson.pi.builtin, ["./builtin"]);
+  });
+
+  test("workflows package ships bundled agent markdown files", () => {
+    const bundledAgents = markdownFiles("packages/workflows/agents");
+    assert.ok(bundledAgents.length > 0, "expected at least one bundled agent markdown file");
   });
 });

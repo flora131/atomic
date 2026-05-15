@@ -1,0 +1,293 @@
+import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent";
+import type {
+  WorkflowModelCatalogPort,
+  WorkflowModelInfo,
+  WorkflowModelValue,
+} from "../../shared/types.js";
+
+export interface WorkflowResolvedModelCandidate {
+  readonly id: string;
+  readonly value: WorkflowModelValue;
+}
+
+interface ModelResolutionFailure {
+  readonly input: string;
+  readonly reason: string;
+}
+
+export class WorkflowModelValidationError extends Error {
+  readonly failures: readonly ModelResolutionFailure[];
+
+  constructor(failures: readonly ModelResolutionFailure[]) {
+    super(formatModelValidationError(failures));
+    this.name = "WorkflowModelValidationError";
+    this.failures = failures;
+  }
+}
+
+function formatModelValidationError(failures: readonly ModelResolutionFailure[]): string {
+  const lines = [
+    "workflows: model validation failed before starting workflow.",
+    "Unavailable or ambiguous models:",
+  ];
+  for (const failure of failures) {
+    lines.push(`- ${failure.input} (${failure.reason})`);
+  }
+  return lines.join("\n");
+}
+
+function isModelObject(value: WorkflowModelValue): value is NonNullable<CreateAgentSessionOptions["model"]> {
+  return typeof value !== "string";
+}
+
+export function workflowModelId(value: WorkflowModelValue | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length === 0 ? undefined : trimmed;
+  }
+  return `${String(value.provider)}/${value.id}`;
+}
+
+function normalizeInfo(info: WorkflowModelInfo): WorkflowModelInfo {
+  const fullId = info.fullId.trim().length > 0 ? info.fullId : `${info.provider}/${info.id}`;
+  return { ...info, fullId };
+}
+
+function uniqueByFullId(models: readonly WorkflowModelInfo[]): WorkflowModelInfo[] {
+  const seen = new Set<string>();
+  const result: WorkflowModelInfo[] = [];
+  for (const info of models.map(normalizeInfo)) {
+    if (seen.has(info.fullId)) continue;
+    seen.add(info.fullId);
+    result.push(info);
+  }
+  return result;
+}
+
+function resolveStringModel(
+  rawInput: string,
+  availableModels: readonly WorkflowModelInfo[] | undefined,
+  preferredProvider: string | undefined,
+): WorkflowResolvedModelCandidate | ModelResolutionFailure {
+  const input = rawInput.trim();
+  if (!input) return { input: rawInput, reason: "empty model id" };
+
+  if (availableModels === undefined) {
+    return { id: input, value: input };
+  }
+
+  const models = uniqueByFullId(availableModels);
+  const explicit = models.find((model) => model.fullId === input);
+  if (explicit !== undefined) {
+    return { id: explicit.fullId, value: explicit.model ?? explicit.fullId };
+  }
+
+  if (input.includes("/")) {
+    return { input, reason: "not available" };
+  }
+
+  const byBareId = models.filter((model) => model.id === input);
+  if (byBareId.length === 0) {
+    return { input, reason: "not available" };
+  }
+  if (byBareId.length === 1) {
+    const only = byBareId[0]!;
+    return { id: only.fullId, value: only.model ?? only.fullId };
+  }
+
+  const preferred = preferredProvider === undefined
+    ? undefined
+    : byBareId.find((model) => model.provider === preferredProvider);
+  if (preferred !== undefined) {
+    return { id: preferred.fullId, value: preferred.model ?? preferred.fullId };
+  }
+
+  return {
+    input,
+    reason: `ambiguous: ${byBareId.map((model) => model.fullId).join(", ")}; specify provider/model`,
+  };
+}
+
+function resolveModelValue(
+  value: WorkflowModelValue,
+  availableModels: readonly WorkflowModelInfo[] | undefined,
+  preferredProvider: string | undefined,
+): WorkflowResolvedModelCandidate | ModelResolutionFailure {
+  if (isModelObject(value)) {
+    return { id: workflowModelId(value)!, value };
+  }
+  return resolveStringModel(value, availableModels, preferredProvider);
+}
+
+function isFailure(value: WorkflowResolvedModelCandidate | ModelResolutionFailure): value is ModelResolutionFailure {
+  return "reason" in value;
+}
+
+export function buildModelCandidates(input: {
+  readonly primaryModel?: WorkflowModelValue;
+  readonly fallbackModels?: readonly string[];
+  readonly currentModel?: WorkflowModelValue;
+  readonly availableModels?: readonly WorkflowModelInfo[];
+  readonly preferredProvider?: string;
+}): WorkflowResolvedModelCandidate[] {
+  const rawValues: WorkflowModelValue[] = [];
+  if (input.primaryModel !== undefined) rawValues.push(input.primaryModel);
+  rawValues.push(...(input.fallbackModels ?? []));
+  if (input.currentModel !== undefined) rawValues.push(input.currentModel);
+
+  const failures: ModelResolutionFailure[] = [];
+  const seen = new Set<string>();
+  const candidates: WorkflowResolvedModelCandidate[] = [];
+  for (const value of rawValues) {
+    const resolved = resolveModelValue(value, input.availableModels, input.preferredProvider);
+    if (isFailure(resolved)) {
+      failures.push(resolved);
+      continue;
+    }
+    if (seen.has(resolved.id)) continue;
+    seen.add(resolved.id);
+    candidates.push(resolved);
+  }
+
+  if (failures.length > 0) throw new WorkflowModelValidationError(failures);
+  return candidates;
+}
+
+export function buildModelCandidateIds(input: Parameters<typeof buildModelCandidates>[0]): string[] {
+  return buildModelCandidates(input).map((candidate) => candidate.id);
+}
+
+function catalogUnavailableWarning(): string {
+  return "workflows: model catalog unavailable; using the current selected model for fallback validation.";
+}
+
+export async function buildModelCandidatesFromCatalog(input: {
+  readonly primaryModel?: WorkflowModelValue;
+  readonly fallbackModels?: readonly string[];
+  readonly catalog?: WorkflowModelCatalogPort;
+}): Promise<WorkflowResolvedModelCandidate[]> {
+  const hasExplicitModel = input.primaryModel !== undefined || (input.fallbackModels?.length ?? 0) > 0;
+  if (!hasExplicitModel) return [];
+
+  if (input.catalog === undefined) {
+    return buildModelCandidates({
+      primaryModel: input.primaryModel,
+      fallbackModels: input.fallbackModels,
+    });
+  }
+
+  try {
+    const availableModels = await input.catalog.listModels();
+    return buildModelCandidates({
+      primaryModel: input.primaryModel,
+      fallbackModels: input.fallbackModels,
+      currentModel: input.catalog.currentModel,
+      availableModels,
+      preferredProvider: input.catalog.preferredProvider,
+    });
+  } catch (err) {
+    if (input.catalog.currentModel === undefined) {
+      throw err;
+    }
+    input.catalog.recordWarning?.(catalogUnavailableWarning());
+    return buildModelCandidates({ currentModel: input.catalog.currentModel });
+  }
+}
+
+export async function validateWorkflowModels(input: {
+  readonly requests: readonly {
+    readonly model?: WorkflowModelValue;
+    readonly fallbackModels?: readonly string[];
+  }[];
+  readonly catalog?: WorkflowModelCatalogPort;
+}): Promise<readonly string[]> {
+  const relevant = input.requests.filter(
+    (request) => request.model !== undefined || (request.fallbackModels?.length ?? 0) > 0,
+  );
+  if (relevant.length === 0) return [];
+
+  const warnings: string[] = [];
+  const recordWarning = (warning: string): void => {
+    warnings.push(warning);
+    input.catalog?.recordWarning?.(warning);
+  };
+
+  const failures: ModelResolutionFailure[] = [];
+  const availableModels = input.catalog === undefined ? undefined : await input.catalog.listModels().catch(() => undefined);
+  if (input.catalog !== undefined && availableModels === undefined) {
+    if (input.catalog.currentModel !== undefined) {
+      recordWarning(catalogUnavailableWarning());
+      return warnings;
+    }
+    throw new WorkflowModelValidationError([{ input: "model catalog", reason: "unavailable and no current model is configured" }]);
+  }
+
+  for (const request of relevant) {
+    try {
+      buildModelCandidates({
+        primaryModel: request.model,
+        fallbackModels: request.fallbackModels,
+        currentModel: input.catalog?.currentModel,
+        availableModels,
+        preferredProvider: input.catalog?.preferredProvider,
+      });
+    } catch (err) {
+      if (err instanceof WorkflowModelValidationError) failures.push(...err.failures);
+      else throw err;
+    }
+  }
+
+  if (failures.length > 0) throw new WorkflowModelValidationError(failures);
+  return warnings;
+}
+
+const RETRYABLE_MODEL_FAILURE_PATTERNS: readonly RegExp[] = [
+  /rate\s*limit/i,
+  /too\s*many\s*requests/i,
+  /\b429\b/,
+  /quota/i,
+  /billing/i,
+  /credit/i,
+  /auth(?:entication|orization)?/i,
+  /api\s*key/i,
+  /token\s*expired/i,
+  /forbidden/i,
+  /model.*(?:unavailable|disabled|not\s*found|unknown)/i,
+  /(?:unavailable|disabled|not\s*found|unknown).*model/i,
+  /overloaded/i,
+  /temporarily\s*unavailable/i,
+  /service\s*unavailable/i,
+  /network/i,
+  /fetch/i,
+  /socket/i,
+  /upstream/i,
+  /timeout/i,
+  /timed\s*out/i,
+  /\b50[234]\b/,
+];
+
+const NON_RETRYABLE_FAILURE_PATTERNS: readonly RegExp[] = [
+  /command failed/i,
+  /tests? failed/i,
+  /shell/i,
+  /missing file/i,
+  /no such file/i,
+  /completion guard/i,
+  /cancel/i,
+  /abort/i,
+  /interrupted/i,
+];
+
+export function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+export function isRetryableModelFailure(error: string | Error | undefined): boolean {
+  if (error === undefined) return false;
+  const message = typeof error === "string" ? error : error.message;
+  if (!message.trim()) return false;
+  if (NON_RETRYABLE_FAILURE_PATTERNS.some((pattern) => pattern.test(message))) return false;
+  return RETRYABLE_MODEL_FAILURE_PATTERNS.some((pattern) => pattern.test(message));
+}

@@ -1,25 +1,25 @@
 #!/usr/bin/env bun
 /**
- * Bumps the package version across all files that need it.
+ * Bumps every packages/* workspace package to the same version.
  *
  * Usage:
  *   bun run scripts/bump-version.ts <version>
  *   bun run scripts/bump-version.ts --from-branch
  *
  * Examples:
- *   bun run scripts/bump-version.ts 0.4.46
- *   bun run scripts/bump-version.ts 0.4.46-0
+ *   bun run scripts/bump-version.ts 0.8.0
+ *   bun run scripts/bump-version.ts 0.8.0-0
  *   bun run scripts/bump-version.ts --from-branch   # extracts version from current branch name
  *
  * The --from-branch flag reads the current git branch and extracts the version
  * from branch names matching:
- *   release/v0.4.46      → 0.4.46
- *   prerelease/v0.4.46-0 → 0.4.46-0
+ *   release/v0.8.0      → 0.8.0
+ *   prerelease/v0.8.0-0 → 0.8.0-0
  */
 
 import { $ } from "bun";
-import { dirname, resolve } from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
+import { basename, dirname, resolve } from "node:path";
 
 interface PackageJson {
   version?: string;
@@ -30,13 +30,8 @@ type PackageJsonValue = string | number | boolean | null | PackageJsonValue[] | 
 type PackageJsonObject = { [key: string]: PackageJsonValue | undefined };
 
 type VersionTarget =
-  | { kind: "json"; filePath: "package.json" }
-  | { kind: "readme"; filePath: "README.md" };
-
-const VERSION_TARGETS: readonly VersionTarget[] = [
-  { kind: "json", filePath: "package.json" },
-  { kind: "readme", filePath: "README.md" },
-];
+  | { kind: "json"; filePath: string }
+  | { kind: "readme"; filePath: string; optional?: boolean };
 
 /**
  * Parse argv once into the values both `resolveRoot` and `getVersion` need.
@@ -95,7 +90,7 @@ function parseVersionFromBranch(branch: string): string {
 }
 
 function validateVersion(version: string): void {
-  // Accept semver with optional prerelease suffix: 0.4.46, 0.4.46-0, 1.0.0-rc.1
+  // Accept semver with optional prerelease suffix: 0.8.0, 0.8.0-0, 1.0.0-rc.1
   if (!/^\d+\.\d+\.\d+(-[\w.]+)?$/.test(version)) {
     console.error(`Error: "${version}" is not a valid semver version`);
     process.exit(1);
@@ -119,6 +114,30 @@ async function getVersion(): Promise<string> {
   return arg.replace(/^v/, "");
 }
 
+function packageJsonTargets(): VersionTarget[] {
+  const packagesDir = resolve(ROOT, "packages");
+  return readdirSync(packagesDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => `packages/${entry.name}/package.json`)
+    .filter((filePath) => existsSync(resolve(ROOT, filePath)))
+    .sort()
+    .map((filePath) => ({ kind: "json", filePath }));
+}
+
+function readmeTargets(): VersionTarget[] {
+  const packagesDir = resolve(ROOT, "packages");
+  return readdirSync(packagesDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => `packages/${entry.name}/README.md`)
+    .filter((filePath) => existsSync(resolve(ROOT, filePath)))
+    .sort()
+    .map((filePath) => ({ kind: "readme", filePath, optional: true }));
+}
+
+function versionTargets(): VersionTarget[] {
+  return [...packageJsonTargets(), ...readmeTargets()];
+}
+
 function shieldBadgeVersion(version: string): string {
   // Shields static badge path segments escape '-' as '--', '_' as '__', and spaces as '_'.
   return version.replaceAll("_", "__").replaceAll("-", "--").replaceAll(" ", "_");
@@ -139,7 +158,7 @@ async function bumpJsonFile(filePath: string, version: string): Promise<void> {
   console.log(`  ${filePath}: ${oldVersion ?? "(none)"} → ${version}`);
 }
 
-async function bumpReadme(filePath: string, version: string): Promise<void> {
+async function bumpReadme(filePath: string, version: string, optional = false): Promise<void> {
   const fullPath = resolve(ROOT, filePath);
   const content = await Bun.file(fullPath).text();
   const badgeVersion = shieldBadgeVersion(version);
@@ -151,6 +170,14 @@ async function bumpReadme(filePath: string, version: string): Promise<void> {
   updated = updated.replace(/alt="Version [^"]+"/g, `alt="Version ${version}"`);
 
   if (updated === content) {
+    if (/https:\/\/img\.shields\.io\/badge\/version-[^"]+-blue/.test(content) || /alt="Version [^"]+"/.test(content)) {
+      console.log(`  ${filePath}: badge already at ${version}`);
+      return;
+    }
+    if (optional) {
+      console.log(`  ${filePath}: no version badge`);
+      return;
+    }
     throw new Error(`${filePath}: no version badge or alt text was updated`);
   }
 
@@ -164,7 +191,7 @@ async function bumpTarget(target: VersionTarget, version: string): Promise<void>
       await bumpJsonFile(target.filePath, version);
       break;
     case "readme":
-      await bumpReadme(target.filePath, version);
+      await bumpReadme(target.filePath, version, target.optional);
       break;
   }
 }
@@ -173,13 +200,13 @@ async function main(): Promise<void> {
   const version = await getVersion();
   validateVersion(version);
 
-  console.log(`Bumping version to ${version}\n`);
+  console.log(`Bumping packages/* versions to ${version}\n`);
 
-  for (const target of VERSION_TARGETS) {
+  for (const target of versionTargets()) {
     await bumpTarget(target, version);
   }
 
-  console.log("\nDone.");
+  console.log("\nDone. Run bun install to refresh bun.lock.");
 }
 
 await main();

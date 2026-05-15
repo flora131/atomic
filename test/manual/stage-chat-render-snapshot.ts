@@ -9,10 +9,10 @@
  * dashed-hint strip) lays out correctly across viewport sizes.
  */
 
-import { createStore } from "../../src/shared/store.ts";
-import { deriveGraphTheme } from "../../src/tui/graph-theme.ts";
-import { StageChatView } from "../../src/tui/stage-chat-view.ts";
-import type { StageControlHandle } from "../../src/runs/foreground/stage-control-registry.ts";
+import { createStore } from "../../packages/workflows/src/shared/store.ts";
+import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.ts";
+import { StageChatView } from "../../packages/workflows/src/tui/stage-chat-view.ts";
+import type { StageControlHandle } from "../../packages/workflows/src/runs/foreground/stage-control-registry.ts";
 
 const ANSI = /\x1B\[[0-?]*[ -/]*[@-~]/g;
 const strip = (s: string): string => s.replace(ANSI, "");

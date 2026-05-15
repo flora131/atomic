@@ -15,18 +15,18 @@
 
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { dispatch } from "../../src/extension/dispatcher.js";
-import { createExtensionRuntime } from "../../src/extension/runtime.js";
-import { createRegistry } from "../../src/workflows/registry.js";
-import { defineWorkflow } from "../../src/workflows/define-workflow.js";
-import { createStore } from "../../src/shared/store.js";
-import { renderResult } from "../../src/extension/render-result.js";
-import type { WorkflowDefinition, WorkflowPersistencePort } from "../../src/shared/types.js";
-import type { StageAdapters } from "../../src/runs/foreground/stage-runner.js";
+import { dispatch } from "../../packages/workflows/src/extension/dispatcher.js";
+import { createExtensionRuntime } from "../../packages/workflows/src/extension/runtime.js";
+import { createRegistry } from "../../packages/workflows/src/workflows/registry.js";
+import { defineWorkflow } from "../../packages/workflows/src/workflows/define-workflow.js";
+import { createStore } from "../../packages/workflows/src/shared/store.js";
+import { renderResult } from "../../packages/workflows/src/extension/render-result.js";
+import type { WorkflowDefinition, WorkflowPersistencePort } from "../../packages/workflows/src/shared/types.js";
+import type { StageAdapters } from "../../packages/workflows/src/runs/foreground/stage-runner.js";
 import type {
   WorkflowToolResult,
   WorkflowInputEntry,
-} from "../../src/extension/render-result.js";
+} from "../../packages/workflows/src/extension/render-result.js";
 
 // ---------------------------------------------------------------------------
 // Type-safe result narrowers

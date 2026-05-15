@@ -5,9 +5,9 @@
 
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { statusRuns, killRun, killAllRuns, resumeRun, pauseRun } from "../../src/runs/background/status.js";
-import { createStore } from "../../src/shared/store.js";
-import type { RunSnapshot } from "../../src/shared/store-types.js";
+import { statusRuns, killRun, killAllRuns, resumeRun, pauseRun } from "../../packages/workflows/src/runs/background/status.js";
+import { createStore } from "../../packages/workflows/src/shared/store.js";
+import type { RunSnapshot } from "../../packages/workflows/src/shared/store-types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -190,8 +190,8 @@ describe("resumeRun", () => {
 // pauseRun
 // ---------------------------------------------------------------------------
 
-import { createStageControlRegistry } from "../../src/runs/foreground/stage-control-registry.js";
-import type { StageControlHandle, StageControlStatus } from "../../src/runs/foreground/stage-control-registry.js";
+import { createStageControlRegistry } from "../../packages/workflows/src/runs/foreground/stage-control-registry.js";
+import type { StageControlHandle, StageControlStatus } from "../../packages/workflows/src/runs/foreground/stage-control-registry.js";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 
 function registerStageHandle(

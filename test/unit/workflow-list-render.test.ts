@@ -14,8 +14,8 @@
 
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { renderWorkflowList } from "../../src/tui/workflow-list.js";
-import { deriveGraphTheme } from "../../src/tui/graph-theme.js";
+import { renderWorkflowList } from "../../packages/workflows/src/tui/workflow-list.js";
+import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.js";
 
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
 const stripAnsi = (s: string) => s.replace(ANSI_RE, "");

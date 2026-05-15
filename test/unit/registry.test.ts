@@ -1,7 +1,7 @@
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { createRegistry } from "../../src/workflows/registry.js";
-import { defineWorkflow } from "../../src/workflows/define-workflow.js";
+import { createRegistry } from "../../packages/workflows/src/workflows/registry.js";
+import { defineWorkflow } from "../../packages/workflows/src/workflows/define-workflow.js";
 
 function makeWorkflow(name: string) {
   return defineWorkflow(name)

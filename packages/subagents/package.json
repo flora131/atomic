@@ -1,0 +1,67 @@
+{
+  "name": "@bastani/subagents",
+  "version": "0.8.0",
+  "private": true,
+  "description": "Atomic extension for delegating tasks to subagents with chains, parallel execution, and TUI clarification.",
+  "contributors": [
+    "Nico Bailon",
+    "Alex Lavaee"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "bun": ">=1.3.14"
+  },
+  "main": "./src/extension/index.ts",
+  "types": "./src/extension/index.ts",
+  "exports": {
+    ".": "./src/extension/index.ts"
+  },
+  "files": [
+    "src/**/*.ts",
+    "agents/",
+    "skills/**/*",
+    "prompts/**/*",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/extension/index.ts"
+    ],
+    "skills": [
+      "./skills"
+    ],
+    "prompts": [
+      "./prompts"
+    ]
+  },
+  "peerDependencies": {
+    "@bastani/atomic": "*",
+    "@earendil-works/pi-agent-core": "*",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "peerDependenciesMeta": {
+    "@bastani/atomic": {
+      "optional": true
+    },
+    "@earendil-works/pi-agent-core": {
+      "optional": true
+    },
+    "@earendil-works/pi-ai": {
+      "optional": true
+    },
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@earendil-works/pi-tui": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "jiti": "^2.7.0",
+    "typebox": "^1.1.24"
+  }
+}

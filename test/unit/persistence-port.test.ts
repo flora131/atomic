@@ -7,8 +7,8 @@
 
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { makePersistencePort } from "../../src/extension/index.js";
-import type { ExtensionAPI } from "../../src/extension/index.js";
+import { makePersistencePort } from "../../packages/workflows/src/extension/index.js";
+import type { ExtensionAPI } from "../../packages/workflows/src/extension/index.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

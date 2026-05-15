@@ -1,6 +1,6 @@
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { normalizeWorkflowName, workflowNamesEqual } from "../../src/workflows/identity.js";
+import { normalizeWorkflowName, workflowNamesEqual } from "../../packages/workflows/src/workflows/identity.js";
 
 describe("normalizeWorkflowName", () => {
   test("lowercases", () => {

@@ -20,13 +20,13 @@ import {
   type ExtensionAPI,
   type WorkflowToolArgs,
   type PiExecuteContext,
-} from "../../src/extension/index.js";
-import { createExtensionRuntime } from "../../src/extension/runtime.js";
-import { defineWorkflow } from "../../src/workflows/define-workflow.js";
-import type { McpScopeSetPayload } from "../../src/extension/mcp.js";
-import type { StageAdapters } from "../../src/runs/foreground/stage-runner.js";
+} from "../../packages/workflows/src/extension/index.js";
+import { createExtensionRuntime } from "../../packages/workflows/src/extension/runtime.js";
+import { defineWorkflow } from "../../packages/workflows/src/workflows/define-workflow.js";
+import type { McpScopeSetPayload } from "../../packages/workflows/src/extension/mcp.js";
+import type { StageAdapters } from "../../packages/workflows/src/runs/foreground/stage-runner.js";
 import { waitForRun } from "../support/helpers.ts";
-import type { WorkflowToolResult } from "../../src/extension/render-result.ts";
+import type { WorkflowToolResult } from "../../packages/workflows/src/extension/render-result.ts";
 
 // ---------------------------------------------------------------------------
 // Test workflow fixture: single restricted stage with MCP scoping

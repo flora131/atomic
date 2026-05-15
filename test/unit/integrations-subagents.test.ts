@@ -11,42 +11,44 @@ import {
   emitStageEnd,
   isSubagentsPresent,
   assertSubagentsPresent,
-} from "../../src/extension/subagents.js";
+  WORKFLOW_RUN_ID_ENV,
+  WORKFLOW_STAGE_ID_ENV,
+} from "../../packages/workflows/src/extension/subagents.js";
 
 describe("injectWorkflowEnv", () => {
   test("returns correct env vars", () => {
     const env = injectWorkflowEnv("run-abc", "stage-xyz");
-    assert.equal(env.PI_WORKFLOW_RUN_ID, "run-abc");
-    assert.equal(env.PI_WORKFLOW_STAGE_ID, "stage-xyz");
+    assert.equal(env[WORKFLOW_RUN_ID_ENV], "run-abc");
+    assert.equal(env[WORKFLOW_STAGE_ID_ENV], "stage-xyz");
   });
 
   test("returns plain object (no extra keys)", () => {
     const env = injectWorkflowEnv("r1", "s1");
-    assert.deepEqual(Object.keys(env).sort(), ["PI_WORKFLOW_RUN_ID", "PI_WORKFLOW_STAGE_ID"]);
+    assert.deepEqual(Object.keys(env).sort(), [WORKFLOW_RUN_ID_ENV, WORKFLOW_STAGE_ID_ENV].sort());
   });
 });
 
 describe("readWorkflowEnv", () => {
   test("returns undefined values when env vars not set", () => {
-    const origRun = process.env["PI_WORKFLOW_RUN_ID"];
-    const origStage = process.env["PI_WORKFLOW_STAGE_ID"];
-    delete process.env["PI_WORKFLOW_RUN_ID"];
-    delete process.env["PI_WORKFLOW_STAGE_ID"];
+    const origRun = process.env[WORKFLOW_RUN_ID_ENV];
+    const origStage = process.env[WORKFLOW_STAGE_ID_ENV];
+    delete process.env[WORKFLOW_RUN_ID_ENV];
+    delete process.env[WORKFLOW_STAGE_ID_ENV];
     const env = readWorkflowEnv();
-    assert.equal(env.PI_WORKFLOW_RUN_ID, undefined);
-    assert.equal(env.PI_WORKFLOW_STAGE_ID, undefined);
-    if (origRun !== undefined) process.env["PI_WORKFLOW_RUN_ID"] = origRun;
-    if (origStage !== undefined) process.env["PI_WORKFLOW_STAGE_ID"] = origStage;
+    assert.equal(env.runId, undefined);
+    assert.equal(env.stageId, undefined);
+    if (origRun !== undefined) process.env[WORKFLOW_RUN_ID_ENV] = origRun;
+    if (origStage !== undefined) process.env[WORKFLOW_STAGE_ID_ENV] = origStage;
   });
 
   test("reads env vars when set", () => {
-    process.env["PI_WORKFLOW_RUN_ID"] = "run-test";
-    process.env["PI_WORKFLOW_STAGE_ID"] = "stage-test";
+    process.env[WORKFLOW_RUN_ID_ENV] = "run-test";
+    process.env[WORKFLOW_STAGE_ID_ENV] = "stage-test";
     const env = readWorkflowEnv();
-    assert.equal(env.PI_WORKFLOW_RUN_ID, "run-test");
-    assert.equal(env.PI_WORKFLOW_STAGE_ID, "stage-test");
-    delete process.env["PI_WORKFLOW_RUN_ID"];
-    delete process.env["PI_WORKFLOW_STAGE_ID"];
+    assert.equal(env.runId, "run-test");
+    assert.equal(env.stageId, "stage-test");
+    delete process.env[WORKFLOW_RUN_ID_ENV];
+    delete process.env[WORKFLOW_STAGE_ID_ENV];
   });
 });
 

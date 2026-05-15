@@ -7,7 +7,7 @@ import {
   setMcpScope,
   clearMcpScope,
   isMcpScopeSupported,
-} from "../../src/extension/mcp.js";
+} from "../../packages/workflows/src/extension/mcp.js";
 
 describe("setMcpScope", () => {
   test("emits mcp.scope.set with allow and deny", () => {

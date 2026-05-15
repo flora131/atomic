@@ -5,7 +5,7 @@
 
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { createCancellationRegistry } from "../../src/runs/background/cancellation-registry.js";
+import { createCancellationRegistry } from "../../packages/workflows/src/runs/background/cancellation-registry.js";
 
 // ---------------------------------------------------------------------------
 // register / isAborted

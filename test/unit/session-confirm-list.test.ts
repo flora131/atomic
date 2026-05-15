@@ -7,10 +7,10 @@ import {
   createKillConfirmState,
   handleKillConfirmInput,
   renderKillConfirm,
-} from "../../src/tui/session-confirm.ts";
-import { renderSessionList } from "../../src/tui/session-list.ts";
-import { deriveGraphTheme } from "../../src/tui/graph-theme.ts";
-import type { RunSnapshot } from "../../src/shared/store-types.ts";
+} from "../../packages/workflows/src/tui/session-confirm.ts";
+import { renderSessionList } from "../../packages/workflows/src/tui/session-list.ts";
+import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.ts";
+import type { RunSnapshot } from "../../packages/workflows/src/shared/store-types.ts";
 
 function makeRun(over: Partial<RunSnapshot>): RunSnapshot {
   return {

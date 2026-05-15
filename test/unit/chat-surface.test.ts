@@ -14,8 +14,8 @@ import {
   progressStrip,
   chatWidth,
   ELLIPSIS,
-} from "../../src/tui/chat-surface.js";
-import { deriveGraphTheme } from "../../src/tui/graph-theme.js";
+} from "../../packages/workflows/src/tui/chat-surface.js";
+import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.js";
 
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
 const stripAnsi = (s: string) => s.replace(ANSI_RE, "");

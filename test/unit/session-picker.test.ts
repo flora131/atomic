@@ -9,9 +9,9 @@ import {
   handleSessionPickerInput,
   renderSessionPicker,
   selectRunsForPicker,
-} from "../../src/tui/session-picker.ts";
-import { deriveGraphTheme } from "../../src/tui/graph-theme.ts";
-import type { RunSnapshot } from "../../src/shared/store-types.ts";
+} from "../../packages/workflows/src/tui/session-picker.ts";
+import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.ts";
+import type { RunSnapshot } from "../../packages/workflows/src/shared/store-types.ts";
 
 function makeRun(over: Partial<RunSnapshot>): RunSnapshot {
   return {

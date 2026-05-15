@@ -24,8 +24,8 @@
 
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { buildGraphOverlayAdapter } from "../../src/tui/overlay-adapter.js";
-import type { OverlayPiSurface } from "../../src/tui/overlay-adapter.js";
+import { buildGraphOverlayAdapter } from "../../packages/workflows/src/tui/overlay-adapter.js";
+import type { OverlayPiSurface } from "../../packages/workflows/src/tui/overlay-adapter.js";
 import type {
   PiCustomComponent,
   PiCustomOverlayFactory,
@@ -33,17 +33,17 @@ import type {
   PiCustomOverlayFunction,
   PiCustomOverlayOptions,
   PiOverlayHandle,
-} from "../../src/extension/wiring.js";
+} from "../../packages/workflows/src/extension/wiring.js";
 import {
   createStore,
   store as singletonStore,
-} from "../../src/shared/store.js";
-import factory from "../../src/extension/index.js";
+} from "../../packages/workflows/src/shared/store.js";
+import factory from "../../packages/workflows/src/extension/index.js";
 import type {
   ExtensionAPI,
   PiCommandContext,
   PiCommandOptions,
-} from "../../src/extension/index.js";
+} from "../../packages/workflows/src/extension/index.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -608,38 +608,6 @@ describe("/workflow resume — overlay integration", () => {
     await wfCmd.options.handler("deep-research-codebase prompt=test", ctx);
 
     assert.equal(customCalls.length, 0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Doctor report — uiCustom + shortcut fields
-// ---------------------------------------------------------------------------
-
-describe("/workflows-doctor — overlay capability fields", () => {
-  test("doctor report includes ui.custom line when custom present", async () => {
-    const { pi, commands } = buildMockPi();
-    factory(pi);
-
-    const doctorCmd = commands["workflows-doctor"]!;
-    const { ctx, messages } = buildPrintCtx();
-
-    await doctorCmd.options.handler("", ctx);
-
-    const report = messages.join("\n");
-    assert.ok(report.includes("ui.custom"));
-  });
-
-  test("doctor report includes shortcut line", async () => {
-    const { pi, commands } = buildMockPi();
-    factory(pi);
-
-    const doctorCmd = commands["workflows-doctor"]!;
-    const { ctx, messages } = buildPrintCtx();
-
-    await doctorCmd.options.handler("", ctx);
-
-    const report = messages.join("\n");
-    assert.ok(report.includes("shortcut"));
   });
 });
 

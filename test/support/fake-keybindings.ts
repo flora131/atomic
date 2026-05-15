@@ -15,7 +15,7 @@
  * accept defaults, or pass overrides for per-test remaps.
  */
 
-import type { KeybindingsLike } from "../../src/tui/keybindings-adapter.ts";
+import type { KeybindingsLike } from "../../packages/workflows/src/tui/keybindings-adapter.ts";
 
 /**
  * Per-action defaults the production form/picker rely on. Multiple keys

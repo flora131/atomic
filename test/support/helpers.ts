@@ -2,10 +2,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import type { Store } from "../../src/shared/store.js";
-import type { JobTracker } from "../../src/runs/background/job-tracker.js";
-import { jobTracker as defaultJobTracker } from "../../src/runs/background/job-tracker.js";
-export function createTempDir(prefix = "atomic-workflows-test-"): string {
+import type { Store } from "../../packages/workflows/src/shared/store.js";
+import type { JobTracker } from "../../packages/workflows/src/runs/background/job-tracker.js";
+import { jobTracker as defaultJobTracker } from "../../packages/workflows/src/runs/background/job-tracker.js";
+export function createTempDir(prefix = "workflows-test-"): string {
 	return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
 

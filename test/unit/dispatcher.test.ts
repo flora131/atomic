@@ -16,14 +16,14 @@
 
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import type { WorkflowDefinition, WorkflowPersistencePort } from "../../src/shared/types.js";
-import { createRegistry } from "../../src/workflows/registry.js";
-import { defineWorkflow } from "../../src/workflows/define-workflow.js";
-import { dispatch } from "../../src/extension/dispatcher.js";
-import { createStore } from "../../src/shared/store.js";
-import { createCancellationRegistry } from "../../src/runs/background/cancellation-registry.js";
-import { createJobTracker } from "../../src/runs/background/job-tracker.js";
-import type { DispatcherOpts } from "../../src/extension/dispatcher.js";
+import type { WorkflowDefinition, WorkflowPersistencePort } from "../../packages/workflows/src/shared/types.js";
+import { createRegistry } from "../../packages/workflows/src/workflows/registry.js";
+import { defineWorkflow } from "../../packages/workflows/src/workflows/define-workflow.js";
+import { dispatch } from "../../packages/workflows/src/extension/dispatcher.js";
+import { createStore } from "../../packages/workflows/src/shared/store.js";
+import { createCancellationRegistry } from "../../packages/workflows/src/runs/background/cancellation-registry.js";
+import { createJobTracker } from "../../packages/workflows/src/runs/background/job-tracker.js";
+import type { DispatcherOpts } from "../../packages/workflows/src/extension/dispatcher.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

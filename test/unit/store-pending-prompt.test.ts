@@ -12,12 +12,12 @@
 
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { createStore } from "../../src/shared/store.js";
-import type { Store } from "../../src/shared/store.js";
+import { createStore } from "../../packages/workflows/src/shared/store.js";
+import type { Store } from "../../packages/workflows/src/shared/store.js";
 import type {
   PendingPrompt,
   RunSnapshot,
-} from "../../src/shared/store-types.js";
+} from "../../packages/workflows/src/shared/store-types.js";
 
 function makeRun(id: string): RunSnapshot {
   return {

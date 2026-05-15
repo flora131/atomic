@@ -1,6 +1,6 @@
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { ConcurrencyLimiter, createRunLimiter } from "../../src/runs/shared/concurrency.js";
+import { ConcurrencyLimiter, createRunLimiter } from "../../packages/workflows/src/runs/shared/concurrency.js";
 
 describe("ConcurrencyLimiter", () => {
   test("throws for limit < 1", () => {

@@ -4,11 +4,11 @@
 
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { buildRuntimeAdapters } from "../../src/extension/wiring.js";
-import { createStageContext } from "../../src/runs/foreground/stage-runner.js";
+import { buildRuntimeAdapters } from "../../packages/workflows/src/extension/wiring.js";
+import { createStageContext } from "../../packages/workflows/src/runs/foreground/stage-runner.js";
 import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent";
-import type { RuntimeWiringSurface } from "../../src/extension/wiring.js";
-import type { StageSessionRuntime } from "../../src/runs/foreground/stage-runner.js";
+import type { RuntimeWiringSurface } from "../../packages/workflows/src/extension/wiring.js";
+import type { StageSessionRuntime } from "../../packages/workflows/src/runs/foreground/stage-runner.js";
 
 function fakeSession(): StageSessionRuntime {
   let last = "";

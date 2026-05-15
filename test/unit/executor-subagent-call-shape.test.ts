@@ -23,11 +23,11 @@
 
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { run } from "../../src/runs/foreground/executor.js";
-import { createStore } from "../../src/shared/store.js";
-import { defineWorkflow } from "../../src/workflows/define-workflow.js";
-import { buildRuntimeAdapters } from "../../src/extension/wiring.js";
-import type { RuntimeWiringSurface } from "../../src/extension/wiring.js";
+import { run } from "../../packages/workflows/src/runs/foreground/executor.js";
+import { createStore } from "../../packages/workflows/src/shared/store.js";
+import { defineWorkflow } from "../../packages/workflows/src/workflows/define-workflow.js";
+import { buildRuntimeAdapters } from "../../packages/workflows/src/extension/wiring.js";
+import type { RuntimeWiringSurface } from "../../packages/workflows/src/extension/wiring.js";
 
 interface RecordedToolCall {
   name: string;

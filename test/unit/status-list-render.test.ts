@@ -16,9 +16,9 @@
 
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { renderStatusList } from "../../src/tui/status-list.js";
-import { deriveGraphTheme } from "../../src/tui/graph-theme.js";
-import type { RunSnapshot, StageSnapshot } from "../../src/shared/store-types.js";
+import { renderStatusList } from "../../packages/workflows/src/tui/status-list.js";
+import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.js";
+import type { RunSnapshot, StageSnapshot } from "../../packages/workflows/src/shared/store-types.js";
 
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
 const stripAnsi = (s: string) => s.replace(ANSI_RE, "");

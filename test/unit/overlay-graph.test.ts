@@ -3,13 +3,13 @@
  */
 import { describe, it, mock } from "bun:test";
 import assert from "node:assert/strict";
-import type { Store } from "../../src/shared/store.js";
-import type { StoreSnapshot, RunSnapshot, StageSnapshot } from "../../src/shared/store-types.js";
-import { computeLayout, NODE_W } from "../../src/tui/layout.js";
-import { buildConnector, buildMergeConnector } from "../../src/tui/connectors.js";
-import { statusColor, statusIcon, fmtDuration } from "../../src/tui/status-helpers.js";
-import { GraphView } from "../../src/tui/graph-view.js";
-import { deriveGraphTheme } from "../../src/tui/graph-theme.js";
+import type { Store } from "../../packages/workflows/src/shared/store.js";
+import type { StoreSnapshot, RunSnapshot, StageSnapshot } from "../../packages/workflows/src/shared/store-types.js";
+import { computeLayout, NODE_W } from "../../packages/workflows/src/tui/layout.js";
+import { buildConnector, buildMergeConnector } from "../../packages/workflows/src/tui/connectors.js";
+import { statusColor, statusIcon, fmtDuration } from "../../packages/workflows/src/tui/status-helpers.js";
+import { GraphView } from "../../packages/workflows/src/tui/graph-view.js";
+import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.js";
 
 // ---------------------------------------------------------------------------
 // Mock helpers

@@ -6,10 +6,10 @@
  */
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { createStore } from "../../src/shared/store.js";
-import { buildIntercomCallbacks } from "../../src/intercom/intercom-routing.js";
-import type { Store } from "../../src/shared/store.js";
-import type { IntercomRoutingDeps } from "../../src/intercom/intercom-routing.js";
+import { createStore } from "../../packages/workflows/src/shared/store.js";
+import { buildIntercomCallbacks } from "../../packages/workflows/src/intercom/intercom-routing.js";
+import type { Store } from "../../packages/workflows/src/shared/store.js";
+import type { IntercomRoutingDeps } from "../../packages/workflows/src/intercom/intercom-routing.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

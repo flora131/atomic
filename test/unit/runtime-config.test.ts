@@ -11,18 +11,18 @@
 
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import type { WorkflowRuntimeConfig } from "../../src/shared/types.js";
-import type { ExtensionRuntimeOpts } from "../../src/extension/runtime.js";
-import type { DispatcherOpts } from "../../src/extension/dispatcher.js";
-import type { RunOpts } from "../../src/runs/foreground/executor.js";
-import type { DetachedRunOpts } from "../../src/runs/background/runner.js";
-import { createExtensionRuntime } from "../../src/extension/runtime.js";
-import { dispatch } from "../../src/extension/dispatcher.js";
-import { createRegistry } from "../../src/workflows/registry.js";
-import { defineWorkflow } from "../../src/workflows/define-workflow.js";
-import { createStore } from "../../src/shared/store.js";
-import { WORKFLOW_CONFIG_DEFAULTS } from "../../src/extension/config-loader.js";
-import type { WorkflowDefinition } from "../../src/shared/types.js";
+import type { WorkflowRuntimeConfig } from "../../packages/workflows/src/shared/types.js";
+import type { ExtensionRuntimeOpts } from "../../packages/workflows/src/extension/runtime.js";
+import type { DispatcherOpts } from "../../packages/workflows/src/extension/dispatcher.js";
+import type { RunOpts } from "../../packages/workflows/src/runs/foreground/executor.js";
+import type { DetachedRunOpts } from "../../packages/workflows/src/runs/background/runner.js";
+import { createExtensionRuntime } from "../../packages/workflows/src/extension/runtime.js";
+import { dispatch } from "../../packages/workflows/src/extension/dispatcher.js";
+import { createRegistry } from "../../packages/workflows/src/workflows/registry.js";
+import { defineWorkflow } from "../../packages/workflows/src/workflows/define-workflow.js";
+import { createStore } from "../../packages/workflows/src/shared/store.js";
+import { WORKFLOW_CONFIG_DEFAULTS } from "../../packages/workflows/src/extension/config-loader.js";
+import type { WorkflowDefinition } from "../../packages/workflows/src/shared/types.js";
 
 // ---------------------------------------------------------------------------
 // Type-level checks — compile-time only, no runtime assertions needed

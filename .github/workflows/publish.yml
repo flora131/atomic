@@ -1,42 +1,35 @@
 name: Publish
 
 on:
-  # Matches the repository release flow: merge a release/vX.Y.Z or
-  # prerelease/vX.Y.Z-prerelease branch to main, then publish that version.
   pull_request:
     types: [closed]
     branches: [main]
-  # Also allow publishing from an existing GitHub Release/tag. The automatic
-  # release job below skips this event to avoid creating a release loop.
   release:
     types: [published]
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to publish (for example, v0.1.0)"
+        description: "Tag to publish (for example, v0.8.0)"
         required: true
         type: string
 
 permissions:
   contents: read
-  # Required by npm trusted publishing / `npm publish --provenance`.
   id-token: write
 
 concurrency:
   group: publish-${{ github.event.release.tag_name || github.event.inputs.tag || github.event.pull_request.head.ref || github.ref }}
-  # Never cancel a publish in flight: npm versions are immutable.
   cancel-in-progress: false
 
 env:
-  # This package ships raw TypeScript as a pi package; there is no build step.
-  # Pi discovers resources from package.json's `pi` manifest (extensions,
-  # skills, themes, and this package's workflow manifest extension).
   PREK_DISABLE_INSTALL: "1"
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  PACKAGE_DIR: packages/coding-agent
+  PACKAGE_NAME: "@bastani/atomic"
 
 jobs:
   publish:
-    name: Publish @bastani/atomic-workflows
+    name: Publish @bastani/atomic
     if: >-
       github.event_name != 'pull_request'
       || (github.event.pull_request.merged == true
@@ -74,11 +67,10 @@ jobs:
         with:
           bun-version: latest
 
-      # The repo uses Bun for installs/tests. Node is set up only so the npm CLI
-      # can perform OIDC-backed publishing with provenance.
       - uses: actions/setup-node@v5
         with:
           node-version: 24
+          registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -89,7 +81,10 @@ jobs:
       - name: Test
         run: bun run test:all
 
-      - name: Validate pi package metadata
+      - name: Build @bastani/atomic package
+        run: cd "$PACKAGE_DIR" && bun run build
+
+      - name: Validate single publish target and package metadata
         id: package
         shell: bash
         env:
@@ -99,13 +94,32 @@ jobs:
         run: |
           set -euo pipefail
 
+          root_name=$(bun --eval 'import pkg from "./package.json" with { type: "json" }; console.log(pkg.name);')
+          if [ "$root_name" != "atomic-monorepo" ]; then
+            echo "Unexpected root package name: $root_name" >&2
+            exit 1
+          fi
+
+          workflows_private=$(bun --eval 'import pkg from "./packages/workflows/package.json" with { type: "json" }; console.log(pkg.private === true ? "true" : "false");')
+          if [ "$workflows_private" != "true" ]; then
+            echo "packages/workflows is bundled into @bastani/atomic and must remain private (not independently published)." >&2
+            exit 1
+          fi
+
+          pushd "$PACKAGE_DIR" >/dev/null
+
           name=$(bun --eval 'import pkg from "./package.json" with { type: "json" }; console.log(pkg.name);')
           version=$(bun --eval 'import pkg from "./package.json" with { type: "json" }; console.log(pkg.version);')
           expected_tag="v$version"
           ref_tag="${RELEASE_TAG:-$DISPATCH_TAG}"
 
+          if [ "$name" != "$PACKAGE_NAME" ]; then
+            echo "Only $PACKAGE_NAME may be published by this workflow; found $name in $PACKAGE_DIR/package.json." >&2
+            exit 1
+          fi
+
           if [ -n "$ref_tag" ] && [ "$ref_tag" != "$expected_tag" ]; then
-            echo "Tag $ref_tag does not match package.json version $version (expected $expected_tag)." >&2
+            echo "Tag $ref_tag does not match $PACKAGE_DIR/package.json version $version (expected $expected_tag)." >&2
             exit 1
           fi
 
@@ -117,7 +131,7 @@ jobs:
             esac
 
             if [ -n "$branch_version" ] && [ "$branch_version" != "$version" ]; then
-              echo "Release branch $PR_HEAD_REF does not match package.json version $version." >&2
+              echo "Release branch $PR_HEAD_REF does not match $PACKAGE_DIR/package.json version $version." >&2
               exit 1
             fi
           fi
@@ -128,6 +142,7 @@ jobs:
             import pkg from "./package.json" with { type: "json" };
 
             const failures = [];
+            const expectedBuiltins = ["workflows", "pi-subagents", "pi-mcp-adapter", "pi-web-access", "pi-intercom"];
             const clean = (value) => String(value).replace(/^\.\//, "").replace(/\/$/, "");
             const walk = (dir) => {
               if (!existsSync(dir)) return [];
@@ -153,23 +168,26 @@ jobs:
               if (!value || !exists(value)) failures.push(`${label}: ${value}`);
             };
 
-            if (pkg.private) failures.push("package.json must not set private=true");
+            if (pkg.private) failures.push("@bastani/atomic package.json must not set private=true");
+            if (pkg.name !== "@bastani/atomic") failures.push(`unexpected package name: ${pkg.name}`);
+            if (pkg.bin?.atomic !== "dist/cli.js") failures.push("bin.atomic must point at dist/cli.js");
             requirePath("main", pkg.main);
             requirePath("types", pkg.types);
+            requirePath("bin.atomic", pkg.bin?.atomic);
+            requirePath("dist builtin root", "dist/builtin");
 
-            const pi = pkg.pi ?? {};
-            for (const key of ["extensions", "skills", "prompts", "themes", "workflows"]) {
-              const entries = pi[key];
-              if (!Array.isArray(entries)) continue;
-              for (const entry of entries) requirePath(`pi.${key}`, entry);
+            for (const builtin of expectedBuiltins) {
+              requirePath(`dist builtin ${builtin}`, `dist/builtin/${builtin}/package.json`);
             }
 
             if (failures.length > 0) {
-              console.error("Invalid package metadata/resource paths:");
+              console.error("Invalid @bastani/atomic package metadata/build output:");
               for (const failure of failures) console.error(`- ${failure}`);
               process.exit(1);
             }
           '
+
+          popd >/dev/null
 
           if [[ "$version" == *-* ]]; then
             npm_tag="next"
@@ -180,13 +198,12 @@ jobs:
           echo "name=$name" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "npm_tag=$npm_tag" >> "$GITHUB_OUTPUT"
-          echo "Publishing $name@$version with npm tag '$npm_tag'."
+          echo "Publishing only $name@$version from $PACKAGE_DIR with npm tag '$npm_tag'."
 
       - name: Check npm registry
         id: registry
         shell: bash
         env:
-          PACKAGE_NAME: ${{ steps.package.outputs.name }}
           PACKAGE_VERSION: ${{ steps.package.outputs.version }}
         run: |
           set -euo pipefail
@@ -199,10 +216,12 @@ jobs:
 
       - name: Verify npm tarball contents
         if: steps.registry.outputs.exists != 'true'
+        working-directory: ${{ env.PACKAGE_DIR }}
         run: bun pm pack --dry-run
 
       - name: Publish to npm
         if: steps.registry.outputs.exists != 'true'
+        working-directory: ${{ env.PACKAGE_DIR }}
         shell: bash
         env:
           NPM_CONFIG_PROVENANCE: "true"
@@ -232,8 +251,6 @@ jobs:
             echo "make_latest=true" >> "$GITHUB_OUTPUT"
           fi
 
-      # Matches flora131/atomic: use the release action directly instead of
-      # shelling out to `gh`. The action creates (or updates) the GitHub Release.
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:

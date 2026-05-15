@@ -21,8 +21,8 @@
 
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { renderDispatchConfirm } from "../../src/tui/dispatch-confirm.js";
-import { deriveGraphTheme } from "../../src/tui/graph-theme.js";
+import { renderDispatchConfirm } from "../../packages/workflows/src/tui/dispatch-confirm.js";
+import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.js";
 
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
 const stripAnsi = (s: string) => s.replace(ANSI_RE, "");

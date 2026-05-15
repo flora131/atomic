@@ -19,29 +19,29 @@ import {
   parseWorkflowArgs,
   tokenizeWorkflowArgs,
   makeExecuteWorkflowTool,
-} from "../../src/extension/index.js";
+} from "../../packages/workflows/src/extension/index.js";
 import type {
   ExtensionAPI,
   PiArgumentCompletion,
   PiCommandContext,
   PiCommandOptions,
-} from "../../src/extension/index.js";
-import { createRegistry } from "../../src/workflows/registry.js";
-import { defineWorkflow } from "../../src/workflows/define-workflow.js";
-import type { WorkflowDefinition } from "../../src/shared/types.js";
-import { createExtensionRuntime } from "../../src/extension/runtime.js";
-import { store } from "../../src/shared/store.js";
+} from "../../packages/workflows/src/extension/index.js";
+import { createRegistry } from "../../packages/workflows/src/workflows/registry.js";
+import { defineWorkflow } from "../../packages/workflows/src/workflows/define-workflow.js";
+import type { WorkflowDefinition } from "../../packages/workflows/src/shared/types.js";
+import { createExtensionRuntime } from "../../packages/workflows/src/extension/runtime.js";
+import { store } from "../../packages/workflows/src/shared/store.js";
 import type {
   PiCustomComponent,
   PiCustomOverlayFactoryTui,
   PiCustomOverlayFunction,
   PiCustomOverlayOptions,
   PiOverlayHandle,
-} from "../../src/extension/wiring.js";
-import { killAllRuns } from "../../src/runs/background/status.js";
-import { cancellationRegistry } from "../../src/runs/background/cancellation-registry.js";
-import { jobTracker } from "../../src/runs/background/job-tracker.js";
-import type { StageSessionRuntime } from "../../src/runs/foreground/stage-runner.js";
+} from "../../packages/workflows/src/extension/wiring.js";
+import { killAllRuns } from "../../packages/workflows/src/runs/background/status.js";
+import { cancellationRegistry } from "../../packages/workflows/src/runs/background/cancellation-registry.js";
+import { jobTracker } from "../../packages/workflows/src/runs/background/job-tracker.js";
+import type { StageSessionRuntime } from "../../packages/workflows/src/runs/foreground/stage-runner.js";
 
 afterEach(async () => {
   killAllRuns({ store, cancellation: cancellationRegistry });
@@ -267,7 +267,7 @@ function fakeAgentSession(): StageSessionRuntime {
 
 async function runFactory(pi: ExtensionAPI): Promise<void> {
   addFactoryStubs(pi);
-  const factoryModule = await import("../../src/extension/index.js");
+  const factoryModule = await import("../../packages/workflows/src/extension/index.js");
   factoryModule.default(pi);
 }
 
@@ -388,11 +388,6 @@ describe("factory command registration (real factory)", () => {
     assert.ok(names.includes("workflow"));
   });
 
-  test("/workflows-doctor command registered", async () => {
-    const commands = await runFactoryWithMock();
-    const names = commands.map((c) => c.name);
-    assert.ok(names.includes("workflows-doctor"));
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -630,12 +625,6 @@ describe("canonical registerCommand — opts.handler shape", () => {
     assert.ok(names.includes("workflow"));
   });
 
-  test("registerCommand receives string name 'workflows-doctor'", async () => {
-    const { commands } = await runFactoryRaw()
-    const names = commands.map((c) => c.name);
-    assert.ok(names.includes("workflows-doctor"));
-  });
-
   test("registerCommand does not receive per-workflow alias names", async () => {
     const { commands } = await runFactoryRaw()
     const names = commands.map((c) => c.name);
@@ -713,7 +702,7 @@ describe("/workflow interrupt chat command", () => {
     const { pi, commands } = buildMockPi();
     addFactoryStubs(pi);
 
-    const factoryModule = await import("../../src/extension/index.js");
+    const factoryModule = await import("../../packages/workflows/src/extension/index.js");
     factoryModule.default(pi);
 
     const workflowCmd = commands.find((c) => c.name === "workflow")!;
@@ -739,7 +728,7 @@ describe("/workflow interrupt chat command", () => {
     const { pi, commands } = buildMockPi();
     addFactoryStubs(pi);
 
-    const factoryModule = await import("../../src/extension/index.js");
+    const factoryModule = await import("../../packages/workflows/src/extension/index.js");
     factoryModule.default(pi);
 
     const workflowCmd = commands.find((c) => c.name === "workflow")!;
@@ -801,7 +790,7 @@ describe("/workflow resume <runId> — overlay open + no legacy message", () => 
       custom: customFn,
     };
 
-    const factoryModule = await import("../../src/extension/index.js");
+    const factoryModule = await import("../../packages/workflows/src/extension/index.js");
     factoryModule.default(pi);
 
     const workflowCmd = commands.find((c) => c.name === "workflow")!;
@@ -839,7 +828,7 @@ describe("/workflow resume <runId> — overlay open + no legacy message", () => 
       custom: customFn,
     };
 
-    const factoryModule = await import("../../src/extension/index.js");
+    const factoryModule = await import("../../packages/workflows/src/extension/index.js");
     factoryModule.default(pi);
 
     const workflowCmd = commands.find((c) => c.name === "workflow")!;

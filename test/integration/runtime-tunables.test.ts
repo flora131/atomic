@@ -20,11 +20,11 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { run } from "../../src/runs/foreground/executor.js";
-import { createStore } from "../../src/shared/store.js";
-import { createStatusWriter } from "../../src/extension/status-writer.js";
-import { defineWorkflow } from "../../src/workflows/define-workflow.js";
-import type { WorkflowRuntimeConfig } from "../../src/shared/types.js";
+import { run } from "../../packages/workflows/src/runs/foreground/executor.js";
+import { createStore } from "../../packages/workflows/src/shared/store.js";
+import { createStatusWriter } from "../../packages/workflows/src/extension/status-writer.js";
+import { defineWorkflow } from "../../packages/workflows/src/workflows/define-workflow.js";
+import type { WorkflowRuntimeConfig } from "../../packages/workflows/src/shared/types.js";
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -449,7 +449,7 @@ describe("runtime tunables — statusFile", () => {
 
   test("write uses projectRoot default path when statusFilePath not set", async () => {
     const projectRoot = join(tmpDir, "project");
-    const expectedPath = join(projectRoot, ".pi", "workflows", "status.json");
+    const expectedPath = join(projectRoot, ".atomic", "workflows", "status.json");
 
     const s = createStore();
     const writer = createStatusWriter(

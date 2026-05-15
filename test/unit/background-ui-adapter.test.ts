@@ -16,10 +16,10 @@
 
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { buildBackgroundUIAdapter } from "../../src/extension/background-ui-adapter.js";
-import { createStore } from "../../src/shared/store.js";
-import type { Store } from "../../src/shared/store.js";
-import type { RunSnapshot } from "../../src/shared/store-types.js";
+import { buildBackgroundUIAdapter } from "../../packages/workflows/src/extension/background-ui-adapter.js";
+import { createStore } from "../../packages/workflows/src/shared/store.js";
+import type { Store } from "../../packages/workflows/src/shared/store.js";
+import type { RunSnapshot } from "../../packages/workflows/src/shared/store-types.js";
 
 function seedRun(s: Store, id = "r1"): RunSnapshot {
   const run: RunSnapshot = {

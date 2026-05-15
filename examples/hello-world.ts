@@ -6,7 +6,7 @@
  *
  * Run: bun examples/hello-world.ts
  */
-import { defineWorkflow } from "../src/index.js";
+import { defineWorkflow } from "@bastani/workflows";
 
 const workflow = defineWorkflow("hello-world")
   .description("Greet the user with a single stage.")

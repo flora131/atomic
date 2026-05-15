@@ -11,8 +11,8 @@ import {
   appendStageProgress,
   appendStageEnd,
   appendRunEnd,
-} from "../../src/shared/persistence-session-entries.js";
-import type { PersistenceAPI } from "../../src/shared/persistence-session-entries.js";
+} from "../../packages/workflows/src/shared/persistence-session-entries.js";
+import type { PersistenceAPI } from "../../packages/workflows/src/shared/persistence-session-entries.js";
 
 // ---------------------------------------------------------------------------
 // Mock PersistenceAPI

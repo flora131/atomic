@@ -21,9 +21,9 @@ import {
   resolveStatusFilePath,
   atomicWriteJson,
   createStatusWriter,
-} from "../../src/extension/status-writer.js";
-import { createStore } from "../../src/shared/store.js";
-import type { WorkflowRuntimeConfig } from "../../src/shared/types.js";
+} from "../../packages/workflows/src/extension/status-writer.js";
+import { createStore } from "../../packages/workflows/src/shared/store.js";
+import type { WorkflowRuntimeConfig } from "../../packages/workflows/src/shared/types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -59,16 +59,16 @@ describe("resolveStatusFilePath", () => {
     assert.equal(resolveStatusFilePath(cfg, { projectRoot: "/some/root" }), "/explicit/status.json");
   });
 
-  test("defaults to <projectRoot>/.pi/workflows/status.json", () => {
+  test("defaults to <projectRoot>/.atomic/workflows/status.json", () => {
     const cfg = makeConfig({ statusFilePath: undefined });
     const result = resolveStatusFilePath(cfg, { projectRoot: "/myproject" });
-    assert.equal(result, join("/myproject", ".pi", "workflows", "status.json"));
+    assert.equal(result, join("/myproject", ".atomic", "workflows", "status.json"));
   });
 
   test("uses process.cwd() when projectRoot not provided", () => {
     const cfg = makeConfig({ statusFilePath: undefined });
     const result = resolveStatusFilePath(cfg);
-    assert.equal(result, join(process.cwd(), ".pi", "workflows", "status.json"));
+    assert.equal(result, join(process.cwd(), ".atomic", "workflows", "status.json"));
   });
 });
 
@@ -310,7 +310,7 @@ describe("createStatusWriter — statusFile:true", () => {
   test("resolves default path relative to projectRoot", async () => {
     // Use a real nested path under tmpDir as projectRoot
     const projectRoot = join(tmpDir, "myproject");
-    const expectedPath = join(projectRoot, ".pi", "workflows", "status.json");
+    const expectedPath = join(projectRoot, ".atomic", "workflows", "status.json");
 
     const s = createStore();
     const writer = createStatusWriter(

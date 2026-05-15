@@ -26,11 +26,11 @@ import factory, {
   type PiCommandOptions,
   type PiFlagNamedOpts,
   type WorkflowToolArgs,
-} from "../../src/extension/index.js";
-import type { WorkflowToolResult } from "../../src/extension/render-result.js";
-import type { PiExecResult } from "../../src/extension/wiring.js";
-import { createExtensionRuntime } from "../../src/extension/runtime.js";
-import { discoverStartupWorkflowsSync, discoverWorkflows } from "../../src/extension/discovery.js";
+} from "../../packages/workflows/src/extension/index.js";
+import type { WorkflowToolResult } from "../../packages/workflows/src/extension/render-result.js";
+import type { PiExecResult } from "../../packages/workflows/src/extension/wiring.js";
+import { createExtensionRuntime } from "../../packages/workflows/src/extension/runtime.js";
+import { discoverStartupWorkflowsSync, discoverWorkflows } from "../../packages/workflows/src/extension/discovery.js";
 import { waitForRun } from "../support/helpers.ts";
 
 /**

@@ -19,14 +19,14 @@ import factory, {
   type PiCommandOptions,
   type PiFlagNamedOpts,
   type WorkflowToolArgs,
-} from "../../src/extension/index.js";
-import type { WorkflowToolResult } from "../../src/extension/render-result.js";
-import { createExtensionRuntime } from "../../src/extension/runtime.js";
-import { cancellationRegistry } from "../../src/runs/background/cancellation-registry.js";
-import { renderCall } from "../../src/extension/render-call.js";
-import { renderResult } from "../../src/extension/render-result.js";
+} from "../../packages/workflows/src/extension/index.js";
+import type { WorkflowToolResult } from "../../packages/workflows/src/extension/render-result.js";
+import { createExtensionRuntime } from "../../packages/workflows/src/extension/runtime.js";
+import { cancellationRegistry } from "../../packages/workflows/src/runs/background/cancellation-registry.js";
+import { renderCall } from "../../packages/workflows/src/extension/render-call.js";
+import { renderResult } from "../../packages/workflows/src/extension/render-result.js";
 import { waitForRun } from "../support/helpers.ts";
-import { store as defaultStore } from "../../src/shared/store.ts";
+import { store as defaultStore } from "../../packages/workflows/src/shared/store.ts";
 
 // ---------------------------------------------------------------------------
 // MockExtensionAPI
@@ -226,10 +226,11 @@ describe("MockExtensionAPI — tool registration", () => {
     const actionSchema = params.properties.action;
     // TypeBox Optional(Union([...])) wraps in anyOf
     const raw = JSON.stringify(actionSchema);
-    for (const literal of ["run", "list", "get", "status", "interrupt", "resume", "inputs", "doctor"]) {
+    for (const literal of ["run", "list", "get", "status", "interrupt", "resume", "inputs"]) {
       assert.ok(raw.includes(literal));
     }
     assert.ok(!raw.includes("kill"));
+    assert.ok(!raw.includes("doctor"));
   });
 
   test("tool execute returns run stub for default action", async () => {
@@ -509,30 +510,6 @@ describe("MockExtensionAPI — tool registration", () => {
     assert.ok(r.details?.output?.inputs?.some((input) => input.name === "prompt" && input.required === true));
   });
 
-  test("tool execute returns doctor details for action='doctor'", async () => {
-    const execute = mock.tools[0]!.opts.execute;
-    const result = await runTool(execute, { action: "doctor" });
-
-    assert.equal(result.action, "doctor");
-    const r = result as {
-      action: "doctor";
-      details?: {
-        mode: string;
-        action: string;
-        status: string;
-        output?: {
-          subtitle?: string;
-          sections?: Array<{ label: string }>;
-        };
-      };
-    };
-    assert.equal(r.details?.mode, "doctor");
-    assert.equal(r.details?.action, "doctor");
-    assert.equal(r.details?.status, "completed");
-    assert.ok(r.details?.output?.subtitle?.includes("atomic-workflows"));
-    assert.ok(r.details?.output?.sections?.some((section) => section.label === "REGISTRY"));
-  });
-
   test("tool execute rejects unknown actions", async () => {
     const execute = mock.tools[0]!.opts.execute;
     await assert.rejects(
@@ -596,32 +573,20 @@ describe("MockExtensionAPI — slash command registration", () => {
     factory(mock);
   });
 
-  test("registers at least two commands", () => {
-    assert.ok(mock.commands.length >= 2);
+  test("registers at least one command", () => {
+    assert.ok(mock.commands.length >= 1);
   });
 
   test("/workflow command registered", () => {
     assert.notEqual(getCommand(mock.commands, "workflow"), undefined);
   });
 
-  test("/workflows-doctor command registered", () => {
-    assert.notEqual(getCommand(mock.commands, "workflows-doctor"), undefined);
-  });
-
   test("/workflow registered through canonical (name, opts) tuple", () => {
     expectRegisteredCommand(mock.commands, "workflow");
   });
 
-  test("/workflows-doctor registered through canonical (name, opts) tuple", () => {
-    expectRegisteredCommand(mock.commands, "workflows-doctor");
-  });
   test("/workflow has non-empty description", () => {
     const cmd = getCommand(mock.commands, "workflow")!;
-    assert.ok(cmd.options.description.length > 0);
-  });
-
-  test("/workflows-doctor has non-empty description", () => {
-    const cmd = getCommand(mock.commands, "workflows-doctor")!;
     assert.ok(cmd.options.description.length > 0);
   });
 
@@ -696,19 +661,6 @@ describe("MockExtensionAPI — slash command registration", () => {
     assert.ok(flags?.some((c) => c.value === "deep-research-codebase --no-picker "));
   });
 
-  test("/workflows-doctor execute emits the doctor chat-surface message", async () => {
-    const cmd = getCommand(mock.commands, "workflows-doctor")!;
-    await cmd.options.handler("", { ui: { notify: () => undefined } });
-    // The command prefers pi.sendMessage when available (it is on the
-    // mock API). The emitted chat-surface message carries a `doctor`
-    // payload that the chat-card renderer turns into the [ DOCTOR ]
-    // card. Here we just verify the message reaches the bus.
-    const doctor = mock.sent.find((m) => {
-      const details = (m as { details?: { kind?: string } }).details;
-      return details?.kind === "doctor";
-    });
-    assert.notEqual(doctor, undefined);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1164,60 +1116,6 @@ describe("MockExtensionAPI — /workflow <name> dispatches run not unknown-subco
         m.includes("Workflow not found"),
     );
     assert.equal(dispatchedSent || errored, true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// /workflows-doctor reports real loaded count
-// ---------------------------------------------------------------------------
-
-describe("MockExtensionAPI — /workflows-doctor reports real loaded count", () => {
-  let mock: ReturnType<typeof makeMock>;
-
-  beforeEach(() => {
-    mock = makeMock();
-    factory(mock);
-  });
-
-  test("/workflows-doctor reports real loaded count (>= 3 bundled workflows)", async () => {
-    const cmd = getCommand(mock.commands, "workflows-doctor")!;
-    await cmd.options.handler("", { ui: { notify: () => undefined } });
-
-    const doctorMsg = mock.sent.find(
-      (m) => (m as { details?: { kind?: string } }).details?.kind === "doctor",
-    );
-    assert.notEqual(doctorMsg, undefined);
-    const payload = (doctorMsg as { details?: { doctor?: { subtitle: string } } }).details?.doctor;
-    assert.notEqual(payload, undefined);
-
-    // Subtitle: `atomic-workflows · N workflow(s) · N/N companions`.
-    assert.match(payload!.subtitle, /atomic-workflows/);
-    const match = payload!.subtitle.match(/(\d+)\s+workflows?\b/);
-    assert.notEqual(match, null);
-    const count = match ? parseInt(match[1]!, 10) : 0;
-    assert.ok(count >= 3, `expected >= 3 bundled workflows, got ${count}`);
-  });
-
-  test("/workflows-doctor names bundled sources (deep-research-codebase, ralph, open-claude-design)", async () => {
-    const cmd = getCommand(mock.commands, "workflows-doctor")!;
-    await cmd.options.handler("", { ui: { notify: () => undefined } });
-
-    const doctorMsg = mock.sent.find(
-      (m) => (m as { details?: { kind?: string } }).details?.kind === "doctor",
-    );
-    const payload = (doctorMsg as {
-      details?: { doctor?: { sections: Array<{ label: string; rows: Array<{ label: string }> }> } };
-    }).details?.doctor;
-    assert.notEqual(payload, undefined);
-
-    // The REGISTRY section carries one row per bundled source
-    // (`label: section.name`, `value: section.id`).
-    const registry = payload!.sections.find((s) => s.label === "REGISTRY");
-    assert.notEqual(registry, undefined);
-    const sourceNames = registry!.rows.map((r) => r.label);
-    assert.ok(sourceNames.includes("deep-research-codebase"));
-    assert.ok(sourceNames.includes("ralph"));
-    assert.ok(sourceNames.includes("open-claude-design"));
   });
 });
 

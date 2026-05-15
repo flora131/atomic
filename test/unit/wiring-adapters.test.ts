@@ -8,11 +8,11 @@
 
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { buildRuntimeAdapters } from "../../src/extension/wiring.js";
+import { buildRuntimeAdapters } from "../../packages/workflows/src/extension/wiring.js";
 import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent";
-import type { RuntimeWiringSurface } from "../../src/extension/wiring.js";
-import type { StageSessionRuntime } from "../../src/runs/foreground/stage-runner.js";
-import type { StageExecutionMeta } from "../../src/shared/types.js";
+import type { RuntimeWiringSurface } from "../../packages/workflows/src/extension/wiring.js";
+import type { StageSessionRuntime } from "../../packages/workflows/src/runs/foreground/stage-runner.js";
+import type { StageExecutionMeta } from "../../packages/workflows/src/shared/types.js";
 
 // pi-subagents v0.24.2 SubagentParams contract — single execution mode:
 //   { agent, task, context?: "fresh" | "fork", ... }

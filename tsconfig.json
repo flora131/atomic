@@ -16,9 +16,25 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "paths": {
-      "@bastani/atomic-workflows": ["./src/index.ts"]
+      "@bastani/workflows": ["./packages/workflows/src/index.ts"],
+      "@bastani/workflows/*": ["./packages/workflows/src/*"],
+      "@bastani/subagents": ["./packages/subagents/src/extension/index.ts"],
+      "@bastani/subagents/*": ["./packages/subagents/src/*"],
+      "@bastani/mcp": ["./packages/mcp/index.ts"],
+      "@bastani/mcp/*": ["./packages/mcp/*"],
+      "@bastani/web-access": ["./packages/web-access/index.ts"],
+      "@bastani/web-access/*": ["./packages/web-access/*"],
+      "@bastani/intercom": ["./packages/intercom/index.ts"],
+      "@bastani/intercom/*": ["./packages/intercom/*"]
     }
   },
-  "include": ["src/**/*", "test/**/*", "workflows/**/*", "examples/**/*"],
-  "exclude": ["node_modules"]
+  "include": ["packages/workflows/**/*", "test/**/*", "examples/**/*"],
+  "exclude": [
+    "node_modules",
+    "packages/coding-agent",
+    "packages/subagents",
+    "packages/mcp",
+    "packages/web-access",
+    "packages/intercom"
+  ]
 }

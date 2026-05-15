@@ -1,8 +1,8 @@
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent";
-import { runWorkflow } from "../../src/runs/shared/workflow-runner.js";
-import type { StageSessionRuntime } from "../../src/runs/foreground/stage-runner.js";
+import { runWorkflow } from "../../packages/workflows/src/runs/shared/workflow-runner.js";
+import type { StageSessionRuntime } from "../../packages/workflows/src/runs/foreground/stage-runner.js";
 
 function makeSessionFactory(seen: string[]) {
   return async (_options?: CreateAgentSessionOptions): Promise<{ session: StageSessionRuntime }> => {

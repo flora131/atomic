@@ -1,4 +1,4 @@
-import { defineWorkflow } from "../src/index.js";
+import { defineWorkflow } from "@bastani/workflows";
 
 export default defineWorkflow("model-fallback-example")
   .description("Demonstrate workflow-native fallbackModels on a task stage.")

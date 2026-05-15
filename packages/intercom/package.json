@@ -1,0 +1,59 @@
+{
+  "name": "@bastani/intercom",
+  "version": "0.8.0",
+  "private": true,
+  "description": "Atomic extension providing a private coordination channel between parent and child agent sessions.",
+  "contributors": [
+    "Nico Bailon",
+    "Alex Lavaee"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "bun": ">=1.3.14"
+  },
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "files": [
+    "index.ts",
+    "types.ts",
+    "config.ts",
+    "reply-tracker.ts",
+    "broker/**/*.ts",
+    "ui/**/*.ts",
+    "skills/**/*",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "peerDependencies": {
+    "@bastani/atomic": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "peerDependenciesMeta": {
+    "@bastani/atomic": {
+      "optional": true
+    },
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@earendil-works/pi-tui": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "typebox": "^1.1.24"
+  }
+}

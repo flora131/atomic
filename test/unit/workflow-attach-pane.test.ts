@@ -15,14 +15,14 @@
 
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { createStore } from "../../src/shared/store.js";
+import { createStore } from "../../packages/workflows/src/shared/store.js";
 import {
   WorkflowAttachPane,
   type AttachUiStatusSurface,
-} from "../../src/tui/workflow-attach-pane.js";
-import { deriveGraphTheme } from "../../src/tui/graph-theme.js";
-import { createStageControlRegistry } from "../../src/runs/foreground/stage-control-registry.js";
-import type { StageControlHandle } from "../../src/runs/foreground/stage-control-registry.js";
+} from "../../packages/workflows/src/tui/workflow-attach-pane.js";
+import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.js";
+import { createStageControlRegistry } from "../../packages/workflows/src/runs/foreground/stage-control-registry.js";
+import type { StageControlHandle } from "../../packages/workflows/src/runs/foreground/stage-control-registry.js";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 
 function setupRun(store: ReturnType<typeof createStore>, runId: string, stages: Array<{ id: string; name: string; status?: "pending" | "running" | "completed" }>) {

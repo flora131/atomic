@@ -1,10 +1,13 @@
-# @bastani/atomic-workflows
+# Atomic Monorepo
 
 ## Overview
 
-This repo houses `@bastani/atomic-workflows` — a first-party extension for [pi](https://github.com/earendil-works/pi) that brings multi-stage, DAG-driven workflow execution to pi sessions.
+This repo is the private `atomic-monorepo` Bun workspace. It currently houses:
 
-`@bastani/atomic-workflows` ships as **raw TypeScript** (no compile step) and is loaded directly by pi. The layout mirrors pi's extension conventions.
+- `@bastani/atomic` in `packages/coding-agent` — the Atomic-branded fork of pi's coding-agent CLI.
+- `@bastani/workflows` in `packages/workflows` — a first-party extension for Atomic/pi that brings multi-stage, DAG-driven workflow execution to agent sessions.
+
+`@bastani/workflows` ships as **raw TypeScript** (no compile step) and is loaded directly by the host. The coding-agent package follows upstream pi's compiled-package layout.
 
 ## Tech Stack
 
@@ -34,7 +37,7 @@ Default to using **Bun**, not Node/npm/yarn/pnpm.
 
 - Avoid ambiguous types like `any` and `unknown`. Use specific types instead.
 - Source files use `.js` import extensions (TypeScript ESM convention). The repo ships as `.ts` files; Bun resolves `.js` specifiers to the underlying `.ts` source directly — no loader hook required. pi's loader follows the same convention.
-- Do not add a build step (`dist/`, `tsconfig.build.json`, etc.). The package distributes raw TypeScript and pi loads it directly.
+- Do not add a build step (`dist/`, `tsconfig.build.json`, etc.) to `packages/workflows`; it distributes raw TypeScript and the host loads it directly. `packages/coding-agent` is copied from upstream pi and keeps its existing build setup.
 - When using skills, if you see a frontmatter of `metadata: internal` set to `true` (if missing assume `false`), that means the skill is for internal developers of this package. If this flag is omitted, the skill is meant for consumers/everyday users. 
 
 ## Design Context
@@ -119,11 +122,11 @@ pi:
 - **Release branches**: `release/v<major>.<minor>.<patch>` (e.g. `release/v0.1.0`)
 - **Prerelease branches**: `prerelease/v<major>.<minor>.<patch>-<prerelease>` (e.g. `prerelease/v0.1.0-0`)
 
-The version in the branch name must match `package.json` exactly after removing the leading `v`.
+The version in the branch name must match `packages/coding-agent/package.json` exactly after removing the leading `v`. All `packages/*` package versions should stay in sync.
 
 ### Bumping Versions
 
-Use the top-level `scripts/bump-version.ts` script to update every tracked version location (`package.json` and the README badge):
+Use the top-level `scripts/bump-version.ts` script to update every `packages/*/package.json` version and package README badge:
 
 ```sh
 # Explicit version
@@ -134,22 +137,22 @@ bun run scripts/bump-version.ts 0.1.0-0
 bun run scripts/bump-version.ts --from-branch
 ```
 
-The `--from-branch` flag extracts the version from the current branch name, so check out the release or prerelease branch first.
+The `--from-branch` flag extracts the version from the current branch name, so check out the release or prerelease branch first. Run `bun install` afterward to refresh `bun.lock`.
 
 ### Workflow
 
 1. Create a branch following the naming convention above.
-2. Run the bump-version script (prefer `--from-branch`).
-3. Run `bun run typecheck` and the relevant tests.
+2. Run the bump-version script (prefer `--from-branch`) and then `bun install`.
+3. Run `bun run typecheck`, `cd packages/coding-agent && bun run build`, and the relevant tests.
 4. Commit with the message `chore(release): bump to v<version>`.
 5. Open a PR to `main`.
 6. Once the PR is approved and merged, `.github/workflows/publish.yml` publishes the root package to npm with provenance and creates the GitHub Release automatically.
 
 Release automation behavior:
 
-- Merging `release/v<version>` publishes `@bastani/atomic-workflows@<version>` to npm with the `latest` tag and creates a non-prerelease GitHub Release `v<version>` marked as latest.
-- Merging `prerelease/v<version>` publishes `@bastani/atomic-workflows@<version>` to npm with the `next` tag and creates a prerelease GitHub Release `v<version>` that is **not** marked latest.
-- This package ships only the npm pi package (raw TypeScript/resources). The GitHub Release is version metadata and generated release notes only — no platform binaries or build artifacts are attached.
+- Merging `release/v<version>` publishes only `@bastani/atomic@<version>` to npm with the `latest` tag and creates a non-prerelease GitHub Release `v<version>` marked as latest.
+- Merging `prerelease/v<version>` publishes only `@bastani/atomic@<version>` to npm with the `next` tag and creates a prerelease GitHub Release `v<version>` that is **not** marked latest.
+- `packages/workflows` and companion pi packages are bundled into `@bastani/atomic` at build time; they are not independently published by this repo's CI. The GitHub Release is version metadata and generated release notes only — no platform binaries or build artifacts are attached.
 - GitHub Release creation uses `softprops/action-gh-release@v3`, matching the release-action pattern in `flora131/atomic`, rather than shelling out to `gh` directly.
 - The publish workflow also supports manual `workflow_dispatch` with a tag and an existing published GitHub Release/tag path for recovery, but the normal path is merge release/prerelease PR → npm publish → automatic GitHub Release.
 
@@ -161,7 +164,7 @@ Note: Remember that npm publishing with provenance does NOT require a token. Tha
 
 ## Tips
 
-1. The `@bastani/atomic-workflows` extension is installed under `~/.pi/agent/extensions/workflows` when linked locally or loaded by pi. For local development, symlink this repo's checkout into that path if you want host-level discovery.
+1. The workflows extension is bundled into `@bastani/atomic`. For local development against upstream pi, symlink `packages/workflows` into `~/.pi/agent/extensions/workflows` if you want host-level discovery outside Atomic.
 2. Rely on agent skills to provide information on best practices during implementation. Here is a short list of Agent Skills that are incredibly relevant to this project that you should try to use when applicable:
    - typescript-advanced-types
    - typescript-expert
@@ -174,5 +177,5 @@ Note: Remember that npm publishing with provenance does NOT require a token. Tha
 <EXTREMELY_IMPORTANT>
 This repo uses **Bun (≥ 1.3.14)** for development, scripts, and tests. Do NOT use `node`, `npm`, `npx`, `yarn`, or `pnpm` for development commands. Always use `bun`, `bunx`, and `bun run`. The only acceptable exception is `npm publish --provenance` for the release flow (OIDC provenance is npm-CLI-specific).
 
-`@bastani/atomic-workflows` ships raw `.ts` files with no build step — do NOT introduce `dist/`, `tsconfig.build.json`, `outDir`, or any bundling. Tests run via Bun's built-in `bun:test` runner.
+`@bastani/workflows` ships raw `.ts` files with no build step — do NOT introduce `dist/`, `tsconfig.build.json`, `outDir`, or any bundling. Tests run via Bun's built-in `bun:test` runner.
 </EXTREMELY_IMPORTANT>

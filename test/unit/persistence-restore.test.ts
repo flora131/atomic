@@ -5,9 +5,9 @@
 
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { scanInFlightRuns, restoreOnSessionStart } from "../../src/shared/persistence-restore.js";
-import type { SessionEntry, InFlightRun } from "../../src/shared/persistence-restore.js";
-import { createStore } from "../../src/shared/store.js";
+import { scanInFlightRuns, restoreOnSessionStart } from "../../packages/workflows/src/shared/persistence-restore.js";
+import type { SessionEntry, InFlightRun } from "../../packages/workflows/src/shared/persistence-restore.js";
+import { createStore } from "../../packages/workflows/src/shared/store.js";
 
 // ---------------------------------------------------------------------------
 // scanInFlightRuns

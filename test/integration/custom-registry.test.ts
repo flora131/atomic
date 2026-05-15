@@ -1,12 +1,11 @@
 /**
- * Integration tests: custom registry shared by tool, slash commands, and doctor.
+ * Integration tests: custom registry shared by tool and slash commands.
  *
  * Proves that discoverWorkflows with a project-local workflow yields a registry
  * visible to:
  *   1. Tool dispatch (action='list' / 'inputs' / 'run')
- *   2. buildDoctorReport (custom sources section)
- *   3. /workflow slash command (list output, completions)
- *   4. no per-workflow /workflow:<name> aliases; /workflow <name> dispatch path
+ *   2. /workflow slash command (list output, completions)
+ *   3. no per-workflow /workflow:<name> aliases; /workflow <name> dispatch path
  *
  * All consumers close over the same ExtensionRuntime (runtimeProxy pattern) —
  * the tests verify this shared-registry invariant end-to-end.
@@ -21,21 +20,19 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 
-import { discoverWorkflows } from "../../src/extension/discovery.js";
-import type { DiscoveryResult } from "../../src/extension/discovery.js";
-import { createExtensionRuntime } from "../../src/extension/runtime.js";
-import type { ExtensionRuntime } from "../../src/extension/runtime.js";
-import { buildDoctorPayload, buildDoctorReport } from "../../src/extension/doctor.js";
-import type { DoctorSiblingStatus } from "../../src/extension/doctor.js";
+import { discoverWorkflows } from "../../packages/workflows/src/extension/discovery.js";
+import type { DiscoveryResult } from "../../packages/workflows/src/extension/discovery.js";
+import { createExtensionRuntime } from "../../packages/workflows/src/extension/runtime.js";
+import type { ExtensionRuntime } from "../../packages/workflows/src/extension/runtime.js";
 import factory, {
   type ExtensionAPI,
   type PiToolOpts,
   type PiCommandOptions,
   type WorkflowToolArgs,
-} from "../../src/extension/index.js";
-import type { WorkflowToolResult } from "../../src/extension/render-result.js";
+} from "../../packages/workflows/src/extension/index.js";
+import type { WorkflowToolResult } from "../../packages/workflows/src/extension/render-result.js";
 import { waitForRun } from "../support/helpers.ts";
-import { store as defaultStore } from "../../src/shared/store.ts";
+import { store as defaultStore } from "../../packages/workflows/src/shared/store.ts";
 
 // ---------------------------------------------------------------------------
 // Temp-dir fixture: one project-local workflow, one user-global workflow
@@ -72,30 +69,11 @@ let homeWorkflowDir: string;
 let discoveryResult: DiscoveryResult;
 let runtime: ExtensionRuntime;
 
-const noSiblings: DoctorSiblingStatus = {
-  taskDelegation: false,
-  mcpScopeEvents: false,
-  sessionNaming: false,
-  hil: false,
-  uiCustom: false,
-  shortcut: false,
-  persistenceAppendEntry: false,
-  subagentAdapterVia: "unavailable",
-};
-
-function doctorReport(discovery: DiscoveryResult, siblings: DoctorSiblingStatus): string {
-  return buildDoctorReport(buildDoctorPayload({
-    discovery,
-    siblings,
-    companions: [],
-  }));
-}
-
 beforeAll(async () => {
   // Create isolated temp dirs
   tempRoot = join(tmpdir(), `pi-wf-int-${randomUUID()}`);
-  cwdWorkflowDir = join(tempRoot, "cwd", ".pi", "workflows");
-  homeWorkflowDir = join(tempRoot, "home", ".pi", "agent", "workflows");
+  cwdWorkflowDir = join(tempRoot, "cwd", ".atomic", "workflows");
+  homeWorkflowDir = join(tempRoot, "home", ".atomic", "agent", "workflows");
 
   mkdirSync(cwdWorkflowDir, { recursive: true });
   mkdirSync(homeWorkflowDir, { recursive: true });
@@ -248,53 +226,7 @@ describe("ExtensionRuntime with custom registry — tool dispatch", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 3. buildDoctorReport — custom sources from discovery result
-// ---------------------------------------------------------------------------
-
-describe("buildDoctorReport — custom sources from temp cwd/home", () => {
-  test("report contains project-local custom workflow id", () => {
-    const report = doctorReport(discoveryResult, noSiblings);
-    assert.ok(report.includes(CUSTOM_WF_NORM));
-  });
-
-  test("report labels custom workflow source as 'project-local'", () => {
-    const report = doctorReport(discoveryResult, noSiblings);
-    // New format renders the source kind as a dim hint suffix `(project-local)`.
-    assert.ok(report.includes("(project-local)"));
-  });
-
-  test("report contains user-global workflow id", () => {
-    const report = doctorReport(discoveryResult, noSiblings);
-    assert.ok(report.includes(USER_WF_NORM));
-  });
-
-  test("report labels user-global source as 'user-global'", () => {
-    const report = doctorReport(discoveryResult, noSiblings);
-    assert.ok(report.includes("(user-global)"));
-  });
-
-  test("registry count in report equals total names count (bundled + custom)", () => {
-    const report = doctorReport(discoveryResult, noSiblings);
-    const totalCount = discoveryResult.registry.names().length;
-    assert.ok(report.includes(`${totalCount} workflow${totalCount === 1 ? "" : "s"} loaded`));
-  });
-
-  test("report includes the [ DIAGNOSTICS ] section", () => {
-    const report = doctorReport(discoveryResult, noSiblings);
-    assert.ok(report.includes("[ DIAGNOSTICS ]"));
-  });
-
-  test("no error diagnostics for valid custom workflows in report", () => {
-    const report = doctorReport(discoveryResult, noSiblings);
-    // Diagnostics section should not flag valid custom workflows as
-    // INVALID_DEFINITION.
-    const diagSection = report.match(/\[ DIAGNOSTICS \].*?(?=\n\[ |\nNext steps|$)/s)?.[0] ?? "";
-    assert.ok(!diagSection.includes("INVALID_DEFINITION"));
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 4. /workflow slash command — list and completions see custom registry
+// 3. /workflow slash command — list and completions see custom registry
 // ---------------------------------------------------------------------------
 
 interface MockCmd {
@@ -523,25 +455,9 @@ describe("/workflow <name> dispatch — no per-workflow aliases", () => {
 // ---------------------------------------------------------------------------
 
 describe("shared registry invariant — extension consumers see same workflows", () => {
-  test("tool list and doctor registry count reflect same registry", async () => {
-    // 1. Tool: list via runtime
-    const listResult = await runtime.dispatch({ workflow: "", inputs: {}, action: "list" });
-    const toolNames = (listResult as { action: "list"; items: { name: string }[] }).items.map((i) => i.name);
-
-    // 2. Doctor: registry count via buildDoctorReport. The new subtitle
-    //    format is `atomic-workflows · N workflow(s) · N/N companions`,
-    //    so we match the first "N workflow(s)" token after the program
-    //    name to extract the loaded count.
-    const report = doctorReport(discoveryResult, noSiblings);
-    const match = report.match(/atomic-workflows[^\n]*?(\d+)\s+workflows?\b/);
-    assert.notEqual(match, null);
-    const doctorCount = match ? parseInt(match[1]!, 10) : -1;
-    assert.equal(doctorCount, toolNames.length);
-  });
-
-  test("custom workflow visible to tool and doctor but NOT in startup bundled registry", async () => {
+  test("custom workflow visible to tool but NOT in startup bundled registry", async () => {
     // startup bundled discovery (no temp dirs)
-    const { discoverStartupWorkflowsSync } = await import("../../src/extension/discovery.js");
+    const { discoverStartupWorkflowsSync } = await import("../../packages/workflows/src/extension/discovery.js");
     const bundledResult = discoverStartupWorkflowsSync();
     assert.ok(!bundledResult.registry.names().includes(CUSTOM_WF_NORM));
 
@@ -549,10 +465,6 @@ describe("shared registry invariant — extension consumers see same workflows",
     const toolResult = await runtime.dispatch({ workflow: "", inputs: {}, action: "list" });
     const toolNames = (toolResult as { action: "list"; items: { name: string }[] }).items.map((i) => i.name);
     assert.ok(toolNames.includes(CUSTOM_WF_NORM));
-
-    // Doctor with full discovery shows it
-    const report = doctorReport(discoveryResult, noSiblings);
-    assert.ok(report.includes(CUSTOM_WF_NORM));
   });
 
   test("custom workflow inputs schema is available through tool dispatch", async () => {

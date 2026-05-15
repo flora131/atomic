@@ -14,7 +14,7 @@ import {
   COMPANIONS,
   detectCompanions,
   type CompanionProbeApi,
-} from "../../src/extension/companions.js";
+} from "../../packages/workflows/src/extension/companions.js";
 
 function makeProbe(opts: {
   commands?: Array<{ name: string; sourceInfo?: { path?: string; baseDir?: string } }>;
@@ -69,8 +69,8 @@ describe("detectCompanions — path hints (preferred)", () => {
         {
           name: "some-command",
           sourceInfo: {
-            path: "/home/user/.pi/agent/npm/node_modules/pi-subagents/src/extension/index.ts",
-            baseDir: "/home/user/.pi/agent/npm/node_modules/pi-subagents",
+            path: "/home/user/.atomic/npm/node_modules/pi-subagents/src/extension/index.ts",
+            baseDir: "/home/user/.atomic/npm/node_modules/pi-subagents",
           },
         },
       ],
@@ -81,13 +81,13 @@ describe("detectCompanions — path hints (preferred)", () => {
     assert.match(sub.evidence ?? "", /^path pi-subagents\b/);
   });
 
-  test("local-checkout install (~/.pi/agent/extensions/<name>) is detected via path", () => {
+  test("local-checkout install (~/.atomic/extensions/<name>) is detected via path", () => {
     const probe = makeProbe({
       commands: [
         {
           name: "anything",
           sourceInfo: {
-            path: "/home/user/.pi/agent/extensions/pi-mcp-adapter/index.ts",
+            path: "/home/user/.atomic/extensions/pi-mcp-adapter/index.ts",
           },
         },
       ],

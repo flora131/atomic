@@ -9,10 +9,10 @@ import {
   isIntercomPresent,
   registerIntercomParentSession,
   type PiIntercomExtensionAPI,
-} from "../../src/intercom/intercom-bridge.js";
-import { subscribeIntercomControl } from "../../src/intercom/result-intercom.js";
-import { buildIntercomCallbacks } from "../../src/intercom/intercom-routing.js";
-import { createStore } from "../../src/shared/store.js";
+} from "../../packages/workflows/src/intercom/intercom-bridge.js";
+import { subscribeIntercomControl } from "../../packages/workflows/src/intercom/result-intercom.js";
+import { buildIntercomCallbacks } from "../../packages/workflows/src/intercom/intercom-routing.js";
+import { createStore } from "../../packages/workflows/src/shared/store.js";
 
 // ---------------------------------------------------------------------------
 // intercom-bridge

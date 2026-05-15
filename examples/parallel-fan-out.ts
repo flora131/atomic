@@ -7,8 +7,8 @@
  *
  * Run: bun examples/parallel-fan-out.ts
  */
-import { defineWorkflow, createRegistry } from "../src/index.js";
-import type { WorkflowDefinition } from "../src/shared/types.js";
+import { defineWorkflow, createRegistry } from "@bastani/workflows";
+import type { WorkflowDefinition } from "../packages/workflows/src/shared/types.js";
 
 const workflow = defineWorkflow("parallel-research")
   .description("Scout → three parallel specialist stages → aggregator.")

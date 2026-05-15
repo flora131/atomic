@@ -19,12 +19,12 @@ import {
   renderWidgetLines,
   buildThemedWidgetLines,
   formatDuration,
-} from "../../src/tui/widget.js";
+} from "../../packages/workflows/src/tui/widget.js";
 import type {
   StoreSnapshot,
   RunSnapshot,
   StageSnapshot,
-} from "../../src/shared/store-types.js";
+} from "../../packages/workflows/src/shared/store-types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

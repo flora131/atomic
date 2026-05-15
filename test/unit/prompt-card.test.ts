@@ -15,10 +15,10 @@ import {
   defaultResponseFor,
   handlePromptCardInput,
   renderPromptCard,
-} from "../../src/tui/prompt-card.ts";
-import { deriveGraphTheme } from "../../src/tui/graph-theme.ts";
-import type { PendingPrompt } from "../../src/shared/store-types.ts";
-import { visibleWidth } from "../../src/tui/text-helpers.ts";
+} from "../../packages/workflows/src/tui/prompt-card.ts";
+import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.ts";
+import type { PendingPrompt } from "../../packages/workflows/src/shared/store-types.ts";
+import { visibleWidth } from "../../packages/workflows/src/tui/text-helpers.ts";
 
 const theme = deriveGraphTheme({});
 

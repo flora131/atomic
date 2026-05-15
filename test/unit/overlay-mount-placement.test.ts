@@ -21,22 +21,22 @@ import {
   openSessionPicker,
   type SessionPickerResult,
   type UiSurface,
-} from "../../src/tui/session-overlays.ts";
+} from "../../packages/workflows/src/tui/session-overlays.ts";
 import {
   openInputsPicker,
   type InputsPickerResult,
   type InputsUiSurface,
-} from "../../src/tui/inputs-overlay.ts";
-import { createStore } from "../../src/shared/store.ts";
-import { deriveGraphTheme } from "../../src/tui/graph-theme.ts";
+} from "../../packages/workflows/src/tui/inputs-overlay.ts";
+import { createStore } from "../../packages/workflows/src/shared/store.ts";
+import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.ts";
 import type {
   PiCustomComponent,
   PiCustomOverlayFactory,
   PiCustomOverlayFactoryTui,
   PiCustomOverlayOptions,
-} from "../../src/extension/wiring.ts";
-import type { WorkflowInputEntry } from "../../src/extension/render-result.ts";
-import type { RunSnapshot } from "../../src/shared/store-types.ts";
+} from "../../packages/workflows/src/extension/wiring.ts";
+import type { WorkflowInputEntry } from "../../packages/workflows/src/extension/render-result.ts";
+import type { RunSnapshot } from "../../packages/workflows/src/shared/store-types.ts";
 
 interface MountCapture {
   factory: PiCustomOverlayFactory;

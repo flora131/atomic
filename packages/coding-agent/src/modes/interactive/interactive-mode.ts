@@ -53,6 +53,7 @@ import {
   APP_TITLE,
   CHANGELOG_URL,
   ENV_OFFLINE,
+  getEnvValue,
   getAgentDir,
   getAuthPath,
   getDebugLogPath,
@@ -131,12 +132,19 @@ import { AssistantMessageComponent } from "./components/assistant-message.js";
 import { BashExecutionComponent } from "./components/bash-execution.js";
 import { BorderedLoader } from "./components/bordered-loader.js";
 import { BranchSummaryMessageComponent } from "./components/branch-summary-message.js";
+import {
+  chatEntriesFromAgentMessages,
+  renderChatMessageEntry,
+  type ChatMessageEntry,
+  type ChatMessageRenderOptions,
+} from "./components/chat-message-renderer.js";
+import { addChatTranscriptEntry } from "./components/chat-transcript.js";
 import { CompactionSummaryMessageComponent } from "./components/compaction-summary-message.js";
 import { CountdownTimer } from "./components/countdown-timer.js";
 import { CustomEditor } from "./components/custom-editor.js";
 import { CustomMessageComponent } from "./components/custom-message.js";
 import { DaxnutsComponent } from "./components/daxnuts.js";
-import { ATOMIC_ANSI_BANNER_LINES } from "./components/atomic-banner.js";
+import { renderAtomicAnsiBanner } from "./components/atomic-banner.js";
 import { DynamicBorder } from "./components/dynamic-border.js";
 import { EarendilAnnouncementComponent } from "./components/earendil-announcement.js";
 import { ExtensionEditorComponent } from "./components/extension-editor.js";
@@ -193,6 +201,8 @@ function isExpandable(obj: unknown): obj is Expandable {
 }
 
 class ExpandableText extends Text implements Expandable {
+  private expanded: boolean;
+
   constructor(
     private readonly getCollapsedText: () => string,
     private readonly getExpandedText: () => string,
@@ -205,10 +215,16 @@ class ExpandableText extends Text implements Expandable {
       paddingX,
       paddingY,
     );
+    this.expanded = expanded;
   }
 
   setExpanded(expanded: boolean): void {
-    this.setText(expanded ? this.getExpandedText() : this.getCollapsedText());
+    this.expanded = expanded;
+    this.refresh();
+  }
+
+  refresh(): void {
+    this.setText(this.expanded ? this.getExpandedText() : this.getCollapsedText());
   }
 }
 
@@ -870,7 +886,7 @@ export class InteractiveMode {
   }
 
   private async checkForPackageUpdates(): Promise<string[]> {
-    if (process.env[ENV_OFFLINE]) {
+    if (getEnvValue(ENV_OFFLINE)) {
       return [];
     }
 
@@ -967,7 +983,7 @@ export class InteractiveMode {
   }
 
   private reportInstallTelemetry(version: string): void {
-    if (process.env[ENV_OFFLINE]) {
+    if (getEnvValue(ENV_OFFLINE)) {
       return;
     }
 
@@ -1049,10 +1065,7 @@ export class InteractiveMode {
   }
 
   private getAtomicAnsiMarkLines(): string[] {
-    // Each entry already carries its own truecolor SGR escapes (half-block
-    // pixel art rendered with split FG/BG colors), so do not wrap them with
-    // theme.fg — that would override the embedded gradient.
-    return [...ATOMIC_ANSI_BANNER_LINES];
+    return renderAtomicAnsiBanner(theme, this.session.thinkingLevel || "off");
   }
 
   private getStartupExpansionState(): boolean {
@@ -2434,6 +2447,17 @@ export class InteractiveMode {
       },
       getToolsExpanded: () => this.toolOutputExpanded,
       setToolsExpanded: (expanded) => this.setToolsExpanded(expanded),
+      getChatRenderSettings: () => ({
+        hideThinkingBlock: this.hideThinkingBlock,
+        hiddenThinkingLabel: this.hiddenThinkingLabel,
+        toolOutputExpanded: this.toolOutputExpanded,
+        showImages: this.settingsManager.getShowImages(),
+        imageWidthCells: this.settingsManager.getImageWidthCells(),
+        getToolDefinition: (toolName: string) =>
+          this.getRegisteredToolDefinition(toolName),
+        getCustomMessageRenderer: (customType: string) =>
+          this.session.extensionRunner.getMessageRenderer(customType),
+      }),
     };
   }
 
@@ -3194,6 +3218,7 @@ export class InteractiveMode {
 
       case "thinking_level_changed":
         this.footer.invalidate();
+        this.refreshBuiltInHeader();
         this.updateEditorBorderColor();
         break;
 
@@ -3537,6 +3562,28 @@ export class InteractiveMode {
     this.ui.requestRender();
   }
 
+  private chatMessageRenderOptions(): ChatMessageRenderOptions {
+    return {
+      ui: this.ui,
+      cwd: this.sessionManager.getCwd(),
+      markdownTheme: this.getMarkdownThemeWithSettings(),
+      hideThinkingBlock: this.hideThinkingBlock,
+      hiddenThinkingLabel: this.hiddenThinkingLabel,
+      toolOutputExpanded: this.toolOutputExpanded,
+      showImages: this.settingsManager.getShowImages(),
+      imageWidthCells: this.settingsManager.getImageWidthCells(),
+      getToolDefinition: (toolName) => this.getRegisteredToolDefinition(toolName),
+      getCustomMessageRenderer: (customType) =>
+        this.session.extensionRunner.getMessageRenderer(customType),
+    };
+  }
+
+  private addRenderedChatEntry(entry: ChatMessageEntry): Component {
+    const component = renderChatMessageEntry(entry, this.chatMessageRenderOptions());
+    addChatTranscriptEntry(this.chatContainer, component, entry.role);
+    return component;
+  }
+
   private addMessageToChat(
     message: AgentMessage,
     options?: { populateHistory?: boolean },
@@ -3664,74 +3711,27 @@ export class InteractiveMode {
     options: { updateFooter?: boolean; populateHistory?: boolean } = {},
   ): void {
     this.pendingTools.clear();
-    const renderedPendingTools = new Map<string, ToolExecutionComponent>();
 
     if (options.updateFooter) {
       this.footer.invalidate();
       this.updateEditorBorderColor();
     }
 
-    for (const message of sessionContext.messages) {
-      // Assistant messages need special handling for tool calls
-      if (message.role === "assistant") {
-        this.addMessageToChat(message);
-        // Render tool call components
-        for (const content of message.content) {
-          if (content.type === "toolCall") {
-            const component = new ToolExecutionComponent(
-              content.name,
-              content.id,
-              content.arguments,
-              {
-                showImages: this.settingsManager.getShowImages(),
-                imageWidthCells: this.settingsManager.getImageWidthCells(),
-              },
-              this.getRegisteredToolDefinition(content.name),
-              this.ui,
-              this.sessionManager.getCwd(),
-            );
-            component.setExpanded(this.toolOutputExpanded);
-            this.chatContainer.addChild(component);
-
-            if (
-              message.stopReason === "aborted" ||
-              message.stopReason === "error"
-            ) {
-              let errorMessage: string;
-              if (message.stopReason === "aborted") {
-                const retryAttempt = this.session.retryAttempt;
-                errorMessage =
-                  retryAttempt > 0
-                    ? `Aborted after ${retryAttempt} retry attempt${retryAttempt > 1 ? "s" : ""}`
-                    : "Operation aborted";
-              } else {
-                errorMessage = message.errorMessage || "Error";
-              }
-              component.updateResult({
-                content: [{ type: "text", text: errorMessage }],
-                isError: true,
-              });
-            } else {
-              renderedPendingTools.set(content.id, component);
-            }
-          }
-        }
-      } else if (message.role === "toolResult") {
-        // Match tool results to pending tool components
-        const component = renderedPendingTools.get(message.toolCallId);
-        if (component) {
-          component.updateResult(message);
-          renderedPendingTools.delete(message.toolCallId);
-        }
-      } else {
-        // All other messages use standard rendering
-        this.addMessageToChat(message, options);
+    const entries = chatEntriesFromAgentMessages(sessionContext.messages);
+    for (const entry of entries) {
+      const component = this.addRenderedChatEntry(entry);
+      if (
+        entry.kind === "tool" &&
+        entry.isPartial !== false &&
+        component instanceof ToolExecutionComponent
+      ) {
+        this.pendingTools.set(entry.toolCallId, component);
+      }
+      if (options.populateHistory && entry.kind === "user") {
+        this.editor.addToHistory?.(entry.text);
       }
     }
 
-    for (const [toolCallId, component] of renderedPendingTools) {
-      this.pendingTools.set(toolCallId, component);
-    }
     this.ui.requestRender();
   }
 
@@ -3989,6 +3989,12 @@ export class InteractiveMode {
       this.showStatus(
         `Restored ${restored} queued message${restored > 1 ? "s" : ""} to editor`,
       );
+    }
+  }
+
+  private refreshBuiltInHeader(): void {
+    if (this.builtInHeader instanceof ExpandableText) {
+      this.builtInHeader.refresh();
     }
   }
 

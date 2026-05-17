@@ -164,7 +164,7 @@ import {
   DefaultResourceLoader,
   SessionManager,
   getAgentDir,
-} from "@earendil-works/pi-coding-agent";
+} from "@bastani/atomic";
 import factory from "./packages/workflows/src/extension/index.ts";
 
 const resourceLoader = new DefaultResourceLoader({

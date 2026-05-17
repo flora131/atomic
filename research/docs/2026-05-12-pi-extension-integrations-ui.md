@@ -39,7 +39,7 @@ The project declares this extension and its sibling dependencies in `package.jso
 
 - `package.json` exposes `@bastani/atomic-workflows` as a pi package and registers five extensions: this workflow extension, `pi-subagents`, `pi-mcp-adapter`, `pi-intercom`, and `pi-web-access`.
 - The same `pi` block registers sibling skills and prompts from `pi-subagents`, `pi-intercom`, and `pi-web-access`.
-- Runtime dependencies include `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui`, `@sinclair/typebox`, `jiti`, and the four sibling pi extensions.
+- Runtime dependencies include `@bastani/atomic`, `@earendil-works/pi-tui`, `@sinclair/typebox`, `jiti`, and the four sibling pi extensions.
 - Scripts use Node's raw TypeScript mode: `node --experimental-transform-types --import ./test/support/register-loader.mjs --test ...` for unit/integration tests and `tsc --noEmit` for typecheck/lint.
 
 ### 2. Extension entry point and registration flow
@@ -104,7 +104,7 @@ Argument parsing is intentionally small: `stripDetachFlags()` removes `--detach`
 
 Current runtime adapter behavior:
 
-- `buildRuntimeAdapters()` uses `createAgentSession` from `@earendil-works/pi-coding-agent` and returns an `agentSession` adapter that creates SDK sessions from stage options after stripping workflow-only `mcp` (`src/extension/wiring.ts:19-20`, `src/extension/wiring.ts:84-94`, `src/extension/wiring.ts:109-121`).
+- `buildRuntimeAdapters()` uses `createAgentSession` from `@bastani/atomic` and returns an `agentSession` adapter that creates SDK sessions from stage options after stripping workflow-only `mcp` (`src/extension/wiring.ts:19-20`, `src/extension/wiring.ts:84-94`, `src/extension/wiring.ts:109-121`).
 - It also optionally exposes a legacy `subagent` adapter when `pi.subagents.run` or `pi.callTool` is available, injecting `PI_WORKFLOW_RUN_ID` and `PI_WORKFLOW_STAGE_ID` into subagent calls (`src/extension/wiring.ts:99-153`).
 - `extractAssistantText()` remains as a deprecated helper for older NDJSON tests (`src/extension/wiring.ts:55-75`).
 

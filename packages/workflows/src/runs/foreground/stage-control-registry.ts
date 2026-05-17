@@ -21,7 +21,7 @@
  *   - pi docs/sdk.md (AgentSession.prompt/steer/followUp/abort)
  */
 
-import type { AgentSession, AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import type { AgentSession, AgentSessionEvent } from "@bastani/atomic";
 
 export type StageControlStatus =
   | "pending"

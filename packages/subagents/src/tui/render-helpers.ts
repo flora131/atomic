@@ -1,4 +1,4 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { Theme } from "@bastani/atomic";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
 function fuzzyScore(query: string, text: string): number {

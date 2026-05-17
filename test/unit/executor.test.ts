@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { run, runChain, runParallel, runTask, resolveInputs } from "../../packages/workflows/src/runs/foreground/executor.js";
 import { createStore } from "../../packages/workflows/src/shared/store.js";
 import { defineWorkflow } from "../../packages/workflows/src/workflows/define-workflow.js";
-import type { AgentSession, CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent";
+import type { AgentSession, CreateAgentSessionOptions } from "@bastani/atomic";
 
 // ---------------------------------------------------------------------------
 // resolveInputs

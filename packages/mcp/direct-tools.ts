@@ -1,4 +1,4 @@
-import type { AgentToolResult, AgentToolUpdateCallback, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, AgentToolUpdateCallback, ExtensionContext } from "@bastani/atomic";
 import type { McpExtensionState } from "./state.ts";
 import type { DirectToolSpec, McpConfig, McpContent } from "./types.ts";
 import type { MetadataCache } from "./metadata-cache.ts";

@@ -1,4 +1,4 @@
-import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent";
+import type { CreateAgentSessionOptions } from "@bastani/atomic";
 import type {
   WorkflowModelCatalogPort,
   WorkflowModelInfo,

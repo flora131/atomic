@@ -79,7 +79,7 @@ import type { StatusWriter } from "./status-writer.js";
 import { setMcpScope, clearMcpScope } from "./mcp.js";
 import type { PiMcpExtensionAPI, PiEventBus } from "./mcp.js";
 import type { StageSessionRuntime } from "../runs/foreground/stage-runner.js";
-import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent";
+import type { CreateAgentSessionOptions } from "@bastani/atomic";
 
 // ---------------------------------------------------------------------------
 // Minimal ExtensionAPI structural types

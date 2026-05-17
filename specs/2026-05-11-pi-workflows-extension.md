@@ -29,7 +29,7 @@ This is a **clean-slate authorship from an empty repo**. Before any code in this
 
 ### 2.1 Why pi-workflows
 
-Pi (`@earendil-works/pi-coding-agent`) is a minimal coding TUI that explicitly **does not ship workflow orchestration** (see pi `docs/usage.md` philosophy section). Users who want plan/build/review loops, fan-out research scouts, or multi-stage agent pipelines either build their own glue or install third-party extensions. `pi-workflows` is one such extension — Atomic's primary contribution to the pi ecosystem.
+Pi (`@bastani/atomic`) is a minimal coding TUI that explicitly **does not ship workflow orchestration** (see pi `docs/usage.md` philosophy section). Users who want plan/build/review loops, fan-out research scouts, or multi-stage agent pipelines either build their own glue or install third-party extensions. `pi-workflows` is one such extension — Atomic's primary contribution to the pi ecosystem.
 
 The workflow design pattern is mature: a definition declares input schemas and a function that issues `ctx.stage()` calls (sequential, parallel, or fan-in topology); the runtime infers the DAG from JavaScript execution order; each stage spawns a focused pi sub-session driven by `session.prompt()`; live progress streams to a widget; the user can interrupt, branch via `/tree`, or detach. The previous Atomic implementation proved the design works; this extension is its clean reauthorship as a pi-native artifact.
 

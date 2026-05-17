@@ -33,7 +33,6 @@
   "peerDependencies": {
     "@bastani/atomic": "*",
     "@earendil-works/pi-ai": "*",
-    "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*",
     "zod": "^3.25.0 || ^4.0.0"
   },
@@ -42,9 +41,6 @@
       "optional": true
     },
     "@earendil-works/pi-ai": {
-      "optional": true
-    },
-    "@earendil-works/pi-coding-agent": {
       "optional": true
     },
     "@earendil-works/pi-tui": {

@@ -6,7 +6,7 @@ import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { buildRuntimeAdapters } from "../../packages/workflows/src/extension/wiring.js";
 import { createStageContext } from "../../packages/workflows/src/runs/foreground/stage-runner.js";
-import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent";
+import type { CreateAgentSessionOptions } from "@bastani/atomic";
 import type { RuntimeWiringSurface } from "../../packages/workflows/src/extension/wiring.js";
 import type { StageSessionRuntime } from "../../packages/workflows/src/runs/foreground/stage-runner.js";
 

@@ -5,7 +5,7 @@
  * Supports runtime editing of templates, output paths, reads lists, and progress toggle.
  */
 
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { Theme } from "@bastani/atomic";
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import { matchesKey, visibleWidth, truncateToWidth } from "@earendil-works/pi-tui";
 import type { AgentConfig } from "../../agents/agents.ts";

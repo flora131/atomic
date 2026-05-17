@@ -1,4 +1,4 @@
-import type { AgentToolResult, ToolRenderResultOptions } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, ToolRenderResultOptions } from "@bastani/atomic";
 import { Text } from "@earendil-works/pi-tui";
 
 type McpToolResultDetails = Record<string, unknown> & { error?: unknown };

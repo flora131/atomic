@@ -9,7 +9,7 @@
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
-import { SessionManager, type AgentSession, type CreateAgentSessionOptions, type PromptOptions } from "@earendil-works/pi-coding-agent";
+import { SessionManager, type AgentSession, type CreateAgentSessionOptions, type PromptOptions } from "@bastani/atomic";
 import type {
   CompleteStageOpts,
   StageContext,

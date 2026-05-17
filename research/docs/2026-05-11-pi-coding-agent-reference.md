@@ -4,7 +4,7 @@ I have comprehensive understanding now. Let me produce the final structured repo
 
 # Pi-Coding-Agent: Canonical Reference for Atomic Rewrite
 
-All paths below are absolute. The source root used throughout is `/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/`.
+All paths below are absolute. The source root used throughout is `/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/`.
 
 ---
 
@@ -12,7 +12,7 @@ All paths below are absolute. The source root used throughout is `/home/alilavae
 
 ### What Pi is
 
-Pi is a single npm package (`@earendil-works/pi-coding-agent`, distributed binary `pi`) that ships a small, opinionated coding TUI. It is structurally a Bun/Node monorepo split into `packages/ai` (provider/streaming layer), `packages/agent` (agent loop), `packages/tui` (terminal UI primitives), and `packages/coding-agent` (the CLI, interactive mode, RPC mode, JSON mode, SDK exports, and extension runtime).
+Pi is a single npm package (`@bastani/atomic`, distributed binary `pi`) that ships a small, opinionated coding TUI. It is structurally a Bun/Node monorepo split into `packages/ai` (provider/streaming layer), `packages/agent` (agent loop), `packages/tui` (terminal UI primitives), and `packages/coding-agent` (the CLI, interactive mode, RPC mode, JSON mode, SDK exports, and extension runtime).
 
 ### Core design principles (`docs/usage.md:271-277`)
 
@@ -57,22 +57,22 @@ Atomic = pi-core + bundled Atomic-owned extensions/skills/prompts/themes + a nat
 
 ## 2. Per-Doc Summary
 
-### `/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/docs/index.md`
+### `/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/docs/index.md`
 **Purpose:** Doc-site landing page; lists all docs in five buckets (Start here, Customization, Programmatic, Reference, Platform, Development).
 **Key:** Establishes that pi is "minimal terminal coding harness … extended through TypeScript extensions, skills, prompt templates, themes, and pi packages" (`docs/index.md:3`).
 
-### `/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/docs/quickstart.md`
+### `/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/docs/quickstart.md`
 **Purpose:** Install → authenticate → first session.
-**Key APIs/paths:** `npm install -g @earendil-works/pi-coding-agent`; default tools `read/write/edit/bash` (+ optional `grep/find/ls`); context files loaded from `~/.pi/agent/AGENTS.md` and `AGENTS.md`/`CLAUDE.md` walking up. `pi -c`, `pi -r`, `pi --session`, `pi -p`, `pi --mode json`, `pi --mode rpc`. `@file` references and image paste.
+**Key APIs/paths:** `npm install -g @bastani/atomic`; default tools `read/write/edit/bash` (+ optional `grep/find/ls`); context files loaded from `~/.pi/agent/AGENTS.md` and `AGENTS.md`/`CLAUDE.md` walking up. `pi -c`, `pi -r`, `pi --session`, `pi -p`, `pi --mode json`, `pi --mode rpc`. `@file` references and image paste.
 **Atomic seam:** The four default tools and the AGENTS.md/CLAUDE.md walk-up loader are usable as-is.
 
-### `/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/docs/usage.md`
+### `/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/docs/usage.md`
 **Purpose:** Day-to-day reference for interactive mode, CLI flags, env vars, message queue, sessions.
 **Key APIs:** Slash commands `/login /model /scoped-models /settings /resume /new /name /session /tree /fork /clone /compact /copy /export /share /reload /hotkeys /changelog /quit`. Message queueing: Enter (steer), Alt+Enter (followUp), Escape (abort + restore). `steeringMode`, `followUpMode` settings. SYSTEM.md / APPEND_SYSTEM.md per-project override.
 **Env vars:** `PI_CODING_AGENT_DIR`, `PI_CODING_AGENT_SESSION_DIR`, `PI_PACKAGE_DIR`, `PI_OFFLINE`, `PI_SKIP_VERSION_CHECK`, `PI_TELEMETRY`, `PI_CACHE_RETENTION`, `VISUAL`/`EDITOR`.
 **Constraint:** Explicitly enumerates pi's "no MCP / no sub-agents / no plan mode / no to-dos / no permission popups / no background bash" stance at lines 273-277.
 
-### `/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/docs/development.md`
+### `/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/docs/development.md`
 **Purpose:** Fork & build instructions — **critical for Atomic**.
 **Key:** `git clone https://github.com/earendil-works/pi-mono && npm install && npm run build`; `/path/to/pi-mono/pi-test.sh` runs from source. **Forking is officially supported via a `piConfig` object in `package.json`:**
 ```json
@@ -82,7 +82,7 @@ Plus change the `bin` field. This automatically reflows the CLI banner, the conf
 **Hidden command:** `/debug` writes rendered TUI lines + last LLM messages to `~/.pi/agent/pi-debug.log` (`docs/development.md:50-54`).
 **Path resolution rule:** Always use `src/config.ts` (`getPackageDir`, `getThemeDir`), never `__dirname` directly. Three exec modes coexist: npm install / standalone binary / tsx from source.
 
-### `/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/docs/extensions.md`
+### `/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/docs/extensions.md`
 **Purpose:** THE foundational doc — 96 KB of API surface for pi's extension system.
 **Default factory signature:**
 ```typescript
@@ -100,7 +100,7 @@ Async factories are awaited before `session_start` and resource discovery (`docs
 - CLI `--extension ./path.ts` (repeatable)
 
 **Available imports** (`docs/extensions.md:138-152`):
-- `@earendil-works/pi-coding-agent` — `ExtensionAPI`, `ExtensionContext`, event types, helpers
+- `@bastani/atomic` — `ExtensionAPI`, `ExtensionContext`, event types, helpers
 - `typebox` — parameter schemas
 - `@earendil-works/pi-ai` — `StringEnum` (use this, not Union+Literal, for Google compat)
 - `@earendil-works/pi-tui` — TUI primitives
@@ -192,7 +192,7 @@ Async factories are awaited before `session_start` and resource discovery (`docs
 - `pi.sendMessage`/`sendUserMessage` (drive the chat from workflows)
 - `ctx.newSession({withSession})` (workflows can spawn fresh sessions, `handoff.ts` pattern)
 
-### `/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/docs/tui.md`
+### `/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/docs/tui.md`
 **Purpose:** TUI primitive reference. Source: `@earendil-works/pi-tui`.
 **Component interface:** `{ render(width): string[], handleInput?(data), invalidate(), wantsKeyRelease? }`. Each rendered line must not exceed `width`. Styles do not carry across lines.
 **Focusable interface:** `focused: boolean`; emit `CURSOR_MARKER` in render output to get hardware cursor + IME support.
@@ -212,7 +212,7 @@ Async factories are awaited before `session_start` and resource discovery (`docs
 - Pattern 7: Custom editor (vim-like modal)
 **Debug:** `PI_TUI_WRITE_LOG=/tmp/x.log` captures raw ANSI.
 
-### `/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/docs/skills.md`
+### `/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/docs/skills.md`
 **Purpose:** Agent Skills standard implementation. Pi implements [agentskills.io](https://agentskills.io/specification), warning on violations.
 **Locations:**
 - Global: `~/.pi/agent/skills/`, `~/.agents/skills/`
@@ -226,7 +226,7 @@ Async factories are awaited before `session_start` and resource discovery (`docs
 **Invocation:** `/skill:name [args]` — args appended as `User: <args>` to skill content. Toggleable via `enableSkillCommands` setting.
 **Bundling for Atomic:** Drop a `skills/` directory into the Atomic package (`pi.skills` array in `package.json`), or ship as a separate pi-package and bundle in dependencies. `dynamic-resources/index.ts` shows how an extension can register additional skill paths via the `resources_discover` event.
 
-### `/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/docs/prompt-templates.md`
+### `/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/docs/prompt-templates.md`
 **Purpose:** Markdown snippets that expand on `/<name>`.
 **Locations:** `~/.pi/agent/prompts/*.md`, `.pi/prompts/*.md`, packages, settings, CLI `--prompt-template`.
 **Format:** YAML frontmatter `description`, `argument-hint` (e.g. `"<PR-URL>"` or `"[instructions]"`); body is the template.
@@ -234,7 +234,7 @@ Async factories are awaited before `session_start` and resource discovery (`docs
 **Discovery:** Non-recursive by default. Use `prompts` settings array or package manifest for subdirectories.
 **Atomic seam:** Bundle Atomic prompts in package's `prompts/` dir, point `pi.prompts` at it.
 
-### `/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/docs/themes.md`
+### `/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/docs/themes.md`
 **Purpose:** Theme system — 51 required color tokens.
 **Locations:** Built-in `dark`/`light`; `~/.pi/agent/themes/*.json`; `.pi/themes/*.json`; packages (`pi.themes`); settings (`themes: [...]`); CLI `--theme`.
 **Selection:** `theme` setting; first run auto-detects terminal background.
@@ -242,7 +242,7 @@ Async factories are awaited before `session_start` and resource discovery (`docs
 **Format:** `name`, optional `vars` (reusable named colors), required `colors` (51 tokens across Core UI, Backgrounds/Content, Markdown, Diffs, Syntax, Thinking-level borders, Bash mode). Optional `export` section for HTML export. Schema at `https://raw.githubusercontent.com/earendil-works/pi-mono/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json`.
 **Color values:** hex `"#RRGGBB"`, 256-color index `0-255`, `vars` reference, `""` for terminal default.
 
-### `/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/docs/keybindings.md`
+### `/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/docs/keybindings.md`
 **Purpose:** Customization via `~/.pi/agent/keybindings.json`. Edit + `/reload` (no restart).
 **ID namespaces:** `tui.*` (shared TUI ids) and `app.*` (coding-agent ids). Legacy un-namespaced ids auto-migrated.
 **Key format:** `modifier+key`; modifiers `ctrl`, `shift`, `alt`; keys `a-z`, `0-9`, all special keys, `f1-f12`, symbols.
@@ -250,7 +250,7 @@ Async factories are awaited before `session_start` and resource discovery (`docs
 **Config:** `{ "app.thinking.cycle": ["shift+tab", "ctrl+i"] }` — single string or array.
 **Extension API:** `keyHint("app.tools.expand", "to expand")`, `keyText("tui.select.confirm")`, `rawKeyHint("ctrl+k", "to kill")`. Custom editors and `ctx.ui.custom` components receive `keybindings: KeybindingsManager` injected.
 
-### `/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/docs/sdk.md`
+### `/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/docs/sdk.md`
 **Purpose:** Programmatic embedding via TypeScript. Used by pi's own interactive/print/RPC modes.
 **Main exports:**
 - `createAgentSession(opts) → {session, extensionsResult, modelFallbackMessage}`
@@ -267,7 +267,7 @@ Async factories are awaited before `session_start` and resource discovery (`docs
 **AgentSession API:** `prompt(text, {streamingBehavior, images, preflightResult})`, `steer(text)`, `followUp(text)`, `subscribe(listener)`, `setModel`, `setThinkingLevel`, `cycleModel`, `compact`, `abort`, `navigateTree`, `bindExtensions`, `dispose`.
 **Atomic seam:** Atomic CAN be entirely built on `InteractiveMode(runtime)` with a customized `DefaultResourceLoader` that bundles Atomic's extensions/skills/prompts as `extensionFactories`/overrides. This is the cleanest path to "rebrand and bundle."
 
-### `/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/docs/rpc.md`
+### `/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/docs/rpc.md`
 **Purpose:** JSONL protocol over stdin/stdout for subprocess integration (other languages, IDEs, custom UIs).
 **Framing:** Strict JSONL with `\n` only (accept stripped `\r`). Node `readline` is NOT compliant — must use a manual line reader (example included).
 **Commands (full list):** `prompt`, `steer`, `follow_up`, `abort`, `new_session`, `get_state`, `get_messages`, `set_model`, `cycle_model`, `get_available_models`, `set_thinking_level`, `cycle_thinking_level`, `set_steering_mode`, `set_follow_up_mode`, `compact`, `set_auto_compaction`, `set_auto_retry`, `abort_retry`, `bash`, `abort_bash`, `get_session_stats`, `export_html`, `switch_session`, `fork`, `clone`, `get_fork_messages`, `get_last_assistant_text`, `set_session_name`, `get_commands`.
@@ -275,19 +275,19 @@ Async factories are awaited before `session_start` and resource discovery (`docs
 **Extension UI sub-protocol:** Dialogs (`select`/`confirm`/`input`/`editor`) emit `extension_ui_request` and block until matching `extension_ui_response`. Fire-and-forget (`notify`/`setStatus`/`setWidget`/`setTitle`/`set_editor_text`) emit requests with no response expected. `ctx.hasUI === true` in RPC mode. Some methods degrade: `custom()` returns undefined, `setWorkingMessage/Indicator/Footer/Header/EditorComponent` are no-ops, `getAllThemes` returns `[]`, `setTheme` fails.
 **Bash command bridge:** `bash` command creates `BashExecutionMessage` in state but emits NO event; output is bundled into the next `prompt`'s user message as `Ran \`cmd\`\n\`\`\`output\`\`\``.
 
-### `/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/docs/json.md`
+### `/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/docs/json.md`
 **Purpose:** `pi --mode json` — one-way event stream to stdout, no command channel.
 **Format:** First line is session header `{type:"session",version:3,id,timestamp,cwd}`. Then `AgentSessionEvent` lines: `agent_start/end`, `turn_start/end`, `message_start/update/end`, `tool_execution_start/update/end`, `queue_update`, `compaction_start/end`, `auto_retry_start/end`.
 **Use:** Subagent example uses this exact mode to harvest structured output from spawned `pi -p` processes.
 
-### `/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/docs/settings.md`
+### `/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/docs/settings.md`
 **Purpose:** Settings reference. Two-tier: `~/.pi/agent/settings.json` (global) overridden by `.pi/settings.json` (project), nested objects merge.
 **All keys** (see table in §4).
 **Path resolution:** Paths in global file resolve relative to `~/.pi/agent`; paths in project file resolve relative to `.pi`. `~` and absolute paths supported.
 **Resource arrays** (`packages`, `extensions`, `skills`, `prompts`, `themes`) support globs, `!exclude`, `+force-include`, `-force-exclude`.
 **Object form for `packages`:** Per-package filter `{source, extensions:[], skills:["only-this"], …}`.
 
-### `/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/docs/packages.md`
+### `/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/docs/packages.md`
 **Purpose:** Pi-package distribution model.
 **Install:** `pi install npm:@scope/pkg@1.2.3`, `pi install git:github.com/user/repo@v1`, `pi install https://…`, `pi install ./local-path`. `-l` writes to project settings (`.pi/settings.json`) instead of global.
 **Sources:** `npm:` (versioned pins skipped by `pi update`), `git:` (refs pin), local (relative paths resolved against the settings file they live in).
@@ -303,7 +303,7 @@ Async factories are awaited before `session_start` and resource discovery (`docs
 **`npmCommand` setting:** Pin npm operations to wrappers like mise/asdf/bun: `["mise", "exec", "node@20", "--", "npm"]`. If first element is `"bun"`, modules location is queried via `bun pm bin -g` instead of `npm root -g`.
 **Security:** Pi packages run with full system access — review before installing.
 
-### `/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/docs/sessions.md` + `/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/docs/session-format.md`
+### `/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/docs/sessions.md` + `/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/docs/session-format.md`
 **Purpose:** Session storage and JSONL format reference.
 **Path:** `~/.pi/agent/sessions/--<cwd-with-slashes-replaced>--/<timestamp>_<uuid>.jsonl`.
 **Version 3** (current): Tree-structured entries via `id`/`parentId` (8-char hex). First line is `SessionHeader` `{type:"session",version:3,id,timestamp,cwd,parentSession?}`. Versions 1 and 2 auto-migrate.
@@ -312,7 +312,7 @@ Async factories are awaited before `session_start` and resource discovery (`docs
 **Branching:** `/tree` selects entry → moves leaf to that point's parent (for user msgs) or that point (for non-user) → continues from there, creating new children.
 **Context building:** `buildSessionContext()` walks leaf→root; if a `compaction` is on path, emits its summary + messages from `firstKeptEntryId`; converts `BranchSummary` and `CustomMessage` to LLM-friendly formats.
 
-### `/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/docs/compaction.md`
+### `/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/docs/compaction.md`
 **Purpose:** Context overflow handling.
 **Trigger:** `contextTokens > contextWindow - reserveTokens` (default reserve 16384). Manual `/compact [instructions]`.
 **Algorithm:** Walk back accumulating tokens until `keepRecentTokens` (default 20000); summarize the older slice; append `CompactionEntry` with `summary`, `firstKeptEntryId`, `tokensBefore`; reload uses summary + kept tail.
@@ -322,7 +322,7 @@ Async factories are awaited before `session_start` and resource discovery (`docs
 **Extension hooks:** `session_before_compact` → `{cancel:true}` or `{compaction: {summary, firstKeptEntryId, tokensBefore, details}}`. `session_before_tree` similarly.
 **Settings:** `compaction.enabled/reserveTokens/keepRecentTokens`, `branchSummary.reserveTokens/skipPrompt`.
 
-### `/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/docs/models.md`
+### `/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/docs/models.md`
 **Purpose:** `~/.pi/agent/models.json` schema for adding Ollama/vLLM/LM Studio/proxies.
 **Minimal:**
 ```json
@@ -335,14 +335,14 @@ Async factories are awaited before `session_start` and resource discovery (`docs
 **`modelOverrides`:** Per-built-in-model customization without replacing the provider's model list.
 **Reload:** File reloaded each time `/model` opens — no restart needed.
 
-### `/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/docs/providers.md`
+### `/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/docs/providers.md`
 **Purpose:** Built-in providers + cloud setup.
 **Subscription OAuth (via `/login`):** ChatGPT Plus/Pro (Codex), Claude Pro/Max, GitHub Copilot. Tokens stored in `~/.pi/agent/auth.json`, auto-refresh.
 **API keys:** 20+ providers. Env vars or `auth.json` entries (`{type:"api_key", key:"…"}`); `auth.json` takes priority. Key field supports `"!shell-cmd"`, env-var name, or literal.
 **Cloud:** Azure OpenAI (`AZURE_OPENAI_API_KEY` + base URL or resource name), Amazon Bedrock (`AWS_PROFILE` / IAM / bearer / ECS / IRSA), Cloudflare AI Gateway, Cloudflare Workers AI, Google Vertex AI (ADC).
 **Resolution order:** CLI `--api-key` → `auth.json` → env var → `models.json` fallback.
 
-### `/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/docs/custom-provider.md`
+### `/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/docs/custom-provider.md`
 **Purpose:** Adding new providers via `pi.registerProvider()` in an extension.
 **Use cases:** Proxies (just `{baseUrl}`), new providers (must include `models`), OAuth/SSO (provide `oauth: {name, login, refreshToken, getApiKey, modifyModels?}`), custom streaming APIs (`streamSimple: (model, context, opts) => AssistantMessageEventStream`).
 **Async factory pattern:** Use async extension factory to fetch model lists at startup — they're available immediately, even to `pi --list-models`.
@@ -363,7 +363,7 @@ Async factories are awaited before `session_start` and resource discovery (`docs
 ## 3. Examples Inventory
 
 ### Top-level
-- **`/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/examples/rpc-extension-ui.ts`** — 632-line TUI chat client that spawns `pi --mode rpc` as a subprocess and renders RPC events + extension UI requests. Blueprint for "Atomic-shell hosts pi" though Atomic should use SDK directly instead.
+- **`/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/examples/rpc-extension-ui.ts`** — 632-line TUI chat client that spawns `pi --mode rpc` as a subprocess and renders RPC events + extension UI requests. Blueprint for "Atomic-shell hosts pi" though Atomic should use SDK directly instead.
 
 ### `examples/extensions/` (60 files, ~11K LOC)
 
@@ -712,13 +712,13 @@ Pi also accepts `--export <in> [out]` to convert a session to HTML.
 ## Critical Files for the Spec Author
 
 Read these first when authoring the rewrite spec:
-1. **`/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/docs/extensions.md`** — every API Atomic plugs into.
-2. **`/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/docs/tui.md`** — UI primitives the workflow pane uses.
-3. **`/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/docs/development.md`** — the fork/rebrand recipe.
-4. **`/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/docs/packages.md`** — how Atomic bundles its skills/prompts/themes/extensions.
-5. **`/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/docs/sdk.md`** — how Atomic's entry point wires everything.
-6. **`/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/examples/extensions/subagent/index.ts`** — closest reference for Atomic's workflow tool.
-7. **`/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/examples/extensions/plan-mode/index.ts`** — closest reference for Atomic's workflow-aware mode + widget.
-8. **`/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/examples/extensions/handoff.ts`** — closest reference for "spawn a new focused session" pattern.
-9. **`/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/examples/extensions/doom-overlay/`** — proof overlays handle high-FPS dynamic UI.
-10. **`/home/alilavaee/.cache/.bun/install/global/node_modules/@earendil-works/pi-coding-agent/examples/sdk/12-full-control.ts`** — pattern for Atomic's main entry point when full discovery is replaced by bundled resources.
+1. **`/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/docs/extensions.md`** — every API Atomic plugs into.
+2. **`/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/docs/tui.md`** — UI primitives the workflow pane uses.
+3. **`/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/docs/development.md`** — the fork/rebrand recipe.
+4. **`/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/docs/packages.md`** — how Atomic bundles its skills/prompts/themes/extensions.
+5. **`/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/docs/sdk.md`** — how Atomic's entry point wires everything.
+6. **`/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/examples/extensions/subagent/index.ts`** — closest reference for Atomic's workflow tool.
+7. **`/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/examples/extensions/plan-mode/index.ts`** — closest reference for Atomic's workflow-aware mode + widget.
+8. **`/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/examples/extensions/handoff.ts`** — closest reference for "spawn a new focused session" pattern.
+9. **`/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/examples/extensions/doom-overlay/`** — proof overlays handle high-FPS dynamic UI.
+10. **`/home/alilavaee/.cache/.bun/install/global/node_modules/@bastani/atomic/examples/sdk/12-full-control.ts`** — pattern for Atomic's main entry point when full discovery is replaced by bundled resources.

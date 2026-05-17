@@ -60,7 +60,7 @@ The test suite directly imports these surfaces heavily: this partition has 26 so
 
 ### 4. Runtime wiring, rendering, persistence, MCP, and subagent helpers
 
-- `buildRuntimeAdapters()` creates an `agentSession` adapter using `createAgentSession()` from `@earendil-works/pi-coding-agent`, stripping workflow-only `mcp` from stage options before session creation (`src/extension/wiring.ts:109`, `src/extension/wiring.ts:85`).
+- `buildRuntimeAdapters()` creates an `agentSession` adapter using `createAgentSession()` from `@bastani/atomic`, stripping workflow-only `mcp` from stage options before session creation (`src/extension/wiring.ts:109`, `src/extension/wiring.ts:85`).
 - The same wiring optionally exposes a subagent adapter via `pi.subagents.run` or `pi.callTool("subagent", ...)`, injecting workflow env from process env and stage metadata (`src/extension/wiring.ts:99`, `src/extension/wiring.ts:123`).
 - `buildUIAdapter()` maps pi dialog methods into workflow HIL primitives and returns `undefined` when no dialog methods exist (`src/extension/wiring.ts:309`).
 - `renderCall()`, `renderResult()`, and `renderers.ts` supply compact tool-call, tool-result, and run lifecycle message strings (`src/extension/render-call.ts:16`, `src/extension/render-result.ts:64`, `src/extension/renderers.ts:58`).

@@ -1,6 +1,6 @@
 import type { Component } from "@mariozechner/pi-tui";
 import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
-import type { Theme } from "@mariozechner/pi-coding-agent";
+import type { Theme } from "@bastani/atomic";
 import type { SessionInfo, Message } from "../types.js";
 
 export class InlineMessageComponent implements Component {

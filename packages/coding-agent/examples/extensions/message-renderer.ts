@@ -7,7 +7,7 @@
  * Usage: /status [message] - sends a status message with custom rendering
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@bastani/atomic";
 import { Box, Text } from "@earendil-works/pi-tui";
 
 export default function (pi: ExtensionAPI) {

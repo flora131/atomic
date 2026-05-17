@@ -16,7 +16,7 @@
 
 ## 1. Executive Summary
 
-This document specifies the **full rewrite of Atomic** as a fork of [`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent). After the rewrite, `atomic` is a single-process chat TUI invoked by the `atomic` command — structurally identical to `pi` but rebranded — extended by a curated set of **bundled extensions, skills, prompt templates, themes, and agent definitions** owned by this repo.
+This document specifies the **full rewrite of Atomic** as a fork of [`@bastani/atomic`](https://www.npmjs.com/package/@bastani/atomic). After the rewrite, `atomic` is a single-process chat TUI invoked by the `atomic` command — structurally identical to `pi` but rebranded — extended by a curated set of **bundled extensions, skills, prompt templates, themes, and agent definitions** owned by this repo.
 
 ### Conceptual framing
 
@@ -74,7 +74,7 @@ The workflow system is rebuilt as a **native pi extension** (`@atomic/workflows`
 
 MCP support, sub-agent support, and parent↔child coordination are consumed directly from npm as the upstream `pi-mcp-adapter`, `pi-subagents`, and `pi-intercom` packages (all authored by `nicobailon`), declared in pi's `packages: [...]` settings and lazy-installed by pi's package manager on first launch. **No vendored forks** of these packages live in the Atomic monorepo. If specific upstream blockers force action (e.g., pi-mcp-adapter issue #91), the escape hatches are: (a) npm `overrides` to redirect a transitive dep, (b) upstream contribution + temporary patch via `patch-package`, (c) only as a last resort, a fork.
 
-**The only package this repo directly forks is `@earendil-works/pi-coding-agent`** (renamed to `packages/atomic/` and rebranded via `piConfig`). Every other dependency — `pi-ai`, `pi-agent-core`, `pi-tui`, `pi-mcp-adapter`, `pi-subagents`, `pi-intercom` — is an ordinary npm dependency, vendored only if a specific blocker forces it.
+**The only package this repo directly forks is `@bastani/atomic`** (renamed to `packages/atomic/` and rebranded via `piConfig`). Every other dependency — `pi-ai`, `pi-agent-core`, `pi-tui`, `pi-mcp-adapter`, `pi-subagents`, `pi-intercom` — is an ordinary npm dependency, vendored only if a specific blocker forces it.
 
 **Hard rule: the only reason we fork pi-coding-agent is to apply the rebrand.** The fork's delta from upstream is the `package.json` (rename the package, swap the `bin` mapping, set `piConfig`, declare the `pi.*` manifest pointing at our bundled resources, update top-level deps). **No TypeScript or other source files inside the forked package are modified.** Every Atomic-specific behavior is delivered through pi's documented surfaces: bundled extensions, skills, prompt templates, themes, agent defs, and `settings.json`. If we hit a gap where pi's extension API doesn't reach, we **contribute the missing API upstream** rather than patching the fork.
 
@@ -151,7 +151,7 @@ flowchart TB
 
 ### 2.3 Why pi-coding-agent
 
-Pi (`@earendil-works/pi-coding-agent`) is a minimal, opinionated single-process coding TUI explicitly designed to be **forked and extended** for "your" coding agent (`docs/development.md` documents `piConfig` in `package.json` as the rebrand seam). It ships built-in:
+Pi (`@bastani/atomic`) is a minimal, opinionated single-process coding TUI explicitly designed to be **forked and extended** for "your" coding agent (`docs/development.md` documents `piConfig` in `package.json` as the rebrand seam). It ships built-in:
 
 - A chat TUI with editor, header, footer, message rendering, syntax highlighting, markdown, image, and overlay support (`docs/tui.md`).
 - 7 default tools (`read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`).
@@ -210,7 +210,7 @@ The DOOM-overlay reference extension proves overlays support 35 FPS dynamic UI. 
 flowchart TB
     User(("User"))
     AtomicBin["atomic binary<br/>(pi-fork, rebranded via piConfig)"]
-    PiCore["pi-coding-agent core<br/>(@earendil-works/pi-coding-agent)"]
+    PiCore["pi-coding-agent core<br/>(@bastani/atomic)"]
     Chat["Chat TUI<br/>(editor, header, footer, messages)"]
     Providers["Pi Providers<br/>(Anthropic, OpenAI, Google,<br/>Claude Pro OAuth, Codex OAuth,<br/>Copilot OAuth, Bedrock, ...)"]
     BundledExt["Bundled Atomic Extensions<br/>@atomic/workflows · @atomic/branding<br/>@atomic/telemetry · @atomic/init"]
@@ -239,7 +239,7 @@ Everything runs in **one process**. No tmux. No spawned agent CLIs. Sub-agent sp
 
 ### 4.2 Architectural Pattern
 
-**Single-package pi fork + `pi-workflows` as a first-party pi extension + npm deps for everything else**, per pi's officially documented fork recipe (`docs/development.md:24-35` in pi's repo). The Atomic monorepo forks **only** `@earendil-works/pi-coding-agent` into `packages/atomic/`; all third-party pi extensions (`pi-mcp-adapter`, `pi-subagents`, `pi-intercom`) are consumed from npm; **`pi-workflows` lives in `packages/pi-workflows/` and is published to npm alongside its consumers** (Atomic plus anyone in the pi ecosystem). The monorepo also adds `skills/`, `prompts/`, `themes/`, and `agents/` directories that the forked pi-coding-agent auto-discovers via its `pi.*` manifest.
+**Single-package pi fork + `pi-workflows` as a first-party pi extension + npm deps for everything else**, per pi's officially documented fork recipe (`docs/development.md:24-35` in pi's repo). The Atomic monorepo forks **only** `@bastani/atomic` into `packages/atomic/`; all third-party pi extensions (`pi-mcp-adapter`, `pi-subagents`, `pi-intercom`) are consumed from npm; **`pi-workflows` lives in `packages/pi-workflows/` and is published to npm alongside its consumers** (Atomic plus anyone in the pi ecosystem). The monorepo also adds `skills/`, `prompts/`, `themes/`, and `agents/` directories that the forked pi-coding-agent auto-discovers via its `pi.*` manifest.
 
 The workflow orchestrator becomes a **single extension** (`pi-workflows/`) that exposes:
 1. A `workflow` tool (the model can invoke `workflow({name, inputs})`).
@@ -252,7 +252,7 @@ The workflow orchestrator becomes a **single extension** (`pi-workflows/`) that 
 
 | Component                             | Responsibility                                                                                                                                                                                    | Technology / Origin                                           | Justification                                                                                               |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `packages/atomic` (root)              | The forked `@earendil-works/pi-coding-agent` CLI package, rebranded via `piConfig`. Provides the `atomic` binary. Depends on upstream `pi-ai`, `pi-agent-core`, `pi-tui` via npm.                 | Bun + TypeScript                                              | Hybrid strategy (Q1): minimal fork surface; `piConfig` requires forking the CLI's own package.json.         |
+| `packages/atomic` (root)              | The forked `@bastani/atomic` CLI package, rebranded via `piConfig`. Provides the `atomic` binary. Depends on upstream `pi-ai`, `pi-agent-core`, `pi-tui` via npm.                 | Bun + TypeScript                                              | Hybrid strategy (Q1): minimal fork surface; `piConfig` requires forking the CLI's own package.json.         |
 | `pi-workflows/`               | Native workflow tool, overlay pane, slash command, status writer, custom entry persistence.                                                                                                       | pi extension API (`registerTool`, `ui.custom`, `appendEntry`) | Replaces 65–70% of the current Atomic SDK (executor.ts, orchestrator-panel, workflow-picker, tmux runtime). |
 | ~~`extensions/branding/`~~ (deferred) | **Not in v1** (Q8). Pi's `piConfig.name` auto-reflows the banner. A custom branding extension is deferred until we want the gradient block-logo back.                                             | n/a                                                           | Reduces v1 scope; piConfig is sufficient for identity.                                                      |
 | `extensions/telemetry/`               | Anonymous install/update telemetry, opt-in tool-use telemetry.                                                                                                                                    | pi extension API (`on(agent_end)`, `pi.events`)               | Reuses existing telemetry-backend (`rest-api/`); decouples from pi's own update-check flow.                 |
@@ -283,7 +283,7 @@ Produce an `atomic` binary that IS pi-coding-agent with Atomic identity, config 
 **The fork exists solely to apply the rebrand.** Everything else uses pi's built-in functionality.
 
 The forked `packages/atomic/` differs from upstream `packages/coding-agent/` ONLY in `package.json`:
-- `name`: `"@earendil-works/pi-coding-agent"` → `"atomic"`.
+- `name`: `"@bastani/atomic"` → `"atomic"`.
 - `bin`: `{ "pi": "..." }` → `{ "atomic": "..." }`.
 - `piConfig`: `{ "name": "atomic", "configDir": ".atomic" }`.
 - `pi.*` manifest pointing at `./extensions`, `./skills`, `./prompts`, `./themes` (our bundled resources).
@@ -324,7 +324,7 @@ This single block produces:
 
 #### Fork strategy: only pi-coding-agent (decided)
 
-**Decided** (Q1, refined per user request): `@earendil-works/pi-coding-agent` is the **only** package this repo directly forks. Everything else — `pi-ai`, `pi-agent-core`, `pi-tui`, plus third-party pi extensions like `pi-mcp-adapter` and `pi-subagents` — is consumed as an ordinary npm dependency. Vendor a package as a fork **only if** a specific blocker forces it (rule: "only vendor deps in pi if you have to").
+**Decided** (Q1, refined per user request): `@bastani/atomic` is the **only** package this repo directly forks. Everything else — `pi-ai`, `pi-agent-core`, `pi-tui`, plus third-party pi extensions like `pi-mcp-adapter` and `pi-subagents` — is consumed as an ordinary npm dependency. Vendor a package as a fork **only if** a specific blocker forces it (rule: "only vendor deps in pi if you have to").
 
 Why only pi-coding-agent:
 - The `piConfig` rebrand (`{ piConfig: { name, configDir } }` in `package.json`) MUST live in the CLI package's own `package.json`. `npm install` would overwrite consumer-side changes. **This is the only reason we fork at all.**
@@ -577,7 +577,7 @@ Pi's existing package installer fetches it from npm on first session start (Q9).
 | Blocker                                                                                | Resolution                                                                                                                                                                                                                                                                              |
 | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Issue #91 — uses deprecated `@mariozechner/pi-ai`                                      | **npm `overrides`** in our root `package.json`: `"overrides": { "pi-mcp-adapter": { "@mariozechner/pi-ai": "npm:@earendil-works/pi-ai@latest" } }`. Track upstream PR; remove override once merged. Backup: `patch-package`.                                                |
-| Issue #91 — uses deprecated `@mariozechner/pi-coding-agent`                           | Same `overrides` approach pointing at our forked `packages/atomic/` workspace symbol (or `@earendil-works/pi-coding-agent` if the adapter accepts that).                                                                                                                                |
+| Issue #91 — uses deprecated `@bastani/atomic`                           | Same `overrides` approach pointing at our forked `packages/atomic/` workspace symbol (or `@bastani/atomic` if the adapter accepts that).                                                                                                                                |
 | `agent-dir.ts` honors `PI_CODING_AGENT_DIR` only                                       | Pi's `piConfig.configDir` rebrand automatically remaps env-var lookups; `pi-mcp-adapter` calls pi's config-dir API so it transparently sees `ATOMIC_CODING_AGENT_DIR`. Verify in Phase 3 smoke; if not, push a small upstream PR.                                                       |
 
 #### Atomic-side glue: `extensions/integrations/mcp-bridge.ts`
@@ -1151,9 +1151,9 @@ On first launch of the new Atomic binary, in order:
 ### 8.1 Deployment Phasing
 
 - **Prerequisite**: Spec 1 must have shipped `pi-workflows@0.1.0+` to npm. The repo wipe (Spec 1 Phase 0) already happened; `packages/pi-workflows/` exists in the working tree.
-- **Phase 1 — Foundation**: Fork `@earendil-works/pi-coding-agent` into a new `packages/atomic/` (created fresh — no prior contents). Add `@earendil-works/pi-ai`, `@earendil-works/pi-agent-core`, `@earendil-works/pi-tui` as ordinary npm deps. **The fork's delta is the `package.json` rebrand only — no TypeScript inside the package is edited.** Atomic boots into pi's TUI with the Atomic name; no Atomic-specific extensions yet. Land the `check-fork-purity` CI script. Verify all pi flows (chat, OAuth login, session resume, compaction, /tree, /reload).
+- **Phase 1 — Foundation**: Fork `@bastani/atomic` into a new `packages/atomic/` (created fresh — no prior contents). Add `@earendil-works/pi-ai`, `@earendil-works/pi-agent-core`, `@earendil-works/pi-tui` as ordinary npm deps. **The fork's delta is the `package.json` rebrand only — no TypeScript inside the package is edited.** Atomic boots into pi's TUI with the Atomic name; no Atomic-specific extensions yet. Land the `check-fork-purity` CI script. Verify all pi flows (chat, OAuth login, session resume, compaction, /tree, /reload).
 - **Phase 2 — Branding & Resources**: Build `extensions/branding/`. Migrate skills/prompts/themes from `.agents/skills/` and current theme code into `packages/atomic/skills/`, `prompts/`, `themes/`. Verify discoverable via `/hotkeys`, `/skill:<name>`, theme picker.
-- **Phase 3 — MCP, Subagents & Intercom**: Add `pi-mcp-adapter`, `pi-subagents`, and `pi-intercom` to Atomic's default bundled `settings.json` under `packages: [...]`. Add npm `overrides` for pi-mcp-adapter's deprecated `@mariozechner/pi-ai`/`@mariozechner/pi-coding-agent`. Add `jiti` to Atomic's top-level dependencies. Build `extensions/integrations/mcp-bridge.ts` and `subagent-bridge.ts` (the latter now also handles intercom: stable session name, `contact_supervisor` approval UI, grouped result rendering). Seed `~/.atomic/agent/extensions/subagent/config.json` with the `intercomBridge` defaults. Verify `/mcp` panel works against an existing MCP server; verify `/run <agent>` spawns a sub-agent; verify a child agent can call `contact_supervisor` and surface in the parent chat. **No source vendoring of any extension.**
+- **Phase 3 — MCP, Subagents & Intercom**: Add `pi-mcp-adapter`, `pi-subagents`, and `pi-intercom` to Atomic's default bundled `settings.json` under `packages: [...]`. Add npm `overrides` for pi-mcp-adapter's deprecated `@mariozechner/pi-ai`/`@bastani/atomic`. Add `jiti` to Atomic's top-level dependencies. Build `extensions/integrations/mcp-bridge.ts` and `subagent-bridge.ts` (the latter now also handles intercom: stable session name, `contact_supervisor` approval UI, grouped result rendering). Seed `~/.atomic/agent/extensions/subagent/config.json` with the `intercomBridge` defaults. Verify `/mcp` panel works against an existing MCP server; verify `/run <agent>` spawns a sub-agent; verify a child agent can call `contact_supervisor` and surface in the parent chat. **No source vendoring of any extension.**
 - **Phase 4 — `pi-workflows` extension core**: Stand up `packages/pi-workflows/` as a publishable npm package. Migrate the surviving SDK pieces from `@bastani/atomic-sdk` into it as the public authoring API. Build the extension `default export`: the `workflow` tool, `/workflow` slash commands, the executor, the registry loader (direct module import), and session-entry persistence. Skip the overlay; just inline-render via `pi.registerMessageRenderer` for now. Add `pi-workflows` to Atomic's bundled `packages: [...]` and confirm pi installs it on first session start. Migrate one workflow (`deep-research-codebase`) end-to-end as the smoke test. Publish a first `pi-workflows` npm release.
 - **Phase 5 — Workflow Overlay & Widget**: Build the pi-tui graph overlay (ported from current OpenTUI components). Add above-editor widget. Polish keyboard nav.
 - **Phase 6 — Remaining Workflow Migrations**: Migrate `ralph`, `open-claude-design`. Migrate all `.claude/agents/` definitions into `packages/atomic/agents/` (bundled, discovered by upstream pi-subagents).
@@ -1181,7 +1181,7 @@ On first launch of the new Atomic binary, in order:
 
 Each question must be resolved before this spec is marked Approved.
 
-1. ~~**Pi vendoring vs. dependency**~~ **Resolved** (final): `@earendil-works/pi-coding-agent` is the ONLY directly forked package (forked into `packages/atomic/`), and **the fork's delta is `package.json` only — every Atomic-specific behavior comes from pi's built-in extension/skill/prompt/theme surfaces**. Source-code purity inside the fork is enforced by a `check-fork-purity` CI script. Every other dependency — `pi-ai`, `pi-agent-core`, `pi-tui`, `pi-mcp-adapter`, `pi-subagents` — is an ordinary npm dependency, vendored only if a specific blocker forces it. Escape hatches for unforked deps: npm `overrides`, `patch-package`, upstream PR, and (last resort) selective fork with `FORK_REASON.md`. Escape hatch for missing extension-API features: upstream PR, never local patch.
+1. ~~**Pi vendoring vs. dependency**~~ **Resolved** (final): `@bastani/atomic` is the ONLY directly forked package (forked into `packages/atomic/`), and **the fork's delta is `package.json` only — every Atomic-specific behavior comes from pi's built-in extension/skill/prompt/theme surfaces**. Source-code purity inside the fork is enforced by a `check-fork-purity` CI script. Every other dependency — `pi-ai`, `pi-agent-core`, `pi-tui`, `pi-mcp-adapter`, `pi-subagents` — is an ordinary npm dependency, vendored only if a specific blocker forces it. Escape hatches for unforked deps: npm `overrides`, `patch-package`, upstream PR, and (last resort) selective fork with `FORK_REASON.md`. Escape hatch for missing extension-API features: upstream PR, never local patch.
 2. ~~**Legacy `.agents/skills/` compat**~~ **Resolved**: bundled skills ship via `pi.skills` manifest from `packages/atomic/skills/`; no auto-load of `~/.agents/skills/` or `~/.claude/skills/`.
 3. ~~**Curated skill subset**~~ **Resolved**: ship everything except `metadata.internal: true` and `gh-*`/`ado-*`/`sl-*` prefixes; curation enforced by `script/curate-skills.ts`.
 4. ~~**Programmatic `runWorkflow()`**~~ **Resolved**: removed entirely. External Node consumers shell out to `atomic workflow`.

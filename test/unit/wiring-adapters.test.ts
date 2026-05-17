@@ -9,7 +9,7 @@
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { buildRuntimeAdapters } from "../../packages/workflows/src/extension/wiring.js";
-import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent";
+import type { CreateAgentSessionOptions } from "@bastani/atomic";
 import type { StageSessionRuntime } from "../../packages/workflows/src/runs/foreground/stage-runner.js";
 
 function fakeSession(): StageSessionRuntime {
@@ -55,7 +55,7 @@ describe("buildRuntimeAdapters — SDK AgentSession adapter", () => {
   test(
     "falls back to the pi SDK createAgentSession in production (NODE_ENV unset) — proves pi-coding-agent ≥ 0.74 integration",
     () => {
-      // The pi SDK (`@earendil-works/pi-coding-agent` ≥ 0.74) exposes
+      // The pi SDK (`@bastani/atomic` ≥ 0.74) exposes
       // `createAgentSession` as a top-level package export, NOT on the
       // ExtensionAPI surface. The workflow extension MUST resolve a default
       // session factory from that package in production (no test context,

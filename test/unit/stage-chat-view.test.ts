@@ -23,7 +23,7 @@ import { StageChatView } from "../../packages/workflows/src/tui/stage-chat-view.
 import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.js";
 import type { EditorComponent } from "@earendil-works/pi-tui";
 import type { StageControlHandle } from "../../packages/workflows/src/runs/foreground/stage-control-registry.js";
-import { initTheme, SessionManager, type AgentSession, type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import { initTheme, SessionManager, type AgentSession, type AgentSessionEvent } from "@bastani/atomic";
 
 beforeAll(() => {
   initTheme("dark", false);

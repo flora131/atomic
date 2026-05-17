@@ -77,7 +77,7 @@ The factory seeds `runtimeRef` synchronously with bundled workflows from `discov
 
 ### 5. Runtime adapters and UI adapter
 
-`src/extension/wiring.ts` maps pi runtime surfaces to workflow runtime ports. Current `buildRuntimeAdapters()` always provides an `agentSession` adapter backed by `createAgentSession()` from `@earendil-works/pi-coding-agent`; stage options are copied after deleting workflow-only `mcp` (`src/extension/wiring.ts:85-119`).
+`src/extension/wiring.ts` maps pi runtime surfaces to workflow runtime ports. Current `buildRuntimeAdapters()` always provides an `agentSession` adapter backed by `createAgentSession()` from `@bastani/atomic`; stage options are copied after deleting workflow-only `mcp` (`src/extension/wiring.ts:85-119`).
 
 The same function conditionally adds a `subagent` adapter when either `pi.subagents.run` or `pi.callTool` is present. The primary path calls `pi.subagents.run({ agent, task, context, env, signal })`; the fallback calls `pi.callTool("subagent", { action:"run", agent, task, env, context? })` (`src/extension/wiring.ts:123-149`). Env injection combines current process workflow env with stage execution metadata (`src/extension/wiring.ts:99-107`).
 

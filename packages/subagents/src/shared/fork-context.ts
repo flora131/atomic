@@ -1,5 +1,5 @@
 import * as fs from "node:fs";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { SessionManager } from "@bastani/atomic";
 
 type SubagentExecutionContext = "fresh" | "fork";
 

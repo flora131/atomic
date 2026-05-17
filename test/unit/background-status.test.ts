@@ -192,7 +192,7 @@ describe("resumeRun", () => {
 
 import { createStageControlRegistry } from "../../packages/workflows/src/runs/foreground/stage-control-registry.js";
 import type { StageControlHandle, StageControlStatus } from "../../packages/workflows/src/runs/foreground/stage-control-registry.js";
-import type { AgentSession } from "@earendil-works/pi-coding-agent";
+import type { AgentSession } from "@bastani/atomic";
 
 function registerStageHandle(
   registry: ReturnType<typeof createStageControlRegistry>,

@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@bastani/atomic";
 import { APP_NAME, getEnvValue } from "@bastani/atomic";
 
 const ENV_PREFIX = APP_NAME.toUpperCase();

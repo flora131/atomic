@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@bastani/atomic";
 import { randomUUID } from "crypto";
 import { Type } from "typebox";
 import { Text } from "@mariozechner/pi-tui";

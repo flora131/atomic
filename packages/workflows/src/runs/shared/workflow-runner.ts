@@ -11,7 +11,7 @@ import { discoverWorkflows } from "../../extension/discovery.js";
 import { createStore } from "../../shared/store.js";
 import { renderInputsSchema } from "../../shared/render-inputs-schema.js";
 import { validateInputs, type ValidationError } from "./validate-inputs.js";
-import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent";
+import type { CreateAgentSessionOptions } from "@bastani/atomic";
 import type { StageSessionRuntime } from "../foreground/stage-runner.js";
 import type {
   WorkflowDetails,

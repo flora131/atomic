@@ -10,7 +10,7 @@ import type {
   CreateAgentSessionOptions,
   ModelCycleResult,
   PromptOptions,
-} from "@earendil-works/pi-coding-agent";
+} from "@bastani/atomic";
 
 export type { AgentSessionEvent, CompactionResult, ModelCycleResult, PromptOptions };
 

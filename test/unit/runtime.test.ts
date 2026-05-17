@@ -22,7 +22,7 @@ import { defineWorkflow } from "../../packages/workflows/src/workflows/define-wo
 import { createStore } from "../../packages/workflows/src/shared/store.js";
 import { renderResult } from "../../packages/workflows/src/extension/render-result.js";
 import type { WorkflowDefinition, WorkflowPersistencePort } from "../../packages/workflows/src/shared/types.js";
-import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent";
+import type { CreateAgentSessionOptions } from "@bastani/atomic";
 import type { StageAdapters, StageSessionRuntime } from "../../packages/workflows/src/runs/foreground/stage-runner.js";
 import type {
   WorkflowToolResult,

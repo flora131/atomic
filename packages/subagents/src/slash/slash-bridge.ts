@@ -1,5 +1,5 @@
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@bastani/atomic";
 import type { SubagentParamsLike } from "../runs/foreground/subagent-executor.ts";
 import {
 	SLASH_SUBAGENT_CANCEL_EVENT,

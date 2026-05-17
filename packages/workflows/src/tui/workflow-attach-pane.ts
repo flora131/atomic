@@ -35,7 +35,7 @@ import type {
  * mounted. Passing `undefined` clears the slot — required on dispose so
  * the `pi-workflows/<workflow>[/<stage>]` tag does NOT linger in every
  * subsequent chat message after the overlay is closed.
- * cross-ref: @earendil-works/pi-coding-agent docs/extensions.md
+ * cross-ref: @bastani/atomic docs/extensions.md
  * §Widgets, Status, and Footer (`ctx.ui.setStatus`).
  */
 export interface AttachUiStatusSurface {

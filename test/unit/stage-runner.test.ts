@@ -328,7 +328,7 @@ describe("createStageContext — error paths", () => {
 // ---------------------------------------------------------------------------
 
 import type { InternalStageContext, AgentSessionAdapter, StageSessionRuntime } from "../../packages/workflows/src/runs/foreground/stage-runner.js";
-import type { AgentSession } from "@earendil-works/pi-coding-agent";
+import type { AgentSession } from "@bastani/atomic";
 
 function makeMockSession(overrides: Partial<StageSessionRuntime> = {}): {
   session: StageSessionRuntime;

@@ -4,7 +4,7 @@
  *
  * `buildRuntimeAdapters` uses pi's in-process SDK (`createAgentSession`)
  * for workflow stages. The factory is imported directly from
- * `@earendil-works/pi-coding-agent` (a peer dependency) because the
+ * `@bastani/atomic` (a peer dependency) because the
  * modern pi `ExtensionAPI` does NOT inject `createAgentSession` onto the
  * extension surface — it is a top-level package export. Workflow authors
  * can pass `createAgentSession` options directly to
@@ -21,7 +21,7 @@
  *            pi docs/sdk.md createAgentSession
  */
 
-import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent";
+import type { CreateAgentSessionOptions } from "@bastani/atomic";
 import type { ChatMessageRenderOptions } from "@bastani/atomic";
 import type { StageAdapters, StageSessionRuntime } from "../runs/foreground/stage-runner.js";
 import type { StageExecutionMeta, StageOptions } from "../shared/types.js";
@@ -34,7 +34,7 @@ import type { StageExecutionMeta, StageOptions } from "../shared/types.js";
  * Minimal pi runtime surface needed to build stage adapters.
  *
  * SDK stage creation imports `createAgentSession` directly from
- * `@earendil-works/pi-coding-agent` (≥ 0.74 — the pi SDK exposes it as a
+ * `@bastani/atomic` (≥ 0.74 — the pi SDK exposes it as a
  * top-level package export, NOT on the `ExtensionAPI` surface). The
  * optional `createAgentSession` field here is a test seam so callers can
  * inject a stub session factory; production code does not require it.
@@ -77,15 +77,15 @@ function isTestContext(): boolean {
 
 /**
  * Lazily-resolved pi SDK session factory. Imported from
- * `@earendil-works/pi-coding-agent` on first use so the heavy SDK module
+ * `@bastani/atomic` on first use so the heavy SDK module
  * (filesystem discovery, resource loader, model registry) is not loaded
  * until an actual workflow stage runs. This is the canonical production
  * default — the modern pi SDK (≥ 0.74) exposes `createAgentSession` as a
  * top-level package export and does NOT inject it onto the ExtensionAPI,
  * so the workflow extension must reach into the SDK directly.
  *
- * cross-ref: node_modules/@earendil-works/pi-coding-agent/docs/sdk.md
- *            node_modules/@earendil-works/pi-coding-agent/dist/core/sdk.d.ts
+ * cross-ref: node_modules/@bastani/atomic/docs/sdk.md
+ *            node_modules/@bastani/atomic/dist/core/sdk.d.ts
  */
 interface PiSdkSettingsManager {}
 interface PiSdkResourceLoader {
@@ -250,7 +250,7 @@ function makeStageExtensionUiContext(ui: PiUISurface) {
  *   2. `pi.createAgentSession` — wiring-surface test seam.
  *   3. in-process test stub when running under `bun:test` / `node:test`.
  *   4. lazy dynamic import of `createAgentSession` from
- *      `@earendil-works/pi-coding-agent` — the canonical production
+ *      `@bastani/atomic` — the canonical production
  *      default (pi SDK ≥ 0.74 exposes it as a top-level package export,
  *      NOT on the `ExtensionAPI` surface).
  */
@@ -294,7 +294,7 @@ export function buildRuntimeAdapters(
 
 /**
  * Subset of pi's ExtensionUIDialogOptions consumed by the adapter.
- * Structurally matched against @earendil-works/pi-coding-agent
+ * Structurally matched against @bastani/atomic
  * ExtensionUIDialogOptions.
  */
 export interface PiUIDialogOptions {
@@ -362,7 +362,7 @@ export interface PiOverlayHandle {
 /**
  * Options accepted by Pi/pi's real `ctx.ui.custom(factory, options)`
  * overlay primitive. Aligned with the shape documented in
- * `@earendil-works/pi-coding-agent docs/tui.md` and
+ * `@bastani/atomic docs/tui.md` and
  * `@earendil-works/pi-tui dist/tui.d.ts`.
  *
  * Host-compatibility note: pi's interactive
@@ -488,7 +488,7 @@ export type PiEditorFactory = (
 
 /**
  * Structural type for the pi UI dialog surface.
- * Matches @earendil-works/pi-coding-agent ExtensionUIContext dialog methods.
+ * Matches @bastani/atomic ExtensionUIContext dialog methods.
  * All fields optional — presence is checked at runtime before building adapter.
  */
 export interface PiUISurface {

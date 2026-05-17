@@ -5,7 +5,7 @@ Research conducted: 2026-05-11.
 - **pi-mcp-adapter** @ `184d3cb75fa017b8badf657622b4b7efbf85cfb6` (v2.5.4, 2026-05-05).
 - **pi-subagents** @ `635112deea068528d89694e58ca068ddc1fe4b2d` (v0.24.x, 2026-05-10).
 
-Both extensions are authored against the **pi-coding-agent** extension API (entry: `export default function(pi: ExtensionAPI)`). pi-mcp-adapter still targets the deprecated `@mariozechner/pi-coding-agent` namespace and has open issue #91 to migrate to `@earendil-works/pi-coding-agent`. pi-subagents has already migrated (commit `c3d3737`).
+Both extensions are authored against the **pi-coding-agent** extension API (entry: `export default function(pi: ExtensionAPI)`). pi-mcp-adapter still targets the deprecated `@bastani/atomic` namespace and has open issue #91 to migrate to `@bastani/atomic`. pi-subagents has already migrated (commit `c3d3737`).
 
 ---
 

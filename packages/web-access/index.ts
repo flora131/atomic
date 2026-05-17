@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@bastani/atomic";
 import { Box, Text, truncateToWidth } from "@mariozechner/pi-tui";
 import { Type } from "typebox";
 import { StringEnum, complete, getModel, type Model } from "@mariozechner/pi-ai";

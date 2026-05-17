@@ -12,7 +12,7 @@
  *   - src/tui/workflow-attach-pane.ts
  *   - src/extension/wiring.ts  PiCustomOverlayOptions, PiOverlayHandle
  *   - @earendil-works/pi-tui dist/tui.d.ts  OverlayOptions, OverlayHandle
- *   - @earendil-works/pi-coding-agent docs/tui.md (overlay primitives)
+ *   - @bastani/atomic docs/tui.md (overlay primitives)
  */
 
 import type { Store } from "../shared/store.js";

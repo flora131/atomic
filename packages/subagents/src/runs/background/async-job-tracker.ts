@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@bastani/atomic";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { renderWidget } from "../../tui/render.ts";

@@ -1,5 +1,5 @@
 import { complete, getModel, type Message, type Model } from "@mariozechner/pi-ai";
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@bastani/atomic";
 import type { QueryResultData } from "./storage.js";
 
 const PREFERRED_SUMMARY_MODELS = [

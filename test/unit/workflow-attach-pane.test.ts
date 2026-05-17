@@ -23,7 +23,7 @@ import {
 import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.js";
 import { createStageControlRegistry } from "../../packages/workflows/src/runs/foreground/stage-control-registry.js";
 import type { StageControlHandle } from "../../packages/workflows/src/runs/foreground/stage-control-registry.js";
-import type { AgentSession } from "@earendil-works/pi-coding-agent";
+import type { AgentSession } from "@bastani/atomic";
 
 function setupRun(store: ReturnType<typeof createStore>, runId: string, stages: Array<{ id: string; name: string; status?: "pending" | "running" | "completed" }>) {
   store.recordRunStart({

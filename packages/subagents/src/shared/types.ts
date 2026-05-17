@@ -6,7 +6,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { Message } from "@earendil-works/pi-ai";
 import type { FSWatcher } from "node:fs";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@bastani/atomic";
 import { APP_NAME, getEnvValue } from "@bastani/atomic";
 
 const ENV_PREFIX = APP_NAME.toUpperCase();

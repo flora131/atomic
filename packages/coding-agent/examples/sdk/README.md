@@ -40,7 +40,7 @@ import {
   ModelRegistry,
   SessionManager,
   SettingsManager,
-} from "@earendil-works/pi-coding-agent";
+} from "@bastani/atomic";
 
 // Auth and models setup
 const authStorage = AuthStorage.create();

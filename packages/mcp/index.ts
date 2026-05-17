@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ToolInfo } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ToolInfo } from "@bastani/atomic";
 import type { McpExtensionState } from "./state.ts";
 import { Type } from "typebox";
 import { showStatus, showTools, reconnectServers, authenticateServer, logoutServer, openMcpAuthPanel, openMcpPanel, openMcpSetup } from "./commands.ts";

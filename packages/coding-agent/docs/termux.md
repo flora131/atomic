@@ -17,7 +17,7 @@ pkg update && pkg upgrade
 pkg install nodejs termux-api git
 
 # Install pi
-npm install -g @earendil-works/pi-coding-agent
+npm install -g @bastani/atomic
 
 # Create config directory
 mkdir -p ~/.pi/agent

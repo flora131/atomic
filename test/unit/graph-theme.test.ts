@@ -6,7 +6,7 @@
  *
  * cross-ref:
  *   - src/tui/graph-theme.ts `deriveGraphThemeFromPiTheme`
- *   - node_modules/@earendil-works/pi-coding-agent/src/modes/theme/theme.ts
+ *   - node_modules/@bastani/atomic/src/modes/theme/theme.ts
  */
 
 import { describe, test } from "bun:test";

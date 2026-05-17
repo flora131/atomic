@@ -1,6 +1,6 @@
 import type { Component } from "@mariozechner/pi-tui";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
-import type { KeybindingsManager, Theme } from "@mariozechner/pi-coding-agent";
+import type { KeybindingsManager, Theme } from "@bastani/atomic";
 import type { SessionInfo } from "../types.js";
 
 function middleTruncate(text: string, maxWidth: number): string {

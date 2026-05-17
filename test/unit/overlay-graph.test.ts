@@ -419,12 +419,14 @@ describe("GraphView keyboard navigation", () => {
     view.dispose();
   });
 
-  it("Escape calls onClose", () => {
+  it("Escape variants and Ctrl+C call onClose", () => {
     const stages = [makeStage("A")];
     const onClose = mock(() => {});
     const view = makeView(stages, onClose);
-    view.handleInput("\x1b");
-    assert.equal(onClose.mock.calls.length, 1);
+    for (const key of ["\x1b", "\x1b[27u", "\x1b[27;1;27~", "\x03"]) {
+      view.handleInput(key);
+    }
+    assert.equal(onClose.mock.calls.length, 4);
     view.dispose();
   });
 

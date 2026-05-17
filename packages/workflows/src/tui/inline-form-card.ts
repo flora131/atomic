@@ -11,7 +11,7 @@
  *   - 3-row mantle chrome footer with the `EDIT` mode pill and hints
  *     anchored at the bottom of the widget.
  *
- *   ╭ WORKFLOW ╮  ralph                                          1 / 4
+ *   ╭ WORKFLOW ╮  ralph                                          1 / 5
  *   │ WORKFLOW │
  *   ╰──────────╯
  *
@@ -25,7 +25,9 @@
  *   ╰──────────────────────────────────────────────────────────────────╯
  *     integer  ·  optional  ·  loop count
  *
- *   ╭ EDIT ╮  tab next  ·  shift+tab prev  ·  ctrl+s run  ·  esc cancel
+ *   ○ Run workflow  ·  enter submit
+ *
+ *   ╭ EDIT ╮  tab next  ·  shift+tab prev  ·  enter choose  ·  esc cancel
  *   │ EDIT │
  *   ╰──────╯
  *
@@ -87,6 +89,9 @@ function renderEditingCard(opts: InlineCardOpts): string[] {
     lines.push("");
   }
 
+  const anyInvalid = state.fields.some((f, i) => invalidForField(f, state.rawText[f.name] ?? "", i) !== null);
+  lines.push(renderRunAction(width, theme, state.focusedIdx === state.fields.length, anyInvalid));
+  lines.push("");
   lines.push(...renderFooterBand(theme, width));
   return lines;
 }
@@ -110,7 +115,8 @@ function renderHeaderBand(state: InlineFormState, theme: GraphTheme, width: numb
   );
 
   const nameVisible = `  ${state.workflowName}`;
-  const counter = `${state.focusedIdx + 1} / ${state.fields.length}`;
+  const focusTargetCount = state.fields.length + 1;
+  const counter = `${Math.min(state.focusedIdx + 1, focusTargetCount)} / ${focusTargetCount}`;
   const counterVisible = counter;
 
   const leftEdgePad = 1;
@@ -143,7 +149,7 @@ function renderFooterBand(theme: GraphTheme, width: number): string[] {
   const hints: Array<{ key: string; label: string }> = [
     { key: "tab", label: "next" },
     { key: "shift+tab", label: "prev" },
-    { key: "ctrl+s", label: "run" },
+    { key: "enter", label: "choose" },
     { key: "esc", label: "cancel" },
   ];
   const sep = `${chromeBg}  ${dim}·${RESET}${chromeBg}  `;
@@ -170,6 +176,28 @@ function renderFooterBand(theme: GraphTheme, width: number): string[] {
     `${chromeBg} ${RESET}${mid}${chromeBg}${" ".repeat(leadGap)}${hintsStyled}${chromeBg}${" ".repeat(tailFiller + rightEdgePad)}${RESET}`,
     `${chromeBg} ${RESET}${bot}${chromeBg}${blankAcross}${RESET}`,
   ];
+}
+
+function renderRunAction(
+  width: number,
+  theme: GraphTheme,
+  focused: boolean,
+  disabled: boolean,
+): string {
+  const marker = focused ? "❯" : "○";
+  const markerColor = disabled ? theme.dim : focused ? theme.accent : theme.dim;
+  const labelColor = disabled ? theme.dim : focused ? theme.text : theme.textMuted;
+  const hintColor = disabled ? theme.dim : theme.textMuted;
+  const row =
+    paint(marker, markerColor, { bold: focused && !disabled }) +
+    " " +
+    paint("Run workflow", labelColor, { bold: focused && !disabled }) +
+    paint("  ·  ", theme.dim) +
+    paint("enter", hintColor) +
+    " " +
+    paint(disabled ? "fill required fields" : "submit", hintColor);
+  const pad = Math.max(0, Math.floor((width - visibleWidth(row)) / 2));
+  return " ".repeat(pad) + truncateToWidth(row, width, "…", true);
 }
 
 // ---------------------------------------------------------------------------

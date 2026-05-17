@@ -14,15 +14,14 @@
  *   ctrl+u              — delete to logical line start
  *   ctrl+k              — delete to logical line end
  *   space               — boolean toggle
- *   enter               — newline (text) | submit (others move to next field)
+ *   enter               — newline (text) | choose Run action | otherwise next field
  *   printable ASCII     — insert at caret (text/string/number)
- *   ctrl+s              — submit form (if valid)
- *   esc                 — cancel form
+ *   esc / ctrl+c        — cancel form
  *
  * Editor-mode keys (cursor movement, word jumps, deletions) route through
  * the Pi `KeybindingsManager` injected by the host at factory time, so any
  * user-configured keybinding overrides surfaces here as well. Form-level
- * keys (tab/shift+tab/esc/ctrl+s) stay as raw byte checks because they are
+ * keys (tab/shift+tab/esc/ctrl+c) stay as raw byte checks because they are
  * workflow form contract, not Pi-configurable actions.
  *
  * On submit/cancel the editor calls back to the orchestrator which:
@@ -57,13 +56,14 @@ import {
   wordLeft,
   wordRight,
 } from "./keybindings-adapter.js";
+import { matchesKey } from "./text-helpers.js";
 
 export type FormEditorOutcome = "submit" | "cancel";
 
 export interface InlineFormEditorOpts {
   formId: string;
   theme: GraphTheme;
-  /** Called when ctrl+s passes validation or esc fires. Triggers cleanup. */
+  /** Called when the focused Run action passes validation or cancel fires. */
   onExit: (outcome: FormEditorOutcome) => void;
   /**
    * Pi's `KeybindingsManager` injected as the third arg of the editor
@@ -307,7 +307,7 @@ export class InlineFormEditor implements PiEditorComponent {
     // Fallback for hosts without bracketed paste: a multi-character
     // chunk of printable text (no escape bytes) is treated as paste.
     // Single-char input still flows through the routeKey path so the
-    // existing keystroke handlers (arrows, ctrl+s, etc.) keep working.
+    // existing keystroke handlers (arrows, paste, etc.) keep working.
     if (data.length > 1 && isPrintableTextChunk(data)) {
       if (this.applyPaste(data, state)) {
         touch(state);
@@ -374,24 +374,33 @@ export class InlineFormEditor implements PiEditorComponent {
     // Globals first. Workflow form contract — these are NOT Pi-configurable
     // editor actions, so they stay as raw byte checks:
     //   esc       (\x1b)         — cancel form
-    //   ctrl+s    (\x13)         — submit form
+    //   ctrl+c    (\x03)         — cancel form
     //   tab       (\t)           — focus next field
     //   shift+tab (\x1b[Z)       — focus previous field
-    if (data === "\x1b") {
+    if (data === "\x03" || matchesKey(data, "escape")) {
       this.opts.onExit("cancel");
       return true;
     }
-    if (data === "\x13") {
-      if (this.allValid(state)) this.opts.onExit("submit");
-      return true;
-    }
-    if (data === "\t") {
+    if (matchesKey(data, "tab")) {
       this.moveFocus(state, +1);
       return true;
     }
-    if (data === "\x1b[Z") {
+    if (matchesKey(data, "shift+tab")) {
       this.moveFocus(state, -1);
       return true;
+    }
+
+    if (state.focusedIdx === state.fields.length) {
+      if (matchesAction(this.kb, data, "tui.input.submit") || matchesKey(data, "enter")) {
+        if (this.allValid(state)) this.opts.onExit("submit");
+        else this.focusFirstInvalid(state);
+        return true;
+      }
+      if (matchesAction(this.kb, data, "tui.editor.cursorUp") || matchesAction(this.kb, data, "tui.editor.cursorLeft")) {
+        this.moveFocus(state, -1);
+        return true;
+      }
+      return false;
     }
 
     const field = state.fields[state.focusedIdx];
@@ -606,10 +615,28 @@ export class InlineFormEditor implements PiEditorComponent {
   }
 
   private moveFocus(state: InlineFormState, delta: number): void {
-    const n = state.fields.length;
+    const n = state.fields.length + 1;
     state.focusedIdx = (state.focusedIdx + delta + n) % n;
+    if (state.focusedIdx === state.fields.length) {
+      state.caret = 0;
+      return;
+    }
     const next = state.fields[state.focusedIdx]!;
     state.caret = (state.rawText[next.name] ?? "").length;
+  }
+
+  private focusFirstInvalid(state: InlineFormState): void {
+    const idx = state.fields.findIndex((f) => {
+      const v = state.rawText[f.name] ?? "";
+      if (f.required && v.trim() === "") return true;
+      if ((f.type === "number" || f.type === "integer") && v !== "" && !Number.isFinite(Number(v))) {
+        return true;
+      }
+      return f.type === "select" && Boolean(f.choices) && v !== "" && !f.choices!.includes(v);
+    });
+    if (idx < 0) return;
+    state.focusedIdx = idx;
+    state.caret = (state.rawText[state.fields[idx]!.name] ?? "").length;
   }
 
   private allValid(state: InlineFormState): boolean {

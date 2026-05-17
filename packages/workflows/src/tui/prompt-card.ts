@@ -49,6 +49,8 @@ export interface PromptCardState {
   selectedIndex: number;
   /** Boolean selection for `confirm` prompts (true = yes, false = no). */
   confirmValue: boolean;
+  /** For multi-line editor prompts, Tab moves focus to a visible Submit action. */
+  editorSubmitFocused: boolean;
 }
 
 export function createPromptCardState(prompt: PendingPrompt): PromptCardState {
@@ -59,6 +61,7 @@ export function createPromptCardState(prompt: PendingPrompt): PromptCardState {
     caret: initial.length,
     selectedIndex: 0,
     confirmValue: false,
+    editorSubmitFocused: false,
   };
 }
 
@@ -87,7 +90,7 @@ export function handlePromptCardInput(
   data: string,
   state: PromptCardState,
 ): PromptCardAction {
-  if (data === "\x1b") {
+  if (data === "\x03" || matchesKey(data, "escape")) {
     return { kind: "cancel" };
   }
 
@@ -153,11 +156,15 @@ function handleInput(data: string, state: PromptCardState): PromptCardAction {
 }
 
 function handleEditor(data: string, state: PromptCardState): PromptCardAction {
-  // ctrl+s submits multi-line editor content; bare enter inserts a newline
-  // (mirrors pi.ui.editor's "save with ctrl+s" affordance documented on the
-  // chat editor's status hints).
-  if (data === "\x13") {
-    return { kind: "submit", response: state.rawText };
+  if (matchesKey(data, "tab") || matchesKey(data, "shift+tab")) {
+    state.editorSubmitFocused = !state.editorSubmitFocused;
+    return { kind: "noop" };
+  }
+  if (state.editorSubmitFocused) {
+    if (matchesKey(data, "enter")) {
+      return { kind: "submit", response: state.rawText };
+    }
+    return { kind: "noop" };
   }
   if (data === "\r" || data === "\n") {
     state.rawText = state.rawText.slice(0, state.caret) + "\n" + state.rawText.slice(state.caret);
@@ -411,7 +418,7 @@ function renderEditorRows(
   for (let i = 0; i < ROWS; i++) {
     const lineIdx = safeStart + i;
     const lineText = allLines[lineIdx] ?? "";
-    const isCaretLine = lineIdx === caretLine;
+    const isCaretLine = !state.editorSubmitFocused && lineIdx === caretLine;
     const inner = usable - 2;
     const clipped = clipToCaretWindow(lineText, isCaretLine ? caretCol : Math.min(caretCol, lineText.length), inner);
     const withCursor = isCaretLine
@@ -420,7 +427,19 @@ function renderEditorRows(
     const prefix = paint(isCaretLine ? "❯ " : "  ", isCaretLine ? theme.accent : theme.dim);
     rows.push(padToUsable(prefix + withCursor, usable));
   }
+  rows.push(padToUsable(renderEditorSubmitAction(state.editorSubmitFocused, theme), usable));
   return rows;
+}
+
+function renderEditorSubmitAction(focused: boolean, theme: GraphTheme): string {
+  const marker = focused ? "❯" : "○";
+  return (
+    paint(marker, focused ? theme.accent : theme.dim, { bold: focused }) +
+    " " +
+    paint("Submit response", focused ? theme.text : theme.textMuted, { bold: focused }) +
+    paint("  ·  ", theme.dim) +
+    paint("enter submit", theme.textMuted)
+  );
 }
 
 function clipToCaretWindow(
@@ -466,9 +485,9 @@ function renderHints(kind: PendingPrompt["kind"], theme: GraphTheme): string {
   const sep = `${dim} · ${RESET}`;
   if (kind === "editor") {
     return (
-      `${accent}ctrl+s${RESET} ${muted}submit${RESET}` +
+      `${accent}tab${RESET} ${muted}submit action${RESET}` +
       sep +
-      `${accent}enter${RESET} ${muted}newline${RESET}` +
+      `${accent}enter${RESET} ${muted}newline/submit${RESET}` +
       sep +
       `${accent}esc${RESET} ${muted}skip${RESET}`
     );

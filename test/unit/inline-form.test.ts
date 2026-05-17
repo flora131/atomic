@@ -107,10 +107,12 @@ test("card (live): shows header pill, workflow chip, all fields, footer hints", 
   assert.match(txt, /iters/);
   assert.match(txt, /focus/);
   assert.match(txt, /verbose/);
-  assert.match(txt, /1 \/ 4/);
+  assert.match(txt, /1 \/ 5/);
+  assert.match(txt, /Run workflow/);
   assert.match(txt, /EDIT/);
   assert.match(txt, /tab/);
-  assert.match(txt, /ctrl\+s/);
+  assert.match(txt, /enter/);
+  assert.doesNotMatch(txt, /ctrl\+s/);
 });
 
 test("card (live): hint row is anchored at the bottom of the widget", () => {
@@ -258,26 +260,31 @@ test("editor: tab advances focus, shift+tab retreats", () => {
   e.dispose();
 });
 
-test("editor: esc fires onExit('cancel')", () => {
-  const e = makeEditor();
-  e.editor.handleInput("\x1b");
-  assert.deepEqual(e.getExited(), { outcome: "cancel" });
-  e.dispose();
+test("editor: esc variants and ctrl+c fire onExit('cancel')", () => {
+  for (const key of ["\x1b", "\x1b[27u", "\x1b[27;1;27~", "\x03"]) {
+    const e = makeEditor();
+    e.editor.handleInput(key);
+    assert.deepEqual(e.getExited(), { outcome: "cancel" }, `key=${JSON.stringify(key)}`);
+    e.dispose();
+  }
 });
 
-test("editor: ctrl+s with missing required is a no-op (validation blocks)", () => {
+test("editor: enter on focused Run with missing required is blocked and focuses invalid", () => {
   const e = makeEditor(); // prompt is empty
-  e.editor.handleInput("\x13");
+  e.state.focusedIdx = FIELDS.length;
+  e.editor.handleInput("\r");
   assert.equal(e.getExited(), null);
+  assert.equal(e.state.focusedIdx, 0);
   e.dispose();
 });
 
-test("editor: ctrl+s with all required filled fires onExit('submit')", () => {
+test("editor: enter on focused Run with all required filled fires onExit('submit')", () => {
   const state = makeState({
+    focusedIdx: FIELDS.length,
     rawText: { prompt: "build", iters: "5", focus: "standard", verbose: "false" },
   });
   const e = makeEditor(state);
-  e.editor.handleInput("\x13");
+  e.editor.handleInput("\r");
   assert.deepEqual(e.getExited(), { outcome: "submit" });
   e.dispose();
 });
@@ -467,7 +474,8 @@ test("overlay: openInlineInputsForm emits a custom message and swaps editor", as
   // Fill required prompt and submit.
   editor.handleInput("h");
   editor.handleInput("i");
-  editor.handleInput("\x13");
+  for (let i = 0; i < FIELDS.length; i += 1) editor.handleInput("\t");
+  editor.handleInput("\r");
   const result = await pending;
   assert.equal(result.kind, "run");
   if (result.kind === "run") {
@@ -557,7 +565,8 @@ test("overlay: installed editor accepts pi setup before card render", async () =
   assert.equal(editor.getAutocompleteMaxVisible(), 20);
   editor.handleInput("o");
   editor.handleInput("k");
-  editor.handleInput("\x13");
+  for (let i = 0; i < FIELDS.length; i += 1) editor.handleInput("\t");
+  editor.handleInput("\r");
   const result = await pending;
   assert.equal(result.kind, "run");
 });
@@ -848,8 +857,8 @@ test("editor: up arrow on first logical line of text falls through to focus-prev
       caret: 3,
     }),
   );
-  e.editor.handleInput("\x1b[A"); // up — no previous logical line, focus wraps to last
-  assert.equal(e.state.focusedIdx, FIELDS.length - 1);
+  e.editor.handleInput("\x1b[A"); // up — no previous logical line, focus wraps to Run
+  assert.equal(e.state.focusedIdx, FIELDS.length);
   e.dispose();
 });
 
@@ -1189,7 +1198,7 @@ test("editor: user-remapped delete word backward respects injected keybindings",
 test("editor: without a keybindings manager, only form-level keys still work", () => {
   // Verifies the "always rely on pi" contract: when no keybindings manager
   // is wired, action-based keys (arrows, backspace, etc.) do nothing.
-  // Form-level keys (tab, esc, ctrl+s, printable insert) still function.
+  // Form-level keys (tab, esc, printable insert) still function.
   const state = makeState();
   const tui = { requestRender: () => {} };
   let exited: { outcome: "submit" | "cancel" } | null = null;

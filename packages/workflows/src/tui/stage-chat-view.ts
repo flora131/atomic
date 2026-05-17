@@ -57,7 +57,7 @@ import type { StageNotice, StageSnapshot } from "../shared/store-types.js";
 import type { GraphTheme } from "./graph-theme.js";
 import type { StageControlHandle } from "../runs/foreground/stage-control-registry.js";
 import { BOLD, RESET, hexBg, hexToAnsi, lerpColor } from "./color-utils.js";
-import { truncateToWidth, visibleWidth } from "./text-helpers.js";
+import { matchesKey, truncateToWidth, visibleWidth } from "./text-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Options & types
@@ -1350,7 +1350,7 @@ export class StageChatView implements Component {
       this.onDetach();
       return true;
     }
-    if (data === "\x1b") {
+    if (matchesKey(data, "escape") || data === "\x03") {
       if (this._isStreaming() && !this._isBlocked()) {
         void this._pause();
       } else {

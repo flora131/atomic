@@ -7,7 +7,7 @@
  *  - ctrl+f sends `handle.followUp(text)`.
  *  - ctrl+p triggers `handle.pause()` and flips localPaused.
  *  - After pause, Enter routes through `handle.resume(text)`.
- *  - Ctrl+D calls `onDetach`; Escape calls `onClose`.
+ *  - Ctrl+D calls `onDetach`; Escape/Ctrl+C call `onClose`.
  *
  * cross-ref: src/tui/stage-chat-view.ts
  */
@@ -379,7 +379,7 @@ describe("StageChatView", () => {
     view.dispose();
   });
 
-  test("Escape calls onClose", () => {
+  test("Escape variants and Ctrl+C call onClose", () => {
     const store = createStore();
     setupRun(store, "run-1", "stage-a");
     const { handle } = makeHandle();
@@ -396,8 +396,10 @@ describe("StageChatView", () => {
         closed += 1;
       },
     });
-    view.handleInput("\x1b");
-    assert.equal(closed, 1);
+    for (const key of ["\x1b", "\x1b[27u", "\x1b[27;1;27~", "\x03"]) {
+      view.handleInput(key);
+    }
+    assert.equal(closed, 4);
     view.dispose();
   });
 

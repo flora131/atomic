@@ -1187,7 +1187,7 @@ export class GraphView implements Component {
       return true;
     }
     // `q` kills the active run (no confirm). `h` hides the pane via
-    // the overlay's setHidden() flag (not unmount); Escape closes.
+    // the overlay's setHidden() flag (not unmount); Escape/Ctrl+C closes.
     if (matchesKey(data, "q")) {
       const run = this._getCurrentRun();
       if (run && run.endedAt === undefined && this.onKill) {
@@ -1200,7 +1200,7 @@ export class GraphView implements Component {
       this.onHide();
       return true;
     }
-    if (matchesKey(data, "escape") || data === "\x1b") {
+    if (matchesKey(data, "escape") || data === "\x1b" || data === "\x03") {
       this.onClose?.();
       return true;
     }

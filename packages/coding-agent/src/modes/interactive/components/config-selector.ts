@@ -185,7 +185,7 @@ class ConfigSelectorHeader implements Component {
 	render(width: number): string[] {
 		const title = theme.bold("Resource Configuration");
 		const sep = theme.fg("muted", " · ");
-		const hint = rawKeyHint("Space", "Toggle") + sep + rawKeyHint("Escape", "Close");
+		const hint = rawKeyHint("space", "Toggle") + sep + rawKeyHint("esc", "Close");
 		const hintWidth = visibleWidth(hint);
 		const titleWidth = visibleWidth(title);
 		const spacing = Math.max(1, width - titleWidth - hintWidth);

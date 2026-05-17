@@ -142,10 +142,10 @@ function renderFooterBand(theme: GraphTheme, width: number): string[] {
   );
 
   const hints: Array<{ key: string; label: string }> = [
-    { key: "Tab", label: "Next" },
-    { key: "SHIFT+Tab", label: "Prev" },
-    { key: "CTRL+Enter", label: "Run" },
-    { key: "Escape", label: "Cancel" },
+    { key: "tab", label: "Next" },
+    { key: "shift+tab", label: "Prev" },
+    { key: "ctrl+enter", label: "Run" },
+    { key: "esc", label: "Cancel" },
   ];
   const sep = `${chromeBg}  ${dim}·${RESET}${chromeBg}  `;
   const segments = hints.map(

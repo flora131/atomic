@@ -695,7 +695,7 @@ export async function main(args: string[], options?: MainOptions) {
 					return `${sm.model.id}${thinkingStr}`;
 				})
 				.join(", ");
-			console.log(chalk.dim(`Model scope: ${modelList} ${chalk.gray("(CTRL+P Cycle)")}`));
+			console.log(chalk.dim(`Model scope: ${modelList} ${chalk.gray("(ctrl+p cycle)")}`));
 		}
 
 		const interactiveMode = new InteractiveMode(runtime, {

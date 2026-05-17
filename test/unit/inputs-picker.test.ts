@@ -240,10 +240,10 @@ test("renderInputsPicker emits header, section label, fields, and hints", () => 
   assert.match(joined, /focus/);
   assert.match(joined, /verbose/);
   assert.doesNotMatch(joined, /Run workflow/);
-  assert.match(joined, /Tab/);
-  assert.match(joined, /CTRL\+Enter/);
-  assert.doesNotMatch(joined, /CTRL\+S/);
-  assert.match(joined, /Escape/);
+  assert.match(joined, /tab/);
+  assert.match(joined, /ctrl\+enter/);
+  assert.doesNotMatch(joined, /ctrl\+s/);
+  assert.match(joined, /esc/);
 });
 
 test("renderInputsPicker shows confirm card when modal is open", () => {
@@ -405,28 +405,28 @@ test("renderInputsPicker footer degrades gracefully on narrow terminals", () => 
 
   // Wide — labels visible.
   const wide = renderAt(120);
-  assert.match(wide, /Tab Next/);
-  assert.match(wide, /SHIFT\+Tab Prev/);
-  assert.match(wide, /CTRL\+Enter Run/);
-  assert.match(wide, /Escape Cancel/);
+  assert.match(wide, /tab Next/);
+  assert.match(wide, /shift\+tab Prev/);
+  assert.match(wide, /ctrl\+enter Run/);
+  assert.match(wide, /esc Cancel/);
 
   // Medium — keys only, but full key names.
   const medium = renderAt(55);
-  assert.match(medium, /SHIFT\+Tab/);
-  assert.doesNotMatch(medium, /SHIFT\+Tab Prev/);
-  assert.doesNotMatch(medium, /Escape Cancel/);
+  assert.match(medium, /shift\+tab/);
+  assert.doesNotMatch(medium, /shift\+tab Prev/);
+  assert.doesNotMatch(medium, /esc Cancel/);
 
   // Tight — compact glyphs.
   const tight = renderAt(35);
-  assert.match(tight, /⇧Tab/);
+  assert.match(tight, /⇧tab/);
   assert.match(tight, /⌃↵/);
-  assert.match(tight, /Escape/);
-  assert.doesNotMatch(tight, /SHIFT\+Tab/);
+  assert.match(tight, /esc/);
+  assert.doesNotMatch(tight, /shift\+tab/);
 
   // Narrow — essentials only.
   const narrow = renderAt(12);
   assert.match(narrow, /⌃↵/);
-  assert.match(narrow, /Escape/);
+  assert.match(narrow, /esc/);
   assert.doesNotMatch(narrow, /tab/);
 });
 

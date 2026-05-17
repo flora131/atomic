@@ -110,8 +110,8 @@ test("card (live): shows header pill, workflow chip, all fields, footer hints", 
   assert.match(txt, /1 \/ 4/);
   assert.doesNotMatch(txt, /Run workflow/);
   assert.match(txt, /EDIT/);
-  assert.match(txt, /Tab/);
-  assert.match(txt, /CTRL\+Enter/);
+  assert.match(txt, /tab/);
+  assert.match(txt, /ctrl\+enter/);
   assert.doesNotMatch(txt, /ctrl\+s/);
 });
 
@@ -120,8 +120,8 @@ test("card (live): hint row is anchored at the bottom of the widget", () => {
   const lines = renderInlineCard({ width: 80, state, theme: deriveGraphTheme({}) });
   // The footer band is the trailing 3 lines; hints live on the middle row.
   const tail = lines.slice(-3).map((l) => plain([l]));
-  assert.match(tail.join("\n"), /Tab\s+Next/);
-  assert.match(tail.join("\n"), /Escape\s+Cancel/);
+  assert.match(tail.join("\n"), /tab\s+Next/);
+  assert.match(tail.join("\n"), /esc\s+Cancel/);
 });
 
 test("card (live): each field title is centred inside its top border", () => {

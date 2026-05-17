@@ -145,15 +145,15 @@ function renderHintsRow(width: number, theme: GraphTheme, state: SessionPickerSt
   const hints: Array<[string, string]> = state.filterFocused
     ? [
         ["↵", "Submit"],
-        ["Escape", "Exit Filter"],
+        ["esc", "Exit Filter"],
       ]
     : [
         ["↑↓", "Navigate"],
         ["↵", "Connect"],
-        ["X", "Kill"],
-        ["A", state.includeAll ? "Active Only" : "All"],
+        ["x", "Kill"],
+        ["a", state.includeAll ? "Active Only" : "All"],
         ["/", "Filter"],
-        ["Escape", "Close"],
+        ["esc", "Close"],
       ];
 
   const parts = hints.map(([k, l]) => `${text}${k}${RESET} ${muted}${l}${RESET}`);

@@ -11,33 +11,34 @@ export interface KeyTextFormatOptions {
 }
 
 const MODIFIER_LABELS: Record<string, string> = {
-	ctrl: "CTRL",
-	control: "CTRL",
-	cmd: "CMD",
-	command: "CMD",
-	shift: "SHIFT",
-	alt: process.platform === "darwin" ? "Option" : "ALT",
-	meta: "META",
+	ctrl: "ctrl",
+	control: "ctrl",
+	cmd: "cmd",
+	command: "cmd",
+	shift: "shift",
+	alt: "alt",
+	option: "alt",
+	meta: "meta",
 };
 
 const SPECIAL_KEY_LABELS: Record<string, string> = {
-	enter: "Enter",
-	return: "Return",
-	esc: "Escape",
-	escape: "Escape",
-	space: "Space",
-	tab: "Tab",
-	backspace: "Backspace",
-	delete: "Delete",
-	del: "Delete",
-	up: "Up",
-	down: "Down",
-	left: "Left",
-	right: "Right",
-	home: "Home",
-	end: "End",
-	pageup: "PageUp",
-	pagedown: "PageDown",
+	enter: "enter",
+	return: "enter",
+	esc: "esc",
+	escape: "esc",
+	space: "space",
+	tab: "tab",
+	backspace: "backspace",
+	delete: "delete",
+	del: "delete",
+	up: "up",
+	down: "down",
+	left: "left",
+	right: "right",
+	home: "home",
+	end: "end",
+	pageup: "pageup",
+	pagedown: "pagedown",
 };
 
 function formatKeyPart(part: string, _options: KeyTextFormatOptions): string {
@@ -46,9 +47,9 @@ function formatKeyPart(part: string, _options: KeyTextFormatOptions): string {
 	if (modifier) return modifier;
 	const special = SPECIAL_KEY_LABELS[lower];
 	if (special) return special;
-	if (/^f\d+$/i.test(part)) return part.toUpperCase();
-	if (/^[a-z]$/i.test(part)) return part.toUpperCase();
-	return part;
+	if (/^f\d+$/i.test(part)) return lower;
+	if (/^[a-z]$/i.test(part)) return lower;
+	return part.toLowerCase();
 }
 
 export function formatKeyText(key: string, options: KeyTextFormatOptions = {}): string {
@@ -77,8 +78,7 @@ export function keyDisplayText(keybinding: Keybinding): string {
 }
 
 function formatHintLabel(description: string): string {
-	const withoutInfinitive = description.replace(/^to\s+/i, "");
-	return withoutInfinitive.replace(/[A-Za-z][A-Za-z'-]*/g, (word) => word.charAt(0).toUpperCase() + word.slice(1));
+	return description;
 }
 
 export function keyHint(keybinding: Keybinding, description: string): string {

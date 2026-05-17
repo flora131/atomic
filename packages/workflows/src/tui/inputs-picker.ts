@@ -531,26 +531,26 @@ function renderFooterHints(width: number, theme: GraphTheme, submitDisabled: boo
   const keyOnly = (key: string, keyColor = theme.text): string => paint(key, keyColor);
 
   const wide = [
-    { width: 8, render: () => hint("Tab", "Next") },
-    { width: 14, render: () => hint("SHIFT+Tab", "Prev") },
-    { width: 14, render: () => hint("CTRL+Enter", "Run", submitColor, submitLabelColor) },
-    { width: 10, render: () => hint("Escape", "Cancel") },
+    { width: 8, render: () => hint("tab", "Next") },
+    { width: 14, render: () => hint("shift+tab", "Prev") },
+    { width: 14, render: () => hint("ctrl+enter", "Run", submitColor, submitLabelColor) },
+    { width: 10, render: () => hint("esc", "Cancel") },
   ];
   const medium = [
-    { width: 3, render: () => keyOnly("Tab") },
-    { width: 9, render: () => keyOnly("SHIFT+Tab") },
-    { width: 10, render: () => keyOnly("CTRL+Enter", submitColor) },
-    { width: 6, render: () => keyOnly("Escape") },
+    { width: 3, render: () => keyOnly("tab") },
+    { width: 9, render: () => keyOnly("shift+tab") },
+    { width: 10, render: () => keyOnly("ctrl+enter", submitColor) },
+    { width: 6, render: () => keyOnly("esc") },
   ];
   const tight = [
-    { width: 3, render: () => keyOnly("Tab") },
-    { width: 4, render: () => keyOnly("⇧Tab") },
+    { width: 3, render: () => keyOnly("tab") },
+    { width: 4, render: () => keyOnly("⇧tab") },
     { width: 2, render: () => keyOnly("⌃↵", submitColor) },
-    { width: 6, render: () => keyOnly("Escape") },
+    { width: 6, render: () => keyOnly("esc") },
   ];
   const narrow = [
     { width: 2, render: () => keyOnly("⌃↵", submitColor) },
-    { width: 6, render: () => keyOnly("Escape") },
+    { width: 6, render: () => keyOnly("esc") },
   ];
 
   for (const tier of [wide, medium, tight, narrow]) {
@@ -560,7 +560,7 @@ function renderFooterHints(width: number, theme: GraphTheme, submitDisabled: boo
     }
   }
   // Truly tiny terminal — show just the run+cancel keys joined by a single space.
-  return paint("⌃↵", submitColor) + " " + paint("Escape", theme.text);
+  return paint("⌃↵", submitColor) + " " + paint("esc", theme.text);
 }
 
 /**

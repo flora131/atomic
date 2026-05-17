@@ -1070,8 +1070,8 @@ export class StageChatView implements Component {
     );
     lines.push(
       ...new Text(
-        paint("CTRL+D", t.accent, { bold: true }) +
-          paint(" Return To Graph", t.textMuted),
+        paint("ctrl+d", t.accent, { bold: true }) +
+          paint(" return to graph", t.textMuted),
         2,
         0,
       ).render(width),
@@ -1094,7 +1094,7 @@ export class StageChatView implements Component {
           "warning",
           "❚❚",
           "PAUSED",
-          "Stopped Between Turns · Type To Resume, Or CTRL+P Release Without Input",
+          "stopped between turns · type to resume, or ctrl+p release without input",
         ),
       );
       components.push(new Spacer(1));
@@ -1294,7 +1294,7 @@ export class StageChatView implements Component {
     const dur = stageDurationText(stage);
     const msg = `Working${dur ? "  · " + dur : ""}`;
     const escapeHint =
-      paint("Escape", t.text, { bold: true }) + " " + paint("Interrupt", t.dim);
+      paint("esc", t.text, { bold: true }) + " " + paint("to interrupt", t.dim);
     const left =
       " " +
       paint(spinnerFrame(), t.accent, { bold: true }) +
@@ -1302,7 +1302,7 @@ export class StageChatView implements Component {
       paint(msg, t.textMuted) +
       " ";
     const leftW = visibleWidth(spinnerFrame()) + 4 + visibleWidth(msg);
-    const rightW = visibleWidth("Escape to interrupt");
+    const rightW = visibleWidth("esc to interrupt");
     const gap = Math.max(1, width - leftW - rightW - 2);
     const body = left + " ".repeat(gap) + escapeHint + " ";
     // No closing rule — the editor's top rule (or the editor's body when
@@ -1374,7 +1374,7 @@ export class StageChatView implements Component {
     if (flags.settled || !this.handle)
       return "read-only · stage has no live handle";
     if (flags.paused)
-      return "type a message to resume, or CTRL+P to resume empty…";
+      return "type a message to resume, or ctrl+p to resume empty…";
     if (flags.streaming)
       return "type to steer the current turn… (queues with ↵)";
     return "type a message to start this stage…";
@@ -1479,40 +1479,40 @@ export class StageChatView implements Component {
     streaming: boolean;
     settled: boolean;
   }): Array<{ key: string; label: string; emphasis?: boolean }> {
-    const historyHint = { key: "PageUp/PageDown", label: "History" };
+    const historyHint = { key: "pageup/pagedown", label: "history" };
     if (flags.settled) {
       return [
         historyHint,
-        { key: "CTRL+D", label: "Back To Graph", emphasis: true },
-        { key: "Escape", label: "Close" },
+        { key: "ctrl+d", label: "back to graph", emphasis: true },
+        { key: "esc", label: "close" },
       ];
     }
     if (flags.paused) {
       return [
-        { key: "↵", label: "Resume With Message", emphasis: true },
-        { key: "CTRL+P", label: "Resume Empty" },
+        { key: "↵", label: "resume with message", emphasis: true },
+        { key: "ctrl+p", label: "resume empty" },
         historyHint,
-        { key: "CTRL+D", label: "Back" },
-        { key: "Escape", label: "Close" },
+        { key: "ctrl+d", label: "back" },
+        { key: "esc", label: "close" },
       ];
     }
     if (flags.streaming) {
       return [
-        { key: "↵", label: "Steer", emphasis: true },
-        { key: "CTRL+F", label: "Follow-Up", emphasis: true },
-        { key: "CTRL+P", label: "Pause" },
+        { key: "↵", label: "steer", emphasis: true },
+        { key: "ctrl+f", label: "follow-up", emphasis: true },
+        { key: "ctrl+p", label: "pause" },
         historyHint,
-        { key: "CTRL+D", label: "Back" },
-        { key: "Escape", label: "Interrupt" },
+        { key: "ctrl+d", label: "back" },
+        { key: "esc", label: "interrupt" },
       ];
     }
     return [
-      { key: "↵", label: "Send", emphasis: true },
-      { key: "CTRL+F", label: "Follow-Up" },
-      { key: "CTRL+P", label: "Pause" },
+      { key: "↵", label: "send", emphasis: true },
+      { key: "ctrl+f", label: "follow-up" },
+      { key: "ctrl+p", label: "pause" },
       historyHint,
-      { key: "CTRL+D", label: "Back" },
-      { key: "Escape", label: "Close" },
+      { key: "ctrl+d", label: "back" },
+      { key: "esc", label: "close" },
     ];
   }
 

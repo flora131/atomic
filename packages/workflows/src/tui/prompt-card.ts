@@ -485,22 +485,22 @@ function renderHints(kind: PendingPrompt["kind"], theme: GraphTheme): string {
   const sep = `${dim} · ${RESET}`;
   if (kind === "editor") {
     return (
-      `${accent}Tab${RESET} ${muted}Submit Action${RESET}` +
+      `${accent}tab${RESET} ${muted}Submit Action${RESET}` +
       sep +
-      `${accent}Enter${RESET} ${muted}Newline/Submit${RESET}` +
+      `${accent}enter${RESET} ${muted}Newline/Submit${RESET}` +
       sep +
-      `${accent}Escape${RESET} ${muted}Skip${RESET}`
+      `${accent}esc${RESET} ${muted}Skip${RESET}`
     );
   }
   if (kind === "confirm") {
     return (
-      `${accent}Y${RESET} ${muted}Yes${RESET}` +
+      `${accent}y${RESET} ${muted}Yes${RESET}` +
       sep +
-      `${accent}N${RESET} ${muted}No${RESET}` +
+      `${accent}n${RESET} ${muted}No${RESET}` +
       sep +
       `${accent}↵${RESET} ${muted}Submit${RESET}` +
       sep +
-      `${accent}Escape${RESET} ${muted}Skip${RESET}`
+      `${accent}esc${RESET} ${muted}Skip${RESET}`
     );
   }
   if (kind === "select") {
@@ -509,12 +509,12 @@ function renderHints(kind: PendingPrompt["kind"], theme: GraphTheme): string {
       sep +
       `${accent}↵${RESET} ${muted}Submit${RESET}` +
       sep +
-      `${accent}Escape${RESET} ${muted}Skip${RESET}`
+      `${accent}esc${RESET} ${muted}Skip${RESET}`
     );
   }
   return (
     `${accent}↵${RESET} ${muted}Submit${RESET}` +
     sep +
-    `${accent}Escape${RESET} ${muted}Skip${RESET}`
+    `${accent}esc${RESET} ${muted}Skip${RESET}`
   );
 }

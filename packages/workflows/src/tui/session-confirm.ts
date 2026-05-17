@@ -68,10 +68,10 @@ function renderFooter(width: number, theme: GraphTheme): string {
   const muted = hexToAnsi(theme.textMuted);
   const sep = `${dim} \u00b7 ${RESET}`;
   const hints: Array<[string, string]> = [
-    ["Y", "Kill"],
-    ["N", "Cancel"],
+    ["y", "Kill"],
+    ["n", "Cancel"],
     ["\u21b5", "Confirm"],
-    ["Escape", "Cancel"],
+    ["esc", "Cancel"],
   ];
   const parts = hints.map(([k, l]) => `${text}${k}${RESET} ${muted}${l}${RESET}`);
   const line = parts.join(sep);

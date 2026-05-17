@@ -11,12 +11,12 @@ import type { StatefulView } from "./stateful-view.js";
 import type { TabComponents } from "./tab-components.js";
 import { QuestionTabStrategy, SubmitTabStrategy, type TabContentStrategy } from "./tab-content-strategy.js";
 
-export const HINT_PART_ENTER = "Enter Select";
-export const HINT_PART_NAV = "↑/↓ Navigate";
-export const HINT_PART_TOGGLE = "Space Toggle";
-export const HINT_PART_NOTES = "N Add Notes";
-export const HINT_PART_TAB = "Tab Switch Questions";
-export const HINT_PART_CANCEL = "Escape Cancel";
+export const HINT_PART_ENTER = "enter select";
+export const HINT_PART_NAV = "↑/↓ navigate";
+export const HINT_PART_TOGGLE = "space toggle";
+export const HINT_PART_NOTES = "n add notes";
+export const HINT_PART_TAB = "tab switch questions";
+export const HINT_PART_CANCEL = "esc cancel";
 export const HINT_SINGLE = [HINT_PART_ENTER, HINT_PART_NAV, HINT_PART_CANCEL].join(" · ");
 export const HINT_MULTI = [HINT_PART_ENTER, HINT_PART_NAV, HINT_PART_TAB, HINT_PART_CANCEL].join(" · ");
 export const HINT_MULTISELECT_SUFFIX = ` · ${HINT_PART_TOGGLE}`;

@@ -411,14 +411,14 @@ class SessionList implements Component, Focusable {
 				if (this.showCwd) {
 					emptyMessage = `  No named sessions found. Press ${toggleKey} to show all.`;
 				} else {
-					emptyMessage = `  No named sessions in current folder. ${toggleKey} Show All · Tab View All.`;
+					emptyMessage = `  No named sessions in current folder. ${toggleKey} show all · tab view all.`;
 				}
 			} else if (this.showCwd) {
 				// "All" scope - no sessions anywhere that match filter
 				emptyMessage = "  No sessions found";
 			} else {
 				// "Current folder" scope - hint to try "all"
-				emptyMessage = "  No sessions in current folder. Tab View All.";
+				emptyMessage = "  No sessions in current folder. tab view all.";
 			}
 			lines.push(theme.fg("muted", truncateToWidth(emptyMessage, width, "…")));
 			return lines;

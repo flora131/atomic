@@ -95,6 +95,22 @@ test("text field: typing inserts characters, backspace removes", () => {
   assert.equal(s.caret, 1);
 });
 
+test("text field: CJK, emoji, and combining-mark edits move by grapheme", () => {
+  const s = createInputsPickerState(FIELDS);
+  handleInputsPickerInput("漢", s, FIELDS, KB);
+  handleInputsPickerInput("👩‍💻", s, FIELDS, KB);
+  handleInputsPickerInput("e", s, FIELDS, KB);
+  handleInputsPickerInput("\u0301", s, FIELDS, KB);
+  assert.equal(s.rawText.prompt, "漢👩‍💻é");
+  assert.equal(s.caret, "漢👩‍💻é".length);
+
+  handleInputsPickerInput("\x1b[D", s, FIELDS, KB); // left over the composed é
+  assert.equal(s.caret, "漢👩‍💻".length);
+  handleInputsPickerInput("\x7f", s, FIELDS, KB); // delete the whole emoji cluster
+  assert.equal(s.rawText.prompt, "漢é");
+  assert.equal(s.caret, "漢".length);
+});
+
 test("tab and shift+tab move focus, wrapping", () => {
   const s = createInputsPickerState(FIELDS);
   assert.equal(s.focusedIdx, 0);

@@ -12,6 +12,7 @@ import {
 } from "../../packages/workflows/src/tui/session-picker.ts";
 import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.ts";
 import type { RunSnapshot } from "../../packages/workflows/src/shared/store-types.ts";
+import { visibleWidth } from "../../packages/workflows/src/tui/text-helpers.ts";
 
 function makeRun(over: Partial<RunSnapshot>): RunSnapshot {
   return {
@@ -133,6 +134,27 @@ test("renderSessionPicker shows empty state when no rows", () => {
   const state = createSessionPickerState();
   const lines = renderSessionPicker({ width: 80, theme, rows: [], state });
   assert.match(lines.join("\n"), /no workflow runs to show/);
+});
+
+test("renderSessionPicker clamps long and wide workflow names to the panel width", () => {
+  const theme = deriveGraphTheme({});
+  const state = createSessionPickerState();
+  const rows = [
+    {
+      run: makeRun({
+        id: "wide1111-0000-0000-0000-000000000000",
+        name: "研究".repeat(24) + "-super-long-workflow-name",
+        startedAt: 1000,
+      }),
+      bucket: "active" as const,
+    },
+  ];
+  const width = 72;
+  const lines = renderSessionPicker({ width, theme, rows, state, now: 120_000 });
+  for (const line of lines) {
+    assert.ok(visibleWidth(line) <= width, `line exceeds ${width}: ${visibleWidth(line)} ${JSON.stringify(line)}`);
+  }
+  assert.match(lines.join("\n"), /…/);
 });
 
 test("renderSessionPicker emits a clean ╰────╯ bottom border with hints on a separate row below", () => {

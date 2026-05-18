@@ -122,7 +122,11 @@ function renderWorkflowCard(
   const interior = Math.max(8, cardWidth - stripPrefix - 1);
   const accent = theme?.mauve ?? "#000000";
 
-  const tag = truncateToWidth(entry.name, TAG_NAME_BUDGET, ELLIPSIS);
+  // The card primitive treats the tag as fixed-width chrome, so clamp the
+  // workflow name before handing it off. Budget by visible cells to keep CJK /
+  // emoji workflow names inside the requested line width in both modes.
+  const tagBudget = Math.max(8, Math.min(TAG_NAME_BUDGET, cardWidth - stripPrefix - 6));
+  const tag = truncateToWidth(entry.name, tagBudget, ELLIPSIS);
 
   // Row 2: description (muted)
   const descBudget = Math.max(8, interior - 2);
@@ -187,13 +191,13 @@ function inputsSignatureRow(
   }
 
   // If the row exceeds budget, fall back to inline name list w/o decoration.
-  const inlineLen =
+  const inlineWidth =
     labelW +
     4 +
-    visible.reduce((a, b) => a + b.name.length + (b.required ? 0 : 1), 0) +
-    Math.max(0, visible.length - 1) * sepPlain.length +
-    (overflow > 0 ? sepPlain.length + `+${overflow} more`.length : 0);
-  if (inlineLen > interior) {
+    visible.reduce((a, b) => a + visibleWidth(b.name) + (b.required ? 0 : 1), 0) +
+    Math.max(0, visible.length - 1) * visibleWidth(sepPlain) +
+    (overflow > 0 ? visibleWidth(sepPlain) + visibleWidth(`+${overflow} more`) : 0);
+  if (inlineWidth > interior) {
     // Drop to a single ellipsis-truncated plain join.
     const flat = inputs.map((i) => (i.required ? i.name : `${i.name}?`)).join(", ");
     const cut = truncateToWidth(flat, Math.max(8, interior - labelW - 4), ELLIPSIS);

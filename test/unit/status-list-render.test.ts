@@ -18,6 +18,7 @@ import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { renderStatusList } from "../../packages/workflows/src/tui/status-list.js";
 import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.js";
+import { visibleWidth } from "../../packages/workflows/src/tui/text-helpers.js";
 import type { RunSnapshot, StageSnapshot } from "../../packages/workflows/src/shared/store-types.js";
 
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
@@ -202,5 +203,25 @@ describe("renderStatusList — populated", () => {
     const plain = stripAnsi(out);
     // Strip must truncate to fit the 60-column width.
     assert.match(plain, /\[…\]|\]…|…/, "ellipsis present on narrow strip");
+  });
+
+  test("long and wide run/stage names stay within the requested line width", () => {
+    const now = 1_000_000;
+    const width = 64;
+    const run = makeRun({
+      id: "wide99uuid",
+      name: "研究".repeat(18) + "-status-list-overflow",
+      status: "running",
+      startedAt: now - 60_000,
+      stages: [
+        makeStage("s1", "scout", "completed", { durationMs: 10_000 }),
+        makeStage("s2", "正在运行".repeat(12), "running", { startedAt: now - 30_000 }),
+      ],
+    });
+    const out = renderStatusList([run], { theme: deriveGraphTheme({}), now, width });
+    for (const line of out.split("\n")) {
+      assert.ok(visibleWidth(line) <= width, `line exceeds ${width}: ${visibleWidth(line)} ${JSON.stringify(line)}`);
+    }
+    assert.match(stripAnsi(out), /…/);
   });
 });

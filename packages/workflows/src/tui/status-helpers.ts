@@ -16,6 +16,10 @@ export function statusColor(
   switch (status) {
     case "running":
       return theme.warning;
+    case "paused":
+      return theme.warning;
+    case "awaiting_input":
+      return theme.info;
     case "completed":
       return theme.success;
     case "failed":
@@ -39,6 +43,8 @@ export function statusIcon(status: StageStatus | RunStatus): string {
       return "↑";
     case "running":
       return "●";
+    case "paused":
+      return "❚❚";
     case "completed":
       return "✓";
     case "failed":

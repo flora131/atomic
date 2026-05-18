@@ -763,6 +763,21 @@ test("layoutTextField: wraps long content at character boundary when no newline"
   assert.equal(r.cursorCol, 2);
 });
 
+test("layoutTextField: wraps CJK by terminal cell width", () => {
+  const raw = "漢字ab";
+  const r = layoutTextField(raw, 4, "漢字".length);
+  assert.deepEqual(r.lines, ["漢字", "ab"]);
+  assert.equal(r.cursorRow, 1);
+  assert.equal(r.cursorCol, 0);
+});
+
+test("layoutTextField: keeps combining sequences in one grapheme", () => {
+  const r = layoutTextField("e\u0301x", 1, "e\u0301".length);
+  assert.equal(r.lines[0], "é");
+  assert.equal(r.cursorRow, 1);
+  assert.equal(r.cursorCol, 0);
+});
+
 test("layoutTextField: caret at hard wrap boundary lands on next visual row", () => {
   // After typing 4 chars in a 4-cell box, caret advances past the wrap.
   const r = layoutTextField("abcd", 4, 4);
@@ -1159,6 +1174,28 @@ test("editor: ctrl+d deletes the char right of the caret", () => {
   e.editor.handleInput("\x04");
   assert.equal(e.state.rawText.prompt, "ac");
   assert.equal(e.state.caret, 1);
+  e.dispose();
+});
+
+test("editor: char movement and deletion respect emoji and combining graphemes", () => {
+  const raw = "漢👩‍💻e\u0301z";
+  const e = makeEditor(
+    makeState({
+      rawText: { prompt: raw, iters: "5", focus: "standard", verbose: "false" },
+      focusedIdx: 0,
+      caret: raw.length,
+    }),
+  );
+  e.editor.handleInput("\x1b[D"); // left over z
+  assert.equal(e.state.caret, "漢👩‍💻é".length);
+  e.editor.handleInput("\x1b[D"); // left over composed é
+  assert.equal(e.state.caret, "漢👩‍💻".length);
+  e.editor.handleInput("\x7f"); // delete the whole emoji cluster
+  assert.equal(e.state.rawText.prompt, "漢éz");
+  assert.equal(e.state.caret, "漢".length);
+  e.editor.handleInput("\x04"); // delete the whole composed é cluster
+  assert.equal(e.state.rawText.prompt, "漢z");
+  assert.equal(e.state.caret, "漢".length);
   e.dispose();
 });
 

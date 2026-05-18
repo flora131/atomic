@@ -7,14 +7,15 @@
  *    hint (`↑↓ select · ↵ attach · esc close`) in dim.
  *  - Default row: `paddingLeft: 1`, `paddingRight: 2`, icon + name, status
  *    glyph coloured.
- *  - Selected row: accent pill (blue bg + surface0 fg + bold) with leading
- *    `▸ ` chevron.
+ *  - Selected row: accent pill (blue bg + surface0 fg + bold). Focus is
+ *    expressed by the filled row, not a leading caret glyph.
  *  - Empty state: `(no matches)` in dim.
  */
 import type { StageSnapshot } from "../shared/store-types.js";
 import type { GraphTheme } from "./graph-theme.js";
 import { statusIcon, statusColor } from "./status-helpers.js";
 import { hexToAnsi, hexBg, RESET, BOLD } from "./color-utils.js";
+import { truncateToWidth, visibleWidth } from "./text-helpers.js";
 
 export interface SwitcherState {
   query: string;
@@ -36,11 +37,20 @@ export function filterStages(
 }
 
 const HINT = "↑↓ select · ↵ attach · esc close";
+const COMPACT_HINT = "↵ attach · esc close";
 
-/** Pad a visible string (no ANSI) to exactly `width` cells. */
+/** Pad a visible string (ANSI-safe) to exactly `width` cells. */
 function padVisible(s: string, width: number): string {
-  if (s.length >= width) return s.slice(0, width);
-  return s + " ".repeat(width - s.length);
+  const clipped = visibleWidth(s) > width ? truncateToWidth(s, width, "…", true) : s;
+  return clipped + " ".repeat(Math.max(0, width - visibleWidth(clipped)));
+}
+
+function statusText(status: StageSnapshot["status"]): string {
+  return status === "awaiting_input"
+    ? "awaiting"
+    : status === "completed"
+      ? "complete"
+      : status.replace(/_/g, " ");
 }
 
 export function renderSwitcher(
@@ -56,6 +66,7 @@ export function renderSwitcher(
   const panelBg = hexBg(theme.backgroundPanel);
   const dim = hexToAnsi(theme.dim);
   const muted = hexToAnsi(theme.textMuted);
+  const text = hexToAnsi(theme.text);
   const accent = hexBg(theme.accent);
   const accentFg = hexToAnsi(theme.backgroundElement);
 
@@ -64,17 +75,24 @@ export function renderSwitcher(
   // Top border
   lines.push(`${border}╭${"─".repeat(innerWidth)}╮${RESET}`);
 
-  // Header row: " stages   …   ↑↓ select · ↵ attach · esc close "
-  const leftLabel = "stages";
-  const queryDisplay = state.query ? `  ${state.query}` : "";
-  const leftSegment = `${leftLabel}${queryDisplay}`;
-  const gap = Math.max(1, innerWidth - 2 - leftSegment.length - HINT.length);
+  // Header row: "  STAGES  query   …   ↑↓ select · ↵ attach · esc close "
+  const leftLabelText = "  STAGES";
+  const hint = innerWidth >= 44 ? HINT : COMPACT_HINT;
+  const queryBudget = Math.max(
+    0,
+    innerWidth - visibleWidth(leftLabelText) - visibleWidth(hint) - 3,
+  );
+  const queryDisplay = state.query
+    ? ` ${truncateToWidth(state.query, queryBudget, "…")}`
+    : "";
+  const leftSegmentWidth = visibleWidth(`${leftLabelText}${queryDisplay}`);
+  const gap = Math.max(1, innerWidth - leftSegmentWidth - visibleWidth(hint) - 1);
   const header =
-    `${panelBg}${dim} ${leftLabel}${RESET}${panelBg}` +
-    (queryDisplay ? `${hexToAnsi(theme.text)}${queryDisplay}${RESET}${panelBg}` : "") +
+    `${panelBg}${muted}${BOLD}${leftLabelText}${RESET}${panelBg}` +
+    (queryDisplay ? `${text}${queryDisplay}${RESET}${panelBg}` : "") +
     " ".repeat(gap) +
-    `${dim}${HINT}${RESET}${panelBg} `;
-  lines.push(`${border}│${RESET}${header}${border}│${RESET}`);
+    `${dim}${hint}${RESET}${panelBg}`;
+  lines.push(`${border}│${RESET}${padVisible(header, innerWidth)}${border}│${RESET}`);
 
   // Quiet rule under header
   lines.push(`${border}├${"─".repeat(innerWidth)}┤${RESET}`);
@@ -85,8 +103,8 @@ export function renderSwitcher(
   const visible = filtered.slice(start, start + maxVisible);
 
   if (visible.length === 0) {
-    const empty = ` ${dim}(no matches)${RESET}${panelBg}`;
-    lines.push(`${border}│${RESET}${panelBg}${padVisible(empty, innerWidth)}${RESET}`);
+    const empty = `${panelBg}${dim}  (no matches)${RESET}${panelBg}`;
+    lines.push(`${border}│${RESET}${panelBg}${padVisible(empty, innerWidth)}${border}│${RESET}`);
   }
 
   for (let i = 0; i < visible.length; i++) {
@@ -94,22 +112,34 @@ export function renderSwitcher(
     const idx = start + i;
     const isSelected = idx === state.selectedIndex;
     const icon = statusIcon(stage.status);
+    const label = statusText(stage.status);
+    const rowTextBudget = Math.max(8, innerWidth - 14);
+    const name = truncateToWidth(stage.name, rowTextBudget, "…");
 
     if (isSelected) {
-      const visibleRow = ` ${icon} ${stage.name}`;
+      const metaWidth = visibleWidth(label);
+      const nameBudget = Math.max(4, innerWidth - visibleWidth(`  ${icon} `) - metaWidth - 2);
+      const selectedName = truncateToWidth(stage.name, nameBudget, "…");
+      const prefix = `  ${icon} ${selectedName}`;
+      const visibleRow = `${prefix}${" ".repeat(Math.max(1, innerWidth - visibleWidth(`${prefix}${label}`) - 1))}${label} `;
       const padded = padVisible(visibleRow, innerWidth);
       const styled = `${accent}${accentFg}${BOLD}${padded}${RESET}`;
       lines.push(`${border}│${RESET}${styled}${border}│${RESET}`);
     } else {
       const iconColor = hexToAnsi(statusColor(stage.status, theme));
-      const indent = "   ";
-      const visibleName = stage.name;
-      const visibleRow = `${indent}${icon} ${visibleName}`;
+      const status = `${dim}${label}${RESET}${panelBg}`;
+      const visibleRow = `  ${icon} ${name}`;
+      const gap = Math.max(
+        1,
+        innerWidth - visibleWidth(visibleRow) - visibleWidth(label) - 1,
+      );
       // Compose styled row that pads to innerWidth using visible length.
       const styled =
-        `${panelBg} ${RESET}${panelBg}${iconColor}${icon}${RESET}${panelBg} ${muted}${visibleName}${RESET}${panelBg}` +
-        " ".repeat(Math.max(0, innerWidth - visibleRow.length - 1));
-      lines.push(`${border}│${RESET}${styled}${border}│${RESET}`);
+        `${panelBg}  ${iconColor}${icon}${RESET}${panelBg} ${muted}${name}${RESET}${panelBg}` +
+        " ".repeat(gap) +
+        status;
+      const padded = padVisible(styled, innerWidth);
+      lines.push(`${border}│${RESET}${padded}${border}│${RESET}`);
     }
   }
 

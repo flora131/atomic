@@ -11,6 +11,7 @@ import { renderRunDetail } from "../../packages/workflows/src/tui/run-detail.js"
 import { inspectRun } from "../../packages/workflows/src/runs/background/status.js";
 import { createStore } from "../../packages/workflows/src/shared/store.js";
 import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.js";
+import { visibleWidth } from "../../packages/workflows/src/tui/text-helpers.js";
 import type { RunDetail } from "../../packages/workflows/src/runs/background/status.js";
 import type { RunSnapshot, StageSnapshot } from "../../packages/workflows/src/shared/store-types.js";
 
@@ -162,6 +163,30 @@ describe("renderRunDetail — themed", () => {
     assert.match(plain, /workflow resume\s+id=doneru/);
     assert.match(plain, /duration/);
     assert.doesNotMatch(plain, /workflow interrupt/);
+  });
+
+  test("long and wide run detail values stay within the requested width", () => {
+    const now = 1_000_000;
+    const width = 56;
+    const detail = detailFromRun(makeRun({
+      id: "wide-run-detail",
+      name: "研究".repeat(20) + "-detail",
+      status: "running",
+      startedAt: now - 117_000,
+      inputs: { ["検索".repeat(10)]: "value" },
+      stages: [
+        makeStage("s1", "計画".repeat(16), "running", {
+          startedAt: now - 72_000,
+          toolEvents: [{ name: "ツール".repeat(12), startedAt: now - 10_000 }],
+        }),
+      ],
+      result: { long: "結果".repeat(30) },
+    }));
+    const out = renderRunDetail(detail, { theme: deriveGraphTheme({}), now, width });
+    for (const line of out.split("\n")) {
+      assert.ok(visibleWidth(line) <= width, `line exceeds ${width}: ${visibleWidth(line)} ${JSON.stringify(line)}`);
+    }
+    assert.match(stripAnsi(out), /…/);
   });
 });
 

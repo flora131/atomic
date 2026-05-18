@@ -136,9 +136,14 @@ function renderRunCard(
   // shares its width with a mode label, the progress strip, and a meta
   // tail. Reserve ~3 cells for the meta separator and ellipsis padding.
   const cardWidth = effectiveWidth(width);
-  const stripPrefixW = 3; // "▎  "
+  const stripPrefixW = 4; // leading chat pad + "▎  "
   const modeW = mode.length + 4; // 4-space separator after mode
-  const meta = runCardMeta(run, now);
+  const interior = cardWidth - stripPrefixW;
+  const rawMeta = runCardMeta(run, now);
+  // Row 2 is caller-rendered body content; clamp the metadata tail before it
+  // reaches renderTaggedCard so long/wide stage names cannot overflow.
+  const maxMetaW = Math.max(0, interior - modeW - 3);
+  const meta = truncateToWidth(rawMeta, maxMetaW, ELLIPSIS);
   const metaW = visibleWidth(meta);
   const stripBudget = Math.max(0, cardWidth - stripPrefixW - modeW - metaW - 4);
 
@@ -146,9 +151,8 @@ function renderRunCard(
   const strip = progressStrip(cells, stripBudget, theme);
   const stripVisibleW = visibleWidth(strip);
 
-  const interior = cardWidth - stripPrefixW;
   const usedLeftW = modeW + stripVisibleW;
-  const gap = Math.max(2, interior - usedLeftW - metaW - 1);
+  const gap = Math.max(metaW > 0 ? 1 : 0, interior - usedLeftW - metaW);
 
   const muted = theme ? hexToAnsi(theme.textMuted) : "";
   const dim = theme ? hexToAnsi(theme.dim) : "";

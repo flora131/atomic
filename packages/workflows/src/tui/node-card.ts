@@ -4,14 +4,13 @@
  * Visual contract (DESIGN.md §5):
  *  - Rounded border `╭╮╰╯` only. No square or ASCII art.
  *  - Border colour carries status. `running` pulses via sine lerp
- *    against the dim border (focus locks the pulse). `completed` /
- *    `failed` stay status-coloured regardless of focus. `pending`
- *    sits on `borderDim` and lifts to `borderActive` when focused.
+ *    against the dim border (focus locks the pulse). `paused`,
+ *    `completed` / `failed` stay status-coloured regardless of focus.
+ *    `pending` sits on `borderDim` and lifts to `borderActive` when focused.
  *  - When focused, the centred title segment becomes a compact accent
- *    "tab": `▸ name` painted with `theme.accent` bg + `theme.surface`
- *    fg + bold. The tab is the only focus signal — the surrounding
- *    border is reserved for status. No `[focused]` text, no glow,
- *    no resize.
+ *    tab painted with `theme.accent` bg + `theme.surface` fg + bold.
+ *    The tab is the only focus signal — the surrounding border is
+ *    reserved for status. No `[focused]` text, no glow, no resize.
  *  - Single centred duration line in the body, coloured by status.
  *
  * Reuses the existing `paint(...)` color-utils helper (a thin wrapper
@@ -28,8 +27,9 @@
 
 import type { StageSnapshot, StageStatus } from "../shared/store-types.js";
 import type { GraphTheme } from "./graph-theme.js";
-import { fmtDuration } from "./status-helpers.js";
+import { fmtDuration, statusIcon } from "./status-helpers.js";
 import { lerpColor, hexToAnsi, hexBg, paint, RESET, BOLD } from "./color-utils.js";
+import { truncateToWidth, visibleWidth } from "./text-helpers.js";
 import { NODE_W, NODE_H } from "./layout.js";
 
 export interface NodeCardOpts {
@@ -42,11 +42,6 @@ export interface NodeCardOpts {
   /** Run stages, used to resolve blockedByStageId into a short upstream name. */
   stages?: readonly StageSnapshot[];
 }
-
-/** Glyph that prefixes the focused-tab title; matches the compact
- * cursor `❯` vocabulary used elsewhere but rotated to fit inline
- * inside the top border (`▸` reads as a small wedge in the slot). */
-const FOCUS_TAB_GLYPH = "▸";
 
 /** Sine-eased pulse `t ∈ [0, 1]`. Phase 0 ≈ quiet, 0.5 ≈ peak. */
 function pulseT(phase: number): number {
@@ -64,6 +59,8 @@ function pickBorder(
       // Focus locks the pulse at peak. Status colour wins either way.
       if (focused) return theme.warning;
       return lerpColor(theme.borderDim, theme.warning, pulseT(phase));
+    case "paused":
+      return theme.warning;
     case "awaiting_input":
       if (focused) return theme.info;
       return lerpColor(theme.borderDim, theme.info, pulseT(phase));
@@ -84,6 +81,8 @@ function pickBorder(
 function durationColor(status: StageStatus, theme: GraphTheme): string {
   switch (status) {
     case "running":
+      return theme.warning;
+    case "paused":
       return theme.warning;
     case "awaiting_input":
       return theme.info;
@@ -107,7 +106,7 @@ function blockedBadgeText(
 
   const upstream = stages?.find((s) => s.id === blockedBy)?.name ?? blockedBy;
   const withUpstream = `${base} by ${upstream}`;
-  if (withUpstream.length <= width) return withUpstream;
+  if (visibleWidth(withUpstream) <= width) return withUpstream;
   return base;
 }
 
@@ -117,10 +116,28 @@ function durationText(stage: StageSnapshot): string {
   return "—";
 }
 
-function truncate(s: string, maxLen: number): string {
-  if (maxLen <= 0) return "";
-  if (s.length <= maxLen) return s;
-  return s.slice(0, Math.max(1, maxLen - 1)) + "…";
+function metaText(stage: StageSnapshot): string {
+  if (stage.model) return stage.model;
+  const deps = stage.parentIds.length;
+  if (deps === 0) return "root";
+  return deps === 1 ? "1 dep" : `${deps} deps`;
+}
+
+function statusLabel(status: StageStatus): string {
+  switch (status) {
+    case "awaiting_input":
+      return "awaiting input";
+    case "completed":
+      return "complete";
+    default:
+      return status.replace(/_/g, " ");
+  }
+}
+
+function truncate(s: string, maxWidth: number): string {
+  if (maxWidth <= 0) return "";
+  if (visibleWidth(s) <= maxWidth) return s;
+  return truncateToWidth(s, maxWidth, "…");
 }
 
 /**
@@ -138,7 +155,8 @@ function centreColored(
   opts: { bold?: boolean } = {},
 ): string {
   const safe = truncate(content, width);
-  const pad = width - safe.length;
+  const safeWidth = visibleWidth(safe);
+  const pad = Math.max(0, width - safeWidth);
   const left = Math.max(0, Math.floor(pad / 2));
   const right = Math.max(0, pad - left);
   const bold = opts.bold ? BOLD : "";
@@ -155,7 +173,7 @@ function centreColored(
  * width so the caller can pad the surrounding dashes correctly.
  *
  * When `focused`, the slot reads as a small accent-coloured tab:
- *   `╭── ▸ stage ──╮`
+ *   `╭── stage ──╮`
  * Otherwise it falls back to the historical bold-title shape:
  *   `╭── stage ──╮`
  *
@@ -171,25 +189,23 @@ function buildTitleSlot(
   theme: GraphTheme,
   cardBg: string,
 ): { slot: string; visibleWidth: number } {
-  const overhead = focused ? FOCUS_TAB_GLYPH.length + 1 /* space */ : 0;
-  const maxName = Math.max(2, innerWidth - 4 - overhead);
+  const maxName = Math.max(2, innerWidth - 4);
   const safeName = truncate(name, maxName);
   if (focused) {
-    // ` ▸ name ` — flanking spaces sit on the accent tab so the
-    // pill reads as a single coloured run. Use `paint` to combine
-    // bg + fg + bold + RESET in one ANSI sequence (re-priming the
-    // card stratum afterwards so the dashes outside the slot stay
-    // on the body bg).
-    const tabText = ` ${FOCUS_TAB_GLYPH} ${safeName} `;
+    // Flanking spaces sit on the accent tab so the pill reads as a
+    // single coloured run. Use `paint` to combine bg + fg + bold +
+    // RESET in one ANSI sequence, then re-prime the card stratum so
+    // the dashes outside the slot stay on the body bg.
+    const tabText = ` ${safeName} `;
     const styled = `${paint(tabText, theme.surface, {
       bg: theme.accent,
       bold: true,
     })}${cardBg}`;
-    return { slot: styled, visibleWidth: tabText.length };
+    return { slot: styled, visibleWidth: visibleWidth(tabText) };
   }
   const titleRaw = ` ${safeName} `;
   const styled = `${BOLD}${titleRaw}${RESET}${cardBg}`;
-  return { slot: styled, visibleWidth: titleRaw.length };
+  return { slot: styled, visibleWidth: visibleWidth(titleRaw) };
 }
 
 /**
@@ -213,8 +229,8 @@ export function renderNodeCard(stage: StageSnapshot, opts: NodeCardOpts): string
   const bg = hexBg(theme.bg);
   const innerWidth = Math.max(2, width - 2);
 
-  // Title sits inside the top border: ╭── name ──╮ or, when focused,
-  // ╭── ▸ name ──╮ with an accent-coloured pill on the name slot.
+  // Title sits inside the top border. Focus adds an accent-coloured
+  // pill to the name slot without adding an extra glyph.
   const { slot: titleSlot, visibleWidth: titleVisibleWidth } = buildTitleSlot(
     stage.name,
     innerWidth,
@@ -231,25 +247,38 @@ export function renderNodeCard(stage: StageSnapshot, opts: NodeCardOpts): string
   const top = `${bg}${bc}╭${topMiddle}╮${RESET}`;
   const bottom = `${bg}${bc}╰${"─".repeat(innerWidth)}╯${RESET}`;
 
-  // Interior — single centred duration line. Each `│` border is
-  // followed by a `bg`-primed centred run so the inner cells stay on
-  // the card stratum.
+  // Interior — compact status + duration. Each `│` border is followed
+  // by a `bg`-primed centred run so the inner cells stay on the card
+  // stratum without leaving the cards visually hollow.
   const bodyText =
     stage.status === "blocked"
       ? blockedBadgeText(stage, opts.stages, innerWidth)
+      : stage.status === "paused"
+        ? "❚❚ paused"
       : durationText(stage);
   const bodyHex = durationColor(stage.status, theme);
+  const statusText = `${statusIcon(stage.status)} ${statusLabel(stage.status)}`;
+  const statusLine =
+    `${bg}${bc}│${RESET}` +
+    centreColored(statusText, innerWidth, bodyHex, bg, {
+      bold: stage.status === "running" || stage.status === "awaiting_input",
+    }) +
+    `${bg}${bc}│${RESET}`;
   const durLine =
     `${bg}${bc}│${RESET}` +
     centreColored(bodyText, innerWidth, bodyHex, bg, {
       bold: stage.status === "blocked",
     }) +
     `${bg}${bc}│${RESET}`;
+  const metaLine =
+    `${bg}${bc}│${RESET}` +
+    centreColored(metaText(stage), innerWidth, theme.dim, bg) +
+    `${bg}${bc}│${RESET}`;
 
   const interior: string[] =
     stage.status === "awaiting_input"
       ? [
-          durLine,
+          statusLine,
           `${bg}${bc}│${RESET}` +
             centreColored("waiting for response", innerWidth, theme.info, bg) +
             `${bg}${bc}│${RESET}`,
@@ -257,7 +286,7 @@ export function renderNodeCard(stage: StageSnapshot, opts: NodeCardOpts): string
             centreColored("↵ enter to respond", innerWidth, theme.dim, bg) +
             `${bg}${bc}│${RESET}`,
         ]
-      : [durLine];
+      : [durLine, statusLine, metaLine];
 
   // Pad / clip to exactly `height` lines.
   const contentRows = Math.max(0, height - 2);

@@ -256,6 +256,158 @@ function computeInvalid(
 
 const dimSep = (theme: GraphTheme): string => paint("  ·  ", theme.dim);
 
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+function graphemes(text: string): string[] {
+  return Array.from(graphemeSegmenter.segment(text), (s) => s.segment);
+}
+
+function previousGraphemeOffset(text: string, caret: number): number {
+  const c = Math.max(0, Math.min(caret, text.length));
+  let prev = 0;
+  for (const s of graphemeSegmenter.segment(text)) {
+    if (s.index >= c) break;
+    prev = s.index;
+  }
+  return prev;
+}
+
+function nextGraphemeOffset(text: string, caret: number): number {
+  const c = Math.max(0, Math.min(caret, text.length));
+  for (const s of graphemeSegmenter.segment(text)) {
+    if (s.index >= c) return Math.min(text.length, s.index + s.segment.length);
+    if (s.index + s.segment.length > c) return s.index + s.segment.length;
+  }
+  return text.length;
+}
+
+function clampGraphemeOffset(text: string, caret: number): number {
+  const c = Math.max(0, Math.min(caret, text.length));
+  if (c === text.length) return c;
+  for (const s of graphemeSegmenter.segment(text)) {
+    if (s.index === c) return c;
+    if (s.index > c) break;
+  }
+  return previousGraphemeOffset(text, c);
+}
+
+function headToWidth(text: string, width: number): string {
+  if (width <= 0) return "";
+  let out = "";
+  let used = 0;
+  for (const g of graphemes(text)) {
+    const w = visibleWidth(g);
+    if (used + w > width) break;
+    out += g;
+    used += w;
+  }
+  return out;
+}
+
+function tailToWidth(text: string, width: number): string {
+  if (width <= 0) return "";
+  let out = "";
+  let used = 0;
+  const gs = graphemes(text);
+  for (let i = gs.length - 1; i >= 0; i--) {
+    const g = gs[i]!;
+    const w = visibleWidth(g);
+    if (used + w > width) break;
+    out = g + out;
+    used += w;
+  }
+  return out;
+}
+
+function isPrintableGrapheme(data: string): boolean {
+  if (data.length === 0 || data.includes("\x1b")) return false;
+  for (const ch of data) {
+    const code = ch.codePointAt(0);
+    if (code === undefined || code < 0x20 || code === 0x7f) return false;
+  }
+  return graphemes(data).length === 1;
+}
+
+interface TextLayoutLine {
+  text: string;
+  start: number;
+  end: number;
+}
+
+function layoutEditableText(raw: string, usable: number): TextLayoutLine[] {
+  const width = Math.max(1, Math.floor(usable));
+  const lines: TextLayoutLine[] = [];
+  let line = "";
+  let lineStart = 0;
+  let lineWidth = 0;
+  for (const s of graphemeSegmenter.segment(raw)) {
+    const offset = s.index;
+    const g = s.segment;
+    if (g === "\n") {
+      lines.push({ text: line, start: lineStart, end: offset });
+      line = "";
+      lineStart = offset + g.length;
+      lineWidth = 0;
+      continue;
+    }
+    const w = visibleWidth(g);
+    if (line !== "" && lineWidth + w > width) {
+      lines.push({ text: line, start: lineStart, end: offset });
+      line = "";
+      lineStart = offset;
+      lineWidth = 0;
+    }
+    line += g;
+    lineWidth += w;
+    if (lineWidth >= width) {
+      lines.push({ text: line, start: lineStart, end: offset + g.length });
+      line = "";
+      lineStart = offset + g.length;
+      lineWidth = 0;
+    }
+  }
+  lines.push({ text: line, start: lineStart, end: raw.length });
+  return lines;
+}
+
+function visualColumnAt(text: string, caret: number): number {
+  return visibleWidth(text.slice(0, clampGraphemeOffset(text, caret)));
+}
+
+function offsetAtVisualColumn(text: string, targetCol: number): number {
+  let col = 0;
+  for (const s of graphemeSegmenter.segment(text)) {
+    const w = visibleWidth(s.segment);
+    if (col + w > targetCol) return s.index;
+    col += w;
+  }
+  return text.length;
+}
+
+function caretLineUp(raw: string, caret: number): number | null {
+  const safe = clampGraphemeOffset(raw, caret);
+  const lineStartOffset = raw.lastIndexOf("\n", safe - 1) + 1;
+  if (lineStartOffset === 0) return null;
+  const prevLineEnd = lineStartOffset - 1;
+  const prevLineStart = raw.lastIndexOf("\n", prevLineEnd - 1) + 1;
+  const col = visualColumnAt(raw.slice(lineStartOffset, safe), raw.slice(lineStartOffset, safe).length);
+  const prevLine = raw.slice(prevLineStart, prevLineEnd);
+  return prevLineStart + offsetAtVisualColumn(prevLine, col);
+}
+
+function caretLineDown(raw: string, caret: number): number | null {
+  const safe = clampGraphemeOffset(raw, caret);
+  const nextNl = raw.indexOf("\n", safe);
+  if (nextNl === -1) return null;
+  const lineStartOffset = raw.lastIndexOf("\n", safe - 1) + 1;
+  const col = visualColumnAt(raw.slice(lineStartOffset, safe), raw.slice(lineStartOffset, safe).length);
+  const nextLineStart = nextNl + 1;
+  const nextNlAfter = raw.indexOf("\n", nextLineStart);
+  const nextLineEnd = nextNlAfter === -1 ? raw.length : nextNlAfter;
+  const nextLine = raw.slice(nextLineStart, nextLineEnd);
+  return nextLineStart + offsetAtVisualColumn(nextLine, col);
+}
+
 /**
  * Render a single field's three-row block: top border with title, content
  * row (variable per type), bottom border, then the caption row underneath.
@@ -377,15 +529,57 @@ function renderFieldContent(
   }
 
   if (field.type === "text") {
-    // 3-row scrolling textarea — keeps the cursor line visible.
+    // 3-row scrolling textarea — wrap by terminal cell width and keep the
+    // cursor's visual row in view. Newlines create hard row breaks.
     const ROWS = 3;
-    const allLines = raw.split("\n");
-    const start = Math.max(0, allLines.length - ROWS);
+    if (raw === "") {
+      return Array.from({ length: ROWS }, (_, i) =>
+        i === 0
+          ? renderInlineText("", focused, cursorOn, usable, theme, field.placeholder, true)
+          : padLine("", usable),
+      );
+    }
+    const layout = layoutEditableText(raw, usable);
+    const safeCaret = clampGraphemeOffset(raw, caret);
+    let cursorRow = layout.length - 1;
+    for (let i = 0; i < layout.length; i++) {
+      const line = layout[i]!;
+      const next = layout[i + 1];
+      if (safeCaret >= line.start && safeCaret < line.end) {
+        cursorRow = i;
+        break;
+      }
+      if (safeCaret === line.end) {
+        cursorRow = next?.start === safeCaret ? i + 1 : i;
+      }
+    }
+    cursorRow = Math.max(0, Math.min(cursorRow, layout.length - 1));
+    const start = focused
+      ? Math.max(0, Math.min(cursorRow - ROWS + 1, layout.length - ROWS))
+      : Math.max(0, layout.length - ROWS);
     const rows: string[] = [];
     for (let i = 0; i < ROWS; i++) {
-      const line = allLines[start + i] ?? "";
-      const isCursorLine = focused && i === Math.min(ROWS - 1, allLines.length - 1 - start);
-      rows.push(renderInlineText(line, isCursorLine, cursorOn, usable, theme, field.placeholder, raw === ""));
+      const rowIdx = start + i;
+      const line = layout[rowIdx];
+      if (!line) {
+        rows.push(padLine("", usable));
+        continue;
+      }
+      const lineCaret = safeCaret >= line.start && safeCaret <= line.end
+        ? safeCaret - line.start
+        : line.text.length;
+      rows.push(
+        renderInlineText(
+          line.text,
+          focused && rowIdx === cursorRow,
+          cursorOn,
+          usable,
+          theme,
+          field.placeholder,
+          false,
+          lineCaret,
+        ),
+      );
     }
     return rows;
   }
@@ -415,23 +609,31 @@ function renderInlineText(
     if (ph === "") {
       return padLine(showCursor ? paint("▋", theme.accent) : " ", usable);
     }
-    const first = ph.slice(0, 1);
-    const rest = ph.slice(1);
+    const [first = "", ...rest] = graphemes(ph);
     const head = showCursor
       ? paint(first, theme.bg, { bg: theme.accent })
       : paint(first, theme.dim);
-    return padLine(head + paint(rest, theme.dim), usable);
+    return padLine(head + paint(rest.join(""), theme.dim), usable);
   }
-  const c = caret ?? value.length;
-  const safe = Math.max(0, Math.min(c, value.length));
-  const before = value.slice(0, safe);
-  const at = value.slice(safe, safe + 1);
-  const after = value.slice(safe + 1);
+  const safe = clampGraphemeOffset(value, caret ?? value.length);
+  const beforeFull = value.slice(0, safe);
+  const afterFull = value.slice(safe);
+  const [at = ""] = graphemes(afterFull);
+  const afterRest = at === "" ? "" : afterFull.slice(at.length);
+  const cursorPlain = showCursor ? (at !== "" ? at : "▋") : at;
+  const cursorWidth = Math.max(1, visibleWidth(cursorPlain));
+  const totalWidth = visibleWidth(beforeFull) + cursorWidth + visibleWidth(showCursor ? afterRest : afterFull.slice(at.length));
+  let before = beforeFull;
+  let after = showCursor ? afterRest : afterFull.slice(at.length);
+  if (totalWidth > usable) {
+    before = tailToWidth(beforeFull, Math.max(0, usable - cursorWidth));
+    after = headToWidth(showCursor ? afterRest : afterFull.slice(at.length), Math.max(0, usable - visibleWidth(before) - cursorWidth));
+  }
   const cursorCell = showCursor
     ? at !== ""
       ? paint(at, theme.bg, { bg: theme.accent })
       : paint("▋", theme.accent)
-    : at;
+    : paint(at, theme.text);
   return padLine(paint(before, theme.text) + cursorCell + paint(after, theme.text), usable);
 }
 
@@ -686,10 +888,24 @@ function handleFormKey(
   const caret = Math.max(0, Math.min(state.caret, cur.length));
 
   if (matchesAction(kb, key, "tui.editor.cursorUp")) {
+    if (field.type === "text") {
+      const nextCaret = caretLineUp(cur, caret);
+      if (nextCaret !== null) {
+        state.caret = nextCaret;
+        return { kind: "noop" };
+      }
+    }
     moveFocus(state, fields, -1);
     return { kind: "noop" };
   }
   if (matchesAction(kb, key, "tui.editor.cursorDown")) {
+    if (field.type === "text") {
+      const nextCaret = caretLineDown(cur, caret);
+      if (nextCaret !== null) {
+        state.caret = nextCaret;
+        return { kind: "noop" };
+      }
+    }
     moveFocus(state, fields, +1);
     return { kind: "noop" };
   }
@@ -710,11 +926,11 @@ function handleFormKey(
     return { kind: "noop" };
   }
   if (matchesAction(kb, key, "tui.editor.cursorLeft")) {
-    state.caret = Math.max(0, caret - 1);
+    state.caret = previousGraphemeOffset(cur, caret);
     return { kind: "noop" };
   }
   if (matchesAction(kb, key, "tui.editor.cursorRight")) {
-    state.caret = Math.min(cur.length, caret + 1);
+    state.caret = nextGraphemeOffset(cur, caret);
     return { kind: "noop" };
   }
   if (matchesAction(kb, key, "tui.editor.deleteWordBackward")) {
@@ -747,7 +963,7 @@ function handleFormKey(
   }
   if (matchesAction(kb, key, "tui.editor.deleteCharBackward")) {
     if (caret > 0) {
-      const r = deleteRange(cur, caret - 1, caret, caret);
+      const r = deleteRange(cur, previousGraphemeOffset(cur, caret), caret, caret);
       state.rawText[name] = r.text;
       state.caret = r.caret;
     }
@@ -755,7 +971,7 @@ function handleFormKey(
   }
   if (matchesAction(kb, key, "tui.editor.deleteCharForward")) {
     if (caret < cur.length) {
-      const r = deleteRange(cur, caret, caret + 1, caret);
+      const r = deleteRange(cur, caret, nextGraphemeOffset(cur, caret), caret);
       state.rawText[name] = r.text;
       state.caret = r.caret;
     }
@@ -773,10 +989,11 @@ function handleFormKey(
     }
     return { kind: "noop" };
   }
-  // Printable insert.
-  if (key.length === 1 && key >= " " && key <= "~") {
+  // Printable insert. Accept exactly one grapheme cluster so CJK, emoji ZWJ
+  // sequences, and combining-mark input follow pi-tui Input semantics.
+  if (isPrintableGrapheme(key)) {
     state.rawText[name] = cur.slice(0, caret) + key + cur.slice(caret);
-    state.caret = caret + 1;
+    state.caret = caret + key.length;
     return { kind: "noop" };
   }
   return { kind: "noop" };

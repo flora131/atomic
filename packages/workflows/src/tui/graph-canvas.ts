@@ -21,6 +21,59 @@ interface Cell {
   fg: string | null;
 }
 
+type Dir = "u" | "d" | "l" | "r";
+
+function dirsForGlyph(ch: string): Set<Dir> {
+  switch (ch) {
+    case "│":
+      return new Set(["u", "d"]);
+    case "─":
+      return new Set(["l", "r"]);
+    case "╭":
+    case "┌":
+      return new Set(["d", "r"]);
+    case "╮":
+    case "┐":
+      return new Set(["d", "l"]);
+    case "╰":
+    case "└":
+      return new Set(["u", "r"]);
+    case "╯":
+    case "┘":
+      return new Set(["u", "l"]);
+    case "├":
+      return new Set(["u", "d", "r"]);
+    case "┤":
+      return new Set(["u", "d", "l"]);
+    case "┬":
+      return new Set(["d", "l", "r"]);
+    case "┴":
+      return new Set(["u", "l", "r"]);
+    case "┼":
+      return new Set(["u", "d", "l", "r"]);
+    default:
+      return new Set();
+  }
+}
+
+function glyphForDirs(dirs: Set<Dir>): string {
+  const has = (...want: Dir[]) => want.every((d) => dirs.has(d));
+  if (has("u", "d", "l", "r")) return "┼";
+  if (has("u", "d", "r")) return "├";
+  if (has("u", "d", "l")) return "┤";
+  if (has("d", "l", "r")) return "┬";
+  if (has("u", "l", "r")) return "┴";
+  if (has("u", "d")) return "│";
+  if (has("l", "r")) return "─";
+  if (has("d", "r")) return "┌";
+  if (has("d", "l")) return "┐";
+  if (has("u", "r")) return "└";
+  if (has("u", "l")) return "┘";
+  if (has("u") || has("d")) return "│";
+  if (has("l") || has("r")) return "─";
+  return " ";
+}
+
 export class GraphCanvas {
   /** rowIdx → colIdx → Cell. Sparse — empty cells render as a single space. */
   private rows: Map<number, Map<number, Cell>> = new Map();
@@ -37,6 +90,20 @@ export class GraphCanvas {
     cols.set(col, { ch, fg });
     if (row > this.maxRow) this.maxRow = row;
     if (col > this.maxCol) this.maxCol = col;
+  }
+
+  getCell(row: number, col: number): string | null {
+    return this.rows.get(row)?.get(col)?.ch ?? null;
+  }
+
+  mergeCell(row: number, col: number, dirs: readonly Dir[], fg: string | null): void {
+    if (row < 0 || col < 0) return;
+    const existing = this.getCell(row, col);
+    const merged = new Set<Dir>([
+      ...(existing == null ? [] : dirsForGlyph(existing)),
+      ...dirs,
+    ]);
+    this.setCell(row, col, glyphForDirs(merged), fg);
   }
 
   /**
@@ -58,13 +125,13 @@ export class GraphCanvas {
   hline(row: number, fromCol: number, toCol: number, fg: string | null): void {
     const lo = Math.min(fromCol, toCol);
     const hi = Math.max(fromCol, toCol);
-    for (let c = lo; c <= hi; c++) this.setCellIfEmpty(row, c, "─", fg);
+    for (let c = lo; c <= hi; c++) this.mergeCell(row, c, ["l", "r"], fg);
   }
 
   vline(col: number, fromRow: number, toRow: number, fg: string | null): void {
     const lo = Math.min(fromRow, toRow);
     const hi = Math.max(fromRow, toRow);
-    for (let r = lo; r <= hi; r++) this.setCellIfEmpty(r, col, "│", fg);
+    for (let r = lo; r <= hi; r++) this.mergeCell(r, col, ["u", "d"], fg);
   }
 
   /** Materialise the canvas as one ANSI-styled string per row. */

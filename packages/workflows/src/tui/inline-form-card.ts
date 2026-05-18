@@ -55,6 +55,55 @@ export interface InlineCardOpts {
   theme: GraphTheme;
 }
 
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+function graphemes(text: string): string[] {
+  return Array.from(graphemeSegmenter.segment(text), (s) => s.segment);
+}
+
+function clampGraphemeOffset(text: string, caret: number): number {
+  const c = Math.max(0, Math.min(caret, text.length));
+  if (c === text.length) return c;
+  for (const s of graphemeSegmenter.segment(text)) {
+    if (s.index === c) return c;
+    if (s.index > c) break;
+  }
+  let prev = 0;
+  for (const s of graphemeSegmenter.segment(text)) {
+    if (s.index >= c) break;
+    prev = s.index;
+  }
+  return prev;
+}
+
+function headToWidth(text: string, width: number): string {
+  if (width <= 0) return "";
+  let out = "";
+  let used = 0;
+  for (const g of graphemes(text)) {
+    const w = visibleWidth(g);
+    if (used + w > width) break;
+    out += g;
+    used += w;
+  }
+  return out;
+}
+
+function tailToWidth(text: string, width: number): string {
+  if (width <= 0) return "";
+  let out = "";
+  let used = 0;
+  const gs = graphemes(text);
+  for (let i = gs.length - 1; i >= 0; i--) {
+    const g = gs[i]!;
+    const w = visibleWidth(g);
+    if (used + w > width) break;
+    out = g + out;
+    used += w;
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Public renderer
 // ---------------------------------------------------------------------------
@@ -131,8 +180,6 @@ function renderHeaderBand(state: InlineFormState, theme: GraphTheme, width: numb
 
 function renderFooterBand(theme: GraphTheme, width: number): string[] {
   const chromeBg = hexBg(theme.backgroundPanel);
-  const text = hexToAnsi(theme.text);
-  const muted = hexToAnsi(theme.textMuted);
   const dim = hexToAnsi(theme.dim);
 
   const { top, mid, bot, visibleWidth: pillW } = renderOutlinePill(
@@ -141,6 +188,8 @@ function renderFooterBand(theme: GraphTheme, width: number): string[] {
     chromeBg,
   );
 
+  const text = hexToAnsi(theme.text);
+  const muted = hexToAnsi(theme.textMuted);
   const hints: Array<{ key: string; label: string }> = [
     { key: "tab", label: "Next" },
     { key: "shift+tab", label: "Prev" },
@@ -281,15 +330,7 @@ function renderFieldContent(
       return [paint(field.placeholder ?? "", theme.dim)];
     }
     if (focused) {
-      const c = Math.max(0, Math.min(caret ?? raw.length, raw.length));
-      const before = raw.slice(0, c);
-      const after = raw.slice(c);
-      return [
-        clip(
-          paint(before, theme.text) + paint("▋", theme.accent) + paint(after, theme.text),
-          usable,
-        ),
-      ];
+      return [renderCaretLine(raw, caret ?? raw.length, usable, theme, theme.text)];
     }
     return [clip(paint(raw, theme.textMuted), usable)];
   }
@@ -310,10 +351,28 @@ function renderFieldContent(
     if (row !== layout.cursorRow) {
       return paint(line, theme.text);
     }
-    const before = line.slice(0, layout.cursorCol);
-    const after = line.slice(layout.cursorCol);
-    return paint(before, theme.text) + paint("▋", theme.accent) + paint(after, theme.text);
+    return renderCaretLine(line, layout.cursorOffset ?? line.length, usable, theme, theme.text);
   });
+}
+
+function renderCaretLine(
+  raw: string,
+  caret: number,
+  usable: number,
+  theme: GraphTheme,
+  color: string,
+): string {
+  const safe = clampGraphemeOffset(raw, caret);
+  const beforeFull = raw.slice(0, safe);
+  const afterFull = raw.slice(safe);
+  const cursorWidth = 1;
+  let before = beforeFull;
+  let after = afterFull;
+  if (visibleWidth(beforeFull) + cursorWidth + visibleWidth(afterFull) > usable) {
+    before = tailToWidth(beforeFull, Math.max(0, usable - cursorWidth));
+    after = headToWidth(afterFull, Math.max(0, usable - visibleWidth(before) - cursorWidth));
+  }
+  return clip(paint(before, color) + paint("▋", theme.accent) + paint(after, color), usable);
 }
 
 // ---------------------------------------------------------------------------
@@ -383,40 +442,63 @@ export function layoutTextField(
   raw: string,
   usable: number,
   caret: number,
-): { lines: string[]; cursorRow: number; cursorCol: number } {
+): { lines: string[]; cursorRow: number; cursorCol: number; cursorOffset?: number } {
   const width = Math.max(1, Math.floor(usable));
-  const safeCaret = Math.max(0, Math.min(caret, raw.length));
+  const safeCaret = clampGraphemeOffset(raw, caret);
   const visualLines: string[] = [];
+  const lineStarts: number[] = [];
+  const lineEnds: number[] = [];
   let curLine = "";
-  let cursorRow = 0;
-  let cursorCol = 0;
-  let cursorRecorded = false;
-  const recordCursorIfMatched = (offset: number): void => {
-    if (offset === safeCaret && !cursorRecorded) {
-      cursorRow = visualLines.length;
-      cursorCol = curLine.length;
-      cursorRecorded = true;
-    }
+  let curWidth = 0;
+  let lineStart = 0;
+
+  const pushLine = (end: number): void => {
+    visualLines.push(curLine);
+    lineStarts.push(lineStart);
+    lineEnds.push(end);
+    curLine = "";
+    curWidth = 0;
+    lineStart = end;
   };
-  for (let i = 0; i < raw.length; i++) {
-    recordCursorIfMatched(i);
-    const ch = raw[i]!;
-    if (ch === "\n") {
-      visualLines.push(curLine);
-      curLine = "";
+
+  for (const s of graphemeSegmenter.segment(raw)) {
+    const offset = s.index;
+    const g = s.segment;
+    if (g === "\n") {
+      pushLine(offset);
+      lineStart = offset + g.length;
       continue;
     }
-    curLine += ch;
-    if (curLine.length >= width) {
-      visualLines.push(curLine);
-      curLine = "";
+    const w = visibleWidth(g);
+    if (curLine !== "" && curWidth + w > width) {
+      pushLine(offset);
+    }
+    curLine += g;
+    curWidth += w;
+    if (curWidth >= width) {
+      pushLine(offset + g.length);
     }
   }
-  recordCursorIfMatched(raw.length);
   visualLines.push(curLine);
-  if (!cursorRecorded) {
-    cursorRow = visualLines.length - 1;
-    cursorCol = curLine.length;
+  lineStarts.push(lineStart);
+  lineEnds.push(raw.length);
+
+  let cursorRow = visualLines.length - 1;
+  for (let i = 0; i < visualLines.length; i++) {
+    const start = lineStarts[i]!;
+    const end = lineEnds[i]!;
+    const nextStart = lineStarts[i + 1];
+    if (safeCaret >= start && safeCaret < end) {
+      cursorRow = i;
+      break;
+    }
+    if (safeCaret === end) {
+      cursorRow = nextStart === safeCaret ? i + 1 : i;
+    }
   }
-  return { lines: visualLines, cursorRow, cursorCol };
+  cursorRow = Math.max(0, Math.min(cursorRow, visualLines.length - 1));
+  const line = visualLines[cursorRow] ?? "";
+  const cursorOffset = Math.max(0, Math.min(safeCaret - (lineStarts[cursorRow] ?? 0), line.length));
+  const cursorCol = visibleWidth(line.slice(0, cursorOffset));
+  return { lines: visualLines, cursorRow, cursorCol, cursorOffset };
 }

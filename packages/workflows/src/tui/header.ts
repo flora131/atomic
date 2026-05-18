@@ -22,6 +22,7 @@
 import type { RunSnapshot } from "../shared/store-types.js";
 import type { GraphTheme } from "./graph-theme.js";
 import { hexToAnsi, hexBg, RESET, BOLD } from "./color-utils.js";
+import { truncateToWidth, visibleWidth } from "./text-helpers.js";
 
 export interface HeaderOpts {
   width: number;
@@ -72,11 +73,12 @@ export function renderOutlinePill(
 ): { top: string; mid: string; bot: string; visibleWidth: number } {
   const bc = hexToAnsi(borderHex);
   const padded = ` ${label} `;
-  const inner = "─".repeat(padded.length);
+  const paddedWidth = visibleWidth(padded);
+  const inner = "─".repeat(paddedWidth);
   const top = `${chromeBg}${bc}╭${inner}╮${RESET}`;
   const mid = `${chromeBg}${bc}│${BOLD}${padded}${RESET}${chromeBg}${bc}│${RESET}`;
   const bot = `${chromeBg}${bc}╰${inner}╯${RESET}`;
-  return { top, mid, bot, visibleWidth: padded.length + 2 };
+  return { top, mid, bot, visibleWidth: paddedWidth + 2 };
 }
 
 /**
@@ -96,42 +98,56 @@ export function renderBandHeader(opts: BandHeaderOpts): string[] {
   const { top: pillTop, mid: pillMid, bot: pillBot, visibleWidth: pillW } =
     renderOutlinePill(label, accentHex, chromeBg);
 
-  // Subtitle slot — quieter than the pill. Two-space gutter on each
-  // side keeps the pill from kissing the subtitle.
-  const subtitleVisible = subtitle.length > 0 ? `  ${subtitle}` : "";
-  const subtitleStyled =
-    subtitle.length > 0
-      ? `${chromeBg}  ${muted}${subtitle}${RESET}${chromeBg}`
-      : `${chromeBg}`;
-
   // Right-side count badges. Status colour per badge, 2ch gap between.
   const rightVisible = badges.map((b) => b.text).join("  ");
+  const rightW = visibleWidth(rightVisible);
   const rightStyled = badges
     .map((b) => `${hexToAnsi(b.fg)}${b.text}${RESET}${chromeBg}`)
     .join(`${chromeBg}  `);
 
   const leftEdgePad = 1;
   const rightEdgePad = 2;
+
+  // Subtitle slot — quieter than the pill. Two-space gutter keeps the
+  // pill from kissing the subtitle. Budget with terminal cell widths so
+  // long CJK/emoji/combining run names cannot push the chrome past `width`.
+  const subtitleBudget = Math.max(
+    0,
+    width - leftEdgePad - pillW - rightW - rightEdgePad,
+  );
+  const subtitleTextBudget = Math.max(0, subtitleBudget - 2);
+  const subtitleText =
+    subtitle.length > 0 && subtitleTextBudget > 0
+      ? truncateToWidth(subtitle, subtitleTextBudget, "…")
+      : "";
+  const subtitleVisible = subtitleText.length > 0 ? `  ${subtitleText}` : "";
+  const subtitleW = visibleWidth(subtitleVisible);
+  const subtitleStyled =
+    subtitleText.length > 0
+      ? `${chromeBg}  ${muted}${subtitleText}${RESET}${chromeBg}`
+      : `${chromeBg}`;
+
   const fillerTop = Math.max(
     0,
-    width - leftEdgePad - pillW - subtitleVisible.length - rightEdgePad,
+    width - leftEdgePad - pillW - subtitleW - rightEdgePad,
   );
   const fillerMid = Math.max(
     0,
-    width -
-      leftEdgePad -
-      pillW -
-      subtitleVisible.length -
-      rightVisible.length -
-      rightEdgePad,
+    width - leftEdgePad - pillW - subtitleW - rightW - rightEdgePad,
   );
 
-  const subtitleBlank = " ".repeat(subtitleVisible.length);
+  const fitChromeLine = (line: string): string => {
+    const fitted = truncateToWidth(line, width, "");
+    const pad = Math.max(0, width - visibleWidth(fitted));
+    return `${fitted}${chromeBg}${" ".repeat(pad)}${RESET}`;
+  };
+
+  const subtitleBlank = " ".repeat(subtitleW);
   const top = `${chromeBg} ${RESET}${pillTop}${chromeBg}${subtitleBlank}${" ".repeat(fillerTop)}${" ".repeat(rightEdgePad)}${RESET}`;
   const mid = `${chromeBg} ${RESET}${pillMid}${subtitleStyled}${" ".repeat(fillerMid)}${rightStyled}${chromeBg}${" ".repeat(rightEdgePad)}${RESET}`;
   const bot = `${chromeBg} ${RESET}${pillBot}${chromeBg}${subtitleBlank}${" ".repeat(fillerTop)}${" ".repeat(rightEdgePad)}${RESET}`;
 
-  return [top, mid, bot];
+  return [fitChromeLine(top), fitChromeLine(mid), fitChromeLine(bot)];
 }
 
 /**
@@ -157,7 +173,7 @@ export function renderHeader(run: RunSnapshot, opts: HeaderOpts): string[] {
   if (counts.completed > 0) badges.push({ text: `✓ ${counts.completed}`, fg: theme.success });
   if (counts.running > 0) badges.push({ text: `● ${counts.running}`, fg: theme.warning });
   if (counts.awaiting_input > 0) badges.push({ text: `↵ ${counts.awaiting_input}`, fg: theme.info });
-  if (counts.paused > 0) badges.push({ text: `⏸ ${counts.paused}`, fg: theme.accent });
+  if (counts.paused > 0) badges.push({ text: `❚❚ ${counts.paused}`, fg: theme.warning });
   if (counts.pending > 0) badges.push({ text: `○ ${counts.pending}`, fg: theme.dim });
   if (counts.failed > 0) badges.push({ text: `✗ ${counts.failed}`, fg: theme.error });
 

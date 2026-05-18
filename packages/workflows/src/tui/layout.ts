@@ -38,7 +38,7 @@ export function computeLayout(
   opts: LayoutOpts = {},
 ): LayoutNode[] {
   const colGap = opts.colGap ?? 4;
-  const rowGap = opts.rowGap ?? 2;
+  const rowGap = opts.rowGap ?? 3;
 
   if (stages.length === 0) return [];
 

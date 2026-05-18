@@ -17,6 +17,7 @@
  *   - DESIGN.md §4 (Elevation), §5 (Components)
  */
 import type { Component } from "@earendil-works/pi-tui";
+import { sliceByColumn } from "@earendil-works/pi-tui/dist/utils.js";
 import {
   matchesKey,
   truncateToWidth,
@@ -119,7 +120,7 @@ const HINT_KEYS: Array<{ key: string; label: string }> = [
   { key: "↵", label: "attach" },
   { key: "/", label: "stages" },
   { key: "ctrl+d", label: "detach" },
-  { key: "q", label: "quit" },
+  { key: "q", label: "kill" },
 ];
 
 /**
@@ -230,6 +231,7 @@ export class GraphView implements Component {
       this._intervalId = setInterval(() => {
         this.requestRender?.();
       }, ANIMATION_TICK_MS);
+      (this._intervalId as { unref?: () => void }).unref?.();
     }
   }
 
@@ -343,8 +345,10 @@ export class GraphView implements Component {
    * Number of rows the overlay frame must paint. Pi-tui anchors the
    * overlay vertically by counting rendered lines, so to truly fill the
    * terminal under `maxHeight: "100%"` the component must emit
-   * approximately `terminal.rows` lines. We clamp to at least
-   * `OVERLAY_LINE_COUNT` so a tiny terminal or a host that doesn't
+   * approximately `terminal.rows` lines. When a host reports fewer
+   * than the legacy 32 rows, honour that shorter viewport where the
+   * graph chrome can still fit so the bottom status controls are not
+   * clipped by pi-tui's overlay max-height slicing. A host that doesn't
    * surface terminal dimensions keeps the previous stable rectangle.
    */
   private _overlayLineCount(): number {
@@ -352,9 +356,10 @@ export class GraphView implements Component {
     if (typeof reported !== "number" || !Number.isFinite(reported)) {
       return OVERLAY_LINE_COUNT;
     }
-    // Header (3) + statusline (3) is the absolute minimum; anything
-    // smaller would underflow the body band.
-    return Math.max(OVERLAY_LINE_COUNT, Math.floor(reported));
+    // Header (3) + one body row + statusline (3) is the absolute
+    // minimum useful frame. Margins are dropped automatically at this
+    // size by `_overlayVerticalMarginRows`.
+    return Math.max(7, Math.floor(reported));
   }
 
   /** Rows available for the graph body (between header and statusline). */
@@ -362,9 +367,14 @@ export class GraphView implements Component {
     return Math.max(1, lineCount - 3 /* header */ - 3 /* statusline */);
   }
 
+  private _overlayVerticalMarginRows(lineCount = this._overlayLineCount()): number {
+    return lineCount >= 9 ? OVERLAY_VERTICAL_MARGIN_ROWS : 0;
+  }
+
   private _overlayPanelLineCount(): number {
-    const margins = OVERLAY_VERTICAL_MARGIN_ROWS * 2;
-    return Math.max(7, this._overlayLineCount() - margins);
+    const lineCount = this._overlayLineCount();
+    const margins = this._overlayVerticalMarginRows(lineCount) * 2;
+    return Math.max(7, lineCount - margins);
   }
 
   private _marginRow(width: number): string {
@@ -373,12 +383,17 @@ export class GraphView implements Component {
 
   private _withVerticalMargins(panelLines: string[], width: number): string[] {
     const expected = this._overlayLineCount();
+    const marginRows = this._overlayVerticalMarginRows(expected);
     const panelTarget = this._overlayPanelLineCount();
     const body = panelLines.slice(0, panelTarget);
     while (body.length < panelTarget) body.push(this._blankRow(width));
-    const lines = [this._marginRow(width), ...body, this._marginRow(width)];
+    const margins = Array.from({ length: marginRows }, () => this._marginRow(width));
+    const lines = [...margins, ...body, ...margins];
     if (lines.length > expected) return lines.slice(0, expected);
-    while (lines.length < expected) lines.splice(lines.length - 1, 0, this._blankRow(width));
+    while (lines.length < expected) {
+      const insertAt = marginRows > 0 ? Math.max(0, lines.length - marginRows) : lines.length;
+      lines.splice(insertAt, 0, this._blankRow(width));
+    }
     return lines;
   }
 
@@ -405,8 +420,6 @@ export class GraphView implements Component {
       frameWidth,
       bodyTarget,
     );
-    // Vertically centre short graphs; tall graphs are clipped to the
-    // scroll window managed by keyboard focus and mouse wheel events.
     for (let i = 0; i < visibleGraph.topPad; i++)
       lines.push(this._blankRow(frameWidth));
     for (const line of visibleGraph.lines) {
@@ -418,17 +431,23 @@ export class GraphView implements Component {
 
     // 3. Switcher overlay — floats over the body when open.
     if (this.switcherOpen) {
-      const switcherWidth = Math.min(56, frameWidth - 4);
+      const bodyStart = 3;
+      const bodyEnd = 3 + bodyTarget;
+      for (let row = bodyStart; row < bodyEnd; row++) {
+        lines[row] = this._blankRow(frameWidth);
+      }
+      const switcherWidth = Math.min(60, Math.max(40, frameWidth - 8));
       const switcherLines = renderSwitcher(run.stages, this.switcherState, {
         width: switcherWidth,
         theme: this.graphTheme,
       });
-      const insertAt = 4; // beneath the header chrome band
+      const insertAt = Math.max(bodyStart, bodyStart + Math.min(2, Math.floor((bodyTarget - switcherLines.length) / 3)));
+      const switcherLeft = Math.max(2, Math.floor((frameWidth - switcherWidth) / 2));
       for (let i = 0; i < switcherLines.length; i++) {
         const lineIdx = insertAt + i;
-        const overlay = this._padCanvas(switcherLines[i]!, switcherWidth);
+        if (lineIdx >= bodyEnd) break;
         const base = lines[lineIdx] ?? this._blankRow(frameWidth);
-        const merged = this._overlayInline(base, overlay, 0, frameWidth);
+        const merged = this._overlayCard(base, switcherLines[i]!, switcherLeft, frameWidth);
         if (lineIdx < lines.length) lines[lineIdx] = merged;
         else lines.push(merged);
       }
@@ -622,9 +641,8 @@ export class GraphView implements Component {
     const leftPad = `${bg}${" ".repeat(leftMargin)}${RESET}`;
     return composed.map((line) => {
       const full = this._padCanvas(line, fullCanvasWidth);
-      const cells = this._splitVisible(full);
-      const sliced = this._sliceVisible(
-        cells,
+      const sliced = this._sliceColumns(
+        full,
         this.graphScrollColOffset,
         this.graphScrollColOffset + viewportWidth,
       );
@@ -642,7 +660,7 @@ export class GraphView implements Component {
       this.pendingEnsureFocusedVisible = false;
       return {
         lines: graphLines,
-        topPad: Math.max(0, Math.floor((bodyRows - graphLines.length) / 2)),
+        topPad: Math.min(3, Math.max(0, Math.floor((bodyRows - graphLines.length) / 2))),
       };
     }
 
@@ -718,9 +736,9 @@ export class GraphView implements Component {
    * Plot a parent → child edge for the vertical orientation. The edge
    * exits from the parent's bottom-centre, runs through a horizontal
    * spine half-way down the gap, and re-enters from the child's
-   * top-centre. Corners at the spine are upgraded to T-junctions when
-   * a second edge crosses the same cell so fan-out and fan-in render
-   * cleanly as a single rule with stubs.
+   * top-centre. Cells are merged by direction set so fan-out, fan-in,
+   * and crossings produce stable orthogonal junctions instead of
+   * stacked rounded corners.
    */
   private _plotEdge(
     canvas: GraphCanvas,
@@ -746,112 +764,34 @@ export class GraphView implements Component {
       Math.min(childEntryRow, Math.floor((parentExitRow + childEntryRow) / 2)),
     );
 
-    // Down stub from parent into the spine row — only when there's
-    // a non-zero gap, otherwise vline would paint the spineRow corner
-    // cell before we get to set it.
+    // Down stub from parent into the spine row.
     if (spineRow > parentExitRow) {
       canvas.vline(parentCol, parentExitRow, spineRow - 1, color);
     }
-    // Corner where the parent stub meets the spine. Upgrade to a
-    // T-down (`┬`) when another edge has already crossed this cell.
-    this._placeCornerOrTee(
-      canvas,
-      spineRow,
-      parentCol,
-      childCol > parentCol ? "╰" : "╯",
-      color,
-    );
+    this._placeJunction(canvas, spineRow, parentCol, ["u", childCol > parentCol ? "r" : "l"], color);
+
     // Horizontal spine segment.
     const hloCol = Math.min(parentCol, childCol) + 1;
     const hhiCol = Math.max(parentCol, childCol) - 1;
     if (hhiCol >= hloCol) {
       canvas.hline(spineRow, hloCol, hhiCol, color);
     }
-    // Corner where the spine drops into the child stub.
-    this._placeCornerOrTee(
-      canvas,
-      spineRow,
-      childCol,
-      childCol > parentCol ? "╮" : "╭",
-      color,
-    );
-    // Down stub from spine into child — same zero-gap guard.
+    this._placeJunction(canvas, spineRow, childCol, [childCol > parentCol ? "l" : "r", "d"], color);
+
+    // Down stub from spine into child.
     if (childEntryRow > spineRow) {
       canvas.vline(childCol, spineRow + 1, childEntryRow, color);
     }
   }
 
-  /**
-   * Place a corner glyph at `(row, col)`. When the target cell already
-   * holds a glyph from a previous edge, upgrade to the correct
-   * box-drawing junction so fan-out / fan-in points read as a single
-   * rule rather than two stacked corners.
-   *
-   * Junction table (existing ⊕ new → result):
-   *  | ⊕ ╰ → ├   | ⊕ ╮ → ┤   | ⊕ ╯ → ┤   | ⊕ ╭ → ├
-   *  ─ ⊕ ╭ → ┬   ─ ⊕ ╮ → ┬   ─ ⊕ ╰ → ┴   ─ ⊕ ╯ → ┴
-   *  ╰ ⊕ ╮ → ┴   ╭ ⊕ ╯ → ┴   ╭ ⊕ ╮ → ┬   etc.
-   *
-   * The full table is small; we collapse it to: "existing-direction-set
-   * ∪ new-direction-set → best matching junction".
-   */
-  private _placeCornerOrTee(
+  private _placeJunction(
     canvas: GraphCanvas,
     row: number,
     col: number,
-    corner: string,
+    newDirs: Array<"u" | "d" | "l" | "r">,
     color: string,
   ): void {
-    const existing = (
-      canvas as unknown as { rows: Map<number, Map<number, { ch: string }>> }
-    ).rows
-      .get(row)
-      ?.get(col)?.ch;
-    if (existing == null || existing === corner) {
-      canvas.setCell(row, col, corner, color);
-      return;
-    }
-    const dirs = (ch: string): Set<"u" | "d" | "l" | "r"> => {
-      switch (ch) {
-        case "│":
-          return new Set(["u", "d"]);
-        case "─":
-          return new Set(["l", "r"]);
-        case "╭":
-          return new Set(["d", "r"]);
-        case "╮":
-          return new Set(["d", "l"]);
-        case "╰":
-          return new Set(["u", "r"]);
-        case "╯":
-          return new Set(["u", "l"]);
-        case "├":
-          return new Set(["u", "d", "r"]);
-        case "┤":
-          return new Set(["u", "d", "l"]);
-        case "┬":
-          return new Set(["d", "l", "r"]);
-        case "┴":
-          return new Set(["u", "l", "r"]);
-        case "┼":
-          return new Set(["u", "d", "l", "r"]);
-        default:
-          return new Set();
-      }
-    };
-    const merged = new Set<"u" | "d" | "l" | "r">([
-      ...dirs(existing),
-      ...dirs(corner),
-    ]);
-    const has = (...want: Array<"u" | "d" | "l" | "r">) =>
-      want.every((d) => merged.has(d));
-    let glyph = corner;
-    if (has("u", "d", "l", "r")) glyph = "┼";
-    else if (has("u", "d", "r")) glyph = "├";
-    else if (has("u", "d", "l")) glyph = "┤";
-    else if (has("d", "l", "r")) glyph = "┬";
-    else if (has("u", "l", "r")) glyph = "┴";
-    canvas.setCell(row, col, glyph, color);
+    canvas.mergeCell(row, col, newDirs, color);
   }
 
   /**
@@ -875,7 +815,6 @@ export class GraphView implements Component {
   ): string {
     const bg = hexBg(this.graphTheme.bg);
     const sorted = cards.slice().sort((a, b) => a.startCol - b.startCol);
-    const edgeVisible = this._splitVisible(edgeRow);
     let cursor = 0;
     let out = "";
     for (const card of sorted) {
@@ -883,69 +822,27 @@ export class GraphView implements Component {
         // Edge segment up to card start — prepend bg so empty cells
         // in this stretch keep the body bg instead of falling back
         // to the terminal default once any prior RESET fired.
-        out += `${bg}${this._sliceVisible(edgeVisible, cursor, card.startCol)}`;
+        out += `${bg}${this._edgeSegment(edgeRow, cursor, card.startCol)}`;
         cursor = card.startCol;
       }
       out += card.line;
       cursor += card.width;
     }
     // Trailing edge tail — same bg re-priming.
-    out += `${bg}${this._sliceVisible(edgeVisible, cursor, edgeVisible.length)}`;
+    out += `${bg}${this._edgeSegment(edgeRow, cursor, Math.max(cursor, visibleWidth(edgeRow)))}`;
     return out;
   }
 
-  /**
-   * Split a styled ANSI string into per-cell entries, each carrying the
-   * style prefix that should apply when rendering that cell. Used by
-   * `_sliceVisible` so we can cut the edge line at arbitrary columns
-   * without breaking ANSI sequences.
-   */
-  private _splitVisible(line: string): Array<{ prefix: string; ch: string }> {
-    const cells: Array<{ prefix: string; ch: string }> = [];
-    let i = 0;
-    let pending = "";
-    while (i < line.length) {
-      const ch = line[i]!;
-      if (ch === "\x1b" && line[i + 1] === "[") {
-        const end = line.indexOf("m", i);
-        if (end === -1) break;
-        pending += line.slice(i, end + 1);
-        i = end + 1;
-        continue;
-      }
-      cells.push({ prefix: pending, ch });
-      pending = "";
-      i += 1;
-    }
-    return cells;
-  }
-
-  private _sliceVisible(
-    cells: Array<{ prefix: string; ch: string }>,
-    fromCol: number,
-    toCol: number,
-  ): string {
+  private _edgeSegment(line: string, fromCol: number, toCol: number): string {
     if (fromCol >= toCol) return "";
-    let out = "";
-    let lastPrefix = "";
-    for (let c = fromCol; c < toCol; c++) {
-      const cell = cells[c];
-      if (cell) {
-        if (cell.prefix && cell.prefix !== lastPrefix) {
-          out += cell.prefix;
-          lastPrefix = cell.prefix;
-        }
-        out += cell.ch;
-      } else {
-        if (lastPrefix !== "") {
-          out += RESET;
-          lastPrefix = "";
-        }
-        out += " ";
-      }
-    }
-    if (lastPrefix !== "") out += RESET;
-    return out;
+    const segment = this._sliceColumns(line, fromCol, toCol);
+    const visible = visibleWidth(segment);
+    return `${segment}${" ".repeat(Math.max(0, toCol - fromCol - visible))}`;
+  }
+
+  private _sliceColumns(line: string, fromCol: number, toCol: number): string {
+    if (fromCol >= toCol) return "";
+    return sliceByColumn(line, fromCol, toCol - fromCol, true);
   }
 
   // -------------------------------------------------------------------------
@@ -977,21 +874,16 @@ export class GraphView implements Component {
       ({ key, label }) =>
         `${text}${BOLD}${key}${RESET}${chromeBg} ${muted}${label}${RESET}${chromeBg}`,
     );
-    const hintsStyled = segments.join(sep);
-    const hintsVisibleLen =
-      HINT_KEYS.reduce((sum, h) => sum + h.key.length + 1 + h.label.length, 0) +
-      (HINT_KEYS.length - 1) * 5; // "  ·  "
+    const hintsStyledRaw = segments.join(sep);
 
     const leftEdgePad = 1;
     const rightEdgePad = 2;
-    const fillerVisible = Math.max(
-      2,
-      width - leftEdgePad - pillW - hintsVisibleLen - rightEdgePad,
-    );
+    const hintsBudget = Math.max(0, width - leftEdgePad - pillW - rightEdgePad);
+    const hintsStyled = truncateToWidth(hintsStyledRaw, hintsBudget, "");
+    const hintsVisibleLen = visibleWidth(hintsStyled);
+    const fillerVisible = Math.max(0, hintsBudget - hintsVisibleLen);
     const filler = " ".repeat(fillerVisible);
-    const blankAcross = " ".repeat(
-      fillerVisible + hintsVisibleLen + rightEdgePad,
-    );
+    const blankAcross = " ".repeat(Math.max(0, width - leftEdgePad - pillW));
 
     return [
       `${chromeBg} ${RESET}${top}${chromeBg}${blankAcross}${RESET}`,
@@ -1055,19 +947,20 @@ export class GraphView implements Component {
     leftPad: number,
     totalWidth: number,
   ): string {
-    const baseCells = this._splitVisible(base);
     const overlayWidth = Math.min(
       Math.max(0, totalWidth - leftPad),
       visibleWidth(overlay),
     );
-    const left = this._sliceVisible(baseCells, 0, leftPad);
+    const left = this._sliceColumns(base, 0, leftPad);
     const panel = truncateToWidth(overlay, overlayWidth, "", true);
-    const right = this._sliceVisible(
-      baseCells,
+    const right = this._sliceColumns(
+      base,
       leftPad + overlayWidth,
       totalWidth,
     );
-    return `${left}${panel}${right}`;
+    const merged = `${left}${panel}${right}`;
+    const pad = Math.max(0, totalWidth - visibleWidth(merged));
+    return `${merged}${hexBg(this.graphTheme.bg)}${" ".repeat(pad)}${RESET}`;
   }
 
   private _duration(stage: StageSnapshot): string {

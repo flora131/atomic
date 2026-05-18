@@ -19,13 +19,15 @@
  *  - **Running** stage with a live stream: Enter calls `handle.steer(text)`
  *    (interrupt mid-turn). Ctrl+F always queues a follow-up via
  *    `handle.followUp(text)`.
- *  - **Ctrl+P** calls `handle.pause()`; while paused, Enter calls
- *    `handle.resume(text)`.
- *  - **Ctrl+D** detaches (back to graph); **Escape** closes the popup.
+ *  - **Escape** mirrors the main coding-agent chat interrupt path for active
+ *    live stages: it requests a controlled pause/abort while keeping the
+ *    composer active. While paused, Enter calls `handle.resume(text)`.
+ *  - **Ctrl+D** detaches (back to graph); **Escape** closes the popup when idle.
  *  - **Blocked** stage: keystrokes absorbed; BLOCKED banner names the
  *    upstream awaiter.
- *  - **Settled** stage (no handle, completed/failed): editor renders in a
- *    disabled visual state and the hint strip collapses to back/close.
+ *  - **Settled** stage with a live handle remains a normal chat session:
+ *    Enter sends `handle.prompt(text)` and Escape interrupts any active
+ *    post-stage response without mutating workflow dependencies.
  *
  * cross-ref:
  *  - ui/stage-chat-mockup.html (canonical visual)
@@ -44,20 +46,21 @@ import {
   SessionManager,
   LiveChatEntriesController,
   UsageMeterComponent,
-  chatEntriesFromAgentMessages,
+  WorkingStatusComponent,
+  pickWhimsicalWorkingMessage,
   renderChatMessageEntry,
   type AgentSession,
   type AgentSessionEvent,
   type ChatMessageEntry,
   type ChatMessageRenderOptions,
-  type ChatTranscriptRole,
   type ReadonlyFooterDataProvider,
 } from "@bastani/atomic";
-import { Box, Container, Spacer, Text } from "@earendil-works/pi-tui";
+import { Box, Spacer, Text } from "@earendil-works/pi-tui";
 import type {
   Component,
   EditorComponent,
   EditorTheme,
+  Focusable,
   TUI,
 } from "@earendil-works/pi-tui";
 import type { Store } from "../shared/store.js";
@@ -107,7 +110,7 @@ export interface StageChatViewOpts {
   /**
    * Optional accessor returning the current terminal row count. The chat
    * surface expands its body band to roughly `viewportRows` minus the fixed
-   * header / loader / editor / footer / hint rows so the popup fills the
+   * header / loader / editor / footer rows so the popup fills the
    * terminal under pi-tui's `width: "100%" / maxHeight: "100%"` geometry.
    * Returning `undefined` falls back to the constant 32-row frame.
    */
@@ -119,46 +122,16 @@ export interface StageChatViewOpts {
  * that read `_transcript` (tests, future serialisers) can recover the
  * canonical user-visible string without knowing about the Pi-box payload.
  */
-interface BaseEntry {
-  readonly role: ChatTranscriptRole;
-  readonly text: string;
-}
-interface UserEntry extends BaseEntry {
-  readonly role: "user";
-}
-interface AssistantEntry extends BaseEntry {
-  readonly role: "assistant";
-}
-interface ThinkingEntry extends BaseEntry {
-  readonly role: "thinking";
-}
-interface SystemEntry extends BaseEntry {
-  readonly role: "system";
-}
-interface ToolEntry extends BaseEntry {
-  readonly role: "tool";
-  readonly name: string;
-  readonly toolCallId?: string;
-  readonly args?: string;
-  readonly output?: string;
-  readonly state: "pending" | "success" | "error";
-}
-interface NoticeEntry extends BaseEntry {
+interface NoticeEntry {
   readonly role: "notice";
+  readonly text: string;
   readonly noticeId: string;
   readonly kind: StageNotice["kind"];
   readonly value: string;
   readonly from?: string;
   readonly meta?: string;
 }
-type TranscriptEntry =
-  | UserEntry
-  | AssistantEntry
-  | ThinkingEntry
-  | SystemEntry
-  | ToolEntry
-  | NoticeEntry
-  | ChatMessageEntry;
+type TranscriptEntry = NoticeEntry | ChatMessageEntry;
 type AgentSnapshotMessage = AgentSession["messages"][number];
 
 // ---------------------------------------------------------------------------
@@ -176,15 +149,13 @@ const VIEW_LINE_COUNT = 32;
 const HEADER_ROWS = 1;
 /** Single dim rule between header and body. */
 const SEP_ROWS = 1;
-/** Footer: two dim lines. */
-const FOOTER_ROWS = 2;
-/** Hint strip: dashed rule + key bindings line. */
-const HINTS_ROWS = 2;
-
 /** Spinner glyphs — Braille spinner at 80ms per frame. */
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 /** Pi's Loader advances at 80ms; use the same cadence for embedded stage chats. */
 const ANIMATION_FRAME_MS = 80;
+const STREAMING_RENDER_THROTTLE_MS = 80;
+const STREAMING_TEXT_TAIL_LINES = 240;
+const STREAMING_TEXT_TAIL_CHARS = 16_000;
 
 const ITALIC = "\x1b[3m";
 const FG_RESET = "\x1b[39m";
@@ -195,7 +166,8 @@ const ITALIC_RESET = "\x1b[23m";
 // StageChatView
 // ---------------------------------------------------------------------------
 
-export class StageChatView implements Component {
+export class StageChatView implements Component, Focusable {
+  focused = true;
   private store: Store;
   private theme: GraphTheme;
   private runId: string;
@@ -223,15 +195,14 @@ export class StageChatView implements Component {
   private attachedAt = Date.now();
   /** True after SDK `agent_start` until `agent_end`; mirrors Pi's working-loader lifecycle. */
   private sdkBusy = false;
-  /** Stable row pointers for the current streaming assistant message. */
-  private streamingAssistantIndex: number | undefined;
-  private streamingThinkingIndex: number | undefined;
-  /** Stable tool-call rows keyed exactly like Pi's `pendingTools` map. */
-  private toolEntryIndexes = new Map<string, number>();
+  /** Pi-style per-turn working message, populated from coding-agent's message picker. */
+  private workingMessage: string | undefined;
   /** User rows optimistically appended by this embedded editor, de-duped on SDK echo. */
   private optimisticUserSignatures = new Set<string>();
   /** Chat-mode repaint driver for Pi-style loaders/spinners. */
   private animationTimer: ReturnType<typeof setInterval> | undefined;
+  /** Coalesces high-frequency SDK deltas while the fixed overlay is streaming. */
+  private renderThrottleTimer: ReturnType<typeof setTimeout> | undefined;
   /** Scrollable fixed-height body viewport for attached chat history. */
   private bodyViewport = new ScrollableComponentViewport();
   private liveChat: LiveChatEntriesController;
@@ -288,7 +259,7 @@ export class StageChatView implements Component {
       this._unsubscribeHandle = this.handle.subscribe((event) => {
         const changed = this._appendEvent(event);
         this._syncAnimationTick();
-        if (changed) this.requestRender?.();
+        if (changed) this._requestEventRender();
       });
     }
     this._syncAnimationTick();
@@ -318,7 +289,7 @@ export class StageChatView implements Component {
         tui,
         editorTheme,
         keybindings as ConstructorParameters<typeof CustomEditor>[2],
-        { paddingX: 1, autocompleteMaxVisible: 5 },
+        { paddingX: 0, autocompleteMaxVisible: 5 },
       );
     editor.onChange = (text) => {
       this.inputBuffer = text;
@@ -391,132 +362,48 @@ export class StageChatView implements Component {
       }
     }
     if (isSharedLiveChatEvent(type)) {
-      return this.liveChat.applyEvent(event);
+      const changed = this.liveChat.applyEvent(event);
+      const toolCallEvent = assistantToolCallEvent(event);
+      const changedByToolCall = toolCallEvent !== undefined
+        ? this.liveChat.applyEvent(toolCallEvent)
+        : false;
+      return changed || changedByToolCall;
     }
     switch (type) {
       case "agent_start":
         this.sdkBusy = true;
-        this.toolEntryIndexes.clear();
         this.liveChat.clearPendingTools();
         this.statusMessage = "";
         return true;
 
       case "agent_end":
         this.sdkBusy = false;
-        this.streamingAssistantIndex = undefined;
-        this.streamingThinkingIndex = undefined;
+        this.workingMessage = undefined;
         this.liveChat.clearPendingTools();
         this.statusMessage = "";
         return true;
 
-      case "message_start":
-        return this._handleMessageStart(
-          (event as { message?: unknown }).message,
-        );
-
-      case "message_update":
-        return this._handleMessageUpdate(event);
-
-      case "message_end":
-        return this._handleMessageEnd((event as { message?: unknown }).message);
-
-      case "tool_execution_start": {
-        const payload = event as {
-          toolCallId?: unknown;
-          toolName?: unknown;
-          args?: unknown;
-        };
-        const name =
-          typeof payload.toolName === "string" ? payload.toolName : "tool";
-        const toolCallId =
-          typeof payload.toolCallId === "string"
-            ? payload.toolCallId
-            : undefined;
-        const args = summariseArgs(payload.args);
-        this._upsertToolEntry({ toolCallId, name, args, state: "pending" });
+      case "turn_start":
+        this.workingMessage = pickWhimsicalWorkingMessage();
         return true;
-      }
 
-      case "tool_execution_update": {
-        const payload = event as {
-          toolCallId?: unknown;
-          toolName?: unknown;
-          partialResult?: unknown;
-        };
-        const partialOutput = extractToolResultText(payload.partialResult);
-        if (!partialOutput) return false;
-        this._upsertToolEntry({
-          toolCallId:
-            typeof payload.toolCallId === "string"
-              ? payload.toolCallId
-              : undefined,
-          name:
-            typeof payload.toolName === "string" ? payload.toolName : "tool",
-          output: partialOutput,
-          state: "pending",
-        });
+      case "turn_end":
+        this.workingMessage = undefined;
         return true;
-      }
 
-      case "tool_execution_end": {
-        const payload = event as {
-          toolCallId?: unknown;
-          toolName?: unknown;
-          result?: unknown;
-          isError?: unknown;
-        };
-        const toolCallId =
-          typeof payload.toolCallId === "string"
-            ? payload.toolCallId
-            : undefined;
-        const output = extractToolResultText(payload.result);
-        this._upsertToolEntry({
-          toolCallId,
-          name:
-            typeof payload.toolName === "string" ? payload.toolName : "tool",
-          output,
-          state: payload.isError === true ? "error" : "success",
-        });
-        if (toolCallId) this.toolEntryIndexes.delete(toolCallId);
-        return true;
-      }
-
+      // Compatibility with older/headless shims that predate the SDK's
+      // tool_execution_* events. Project these shims into coding-agent's live
+      // controller rather than maintaining a second workflow tool renderer.
       case "tool_call":
-      case "tool_use": {
-        const name = String((event as { name?: unknown }).name ?? "tool");
-        const args = summariseArgs((event as { input?: unknown }).input);
-        this._upsertToolEntry({ name, args, state: "pending" });
-        return true;
-      }
+      case "tool_use":
+        return this.liveChat.applyEvent(legacyToolStartEvent(event));
 
-      case "tool_result": {
-        const name = String((event as { name?: unknown }).name ?? "tool");
-        const rawOutput = (event as { output?: unknown }).output;
-        const output =
-          typeof rawOutput === "string"
-            ? rawOutput
-            : extractMessageText(rawOutput);
-        this._upsertToolEntry({
-          name,
-          output,
-          state: Boolean((event as { isError?: unknown }).isError)
-            ? "error"
-            : "success",
-        });
-        return true;
-      }
+      case "tool_result":
+        return this.liveChat.applyEvent(legacyToolResultEvent(event));
 
       case "thinking_delta":
-      case "thinking": {
-        const delta = String(
-          (event as { delta?: unknown }).delta ??
-            (event as { text?: unknown }).text ??
-            "",
-        );
-        if (!delta) return false;
-        this._appendTextDelta("thinking", delta);
-        return true;
-      }
+      case "thinking":
+        return this.liveChat.applyEvent(legacyThinkingEvent(event));
 
       case "compaction_start":
         this.sdkBusy = true;
@@ -542,152 +429,6 @@ export class StageChatView implements Component {
     }
   }
 
-  private _handleMessageStart(message: unknown): boolean {
-    if (!isMessageLike(message)) return false;
-    if (message.role === "assistant") {
-      this.streamingAssistantIndex = undefined;
-      this.streamingThinkingIndex = undefined;
-      return this._updateAssistantFromMessage(message);
-    }
-
-    const entry = transcriptEntryFromSnapshotMessage(
-      message as AgentSnapshotMessage,
-    );
-    if (!entry) return false;
-    if (entry.role === "user") {
-      const signature = userMessageSignature(entry.text);
-      if (this.optimisticUserSignatures.delete(signature)) return false;
-    }
-    this.transcript.push(entry);
-    return true;
-  }
-
-  private _handleMessageUpdate(event: AgentSessionEvent): boolean {
-    const message = (event as { message?: unknown }).message;
-    const hasAssistantSnapshot =
-      isMessageLike(message) && message.role === "assistant";
-    const snapshotHasPayload =
-      hasAssistantSnapshot &&
-      assistantContentHasRenderablePayload(message.content);
-    let changed = false;
-    if (hasAssistantSnapshot) {
-      changed = this._updateAssistantFromMessage(message) || changed;
-    }
-
-    const assistantEvent = (
-      event as { assistantMessageEvent?: { type?: unknown; delta?: unknown } }
-    ).assistantMessageEvent;
-    const streamType = String(assistantEvent?.type ?? "");
-    const delta =
-      typeof assistantEvent?.delta === "string" ? assistantEvent.delta : "";
-    // Prefer Pi's full assistant message snapshot when it contains visible
-    // payload; use deltas only for delta-only SDK shims/events.
-    if (
-      !changed &&
-      !snapshotHasPayload &&
-      streamType === "text_delta" &&
-      delta
-    ) {
-      this._appendTextDelta("assistant", delta);
-      changed = true;
-    } else if (
-      !changed &&
-      !snapshotHasPayload &&
-      streamType === "thinking_delta" &&
-      delta
-    ) {
-      this._appendTextDelta("thinking", delta);
-      changed = true;
-    }
-
-    return changed;
-  }
-
-  private _handleMessageEnd(message: unknown): boolean {
-    let changed = false;
-    if (isMessageLike(message) && message.role === "assistant") {
-      changed = this._updateAssistantFromMessage(message) || changed;
-      for (const [toolCallId, index] of this.toolEntryIndexes.entries()) {
-        const entry = this.transcript[index];
-        if (isLocalToolEntry(entry) && entry.state === "pending") {
-          this.transcript[index] = { ...entry, text: entry.text };
-        }
-        this.toolEntryIndexes.set(toolCallId, index);
-      }
-    }
-    this.streamingAssistantIndex = undefined;
-    this.streamingThinkingIndex = undefined;
-    return changed || isMessageLike(message);
-  }
-
-  private _updateAssistantFromMessage(message: {
-    role?: unknown;
-    content?: unknown;
-    stopReason?: unknown;
-    errorMessage?: unknown;
-  }): boolean {
-    const projection = projectAssistantContent(message.content);
-    let changed = false;
-    if (projection.thinking) {
-      changed =
-        this._upsertStreamingText("thinking", projection.thinking) || changed;
-    }
-    if (projection.text) {
-      changed =
-        this._upsertStreamingText("assistant", projection.text) || changed;
-    }
-    const stopReason =
-      typeof message.stopReason === "string" ? message.stopReason : "";
-    if (stopReason === "aborted" || stopReason === "error") {
-      const errorText =
-        typeof message.errorMessage === "string" && message.errorMessage
-          ? message.errorMessage
-          : stopReason === "aborted"
-            ? "Operation aborted"
-            : "Unknown error";
-      changed = this._failPendingToolEntries(errorText) || changed;
-      if (!projection.toolCalls.length) {
-        changed =
-          this._upsertStreamingText(
-            "system",
-            stopReason === "error" ? `Error: ${errorText}` : errorText,
-          ) || changed;
-      }
-    }
-    for (const toolCall of projection.toolCalls) {
-      changed = this._upsertToolEntry(toolCall) || changed;
-    }
-    return changed;
-  }
-
-  private _upsertStreamingText(
-    role: "assistant" | "thinking" | "system",
-    text: string,
-  ): boolean {
-    if (!text) return false;
-    if (role === "system") {
-      this._upsertTextLastByRole("system", text);
-      return true;
-    }
-    const index =
-      role === "assistant"
-        ? this.streamingAssistantIndex
-        : this.streamingThinkingIndex;
-    if (
-      index !== undefined &&
-      isLocalTextRoleEntry(this.transcript[index], role)
-    ) {
-      if (this.transcript[index]?.text === text) return false;
-      this.transcript[index] = { role, text } as TranscriptEntry;
-      return true;
-    }
-    this.transcript.push({ role, text } as TranscriptEntry);
-    const nextIndex = this.transcript.length - 1;
-    if (role === "assistant") this.streamingAssistantIndex = nextIndex;
-    else this.streamingThinkingIndex = nextIndex;
-    return true;
-  }
-
   private _absorbStageNotices(stage: StageSnapshot | undefined): boolean {
     const notices = stage?.notices;
     if (!notices) return false;
@@ -707,110 +448,6 @@ export class StageChatView implements Component {
       });
     }
     return changed;
-  }
-
-  private _upsertTextLastByRole(
-    role: "user" | "assistant" | "thinking" | "system",
-    text: string,
-  ): void {
-    const last = this.transcript[this.transcript.length - 1];
-    if (isLocalTextRoleEntry(last, role)) {
-      this.transcript[this.transcript.length - 1] = {
-        role,
-        text,
-      } as TranscriptEntry;
-    } else {
-      this.transcript.push({ role, text } as TranscriptEntry);
-    }
-  }
-
-  private _appendTextDelta(
-    role: "assistant" | "thinking",
-    delta: string,
-  ): void {
-    const index =
-      role === "assistant"
-        ? this.streamingAssistantIndex
-        : this.streamingThinkingIndex;
-    if (
-      index !== undefined &&
-      isLocalTextRoleEntry(this.transcript[index], role)
-    ) {
-      const current = this.transcript[index];
-      this.transcript[index] = {
-        role,
-        text: current.text + delta,
-      } as TranscriptEntry;
-      return;
-    }
-    this.transcript.push({ role, text: delta } as TranscriptEntry);
-    const nextIndex = this.transcript.length - 1;
-    if (role === "assistant") this.streamingAssistantIndex = nextIndex;
-    else this.streamingThinkingIndex = nextIndex;
-  }
-
-  private _failPendingToolEntries(errorText: string): boolean {
-    let changed = false;
-    for (const [toolCallId, index] of this.toolEntryIndexes.entries()) {
-      const entry = this.transcript[index];
-      if (!isLocalToolEntry(entry) || entry.state !== "pending") continue;
-      changed =
-        this._upsertToolEntry({
-          toolCallId,
-          name: entry.name,
-          output: errorText,
-          state: "error",
-        }) || changed;
-    }
-    this.toolEntryIndexes.clear();
-    return changed;
-  }
-
-  private _upsertToolEntry(update: {
-    toolCallId?: string;
-    name: string;
-    args?: string;
-    output?: string;
-    state: "pending" | "success" | "error";
-  }): boolean {
-    const mappedIndex = update.toolCallId
-      ? this.toolEntryIndexes.get(update.toolCallId)
-      : undefined;
-    const index =
-      mappedIndex ??
-      findToolEntryIndex(this.transcript, update.toolCallId, update.name);
-    const existing =
-      index !== undefined && index >= 0 ? this.transcript[index] : undefined;
-    const previous = isLocalToolEntry(existing) ? existing : undefined;
-    const output = update.output || previous?.output;
-    const name = previous?.name ?? update.name;
-    const args = update.args ?? previous?.args;
-    const summary = output
-      ? truncateToWidth(output.replace(/\s+/g, " "), 80)
-      : "";
-    const next: ToolEntry = {
-      role: "tool",
-      name,
-      toolCallId: previous?.toolCallId ?? update.toolCallId,
-      args,
-      output,
-      state: update.state,
-      text: summary
-        ? `← ${name} ${summary}`
-        : args
-          ? `→ ${name} ${args}`
-          : `→ ${name}`,
-    };
-    if (previous && shallowToolEntryEqual(previous, next)) return false;
-    if (index !== undefined && index >= 0) {
-      this.transcript[index] = next;
-      if (next.toolCallId) this.toolEntryIndexes.set(next.toolCallId, index);
-    } else {
-      this.transcript.push(next);
-      if (next.toolCallId)
-        this.toolEntryIndexes.set(next.toolCallId, this.transcript.length - 1);
-    }
-    return true;
   }
 
   private _currentStage(): StageSnapshot | undefined {
@@ -842,12 +479,7 @@ export class StageChatView implements Component {
   }
 
   private _hasPendingToolEntries(): boolean {
-    return (
-      this.liveChat.pendingToolIds().length > 0 ||
-      this.transcript.some(
-        (entry) => isLocalToolEntry(entry) && entry.state === "pending",
-      )
-    );
+    return this.liveChat.pendingToolIds().length > 0;
   }
 
   private _syncAnimationTick(): void {
@@ -866,13 +498,21 @@ export class StageChatView implements Component {
     }
   }
 
-  private _isBlocked(): boolean {
-    return this._currentStage()?.status === "blocked";
+  private _requestEventRender(): void {
+    if (!this._isStreaming()) {
+      this.requestRender?.();
+      return;
+    }
+    if (this.renderThrottleTimer) return;
+    this.renderThrottleTimer = setTimeout(() => {
+      this.renderThrottleTimer = undefined;
+      this.requestRender?.();
+    }, STREAMING_RENDER_THROTTLE_MS);
+    this.renderThrottleTimer.unref?.();
   }
 
-  private _isSettled(stage: StageSnapshot | undefined): boolean {
-    if (!stage) return !this.handle;
-    return stage.status === "completed" || stage.status === "failed";
+  private _isBlocked(): boolean {
+    return this._currentStage()?.status === "blocked";
   }
 
   private _isPaused(
@@ -882,60 +522,44 @@ export class StageChatView implements Component {
   }
 
   // -------------------------------------------------------------------------
-  // Top-level render — composes header / body / loader / editor / footer / hints
+  // Top-level render — composes header / body / usage / editor / footer
   // -------------------------------------------------------------------------
 
   render(width: number): string[] {
     const w = Math.max(40, width);
     const stage = this._currentStage();
     const blocked = this._isBlocked();
-    const settled = this._isSettled(stage);
-    const streaming = this._isStreaming() && !blocked && !settled;
-    const paused = this._isPaused(stage);
+    const streaming = this._isStreaming() && !blocked;
 
     const headerLines = this._renderHeader(w, stage);
     const sepLines = [this._sepRule(w)];
-    const loaderLines = streaming ? this._renderLoader(w, stage) : [];
-    // When the loader sits above the editor, the loader's bottom rule and
-    // the editor's top rule collapse into a single shared divider — matches
-    // the mockup's `pi-loader` + `pi-editor` stack and saves one row.
-    const editorLines = this._renderEditor(w, {
-      paused,
-      streaming,
-      settled,
-      blocked,
-      omitTopRule: loaderLines.length > 0,
-    });
-    const hintsLines = this._renderHints(w, { paused, streaming, settled });
+    const workingLines = this._renderWorkingStatus(w, stage, { streaming });
+    const usageLines = this._renderUsage(w);
+    const editorLines = this._renderEditor(w, blocked);
+    const footerLines = this._renderFooter(w);
 
     const fixed =
       HEADER_ROWS +
       SEP_ROWS +
-      loaderLines.length +
+      workingLines.length +
+      usageLines.length +
       editorLines.length +
-      FOOTER_ROWS +
-      HINTS_ROWS;
+      footerLines.length;
     const totalRows = this._viewLineCount();
     const bodyBudget = Math.max(1, totalRows - fixed);
     this.bodyViewport.setVisibleRows(bodyBudget);
     if (blocked) this.bodyViewport.scrollToBottom();
     const bodyLines = blocked
       ? this._renderBlockedBody(w, bodyBudget, stage)
-      : this._renderBody(w, bodyBudget, stage, { paused, streaming, settled });
-    const footerLines = this._renderFooter(w, stage, {
-      paused,
-      streaming,
-      settled,
-    });
-
+      : this._renderBody(w, bodyBudget);
     const lines = [
       ...headerLines,
       ...sepLines,
       ...bodyLines,
-      ...loaderLines,
+      ...workingLines,
+      ...usageLines,
       ...editorLines,
       ...footerLines,
-      ...hintsLines,
     ];
     while (lines.length < totalRows) lines.push(this._blank(w));
     if (lines.length > totalRows) lines.length = totalRows;
@@ -1084,37 +708,8 @@ export class StageChatView implements Component {
   private _renderBody(
     width: number,
     budget: number,
-    stage: StageSnapshot | undefined,
-    flags: { paused: boolean; streaming: boolean; settled: boolean },
   ): string[] {
     const components: Component[] = [];
-    if (flags.paused) {
-      components.push(
-        this._banner(
-          "warning",
-          "❚❚",
-          "PAUSED",
-          "stopped between turns · type to resume, or ctrl+p release without input",
-        ),
-      );
-      components.push(new Spacer(1));
-    } else if (flags.settled && stage?.status === "completed") {
-      components.push(
-        this._banner("success", "✓", "COMPLETED", this._completedMeta(stage)),
-      );
-      components.push(new Spacer(1));
-    } else if (flags.settled && stage?.status === "failed") {
-      components.push(
-        this._banner(
-          "error",
-          "✗",
-          "FAILED",
-          stage?.error?.replace(/\s+/g, " ") ?? "stage exited with an error",
-        ),
-      );
-      components.push(new Spacer(1));
-    }
-
     // Base chat body: delegate transcript composition to the Pi-style
     // transcript component so the attached stage chat uses the same message
     // spacing and coding-agent message widgets as the main interactive chat.
@@ -1146,69 +741,34 @@ export class StageChatView implements Component {
 
   private _renderEntry(entry: TranscriptEntry): Component {
     if (isChatMessageEntry(entry)) {
-      return renderChatMessageEntry(entry, this._chatMessageRenderOptions());
+      return renderChatMessageEntry(
+        this._streamingWindowedEntry(entry),
+        this._chatMessageRenderOptions(),
+      );
     }
-    switch (entry.role) {
-      case "user":
-        return renderChatMessageEntry(
-          { role: "user", kind: "user", text: entry.text },
-          this._chatMessageRenderOptions(),
-        );
-      case "assistant":
-        return renderChatMessageEntry(
-          {
-            role: "assistant",
-            kind: "assistant",
-            message: assistantMessageForText(entry.text),
-          },
-          this._chatMessageRenderOptions(),
-        );
-      case "thinking":
-        return renderChatMessageEntry(
-          {
-            role: "assistant",
-            kind: "assistant",
-            message: assistantMessageForThinking(entry.text),
-          },
-          this._chatMessageRenderOptions(),
-        );
-      case "tool":
-        return renderChatMessageEntry(
-          this._toolEntryToChatMessage(entry),
-          this._chatMessageRenderOptions(),
-        );
-      case "notice":
-        return this._noticeRow(entry);
-      case "system":
-        return renderChatMessageEntry(
-          { role: "system", kind: "system", text: entry.text },
-          this._chatMessageRenderOptions(),
-        );
-    }
+    return this._noticeRow(entry);
   }
 
-  private _toolEntryToChatMessage(entry: ToolEntry): ChatMessageEntry {
-    const toolCallId = entry.toolCallId ?? `workflow-${entry.name}`;
+  private _streamingWindowedEntry(entry: ChatMessageEntry): ChatMessageEntry {
+    if (!this._isStreaming() || this.bodyViewport.getScrollFromBottom() !== 0) {
+      return entry;
+    }
+    if (entry.kind !== "assistant") return entry;
+    const content = entry.message.content.map((item) => {
+      if (item.type === "text") {
+        return { ...item, text: tailStreamingText(item.text) };
+      }
+      if (item.type === "thinking") {
+        return { ...item, thinking: tailStreamingText(item.thinking) };
+      }
+      return item;
+    });
     return {
-      role: "tool",
-      kind: "tool",
-      toolName: entry.name,
-      toolCallId,
-      args: toolArgsForRender(entry),
-      isPartial: entry.state === "pending",
-      result:
-        entry.state !== "pending" || entry.output
-          ? {
-              role: "toolResult",
-              toolCallId,
-              toolName: entry.name,
-              content: entry.output
-                ? [{ type: "text", text: entry.output }]
-                : [],
-              isError: entry.state === "error",
-              timestamp: Date.now(),
-            }
-          : undefined,
+      ...entry,
+      message: {
+        ...entry.message,
+        content,
+      },
     };
   }
 
@@ -1282,252 +842,96 @@ export class StageChatView implements Component {
   }
 
   // -------------------------------------------------------------------------
-  // Loader — top rule + spinner row + bottom rule
-  // -------------------------------------------------------------------------
-
-  private _renderLoader(
-    width: number,
-    stage: StageSnapshot | undefined,
-  ): string[] {
-    const t = this.theme;
-    const rule = hexToAnsi(t.border) + "─".repeat(width) + RESET;
-    const dur = stageDurationText(stage);
-    const msg = `Working${dur ? "  · " + dur : ""}`;
-    const escapeHint =
-      paint("esc", t.text, { bold: true }) + " " + paint("to interrupt", t.dim);
-    const left =
-      " " +
-      paint(spinnerFrame(), t.accent, { bold: true }) +
-      "  " +
-      paint(msg, t.textMuted) +
-      " ";
-    const leftW = visibleWidth(spinnerFrame()) + 4 + visibleWidth(msg);
-    const rightW = visibleWidth("esc to interrupt");
-    const gap = Math.max(1, width - leftW - rightW - 2);
-    const body = left + " ".repeat(gap) + escapeHint + " ";
-    // No closing rule — the editor's top rule (or the editor's body when
-    // `omitTopRule: true`) sits directly underneath and provides the divider.
-    return [rule, body];
-  }
-
-  // -------------------------------------------------------------------------
   // Editor — top rule + ` ❯ … ` + bottom rule
   // -------------------------------------------------------------------------
 
-  private _renderEditor(
-    width: number,
-    flags: {
-      paused: boolean;
-      streaming: boolean;
-      settled: boolean;
-      blocked: boolean;
-      /**
-       * When `true`, drop the editor's top rule — the loader directly above
-       * already paints a horizontal rule and we don't want a doubled border.
-       */
-      omitTopRule: boolean;
-    },
-  ): string[] {
+  private _renderEditor(width: number, blocked: boolean): string[] {
     const t = this.theme;
-    const placeholder = this._editorPlaceholder(flags);
-    // Disabled (settled or blocked) uses surface1 rules + dim placeholder.
-    const disabled = flags.settled || flags.blocked || !this.handle;
+    // Disabled only when no live chat handle exists or workflow dependencies
+    // are blocked. A settled attached stage remains a regular chat session.
+    const disabled = blocked || !this.handle;
+    const ruleHex = this._editorRuleColor(disabled);
     if (!disabled && this.editor) {
-      setEditorPlaceholder(this.editor, placeholder);
+      setEditorFocused(this.editor, this.focused);
+      setEditorPlaceholder(this.editor, undefined);
+      setEditorBorderColor(this.editor, ruleHex);
       return this.editor.render(width);
     }
-    const ruleHex = disabled ? t.borderDim : t.border;
+    if (this.editor) setEditorFocused(this.editor, false);
     const rule = hexToAnsi(ruleHex) + "─".repeat(width) + RESET;
 
     const glyphHex = disabled ? t.dim : t.accent;
-
+    const available = Math.max(1, width - 3);
     const value = this.inputBuffer
-      ? paint(
-          truncateToWidth(this.inputBuffer, Math.max(8, width - 6)),
-          t.text,
-        ) + paint("▌", t.text)
-      : paint(placeholder, t.dim, { italic: true });
+      ? paint(truncateToWidth(this.inputBuffer, available), t.text) + cursorBlock()
+      : disabled
+        ? ""
+        : cursorBlock();
 
-    const tag = flags.streaming
-      ? paint("streaming", t.accent, { bold: true })
-      : flags.paused
-        ? paint("paused", t.warning, { bold: true })
-        : flags.settled
-          ? paint("settled", t.success, { bold: true })
-          : paint("idle", t.dim);
-    const tagWidth = visibleWidth(stripAnsi(tag));
-    const left = " " + paint("❯", glyphHex, { bold: true }) + "  " + value;
-    const valueWidth = visibleWidth(this.inputBuffer || placeholder);
-    const leftWidth = 1 + 1 + 2 + valueWidth + (this.inputBuffer ? 1 : 0);
-    const gap = Math.max(1, width - leftWidth - tagWidth - 2);
-    const body = left + " ".repeat(gap) + tag + " ";
-    return flags.omitTopRule ? [body, rule] : [rule, body, rule];
+    const left = paint("❯", glyphHex, { bold: true }) + " " + value;
+    const gap = Math.max(0, width - visibleWidth(stripAnsi(left)));
+    const body = left + " ".repeat(gap);
+    return [rule, body, rule];
   }
 
-  private _editorPlaceholder(flags: {
-    paused: boolean;
-    streaming: boolean;
-    settled: boolean;
-    blocked: boolean;
-  }): string {
-    if (flags.blocked) return "blocked · upstream stage owns the prompt";
-    if (flags.settled || !this.handle)
-      return "read-only · stage has no live handle";
-    if (flags.paused)
-      return "type a message to resume, or ctrl+p to resume empty…";
-    if (flags.streaming)
-      return "type to steer the current turn… (queues with ↵)";
-    return "type a message to start this stage…";
+  private _editorRuleColor(disabled: boolean): string {
+    if (disabled) return this.theme.borderDim;
+    const level = this.handle?.agentSession?.state.thinkingLevel ?? "off";
+    switch (level) {
+      case "minimal":
+        return this.theme.borderDim;
+      case "low":
+        return this.theme.info;
+      case "medium":
+        return this.theme.accent;
+      case "high":
+        return this.theme.mauve;
+      case "xhigh":
+        return this.theme.error;
+      case "off":
+      default:
+        return this.theme.border;
+    }
   }
 
   // -------------------------------------------------------------------------
-  // Footer — two dim lines mirroring Pi's FooterComponent
+  // Working, usage + footer — mirrors the main chat composer stack
   // -------------------------------------------------------------------------
 
-  private _renderFooter(
+  private _renderWorkingStatus(
     width: number,
     stage: StageSnapshot | undefined,
-    flags: { paused: boolean; streaming: boolean; settled: boolean },
+    flags: { streaming: boolean },
   ): string[] {
+    if (!flags.streaming) return [];
+    const t = this.theme;
+    const dur = stageDurationText(stage);
+    const message = this.workingMessage ?? `Working${dur ? "  · " + dur : ""}`;
+    return new WorkingStatusComponent({
+      spinner: spinnerFrame(),
+      message,
+      spinnerColor: (text) => paint(text, t.accent, { bold: true }),
+      messageColor: (text) => paint(text, t.textMuted),
+    }).render(width);
+  }
+
+  private _renderUsage(width: number): string[] {
+    const agentSession = this.handle?.agentSession;
+    if (!agentSession) return [];
+    return new UsageMeterComponent(agentSession).render(width);
+  }
+
+  private _renderFooter(width: number): string[] {
     const agentSession = this.handle?.agentSession;
     if (agentSession && this.footerData) {
-      return [
-        ...new UsageMeterComponent(agentSession).render(width),
-        ...new FooterComponent(agentSession, this.footerData).render(width),
-      ].slice(0, FOOTER_ROWS);
+      return new FooterComponent(agentSession, this.footerData).render(width);
     }
-
-    const t = this.theme;
-    const sessionId = this.handle?.sessionId ?? stage?.sessionId;
-    const messages = this.handle?.messages.length ?? this.transcript.length;
-    const dur = stageDurationText(stage) ?? "";
-
-    // Top line — left: workflow / stage tag; right: session id
-    const lTop = paint(
-      `pi-workflows/${this.workflowName}/${stage?.name ?? "stage"}`,
-      t.dim,
-    );
-    const rTop = sessionId
-      ? paint("session ", t.dim) + paint(shortenId(sessionId), t.textMuted)
-      : paint("session not yet realised", t.dim);
-    const top = layoutRow(width, " ", " " + lTop, rTop + " ", t);
-
-    // Bottom line — left: messages / duration; right: caption
-    const history =
-      this.bodyViewport.getMaxScroll() > 0
-        ? this.bodyViewport.getScrollFromBottom() > 0
-          ? ` · history ↑${this.bodyViewport.getScrollFromBottom()}`
-          : " · history bottom"
-        : "";
-    const lBot =
-      paint(`◇ ${messages} messages`, t.dim) +
-      (dur ? "  " + paint(`· ${dur}`, t.dim) : "") +
-      paint(history, t.dim);
-    const rBot = flags.streaming
-      ? paint("streaming · live", t.accent)
-      : flags.paused
-        ? paint("paused · ready to resume", t.warning)
-        : flags.settled && stage?.status === "completed"
-          ? paint("completed · session persisted", t.success)
-          : flags.settled && stage?.status === "failed"
-            ? paint("failed · see error", t.error)
-            : paint(this.statusMessage || "idle · awaiting input", t.dim);
-    const bot = layoutRow(width, " ", " " + lBot, rBot + " ", t);
-    return [top, bot];
-  }
-
-  // -------------------------------------------------------------------------
-  // Hints — dashed rule + key bindings
-  // -------------------------------------------------------------------------
-
-  private _renderHints(
-    width: number,
-    flags: { paused: boolean; streaming: boolean; settled: boolean },
-  ): string[] {
-    const t = this.theme;
-    const dash = hexToAnsi(t.borderDim) + "╌".repeat(width) + RESET;
-    const hints = this._hintSet(flags);
-    const sep = paint(" · ", t.dim);
-    const rendered = hints
-      .map(
-        ({ key, label, emphasis }) =>
-          paint(key, t.text, { bold: true }) +
-          " " +
-          paint(
-            label,
-            emphasis ? t.textMuted : t.dim,
-            emphasis ? { bold: true } : {},
-          ),
-      )
-      .join(sep);
-    const tagPlain = `pi-workflows/${this.workflowName}`;
-    const renderedW = visibleWidth(stripAnsi(rendered));
-    const tagW = visibleWidth(tagPlain);
-    // Right-side tag is "nice to have". When the hint line + tag overflows
-    // the chrome, drop the tag — the hints are the load-bearing affordance.
-    if (renderedW + tagW + 3 > width) {
-      const gap = Math.max(1, width - renderedW - 1);
-      return [dash, " " + rendered + " ".repeat(gap)];
-    }
-    const tag = paint(tagPlain, t.dim);
-    const gap = Math.max(1, width - renderedW - tagW - 2);
-    return [dash, " " + rendered + " ".repeat(gap) + tag + " "];
-  }
-
-  private _hintSet(flags: {
-    paused: boolean;
-    streaming: boolean;
-    settled: boolean;
-  }): Array<{ key: string; label: string; emphasis?: boolean }> {
-    const historyHint = { key: "pageup/pagedown", label: "history" };
-    if (flags.settled) {
-      return [
-        historyHint,
-        { key: "ctrl+d", label: "back to graph", emphasis: true },
-        { key: "esc", label: "close" },
-      ];
-    }
-    if (flags.paused) {
-      return [
-        { key: "↵", label: "resume with message", emphasis: true },
-        { key: "ctrl+p", label: "resume empty" },
-        historyHint,
-        { key: "ctrl+d", label: "back" },
-        { key: "esc", label: "close" },
-      ];
-    }
-    if (flags.streaming) {
-      return [
-        { key: "↵", label: "steer", emphasis: true },
-        { key: "ctrl+f", label: "follow-up", emphasis: true },
-        { key: "ctrl+p", label: "pause" },
-        historyHint,
-        { key: "ctrl+d", label: "back" },
-        { key: "esc", label: "interrupt" },
-      ];
-    }
-    return [
-      { key: "↵", label: "send", emphasis: true },
-      { key: "ctrl+f", label: "follow-up" },
-      { key: "ctrl+p", label: "pause" },
-      historyHint,
-      { key: "ctrl+d", label: "back" },
-      { key: "esc", label: "close" },
-    ];
+    return [];
   }
 
   // -------------------------------------------------------------------------
   // Small helpers
   // -------------------------------------------------------------------------
-
-  private _completedMeta(stage: StageSnapshot | undefined): string {
-    const dur = stageDurationText(stage);
-    const parts: string[] = ["stage settled"];
-    if (dur) parts.push(dur);
-    if (stage?.sessionFile)
-      parts.push(`session ${shortenFile(stage.sessionFile)}`);
-    return parts.join(" · ");
-  }
 
   private _blank(width: number): string {
     return " ".repeat(width);
@@ -1549,21 +953,19 @@ export class StageChatView implements Component {
       this.onDetach();
       return true;
     }
-    if (matchesKey(data, "escape") || data === "\x03") {
-      if (this._isStreaming() && !this._isBlocked()) {
+    if (matchesKey(data, "escape")) {
+      if (this._canPause()) {
         void this._pause();
       } else {
         this.onClose();
       }
       return true;
     }
-    const blocked = this._isBlocked();
-    if (data === "\x10") {
-      if (blocked) return true;
-      if (this._isPaused()) void this._resume();
-      else void this._pause();
+    if (data === "\x03") {
+      this.onClose();
       return true;
     }
+    const blocked = this._isBlocked();
     if (data === "\x06") {
       if (blocked) return true;
       void this._submit("followUp");
@@ -1592,6 +994,13 @@ export class StageChatView implements Component {
     return false;
   }
 
+  private _canPause(): boolean {
+    if (!this.handle || this.localPaused || this._isBlocked()) return false;
+    const stage = this._currentStage();
+    if (stage?.status === "paused") return false;
+    return this._isStreaming();
+  }
+
   private async _pause(): Promise<void> {
     if (!this.handle) {
       this.statusMessage = "no live handle on this stage";
@@ -1604,7 +1013,7 @@ export class StageChatView implements Component {
     try {
       await this.handle.pause();
       this.sdkBusy = false;
-      this.statusMessage = "paused";
+      this.statusMessage = "";
     } catch (err) {
       this.statusMessage = `pause failed: ${err instanceof Error ? err.message : String(err)}`;
       this.localPaused = false;
@@ -1629,7 +1038,7 @@ export class StageChatView implements Component {
       await this.handle.resume(message);
       this.localPaused = false;
       this.sdkBusy = false;
-      this.statusMessage = "resumed";
+      this.statusMessage = "";
     } catch (err) {
       this.sdkBusy = false;
       this.statusMessage = `resume failed: ${err instanceof Error ? err.message : String(err)}`;
@@ -1651,6 +1060,7 @@ export class StageChatView implements Component {
       this.statusMessage = "no live handle on this stage";
       this.transcript.push({
         role: "system",
+        kind: "system",
         text: "(no live handle — message dropped)",
       });
       this.requestRender?.();
@@ -1698,6 +1108,10 @@ export class StageChatView implements Component {
       clearInterval(this.animationTimer);
       this.animationTimer = undefined;
     }
+    if (this.renderThrottleTimer) {
+      clearTimeout(this.renderThrottleTimer);
+      this.renderThrottleTimer = undefined;
+    }
     this.editor = undefined;
   }
 
@@ -1705,24 +1119,8 @@ export class StageChatView implements Component {
   get _inputBuffer(): string {
     return this.inputBuffer;
   }
-  get _transcript(): ReadonlyArray<
-    TranscriptEntry & {
-      readonly text: string;
-      readonly toolCallId: string;
-      readonly state: string;
-      readonly output: string;
-    }
-  > {
-    return this.transcript.flatMap((entry) =>
-      transcriptDebugEntries(entry),
-    ) as ReadonlyArray<
-      TranscriptEntry & {
-        readonly text: string;
-        readonly toolCallId: string;
-        readonly state: string;
-        readonly output: string;
-      }
-    >;
+  get _transcript(): ReadonlyArray<TranscriptDebugEntry> {
+    return this.transcript.flatMap((entry) => transcriptDebugEntries(entry));
   }
   get _statusMessage(): string {
     return this.statusMessage;
@@ -1745,28 +1143,17 @@ export class StageChatView implements Component {
 // Module-private helpers
 // ---------------------------------------------------------------------------
 
-type AssistantComponentMessage = Extract<
-  ChatMessageEntry,
-  { kind: "assistant" }
->["message"];
+interface TranscriptDebugEntry {
+  readonly role: string;
+  readonly text: string;
+  readonly toolCallId: string;
+  readonly state: string;
+  readonly output: string;
+}
 
-function transcriptDebugEntries(entry: TranscriptEntry): Array<
-  TranscriptEntry & {
-    readonly text: string;
-    readonly toolCallId: string;
-    readonly state: string;
-    readonly output: string;
-  }
-> {
+function transcriptDebugEntries(entry: TranscriptEntry): TranscriptDebugEntry[] {
   if (isChatMessageEntry(entry) && entry.kind === "assistant") {
-    const entries: Array<
-      TranscriptEntry & {
-        text: string;
-        toolCallId: string;
-        state: string;
-        output: string;
-      }
-    > = [];
+    const entries: TranscriptDebugEntry[] = [];
     const thinking = extractThinkingText(entry.message.content);
     const text = extractMessageText(entry.message.content);
     if (thinking)
@@ -1776,11 +1163,6 @@ function transcriptDebugEntries(entry: TranscriptEntry): Array<
         toolCallId: "",
         state: "",
         output: "",
-      } as TranscriptEntry & {
-        text: string;
-        toolCallId: string;
-        state: string;
-        output: string;
       });
     if (text || entries.length === 0)
       entries.push({ ...entry, text, toolCallId: "", state: "", output: "" });
@@ -1789,15 +1171,11 @@ function transcriptDebugEntries(entry: TranscriptEntry): Array<
   return [
     {
       ...entry,
+      role: entry.role,
       text: transcriptDebugText(entry),
       toolCallId: transcriptDebugToolCallId(entry),
       state: transcriptDebugToolState(entry),
       output: transcriptDebugToolOutput(entry),
-    } as TranscriptEntry & {
-      text: string;
-      toolCallId: string;
-      state: string;
-      output: string;
     },
   ];
 }
@@ -1854,12 +1232,30 @@ function transcriptDebugToolOutput(entry: TranscriptEntry): string {
 
 function setEditorPlaceholder(
   editor: EditorComponent,
-  placeholder: string,
+  placeholder: string | undefined,
 ): void {
   const candidate = editor as EditorComponent & {
     setPlaceholder?: (value: string | undefined) => void;
   };
   candidate.setPlaceholder?.(placeholder);
+}
+
+function cursorBlock(): string {
+  return "\x1b[7m \x1b[0m";
+}
+
+function setEditorBorderColor(editor: EditorComponent, hex: string): void {
+  const candidate = editor as EditorComponent & {
+    borderColor?: (text: string) => string;
+  };
+  if (candidate.borderColor !== undefined) {
+    candidate.borderColor = (text: string) => hexToAnsi(hex) + text + RESET;
+  }
+}
+
+function setEditorFocused(editor: EditorComponent, focused: boolean): void {
+  const candidate = editor as EditorComponent & Partial<Focusable>;
+  if ("focused" in candidate) candidate.focused = focused;
 }
 
 function isSharedLiveChatEvent(type: string): boolean {
@@ -1877,53 +1273,7 @@ function isChatMessageEntry(entry: TranscriptEntry): entry is ChatMessageEntry {
   return "kind" in entry && entry.role !== "notice";
 }
 
-function isLocalToolEntry(
-  entry: TranscriptEntry | undefined,
-): entry is ToolEntry {
-  return entry?.role === "tool" && !("kind" in entry);
-}
-
-function isLocalTextRoleEntry<
-  T extends "user" | "assistant" | "thinking" | "system",
->(
-  entry: TranscriptEntry | undefined,
-  role: T,
-): entry is Extract<TranscriptEntry, { role: T; text: string }> {
-  return entry?.role === role && !("kind" in entry) && "text" in entry;
-}
-
-function assistantMessageForText(text: string): AssistantComponentMessage {
-  return {
-    role: "assistant",
-    content: [{ type: "text", text }],
-    stopReason: "stop",
-  } as AssistantComponentMessage;
-}
-
-function assistantMessageForThinking(text: string): AssistantComponentMessage {
-  return {
-    role: "assistant",
-    content: [{ type: "thinking", thinking: text }],
-    stopReason: "stop",
-  } as AssistantComponentMessage;
-}
-
-function toolArgsForRender(entry: ToolEntry): Record<string, unknown> {
-  if (!entry.args) return {};
-  if (entry.name === "bash") {
-    return { command: entry.args.replace(/^command=/, "") };
-  }
-  return { input: entry.args };
-}
-
-function isMessageLike(
-  message: unknown,
-): message is {
-  role?: unknown;
-  content?: unknown;
-  stopReason?: unknown;
-  errorMessage?: unknown;
-} {
+function isMessageLike(message: unknown): message is { role?: unknown; content?: unknown } {
   return message !== null && typeof message === "object" && "role" in message;
 }
 
@@ -1937,160 +1287,115 @@ function userMessageSignature(text: string): string {
   return text.trim();
 }
 
-interface AssistantProjection {
-  text: string;
-  thinking: string;
-  toolCalls: Array<{
-    toolCallId?: string;
-    name: string;
-    args?: string;
-    state: "pending";
-  }>;
-}
-
-function assistantContentHasRenderablePayload(content: unknown): boolean {
-  if (typeof content === "string") return content.length > 0;
-  if (!Array.isArray(content)) return false;
-  return content.some((item) => {
-    if (typeof item === "string") return item.length > 0;
-    if (item == null || typeof item !== "object") return false;
-    const obj = item as { type?: unknown; text?: unknown; thinking?: unknown };
-    return (
-      (obj.type === "text" &&
-        typeof obj.text === "string" &&
-        obj.text.length > 0) ||
-      (obj.type === "thinking" &&
-        typeof obj.thinking === "string" &&
-        obj.thinking.length > 0) ||
-      obj.type === "toolCall"
-    );
-  });
-}
-
-function projectAssistantContent(content: unknown): AssistantProjection {
-  const projection: AssistantProjection = {
-    text: "",
-    thinking: "",
-    toolCalls: [],
-  };
-  if (!Array.isArray(content)) {
-    projection.text = typeof content === "string" ? content : "";
-    return projection;
-  }
-  const textParts: string[] = [];
-  const thinkingParts: string[] = [];
-  for (const item of content) {
-    if (item == null) continue;
-    if (typeof item === "string") {
-      textParts.push(item);
-      continue;
-    }
-    if (typeof item !== "object") continue;
-    const obj = item as {
+function assistantToolCallEvent(event: AgentSessionEvent): {
+  type: "tool_execution_start";
+  toolCallId: string;
+  toolName: string;
+  args: unknown;
+} | undefined {
+  const assistantEvent = (event as {
+    assistantMessageEvent?: {
       type?: unknown;
-      text?: unknown;
-      thinking?: unknown;
-      id?: unknown;
-      name?: unknown;
-      arguments?: unknown;
-      args?: unknown;
+      contentIndex?: unknown;
+      partial?: unknown;
+      toolCall?: unknown;
     };
-    if (obj.type === "text" && typeof obj.text === "string") {
-      textParts.push(obj.text);
-      continue;
-    }
-    if (obj.type === "thinking" && typeof obj.thinking === "string") {
-      thinkingParts.push(obj.thinking);
-      continue;
-    }
-    if (obj.type === "toolCall") {
-      const name = typeof obj.name === "string" ? obj.name : "tool";
-      const toolCallId = typeof obj.id === "string" ? obj.id : undefined;
-      const args = summariseArgs(obj.arguments ?? obj.args);
-      projection.toolCalls.push({ toolCallId, name, args, state: "pending" });
-    }
-  }
-  projection.text = textParts.join("");
-  projection.thinking = thinkingParts.join("\n\n");
-  return projection;
+  }).assistantMessageEvent;
+  const streamType = String(assistantEvent?.type ?? "");
+  if (!streamType.startsWith("toolcall_")) return undefined;
+
+  const explicit = toolCallPayload(assistantEvent?.toolCall);
+  if (explicit) return explicit;
+
+  const contentIndex = typeof assistantEvent?.contentIndex === "number" ? assistantEvent.contentIndex : undefined;
+  if (contentIndex === undefined) return undefined;
+  const partial = assistantEvent?.partial;
+  if (!isMessageLike(partial) || partial.role !== "assistant") return undefined;
+  const content = partial.content;
+  if (!Array.isArray(content)) return undefined;
+  return toolCallPayload(content[contentIndex]);
 }
 
-function shallowToolEntryEqual(a: ToolEntry, b: ToolEntry): boolean {
-  return (
-    a.role === b.role &&
-    a.text === b.text &&
-    a.name === b.name &&
-    a.toolCallId === b.toolCallId &&
-    a.args === b.args &&
-    a.output === b.output &&
-    a.state === b.state
+function toolCallPayload(value: unknown): {
+  type: "tool_execution_start";
+  toolCallId: string;
+  toolName: string;
+  args: unknown;
+} | undefined {
+  if (value === null || typeof value !== "object") return undefined;
+  const candidate = value as { type?: unknown; id?: unknown; name?: unknown; arguments?: unknown };
+  if (candidate.type !== "toolCall") return undefined;
+  if (typeof candidate.id !== "string" || typeof candidate.name !== "string") return undefined;
+  return {
+    type: "tool_execution_start",
+    toolCallId: candidate.id,
+    toolName: candidate.name,
+    args: candidate.arguments ?? {},
+  };
+}
+
+function legacyToolStartEvent(event: AgentSessionEvent): {
+  type: "tool_execution_start";
+  toolCallId: string;
+  toolName: string;
+  args: unknown;
+} {
+  const payload = event as { toolCallId?: unknown; name?: unknown; input?: unknown; args?: unknown };
+  const toolName = typeof payload.name === "string" ? payload.name : "tool";
+  const toolCallId =
+    typeof payload.toolCallId === "string" ? payload.toolCallId : `live-${toolName}`;
+  return {
+    type: "tool_execution_start",
+    toolCallId,
+    toolName,
+    args: payload.input ?? payload.args ?? {},
+  };
+}
+
+function legacyToolResultEvent(event: AgentSessionEvent): {
+  type: "tool_execution_end";
+  toolCallId: string;
+  toolName: string;
+  result: unknown;
+  isError: boolean;
+} {
+  const payload = event as {
+    toolCallId?: unknown;
+    name?: unknown;
+    output?: unknown;
+    isError?: unknown;
+  };
+  const toolName = typeof payload.name === "string" ? payload.name : "tool";
+  const toolCallId =
+    typeof payload.toolCallId === "string" ? payload.toolCallId : `live-${toolName}`;
+  const output = payload.output;
+  return {
+    type: "tool_execution_end",
+    toolCallId,
+    toolName,
+    result:
+      output !== null && typeof output === "object" && "content" in output
+        ? output
+        : { content: typeof output === "string" ? [{ type: "text", text: output }] : [] },
+    isError: payload.isError === true,
+  };
+}
+
+function legacyThinkingEvent(event: AgentSessionEvent): {
+  type: "message_update";
+  assistantMessageEvent: { type: "thinking_delta"; delta: string };
+  message: { role: "assistant"; content: [] };
+} {
+  const delta = String(
+    (event as { delta?: unknown }).delta ??
+      (event as { text?: unknown }).text ??
+      "",
   );
-}
-
-function transcriptEntryFromSnapshotMessage(
-  message: AgentSnapshotMessage,
-): TranscriptEntry | undefined {
-  switch (message.role) {
-    case "user": {
-      const text = extractMessageText(message.content);
-      return text ? { role: "user", text } : undefined;
-    }
-    case "assistant": {
-      const text = extractMessageText(message.content);
-      return text ? { role: "assistant", text } : undefined;
-    }
-    case "toolResult": {
-      const output = extractMessageText(message.content);
-      const summary = output
-        ? truncateToWidth(output.replace(/\s+/g, " "), 80)
-        : "";
-      return {
-        role: "tool",
-        name: message.toolName,
-        output,
-        state: message.isError ? "error" : "success",
-        text: summary
-          ? `← ${message.toolName} ${summary}`
-          : `← ${message.toolName}`,
-      };
-    }
-    case "bashExecution": {
-      const state =
-        message.cancelled ||
-        (message.exitCode !== undefined && message.exitCode !== 0)
-          ? "error"
-          : "success";
-      const summary = message.output
-        ? truncateToWidth(message.output.replace(/\s+/g, " "), 80)
-        : "";
-      return {
-        role: "tool",
-        name: "bash",
-        args: truncateToWidth(message.command.replace(/\s+/g, " "), 60),
-        output: message.output,
-        state,
-        text: summary ? `← bash ${summary}` : `→ bash ${message.command}`,
-      };
-    }
-    case "custom": {
-      if (!message.display) return undefined;
-      const text = extractMessageText(message.content);
-      return text ? { role: "system", text } : undefined;
-    }
-    case "branchSummary": {
-      const text = `Branch summary: ${message.summary}`;
-      return { role: "system", text };
-    }
-    case "compactionSummary": {
-      const text = `Compaction summary: ${message.summary}`;
-      return { role: "system", text };
-    }
-    default:
-      // The SDK message union is extensible. Snapshot unknown roles must be
-      // skipped here instead of being cast into `TranscriptEntry`; `_renderBody`
-      // only flattens the closed set of components returned by `_renderEntry`.
-      return undefined;
-  }
+  return {
+    type: "message_update",
+    assistantMessageEvent: { type: "thinking_delta", delta },
+    message: { role: "assistant", content: [] },
+  };
 }
 
 function extractThinkingText(content: unknown): string {
@@ -2133,47 +1438,25 @@ function extractToolResultText(result: unknown): string {
   return extractMessageText(content);
 }
 
-function findToolEntryIndex(
-  entries: readonly TranscriptEntry[],
-  toolCallId: string | undefined,
-  name: string,
-): number {
-  if (toolCallId !== undefined) {
-    for (let i = entries.length - 1; i >= 0; i--) {
-      const entry = entries[i];
-      if (isLocalToolEntry(entry) && entry.toolCallId === toolCallId) return i;
-    }
-  }
-  for (let i = entries.length - 1; i >= 0; i--) {
-    const entry = entries[i];
-    if (
-      isLocalToolEntry(entry) &&
-      entry.name === name &&
-      entry.state === "pending"
-    )
-      return i;
-  }
-  return -1;
-}
-
-function summariseArgs(input: unknown): string {
-  if (input == null) return "";
-  if (typeof input === "string")
-    return truncateToWidth(input.replace(/\s+/g, " "), 60);
-  if (typeof input !== "object") return String(input);
-  const obj = input as Record<string, unknown>;
-  const keys = Object.keys(obj);
-  if (keys.length === 0) return "";
-  const head = keys[0]!;
-  const value = obj[head];
-  const summary = typeof value === "string" ? value : JSON.stringify(value);
-  const formatted = `${head}=${summary}`;
-  return truncateToWidth(formatted.replace(/\s+/g, " "), 60);
-}
-
 function noticeSummary(n: StageNotice): string {
   const base = `~ ${n.kind} → ${n.to}`;
   return n.from ? `${base} (was ${n.from})` : base;
+}
+
+function tailStreamingText(text: string): string {
+  if (
+    text.length <= STREAMING_TEXT_TAIL_CHARS &&
+    text.split("\n").length <= STREAMING_TEXT_TAIL_LINES
+  ) {
+    return text;
+  }
+  const byChars = text.slice(-STREAMING_TEXT_TAIL_CHARS);
+  const lines = byChars.split("\n");
+  const tail =
+    lines.length > STREAMING_TEXT_TAIL_LINES
+      ? lines.slice(-STREAMING_TEXT_TAIL_LINES).join("\n")
+      : byChars;
+  return `[earlier streaming output hidden while attached]\n\n${tail.trimStart()}`;
 }
 
 function stageDurationText(stage: StageSnapshot | undefined): string {
@@ -2197,15 +1480,6 @@ function formatDuration(ms: number): string {
 
 function shortenId(id: string): string {
   return id.length > 10 ? id.slice(0, 8) : id;
-}
-
-function shortenFile(path: string): string {
-  if (path.length <= 36) return path;
-  // Keep the basename and an ellipsis prefix so the user can still recognise
-  // which session file we're pointing at.
-  const slash = path.lastIndexOf("/");
-  if (slash < 0) return "…" + path.slice(-35);
-  return "…" + path.slice(Math.max(slash - 12, 0));
 }
 
 function spinnerFrame(): string {
@@ -2268,23 +1542,6 @@ function paintOnFill(text: string, fg: string, opts: PaintOpts = {}): string {
 
 function stripAnsi(s: string): string {
   return s.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
-}
-
-/**
- * Compose a two-column row of `${prefix}${left}…${right}` padded to width.
- * Used by the footer to lay out left/right slabs without losing ANSI runs.
- */
-function layoutRow(
-  width: number,
-  _prefix: string,
-  left: string,
-  right: string,
-  _theme: GraphTheme,
-): string {
-  const lw = visibleWidth(stripAnsi(left));
-  const rw = visibleWidth(stripAnsi(right));
-  const gap = Math.max(1, width - lw - rw);
-  return left + " ".repeat(gap) + right;
 }
 
 /**

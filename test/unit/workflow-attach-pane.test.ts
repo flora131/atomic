@@ -201,6 +201,40 @@ describe("WorkflowAttachPane", () => {
     pane.dispose();
   });
 
+  test("retarget replaces the current run and optional attached stage", () => {
+    const store = createStore();
+    setupRun(store, "run-1", [{ id: "stage-a", name: "A" }]);
+    setupRun(store, "run-2", [{ id: "stage-b", name: "B" }]);
+    const registry = createStageControlRegistry();
+    registry.register(makeHandle("run-1", "stage-a"));
+    registry.register(makeHandle("run-2", "stage-b"));
+    const pane = new WorkflowAttachPane({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageControlRegistry: registry,
+      onClose: () => {},
+    });
+
+    pane.handleInput("\r");
+    assert.equal(pane._mode, "stage-chat");
+    assert.equal(pane._runId, "run-1");
+    assert.equal(pane._lastAttachedStageId, "stage-a");
+
+    pane.retarget("run-2");
+    assert.equal(pane._mode, "graph");
+    assert.equal(pane._runId, "run-2");
+    assert.equal(pane._lastAttachedStageId, null);
+    assert.equal(pane._hasChatView, false);
+
+    pane.retarget("run-2", "stage-b");
+    assert.equal(pane._mode, "stage-chat");
+    assert.equal(pane._runId, "run-2");
+    assert.equal(pane._lastAttachedStageId, "stage-b");
+    assert.equal(pane._hasChatView, true);
+    pane.dispose();
+  });
+
   test("keeps mouse scroll tracking active for graph and stage chat scrolling", () => {
     const store = createStore();
     setupRun(store, "run-1", [{ id: "stage-a", name: "A" }]);

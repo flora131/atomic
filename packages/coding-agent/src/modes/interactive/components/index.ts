@@ -45,4 +45,5 @@ export { ToolExecutionComponent, type ToolExecutionOptions } from "./tool-execut
 export { TreeSelectorComponent } from "./tree-selector.js";
 export { UserMessageComponent } from "./user-message.js";
 export { UserMessageSelectorComponent } from "./user-message-selector.js";
+export { WorkingStatusComponent, type WorkingStatusComponentOptions } from "./working-status.js";
 export { truncateToVisualLines, type VisualTruncateResult } from "./visual-truncate.js";

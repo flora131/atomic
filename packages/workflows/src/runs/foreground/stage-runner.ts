@@ -385,17 +385,25 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
     deferred: PromiseWithResolvers<{ message?: string }>;
   } | null = null;
 
-  // Wire the executor's abort signal to the pause deferred so a kill
-  // (or other forced abort) doesn't leave a paused stage hanging on a
-  // resume signal that will never arrive.
+  // Wire the executor's abort signal to the live SDK session and pause
+  // deferred so a kill (or other forced abort) doesn't leave a paused stage
+  // hanging on a resume signal that will never arrive. Re-use the abort
+  // reason instead of manufacturing a stage-specific error; shutdown/kill is
+  // expected cancellation and should not surface as a noisy per-stage failure.
   if (signal) {
+    const abortReason = (): Error | DOMException | string => {
+      const reason = signal.reason;
+      if (reason instanceof Error || reason instanceof DOMException || typeof reason === "string") {
+        return reason;
+      }
+      return new DOMException("workflow killed", "AbortError");
+    };
     const onAbort = (): void => {
+      void session?.abort().catch(() => {});
       if (!pauseRequest) return;
       const req = pauseRequest;
       pauseRequest = null;
-      req.deferred.reject(
-        new Error(`pi-workflows: stage "${stageName}" aborted while paused`),
-      );
+      req.deferred.reject(abortReason());
     };
     if (signal.aborted) onAbort();
     else signal.addEventListener("abort", onAbort, { once: true });
@@ -491,8 +499,22 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
     // accumulated assistant text when resume carries no message.
     let nextText: string | undefined = initialText;
     while (nextText !== undefined) {
+      const pendingPauseBeforePrompt = pauseRequest;
+      if (pendingPauseBeforePrompt) {
+        const { message } = await pendingPauseBeforePrompt.deferred.promise;
+        nextText = message;
+        if (nextText === undefined) return;
+        continue;
+      }
       try {
         await activeSession.prompt(nextText, sdkOptions);
+        const pendingPauseAfterPrompt = pauseRequest;
+        if (pendingPauseAfterPrompt) {
+          const { message } = await pendingPauseAfterPrompt.deferred.promise;
+          nextText = message;
+          if (nextText === undefined) return;
+          continue;
+        }
         nextText = undefined;
       } catch (err) {
         if (pauseRequest) {
@@ -702,7 +724,13 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
 
     async __requestPause() {
       if (pauseRequest) return;
-      pauseRequest = { deferred: Promise.withResolvers<{ message?: string }>() };
+      const deferred = Promise.withResolvers<{ message?: string }>();
+      // A shutdown may reject this deferred when no prompt awaiter is actively
+      // observing it (for example a paused pending live stream). Keep the
+      // original promise for real waiters, but mark expected cancellation as
+      // observed so app-exit cleanup stays quiet.
+      void deferred.promise.catch(() => {});
+      pauseRequest = { deferred };
       // Best-effort: stop the current Pi op so the awaiter races abort.
       // The executor's `runTrackedStageCall` re-issues the call once
       // `__resume()` settles `pauseRequest.deferred`.

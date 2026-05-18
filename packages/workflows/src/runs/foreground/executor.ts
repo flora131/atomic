@@ -1133,9 +1133,15 @@ export async function run<TInputs extends Record<string, unknown>>(
     readonly reject: (reason?: unknown) => void;
   }
   const releaseBarriers = new Map<string, ReleaseBarrier>();
+  const cascadePauseOwners = new Map<string, Set<string>>();
 
   const makeReleaseBarrier = (): ReleaseBarrier => {
     const resolver = Promise.withResolvers<void>();
+    // Abort rejects release barriers during kill/shutdown. Some barriers are
+    // only state markers for a paused root/current stage and have no active
+    // waiter, so mark expected cancellation as observed while preserving the
+    // same promise for callers that do await it.
+    void resolver.promise.catch(() => {});
     return { promise: resolver.promise, resolve: resolver.resolve, reject: resolver.reject };
   };
 
@@ -1189,6 +1195,23 @@ export async function run<TInputs extends Record<string, unknown>>(
     activeStore.recordStageBlocked(runId, stage.id, blockedBy);
   };
 
+  const markCascadePaused = (stageId: string, ownerStageId: string): void => {
+    let owners = cascadePauseOwners.get(stageId);
+    if (!owners) {
+      owners = new Set<string>();
+      cascadePauseOwners.set(stageId, owners);
+    }
+    owners.add(ownerStageId);
+  };
+
+  const releaseCascadePauseOwner = (stageId: string, ownerStageId: string): boolean => {
+    const owners = cascadePauseOwners.get(stageId);
+    if (!owners) return false;
+    const changed = owners.delete(ownerStageId);
+    if (owners.size === 0) cascadePauseOwners.delete(stageId);
+    return changed;
+  };
+
   const releaseStageBarrier = (stageId: string): void => {
     const barrier = releaseBarriers.get(stageId);
     if (!barrier) return;
@@ -1197,12 +1220,14 @@ export async function run<TInputs extends Record<string, unknown>>(
   };
 
   const cascadePauseFrom = async (pausedStageId: string): Promise<void> => {
+    const stageRegistry = opts.stageControlRegistry ?? defaultStageControlRegistry;
     for (const descendant of descendantsOf(pausedStageId)) {
       if (isTerminalStage(descendant) || descendant.status === "paused" || descendant.status === "blocked") continue;
-      if (descendant.status === "running") {
-        const descendantHandle = (opts.stageControlRegistry ?? defaultStageControlRegistry).get(runId, descendant.id);
-        if (descendantHandle && descendantHandle.status === "running") {
+      const descendantHandle = stageRegistry.get(runId, descendant.id);
+      if (descendantHandle?.isStreaming || descendant.status === "running") {
+        if (descendantHandle && (descendantHandle.status === "running" || descendantHandle.status === "pending")) {
           await descendantHandle.pause();
+          markCascadePaused(descendant.id, pausedStageId);
         }
         continue;
       }
@@ -1210,17 +1235,32 @@ export async function run<TInputs extends Record<string, unknown>>(
     }
   };
 
-  const cascadeResumeFrom = (resumedStageId: string): void => {
+  const cascadeResumeFrom = async (resumedStageId: string): Promise<void> => {
+    const stageRegistry = opts.stageControlRegistry ?? defaultStageControlRegistry;
     for (const descendant of descendantsOf(resumedStageId)) {
-      if (isTerminalStage(descendant) || descendant.status !== "blocked") continue;
-      if (blockingAncestorFor(descendant) !== undefined) continue;
-      if (activeStore.recordStageUnblocked(runId, descendant.id)) {
-        releaseStageBarrier(descendant.id);
+      if (isTerminalStage(descendant)) continue;
+      if (descendant.status === "blocked") {
+        if (blockingAncestorFor(descendant) !== undefined) continue;
+        if (activeStore.recordStageUnblocked(runId, descendant.id)) {
+          releaseStageBarrier(descendant.id);
+        }
+        continue;
+      }
+      if (descendant.status === "paused") {
+        const ownedByResumedStage = releaseCascadePauseOwner(descendant.id, resumedStageId);
+        if (!ownedByResumedStage) continue;
+        if (cascadePauseOwners.has(descendant.id)) continue;
+        if (blockingAncestorFor(descendant) !== undefined) continue;
+        const descendantHandle = stageRegistry.get(runId, descendant.id);
+        if (descendantHandle?.status === "paused") {
+          await descendantHandle.resume();
+        }
       }
     }
   };
 
   const rejectReleaseBarriers = (reason: unknown): void => {
+    cascadePauseOwners.clear();
     for (const [stageId, barrier] of releaseBarriers) {
       releaseBarriers.delete(stageId);
       activeStore.recordStageUnblocked(runId, stageId);
@@ -1298,6 +1338,15 @@ export async function run<TInputs extends Record<string, unknown>>(
         activeStore.recordStageAwaitingInput(runId, stageId, false);
         await innerCtx.__dispose();
       };
+      let unregisterStageHandle = (): void => {};
+      let liveHandleReleased = false;
+      const releaseLiveHandle = async (): Promise<void> => {
+        if (liveHandleReleased) return;
+        liveHandleReleased = true;
+        activeStore.recordStageAttachable(runId, stageId, false);
+        unregisterStageHandle();
+        await disposeInnerContext();
+      };
 
       // e. Register a live stage-control handle so attached panes can
       //    prompt/steer/pause/resume the underlying Pi session lazily.
@@ -1354,7 +1403,7 @@ export async function run<TInputs extends Record<string, unknown>>(
             ensureReleaseBarrier(stageId);
             await cascadePauseFrom(stageId);
           }
-          if (statusBeforePause === "running" && innerCtx.isStreaming) {
+          if (statusBeforePause === "pending" || statusBeforePause === "running" || innerCtx.isStreaming) {
             await innerCtx.__requestPause();
           }
         },
@@ -1362,7 +1411,7 @@ export async function run<TInputs extends Record<string, unknown>>(
           const changed = activeStore.recordStageResumed(runId, stageId);
           if (changed) {
             releaseStageBarrier(stageId);
-            cascadeResumeFrom(stageId);
+            await cascadeResumeFrom(stageId);
           }
           await innerCtx.__resume(message);
         },
@@ -1370,7 +1419,7 @@ export async function run<TInputs extends Record<string, unknown>>(
           return innerCtx.subscribe(listener);
         },
       };
-      const unregisterStageHandle = stageRegistry.register(handle);
+      unregisterStageHandle = stageRegistry.register(handle);
 
       // f. Record stage start in store (as pending), call onStageStart.
       activeStore.recordStageStart(runId, stageSnapshot);
@@ -1464,8 +1513,10 @@ export async function run<TInputs extends Record<string, unknown>>(
           }
           return result;
         } catch (err) {
-          stageSnapshot.status = "failed";
-          stageSnapshot.error = err instanceof Error ? err.message : String(err);
+          if (!ownController.signal.aborted) {
+            stageSnapshot.status = "failed";
+            stageSnapshot.error = err instanceof Error ? err.message : String(err);
+          }
           throw err;
         } finally {
           stageSnapshot.endedAt = Date.now();
@@ -1497,12 +1548,39 @@ export async function run<TInputs extends Record<string, unknown>>(
           }
 
           tracker.onSettle(stageId);
-          activeStore.recordStageAttachable(runId, stageId, false);
-          unregisterStageHandle();
-          try {
-            await disposeInnerContext();
-          } finally {
+          if (stageSnapshot.attached === true) {
+            let unsubscribeDetach: (() => void) | undefined;
+            let abortListener: (() => void) | undefined;
+            const releaseWhenDetached = (force = false): void => {
+              const currentRun = activeStore.runs().find((r) => r.id === runId);
+              const currentStage = currentRun?.stages.find((s) => s.id === stageId);
+              if (!force && currentStage?.attached === true) return;
+              unsubscribeDetach?.();
+              unsubscribeDetach = undefined;
+              if (abortListener) {
+                ownController.signal.removeEventListener("abort", abortListener);
+                abortListener = undefined;
+              }
+              void releaseLiveHandle().catch(() => {});
+            };
+            unsubscribeDetach = activeStore.subscribe(() => releaseWhenDetached());
+            abortListener = () => releaseWhenDetached(true);
+            if (ownController.signal.aborted) releaseWhenDetached(true);
+            else {
+              ownController.signal.addEventListener(
+                "abort",
+                abortListener,
+                { once: true },
+              );
+            }
+            releaseWhenDetached();
             limiter.release();
+          } else {
+            try {
+              await releaseLiveHandle();
+            } finally {
+              limiter.release();
+            }
           }
         }
       };

@@ -1847,6 +1847,94 @@ describe("executor — stage-control registry integration", () => {
     assert.deepEqual(promptCalls, ["go"]);
   });
 
+  test("pausing a pending attached stream aborts the SDK session and marks the stage paused", async () => {
+    const registry = createStageControlRegistry();
+    const cancellation = createCancellationRegistry();
+    const store = createStore();
+    const releaseWorkflowPrompt = deferred();
+    const sawStage = deferred<{ runId: string; stageId: string }>();
+    let sawStageResolved = false;
+    let promptReject: ((err: Error) => void) | undefined;
+    let promptResolve: (() => void) | undefined;
+    let streaming = false;
+    let abortCalls = 0;
+    const session: StageSessionRuntime = {
+      ...mockSession(),
+      async prompt() {
+        streaming = true;
+        return new Promise<void>((resolve, reject) => {
+          promptResolve = () => {
+            streaming = false;
+            resolve();
+          };
+          promptReject = (err) => {
+            streaming = false;
+            reject(err);
+          };
+        });
+      },
+      get isStreaming() {
+        return streaming;
+      },
+      async abort() {
+        abortCalls += 1;
+        promptReject?.(new Error("AbortError"));
+      },
+    };
+    const def = defineWorkflow("pending-attached-stream-pause-wf")
+      .run(async (ctx) => {
+        const stage = ctx.stage("pending-live");
+        await releaseWorkflowPrompt.promise;
+        await stage.prompt("workflow prompt");
+        return { ok: true };
+      })
+      .compile();
+
+    const unhandled: string[] = [];
+    const onUnhandled = (reason: Error | string): void => {
+      unhandled.push(reason instanceof Error ? reason.message : String(reason));
+    };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const runPromise = run(def, {}, {
+        adapters: { agentSession: { create: async () => session } },
+        store,
+        cancellation,
+        stageControlRegistry: registry,
+        onStageStart: (runId, stage) => {
+          if (stage.name !== "pending-live" || stage.startedAt !== undefined || sawStageResolved) return;
+          sawStageResolved = true;
+          sawStage.resolve({ runId, stageId: stage.id });
+        },
+      });
+
+      const { runId, stageId } = await sawStage.promise;
+      const handle = registry.get(runId, stageId);
+      assert.ok(handle, "pending stage should have a live handle");
+      const attachedPrompt = handle!.prompt("attached prompt");
+      void attachedPrompt.catch(() => {});
+      await waitForMicrotasks();
+      assert.equal(handle!.isStreaming, true);
+
+      await handle!.pause();
+      await waitForMicrotasks();
+      assert.equal(abortCalls, 1);
+      assert.equal(store.runs()[0]?.stages[0]?.status, "paused");
+
+      releaseWorkflowPrompt.resolve();
+      await waitForMicrotasks();
+      const killResult = killRun(runId, { store, cancellation });
+      assert.equal(killResult.ok, true);
+      promptResolve?.();
+      const result = await runPromise;
+      assert.equal(result.status, "killed");
+      await sleep(20);
+      assert.deepEqual(unhandled, []);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
   test("killing a pending paused stage finalizes the run as killed without a pause-abort failure", async () => {
     const registry = createStageControlRegistry();
     const cancellation = createCancellationRegistry();
@@ -1947,6 +2035,59 @@ describe("executor — stage-control registry integration", () => {
     assert.equal(observedAttachable, true);
     const stage = store.runs()[0]!.stages[0]!;
     assert.equal(stage.attachable, undefined);
+  });
+
+  test("attached completed stage handle remains chat-capable until detach", async () => {
+    const registry = createStageControlRegistry();
+    const store = createStore();
+    let attachedIds: { runId: string; stageId: string } | undefined;
+    let disposeCalls = 0;
+    const promptCalls: string[] = [];
+    const session: StageSessionRuntime = {
+      ...mockSession(),
+      async prompt(text: string) {
+        promptCalls.push(text);
+      },
+      async dispose() {
+        disposeCalls += 1;
+      },
+    };
+    const def = defineWorkflow("attached-complete-chat-wf")
+      .run(async (ctx) => {
+        await ctx.stage("only").prompt("workflow prompt");
+        return {};
+      })
+      .compile();
+
+    await run(def, {}, {
+      adapters: {
+        agentSession: {
+          async create() { return session; },
+        },
+      },
+      store,
+      stageControlRegistry: registry,
+      onStageStart: (runId, stage) => {
+        if (stage.name !== "only" || stage.startedAt !== undefined || attachedIds) return;
+        attachedIds = { runId, stageId: stage.id };
+        store.recordStageAttached(runId, stage.id, true);
+      },
+    });
+
+    assert.ok(attachedIds, "stage should have been attached before prompt");
+    const retained = registry.get(attachedIds!.runId, attachedIds!.stageId);
+    assert.ok(retained, "attached completed stage should keep its live handle");
+    assert.equal(store.runs()[0]?.stages[0]?.status, "completed");
+    assert.equal(disposeCalls, 0);
+
+    await retained!.prompt("post-completion chat");
+    assert.deepEqual(promptCalls, ["workflow prompt", "post-completion chat"]);
+    assert.equal(store.runs()[0]?.stages[0]?.status, "completed");
+
+    store.recordStageAttached(attachedIds!.runId, attachedIds!.stageId, false);
+    await sleep(20);
+    assert.equal(registry.get(attachedIds!.runId, attachedIds!.stageId), undefined);
+    assert.equal(disposeCalls, 1);
   });
 
   test("ask_user_question tool execution marks the stage awaiting input transiently", async () => {

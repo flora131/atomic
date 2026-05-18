@@ -594,6 +594,46 @@ describe("createStageContext — controlled pause", () => {
     assert.equal(ctx.__isPaused(), false);
   });
 
+  test("__requestPause still suspends when SDK prompt resolves after abort", async () => {
+    let resolvePrompt: (() => void) | undefined;
+    const { session, state } = makeMockSession({
+      async prompt() {
+        state.promptCalls += 1;
+        return new Promise<void>((resolve) => {
+          resolvePrompt = resolve;
+        });
+      },
+      async abort() {
+        state.abortCalls += 1;
+        resolvePrompt?.();
+      },
+    });
+    const agentSession: AgentSessionAdapter = { async create() { return session; } };
+    const ctx = createStageContext(makeOpts({ adapters: { agentSession } })) as InternalStageContext;
+
+    const promptPromise = ctx.prompt("ask the model");
+    await flushMicrotasks();
+    assert.equal(state.promptCalls, 1);
+
+    await ctx.__requestPause();
+    assert.equal(state.abortCalls, 1);
+    assert.equal(ctx.__isPaused(), true);
+
+    let settled = false;
+    void promptPromise.then(
+      () => { settled = true; },
+      () => { settled = true; },
+    );
+    await flushMicrotasks();
+    assert.equal(settled, false);
+
+    await ctx.__resume("continue from pause");
+    await flushMicrotasks();
+    assert.equal(state.promptCalls, 2);
+    resolvePrompt?.();
+    await promptPromise;
+  });
+
   test("__resume(message) re-issues prompt with the provided text", async () => {
     const { session, state } = makeMockSession();
     const agentSession: AgentSessionAdapter = { async create() { return session; } };
@@ -618,7 +658,7 @@ describe("createStageContext — controlled pause", () => {
     await promptPromise;
   });
 
-  test("signal abort while paused rejects the awaiter with a typed error", async () => {
+  test("signal abort while paused rejects the awaiter with the workflow kill reason", async () => {
     const { session, state } = makeMockSession();
     const agentSession: AgentSessionAdapter = { async create() { return session; } };
     const controller = new AbortController();
@@ -631,11 +671,8 @@ describe("createStageContext — controlled pause", () => {
     await ctx.__requestPause();
     assert.equal(state.abortCalls, 1);
 
-    // Attach the rejection expectation BEFORE firing abort() so the
-    // deferred reject doesn't bubble as an unhandled rejection in the
-    // tick between abort() and `await assert.rejects`.
-    const rejection = assert.rejects(promptPromise, /aborted while paused/);
-    controller.abort();
+    const rejection = assert.rejects(promptPromise, /workflow killed/);
+    controller.abort(new Error("workflow killed"));
     await rejection;
   });
 });

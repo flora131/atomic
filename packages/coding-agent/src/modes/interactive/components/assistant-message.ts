@@ -101,16 +101,16 @@ export class AssistantMessageComponent extends Container {
 				if (this.hideThinkingBlock) {
 					// Show static thinking label when hidden
 					this.contentContainer.addChild(
-						new Text(theme.italic(theme.fg("thinkingText", this.hiddenThinkingLabel)), 1, 0),
+						new Text(theme.italic(theme.fg("muted", this.hiddenThinkingLabel)), 1, 0),
 					);
 					if (hasVisibleContentAfter) {
 						this.contentContainer.addChild(new Spacer(1));
 					}
 				} else {
-					// Thinking traces in thinkingText color, italic
+					// Thinking traces in muted color, italic
 					this.contentContainer.addChild(
 						new Markdown(content.thinking.trim(), 1, 0, this.markdownTheme, {
-							color: (text: string) => theme.fg("thinkingText", text),
+							color: (text: string) => theme.fg("muted", text),
 							italic: true,
 						}),
 					);

@@ -29,6 +29,15 @@
 
 ## Get started
 
+### Prerequisites
+
+- **Node.js 24 LTS or newer** — Atomic requires the latest Node LTS runtime. Check with `node --version`.
+- **A package manager** — use npm (included with Node), pnpm, Yarn, or Bun. Use Bun 1.3.14+ for Bun installs or workflow-authoring examples.
+- **Model-provider access** — bring an API key or sign in with `/login` after startup.
+- **A compatible terminal** — for the best TUI experience, use a terminal with Kitty keyboard protocol support. See [Terminal setup](./packages/coding-agent/docs/terminal-setup.md). On Windows, use Git Bash or WSL.
+
+### Install
+
 With npm:
 
 ```bash
@@ -47,7 +56,7 @@ With bun:
 bun add -g @bastani/atomic
 ```
 
-**Authenticate and run**
+### Authenticate and run
 
 Set an API key and start a session:
 
@@ -70,9 +79,9 @@ See [Providers & Models](./packages/coding-agent/README.md#providers--models) fo
 <details>
 <summary><b>Prerequisites, devcontainer</b></summary>
 
-**Prerequisites** — Atomic is a self-contained coding-agent binary. The only requirement is access to a supported model provider: either an API key (Anthropic, OpenAI, Google, Azure, Bedrock, Vertex, …) or an existing subscription (Claude Pro/Max, ChatGPT Plus/Pro, GitHub Copilot) via `/login`. See [Providers & Models](./packages/coding-agent/README.md#providers--models).
+**Prerequisites** — install Node.js 24 LTS+, a global package manager, model-provider access, and a compatible terminal. See [Providers & Models](./packages/coding-agent/README.md#providers--models) and [Terminal setup](./packages/coding-agent/docs/terminal-setup.md).
 
-**Devcontainer / VM** — recommended for autonomous workflows. Atomic runs in any standard devcontainer or VM image; install it inside the container with `npm install -g @bastani/atomic` (or the install script) and supply provider credentials via environment variables.
+**Devcontainer / VM** — recommended for autonomous workflows. Atomic runs in any standard devcontainer or VM image with Node.js 24 LTS+ installed; install it inside the container with `npm install -g @bastani/atomic` (or the install script) and supply provider credentials via environment variables.
 
 See [Programmatic Usage](./packages/coding-agent/README.md#programmatic-usage) for the SDK and RPC entry points.
 

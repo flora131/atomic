@@ -71,6 +71,7 @@ export { createAskUserQuestionToolDefinition } from "./ask-user-question/index.j
 export { createTodoToolDefinition } from "./todos.js";
 
 import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { TSchema } from "typebox";
 import type { ToolDefinition } from "../extensions/types.js";
 import { createAskUserQuestionToolDefinition } from "./ask-user-question/index.js";
 import { type BashToolOptions, createBashTool, createBashToolDefinition } from "./bash.js";
@@ -83,8 +84,8 @@ import { createTodoToolDefinition } from "./todos.js";
 import { wrapToolDefinition } from "./tool-definition-wrapper.js";
 import { createWriteTool, createWriteToolDefinition, type WriteToolOptions } from "./write.js";
 
-export type Tool = AgentTool<any>;
-export type ToolDef = ToolDefinition<any, any>;
+export type Tool = AgentTool<TSchema, unknown>;
+export type ToolDef = ToolDefinition<TSchema, unknown>;
 export type ToolName =
 	| "read"
 	| "bash"

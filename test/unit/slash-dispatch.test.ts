@@ -9,7 +9,7 @@
  *   - Unknown workflow name prints "Workflow not found: <name>".
  *   - Per-workflow slash aliases are not registered; /workflow <name> is the
  *     single workflow-run slash surface.
- *   - /workflow completions include admin subcommands AND workflow names.
+ *   - /workflow completions include admin subcommands, aliases, AND workflow names.
  *   - parseWorkflowArgs correctly parses key=value pairs and JSON objects.
  */
 
@@ -295,7 +295,7 @@ describe("slash /workflow <name> dispatch", () => {
       const parts = rawParts[0] === "" ? [] : rawParts;
       const subcommand = parts[0] ?? "";
 
-      const ADMIN = new Set(["list", "status", "interrupt", "resume", "inputs"]);
+      const ADMIN = new Set(["list", "status", "interrupt", "kill", "resume", "inputs"]);
 
       if (!subcommand || subcommand === "list") {
         print(`Registered workflows: ${runtime.registry.names().join(", ")}`);
@@ -339,7 +339,7 @@ describe("slash /workflow <name> dispatch", () => {
     const runtime = createExtensionRuntime({ registry });
     const { ctx, messages } = buildCtx();
 
-    const ADMIN = new Set(["list", "status", "interrupt", "resume", "inputs"]);
+    const ADMIN = new Set(["list", "status", "interrupt", "kill", "resume", "inputs"]);
     const execute = async (args: string, execCtx: PiCommandContext) => {
       const print = (msg: string): void => execCtx.ui.notify(msg, "info");
       const rawParts = args.trim().split(/\s+/);
@@ -409,6 +409,7 @@ describe("getArgumentCompletions includes workflow names", () => {
     assert.ok(labels.includes("status"));
     assert.ok(labels.includes("connect"));
     assert.ok(labels.includes("interrupt"));
+    assert.ok(labels.includes("kill"));
     assert.ok(labels.includes("resume"));
     assert.ok(labels.includes("inputs"));
     assert.equal(labels.includes("session"), false);
@@ -435,6 +436,9 @@ describe("getArgumentCompletions includes workflow names", () => {
     const workflowCmd = commands.find((c) => c.name === "workflow");
     const completions = workflowCmd!.options.getArgumentCompletions?.("interrupt -") ?? [];
     assert.ok(completions.some((c) => c.value === "interrupt -y "));
+
+    const killCompletions = workflowCmd!.options.getArgumentCompletions?.("kill -") ?? [];
+    assert.ok(killCompletions.some((c) => c.value === "kill -y "));
   });
 
   test("trailing-space completion does not throw on empty subcommand", async () => {
@@ -695,6 +699,37 @@ function makeInflightRun(id: string) {
 }
 
 describe("/workflow interrupt chat command", () => {
+  test("top-level /workflow kill <id> kills and removes from chat without requiring confirmation", async () => {
+    const runId = `kill-chat-${Date.now()}`;
+    store.recordRunStart(makeInflightRun(runId));
+
+    const { pi, commands } = buildMockPi();
+    addFactoryStubs(pi);
+
+    const factoryModule = await import("../../packages/workflows/src/extension/index.js");
+    factoryModule.default(pi);
+
+    const workflowCmd = commands.find((c) => c.name === "workflow")!;
+    const msgs: string[] = [];
+    let confirmCalls = 0;
+    const ctx: PiCommandContext = {
+      ui: {
+        notify: (message: string) => { msgs.push(message); },
+        confirm: async () => {
+          confirmCalls++;
+          return false;
+        },
+      },
+    };
+
+    await workflowCmd.options.handler(`kill ${runId}`, ctx);
+
+    const run = store.runs().find((r) => r.id === runId);
+    assert.equal(confirmCalls, 0);
+    assert.equal(run, undefined);
+    assert.equal(msgs.some((m) => m.includes("killed and removed")), true);
+  });
+
   test("top-level /workflow interrupt defaults to the active run", async () => {
     const runId = `interrupt-active-${Date.now()}`;
     store.recordRunStart(makeInflightRun(runId));
@@ -717,11 +752,11 @@ describe("/workflow interrupt chat command", () => {
     await workflowCmd.options.handler("interrupt", ctx);
 
     const run = store.runs().find((r) => r.id === runId);
-    assert.equal(run?.status, "killed");
-    assert.equal(msgs.some((m) => m.includes("interrupted")), true);
+    assert.equal(run?.status, "running");
+    assert.equal(msgs.some((m) => m.includes("No active stages to interrupt")), true);
   });
 
-  test("top-level /workflow interrupt <id> interrupts from chat without requiring confirmation", async () => {
+  test("top-level /workflow interrupt <id> reports no active stages without confirmation", async () => {
     const runId = `interrupt-chat-${Date.now()}`;
     store.recordRunStart(makeInflightRun(runId));
 
@@ -748,8 +783,8 @@ describe("/workflow interrupt chat command", () => {
 
     const run = store.runs().find((r) => r.id === runId);
     assert.equal(confirmCalls, 0);
-    assert.equal(run?.status, "killed");
-    assert.equal(msgs.some((m) => m.includes("interrupted")), true);
+    assert.equal(run?.status, "running");
+    assert.equal(msgs.some((m) => m.includes("No active stages to interrupt")), true);
   });
 });
 
@@ -846,14 +881,120 @@ describe("/workflow resume <runId> — overlay open + no legacy message", () => 
 // resume regression: tool action "resume" against active run returns status:"ok"
 // ---------------------------------------------------------------------------
 
-describe("tool action resume — active run returns status:ok", () => {
+describe("tool run-control actions", () => {
+  function makeToolHandler() {
+    const registry = createRegistry([]);
+    const runtime = createExtensionRuntime({ registry });
+    return makeExecuteWorkflowTool(runtime, () => undefined);
+  }
+
+  test("makeExecuteWorkflowTool kill without runId defaults to the active run", async () => {
+    const runId = `kill-tool-active-${Date.now()}`;
+    store.recordRunStart(makeInflightRun(runId));
+    const handler = makeToolHandler();
+
+    const result = await handler({ action: "kill" }, {} as never);
+
+    assert.equal(result.action, "kill");
+    const r = result as { action: string; status: string; runId: string };
+    assert.equal(r.status, "killed");
+    assert.equal(r.runId, runId);
+    assert.equal(store.runs().some((run) => run.id === runId), false);
+  });
+
+  test("makeExecuteWorkflowTool kill supports unique run id prefixes", async () => {
+    const runId = `kill-tool-prefix-${Date.now()}`;
+    store.recordRunStart(makeInflightRun(runId));
+    const handler = makeToolHandler();
+
+    const result = await handler({ action: "kill", runId: runId.slice(0, 12) }, {} as never);
+
+    assert.equal(result.action, "kill");
+    const r = result as { action: string; status: string; runId: string };
+    assert.equal(r.status, "killed");
+    assert.equal(r.runId, runId);
+    assert.equal(store.runs().some((run) => run.id === runId), false);
+  });
+
+  test("makeExecuteWorkflowTool kill supports all:true", async () => {
+    const r1 = `kill-tool-all-1-${Date.now()}`;
+    const r2 = `kill-tool-all-2-${Date.now()}`;
+    const ended = `kill-tool-all-ended-${Date.now()}`;
+    store.recordRunStart(makeInflightRun(r1));
+    store.recordRunStart(makeInflightRun(r2));
+    store.recordRunStart(makeInflightRun(ended));
+    store.recordRunEnd(ended, "completed");
+    const handler = makeToolHandler();
+
+    const result = await handler({ action: "kill", all: true }, {} as never);
+
+    assert.equal(result.action, "kill");
+    const r = result as { action: string; status: string };
+    assert.equal(r.status, "killed");
+    assert.equal(store.runs().some((run) => run.id === r1), false);
+    assert.equal(store.runs().some((run) => run.id === r2), false);
+    assert.equal(store.runs().some((run) => run.id === ended), true);
+  });
+
+  test("makeExecuteWorkflowTool interrupt without runId defaults to the active run", async () => {
+    const runId = `interrupt-tool-active-${Date.now()}`;
+    store.recordRunStart(makeInflightRun(runId));
+    const handler = makeToolHandler();
+
+    const result = await handler({ action: "interrupt" }, {} as never);
+
+    assert.equal(result.action, "interrupt");
+    const r = result as { action: string; status: string; runId: string; message: string };
+    assert.equal(r.status, "noop");
+    assert.equal(r.runId, runId);
+    assert.match(r.message, /No active stages to interrupt/);
+    assert.equal(store.runs().find((run) => run.id === runId)?.status, "running");
+  });
+
+  test("makeExecuteWorkflowTool returns ambiguous run-prefix messages", async () => {
+    store.recordRunStart(makeInflightRun("ambiguous-run-a"));
+    store.recordRunStart(makeInflightRun("ambiguous-run-b"));
+    const handler = makeToolHandler();
+
+    const result = await handler({ action: "kill", runId: "ambiguous-run" }, {} as never);
+
+    assert.equal(result.action, "kill");
+    const r = result as { action: string; status: string; message: string };
+    assert.equal(r.status, "noop");
+    assert.match(r.message, /Ambiguous run prefix/);
+    assert.equal(store.runs().some((run) => run.id === "ambiguous-run-a"), true);
+    assert.equal(store.runs().some((run) => run.id === "ambiguous-run-b"), true);
+  });
+
+  test("makeExecuteWorkflowTool resume accepts run prefixes, stage names, and messages", async () => {
+    const runId = `resume-tool-stage-${Date.now()}`;
+    store.recordRunStart(makeInflightRun(runId));
+    store.recordStageStart(runId, {
+      id: "stage-abc123",
+      name: "review-stage",
+      status: "running",
+      parentIds: [],
+      toolEvents: [],
+    });
+    const handler = makeToolHandler();
+
+    const result = await handler(
+      { action: "resume", runId: runId.slice(0, 12), stageId: "review-stage", message: "continue please" },
+      {} as never,
+    );
+
+    assert.equal(result.action, "resume");
+    const r = result as { action: string; status: string; runId: string; message: string };
+    assert.equal(r.status, "ok");
+    assert.equal(r.runId, runId);
+    assert.match(r.message, /Snapshot available/);
+  });
+
   test("makeExecuteWorkflowTool resume against in-flight run returns status:'ok'", async () => {
     const runId = `resume-tool-ok-${Date.now()}`;
     store.recordRunStart(makeInflightRun(runId));
 
-    const registry = createRegistry([]);
-    const runtime = createExtensionRuntime({ registry });
-    const handler = makeExecuteWorkflowTool(runtime, () => undefined);
+    const handler = makeToolHandler();
 
     const result = await handler(
       { action: "resume", runId },

@@ -116,6 +116,12 @@ describe("package metadata", () => {
     }
   });
 
+  test("@bastani/atomic package manifest exposes atomic app config and legacy pi shim", () => {
+    assert.deepEqual(atomicPackageJson.atomicConfig, atomicPackageJson.piConfig);
+    assert.equal(atomicPackageJson.atomicConfig.name, "atomic");
+    assert.equal(atomicPackageJson.atomicConfig.configDir, ".atomic");
+  });
+
   test("@bastani/atomic package manifest is installable outside the workspace", () => {
     for (const [sectionName, dependencyName, dependencyRange] of dependencyEntries(atomicPackageJson)) {
       assert.ok(

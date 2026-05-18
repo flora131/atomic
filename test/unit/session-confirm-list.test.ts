@@ -11,6 +11,7 @@ import {
 import { renderSessionList } from "../../packages/workflows/src/tui/session-list.ts";
 import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.ts";
 import type { RunSnapshot } from "../../packages/workflows/src/shared/store-types.ts";
+import { visibleWidth } from "../../packages/workflows/src/tui/text-helpers.ts";
 
 function makeRun(over: Partial<RunSnapshot>): RunSnapshot {
   return {
@@ -67,6 +68,24 @@ test("kill confirm renders run identity and button row", () => {
   assert.match(joined, /Cancel/);
   assert.match(joined, /Kill run/);
   assert.match(joined, /1\/2 stages running/);
+});
+
+test("kill confirm clamps long and wide workflow names to the dialog width", () => {
+  const theme = deriveGraphTheme({});
+  const state = createKillConfirmState();
+  const width = 70;
+  const run = makeRun({
+    id: "abc12345-0000-0000-0000-000000000000",
+    name: "研究".repeat(30) + "-destructive-dialog-overflow",
+    status: "running",
+    startedAt: 1000,
+    stages: [{ id: "s1", name: "plan", status: "running", parentIds: [], toolEvents: [] }],
+  });
+  const lines = renderKillConfirm({ width, theme, run, state, now: 5000 });
+  for (const line of lines) {
+    assert.ok(visibleWidth(line) <= width, `line exceeds ${width}: ${visibleWidth(line)} ${JSON.stringify(line)}`);
+  }
+  assert.match(lines.join("\n"), /…/);
 });
 
 test("session list renders the band-header chrome with both runs and a detail hint", () => {

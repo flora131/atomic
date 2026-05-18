@@ -96,6 +96,7 @@ type RunResult = {
   message?: string;
 };
 type InterruptResult = { action: "interrupt"; runId: string; status: string; message: string };
+type KillResult = { action: "kill"; runId: string; status: string; message: string };
 type ResumeResult = { action: "resume"; runId: string; status: string; message: string };
 
 export type WorkflowToolResult =
@@ -106,6 +107,7 @@ export type WorkflowToolResult =
   | GetResult
   | RunResult
   | InterruptResult
+  | KillResult
   | ResumeResult;
 
 export interface RenderResultOpts {
@@ -198,6 +200,11 @@ export function renderResult(result: WorkflowToolResult, opts?: RenderResultOpts
     case "interrupt": {
       const r = result as InterruptResult;
       return `workflow interrupt ${r.runId}: ${r.message}`;
+    }
+
+    case "kill": {
+      const r = result as KillResult;
+      return `workflow kill ${r.runId}: ${r.message}`;
     }
 
     case "resume": {

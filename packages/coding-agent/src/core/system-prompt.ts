@@ -58,7 +58,8 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
   const date = `${year}-${month}-${day}`;
 
   const appendSection = appendSystemPrompt ? `\n\n${appendSystemPrompt}` : "";
-  const modelName = selectedModel?.name?.trim() || selectedModel?.id || "unknown";
+  const modelName =
+    selectedModel?.name?.trim() || selectedModel?.id || "unknown";
 
   const contextFiles = providedContextFiles ?? [];
   const skills = providedSkills ?? [];
@@ -164,15 +165,17 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 <tool_policies>
 Follow these tool selection and usage rules in order of priority:
 
-1. **Browser search and automation**:
+1. **To-do management**: If the user has a complex task that can be broken down into actionable steps, ALWAYS use the \`todo\` tool to create a task list before proceeding. This ensures clarity and alignment with the user's goals and that you have a way to track your work and ensure you are meeting the user's expectations.
+
+2. **Browser search and automation**:
 
 Use web search tools, playwright-cli (refer to playwright-cli skill) for ALL browser automation tasks, including web research, form filling, and UI interaction:
    - ALWAYS load the playwright-cli skill before usage.
    - ALWAYS ASSUME playwright-cli is installed. If the \`playwright-cli\` command fails, fall back to \`npx playwright-cli\`.
 
-2. **Testing**: ALWAYS invoke your tdd skill BEFORE creating or modifying any tests.
+3. **Testing**: ALWAYS invoke your tdd skill BEFORE creating or modifying any tests.
 
-3. **Sub-agent Orchestration**: To avoid draining your context window, prefer to use subagents for complex tasks all non-trivial operations should be delegated to subagents.
+4. **Sub-agent Orchestration**: To avoid draining your context window, prefer to use subagents for complex tasks all non-trivial operations should be delegated to subagents.
 
 You should delegate running bash commands (particularly ones that are likely to produce lots of output) such as investigating with the \`aws\` CLI, using the \`gh\` CLI, digging through logs to \`bash\` subagents.
 

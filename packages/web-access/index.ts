@@ -1523,7 +1523,7 @@ export default function (pi: ExtensionAPI) {
 				}
 				const moreLines = Math.max(0, totalLines - collapsedLines);
 				if (moreLines > 0) {
-					box.addChild(new Text(theme.fg("muted", `\n... (${moreLines} more lines, ${totalLines} total, ctrl+o to expand)`), 0, 0));
+					box.addChild(new Text(theme.fg("muted", `\n... (${moreLines} more lines, ${totalLines} total, CTRL+O Expand)`), 0, 0));
 				}
 				return box;
 			}

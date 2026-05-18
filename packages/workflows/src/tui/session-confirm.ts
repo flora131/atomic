@@ -18,11 +18,12 @@
  *  - DESIGN.md §5 Components — destructive button
  */
 
+import { keyText } from "@bastani/atomic";
 import type { RunSnapshot } from "../shared/store-types.js";
 import type { GraphTheme } from "./graph-theme.js";
 import { fmtDuration } from "./status-helpers.js";
 import { hexToAnsi, hexBg, RESET, BOLD } from "./color-utils.js";
-import { visibleWidth } from "./text-helpers.js";
+import { truncateToWidth, visibleWidth } from "./text-helpers.js";
 
 export interface KillConfirmState {
   /** 0 = Cancel (focused by default), 1 = Kill. */
@@ -67,17 +68,18 @@ function renderFooter(width: number, theme: GraphTheme): string {
   const text = hexToAnsi(theme.text);
   const muted = hexToAnsi(theme.textMuted);
   const sep = `${dim} \u00b7 ${RESET}`;
-  const hints: Array<[string, string]> = [
-    ["y", "kill"],
-    ["n", "cancel"],
-    ["\u21b5", "confirm"],
-    ["esc", "cancel"],
-  ];
-  const parts = hints.map(([k, l]) => `${text}${k}${RESET} ${muted}${l}${RESET}`);
-  const line = parts.join(sep);
+  const hint = (key: string, label: string) => `${text}${key}${RESET} ${muted}${label}${RESET}`;
+  const line = [
+    hint("y", "Kill"),
+    hint("n", "Cancel"),
+    hint(keyText("tui.select.confirm"), "Confirm"),
+    hint(keyText("tui.select.cancel"), "Cancel"),
+  ].join(sep);
   const leftRule = "\u2500\u2500 ";
-  const padLen = Math.max(1, inner - leftRule.length - visibleWidth(line) - 1);
-  const innerContent = `${border}${leftRule}${RESET}${line}${border}${" ".repeat(padLen)}${RESET}`;
+  const lineBudget = Math.max(1, inner - visibleWidth(leftRule) - 1);
+  const clippedLine = truncateToWidth(line, lineBudget, "…");
+  const padLen = Math.max(1, inner - visibleWidth(leftRule) - visibleWidth(clippedLine) - 1);
+  const innerContent = `${border}${leftRule}${RESET}${clippedLine}${border}${" ".repeat(padLen)}${RESET}`;
   return `${border}\u2570${RESET}${padTo(innerContent, inner)}${border}\u256f${RESET}`;
 }
 
@@ -131,9 +133,14 @@ export function renderKillConfirm(opts: KillConfirmRenderOpts): string[] {
   lines.push(renderHeader(width, theme));
   lines.push(renderBlankRow(inner, theme));
 
-  // Identity row: ⚠  <name>  ·  <idShort>
+  // Identity row: ⚠  <name>  ·  <idShort>. Keep the destructive dialog
+  // width-safe even for wide workflow names.
+  const identityPrefixW = visibleWidth("   ⚠  ");
+  const identitySuffixW = visibleWidth(`  ·  ${idShort}`);
+  const nameBudget = Math.max(1, inner - identityPrefixW - identitySuffixW);
+  const name = truncateToWidth(run.name, nameBudget, "…");
   const identity =
-    `   ${warning}\u26a0${RESET}${panelBg}  ${text}${BOLD}${run.name}${RESET}${panelBg}  ${dim}\u00b7${RESET}${panelBg}  ${muted}${idShort}${RESET}`;
+    `   ${warning}\u26a0${RESET}${panelBg}  ${text}${BOLD}${name}${RESET}${panelBg}  ${dim}\u00b7${RESET}${panelBg}  ${muted}${idShort}${RESET}`;
   lines.push(renderTextRow(inner, theme, identity));
 
   // Status sub-line.
@@ -152,7 +159,7 @@ export function renderKillConfirm(opts: KillConfirmRenderOpts): string[] {
   lines.push(renderTextRow(
     inner,
     theme,
-    `      ${muted}The runId stays in history.${RESET}`,
+    `      ${muted}Removes the run from live history/status.${RESET}`,
   ));
   lines.push(renderBlankRow(inner, theme));
 

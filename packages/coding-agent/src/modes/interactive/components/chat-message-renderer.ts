@@ -1,6 +1,7 @@
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { Container, Text, type Component, type MarkdownTheme, type TUI } from "@earendil-works/pi-tui";
+import type { TSchema } from "typebox";
 import type { MessageRenderer, ToolDefinition } from "../../../core/extensions/types.js";
 import type {
   BashExecutionMessage,
@@ -46,7 +47,7 @@ export interface ChatMessageRenderOptions {
   toolOutputExpanded?: boolean;
   showImages?: boolean;
   imageWidthCells?: number;
-  getToolDefinition?: (toolName: string) => ToolDefinition<any, any> | undefined;
+  getToolDefinition?: (toolName: string) => ToolDefinition<TSchema, unknown> | undefined;
   getCustomMessageRenderer?: (customType: string) => MessageRenderer | undefined;
 }
 

@@ -20,9 +20,10 @@
 
 import type { RunSnapshot } from "../shared/store-types.js";
 import type { GraphTheme } from "./graph-theme.js";
+import { keyText } from "@bastani/atomic";
 import { fmtDuration, statusIcon, statusColor } from "./status-helpers.js";
 import { hexToAnsi, hexBg, RESET, BOLD } from "./color-utils.js";
-import { visibleWidth } from "./text-helpers.js";
+import { truncateToWidth, visibleWidth } from "./text-helpers.js";
 
 // ---------------------------------------------------------------------------
 // State + filtering
@@ -141,32 +142,32 @@ function renderHintsRow(width: number, theme: GraphTheme, state: SessionPickerSt
   const text = hexToAnsi(theme.text);
   const muted = hexToAnsi(theme.textMuted);
   const sep = `${dim} · ${RESET}`;
+  const hint = (key: string, label: string) => `${text}${key}${RESET} ${muted}${label}${RESET}`;
 
-  const hints: Array<[string, string]> = state.filterFocused
+  const parts: string[] = state.filterFocused
     ? [
-        ["↵", "submit"],
-        ["esc", "exit filter"],
+        hint(keyText("tui.select.confirm"), "Submit"),
+        hint(keyText("tui.select.cancel"), "Exit Filter"),
       ]
     : [
-        ["↑↓", "navigate"],
-        ["↵", "connect"],
-        ["x", "kill"],
-        ["a", state.includeAll ? "active only" : "all"],
-        ["/", "filter"],
-        ["esc", "close"],
+        hint(`${keyText("tui.select.up")}/${keyText("tui.select.down")}`, "Navigate"),
+        hint(keyText("tui.select.confirm"), "Connect"),
+        hint("x", "Kill"),
+        hint("a", state.includeAll ? "Active Only" : "All"),
+        hint("/", "Filter"),
+        hint(keyText("tui.select.cancel"), "Close"),
       ];
 
-  const parts = hints.map(([k, l]) => `${text}${k}${RESET} ${muted}${l}${RESET}`);
   // Two-space indent matches `renderEmptyState` and the section-row
   // chrome, keeping the hint glyphs aligned with the panel interior
   // even though they live outside the box border.
   const line = "  " + parts.join(sep);
-  // The renderer clamps each line to `width` in the host composite
-  // pass; explicit clip here keeps the test-time render() output
-  // width-safe as well.
-  const lineWidth = visibleWidth(line);
-  if (lineWidth >= width) return line;
-  return line + " ".repeat(width - lineWidth);
+  // Keep test-time render() output width-safe even before the overlay host
+  // gets a chance to composite/truncate it.
+  const clipped = truncateToWidth(line, width, "…");
+  const lineWidth = visibleWidth(clipped);
+  if (lineWidth >= width) return clipped;
+  return clipped + " ".repeat(width - lineWidth);
 }
 
 function renderBlankRow(inner: number, theme: GraphTheme): string {
@@ -193,9 +194,13 @@ function renderFilterRow(inner: number, theme: GraphTheme, state: SessionPickerS
   const accent = hexToAnsi(theme.accent);
   const cursor = state.filterFocused ? `${accent}▌${RESET}${panelBg}` : "";
   const label = state.filterFocused ? `${accent}filter` : `${muted}filter`;
+  const prefixPlain = " ▎ filter  ";
+  const valueBudget = Math.max(1, inner - visibleWidth(prefixPlain) - (state.filterFocused ? 1 : 0));
+  const rawValue = state.query || "(type to filter by name or id)";
+  const shownValue = truncateToWidth(rawValue, valueBudget, "…");
   const value = state.query
-    ? `${text}${state.query}${RESET}${panelBg}`
-    : `${muted}(type to filter by name or id)${RESET}${panelBg}`;
+    ? `${text}${shownValue}${RESET}${panelBg}`
+    : `${muted}${shownValue}${RESET}${panelBg}`;
   const content = ` ${mauve}▎${RESET}${panelBg} ${label}${RESET}${panelBg}  ${value}${cursor}`;
   return `${border}│${RESET}${panelBg}${padTo(content, inner)}${RESET}${border}│${RESET}`;
 }
@@ -232,15 +237,21 @@ function renderRunRow(
   const elapsed = fmtElapsed(run, now);
   const progress = stageProgress(run);
 
-  // Layout columns: glyph(1) idShort(8) name(flex) elapsed(R) progress(R)
+  // Layout columns: glyph(1) idShort(8) name(flex) elapsed(R) progress(R).
+  // Name budgeting is done by visible cell width so wide workflow names
+  // cannot push the elapsed/progress columns through the right border.
   const elapsedCol = elapsed.padStart(8, " ");
   const progressCol = progress.padStart(10, " ");
+  const rightPlain = `${elapsedCol}   ${progressCol} `;
+  const namePrefixW = visibleWidth(` ${icon} ${idShort}  `);
+  const nameBudget = Math.max(1, inner - namePrefixW - visibleWidth(rightPlain) - 1);
+  const name = truncateToWidth(run.name, nameBudget, "…");
 
   if (isSelected) {
     const pillBg = hexBg(theme.accent);
     const pillFg = hexToAnsi(theme.backgroundElement);
-    const left = ` ${icon} ${idShort}  ${run.name}`;
-    const right = `${elapsedCol}   ${progressCol} `;
+    const left = ` ${icon} ${idShort}  ${name}`;
+    const right = rightPlain;
     const gap = Math.max(1, inner - visibleWidth(left) - visibleWidth(right));
     const content = `${left}${" ".repeat(gap)}${right}`;
     return `${border}│${RESET}${pillBg}${pillFg}${BOLD}${padTo(content, inner)}${RESET}${border}│${RESET}`;
@@ -253,11 +264,9 @@ function renderRunRow(
   const muted = hexToAnsi(theme.textMuted);
 
   const left =
-    ` ${iconColor}${icon}${RESET}${panelBg} ${dim}${idShort}${RESET}${panelBg}  ${text}${run.name}${RESET}${panelBg}`;
+    ` ${iconColor}${icon}${RESET}${panelBg} ${dim}${idShort}${RESET}${panelBg}  ${text}${name}${RESET}${panelBg}`;
   const right = `${muted}${elapsedCol}${RESET}${panelBg}   ${dim}${progressCol}${RESET}${panelBg} `;
-  const visLeft = 1 + 1 + 1 + 8 + 2 + run.name.length;
-  const visRight = visibleWidth(elapsedCol) + 3 + visibleWidth(progressCol) + 1;
-  const gap = Math.max(1, inner - visLeft - visRight);
+  const gap = Math.max(1, inner - visibleWidth(left) - visibleWidth(right));
   const content = `${left}${" ".repeat(gap)}${right}`;
   return `${border}│${RESET}${panelBg}${padTo(content, inner)}${RESET}${border}│${RESET}`;
 }

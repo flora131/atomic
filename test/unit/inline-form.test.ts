@@ -108,9 +108,11 @@ test("card (live): shows header pill, workflow chip, all fields, footer hints", 
   assert.match(txt, /focus/);
   assert.match(txt, /verbose/);
   assert.match(txt, /1 \/ 4/);
+  assert.doesNotMatch(txt, /Run workflow/);
   assert.match(txt, /EDIT/);
   assert.match(txt, /tab/);
-  assert.match(txt, /ctrl\+s/);
+  assert.match(txt, /ctrl\+enter/);
+  assert.doesNotMatch(txt, /ctrl\+s/);
 });
 
 test("card (live): hint row is anchored at the bottom of the widget", () => {
@@ -118,8 +120,8 @@ test("card (live): hint row is anchored at the bottom of the widget", () => {
   const lines = renderInlineCard({ width: 80, state, theme: deriveGraphTheme({}) });
   // The footer band is the trailing 3 lines; hints live on the middle row.
   const tail = lines.slice(-3).map((l) => plain([l]));
-  assert.match(tail.join("\n"), /tab\s+next/);
-  assert.match(tail.join("\n"), /esc\s+cancel/);
+  assert.match(tail.join("\n"), /tab\s+Next/);
+  assert.match(tail.join("\n"), /esc\s+Cancel/);
 });
 
 test("card (live): each field title is centred inside its top border", () => {
@@ -258,26 +260,31 @@ test("editor: tab advances focus, shift+tab retreats", () => {
   e.dispose();
 });
 
-test("editor: esc fires onExit('cancel')", () => {
-  const e = makeEditor();
-  e.editor.handleInput("\x1b");
-  assert.deepEqual(e.getExited(), { outcome: "cancel" });
-  e.dispose();
+test("editor: esc variants and ctrl+c fire onExit('cancel')", () => {
+  for (const key of ["\x1b", "\x1b[27u", "\x1b[27;1;27~", "\x03"]) {
+    const e = makeEditor();
+    e.editor.handleInput(key);
+    assert.deepEqual(e.getExited(), { outcome: "cancel" }, `key=${JSON.stringify(key)}`);
+    e.dispose();
+  }
 });
 
-test("editor: ctrl+s with missing required is a no-op (validation blocks)", () => {
+test("editor: ctrl+enter with missing required is blocked and focuses invalid", () => {
   const e = makeEditor(); // prompt is empty
-  e.editor.handleInput("\x13");
+  e.state.focusedIdx = 2;
+  e.editor.handleInput("\x1b[13;5u");
   assert.equal(e.getExited(), null);
+  assert.equal(e.state.focusedIdx, 0);
   e.dispose();
 });
 
-test("editor: ctrl+s with all required filled fires onExit('submit')", () => {
+test("editor: ctrl+enter with all required filled fires onExit('submit')", () => {
   const state = makeState({
+    focusedIdx: 0,
     rawText: { prompt: "build", iters: "5", focus: "standard", verbose: "false" },
   });
   const e = makeEditor(state);
-  e.editor.handleInput("\x13");
+  e.editor.handleInput("\x1b[13;5u");
   assert.deepEqual(e.getExited(), { outcome: "submit" });
   e.dispose();
 });
@@ -467,7 +474,7 @@ test("overlay: openInlineInputsForm emits a custom message and swaps editor", as
   // Fill required prompt and submit.
   editor.handleInput("h");
   editor.handleInput("i");
-  editor.handleInput("\x13");
+  editor.handleInput("\x1b[13;5u");
   const result = await pending;
   assert.equal(result.kind, "run");
   if (result.kind === "run") {
@@ -557,7 +564,7 @@ test("overlay: installed editor accepts pi setup before card render", async () =
   assert.equal(editor.getAutocompleteMaxVisible(), 20);
   editor.handleInput("o");
   editor.handleInput("k");
-  editor.handleInput("\x13");
+  editor.handleInput("\x1b[13;5u");
   const result = await pending;
   assert.equal(result.kind, "run");
 });
@@ -756,6 +763,21 @@ test("layoutTextField: wraps long content at character boundary when no newline"
   assert.equal(r.cursorCol, 2);
 });
 
+test("layoutTextField: wraps CJK by terminal cell width", () => {
+  const raw = "漢字ab";
+  const r = layoutTextField(raw, 4, "漢字".length);
+  assert.deepEqual(r.lines, ["漢字", "ab"]);
+  assert.equal(r.cursorRow, 1);
+  assert.equal(r.cursorCol, 0);
+});
+
+test("layoutTextField: keeps combining sequences in one grapheme", () => {
+  const r = layoutTextField("e\u0301x", 1, "e\u0301".length);
+  assert.equal(r.lines[0], "é");
+  assert.equal(r.cursorRow, 1);
+  assert.equal(r.cursorCol, 0);
+});
+
 test("layoutTextField: caret at hard wrap boundary lands on next visual row", () => {
   // After typing 4 chars in a 4-cell box, caret advances past the wrap.
   const r = layoutTextField("abcd", 4, 4);
@@ -848,7 +870,7 @@ test("editor: up arrow on first logical line of text falls through to focus-prev
       caret: 3,
     }),
   );
-  e.editor.handleInput("\x1b[A"); // up — no previous logical line, focus wraps to last
+  e.editor.handleInput("\x1b[A"); // up — no previous logical line, focus wraps to last field
   assert.equal(e.state.focusedIdx, FIELDS.length - 1);
   e.dispose();
 });
@@ -1155,6 +1177,28 @@ test("editor: ctrl+d deletes the char right of the caret", () => {
   e.dispose();
 });
 
+test("editor: char movement and deletion respect emoji and combining graphemes", () => {
+  const raw = "漢👩‍💻e\u0301z";
+  const e = makeEditor(
+    makeState({
+      rawText: { prompt: raw, iters: "5", focus: "standard", verbose: "false" },
+      focusedIdx: 0,
+      caret: raw.length,
+    }),
+  );
+  e.editor.handleInput("\x1b[D"); // left over z
+  assert.equal(e.state.caret, "漢👩‍💻é".length);
+  e.editor.handleInput("\x1b[D"); // left over composed é
+  assert.equal(e.state.caret, "漢👩‍💻".length);
+  e.editor.handleInput("\x7f"); // delete the whole emoji cluster
+  assert.equal(e.state.rawText.prompt, "漢éz");
+  assert.equal(e.state.caret, "漢".length);
+  e.editor.handleInput("\x04"); // delete the whole composed é cluster
+  assert.equal(e.state.rawText.prompt, "漢z");
+  assert.equal(e.state.caret, "漢".length);
+  e.dispose();
+});
+
 test("editor: user-remapped delete word backward respects injected keybindings", () => {
   // Drop ctrl+w; remap deleteWordBackward to a hypothetical ctrl+x sequence
   // and verify the form picks up the new binding via the injected manager.
@@ -1189,7 +1233,7 @@ test("editor: user-remapped delete word backward respects injected keybindings",
 test("editor: without a keybindings manager, only form-level keys still work", () => {
   // Verifies the "always rely on pi" contract: when no keybindings manager
   // is wired, action-based keys (arrows, backspace, etc.) do nothing.
-  // Form-level keys (tab, esc, ctrl+s, printable insert) still function.
+  // Form-level keys (tab, esc, printable insert) still function.
   const state = makeState();
   const tui = { requestRender: () => {} };
   let exited: { outcome: "submit" | "cancel" } | null = null;

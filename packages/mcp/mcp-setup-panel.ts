@@ -299,7 +299,7 @@ export class McpSetupPanel {
       return;
     }
 
-    this.notice = { text: "Review the details below. Press Enter on an action with a side effect to apply it.", tone: "muted" };
+    this.notice = { text: "Review Details Below. Enter Apply Action With Side Effect.", tone: "muted" };
     this.tui.requestRender();
   }
 
@@ -387,13 +387,13 @@ export class McpSetupPanel {
       lines.push(this.padLine(line, innerW));
     }
     lines.push(this.padLine("", innerW));
-    lines.push(this.padLine(fg(this.t.muted, "Enter selects, Esc goes back, Ctrl+C closes."), innerW));
+    lines.push(this.padLine(fg(this.t.muted, "Enter Select · Escape Back · CTRL+C Close"), innerW));
     return lines;
   }
 
   private renderImports(innerW: number): string[] {
     const lines: string[] = [];
-    lines.push(this.padLine("Select compatibility imports. Space toggles, Enter saves, Esc goes back.", innerW));
+    lines.push(this.padLine("Select Compatibility Imports. Space Toggle · Enter Save · Escape Back.", innerW));
     lines.push(this.padLine("", innerW));
     for (let index = 0; index < this.discovery.imports.length; index++) {
       const entry = this.discovery.imports[index];
@@ -412,7 +412,7 @@ export class McpSetupPanel {
 
   private renderPaths(innerW: number): string[] {
     const lines: string[] = [];
-    lines.push(this.padLine("Select a detected config path to open. Enter opens it, Esc goes back.", innerW));
+    lines.push(this.padLine("Select Detected Config Path. Enter Open · Escape Back.", innerW));
     lines.push(this.padLine("", innerW));
     const paths = this.getDetectedPaths();
     for (let index = 0; index < paths.length; index++) {

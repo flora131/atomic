@@ -20,7 +20,9 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { pauseRun, resumeRun } from "../../packages/workflows/src/runs/background/status.js";
 import { run } from "../../packages/workflows/src/runs/foreground/executor.js";
+import { createStageControlRegistry } from "../../packages/workflows/src/runs/foreground/stage-control-registry.js";
 import { createStore } from "../../packages/workflows/src/shared/store.js";
 import { createStatusWriter } from "../../packages/workflows/src/extension/status-writer.js";
 import { defineWorkflow } from "../../packages/workflows/src/workflows/define-workflow.js";
@@ -43,6 +45,15 @@ function baseConfig(overrides: Partial<WorkflowRuntimeConfig> = {}): WorkflowRun
 
 async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function deferred<T = void>(): PromiseWithResolvers<T> {
+  return Promise.withResolvers<T>();
+}
+
+async function flushMicrotasks(): Promise<void> {
+  await new Promise<void>((resolve) => queueMicrotask(resolve));
+  await new Promise<void>((resolve) => queueMicrotask(resolve));
 }
 
 // ---------------------------------------------------------------------------
@@ -250,6 +261,172 @@ describe("runtime tunables — defaultConcurrency", () => {
     assert.equal(result.status, "completed");
     assert.ok(maxActive <= 2);
     assert.ok(maxActive >= 1);
+  });
+
+  test("max_concurrency input overrides the default stage concurrency", async () => {
+    let active = 0;
+    let maxActive = 0;
+
+    const wf = defineWorkflow("rt-input-max-concurrency")
+      .input("max_concurrency", {
+        type: "number",
+        default: 4,
+        description: "Maximum number of stages to run concurrently.",
+      })
+      .run(async (ctx) => {
+        await Promise.all(
+          ["s1", "s2", "s3", "s4", "s5"].map((n) => ctx.stage(n).prompt(n)),
+        );
+        return {};
+      })
+      .compile();
+
+    const result = await run(wf, { max_concurrency: 2 }, {
+      store: createStore(),
+      config: baseConfig({ defaultConcurrency: 4 }),
+      adapters: {
+        prompt: {
+          prompt: async () => {
+            active++;
+            maxActive = Math.max(maxActive, active);
+            await sleep(5);
+            active--;
+            return "done";
+          },
+        },
+      },
+    });
+
+    assert.equal(result.status, "completed");
+    assert.equal(maxActive, 2);
+  });
+
+  test("ctx.parallel concurrency option limits scheduled task fan-out", async () => {
+    let active = 0;
+    let maxActive = 0;
+
+    const wf = defineWorkflow("rt-parallel-option-concurrency")
+      .run(async (ctx) => {
+        await ctx.parallel(
+          ["s1", "s2", "s3", "s4", "s5"].map((name) => ({ name, task: name })),
+          { concurrency: 2 },
+        );
+        return {};
+      })
+      .compile();
+
+    const result = await run(wf, {}, {
+      store: createStore(),
+      config: baseConfig({ defaultConcurrency: 4 }),
+      adapters: {
+        prompt: {
+          prompt: async () => {
+            active++;
+            maxActive = Math.max(maxActive, active);
+            await sleep(5);
+            active--;
+            return "done";
+          },
+        },
+      },
+    });
+
+    assert.equal(result.status, "completed");
+    assert.equal(maxActive, 2);
+  });
+
+  test("ctx.parallel failFast:false waits for all scheduled task fan-out", async () => {
+    const prompts: string[] = [];
+
+    const wf = defineWorkflow("rt-parallel-fail-fast-false")
+      .run(async (ctx) => {
+        await ctx.parallel(
+          ["s1", "s2", "s3"].map((name) => ({ name, task: name })),
+          { concurrency: 2, failFast: false },
+        );
+        return {};
+      })
+      .compile();
+
+    const result = await run(wf, {}, {
+      store: createStore(),
+      config: baseConfig({ defaultConcurrency: 4 }),
+      adapters: {
+        prompt: {
+          prompt: async (text) => {
+            prompts.push(text);
+            if (text === "s1") throw new Error("s1 failed");
+            await sleep(5);
+            return "done";
+          },
+        },
+      },
+    });
+
+    assert.equal(result.status, "failed");
+    assert.deepEqual(prompts.sort(), ["s1", "s2", "s3"]);
+    assert.match(result.error ?? "", /parallel step failed/);
+  });
+
+  test("pausing a concurrency-queued stage prevents it from starting when the slot frees until resume", async () => {
+    const store = createStore();
+    const registry = createStageControlRegistry();
+    const firstEntered = deferred();
+    const releaseFirst = deferred();
+    const stageIds = new Map<string, string>();
+    const promptCalls: string[] = [];
+
+    const wf = defineWorkflow("rt-conc-queued-pause")
+      .run(async (ctx) => {
+        const [first, second] = await Promise.all([
+          ctx.stage("first").prompt("first"),
+          ctx.stage("second").prompt("second"),
+        ]);
+        return { first, second };
+      })
+      .compile();
+
+    const runPromise = run(wf, {}, {
+      store,
+      stageControlRegistry: registry,
+      config: baseConfig({ defaultConcurrency: 1 }),
+      onStageStart: (runId, stage) => {
+        if (!stageIds.has(stage.name)) stageIds.set(stage.name, stage.id);
+        void runId;
+      },
+      adapters: {
+        prompt: {
+          async prompt(text) {
+            promptCalls.push(text);
+            if (text === "first") {
+              firstEntered.resolve();
+              await releaseFirst.promise;
+            }
+            return `done:${text}`;
+          },
+        },
+      },
+    });
+
+    await firstEntered.promise;
+    while (!stageIds.has("second")) await flushMicrotasks();
+    const runId = store.runs()[0]!.id;
+    const secondId = stageIds.get("second")!;
+    const pauseResult = pauseRun(runId, { store, stageControlRegistry: registry, stageId: secondId });
+    assert.equal(pauseResult.ok, true);
+    await flushMicrotasks();
+    assert.equal(store.runs()[0]?.stages.find((stage) => stage.id === secondId)?.status, "paused");
+
+    releaseFirst.resolve();
+    await sleep(20);
+    assert.deepEqual(promptCalls, ["first"]);
+    assert.equal(store.runs()[0]?.stages.find((stage) => stage.id === secondId)?.status, "paused");
+
+    const resumeResult = resumeRun(runId, { store, stageControlRegistry: registry, stageId: secondId });
+    assert.equal(resumeResult.ok, true);
+    const result = await runPromise;
+    assert.equal(result.status, "completed");
+    assert.deepEqual(promptCalls, ["first", "second"]);
   });
 
   test("slot released after stage failure — next stage can acquire", async () => {

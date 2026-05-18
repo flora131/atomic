@@ -27,7 +27,7 @@ import type { Readable } from "node:stream";
 import { globSync } from "glob";
 import ignore from "ignore";
 import { minimatch } from "minimatch";
-import { CONFIG_DIR_NAME, ENV_OFFLINE, getAgentDir, getAgentDirs, getEnvValue, getProjectConfigDirs } from "../config.js";
+import { APP_NAME, CONFIG_DIR_NAME, ENV_OFFLINE, getAgentDir, getAgentDirs, getEnvValue, getProjectConfigDirs } from "../config.js";
 import { shouldUseWindowsShell } from "../utils/child-process.js";
 import { type GitSource, parseGitUrl } from "../utils/git.js";
 import { canonicalizePath, isLocalPath } from "../utils/paths.js";
@@ -62,6 +62,7 @@ export interface ResolvedPaths {
 	skills: ResolvedResource[];
 	prompts: ResolvedResource[];
 	themes: ResolvedResource[];
+	workflows: ResolvedResource[];
 }
 
 export type MissingSourceAction = "install" | "skip" | "error";
@@ -149,6 +150,8 @@ interface PiManifest {
 	skills?: string[];
 	prompts?: string[];
 	themes?: string[];
+	workflows?: string[];
+	workflow?: string[];
 }
 
 interface ResourceAccumulator {
@@ -156,6 +159,7 @@ interface ResourceAccumulator {
 	skills: Map<string, { metadata: PathMetadata; enabled: boolean }>;
 	prompts: Map<string, { metadata: PathMetadata; enabled: boolean }>;
 	themes: Map<string, { metadata: PathMetadata; enabled: boolean }>;
+	workflows: Map<string, { metadata: PathMetadata; enabled: boolean }>;
 }
 
 /**
@@ -181,17 +185,19 @@ interface PackageFilter {
 	skills?: string[];
 	prompts?: string[];
 	themes?: string[];
+	workflows?: string[];
 }
 
-type ResourceType = "extensions" | "skills" | "prompts" | "themes";
+type ResourceType = "extensions" | "skills" | "prompts" | "themes" | "workflows";
 
-const RESOURCE_TYPES: ResourceType[] = ["extensions", "skills", "prompts", "themes"];
+const RESOURCE_TYPES: ResourceType[] = ["extensions", "skills", "prompts", "themes", "workflows"];
 
 const FILE_PATTERNS: Record<ResourceType, RegExp> = {
 	extensions: /\.(ts|js)$/,
 	skills: /\.md$/,
 	prompts: /\.md$/,
 	themes: /\.json$/,
+	workflows: /\.(ts|js|mjs|cjs)$/,
 };
 
 const IGNORE_FILE_NAMES = [".gitignore", ".ignore", ".fdignore"];
@@ -514,11 +520,23 @@ function collectAutoThemeEntries(dir: string): string[] {
 	return entries;
 }
 
+function getManifestFromPackageJson(pkg: Record<string, unknown>): PiManifest | null {
+	const appManifest = pkg[APP_NAME];
+	if (appManifest && typeof appManifest === "object" && !Array.isArray(appManifest)) {
+		return appManifest as PiManifest;
+	}
+	const legacyManifest = pkg.pi;
+	if (legacyManifest && typeof legacyManifest === "object" && !Array.isArray(legacyManifest)) {
+		return legacyManifest as PiManifest;
+	}
+	return null;
+}
+
 function readPiManifestFile(packageJsonPath: string): PiManifest | null {
 	try {
 		const content = readFileSync(packageJsonPath, "utf-8");
-		const pkg = JSON.parse(content) as { pi?: PiManifest };
-		return pkg.pi ?? null;
+		const pkg = JSON.parse(content) as Record<string, unknown>;
+		return getManifestFromPackageJson(pkg);
 	} catch {
 		return null;
 	}
@@ -620,6 +638,19 @@ function collectResourceFiles(dir: string, resourceType: ResourceType): string[]
 		return collectAutoExtensionEntries(dir);
 	}
 	return collectFiles(dir, FILE_PATTERNS[resourceType]);
+}
+
+function conventionDirsForResource(packageRoot: string, resourceType: ResourceType): string[] {
+	if (resourceType === "workflows") {
+		return [join(packageRoot, "workflows"), join(packageRoot, "workflow")];
+	}
+	return [join(packageRoot, resourceType)];
+}
+
+function manifestEntriesForResource(manifest: PiManifest | null, resourceType: ResourceType): string[] | undefined {
+	if (!manifest) return undefined;
+	if (resourceType === "workflows") return manifest.workflows ?? manifest.workflow;
+	return manifest[resourceType];
 }
 
 function matchesAnyPattern(filePath: string, patterns: string[], baseDir: string): boolean {
@@ -1854,7 +1885,7 @@ export class DefaultPackageManager implements PackageManager {
 		this.ensureGitIgnore(installRoot);
 		const packageJsonPath = join(installRoot, "package.json");
 		if (!existsSync(packageJsonPath)) {
-			const pkgJson = { name: "pi-extensions", private: true };
+			const pkgJson = { name: `${APP_NAME}-extensions`, private: true };
 			writeFileSync(packageJsonPath, JSON.stringify(pkgJson, null, 2), "utf-8");
 		}
 	}
@@ -1986,28 +2017,40 @@ export class DefaultPackageManager implements PackageManager {
 		const manifest = this.readPiManifest(packageRoot);
 		if (manifest) {
 			for (const resourceType of RESOURCE_TYPES) {
-				const entries = manifest[resourceType as keyof PiManifest];
-				this.addManifestEntries(
-					entries,
-					packageRoot,
-					resourceType,
-					this.getTargetMap(accumulator, resourceType),
-					metadata,
-				);
+				const entries = manifestEntriesForResource(manifest, resourceType);
+				if (entries !== undefined) {
+					this.addManifestEntries(
+						entries,
+						packageRoot,
+						resourceType,
+						this.getTargetMap(accumulator, resourceType),
+						metadata,
+					);
+					continue;
+				}
+				if (resourceType === "workflows") {
+					this.collectDefaultResources(
+						packageRoot,
+						resourceType,
+						this.getTargetMap(accumulator, resourceType),
+						metadata,
+					);
+				}
 			}
 			return true;
 		}
 
 		let hasAnyDir = false;
 		for (const resourceType of RESOURCE_TYPES) {
-			const dir = join(packageRoot, resourceType);
-			if (existsSync(dir)) {
-				// Collect all files from the directory (all enabled by default)
-				const files = collectResourceFiles(dir, resourceType);
-				for (const f of files) {
-					this.addResource(this.getTargetMap(accumulator, resourceType), f, metadata, true);
+			for (const dir of conventionDirsForResource(packageRoot, resourceType)) {
+				if (existsSync(dir)) {
+					// Collect all files from the directory (all enabled by default)
+					const files = collectResourceFiles(dir, resourceType);
+					for (const f of files) {
+						this.addResource(this.getTargetMap(accumulator, resourceType), f, metadata, true);
+					}
+					hasAnyDir = true;
 				}
-				hasAnyDir = true;
 			}
 		}
 		return hasAnyDir;
@@ -2020,17 +2063,18 @@ export class DefaultPackageManager implements PackageManager {
 		metadata: PathMetadata,
 	): void {
 		const manifest = this.readPiManifest(packageRoot);
-		const entries = manifest?.[resourceType as keyof PiManifest];
-		if (entries) {
+		const entries = manifestEntriesForResource(manifest, resourceType);
+		if (entries !== undefined) {
 			this.addManifestEntries(entries, packageRoot, resourceType, target, metadata);
 			return;
 		}
-		const dir = join(packageRoot, resourceType);
-		if (existsSync(dir)) {
-			// Collect all files from the directory (all enabled by default)
-			const files = collectResourceFiles(dir, resourceType);
-			for (const f of files) {
-				this.addResource(target, f, metadata, true);
+		for (const dir of conventionDirsForResource(packageRoot, resourceType)) {
+			if (existsSync(dir)) {
+				// Collect all files from the directory (all enabled by default)
+				const files = collectResourceFiles(dir, resourceType);
+				for (const f of files) {
+					this.addResource(target, f, metadata, true);
+				}
 			}
 		}
 	}
@@ -2071,7 +2115,7 @@ export class DefaultPackageManager implements PackageManager {
 		resourceType: ResourceType,
 	): { allFiles: string[]; enabledByManifest: Set<string> } {
 		const manifest = this.readPiManifest(packageRoot);
-		const entries = manifest?.[resourceType as keyof PiManifest];
+		const entries = manifestEntriesForResource(manifest, resourceType);
 		if (entries && entries.length > 0) {
 			const allFiles = this.collectFilesFromManifestEntries(entries, packageRoot, resourceType);
 			const manifestPatterns = entries.filter(isOverridePattern);
@@ -2080,11 +2124,9 @@ export class DefaultPackageManager implements PackageManager {
 			return { allFiles: Array.from(enabledByManifest), enabledByManifest };
 		}
 
-		const conventionDir = join(packageRoot, resourceType);
-		if (!existsSync(conventionDir)) {
-			return { allFiles: [], enabledByManifest: new Set() };
-		}
-		const allFiles = collectResourceFiles(conventionDir, resourceType);
+		const allFiles = conventionDirsForResource(packageRoot, resourceType).flatMap((dir) =>
+			existsSync(dir) ? collectResourceFiles(dir, resourceType) : [],
+		);
 		return { allFiles, enabledByManifest: new Set(allFiles) };
 	}
 
@@ -2096,8 +2138,8 @@ export class DefaultPackageManager implements PackageManager {
 
 		try {
 			const content = readFileSync(packageJsonPath, "utf-8");
-			const pkg = JSON.parse(content) as { pi?: PiManifest };
-			return pkg.pi ?? null;
+			const pkg = JSON.parse(content) as Record<string, unknown>;
+			return getManifestFromPackageJson(pkg);
 		} catch {
 			return null;
 		}
@@ -2188,12 +2230,14 @@ export class DefaultPackageManager implements PackageManager {
 			skills: (globalSettings.skills ?? []) as string[],
 			prompts: (globalSettings.prompts ?? []) as string[],
 			themes: (globalSettings.themes ?? []) as string[],
+			workflows: (globalSettings.workflows ?? []) as string[],
 		};
 		const projectOverrides = {
 			extensions: (projectSettings.extensions ?? []) as string[],
 			skills: (projectSettings.skills ?? []) as string[],
 			prompts: (projectSettings.prompts ?? []) as string[],
 			themes: (projectSettings.themes ?? []) as string[],
+			workflows: (projectSettings.workflows ?? []) as string[],
 		};
 
 		const userConfigDirs = this.getBaseDirsForScope("user");
@@ -2247,6 +2291,13 @@ export class DefaultPackageManager implements PackageManager {
 				projectOverrides.themes,
 				configDir,
 			);
+			addResources(
+				"workflows",
+				collectResourceFiles(join(configDir, "workflows"), "workflows"),
+				metadata,
+				projectOverrides.workflows,
+				configDir,
+			);
 		}
 
 		// Project skills from .agents/ (each with its own baseDir)
@@ -2293,6 +2344,13 @@ export class DefaultPackageManager implements PackageManager {
 				collectAutoThemeEntries(join(configDir, "themes")),
 				metadata,
 				userOverrides.themes,
+				configDir,
+			);
+			addResources(
+				"workflows",
+				collectResourceFiles(join(configDir, "workflows"), "workflows"),
+				metadata,
+				userOverrides.workflows,
 				configDir,
 			);
 		}
@@ -2345,6 +2403,8 @@ export class DefaultPackageManager implements PackageManager {
 				return accumulator.prompts;
 			case "themes":
 				return accumulator.themes;
+			case "workflows":
+				return accumulator.workflows;
 			default:
 				throw new Error(`Unknown resource type: ${resourceType}`);
 		}
@@ -2368,6 +2428,7 @@ export class DefaultPackageManager implements PackageManager {
 			skills: new Map(),
 			prompts: new Map(),
 			themes: new Map(),
+			workflows: new Map(),
 		};
 	}
 
@@ -2396,6 +2457,7 @@ export class DefaultPackageManager implements PackageManager {
 			skills: mapToResolved(accumulator.skills),
 			prompts: mapToResolved(accumulator.prompts),
 			themes: mapToResolved(accumulator.themes),
+			workflows: mapToResolved(accumulator.workflows),
 		};
 	}
 

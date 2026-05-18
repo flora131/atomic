@@ -10,6 +10,10 @@ import { buildConnector, buildMergeConnector } from "../../packages/workflows/sr
 import { statusColor, statusIcon, fmtDuration } from "../../packages/workflows/src/tui/status-helpers.js";
 import { GraphView } from "../../packages/workflows/src/tui/graph-view.js";
 import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.js";
+import { renderHeader } from "../../packages/workflows/src/tui/header.js";
+import { renderNodeCard } from "../../packages/workflows/src/tui/node-card.js";
+import { renderSwitcher } from "../../packages/workflows/src/tui/switcher.js";
+import { visibleWidth } from "../../packages/workflows/src/tui/text-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -56,6 +60,7 @@ function makeStore(snap: StoreSnapshot): Store {
     recordStageEnd: () => {},
     recordStageAwaitingInput: () => false,
     recordRunEnd: () => false,
+    removeRun: () => false,
     recordNotice: () => {},
     ackNotice: () => false,
     recordPendingPrompt: () => false,
@@ -82,6 +87,16 @@ const ANSI_RE = /\x1b\[[0-9;]*m/g;
 
 function visibleText(lines: string[]): string {
   return lines.join("\n").replace(ANSI_RE, "");
+}
+
+function assertVisibleWidths(lines: string[], width: number): void {
+  for (const [idx, line] of lines.entries()) {
+    assert.equal(
+      visibleWidth(line),
+      width,
+      `line ${idx} expected visible width ${width}, got ${visibleWidth(line)}`,
+    );
+  }
 }
 
 function delay(ms: number): Promise<void> {
@@ -218,6 +233,10 @@ describe("statusColor", () => {
     assert.equal(statusColor("running", defaultTheme), defaultTheme.warning);
   });
 
+  it("paused → theme.warning", () => {
+    assert.equal(statusColor("paused", defaultTheme), defaultTheme.warning);
+  });
+
   it("completed → theme.success", () => {
     assert.equal(statusColor("completed", defaultTheme), defaultTheme.success);
   });
@@ -250,6 +269,10 @@ describe("statusIcon", () => {
 
   it("killed → ⊘", () => {
     assert.equal(statusIcon("killed"), "⊘");
+  });
+
+  it("paused → ❚❚", () => {
+    assert.equal(statusIcon("paused"), "❚❚");
   });
 });
 
@@ -419,12 +442,14 @@ describe("GraphView keyboard navigation", () => {
     view.dispose();
   });
 
-  it("Escape calls onClose", () => {
+  it("Escape variants and Ctrl+C call onClose", () => {
     const stages = [makeStage("A")];
     const onClose = mock(() => {});
     const view = makeView(stages, onClose);
-    view.handleInput("\x1b");
-    assert.equal(onClose.mock.calls.length, 1);
+    for (const key of ["\x1b", "\x1b[27u", "\x1b[27;1;27~", "\x03"]) {
+      view.handleInput(key);
+    }
+    assert.equal(onClose.mock.calls.length, 4);
     view.dispose();
   });
 
@@ -495,7 +520,7 @@ describe("GraphView keyboard navigation", () => {
     view.dispose();
   });
 
-  it("switcher overlays only its panel and does not erase graph nodes to the right", () => {
+  it("switcher renders as an opaque panel without leaking graph cells through its rows", () => {
     const stages = [
       makeStage("root"),
       makeStage("branch-left", ["root"]),
@@ -509,14 +534,56 @@ describe("GraphView keyboard navigation", () => {
     assert.match(visibleText(view.render(200)), /╭──── branch-right/);
     view.handleInput("/");
     const withSwitcher = visibleText(view.render(200));
-    assert.match(withSwitcher, /stages/);
-    assert.match(withSwitcher, /^│ ○ root\s+│/m);
+    assert.match(withSwitcher, /STAGES/);
+    assert.match(withSwitcher, /│\s+○ root\s+pending\s+│/);
     assert.doesNotMatch(withSwitcher, /^│ ▸/m);
-    assert.match(withSwitcher, /╭──── branch-right/);
+    assert.doesNotMatch(withSwitcher, /╭──── branch-right/);
+    assert.doesNotMatch(withSwitcher, /╭─────── merge ────────╮/);
     view.dispose();
   });
 
-  it("keeps the node-card graph view for long workflows while the switcher is open", () => {
+  it("preserves visible gutters between sibling node cards", () => {
+    const stages = [
+      makeStage("root"),
+      makeStage("branch-left", ["root"]),
+      makeStage("branch-right", ["root"]),
+    ];
+    const view = makeView(stages);
+    const text = visibleText(view.render(140));
+
+    assert.doesNotMatch(text, /╮╭/);
+    assert.doesNotMatch(text, /╯╰/);
+    assert.match(text, /╮ {4,}╭/);
+    view.dispose();
+  });
+
+  it("renders switcher rows to the configured width across selection and empty states", () => {
+    const stages = [
+      makeStage("root"),
+      makeStage("branch-with-a-very-long-name-that-should-truncate", ["root"]),
+      { ...makeStage("done", ["root"]), status: "completed" as const },
+    ];
+    const width = 56;
+    assertVisibleWidths(
+      renderSwitcher(stages, { query: "", selectedIndex: 0 }, {
+        width,
+        theme: defaultTheme,
+      }),
+      width,
+    );
+    assertVisibleWidths(
+      renderSwitcher(stages, {
+        query: "this-query-is-far-too-long-to-fit-inside-the-panel",
+        selectedIndex: 0,
+      }, {
+        width,
+        theme: defaultTheme,
+      }),
+      width,
+    );
+  });
+
+  it("renders the switcher as a focused modal body for long workflows", () => {
     const stages = Array.from({ length: 16 }, (_, i) =>
       makeStage(`stage-${i}`, i === 0 ? [] : [`stage-${i - 1}`]),
     );
@@ -532,8 +599,9 @@ describe("GraphView keyboard navigation", () => {
 
     view.handleInput("/");
     const withSwitcher = visibleText(view.render(160));
-    assert.match(withSwitcher, /stages/);
-    assert.match(withSwitcher, /╭.*stage-0/);
+    assert.match(withSwitcher, /STAGES/);
+    assert.match(withSwitcher, /│\s+○ stage-0\s+pending\s+│/);
+    assert.doesNotMatch(withSwitcher, /╭.*stage-0/);
     assert.doesNotMatch(withSwitcher, /^\s*○ stage-0\s+pending/m);
     view.dispose();
   });
@@ -610,6 +678,18 @@ describe("GraphView keyboard navigation", () => {
     view.dispose();
   });
 
+  it("leaves unpainted top and bottom margin rows around the orchestrator panel", () => {
+    const stages = [makeStage("A"), makeStage("B", ["A"])];
+    const view = makeView(stages);
+    const lines = view.render(96);
+    assert.equal(lines.length, 32);
+    assert.equal(lines[0], " ".repeat(96));
+    assert.equal(lines.at(-1), " ".repeat(96));
+    assert.match(visibleText(lines.slice(1, 4)), /ORCHESTRATOR/);
+    assert.match(visibleText(lines.slice(-4, -1)), /GRAPH/);
+    view.dispose();
+  });
+
   it("expands overlay to the reported viewport row count", () => {
     // Full-screen overlay path: when the host surfaces terminal.rows
     // through `getViewportRows`, the renderer must paint that many
@@ -629,10 +709,7 @@ describe("GraphView keyboard navigation", () => {
     view.dispose();
   });
 
-  it("clamps to the constant minimum when reported viewport is smaller", () => {
-    // Tiny terminals (or a host with stale row data) should never
-    // drop below the 32-row minimum — the header/statusline budget
-    // would otherwise underflow.
+  it("respects short reported viewport rows and keeps status controls visible", () => {
     const stages = [makeStage("A")];
     const snap = makeSnap(stages);
     const store = makeStore(snap);
@@ -644,7 +721,8 @@ describe("GraphView keyboard navigation", () => {
       getViewportRows: () => 10,
     });
     const lines = view.render(96);
-    assert.equal(lines.length, 32);
+    assert.equal(lines.length, 10);
+    assert.match(visibleText(lines.slice(-4)), /GRAPH/);
     view.dispose();
   });
 
@@ -716,6 +794,62 @@ describe("GraphView keyboard navigation", () => {
     });
     const lines = view.render(96);
     assert.equal(lines.length, 42);
+    view.dispose();
+  });
+
+  it("keeps header rows within width for long wide run names", () => {
+    const run: RunSnapshot = {
+      ...makeRun([makeStage("A")]),
+      name: "workflow-测试🚀e\u0301".repeat(20),
+    };
+    const lines = renderHeader(run, { width: 40, theme: defaultTheme });
+    assertVisibleWidths(lines, 40);
+  });
+
+  it("keeps node cards exactly NODE_W cells with wide stage names", () => {
+    for (const name of ["测试测试测试测试测试", "build 🚀🚀🚀🚀", "e\u0301e\u0301e\u0301e\u0301e\u0301e\u0301", "👩‍💻 review"].values()) {
+      const lines = renderNodeCard(
+        { ...makeStage("wide"), name },
+        { width: NODE_W, theme: defaultTheme, focused: true },
+      );
+      assertVisibleWidths(lines, NODE_W);
+    }
+  });
+
+  it("renders paused node cards with an explicit pause state", () => {
+    const lines = renderNodeCard(
+      { ...makeStage("paused"), status: "paused" },
+      { width: NODE_W, theme: defaultTheme },
+    );
+    assertVisibleWidths(lines, NODE_W);
+    assert.match(visibleText(lines), /❚❚ paused/);
+  });
+
+  it("keeps composed graph rows within width for wide run and stage names", () => {
+    const stages = [
+      { ...makeStage("A"), name: "root-测试🚀".repeat(8) },
+      { ...makeStage("B", ["A"]), name: "child-👩‍💻-e\u0301".repeat(8) },
+    ];
+    const snap: StoreSnapshot = {
+      ...makeSnap(stages),
+      runs: [
+        {
+          ...makeRun(stages),
+          name: "run-测试🚀e\u0301".repeat(20),
+        },
+      ],
+    };
+    const store = makeStore(snap);
+    const view = new GraphView({
+      mode: "overlay",
+      runId: "run-1",
+      store,
+      graphTheme: defaultTheme,
+      getViewportRows: () => 20,
+    });
+    const lines = view.render(40);
+    assert.equal(lines.length, 20);
+    assertVisibleWidths(lines, 40);
     view.dispose();
   });
 });

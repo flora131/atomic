@@ -125,9 +125,9 @@ ${CSS}
 
 <footer class="action-bar">
 <div class="action-shortcuts">
-<span class="shortcut"><kbd>A</kbd> <span>Toggle all</span></span>
+<span class="shortcut"><kbd>A</kbd> <span>Toggle All</span></span>
 <span class="shortcut"><kbd>Enter</kbd> <span>Generate</span></span>
-<span class="shortcut"><kbd>Esc</kbd> <span>Cancel</span></span>
+<span class="shortcut"><kbd>Escape</kbd> <span>Cancel</span></span>
 </div>
 <div class="action-buttons">
 <button class="btn btn-submit" id="btn-send" disabled>Waiting for results\u2026</button>

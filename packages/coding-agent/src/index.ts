@@ -303,6 +303,7 @@ export {
 // Main entry point
 export { type MainOptions, main } from "./main.js";
 // Run modes for programmatic SDK usage
+export { pickWhimsicalWorkingMessage } from "./modes/interactive/whimsical-messages.js";
 export {
 	InteractiveMode,
 	type InteractiveModeOptions,
@@ -343,6 +344,7 @@ export {
 	ExtensionInputComponent,
 	ExtensionSelectorComponent,
 	FooterComponent,
+	UsageMeterComponent,
 	keyHint,
 	keyText,
 	LoginDialogComponent,
@@ -365,6 +367,8 @@ export {
 	truncateToVisualLines,
 	UserMessageComponent,
 	UserMessageSelectorComponent,
+	WorkingStatusComponent,
+	type WorkingStatusComponentOptions,
 	type VisualTruncateResult,
 } from "./modes/interactive/components/index.js";
 // Theme utilities for custom tools and extensions

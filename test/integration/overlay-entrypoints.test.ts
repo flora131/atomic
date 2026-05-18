@@ -19,7 +19,7 @@
  *     overlay.open(activeRunId).
  *   - /workflow resume + /workflow attach + /workflow pause routing.
  *   - Graph-mode Ctrl+D / `h` never kills the run.
- *   - `q` still kills the active run (regression gate).
+ *   - `q` kills and removes the active run (regression gate).
  */
 
 import { describe, test } from "bun:test";
@@ -371,7 +371,7 @@ describe("buildGraphOverlayAdapter — open with pi.ui.custom", () => {
     assert.match(visibleText(component.render(96)), /stage-5/);
   });
 
-  test("mock pi switcher render preserves graph cells outside the panel", () => {
+  test("mock pi switcher render hides graph cells behind the panel", () => {
     const { ui, calls } = buildMockUi({ rows: 32 });
     const store = createStore();
     const runId = "switcher-run";
@@ -384,13 +384,13 @@ describe("buildGraphOverlayAdapter — open with pi.ui.custom", () => {
     assert.match(visibleText(component.render(200)), /╭──── branch-right/);
     component.handleInput?.("/");
     const withSwitcher = visibleText(component.render(200));
-    assert.match(withSwitcher, /stages/);
-    assert.match(withSwitcher, /^│ ○ root\s+│/m);
+    assert.match(withSwitcher, /STAGES/);
+    assert.match(withSwitcher, /│\s+○ root\s+pending\s+│/);
     assert.doesNotMatch(withSwitcher, /^│ ▸/m);
-    assert.match(withSwitcher, /╭──── branch-right/);
+    assert.doesNotMatch(withSwitcher, /╭──── branch-right/);
   });
 
-  test("mock pi switcher render keeps node-card graph for long workflows", () => {
+  test("mock pi switcher render hides node-card graph for long workflows", () => {
     const { ui, calls } = buildMockUi({ rows: 40 });
     const store = createStore();
     const runId = "long-switcher-run";
@@ -402,8 +402,9 @@ describe("buildGraphOverlayAdapter — open with pi.ui.custom", () => {
     const component = calls[0]!.component;
     component.handleInput?.("/");
     const withSwitcher = visibleText(component.render(160));
-    assert.match(withSwitcher, /stages/);
-    assert.match(withSwitcher, /╭.*stage-0/);
+    assert.match(withSwitcher, /STAGES/);
+    assert.match(withSwitcher, /│\s+○ stage-0\s+pending\s+│/);
+    assert.doesNotMatch(withSwitcher, /╭.*stage-0/);
     assert.doesNotMatch(withSwitcher, /^\s*○ stage-0\s+pending/m);
   });
 
@@ -961,7 +962,7 @@ describe("buildGraphOverlayAdapter — Ctrl+D / h non-destructive hide", () => {
     assert.equal(run!.endedAt, undefined);
   });
 
-  test("`q` on a real custom mount DOES kill the active run (regression gate)", () => {
+  test("`q` on a real custom mount kills and removes the active run (regression gate)", () => {
     const runId = `q-kill-${Date.now()}`;
     const store = createStore();
     store.recordRunStart({
@@ -992,8 +993,7 @@ describe("buildGraphOverlayAdapter — Ctrl+D / h non-destructive hide", () => {
     capturedComponent!.handleInput!("q");
 
     const run = store.runs().find((r) => r.id === runId);
-    assert.equal(run!.status, "killed", "`q` must transition the run to killed");
-    assert.ok(run!.endedAt !== undefined, "`q` must mark the run as ended");
+    assert.equal(run, undefined, "`q` must remove the run from live history/status");
   });
 });
 

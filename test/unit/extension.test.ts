@@ -1,6 +1,9 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import factory from "../../packages/workflows/src/extension/index.js";
+import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import factory, { type ExtensionAPI } from "../../packages/workflows/src/extension/index.js";
 
 test("extension factory is a function", () => {
   assert.equal(typeof factory, "function");
@@ -9,4 +12,61 @@ test("extension factory is a function", () => {
 test("extension factory runs without error (no-op)", () => {
   // Phase A: factory accepts any API object and does nothing.
   assert.doesNotThrow(() => factory({}));
+});
+
+test("session_start warns when discovered workflows fail validation", async () => {
+  const root = mkdtempSync(join(tmpdir(), "atomic-workflow-warning-"));
+  try {
+    const workflowDir = join(root, "workflows");
+    mkdirSync(workflowDir, { recursive: true });
+    const workflowPath = join(workflowDir, "empty-graph.js");
+    writeFileSync(
+      workflowPath,
+      [
+        "export default {",
+        "  __piWorkflow: true,",
+        "  name: 'Empty Graph',",
+        "  normalizedName: 'empty-graph',",
+        "  description: 'invalid because no stage is created',",
+        "  inputs: {},",
+        "  run: async () => ({ ok: true }),",
+        "};",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const handlers = new Map<string, (event: unknown, ctx: unknown) => Promise<void> | void>();
+    const notifications: Array<{ message: string; type?: string }> = [];
+    const pi: ExtensionAPI = {
+      registerTool: () => undefined,
+      registerCommand: () => undefined,
+      registerMessageRenderer: () => undefined,
+      registerFlag: () => undefined,
+      registerShortcut: () => undefined,
+      getWorkflowResources: () => [{ path: workflowPath, enabled: true }],
+      on: (event, handler) => {
+        handlers.set(event, handler as (event: unknown, ctx: unknown) => Promise<void> | void);
+      },
+    };
+
+    factory(pi);
+    const sessionStart = handlers.get("session_start");
+    assert.notEqual(sessionStart, undefined);
+
+    await sessionStart?.({}, {
+      ui: {
+        notify: (message: string, type?: "info" | "warning" | "error") => {
+          notifications.push({ message, type });
+        },
+      },
+    });
+
+    const warning = notifications.find((entry) => entry.message.includes("Workflow discovery diagnostics"));
+    assert.notEqual(warning, undefined);
+    assert.equal(warning?.type, "warning");
+    assert.match(warning!.message, /empty-graph\.js/);
+    assert.match(warning!.message, /must create at least one workflow stage/i);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

@@ -1,5 +1,8 @@
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { CreateAgentSessionOptions } from "@bastani/atomic";
 import { runWorkflow } from "../../packages/workflows/src/runs/shared/workflow-runner.js";
 import type { StageSessionRuntime } from "../../packages/workflows/src/runs/foreground/stage-runner.js";
@@ -51,6 +54,126 @@ function makeSessionFactory(seen: string[]) {
 }
 
 describe("programmatic workflow runner", () => {
+  test("runs a direct single task with tool-parity options", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "workflow-runner-direct-"));
+    const output = join(dir, "result.md");
+    const sessionOptions: CreateAgentSessionOptions[] = [];
+
+    const result = await runWorkflow(
+      {
+        mode: "single",
+        task: { name: "writer", task: "write summary" },
+        output,
+        outputMode: "file-only",
+        cwd: dir,
+        tools: ["read"],
+        thinkingLevel: "high",
+      },
+      {
+        adapterOptions: {
+          createAgentSession: async (options) => {
+            sessionOptions.push(options ?? {});
+            return makeSessionFactory([])(options);
+          },
+        },
+      },
+    );
+
+    assert.equal(result.mode, "single");
+    assert.equal(result.status, "completed");
+    assert.equal(readFileSync(output, "utf8"), "sdk:write summary");
+    assert.equal(sessionOptions[0]?.cwd, dir);
+    assert.deepEqual(sessionOptions[0]?.tools, ["read"]);
+    assert.equal(sessionOptions[0]?.thinkingLevel, "high");
+  });
+
+  test("resolves programmatic direct chain reads and output against chainDir", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "workflow-runner-chain-dir-"));
+    const prompts: string[] = [];
+
+    const result = await runWorkflow(
+      {
+        mode: "chain",
+        task: "summarize",
+        chain: [{ name: "reader", task: "{task}", output: "out.md" }],
+        reads: ["notes.md"],
+        chainDir: dir,
+      },
+      {
+        adapterOptions: {
+          createAgentSession: makeSessionFactory(prompts),
+        },
+      },
+    );
+
+    assert.equal(result.mode, "chain");
+    assert.equal(result.status, "completed");
+    assert.match(prompts[0] ?? "", /^\[Read from: /);
+    assert.ok(prompts[0]?.includes(join(dir, "notes.md")));
+    assert.equal(readFileSync(join(dir, "out.md"), "utf8"), prompts[0] === undefined ? "" : `sdk:${prompts[0]}`);
+  });
+
+  test("runs direct parallel tasks with top-level concurrency", async () => {
+    let active = 0;
+    let maxActive = 0;
+
+    const result = await runWorkflow(
+      {
+        mode: "parallel",
+        tasks: [
+          { name: "a", task: "a" },
+          { name: "b", task: "b" },
+          { name: "c", task: "c" },
+        ],
+        concurrency: 1,
+      },
+      {
+        adapterOptions: {
+          createAgentSession: async () => {
+            const factory = makeSessionFactory([]);
+            const created = await factory();
+            return {
+              session: {
+                ...created.session,
+                async prompt(): Promise<string> {
+                  active++;
+                  maxActive = Math.max(maxActive, active);
+                  await new Promise((resolve) => setTimeout(resolve, 5));
+                  active--;
+                  return "ok";
+                },
+              },
+            };
+          },
+        },
+      },
+    );
+
+    assert.equal(result.mode, "parallel");
+    assert.equal(result.status, "completed");
+    assert.equal(maxActive, 1);
+  });
+
+  test("runs a direct chain with root task text and shared maxOutput", async () => {
+    const result = await runWorkflow(
+      {
+        mode: "chain",
+        task: "map auth",
+        chain: [
+          { name: "scout" },
+          { name: "summarize", task: "summarize {previous}" },
+        ],
+        maxOutput: { lines: 1, bytes: 10 },
+      },
+      { stubAgent: true },
+    );
+
+    assert.equal(result.mode, "chain");
+    assert.equal(result.status, "completed");
+    assert.equal(result.results?.length, 2);
+    assert.match(result.results?.[1]?.text ?? "", /\[workflow output truncated/);
+  });
+
   test("runs a named workflow from an explicit definition object", async () => {
     const prompts: string[] = [];
     const result = await runWorkflow(

@@ -133,6 +133,7 @@ interface ToolExecutionStartPayload {
   tool_use_id?: string;
   id?: string;
   input?: Record<string, unknown>;
+  args?: Record<string, unknown>;
   ts?: number;
 }
 
@@ -229,7 +230,7 @@ export function installToolExecutionHooks(pi: LiveWidgetAPI, storeInstance: Stor
 
     storeInstance.recordToolStart(ids.runId, ids.stageId, {
       name: toolName(payload),
-      input: payload.input,
+      input: toolInput(payload),
       startedAt: payload.ts ?? Date.now(),
     });
     recordAskUserQuestionStart(payload, ids);
@@ -243,7 +244,7 @@ export function installToolExecutionHooks(pi: LiveWidgetAPI, storeInstance: Stor
 
     storeInstance.recordToolEnd(ids.runId, ids.stageId, {
       name: toolName(payload),
-      input: payload.input,
+      input: toolInput(payload),
       startedAt: payload.ts ?? Date.now(),
       endedAt: payload.endedAt ?? payload.ended_at ?? Date.now(),
       output: payload.output,
@@ -288,6 +289,10 @@ function toolName(payload: ToolExecutionStartPayload): string {
 
 function toolCallId(payload: ToolExecutionStartPayload): string {
   return payload.toolCallId ?? payload.tool_call_id ?? payload.toolUseId ?? payload.tool_use_id ?? payload.id ?? "__ask_user_question__";
+}
+
+function toolInput(payload: ToolExecutionStartPayload): Record<string, unknown> | undefined {
+  return payload.input ?? payload.args;
 }
 
 function isAskUserQuestionToolName(name: string): boolean {

@@ -13,12 +13,14 @@ import type {
   WorkflowInputSchema,
   StageContext,
   StageOptions,
+  StagePromptOptions,
   WorkflowTaskContextInput,
   WorkflowTaskOptions,
   WorkflowTaskResult,
   WorkflowTaskStep,
   WorkflowArtifact,
   WorkflowMaxOutput,
+  WorkflowOutputMode,
   WorkflowChainOptions,
   WorkflowParallelOptions,
   WorkflowDetails,
@@ -149,6 +151,18 @@ export function resolveInputs(
   return resolved;
 }
 
+function resolveInputConcurrency(
+  schema: Readonly<Record<string, WorkflowInputSchema>>,
+  resolvedInputs: ResolvedInputs,
+): number | undefined {
+  if (schema["max_concurrency"]?.type !== "number") return undefined;
+
+  const value = resolvedInputs["max_concurrency"];
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 1) return undefined;
+
+  return Math.floor(value);
+}
+
 // ---------------------------------------------------------------------------
 // HIL unavailable fallback — rejects with precise per-primitive error
 // ---------------------------------------------------------------------------
@@ -250,15 +264,52 @@ function taskPrevious(options: WorkflowTaskOptions): WorkflowTaskOptions["previo
   return options.previous;
 }
 
-function taskStageOptions(options: WorkflowTaskOptions): StageOptions {
+type WorkflowTaskExecutionOptions = WorkflowTaskOptions & { chainDir?: string };
+
+function resolveWorkflowPath(filePath: string, baseDir: string | undefined): string {
+  if (isAbsolute(filePath)) return filePath;
+  return resolve(baseDir ?? process.cwd(), filePath);
+}
+
+function taskBaseDir(options: Pick<WorkflowTaskExecutionOptions, "chainDir" | "cwd">): string | undefined {
+  if (typeof options.chainDir === "string" && options.chainDir.length > 0) {
+    return resolveWorkflowPath(options.chainDir, process.cwd());
+  }
+  if (typeof options.cwd === "string" && options.cwd.length > 0) {
+    return resolveWorkflowPath(options.cwd, process.cwd());
+  }
+  return undefined;
+}
+
+function taskReadInstruction(options: WorkflowTaskExecutionOptions): string {
+  if (options.reads === false || options.reads === undefined || options.reads.length === 0) return "";
+  const baseDir = taskBaseDir(options);
+  const files = options.reads.map((file) => resolveWorkflowPath(file, baseDir));
+  return `[Read from: ${files.join(", ")}]\n\n`;
+}
+
+function taskPromptOptions(options: WorkflowTaskExecutionOptions): StagePromptOptions | undefined {
+  const baseDir = taskBaseDir(options);
+  const promptOptions: StagePromptOptions = {
+    ...(options.output !== undefined ? { output: options.output } : {}),
+    ...(options.outputMode !== undefined ? { outputMode: options.outputMode } : {}),
+    ...(baseDir !== undefined ? { cwd: baseDir } : options.cwd !== undefined ? { cwd: options.cwd } : {}),
+    ...(options.maxOutput !== undefined ? { maxOutput: options.maxOutput } : {}),
+    ...(options.artifacts !== undefined ? { artifacts: options.artifacts } : {}),
+    ...(options.sessionDir !== undefined ? { sessionDir: options.sessionDir } : {}),
+  };
+  return Object.keys(promptOptions).length === 0 ? undefined : promptOptions;
+}
+
+function taskStageOptions(options: WorkflowTaskExecutionOptions): StageOptions {
   const {
     prompt: _prompt,
     task: _task,
     previous: _previous,
+    chainDir: _chainDir,
     output: _output,
     outputMode: _outputMode,
     reads: _reads,
-    progress: _progress,
     worktree: _worktree,
     maxOutput: _maxOutput,
     artifacts: _artifacts,
@@ -273,16 +324,11 @@ function taskOptionsFromStep(step: WorkflowTaskStep, prompt: string, previous?: 
     prompt: _prompt,
     task: _task,
     previous: _previous,
-    output: _output,
-    outputMode: _outputMode,
-    reads: _reads,
-    progress: _progress,
-    worktree: _worktree,
-    ...stageOptions
+    ...stepOptions
   } = step;
   return previous === undefined
-    ? { ...stageOptions, prompt }
-    : { ...stageOptions, prompt, previous };
+    ? { ...stepOptions, prompt }
+    : { ...stepOptions, prompt, previous };
 }
 
 function replaceTaskPlaceholder(prompt: string, task: string): string {
@@ -382,6 +428,28 @@ function withoutUndefinedProperties<T extends object>(value: T): Partial<T> {
   ) as Partial<T>;
 }
 
+function sharedTaskDefaultsFromOptions(
+  options: WorkflowChainOptions | WorkflowParallelOptions,
+): Partial<WorkflowTaskExecutionOptions> {
+  const {
+    task: _task,
+    concurrency: _concurrency,
+    failFast: _failFast,
+    ...taskDefaults
+  } = options as WorkflowParallelOptions;
+  return withoutUndefinedProperties(taskDefaults);
+}
+
+function taskWithSharedDefaults(
+  taskOptions: WorkflowTaskOptions,
+  options: WorkflowChainOptions | WorkflowParallelOptions,
+): WorkflowTaskExecutionOptions {
+  return {
+    ...sharedTaskDefaultsFromOptions(options),
+    ...withoutUndefinedProperties(taskOptions),
+  } as WorkflowTaskExecutionOptions;
+}
+
 function directTaskWithDefaults(
   item: WorkflowDirectTaskItem,
   options: WorkflowDirectOptions,
@@ -392,9 +460,9 @@ function directTaskWithDefaults(
     concurrency: _concurrency,
     failFast: _failFast,
     chainDir: _chainDir,
+    reads,
     output,
     outputMode,
-    progress,
     worktree,
     maxOutput,
     artifacts,
@@ -409,9 +477,9 @@ function directTaskWithDefaults(
 
   return {
     ...taskWithStageDefaults,
+    ...(item.reads === undefined && reads !== undefined ? { reads } : {}),
     ...(item.output === undefined && output !== undefined ? { output } : {}),
     ...(item.outputMode === undefined && outputMode !== undefined ? { outputMode } : {}),
-    ...(item.progress === undefined && progress !== undefined ? { progress } : {}),
     ...(item.worktree === undefined && worktree !== undefined ? { worktree } : {}),
     ...(item.maxOutput === undefined && maxOutput !== undefined ? { maxOutput } : {}),
     ...(item.artifacts === undefined && artifacts !== undefined ? { artifacts } : {}),
@@ -427,8 +495,6 @@ function directTaskToStep(
     count: _count,
     output: _output,
     outputMode: _outputMode,
-    reads: _reads,
-    progress: _progress,
     worktree: _worktree,
     prompt,
     task,
@@ -440,6 +506,54 @@ function directTaskToStep(
     prompt: prompt ?? task ?? fallbackPrompt,
     previous: previous ?? itemPrevious,
   };
+}
+
+function positiveConcurrency(value: number | undefined): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 1) return undefined;
+  return Math.floor(value);
+}
+
+async function mapParallelSteps<T>(
+  steps: readonly WorkflowTaskStep[],
+  concurrency: number | undefined,
+  failFast: boolean | undefined,
+  mapper: (step: WorkflowTaskStep) => Promise<T>,
+): Promise<T[]> {
+  const limit = positiveConcurrency(concurrency) ?? steps.length;
+  const results = new Array<T>(steps.length);
+  const failures: Array<{ readonly index: number; readonly error: unknown }> = [];
+  let nextIndex = 0;
+  let firstFailure: unknown;
+
+  async function worker(): Promise<void> {
+    while (true) {
+      if (failFast !== false && firstFailure !== undefined) return;
+      const index = nextIndex;
+      nextIndex += 1;
+      const step = steps[index];
+      if (step === undefined) return;
+      try {
+        results[index] = await mapper(step);
+      } catch (err) {
+        failures.push({ index, error: err });
+        firstFailure ??= err;
+        if (failFast !== false) throw err;
+      }
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(limit, steps.length) }, () => worker()),
+  );
+
+  if (failures.length > 0) {
+    throw new AggregateError(
+      failures.map((failure) => failure.error),
+      `pi-workflows: ${failures.length} parallel ${failures.length === 1 ? "step" : "steps"} failed`,
+    );
+  }
+
+  return results;
 }
 
 function expandedParallelTasks(tasks: readonly WorkflowDirectTaskItem[]): WorkflowDirectTaskItem[] {
@@ -584,13 +698,14 @@ function isRunOpts(value: WorkflowDirectOptions | RunOpts | undefined): value is
 }
 
 async function writeDirectOutput(
-  item: Pick<WorkflowDirectTaskItem, "output" | "outputMode">,
+  item: { readonly chainDir?: string; readonly cwd?: string; readonly output?: string | false; readonly outputMode?: WorkflowOutputMode },
   result: WorkflowTaskResult,
 ): Promise<{ result: WorkflowTaskResult; artifact?: WorkflowArtifact }> {
   if (typeof item.output !== "string") return { result };
 
-  await mkdir(dirname(item.output), { recursive: true });
-  await writeFile(item.output, result.text, "utf8");
+  const outputPath = resolveWorkflowPath(item.output, taskBaseDir(item));
+  await mkdir(dirname(outputPath), { recursive: true });
+  await writeFile(outputPath, result.text, "utf8");
 
   const visibleResult =
     item.outputMode === "file-only"
@@ -601,7 +716,7 @@ async function writeDirectOutput(
     result: visibleResult,
     artifact: {
       kind: "output",
-      path: item.output,
+      path: outputPath,
       taskName: result.name,
     },
   };
@@ -746,7 +861,11 @@ export async function runParallel(
   const direct = defineDirectWorkflow("direct-parallel", async (ctx) => {
     try {
       const steps = prepared.tasks.map((task) => directTaskToStep(task));
-      const rawResults = await ctx.parallel(steps, { task: options.task });
+      const rawResults = await ctx.parallel(steps, {
+        task: options.task,
+        concurrency: options.concurrency,
+        failFast: options.failFast,
+      });
       const persisted = await Promise.all(
         rawResults.map((result, index) => writeDirectOutput(prepared.tasks[index]!, result)),
       );
@@ -788,9 +907,16 @@ async function runDirectChainStep(
       const steps = prepared.tasks.map((item) =>
         directTaskToStep(item, directTaskPrompt(item) ?? "{previous}", item.previous ?? prior),
       );
-      const rawResults = await ctx.parallel(steps, { task: rootTask });
+      const rawResults = await ctx.parallel(steps, {
+        task: rootTask,
+        concurrency: step.concurrency ?? options.concurrency,
+        failFast: step.failFast ?? options.failFast,
+        ...(typeof options.chainDir === "string" ? { chainDir: options.chainDir } : {}),
+      } as WorkflowParallelOptions);
       const persisted = await Promise.all(
-        rawResults.map((result, taskIndex) => writeDirectOutput(prepared.tasks[taskIndex]!, result)),
+        rawResults.map((result, taskIndex) =>
+          writeDirectOutput({ ...prepared.tasks[taskIndex]!, chainDir: options.chainDir }, result),
+        ),
       );
       const worktreeDiffs = collectWorktreeDiffs(prepared, stepOptions.artifacts !== false);
       return {
@@ -811,9 +937,12 @@ async function runDirectChainStep(
   try {
     const rawResult = await ctx.task(
       preparedStep.name,
-      directTaskToStep(preparedStep, replaceTaskPlaceholder(prompt, rootTask), preparedStep.previous ?? prior),
+      {
+        ...directTaskToStep(preparedStep, replaceTaskPlaceholder(prompt, rootTask), preparedStep.previous ?? prior),
+        ...(typeof options.chainDir === "string" ? { chainDir: options.chainDir } : {}),
+      } as WorkflowTaskOptions,
     );
-    const { result, artifact } = await writeDirectOutput(preparedStep, rawResult);
+    const { result, artifact } = await writeDirectOutput({ ...preparedStep, chainDir: options.chainDir }, rawResult);
     const worktreeDiffs = collectWorktreeDiffs(prepared, options.artifacts !== false);
     return {
       results: [result],
@@ -924,8 +1053,8 @@ function nextEventLoopTurn(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-export async function run(
-  def: WorkflowDefinition,
+export async function run<TInputs extends Record<string, unknown>>(
+  def: WorkflowDefinition<TInputs>,
   inputs: Record<string, unknown>,
   opts: RunOpts = {},
 ): Promise<RunResult> {
@@ -996,16 +1125,23 @@ export async function run(
 
   // 4. Create GraphFrontierTracker and per-run ConcurrencyLimiter
   const tracker = new GraphFrontierTracker();
-  const limiter = createRunLimiter(opts.config?.defaultConcurrency);
+  const inputConcurrency = resolveInputConcurrency(def.inputs, resolvedInputs);
+  const limiter = createRunLimiter(inputConcurrency ?? opts.config?.defaultConcurrency);
   interface ReleaseBarrier {
     readonly promise: Promise<void>;
     readonly resolve: () => void;
     readonly reject: (reason?: unknown) => void;
   }
   const releaseBarriers = new Map<string, ReleaseBarrier>();
+  const cascadePauseOwners = new Map<string, Set<string>>();
 
   const makeReleaseBarrier = (): ReleaseBarrier => {
     const resolver = Promise.withResolvers<void>();
+    // Abort rejects release barriers during kill/shutdown. Some barriers are
+    // only state markers for a paused root/current stage and have no active
+    // waiter, so mark expected cancellation as observed while preserving the
+    // same promise for callers that do await it.
+    void resolver.promise.catch(() => {});
     return { promise: resolver.promise, resolve: resolver.resolve, reject: resolver.reject };
   };
 
@@ -1059,6 +1195,23 @@ export async function run(
     activeStore.recordStageBlocked(runId, stage.id, blockedBy);
   };
 
+  const markCascadePaused = (stageId: string, ownerStageId: string): void => {
+    let owners = cascadePauseOwners.get(stageId);
+    if (!owners) {
+      owners = new Set<string>();
+      cascadePauseOwners.set(stageId, owners);
+    }
+    owners.add(ownerStageId);
+  };
+
+  const releaseCascadePauseOwner = (stageId: string, ownerStageId: string): boolean => {
+    const owners = cascadePauseOwners.get(stageId);
+    if (!owners) return false;
+    const changed = owners.delete(ownerStageId);
+    if (owners.size === 0) cascadePauseOwners.delete(stageId);
+    return changed;
+  };
+
   const releaseStageBarrier = (stageId: string): void => {
     const barrier = releaseBarriers.get(stageId);
     if (!barrier) return;
@@ -1067,12 +1220,14 @@ export async function run(
   };
 
   const cascadePauseFrom = async (pausedStageId: string): Promise<void> => {
+    const stageRegistry = opts.stageControlRegistry ?? defaultStageControlRegistry;
     for (const descendant of descendantsOf(pausedStageId)) {
       if (isTerminalStage(descendant) || descendant.status === "paused" || descendant.status === "blocked") continue;
-      if (descendant.status === "running") {
-        const descendantHandle = (opts.stageControlRegistry ?? defaultStageControlRegistry).get(runId, descendant.id);
-        if (descendantHandle && descendantHandle.status === "running") {
+      const descendantHandle = stageRegistry.get(runId, descendant.id);
+      if (descendantHandle?.isStreaming || descendant.status === "running") {
+        if (descendantHandle && (descendantHandle.status === "running" || descendantHandle.status === "pending")) {
           await descendantHandle.pause();
+          markCascadePaused(descendant.id, pausedStageId);
         }
         continue;
       }
@@ -1080,17 +1235,32 @@ export async function run(
     }
   };
 
-  const cascadeResumeFrom = (resumedStageId: string): void => {
+  const cascadeResumeFrom = async (resumedStageId: string): Promise<void> => {
+    const stageRegistry = opts.stageControlRegistry ?? defaultStageControlRegistry;
     for (const descendant of descendantsOf(resumedStageId)) {
-      if (isTerminalStage(descendant) || descendant.status !== "blocked") continue;
-      if (blockingAncestorFor(descendant) !== undefined) continue;
-      if (activeStore.recordStageUnblocked(runId, descendant.id)) {
-        releaseStageBarrier(descendant.id);
+      if (isTerminalStage(descendant)) continue;
+      if (descendant.status === "blocked") {
+        if (blockingAncestorFor(descendant) !== undefined) continue;
+        if (activeStore.recordStageUnblocked(runId, descendant.id)) {
+          releaseStageBarrier(descendant.id);
+        }
+        continue;
+      }
+      if (descendant.status === "paused") {
+        const ownedByResumedStage = releaseCascadePauseOwner(descendant.id, resumedStageId);
+        if (!ownedByResumedStage) continue;
+        if (cascadePauseOwners.has(descendant.id)) continue;
+        if (blockingAncestorFor(descendant) !== undefined) continue;
+        const descendantHandle = stageRegistry.get(runId, descendant.id);
+        if (descendantHandle?.status === "paused") {
+          await descendantHandle.resume();
+        }
       }
     }
   };
 
   const rejectReleaseBarriers = (reason: unknown): void => {
+    cascadePauseOwners.clear();
     for (const [stageId, barrier] of releaseBarriers) {
       releaseBarriers.delete(stageId);
       activeStore.recordStageUnblocked(runId, stageId);
@@ -1105,8 +1275,8 @@ export async function run(
   );
 
   // 5. Build WorkflowRunContext
-  const ctx: WorkflowRunContext = {
-    inputs: resolvedInputs,
+  const ctx: WorkflowRunContext<TInputs> = {
+    inputs: resolvedInputs as TInputs,
     ui: opts.ui ?? makeUnavailableUIContext(),
 
     stage(name: string, options?: StageOptions) {
@@ -1168,6 +1338,15 @@ export async function run(
         activeStore.recordStageAwaitingInput(runId, stageId, false);
         await innerCtx.__dispose();
       };
+      let unregisterStageHandle = (): void => {};
+      let liveHandleReleased = false;
+      const releaseLiveHandle = async (): Promise<void> => {
+        if (liveHandleReleased) return;
+        liveHandleReleased = true;
+        activeStore.recordStageAttachable(runId, stageId, false);
+        unregisterStageHandle();
+        await disposeInnerContext();
+      };
 
       // e. Register a live stage-control handle so attached panes can
       //    prompt/steer/pause/resume the underlying Pi session lazily.
@@ -1194,6 +1373,9 @@ export async function run(
         get messages() {
           return innerCtx.messages;
         },
+        get agentSession() {
+          return innerCtx.__agentSession();
+        },
         async ensureAttached() {
           await innerCtx.__ensureSession();
           const meta = innerCtx.__sessionMeta();
@@ -1215,20 +1397,29 @@ export async function run(
           await innerCtx.followUp(text);
         },
         async pause() {
+          const statusBeforePause = stageSnapshot.status;
           const changed = activeStore.recordStagePaused(runId, stageId);
-          if (changed) await cascadePauseFrom(stageId);
-          await innerCtx.__requestPause();
+          if (changed) {
+            ensureReleaseBarrier(stageId);
+            await cascadePauseFrom(stageId);
+          }
+          if (statusBeforePause === "pending" || statusBeforePause === "running" || innerCtx.isStreaming) {
+            await innerCtx.__requestPause();
+          }
         },
         async resume(message?: string) {
           const changed = activeStore.recordStageResumed(runId, stageId);
-          if (changed) cascadeResumeFrom(stageId);
+          if (changed) {
+            releaseStageBarrier(stageId);
+            await cascadeResumeFrom(stageId);
+          }
           await innerCtx.__resume(message);
         },
         subscribe(listener: AgentSessionEventListener) {
           return innerCtx.subscribe(listener);
         },
       };
-      const unregisterStageHandle = stageRegistry.register(handle);
+      unregisterStageHandle = stageRegistry.register(handle);
 
       // f. Record stage start in store (as pending), call onStageStart.
       activeStore.recordStageStart(runId, stageSnapshot);
@@ -1239,9 +1430,10 @@ export async function run(
       }
 
 
-      const runTrackedStageCall = async (call: () => Promise<string>): Promise<string> => {
-        const barrier = releaseBarriers.get(stageId);
-        if (barrier) {
+      const waitForStageRelease = async (): Promise<void> => {
+        while (true) {
+          const barrier = releaseBarriers.get(stageId);
+          if (!barrier) return;
           try {
             await barrier.promise;
           } catch (err) {
@@ -1251,9 +1443,20 @@ export async function run(
             throw err;
           }
         }
+      };
+
+      const runTrackedStageCall = async (call: () => Promise<string>): Promise<string> => {
+        await waitForStageRelease();
 
         // Block here until a concurrency slot is available for this run.
         await limiter.acquire();
+
+        try {
+          await waitForStageRelease();
+        } catch (err) {
+          limiter.release();
+          throw err;
+        }
 
         stageSnapshot.status = "running";
         stageSnapshot.startedAt = Date.now();
@@ -1310,8 +1513,10 @@ export async function run(
           }
           return result;
         } catch (err) {
-          stageSnapshot.status = "failed";
-          stageSnapshot.error = err instanceof Error ? err.message : String(err);
+          if (!ownController.signal.aborted) {
+            stageSnapshot.status = "failed";
+            stageSnapshot.error = err instanceof Error ? err.message : String(err);
+          }
           throw err;
         } finally {
           stageSnapshot.endedAt = Date.now();
@@ -1343,12 +1548,39 @@ export async function run(
           }
 
           tracker.onSettle(stageId);
-          activeStore.recordStageAttachable(runId, stageId, false);
-          unregisterStageHandle();
-          try {
-            await disposeInnerContext();
-          } finally {
+          if (stageSnapshot.attached === true) {
+            let unsubscribeDetach: (() => void) | undefined;
+            let abortListener: (() => void) | undefined;
+            const releaseWhenDetached = (force = false): void => {
+              const currentRun = activeStore.runs().find((r) => r.id === runId);
+              const currentStage = currentRun?.stages.find((s) => s.id === stageId);
+              if (!force && currentStage?.attached === true) return;
+              unsubscribeDetach?.();
+              unsubscribeDetach = undefined;
+              if (abortListener) {
+                ownController.signal.removeEventListener("abort", abortListener);
+                abortListener = undefined;
+              }
+              void releaseLiveHandle().catch(() => {});
+            };
+            unsubscribeDetach = activeStore.subscribe(() => releaseWhenDetached());
+            abortListener = () => releaseWhenDetached(true);
+            if (ownController.signal.aborted) releaseWhenDetached(true);
+            else {
+              ownController.signal.addEventListener(
+                "abort",
+                abortListener,
+                { once: true },
+              );
+            }
+            releaseWhenDetached();
             limiter.release();
+          } else {
+            try {
+              await releaseLiveHandle();
+            } finally {
+              limiter.release();
+            }
           }
         }
       };
@@ -1438,28 +1670,52 @@ export async function run(
     },
 
     async task(name: string, options: WorkflowTaskOptions): Promise<WorkflowTaskResult> {
-      const stage = ctx.stage(name, taskStageOptions(options));
-      const rawText = await stage.prompt(applyTaskContext(taskPrompt(options), taskPrevious(options)));
-      const text = truncateTaskOutput(rawText, options.maxOutput);
-      const sessionId = (() => {
-        try {
-          return stage.sessionId;
-        } catch {
-          return undefined;
-        }
-      })();
-      const stageMeta = (stage as InternalStageContext).__modelFallbackMeta?.() ?? {};
-      return {
-        name,
-        stageName: name,
-        text,
-        ...(sessionId !== undefined ? { sessionId } : {}),
-        ...(stage.sessionFile !== undefined ? { sessionFile: stage.sessionFile } : {}),
-        ...(stageMeta.model !== undefined ? { model: stageMeta.model } : {}),
-        ...(stageMeta.attemptedModels !== undefined ? { attemptedModels: stageMeta.attemptedModels } : {}),
-        ...(stageMeta.modelAttempts !== undefined ? { modelAttempts: stageMeta.modelAttempts } : {}),
-        ...(stageMeta.warnings !== undefined ? { warnings: stageMeta.warnings } : {}),
+      const runTaskOnce = async (taskOptions: WorkflowTaskOptions): Promise<WorkflowTaskResult> => {
+        const stage = ctx.stage(name, taskStageOptions(taskOptions));
+        const rawText = await stage.prompt(
+          applyTaskContext(`${taskReadInstruction(taskOptions)}${taskPrompt(taskOptions)}`, taskPrevious(taskOptions)),
+          taskPromptOptions(taskOptions),
+        );
+        const text = truncateTaskOutput(rawText, taskOptions.maxOutput);
+        const sessionId = (() => {
+          try {
+            return stage.sessionId;
+          } catch {
+            return undefined;
+          }
+        })();
+        const stageMeta = (stage as InternalStageContext).__modelFallbackMeta?.() ?? {};
+        return {
+          name,
+          stageName: name,
+          text,
+          ...(sessionId !== undefined ? { sessionId } : {}),
+          ...(stage.sessionFile !== undefined ? { sessionFile: stage.sessionFile } : {}),
+          ...(stageMeta.model !== undefined ? { model: stageMeta.model } : {}),
+          ...(stageMeta.attemptedModels !== undefined ? { attemptedModels: stageMeta.attemptedModels } : {}),
+          ...(stageMeta.modelAttempts !== undefined ? { modelAttempts: stageMeta.modelAttempts } : {}),
+          ...(stageMeta.warnings !== undefined ? { warnings: stageMeta.warnings } : {}),
+        };
       };
+
+      if (options.worktree !== true) return runTaskOnce(options);
+
+      const prepared = prepareDirectWorktrees(
+        [{ ...options, name }],
+        { ...options, worktree: true },
+        `${runId}-${name}-${crypto.randomUUID()}`,
+        name,
+      );
+      const preparedTask = prepared.tasks[0]!;
+      try {
+        const result = await runTaskOnce(preparedTask);
+        const worktreeDiffs = collectWorktreeDiffs(prepared, options.artifacts !== false);
+        return worktreeDiffs.artifacts.length === 0
+          ? result
+          : { ...result, artifacts: [...(result.artifacts ?? []), ...worktreeDiffs.artifacts] };
+      } finally {
+        if (prepared.setup !== undefined) cleanupWorktrees(prepared.setup);
+      }
     },
 
     async chain(steps: readonly WorkflowTaskStep[], options: WorkflowChainOptions = {}): Promise<WorkflowTaskResult[]> {
@@ -1469,19 +1725,23 @@ export async function run(
         const explicitPrevious = taskPrevious(step);
         const previous = explicitPrevious ?? (index > 0 ? results[index - 1] : undefined);
         const prompt = replaceTaskPlaceholder(chainStepPrompt(step, index), options.task ?? "");
-        results.push(await ctx.task(step.name, taskOptionsFromStep(step, prompt, previous)));
+        results.push(await ctx.task(
+          step.name,
+          taskWithSharedDefaults(taskOptionsFromStep(step, prompt, previous), options),
+        ));
       }
       return results;
     },
 
     async parallel(steps: readonly WorkflowTaskStep[], options: WorkflowParallelOptions = {}): Promise<WorkflowTaskResult[]> {
       const fallback = parallelFallbackTask(steps, options);
-      return Promise.all(
-        steps.map((step) => {
-          const prompt = replaceTaskPlaceholder(step.prompt ?? step.task ?? fallback, options.task ?? fallback);
-          return ctx.task(step.name, taskOptionsFromStep(step, prompt, taskPrevious(step)));
-        }),
-      );
+      return mapParallelSteps(steps, options.concurrency, options.failFast, async (step) => {
+        const prompt = replaceTaskPlaceholder(step.prompt ?? step.task ?? fallback, options.task ?? fallback);
+        return ctx.task(
+          step.name,
+          taskWithSharedDefaults(taskOptionsFromStep(step, prompt, taskPrevious(step)), options),
+        );
+      });
     },
   };
 

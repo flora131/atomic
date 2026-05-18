@@ -87,11 +87,14 @@ function isTestContext(): boolean {
  * cross-ref: node_modules/@bastani/atomic/docs/sdk.md
  *            node_modules/@bastani/atomic/dist/core/sdk.d.ts
  */
-interface PiSdkSettingsManager {}
-interface PiSdkResourceLoader {
+export interface PiSdkSettingsManager {}
+export interface PiSdkResourceLoader {
   reload(): Promise<void>;
 }
-interface PiCodingAgentSdk {
+interface PiSdkSessionManager {
+  getCwd(): string;
+}
+export interface PiCodingAgentSdk {
   getAgentDir(): string;
   SettingsManager: {
     create(cwd?: string, agentDir?: string): PiSdkSettingsManager;
@@ -103,19 +106,40 @@ interface PiCodingAgentSdk {
   }) => PiSdkResourceLoader;
   createAgentSession(options?: AtomicCreateAgentSessionOptions): Promise<{ session: StageSessionRuntime }>;
 }
-type AtomicCreateAgentSessionOptions = Omit<CreateAgentSessionOptions, "settingsManager" | "resourceLoader"> & {
+type AtomicCreateAgentSessionOptions = Omit<CreateAgentSessionOptions, "settingsManager" | "resourceLoader" | "sessionManager"> & {
   settingsManager?: PiSdkSettingsManager;
   resourceLoader?: PiSdkResourceLoader;
+  sessionManager?: PiSdkSessionManager;
 };
 
-async function withDefaultStageResourceLoader(
+function resolveSessionCwd(options: AtomicCreateAgentSessionOptions | undefined): string {
+  return options?.cwd ?? options?.sessionManager?.getCwd() ?? process.cwd();
+}
+
+/**
+ * Prepare Atomic SDK stage-session options with Atomic-first resource loading.
+ *
+ * The Atomic SDK's documented defaults are intentionally significant:
+ * omitted `agentDir` means credentials/models/settings can be read from the
+ * primary `~/.atomic/agent` paths first while still considering legacy
+ * `~/.pi/agent` compatibility paths when the SDK supports multiple config
+ * directories. Passing the computed default back as an explicit `agentDir`
+ * would accidentally turn that multi-dir behavior into a single-dir override.
+ *
+ * A user-supplied `agentDir` is still preserved exactly and remains an
+ * explicit override. A user-supplied `resourceLoader` is also preserved; in
+ * that case cwd/agentDir no longer control resource discovery and only affect
+ * session naming/tool path resolution, matching the pi SDK docs.
+ */
+export async function prepareAtomicStageSessionOptions(
   options: CreateAgentSessionOptions | undefined,
   sdk: PiCodingAgentSdk,
 ): Promise<AtomicCreateAgentSessionOptions | undefined> {
   const atomicOptions = options as AtomicCreateAgentSessionOptions | undefined;
   if (atomicOptions?.resourceLoader !== undefined) return atomicOptions;
 
-  const cwd = atomicOptions?.cwd ?? process.cwd();
+  const cwd = resolveSessionCwd(atomicOptions);
+  const hasAgentDirOverride = atomicOptions?.agentDir !== undefined;
   const agentDir = atomicOptions?.agentDir ?? sdk.getAgentDir();
   const settingsManager =
     atomicOptions?.settingsManager ?? sdk.SettingsManager.create(cwd, agentDir);
@@ -129,7 +153,7 @@ async function withDefaultStageResourceLoader(
   return {
     ...atomicOptions,
     cwd,
-    agentDir,
+    ...(hasAgentDirOverride ? { agentDir } : {}),
     settingsManager,
     resourceLoader,
   };
@@ -139,7 +163,7 @@ async function createPiSdkAgentSession(
   options?: CreateAgentSessionOptions,
 ): Promise<{ session: StageSessionRuntime }> {
   const sdk = await import("@bastani/atomic") as PiCodingAgentSdk;
-  const sessionOptions = await withDefaultStageResourceLoader(options, sdk);
+  const sessionOptions = await prepareAtomicStageSessionOptions(options, sdk);
   const result = await sdk.createAgentSession(sessionOptions);
   // `CreateAgentSessionResult` is `{ session, extensionsResult, modelFallbackMessage? }`;
   // workflow stages only consume `.session` (structurally an `AgentSession`,

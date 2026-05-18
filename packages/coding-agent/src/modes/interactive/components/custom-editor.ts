@@ -1,8 +1,9 @@
-import { Editor, type EditorOptions, type EditorTheme, type TUI, visibleWidth } from "@earendil-works/pi-tui";
+import { Editor, type EditorOptions, type EditorTheme, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { AppKeybinding, KeybindingsManager } from "../../../core/keybindings.js";
 
 export interface CustomEditorOptions extends EditorOptions {
 	promptPrefix?: string;
+	placeholder?: string | (() => string);
 }
 
 const ANSI_ESCAPE_PATTERN = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b[PX_][\s\S]*?\x1b\\/g;
@@ -14,6 +15,7 @@ const BORDER_LINE_PATTERN = /^[─ ↑↓0-9more]+$/;
 export class CustomEditor extends Editor {
 	private keybindings: KeybindingsManager;
 	private promptPrefix: string;
+	private placeholder: string | (() => string) | undefined;
 	public actionHandlers: Map<AppKeybinding, () => void> = new Map();
 
 	// Special handlers that can be dynamically replaced
@@ -27,6 +29,11 @@ export class CustomEditor extends Editor {
 		super(tui, theme, options);
 		this.keybindings = keybindings;
 		this.promptPrefix = options?.promptPrefix ?? "❯ ";
+		this.placeholder = options?.placeholder;
+	}
+
+	setPlaceholder(placeholder: string | (() => string) | undefined): void {
+		this.placeholder = placeholder;
 	}
 
 	render(width: number): string[] {
@@ -41,6 +48,8 @@ export class CustomEditor extends Editor {
 		let inPromptBox = false;
 		let promptShown = false;
 
+		const placeholder = typeof this.placeholder === "function" ? this.placeholder() : this.placeholder;
+
 		return lines.map((line) => {
 			if (this.isEditorBorderLine(line)) {
 				borderCount += 1;
@@ -53,11 +62,16 @@ export class CustomEditor extends Editor {
 				return this.extendBorderLine(line, width);
 			}
 
-			const prefix = inPromptBox && !promptShown ? this.promptPrefix : " ".repeat(promptWidth);
+			const showPrompt = inPromptBox && !promptShown;
+			const prefix = showPrompt ? this.promptPrefix : " ".repeat(promptWidth);
+			let content = line;
+			if (showPrompt && placeholder && this.getText() === "") {
+				content = truncateToWidth(placeholder, editorWidth, "...");
+			}
 			if (inPromptBox) {
 				promptShown = true;
 			}
-			return this.padLine(`${prefix}${line}`, width);
+			return this.padLine(`${prefix}${content}`, width);
 		});
 	}
 

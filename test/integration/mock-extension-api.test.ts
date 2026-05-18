@@ -203,6 +203,9 @@ describe("MockExtensionAPI — tool registration", () => {
     assert.ok("inputs" in params.properties);
     assert.ok("action" in params.properties);
     assert.ok("runId" in params.properties);
+    assert.ok("all" in params.properties);
+    assert.ok("stageId" in params.properties);
+    assert.ok("message" in params.properties);
     assert.ok(!("id" in params.properties));
     assert.ok("task" in params.properties);
     assert.ok("tasks" in params.properties);
@@ -226,10 +229,9 @@ describe("MockExtensionAPI — tool registration", () => {
     const actionSchema = params.properties.action;
     // TypeBox Optional(Union([...])) wraps in anyOf
     const raw = JSON.stringify(actionSchema);
-    for (const literal of ["run", "list", "get", "status", "interrupt", "resume", "inputs"]) {
+    for (const literal of ["run", "list", "get", "status", "interrupt", "kill", "resume", "inputs"]) {
       assert.ok(raw.includes(literal));
     }
-    assert.ok(!raw.includes("kill"));
     assert.ok(!raw.includes("doctor"));
   });
 
@@ -355,19 +357,15 @@ describe("MockExtensionAPI — tool registration", () => {
         prompt: {
           prompt: async (_text, meta) => {
             promptStarted = true;
-            await new Promise<never>((_resolve, reject) => {
+            await new Promise<void>((resolve) => {
               const signal = meta?.signal;
               if (signal?.aborted) {
-                reject(signal.reason ?? new Error("aborted"));
+                resolve();
                 return;
               }
-              signal?.addEventListener(
-                "abort",
-                () => reject(signal.reason ?? new Error("aborted")),
-                { once: true },
-              );
+              signal?.addEventListener("abort", () => resolve(), { once: true });
             });
-            return "unreachable";
+            return "aborted cleanup";
           },
         },
       },
@@ -390,11 +388,12 @@ describe("MockExtensionAPI — tool registration", () => {
     const interrupted = await executeWorkflowTool({ action: "interrupt", runId }, {});
     assert.equal(interrupted.action, "interrupt");
     const interruptResult = interrupted as Extract<WorkflowToolResult, { action: "interrupt" }>;
-    assert.equal(interruptResult.status, "killed");
+    assert.equal(interruptResult.status, "paused");
 
-    await waitForRun(runId, { store: defaultStore });
-    const settled = defaultStore.runs().find((run) => run.id === runId);
-    assert.equal(settled?.status, "killed");
+    const paused = defaultStore.runs().find((run) => run.id === runId);
+    assert.equal(paused?.status, "paused");
+
+    defaultStore.removeRun(runId);
   });
 
   test("tool execute runs direct chain mode with root task defaults", async () => {
@@ -528,6 +527,16 @@ describe("MockExtensionAPI — tool registration", () => {
     assert.ok(r.message.includes("Run not found"));
   });
 
+  test("tool execute returns kill result for canonical action='kill'", async () => {
+    const execute = mock.tools[0]!.opts.execute;
+    const result = await runTool(execute, { runId: "run-123", action: "kill" });
+    assert.equal(result.action, "kill");
+    const r = result as { action: "kill"; runId: string; status: string; message: string };
+    assert.equal(r.runId, "run-123");
+    assert.equal(r.status, "noop");
+    assert.ok(r.message.includes("Run not found"));
+  });
+
   test("tool execute returns resume stub for action='resume'", async () => {
     const execute = mock.tools[0]!.opts.execute;
     const result = await runTool(execute, { runId: "run-456", inputs: {}, action: "resume" });
@@ -626,7 +635,7 @@ describe("MockExtensionAPI — slash command registration", () => {
     assert.equal(Array.isArray(completions), true);
     assert.equal(typeof (completions as Promise<unknown> | null)?.then, "undefined");
     const labels = completions!.map((c) => c.label);
-    for (const sub of ["list", "status", "connect", "interrupt", "resume", "inputs"]) {
+    for (const sub of ["list", "status", "connect", "interrupt", "kill", "resume", "inputs"]) {
       assert.ok(labels.includes(sub));
     }
     assert.equal(labels.includes("session"), false);
@@ -650,6 +659,9 @@ describe("MockExtensionAPI — slash command registration", () => {
 
     const interrupt = cmd.options.getArgumentCompletions?.("interrupt -");
     assert.ok(interrupt?.some((c) => c.value === "interrupt -y "));
+
+    const kill = cmd.options.getArgumentCompletions?.("kill -");
+    assert.ok(kill?.some((c) => c.value === "kill -y "));
   });
 
   test("/workflow getArgumentCompletions covers workflow run inputs and flags", () => {
@@ -764,6 +776,10 @@ describe("renderCall — all action branches", () => {
     assert.ok(renderCall({ runId: "run-1", action: "interrupt" }).includes("run-1"));
   });
 
+  test("action='kill' includes runId", () => {
+    assert.ok(renderCall({ runId: "run-kill", action: "kill" }).includes("run-kill"));
+  });
+
   test("action='resume' includes runId", () => {
     assert.ok(renderCall({ runId: "run-2", action: "resume" }).includes("run-2"));
   });
@@ -872,6 +888,17 @@ describe("renderResult — all action branches", () => {
     });
     assert.ok(out.includes("r10"));
     assert.ok(out.includes("Interrupt not yet implemented"));
+  });
+
+  test("action='kill' shows message", () => {
+    const out = renderResult({
+      action: "kill",
+      runId: "r-kill",
+      status: "killed",
+      message: "Killed and removed",
+    });
+    assert.ok(out.includes("r-kill"));
+    assert.ok(out.includes("Killed and removed"));
   });
 
   test("action='resume' shows message", () => {

@@ -43,6 +43,19 @@ export interface GrepToolDetails {
 	linesTruncated?: boolean;
 }
 
+type RipgrepMatchEvent = {
+	type: "match";
+	data?: {
+		path?: { text?: unknown };
+		line_number?: unknown;
+		lines?: { text?: unknown };
+	};
+};
+
+function isRipgrepMatchEvent(event: unknown): event is RipgrepMatchEvent {
+	return typeof event === "object" && event !== null && "type" in event && event.type === "match";
+}
+
 /**
  * Pluggable operations for the grep tool.
  * Override these to delegate search to remote systems (for example SSH).
@@ -102,7 +115,7 @@ function formatGrepResult(
 		const remaining = lines.length - maxLines;
 		text += `\n${displayLines.map((line) => theme.fg("toolOutput", line)).join("\n")}`;
 		if (remaining > 0) {
-			text += `${theme.fg("muted", `\n... (${remaining} more lines,`)} ${keyHint("app.tools.expand", "to expand")})`;
+			text += `${theme.fg("muted", `\n... (${remaining} more lines,`)} ${keyHint("app.tools.expand", "Expand")})`;
 		}
 	}
 
@@ -270,19 +283,19 @@ export function createGrepToolDefinition(
 						const matches: Array<{ filePath: string; lineNumber: number; lineText?: string }> = [];
 						rl.on("line", (line) => {
 							if (!line.trim() || matchCount >= effectiveLimit) return;
-							let event: any;
+							let event: unknown;
 							try {
-								event = JSON.parse(line);
+								event = JSON.parse(line) as unknown;
 							} catch {
 								return;
 							}
-							if (event.type === "match") {
+							if (isRipgrepMatchEvent(event)) {
 								matchCount++;
 								const filePath = event.data?.path?.text;
 								const lineNumber = event.data?.line_number;
 								const lineText = event.data?.lines?.text;
-								if (filePath && typeof lineNumber === "number")
-									matches.push({ filePath, lineNumber, lineText });
+								if (typeof filePath === "string" && typeof lineNumber === "number")
+									matches.push({ filePath, lineNumber, lineText: typeof lineText === "string" ? lineText : undefined });
 								if (matchCount >= effectiveLimit) {
 									matchLimitReached = true;
 									stopChild(true);
@@ -373,7 +386,7 @@ export function createGrepToolDefinition(
 		},
 		renderResult(result, options, theme, context) {
 			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-			text.setText(formatGrepResult(result as any, options, theme, context.showImages));
+			text.setText(formatGrepResult(result, options, theme, context.showImages));
 			return text;
 		},
 	};

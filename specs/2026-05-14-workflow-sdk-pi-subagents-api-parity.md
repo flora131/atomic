@@ -220,8 +220,7 @@ workflow({
     { name: "planner", task: "Create a plan from {previous}" }
   ],
   task: "workflow-sdk parity with pi-subagents",
-  chainDir: ".pi/workflows/runs/parity",
-  progress: true
+  chainDir: ".pi/workflows/runs/parity"
 })
 ```
 
@@ -271,7 +270,6 @@ export interface WorkflowTaskSessionOptions extends CreateAgentSessionOptions {
   output?: string | false;
   outputMode?: "inline" | "file-only";
   reads?: string[] | false;
-  progress?: boolean;
   /** Workflow-owned worktree isolation; not forwarded directly to createAgentSession(). */
   worktree?: boolean;
 }
@@ -319,7 +317,7 @@ Implementation guidance for a future implementation phase:
 - Synthesize an ephemeral workflow execution plan for direct execution so one runtime owns run ids, store snapshots, cancellation, persistence, and UI behavior.
 - Do not duplicate foreground executor logic.
 - Make `ctx.task`, `ctx.chain`, and `ctx.parallel` the clean source for direct mode semantics, even if their current implementation is rewritten.
-- Define `ctx.task(name, options)` so `options` extends the complete `createAgentSession()` options type. Do not manually re-list only `model`, `tools`, or reasoning effort in the public task API; use the upstream session option type as the base and layer workflow-owned fields (`prompt`, `output`, `reads`, `progress`, `worktree`) on top.
+- Define `ctx.task(name, options)` so `options` extends the complete `createAgentSession()` options type. Do not manually re-list only `model`, `tools`, or reasoning effort in the public task API; use the upstream session option type as the base and layer workflow-owned fields (`prompt`, `output`, `reads`, `worktree`) on top.
 
 ### 5.3 Schema Strategy
 
@@ -508,7 +506,7 @@ This is a clean rewrite. Backward compatibility is explicitly not a goal.
 
 - [ ] Phase 1: Replace public types with clean TypeBox schema fragments and a result envelope; update tests to the new contract instead of preserving current behavior.
 - [ ] Phase 2: Add direct execution helpers and route single-task direct tool calls through ephemeral workflow definitions.
-- [ ] Phase 3: Add parallel and chain direct tool modes, including template defaults, `count`, output handling, artifact paths, progress output, concurrency behavior, and worktree isolation.
+- [ ] Phase 3: Add parallel and chain direct tool modes, including template defaults, `count`, output handling, artifact paths, concurrency behavior, and worktree isolation.
 - [ ] Phase 4: Add workflow-native control events, intercom result/control channels, automatic async direct-run intercom delivery when available, worktree artifact/diff reporting, and doctor diagnostics.
 - [ ] Phase 5: Add package-level skill and prompt assets, package metadata entries, slash docs, and prompt shortcut tests.
 - [ ] Phase 6: Validate the new slash contract and docs: slash remains named-workflow oriented, while direct orchestration belongs in workflow code and tool/SDK calls.

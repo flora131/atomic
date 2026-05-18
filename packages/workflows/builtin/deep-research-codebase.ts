@@ -15,6 +15,7 @@ import type {
 } from "../src/shared/types.js";
 
 const DEFAULT_MAX_PARTITIONS = 100;
+const DEFAULT_MAX_CONCURRENCY = 4;
 const LOC_PER_PARTITION = 10_000;
 
 type PromptSection = readonly [tag: string, content: string];
@@ -169,15 +170,26 @@ export default defineWorkflow("deep-research-codebase")
     description:
       "Maximum number of codebase partitions to explore in parallel. Actual partitions scale by one per 10K LoC, capped by this value.",
   })
+  .input("max_concurrency", {
+    type: "number",
+    default: DEFAULT_MAX_CONCURRENCY,
+    description:
+      "Maximum number of workflow stages to run concurrently during deep research.",
+  })
   .run(async (ctx) => {
     const inputs = ctx.inputs as {
       prompt?: string;
       max_partitions?: number;
+      max_concurrency?: number;
     };
     const prompt = inputs.prompt ?? "";
     const requestedMaxPartitions = positiveInteger(
       inputs.max_partitions,
       DEFAULT_MAX_PARTITIONS,
+    );
+    const maxConcurrency = positiveInteger(
+      inputs.max_concurrency,
+      DEFAULT_MAX_CONCURRENCY,
     );
     const codebaseLines = countCodebaseLines();
     const partitionCap = calculatePartitionCap(
@@ -185,7 +197,7 @@ export default defineWorkflow("deep-research-codebase")
       codebaseLines,
     );
 
-    let noAskQuestionToolSet = ["read, bash, edit, write, todo"];
+    let noAskQuestionToolSet = ["read", "bash", "edit", "write", "todo"];
 
     let plannerModelConfig = {
       model: "openai/gpt-5.5",
@@ -274,7 +286,7 @@ export default defineWorkflow("deep-research-codebase")
           ...explorerModelConfig,
         },
       ],
-      { task: prompt },
+      { task: prompt, concurrency: maxConcurrency },
     );
 
     const scout =
@@ -427,7 +439,10 @@ export default defineWorkflow("deep-research-codebase")
       },
     );
 
-    const wave1 = await ctx.parallel(wave1Steps, { task: prompt });
+    const wave1 = await ctx.parallel(wave1Steps, {
+      task: prompt,
+      concurrency: maxConcurrency,
+    });
 
     const wave2Steps: WorkflowTaskStep[] = partitions.flatMap(
       (partition, index) => {
@@ -512,7 +527,10 @@ export default defineWorkflow("deep-research-codebase")
       },
     );
 
-    const wave2 = await ctx.parallel(wave2Steps, { task: prompt });
+    const wave2 = await ctx.parallel(wave2Steps, {
+      task: prompt,
+      concurrency: maxConcurrency,
+    });
     const historyOverview = history.at(-1)?.text ?? "";
     const specialistReports = specialistSummary(partitions, wave1, wave2);
 
@@ -567,6 +585,7 @@ export default defineWorkflow("deep-research-codebase")
       partitions,
       explorer_count: partitions.length,
       specialist_count: wave1.length + wave2.length,
+      max_concurrency: maxConcurrency,
       history: historyOverview,
     };
   })

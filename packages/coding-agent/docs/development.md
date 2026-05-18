@@ -25,14 +25,14 @@ Configure via `package.json`:
 
 ```json
 {
-  "piConfig": {
+  "atomicConfig": {
     "name": "atomic",
     "configDir": ".atomic"
   }
 }
 ```
 
-Change `name`, `configDir`, and the `bin` field for your fork. Atomic sets these to `atomic`, `.atomic`, and the `atomic` executable. Affects CLI banner, config paths, and environment variable names.
+Change `name`, `configDir`, and the `bin` field for your fork. The app-specific `<appName>Config` key is preferred; legacy `piConfig` remains a backwards-compatible shim. Atomic sets these to `atomic`, `.atomic`, and the `atomic` executable. Affects CLI banner, config paths, and environment variable names.
 
 ## Path Resolution
 

@@ -255,13 +255,13 @@ This pattern makes the fetched models available during normal startup and to `pi
     "zod": "^3.0.0",
     "chalk": "^5.0.0"
   },
-  "pi": {
+  "atomic": {
     "extensions": ["./src/index.ts"]
   }
 }
 ```
 
-Run `npm install` in the extension directory, then imports from `node_modules/` work automatically.
+The manifest key is the app name from `package.json` (`atomic` here); the legacy `pi` key is still accepted as a compatibility shim. Run `npm install` in the extension directory, then imports from `node_modules/` work automatically.
 
 ## Events
 
@@ -323,14 +323,14 @@ user sends another prompt ◄─────────────────
   ├─► session_before_tree (can cancel or customize)
   └─► session_tree
 
-/model or Ctrl+P (model selection/cycling)
+/model or CTRL+P (model selection/cycling)
   ├─► thinking_level_select (if model change changes/clamps thinking level)
   └─► model_select
 
 thinking level changes (settings, keybinding, pi.setThinkingLevel())
   └─► thinking_level_select
 
-exit (Ctrl+C, Ctrl+D, SIGHUP, SIGTERM)
+exit (CTRL+C, CTRL+D, SIGHUP, SIGTERM)
   └─► session_shutdown
 ```
 
@@ -635,7 +635,7 @@ Header availability depends on provider and transport. Providers that abstract H
 
 #### model_select
 
-Fired when the model changes via `/model` command, model cycling (`Ctrl+P`), or session restore.
+Fired when the model changes via `/model` command, model cycling (`CTRL+P`), or session restore.
 
 ```typescript
 pi.on("model_select", async (event, ctx) => {
@@ -745,7 +745,7 @@ In parallel tool mode, `tool_result` and `tool_execution_end` may interleave in 
 - Each handler sees the latest result after previous handler changes
 - Handlers can return partial patches (`content`, `details`, or `isError`); omitted fields keep their current values
 
-Use `ctx.signal` for nested async work inside the handler. This lets Esc cancel model calls, `fetch()`, and other abort-aware operations started by the extension.
+Use `ctx.signal` for nested async work inside the handler. This lets Escape cancel model calls, `fetch()`, and other abort-aware operations started by the extension.
 
 ```typescript
 import { isBashToolResult } from "@bastani/atomic";
@@ -2332,7 +2332,7 @@ For complex UI, use `ctx.ui.custom()`. This temporarily replaces the editor with
 import { Text, Component } from "@earendil-works/pi-tui";
 
 const result = await ctx.ui.custom<boolean>((tui, theme, keybindings, done) => {
-  const text = new Text("Press Enter to confirm, Escape to cancel", 1, 1);
+  const text = new Text("Enter Confirm · Escape Cancel", 1, 1);
 
   text.onKey = (key) => {
     if (key === "return") done(true);

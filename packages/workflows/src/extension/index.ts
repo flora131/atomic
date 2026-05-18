@@ -14,10 +14,13 @@ import { restoreOnSessionStart } from "../shared/persistence-restore.js";
 import type { SessionManager } from "../shared/persistence-restore.js";
 import { installCompactionHook } from "../shared/persistence-compaction-policy.js";
 import {
-  killRun,
   killAllRuns,
+  destroyRun,
+  destroyAllRuns,
   resumeRun,
   pauseRun,
+  interruptRun,
+  interruptAllRuns,
   inspectRun,
 } from "../runs/background/status.js";
 import { cancellationRegistry } from "../runs/background/cancellation-registry.js";
@@ -242,6 +245,17 @@ export interface PiExecuteContext extends PiModelContext {
  * mocks can stub a minimal surface; production runtime supplies all of
  * them.
  */
+export interface WorkflowResourceInfo {
+  readonly path: string;
+  readonly enabled: boolean;
+  readonly metadata?: {
+    readonly source?: string;
+    readonly scope?: string;
+    readonly origin?: string;
+    readonly baseDir?: string;
+  };
+}
+
 export interface ExtensionAPI {
   registerTool?: <TArgs, TResult>(opts: PiToolOpts<TArgs, TResult>) => void;
   /**
@@ -272,6 +286,8 @@ export interface ExtensionAPI {
     },
   ) => void | Promise<void>;
   registerFlag?: (name: string, opts: PiFlagNamedOpts) => void;
+  /** Return package-provided workflow files discovered by Atomic's package loader. */
+  getWorkflowResources?: () => readonly WorkflowResourceInfo[];
   /**
    * Register a keyboard shortcut.
    * Present on pi >= 1.x; absent on older runtimes.
@@ -378,10 +394,17 @@ export interface WorkflowToolArgs extends StageOptions {
     | "get"
     | "status"
     | "interrupt"
+    | "kill"
     | "resume"
     | "inputs";
-  /** Canonical run identifier for status/interrupt/resume. */
+  /** Canonical run identifier or unique prefix for status/interrupt/kill/resume. */
   runId?: string;
+  /** Apply supported run-control actions to all in-flight runs. */
+  all?: boolean;
+  /** Stage id, unique prefix, or name for stage-scoped resume. */
+  stageId?: string;
+  /** Optional message forwarded when resuming paused work. */
+  message?: string;
   /** Direct single-task mode, or root task string when chain is present. */
   task?: WorkflowDirectTaskItem | string;
   /** Direct top-level parallel mode. */
@@ -393,6 +416,7 @@ export interface WorkflowToolArgs extends StageOptions {
   /** Internal host-derived parent session file for context:"fork". */
   forkFromSessionFile?: string;
   concurrency?: number;
+  failFast?: boolean;
   async?: boolean;
   intercom?: {
     enabled?: boolean;
@@ -404,10 +428,10 @@ export interface WorkflowToolArgs extends StageOptions {
   };
   output?: string | false;
   outputMode?: "inline" | "file-only";
+  reads?: readonly string[] | false;
   chainDir?: string;
   maxOutput?: WorkflowMaxOutput;
   artifacts?: boolean;
-  progress?: boolean;
   worktree?: boolean;
 }
 
@@ -592,10 +616,10 @@ export function makeExecuteWorkflowTool(
         };
       }
 
-      case "interrupt": {
-        // Support canonical interrupt-all via runId sentinel.
-        if (runId === "--all") {
-          const results = killAllRuns({
+      case "kill": {
+        const target = resolveToolRunTarget(args, "No in-flight runs to kill.");
+        if (target.kind === "all") {
+          const results = destroyAllRuns({
             cancellation: cancellationRegistry,
             persistence: getPersistence(),
           });
@@ -606,11 +630,17 @@ export function makeExecuteWorkflowTool(
             status: killed > 0 ? "killed" : "noop",
             message:
               killed > 0
-                ? `Interrupted ${killed} run(s).`
-                : "No in-flight runs to interrupt.",
+                ? `Killed and removed ${killed} run(s).`
+                : "No in-flight runs to kill.",
           };
         }
-        const result = killRun(runId, {
+        if (target.kind === "ambiguous") {
+          return { action, runId: target.target, status: "noop", message: ambiguousRunMessage(target.target, target.matches) };
+        }
+        if (target.kind === "not_found") {
+          return { action, runId: target.target, status: "noop", message: target.message };
+        }
+        const result = destroyRun(target.runId, {
           cancellation: cancellationRegistry,
           persistence: getPersistence(),
         });
@@ -619,35 +649,101 @@ export function makeExecuteWorkflowTool(
             action,
             runId: result.runId,
             status: "killed",
-            message: `Run ${result.runId} interrupted (was ${result.previousStatus}).`,
+            message: `Run ${result.runId} killed and removed (was ${result.previousStatus}).`,
           };
         }
         return {
           action,
-          runId,
+          runId: target.runId,
+          status: "noop",
+          message: `Run not found: ${target.runId}`,
+        };
+      }
+
+      case "interrupt": {
+        // Interrupt is resumable: it pauses live work and keeps runs in history/status.
+        const target = resolveToolRunTarget(args, "No in-flight runs to interrupt.");
+        if (target.kind === "all") {
+          const results = interruptAllRuns();
+          const interrupted = results.filter((r) => r.ok).length;
+          return {
+            action,
+            runId: "--all",
+            status: interrupted > 0 ? "paused" : "noop",
+            message:
+              interrupted > 0
+                ? `Interrupted ${interrupted} run(s).`
+                : "No in-flight runs to interrupt.",
+          };
+        }
+        if (target.kind === "ambiguous") {
+          return { action, runId: target.target, status: "noop", message: ambiguousRunMessage(target.target, target.matches) };
+        }
+        if (target.kind === "not_found") {
+          return { action, runId: target.target, status: "noop", message: target.message };
+        }
+        const result = interruptRun(target.runId);
+        if (result.ok) {
+          return {
+            action,
+            runId: result.runId,
+            status: "paused",
+            message: `Run ${result.runId} interrupted and can be resumed.`,
+          };
+        }
+        return {
+          action,
+          runId: target.runId,
           status: "noop",
           message:
             result.reason === "not_found"
-              ? `Run not found: ${runId}`
-              : `Run already ended: ${runId}`,
+              ? `Run not found: ${target.runId}`
+              : result.reason === "already_ended"
+                ? `Run already ended: ${target.runId}`
+                : result.reason === "stage_not_found"
+                  ? `Stage not found for run: ${target.runId}`
+                  : `No active stages to interrupt for run: ${target.runId}`,
         };
       }
 
       case "resume": {
-        const result = resumeRun(runId);
+        const target = resolveToolRunTarget(args, "No active run to resume.");
+        if (target.kind === "all") {
+          return { action: "resume", runId: "--all", status: "noop", message: "Resume does not support --all." };
+        }
+        if (target.kind === "ambiguous") {
+          return { action: "resume", runId: target.target, status: "noop", message: ambiguousRunMessage(target.target, target.matches) };
+        }
+        if (target.kind === "not_found") {
+          return { action: "resume", runId: target.target, status: "noop", message: target.message };
+        }
+        const stage = resolveToolStageTarget(target.runId, args.stageId);
+        if (!stage.ok) {
+          return { action: "resume", runId: target.runId, status: "noop", message: stage.message };
+        }
+        const run = store.runs().find((r) => r.id === target.runId);
+        const isPaused =
+          run?.status === "paused" ||
+          (run?.stages.some((s) => s.status === "paused") ?? false);
+        const result = resumeRun(target.runId, { stageId: stage.stageId, message: args.message });
         if (result.ok) {
+          const message = isPaused
+            ? result.resumed.length === 0
+              ? `No paused stages on run ${result.runId.slice(0, 8)}.`
+              : `Resumed ${result.resumed.length} stage(s) on run ${result.runId.slice(0, 8)}${args.message ? ` with message: "${args.message}"` : ""}.`
+            : `Snapshot available: run ${result.runId} (${result.snapshot.name}) — status: ${result.snapshot.status}, stages: ${result.snapshot.stages.length}`;
           return {
             action: "resume",
             runId: result.runId,
             status: "ok",
-            message: `Snapshot available: run ${result.runId} (${result.snapshot.name}) \u2014 status: ${result.snapshot.status}, stages: ${result.snapshot.stages.length}`,
+            message,
           };
         }
         return {
           action: "resume",
-          runId,
+          runId: target.runId,
           status: "noop",
-          message: `Run not found: ${runId}`,
+          message: `Run not found: ${target.runId}`,
         };
       }
 
@@ -669,7 +765,7 @@ export function makeExecuteWorkflowTool(
  * `registerWorkflowCommand` alongside the host registration so the
  * `on("input", …)` interceptor below can dispatch our commands directly
  * — bypassing pi's optimistic `startPendingSubmission` flow which
- * fires the `Working… (Esc to interrupt)` loader before the host knows
+ * fires the `Working… (esc to interrupt)` loader before the host knows
  * the input is a synchronous picker/connect UI, not a streaming turn.
  *
  * See `installInputInterceptor()` for the dispatch path and rationale.
@@ -710,7 +806,7 @@ function registerWorkflowCommand(
  * pi's editor `onSubmit` handler unconditionally calls
  * `startPendingSubmission` for any text that isn't a built-in slash /
  * skill / bash / python command — this echoes the message into chat
- * scrollback AND starts the `Working… (Esc to interrupt)` loader in
+ * scrollback AND starts the `Working… (esc to interrupt)` loader in
  * `statusContainer` before `session.prompt` even runs. The loader is
  * an optimistic affordance for the agent-streaming case; for our
  * synchronous picker/connect UIs (`/workflow connect`, `/workflow run`,
@@ -772,6 +868,30 @@ function installInputInterceptor(
   });
 }
 
+function formatStartupDiagnostics(
+  configResult: ConfigLoadResult | null,
+  discoveryResult: DiscoveryResult | null,
+): string | null {
+  const lines: string[] = [];
+  for (const diagnostic of configResult?.diagnostics ?? []) {
+    lines.push(`- [${diagnostic.level} ${diagnostic.code}] ${diagnostic.source ?? "workflow config"}: ${diagnostic.message}`);
+  }
+  for (const diagnostic of discoveryResult?.errors ?? []) {
+    lines.push(`- [${diagnostic.level} ${diagnostic.code}] ${diagnostic.source ?? "workflow discovery"}: ${diagnostic.message}`);
+  }
+
+  if (lines.length === 0) return null;
+
+  const maxVisible = 8;
+  const visible = lines.slice(0, maxVisible);
+  const remaining = lines.length - visible.length;
+  return [
+    `Workflow discovery diagnostics (${lines.length}): some workflow resources were skipped or need attention.`,
+    ...visible,
+    ...(remaining > 0 ? [`- … ${remaining} more`] : []),
+  ].join("\n");
+}
+
 /**
  * Resolve a user-supplied run identifier (full UUID or unique prefix) to
  * a concrete runId. The widget surfaces an 8-char prefix to keep the
@@ -794,6 +914,52 @@ function resolveRunIdPrefix(target: string): RunIdResolution {
   return { kind: "ambiguous", matches: prefixed.map((r) => r.id) };
 }
 
+type ToolRunTarget =
+  | { kind: "all" }
+  | { kind: "run"; runId: string }
+  | { kind: "ambiguous"; target: string; matches: string[] }
+  | { kind: "not_found"; target: string; message: string };
+
+function resolveToolRunTarget(
+  args: WorkflowToolArgs,
+  emptyMessage: string,
+): ToolRunTarget {
+  const rawTarget = args.runId?.trim() ?? "";
+  if (args.all === true || rawTarget === "--all") return { kind: "all" };
+
+  const target = rawTarget || store.activeRunId() || "";
+  if (!target) return { kind: "not_found", target: rawTarget, message: emptyMessage };
+
+  const resolved = resolveRunIdPrefix(target);
+  if (resolved.kind === "exact") return { kind: "run", runId: resolved.runId };
+  if (resolved.kind === "ambiguous") {
+    return { kind: "ambiguous", target, matches: resolved.matches };
+  }
+  return { kind: "not_found", target, message: `Run not found: ${target}` };
+}
+
+type ToolStageTarget =
+  | { ok: true; stageId?: string }
+  | { ok: false; message: string };
+
+function resolveToolStageTarget(runId: string, stageTarget?: string): ToolStageTarget {
+  const target = stageTarget?.trim();
+  if (!target) return { ok: true };
+
+  const run = store.runs().find((r) => r.id === runId);
+  const stage = run?.stages.find(
+    (s) => s.id === target || s.id.startsWith(target) || s.name === target,
+  );
+  if (!stage) return { ok: false, message: `Stage not found in run ${runId.slice(0, 8)}: ${target}` };
+  return { ok: true, stageId: stage.id };
+}
+
+function ambiguousRunMessage(target: string, matches: readonly string[]): string {
+  return `Ambiguous run prefix "${target}" matches: ${matches
+    .map((id) => id.slice(0, 12))
+    .join(", ")}`;
+}
+
 function overlaySurfaceFromContext(ctx?: {
   ui?: PiUISurface;
 }): OverlayPiSurface | undefined {
@@ -806,7 +972,7 @@ function overlaySurfaceFromContext(ctx?: {
 
 /**
  * Strip the clack-style `--yes` / `-y` confirmation skip flag from a token
- * list. Used by `/workflow interrupt` to skip the confirmation overlay.
+ * list. Used by `/workflow interrupt` and `/workflow kill` to skip the confirmation overlay.
  */
 export function stripYesFlag(tokens: string[]): {
   tokens: string[];
@@ -991,10 +1157,6 @@ function factory(pi: ExtensionAPI): void {
   // `installInputInterceptor` for the rationale.
   const workflowCommands = new Map<string, WorkflowCommandHandler>();
 
-  // Build graph overlay adapter — wraps GraphView + pi.ui.custom.
-  // noopOverlay returned when pi.ui?.custom is absent (degraded runtime).
-  const overlay: GraphOverlayPort = buildGraphOverlayAdapter(pi, store);
-
   // -------------------------------------------------------------------------
   // 1. Create ExtensionRuntime — mutable ref seeded from startup discovery,
   //    upgraded to unified async discovery once discoverWorkflows() resolves.
@@ -1006,6 +1168,18 @@ function factory(pi: ExtensionAPI): void {
   const persistenceRef: { current: WorkflowPersistencePort | undefined } = {
     current: makePersistencePort(pi, WORKFLOW_CONFIG_DEFAULTS.persistRuns),
   };
+
+  // Build graph overlay adapter — wraps GraphView + pi.ui.custom.
+  // noopOverlay returned when pi.ui?.custom is absent (degraded runtime).
+  const overlay: GraphOverlayPort = buildGraphOverlayAdapter(pi, store, {
+    onKillRun: (runId) => {
+      destroyRun(runId, {
+        cancellation: cancellationRegistry,
+        persistence: persistenceRef.current,
+      });
+    },
+  });
+
   const mcpPort: WorkflowMcpPort | undefined = makeMcpPort(pi);
 
   /**
@@ -1158,7 +1332,10 @@ function factory(pi: ExtensionAPI): void {
               )
             : undefined;
 
-        const result = await discoverWorkflows({ config: discoveryConfig });
+        const packageWorkflowPaths = (pi.getWorkflowResources?.() ?? [])
+          .filter((resource) => resource.enabled !== false)
+          .map((resource) => resource.path);
+        const result = await discoverWorkflows({ config: discoveryConfig, packageWorkflowPaths });
         discoveryRef.current = result;
 
         // Resolve effective config (fills in all defaults) and build WorkflowRuntimeConfig.
@@ -1230,11 +1407,12 @@ function factory(pi: ExtensionAPI): void {
    *   connect [runId|prefix]              no arg → picker overlay; arg → attach to graph
    *   attach  [runId|prefix [stageId]]    open the in-place attach pane on a stage
    *   interrupt [runId|prefix|--all] [-y] confirmation overlay unless -y
-   *   pause   [runId|prefix [stageId]]    pause a run or specific stage
+   *   kill      [runId|prefix|--all] [-y] kill and remove from history/status
+   *   pause     [runId|prefix [stageId]]    pause a run or specific stage
    *   resume  [runId|prefix [stageId] …]  resume paused work or reopen snapshot
    */
   async function handleRunControlCommand(
-    action: "connect" | "interrupt" | "attach" | "pause" | "resume",
+    action: "connect" | "interrupt" | "kill" | "attach" | "pause" | "resume",
     rest: string[],
     ctx: PiCommandContext,
   ): Promise<boolean> {
@@ -1271,14 +1449,14 @@ function factory(pi: ExtensionAPI): void {
             );
             return true;
           }
-          const killed = killRun(result.runId, {
+          const killed = destroyRun(result.runId, {
             cancellation: cancellationRegistry,
             persistence: persistenceRef.current,
           });
           print(
             killed.ok
-              ? `Run ${killed.runId.slice(0, 8)} interrupted.`
-              : `Run ${result.runId.slice(0, 8)} already ended.`,
+              ? `Run ${killed.runId.slice(0, 8)} killed and removed.`
+              : `Run not found: ${result.runId.slice(0, 8)}.`,
           );
           return true;
         }
@@ -1301,7 +1479,7 @@ function factory(pi: ExtensionAPI): void {
       }
       overlay.open(resolved.runId, overlaySurfaceFromContext(ctx));
       print(
-        `Attached to ${resolved.runId.slice(0, 8)}. Press "h" or ctrl+d to hide, "q" to interrupt, esc to close.`,
+        `Attached to ${resolved.runId.slice(0, 8)}. h/ctrl+d hide · q kill · esc close.`,
       );
       return true;
     }
@@ -1326,21 +1504,18 @@ function factory(pi: ExtensionAPI): void {
         if (!yes && ctx.ui && typeof ctx.ui.confirm === "function") {
           const ok = await ctx.ui.confirm(
             `Interrupt all ${inFlight.length} in-flight workflow runs?`,
-            `Aborts: ${inFlight.map((r) => `${r.name} (${r.id.slice(0, 8)})`).join(", ")}`,
+            `Pauses: ${inFlight.map((r) => `${r.name} (${r.id.slice(0, 8)})`).join(", ")}`,
           );
           if (!ok) {
             print("Cancelled.");
             return true;
           }
         }
-        const results = killAllRuns({
-          cancellation: cancellationRegistry,
-          persistence: persistenceRef.current,
-        });
-        const killed = results.filter((r) => r.ok).length;
+        const results = interruptAllRuns();
+        const interrupted = results.filter((r) => r.ok).length;
         print(
-          killed > 0
-            ? `Interrupted ${killed} run(s).`
+          interrupted > 0
+            ? `Interrupted ${interrupted} run(s).`
             : "No in-flight runs to interrupt.",
         );
         return true;
@@ -1359,8 +1534,11 @@ function factory(pi: ExtensionAPI): void {
         return true;
       }
       const run = store.runs().find((r) => r.id === resolved.runId);
-      if (!yes && run && run.endedAt === undefined && ctx.ui) {
-        const confirmed = await openKillConfirm(ctx.ui, run, theme);
+      if (!yes && run && run.endedAt === undefined && typeof ctx.ui.confirm === "function") {
+        const confirmed = await ctx.ui.confirm(
+          `Interrupt workflow run ${run.name} (${run.id.slice(0, 8)})?`,
+          "Pauses live work so it can be resumed later.",
+        );
         if (!confirmed) {
           print(
             `Cancelled. Run ${resolved.runId.slice(0, 8)} is still active.`,
@@ -1368,20 +1546,97 @@ function factory(pi: ExtensionAPI): void {
           return true;
         }
       }
-      const result = killRun(resolved.runId, {
-        cancellation: cancellationRegistry,
-        persistence: persistenceRef.current,
-      });
+      const result = interruptRun(resolved.runId);
       if (result.ok) {
         print(
-          `Run ${result.runId.slice(0, 8)} interrupted (was ${result.previousStatus}).`,
+          `Run ${result.runId.slice(0, 8)} interrupted and can be resumed.`,
         );
       } else {
         print(
           result.reason === "not_found"
             ? `Run not found: ${target}`
-            : `Run already ended: ${target}`,
+            : result.reason === "already_ended"
+              ? `Run already ended: ${target}`
+              : result.reason === "stage_not_found"
+                ? `Stage not found for run ${resolved.runId.slice(0, 8)}.`
+                : `No active stages to interrupt on run ${resolved.runId.slice(0, 8)}.`,
         );
+      }
+      return true;
+    }
+
+    if (action === "kill") {
+      const { tokens: killArgs, yes } = stripYesFlag(rest);
+      let target = killArgs.find((t) => !t.startsWith("--"));
+      const wantsAll = killArgs.includes("--all");
+      if (!target && !wantsAll) {
+        target = store.activeRunId() ?? undefined;
+        if (!target) {
+          print("No in-flight runs to kill.");
+          return true;
+        }
+      }
+      if (wantsAll) {
+        const inFlight = store.runs().filter((r) => r.endedAt === undefined);
+        if (inFlight.length === 0) {
+          print("No in-flight runs to kill.");
+          return true;
+        }
+        if (!yes && ctx.ui && typeof ctx.ui.confirm === "function") {
+          const ok = await ctx.ui.confirm(
+            `Kill and remove all ${inFlight.length} in-flight workflow runs?`,
+            `Aborts: ${inFlight.map((r) => `${r.name} (${r.id.slice(0, 8)})`).join(", ")}`,
+          );
+          if (!ok) {
+            print("Cancelled.");
+            return true;
+          }
+        }
+        const results = destroyAllRuns({
+          cancellation: cancellationRegistry,
+          persistence: persistenceRef.current,
+        });
+        const killed = results.filter((r) => r.ok).length;
+        print(
+          killed > 0
+            ? `Killed and removed ${killed} run(s).`
+            : "No in-flight runs to kill.",
+        );
+        return true;
+      }
+      const resolved = resolveRunIdPrefix(target!);
+      if (resolved.kind === "not_found") {
+        print(`Run not found: ${target}`);
+        return true;
+      }
+      if (resolved.kind === "ambiguous") {
+        print(
+          `Ambiguous run prefix "${target}" matches multiple runs: ${resolved.matches
+            .map((id) => id.slice(0, 12))
+            .join(", ")}`,
+        );
+        return true;
+      }
+      const run = store.runs().find((r) => r.id === resolved.runId);
+      if (!yes && run && ctx.ui) {
+        const confirmed = await openKillConfirm(ctx.ui, run, theme);
+        if (!confirmed) {
+          print(
+            `Cancelled. Run ${resolved.runId.slice(0, 8)} is still in history/status.`,
+          );
+          return true;
+        }
+      }
+      const result = destroyRun(resolved.runId, {
+        cancellation: cancellationRegistry,
+        persistence: persistenceRef.current,
+      });
+      if (result.ok) {
+        print(
+          `Run ${result.runId.slice(0, 8)} killed and removed (was ${result.previousStatus}).`,
+        );
+      } else {
+        print(`Run not found: ${target}`);
       }
       return true;
     }
@@ -1405,7 +1660,7 @@ function factory(pi: ExtensionAPI): void {
           // Forward through the existing interrupt flow for clarity.
           if (picked.kind === "kill") {
             return handleRunControlCommand(
-              "interrupt",
+              "kill",
               [picked.runId, "-y"],
               ctx,
             );
@@ -1443,8 +1698,8 @@ function factory(pi: ExtensionAPI): void {
       overlay.open(runId, overlaySurfaceFromContext(ctx), stageId);
       print(
         stageId
-          ? `Attached to ${runId.slice(0, 8)} stage ${stageId.slice(0, 8)}. Ctrl+D returns to graph, Escape closes.`
-          : `Attached to ${runId.slice(0, 8)}. Press ↵ on a node to chat, Ctrl+D to detach.`,
+          ? `Attached to ${runId.slice(0, 8)} stage ${stageId.slice(0, 8)}. ctrl+d return to graph · esc close.`
+          : `Attached to ${runId.slice(0, 8)}. ↵ chat · ctrl+d detach.`,
       );
       return true;
     }
@@ -1513,7 +1768,7 @@ function factory(pi: ExtensionAPI): void {
       }
       // Open the orchestrator overlay (graph for run-level pause, stage
       // chat when a stage was named). This mirrors connect/attach/resume:
-      // the full-screen overlay hides Pi's "Working… (Esc to interrupt)"
+      // the full-screen overlay hides Pi's "Working… (esc to interrupt)"
       // spinner, which otherwise stays visible because the host session
       // is still streaming whatever was happening before the pause hit.
       if (typeof ctx.ui?.custom === "function") {
@@ -1608,7 +1863,7 @@ function factory(pi: ExtensionAPI): void {
     "workflow",
     {
       description:
-        "Run or inspect pi workflows. Usage: /workflow <name> [key=value…] | /workflow [list|status|connect|attach|interrupt|pause|resume|inputs] [args]",
+        "Run or inspect pi workflows. Usage: /workflow <name> [key=value…] | /workflow [list|status|connect|attach|interrupt|kill|pause|resume|inputs] [args]",
       handler: async (args: string, ctx: PiCommandContext) => {
         const print = (msg: string): void => ctx.ui.notify(msg, "info");
         // Quote-aware split so `prompt="map the codebase"` stays a single
@@ -1702,13 +1957,27 @@ function factory(pi: ExtensionAPI): void {
         if (subcommand === "interrupt") {
           // The top-level chat command is the fast interrupt path surfaced by the
           // widget hint (`/workflow interrupt <id>`). The user's explicit slash
-          // command should abort immediately, even when a confirm surface is
+          // command should pause immediately, even when a confirm surface is
           // unavailable or would steal focus from the running workflow.
           const interruptArgs = parts.slice(1);
           const hasYes = interruptArgs.some((t) => t === "--yes" || t === "-y");
           await handleRunControlCommand(
             "interrupt",
             hasYes ? interruptArgs : [...interruptArgs, "-y"],
+            ctx,
+          );
+          return;
+        }
+
+        // -----------------------------------------------------------------------
+        // kill — destructive fast path: abort and remove from history/status.
+        // -----------------------------------------------------------------------
+        if (subcommand === "kill") {
+          const killArgs = parts.slice(1);
+          const hasYes = killArgs.some((t) => t === "--yes" || t === "-y");
+          await handleRunControlCommand(
+            "kill",
+            hasYes ? killArgs : [...killArgs, "-y"],
             ctx,
           );
           return;
@@ -1814,7 +2083,7 @@ function factory(pi: ExtensionAPI): void {
         // Track whether the inputs picker actually showed a UI to the user.
         // We use this below to mount the orchestrator overlay on dispatch
         // success — same UX as `/workflow connect|attach|pause|resume`,
-        // which all cover Pi's `⠴ Working… (Esc to interrupt)` spinner
+        // which all cover Pi's `⠴ Working… (esc to interrupt)` spinner
         // with the full-screen overlay instead of leaving it visible in
         // the chat while the workflow runs in the background.
         let pickerWasShown = false;
@@ -1989,6 +2258,11 @@ function factory(pi: ExtensionAPI): void {
             description: "Interrupt a run",
           },
           {
+            value: "kill ",
+            label: "kill",
+            description: "Kill and remove a run",
+          },
+          {
             value: "pause ",
             label: "pause",
             description: "Pause a run or stage",
@@ -2041,12 +2315,13 @@ function factory(pi: ExtensionAPI): void {
           return completeToken(partial, runIdItems());
         }
 
-        if (subcommand === "interrupt") {
+        if (subcommand === "interrupt" || subcommand === "kill") {
+          const verb = subcommand === "kill" ? "Kill and remove" : "Interrupt";
           return completeToken(partial, [
             {
               value: "--all ",
               label: "--all",
-              description: "Interrupt all in-flight runs",
+              description: `${verb} all in-flight runs`,
             },
             {
               value: "--yes ",
@@ -2187,6 +2462,10 @@ function factory(pi: ExtensionAPI): void {
       // tunables must be resolved first.
       await discoveryPromise;
       if (ctx?.ui) {
+        const diagnostics = formatStartupDiagnostics(configLoadRef.current, discoveryRef.current);
+        if (diagnostics !== null) {
+          ctx.ui.notify?.(diagnostics, "warning");
+        }
         storeWidgetUnsubscribe?.();
         storeWidgetUnsubscribe = installStoreWidget({ ui: ctx.ui }, store);
       }
@@ -2206,17 +2485,22 @@ function factory(pi: ExtensionAPI): void {
     });
 
     installCompactionHook(pi, store);
-    pi.on("session_shutdown", () => {
-      // Tie workflow lifecycle to the chat: when the chat ends, every
-      // in-flight workflow is killed so we don't leave subprocesses
-      // burning tokens with no UI to surface their progress.
+    pi.on("session_shutdown", (event) => {
+      // Only application exit owns workflow teardown. Session replacement
+      // paths (reload/new/resume/fork) are handled by session_start restore
+      // logic so they do not masquerade as app-exit kills.
+      const reason = typeof event === "object" && event !== null && "reason" in event
+        ? (event as { readonly reason?: string }).reason
+        : undefined;
       intercomControlUnsubscribe?.();
       intercomControlUnsubscribe = null;
-      killAllRuns({
-        store,
-        cancellation: cancellationRegistry,
-        persistence: persistenceRef.current,
-      });
+      if (reason === "quit") {
+        killAllRuns({
+          store,
+          cancellation: cancellationRegistry,
+          persistence: persistenceRef.current,
+        });
+      }
       storeWidgetUnsubscribe?.();
       storeWidgetUnsubscribe = null;
     });
@@ -2279,7 +2563,7 @@ function factory(pi: ExtensionAPI): void {
   );
 
   // -------------------------------------------------------------------------
-  // 7. Suppress pi's optimistic "Working… (Esc to interrupt)" loader
+  // 7. Suppress pi's optimistic "Working… (esc to interrupt)" loader
   //    for our slash commands. Workflow commands are synchronous picker /
   //    connect / inspect UIs, not streaming turns — the loader is noise
   //    that pads chrome above the picker. The `on("input")` hook fires

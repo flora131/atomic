@@ -187,7 +187,7 @@ class SelectSubmenu extends Container {
 
 		// Hint
 		this.addChild(new Spacer(1));
-		this.addChild(new Text(theme.fg("dim", "  Enter to select · Esc to go back"), 0, 0));
+		this.addChild(new Text(theme.fg("dim", "  enter select · esc back"), 0, 0));
 	}
 
 	handleInput(data: string): void {
@@ -220,7 +220,7 @@ export class SettingsSelectorComponent extends Container {
 				id: "steering-mode",
 				label: "Steering mode",
 				description:
-					"Enter while streaming queues steering messages. 'one-at-a-time': deliver one, wait for response. 'all': deliver all at once.",
+					"enter while streaming queues steering messages. 'one-at-a-time': deliver one, wait for response. 'all': deliver all at once.",
 				currentValue: config.steeringMode,
 				values: ["one-at-a-time", "all"],
 			},
@@ -269,7 +269,7 @@ export class SettingsSelectorComponent extends Container {
 			{
 				id: "double-escape-action",
 				label: "Double-escape action",
-				description: "Action when pressing Escape twice with empty editor",
+				description: "Action when pressing esc twice with empty editor",
 				currentValue: config.doubleEscapeAction,
 				values: ["tree", "fork", "none"],
 			},

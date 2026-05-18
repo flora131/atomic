@@ -29,7 +29,7 @@ export { DynamicBorder } from "./dynamic-border.js";
 export { ExtensionEditorComponent } from "./extension-editor.js";
 export { ExtensionInputComponent } from "./extension-input.js";
 export { ExtensionSelectorComponent } from "./extension-selector.js";
-export { FooterComponent } from "./footer.js";
+export { FooterComponent, UsageMeterComponent } from "./footer.js";
 export { keyHint, keyText, rawKeyHint } from "./keybinding-hints.js";
 export { LoginDialogComponent } from "./login-dialog.js";
 export { ModelSelectorComponent } from "./model-selector.js";
@@ -45,4 +45,5 @@ export { ToolExecutionComponent, type ToolExecutionOptions } from "./tool-execut
 export { TreeSelectorComponent } from "./tree-selector.js";
 export { UserMessageComponent } from "./user-message.js";
 export { UserMessageSelectorComponent } from "./user-message-selector.js";
+export { WorkingStatusComponent, type WorkingStatusComponentOptions } from "./working-status.js";
 export { truncateToVisualLines, type VisualTruncateResult } from "./visual-truncate.js";

@@ -76,7 +76,7 @@ function writeWorkflowFile(dir: string, name: string, normalizedName: string): s
   normalizedName: ${JSON.stringify(normalizedName)},
   description: "test workflow",
   inputs: {},
-  run: async () => ({}),
+  run: async (ctx) => { await ctx.task("validation-smoke", { prompt: "validation smoke" }); return {}; },
 };\n`,
     "utf-8",
   );
@@ -483,7 +483,7 @@ describe("discoverWorkflows — settings-project vs settings-global source kinds
   normalizedName: "e2e-shared-wf",
   description: "will be overridden",
   inputs: {},
-  run: async () => ({}),
+  run: async (ctx) => { await ctx.task("validation-smoke", { prompt: "validation smoke" }); return {}; },
 };\n`,
       "utf-8",
     );

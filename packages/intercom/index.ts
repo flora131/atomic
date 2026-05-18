@@ -1056,7 +1056,7 @@ export default function piIntercomExtension(pi: ExtensionAPI) {
             id: Type.String(),
             type: Type.String({ description: "Question type: single, multi, text, image, or info" }),
             question: Type.String(),
-            options: Type.Optional(Type.Array(Type.Any())),
+            options: Type.Optional(Type.Array(Type.Unknown())),
             context: Type.Optional(Type.String()),
           })),
         }, { description: "Structured interview request for reason='interview_request'" })),

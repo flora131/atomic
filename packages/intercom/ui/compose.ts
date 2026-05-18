@@ -4,6 +4,24 @@ import type { KeybindingsManager, Theme } from "@bastani/atomic";
 import type { IntercomClient } from "../broker/client.js";
 import type { SessionInfo } from "../types.js";
 
+function formatKeyLabel(key: string): string {
+  return key
+    .split("+")
+    .map((part) => {
+      const lower = part.toLowerCase();
+      if (["ctrl", "cmd", "alt", "shift"].includes(lower)) return lower.toUpperCase();
+      if (lower === "esc" || lower === "escape") return "Escape";
+      if (lower === "enter") return "Enter";
+      if (/^[a-z]$/.test(lower)) return lower.toUpperCase();
+      return part;
+    })
+    .join("+");
+}
+
+function formatKeys(keys: readonly string[]): string {
+  return keys.map(formatKeyLabel).join("/");
+}
+
 export interface ComposeResult {
   sent: boolean;
   messageId?: string;
@@ -105,7 +123,7 @@ export class ComposeOverlay implements Component {
   render(width: number): string[] {
     const innerWidth = Math.max(24, Math.min(width - 2, 72));
     const contentWidth = Math.max(1, innerWidth - 2);
-    const footer = `${this.keybindings.getKeys("tui.select.confirm").join("/")}: Send • ${this.keybindings.getKeys("tui.select.cancel").join("/")}: Close`;
+    const footer = `${formatKeys(this.keybindings.getKeys("tui.select.confirm"))}: Send • ${formatKeys(this.keybindings.getKeys("tui.select.cancel"))}: Close`;
     const border = (text: string) => this.theme.fg("accent", text);
     const row = (text = "") => {
       const clipped = truncateToWidth(text, contentWidth, "", true);

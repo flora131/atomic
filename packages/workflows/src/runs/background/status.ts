@@ -34,6 +34,10 @@ export type KillResult =
   | { ok: true; runId: string; previousStatus: RunStatus }
   | { ok: false; runId: string; reason: "not_found" | "already_ended" };
 
+export type DestroyRunResult =
+  | { ok: true; runId: string; previousStatus: RunStatus; wasInFlight: boolean }
+  | { ok: false; runId: string; reason: "not_found" };
+
 export type ResumeResult =
   | { ok: true; runId: string; snapshot: RunSnapshot; resumed: readonly StageSnapshot[] }
   | { ok: false; runId: string; reason: "not_found" };
@@ -49,6 +53,8 @@ export type PauseResult =
       runId: string;
       reason: "not_found" | "already_ended" | "no_active_stages" | "stage_not_found";
     };
+
+export type InterruptRunResult = PauseResult;
 
 /**
  * Per-run detail returned by {@link inspectRun}. A read-only view over the
@@ -160,6 +166,57 @@ export function killAllRuns(opts?: {
   const inFlight = activeStore.runs().filter((r) => r.endedAt === undefined);
   return inFlight.map((r) =>
     killRun(r.id, { store: activeStore, cancellation: opts?.cancellation, persistence: opts?.persistence }),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// destroyRun
+// ---------------------------------------------------------------------------
+
+/**
+ * Destructively kills a workflow run and removes it from live history/status.
+ *
+ * In-flight runs are aborted and persisted with a terminal `killed` entry so
+ * session restore will not resurrect them. Ended runs are simply removed from
+ * the live store without appending a duplicate terminal event.
+ */
+export function destroyRun(
+  runId: string,
+  opts?: { store?: Store; cancellation?: CancellationRegistry; persistence?: WorkflowPersistencePort },
+): DestroyRunResult {
+  const activeStore = opts?.store ?? defaultStore;
+  const run = activeStore.runs().find((r) => r.id === runId);
+
+  if (!run) {
+    return { ok: false, runId, reason: "not_found" };
+  }
+
+  const previousStatus = run.status;
+  const wasInFlight = run.endedAt === undefined;
+
+  if (wasInFlight) {
+    opts?.cancellation?.abort(runId, "workflow killed");
+    if (opts?.persistence) {
+      appendRunEnd(opts.persistence, { runId, status: "killed", ts: Date.now() });
+    }
+  }
+
+  activeStore.removeRun(runId);
+  return { ok: true, runId, previousStatus, wasInFlight };
+}
+
+/**
+ * Destructively kills and removes all in-flight runs.
+ */
+export function destroyAllRuns(opts?: {
+  store?: Store;
+  cancellation?: CancellationRegistry;
+  persistence?: WorkflowPersistencePort;
+}): DestroyRunResult[] {
+  const activeStore = opts?.store ?? defaultStore;
+  const inFlight = activeStore.runs().filter((r) => r.endedAt === undefined);
+  return inFlight.map((r) =>
+    destroyRun(r.id, { store: activeStore, cancellation: opts?.cancellation, persistence: opts?.persistence }),
   );
 }
 
@@ -306,6 +363,38 @@ export function pauseRun(
   }
   activeStore.recordRunPaused(runId);
   return { ok: true, runId, paused: pausedSnaps };
+}
+
+// ---------------------------------------------------------------------------
+// interruptRun
+// ---------------------------------------------------------------------------
+
+/**
+ * Interrupt a run in a resumable way by pausing live stage handles when
+ * available. Unlike `destroyRun`, this never aborts the workflow controller and
+ * never removes the run from status/history.
+ */
+export function interruptRun(
+  runId: string,
+  opts?: {
+    store?: Store;
+    stageControlRegistry?: StageControlRegistry;
+    stageId?: string;
+  },
+): InterruptRunResult {
+  return pauseRun(runId, opts);
+}
+
+/** Interrupt all in-flight runs without removing them from history/status. */
+export function interruptAllRuns(opts?: {
+  store?: Store;
+  stageControlRegistry?: StageControlRegistry;
+}): InterruptRunResult[] {
+  const activeStore = opts?.store ?? defaultStore;
+  const inFlight = activeStore.runs().filter((r) => r.endedAt === undefined);
+  return inFlight.map((r) =>
+    interruptRun(r.id, { store: activeStore, stageControlRegistry: opts?.stageControlRegistry }),
+  );
 }
 
 // ---------------------------------------------------------------------------

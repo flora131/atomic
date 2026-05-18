@@ -5,7 +5,7 @@
 
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { statusRuns, killRun, killAllRuns, resumeRun, pauseRun } from "../../packages/workflows/src/runs/background/status.js";
+import { statusRuns, killRun, killAllRuns, destroyRun, destroyAllRuns, resumeRun, pauseRun, interruptRun } from "../../packages/workflows/src/runs/background/status.js";
 import { createStore } from "../../packages/workflows/src/shared/store.js";
 import type { RunSnapshot } from "../../packages/workflows/src/shared/store-types.js";
 
@@ -132,6 +132,70 @@ describe("killAllRuns", () => {
     const results = killAllRuns({ store: st });
     // No in-flight runs, so returns empty
     assert.equal(results.length, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// destroyRun / destroyAllRuns
+// ---------------------------------------------------------------------------
+
+describe("destroyRun", () => {
+  test("kills and removes an in-flight run from live status", () => {
+    const st = createStore();
+    st.recordRunStart(makeRun({ id: "r1" }));
+
+    const result = destroyRun("r1", { store: st });
+
+    assert.equal(result.ok, true);
+    assert.equal(st.runs().some((r) => r.id === "r1"), false);
+    assert.equal(statusRuns({ store: st, all: true }).some((r) => r.runId === "r1"), false);
+  });
+
+  test("removes an already-ended run from live history", () => {
+    const st = createStore();
+    st.recordRunStart(makeRun({ id: "r1" }));
+    st.recordRunEnd("r1", "completed");
+
+    const result = destroyRun("r1", { store: st });
+
+    assert.equal(result.ok, true);
+    assert.equal(st.runs().some((r) => r.id === "r1"), false);
+  });
+});
+
+describe("destroyAllRuns", () => {
+  test("kills and removes all in-flight runs only", () => {
+    const st = createStore();
+    st.recordRunStart(makeRun({ id: "r1" }));
+    st.recordRunStart(makeRun({ id: "r2", name: "wf2" }));
+    st.recordRunStart(makeRun({ id: "ended", name: "wf3" }));
+    st.recordRunEnd("ended", "completed");
+
+    const results = destroyAllRuns({ store: st });
+
+    assert.equal(results.length, 2);
+    assert.equal(results.every((r) => r.ok), true);
+    assert.equal(st.runs().some((r) => r.id === "r1"), false);
+    assert.equal(st.runs().some((r) => r.id === "r2"), false);
+    assert.equal(st.runs().some((r) => r.id === "ended"), true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// interruptRun
+// ---------------------------------------------------------------------------
+
+describe("interruptRun", () => {
+  test("returns no_active_stages honestly when no stage handle exists", () => {
+    const st = createStore();
+    st.recordRunStart(makeRun({ id: "r1" }));
+
+    const result = interruptRun("r1", { store: st });
+
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.reason, "no_active_stages");
+    const run = st.runs().find((r) => r.id === "r1");
+    assert.equal(run?.status, "running");
   });
 });
 

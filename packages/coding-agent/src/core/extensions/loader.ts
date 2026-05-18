@@ -20,13 +20,14 @@ import { createJiti } from "jiti/static";
 import * as _bundledTypebox from "typebox";
 import * as _bundledTypeboxCompile from "typebox/compile";
 import * as _bundledTypeboxValue from "typebox/value";
-import { CONFIG_DIR_NAME, getAgentDir, isBunBinary } from "../../config.js";
+import { APP_NAME, CONFIG_DIR_NAME, getAgentDir, isBunBinary } from "../../config.js";
 // NOTE: This import works because loader.ts exports are NOT re-exported from index.ts,
 // avoiding a circular dependency. Extensions can import from the Atomic package
 // name (or upstream-compatible pi package names).
 import * as _bundledPiCodingAgent from "../../index.js";
 import { createEventBus, type EventBus } from "../event-bus.js";
 import type { ExecOptions } from "../exec.js";
+import type { ResolvedResource } from "../package-manager.js";
 import { execCommand } from "../exec.js";
 import { createSyntheticSourceInfo } from "../source-info.js";
 import type {
@@ -203,6 +204,7 @@ function createExtensionAPI(
 	runtime: ExtensionRuntime,
 	cwd: string,
 	eventBus: EventBus,
+	workflowResources: ResolvedResource[] = [],
 ): ExtensionAPI {
 	const api = {
 		// Registration methods - write to extension
@@ -263,6 +265,11 @@ function createExtensionAPI(
 			runtime.assertActive();
 			if (!extension.flags.has(name)) return undefined;
 			return runtime.flagValues.get(name);
+		},
+
+		getWorkflowResources(): ResolvedResource[] {
+			runtime.assertActive();
+			return [...workflowResources];
 		},
 
 		// Action methods - delegate to shared runtime
@@ -394,6 +401,7 @@ async function loadExtension(
 	cwd: string,
 	eventBus: EventBus,
 	runtime: ExtensionRuntime,
+	workflowResources: ResolvedResource[] = [],
 ): Promise<{ extension: Extension | null; error: string | null }> {
 	const resolvedPath = resolvePath(extensionPath, cwd);
 
@@ -404,7 +412,7 @@ async function loadExtension(
 		}
 
 		const extension = createExtension(extensionPath, resolvedPath);
-		const api = createExtensionAPI(extension, runtime, cwd, eventBus);
+		const api = createExtensionAPI(extension, runtime, cwd, eventBus, workflowResources);
 		await factory(api);
 
 		return { extension, error: null };
@@ -423,9 +431,10 @@ export async function loadExtensionFromFactory(
 	eventBus: EventBus,
 	runtime: ExtensionRuntime,
 	extensionPath = "<inline>",
+	workflowResources: ResolvedResource[] = [],
 ): Promise<Extension> {
 	const extension = createExtension(extensionPath, extensionPath);
-	const api = createExtensionAPI(extension, runtime, cwd, eventBus);
+	const api = createExtensionAPI(extension, runtime, cwd, eventBus, workflowResources);
 	await factory(api);
 	return extension;
 }
@@ -433,14 +442,19 @@ export async function loadExtensionFromFactory(
 /**
  * Load extensions from paths.
  */
-export async function loadExtensions(paths: string[], cwd: string, eventBus?: EventBus): Promise<LoadExtensionsResult> {
+export async function loadExtensions(
+	paths: string[],
+	cwd: string,
+	eventBus?: EventBus,
+	workflowResources: ResolvedResource[] = [],
+): Promise<LoadExtensionsResult> {
 	const extensions: Extension[] = [];
 	const errors: Array<{ path: string; error: string }> = [];
 	const resolvedEventBus = eventBus ?? createEventBus();
 	const runtime = createExtensionRuntime();
 
 	for (const extPath of paths) {
-		const { extension, error } = await loadExtension(extPath, cwd, resolvedEventBus, runtime);
+		const { extension, error } = await loadExtension(extPath, cwd, resolvedEventBus, runtime, workflowResources);
 
 		if (error) {
 			errors.push({ path: extPath, error });
@@ -466,14 +480,23 @@ interface PiManifest {
 	prompts?: string[];
 }
 
+function manifestFromPackageJson(pkg: Record<string, unknown>): PiManifest | null {
+	const appManifest = pkg[APP_NAME];
+	if (appManifest && typeof appManifest === "object" && !Array.isArray(appManifest)) {
+		return appManifest as PiManifest;
+	}
+	const legacyManifest = pkg.pi;
+	if (legacyManifest && typeof legacyManifest === "object" && !Array.isArray(legacyManifest)) {
+		return legacyManifest as PiManifest;
+	}
+	return null;
+}
+
 function readPiManifest(packageJsonPath: string): PiManifest | null {
 	try {
 		const content = fs.readFileSync(packageJsonPath, "utf-8");
-		const pkg = JSON.parse(content);
-		if (pkg.pi && typeof pkg.pi === "object") {
-			return pkg.pi as PiManifest;
-		}
-		return null;
+		const pkg = JSON.parse(content) as Record<string, unknown>;
+		return manifestFromPackageJson(pkg);
 	} catch {
 		return null;
 	}

@@ -24,6 +24,7 @@ import { renderBandHeader } from "./header.js";
 import type { BandBadge } from "./header.js";
 import { fmtDuration, statusIcon, statusColor } from "./status-helpers.js";
 import { hexToAnsi, RESET, BOLD } from "./color-utils.js";
+import { truncateToWidth, visibleWidth } from "./text-helpers.js";
 
 const SHORT_ID_LEN = 6;
 const STAGE_NAME_COL = 14;
@@ -34,6 +35,8 @@ export interface RenderRunDetailOpts {
   theme?: GraphTheme;
   /** Optional clock override for tests. */
   now?: number;
+  /** Optional render width (cells) for truncating long/wide values. */
+  width?: number;
 }
 
 /**
@@ -44,15 +47,16 @@ export function renderRunDetail(
   opts: RenderRunDetailOpts = {},
 ): string {
   const now = opts.now ?? Date.now();
-  if (opts.theme === undefined) return renderPlain(detail, now);
-  return renderThemed(detail, now, opts.theme);
+  const width = Math.max(32, opts.width ?? 80);
+  if (opts.theme === undefined) return renderPlain(detail, now, width);
+  return renderThemed(detail, now, opts.theme, width);
 }
 
 // ---------------------------------------------------------------------------
 // Plain renderer — used by tests and headless consumers
 // ---------------------------------------------------------------------------
 
-function renderPlain(detail: RunDetail, now: number): string {
+function renderPlain(detail: RunDetail, now: number, width: number): string {
   const out: string[] = [];
 
   const sid = shortId(detail.runId);
@@ -60,14 +64,17 @@ function renderPlain(detail: RunDetail, now: number): string {
   const innerLabel = ` RUN ${sid} `;
   const inner = "─".repeat(innerLabel.length);
   out.push(` ╭${inner}╮`);
-  out.push(` │${innerLabel}│  ${detail.name}    ${stateBadge}`);
+  const headerTailW = visibleWidth(` │${innerLabel}│  `) + visibleWidth(`    ${stateBadge}`);
+  const headerName = truncateToWidth(detail.name, Math.max(1, width - headerTailW), "…");
+  out.push(` │${innerLabel}│  ${headerName}    ${stateBadge}`);
   out.push(` ╰${inner}╯`);
   out.push("");
 
   // Summary key/value lines
   for (const [k, v] of summaryRows(detail, now)) {
     if (v === undefined) continue;
-    out.push(`  ${pad(k, KEY_COL)}${v}`);
+    const value = truncateToWidth(v, Math.max(1, width - 2 - KEY_COL), "…");
+    out.push(`  ${pad(k, KEY_COL)}${value}`);
   }
   out.push("");
 
@@ -78,9 +85,10 @@ function renderPlain(detail: RunDetail, now: number): string {
     out.push("  (no stages recorded yet)");
   } else {
     for (const stage of detail.stages) {
-      out.push(`  ${stageLinePlain(stage, now)}`);
+      out.push(`  ${stageLinePlain(stage, now, width - 2)}`);
       if (stage.error) {
-        out.push(`  ${" ".repeat(STAGE_NAME_COL + 2)}error  ${stage.error.split("\n")[0]?.slice(0, 60) ?? ""}`);
+        const err = truncateToWidth(stage.error.split("\n")[0] ?? "", Math.max(1, width - STAGE_NAME_COL - 11), "…");
+        out.push(`  ${" ".repeat(STAGE_NAME_COL + 2)}error  ${err}`);
       }
     }
   }
@@ -92,16 +100,16 @@ function renderPlain(detail: RunDetail, now: number): string {
     out.push("▎ ARTIFACTS");
     out.push("");
     for (const [k, v] of artifactRows) {
-      out.push(`  ${pad(k, KEY_COL)}${v}`);
+      out.push(`  ${pad(k, KEY_COL)}${truncateToWidth(v, Math.max(1, width - 2 - KEY_COL), "…")}`);
     }
     out.push("");
   }
 
   // Action hints
   if (detail.endedAt === undefined) {
-    out.push(`  ▸ workflow interrupt   id=${sid}    cancel`);
+    out.push(truncateToWidth(`  ▸ workflow interrupt   id=${sid}    cancel`, width, "…"));
   } else {
-    out.push(`  ▸ workflow resume id=${sid}    reopen graph`);
+    out.push(truncateToWidth(`  ▸ workflow resume id=${sid}    reopen graph`, width, "…"));
   }
 
   return out.join("\n");
@@ -111,7 +119,7 @@ function renderPlain(detail: RunDetail, now: number): string {
 // Themed renderer — ANSI Catppuccin chrome
 // ---------------------------------------------------------------------------
 
-function renderThemed(detail: RunDetail, now: number, theme: GraphTheme): string {
+function renderThemed(detail: RunDetail, now: number, theme: GraphTheme, width: number): string {
   const out: string[] = [];
   const mauve = hexToAnsi(theme.mauve);
   const muted = hexToAnsi(theme.textMuted);
@@ -128,7 +136,7 @@ function renderThemed(detail: RunDetail, now: number, theme: GraphTheme): string
     label: `RUN ${sid}`,
     subtitle: detail.name,
     badges,
-    width: 64,
+    width: Math.min(64, width),
     theme,
   }));
   out.push("");
@@ -136,7 +144,8 @@ function renderThemed(detail: RunDetail, now: number, theme: GraphTheme): string
   // Summary key/value
   for (const [k, v] of summaryRows(detail, now)) {
     if (v === undefined) continue;
-    out.push(`  ${muted}${pad(k, KEY_COL)}${RESET}${text}${v}${RESET}`);
+    const value = truncateToWidth(v, Math.max(1, width - 2 - KEY_COL), "…");
+    out.push(`  ${muted}${pad(k, KEY_COL)}${RESET}${text}${value}${RESET}`);
   }
   out.push("");
 
@@ -147,11 +156,12 @@ function renderThemed(detail: RunDetail, now: number, theme: GraphTheme): string
     out.push(`  ${dim}(no stages recorded yet)${RESET}`);
   } else {
     for (const stage of detail.stages) {
-      out.push("  " + stageLineThemed(stage, now, theme));
+      out.push("  " + stageLineThemed(stage, now, theme, width - 2));
       if (stage.error) {
         const errFg = hexToAnsi(theme.error);
+        const err = truncateToWidth(stage.error.split("\n")[0] ?? "", Math.max(1, width - STAGE_NAME_COL - 13), "…");
         out.push(
-          `  ${" ".repeat(STAGE_NAME_COL + 2)}${muted}error${RESET}    ${errFg}${stage.error.split("\n")[0]?.slice(0, 60) ?? ""}${RESET}`,
+          `  ${" ".repeat(STAGE_NAME_COL + 2)}${muted}error${RESET}    ${errFg}${err}${RESET}`,
         );
       }
     }
@@ -164,7 +174,7 @@ function renderThemed(detail: RunDetail, now: number, theme: GraphTheme): string
     out.push(`${mauve}▎${RESET} ${muted}${BOLD}ARTIFACTS${RESET}`);
     out.push("");
     for (const [k, v] of artifactRows) {
-      out.push(`  ${muted}${pad(k, KEY_COL)}${RESET}${dim}${v}${RESET}`);
+      out.push(`  ${muted}${pad(k, KEY_COL)}${RESET}${dim}${truncateToWidth(v, Math.max(1, width - 2 - KEY_COL), "…")}${RESET}`);
     }
     out.push("");
   }
@@ -172,11 +182,11 @@ function renderThemed(detail: RunDetail, now: number, theme: GraphTheme): string
   // Action hints
   if (detail.endedAt === undefined) {
     out.push(
-      `  ${dim}▸${RESET} ${accent}workflow interrupt   id=${sid}${RESET}${dim}    cancel${RESET}`,
+      truncateToWidth(`  ${dim}▸${RESET} ${accent}workflow interrupt   id=${sid}${RESET}${dim}    cancel${RESET}`, width, "…"),
     );
   } else {
     out.push(
-      `  ${dim}▸${RESET} ${accent}workflow resume id=${sid}${RESET}${dim}    reopen graph${RESET}`,
+      truncateToWidth(`  ${dim}▸${RESET} ${accent}workflow resume id=${sid}${RESET}${dim}    reopen graph${RESET}`, width, "…"),
     );
   }
 
@@ -206,7 +216,7 @@ function summaryRows(detail: RunDetail, now: number): Array<[string, string | un
     rows.push(["elapsed", fmtDuration(duration)]);
   }
   if (detail.error) {
-    rows.push(["error", detail.error.split("\n")[0]?.slice(0, 60) ?? ""]);
+    rows.push(["error", detail.error.split("\n")[0] ?? ""]);
   }
   return rows;
 }
@@ -214,7 +224,7 @@ function summaryRows(detail: RunDetail, now: number): Array<[string, string | un
 function artifactRowsFor(detail: RunDetail): Array<[string, string]> {
   const rows: Array<[string, string]> = [];
   if (detail.result !== undefined && Object.keys(detail.result).length > 0) {
-    rows.push(["result", JSON.stringify(detail.result).slice(0, 80)]);
+    rows.push(["result", JSON.stringify(detail.result)]);
   }
   const inputKeys = Object.keys(detail.inputs);
   if (inputKeys.length > 0) {
@@ -223,20 +233,22 @@ function artifactRowsFor(detail: RunDetail): Array<[string, string]> {
   return rows;
 }
 
-function stageLinePlain(stage: StageSnapshot, now: number): string {
+function stageLinePlain(stage: StageSnapshot, now: number, width: number): string {
   const icon = statusIcon(stage.status);
   const dur = stageDurationString(stage, now);
   const activity = stageActivityString(stage);
+  const name = truncateToWidth(`${icon} ${stage.name}`, STAGE_NAME_COL + 2, "…");
+  const activityText = activity ? truncateToWidth(activity, 16, "…") : undefined;
   const parts = [
-    pad(`${icon} ${stage.name}`, STAGE_NAME_COL + 2),
+    pad(name, STAGE_NAME_COL + 2),
     pad(stage.status, 10),
   ];
-  if (activity) parts.push(pad(activity, 16));
+  if (activityText) parts.push(pad(activityText, 16));
   if (dur) parts.push(dur);
-  return parts.join("");
+  return truncateToWidth(parts.join(""), width, "…");
 }
 
-function stageLineThemed(stage: StageSnapshot, now: number, theme: GraphTheme): string {
+function stageLineThemed(stage: StageSnapshot, now: number, theme: GraphTheme, width: number): string {
   const icon = statusIcon(stage.status);
   const iconFg = hexToAnsi(statusColor(stage.status, theme));
   const text = hexToAnsi(theme.text);
@@ -247,14 +259,20 @@ function stageLineThemed(stage: StageSnapshot, now: number, theme: GraphTheme): 
   const activity = stageActivityString(stage);
   const dur = stageDurationString(stage, now);
 
-  const namePad = pad(stage.name, STAGE_NAME_COL);
+  const nameText = truncateToWidth(stage.name, STAGE_NAME_COL, "…");
+  const namePad = pad(nameText, STAGE_NAME_COL);
   const statePad = pad(stage.status, 10);
-  const activitySeg = activity
-    ? `${muted}${pad(activity, 16)}${RESET}`
+  const activityText = activity ? truncateToWidth(activity, 16, "…") : undefined;
+  const activitySeg = activityText
+    ? `${muted}${pad(activityText, 16)}${RESET}`
     : " ".repeat(16);
   const durSeg = dur ? `${dim}${dur}${RESET}` : "";
 
-  return `${iconFg}${icon}${RESET} ${text}${namePad}${RESET}  ${stateFg}${statePad}${RESET}${activitySeg}${durSeg}`;
+  return truncateToWidth(
+    `${iconFg}${icon}${RESET} ${text}${namePad}${RESET}  ${stateFg}${statePad}${RESET}${activitySeg}${durSeg}`,
+    width,
+    "…",
+  );
 }
 
 function stageDurationString(stage: StageSnapshot, now: number): string | undefined {
@@ -322,8 +340,9 @@ function shortId(id: string): string {
 }
 
 function pad(s: string, n: number): string {
-  if (s.length >= n) return s;
-  return s + " ".repeat(n - s.length);
+  const width = visibleWidth(s);
+  if (width >= n) return s;
+  return s + " ".repeat(n - width);
 }
 
 function formatTime(ms: number): string {

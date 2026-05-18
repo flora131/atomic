@@ -699,22 +699,22 @@ class McpPanel {
     lines.push(emptyRow());
     const hints = this.authOnly
       ? [
-          italic("↑↓") + " navigate",
-          italic("⏎") + " auth",
-          italic("ctrl+a") + " auth",
-          italic("esc") + " clear/close",
-          italic("ctrl+c") + " quit",
+          italic("↑↓") + " Navigate",
+          italic("⏎") + " Auth",
+          italic("CTRL+A") + " Auth",
+          italic("Escape") + " Clear/Close",
+          italic("CTRL+C") + " Quit",
         ]
       : [
-          italic("↑↓") + " navigate",
-          italic("space") + " toggle",
-          italic("⏎") + " expand/auth",
-          italic("ctrl+a") + " auth",
-          italic("ctrl+r") + " reconnect",
-          italic("?") + " desc search",
-          italic("ctrl+s") + " save",
-          italic("esc") + " clear/close",
-          italic("ctrl+c") + " quit",
+          italic("↑↓") + " Navigate",
+          italic("Space") + " Toggle",
+          italic("⏎") + " Expand/Auth",
+          italic("CTRL+A") + " Auth",
+          italic("CTRL+R") + " Reconnect",
+          italic("?") + " Desc Search",
+          italic("CTRL+S") + " Save",
+          italic("Escape") + " Clear/Close",
+          italic("CTRL+C") + " Quit",
         ];
     const gap = "  ";
     const gapW = 2;

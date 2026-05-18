@@ -170,14 +170,15 @@ export function createExtensionRuntime(opts: ExtensionRuntimeOpts = {}): Extensi
       chain: _chain,
       chainName,
       concurrency,
+      failFast,
       async: _async,
       intercom: _intercom,
       output,
       outputMode,
+      reads,
       chainDir,
       maxOutput,
       artifacts,
-      progress,
       worktree,
       ...stageOptions
     } = args;
@@ -187,12 +188,13 @@ export function createExtensionRuntime(opts: ExtensionRuntimeOpts = {}): Extensi
       ...(typeof task === "string" ? { task } : {}),
       ...(typeof chainName === "string" ? { chainName } : {}),
       ...(typeof concurrency === "number" ? { concurrency } : {}),
+      ...(typeof failFast === "boolean" ? { failFast } : {}),
       ...(typeof chainDir === "string" ? { chainDir } : {}),
       ...(output !== undefined ? { output } : {}),
       ...(outputMode !== undefined ? { outputMode } : {}),
+      ...(reads !== undefined ? { reads } : {}),
       ...(maxOutput !== undefined ? { maxOutput } : {}),
       ...(typeof artifacts === "boolean" ? { artifacts } : {}),
-      ...(typeof progress === "boolean" ? { progress } : {}),
       ...(typeof worktree === "boolean" ? { worktree } : {}),
     };
   }

@@ -16,6 +16,7 @@ import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { renderWorkflowList } from "../../packages/workflows/src/tui/workflow-list.js";
 import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.js";
+import { visibleWidth } from "../../packages/workflows/src/tui/text-helpers.js";
 
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
 const stripAnsi = (s: string) => s.replace(ANSI_RE, "");
@@ -131,5 +132,27 @@ describe("renderWorkflowList — populated", () => {
     assert.match(out, /│\s+\[wf\]/);
     assert.match(out, /desc\./);
     assert.match(out, /inputs\s+p/);
+  });
+
+  test("long and wide workflow names and inputs stay within width", () => {
+    const width = 58;
+    const out = renderWorkflowList(
+      [
+        {
+          name: "研究".repeat(18) + "-catalogue-entry",
+          description: "説明".repeat(30),
+          inputs: [
+            { name: "検索".repeat(8), required: true },
+            { name: "emoji_🚀_field".repeat(3), required: false },
+            { name: "tail", required: false },
+          ],
+        },
+      ],
+      { theme: deriveGraphTheme({}), width },
+    );
+    for (const line of out.split("\n")) {
+      assert.ok(visibleWidth(line) <= width, `line exceeds ${width}: ${visibleWidth(line)} ${JSON.stringify(line)}`);
+    }
+    assert.match(stripAnsi(out), /…/);
   });
 });

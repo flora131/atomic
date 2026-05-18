@@ -60,10 +60,10 @@ export function createToolHtmlRenderer(deps: ToolHtmlRendererDeps): ToolHtmlRend
 
 	const renderedCallComponents = new Map<string, Component>();
 	const renderedResultComponents = new Map<string, Component>();
-	const renderedStates = new Map<string, any>();
+	const renderedStates = new Map<string, Record<string, unknown>>();
 	const renderedArgs = new Map<string, unknown>();
 
-	const getState = (toolCallId: string): any => {
+	const getState = (toolCallId: string): Record<string, unknown> => {
 		let state = renderedStates.get(toolCallId);
 		if (!state) {
 			state = {};

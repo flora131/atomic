@@ -49,7 +49,7 @@ export class CompactionSummaryMessageComponent extends Box {
 				new Text(
 					theme.fg("customMessageText", `Compacted from ${tokenStr} tokens (`) +
 						theme.fg("dim", keyText("app.tools.expand")) +
-						theme.fg("customMessageText", " to expand)"),
+						theme.fg("customMessageText", " Expand)"),
 					0,
 					0,
 				),

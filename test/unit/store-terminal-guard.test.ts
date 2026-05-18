@@ -3,6 +3,7 @@
  *  - recordRunEnd terminal guard (completed | failed | killed cannot be overwritten)
  *  - recordRunEnd boolean return
  *  - error param only stored for failed/killed; result only stored for completed
+ *  - removeRun drops runs and associated run notices from live history
  *  - WorkflowNotice APIs: recordNotice, ackNotice, notices()
  *  - StoreSnapshot includes notices
  */
@@ -37,6 +38,31 @@ function makeNotice(id: string, overrides: Partial<WorkflowNotice> = {}): Workfl
     ...overrides,
   };
 }
+
+// ---------------------------------------------------------------------------
+// removeRun
+// ---------------------------------------------------------------------------
+
+describe("removeRun", () => {
+  test("removes run and run notices from live history", () => {
+    const s = createStore();
+    s.recordRunStart(makeRun("r1"));
+    s.recordNotice(makeNotice("n1", { runId: "r1" }));
+    s.recordNotice(makeNotice("n2", { runId: "other" }));
+
+    assert.equal(s.removeRun("r1"), true);
+
+    assert.equal(s.runs().some((r) => r.id === "r1"), false);
+    assert.equal(s.notices().some((n) => n.runId === "r1"), false);
+    assert.equal(s.notices().some((n) => n.id === "n2"), true);
+  });
+
+  test("returns false for an unknown run", () => {
+    const s = createStore();
+
+    assert.equal(s.removeRun("missing"), false);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Terminal guard — recordRunEnd

@@ -12,6 +12,7 @@ import {
 } from "../../packages/workflows/src/tui/session-picker.ts";
 import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.ts";
 import type { RunSnapshot } from "../../packages/workflows/src/shared/store-types.ts";
+import { visibleWidth } from "../../packages/workflows/src/tui/text-helpers.ts";
 
 function makeRun(over: Partial<RunSnapshot>): RunSnapshot {
   return {
@@ -123,9 +124,9 @@ test("renderSessionPicker emits header, sections, and footer hints", () => {
   assert.match(joined, /RECENT/);
   assert.match(joined, /aaaa1111/);
   assert.match(joined, /ralph/);
-  assert.match(joined, /navigate/);
-  assert.match(joined, /connect/);
-  assert.match(joined, /kill/);
+  assert.match(joined, /Navigate/);
+  assert.match(joined, /Connect/);
+  assert.match(joined, /Kill/);
 });
 
 test("renderSessionPicker shows empty state when no rows", () => {
@@ -135,9 +136,30 @@ test("renderSessionPicker shows empty state when no rows", () => {
   assert.match(lines.join("\n"), /no workflow runs to show/);
 });
 
+test("renderSessionPicker clamps long and wide workflow names to the panel width", () => {
+  const theme = deriveGraphTheme({});
+  const state = createSessionPickerState();
+  const rows = [
+    {
+      run: makeRun({
+        id: "wide1111-0000-0000-0000-000000000000",
+        name: "研究".repeat(24) + "-super-long-workflow-name",
+        startedAt: 1000,
+      }),
+      bucket: "active" as const,
+    },
+  ];
+  const width = 72;
+  const lines = renderSessionPicker({ width, theme, rows, state, now: 120_000 });
+  for (const line of lines) {
+    assert.ok(visibleWidth(line) <= width, `line exceeds ${width}: ${visibleWidth(line)} ${JSON.stringify(line)}`);
+  }
+  assert.match(lines.join("\n"), /…/);
+});
+
 test("renderSessionPicker emits a clean ╰────╯ bottom border with hints on a separate row below", () => {
   // Regression gate: previously the hints text was embedded inside the
-  // bottom-corner row (`╰── ↑↓ navigate · …  ╯`), producing the broken
+  // bottom-corner row (`╰── ↑↓ Navigate · …  ╯`), producing the broken
   // border visible in the user's report. The fix renders the bottom
   // corner as `╰─────╯` and emits the hints on the next line, outside
   // the box.
@@ -152,7 +174,7 @@ test("renderSessionPicker emits a clean ╰────╯ bottom border with hi
   // Strip ANSI to inspect the printable characters.
   // eslint-disable-next-line no-control-regex
   const stripped = hintsLine.replace(/\u001b\[[0-9;]*m/g, "");
-  assert.match(stripped, /navigate/);
+  assert.match(stripped, /Navigate/);
   assert.ok(!stripped.includes("╰"), "hints row must not include the bottom-left corner glyph");
   assert.ok(!stripped.includes("╯"), "hints row must not include the bottom-right corner glyph");
 

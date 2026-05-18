@@ -274,7 +274,7 @@ handleInput(data: string) {
   } else if (matchesKey(data, Key.escape)) {
     this.onCancel?.();
   } else if (matchesKey(data, Key.ctrl("c"))) {
-    // Ctrl+C
+    // CTRL+C
   }
 }
 ```
@@ -624,7 +624,7 @@ pi.registerCommand("pick", {
       container.addChild(selectList);
 
       // Help text
-      container.addChild(new Text(theme.fg("dim", "↑↓ navigate • enter select • esc cancel"), 1, 0));
+      container.addChild(new Text(theme.fg("dim", "↑↓ Navigate • Enter Select • Escape Cancel"), 1, 0));
 
       // Bottom border
       container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));

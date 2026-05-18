@@ -96,7 +96,7 @@ export function buildHostHtmlTemplate(input: HostHtmlTemplateInput): string {
     </div>
     <div class="controls">
       <span class="status" id="status">Loading UI...</span>
-      <button class="primary" id="done-btn" title="Cmd/Ctrl+Enter">Done</button>
+      <button class="primary" id="done-btn" title="CMD/CTRL+Enter">Done</button>
       <button class="danger" id="cancel-btn" title="Escape">Cancel</button>
     </div>
   </header>

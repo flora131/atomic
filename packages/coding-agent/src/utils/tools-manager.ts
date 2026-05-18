@@ -155,7 +155,7 @@ async function downloadFile(url: string, dest: string): Promise<void> {
   }
 
   const fileStream = createWriteStream(dest);
-  await pipeline(Readable.fromWeb(response.body as any), fileStream);
+  await pipeline(Readable.fromWeb(response.body), fileStream);
 }
 
 function findBinaryRecursively(

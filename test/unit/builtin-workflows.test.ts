@@ -21,6 +21,7 @@ interface MockCalls {
   readonly stage: string[];
   readonly task: string[];
   readonly parallel: string[][];
+  readonly parallelOptions: WorkflowParallelOptions[];
   readonly chain: string[][];
   readonly prompts: Record<string, string[]>;
 }
@@ -46,6 +47,7 @@ function makeMockCtx<TInputs extends Record<string, unknown>>(
     stage: [],
     task: [],
     parallel: [],
+    parallelOptions: [],
     chain: [],
     prompts: {},
   };
@@ -86,9 +88,10 @@ function makeMockCtx<TInputs extends Record<string, unknown>>(
     },
     parallel: async (
       steps: readonly WorkflowTaskStep[],
-      _options?: WorkflowParallelOptions,
+      options: WorkflowParallelOptions = {},
     ): Promise<WorkflowTaskResult[]> => {
       calls.parallel.push(steps.map((step) => step.name));
+      calls.parallelOptions.push(options);
       return Promise.all(steps.map((step) => runTask(step.name, step)));
     },
     ui,
@@ -124,20 +127,22 @@ describe("deep-research-codebase", () => {
     assert.equal(def.normalizedName, "deep-research-codebase");
   });
 
-  test("has prompt and max_partitions inputs", async () => {
+  test("has prompt, max_partitions, and max_concurrency inputs", async () => {
     const mod = await import("../../packages/workflows/builtin/deep-research-codebase.js");
     const d = mod.default;
     assert.equal(d.inputs["prompt"]?.required, true);
     assert.match(d.inputs["prompt"]?.type ?? "", /^(text|string)$/);
     assert.equal(d.inputs["max_partitions"]?.type, "number");
     assert.equal((d.inputs["max_partitions"] as { default?: number }).default, 100);
+    assert.equal(d.inputs["max_concurrency"]?.type, "number");
+    assert.equal((d.inputs["max_concurrency"] as { default?: number }).default, 4);
   });
 
   test("runs scout/history, specialist waves, and aggregator via task primitives", async () => {
     const mod = await import("../../packages/workflows/builtin/deep-research-codebase.js");
     const d = mod.default as unknown as WorkflowDefinition;
     const ctx = makeMockCtx(
-      { prompt: "What does the auth module do?", max_partitions: 2 },
+      { prompt: "What does the auth module do?", max_partitions: 2, max_concurrency: 2 },
       {
         task: (name) => {
           if (name === "partition") return "auth logic\ntoken validation";
@@ -153,10 +158,12 @@ describe("deep-research-codebase", () => {
     assert.deepEqual(ctx.calls.chain[0], ["history-analyzer"]);
     assert.ok(ctx.calls.parallel.some((names) => names.includes("locator-1") && names.includes("pattern-finder-2")));
     assert.ok(ctx.calls.parallel.some((names) => names.includes("analyzer-1") && names.includes("online-researcher-2")));
+    assert.ok(ctx.calls.parallelOptions.every((options) => options.concurrency === 2));
     assert.ok(ctx.calls.task.includes("aggregator"));
     assert.equal(typeof result["findings"], "string");
     assert.deepEqual(result["partitions"], ["auth logic", "token validation"]);
     assert.equal(result["specialist_count"], 8);
+    assert.equal(result["max_concurrency"], 2);
   });
 });
 

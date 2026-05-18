@@ -39,6 +39,12 @@ export interface Store {
     result?: Record<string, unknown>,
     error?: string,
   ): boolean;
+  /**
+   * Remove a run from live workflow history/status. Any pending HIL prompt
+   * waiter is rejected because the workflow will not resume through that path.
+   * Returns `true` when a run was removed, `false` when the id is unknown.
+   */
+  removeRun(runId: string): boolean;
   recordNotice(notice: WorkflowNotice): void;
   /**
    * Acknowledges a notice by id.
@@ -297,6 +303,29 @@ export function createStore(): Store {
             new Error(`pi-workflows: run ${runId} ended before prompt resolved`),
           );
         }
+      }
+      _version++;
+      notify();
+      return true;
+    },
+
+    removeRun(runId: string): boolean {
+      const index = _runs.findIndex((r) => r.id === runId);
+      if (index < 0) return false;
+      const run = _runs[index]!;
+      const pending = run.pendingPrompt;
+      if (pending) {
+        const entry = _resolvers.get(pending.id);
+        if (entry) {
+          _resolvers.delete(pending.id);
+          entry.reject(
+            new Error(`pi-workflows: run ${runId} was removed before prompt resolved`),
+          );
+        }
+      }
+      _runs.splice(index, 1);
+      for (let i = _notices.length - 1; i >= 0; i--) {
+        if (_notices[i]?.runId === runId) _notices.splice(i, 1);
       }
       _version++;
       notify();

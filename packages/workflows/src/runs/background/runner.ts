@@ -84,8 +84,8 @@ export function buildDetachedAccepted(
  * the store remains source of truth for run status. Cancellation is wired
  * through the provided (or default) CancellationRegistry.
  */
-export function runDetached(
-  def: WorkflowDefinition,
+export function runDetached<TInputs extends Record<string, unknown>>(
+  def: WorkflowDefinition<TInputs>,
   inputs: Record<string, unknown>,
   opts: DetachedRunOpts = {},
 ): DetachedAccepted {

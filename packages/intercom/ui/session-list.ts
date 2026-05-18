@@ -3,6 +3,24 @@ import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import type { KeybindingsManager, Theme } from "@bastani/atomic";
 import type { SessionInfo } from "../types.js";
 
+function formatKeyLabel(key: string): string {
+  return key
+    .split("+")
+    .map((part) => {
+      const lower = part.toLowerCase();
+      if (["ctrl", "cmd", "alt", "shift"].includes(lower)) return lower.toUpperCase();
+      if (lower === "esc" || lower === "escape") return "Escape";
+      if (lower === "enter") return "Enter";
+      if (/^[a-z]$/.test(lower)) return lower.toUpperCase();
+      return part;
+    })
+    .join("+");
+}
+
+function formatKeys(keys: readonly string[]): string {
+  return keys.map(formatKeyLabel).join("/");
+}
+
 function middleTruncate(text: string, maxWidth: number): string {
   if (visibleWidth(text) <= maxWidth) {
     return text;
@@ -103,7 +121,7 @@ export class SessionListOverlay implements Component {
   render(width: number): string[] {
     const innerWidth = Math.max(36, Math.min(width - 2, 88));
     const contentWidth = Math.max(1, innerWidth - 2);
-    const footer = `${this.keybindings.getKeys("tui.select.confirm").join("/")}: Message • ${this.keybindings.getKeys("tui.select.cancel").join("/")}: Close`;
+    const footer = `${formatKeys(this.keybindings.getKeys("tui.select.confirm"))}: Message • ${formatKeys(this.keybindings.getKeys("tui.select.cancel"))}: Close`;
     const border = (text: string) => this.theme.fg("accent", text);
     const row = (text = "") => {
       const clipped = truncateToWidth(text, contentWidth, "", true);

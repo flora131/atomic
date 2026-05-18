@@ -302,7 +302,7 @@ export function getUpdateInstruction(packageName: string): string {
  */
 export function getPackageDir(): string {
 	// Allow override via environment variable (useful for Nix/Guix where store paths tokenize poorly).
-	// This runs before package.json/piConfig is read, so the env var name is hardcoded.
+	// This runs before package.json app config is read, so the env var name is hardcoded.
 	const envDir = process.env.ATOMIC_PACKAGE_DIR ?? process.env.PI_PACKAGE_DIR;
 	if (envDir) {
 		if (envDir === "~") return homedir();
@@ -403,31 +403,49 @@ export function getBundledInteractiveAssetPath(name: string): string {
 }
 
 // =============================================================================
-// App Config (from package.json piConfig)
+// App Config (from package.json <appName>Config, with piConfig as a legacy shim)
 // =============================================================================
 
-interface PackageJson {
+interface AppConfig {
+	name?: string;
+	configDir?: string;
+	changelogUrl?: string;
+}
+
+interface PackageJson extends Record<string, unknown> {
 	name?: string;
 	version?: string;
-	piConfig?: {
-		name?: string;
-		configDir?: string;
-		changelogUrl?: string;
-	};
+	piConfig?: AppConfig;
 }
 
 const pkg = JSON.parse(readFileSync(getPackageJsonPath(), "utf-8")) as PackageJson;
 
-const piConfigName: string | undefined = pkg.piConfig?.name;
+function appNameFromPackageName(packageName: string | undefined): string | undefined {
+	const localName = packageName?.split("/").pop()?.trim();
+	return localName && localName.length > 0 ? localName : undefined;
+}
+
+function readAppConfig(packageJson: PackageJson, appName: string | undefined): AppConfig | undefined {
+	if (appName) {
+		const appConfig = packageJson[`${appName}Config`];
+		if (appConfig && typeof appConfig === "object" && !Array.isArray(appConfig)) {
+			return appConfig as AppConfig;
+		}
+	}
+	return packageJson.piConfig;
+}
+
 export const PACKAGE_NAME: string = pkg.name || "@bastani/atomic";
-export const APP_NAME: string = piConfigName || "pi";
-export const APP_TITLE: string = piConfigName ? APP_NAME : "π";
-export const CONFIG_DIR_NAME: string = pkg.piConfig?.configDir || ".pi";
+const packageAppName = appNameFromPackageName(PACKAGE_NAME);
+const appConfig = readAppConfig(pkg, packageAppName);
+export const APP_NAME: string = appConfig?.name || packageAppName || "pi";
+export const APP_TITLE: string = appConfig?.name !== undefined || APP_NAME !== "pi" ? APP_NAME : "π";
+export const CONFIG_DIR_NAME: string = appConfig?.configDir || (APP_NAME === "pi" ? ".pi" : `.${APP_NAME}`);
 export const LEGACY_CONFIG_DIR_NAME = ".pi";
 export const CONFIG_DIR_NAMES: readonly string[] =
 	CONFIG_DIR_NAME === LEGACY_CONFIG_DIR_NAME ? [CONFIG_DIR_NAME] : [CONFIG_DIR_NAME, LEGACY_CONFIG_DIR_NAME];
 export const VERSION: string = pkg.version || "0.0.0";
-export const CHANGELOG_URL: string | undefined = pkg.piConfig?.changelogUrl?.trim() || undefined;
+export const CHANGELOG_URL: string | undefined = appConfig?.changelogUrl?.trim() || undefined;
 
 const ENV_PREFIX = APP_NAME.toUpperCase();
 export const LEGACY_ENV_PREFIX = "PI";

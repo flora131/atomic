@@ -40,11 +40,11 @@ For the JSONL file format and SessionManager API, see [Session Format](session-f
 In the picker you can:
 
 - search by typing
-- toggle path display with Ctrl+P
-- toggle sort mode with Ctrl+S
-- filter to named sessions with Ctrl+N
-- rename with Ctrl+R
-- delete with Ctrl+D, then confirm
+- toggle path display with CTRL+P
+- toggle sort mode with CTRL+S
+- filter to named sessions with CTRL+N
+- rename with CTRL+R
+- delete with CTRL+D, then confirm
 
 When available, pi uses the `trash` CLI for deletion instead of permanently removing files.
 
@@ -82,12 +82,12 @@ Example shape:
 |-----|--------|
 | ↑/↓ | Navigate visible entries |
 | ←/→ | Page up/down |
-| Ctrl+←/Ctrl+→ or Alt+←/Alt+→ | Fold/unfold or jump between branch segments |
-| Shift+L | Set or clear a label on the selected entry |
-| Shift+T | Toggle label timestamps |
+| CTRL+←/CTRL+→ or ALT+←/ALT+→ | Fold/unfold or jump between branch segments |
+| SHIFT+L | Set or clear a label on the selected entry |
+| SHIFT+T | Toggle label timestamps |
 | Enter | Select entry |
-| Escape/Ctrl+C | Cancel |
-| Ctrl+O | Cycle filter mode |
+| Escape/CTRL+C | Cancel |
+| CTRL+O | Cycle filter mode |
 
 Filter modes are: default, no-tools, user-only, labeled-only, and all. Configure the default with `treeFilterMode` in [Settings](settings.md).
 

@@ -7,8 +7,8 @@
  *    running = warning (locked at peak when focused), pending =
  *    borderDim (lifted to borderActive when focused).
  *  - Focus signal: the centred title turns into an accent-coloured
- *    "tab" (`▸ name`) painted with `theme.accent` bg + `theme.surface`
- *    fg + bold. The non-focused title is bold-on-card-bg.
+ *    tab painted with `theme.accent` bg + `theme.surface` fg + bold.
+ *    The non-focused title is bold-on-card-bg.
  *
  * cross-ref:
  *   - src/tui/node-card.ts
@@ -72,13 +72,14 @@ describe("renderNodeCard — geometry", () => {
 });
 
 describe("renderNodeCard — focused tab marker", () => {
-  test("focused card includes the ▸ glyph in the title slot", () => {
+  test("focused card uses an accent title slot without a caret glyph", () => {
     const lines = renderNodeCard(makeStage({ name: "deploy" }), {
       theme,
       focused: true,
     });
     const top = stripAnsi(lines[0]!);
-    assert.match(top, /▸ deploy/);
+    assert.doesNotMatch(top, /▸/);
+    assert.match(top, /deploy/);
   });
 
   test("unfocused card omits the focus glyph", () => {

@@ -235,7 +235,7 @@ Show the active Google account currently authenticated for Gemini Web. Useful wh
 
 ## Activity Monitor
 
-Toggle with **Ctrl+Shift+W** to see live request/response activity:
+Toggle with **CTRL+SHIFT+W** to see live request/response activity:
 
 ```
 ─── Web Search Activity ────────────────────────────────────

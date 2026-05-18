@@ -69,9 +69,11 @@ describe("handlePromptCardInput — confirm", () => {
     assert.deepEqual(handlePromptCardInput("\r", state), { kind: "submit", response: true });
   });
 
-  test("esc cancels", () => {
-    const state = createPromptCardState(makePrompt({ kind: "confirm" }));
-    assert.deepEqual(handlePromptCardInput("\x1b", state), { kind: "cancel" });
+  test("esc variants and ctrl+c cancel", () => {
+    for (const key of ["\x1b", "\x1b[27u", "\x1b[27;1;27~", "\x03"]) {
+      const state = createPromptCardState(makePrompt({ kind: "confirm" }));
+      assert.deepEqual(handlePromptCardInput(key, state), { kind: "cancel" }, `key=${JSON.stringify(key)}`);
+    }
   });
 });
 
@@ -126,10 +128,12 @@ describe("handlePromptCardInput — editor", () => {
     assert.equal(state.caret, 6);
   });
 
-  test("ctrl+s submits the buffer", () => {
+  test("tab focuses Submit response action and enter submits the buffer", () => {
     const state = createPromptCardState(makePrompt({ kind: "editor", initial: "draft" }));
+    assert.deepEqual(handlePromptCardInput("\t", state), { kind: "noop" });
+    assert.equal(state.editorSubmitFocused, true);
     assert.deepEqual(
-      handlePromptCardInput("\x13", state),
+      handlePromptCardInput("\r", state),
       { kind: "submit", response: "draft" },
     );
   });

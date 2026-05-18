@@ -16,10 +16,10 @@
  */
 
 import type { Store } from "../shared/store.js";
-import type { ChatMessageRenderOptions } from "@bastani/atomic";
+import type { ChatMessageRenderOptions, ReadonlyFooterDataProvider } from "@bastani/atomic";
 import { WorkflowAttachPane } from "./workflow-attach-pane.js";
 import { deriveGraphThemeFromPiTheme } from "./graph-theme.js";
-import { killRun } from "../runs/background/status.js";
+import { destroyRun } from "../runs/background/status.js";
 import { cancellationRegistry } from "../runs/background/cancellation-registry.js";
 import { stageControlRegistry as defaultStageControlRegistry } from "../runs/foreground/stage-control-registry.js";
 import type { StageControlRegistry } from "../runs/foreground/stage-control-registry.js";
@@ -41,6 +41,7 @@ export interface OverlayUISurface {
   custom?: PiCustomOverlayFunction;
   getEditorComponent?: () => PiEditorFactory | undefined;
   getChatRenderSettings?: () => OverlayChatRenderSettings | undefined;
+  getFooterDataProvider?: () => ReadonlyFooterDataProvider;
 }
 
 export interface OverlayPiSurface {
@@ -104,6 +105,12 @@ export interface BuildGraphOverlayAdapterOpts {
    * Defaults to the singleton registry registered alongside the store.
    */
   stageControlRegistry?: StageControlRegistry;
+  /**
+   * Destructive kill hook used by graph-mode `q`. The extension factory
+   * supplies this so persistence can record a terminal event before the run is
+   * removed from live history/status.
+   */
+  onKillRun?: (runId: string) => void;
 }
 
 export function buildGraphOverlayAdapter(
@@ -112,6 +119,9 @@ export function buildGraphOverlayAdapter(
   buildOpts: BuildGraphOverlayAdapterOpts = {},
 ): GraphOverlayPort {
   const registry = buildOpts.stageControlRegistry ?? defaultStageControlRegistry;
+  const killRun = buildOpts.onKillRun ?? ((id: string): void => {
+    destroyRun(id, { store, cancellation: cancellationRegistry });
+  });
   let currentView: WorkflowAttachPane | null = null;
   // pi-tui returns an OverlayHandle via `options.onHandle`. We hold onto
   // it so toggle() can flip `setHidden` rather than remounting the
@@ -192,12 +202,17 @@ export function buildGraphOverlayAdapter(
   ): void {
     // Already mounted but hidden — flip visibility without remounting.
     if (mounted && currentHandle?.isHidden()) {
+      currentView?.retarget(runId, stageId);
       setMouseScrollTracking(currentView?.wantsMouseScrollTracking() ?? true);
       currentHandle.setHidden(false);
       currentHandle.focus();
       return;
     }
-    if (mounted) return; // already showing.
+    if (mounted) {
+      currentView?.retarget(runId, stageId);
+      setMouseScrollTracking(currentView?.wantsMouseScrollTracking() ?? true);
+      return;
+    }
 
     const ui = surface?.ui ?? pi.ui;
     const custom = ui?.custom;
@@ -230,15 +245,14 @@ export function buildGraphOverlayAdapter(
         uiStatus,
         onClose: finish,
         onHide: hideMounted,
-        onKill: (id) => {
-          killRun(id, { store, cancellation: cancellationRegistry });
-        },
+        onKill: killRun,
         initialAttachStageId: stageId,
         piTui: tui,
         piTheme: theme,
         piKeybindings: keybindings,
         piEditorFactory: ui?.getEditorComponent?.(),
         getChatRenderSettings: ui?.getChatRenderSettings,
+        footerData: ui?.getFooterDataProvider?.(),
         // Pi-tui owns terminal dimensions; thread its row count down
         // so the overlay frame fills the actual viewport rather than
         // a hard-coded 32-row rectangle. Returning `undefined` keeps

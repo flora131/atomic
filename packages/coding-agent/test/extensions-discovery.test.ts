@@ -99,7 +99,31 @@ describe("extensions discovery", () => {
 		expect(result.extensions[0].path).toContain("index.ts");
 	});
 
-	it("discovers subdirectory with package.json pi field", async () => {
+	it("discovers subdirectory with package.json app-name field", async () => {
+		const subdir = path.join(extensionsDir, "my-package");
+		const srcDir = path.join(subdir, "src");
+		fs.mkdirSync(subdir);
+		fs.mkdirSync(srcDir);
+		fs.writeFileSync(path.join(srcDir, "main.ts"), extensionCode);
+		fs.writeFileSync(
+			path.join(subdir, "package.json"),
+			JSON.stringify({
+				name: "my-package",
+				atomic: {
+					extensions: ["./src/main.ts"],
+				},
+			}),
+		);
+
+		const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+
+		expect(result.errors).toHaveLength(0);
+		expect(result.extensions).toHaveLength(1);
+		expect(result.extensions[0].path).toContain("src");
+		expect(result.extensions[0].path).toContain("main.ts");
+	});
+
+	it("discovers subdirectory with package.json legacy pi field", async () => {
 		const subdir = path.join(extensionsDir, "my-package");
 		const srcDir = path.join(subdir, "src");
 		fs.mkdirSync(subdir);

@@ -260,6 +260,17 @@ describe("installToolExecutionHooks", () => {
     assert.equal(stage.toolEvents[0]!.name, "bash");
   });
 
+  test("tool_execution_start preserves SDK args for orchestrator tool UI", () => {
+    const { pi, eventHandlers } = makeMockPi();
+    installToolExecutionHooks(pi, storeInstance);
+
+    const handler = eventHandlers.get("tool_execution_start")!;
+    handler({ toolName: "bash", args: { command: "echo hi" }, ts: Date.now() });
+
+    const stage = storeInstance.snapshot().runs[0]!.stages[0]!;
+    assert.deepEqual(stage.toolEvents[0]!.input, { command: "echo hi" });
+  });
+
   test("tool_execution_start with explicit runId+stageId routes correctly", () => {
     // Add a second stage
     storeInstance.recordStageStart("r1", makeStage("s2", "specialist"));

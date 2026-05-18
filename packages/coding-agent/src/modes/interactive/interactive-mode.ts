@@ -9,6 +9,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import {
+  type Api,
   type AssistantMessage,
   getProviders,
   type ImageContent,
@@ -250,7 +251,7 @@ function isAnthropicSubscriptionAuthKey(apiKey: string | undefined): boolean {
   return typeof apiKey === "string" && apiKey.startsWith("sk-ant-oat");
 }
 
-function isUnknownModel(model: Model<any> | undefined): boolean {
+function isUnknownModel(model: Model<Api> | undefined): boolean {
   return (
     !!model &&
     model.provider === "unknown" &&
@@ -940,7 +941,7 @@ export class InteractiveMode {
     if (extendedKeys === undefined) return undefined;
 
     if (extendedKeys !== "on" && extendedKeys !== "always") {
-      return "tmux extended-keys is off. Modified Enter keys may not work. Add `set -g extended-keys on` to ~/.tmux.conf and restart tmux.";
+      return "tmux extended-keys is off. Modified enter keys may not work. Add `set -g extended-keys on` to ~/.tmux.conf and restart tmux.";
     }
 
     if (extendedKeysFormat === "xterm") {
@@ -2226,7 +2227,7 @@ export class InteractiveMode {
     this.setWorkingIndicator();
     if (this.loadingAnimation) {
       this.loadingAnimation.setMessage(
-        `${this.defaultWorkingMessage} (${keyText("app.interrupt")} to interrupt)`,
+        `${this.defaultWorkingMessage} (${keyText("app.interrupt")} Interrupt)`,
       );
     }
     this.setHiddenThinkingLabel();
@@ -2425,6 +2426,7 @@ export class InteractiveMode {
       },
       setEditorComponent: (factory) => this.setCustomEditorComponent(factory),
       getEditorComponent: () => this.editorComponentFactory,
+      getFooterDataProvider: () => this.footerDataProvider,
       get theme() {
         return theme;
       },
@@ -3101,7 +3103,7 @@ export class InteractiveMode {
         if (command) {
           if (this.session.isBashRunning) {
             this.showWarning(
-              "A bash command is already running. Press Esc to cancel it first.",
+              "A bash command is already running. esc cancel first.",
             );
             this.editor.setText(text);
             return;
@@ -3398,7 +3400,7 @@ export class InteractiveMode {
           this.session.abortCompaction();
         };
         this.statusContainer.clear();
-        const cancelHint = `(${keyText("app.interrupt")} to cancel)`;
+        const cancelHint = `(${keyText("app.interrupt")} Cancel)`;
         const label =
           event.reason === "manual"
             ? `Compacting context... ${cancelHint}`
@@ -3469,7 +3471,7 @@ export class InteractiveMode {
         this.statusContainer.clear();
         this.retryCountdown?.dispose();
         const retryMessage = (seconds: number) =>
-          `Retrying (${event.attempt}/${event.maxAttempts}) in ${seconds}s... (${keyText("app.interrupt")} to cancel)`;
+          `Retrying (${event.attempt}/${event.maxAttempts}) in ${seconds}s... (${keyText("app.interrupt")} Cancel)`;
         this.retryLoader = new Loader(
           this.ui,
           (spinner) => theme.fg("warning", spinner),
@@ -4630,12 +4632,12 @@ export class InteractiveMode {
 
   private async findExactModelMatch(
     searchTerm: string,
-  ): Promise<Model<any> | undefined> {
+  ): Promise<Model<Api> | undefined> {
     const models = await this.getModelCandidates();
     return findExactModelReferenceMatch(searchTerm, models);
   }
 
-  private async getModelCandidates(): Promise<Model<any>[]> {
+  private async getModelCandidates(): Promise<Model<Api>[]> {
     if (this.session.scopedModels.length > 0) {
       return this.session.scopedModels.map((scoped) => scoped.model);
     }
@@ -4656,7 +4658,7 @@ export class InteractiveMode {
   }
 
   private async maybeWarnAboutAnthropicSubscriptionAuth(
-    model: Model<any> | undefined = this.session.model,
+    model: Model<Api> | undefined = this.session.model,
   ): Promise<void> {
     if (this.settingsManager.getWarnings().anthropicExtraUsage === false) {
       return;
@@ -4956,7 +4958,7 @@ export class InteractiveMode {
               this.ui,
               (spinner) => theme.fg("accent", spinner),
               (text) => theme.fg("muted", text),
-              `Summarizing branch... (${keyText("app.interrupt")} to cancel)`,
+              `Summarizing branch... (${keyText("app.interrupt")} Cancel)`,
             );
             this.statusContainer.addChild(summaryLoader);
             this.ui.requestRender();
@@ -5276,7 +5278,7 @@ export class InteractiveMode {
     providerId: string,
     providerName: string,
     authType: "oauth" | "api_key",
-    previousModel: Model<any> | undefined,
+    previousModel: Model<Api> | undefined,
   ): Promise<void> {
     this.session.modelRegistry.refresh();
 
@@ -5285,7 +5287,7 @@ export class InteractiveMode {
         ? `Logged in to ${providerName}`
         : `Saved API key for ${providerName}`;
 
-    let selectedModel: Model<any> | undefined;
+    let selectedModel: Model<Api> | undefined;
     let selectionError: string | undefined;
     if (isUnknownModel(previousModel)) {
       const availableModels = this.session.modelRegistry.getAvailable();
@@ -6085,7 +6087,7 @@ export class InteractiveMode {
 | Key | Action |
 |-----|--------|
 | \`${submit}\` | Send message |
-| \`${newLine}\` | New line${process.platform === "win32" ? " (Ctrl+Enter on Windows Terminal)" : ""} |
+| \`${newLine}\` | New line${process.platform === "win32" ? " (ctrl+enter on Windows Terminal)" : ""} |
 | \`${deleteWordBackward}\` | Delete word backwards |
 | \`${deleteWordForward}\` | Delete word forwards |
 | \`${deleteToLineStart}\` | Delete to start of line |

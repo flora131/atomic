@@ -337,7 +337,7 @@ Chains open a clarify UI by default so you can preview and edit the workflow bef
 Common clarify keys:
 
 - `Enter` runs in the foreground, or in the background if background is toggled on
-- `Esc` cancels or backs out
+- `Escape` Cancel/Back
 - `↑↓` moves between steps or tasks
 - `e` edits the task/template
 - `m` selects a model
@@ -347,7 +347,7 @@ Common clarify keys:
 - `w` edits output/write behavior where supported
 - `r` edits reads where supported
 - `p` toggles progress tracking where supported
-Picker screens use `↑↓`, `Enter`, `Esc`, and type-to-filter. The full-screen editor supports word wrapping, paste, `Esc` to save, and `Ctrl+C` to discard.
+Picker screens use `↑↓`, `Enter`, `Escape`, and type-to-filter. The full-screen editor supports word wrapping, paste, `Escape` Save, and `CTRL+C` Discard.
 
 ## Agents and chains
 
@@ -902,7 +902,7 @@ Async runs write:
 
 Foreground runs show compact live progress for single, chain, and parallel modes: current tool, recent output, token counts, duration, activity freshness, and current-tool duration.
 
-Press `Ctrl+O` to expand the full streaming view with complete output per step.
+Press `CTRL+O` to expand the full streaming view with complete output per step.
 
 Sequential chains show a flow line like `done scout → running planner`. Chains with parallel steps show per-step cards instead.
 

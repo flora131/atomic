@@ -2,8 +2,10 @@
  * Manual visual preview — renders the GraphView overlay to stdout so you
  * can eyeball the styling. Not part of the test suite.
  *
- * Run:  node --experimental-transform-types --import ./test/support/register-loader.mjs test/manual/render-preview.ts [width] [scenario]
- *   scenario ∈ "active" (default) | "empty" | "compact" | "completed" | "failed"
+ * Run: bun test/manual/render-preview.ts [width] [scenario] [rows]
+ *   scenario ∈ "active" (default) | "empty" | "compact" | "completed" |
+ *              "failed" | "chain" | "fanout-even" | "fanout-odd" |
+ *              "fanin" | "stages"
  */
 import type { Store } from "../../packages/workflows/src/shared/store.js";
 import type {
@@ -100,16 +102,89 @@ function bigRun(): RunSnapshot {
   };
 }
 
+function chainRun(): RunSnapshot {
+  return {
+    id: "run-chain-001",
+    name: "chain-proof",
+    inputs: {},
+    status: "running",
+    startedAt: Date.now() - 18_000,
+    stages: [
+      stage("discover", "completed", [], 18_000, 2_000),
+      stage("plan", "completed", ["discover"], 16_000, 4_000),
+      stage("implement", "running", ["plan"], 12_000),
+      stage("verify", "pending", ["implement"]),
+      stage("report", "pending", ["verify"]),
+    ],
+  };
+}
+
+function fanoutEvenRun(): RunSnapshot {
+  return {
+    id: "run-fanout-even",
+    name: "fanout-even-proof",
+    inputs: {},
+    status: "running",
+    startedAt: Date.now() - 15_000,
+    stages: [
+      stage("root", "completed", [], 15_000, 1_000),
+      stage("api", "running", ["root"], 14_000),
+      stage("db", "running", ["root"], 14_000),
+      stage("ui", "pending", ["root"]),
+      stage("docs", "pending", ["root"]),
+    ],
+  };
+}
+
+function fanoutOddRun(): RunSnapshot {
+  return {
+    id: "run-fanout-odd",
+    name: "fanout-odd-proof",
+    inputs: {},
+    status: "running",
+    startedAt: Date.now() - 15_000,
+    stages: [
+      stage("root", "completed", [], 15_000, 1_000),
+      stage("linux", "running", ["root"], 14_000),
+      stage("macos", "pending", ["root"]),
+      stage("windows", "pending", ["root"]),
+    ],
+  };
+}
+
+function faninRun(): RunSnapshot {
+  return {
+    id: "run-fanin-001",
+    name: "fanin-proof",
+    inputs: {},
+    status: "running",
+    startedAt: Date.now() - 25_000,
+    stages: [
+      stage("spec", "completed", [], 25_000, 2_000),
+      stage("frontend", "completed", ["spec"], 23_000, 8_000),
+      stage("backend", "running", ["spec"], 23_000),
+      stage("tests", "completed", ["spec"], 23_000, 5_000),
+      stage("merge-review", "pending", ["frontend", "backend", "tests"]),
+    ],
+  };
+}
+
 const scenarios: Record<string, RunSnapshot | null> = {
   active: activeRun(),
   empty: null,
   compact: bigRun(),
   completed: completedRun(),
   failed: failedRun(),
+  chain: chainRun(),
+  "fanout-even": fanoutEvenRun(),
+  "fanout-odd": fanoutOddRun(),
+  fanin: faninRun(),
+  stages: faninRun(),
 };
 
 const width = Number(process.argv[2] ?? 96);
 const scenarioKey = process.argv[3] ?? "active";
+const rows = Number(process.argv[4] ?? 32);
 const run = scenarios[scenarioKey];
 
 const snap: StoreSnapshot = { runs: run ? [run] : [], notices: [], version: 1 };
@@ -124,6 +199,7 @@ const store: Store = {
   recordStageEnd: () => {},
   recordStageAwaitingInput: () => false,
   recordRunEnd: () => false,
+  removeRun: () => false,
   recordNotice: () => {},
   ackNotice: () => false,
   recordPendingPrompt: () => false,
@@ -150,11 +226,16 @@ const view = new GraphView({
   store,
   graphTheme: deriveGraphTheme({}),
   onClose: () => {},
+  getViewportRows: () => rows,
 });
+
+if (scenarioKey === "stages") {
+  view.handleInput("/");
+}
 
 const lines = view.render(width);
 
-process.stdout.write(`\n=== overlay  scenario=${scenarioKey}  width=${width} ===\n\n`);
+process.stdout.write(`\n=== overlay  scenario=${scenarioKey}  width=${width}  rows=${rows} ===\n\n`);
 for (const line of lines) process.stdout.write(line + "\n");
 process.stdout.write("\n=== end ===\n");
 

@@ -264,14 +264,35 @@ export interface WorkflowTaskStep extends WorkflowTaskOptions {
   name: string;
 }
 
-export interface WorkflowChainOptions {
-  /** Shared/root task used for `{task}` in chain steps. */
-  task?: string;
+export interface WorkflowSharedTaskDefaults extends StageOptions {
+  /** Optional default output artifact path for steps that do not set one. */
+  output?: string | false;
+  /** Default output mode for steps that do not set one. */
+  outputMode?: WorkflowOutputMode;
+  /** Files the task should read before responding; relative paths resolve via chainDir for chains, otherwise cwd. */
+  reads?: readonly string[] | false;
+  /** Workflow-owned isolation flag; not forwarded to createAgentSession(). */
+  worktree?: boolean;
+  /** Default output truncation limits for steps that do not set one. */
+  maxOutput?: WorkflowMaxOutput;
+  /** Whether to include debug artifacts such as sessions and worktree diffs. */
+  artifacts?: boolean;
 }
 
-export interface WorkflowParallelOptions {
+export interface WorkflowChainOptions extends WorkflowSharedTaskDefaults {
+  /** Shared/root task used for `{task}` in chain steps. */
+  task?: string;
+  /** Shared artifact directory for relative reads, outputs, and worktree diffs. */
+  chainDir?: string;
+}
+
+export interface WorkflowParallelOptions extends WorkflowSharedTaskDefaults {
   /** Shared fallback task for parallel steps without their own task. */
   task?: string;
+  /** Maximum number of parallel steps to schedule concurrently. */
+  concurrency?: number;
+  /** Stop scheduling additional steps after the first failure. Default: true. */
+  failFast?: boolean;
 }
 
 export type WorkflowOutputMode = "inline" | "file-only";
@@ -379,7 +400,6 @@ export interface WorkflowTaskSessionFields {
   output?: string | false;
   outputMode?: WorkflowOutputMode;
   reads?: readonly string[] | false;
-  progress?: boolean;
   /** Workflow-owned isolation flag; not forwarded to createAgentSession(). */
   worktree?: boolean;
   maxOutput?: WorkflowMaxOutput;
@@ -412,10 +432,11 @@ export interface WorkflowDirectOptions extends StageOptions {
   chainName?: string;
   concurrency?: number;
   failFast?: boolean;
+  /** Chain-only shared artifact directory for relative reads, outputs, and worktree diffs. */
   chainDir?: string;
+  reads?: readonly string[] | false;
   output?: string | false;
   outputMode?: WorkflowOutputMode;
-  progress?: boolean;
   worktree?: boolean;
   maxOutput?: WorkflowMaxOutput;
   artifacts?: boolean;

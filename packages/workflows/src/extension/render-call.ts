@@ -6,7 +6,7 @@
 export interface WorkflowToolArgs {
   workflow?: string;
   inputs?: Record<string, unknown>;
-  action?: "run" | "list" | "get" | "status" | "interrupt" | "resume" | "inputs";
+  action?: "run" | "list" | "get" | "status" | "interrupt" | "kill" | "resume" | "inputs";
   runId?: string;
 }
 
@@ -29,6 +29,8 @@ export function renderCall(args: WorkflowToolArgs): string {
       return `workflow: run "${name}"`;
     case "interrupt":
       return `workflow: interrupt run "${name}"`;
+    case "kill":
+      return `workflow: kill run "${name}"`;
     case "resume":
       return `workflow: resume run "${name}"`;
     case "get":

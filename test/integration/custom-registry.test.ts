@@ -56,7 +56,10 @@ export default {
     message: { type: "string", required: true, description: "Test message" },
     count: { type: "number", default: 1 },
   },
-  run: async (_inputs, _ctx) => ({ output: "test-done" }),
+  run: async (ctx) => {
+    await ctx.task("validation-smoke", { prompt: "validation smoke" });
+    return { output: "test-done" };
+  },
 };
 `.trim();
 }

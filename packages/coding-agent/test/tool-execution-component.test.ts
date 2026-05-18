@@ -16,7 +16,7 @@ function createBaseToolDefinition(name = "custom_tool"): ToolDefinition {
 		name,
 		label: name,
 		description: "custom tool",
-		parameters: Type.Any(),
+		parameters: Type.Unknown(),
 		execute: async () => ({
 			content: [{ type: "text", text: "ok" }],
 			details: {},
@@ -227,7 +227,7 @@ describe("ToolExecutionComponent parity", () => {
 
 	test("shares renderer state across custom call and result slots", () => {
 		type RenderState = { token?: string };
-		const toolDefinition: ToolDefinition<any, unknown, RenderState> = {
+		const toolDefinition: ToolDefinition<ReturnType<typeof Type.Unknown>, unknown, RenderState> = {
 			...createBaseToolDefinition(),
 			renderCall: (_args, _theme, context) => {
 				context.state.token ??= "shared-token";
@@ -410,7 +410,7 @@ describe("ToolExecutionComponent parity", () => {
 
 			const collapsed = stripAnsi(component.render(120).join("\n"));
 			expect(collapsed).toContain(scenario.compact);
-			expect(collapsed.indexOf(":120-329")).toBeLessThan(collapsed.indexOf("to expand"));
+			expect(collapsed.indexOf(":120-329")).toBeLessThan(collapsed.indexOf("Expand"));
 		});
 	}
 });

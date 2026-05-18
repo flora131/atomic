@@ -204,7 +204,7 @@ export class FooterComponent implements Component {
     }
 
     const liveState = this.session.isStreaming
-      ? theme.fg("muted", "Esc to interrupt")
+      ? theme.fg("muted", "esc to interrupt")
       : undefined;
     const statusText =
       liveState ??

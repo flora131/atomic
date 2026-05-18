@@ -49,7 +49,7 @@ const wf = {
   normalizedName: ${JSON.stringify(normalizedName)},
   description: "test workflow",
   inputs: {},
-  run: async () => ({}),
+  run: async (ctx) => { await ctx.task("validation-smoke", { prompt: "validation smoke" }); return {}; },
 };
 export default wf;
 `;
@@ -64,7 +64,7 @@ export const ${exportName} = {
   normalizedName: ${JSON.stringify(normalizedName)},
   description: "test workflow",
   inputs: {},
-  run: async () => ({}),
+  run: async (ctx) => { await ctx.task("validation-smoke", { prompt: "validation smoke" }); return {}; },
 };
 `;
 }
@@ -83,7 +83,7 @@ export default {
   normalizedName: ${JSON.stringify(defaultNorm)},
   description: "default export workflow",
   inputs: {},
-  run: async () => ({}),
+  run: async (ctx) => { await ctx.task("validation-smoke", { prompt: "validation smoke" }); return {}; },
 };
 
 export const second = {
@@ -92,7 +92,7 @@ export const second = {
   normalizedName: ${JSON.stringify(namedNorm)},
   description: "named export workflow",
   inputs: {},
-  run: async () => ({}),
+  run: async (ctx) => { await ctx.task("validation-smoke", { prompt: "validation smoke" }); return {}; },
 };
 `;
 }
@@ -162,7 +162,7 @@ module.exports = {
   normalizedName: "gamma",
   description: "cjs workflow",
   inputs: {},
-  run: async () => ({}),
+  run: async (ctx) => { await ctx.task("validation-smoke", { prompt: "validation smoke" }); return {}; },
 };
 `,
       "utf8",
@@ -230,11 +230,11 @@ describe("importWorkflowFile — default AND named exports", () => {
       `
 export default {
   __piWorkflow: true, name: "Alpha Default", normalizedName: "conflict-alpha",
-  description: "default", inputs: {}, run: async () => ({}),
+  description: "default", inputs: {}, run: async (ctx) => { await ctx.task("validation-smoke", { prompt: "validation smoke" }); return {}; },
 };
 export const named = {
   __piWorkflow: true, name: "Alpha Named", normalizedName: "conflict-alpha",
-  description: "named", inputs: {}, run: async () => ({}),
+  description: "named", inputs: {}, run: async (ctx) => { await ctx.task("validation-smoke", { prompt: "validation smoke" }); return {}; },
 };
 `,
     );
@@ -270,7 +270,7 @@ export const named = {
       `
 export default {
   __piWorkflow: true, name: "Valid Default", normalizedName: "valid-default",
-  description: "", inputs: {}, run: async () => ({}),
+  description: "", inputs: {}, run: async (ctx) => { await ctx.task("validation-smoke", { prompt: "validation smoke" }); return {}; },
 };
 export const bad = { notAWorkflow: true };
 `,

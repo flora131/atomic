@@ -1,6 +1,6 @@
 ---
 name: workflow
-description: Create, run, inspect, and improve pi/atomic workflows. Use whenever the user wants reusable multi-stage automation, a DAG or staged agent pipeline, workflow definitions with defineWorkflow, ctx.task/ctx.parallel/ctx.chain/ctx.stage/ctx.ui orchestration, workflow tool calls, /workflow list/inputs/connect/attach/pause/resume/status help, custom workflow discovery, model fallback chains, or context-engineered multi-session processes.
+description: Create, run, inspect, and improve pi/atomic workflows. Use whenever the user wants reusable multi-stage automation, a DAG or staged agent pipeline, workflow definitions with defineWorkflow, ctx.task/ctx.parallel/ctx.chain/ctx.stage/ctx.ui orchestration, workflow tool calls, /workflow list/inputs/connect/attach/pause/interrupt/resume/kill/status help, custom workflow discovery, model fallback chains, or context-engineered multi-session processes.
 ---
 
 # Workflow Skill
@@ -55,6 +55,10 @@ workflow({ action: "list" })
 workflow({ action: "get", workflow: "deep-research-codebase" })
 workflow({ action: "inputs", workflow: "deep-research-codebase" })
 workflow({ action: "run", workflow: "deep-research-codebase", inputs: { prompt: "map workflow runtime" } })
+workflow({ action: "status" })
+workflow({ action: "interrupt", runId: "<run-id-or-prefix>" })
+workflow({ action: "resume", runId: "<run-id-or-prefix>", stageId: "<optional-stage>", message: "continue" })
+workflow({ action: "kill", runId: "<run-id-or-prefix>" })
 ```
 
 Slash equivalents:
@@ -70,10 +74,19 @@ Slash equivalents:
 /workflow status --all
 /workflow status <run-id>
 /workflow interrupt <run-id|--all>
+/workflow kill <run-id|--all>
 /workflow resume <run-id> [stage-id-or-name] [message]
 ```
 
-Named workflow dispatch is always background-oriented: expect a run id, then monitor status/attention states. Press F2 or run `/workflow connect <run-id>` to open the live graph viewer. HIL prompts from `ctx.ui.input/confirm/select/editor` appear in that workflow UI, not as modal chat dialogs.
+Named workflow dispatch is always background-oriented: expect a run id, then monitor status/attention states. Press F2 or run `/workflow connect <run-id>` to open the live graph viewer. Use `workflow({ action: "interrupt" })` or `/workflow interrupt` for resumable interruption, and `workflow({ action: "kill" })` or `/workflow kill` only when the run should be terminated and removed from live history/status. HIL prompts from `ctx.ui.input/confirm/select/editor` appear in that workflow UI, not as modal chat dialogs.
+
+Workflow tool run-control parity:
+
+- `interrupt`, `kill`, and `resume` accept full run ids or unique prefixes via `runId`.
+- `interrupt` and `kill` default to the active run when `runId` is omitted.
+- `interrupt` and `kill` support all in-flight runs with `all: true` or `runId: "--all"`.
+- `resume` supports `stageId` as a stage id, unique prefix, or stage name, plus an optional `message` forwarded to paused work.
+- `kill` is destructive: it aborts in-flight work and removes the run from live history/status. `interrupt` is resumable and keeps the run visible.
 
 ## Direct Workflow-Native Orchestration
 
@@ -127,18 +140,41 @@ workflow({
 })
 ```
 
-Task options mirror pi session options plus workflow-owned fields such as `output`, `reads`, `progress`, `worktree`, `maxOutput`, `artifacts`, `sessionDir`, `model`, `fallbackModels`, `thinkingLevel`, and per-stage `mcp` allow/deny.
+Task options mirror pi session options plus workflow-owned fields such as `output`, `outputMode`, `reads`, `worktree`, `maxOutput`, `artifacts`, `sessionDir`, `cwd`, `agentDir`, `model`, `fallbackModels`, `thinkingLevel`, `context`, `tools`, `noTools`, `customTools`, `forkFromSessionFile`, and per-stage `mcp` allow/deny. Direct chain orchestration also supports `chainName` and `chainDir` for artifact grouping and shared chain-relative files.
 
 ## Authoring Process
 
 ### 1. Locate the workflow surface
 
-For user-authored workflows, place definitions where pi discovers them:
+Atomic/pi discovers workflow definitions in this override order:
 
-- Project-local: `.atomic/workflows/*.{ts,js,mjs,cjs}` inside the current project. Legacy `.pi/workflows/` is also checked for compatibility.
-- User-global: `~/.atomic/agent/workflows/*.{ts,js,mjs,cjs}` for workflows available across projects. Legacy `~/.pi/agent/workflows/` is also checked.
-- Configured directories: `.atomic/extensions/workflow/config.json` or `~/.atomic/agent/extensions/workflow/config.json` may add named `workflows.<name>.path` entries; legacy `.pi/...` config paths are also considered.
-- Package workflows: a pi package can expose bundled workflow directories through `package.json` under `pi.builtin`.
+1. Configured project files from `.atomic/extensions/workflow/config.json` (`workflows.<name>.path`). Legacy `.pi/...` config paths are also considered.
+2. Project-local files in `.atomic/workflows/*.{ts,js,mjs,cjs}`. Legacy `.pi/workflows/` is also checked.
+3. Configured global files from `~/.atomic/agent/extensions/workflow/config.json`. Legacy `~/.pi/...` config paths are also considered.
+4. User-global files in `~/.atomic/agent/workflows/*.{ts,js,mjs,cjs}`. Legacy `~/.pi/agent/workflows/` is also checked.
+5. Package-provided workflow files from installed Atomic/pi packages.
+6. Bundled workflows shipped with `@bastani/workflows`.
+
+A workflow module may export one default workflow definition and/or named workflow definitions; discovery checks the default export first, then named exports.
+
+Extension config can also tune runtime behavior:
+
+```json
+{
+  "workflows": {
+    "team": { "path": "./workflows/team.ts" }
+  },
+  "defaultConcurrency": 4,
+  "maxDepth": 4,
+  "persistRuns": true,
+  "statusFile": false,
+  "resumeInFlight": "ask"
+}
+```
+
+Project config relative workflow paths resolve from the project root. Global config relative paths resolve from the user agent directory. When `statusFile` is enabled, the derived status file defaults under `.atomic/workflows/status.json` for the project.
+
+Package-provided workflows can be exposed through host package metadata or a conventional `workflows/` directory; singular `workflow/` is accepted as an alias. For new Atomic package examples, prefer app-name keys when supported (for example `atomic.workflows` / `atomic.extensions`); keep `pi.workflows` / `pi.extensions` in mind for pi compatibility and existing first-party package metadata.
 
 If an existing project has workflow examples, inspect those first for import style and naming conventions. In a normal consumer project, import from the package:
 
@@ -193,18 +229,22 @@ Builder rules:
 - `.run(async (ctx) => ({ ... }))` defines the workflow body.
 - `.compile()` returns the workflow definition for discovery.
 
+**Anti-pattern: no-stage workflows.** Do not author workflows whose `run` body only performs deterministic code and returns a value without creating a tracked workflow stage. A registered workflow must call at least one of `ctx.task()`, `ctx.chain()`, `ctx.parallel()`, or `ctx.stage()` in its run body. Pure no-stage workflows are invalid, are skipped during discovery, and surface startup diagnostics because they defeat workflow orchestration and render an empty graph (`cachedLayout.length === 0`). If all work is deterministic TypeScript with no LLM/session stage, write a script or extension command instead of a workflow.
+
 Input types: `text`, `string`, `number`, `boolean`, `select`. All support `description` and `required`; defaults are type-specific; `select` requires `choices`. Runtime validation rejects unknown keys, missing required values, type mismatches, and select values outside `choices`.
 
 ### 4. Pick the right primitive
 
-| Need | Use |
+Default to the high-level primitives because they create tracked graph nodes, standardize handoffs, and keep workflow definitions readable:
+
+| Need | Preferred primitive |
 | --- | --- |
-| One LLM task with workflow tracking | `ctx.task(name, options)` |
-| Independent branches | `ctx.parallel(steps, { task? })` |
-| Dependent stages | `ctx.chain(steps, { task? })` |
-| Low-level session controls | `ctx.stage(name, options)` then `stage.prompt/complete` |
-| User interaction during run | `ctx.ui.input/confirm/select/editor` |
-| Pure computation / file I/O / parsing | Plain TypeScript in `.run()` or helpers |
+| One LLM/session task with workflow tracking | `ctx.task(name, options)` |
+| Dependent sequential tasks | `ctx.chain(steps, { task? })` |
+| Independent/concurrent branches | `ctx.parallel(steps, { task?, concurrency?, failFast? })` |
+| Human-in-the-loop decision in the workflow run | `ctx.ui.input/confirm/select/editor` |
+| Pure deterministic computation, parsing, or file I/O | Plain TypeScript in `.run()` or helpers, paired with a nearby tracked stage when it contributes to stage output |
+| Advanced/fine-grained session control | `ctx.stage(name, options)` then `stage.prompt/complete`; use when you need lower-level controls such as steer/follow-up messages, model switching, subscriptions, tree navigation, compaction, or abort |
 
 Use `previous` plus `{previous}` for context handoff. If no placeholder is present, the runtime appends context. Chain defaults: first missing task uses `{task}`, later missing tasks use `{previous}`, and missing tasks inside chain-parallel groups use `{previous}`.
 
@@ -223,7 +263,7 @@ Prefer concise structured returns and durable artifacts over dumping full transc
 
 ## Execution Model
 
-`@bastani/workflows` follows pi's package/extension model: pi loads the extension from the package manifest, and the extension registers the `workflow` tool, `/workflow` command, UI renderers, widgets, and lifecycle hooks in-process.
+`@bastani/workflows` follows Atomic/pi's package/extension model: the host loads extension metadata from supported package manifest keys (new app-name keys where available plus pi-compatible metadata used by existing packages), then the extension registers the `workflow` tool, `/workflow` command, UI renderers, widgets, and lifecycle hooks in-process.
 
 Use these supported workflow surfaces:
 
@@ -243,19 +283,38 @@ const definition = {
   inputs: {
     prompt: "map workflow sdk",
     max_partitions: 1,
+    max_concurrency: 4,
   },
 } as const;
 
 const options: WorkflowOptions = {};
 
 await runWorkflow(definition, options);
+
+await runWorkflow({
+  mode: "parallel",
+  task: "Audit auth changes",
+  tasks: [
+    { name: "security", task: "Review security risks" },
+    { name: "runtime", task: "Review runtime risks" },
+  ],
+  concurrency: 2,
+  reads: ["research/context.md"],
+  output: "research/auth-audit.md",
+  outputMode: "inline",
+  maxOutput: { lines: 2000 },
+  artifacts: true,
+});
 ```
+
+The programmatic definition object mirrors the workflow tool for named runs (`mode: "workflow"` / `"named"`), direct single-task runs (`"single"`), parallel `tasks` (`"parallel"`), mixed `chain` runs (`"chain"`), direct options, and stage/session options. Use `chainDir` for chain-local shared artifacts/relative reads/outputs/worktree diffs and `chainName` for status/artifact grouping.
 
 ## Safety and Compatibility Rules
 
 - Do not fabricate workflow names or inputs; list/inspect first with `list`, `get`, or `inputs`.
 - Do not use legacy workflow tool fields such as `agent`, `stage`, or run-control `name`.
 - Do not expect workflow-tool `create`, `update`, or `delete`; reusable definitions are code-authored.
+- For new Atomic package metadata, prefer app-name manifest keys such as `atomic.workflows`/`atomic.extensions` when supported; preserve `pi.workflows`/`pi.extensions` compatibility for existing pi packages and current first-party package metadata.
 - Use `/workflow` slash commands for named runs, input picker/help, graph attach, pause/resume, status, and diagnostics.
 - Prefer `ctx.task`, `ctx.parallel`, and `ctx.chain`; drop to `ctx.stage` only for lower-level controls.
 - Keep stage names user-readable because they appear in workflow status/UI.

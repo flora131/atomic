@@ -1400,7 +1400,7 @@ attachJsonlReader(agent.stdout, (line) => {
 // Send prompt
 agent.stdin.write(JSON.stringify({ type: "prompt", message: "Hello" }) + "\n");
 
-// Abort on Ctrl+C
+// Abort on CTRL+C
 process.on("SIGINT", () => {
     agent.stdin.write(JSON.stringify({ type: "abort" }) + "\n");
 });

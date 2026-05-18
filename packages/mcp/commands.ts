@@ -409,7 +409,7 @@ export async function openMcpAuthPanel(
           resolve();
         }, {
           authOnly: true,
-          noticeLines: ["Select an OAuth MCP server and press Enter or ctrl+a to authenticate."],
+          noticeLines: ["Select OAuth MCP Server. Enter/CTRL+A Authenticate."],
         });
       },
       { overlay: true, overlayOptions: { anchor: "center", width: 82 } },

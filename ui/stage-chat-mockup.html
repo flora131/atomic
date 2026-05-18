@@ -554,7 +554,7 @@
     <div class="page">
       <h1>@bastani/workflows · stage chat (Pi-box UI)</h1>
       <p class="lede">
-        Pressing <b class="blue">Enter</b> on a graph node attaches the orchestrator overlay to that stage's <b class="b">live pi AgentSession</b>. Same popup chrome, swapped interior. The chat surface here is intentionally <b class="b">minimal</b> &mdash; a steering surface, not a second Pi shell. It reuses Pi's box primitives verbatim: filled <span class="muted">user</span> bars, unboxed assistant Markdown, state-coloured tool bars, italic <span class="dim">thinking</span>, bordered loader, rounded editor, two-line dim footer, key-hint strip. Every SDK operation the workflow performs on the stage session (<code class="inline">setModel</code>, <code class="inline">setThinkingLevel</code>, <code class="inline">compact</code>, &hellip;) surfaces here so the user can see <b class="b">what the workflow is doing</b> without leaving the overlay.
+        Pressing <b class="blue">enter</b> on a graph node attaches the orchestrator overlay to that stage's <b class="b">live pi AgentSession</b>. Same popup chrome, swapped interior. The chat surface here is intentionally <b class="b">minimal</b> &mdash; a steering surface, not a second Pi shell. It reuses Pi's box primitives verbatim: filled <span class="muted">user</span> bars, unboxed assistant Markdown, state-coloured tool bars, italic <span class="dim">thinking</span>, bordered loader, rounded editor, two-line dim footer, key-hint strip. Every SDK operation the workflow performs on the stage session (<code class="inline">setModel</code>, <code class="inline">setThinkingLevel</code>, <code class="inline">compact</code>, &hellip;) surfaces here so the user can see <b class="b">what the workflow is doing</b> without leaving the overlay.
       </p>
 
       <!-- ============================================================
@@ -566,7 +566,7 @@
       <div class="omp-frame">
         <span class="chrome-tag"><span class="dim">pi-workflows</span><span class="sub">/ review-fix-loop ›</span><span class="here">review-a</span></span>
         <div class="omp-window">
-          <span class="back-pill"><span class="kc">Ctrl+D</span><span class="arrow">←</span><span>back to graph</span></span>
+          <span class="back-pill"><span class="kc">ctrl+d</span><span class="arrow">←</span><span>back to graph</span></span>
 
           <div class="pi-stage-header">
             <span class="glyph">▎</span>
@@ -615,13 +615,13 @@
           <div class="pi-hints">
             <span class="pair"><span class="kc">↵</span><span class="lbl em">send</span></span>
             <span class="sep">·</span>
-            <span class="pair"><span class="kc">Ctrl+F</span><span class="lbl">follow-up</span></span>
+            <span class="pair"><span class="kc">ctrl+f</span><span class="lbl">follow-up</span></span>
             <span class="sep">·</span>
-            <span class="pair"><span class="kc">Ctrl+P</span><span class="lbl">pause</span></span>
+            <span class="pair"><span class="kc">ctrl+p</span><span class="lbl">pause</span></span>
             <span class="sep">·</span>
-            <span class="pair"><span class="kc">Ctrl+D</span><span class="lbl">back</span></span>
+            <span class="pair"><span class="kc">ctrl+d</span><span class="lbl">back</span></span>
             <span class="sep">·</span>
-            <span class="pair"><span class="kc">Esc</span><span class="lbl">close</span></span>
+            <span class="pair"><span class="kc">esc</span><span class="lbl">close</span></span>
           </div>
         </div>
       </div>
@@ -638,7 +638,7 @@
       <div class="omp-frame">
         <span class="chrome-tag"><span class="dim">pi-workflows</span><span class="sub">/ review-fix-loop ›</span><span class="here">review-a</span></span>
         <div class="omp-window">
-          <span class="back-pill"><span class="kc">Ctrl+D</span><span class="arrow">←</span><span>back to graph</span></span>
+          <span class="back-pill"><span class="kc">ctrl+d</span><span class="arrow">←</span><span>back to graph</span></span>
 
           <div class="pi-stage-header">
             <span class="glyph">▎</span>
@@ -712,7 +712,7 @@
             <div class="body">
               <span class="spinner">⠴</span>
               <span class="message">Working <span class="dim">·</span> 38s <span class="dim">·</span> 12.3k in, 1.8k out, 4.3% ctx</span>
-              <span class="escape"><span class="kc">Esc</span> interrupt</span>
+              <span class="escape"><span class="kc">esc</span> to interrupt</span>
             </div>
             <div class="rule"></div>
           </div>
@@ -738,30 +738,30 @@
           <div class="pi-hints">
             <span class="pair"><span class="kc">↵</span><span class="lbl em">steer</span></span>
             <span class="sep">·</span>
-            <span class="pair"><span class="kc">Ctrl+F</span><span class="lbl em">follow-up</span></span>
+            <span class="pair"><span class="kc">ctrl+f</span><span class="lbl em">follow-up</span></span>
             <span class="sep">·</span>
-            <span class="pair"><span class="kc">Ctrl+P</span><span class="lbl">pause</span></span>
+            <span class="pair"><span class="kc">ctrl+p</span><span class="lbl">pause</span></span>
             <span class="sep">·</span>
-            <span class="pair"><span class="kc">Ctrl+D</span><span class="lbl">back</span></span>
+            <span class="pair"><span class="kc">ctrl+d</span><span class="lbl">back</span></span>
             <span class="sep">·</span>
-            <span class="pair"><span class="kc">Esc</span><span class="lbl">interrupt</span></span>
+            <span class="pair"><span class="kc">esc</span><span class="lbl">interrupt</span></span>
           </div>
         </div>
       </div>
-      <p class="note"><span class="k">contract</span> · Enter <span class="em">steers</span> the active turn (interrupt mid-stream &mdash; <code>handle.steer(text)</code>), Ctrl+F <span class="em">follows up</span> after the turn finishes (<code>handle.followUp(text)</code>). Ctrl+P pauses cleanly without aborting; the original prompt awaiter is held until resume. The loader mirrors Pi's <code>BorderedLoader</code> exactly: top rule + spinner + message + cancel hint + bottom rule, no surrounding box. The footer always reflects the stage's own session state, not the host chat's.</p>
+      <p class="note"><span class="k">contract</span> · enter <span class="em">steers</span> the active turn (interrupt mid-stream &mdash; <code>handle.steer(text)</code>), ctrl+f <span class="em">follows up</span> after the turn finishes (<code>handle.followUp(text)</code>). ctrl+p pauses cleanly without aborting; the original prompt awaiter is held until resume. The loader mirrors Pi's <code>BorderedLoader</code> exactly: top rule + spinner + message + cancel hint + bottom rule, no surrounding box. The footer always reflects the stage's own session state, not the host chat's.</p>
 
       <hr />
 
       <!-- ============================================================
-           §3  PAUSED — controlled pause via Ctrl+P
+           §3  PAUSED — controlled pause via ctrl+p
       ============================================================ -->
-      <h2><span class="num">§3</span> paused · controlled pause via Ctrl+P</h2>
+      <h2><span class="num">§3</span> paused · controlled pause via ctrl+p</h2>
       <div class="label paused">▼ stage chat — paused, awaiting resume message</div>
 
       <div class="omp-frame">
         <span class="chrome-tag"><span class="dim">pi-workflows</span><span class="sub">/ review-fix-loop ›</span><span class="here">review-a</span></span>
         <div class="omp-window">
-          <span class="back-pill"><span class="kc">Ctrl+D</span><span class="arrow">←</span><span>back to graph</span></span>
+          <span class="back-pill"><span class="kc">ctrl+d</span><span class="arrow">←</span><span>back to graph</span></span>
 
           <div class="pi-stage-header">
             <span class="glyph">▎</span>
@@ -777,7 +777,7 @@
             <div class="pi-banner paused">
               <span class="glyph">❚❚</span>
               <span>PAUSED</span>
-              <span class="meta">stopped between turns · type a message to resume, or Ctrl+P to release without input</span>
+              <span class="meta">stopped between turns · type a message to resume, or ctrl+p to release without input</span>
             </div>
 
             <div class="pi-spacer-half"></div>
@@ -830,15 +830,15 @@
           <div class="pi-hints">
             <span class="pair"><span class="kc">↵</span><span class="lbl em">resume with message</span></span>
             <span class="sep">·</span>
-            <span class="pair"><span class="kc">Ctrl+P</span><span class="lbl">resume empty</span></span>
+            <span class="pair"><span class="kc">ctrl+p</span><span class="lbl">resume empty</span></span>
             <span class="sep">·</span>
-            <span class="pair"><span class="kc">Ctrl+D</span><span class="lbl">back</span></span>
+            <span class="pair"><span class="kc">ctrl+d</span><span class="lbl">back</span></span>
             <span class="sep">·</span>
-            <span class="pair"><span class="kc">Esc</span><span class="lbl">close</span></span>
+            <span class="pair"><span class="kc">esc</span><span class="lbl">close</span></span>
           </div>
         </div>
       </div>
-      <p class="note"><span class="k">contract</span> · the paused banner is full-width and color-coded yellow to match Mocha's warning vocabulary. Enter resumes with the typed text fed back into the SDK session as the next user message (<code>handle.resume(text)</code>); Ctrl+P resumes empty (<code>handle.resume()</code>). The previous transcript stays visible so the user can read what the stage already produced. Footer right-rail flips to <span class="yellow">paused · ready to resume</span> so the SDK state is unambiguous.</p>
+      <p class="note"><span class="k">contract</span> · the paused banner is full-width and color-coded yellow to match Mocha's warning vocabulary. enter resumes with the typed text fed back into the SDK session as the next user message (<code>handle.resume(text)</code>); ctrl+p resumes empty (<code>handle.resume()</code>). The previous transcript stays visible so the user can read what the stage already produced. Footer right-rail flips to <span class="yellow">paused · ready to resume</span> so the SDK state is unambiguous.</p>
 
       <hr />
 
@@ -851,7 +851,7 @@
       <div class="omp-frame">
         <span class="chrome-tag"><span class="dim">pi-workflows</span><span class="sub">/ review-fix-loop ›</span><span class="here">review-a</span></span>
         <div class="omp-window">
-          <span class="back-pill"><span class="kc">Ctrl+D</span><span class="arrow">←</span><span>back to graph</span></span>
+          <span class="back-pill"><span class="kc">ctrl+d</span><span class="arrow">←</span><span>back to graph</span></span>
 
           <div class="pi-stage-header">
             <span class="glyph">▎</span>
@@ -912,7 +912,7 @@
             <div class="body">
               <span class="spinner">⠴</span>
               <span class="message">Working <span class="dim">·</span> 2m 14s <span class="dim">·</span> 1.4k in (post-compact), 312 out</span>
-              <span class="escape"><span class="kc">Esc</span> interrupt</span>
+              <span class="escape"><span class="kc">esc</span> to interrupt</span>
             </div>
             <div class="rule"></div>
           </div>
@@ -938,13 +938,13 @@
           <div class="pi-hints">
             <span class="pair"><span class="kc">↵</span><span class="lbl em">steer</span></span>
             <span class="sep">·</span>
-            <span class="pair"><span class="kc">Ctrl+F</span><span class="lbl">follow-up</span></span>
+            <span class="pair"><span class="kc">ctrl+f</span><span class="lbl">follow-up</span></span>
             <span class="sep">·</span>
-            <span class="pair"><span class="kc">Ctrl+P</span><span class="lbl">pause</span></span>
+            <span class="pair"><span class="kc">ctrl+p</span><span class="lbl">pause</span></span>
             <span class="sep">·</span>
-            <span class="pair"><span class="kc">Ctrl+D</span><span class="lbl">back</span></span>
+            <span class="pair"><span class="kc">ctrl+d</span><span class="lbl">back</span></span>
             <span class="sep">·</span>
-            <span class="pair"><span class="kc">Esc</span><span class="lbl">interrupt</span></span>
+            <span class="pair"><span class="kc">esc</span><span class="lbl">interrupt</span></span>
           </div>
         </div>
       </div>
@@ -961,7 +961,7 @@
       <div class="omp-frame">
         <span class="chrome-tag"><span class="dim">pi-workflows</span><span class="sub">/ review-fix-loop ›</span><span class="here">review-a</span></span>
         <div class="omp-window">
-          <span class="back-pill"><span class="kc">Ctrl+D</span><span class="arrow">←</span><span>back to graph</span></span>
+          <span class="back-pill"><span class="kc">ctrl+d</span><span class="arrow">←</span><span>back to graph</span></span>
 
           <div class="pi-stage-header">
             <span class="glyph">▎</span>
@@ -1034,15 +1034,15 @@
           </div>
 
           <div class="pi-hints">
-            <span class="pair"><span class="kc">Ctrl+D</span><span class="lbl em">back to graph</span></span>
+            <span class="pair"><span class="kc">ctrl+d</span><span class="lbl em">back to graph</span></span>
             <span class="sep">·</span>
-            <span class="pair"><span class="kc">Esc</span><span class="lbl">close</span></span>
+            <span class="pair"><span class="kc">esc</span><span class="lbl">close</span></span>
             <span class="sep">·</span>
             <span class="lbl dim">/workflow inspect 9e2a opens this session in a fresh Pi shell when you want a full editor</span>
           </div>
         </div>
       </div>
-      <p class="note"><span class="k">contract</span> · settled stages drop the live editor (no <code>StageControlHandle</code> means nothing to send to). We keep the transcript fully scrollable and the footer numbers final-frozen. The hints strip drops the send-side keys and replaces them with a single forward-pointer: power users who want a full Pi editor on the persisted session can launch one with <code>/workflow inspect</code> &mdash; an opt-in separate command, not the default node-Enter path.</p>
+      <p class="note"><span class="k">contract</span> · settled stages drop the live editor (no <code>StageControlHandle</code> means nothing to send to). We keep the transcript fully scrollable and the footer numbers final-frozen. The hints strip drops the send-side keys and replaces them with a single forward-pointer: power users who want a full Pi editor on the persisted session can launch one with <code>/workflow inspect</code> &mdash; an opt-in separate command, not the default node-enter path.</p>
 
       <hr />
 

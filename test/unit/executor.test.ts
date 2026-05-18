@@ -263,6 +263,92 @@ describe("executor.run", () => {
     assert.match(String(wfResult.result?.["text"]), /^first li\n\n\[workflow output truncated/);
   });
 
+  test("ctx.chain prepends reads as resolved instructions from chainDir", async () => {
+    const seenPrompts: string[] = [];
+    const dir = mkdtempSync(join(tmpdir(), "workflow-task-reads-"));
+    const def = defineWorkflow("task-reads-wf")
+      .run(async (ctx) => {
+        await ctx.chain([
+          { name: "reader", task: "summarize docs" },
+        ], {
+          reads: ["notes.md", join(dir, "absolute.md")],
+          chainDir: dir,
+        });
+        return { done: true };
+      })
+      .compile();
+
+    const wfResult = await run(def, {}, {
+      adapters: {
+        prompt: {
+          prompt: async (text) => {
+            seenPrompts.push(text);
+            return "ok";
+          },
+        },
+      },
+      store: createStore(),
+    });
+
+    assert.equal(wfResult.status, "completed");
+    assert.match(seenPrompts[0] ?? "", new RegExp(`^\\[Read from: ${join(dir, "notes.md").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}, ${join(dir, "absolute.md").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\]`));
+    assert.match(seenPrompts[0] ?? "", /summarize docs/);
+  });
+
+  test("ctx.task forwards output options to the stage prompt", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "workflow-task-output-"));
+    const output = join(dir, "summary.md");
+    const def = defineWorkflow("task-output-wf")
+      .run(async (ctx) => {
+        const result = await ctx.task("writer", {
+          task: "write",
+          output,
+          outputMode: "file-only",
+        });
+        return { text: result.text };
+      })
+      .compile();
+
+    const wfResult = await run(def, {}, {
+      adapters: {
+        prompt: {
+          prompt: async () => "full task output",
+        },
+      },
+      store: createStore(),
+    });
+
+    assert.equal(wfResult.status, "completed");
+    assert.equal(readFileSync(output, "utf8"), "full task output");
+    assert.match(String(wfResult.result?.["text"]), /Output saved to:/);
+  });
+
+  test("ctx.parallel forwards step output options", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "workflow-parallel-output-"));
+    const output = join(dir, "parallel.md");
+    const def = defineWorkflow("parallel-output-wf")
+      .run(async (ctx) => {
+        const [result] = await ctx.parallel([
+          { name: "writer", task: "write", output, outputMode: "file-only" },
+        ]);
+        return { text: result?.text };
+      })
+      .compile();
+
+    const wfResult = await run(def, {}, {
+      adapters: {
+        prompt: {
+          prompt: async () => "parallel task output",
+        },
+      },
+      store: createStore(),
+    });
+
+    assert.equal(wfResult.status, "completed");
+    assert.equal(readFileSync(output, "utf8"), "parallel task output");
+    assert.match(String(wfResult.result?.["text"]), /Output saved to:/);
+  });
+
   test("runs parallel stages", async () => {
     const def = defineWorkflow("parallel-wf")
       .run(async (ctx) => {
@@ -1618,8 +1704,23 @@ describe("executor.run — concurrency limiter", () => {
 // Stage-control registry + controlled pause integration
 // ---------------------------------------------------------------------------
 
+import { createCancellationRegistry } from "../../packages/workflows/src/runs/background/cancellation-registry.js";
+import { killRun, pauseRun, resumeRun } from "../../packages/workflows/src/runs/background/status.js";
 import { createStageControlRegistry } from "../../packages/workflows/src/runs/foreground/stage-control-registry.js";
 import type { StageSessionRuntime } from "../../packages/workflows/src/runs/foreground/stage-runner.js";
+
+function deferred<T = void>(): PromiseWithResolvers<T> {
+  return Promise.withResolvers<T>();
+}
+
+async function waitForMicrotasks(): Promise<void> {
+  await new Promise<void>((resolve) => queueMicrotask(resolve));
+  await new Promise<void>((resolve) => queueMicrotask(resolve));
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
 
 function mockSession(): StageSessionRuntime {
   const listeners = new Set<(e: { type: string; [k: string]: unknown }) => void>();
@@ -1693,6 +1794,191 @@ describe("executor — stage-control registry integration", () => {
     assert.equal(stageStartHandleCount, 1);
   });
 
+  test("pausing a pending stage before prompt prevents adapter work until resume", async () => {
+    const registry = createStageControlRegistry();
+    const store = createStore();
+    const releasePrompt = deferred();
+    const sawStage = deferred<{ runId: string; stageId: string }>();
+    let sawStageResolved = false;
+    const promptCalls: string[] = [];
+    const def = defineWorkflow("pending-pause-wf")
+      .run(async (ctx) => {
+        const stage = ctx.stage("pending-before-prompt");
+        await releasePrompt.promise;
+        const text = await stage.prompt("go");
+        return { text };
+      })
+      .compile();
+
+    const runPromise = run(def, {}, {
+      adapters: {
+        prompt: {
+          async prompt(text) {
+            promptCalls.push(text);
+            return `done:${text}`;
+          },
+        },
+      },
+      store,
+      stageControlRegistry: registry,
+      onStageStart: (runId, stage) => {
+        if (stage.name !== "pending-before-prompt" || stage.startedAt !== undefined || sawStageResolved) return;
+        sawStageResolved = true;
+        sawStage.resolve({ runId, stageId: stage.id });
+      },
+    });
+
+    const { runId, stageId } = await sawStage.promise;
+    const pauseResult = pauseRun(runId, { store, stageControlRegistry: registry, stageId });
+    assert.equal(pauseResult.ok, true);
+    await waitForMicrotasks();
+    assert.equal(store.runs()[0]?.stages[0]?.status, "paused");
+
+    releasePrompt.resolve();
+    await sleep(20);
+    assert.deepEqual(promptCalls, []);
+    assert.equal(store.runs()[0]?.stages[0]?.status, "paused");
+    assert.equal(store.runs()[0]?.endedAt, undefined);
+
+    const resumeResult = resumeRun(runId, { store, stageControlRegistry: registry });
+    assert.equal(resumeResult.ok, true);
+    const result = await runPromise;
+    assert.equal(result.status, "completed");
+    assert.deepEqual(promptCalls, ["go"]);
+  });
+
+  test("pausing a pending attached stream aborts the SDK session and marks the stage paused", async () => {
+    const registry = createStageControlRegistry();
+    const cancellation = createCancellationRegistry();
+    const store = createStore();
+    const releaseWorkflowPrompt = deferred();
+    const sawStage = deferred<{ runId: string; stageId: string }>();
+    let sawStageResolved = false;
+    let promptReject: ((err: Error) => void) | undefined;
+    let promptResolve: (() => void) | undefined;
+    let streaming = false;
+    let abortCalls = 0;
+    const session: StageSessionRuntime = {
+      ...mockSession(),
+      async prompt() {
+        streaming = true;
+        return new Promise<void>((resolve, reject) => {
+          promptResolve = () => {
+            streaming = false;
+            resolve();
+          };
+          promptReject = (err) => {
+            streaming = false;
+            reject(err);
+          };
+        });
+      },
+      get isStreaming() {
+        return streaming;
+      },
+      async abort() {
+        abortCalls += 1;
+        promptReject?.(new Error("AbortError"));
+      },
+    };
+    const def = defineWorkflow("pending-attached-stream-pause-wf")
+      .run(async (ctx) => {
+        const stage = ctx.stage("pending-live");
+        await releaseWorkflowPrompt.promise;
+        await stage.prompt("workflow prompt");
+        return { ok: true };
+      })
+      .compile();
+
+    const unhandled: string[] = [];
+    const onUnhandled = (reason: Error | string): void => {
+      unhandled.push(reason instanceof Error ? reason.message : String(reason));
+    };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const runPromise = run(def, {}, {
+        adapters: { agentSession: { create: async () => session } },
+        store,
+        cancellation,
+        stageControlRegistry: registry,
+        onStageStart: (runId, stage) => {
+          if (stage.name !== "pending-live" || stage.startedAt !== undefined || sawStageResolved) return;
+          sawStageResolved = true;
+          sawStage.resolve({ runId, stageId: stage.id });
+        },
+      });
+
+      const { runId, stageId } = await sawStage.promise;
+      const handle = registry.get(runId, stageId);
+      assert.ok(handle, "pending stage should have a live handle");
+      const attachedPrompt = handle!.prompt("attached prompt");
+      void attachedPrompt.catch(() => {});
+      await waitForMicrotasks();
+      assert.equal(handle!.isStreaming, true);
+
+      await handle!.pause();
+      await waitForMicrotasks();
+      assert.equal(abortCalls, 1);
+      assert.equal(store.runs()[0]?.stages[0]?.status, "paused");
+
+      releaseWorkflowPrompt.resolve();
+      await waitForMicrotasks();
+      const killResult = killRun(runId, { store, cancellation });
+      assert.equal(killResult.ok, true);
+      promptResolve?.();
+      const result = await runPromise;
+      assert.equal(result.status, "killed");
+      await sleep(20);
+      assert.deepEqual(unhandled, []);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
+  test("killing a pending paused stage finalizes the run as killed without a pause-abort failure", async () => {
+    const registry = createStageControlRegistry();
+    const cancellation = createCancellationRegistry();
+    const store = createStore();
+    const releasePrompt = deferred();
+    const sawStage = deferred<{ runId: string; stageId: string }>();
+    let sawStageResolved = false;
+    const def = defineWorkflow("pending-pause-kill-wf")
+      .run(async (ctx) => {
+        const stage = ctx.stage("pending-before-kill");
+        await releasePrompt.promise;
+        await stage.prompt("go");
+        return { ok: true };
+      })
+      .compile();
+
+    const runPromise = run(def, {}, {
+      adapters: {
+        prompt: { prompt: async (text) => `done:${text}` },
+      },
+      store,
+      cancellation,
+      stageControlRegistry: registry,
+      onStageStart: (runId, stage) => {
+        if (stage.name !== "pending-before-kill" || stage.startedAt !== undefined || sawStageResolved) return;
+        sawStageResolved = true;
+        sawStage.resolve({ runId, stageId: stage.id });
+      },
+    });
+
+    const { runId, stageId } = await sawStage.promise;
+    assert.equal(pauseRun(runId, { store, stageControlRegistry: registry, stageId }).ok, true);
+    await waitForMicrotasks();
+    releasePrompt.resolve();
+    await waitForMicrotasks();
+    const killResult = killRun(runId, { store, cancellation });
+    assert.equal(killResult.ok, true);
+
+    const result = await runPromise;
+    assert.equal(result.status, "killed");
+    assert.equal(result.error, "workflow killed");
+    assert.notEqual(store.runs()[0]?.error, 'pi-workflows: stage "pending-before-kill" aborted while paused');
+  });
+
   test("session metadata lands in stage snapshot after lazy attach", async () => {
     const def = defineWorkflow("session-meta-wf")
       .run(async (ctx) => {
@@ -1749,6 +2035,59 @@ describe("executor — stage-control registry integration", () => {
     assert.equal(observedAttachable, true);
     const stage = store.runs()[0]!.stages[0]!;
     assert.equal(stage.attachable, undefined);
+  });
+
+  test("attached completed stage handle remains chat-capable until detach", async () => {
+    const registry = createStageControlRegistry();
+    const store = createStore();
+    let attachedIds: { runId: string; stageId: string } | undefined;
+    let disposeCalls = 0;
+    const promptCalls: string[] = [];
+    const session: StageSessionRuntime = {
+      ...mockSession(),
+      async prompt(text: string) {
+        promptCalls.push(text);
+      },
+      async dispose() {
+        disposeCalls += 1;
+      },
+    };
+    const def = defineWorkflow("attached-complete-chat-wf")
+      .run(async (ctx) => {
+        await ctx.stage("only").prompt("workflow prompt");
+        return {};
+      })
+      .compile();
+
+    await run(def, {}, {
+      adapters: {
+        agentSession: {
+          async create() { return session; },
+        },
+      },
+      store,
+      stageControlRegistry: registry,
+      onStageStart: (runId, stage) => {
+        if (stage.name !== "only" || stage.startedAt !== undefined || attachedIds) return;
+        attachedIds = { runId, stageId: stage.id };
+        store.recordStageAttached(runId, stage.id, true);
+      },
+    });
+
+    assert.ok(attachedIds, "stage should have been attached before prompt");
+    const retained = registry.get(attachedIds!.runId, attachedIds!.stageId);
+    assert.ok(retained, "attached completed stage should keep its live handle");
+    assert.equal(store.runs()[0]?.stages[0]?.status, "completed");
+    assert.equal(disposeCalls, 0);
+
+    await retained!.prompt("post-completion chat");
+    assert.deepEqual(promptCalls, ["workflow prompt", "post-completion chat"]);
+    assert.equal(store.runs()[0]?.stages[0]?.status, "completed");
+
+    store.recordStageAttached(attachedIds!.runId, attachedIds!.stageId, false);
+    await sleep(20);
+    assert.equal(registry.get(attachedIds!.runId, attachedIds!.stageId), undefined);
+    assert.equal(disposeCalls, 1);
   });
 
   test("ask_user_question tool execution marks the stage awaiting input transiently", async () => {

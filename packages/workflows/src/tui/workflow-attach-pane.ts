@@ -20,7 +20,7 @@
  */
 
 import type { Component, EditorComponent, EditorTheme, TUI } from "@earendil-works/pi-tui";
-import type { ChatMessageRenderOptions } from "@bastani/atomic";
+import type { ChatMessageRenderOptions, ReadonlyFooterDataProvider } from "@bastani/atomic";
 import type { Store } from "../shared/store.js";
 import type { GraphTheme } from "./graph-theme.js";
 import { GraphView } from "./graph-view.js";
@@ -71,6 +71,8 @@ export interface WorkflowAttachPaneOpts {
   piEditorFactory?: (tui: TUI, theme: EditorTheme, keybindings: unknown) => EditorComponent;
   /** Parent chat rendering settings and extension renderers, inherited from the host UI. */
   getChatRenderSettings?: () => Partial<Omit<ChatMessageRenderOptions, "ui" | "cwd" | "markdownTheme">> | undefined;
+  /** Parent footer data provider, inherited so attached chats can render the core coding-agent footer. */
+  footerData?: ReadonlyFooterDataProvider;
   /**
    * Optional override: pre-select chat mode for a stage on construction.
    * Used by `/workflow attach <runId> <stageId>` so the popup opens
@@ -122,6 +124,7 @@ export class WorkflowAttachPane implements Component {
   private piKeybindings?: unknown;
   private piEditorFactory?: (tui: TUI, theme: EditorTheme, keybindings: unknown) => EditorComponent;
   private getChatRenderSettings?: () => Partial<Omit<ChatMessageRenderOptions, "ui" | "cwd" | "markdownTheme">> | undefined;
+  private footerData?: ReadonlyFooterDataProvider;
 
   private mode: WorkflowAttachPaneMode = "graph";
   private graphView: GraphView;
@@ -146,6 +149,7 @@ export class WorkflowAttachPane implements Component {
     this.piKeybindings = opts.piKeybindings;
     this.piEditorFactory = opts.piEditorFactory;
     this.getChatRenderSettings = opts.getChatRenderSettings;
+    this.footerData = opts.footerData;
 
     this.graphView = this._buildGraphView();
 
@@ -224,6 +228,7 @@ export class WorkflowAttachPane implements Component {
       piKeybindings: this.piKeybindings,
       piEditorFactory: this.piEditorFactory,
       getChatRenderSettings: this.getChatRenderSettings,
+      footerData: this.footerData,
       getViewportRows: this.getViewportRows,
     });
     this.store.recordStageAttached(runId, stageId, true);
@@ -244,6 +249,27 @@ export class WorkflowAttachPane implements Component {
     this.graphView.dispose();
     this.graphView = this._buildGraphView(this.lastAttachedStageId ?? undefined);
     this.mode = "graph";
+    this._setBaseStatus();
+    this._syncMouseScrollTracking();
+  }
+
+  retarget(runId: string | null, stageId?: string): void {
+    if (this.chatView && this.runId && this.lastAttachedStageId) {
+      this.store.recordStageAttached(this.runId, this.lastAttachedStageId, false);
+    }
+    this.chatView?.dispose();
+    this.chatView = null;
+    this.graphView.dispose();
+    this.runId = runId;
+    this.lastAttachedStageId = null;
+    this.mode = "graph";
+    this.graphView = this._buildGraphView();
+
+    if (stageId !== undefined && runId) {
+      this._attachToStage(runId, stageId);
+      return;
+    }
+
     this._setBaseStatus();
     this._syncMouseScrollTracking();
   }
@@ -290,6 +316,9 @@ export class WorkflowAttachPane implements Component {
   }
 
   dispose(): void {
+    if (this.chatView && this.runId && this.lastAttachedStageId) {
+      this.store.recordStageAttached(this.runId, this.lastAttachedStageId, false);
+    }
     this.chatView?.dispose();
     this.chatView = null;
     this.graphView.dispose();
@@ -310,5 +339,8 @@ export class WorkflowAttachPane implements Component {
   }
   get _hasChatView(): boolean {
     return this.chatView !== null;
+  }
+  get _runId(): string | null {
+    return this.runId;
   }
 }

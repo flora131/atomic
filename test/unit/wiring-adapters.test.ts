@@ -8,8 +8,10 @@
 
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { buildRuntimeAdapters } from "../../packages/workflows/src/extension/wiring.js";
+import { join } from "node:path";
+import { buildRuntimeAdapters, prepareAtomicStageSessionOptions } from "../../packages/workflows/src/extension/wiring.js";
 import type { CreateAgentSessionOptions } from "@bastani/atomic";
+import type { PiCodingAgentSdk, PiSdkResourceLoader, PiSdkSettingsManager } from "../../packages/workflows/src/extension/wiring.js";
 import type { StageSessionRuntime } from "../../packages/workflows/src/runs/foreground/stage-runner.js";
 
 function fakeSession(): StageSessionRuntime {
@@ -42,6 +44,72 @@ function fakeSession(): StageSessionRuntime {
 }
 
 
+function makeFakeAtomicSdk(defaultAgentDir: string): {
+  readonly sdk: PiCodingAgentSdk;
+  readonly loaderOptions: Array<{ cwd: string; agentDir: string; settingsManager?: PiSdkSettingsManager }>;
+  readonly settingsCalls: Array<{ cwd?: string; agentDir?: string }>;
+  readonly reloads: PiSdkResourceLoader[];
+} {
+  const loaderOptions: Array<{ cwd: string; agentDir: string; settingsManager?: PiSdkSettingsManager }> = [];
+  const settingsCalls: Array<{ cwd?: string; agentDir?: string }> = [];
+  const reloads: PiSdkResourceLoader[] = [];
+
+  class FakeResourceLoader implements PiSdkResourceLoader {
+    constructor(options: { cwd: string; agentDir: string; settingsManager?: PiSdkSettingsManager }) {
+      loaderOptions.push(options);
+    }
+
+    async reload(): Promise<void> {
+      reloads.push(this);
+    }
+  }
+
+  const sdk: PiCodingAgentSdk = {
+    getAgentDir: () => defaultAgentDir,
+    SettingsManager: {
+      create(cwd?: string, agentDir?: string): PiSdkSettingsManager {
+        settingsCalls.push({ cwd, agentDir });
+        return { cwd, agentDir } as PiSdkSettingsManager;
+      },
+    },
+    DefaultResourceLoader: FakeResourceLoader,
+    async createAgentSession(): Promise<{ session: StageSessionRuntime }> {
+      return { session: fakeSession() };
+    },
+  };
+
+  return { sdk, loaderOptions, settingsCalls, reloads };
+}
+
+describe("prepareAtomicStageSessionOptions", () => {
+  test("uses the Atomic default agent dir for resource loading without turning it into a user override", async () => {
+    const projectDir = join("/tmp", "project");
+    const atomicAgentDir = join("/home", "user", ".atomic", "agent");
+    const { sdk, loaderOptions, settingsCalls, reloads } = makeFakeAtomicSdk(atomicAgentDir);
+
+    const options = await prepareAtomicStageSessionOptions({ cwd: projectDir }, sdk);
+
+    assert.equal(options?.cwd, projectDir);
+    assert.equal(options?.agentDir, undefined);
+    assert.equal(loaderOptions[0]?.cwd, projectDir);
+    assert.equal(loaderOptions[0]?.agentDir, atomicAgentDir);
+    assert.equal(settingsCalls[0]?.cwd, projectDir);
+    assert.equal(settingsCalls[0]?.agentDir, atomicAgentDir);
+    assert.equal(reloads.length, 1);
+  });
+
+  test("preserves a user-provided agentDir as an explicit single-directory override", async () => {
+    const projectDir = join("/tmp", "project");
+    const atomicAgentDir = join("/home", "user", ".atomic", "agent");
+    const customAgentDir = join("/tmp", "custom-agent");
+    const { sdk, loaderOptions } = makeFakeAtomicSdk(atomicAgentDir);
+
+    const options = await prepareAtomicStageSessionOptions({ cwd: projectDir, agentDir: customAgentDir }, sdk);
+
+    assert.equal(options?.agentDir, customAgentDir);
+    assert.equal(loaderOptions[0]?.agentDir, customAgentDir);
+  });
+});
 
 describe("buildRuntimeAdapters — SDK AgentSession adapter", () => {
   test("provides an agentSession adapter without requiring pi.exec", () => {

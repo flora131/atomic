@@ -403,7 +403,7 @@ pi.registerTool({
   description: "Run a defined multi-stage workflow by name.",
   parameters: Type.Object({
     name: Type.String({ description: "Workflow ID (use {action:'list'} to enumerate)" }),
-    inputs: Type.Record(Type.String(), Type.Any(), { default: {} }),
+    inputs: Type.Record(Type.String(), Type.Unknown(), { default: {} }),
     action: Type.Optional(Type.Union([
       Type.Literal("run"), Type.Literal("list"), Type.Literal("status"),
       Type.Literal("kill"), Type.Literal("resume"), Type.Literal("inputs"),

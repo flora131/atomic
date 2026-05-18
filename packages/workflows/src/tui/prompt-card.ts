@@ -25,10 +25,19 @@
  *   src/tui/graph-view.ts     overlay integration + key routing
  */
 
+import { keyHint, keyText, rawKeyHint } from "@bastani/atomic";
+import {
+  SelectList,
+  truncateToWidth,
+  visibleWidth,
+  wrapTextWithAnsi,
+  type SelectItem,
+  type SelectListTheme,
+} from "@earendil-works/pi-tui";
 import type { PendingPrompt } from "../shared/store-types.js";
 import type { GraphTheme } from "./graph-theme.js";
 import { hexToAnsi, hexBg, paint, RESET, BOLD } from "./color-utils.js";
-import { matchesKey, truncateToWidth, visibleWidth } from "./text-helpers.js";
+import { matchesKey } from "./text-helpers.js";
 
 // ---------------------------------------------------------------------------
 // State
@@ -49,6 +58,8 @@ export interface PromptCardState {
   selectedIndex: number;
   /** Boolean selection for `confirm` prompts (true = yes, false = no). */
   confirmValue: boolean;
+  /** For multi-line editor prompts, Tab moves focus to a visible Submit action. */
+  editorSubmitFocused: boolean;
 }
 
 export function createPromptCardState(prompt: PendingPrompt): PromptCardState {
@@ -59,6 +70,7 @@ export function createPromptCardState(prompt: PendingPrompt): PromptCardState {
     caret: initial.length,
     selectedIndex: 0,
     confirmValue: false,
+    editorSubmitFocused: false,
   };
 }
 
@@ -87,7 +99,7 @@ export function handlePromptCardInput(
   data: string,
   state: PromptCardState,
 ): PromptCardAction {
-  if (data === "\x1b") {
+  if (data === "\x03" || matchesKey(data, "escape")) {
     return { kind: "cancel" };
   }
 
@@ -131,18 +143,15 @@ function handleSelect(data: string, state: PromptCardState): PromptCardAction {
     }
     return { kind: "noop" };
   }
-  if (matchesKey(data, "down") || data === "\x1b[B" || matchesKey(data, "right") || data === "\x1b[C") {
-    state.selectedIndex = (state.selectedIndex + 1) % choices.length;
-    return { kind: "noop" };
-  }
-  if (matchesKey(data, "up") || data === "\x1b[A" || matchesKey(data, "left") || data === "\x1b[D") {
-    state.selectedIndex = (state.selectedIndex - 1 + choices.length) % choices.length;
-    return { kind: "noop" };
-  }
-  if (matchesKey(data, "enter") || data === "\r" || data === "\n") {
-    return { kind: "submit", response: choices[state.selectedIndex] ?? choices[0] };
-  }
-  return { kind: "noop" };
+
+  let action: PromptCardAction = { kind: "noop" };
+  const list = createPromptSelectList(state);
+  list.onSelect = (item) => {
+    const idx = Number(item.value);
+    action = { kind: "submit", response: choices[idx] ?? choices[0] };
+  };
+  list.handleInput(normalizeSelectKeyData(data));
+  return action;
 }
 
 function handleInput(data: string, state: PromptCardState): PromptCardAction {
@@ -153,11 +162,15 @@ function handleInput(data: string, state: PromptCardState): PromptCardAction {
 }
 
 function handleEditor(data: string, state: PromptCardState): PromptCardAction {
-  // ctrl+s submits multi-line editor content; bare enter inserts a newline
-  // (mirrors pi.ui.editor's "save with ctrl+s" affordance documented on the
-  // chat editor's status hints).
-  if (data === "\x13") {
-    return { kind: "submit", response: state.rawText };
+  if (matchesKey(data, "tab") || matchesKey(data, "shift+tab")) {
+    state.editorSubmitFocused = !state.editorSubmitFocused;
+    return { kind: "noop" };
+  }
+  if (state.editorSubmitFocused) {
+    if (matchesKey(data, "enter")) {
+      return { kind: "submit", response: state.rawText };
+    }
+    return { kind: "noop" };
   }
   if (data === "\r" || data === "\n") {
     state.rawText = state.rawText.slice(0, state.caret) + "\n" + state.rawText.slice(state.caret);
@@ -172,28 +185,73 @@ function applyTextEdit(
   state: PromptCardState,
 ): PromptCardAction {
   if (data === "\x1b[D") {
-    state.caret = Math.max(0, state.caret - 1);
+    state.caret = previousGraphemeBoundary(state.rawText, state.caret);
     return { kind: "noop" };
   }
   if (data === "\x1b[C") {
-    state.caret = Math.min(state.rawText.length, state.caret + 1);
+    state.caret = nextGraphemeBoundary(state.rawText, state.caret);
     return { kind: "noop" };
   }
   if (data === "\x7f" || data === "\b") {
     if (state.caret > 0) {
-      state.rawText =
-        state.rawText.slice(0, state.caret - 1) + state.rawText.slice(state.caret);
-      state.caret -= 1;
+      const prev = previousGraphemeBoundary(state.rawText, state.caret);
+      state.rawText = state.rawText.slice(0, prev) + state.rawText.slice(state.caret);
+      state.caret = prev;
     }
     return { kind: "noop" };
   }
-  if (data.length === 1 && data >= " " && data <= "~") {
+  if (isPrintableText(data)) {
     state.rawText =
       state.rawText.slice(0, state.caret) + data + state.rawText.slice(state.caret);
-    state.caret += 1;
+    state.caret += data.length;
     return { kind: "noop" };
   }
   return { kind: "noop" };
+}
+
+interface GraphemePart {
+  text: string;
+  start: number;
+  end: number;
+  width: number;
+}
+
+const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+function graphemeParts(value: string): GraphemePart[] {
+  const parts: GraphemePart[] = [];
+  for (const segment of segmenter.segment(value)) {
+    const text = segment.segment;
+    parts.push({
+      text,
+      start: segment.index,
+      end: segment.index + text.length,
+      width: visibleWidth(text),
+    });
+  }
+  return parts;
+}
+
+function previousGraphemeBoundary(value: string, caret: number): number {
+  const safeCaret = Math.max(0, Math.min(caret, value.length));
+  let prev = 0;
+  for (const part of graphemeParts(value)) {
+    if (part.start >= safeCaret) break;
+    prev = part.start;
+  }
+  return prev;
+}
+
+function nextGraphemeBoundary(value: string, caret: number): number {
+  const safeCaret = Math.max(0, Math.min(caret, value.length));
+  for (const part of graphemeParts(value)) {
+    if (part.end > safeCaret) return part.end;
+  }
+  return value.length;
+}
+
+function isPrintableText(data: string): boolean {
+  return data.length > 0 && !data.startsWith("\x1b") && !/[\x00-\x1f\x7f]/.test(data);
 }
 
 /**
@@ -210,6 +268,76 @@ export function defaultResponseFor(prompt: PendingPrompt): unknown {
     case "select":
       return prompt.choices?.[0] ?? "";
   }
+}
+
+// ---------------------------------------------------------------------------
+// Select-list bridge
+// ---------------------------------------------------------------------------
+
+function createPromptSelectList(
+  state: PromptCardState,
+  theme?: GraphTheme,
+  maxVisible = 5,
+): SelectList {
+  const choices = state.prompt.choices ?? [];
+  const items: SelectItem[] = choices.map((choice, idx) => ({
+    value: String(idx),
+    label: choice,
+  }));
+  const list = new SelectList(
+    items,
+    Math.max(1, Math.min(maxVisible, choices.length || 1)),
+    createSelectListTheme(theme),
+    {
+      minPrimaryColumnWidth: 1,
+      maxPrimaryColumnWidth: 80,
+      truncatePrimary: ({ text, maxWidth, isSelected }) => {
+        const clipped = truncateToWidth(text, maxWidth, "");
+        if (!theme) return clipped;
+        return paint(clipped, isSelected ? theme.text : theme.dim, { bold: isSelected });
+      },
+    },
+  );
+  const selectedIndex = normalizeSelectIndex(state.selectedIndex, choices.length);
+  list.setSelectedIndex(selectedIndex);
+  list.onSelectionChange = (item) => {
+    state.selectedIndex = normalizeSelectIndex(Number(item.value), choices.length);
+  };
+  return list;
+}
+
+function createSelectListTheme(theme?: GraphTheme): SelectListTheme {
+  if (!theme) {
+    return {
+      selectedPrefix: (text) => text,
+      selectedText: (text) => text,
+      description: (text) => text,
+      scrollInfo: (text) => text,
+      noMatch: (text) => text,
+    };
+  }
+  return {
+    selectedPrefix: (text) => paint(text, theme.accent, { bold: true }),
+    selectedText: (text) => paint(text, theme.text, { bold: true }),
+    description: (text) => paint(text, theme.textMuted),
+    scrollInfo: (text) => paint(text, theme.dim),
+    noMatch: (text) => paint(text, theme.dim),
+  };
+}
+
+function normalizeSelectIndex(index: number, length: number): number {
+  if (length <= 0) return 0;
+  const n = Number.isFinite(index) ? Math.trunc(index) : 0;
+  return ((n % length) + length) % length;
+}
+
+function normalizeSelectKeyData(data: string): string {
+  // The historical prompt card accepted left/right as select aliases; feed the
+  // corresponding vertical key into pi-tui's SelectList so it owns the actual
+  // wrap/clamp/selection update behavior.
+  if (matchesKey(data, "right") || data === "\x1b[C") return "\x1b[B";
+  if (matchesKey(data, "left") || data === "\x1b[D") return "\x1b[A";
+  return data;
 }
 
 // ---------------------------------------------------------------------------
@@ -293,25 +421,7 @@ function makePaddedRow(
 
 function wrapText(text: string, width: number): string[] {
   if (width <= 0) return [text];
-  const out: string[] = [];
-  for (const paragraph of text.split("\n")) {
-    if (paragraph.length === 0) {
-      out.push("");
-      continue;
-    }
-    let remaining = paragraph;
-    while (visibleWidth(remaining) > width) {
-      // Break on the last whitespace within `width` cells; fall back to a
-      // hard cut so glyphs longer than `width` don't run off the card.
-      const slice = remaining.slice(0, width);
-      const lastSpace = slice.lastIndexOf(" ");
-      const cut = lastSpace > 0 ? lastSpace : width;
-      out.push(remaining.slice(0, cut));
-      remaining = remaining.slice(cut).replace(/^\s+/, "");
-    }
-    out.push(remaining);
-  }
-  return out;
+  return wrapTextWithAnsi(text, width);
 }
 
 function renderResponseField(
@@ -324,7 +434,7 @@ function renderResponseField(
     case "confirm":
       return [renderConfirmRow(state, theme, usable)];
     case "select":
-      return [renderSelectRow(state, theme, usable)];
+      return renderSelectRows(state, theme, usable);
     case "input":
       return [renderInputRow(state, theme, usable, cursorOn)];
     case "editor":
@@ -350,23 +460,18 @@ function renderConfirmRow(
   return padToUsable(row, usable);
 }
 
-function renderSelectRow(
+function renderSelectRows(
   state: PromptCardState,
   theme: GraphTheme,
   usable: number,
-): string {
+): string[] {
   const choices = state.prompt.choices ?? [];
   if (choices.length === 0) {
-    return padToUsable(paint("(no choices)", theme.dim), usable);
+    return [padToUsable(paint("(no choices)", theme.dim), usable)];
   }
-  const cells = choices.map((choice, idx) => {
-    const sel = idx === state.selectedIndex;
-    const marker = sel ? "●" : "○";
-    const markerColor = sel ? theme.accent : theme.dim;
-    const textColor = sel ? theme.text : theme.dim;
-    return paint(marker, markerColor) + " " + paint(choice, textColor, { bold: sel });
-  });
-  return padToUsable(cells.join("    "), usable);
+  const maxVisible = Math.min(5, choices.length);
+  const list = createPromptSelectList(state, theme, maxVisible);
+  return list.render(usable).map((line) => padToUsable(line, usable));
 }
 
 function renderInputRow(
@@ -411,7 +516,7 @@ function renderEditorRows(
   for (let i = 0; i < ROWS; i++) {
     const lineIdx = safeStart + i;
     const lineText = allLines[lineIdx] ?? "";
-    const isCaretLine = lineIdx === caretLine;
+    const isCaretLine = !state.editorSubmitFocused && lineIdx === caretLine;
     const inner = usable - 2;
     const clipped = clipToCaretWindow(lineText, isCaretLine ? caretCol : Math.min(caretCol, lineText.length), inner);
     const withCursor = isCaretLine
@@ -420,7 +525,19 @@ function renderEditorRows(
     const prefix = paint(isCaretLine ? "❯ " : "  ", isCaretLine ? theme.accent : theme.dim);
     rows.push(padToUsable(prefix + withCursor, usable));
   }
+  rows.push(padToUsable(renderEditorSubmitAction(state.editorSubmitFocused, theme), usable));
   return rows;
+}
+
+function renderEditorSubmitAction(focused: boolean, theme: GraphTheme): string {
+  const marker = focused ? "❯" : "○";
+  return (
+    paint(marker, focused ? theme.accent : theme.dim, { bold: focused }) +
+    " " +
+    paint("Submit response", focused ? theme.text : theme.textMuted, { bold: focused }) +
+    paint("  ·  ", theme.dim) +
+    graphKeyHint("tui.input.submit", "submit", theme)
+  );
 }
 
 function clipToCaretWindow(
@@ -428,11 +545,47 @@ function clipToCaretWindow(
   caret: number,
   windowWidth: number,
 ): { text: string; caret: number } {
-  if (value.length <= windowWidth) return { text: value, caret };
-  // Keep the caret inside the visible window; bias toward showing the tail.
-  const right = Math.max(caret + 4, windowWidth);
-  const left = Math.max(0, right - windowWidth);
-  return { text: value.slice(left, left + windowWidth), caret: caret - left };
+  if (windowWidth <= 0) return { text: "", caret: 0 };
+  if (visibleWidth(value) <= windowWidth) {
+    return { text: value, caret: Math.max(0, Math.min(caret, value.length)) };
+  }
+
+  const parts = graphemeParts(value);
+  const safeCaret = Math.max(0, Math.min(caret, value.length));
+  const caretPartIndex = parts.findIndex((part) => part.end > safeCaret);
+  const caretIndex = caretPartIndex === -1 ? parts.length : caretPartIndex;
+
+  // Keep the caret visible and bias toward a few cells of look-ahead, matching
+  // the old tail-biased input field while slicing on grapheme/cell boundaries.
+  let start = caretIndex;
+  let end = caretIndex;
+  let cells = 0;
+  const lookAheadCells = Math.min(4, windowWidth);
+  while (end < parts.length && (cells < lookAheadCells || start === end)) {
+    const width = Math.max(1, parts[end]!.width);
+    if (cells > 0 && cells + width > windowWidth) break;
+    cells += width;
+    end += 1;
+  }
+  while (start > 0) {
+    const width = Math.max(1, parts[start - 1]!.width);
+    if (cells > 0 && cells + width > windowWidth) break;
+    cells += width;
+    start -= 1;
+  }
+  while (end < parts.length) {
+    const width = Math.max(1, parts[end]!.width);
+    if (cells > 0 && cells + width > windowWidth) break;
+    cells += width;
+    end += 1;
+  }
+
+  const textStart = parts[start]?.start ?? 0;
+  const textEnd = parts[end - 1]?.end ?? textStart;
+  return {
+    text: value.slice(textStart, textEnd),
+    caret: Math.max(0, Math.min(safeCaret - textStart, textEnd - textStart)),
+  };
 }
 
 function drawCursor(
@@ -441,10 +594,15 @@ function drawCursor(
   cursorOn: boolean,
   theme: GraphTheme,
 ): string {
+  const parts = graphemeParts(text);
   const safeCaret = Math.max(0, Math.min(caret, text.length));
-  const before = text.slice(0, safeCaret);
-  const at = text[safeCaret] ?? " ";
-  const after = text.slice(safeCaret + 1);
+  const caretPartIndex = parts.findIndex((part) => part.end > safeCaret);
+  const cursorPart = caretPartIndex === -1 ? undefined : parts[caretPartIndex];
+  const cursorStart = cursorPart?.start ?? text.length;
+  const cursorEnd = cursorPart?.end ?? text.length;
+  const before = text.slice(0, cursorStart);
+  const at = cursorPart?.text ?? " ";
+  const after = text.slice(cursorEnd);
   const beforeFx = paint(before, theme.text);
   const afterFx = paint(after, theme.text);
   if (!cursorOn) return beforeFx + paint(at, theme.text) + afterFx;
@@ -459,43 +617,62 @@ function padToUsable(content: string, usable: number): string {
   return content + " ".repeat(usable - w);
 }
 
+type CodingAgentKeybinding = Parameters<typeof keyHint>[0];
+
+function graphKeyHint(
+  keybinding: CodingAgentKeybinding,
+  description: string,
+  theme: GraphTheme,
+): string {
+  try {
+    return keyHint(keybinding, description);
+  } catch {
+    return localKeyHint(keyText(keybinding), description, theme);
+  }
+}
+
+function graphRawKeyHint(key: string, description: string, theme: GraphTheme): string {
+  try {
+    return rawKeyHint(key, description);
+  } catch {
+    return localKeyHint(key, description, theme);
+  }
+}
+
+function localKeyHint(key: string, description: string, theme: GraphTheme): string {
+  return paint(key, theme.text) + paint(` ${description}`, theme.textMuted);
+}
+
 function renderHints(kind: PendingPrompt["kind"], theme: GraphTheme): string {
-  const accent = hexToAnsi(theme.text);
-  const muted = hexToAnsi(theme.textMuted);
-  const dim = hexToAnsi(theme.dim);
-  const sep = `${dim} · ${RESET}`;
+  const sep = paint(" · ", theme.dim);
   if (kind === "editor") {
     return (
-      `${accent}ctrl+s${RESET} ${muted}submit${RESET}` +
+      graphRawKeyHint("tab", "Submit Action", theme) +
       sep +
-      `${accent}enter${RESET} ${muted}newline${RESET}` +
+      graphKeyHint("tui.input.submit", "Newline/Submit", theme) +
       sep +
-      `${accent}esc${RESET} ${muted}skip${RESET}`
+      graphKeyHint("tui.select.cancel", "Skip", theme)
     );
   }
   if (kind === "confirm") {
     return (
-      `${accent}y${RESET} ${muted}yes${RESET}` +
+      graphRawKeyHint("y", "Yes", theme) +
       sep +
-      `${accent}n${RESET} ${muted}no${RESET}` +
+      graphRawKeyHint("n", "No", theme) +
       sep +
-      `${accent}↵${RESET} ${muted}submit${RESET}` +
+      graphKeyHint("tui.select.confirm", "Submit", theme) +
       sep +
-      `${accent}esc${RESET} ${muted}skip${RESET}`
+      graphKeyHint("tui.select.cancel", "Skip", theme)
     );
   }
   if (kind === "select") {
     return (
-      `${accent}↑↓${RESET} ${muted}choose${RESET}` +
+      graphRawKeyHint("↑↓", "Choose", theme) +
       sep +
-      `${accent}↵${RESET} ${muted}submit${RESET}` +
+      graphKeyHint("tui.select.confirm", "Submit", theme) +
       sep +
-      `${accent}esc${RESET} ${muted}skip${RESET}`
+      graphKeyHint("tui.select.cancel", "Skip", theme)
     );
   }
-  return (
-    `${accent}↵${RESET} ${muted}submit${RESET}` +
-    sep +
-    `${accent}esc${RESET} ${muted}skip${RESET}`
-  );
+  return graphKeyHint("tui.input.submit", "Submit", theme) + sep + graphKeyHint("tui.select.cancel", "Skip", theme);
 }

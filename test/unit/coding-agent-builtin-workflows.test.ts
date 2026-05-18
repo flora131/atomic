@@ -2,7 +2,7 @@
 
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { DefaultResourceLoader } from "../../packages/coding-agent/src/core/resource-loader.js";
@@ -25,6 +25,48 @@ describe("coding-agent builtin resources", () => {
   test("discovers bundled companion packages in development", () => {
     assert.deepEqual(getBuiltinPackagePaths(), expectedBuiltinPackages);
   });
+
+  test("exposes package workflow resources to extensions", async () => {
+    const cwd = tempDir("atomic-workflow-package-cwd-");
+    const agentDir = tempDir("atomic-workflow-package-agent-");
+    const packageDir = join(cwd, "workflow-package");
+    const workflowsDir = join(packageDir, "workflow");
+    mkdirSync(workflowsDir, { recursive: true });
+    writeFileSync(
+      join(packageDir, "package.json"),
+      JSON.stringify({ name: "workflow-package", atomic: { extensions: ["./index.ts"] } }),
+      "utf-8",
+    );
+    writeFileSync(
+      join(workflowsDir, "custom.ts"),
+      "export default { __piWorkflow: true, name: 'Custom', normalizedName: 'custom', inputs: {}, run: async (ctx) => { await ctx.task('validation-smoke', { prompt: 'validation smoke' }); return {}; } };\n",
+      "utf-8",
+    );
+    writeFileSync(
+      join(packageDir, "index.ts"),
+      [
+        "export default function(pi) {",
+        "  const resources = pi.getWorkflowResources?.() ?? [];",
+        "  pi.registerCommand('workflow-resource-count', {",
+        "    description: `workflow resources: ${resources.filter((r) => r.enabled).length}` ,",
+        "    handler() {},",
+        "  });",
+        "}",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const settingsManager = SettingsManager.inMemory();
+    settingsManager.setPackages([packageDir]);
+    const loader = new DefaultResourceLoader({ cwd, agentDir, settingsManager, builtinPackagePaths: [] });
+
+    await loader.reload();
+
+    const extensions = loader.getExtensions();
+    assert.deepEqual(extensions.errors, []);
+    const command = extensions.extensions[0]?.commands.get("workflow-resource-count");
+    assert.equal(command?.description, "workflow resources: 1");
+  }, 20_000);
 
   test("loads builtin pi package resources", async () => {
     const cwd = tempDir("atomic-builtin-packages-cwd-");

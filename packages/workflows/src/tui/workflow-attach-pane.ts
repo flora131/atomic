@@ -5,7 +5,8 @@
  * between the orchestrator `GraphView` and a stage-scoped
  * `StageChatView`. Pressing Enter on a graph node attaches the popup
  * to that node's chat; Ctrl+D in chat mode swaps back to graph mode
- * with the same node still focused (see ui/attach-mockup.html).
+ * with the same node still focused (see ui/attach-mockup.html), except
+ * paused stage chats close the pane to mirror shell EOF semantics.
  *
  * The shell never remounts the overlay — it only flips a `mode`
  * field and re-renders, so the popup stays in pi-tui's overlay layer

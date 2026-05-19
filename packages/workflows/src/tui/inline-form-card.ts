@@ -25,7 +25,7 @@
  *   ╰──────────────────────────────────────────────────────────────────╯
  *     integer  ·  optional  ·  loop count
  *
- *   ╭ EDIT ╮  tab next  ·  shift+tab prev  ·  ctrl+enter run  ·  esc cancel
+ *   ╭ EDIT ╮  tab next  ·  shift+tab prev  ·  ctrl+x run  ·  esc cancel
  *   │ EDIT │
  *   ╰──────╯
  *
@@ -193,7 +193,7 @@ function renderFooterBand(theme: GraphTheme, width: number): string[] {
   const hints: Array<{ key: string; label: string }> = [
     { key: "tab", label: "Next" },
     { key: "shift+tab", label: "Prev" },
-    { key: "ctrl+enter", label: "Run" },
+    { key: "ctrl+x", label: "Run" },
     { key: "esc", label: "Cancel" },
   ];
   const sep = `${chromeBg}  ${dim}·${RESET}${chromeBg}  `;

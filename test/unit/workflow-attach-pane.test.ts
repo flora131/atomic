@@ -25,7 +25,7 @@ import { createStageControlRegistry } from "../../packages/workflows/src/runs/fo
 import type { StageControlHandle } from "../../packages/workflows/src/runs/foreground/stage-control-registry.js";
 import type { AgentSession } from "@bastani/atomic";
 
-function setupRun(store: ReturnType<typeof createStore>, runId: string, stages: Array<{ id: string; name: string; status?: "pending" | "running" | "completed" }>) {
+function setupRun(store: ReturnType<typeof createStore>, runId: string, stages: Array<{ id: string; name: string; status?: "pending" | "running" | "paused" | "completed" }>) {
   store.recordRunStart({
     id: runId,
     name: "test-wf",
@@ -149,6 +149,34 @@ describe("WorkflowAttachPane", () => {
     assert.equal(pane._hasChatView, false);
     // Stage id is preserved so re-attach lands on the same node.
     assert.equal(pane._lastAttachedStageId, "stage-a");
+    pane.dispose();
+  });
+
+  test("Ctrl+D in paused stage-chat mode closes the pane", () => {
+    const store = createStore();
+    setupRun(store, "run-1", [{ id: "stage-a", name: "A", status: "paused" }]);
+    const registry = createStageControlRegistry();
+    registry.register({ ...makeHandle("run-1", "stage-a"), status: "paused" });
+    let closed = 0;
+    let hidden = 0;
+    const pane = new WorkflowAttachPane({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageControlRegistry: registry,
+      onClose: () => {
+        closed += 1;
+      },
+      onHide: () => {
+        hidden += 1;
+      },
+      initialAttachStageId: "stage-a",
+    });
+    assert.equal(pane._mode, "stage-chat");
+    pane.handleInput("\x04");
+    assert.equal(closed, 1);
+    assert.equal(hidden, 0);
+    assert.equal(pane._mode, "stage-chat");
     pane.dispose();
   });
 

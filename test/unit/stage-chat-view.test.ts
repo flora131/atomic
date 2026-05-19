@@ -655,6 +655,32 @@ describe("StageChatView", () => {
     view.dispose();
   });
 
+  test("Ctrl+D closes a paused stage chat", () => {
+    const store = createStore();
+    setupRun(store, "run-1", "stage-a", "paused");
+    const { handle } = makeHandle(undefined, [], "paused");
+    let detached = 0;
+    let closed = 0;
+    const view = new StageChatView({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageId: "stage-a",
+      workflowName: "test-wf",
+      handle,
+      onDetach: () => {
+        detached += 1;
+      },
+      onClose: () => {
+        closed += 1;
+      },
+    });
+    view.handleInput("\x04");
+    assert.equal(closed, 1);
+    assert.equal(detached, 0);
+    view.dispose();
+  });
+
   test("Escape variants on settled stages and Ctrl+C call onClose", () => {
     const store = createStore();
     setupRun(store, "run-1", "stage-a", "completed");

@@ -22,7 +22,7 @@
  *   ╰──────────────────────────────────────────╯
  *     select  ·  required  ·  How aggressively to scope the work.
  *
- *   tab next  ·  shift+tab prev  ·  ctrl+enter run  ·  esc cancel
+ *   tab next  ·  shift+tab prev  ·  ctrl+x run  ·  esc cancel
  *
  * Field-type renderers:
  *   - string / number : single-row text input with blinking cursor
@@ -40,7 +40,7 @@
 import type { WorkflowInputEntry } from "../extension/render-result.js";
 import type { GraphTheme } from "./graph-theme.js";
 import { paint } from "./color-utils.js";
-import { matchesKey, truncateToWidth, visibleWidth } from "./text-helpers.js";
+import { decodePrintableKey, matchesKey, truncateToWidth, visibleWidth } from "./text-helpers.js";
 import {
   type KeybindingsLike,
   deleteRange,
@@ -718,10 +718,10 @@ export function renderInputsPicker(opts: InputsPickerRenderOpts): string[] {
 /**
  * Footer hint row, tier-degraded so it never wraps on resize. Tiers:
  *
- *   wide   (≥ widest):  tab next  ·  shift+tab prev  ·  ctrl+enter run  ·  esc cancel
- *   medium (≥ keys):    tab  ·  shift+tab  ·  ctrl+enter  ·  esc
- *   tight  (≥ short):   tab  ·  ⇧tab  ·  ⌃↵  ·  esc
- *   narrow (else):      ⌃↵  ·  esc
+ *   wide   (≥ widest):  tab next  ·  shift+tab prev  ·  ctrl+x run  ·  esc cancel
+ *   medium (≥ keys):    tab  ·  shift+tab  ·  ctrl+x  ·  esc
+ *   tight  (≥ short):   tab  ·  ⇧tab  ·  ctrl+x  ·  esc
+ *   narrow (else):      ctrl+x  ·  esc
  */
 function renderFooterHints(width: number, theme: GraphTheme, submitDisabled: boolean): string {
   const sep = dimSep(theme);
@@ -735,23 +735,23 @@ function renderFooterHints(width: number, theme: GraphTheme, submitDisabled: boo
   const wide = [
     { width: 8, render: () => hint("tab", "Next") },
     { width: 14, render: () => hint("shift+tab", "Prev") },
-    { width: 14, render: () => hint("ctrl+enter", "Run", submitColor, submitLabelColor) },
+    { width: 10, render: () => hint("ctrl+x", "Run", submitColor, submitLabelColor) },
     { width: 10, render: () => hint("esc", "Cancel") },
   ];
   const medium = [
     { width: 3, render: () => keyOnly("tab") },
     { width: 9, render: () => keyOnly("shift+tab") },
-    { width: 10, render: () => keyOnly("ctrl+enter", submitColor) },
+    { width: 6, render: () => keyOnly("ctrl+x", submitColor) },
     { width: 6, render: () => keyOnly("esc") },
   ];
   const tight = [
     { width: 3, render: () => keyOnly("tab") },
     { width: 4, render: () => keyOnly("⇧tab") },
-    { width: 2, render: () => keyOnly("⌃↵", submitColor) },
+    { width: 6, render: () => keyOnly("ctrl+x", submitColor) },
     { width: 6, render: () => keyOnly("esc") },
   ];
   const narrow = [
-    { width: 2, render: () => keyOnly("⌃↵", submitColor) },
+    { width: 6, render: () => keyOnly("ctrl+x", submitColor) },
     { width: 6, render: () => keyOnly("esc") },
   ];
 
@@ -762,7 +762,7 @@ function renderFooterHints(width: number, theme: GraphTheme, submitDisabled: boo
     }
   }
   // Truly tiny terminal — show just the run+cancel keys joined by a single space.
-  return paint("⌃↵", submitColor) + " " + paint("esc", theme.text);
+  return paint("ctrl+x", submitColor) + " " + paint("esc", theme.text);
 }
 
 /**
@@ -827,7 +827,7 @@ function shortVal(s: string): string {
  *   left / right     — select: cycle choices; boolean: flip; text: caret
  *   space            — boolean: flip
  *   enter            — text: newline; otherwise: next field
- *   ctrl+enter       — open confirm modal (if all required filled)
+ *   ctrl+x       — open confirm modal (if all required filled)
  *   backspace        — delete char left of caret
  *   esc / ctrl+c     — close picker without running
  *
@@ -860,7 +860,7 @@ function handleFormKey(
 ): InputsPickerAction {
   // ── Global navigation (workflow form contract, not Pi actions) ──
   if (isCancelKey(key)) return { kind: "cancel" };
-  if (matchesKey(key, "ctrl+enter")) return attemptPickerSubmit(state, fields);
+  if (matchesKey(key, "ctrl+x")) return attemptPickerSubmit(state, fields);
   if (matchesKey(key, "tab")) {
     moveFocus(state, fields, +1);
     return { kind: "noop" };
@@ -989,11 +989,13 @@ function handleFormKey(
     }
     return { kind: "noop" };
   }
-  // Printable insert. Accept exactly one grapheme cluster so CJK, emoji ZWJ
-  // sequences, and combining-mark input follow pi-tui Input semantics.
-  if (isPrintableGrapheme(key)) {
-    state.rawText[name] = cur.slice(0, caret) + key + cur.slice(caret);
-    state.caret = caret + key.length;
+  // Printable insert. Accept raw graphemes and terminal-encoded printable
+  // keys (CSI-u / Kitty). VSCode's integrated terminal can emit printable
+  // keys as escape sequences when modifyOtherKeys is active.
+  const printable = decodePrintableKey(key) ?? key;
+  if (isPrintableGrapheme(printable)) {
+    state.rawText[name] = cur.slice(0, caret) + printable + cur.slice(caret);
+    state.caret = caret + printable.length;
     return { kind: "noop" };
   }
   return { kind: "noop" };

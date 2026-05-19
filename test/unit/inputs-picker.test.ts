@@ -95,6 +95,20 @@ test("text field: typing inserts characters, backspace removes", () => {
   assert.equal(s.caret, 1);
 });
 
+test("text field accepts encoded printable key sequences", () => {
+  for (const [key, expected] of [
+    ["\x1b[98;1u", "b"], // Kitty / CSI-u plain b
+    ["\x1b[65;2u", "A"], // Kitty / CSI-u shifted A
+    ["\x1b[27;1;98~", "b"], // xterm modifyOtherKeys plain b
+    ["\x1b[27;2;65~", "A"], // xterm modifyOtherKeys shifted A
+  ] as const) {
+    const s = createInputsPickerState(FIELDS);
+    handleInputsPickerInput(key, s, FIELDS, KB);
+    assert.equal(s.rawText.prompt, expected, `key=${JSON.stringify(key)}`);
+    assert.equal(s.caret, expected.length, `key=${JSON.stringify(key)}`);
+  }
+});
+
 test("text field: CJK, emoji, and combining-mark edits move by grapheme", () => {
   const s = createInputsPickerState(FIELDS);
   handleInputsPickerInput("漢", s, FIELDS, KB);
@@ -153,22 +167,24 @@ test("esc variants and ctrl+c cancel from form mode", () => {
   }
 });
 
-test("ctrl+enter with missing required fields opens no modal and focuses invalid", () => {
+test("ctrl+x with missing required fields opens no modal and focuses invalid", () => {
   const s = createInputsPickerState(FIELDS);
   s.focusedIdx = 2;
   // prompt is empty (required) — submit should be blocked.
-  const a = handleInputsPickerInput("\x1b[13;5u", s, FIELDS, KB);
+  const a = handleInputsPickerInput("\x18", s, FIELDS, KB);
   assert.deepEqual(a, { kind: "noop" });
   assert.equal(s.confirmOpen, false);
   assert.equal(s.focusedIdx, 0); // jumped to first invalid field
   assert.deepEqual(s.invalidIndices, [0]);
 });
 
-test("ctrl+enter with all required filled opens confirm modal", () => {
-  const s = createInputsPickerState(FIELDS, { prompt: "build something" });
-  s.focusedIdx = 0;
-  handleInputsPickerInput("\x1b[13;5u", s, FIELDS, KB);
-  assert.equal(s.confirmOpen, true);
+test("ctrl+x with all required filled opens confirm modal", () => {
+  for (const key of ["\x18", "\x1b[120;5u"]) {
+    const s = createInputsPickerState(FIELDS, { prompt: "build something" });
+    s.focusedIdx = 0;
+    handleInputsPickerInput(key, s, FIELDS, KB);
+    assert.equal(s.confirmOpen, true, `key=${JSON.stringify(key)}`);
+  }
 });
 
 test("confirm modal: y returns coerced values; n returns to form", () => {
@@ -176,14 +192,14 @@ test("confirm modal: y returns coerced values; n returns to form", () => {
   s.rawText.iters = "8";
   s.rawText.verbose = "true";
   s.focusedIdx = 1;
-  handleInputsPickerInput("\x1b[13;5u", s, FIELDS, KB);
+  handleInputsPickerInput("\x18", s, FIELDS, KB);
   assert.equal(s.confirmOpen, true);
   // n returns to form
   const back = handleInputsPickerInput("n", s, FIELDS, KB);
   assert.deepEqual(back, { kind: "noop" });
   assert.equal(s.confirmOpen, false);
   // Reopen and confirm
-  handleInputsPickerInput("\x1b[13;5u", s, FIELDS, KB);
+  handleInputsPickerInput("\x18", s, FIELDS, KB);
   const run = handleInputsPickerInput("y", s, FIELDS, KB);
   assert.equal(run.kind, "run");
   if (run.kind === "run") {
@@ -257,7 +273,8 @@ test("renderInputsPicker emits header, section label, fields, and hints", () => 
   assert.match(joined, /verbose/);
   assert.doesNotMatch(joined, /Run workflow/);
   assert.match(joined, /tab/);
-  assert.match(joined, /ctrl\+enter/);
+  assert.match(joined, /ctrl\+x/);
+  assert.doesNotMatch(joined, /ctrl\+enter/);
   assert.doesNotMatch(joined, /ctrl\+s/);
   assert.match(joined, /esc/);
 });
@@ -395,8 +412,8 @@ test("renderInputsPicker stays well-formed across a wide range of widths (resize
 test("renderInputsPicker footer degrades gracefully on narrow terminals", () => {
   // Wide: all 4 hints with labels.
   // Medium: keys with labels but shorter — `prev`/`cancel` drop out.
-  // Tight: keys only, including compact `⇧tab` / `⌃↵`.
-  // Narrow: only the essentials — `⌃↵` and `esc`.
+  // Tight: keys only, including compact `⇧tab`.
+  // Narrow: only the essentials — `ctrl+x` and `esc`.
   const theme = deriveGraphTheme({});
   const state = createInputsPickerState(FIELDS);
   // eslint-disable-next-line no-control-regex
@@ -423,7 +440,8 @@ test("renderInputsPicker footer degrades gracefully on narrow terminals", () => 
   const wide = renderAt(120);
   assert.match(wide, /tab Next/);
   assert.match(wide, /shift\+tab Prev/);
-  assert.match(wide, /ctrl\+enter Run/);
+  assert.match(wide, /ctrl\+x Run/);
+  assert.doesNotMatch(wide, /ctrl\+enter/);
   assert.match(wide, /esc Cancel/);
 
   // Medium — keys only, but full key names.
@@ -435,13 +453,13 @@ test("renderInputsPicker footer degrades gracefully on narrow terminals", () => 
   // Tight — compact glyphs.
   const tight = renderAt(35);
   assert.match(tight, /⇧tab/);
-  assert.match(tight, /⌃↵/);
+  assert.match(tight, /ctrl\+x/);
   assert.match(tight, /esc/);
   assert.doesNotMatch(tight, /shift\+tab/);
 
   // Narrow — essentials only.
   const narrow = renderAt(12);
-  assert.match(narrow, /⌃↵/);
+  assert.match(narrow, /ctrl\+x/);
   assert.match(narrow, /esc/);
   assert.doesNotMatch(narrow, /tab/);
 });
@@ -550,11 +568,11 @@ test("picker: ctrl+d deletes the char right of the caret", () => {
 
 test("picker: user-remapped delete word backward respects injected keybindings", () => {
   const kb = makeFakeKeybindings({
-    "tui.editor.deleteWordBackward": ["\x18"], // ctrl+x
+    "tui.editor.deleteWordBackward": ["\x14"], // ctrl+t
   });
   const s = createInputsPickerState(FIELDS, { prompt: "one two" });
   s.caret = 7;
-  handleInputsPickerInput("\x18", s, FIELDS, kb);
+  handleInputsPickerInput("\x14", s, FIELDS, kb);
   assert.equal(s.rawText.prompt, "one ");
   assert.equal(s.caret, 4);
   // Original ctrl+w no longer triggers the action under override.

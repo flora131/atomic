@@ -111,7 +111,8 @@ test("card (live): shows header pill, workflow chip, all fields, footer hints", 
   assert.doesNotMatch(txt, /Run workflow/);
   assert.match(txt, /EDIT/);
   assert.match(txt, /tab/);
-  assert.match(txt, /ctrl\+enter/);
+  assert.match(txt, /ctrl\+x/);
+  assert.doesNotMatch(txt, /ctrl\+enter/);
   assert.doesNotMatch(txt, /ctrl\+s/);
 });
 
@@ -250,6 +251,21 @@ test("editor: typing a char inserts at caret on the focused text field", () => {
   e.dispose();
 });
 
+test("editor: accepts encoded printable key sequences", () => {
+  for (const [key, expected] of [
+    ["\x1b[98;1u", "b"], // Kitty / CSI-u plain b
+    ["\x1b[65;2u", "A"], // Kitty / CSI-u shifted A
+    ["\x1b[27;1;98~", "b"], // xterm modifyOtherKeys plain b
+    ["\x1b[27;2;65~", "A"], // xterm modifyOtherKeys shifted A
+  ] as const) {
+    const e = makeEditor();
+    e.editor.handleInput(key);
+    assert.equal(e.state.rawText.prompt, expected, `key=${JSON.stringify(key)}`);
+    assert.equal(e.state.caret, expected.length, `key=${JSON.stringify(key)}`);
+    e.dispose();
+  }
+});
+
 test("editor: tab advances focus, shift+tab retreats", () => {
   const e = makeEditor();
   assert.equal(e.state.focusedIdx, 0);
@@ -269,24 +285,26 @@ test("editor: esc variants and ctrl+c fire onExit('cancel')", () => {
   }
 });
 
-test("editor: ctrl+enter with missing required is blocked and focuses invalid", () => {
+test("editor: ctrl+x with missing required is blocked and focuses invalid", () => {
   const e = makeEditor(); // prompt is empty
   e.state.focusedIdx = 2;
-  e.editor.handleInput("\x1b[13;5u");
+  e.editor.handleInput("\x18");
   assert.equal(e.getExited(), null);
   assert.equal(e.state.focusedIdx, 0);
   e.dispose();
 });
 
-test("editor: ctrl+enter with all required filled fires onExit('submit')", () => {
-  const state = makeState({
-    focusedIdx: 0,
-    rawText: { prompt: "build", iters: "5", focus: "standard", verbose: "false" },
-  });
-  const e = makeEditor(state);
-  e.editor.handleInput("\x1b[13;5u");
-  assert.deepEqual(e.getExited(), { outcome: "submit" });
-  e.dispose();
+test("editor: ctrl+x with all required filled fires onExit('submit')", () => {
+  for (const key of ["\x18", "\x1b[120;5u"]) {
+    const state = makeState({
+      focusedIdx: 0,
+      rawText: { prompt: "build", iters: "5", focus: "standard", verbose: "false" },
+    });
+    const e = makeEditor(state);
+    e.editor.handleInput(key);
+    assert.deepEqual(e.getExited(), { outcome: "submit" }, `key=${JSON.stringify(key)}`);
+    e.dispose();
+  }
 });
 
 test("editor: select field arrow keys cycle, space cycles", () => {
@@ -474,7 +492,7 @@ test("overlay: openInlineInputsForm emits a custom message and swaps editor", as
   // Fill required prompt and submit.
   editor.handleInput("h");
   editor.handleInput("i");
-  editor.handleInput("\x1b[13;5u");
+  editor.handleInput("\x18");
   const result = await pending;
   assert.equal(result.kind, "run");
   if (result.kind === "run") {
@@ -564,7 +582,7 @@ test("overlay: installed editor accepts pi setup before card render", async () =
   assert.equal(editor.getAutocompleteMaxVisible(), 20);
   editor.handleInput("o");
   editor.handleInput("k");
-  editor.handleInput("\x1b[13;5u");
+  editor.handleInput("\x18");
   const result = await pending;
   assert.equal(result.kind, "run");
 });
@@ -1200,7 +1218,7 @@ test("editor: char movement and deletion respect emoji and combining graphemes",
 });
 
 test("editor: user-remapped delete word backward respects injected keybindings", () => {
-  // Drop ctrl+w; remap deleteWordBackward to a hypothetical ctrl+x sequence
+  // Drop ctrl+w; remap deleteWordBackward to a hypothetical ctrl+t sequence
   // and verify the form picks up the new binding via the injected manager.
   const state = makeState({
     rawText: { prompt: "one two", iters: "5", focus: "standard", verbose: "false" },
@@ -1213,11 +1231,11 @@ test("editor: user-remapped delete word backward respects injected keybindings",
     formId: state.formId,
     theme: deriveGraphTheme({}),
     keybindings: makeFakeKeybindings({
-      "tui.editor.deleteWordBackward": ["\x18"], // ctrl+x
+      "tui.editor.deleteWordBackward": ["\x14"], // ctrl+t
     }),
     onExit: (outcome) => { exited = { outcome }; },
   });
-  editor.handleInput("\x18"); // ctrl+x → delete word backward under override
+  editor.handleInput("\x14"); // ctrl+t → delete word backward under override
   assert.equal(state.rawText.prompt, "one ");
   assert.equal(state.caret, 4);
   // Default ctrl+w should NOT trigger the action now (overridden table).

@@ -16,13 +16,13 @@
  *   space               — boolean toggle
  *   enter               — newline (text) | otherwise next field
  *   printable ASCII     — insert at caret (text/string/number)
- *   ctrl+enter          — submit form (if valid)
+ *   ctrl+x          — submit form (if valid)
  *   esc / ctrl+c        — cancel form
  *
  * Editor-mode keys (cursor movement, word jumps, deletions) route through
  * the Pi `KeybindingsManager` injected by the host at factory time, so any
  * user-configured keybinding overrides surfaces here as well. Form-level
- * keys (tab/shift+tab/ctrl+enter/esc/ctrl+c) stay as raw byte checks because
+ * keys (tab/shift+tab/ctrl+x/esc/ctrl+c) stay as raw byte checks because
  * they are workflow form contract, not Pi-configurable actions.
  *
  * On submit/cancel the editor calls back to the orchestrator which:
@@ -57,14 +57,14 @@ import {
   wordLeft,
   wordRight,
 } from "./keybindings-adapter.js";
-import { matchesKey, visibleWidth } from "./text-helpers.js";
+import { decodePrintableKey, matchesKey, visibleWidth } from "./text-helpers.js";
 
 export type FormEditorOutcome = "submit" | "cancel";
 
 export interface InlineFormEditorOpts {
   formId: string;
   theme: GraphTheme;
-  /** Called when Ctrl+Enter passes validation or cancel fires. */
+  /** Called when Ctrl+X passes validation or cancel fires. */
   onExit: (outcome: FormEditorOutcome) => void;
   /**
    * Pi's `KeybindingsManager` injected as the third arg of the editor
@@ -433,14 +433,14 @@ export class InlineFormEditor implements PiEditorComponent {
     // editor actions, so they stay as raw byte checks:
     //   esc        (\x1b)        — cancel form
     //   ctrl+c     (\x03)        — cancel form
-    //   ctrl+enter                — submit form
+    //   ctrl+x                — submit form
     //   tab        (\t)          — focus next field
     //   shift+tab  (\x1b[Z)      — focus previous field
     if (data === "\x03" || matchesKey(data, "escape")) {
       this.opts.onExit("cancel");
       return true;
     }
-    if (matchesKey(data, "ctrl+enter")) {
+    if (matchesKey(data, "ctrl+x")) {
       if (this.allValid(state)) this.opts.onExit("submit");
       else this.focusFirstInvalid(state);
       return true;
@@ -654,12 +654,15 @@ export class InlineFormEditor implements PiEditorComponent {
       return true;
     }
 
-    // Printable insertion — no Pi action, raw grapheme check. Numeric
-    // fields accept the same printable range as text; per-field validation
-    // catches non-numeric content at submit time.
-    if (isPrintableGrapheme(data)) {
-      state.rawText[name] = cur.slice(0, caret) + data + cur.slice(caret);
-      state.caret = caret + data.length;
+    // Printable insertion — accept raw graphemes and terminal-encoded
+    // printable keys (CSI-u / Kitty). VSCode's integrated terminal can emit
+    // printable keys as escape sequences when modifyOtherKeys is active.
+    // Numeric fields accept the same printable range as text; per-field
+    // validation catches non-numeric content at submit time.
+    const printable = decodePrintableKey(data) ?? data;
+    if (isPrintableGrapheme(printable)) {
+      state.rawText[name] = cur.slice(0, caret) + printable + cur.slice(caret);
+      state.caret = caret + printable.length;
       return true;
     }
     return false;

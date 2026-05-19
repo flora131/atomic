@@ -4,6 +4,7 @@ import {
   visibleWidth,
   type KeyId,
 } from "@earendil-works/pi-tui";
+import { decodePrintableKey as piDecodePrintableKey } from "@earendil-works/pi-tui/dist/keys.js";
 
 export { visibleWidth };
 
@@ -36,6 +37,11 @@ export function truncateToWidth(
 /** Use pi-tui's key parser/matcher while preserving the local string API. */
 export function matchesKey(data: string, key: string): boolean {
   return piMatchesKey(data, key as KeyId);
+}
+
+/** Decode CSI-u / Kitty printable-key sequences emitted by terminals such as VSCode. */
+export function decodePrintableKey(data: string): string | undefined {
+  return piDecodePrintableKey(data);
 }
 
 export function sliceColumns(

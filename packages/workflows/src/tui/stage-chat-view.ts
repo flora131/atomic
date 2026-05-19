@@ -22,7 +22,8 @@
  *  - **Escape** mirrors the main coding-agent chat interrupt path for active
  *    live stages: it requests a controlled pause/abort while keeping the
  *    composer active. While paused, Enter calls `handle.resume(text)`.
- *  - **Ctrl+D** detaches (back to graph); **Escape** closes the popup when idle.
+ *  - **Ctrl+D** detaches (back to graph), or closes the popup while paused;
+ *    **Escape** closes the popup when idle.
  *  - **Blocked** stage: keystrokes absorbed; BLOCKED banner names the
  *    upstream awaiter.
  *  - **Settled** stage with a live handle remains a normal chat session:
@@ -86,7 +87,7 @@ export interface StageChatViewOpts {
    * inspect-only (settled stage with no live handle).
    */
   handle?: StageControlHandle;
-  /** Called when the user presses Ctrl+D (back to graph). */
+  /** Called when the user presses Ctrl+D outside a paused stage (back to graph). */
   onDetach: () => void;
   /** Called when the user presses Escape (close the whole popup). */
   onClose: () => void;
@@ -950,7 +951,8 @@ export class StageChatView implements Component, Focusable {
       return true;
     }
     if (data === "\x04") {
-      this.onDetach();
+      if (this._isPaused()) this.onClose();
+      else this.onDetach();
       return true;
     }
     if (matchesKey(data, "escape")) {

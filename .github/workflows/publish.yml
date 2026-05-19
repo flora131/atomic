@@ -26,9 +26,61 @@ env:
   PACKAGE_NAME: "@bastani/atomic"
 
 jobs:
+  windows-binary-smoke:
+    name: Smoke test Windows binary
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Build Windows x64 archive
+        shell: bash
+        run: ./scripts/build-binaries.sh --skip-deps --platform windows-x64
+
+      - name: Smoke test Windows release archive
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $smokeDir = Join-Path $env:RUNNER_TEMP "atomic-windows-binary-smoke"
+          Remove-Item -Recurse -Force $smokeDir -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path $smokeDir | Out-Null
+          Expand-Archive -Path "packages/coding-agent/binaries/atomic-windows-x64.zip" -DestinationPath $smokeDir -Force
+
+          $atomic = Join-Path $smokeDir "atomic.exe"
+          & $atomic --version
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+          # --version exits before builtin extensions are loaded. Start the
+          # non-interactive runtime far enough to surface extension diagnostics,
+          # but allow the expected no-models exit in CI.
+          $output = "" | & $atomic --no-session 2>&1 | Out-String
+          $status = $LASTEXITCODE
+          Write-Host $output
+          if ($output -match "Failed to load extension") {
+            exit 1
+          }
+          if ($status -ne 0 -and $output -notmatch "No models available|No model selected|No API key found") {
+            exit $status
+          }
+          Write-Host "Runtime smoke test completed with status $status."
+
   publish:
     name: Publish @bastani/atomic
     runs-on: ubuntu-latest
+    needs: windows-binary-smoke
     outputs:
       version: ${{ steps.package.outputs.version }}
       npm_tag: ${{ steps.package.outputs.npm_tag }}
@@ -170,7 +222,24 @@ jobs:
           rm -rf "$smoke_dir"
           mkdir -p "$smoke_dir"
           tar -xzf packages/coding-agent/binaries/atomic-linux-x64.tar.gz -C "$smoke_dir"
+
           "$smoke_dir/atomic/atomic" --version
+
+          # --version exits before builtin extensions are loaded. Start the
+          # non-interactive runtime far enough to surface extension diagnostics,
+          # but allow the expected no-models exit in CI.
+          set +e
+          output=$(printf '' | "$smoke_dir/atomic/atomic" --no-session 2>&1)
+          status=$?
+          set -e
+          echo "$output"
+          if grep -q 'Failed to load extension' <<<"$output"; then
+            exit 1
+          fi
+          if [ "$status" -ne 0 ] && ! grep -Eq 'No models available|No model selected|No API key found' <<<"$output"; then
+            exit "$status"
+          fi
+          echo "Runtime smoke test completed with status $status."
 
       - name: Verify built package metadata
         working-directory: ${{ env.PACKAGE_DIR }}

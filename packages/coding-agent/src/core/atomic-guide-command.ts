@@ -1,9 +1,9 @@
-import * as fs from "node:fs";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
-import type { ExtensionAPI, ExtensionCommandContext } from "@bastani/atomic";
+import type { AutocompleteItem } from "@earendil-works/pi-tui";
+import { getChangelogPath, parseChangelog } from "../utils/changelog.js";
 
-const COMMAND_DESCRIPTION = "Atomic onboarding and help guide";
+export const ATOMIC_GUIDE_COMMAND_NAME = "atomic";
+export const ATOMIC_GUIDE_COMMAND_DESCRIPTION = "Atomic onboarding and help guide";
 
 const HELP_MENU = `# Atomic
 
@@ -214,23 +214,27 @@ Where to next:
 \`/atomic example\` — see workflows in a normal task flow
 \`/atomic overview\` — quick refresh`;
 
-const HELP_CHOICES = ["overview", "workflows", "example", "what's new"] as const;
+export const ATOMIC_GUIDE_HELP_CHOICES = ["overview", "workflows", "example", "what's new"] as const;
 
-type HelpChoice = typeof HELP_CHOICES[number];
+export type AtomicGuideHelpChoice = (typeof ATOMIC_GUIDE_HELP_CHOICES)[number];
 
-type AtomicMode = "help" | "overview" | "example" | "workflows" | "whats-new";
+export type AtomicGuideMode = "help" | "overview" | "example" | "workflows" | "whats-new";
 
-function normalizeMode(args: string): { mode: AtomicMode } {
-	const normalized = args.trim().toLowerCase().replace(/\s+/g, " ").replace(/[?!.,;:]+$/g, "");
-	if (!normalized) return { mode: "help" };
-	if (normalized === "overview") return { mode: "overview" };
-	if (normalized === "workflows" || normalized === "workflow") return { mode: "workflows" };
-	if (normalized === "example" || normalized === "examples") return { mode: "example" };
-	if (["what's new", "whats new", "news", "updates", "changelog"].includes(normalized)) return { mode: "whats-new" };
-	return { mode: "help" };
+export function isAtomicGuideHelpChoice(choice: string): choice is AtomicGuideHelpChoice {
+	return (ATOMIC_GUIDE_HELP_CHOICES as readonly string[]).includes(choice);
 }
 
-function completionItems(prefix: string): Array<{ value: string; label: string; description: string }> | null {
+export function normalizeAtomicGuideMode(args: string): AtomicGuideMode {
+	const normalized = args.trim().toLowerCase().replace(/\s+/g, " ").replace(/[?!.,;:]+$/g, "");
+	if (!normalized) return "help";
+	if (normalized === "overview") return "overview";
+	if (normalized === "workflows" || normalized === "workflow") return "workflows";
+	if (normalized === "example" || normalized === "examples") return "example";
+	if (["what's new", "whats new", "news", "updates", "changelog"].includes(normalized)) return "whats-new";
+	return "help";
+}
+
+export function getAtomicGuideArgumentCompletions(prefix: string): AutocompleteItem[] | null {
 	const items = [
 		{ value: "overview", label: "overview", description: "30-second overview" },
 		{ value: "workflows", label: "workflows", description: "Workflow primer" },
@@ -238,45 +242,29 @@ function completionItems(prefix: string): Array<{ value: string; label: string; 
 		{ value: "what's new", label: "what's new", description: "Recent release notes" },
 	];
 	const query = prefix.trim().toLowerCase();
-	const filtered = query ? items.filter((item) => item.value.startsWith(query) || item.label.startsWith(query)) : items;
+	const filtered = query
+		? items.filter((item) => item.value.startsWith(query) || item.label.startsWith(query))
+		: items;
 	return filtered.length > 0 ? filtered : null;
 }
 
-function changelogCandidates(cwd: string): string[] {
-	const here = path.dirname(fileURLToPath(import.meta.url));
-	return [
-		path.join(cwd, "packages", "coding-agent", "CHANGELOG.md"),
-		path.join(cwd, "CHANGELOG.md"),
-		path.resolve(here, "../../../coding-agent/CHANGELOG.md"),
-		path.resolve(here, "../../../../CHANGELOG.md"),
-		path.resolve(here, "../../../../../CHANGELOG.md"),
-	];
-}
-
 function readLatestStableChangelog(cwd: string): string {
-	const changelogPath = changelogCandidates(cwd).find((candidate) => fs.existsSync(candidate));
-	if (!changelogPath) {
-		return `# What's new\n\nNo local changelog was found. Try \`/changelog\` for the interactive changelog viewer.\n\n─────────────────────────────────────────────────────────────────\n\nWhere to next:\n\n\`/atomic example\` — see a practical first workflow\n\`/atomic overview\` — quick refresh`;
+	const changelogPath = getChangelogPath();
+	const stableSections = parseChangelog(changelogPath)
+		.filter((entry) => entry.prerelease === null)
+		.slice(0, 3)
+		.map((entry) => entry.content.trim())
+		.filter(Boolean);
+
+	if (stableSections.length === 0) {
+		return `# What's new\n\nNo stable release sections were found. Try \`/changelog\` for the interactive changelog viewer.\n\n─────────────────────────────────────────────────────────────────\n\nWhere to next:\n\n\`/atomic example\` — see a practical first workflow\n\`/atomic overview\` — quick refresh`;
 	}
 
-	const text = fs.readFileSync(changelogPath, "utf-8");
-	const sections = text.split(/^## /m).slice(1);
-	const stableSections: string[] = [];
-	for (const section of sections) {
-		const newlineIndex = section.indexOf("\n");
-		if (newlineIndex === -1) continue;
-		const heading = section.slice(0, newlineIndex).trim();
-		if (!/^\[\d+\.\d+\.\d+\] - /.test(heading)) continue;
-		const body = section.slice(newlineIndex + 1).trim();
-		stableSections.push(`## ${heading}\n\n${body}`);
-		if (stableSections.length >= 3) break;
-	}
-
-	const summary = stableSections.length > 0 ? stableSections.join("\n\n") : "No stable release sections were found.";
-	return `# What's new\n\n${summary}\n\nSource: \`${path.relative(cwd, changelogPath) || changelogPath}\`\n\n─────────────────────────────────────────────────────────────────\n\nWhere to next:\n\n\`/atomic example\` — see a practical first workflow\n\`/atomic overview\` — quick refresh`;
+	const relativePath = path.relative(cwd, changelogPath) || changelogPath;
+	return `# What's new\n\n${stableSections.join("\n\n")}\n\nSource: \`${relativePath}\`\n\n─────────────────────────────────────────────────────────────────\n\nWhere to next:\n\n\`/atomic example\` — see a practical first workflow\n\`/atomic overview\` — quick refresh`;
 }
 
-function messageForMode(mode: AtomicMode, cwd: string): string {
+export function getAtomicGuideMessage(mode: AtomicGuideMode, cwd: string): string {
 	switch (mode) {
 		case "help":
 			return HELP_MENU;
@@ -291,7 +279,7 @@ function messageForMode(mode: AtomicMode, cwd: string): string {
 	}
 }
 
-function modeForChoice(choice: HelpChoice): AtomicMode {
+export function atomicGuideModeForChoice(choice: AtomicGuideHelpChoice): AtomicGuideMode {
 	switch (choice) {
 		case "overview":
 			return "overview";
@@ -304,24 +292,3 @@ function modeForChoice(choice: HelpChoice): AtomicMode {
 	}
 }
 
-function sendGuideMessage(pi: ExtensionAPI, content: string): void {
-	pi.sendMessage({ customType: "atomic", content, display: true }, { triggerTurn: false });
-}
-
-export function registerAtomicGuideCommand(pi: ExtensionAPI): void {
-	pi.registerCommand("atomic", {
-		description: COMMAND_DESCRIPTION,
-		getArgumentCompletions: completionItems,
-		handler: async (args, ctx) => {
-			const route = normalizeMode(args);
-			if (route.mode === "help" && ctx.hasUI) {
-				const choice = await ctx.ui.select("Atomic. Select where to start:", [...HELP_CHOICES]);
-				if (!choice) return;
-				sendGuideMessage(pi, messageForMode(modeForChoice(choice as HelpChoice), ctx.cwd));
-				return;
-			}
-
-			sendGuideMessage(pi, messageForMode(route.mode, ctx.cwd));
-		},
-	});
-}

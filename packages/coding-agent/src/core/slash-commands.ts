@@ -1,4 +1,10 @@
+import type { AutocompleteItem } from "@earendil-works/pi-tui";
 import { APP_NAME } from "../config.js";
+import {
+	ATOMIC_GUIDE_COMMAND_DESCRIPTION,
+	ATOMIC_GUIDE_COMMAND_NAME,
+	getAtomicGuideArgumentCompletions,
+} from "./atomic-guide-command.js";
 import type { SourceInfo } from "./source-info.js";
 
 export type SlashCommandSource = "extension" | "prompt" | "skill";
@@ -13,6 +19,9 @@ export interface SlashCommandInfo {
 export interface BuiltinSlashCommand {
 	name: string;
 	description: string;
+	getArgumentCompletions?: (
+		argumentPrefix: string,
+	) => AutocompleteItem[] | null | Promise<AutocompleteItem[] | null>;
 }
 
 export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
@@ -26,6 +35,11 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
 	{ name: "name", description: "Set session display name" },
 	{ name: "session", description: "Show session info and stats" },
 	{ name: "changelog", description: "Show changelog entries" },
+	{
+		name: ATOMIC_GUIDE_COMMAND_NAME,
+		description: ATOMIC_GUIDE_COMMAND_DESCRIPTION,
+		getArgumentCompletions: getAtomicGuideArgumentCompletions,
+	},
 	{ name: "hotkeys", description: "Show all keyboard shortcuts" },
 	{ name: "fork", description: "Create a new fork from a previous user message" },
 	{ name: "clone", description: "Duplicate the current session at the current position" },

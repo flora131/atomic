@@ -555,6 +555,7 @@ export class InteractiveMode {
       (command) => ({
         name: command.name,
         description: command.description,
+        getArgumentCompletions: command.getArgumentCompletions,
       }),
     );
 
@@ -3018,6 +3019,11 @@ export class InteractiveMode {
       if (text === "/changelog") {
         this.handleChangelogCommand();
         this.editor.setText("");
+        return;
+      }
+      if (text === "/atomic" || text.startsWith("/atomic ")) {
+        this.editor.setText("");
+        await this.session.prompt(text);
         return;
       }
       if (text === "/hotkeys") {

@@ -35,6 +35,14 @@ import {
 import { theme } from "../modes/interactive/theme/theme.js";
 import { stripFrontmatter } from "../utils/frontmatter.js";
 import { sleep } from "../utils/sleep.js";
+import {
+	ATOMIC_GUIDE_COMMAND_NAME,
+	ATOMIC_GUIDE_HELP_CHOICES,
+	atomicGuideModeForChoice,
+	getAtomicGuideMessage,
+	isAtomicGuideHelpChoice,
+	normalizeAtomicGuideMode,
+} from "./atomic-guide-command.js";
 import { formatNoApiKeyFoundMessage, formatNoModelSelectedMessage } from "./auth-guidance.js";
 import { type BashResult, executeBashWithOperations } from "./bash-executor.js";
 import {
@@ -996,12 +1004,17 @@ export class AgentSession {
 		let messages: AgentMessage[] | undefined;
 
 		try {
-			// Handle extension commands first (execute immediately, even during streaming)
-			// Extension commands manage their own LLM interaction via pi.sendMessage()
+			// Handle slash commands first (execute immediately, even during streaming).
+			// Builtin and extension commands manage their own LLM interaction via custom messages.
 			if (expandPromptTemplates && text.startsWith("/")) {
-				const handled = await this._tryExecuteExtensionCommand(text);
-				if (handled) {
-					// Extension command executed, no prompt to send
+				const handledBuiltin = await this._tryExecuteBuiltinSlashCommand(text);
+				if (handledBuiltin) {
+					preflightResult?.(true);
+					return;
+				}
+
+				const handledExtension = await this._tryExecuteExtensionCommand(text);
+				if (handledExtension) {
 					preflightResult?.(true);
 					return;
 				}
@@ -1134,6 +1147,43 @@ export class AgentSession {
 		preflightResult?.(true);
 		await this.agent.prompt(messages);
 		await this.waitForRetry();
+	}
+
+	/**
+	 * Try to execute a built-in slash command. Returns true if command was found and executed.
+	 */
+	private async _tryExecuteBuiltinSlashCommand(text: string): Promise<boolean> {
+		const spaceIndex = text.indexOf(" ");
+		const commandName = spaceIndex === -1 ? text.slice(1) : text.slice(1, spaceIndex);
+		if (commandName !== ATOMIC_GUIDE_COMMAND_NAME) return false;
+
+		const args = spaceIndex === -1 ? "" : text.slice(spaceIndex + 1);
+		const mode = normalizeAtomicGuideMode(args);
+		if (mode === "help" && this._extensionUIContext) {
+			const choice = await this._extensionUIContext.select("Atomic. Select where to start:", [
+				...ATOMIC_GUIDE_HELP_CHOICES,
+			]);
+			if (!choice || !isAtomicGuideHelpChoice(choice)) return true;
+			await this.sendCustomMessage(
+				{
+					customType: "atomic",
+					content: getAtomicGuideMessage(atomicGuideModeForChoice(choice), this._cwd),
+					display: true,
+				},
+				{ triggerTurn: false },
+			);
+			return true;
+		}
+
+		await this.sendCustomMessage(
+			{
+				customType: "atomic",
+				content: getAtomicGuideMessage(mode, this._cwd),
+				display: true,
+			},
+			{ triggerTurn: false },
+		);
+		return true;
 	}
 
 	/**

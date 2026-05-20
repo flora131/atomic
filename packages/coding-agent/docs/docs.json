@@ -49,6 +49,10 @@
           "path": "skills.md"
         },
         {
+          "title": "Atomic Workflows",
+          "path": "workflows.md"
+        },
+        {
           "title": "Prompt Templates",
           "path": "prompt-templates.md"
         },

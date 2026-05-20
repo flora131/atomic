@@ -6,14 +6,21 @@ Atomic packages bundle extensions, skills, prompt templates, themes, and workflo
 
 ## Table of Contents
 
-- [Install and Manage](#install-and-manage)
-- [Package Sources](#package-sources)
-- [Creating an Atomic Package](#creating-an-atomic-package)
-- [Package Structure](#package-structure)
-- [Dependencies](#dependencies)
-- [Package Filtering](#package-filtering)
-- [Enable and Disable Resources](#enable-and-disable-resources)
-- [Scope and Deduplication](#scope-and-deduplication)
+- [Atomic Packages](#atomic-packages)
+  - [Table of Contents](#table-of-contents)
+  - [Install and Manage](#install-and-manage)
+  - [Package Sources](#package-sources)
+    - [npm](#npm)
+    - [git](#git)
+    - [Local Paths](#local-paths)
+  - [Creating an Atomic Package](#creating-an-atomic-package)
+    - [Gallery Metadata](#gallery-metadata)
+  - [Package Structure](#package-structure)
+    - [Convention Directories](#convention-directories)
+  - [Dependencies](#dependencies)
+  - [Package Filtering](#package-filtering)
+  - [Enable and Disable Resources](#enable-and-disable-resources)
+  - [Scope and Deduplication](#scope-and-deduplication)
 
 ## Install and Manage
 
@@ -110,12 +117,12 @@ Local paths point to files or directories on disk and are added to settings with
 
 ## Creating an Atomic Package
 
-Add an app manifest to `package.json` or use conventional directories. The manifest key is the configured app name (`atomic` here, from `atomicConfig.name`; legacy `piConfig.name` is also read). The legacy `pi` key remains supported as a backwards-compatible shim. Include the `pi-package` keyword for discoverability.
+Add an app manifest to `package.json` or use conventional directories. The manifest key is the configured app name (`atomic` here, from `atomicConfig.name`; legacy `piConfig.name` is also read). The legacy `pi` key remains supported as a backwards-compatible shim. Include the `atomic-package` keyword for discoverability.
 
 ```json
 {
   "name": "my-package",
-  "keywords": ["pi-package"],
+  "keywords": ["atomic-package"],
   "atomic": {
     "extensions": ["./extensions"],
     "skills": ["./skills"],
@@ -135,7 +142,7 @@ The [package gallery](https://pi.dev/packages) displays packages tagged with `pi
 ```json
 {
   "name": "my-package",
-  "keywords": ["pi-package"],
+  "keywords": ["pi-package", "atomic-package"],
   "atomic": {
     "extensions": ["./extensions"],
     "video": "https://example.com/demo.mp4",

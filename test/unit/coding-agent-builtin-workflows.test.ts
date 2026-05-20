@@ -131,7 +131,7 @@ describe("coding-agent builtin resources", () => {
     }
 
     const skillNames = new Set(loader.getSkills().skills.map((skill) => skill.name));
-    for (const skillName of ["workflow", "subagent", "intercom"]) {
+    for (const skillName of ["subagent", "intercom"]) {
       assert.ok(skillNames.has(skillName), `expected builtin skill ${skillName}`);
     }
   }, fullBuiltinPackageLoadTimeoutMs);

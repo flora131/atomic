@@ -1,6 +1,6 @@
 # Providers
 
-Pi supports subscription-based providers via OAuth and API key providers via environment variables or auth file. For each provider, pi knows all available models. The list is updated with every pi release.
+Atomic supports subscription-based providers via OAuth and API key providers via environment variables or auth file. Atomic knows the available models for each provider, and the list is updated with every Atomic release.
 
 ## Table of Contents
 
@@ -19,7 +19,7 @@ Use `/login` in interactive mode, then select a provider:
 - Claude Pro/Max
 - GitHub Copilot
 
-Use `/logout` to clear credentials. Tokens are stored in `~/.pi/agent/auth.json` and auto-refresh when expired.
+Use `/logout` to clear credentials. Tokens are stored in `~/.atomic/agent/auth.json` and auto-refresh when expired.
 
 ### OpenAI Codex
 
@@ -43,7 +43,7 @@ Use `/login` in interactive mode and select a provider to store an API key in `a
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
-pi
+atomic
 ```
 
 | Provider | Environment Variable | `auth.json` key |
@@ -79,7 +79,7 @@ Reference for environment variables and `auth.json` keys: [`const envMap`](https
 
 #### Auth File
 
-Store credentials in `~/.pi/agent/auth.json`:
+Store credentials in `~/.atomic/agent/auth.json`:
 
 ```json
 {
@@ -156,14 +156,14 @@ export AWS_REGION=us-west-2
 Also supports ECS task roles (`AWS_CONTAINER_CREDENTIALS_*`) and IRSA (`AWS_WEB_IDENTITY_TOKEN_FILE`).
 
 ```bash
-pi --provider amazon-bedrock --model us.anthropic.claude-sonnet-4-20250514-v1:0
+atomic --provider amazon-bedrock --model us.anthropic.claude-sonnet-4-20250514-v1:0
 ```
 
 Prompt caching is enabled automatically for Claude models whose ID contains a recognizable model name (base models and system-defined inference profiles). For application inference profiles (whose ARNs don't contain the model name), set `AWS_BEDROCK_FORCE_CACHE=1` to enable cache points:
 
 ```bash
 export AWS_BEDROCK_FORCE_CACHE=1
-pi --provider amazon-bedrock --model arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123
+atomic --provider amazon-bedrock --model arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123
 ```
 
 If you are connecting to a Bedrock API proxy, the following environment variables can be used:
@@ -187,7 +187,7 @@ export AWS_BEDROCK_FORCE_HTTP1=1
 export CLOUDFLARE_API_KEY=...           # or use /login
 export CLOUDFLARE_ACCOUNT_ID=...
 export CLOUDFLARE_GATEWAY_ID=...        # create at dash.cloudflare.com → AI → AI Gateway
-pi --provider cloudflare-ai-gateway --model "claude-sonnet-4-5"
+atomic --provider cloudflare-ai-gateway --model "claude-sonnet-4-5"
 ```
 
 Routes to OpenAI, Anthropic, and Workers AI through Cloudflare AI Gateway. Workers AI uses the Unified API (`/compat`) and prefixed model IDs (`workers-ai/@cf/...`). OpenAI uses the OpenAI passthrough route (`/openai`) with native OpenAI model IDs such as `gpt-5.1`. Anthropic uses the Anthropic passthrough route (`/anthropic`) with native Anthropic model IDs such as `claude-sonnet-4-5`.
@@ -201,7 +201,7 @@ AI Gateway authentication uses `CLOUDFLARE_API_KEY` as `cf-aig-authorization`. U
 | Stored BYOK | Cloudflare token only | Cloudflare injects provider keys stored in the AI Gateway dashboard |
 | Inline BYOK | Cloudflare token plus upstream `Authorization` header | The request supplies the upstream provider key |
 
-For normal pi usage, prefer unified billing or stored BYOK. Inline BYOK requires configuring an additional upstream `Authorization` header for the Cloudflare AI Gateway provider, for example via a `models.json` provider/model override.
+For normal Atomic usage, prefer unified billing or stored BYOK. Inline BYOK requires configuring an additional upstream `Authorization` header for the Cloudflare AI Gateway provider, for example via a `models.json` provider/model override.
 
 ### Cloudflare Workers AI
 
@@ -210,10 +210,10 @@ For normal pi usage, prefer unified billing or stored BYOK. Inline BYOK requires
 ```bash
 export CLOUDFLARE_API_KEY=...           # or use /login
 export CLOUDFLARE_ACCOUNT_ID=...
-pi --provider cloudflare-workers-ai --model "@cf/moonshotai/kimi-k2.6"
+atomic --provider cloudflare-workers-ai --model "@cf/moonshotai/kimi-k2.6"
 ```
 
-Pi automatically sets `x-session-affinity` for [prefix caching](https://developers.cloudflare.com/workers-ai/features/prompt-caching/) discounts.
+Atomic automatically sets `x-session-affinity` for [prefix caching](https://developers.cloudflare.com/workers-ai/features/prompt-caching/) discounts.
 
 ### Google Vertex AI
 

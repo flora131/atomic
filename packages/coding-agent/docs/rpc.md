@@ -7,7 +7,7 @@ RPC mode enables headless operation of the coding agent via a JSON protocol over
 ## Starting RPC Mode
 
 ```bash
-pi --mode rpc [options]
+atomic --mode rpc [options]
 ```
 
 Common options:
@@ -714,9 +714,9 @@ Response:
   "success": true,
   "data": {
     "commands": [
-      {"name": "session-name", "description": "Set or clear session name", "source": "extension", "path": "/home/user/.pi/agent/extensions/session.ts"},
-      {"name": "fix-tests", "description": "Fix failing tests", "source": "prompt", "location": "project", "path": "/home/user/myproject/.pi/agent/prompts/fix-tests.md"},
-      {"name": "skill:brave-search", "description": "Web search via Brave API", "source": "skill", "location": "user", "path": "/home/user/.pi/agent/skills/brave-search/SKILL.md"}
+      {"name": "session-name", "description": "Set or clear session name", "source": "extension", "path": "/home/user/.atomic/agent/extensions/session.ts"},
+      {"name": "fix-tests", "description": "Fix failing tests", "source": "prompt", "location": "project", "path": "/home/user/myproject/.atomic/prompts/fix-tests.md"},
+      {"name": "skill:brave-search", "description": "Web search via Brave API", "source": "skill", "location": "user", "path": "/home/user/.atomic/agent/skills/brave-search/SKILL.md"}
     ]
   }
 }
@@ -730,8 +730,8 @@ Each command has:
   - `"prompt"`: Loaded from a prompt template `.md` file
   - `"skill"`: Loaded from a skill directory (name is prefixed with `skill:`)
 - `location`: Where it was loaded from (optional, not present for extensions):
-  - `"user"`: User-level (`~/.pi/agent/`)
-  - `"project"`: Project-level (`./.pi/agent/`)
+  - `"user"`: User-level (`~/.atomic/agent/`)
+  - `"project"`: Project-level (`./.atomic/`)
   - `"path"`: Explicit path via CLI or settings
 - `path`: Absolute file path to the command source (optional)
 
@@ -1132,7 +1132,7 @@ Set the terminal window/tab title. Fire-and-forget.
   "type": "extension_ui_request",
   "id": "uuid-8",
   "method": "setTitle",
-  "title": "pi - my project"
+  "title": "atomic - my project"
 }
 ```
 
@@ -1319,7 +1319,7 @@ import subprocess
 import json
 
 proc = subprocess.Popen(
-    ["pi", "--mode", "rpc", "--no-session"],
+    ["atomic", "--mode", "rpc", "--no-session"],
     stdin=subprocess.PIPE,
     stdout=subprocess.PIPE,
     text=True
@@ -1358,7 +1358,7 @@ For a complete example of handling the extension UI protocol, see [`examples/rpc
 const { spawn } = require("child_process");
 const { StringDecoder } = require("string_decoder");
 
-const agent = spawn("pi", ["--mode", "rpc", "--no-session"]);
+const agent = spawn("atomic", ["--mode", "rpc", "--no-session"]);
 
 function attachJsonlReader(stream, onLine) {
     const decoder = new StringDecoder("utf8");

@@ -12,7 +12,7 @@
           "path": "quickstart.md"
         },
         {
-          "title": "Using Pi",
+          "title": "Using Atomic",
           "path": "usage.md"
         },
         {
@@ -57,7 +57,7 @@
           "path": "themes.md"
         },
         {
-          "title": "Pi Packages",
+          "title": "Atomic Packages",
           "path": "packages.md"
         },
         {

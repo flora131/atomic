@@ -5,16 +5,16 @@ Sessions are stored as JSONL (JSON Lines) files. Each line is a JSON object with
 ## File Location
 
 ```
-~/.pi/agent/sessions/--<path>--/<timestamp>_<uuid>.jsonl
+~/.atomic/agent/sessions/--<path>--/<timestamp>_<uuid>.jsonl
 ```
 
 Where `<path>` is the working directory with `/` replaced by `-`.
 
 ## Deleting Sessions
 
-Sessions can be removed by deleting their `.jsonl` files under `~/.pi/agent/sessions/`.
+Sessions can be removed by deleting their `.jsonl` files under `~/.atomic/agent/sessions/` (legacy `~/.pi/agent/sessions/` may exist from older installs).
 
-Pi also supports deleting sessions interactively from `/resume` (select a session and press `CTRL+D`, then confirm). When available, pi uses the `trash` CLI to avoid permanent deletion.
+Atomic also supports deleting sessions interactively from `/resume` (select a session and press `CTRL+D`, then confirm). When available, Atomic uses the `trash` CLI to avoid permanent deletion.
 
 ## Session Version
 

@@ -8,9 +8,9 @@ import {
 	createAgentSessionFromServices,
 	createAgentSessionRuntime,
 	createAgentSessionServices,
-} from "../../../src/core/agent-session-runtime.js";
-import { AuthStorage } from "../../../src/core/auth-storage.js";
-import { SessionManager } from "../../../src/core/session-manager.js";
+} from "../../../src/core/agent-session-runtime.ts";
+import { AuthStorage } from "../../../src/core/auth-storage.ts";
+import { SessionManager } from "../../../src/core/session-manager.ts";
 
 describe("issue #2753 reload stale resource settings", () => {
 	const cleanups: Array<() => void> = [];

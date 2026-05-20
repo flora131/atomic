@@ -8,8 +8,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ENV_AGENT_DIR, PACKAGE_NAME, VERSION } from "../src/config.js";
-import { main } from "../src/main.js";
+import { ENV_AGENT_DIR, PACKAGE_NAME, VERSION } from "../src/config.ts";
+import { main } from "../src/main.ts";
 
 describe("package commands", () => {
   let tempDir: string;

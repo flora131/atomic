@@ -1,6 +1,6 @@
 import type { Component } from "@earendil-works/pi-tui";
-import type { StatefulView } from "../stateful-view.js";
-import { WrappingSelect, type WrappingSelectItem, type WrappingSelectTheme } from "./wrapping-select.js";
+import type { StatefulView } from "../stateful-view.ts";
+import { WrappingSelect, type WrappingSelectItem, type WrappingSelectTheme } from "./wrapping-select.ts";
 
 /**
  * Per-tick projection of chat-row state. The chat row is a single-item

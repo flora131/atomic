@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { ExtensionAPI, SessionBeforeCompactEvent, SessionCompactEvent } from "../src/core/extensions/index.js";
+import type { ExtensionAPI, SessionBeforeCompactEvent, SessionCompactEvent } from "../src/core/extensions/index.ts";
 
 describe("Documentation example", () => {
 	it("custom compaction example should type-check correctly", () => {

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { getPackageDir } from "../config.js";
+import { getPackageDir } from "../config.ts";
 
 interface BuiltinPackageDescriptor {
 	readonly packageName: string;

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { canonicalizePath, getCwdRelativePath, isLocalPath } from "../src/utils/paths.js";
+import { canonicalizePath, getCwdRelativePath, isLocalPath } from "../src/utils/paths.ts";
 
 let tempDir: string;
 

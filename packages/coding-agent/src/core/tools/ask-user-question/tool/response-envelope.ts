@@ -1,5 +1,5 @@
-import { formatAnswerScalar } from "./format-answer.js";
-import type { QuestionAnswer, QuestionnaireResult, QuestionParams } from "./types.js";
+import { formatAnswerScalar } from "./format-answer.ts";
+import type { QuestionAnswer, QuestionnaireResult, QuestionParams } from "./types.ts";
 
 export const DECLINE_MESSAGE = "User declined to answer questions";
 export const ENVELOPE_PREFIX = "User has answered your questions:";

@@ -1,14 +1,14 @@
 import { setKeybindings } from "@earendil-works/pi-tui";
 import { beforeAll, beforeEach, describe, expect, test } from "vitest";
-import { KeybindingsManager } from "../src/core/keybindings.js";
+import { KeybindingsManager } from "../src/core/keybindings.ts";
 import type {
 	ModelChangeEntry,
 	SessionEntry,
 	SessionMessageEntry,
 	SessionTreeNode,
-} from "../src/core/session-manager.js";
-import { TreeSelectorComponent } from "../src/modes/interactive/components/tree-selector.js";
-import { initTheme } from "../src/modes/interactive/theme/theme.js";
+} from "../src/core/session-manager.ts";
+import { TreeSelectorComponent } from "../src/modes/interactive/components/tree-selector.ts";
+import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 
 beforeAll(() => {
 	initTheme("dark");

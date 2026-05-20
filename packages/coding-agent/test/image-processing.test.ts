@@ -3,8 +3,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { convertToPng } from "../src/utils/image-convert.js";
-import { formatDimensionNote, resizeImage } from "../src/utils/image-resize.js";
+import { convertToPng } from "../src/utils/image-convert.ts";
+import { formatDimensionNote, resizeImage } from "../src/utils/image-resize.ts";
 
 // Small 2x2 red PNG image (base64) - generated with ImageMagick
 const TINY_PNG =

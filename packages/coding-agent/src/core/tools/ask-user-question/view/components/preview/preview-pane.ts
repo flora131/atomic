@@ -1,8 +1,8 @@
 import { type Component, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import type { QuestionData } from "../../../tool/types.js";
-import type { StatefulView } from "../../stateful-view.js";
-import type { OptionListView } from "../option-list-view.js";
-import type { PreviewBlockRenderer } from "./preview-block-renderer.js";
+import type { QuestionData } from "../../../tool/types.ts";
+import type { StatefulView } from "../../stateful-view.ts";
+import type { OptionListView } from "../option-list-view.ts";
+import type { PreviewBlockRenderer } from "./preview-block-renderer.ts";
 import {
 	bodyWidths,
 	columnWidths,
@@ -10,7 +10,7 @@ import {
 	PREVIEW_PADDING_LEFT,
 	type PreviewLayoutMode,
 	STACKED_GAP_ROWS,
-} from "./preview-layout-decider.js";
+} from "./preview-layout-decider.ts";
 
 // ----- Re-exports for test imports — keep `./preview-pane.js` as the public surface -----
 export {
@@ -18,8 +18,8 @@ export {
 	MAX_PREVIEW_HEIGHT_STACKED,
 	NO_PREVIEW_TEXT,
 	NOTES_AFFORDANCE_OVERHEAD,
-} from "./markdown-content-cache.js";
-export { NOTES_AFFORDANCE_TEXT, PreviewBlockRenderer } from "./preview-block-renderer.js";
+} from "./markdown-content-cache.ts";
+export { NOTES_AFFORDANCE_TEXT, PreviewBlockRenderer } from "./preview-block-renderer.ts";
 export {
 	BORDER_HORIZONTAL_OVERHEAD,
 	BORDER_INNER_PADDING_HORIZONTAL,
@@ -27,13 +27,13 @@ export {
 	BOX_MIN_CONTENT_WIDTH,
 	renderBorderedBox,
 	stripFenceMarkers,
-} from "./preview-box-renderer.js";
+} from "./preview-box-renderer.ts";
 export {
 	PREVIEW_COLUMN_GAP,
 	PREVIEW_MIN_WIDTH,
 	PREVIEW_PADDING_LEFT,
 	STACKED_GAP_ROWS,
-} from "./preview-layout-decider.js";
+} from "./preview-layout-decider.ts";
 
 /**
  * Per-tick projection of PreviewPane state. Replaces the prior

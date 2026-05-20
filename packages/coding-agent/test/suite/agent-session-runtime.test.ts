@@ -8,9 +8,9 @@ import {
 	createAgentSessionFromServices,
 	createAgentSessionRuntime,
 	createAgentSessionServices,
-} from "../../src/core/agent-session-runtime.js";
-import { AuthStorage } from "../../src/core/auth-storage.js";
-import { SessionManager } from "../../src/core/session-manager.js";
+} from "../../src/core/agent-session-runtime.ts";
+import { AuthStorage } from "../../src/core/auth-storage.ts";
+import { SessionManager } from "../../src/core/session-manager.ts";
 import type {
 	ExtensionAPI,
 	ExtensionFactory,
@@ -18,7 +18,7 @@ import type {
 	SessionBeforeSwitchEvent,
 	SessionShutdownEvent,
 	SessionStartEvent,
-} from "../../src/index.js";
+} from "../../src/index.ts";
 
 type RecordedSessionEvent =
 	| SessionBeforeSwitchEvent

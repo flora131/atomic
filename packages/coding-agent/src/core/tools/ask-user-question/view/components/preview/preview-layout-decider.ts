@@ -1,7 +1,7 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
-import type { QuestionData } from "../../../tool/types.js";
-import type { WrappingSelectItem } from "../wrapping-select.js";
-import { BORDER_HORIZONTAL_OVERHEAD, BORDER_INNER_PADDING_HORIZONTAL } from "./preview-box-renderer.js";
+import type { QuestionData } from "../../../tool/types.ts";
+import type { WrappingSelectItem } from "../wrapping-select.ts";
+import { BORDER_HORIZONTAL_OVERHEAD, BORDER_INNER_PADDING_HORIZONTAL } from "./preview-box-renderer.ts";
 
 /** Min terminal/pane width for the side-by-side layout to engage. */
 export const PREVIEW_MIN_WIDTH = 100;

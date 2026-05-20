@@ -1,6 +1,6 @@
-import type { Theme } from "../../../../../modes/interactive/theme/theme.js";
+import type { Theme } from "../../../../../modes/interactive/theme/theme.ts";
 import { truncateToWidth } from "@earendil-works/pi-tui";
-import type { StatefulView } from "../stateful-view.js";
+import type { StatefulView } from "../stateful-view.ts";
 
 /**
  * Per-tick projection of TabBar state. The selector
@@ -19,7 +19,10 @@ export interface TabBarProps {
 export class TabBar implements StatefulView<TabBarProps> {
 	private props: TabBarProps;
 
-	constructor(private readonly theme: Theme) {
+	declare private readonly theme: Theme;
+
+	constructor(theme: Theme) {
+		this.theme = theme;
 		this.props = { tabs: [], submit: { active: false, allAnswered: false } };
 	}
 

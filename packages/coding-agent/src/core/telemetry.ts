@@ -1,5 +1,5 @@
-import { ENV_TELEMETRY, getEnvValue } from "../config.js";
-import type { SettingsManager } from "./settings-manager.js";
+import { ENV_TELEMETRY, getEnvValue } from "../config.ts";
+import type { SettingsManager } from "./settings-manager.ts";
 
 function isTruthyEnvFlag(value: string | undefined): boolean {
 	if (!value) return false;

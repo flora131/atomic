@@ -3,10 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setKeybindings } from "@earendil-works/pi-tui";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { KeybindingsManager } from "../src/core/keybindings.js";
-import type { SessionInfo } from "../src/core/session-manager.js";
-import { SessionSelectorComponent } from "../src/modes/interactive/components/session-selector.js";
-import { initTheme } from "../src/modes/interactive/theme/theme.js";
+import { KeybindingsManager } from "../src/core/keybindings.ts";
+import type { SessionInfo } from "../src/core/session-manager.ts";
+import { SessionSelectorComponent } from "../src/modes/interactive/components/session-selector.ts";
+import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 
 type Deferred<T> = {
 	promise: Promise<T>;

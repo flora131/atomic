@@ -12,7 +12,7 @@ import { type Api, type Context, type Model, registerApiProvider, streamSimple }
 import { readFileSync } from "fs";
 import { getAgentDir } from "packages/coding-agent/src/config.js";
 import { join } from "path";
-import { MODELS, streamGitLabDuo } from "./index.js";
+import { MODELS, streamGitLabDuo } from "./index.ts";
 
 const MODEL_MAP = new Map(MODELS.map((m) => [m.id, m]));
 

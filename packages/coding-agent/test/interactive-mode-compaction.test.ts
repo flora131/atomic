@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import { InteractiveMode } from "../src/modes/interactive/interactive-mode.js";
+import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 
 describe("InteractiveMode compaction events", () => {
 	test("rebuilds chat and appends a synthetic compaction summary at the bottom", async () => {

@@ -1,11 +1,11 @@
 import type { AutocompleteItem } from "@earendil-works/pi-tui";
-import { APP_NAME } from "../config.js";
+import { APP_NAME } from "../config.ts";
 import {
 	ATOMIC_GUIDE_COMMAND_DESCRIPTION,
 	ATOMIC_GUIDE_COMMAND_NAME,
 	getAtomicGuideArgumentCompletions,
-} from "./atomic-guide-command.js";
-import type { SourceInfo } from "./source-info.js";
+} from "./atomic-guide-command.ts";
+import type { SourceInfo } from "./source-info.ts";
 
 export type SlashCommandSource = "extension" | "prompt" | "skill";
 

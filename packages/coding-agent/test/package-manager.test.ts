@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DefaultPackageManager, type ProgressEvent, type ResolvedResource } from "../src/core/package-manager.js";
-import { SettingsManager } from "../src/core/settings-manager.js";
-import { shouldUseWindowsShell } from "../src/utils/child-process.js";
+import { DefaultPackageManager, type ProgressEvent, type ResolvedResource } from "../src/core/package-manager.ts";
+import { SettingsManager } from "../src/core/settings-manager.ts";
+import { shouldUseWindowsShell } from "../src/utils/child-process.ts";
 
 function normalizeForMatch(value: string): string {
 	return value.replace(/\\/g, "/");
@@ -1593,7 +1593,7 @@ Content`,
 			// Main entry point
 			writeFileSync(
 				join(pkgDir, "extensions", "subagent", "index.ts"),
-				`import { helper } from "./agents.js";
+				`import { helper } from "./agents.ts";
 export default function(api) { api.registerTool({ name: "test", description: "test", execute: async () => helper() }); }`,
 			);
 			// Helper module (should NOT be loaded as standalone extension)
@@ -1649,7 +1649,7 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 			// Subdirectory with index.ts + helpers
 			writeFileSync(
 				join(pkgDir, "extensions", "complex", "index.ts"),
-				"import { a } from './a.js'; export default function(api) {}",
+				"import { a } from './a.ts'; export default function(api) {}",
 			);
 			writeFileSync(join(pkgDir, "extensions", "complex", "a.ts"), "export const a = 1;");
 			writeFileSync(join(pkgDir, "extensions", "complex", "b.ts"), "export const b = 2;");

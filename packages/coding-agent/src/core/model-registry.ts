@@ -23,15 +23,15 @@ import { existsSync, readFileSync } from "fs";
 import { type Static, Type } from "typebox";
 import { Compile } from "typebox/compile";
 import type { TLocalizedValidationError } from "typebox/error";
-import { getAgentConfigPaths } from "../config.js";
-import type { AuthStatus, AuthStorage } from "./auth-storage.js";
-import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "./provider-display-names.js";
+import { getAgentConfigPaths } from "../config.ts";
+import type { AuthStatus, AuthStorage } from "./auth-storage.ts";
+import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "./provider-display-names.ts";
 import {
 	clearConfigValueCache,
 	resolveConfigValueOrThrow,
 	resolveConfigValueUncached,
 	resolveHeadersOrThrow,
-} from "./resolve-config-value.js";
+} from "./resolve-config-value.ts";
 
 // Schema for OpenRouter routing preferences
 const PercentileCutoffsSchema = Type.Object({
@@ -334,10 +334,15 @@ export class ModelRegistry {
 	private registeredProviders: Map<string, ProviderConfigInput> = new Map();
 	private loadError: string | undefined = undefined;
 
-	private constructor(
-		readonly authStorage: AuthStorage,
-		private modelsJsonPaths: string[],
+	declare readonly authStorage: AuthStorage;
+	declare private modelsJsonPaths: string[];
+
+private constructor(
+		authStorage: AuthStorage,
+		modelsJsonPaths: string[],
 	) {
+		this.authStorage = authStorage;
+		this.modelsJsonPaths = modelsJsonPaths;
 		this.loadModels();
 	}
 

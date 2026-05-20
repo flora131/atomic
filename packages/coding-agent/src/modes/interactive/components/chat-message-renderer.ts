@@ -2,23 +2,23 @@ import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai"
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { Container, Text, type Component, type MarkdownTheme, type TUI } from "@earendil-works/pi-tui";
 import type { TSchema } from "typebox";
-import type { MessageRenderer, ToolDefinition } from "../../../core/extensions/types.js";
+import type { MessageRenderer, ToolDefinition } from "../../../core/extensions/types.ts";
 import type {
   BashExecutionMessage,
   BranchSummaryMessage,
   CompactionSummaryMessage,
   CustomMessage,
-} from "../../../core/messages.js";
-import { parseSkillBlock } from "../../../core/agent-session.js";
-import { getMarkdownTheme, theme } from "../theme/theme.js";
-import { AssistantMessageComponent } from "./assistant-message.js";
-import { BashExecutionComponent } from "./bash-execution.js";
-import { BranchSummaryMessageComponent } from "./branch-summary-message.js";
-import { CompactionSummaryMessageComponent } from "./compaction-summary-message.js";
-import { CustomMessageComponent } from "./custom-message.js";
-import { SkillInvocationMessageComponent } from "./skill-invocation-message.js";
-import { ToolExecutionComponent } from "./tool-execution.js";
-import { UserMessageComponent } from "./user-message.js";
+} from "../../../core/messages.ts";
+import { parseSkillBlock } from "../../../core/agent-session.ts";
+import { getMarkdownTheme, theme } from "../theme/theme.ts";
+import { AssistantMessageComponent } from "./assistant-message.ts";
+import { BashExecutionComponent } from "./bash-execution.ts";
+import { BranchSummaryMessageComponent } from "./branch-summary-message.ts";
+import { CompactionSummaryMessageComponent } from "./compaction-summary-message.ts";
+import { CustomMessageComponent } from "./custom-message.ts";
+import { SkillInvocationMessageComponent } from "./skill-invocation-message.ts";
+import { ToolExecutionComponent } from "./tool-execution.ts";
+import { UserMessageComponent } from "./user-message.ts";
 
 export type ChatMessageEntry =
   | { role: "assistant"; kind: "assistant"; message: AssistantMessage }
@@ -158,7 +158,11 @@ export class LiveChatEntriesController {
   private streamingAssistantIndex: number | undefined;
   private pendingToolIndexes = new Map<string, number>();
 
-  constructor(private readonly entries: LiveChatEntry[]) {}
+  declare private readonly entries: LiveChatEntry[];
+
+  constructor(entries: LiveChatEntry[]) {
+    this.entries = entries;
+	}
 
   appendMessages(messages: readonly AgentMessage[]): void {
     this.entries.push(...chatEntriesFromAgentMessages(messages));

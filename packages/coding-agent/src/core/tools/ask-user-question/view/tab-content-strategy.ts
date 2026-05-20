@@ -1,9 +1,9 @@
-import type { Theme } from "../../../../modes/interactive/theme/theme.js";
+import type { Theme } from "../../../../modes/interactive/theme/theme.ts";
 import { type Component, Container, type Input, Spacer, Text } from "@earendil-works/pi-tui";
-import { formatAnswerScalar } from "../tool/format-answer.js";
-import type { QuestionData } from "../tool/types.js";
-import type { ChatRowView } from "./components/chat-row-view.js";
-import type { PreviewPaneProps } from "./components/preview/preview-pane.js";
+import { formatAnswerScalar } from "../tool/format-answer.ts";
+import type { QuestionData } from "../tool/types.ts";
+import type { ChatRowView } from "./components/chat-row-view.ts";
+import type { PreviewPaneProps } from "./components/preview/preview-pane.ts";
 import {
 	type DialogState,
 	HINT_PART_CANCEL,
@@ -15,9 +15,9 @@ import {
 	INCOMPLETE_WARNING_PREFIX,
 	READY_PROMPT,
 	REVIEW_HEADING,
-} from "./dialog-builder.js";
-import type { StatefulView } from "./stateful-view.js";
-import type { TabComponents } from "./tab-components.js";
+} from "./dialog-builder.ts";
+import type { StatefulView } from "./stateful-view.ts";
+import type { TabComponents } from "./tab-components.ts";
 
 const NOTES_HEADER = "Notes:";
 
@@ -61,7 +61,11 @@ export class QuestionTabStrategy implements TabContentStrategy {
 	/** Spacer(1) + chatRow(1) + Spacer(1) + Text(hint, 1) = 4 rendered rows. */
 	readonly footerRowCount = 4;
 
-	constructor(private readonly config: QuestionTabStrategyConfig) {}
+	declare private readonly config: QuestionTabStrategyConfig;
+
+	constructor(config: QuestionTabStrategyConfig) {
+		this.config = config;
+	}
 
 	headingRows(state: DialogState): Component[] {
 		const out: Component[] = [];
@@ -119,7 +123,11 @@ export class SubmitTabStrategy implements TabContentStrategy {
 	/** Spacer(1) + Text(prompt, 1) + Spacer(1) + submitPicker(2) = 5 rendered rows. Fallback path lands at 5 via 2 trailing Spacer(1)s. */
 	readonly footerRowCount = 5;
 
-	constructor(private readonly config: SubmitTabStrategyConfig) {}
+	declare private readonly config: SubmitTabStrategyConfig;
+
+	constructor(config: SubmitTabStrategyConfig) {
+		this.config = config;
+	}
 
 	headingRows(_state: DialogState): Component[] {
 		return [

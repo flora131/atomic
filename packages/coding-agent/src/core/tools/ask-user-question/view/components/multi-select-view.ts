@@ -1,8 +1,8 @@
-import type { Theme } from "../../../../../modes/interactive/theme/theme.js";
+import type { Theme } from "../../../../../modes/interactive/theme/theme.ts";
 import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { ROW_INTENT_META } from "../../state/row-intent.js";
-import type { QuestionData } from "../../tool/types.js";
-import type { StatefulView } from "../stateful-view.js";
+import { ROW_INTENT_META } from "../../state/row-intent.ts";
+import type { QuestionData } from "../../tool/types.ts";
+import type { StatefulView } from "../stateful-view.ts";
 
 const ACTIVE_POINTER = "❯ ";
 const INACTIVE_POINTER = "  ";
@@ -35,10 +35,15 @@ export interface MultiSelectViewProps {
 export class MultiSelectView implements StatefulView<MultiSelectViewProps> {
 	private props: MultiSelectViewProps;
 
+	declare private readonly theme: Theme;
+	declare private readonly question: QuestionData;
+
 	constructor(
-		private readonly theme: Theme,
-		private readonly question: QuestionData,
+		theme: Theme,
+		question: QuestionData,
 	) {
+		this.theme = theme;
+		this.question = question;
 		this.props = { rows: [], nextActive: false, nextLabel: ROW_INTENT_META.next.label };
 	}
 

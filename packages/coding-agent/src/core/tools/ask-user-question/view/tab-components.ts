@@ -1,7 +1,7 @@
-import type { MultiSelectViewProps } from "./components/multi-select-view.js";
-import type { OptionListViewProps } from "./components/option-list-view.js";
-import type { PreviewPane } from "./components/preview/preview-pane.js";
-import type { StatefulView } from "./stateful-view.js";
+import type { MultiSelectViewProps } from "./components/multi-select-view.ts";
+import type { OptionListViewProps } from "./components/option-list-view.ts";
+import type { PreviewPane } from "./components/preview/preview-pane.ts";
+import type { StatefulView } from "./stateful-view.ts";
 
 export interface TabBodyHeights {
 	current: number;

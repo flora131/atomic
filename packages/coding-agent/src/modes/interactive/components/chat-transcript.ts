@@ -62,10 +62,16 @@ function needsLeadingSpacer(role: ChatTranscriptRole): boolean {
 export class ChatTranscriptComponent<TEntry extends ChatTranscriptEntryLike>
   implements Component
 {
+  declare private readonly entries: readonly TEntry[];
+  declare private readonly renderEntry: ChatTranscriptRenderer<TEntry>;
+
   constructor(
-    private readonly entries: readonly TEntry[],
-    private readonly renderEntry: ChatTranscriptRenderer<TEntry>,
-  ) {}
+    entries: readonly TEntry[],
+    renderEntry: ChatTranscriptRenderer<TEntry>,
+  ) {
+    this.entries = entries;
+    this.renderEntry = renderEntry;
+	}
 
   render(width: number): string[] {
     const container = new Container();

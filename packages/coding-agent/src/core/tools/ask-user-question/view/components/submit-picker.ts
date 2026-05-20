@@ -1,6 +1,6 @@
-import type { Theme } from "../../../../../modes/interactive/theme/theme.js";
+import type { Theme } from "../../../../../modes/interactive/theme/theme.ts";
 import { truncateToWidth } from "@earendil-works/pi-tui";
-import type { StatefulView } from "../stateful-view.js";
+import type { StatefulView } from "../stateful-view.ts";
 
 const ACTIVE_POINTER = "❯ ";
 const INACTIVE_POINTER = "  ";
@@ -33,7 +33,10 @@ export interface SubmitPickerProps {
 export class SubmitPicker implements StatefulView<SubmitPickerProps> {
 	private props: SubmitPickerProps;
 
-	constructor(private readonly theme: Theme) {
+	declare private readonly theme: Theme;
+
+	constructor(theme: Theme) {
+		this.theme = theme;
 		this.props = { rows: [{ active: false }, { active: false }] };
 	}
 

@@ -1,8 +1,8 @@
 import { type Terminal, TUI, visibleWidth } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, it } from "vitest";
-import { KeybindingsManager } from "../src/core/keybindings.js";
-import { CustomEditor } from "../src/modes/interactive/components/custom-editor.js";
-import { getEditorTheme, initTheme } from "../src/modes/interactive/theme/theme.js";
+import { KeybindingsManager } from "../src/core/keybindings.ts";
+import { CustomEditor } from "../src/modes/interactive/components/custom-editor.ts";
+import { getEditorTheme, initTheme } from "../src/modes/interactive/theme/theme.ts";
 
 class FakeTerminal implements Terminal {
 	columns = 80;

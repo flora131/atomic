@@ -10,9 +10,9 @@
  */
 
 import type { ExtensionAPI } from "@bastani/atomic";
-import { DoomOverlayComponent } from "./doom-component.js";
-import { DoomEngine } from "./doom-engine.js";
-import { ensureWadFile } from "./wad-finder.js";
+import { DoomOverlayComponent } from "./doom-component.ts";
+import { DoomEngine } from "./doom-engine.ts";
+import { ensureWadFile } from "./wad-finder.ts";
 
 // Persistent engine instance - survives between invocations
 let activeEngine: DoomEngine | null = null;

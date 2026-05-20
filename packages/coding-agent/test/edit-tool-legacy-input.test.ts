@@ -2,8 +2,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { ExtensionContext } from "../src/core/extensions/types.js";
-import { createEditToolDefinition } from "../src/core/tools/edit.js";
+import type { ExtensionContext } from "../src/core/extensions/types.ts";
+import { createEditToolDefinition } from "../src/core/tools/edit.ts";
 
 const tempDirs: string[] = [];
 

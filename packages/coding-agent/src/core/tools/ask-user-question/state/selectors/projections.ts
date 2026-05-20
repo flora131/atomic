@@ -1,13 +1,13 @@
-import type { ChatRowViewProps } from "../../view/components/chat-row-view.js";
-import { MULTI_SUBMIT_LABEL, type MultiSelectViewProps } from "../../view/components/multi-select-view.js";
-import type { OptionListViewProps } from "../../view/components/option-list-view.js";
-import type { PreviewPaneProps } from "../../view/components/preview/preview-pane.js";
-import type { SubmitPickerProps } from "../../view/components/submit-picker.js";
-import type { TabBarProps } from "../../view/components/tab-bar.js";
-import type { DialogProps } from "../../view/dialog-builder.js";
-import { ROW_INTENT_META } from "../row-intent.js";
-import type { GlobalSelector, PerTabSelector } from "./contract.js";
-import { chatNumberingFor, selectActiveTabItems, selectConfirmedIndicator } from "./derivations.js";
+import type { ChatRowViewProps } from "../../view/components/chat-row-view.ts";
+import { MULTI_SUBMIT_LABEL, type MultiSelectViewProps } from "../../view/components/multi-select-view.ts";
+import type { OptionListViewProps } from "../../view/components/option-list-view.ts";
+import type { PreviewPaneProps } from "../../view/components/preview/preview-pane.ts";
+import type { SubmitPickerProps } from "../../view/components/submit-picker.ts";
+import type { TabBarProps } from "../../view/components/tab-bar.ts";
+import type { DialogProps } from "../../view/dialog-builder.ts";
+import { ROW_INTENT_META } from "../row-intent.ts";
+import type { GlobalSelector, PerTabSelector } from "./contract.ts";
+import { chatNumberingFor, selectActiveTabItems, selectConfirmedIndicator } from "./derivations.ts";
 
 export const selectMultiSelectProps: PerTabSelector<MultiSelectViewProps> = (state, ctx) => {
 	const question = ctx.questions[ctx.i];

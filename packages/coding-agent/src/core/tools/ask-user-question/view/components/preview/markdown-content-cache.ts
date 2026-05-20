@@ -1,7 +1,7 @@
-import type { Theme } from "../../../../../../modes/interactive/theme/theme.js";
+import type { Theme } from "../../../../../../modes/interactive/theme/theme.ts";
 import { Markdown, type MarkdownTheme, visibleWidth } from "@earendil-works/pi-tui";
-import type { QuestionData } from "../../../tool/types.js";
-import { stripFenceMarkers } from "./preview-box-renderer.js";
+import type { QuestionData } from "../../../tool/types.ts";
+import { stripFenceMarkers } from "./preview-box-renderer.ts";
 
 /** CC parity in side-by-side layout. */
 export const MAX_PREVIEW_HEIGHT_SIDE_BY_SIDE = 20;

@@ -1,5 +1,5 @@
 import { Text, type Component } from "@earendil-works/pi-tui";
-import { theme } from "../theme/theme.js";
+import { theme } from "../theme/theme.ts";
 
 export interface WorkingStatusComponentOptions {
   /** Current spinner frame. Pass an empty string to render message-only status. */
@@ -20,7 +20,11 @@ export interface WorkingStatusComponentOptions {
  * text gutter before the spinner/message row.
  */
 export class WorkingStatusComponent implements Component {
-  constructor(private readonly options: WorkingStatusComponentOptions = {}) {}
+  declare private readonly options: WorkingStatusComponentOptions;
+
+  constructor(options: WorkingStatusComponentOptions = {}) {
+    this.options = options;
+	}
 
   render(width: number): string[] {
     const spinner = this.options.spinner ?? "⠋";

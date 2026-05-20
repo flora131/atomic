@@ -1,29 +1,29 @@
-import { getMarkdownTheme, type Theme } from "../../../../modes/interactive/theme/theme.js";
+import { getMarkdownTheme, type Theme } from "../../../../modes/interactive/theme/theme.ts";
 import { Input } from "@earendil-works/pi-tui";
-import type { QuestionData } from "../tool/types.js";
+import type { QuestionData } from "../tool/types.ts";
 import {
 	type BoundGlobalBinding,
 	type BoundPerTabBinding,
 	globalBinding,
 	perTabBinding,
-} from "../view/component-binding.js";
-import { ChatRowView } from "../view/components/chat-row-view.js";
-import { MultiSelectView } from "../view/components/multi-select-view.js";
-import { OptionListView } from "../view/components/option-list-view.js";
-import { PreviewBlockRenderer } from "../view/components/preview/preview-block-renderer.js";
-import { crossTabLeftWidthWithDonation } from "../view/components/preview/preview-layout-decider.js";
-import type { PreviewPaneProps } from "../view/components/preview/preview-pane.js";
-import { PreviewPane } from "../view/components/preview/preview-pane.js";
-import { SubmitPicker } from "../view/components/submit-picker.js";
-import { TabBar } from "../view/components/tab-bar.js";
-import type { WrappingSelectItem, WrappingSelectTheme } from "../view/components/wrapping-select.js";
-import { DialogView } from "../view/dialog-builder.js";
-import { QuestionnairePropsAdapter } from "../view/props-adapter.js";
-import type { StatefulView } from "../view/stateful-view.js";
-import type { TabBodyHeights, TabComponents } from "../view/tab-components.js";
-import { ROW_INTENT_META } from "./row-intent.js";
-import type { PerTabSelector } from "./selectors/contract.js";
-import { selectActivePreviewPaneIndex } from "./selectors/derivations.js";
+} from "../view/component-binding.ts";
+import { ChatRowView } from "../view/components/chat-row-view.ts";
+import { MultiSelectView } from "../view/components/multi-select-view.ts";
+import { OptionListView } from "../view/components/option-list-view.ts";
+import { PreviewBlockRenderer } from "../view/components/preview/preview-block-renderer.ts";
+import { crossTabLeftWidthWithDonation } from "../view/components/preview/preview-layout-decider.ts";
+import type { PreviewPaneProps } from "../view/components/preview/preview-pane.ts";
+import { PreviewPane } from "../view/components/preview/preview-pane.ts";
+import { SubmitPicker } from "../view/components/submit-picker.ts";
+import { TabBar } from "../view/components/tab-bar.ts";
+import type { WrappingSelectItem, WrappingSelectTheme } from "../view/components/wrapping-select.ts";
+import { DialogView } from "../view/dialog-builder.ts";
+import { QuestionnairePropsAdapter } from "../view/props-adapter.ts";
+import type { StatefulView } from "../view/stateful-view.ts";
+import type { TabBodyHeights, TabComponents } from "../view/tab-components.ts";
+import { ROW_INTENT_META } from "./row-intent.ts";
+import type { PerTabSelector } from "./selectors/contract.ts";
+import { selectActivePreviewPaneIndex } from "./selectors/derivations.ts";
 import {
 	selectChatRowProps,
 	selectDialogProps,
@@ -32,8 +32,8 @@ import {
 	selectPreviewPaneProps,
 	selectSubmitPickerProps,
 	selectTabBarProps,
-} from "./selectors/projections.js";
-import type { QuestionnaireState } from "./state.js";
+} from "./selectors/projections.ts";
+import type { QuestionnaireState } from "./state.ts";
 
 export interface QuestionnaireBuildConfig {
 	tui: { terminal: { columns: number }; requestRender(): void };

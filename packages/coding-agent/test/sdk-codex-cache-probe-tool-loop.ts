@@ -24,15 +24,15 @@ import {
 import {
 	getOpenAICodexWebSocketDebugStats,
 	streamSimpleOpenAICodexResponses,
-} from "../../ai/src/providers/openai-codex-responses.js";
-import { AuthStorage } from "../src/core/auth-storage.js";
-import { createExtensionRuntime } from "../src/core/extensions/loader.js";
-import type { ToolDefinition } from "../src/core/extensions/types.js";
-import { ModelRegistry } from "../src/core/model-registry.js";
-import type { ResourceLoader } from "../src/core/resource-loader.js";
-import { createAgentSession } from "../src/core/sdk.js";
-import { SessionManager } from "../src/core/session-manager.js";
-import { SettingsManager } from "../src/core/settings-manager.js";
+} from "../../ai/src/providers/openai-codex-responses.ts";
+import { AuthStorage } from "../src/core/auth-storage.ts";
+import { createExtensionRuntime } from "../src/core/extensions/loader.ts";
+import type { ToolDefinition } from "../src/core/extensions/types.ts";
+import { ModelRegistry } from "../src/core/model-registry.ts";
+import type { ResourceLoader } from "../src/core/resource-loader.ts";
+import { createAgentSession } from "../src/core/sdk.ts";
+import { SessionManager } from "../src/core/session-manager.ts";
+import { SettingsManager } from "../src/core/settings-manager.ts";
 
 type Transport = "sse" | "websocket" | "websocket-cached" | "auto";
 

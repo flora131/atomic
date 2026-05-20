@@ -1,4 +1,4 @@
-import type { ActiveView } from "../../view/stateful-view.js";
+import type { ActiveView } from "../../view/stateful-view.ts";
 
 /**
  * Discriminated focus selector — single source of truth for "which view owns

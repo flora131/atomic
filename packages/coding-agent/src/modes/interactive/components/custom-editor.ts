@@ -1,5 +1,5 @@
 import { Editor, type EditorOptions, type EditorTheme, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import type { AppKeybinding, KeybindingsManager } from "../../../core/keybindings.js";
+import type { AppKeybinding, KeybindingsManager } from "../../../core/keybindings.ts";
 
 export interface CustomEditorOptions extends EditorOptions {
 	promptPrefix?: string;

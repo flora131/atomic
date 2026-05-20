@@ -157,4 +157,4 @@ export function getEntriesForVersion(entries: ChangelogEntry[], version: string)
 }
 
 // Re-export getChangelogPath from paths.ts for convenience
-export { getChangelogPath } from "../config.js";
+export { getChangelogPath } from "../config.ts";

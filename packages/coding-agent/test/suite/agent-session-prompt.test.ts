@@ -5,10 +5,10 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { fauxAssistantMessage, fauxToolCall, type Model } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
-import type { PromptTemplate } from "../../src/core/prompt-templates.js";
-import { createSyntheticSourceInfo } from "../../src/core/source-info.js";
-import { createTestResourceLoader } from "../utilities.js";
-import { createHarness, getMessageText, type Harness } from "./harness.js";
+import type { PromptTemplate } from "../../src/core/prompt-templates.ts";
+import { createSyntheticSourceInfo } from "../../src/core/source-info.ts";
+import { createTestResourceLoader } from "../utilities.ts";
+import { createHarness, getMessageText, type Harness } from "./harness.ts";
 
 describe("AgentSession prompt characterization", () => {
 	const harnesses: Harness[] = [];

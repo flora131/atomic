@@ -1,5 +1,5 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { Theme } from "../theme/theme.js";
+import type { Theme } from "../theme/theme.ts";
 
 const ATOMIC_FORALL_BANNER_LINES: readonly string[] = [
   "  ██████▙                  ▟██████  ",

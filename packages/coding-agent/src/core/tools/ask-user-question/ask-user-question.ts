@@ -1,8 +1,8 @@
-import type { ToolDefinition } from "../../extensions/types.js";
-import { loadConfig, validateGuidanceFields } from "./config.js";
-import { QuestionnaireSession } from "./state/questionnaire-session.js";
-import { ROW_INTENT_META, sentinelsToAppend } from "./state/row-intent.js";
-import { buildQuestionnaireResponse, buildToolResult } from "./tool/response-envelope.js";
+import type { ToolDefinition } from "../../extensions/types.ts";
+import { loadConfig, validateGuidanceFields } from "./config.ts";
+import { QuestionnaireSession } from "./state/questionnaire-session.ts";
+import { ROW_INTENT_META, sentinelsToAppend } from "./state/row-intent.ts";
+import { buildQuestionnaireResponse, buildToolResult } from "./tool/response-envelope.ts";
 import {
 	MAX_OPTIONS,
 	MAX_QUESTIONS,
@@ -11,9 +11,9 @@ import {
 	type QuestionnaireResult,
 	type QuestionParams,
 	QuestionParamsSchema,
-} from "./tool/types.js";
-import { validateQuestionnaire } from "./tool/validate-questionnaire.js";
-import type { WrappingSelectItem } from "./view/components/wrapping-select.js";
+} from "./tool/types.ts";
+import { validateQuestionnaire } from "./tool/validate-questionnaire.ts";
+import type { WrappingSelectItem } from "./view/components/wrapping-select.ts";
 
 const ERROR_NO_UI = "Error: UI not available (running in non-interactive mode)";
 

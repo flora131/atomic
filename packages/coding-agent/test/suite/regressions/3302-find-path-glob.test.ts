@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createFindToolDefinition } from "../../../src/core/tools/find.js";
+import { createFindToolDefinition } from "../../../src/core/tools/find.ts";
 
 /**
  * Regression test for https://github.com/earendil-works/pi-mono/issues/3302

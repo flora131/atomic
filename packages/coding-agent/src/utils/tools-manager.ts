@@ -13,7 +13,7 @@ import { arch, platform } from "os";
 import { join } from "path";
 import { Readable } from "stream";
 import { pipeline } from "stream/promises";
-import { APP_NAME, ENV_OFFLINE, getBinDir, getEnvValue } from "../config.js";
+import { APP_NAME, ENV_OFFLINE, getBinDir, getEnvValue } from "../config.ts";
 
 const TOOLS_DIR = getBinDir();
 const NETWORK_TIMEOUT_MS = 10_000;

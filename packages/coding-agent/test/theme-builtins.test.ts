@@ -4,7 +4,7 @@ import {
 	getAvailableThemesWithPaths,
 	getThemeByName,
 	isLightTheme,
-} from "../src/modes/interactive/theme/theme.js";
+} from "../src/modes/interactive/theme/theme.ts";
 
 const CATPPUCCIN_THEMES = [
 	"catppuccin-frappe",

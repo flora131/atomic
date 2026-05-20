@@ -1,20 +1,25 @@
 import chalk from "chalk";
-import { spawn } from "child_process";
-import { selectConfig } from "./cli/config-selector.js";
+import { selectConfig } from "./cli/config-selector.ts";
 import {
 	APP_NAME,
 	CONFIG_DIR_NAME,
+	detectInstallMethod,
 	getAgentDir,
+	getPackageDir,
 	getSelfUpdateCommand,
 	getSelfUpdateUnavailableInstruction,
 	PACKAGE_NAME,
 	type SelfUpdateCommand,
 	VERSION,
-} from "./config.js";
-import { DefaultPackageManager } from "./core/package-manager.js";
-import { SettingsManager } from "./core/settings-manager.js";
-import { shouldUseWindowsShell } from "./utils/child-process.js";
-import { getLatestPiRelease, isNewerPackageVersion } from "./utils/version-check.js";
+} from "./config.ts";
+import { DefaultPackageManager } from "./core/package-manager.ts";
+import { SettingsManager } from "./core/settings-manager.ts";
+import { spawnProcess } from "./utils/child-process.ts";
+import { getLatestPiRelease, isNewerPackageVersion } from "./utils/version-check.ts";
+import {
+	cleanupWindowsSelfUpdateQuarantine,
+	quarantineWindowsNativeDependencies,
+} from "./utils/windows-self-update.ts";
 
 export type PackageCommand = "install" | "remove" | "update" | "list";
 
@@ -317,10 +322,8 @@ async function runSelfUpdate(command: SelfUpdateCommand): Promise<void> {
 	console.log(chalk.dim(`Updating ${APP_NAME} with ${command.display}...`));
 	for (const step of command.steps ?? [command]) {
 		await new Promise<void>((resolve, reject) => {
-			// Windows package managers are commonly .cmd shims. Use the shell so Node can execute them.
-			const child = spawn(step.command, step.args, {
+			const child = spawnProcess(step.command, step.args, {
 				stdio: "inherit",
-				shell: shouldUseWindowsShell(step.command),
 			});
 			child.on("error", (error) => {
 				reject(error);
@@ -336,6 +339,16 @@ async function runSelfUpdate(command: SelfUpdateCommand): Promise<void> {
 			});
 		});
 	}
+}
+
+function prepareWindowsNpmSelfUpdate(): void {
+	if (process.platform !== "win32") {
+		return;
+	}
+
+	const packageDir = getPackageDir();
+	cleanupWindowsSelfUpdateQuarantine(packageDir);
+	quarantineWindowsNativeDependencies(packageDir);
 }
 
 export async function handleConfigCommand(args: string[]): Promise<boolean> {
@@ -491,6 +504,15 @@ export async function handlePackageCommand(args: string[]): Promise<boolean> {
 					if (!selfUpdatePlan.shouldRun) {
 						return true;
 					}
+					const installMethod = detectInstallMethod();
+					if (process.platform === "win32" && installMethod !== "npm" && installMethod !== "pnpm") {
+						console.error(
+							chalk.red(`${APP_NAME} self-update on Windows is only supported for npm and pnpm installs.`),
+						);
+						console.error(chalk.dim(`Detected install method: ${installMethod}. Update ${APP_NAME} manually.`));
+						process.exitCode = 1;
+						return true;
+					}
 					const selfUpdateCommand = getSelfUpdateCommand(
 						PACKAGE_NAME,
 						selfUpdateNpmCommand,
@@ -502,6 +524,9 @@ export async function handlePackageCommand(args: string[]): Promise<boolean> {
 						return true;
 					}
 					try {
+						if (installMethod === "npm") {
+							prepareWindowsNpmSelfUpdate();
+						}
 						await runSelfUpdate(selfUpdateCommand);
 					} catch (error: unknown) {
 						const message = error instanceof Error ? error.message : "Unknown package command error";

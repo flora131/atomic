@@ -1,6 +1,6 @@
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
-import { createHarness, getAssistantTexts, type Harness } from "../harness.js";
+import { createHarness, getAssistantTexts, type Harness } from "../harness.ts";
 
 describe("issue #3317 network connection lost retry", () => {
 	const harnesses: Harness[] = [];

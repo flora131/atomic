@@ -1,6 +1,6 @@
 import * as path from "node:path";
 import type { AutocompleteItem } from "@earendil-works/pi-tui";
-import { getChangelogPath, parseChangelog } from "../utils/changelog.js";
+import { getChangelogPath, parseChangelog } from "../utils/changelog.ts";
 
 export const ATOMIC_GUIDE_COMMAND_NAME = "atomic";
 export const ATOMIC_GUIDE_COMMAND_DESCRIPTION = "Atomic onboarding and help guide";

@@ -1,14 +1,38 @@
-import type { ChildProcess } from "node:child_process";
-import { basename } from "node:path";
+import {
+	type ChildProcess,
+	type ChildProcessByStdio,
+	spawn as nodeSpawn,
+	spawnSync as nodeSpawnSync,
+	type SpawnOptions,
+	type SpawnOptionsWithStdioTuple,
+	type SpawnSyncOptionsWithStringEncoding,
+	type SpawnSyncReturns,
+	type StdioNull,
+	type StdioPipe,
+} from "node:child_process";
+import type { Readable } from "node:stream";
+import crossSpawn from "cross-spawn";
 
 const EXIT_STDIO_GRACE_MS = 100;
 
-const WINDOWS_SHELL_COMMANDS = new Set(["npm", "npx", "pnpm", "yarn", "yarnpkg", "corepack"]);
+export function spawnProcess(
+	command: string,
+	args: string[],
+	options: SpawnOptionsWithStdioTuple<StdioNull, StdioPipe, StdioPipe>,
+): ChildProcessByStdio<null, Readable, Readable>;
+export function spawnProcess(command: string, args: string[], options: SpawnOptions): ChildProcess;
+export function spawnProcess(command: string, args: string[], options: SpawnOptions): ChildProcess {
+	return process.platform === "win32" ? crossSpawn(command, args, options) : nodeSpawn(command, args, options);
+}
 
-export function shouldUseWindowsShell(command: string): boolean {
-	if (process.platform !== "win32") return false;
-	const commandName = basename(command).toLowerCase();
-	return commandName.endsWith(".cmd") || commandName.endsWith(".bat") || WINDOWS_SHELL_COMMANDS.has(commandName);
+export function spawnProcessSync(
+	command: string,
+	args: string[],
+	options: SpawnSyncOptionsWithStringEncoding,
+): SpawnSyncReturns<string> {
+	return process.platform === "win32"
+		? crossSpawn.sync(command, args, options)
+		: nodeSpawnSync(command, args, options);
 }
 
 /**

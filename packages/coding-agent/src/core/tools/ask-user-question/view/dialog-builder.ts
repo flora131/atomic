@@ -1,15 +1,15 @@
-import { DynamicBorder } from "../../../../modes/interactive/components/index.js";
-import type { Theme } from "../../../../modes/interactive/theme/theme.js";
+import { DynamicBorder } from "../../../../modes/interactive/components/index.ts";
+import type { Theme } from "../../../../modes/interactive/theme/theme.ts";
 import { type Component, Container, type Input, Spacer } from "@earendil-works/pi-tui";
-import type { QuestionnaireState } from "../state/state.js";
-import type { QuestionData } from "../tool/types.js";
-import { BodyResidualSpacer } from "./body-residual-spacer.js";
-import type { ChatRowView } from "./components/chat-row-view.js";
-import type { PreviewPaneProps } from "./components/preview/preview-pane.js";
-import type { TabBar } from "./components/tab-bar.js";
-import type { StatefulView } from "./stateful-view.js";
-import type { TabComponents } from "./tab-components.js";
-import { QuestionTabStrategy, SubmitTabStrategy, type TabContentStrategy } from "./tab-content-strategy.js";
+import type { QuestionnaireState } from "../state/state.ts";
+import type { QuestionData } from "../tool/types.ts";
+import { BodyResidualSpacer } from "./body-residual-spacer.ts";
+import type { ChatRowView } from "./components/chat-row-view.ts";
+import type { PreviewPaneProps } from "./components/preview/preview-pane.ts";
+import type { TabBar } from "./components/tab-bar.ts";
+import type { StatefulView } from "./stateful-view.ts";
+import type { TabComponents } from "./tab-components.ts";
+import { QuestionTabStrategy, SubmitTabStrategy, type TabContentStrategy } from "./tab-content-strategy.ts";
 
 export const HINT_PART_ENTER = "enter select";
 export const HINT_PART_NAV = "↑/↓ navigate";

@@ -1,7 +1,7 @@
 import { Key, matchesKey } from "@earendil-works/pi-tui";
-import type { QuestionAnswer } from "../tool/types.js";
-import { ROW_INTENT_META } from "./row-intent.js";
-import type { QuestionnaireRuntime, QuestionnaireState } from "./state.js";
+import type { QuestionAnswer } from "../tool/types.ts";
+import { ROW_INTENT_META } from "./row-intent.ts";
+import type { QuestionnaireRuntime, QuestionnaireState } from "./state.ts";
 
 const KEYBIND_UP = "tui.select.up";
 const KEYBIND_DOWN = "tui.select.down";

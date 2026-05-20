@@ -27,10 +27,10 @@ import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Type } from "typebox";
-import { APP_NAME, CONFIG_DIR_NAME, getEnvValue } from "../../config.js";
-import type { ExtensionContext, ToolDefinition } from "../extensions/types.js";
-import { keyHint } from "../../modes/interactive/components/keybinding-hints.js";
-import type { Theme } from "../../modes/interactive/theme/theme.js";
+import { APP_NAME, CONFIG_DIR_NAME, getEnvValue } from "../../config.ts";
+import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
+import { keyHint } from "../../modes/interactive/components/keybinding-hints.ts";
+import type { Theme } from "../../modes/interactive/theme/theme.ts";
 
 const TODO_DIR_NAME = `${CONFIG_DIR_NAME}/todos`;
 const TODO_PATH_ENV = `${APP_NAME.toUpperCase()}_TODO_PATH`;

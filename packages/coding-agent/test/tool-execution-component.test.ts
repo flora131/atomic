@@ -2,14 +2,14 @@ import { join, resolve } from "node:path";
 import { Text, type TUI } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { beforeAll, describe, expect, test } from "vitest";
-import { getReadmePath } from "../src/config.js";
-import type { ToolDefinition } from "../src/core/extensions/types.js";
-import { type BashOperations, createBashToolDefinition } from "../src/core/tools/bash.js";
-import { createReadTool, createReadToolDefinition } from "../src/core/tools/read.js";
-import { createWriteToolDefinition } from "../src/core/tools/write.js";
-import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.js";
-import { initTheme } from "../src/modes/interactive/theme/theme.js";
-import { stripAnsi } from "../src/utils/ansi.js";
+import { getReadmePath } from "../src/config.ts";
+import type { ToolDefinition } from "../src/core/extensions/types.ts";
+import { type BashOperations, createBashToolDefinition } from "../src/core/tools/bash.ts";
+import { createReadTool, createReadToolDefinition } from "../src/core/tools/read.ts";
+import { createWriteToolDefinition } from "../src/core/tools/write.ts";
+import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";
+import { initTheme } from "../src/modes/interactive/theme/theme.ts";
+import { stripAnsi } from "../src/utils/ansi.ts";
 
 function createBaseToolDefinition(name = "custom_tool"): ToolDefinition {
 	return {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { getPiUserAgent } from "../src/utils/pi-user-agent.js";
-import { APP_NAME } from "../src/index.js";
+import { getPiUserAgent } from "../src/utils/pi-user-agent.ts";
+import { APP_NAME } from "../src/index.ts";
 
 describe("getPiUserAgent", () => {
   it(`formats the user agent expected by ${APP_NAME}`, () => {

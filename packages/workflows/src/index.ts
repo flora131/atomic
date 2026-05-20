@@ -3,23 +3,11 @@
  * Public entry point — re-exports the authoring API and public types.
  */
 
-export { defineWorkflow } from "./workflows/define-workflow.js";
-export { createRegistry } from "./workflows/registry.js";
-export { normalizeWorkflowName, workflowNamesEqual } from "./workflows/identity.js";
-export type * from "./shared/types.js";
-export type { WorkflowBuilder, CompletedWorkflowBuilder } from "./workflows/define-workflow.js";
-export type { WorkflowRegistry } from "./workflows/registry.js";
+// Add new non-cyclic public runtime exports to sdk-surface.ts so the Bun
+// virtual SDK used by workflow discovery stays in lockstep with this entry.
+export * from "./sdk-surface.js";
 
-export { run, runTask, runParallel, runChain, resolveInputs } from "./runs/foreground/executor.js";
-export type { RunOpts, RunResult, ResolvedInputs } from "./runs/foreground/executor.js";
+// runWorkflow is exported here only: workflow-runner imports discovery.ts, so
+// discovery provides a lazy wrapper instead of importing this entry eagerly.
 export { runWorkflow } from "./runs/shared/workflow-runner.js";
 export type { WorkflowOptions, WorkflowRunOptions } from "./runs/shared/workflow-runner.js";
-export type { AgentSessionAdapter, StageAdapters } from "./runs/foreground/stage-runner.js";
-export { GraphFrontierTracker } from "./runs/shared/graph-inference.js";
-export type { StageNode } from "./runs/shared/graph-inference.js";
-export { createStore, store } from "./shared/store.js";
-export type { RunStatus, StageStatus, ToolEvent, StageSnapshot, RunSnapshot, StoreSnapshot, WorkflowNotice, NoticeLevel, WorkflowOverlayAdapter, PromptKind, PendingPrompt } from "./shared/store-types.js";
-
-// Phase D — cancellation registry
-export { createCancellationRegistry, cancellationRegistry } from "./runs/background/cancellation-registry.js";
-export type { CancellationRegistry, ActiveRunEntry } from "./runs/background/cancellation-registry.js";

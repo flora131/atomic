@@ -22,17 +22,12 @@
 
 import { existsSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { join, resolve, extname, isAbsolute } from "node:path";
-import { fileURLToPath } from "node:url";
 import { CONFIG_DIR_NAMES, getProjectConfigPaths, isBunBinary } from "@bastani/atomic";
 import { createJiti } from "jiti/static";
 import type { WorkflowDefinition } from "../shared/types.js";
-import { GraphFrontierTracker } from "../runs/shared/graph-inference.js";
-import { run, runChain, runParallel, runTask, resolveInputs } from "../runs/foreground/executor.js";
-import { createCancellationRegistry, cancellationRegistry } from "../runs/background/cancellation-registry.js";
-import { createStore, store } from "../shared/store.js";
-import { defineWorkflow } from "../workflows/define-workflow.js";
-import { normalizeWorkflowName, workflowNamesEqual } from "../workflows/identity.js";
+import * as workflowsSdkSurface from "../sdk-surface.js";
 import { createRegistry } from "../workflows/registry.js";
 import type { WorkflowRegistry } from "../workflows/registry.js";
 import * as bundledManifest from "../../builtin/index.js";
@@ -292,35 +287,27 @@ const runWorkflow: RunWorkflowFunction = async (...args) => {
   return actualRunWorkflow(...args);
 };
 
+const require = createRequire(import.meta.url);
 const WORKFLOWS_MODULE_SPECIFIER = "@bastani/workflows";
-const WORKFLOWS_SDK_ENTRY_URL = new URL("../index.ts", import.meta.url);
+// Keep this in sync with index.ts through sdk-surface.ts. runWorkflow stays as
+// a lazy wrapper because the public re-export comes from workflow-runner.ts,
+// which imports this discovery module and would otherwise reintroduce a cycle.
 const WORKFLOWS_SDK_MODULE: Record<string, unknown> = {
-  defineWorkflow,
-  createRegistry,
-  normalizeWorkflowName,
-  workflowNamesEqual,
-  run,
-  runTask,
-  runParallel,
-  runChain,
-  resolveInputs,
+  ...workflowsSdkSurface,
   runWorkflow,
-  GraphFrontierTracker,
-  createStore,
-  store,
-  createCancellationRegistry,
-  cancellationRegistry,
 };
 const WORKFLOWS_VIRTUAL_MODULES: Record<string, unknown> = {
   [WORKFLOWS_MODULE_SPECIFIER]: WORKFLOWS_SDK_MODULE,
 };
 
 function resolveWorkflowsSdkAlias(): string {
-  const sdkEntry = fileURLToPath(WORKFLOWS_SDK_ENTRY_URL);
+  // Resolve the package self-reference through package.json exports instead of
+  // pinning discovery.ts to the current src/extension -> src/index.ts layout.
+  const sdkEntry = require.resolve(WORKFLOWS_MODULE_SPECIFIER);
   if (!existsSync(sdkEntry)) {
     throw new Error(
       `Unable to resolve ${WORKFLOWS_MODULE_SPECIFIER} SDK entry at ${sdkEntry}. ` +
-        "Update WORKFLOWS_SDK_ENTRY_URL if discovery.ts moves.",
+        "Check the package exports map for the workflows SDK entry.",
     );
   }
   return sdkEntry;

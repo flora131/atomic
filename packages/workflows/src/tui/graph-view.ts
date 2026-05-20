@@ -539,7 +539,12 @@ export class GraphView implements Component {
     const run = this._getCurrentRun();
     if (!run || this.cachedLayout.length === 0) {
       const dim = hexToAnsi(this.graphTheme.dim);
-      return [`  ${dim}waiting for stage events…${RESET}`];
+      return [
+        this._centerCanvasContent(
+          `${dim}waiting for stage events…${RESET}`,
+          width,
+        ),
+      ];
     }
 
     const graphInner = Math.max(1, width - 4);
@@ -896,6 +901,12 @@ export class GraphView implements Component {
   /** Blank canvas row — single line of `bg`. */
   private _blankRow(width: number): string {
     return `${hexBg(this.graphTheme.bg)}${" ".repeat(width)}${RESET}`;
+  }
+
+  private _centerCanvasContent(content: string, width: number): string {
+    const truncated = truncateToWidth(content, width, "…", true);
+    const leftPad = Math.max(0, Math.floor((width - visibleWidth(truncated)) / 2));
+    return `${" ".repeat(leftPad)}${truncated}`;
   }
 
   /** Wrap content in a canvas-bg row, padded to `width`. Re-emits the

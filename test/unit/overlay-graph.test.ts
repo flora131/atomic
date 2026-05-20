@@ -815,6 +815,30 @@ describe("GraphView keyboard navigation", () => {
     view.dispose();
   });
 
+  it("centers the waiting-for-events message in an empty graph body", () => {
+    const snap = makeSnap([]);
+    const store = makeStore(snap);
+    const view = new GraphView({
+      mode: "overlay",
+      runId: "run-1",
+      store,
+      graphTheme: defaultTheme,
+      getViewportRows: () => 16,
+    });
+    const width = 80;
+    const message = "waiting for stage events…";
+    const waitingLine = visibleText(view.render(width))
+      .split("\n")
+      .find((line) => line.includes(message));
+
+    assert.ok(waitingLine, "expected waiting message to render");
+    assert.equal(
+      waitingLine.indexOf(message),
+      Math.floor((width - visibleWidth(message)) / 2),
+    );
+    view.dispose();
+  });
+
   it("empty-state overlay also fills the reported viewport rows", () => {
     // No active run — the empty welcome panel must respect the same
     // viewport-row contract so the full-screen overlay doesn't snap

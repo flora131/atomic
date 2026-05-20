@@ -1199,22 +1199,35 @@ function fitWidgetLineBudget(
   ];
 }
 
+class LiveWidgetComponent implements Component {
+  constructor(
+    private readonly jobs: AsyncJobState[],
+    private readonly theme: Theme,
+    private readonly getExpanded: () => boolean,
+  ) {}
+
+  render(width: number): string[] {
+    const termWidth = Math.min(width, getTermWidth());
+    const expanded = this.getExpanded();
+    const lines = expanded
+      ? buildWidgetLines(this.jobs, this.theme, termWidth, true)
+      : this.jobs.length === 1
+        ? compactSingleWidgetLines(this.jobs[0]!, this.theme, termWidth)
+        : buildWidgetLines(this.jobs, this.theme, termWidth, false);
+    const container = new Container();
+    for (const line of fitWidgetLineBudget(lines, this.theme, termWidth, expanded))
+      container.addChild(new Text(line, 1, 0));
+    return container.render(termWidth);
+  }
+
+  invalidate(): void {}
+}
+
 function buildWidgetComponent(
   jobs: AsyncJobState[],
-  expanded: boolean,
+  getExpanded: () => boolean,
 ): (_tui: unknown, theme: Theme) => Component {
-  return (_tui, theme) => {
-    const width = getTermWidth();
-    const lines = expanded
-      ? buildWidgetLines(jobs, theme, width, true)
-      : jobs.length === 1
-        ? compactSingleWidgetLines(jobs[0]!, theme, width)
-        : buildWidgetLines(jobs, theme, width, false);
-    const container = new Container();
-    for (const line of fitWidgetLineBudget(lines, theme, width, expanded))
-      container.addChild(new Text(line, 1, 0));
-    return container;
-  };
+  return (_tui, theme) => new LiveWidgetComponent(jobs, theme, getExpanded);
 }
 
 function hasAnimatedWidgetJobs(jobs: AsyncJobState[]): boolean {
@@ -1225,13 +1238,6 @@ function refreshAnimatedWidget(): void {
   if (!latestWidgetCtx?.hasUI) return;
   runningAnimationFrame = (runningAnimationFrame + 1) % RUNNING_FRAMES.length;
   try {
-    latestWidgetCtx.ui.setWidget(
-      WIDGET_KEY,
-      buildWidgetComponent(
-        latestWidgetJobs,
-        latestWidgetCtx.ui.getToolsExpanded?.() ?? false,
-      ),
-    );
     requestRender(latestWidgetCtx);
   } catch (error) {
     if (!isStaleExtensionContextError(error)) throw error;
@@ -1379,7 +1385,7 @@ export function renderWidget(
   latestWidgetJobs = [...jobs];
   ctx.ui.setWidget(
     WIDGET_KEY,
-    buildWidgetComponent(jobs, ctx.ui.getToolsExpanded?.() ?? false),
+    buildWidgetComponent(jobs, () => ctx.ui.getToolsExpanded?.() ?? false),
   );
   if (hasAnimatedWidgetJobs(jobs)) ensureWidgetAnimation();
   else stopWidgetAnimation();

@@ -1,7 +1,7 @@
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
-import { clearLegacyResultAnimationTimer, renderSubagentResult, syncResultAnimation, widgetRenderKey } from "../../packages/subagents/src/tui/render.js";
+import { clearLegacyResultAnimationTimer, renderSubagentResult, renderWidget, stopWidgetAnimation, syncResultAnimation, widgetRenderKey } from "../../packages/subagents/src/tui/render.js";
 import type { AsyncJobState, Details } from "../../packages/subagents/src/shared/types.js";
 
 type RenderTheme = Parameters<typeof renderSubagentResult>[2];
@@ -104,6 +104,64 @@ describe("subagent render stability", () => {
       assert.notEqual(second, first);
     } finally {
       clearLegacyResultAnimationTimer(context);
+    }
+  });
+
+  test("running async widget animates without remounting the widget", async () => {
+    let widgetUpdates = 0;
+    let renderRequests = 0;
+    let component: { render(width: number): string[] } | undefined;
+    const ctx = {
+      hasUI: true,
+      ui: {
+        setWidget: (_key: string, factory: ((tui: unknown, theme: RenderTheme) => { render(width: number): string[] }) | undefined) => {
+          widgetUpdates++;
+          component = factory?.({}, theme);
+        },
+        requestRender: () => {
+          renderRequests++;
+        },
+        getToolsExpanded: () => false,
+      },
+    } as unknown as Parameters<typeof renderWidget>[0];
+    const job: AsyncJobState = {
+      asyncId: "abc123",
+      asyncDir: "/tmp/abc123",
+      status: "running",
+      mode: "single",
+      agents: ["worker"],
+      updatedAt: 10_000,
+      toolCount: 1,
+      turnCount: 2,
+    };
+
+    renderWidget(ctx, [job]);
+    try {
+      assert.equal(widgetUpdates, 1);
+      assert.ok(component, "expected widget component to be installed");
+      const first = component.render(120).join("\n");
+
+      await new Promise<void>((resolve, reject) => {
+        const poll = setInterval(() => {
+          if (renderRequests === 0) return;
+          clearTimeout(deadline);
+          clearInterval(poll);
+          resolve();
+        }, 10);
+        const deadline = setTimeout(() => {
+          clearInterval(poll);
+          reject(new Error("widget timer did not request render"));
+        }, 250);
+      });
+
+      assert.equal(
+        widgetUpdates,
+        1,
+        "animation ticks should request render without remounting setWidget",
+      );
+      assert.notEqual(component.render(120).join("\n"), first);
+    } finally {
+      stopWidgetAnimation();
     }
   });
 

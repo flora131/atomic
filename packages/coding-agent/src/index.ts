@@ -16,6 +16,7 @@ export {
 	getProjectConfigPaths,
 	getEnvNames,
 	getEnvValue,
+	isBunBinary,
 	getUserConfigDirs,
 	getUserConfigPaths,
 	hasEnvValue,

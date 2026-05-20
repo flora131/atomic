@@ -20,12 +20,19 @@
  *   const result = await discoverWorkflows({ cwd: process.cwd(), homeDir: os.homedir() });
  */
 
+import { existsSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { join, resolve, extname, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
-import { CONFIG_DIR_NAMES, getProjectConfigPaths } from "@bastani/atomic";
+import { CONFIG_DIR_NAMES, getProjectConfigPaths, isBunBinary } from "@bastani/atomic";
 import { createJiti } from "jiti/static";
 import type { WorkflowDefinition } from "../shared/types.js";
+import { GraphFrontierTracker } from "../runs/shared/graph-inference.js";
+import { run, runChain, runParallel, runTask, resolveInputs } from "../runs/foreground/executor.js";
+import { createCancellationRegistry, cancellationRegistry } from "../runs/background/cancellation-registry.js";
+import { createStore, store } from "../shared/store.js";
+import { defineWorkflow } from "../workflows/define-workflow.js";
+import { normalizeWorkflowName, workflowNamesEqual } from "../workflows/identity.js";
 import { createRegistry } from "../workflows/registry.js";
 import type { WorkflowRegistry } from "../workflows/registry.js";
 import * as bundledManifest from "../../builtin/index.js";
@@ -278,17 +285,63 @@ async function scanWorkflowDir(dir: string): Promise<string[] | null> {
  * jiti loads package-authored .ts/.js/.mjs/.cjs files with the same
  * @bastani/workflows authoring import that project/user workflow files use.
  */
+type RunWorkflowFunction = typeof import("../runs/shared/workflow-runner.js").runWorkflow;
+
+const runWorkflow: RunWorkflowFunction = async (...args) => {
+  const { runWorkflow: actualRunWorkflow } = await import("../runs/shared/workflow-runner.js");
+  return actualRunWorkflow(...args);
+};
+
+const WORKFLOWS_MODULE_SPECIFIER = "@bastani/workflows";
+const WORKFLOWS_SDK_ENTRY_URL = new URL("../index.ts", import.meta.url);
+const WORKFLOWS_SDK_MODULE: Record<string, unknown> = {
+  defineWorkflow,
+  createRegistry,
+  normalizeWorkflowName,
+  workflowNamesEqual,
+  run,
+  runTask,
+  runParallel,
+  runChain,
+  resolveInputs,
+  runWorkflow,
+  GraphFrontierTracker,
+  createStore,
+  store,
+  createCancellationRegistry,
+  cancellationRegistry,
+};
+const WORKFLOWS_VIRTUAL_MODULES: Record<string, unknown> = {
+  [WORKFLOWS_MODULE_SPECIFIER]: WORKFLOWS_SDK_MODULE,
+};
+
+function resolveWorkflowsSdkAlias(): string {
+  const sdkEntry = fileURLToPath(WORKFLOWS_SDK_ENTRY_URL);
+  if (!existsSync(sdkEntry)) {
+    throw new Error(
+      `Unable to resolve ${WORKFLOWS_MODULE_SPECIFIER} SDK entry at ${sdkEntry}. ` +
+        "Update WORKFLOWS_SDK_ENTRY_URL if discovery.ts moves.",
+    );
+  }
+  return sdkEntry;
+}
+
 const workflowModuleLoader = createJiti(import.meta.url, {
   moduleCache: false,
-  alias: {
-    "@bastani/workflows": fileURLToPath(new URL("../index.ts", import.meta.url)),
-  },
+  // Keep workflow-file import semantics deterministic: jiti owns .ts/.js/.mjs/.cjs
+  // resolution instead of handing some imports back to native import().
+  tryNative: false,
+  ...(isBunBinary
+    ? { virtualModules: WORKFLOWS_VIRTUAL_MODULES }
+    : { alias: { [WORKFLOWS_MODULE_SPECIFIER]: resolveWorkflowsSdkAlias() } }),
 });
 
 function normalizeWorkflowModule(mod: unknown): Record<string, unknown> {
   if (mod !== null && typeof mod === "object") {
     return mod as Record<string, unknown>;
   }
+  // CJS/default interop can return the exported value directly; wrap it so the
+  // candidate collector can handle it the same way as an ESM default export.
   return { default: mod };
 }
 

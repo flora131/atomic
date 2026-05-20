@@ -699,7 +699,7 @@ function loadAgentsFromDir(dir: string, source: AgentSource): AgentConfig[] {
 	return agents;
 }
 
-function loadChainsFromDir(dir: string, source: AgentSource): ChainConfig[] {
+function loadChainsFromDir(dir: string, source: "user" | "project"): ChainConfig[] {
 	const chains: ChainConfig[] = [];
 
 	for (const filePath of listMarkdownFilesRecursive(dir, (fileName) => fileName.endsWith(".chain.md"))) {

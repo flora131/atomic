@@ -47,9 +47,14 @@ export function formatUsage(u: Usage, model?: string): string {
  * Format duration in human-readable form
  */
 export function formatDuration(ms: number): string {
-	if (ms < 1000) return `${ms}ms`;
-	if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-	return `${Math.floor(ms / 60000)}m${Math.floor((ms % 60000) / 1000)}s`;
+	const totalSeconds = Math.floor(Math.max(0, ms) / 1000);
+	const hours = Math.floor(totalSeconds / 3600);
+	const minutes = Math.floor((totalSeconds % 3600) / 60);
+	const seconds = totalSeconds % 60;
+
+	if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+	if (minutes > 0) return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+	return `${seconds}s`;
 }
 
 /**

@@ -58,7 +58,7 @@ export function statusIcon(status: StageStatus | RunStatus): string {
 
 /** Format milliseconds as "1m 24s", "45s", "3h 2m". */
 export function fmtDuration(ms: number): string {
-  const totalSeconds = Math.floor(ms / 1000);
+  const totalSeconds = Math.floor(Math.max(0, ms) / 1000);
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;

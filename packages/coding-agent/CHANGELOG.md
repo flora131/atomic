@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+## [0.8.12] - 2026-05-20
+
+### Added
+
+- Added a configurable HTTP idle timeout for long-running model and web requests, with selectable presets from 30 seconds through 30 minutes and an option to disable the timeout.
+- Added the Atomic workflows documentation page and navigation so users can discover workflow authoring and execution guidance from the Atomic docs.
+
+### Changed
+
+- Promoted the 0.8.12 prerelease changes to a stable release.
+- Updated the bundled Pi libraries to 0.75.4.
+- Migrated internal runtime, tool, TUI, tests, and extension example imports to explicit `.ts` specifiers to improve raw-TypeScript extension compatibility.
+- Refreshed Atomic documentation for package usage, customization, workflows, and release guidance.
+- Included selected model reasoning level metadata in generated system prompts and project context markup.
+
+### Fixed
+
+- Improved Windows self-update behavior for package-manager installs, including native dependency cleanup, quarantine handling, and clearer messaging when updates are unavailable.
+- Stabilized subagent live result rendering, async render updates, transient child-error recovery, and live widget animations.
+- Detached settled workflow stages from run-control tracking and centered the empty workflow graph waiting state.
+- Normalized negative and fractional duration displays across bash, subagent, and workflow UI renderers.
+
 ## [0.8.12-0] - 2026-05-20
 
 ### Added

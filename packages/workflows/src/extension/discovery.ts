@@ -323,16 +323,40 @@ const workflowModuleLoader = createJiti(import.meta.url, {
     : { alias: { [WORKFLOWS_MODULE_SPECIFIER]: resolveWorkflowsSdkAlias() } }),
 });
 
+function materializeModuleObject(mod: object): Record<string, unknown> {
+  const materialized: Record<string, unknown> = {};
+
+  // jiti's callable API can return an interop namespace proxy. Its own property
+  // descriptors contain the authored export values, but property access may apply
+  // default-export conveniences (and even expose a throwing inherited `then`
+  // getter for `export default null`). Copy own descriptors into a plain object
+  // so candidate collection sees the exact authored exports.
+  for (const key of Object.getOwnPropertyNames(mod)) {
+    const descriptor = Object.getOwnPropertyDescriptor(mod, key);
+    if (descriptor === undefined) continue;
+
+    const value = "value" in descriptor ? descriptor.value : descriptor.get?.call(mod);
+    Object.defineProperty(materialized, key, {
+      value,
+      enumerable: descriptor.enumerable,
+      configurable: true,
+      writable: true,
+    });
+  }
+
+  return materialized;
+}
+
 function normalizeWorkflowModule(mod: unknown): Record<string, unknown> {
   if (mod !== null && typeof mod === "object") {
-    return mod as Record<string, unknown>;
+    return materializeModuleObject(mod);
   }
   // CJS/default interop can return the exported value directly; wrap it so the
   // candidate collector can handle it the same way as an ESM default export.
   return { default: mod };
 }
 
-async function loadWorkflowModule(filePath: string): Promise<Record<string, unknown>> {
+function loadWorkflowModule(filePath: string): Record<string, unknown> {
   return normalizeWorkflowModule(workflowModuleLoader(filePath));
 }
 
@@ -343,7 +367,7 @@ async function importWorkflowFile(
 ): Promise<Array<{ value: unknown; exportKey: string; kind: DiscoveryKind; filePath: string }>> {
   let mod: Record<string, unknown>;
   try {
-    mod = await loadWorkflowModule(filePath);
+    mod = loadWorkflowModule(filePath);
   } catch (err) {
     diagnostics.push({
       level: "error",

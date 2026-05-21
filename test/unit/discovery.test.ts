@@ -655,17 +655,19 @@ describe("discoverWorkflows — configured globalWorkflows", () => {
 // Invalid exports → diagnostics
 // ---------------------------------------------------------------------------
 
-describe("discoverWorkflows — invalid export diagnostics", () => {
-  test("null default export emits an error diagnostic", async () => {
+describe("discoverWorkflows — INVALID_DEFINITION diagnostics", () => {
+  test("null default export emits INVALID_DEFINITION", async () => {
     const cwd = makeTempDir("invalid-null");
     const wfDir = join(cwd, ".atomic", "workflows");
     mkdirSync(wfDir, { recursive: true });
-    writeInvalidWorkflowJs(wfDir, "bad-null.js");
+    const fp = writeInvalidWorkflowJs(wfDir, "bad-null.js");
 
     const { errors } = await discoverWorkflows({ cwd, homeDir: makeTempDir("empty"), includeBundled: false });
-    assert.ok(errors.length > 0);
+    assert.equal(errors.length, 1);
     assert.equal(errors[0]!.level, "error");
-    assert.ok(errors[0]!.code === "INVALID_DEFINITION" || errors[0]!.code === "IMPORT_FAILED");
+    assert.equal(errors[0]!.code, "INVALID_DEFINITION");
+    assert.equal(errors[0]!.source, fp);
+    assert.match(errors[0]!.message, /project-local export "default" rejected: export is not an object/);
   });
 
   test("missing __piWorkflow sentinel emits INVALID_DEFINITION", async () => {

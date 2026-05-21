@@ -72,6 +72,8 @@ atomic
 /login   # then select a provider — Claude Pro/Max, ChatGPT Plus/Pro, GitHub Copilot, …
 ```
 
+After signing in, run `/atomic` to start the guided onboarding for workflows, examples, and next steps.
+
 See [Providers & Models](./packages/coding-agent/README.md#providers--models) for the full provider list (API keys + subscriptions). For non-interactive use, `atomic -p "<prompt>"` prints the response and exits.
 
 > ⚠️ Workflows run with agent permission checks **disabled** so pipelines don't block on prompts. Run autonomous workflows inside a devcontainer, VM, or remote dev machine — not your host machine.

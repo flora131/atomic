@@ -4,11 +4,20 @@ This page gets you from install to a useful first Atomic session.
 
 ## Install
 
-Atomic is distributed as an npm package:
+Atomic is distributed through npm-compatible package managers. Choose one:
 
 ```bash
-npm install -g @bastani/atomic
+# npm
+npm install -g --ignore-scripts @bastani/atomic
+
+# Bun
+bun install -g --ignore-scripts @bastani/atomic
+
+# pnpm
+pnpm add -g --ignore-scripts @bastani/atomic
 ```
+
+`--ignore-scripts` disables dependency lifecycle scripts during install. Atomic does not require install scripts for normal package-manager installs.
 
 Then start Atomic in the project directory you want it to work on:
 
@@ -46,7 +55,85 @@ See [Providers](providers.md) for all supported providers, environment variables
 
 ## First session
 
-Once Atomic starts, type a request and press Enter:
+Once Atomic starts, the fastest way to get value is to kick off a built-in workflow or invoke a skill — Atomic plans and executes multi-stage work for you.
+
+For an interactive tour any time, run `/atomic` inside the TUI; `/atomic overview`, `/atomic workflows`, and `/atomic example` walk through the same flow in more depth.
+
+### Try the built-in workflows
+
+Atomic ships with three workflows you can run immediately. Use `/workflow list` to see them and `/workflow inputs <name>` to inspect their inputs in your environment.
+
+| Workflow | When to use | Example |
+|---|---|---|
+| `deep-research-codebase` | Broad, cross-cutting research before you decide what to change. Scout → research-history → parallel specialist waves → aggregator. | `/workflow deep-research-codebase prompt="How do payment retries work end to end?"` |
+| `ralph` | Larger implementation loops with built-in plan → orchestrate → simplify → parallel review iteration. | `/workflow ralph prompt="Implement specs/2026-03-rate-limit.md and validate the behavior" max_loops=5` |
+| `open-claude-design` | UI and design-system work with generation, critique, and refinement loops; renders a live `preview.html` you can iterate against. | `/workflow open-claude-design prompt="Refresh the settings page hierarchy" output_type=page` |
+
+<p align="center"><img src="images/workflow-list.png" alt="Workflow List" width="600" /></p>
+
+Inputs are bare `key=value` tokens. Values are JSON-parsed when possible, so `max_loops=5`, `flag=true`, and `prompt="multi word value"` preserve useful types. If you call `/workflow <name>` without required inputs, the TUI opens an inline picker; pass `--no-picker` to skip it.
+
+You can also launch workflows with **natural language** — just describe the task in chat and ask Atomic to run the matching workflow:
+
+```text
+Run a deep codebase research workflow on how the rate limiter behaves under burst traffic.
+```
+
+Atomic picks the workflow, fills in inputs from the request, and confirms before launch.
+
+### Monitor and steer a run
+
+Named workflow runs execute in the background. After launch you get a run id; use it to inspect, attach, pause, or resume:
+
+```text
+/workflow status                  # list in-flight runs (add --all for ended runs)
+/workflow connect <run-id>        # open the graph viewer (F2 also opens the latest)
+/workflow attach <run-id> <stage> # chat with one stage
+/workflow interrupt <run-id>      # pause resumably
+/workflow resume <run-id> "go"    # send a steer message and resume
+/workflow kill <run-id>           # destructive abort
+```
+
+Human-in-the-loop prompts (`ctx.ui.input`, `confirm`, `select`, `editor`) surface in the graph viewer, not as chat modals — connect to the run to answer them. See [Workflows](workflows.md) for the full reference and authoring guide.
+
+### Top skills to invoke directly
+
+Skills are reusable expert instructions. Trigger one with `/skill:<name>` followed by a request:
+
+| Skill | When to use | Example |
+|---|---|---|
+| `research-codebase` | Scoped research that writes a grounded artifact for one subsystem or question. | `/skill:research-codebase how the rate limiter works in src/middleware/` |
+| `create-spec` | Turn research into an implementation-ready plan. | `/skill:create-spec from research/docs/2026-03-rate-limit.md` |
+| `prompt-engineer` | Tighten a vague prompt before a long run. | `/skill:prompt-engineer Draft a sharper repo-research prompt for payment retries end to end.` |
+| `tdd` | Test-first feature or bug work. | `/skill:tdd` |
+| `impeccable` | Critique or refine frontend and product UI. | `/skill:impeccable` |
+
+Use `/skill:research-codebase` for a focused area and `/workflow deep-research-codebase` when the answer spans the whole repo. A typical flow is `/skill:research-codebase` → `/skill:create-spec` → `/workflow ralph` to implement and validate.
+
+### Create your own workflow in natural language
+
+You do not have to write TypeScript to add a new workflow. Describe what you want in plain chat and Atomic will design and write it for you using the [Workflows](workflows.md) reference as the source of truth:
+
+```text
+Create a reusable Atomic workflow called review-changes. It takes one
+required text input `target` (a diff, PR, or review focus). Run two reviewers
+in parallel with fresh context — one for correctness and missing tests, one
+for edge cases and maintainability — then a synthesis stage that
+consolidates findings into blockers vs. suggestions and returns
+{ consolidated_review, decision }.
+```
+
+Atomic will:
+
+- ask clarifying questions if stage purpose, inputs, models, or handoffs are ambiguous,
+- write a `.atomic/workflows/<name>.ts` definition that uses `defineWorkflow(...).input(...).run(...).compile()`,
+- and reload so you can immediately run it with `/workflow <name>`.
+
+The same plain-chat approach works for editing or hardening an existing workflow — ask Atomic to add a stage, switch a model, save artifacts, or wire in a human approval gate. For the full authoring reference, see [Workflows](workflows.md).
+
+### Default tools and prompts
+
+If you'd rather start with a plain prompt, just type a request and press Enter:
 
 ```text
 Summarize this repository and tell me how to run its checks.
@@ -136,6 +223,8 @@ Use `--mode json` for JSON event output or `--mode rpc` for process integration.
 ## Next steps
 
 - [Using Atomic](usage.md) - interactive mode, slash commands, sessions, context files, and CLI reference.
+- [Workflows](workflows.md) - run, inspect, and author multi-stage automation (including the three built-in workflows).
+- [Skills](skills.md) - reusable expert instructions invoked with `/skill:<name>`.
 - [Providers](providers.md) - authentication and model setup.
 - [Settings](settings.md) - global and project configuration.
 - [Keybindings](keybindings.md) - shortcuts and customization.

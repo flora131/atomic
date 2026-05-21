@@ -27,6 +27,7 @@ Use a workflow when a task should be repeatable, inspectable, resumable, or spli
 ## Table of Contents
 
 - [Quick Start](#quick-start)
+- [Built-in Workflows](#built-in-workflows)
 - [When to Use Workflows](#when-to-use-workflows)
 - [Workflow Locations](#workflow-locations)
 - [Workflow Configuration](#workflow-configuration)
@@ -46,7 +47,59 @@ Use a workflow when a task should be repeatable, inspectable, resumable, or spli
 
 ## Quick Start
 
-Create `.atomic/workflows/explain-file.ts` in a project:
+The fastest way to get a workflow running is to **describe it in natural language** and let Atomic write it for you. If you'd rather write the TypeScript yourself, jump to [Or hand-write the TypeScript](#or-hand-write-the-typescript) below.
+
+### Just describe it
+
+Describe the workflow you want in plain chat and Atomic will design and write it for you, using this page as its authoring reference:
+
+```text
+Create a reusable Atomic workflow called explain-file. It takes one required
+text input `path` and runs a single fresh-context task that reads the file,
+then returns { explanation } summarizing purpose, risks, and key symbols.
+```
+
+A more realistic request looks like:
+
+```text
+Create a reusable Atomic workflow called review-changes.
+
+It should accept one required text input `target` for a diff, PR summary, or
+review focus.
+
+Run two independent reviewers in parallel with fresh context:
+- one focused on correctness, regressions, and missing tests
+- one focused on edge cases, maintainability, and hidden risks
+
+Then add a synthesis stage that consolidates both reviews, deduplicates
+overlap, keeps only evidence-backed issues, and separates blockers from
+optional suggestions.
+
+Return structured output with `consolidated_review` and `decision` fields.
+```
+
+Atomic will:
+
+- ask clarifying questions when stage purpose, inputs, models, or handoffs are ambiguous,
+- write a `.atomic/workflows/<name>.ts` file using `defineWorkflow(...).input(...).run(...).compile()`,
+- pick `ctx.task` / `ctx.chain` / `ctx.parallel` / `ctx.ui` per the [primitives](#workflow-primitives) and [task options](#task-and-stage-options) reference, and
+- reload discovery so you can run it immediately.
+
+The same plain-chat approach works for editing or hardening an existing workflow — ask Atomic to add a stage, switch a model, save artifacts, or wire in a human approval gate.
+
+Then list and run it like any other workflow:
+
+```text
+/workflow list
+/workflow inputs <name>
+/workflow <name> key=value ...
+```
+
+Named workflow runs are background-oriented. After launch, expect a run id and monitor it with `/workflow status`, F2, or `/workflow connect <run-id>`.
+
+### Or hand-write the TypeScript
+
+Workflow files are plain TypeScript modules. Create `.atomic/workflows/explain-file.ts`:
 
 ```ts
 import { defineWorkflow } from "@bastani/workflows";
@@ -77,7 +130,115 @@ Restart Atomic or run `/reload`, then list and run it:
 /workflow explain-file path="src/index.ts"
 ```
 
-Named workflow runs are background-oriented. After launch, expect a run id and monitor it with `/workflow status`, F2, or `/workflow connect <run-id>`.
+See [Writing a Workflow](#writing-a-workflow) for the full builder API and [Workflow Primitives](#workflow-primitives) for `ctx.task` / `ctx.chain` / `ctx.parallel` / `ctx.stage` / `ctx.ui`.
+
+## Built-in Workflows
+
+Atomic bundles three workflows that cover the most common multi-stage jobs. They are available in every session — no install step required. Use `/workflow list` to confirm they are loaded, and `/workflow inputs <name>` to see the exact inputs in your environment.
+
+| Workflow | What it does | When to use |
+|---|---|---|
+| `deep-research-codebase` | Scout + research-history chain → parallel specialist waves → aggregator. Indexes the whole repo and synthesizes findings. | Broad or cross-cutting research before you decide what to change. Prefer `/skill:research-codebase` for one subsystem. |
+| `ralph` | Bounded plan → orchestrate → simplify → parallel review loop. Reviewer findings feed back into the next planner. | Larger implementation loops where you want implementation, review, and validation built in. |
+| `open-claude-design` | Design-system onboarding → reference import → HTML generation → impeccable-driven refinement → quality gate → rich HTML handoff. Renders a live `preview.html` you can iterate against (opens through `playwright-cli` when available). | UI, page, component, theme, or design-token work that benefits from generation + critique loops. |
+
+### `deep-research-codebase`
+
+Inputs:
+
+| Input | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `prompt` | text | yes | — | Research question or investigation focus. |
+| `max_partitions` | number | no | `100` | Maximum codebase partitions explored in parallel. Actual partitions scale by one per 10K LoC, capped by this value. |
+| `max_concurrency` | number | no | `4` | Maximum workflow stages running concurrently during deep research. |
+
+Run examples:
+
+```text
+/workflow deep-research-codebase prompt="How do payment retries work end to end?"
+/workflow deep-research-codebase prompt="Map the workflow runtime" max_partitions=8 max_concurrency=4
+```
+
+Workflow tool call:
+
+```ts
+workflow({
+  action: "run",
+  workflow: "deep-research-codebase",
+  inputs: { prompt: "map workflow runtime", max_concurrency: 4 },
+})
+```
+
+### `ralph`
+
+Inputs:
+
+| Input | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `prompt` | text | yes | — | The task or goal to plan, execute, and refine. |
+| `max_loops` | number | no | `10` | Maximum plan/orchestrate/review iterations. |
+
+Run examples:
+
+```text
+/workflow ralph prompt="Implement specs/2026-03-rate-limit.md and validate the changed behavior"
+/workflow ralph prompt="Migrate the database layer to Drizzle" max_loops=5
+```
+
+A typical end-to-end flow is `/skill:research-codebase` → `/skill:create-spec` → `/workflow ralph prompt="Implement specs/<date>-<topic>.md"`.
+
+### `open-claude-design`
+
+Inputs:
+
+| Input | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `prompt` | text | yes | — | What to design (dashboard, page, component, prototype, …). |
+| `reference` | text | no | — | URL, file path, screenshot path, or design doc to import as a reference. |
+| `output_type` | select | no | `prototype` | One of `prototype`, `wireframe`, `page`, `component`, `theme`, `tokens`. |
+| `design_system` | text | no | — | Path(s) or description of an existing design system (e.g. `DESIGN.md`, `PRODUCT.md`). Skips onboarding when provided. |
+| `max_refinements` | number | no | `3` | Maximum critique/apply refinement iterations. |
+
+Run examples:
+
+```text
+/workflow open-claude-design prompt="Refresh the settings page hierarchy"
+/workflow open-claude-design prompt="Design a billing page" reference=https://stripe.com/billing output_type=page
+/workflow open-claude-design prompt="Generate spacing and color tokens" output_type=tokens design_system=./DESIGN.md
+```
+
+### Launching with natural language
+
+You can also kick off a built-in workflow by describing the task in chat. Atomic picks the matching workflow and fills in inputs from your request:
+
+```text
+Run a deep codebase research workflow on how the rate limiter behaves under burst traffic.
+```
+
+```text
+Use the ralph workflow to implement specs/2026-03-rate-limit.md and cap it at 5 loops.
+```
+
+```text
+Run open-claude-design to refresh the settings page hierarchy as a page.
+```
+
+If required inputs are missing or ambiguous, Atomic will either ask or open the inline input picker before launching.
+
+### Monitor and steer a built-in run
+
+Named runs go to the background. Common controls:
+
+```text
+/workflow status                       # list in-flight runs (--all includes ended runs)
+/workflow connect <run-id>             # graph viewer (F2 also opens the latest)
+/workflow attach <run-id> <stage>      # chat with a single stage
+/workflow interrupt <run-id>           # pause resumably
+/workflow resume <run-id> [stage] msg  # forward a steer message and resume
+/workflow kill <run-id>                # destructive abort
+```
+
+Human-in-the-loop prompts from `ctx.ui.input`, `ctx.ui.confirm`, `ctx.ui.select`, and `ctx.ui.editor` appear in the workflow graph viewer, not as chat modals — use `/workflow connect <run-id>` (or F2) to answer them.
 
 ## When to Use Workflows
 
@@ -270,9 +431,13 @@ Slash equivalent:
 /workflow deep-research-codebase prompt="map workflow runtime" max_concurrency=4
 ```
 
+<p align="center"><img src="images/workflow-command.png" alt="Running a Workflow Command" width="600" /></p>
+
 Input overrides are bare `key=value` tokens. Values are JSON-parsed when possible, so `count=3`, `flag=true`, and `prompt="multi word value"` preserve useful types. A whole input object can also be passed as one JSON token.
 
 In the TUI, `/workflow <name>` opens an input picker when the workflow declares inputs and either no arguments were supplied or required inputs are missing. Supplied values seed the picker. Pass `--no-picker` to skip that interactive flow.
+
+<p align="center"><img src="images/workflow-input-picker.png" alt="Workflow Input Picker" width="600" /></p>
 
 ## Workflow Commands
 
@@ -292,6 +457,8 @@ In the TUI, `/workflow <name>` opens an input picker when the workflow declares 
 ```
 
 Use `connect` for the workflow graph. Use `attach` when you want a chat pane for a specific stage. Use `interrupt`, `pause`, and `resume` for resumable live work; `resume` on a non-paused run reopens the saved snapshot or overlay. Use `kill` only when the run should be terminated and removed from live history/status. `/workflow status` lists in-flight runs by default; `/workflow status --all` includes retained ended runs.
+
+<p align="center"><img src="images/workflow-graph.png" alt="Workflow Graph Viewer" width="600" /></p>
 
 Human-in-the-loop prompts from `ctx.ui.input`, `ctx.ui.confirm`, `ctx.ui.select`, and `ctx.ui.editor` appear in the workflow UI/graph viewer, not as ordinary chat modals.
 

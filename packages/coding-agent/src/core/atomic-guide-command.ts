@@ -25,11 +25,11 @@ Atomic turns one-off prompts into developer workflows: on-call debugging, repo r
 
 | Goal | How to use |
 |---|---|
-| On-call / broken behavior | Use \`/skill:workflow\` to create a workflow that runs \`/run debugger "Reproduce the failure, patch the root cause, and validate it"\` for a focused fix loop |
-| Research → spec → implementation | Use \`/skill:workflow\` to create a workflow that runs \`/skill:research-codebase\`, then \`/skill:create-spec\`, then direct implementation or \`/workflow ralph ...\` |
-| Testing / regression hardening | Use \`/skill:workflow\` to create a workflow that runs \`/skill:tdd\` for test-first work, then \`/parallel-review current diff\`, then land the change |
-| Large repo discovery | Use \`/skill:workflow\` to create a workflow that runs \`/parallel codebase-locator "map the area" -> codebase-analyzer "trace the current flow" -> codebase-pattern-finder "find patterns" --bg\` |
-| UI / product polish | Use \`/skill:workflow\` to create a workflow that runs \`/skill:impeccable\` for interface critique, refinement, and clearer UX decisions |
+| On-call / broken behavior | Run \`/run debugger "Reproduce the failure, patch the root cause, and validate it"\` for a focused fix loop, or ask Atomic in chat to build a reusable workflow that does the same |
+| Research → spec → implementation | Chain \`/skill:research-codebase\` → \`/skill:create-spec\` → direct implementation or \`/workflow ralph ...\`; ask Atomic in chat to wrap it as a reusable workflow when you'll repeat it |
+| Testing / regression hardening | Run \`/skill:tdd\` for test-first work, then \`/parallel-review current diff\`, then land the change |
+| Large repo discovery | Run \`/parallel codebase-locator "map the area" -> codebase-analyzer "trace the current flow" -> codebase-pattern-finder "find patterns" --bg\`, or \`/workflow deep-research-codebase\` for whole-repo synthesis |
+| UI / product polish | Run \`/skill:impeccable\` for interface critique and refinement, or \`/workflow open-claude-design\` for generation + refinement loops |
 
 ## Subagents
 
@@ -55,7 +55,6 @@ How the direct commands map to repo work:
 | \`create-spec\` | turn research into an implementation-ready plan | \`/skill:create-spec from research/docs/<date>-<topic>.md\` |
 | \`tdd\` | do test-first feature or bug work | \`/skill:tdd\` |
 | \`prompt-engineer\` | tighten a vague prompt before a long run | \`/skill:prompt-engineer Draft a sharper implementation prompt for ...\` |
-| \`workflow\` | author, inspect, or improve workflows; start by describing the desired workflow in natural language | \`/skill:workflow\` |
 | \`subagent\` | learn delegation patterns and exact \`/run\`, \`/parallel\`, and \`/chain\` usage | \`/skill:subagent\` |
 | \`impeccable\` | critique or refine frontend and product UI | \`/skill:impeccable\` |
 
@@ -131,7 +130,7 @@ const WORKFLOWS = `# Workflows primer
 
 A workflow is a TypeScript-defined pipeline built with \`defineWorkflow(...).run(...).compile()\`. It can run tasks, chains, parallel fan-out, human-in-the-loop prompts, background status, and model fallback chains.
 
-Start by defining the workflow in natural language with \`/skill:workflow\`, the workflow creator skill. Describe the goal, inputs, stages, which steps are parallel or sequential, handoff/output shape, and any model or thinking-level preferences; let the skill help turn that into a reusable workflow before you hand-edit TypeScript.
+You do not have to write TypeScript to add one. Describe the workflow you want in plain chat — goal, inputs, stages, which steps are parallel or sequential, handoff/output shape, and any model or thinking-level preferences — and Atomic will scaffold a reusable definition under \`.atomic/workflows/\` and reload it for you. Hand-edit the TypeScript afterward when you want precise control.
 
 ## Built-in workflows
 
@@ -151,7 +150,7 @@ If you are drafting research, reviewer, or synthesis prompts for a workflow, use
 
 A good workflow request is explicit about stage purpose, model choice, handoff, and the decision each step must return.
 
-Example: prompt \`/skill:workflow\` with something like this:
+Example: ask Atomic in chat with something like this:
 
 ~~~text
 Create a reusable workflow called review-changes.
@@ -196,7 +195,7 @@ Workflows run as background tasks. Use F2 or \`/workflow connect <run-id>\` for 
 
 ## Author your own
 
-Use \`/skill:workflow\` to describe your workflow in natural language and build your first workflow. This is the recommended starting point for creation and design questions: say what you want the workflow to accomplish, what inputs it should accept, what stages should run, and what final output or decision it should return. Ask Atomic in chat when you want help refining or implementing one.
+Describe your workflow in plain chat — say what you want the workflow to accomplish, what inputs it should accept, what stages should run, and what final output or decision it should return. Atomic will scaffold a reusable definition under \`.atomic/workflows/\`, ask clarifying questions when stage purpose, models, or handoffs are ambiguous, and reload discovery so you can run it immediately.
 
 ─────────────────────────────────────────────────────────────────
 

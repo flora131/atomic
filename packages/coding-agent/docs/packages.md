@@ -64,7 +64,7 @@ npm:pkg
 ```
 
 - Versioned specs are pinned and skipped by package updates (`atomic update`, `atomic update --extensions`).
-- Global installs use `npm install -g`.
+- Global installs use the configured npm-compatible package-manager command (npm by default).
 - Project installs go under `.atomic/npm/`.
 - Set `npmCommand` in `settings.json` to pin npm package lookup and install operations to a specific wrapper command such as `mise` or `asdf`.
 
@@ -92,7 +92,7 @@ ssh://git@github.com/user/repo@v1
 - For non-interactive runs (for example CI), you can set `GIT_TERMINAL_PROMPT=0` to disable credential prompts and set `GIT_SSH_COMMAND` (for example `ssh -o BatchMode=yes -o ConnectTimeout=5`) to fail fast.
 - Refs pin the package and skip package updates (`atomic update`, `atomic update --extensions`).
 - Cloned to `~/.atomic/agent/git/<host>/<path>` (global) or `.atomic/git/<host>/<path>` (project).
-- Runs `npm install` after clone or pull if `package.json` exists.
+- Runs the configured npm-compatible install command after clone or pull if `package.json` exists.
 
 **SSH examples:**
 ```bash
@@ -170,7 +170,7 @@ If no app manifest (`atomic`, or legacy `pi`) is present, Atomic auto-discovers 
 
 ## Dependencies
 
-Third party runtime dependencies belong in `dependencies` in `package.json`. Dependencies that do not register extensions, skills, prompt templates, or themes also belong in `dependencies`. When Atomic installs a package from npm or git, it runs `npm install`, so those dependencies are installed automatically.
+Third party runtime dependencies belong in `dependencies` in `package.json`. Dependencies that do not register extensions, skills, prompt templates, or themes also belong in `dependencies`. When Atomic installs a package from npm or git, it runs the configured npm-compatible install command, so those dependencies are installed automatically.
 
 Atomic bundles core packages for extensions and skills. If you import any of these, list them in `peerDependencies` with a `"*"` range and do not bundle them: `@earendil-works/pi-ai`, `@earendil-works/pi-agent-core`, `@bastani/atomic`, `@earendil-works/pi-tui`, `typebox`.
 

@@ -144,9 +144,24 @@ To share extensions via npm or git as Atomic packages, see [packages.md](package
 | `@earendil-works/pi-ai` | AI utilities (`StringEnum` for Google-compatible enums) |
 | `@earendil-works/pi-tui` | TUI components for custom rendering |
 
-npm dependencies work too. Add a `package.json` next to your extension (or in a parent directory), run `npm install`, and imports from `node_modules/` are resolved automatically.
+npm dependencies work too. Add a `package.json` next to your extension (or in a parent directory), then install dependencies with npm, Bun, or pnpm:
 
-For distributed Atomic packages installed with `atomic install` (npm or git), runtime deps must be in `dependencies`. Package installation uses production installs (`npm install --omit=dev`) by default, so `devDependencies` are not available at runtime; when `npmCommand` is configured, git packages use plain `install` for compatibility with wrappers.
+```bash
+# npm
+npm install --ignore-scripts
+
+# Bun
+bun install --ignore-scripts
+
+# pnpm
+pnpm install --ignore-scripts
+```
+
+`--ignore-scripts` disables dependency lifecycle scripts during install. Use it when your extension dependencies do not require install scripts.
+
+Imports from `node_modules/` are resolved automatically.
+
+For distributed Atomic packages installed with `atomic install` (npm or git), runtime deps must be in `dependencies`. Package installation uses production dependency installs by default, so `devDependencies` are not available at runtime; when `npmCommand` is configured, git packages use plain `install` for compatibility with wrappers.
 
 Node.js built-ins (`node:fs`, `node:path`, etc.) are also available.
 
@@ -242,7 +257,7 @@ This pattern makes the fetched models available during normal startup and to `at
 └── my-extension/
     ├── package.json    # Declares dependencies and entry points
     ├── package-lock.json
-    ├── node_modules/   # After npm install
+    ├── node_modules/   # After dependency install
     └── src/
         └── index.ts
 ```
@@ -261,7 +276,7 @@ This pattern makes the fetched models available during normal startup and to `at
 }
 ```
 
-The manifest key is the app name from `package.json` (`atomic` here); the legacy `pi` key is still accepted as a compatibility shim. Run `npm install` in the extension directory, then imports from `node_modules/` work automatically.
+The manifest key is the app name from `package.json` (`atomic` here); the legacy `pi` key is still accepted as a compatibility shim. Run `npm install --ignore-scripts`, `bun install --ignore-scripts`, or `pnpm install --ignore-scripts` in the extension directory, then imports from `node_modules/` work automatically.
 
 ## Events
 

@@ -39,9 +39,20 @@ await session.prompt("What files are in the current directory?");
 
 ## Installation
 
+Choose npm, Bun, or pnpm:
+
 ```bash
-npm install @bastani/atomic
+# npm
+npm install --ignore-scripts @bastani/atomic
+
+# Bun
+bun add --ignore-scripts @bastani/atomic
+
+# pnpm
+pnpm add --ignore-scripts @bastani/atomic
 ```
+
+`--ignore-scripts` disables dependency lifecycle scripts during install. Atomic does not require install scripts for normal package-manager installs.
 
 The SDK is included in the main package. No separate installation needed.
 

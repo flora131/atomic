@@ -13,6 +13,7 @@ import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.j
 import { renderHeader } from "../../packages/workflows/src/tui/header.js";
 import { renderNodeCard } from "../../packages/workflows/src/tui/node-card.js";
 import { renderSwitcher } from "../../packages/workflows/src/tui/switcher.js";
+import { BOLD, RESET } from "../../packages/workflows/src/tui/color-utils.js";
 import { visibleWidth } from "../../packages/workflows/src/tui/text-helpers.js";
 
 // ---------------------------------------------------------------------------
@@ -590,6 +591,44 @@ describe("GraphView keyboard navigation", () => {
       }),
       width,
     );
+  });
+
+  it("keeps selected switcher row styling active through truncated names", () => {
+    const stages = [makeStage("branch-with-a-very-long-name-that-should-truncate")];
+    const width = 40;
+    const lines = renderSwitcher(stages, { query: "", selectedIndex: 0 }, {
+      width,
+      theme: defaultTheme,
+    });
+    const selectedRow = lines[3]!;
+    const selectedText = visibleText([selectedRow]);
+
+    assert.equal(visibleWidth(selectedRow), width);
+    assert.match(selectedText, /branch-with-a-very-long-…/);
+
+    const boldIndex = selectedRow.indexOf(BOLD);
+    const ellipsisIndex = selectedRow.indexOf("…", boldIndex);
+    const firstResetAfterBold = selectedRow.indexOf(RESET, boldIndex + BOLD.length);
+
+    assert.notEqual(boldIndex, -1);
+    assert.notEqual(ellipsisIndex, -1);
+    assert.ok(
+      firstResetAfterBold > ellipsisIndex,
+      "selected row should not reset ANSI styling before the truncation ellipsis",
+    );
+  });
+
+  it("does not add ellipsis to non-truncated selected switcher rows", () => {
+    const stages = [makeStage("short")];
+    const width = 40;
+    const lines = renderSwitcher(stages, { query: "", selectedIndex: 0 }, {
+      width,
+      theme: defaultTheme,
+    });
+    const selectedText = visibleText([lines[3]!]);
+
+    assert.doesNotMatch(selectedText, /…/);
+    assert.match(selectedText, /│  ○ short\s+pending │/);
   });
 
   it("renders the switcher as a focused modal body for long workflows", () => {

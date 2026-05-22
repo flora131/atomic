@@ -15,7 +15,7 @@ import type { StageSnapshot } from "../shared/store-types.js";
 import type { GraphTheme } from "./graph-theme.js";
 import { statusIcon, statusColor } from "./status-helpers.js";
 import { hexToAnsi, hexBg, RESET, BOLD } from "./color-utils.js";
-import { truncateToWidth, visibleWidth } from "./text-helpers.js";
+import { sliceColumns, truncateToWidth, visibleWidth } from "./text-helpers.js";
 
 export interface SwitcherState {
   query: string;
@@ -43,6 +43,25 @@ const COMPACT_HINT = "↵ attach · esc close";
 function padVisible(s: string, width: number): string {
   const clipped = visibleWidth(s) > width ? truncateToWidth(s, width, "…", true) : s;
   return clipped + " ".repeat(Math.max(0, width - visibleWidth(clipped)));
+}
+
+/**
+ * Truncate without appending any ANSI reset before the suffix.
+ *
+ * Selected rows are wrapped in a single accent run after row text is composed;
+ * inserting RESET before the ellipsis would prematurely end that highlight.
+ */
+function truncateToWidthWithoutReset(text: string, width: number, suffix = ""): string {
+  const targetWidth = Math.max(0, width);
+  if (visibleWidth(text) <= targetWidth) return text;
+  if (targetWidth === 0) return "";
+
+  const suffixWidth = visibleWidth(suffix);
+  if (suffixWidth >= targetWidth) {
+    return sliceColumns(suffix, 0, targetWidth, true);
+  }
+
+  return `${sliceColumns(text, 0, targetWidth - suffixWidth, true)}${suffix}`;
 }
 
 function statusText(status: StageSnapshot["status"]): string {
@@ -119,7 +138,7 @@ export function renderSwitcher(
     if (isSelected) {
       const metaWidth = visibleWidth(label);
       const nameBudget = Math.max(4, innerWidth - visibleWidth(`  ${icon} `) - metaWidth - 2);
-      const selectedName = truncateToWidth(stage.name, nameBudget, "…");
+      const selectedName = truncateToWidthWithoutReset(stage.name, nameBudget, "…");
       const prefix = `  ${icon} ${selectedName}`;
       const visibleRow = `${prefix}${" ".repeat(Math.max(1, innerWidth - visibleWidth(`${prefix}${label}`) - 1))}${label} `;
       const padded = padVisible(visibleRow, innerWidth);

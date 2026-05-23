@@ -2,14 +2,13 @@
  * Unit tests for the canonical status-list renderer (`src/tui/status-list.ts`).
  *
  * Visual contract from ui/mockups.html §2:
- *   - one full-width `[ BACKGROUND ]` band line
+ *   - one rounded `BACKGROUND` panel
  *   - one two-row card per run (replaces the indented per-stage rows)
  *   - per-card row 1: tag (short id) + bold workflow name + state badge
  *   - per-card row 2: mode + progress strip + meta
  *   - trailing hint pointing at `/workflow status <id>`
  *
- * Plain mode preserves shape with `▎ [ BACKGROUND ]` band and `│ [tag] …`
- * cards; no ANSI escapes.
+ * Plain mode preserves rounded panel/card shape without ANSI escapes.
  *
  * cross-ref: src/tui/status-list.ts · src/tui/chat-surface.ts
  */
@@ -56,10 +55,10 @@ function makeRun(over: Partial<RunSnapshot>): RunSnapshot {
 }
 
 describe("renderStatusList — empty", () => {
-  test("emits the flat band header + empty-state copy when no runs", () => {
+  test("emits the rounded panel header + empty-state copy when no runs", () => {
     const out = renderStatusList([], { theme: deriveGraphTheme({}), width: 120 });
     const plain = stripAnsi(out);
-    assert.match(plain, /\[ BACKGROUND \]/);
+    assert.match(plain, /╭ BACKGROUND  0 runs /);
     assert.match(plain, /0 runs/);
     assert.match(plain, /no in-flight runs/);
   });
@@ -100,8 +99,8 @@ describe("renderStatusList — populated", () => {
     const out = renderStatusList(runs, { theme: deriveGraphTheme({}), now, width: 120 });
     const plain = stripAnsi(out);
 
-    // Band — chrome + subtitle + count badges.
-    assert.match(plain, /\[ BACKGROUND \]/);
+    // Panel header — chrome + subtitle + count badges.
+    assert.match(plain, /╭ BACKGROUND  3 runs /);
     assert.match(plain, /3 runs/);
     assert.match(plain, /● 2/, "two active runs");
     assert.match(plain, /✓ 1/, "one completed run");
@@ -119,11 +118,9 @@ describe("renderStatusList — populated", () => {
     assert.match(plain, /single\s+\[●\]/);
     assert.match(plain, /single\s+\[✓\]/);
 
-    // Cards are two rows each, not seven — no per-stage expansion in list view.
-    // Card lines now start with " ▎" (1-cell leading space + stripe) so
-    // they share the same left edge as the band label and hint arrow.
-    const cardRows = plain.split("\n").filter((l) => l.startsWith(" ▎"));
-    assert.equal(cardRows.length, 6, "3 runs × 2 rows = 6 card rows");
+    // Run entries are compact rows, not per-stage expansion in list view.
+    const runRows = plain.split("\n").filter((l) => /[●✓✗⊘○]\s+[a-z0-9]{6}\s+/.test(l));
+    assert.equal(runRows.length, 3, "3 runs × 1 identity row");
 
     // Trailing hint references the most-recently-active run (def456, 42s ago).
     assert.match(plain, /▸ \/workflow status def456/);
@@ -163,8 +160,9 @@ describe("renderStatusList — populated", () => {
     });
     const out = renderStatusList([run], { width: 80 });
     assert.doesNotMatch(out, /\x1b\[/);
-    assert.match(out, /^ ▎ \[ BACKGROUND \]/, "plain band has ▎ marker");
-    assert.match(out, /│\s+\[xyz000\]/, "plain card has │ stripe + bracketed tag");
+    assert.match(out, /^╭ BACKGROUND  1 run /, "plain panel is rounded");
+    assert.doesNotMatch(out, /\u258e/);
+    assert.match(out, /●\s+xyz000/, "plain entry has status glyph and run id");
     assert.match(out, /scratch/);
     assert.match(out, /single\s+\[●\]/);
     assert.match(out, /▸ \/workflow status xyz000/);

@@ -107,7 +107,7 @@ export function registerInlineFormRenderer(pi: ExtensionAPI, theme: GraphTheme):
     const state = getForm(formId);
     if (!state) {
       // Process restart / map evicted — tombstone the entry.
-      return `▎ ${message.content ?? "workflow form"}  ·  (snapshot lost)`;
+      return `  ${message.content ?? "workflow form"}  ·  (snapshot lost)`;
     }
     return {
       // The card is fully reactive: read fresh state on every render call,

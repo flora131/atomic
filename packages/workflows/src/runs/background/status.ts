@@ -58,7 +58,7 @@ export type InterruptRunResult = PauseResult;
 
 /**
  * Per-run detail returned by {@link inspectRun}. A read-only view over the
- * store snapshot suitable for the "▎ RUN" detail surface — same data the
+ * store snapshot suitable for the "  RUN" detail surface — same data the
  * resume snapshot carries, plus a normalised `mode` field derived from
  * stage shape so renderers don't have to recompute it.
  */

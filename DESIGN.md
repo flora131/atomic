@@ -128,7 +128,7 @@ What Atomic is not: a cluttered enterprise dashboard, a generic CLI dump, or a f
 - Tactile and confident component voice — pills, rounded boxes, decisive selection states
 - Depth via tonal layering only; no shadows are possible in a terminal
 - Bold + dim contrast carries hierarchy where size cannot
-- Unicode iconography only (no emoji): `✓ ✗ → ↵ ↑↓←→ ○ ● ◆ ▸ ▎ ❯ │`
+- Unicode iconography only (no emoji): `✓ ✗ → ↵ ↑↓←→ ○ ● ◆ ▸ ❯ │`
 - Braille spinner `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` at 80ms for loading
 
 ## 2. Colors
@@ -139,7 +139,7 @@ A Catppuccin Mocha palette, addressed by role. The Mantle/Base/Crust trio carrie
 - **Catppuccin Blue** (`#89b4fa`): The sole accent. Powers the mode pill (`GRAPH`, `PICK`), the workflow-picker selection background, the focused-field border, the leading chevron `❯`, and inline references to API symbols in empty states. Treat as scarce.
 
 ### Secondary
-- **Catppuccin Mauve** (`#cba6f7`): Section-label glyph (`▎`), `CONFIRM` mode pill, `opencode` agent identifier. Reads as a quieter emphasis next to Blue.
+- **Catppuccin Mauve** (`#cba6f7`): `CONFIRM` mode pill and `opencode` agent identifier. Reads as a quieter emphasis next to Blue.
 
 ### Tertiary (semantic statuses)
 - **Catppuccin Green** (`#a6e3a1`): `complete` status, `copilot` agent identifier, the "ready to run" confirm modal border, `y` submit indicator.
@@ -181,7 +181,7 @@ A Catppuccin Mocha palette, addressed by role. The Mantle/Base/Crust trio carrie
 - **Caption** (regular, `textMuted`): Workflow descriptions, hint labels, secondary metadata.
 - **Meta** (regular, `dim`): Type/required tags, separator `·`, pending statuses, "no matches" empty-state text.
 - **Pill text** (bold, `surface0` *on* an accent background): `GRAPH`, `PICK`, `PROMPT`, `CONFIRM`, agent header (`CLAUDE` / `COPILOT` / `OPENCODE`), header session badge.
-- **Label** (bold, `subtext0`): Section labels rendered as `▎ LABEL` — the leading mauve glyph carries the visual weight, the label itself is muted.
+- **Label** (bold, `subtext0`): Section labels rendered as `  LABEL` with simple indentation; the label itself is muted.
 
 ### Named Rules
 
@@ -252,7 +252,7 @@ The component voice is **tactile and confident**: rounded boxes, decisive select
 - **Awaiting-input** adds a `info`-colored "waiting for response" line and a `dim` `↵ enter to respond` hint.
 
 ### Section Labels
-- **Pattern:** `▎ LABEL` — `mauve` glyph, `subtext0` bold caps. Used to demarcate ARGUMENTS, INPUTS, and similar groupings.
+- **Pattern:** `  LABEL` — two-space indent with `subtext0` bold caps. Used to demarcate ARGUMENTS, INPUTS, and similar groupings.
 
 ### Spinner
 - **Pattern:** Braille spinner `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` at 80ms. Always `text` or status-colored, never animated decoratively.
@@ -268,7 +268,7 @@ The component voice is **tactile and confident**: rounded boxes, decisive select
 ### Do:
 - **Do** use Catppuccin Mocha tokens addressed by role (`accent`, `success`, `warning`, `info`, `error`, `text`, `textMuted`, `dim`). Never inline a hex code in a component.
 - **Do** mirror the accent-pill vocabulary (`primary` bg + `surface0` fg + **bold**) across every "you are here" state — mode badges, selected rows, header session pills.
-- **Do** use Unicode icons from the established set: `✓ ✗ → ↵ ↑↓←→ ○ ● ◆ ▸ ▎ ❯ │`.
+- **Do** use Unicode icons from the established set: `✓ ✗ → ↵ ↑↓←→ ○ ● ◆ ▸ ❯ │`.
 - **Do** respect `NO_COLOR`. Color carries semantics; the layout must still parse without it.
 - **Do** keep all interactions reachable via keyboard. Every selection state has a key binding.
 - **Do** lean on **bold** + `text`/`textMuted`/`dim` to carry hierarchy. Six combinations cover the system.

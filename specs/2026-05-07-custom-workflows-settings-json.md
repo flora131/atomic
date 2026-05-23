@@ -425,13 +425,13 @@ A workflow that failed to load (per §5.8) is **not removed** from the picker �
 
 ```
 ╭─ atomic workflow · PICK ──────────────────────────────────────╮
-│ ▎ CLAUDE                                                      │
+│   CLAUDE                                                      │
 │  ▸ ralph                              Long-horizon agent loop │   healthy · selected (accent)
 │    deep-research-codebase             Codebase research spec  │   healthy · default
 │  ✗ deep-spec                          failed to load          │   broken · default
 │    open-claude-design                 Design doc author       │
 │                                                               │
-│ ▎ COPILOT                                                     │
+│   COPILOT                                                     │
 │    ralph                              Long-horizon agent loop │
 │  ✗ release-notes                      failed to load          │
 ├───────────────────────────────────────────────────────────────┤
@@ -490,7 +490,7 @@ picker-row-broken-focused:
 **No-go list (kept for parity with the existing absolute bans):**
 
 - No side-stripe `border-left` accent on broken rows — the `✗ ` glyph and red caption carry the meaning.
-- No emoji (`⚠️`, `❌`); only the existing Unicode set (`✗ ▸ ▎ ↵ ↑↓`).
+- No emoji (`⚠️`, `❌`); only the existing Unicode set (`✗ ▸   ↵ ↑↓`).
 - No spinner or pulse on broken rows — pulse means "this is live, watch it." Broken is a steady state.
 - No modal popup on Enter — that's a "modal as first thought" smell. Statusline hint + preview pane carry the message.
 - No bold on broken rows in either default or focused state — bold is reserved for actionable selection.

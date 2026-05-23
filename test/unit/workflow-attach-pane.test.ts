@@ -257,6 +257,33 @@ describe("WorkflowAttachPane", () => {
     pane.dispose();
   });
 
+  test("visibility controls whether stage is marked attached", () => {
+    const store = createStore();
+    setupRun(store, "run-1", [{ id: "stage-a", name: "A" }]);
+    const registry = createStageControlRegistry();
+    registry.register(makeHandle("run-1", "stage-a"));
+    const calls: Array<string | undefined> = [];
+    const pane = new WorkflowAttachPane({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageControlRegistry: registry,
+      uiStatus: { setStatus: (_key, value) => calls.push(value) },
+      onClose: () => {},
+      initialAttachStageId: "stage-a",
+    });
+
+    const stage = () => store.snapshot().runs[0]!.stages[0]!;
+    assert.equal(stage().attached, true);
+    pane.setVisible(false);
+    assert.equal(stage().attached, undefined);
+    assert.equal(calls.at(-1), undefined);
+    pane.setVisible(true);
+    assert.equal(stage().attached, true);
+    assert.equal(calls.at(-1), "pi-workflows/test-wf/A");
+    pane.dispose();
+  });
+
   test("retarget replaces the current run and optional attached stage", () => {
     const store = createStore();
     setupRun(store, "run-1", [{ id: "stage-a", name: "A" }]);

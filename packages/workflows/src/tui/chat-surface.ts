@@ -82,6 +82,55 @@ export interface FlatBandBadge {
   fg?: string;
 }
 
+export interface RenderRoundedBoxOpts {
+  /** Title embedded in the top border. Keep it short; it is truncated to fit. */
+  title?: string;
+  /** Body lines. ANSI is preserved and each line is width-clamped. */
+  bodyLines: readonly string[];
+  /** Full box width in visible cells. */
+  width?: number;
+  /** Optional theme for ANSI border/text chrome. */
+  theme?: GraphTheme;
+  /** Border/title colour. Defaults to theme.border or plain output. */
+  accent?: string;
+}
+
+/**
+ * Render a width-stable rounded box (`╭╮╰╯`) around arbitrary body lines.
+ * This is the shared workflow-tool output container: panels, cards, and
+ * compact notices all use the same border vocabulary.
+ */
+export function renderRoundedBox(opts: RenderRoundedBoxOpts): string {
+  const width = chatWidth(opts.width);
+  return renderRoundedBoxLines({ ...opts, width }).join("\n");
+}
+
+/** Render a rounded box as individual width-stable lines. */
+export function renderRoundedBoxLines(opts: RenderRoundedBoxOpts & { width: number }): string[] {
+  const width = Math.max(MIN_WIDTH, opts.width);
+  const inner = Math.max(2, width - 2);
+  const theme = opts.theme;
+  const border = theme ? hexToAnsi(opts.accent ?? theme.border) : "";
+  const reset = theme ? RESET : "";
+
+  const titleBudget = Math.max(0, inner - 2);
+  const titleText = opts.title && opts.title.length > 0
+    ? ` ${truncateToWidth(opts.title, titleBudget, ELLIPSIS)} `
+    : "";
+  const topFill = Math.max(0, inner - visibleWidth(titleText));
+  const top = `${border}╭${titleText}${"─".repeat(topFill)}╮${reset}`;
+
+  const body = opts.bodyLines.length > 0 ? opts.bodyLines : [""];
+  const rows = body.map((line) => {
+    const clipped = truncateToWidth(line, inner, ELLIPSIS, theme !== undefined);
+    const pad = Math.max(0, inner - visibleWidth(clipped));
+    return `${border}│${reset}${clipped}${" ".repeat(pad)}${border}│${reset}`;
+  });
+
+  const bottom = `${border}╰${"─".repeat(inner)}╯${reset}`;
+  return [top, ...rows, bottom];
+}
+
 export interface RenderFlatBandOpts {
   /** Pill label, e.g. `"BACKGROUND"`, `"DISPATCHED"`, `"WORKFLOWS"`. */
   label: string;
@@ -100,8 +149,8 @@ export interface RenderFlatBandOpts {
 /**
  * Render one full-width band. Themed mode paints the line with the
  * `surface0` background and styles the label, subtitle, and badges with
- * ANSI colours. Plain mode emits `▎ LABEL  subtitle    badge` so the
- * shape carries through to logs.
+ * ANSI colours. Plain mode emits an indented `LABEL  subtitle    badge`
+ * shape so the layout carries through to logs.
  */
 export function renderFlatBand(opts: RenderFlatBandOpts): string {
   const width = chatWidth(opts.width);
@@ -187,8 +236,8 @@ function renderFlatBandPlain(
   const badgeSeg = badges.map((b) => b.text).join("  ");
   // Plain-mode band sits 1 cell from the chat content edge, matching the
   // themed band's leftPad and the card/hint left edges. Single-column
-  // alignment for the band marker, card stripe, and hint arrow.
-  const leftMarker = " ▎ ";
+  // alignment for the band, card, and hint arrow.
+  const leftMarker = "   ";
   const leftW = visibleWidth(leftMarker);
   const subtitleW = visibleWidth(subtitleSeg);
   const badgeW = visibleWidth(badgeSeg);
@@ -239,7 +288,7 @@ export interface RenderTaggedCardOpts {
   theme?: GraphTheme;
 }
 
-const STRIPE_CHAR_THEMED = "▎";
+const STRIPE_CHAR_THEMED = " ";
 const STRIPE_CHAR_PLAIN = "│";
 
 /**
@@ -266,7 +315,7 @@ function renderTaggedCardThemed(
   const tagFg = hexToAnsi(opts.accent);
   const text = hexToAnsi(theme.text);
 
-  // Row 1: ▎ [tag]  title …            ● running
+  // Row 1:   [tag]  title …            ● running
   const tagSeg = `${tagBg}${tagFg}${BOLD} ${opts.tag} ${RESET}`;
   const tagW = opts.tag.length + 2;
   const tagSubtitleSeg = opts.tagSubtitle
@@ -281,14 +330,14 @@ function renderTaggedCardThemed(
     : "";
 
   // Row 1 sits one cell tighter against the stripe than the body rows
-  // (`▎ [tag] title …`) so that the tag pill's interior text starts at
+  // (`  [tag] title …`) so that the tag pill's interior text starts at
   // exactly the same column as every body row's leading character —
-  // `▎ ` (2 cells) + bg-pill leading pad (1 cell) lands tag text at col 4,
-  // and `▎  ` (3 cells) + body content also lands at col 4. The +1
+  // `  ` (2 cells) + bg-pill leading pad (1 cell) lands tag text at col 4,
+  // and `   ` (3 cells) + body content also lands at col 4. The +1
   // hanging indent on the body is what the mockup's §1 / §2 cards show
-  // (ui/mockups.html · `▎ [tag] title` over `▎  body`).
-  const row1StripePrefixW = 2; // "▎ "
-  const bodyStripePrefixW = 3; // "▎  "
+  // (ui/mockups.html · `  [tag] title` over `   body`).
+  const row1StripePrefixW = 2; // "  "
+  const bodyStripePrefixW = 3; // "   "
   const trailingPad = 2;
   const titleSuffixW = opts.titleSuffix ? Math.max(0, opts.titleSuffixWidth ?? 0) : 0;
   const titleSuffixGap = opts.titleSuffix ? 2 : 0;
@@ -316,10 +365,10 @@ function renderTaggedCardThemed(
     width - row1StripePrefixW - tagW - titleSegW - suffixSegW - tagSubtitleW - trailingW - 1,
   );
 
-  // 1-cell leading space on every card line so the stripe `▎` lands at
-  // column 1 — column-aligned with the band's `[ LABEL ]` (which is itself
-  // offset by `leftPad` inside its surface0 fill) and with the hint rows'
-  // `▸` arrow. All three chat-surface families share the same left edge,
+  // 1-cell leading space on every card line so the card content is
+  // column-aligned with the band's `[ LABEL ]` (which is itself offset by
+  // `leftPad` inside its surface0 fill) and with the hint rows' `▸` arrow.
+  // All three chat-surface families share the same left edge,
   // matching the mockup's terminal-padding scheme.
   const row1 =
     ` ${stripe}${STRIPE_CHAR_THEMED}${RESET} ` +
@@ -492,7 +541,7 @@ export interface HintRow {
 export function renderHintRows(rows: readonly HintRow[], theme?: GraphTheme): string {
   if (rows.length === 0) return "";
   // 1-cell leading space so the `▸` arrow column-aligns with the band's
-  // `[ LABEL ]` opening bracket and the card stripe `▎`. All three share
+  // `[ LABEL ]` opening bracket and the card content. All three share
   // column 1 — see renderTaggedCardThemed for the alignment contract.
   const indent = " ";
   if (!theme) {

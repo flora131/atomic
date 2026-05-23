@@ -113,8 +113,12 @@ export function renderSwitcher(
     `${dim}${hint}${RESET}${panelBg}`;
   lines.push(`${border}│${RESET}${padVisible(header, innerWidth)}${border}│${RESET}`);
 
-  // Quiet rule under header
-  lines.push(`${border}├${"─".repeat(innerWidth)}┤${RESET}`);
+  // Quiet rule under header. Keep it inside the rounded panel instead of
+  // joining into the side borders with square tee glyphs.
+  const rule = innerWidth <= 2
+    ? " ".repeat(innerWidth)
+    : " " + `${dim}${"─".repeat(innerWidth - 2)}${RESET}${panelBg}` + " ";
+  lines.push(`${border}│${RESET}${panelBg}${rule}${border}│${RESET}`);
 
   // Stage list — viewport of 8 around selection
   const maxVisible = 8;

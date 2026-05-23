@@ -543,7 +543,7 @@
           <b>Hint rows</b> — one grammar everywhere: <code>▸&nbsp;&nbsp;<span class="blue">/slash command</span>&nbsp;&nbsp;<span class="dim">verb-phrase hint</span></code>. Echoes the orchestrator's bottom toolbar (<code>↵ attach · / stages · q quit</code>).
         </li>
         <li>
-          <b>Plain-text fallback</b> — bands collapse to <code>▎ BACKGROUND  2 runs   ⊘ 2</code> on uncoloured terminals; the card stripe degrades to <code>│</code>; the strip uses bare ASCII <code>[✓][✗][○]</code>. Same shape, no color.
+          <b>Plain-text fallback</b> — bands collapse to <code>  BACKGROUND  2 runs   ⊘ 2</code> on uncoloured terminals; the card stripe degrades to <code>│</code>; the strip uses bare ASCII <code>[✓][✗][○]</code>. Same shape, no color.
         </li>
         <li>
           <b>Surfaces</b> — bands and cards are emitted from <code>renderResult()</code> in <code>src/extension/render-result.ts</code>, which already returns a multi-line string. No new surface contract is required to land this — only the renderer functions in <code>src/tui/status-list.ts</code> and <code>src/tui/run-detail.ts</code> change.

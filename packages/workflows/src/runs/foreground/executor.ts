@@ -1557,40 +1557,12 @@ export async function run<TInputs extends Record<string, unknown>>(
           // but keep the SDK session alive below while an attached chat pane is
           // still using its direct handle.
           dropStageControlHandle();
-          if (stageSnapshot.attached === true) {
-            let unsubscribeDetach: (() => void) | undefined;
-            let abortListener: (() => void) | undefined;
-            const releaseWhenDetached = (force = false): void => {
-              const currentRun = activeStore.runs().find((r) => r.id === runId);
-              const currentStage = currentRun?.stages.find((s) => s.id === stageId);
-              if (!force && currentStage?.attached === true) return;
-              unsubscribeDetach?.();
-              unsubscribeDetach = undefined;
-              if (abortListener) {
-                ownController.signal.removeEventListener("abort", abortListener);
-                abortListener = undefined;
-              }
-              void releaseLiveHandle().catch(() => {});
-            };
-            unsubscribeDetach = activeStore.subscribe(() => releaseWhenDetached());
-            abortListener = () => releaseWhenDetached(true);
-            if (ownController.signal.aborted) releaseWhenDetached(true);
-            else {
-              ownController.signal.addEventListener(
-                "abort",
-                abortListener,
-                { once: true },
-              );
-            }
-            releaseWhenDetached();
-            limiter.release();
-          } else {
-            try {
-              await releaseLiveHandle();
-            } finally {
-              limiter.release();
-            }
-          }
+          // Keep the direct chat handle registered after the workflow-owned
+          // stage operation settles. The stage no longer participates in
+          // run-level pause/resume or dependency scheduling, but entering the
+          // node should behave like reopening a normal chat session and allow
+          // additional user messages on the same AgentSession.
+          limiter.release();
         }
       };
 

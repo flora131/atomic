@@ -1,19 +1,19 @@
 /**
- * `/workflow status` list — chat-surface vocabulary from ui/mockups.html.
+ * `/workflow status` list — rounded workflow-tool output surface.
  *
- * Visual contract (ui/mockups.html §2 · DESIGN.md §5):
- *  - One full-width `[ BACKGROUND ]` flat band with subtitle and badges.
- *  - One **card** per run (replaces the indented per-stage rows):
- *      row 1: ▎ stripe · [tag runId] · bold workflow · ● state badge
- *      row 2: ▎ stripe · mode · progress strip · meta
- *  - Status colour is carried by the stripe, the tag, and the trailing
- *    badge — never by body text.
+ * Visual contract (DESIGN.md §5):
+ *  - One rounded `BACKGROUND` panel with subtitle and count badges.
+ *  - One rounded card per run (replaces the indented per-stage rows):
+ *      title: runId · workflow · state badge
+ *      row 1: mode · progress strip · meta
+ *  - Status colour is carried by the card border and state badge semantics,
+ *    never by decorative body text.
  *  - One trailing hint row pointing at `/workflow status <id>` for the
  *    most-recently-active run; full per-stage detail moves into
  *    `/workflow status <id>` ({@link renderRunDetail}).
  *
- * Plain mode (theme omitted) preserves the shape: `▎ [ BACKGROUND ]`
- * band, `│  [tag] title` cards, ASCII bracket cells `[✓][●][○][✗]`.
+ * Plain mode (theme omitted) preserves the rounded panel/card shape without
+ * ANSI escapes, with ASCII bracket cells `[✓][●][○][✗]`.
  *
  * Powers:
  *   - `renderResult({ action: "status" })` (LLM tool path)
@@ -31,15 +31,14 @@ import { elapsedRunMs, elapsedStageMs } from "../shared/timing.js";
 import type { GraphTheme } from "./graph-theme.js";
 import { fmtDuration } from "./status-helpers.js";
 import {
-  renderFlatBand,
-  renderTaggedCard,
   renderHintRows,
+  renderRoundedBox,
   progressStrip,
   ELLIPSIS,
   chatWidth,
 } from "./chat-surface.js";
 import type { FlatBandBadge } from "./chat-surface.js";
-import { hexToAnsi, RESET } from "./color-utils.js";
+import { hexToAnsi, RESET, BOLD } from "./color-utils.js";
 import { visibleWidth, truncateToWidth } from "./text-helpers.js";
 
 const SHORT_ID_LEN = 6;
@@ -58,15 +57,16 @@ export interface RenderStatusListOpts {
 }
 
 /**
- * Render a list of run snapshots as the canonical `[ BACKGROUND ]` chat
- * surface: one band plus one card per run.
+ * Render a list of run snapshots as the canonical rounded `BACKGROUND`
+ * surface: one panel plus one card per run.
  */
 export function renderStatusList(
   runs: readonly RunSnapshot[],
   opts: RenderStatusListOpts = {},
 ): string {
   const now = opts.now ?? Date.now();
-  const width = opts.width;
+  const width = effectiveWidth(opts.width);
+  const cardWidth = Math.max(20, width - 4);
 
   // The list shows active + recently-ended runs together. Sorting:
   // active first, then ended, each bucket by startedAt desc.
@@ -79,99 +79,80 @@ export function renderStatusList(
     ? themedBadges(counts, opts.theme)
     : plainBadges(counts);
 
-  const lines: string[] = [];
-  lines.push(renderFlatBand({
-    label: "BACKGROUND",
-    subtitle,
-    badges,
-    theme: opts.theme,
-    width,
-  }));
-  // Blank line after the band — same header-vs-content separation used by
-  // /workflow list. Without it the band visually fuses into the first card.
-  lines.push("");
+  const body: string[] = [];
 
   if (sorted.length === 0) {
-    lines.push(emptyStateLine(opts.theme));
-    return lines.join("\n");
-  }
-
-  // Blank line between run cards mirrors the mockup's per-card top/bottom
-  // margin (ui/mockups.html §2). Without it five runs collapse into one
-  // visual block.
-  for (let i = 0; i < sorted.length; i++) {
-    if (i > 0) lines.push("");
-    lines.push(renderRunCard(sorted[i]!, now, width, opts.theme));
+    body.push(` ${emptyStateLine(opts.theme)} `);
+  } else {
+    for (let i = 0; i < sorted.length; i++) {
+      if (i > 0) body.push("");
+      body.push(...renderRunEntry(sorted[i]!, now, cardWidth, opts.theme));
+    }
   }
 
   if (opts.showDetailHint !== false && sorted.length > 0) {
     const sid = shortId(sorted[0]!.id);
-    lines.push("");
-    lines.push(
-      renderHintRows(
+    body.push("");
+    body.push(
+      ...renderHintRows(
         [{ command: `/workflow status ${sid}`, hint: "drill into a run" }],
         opts.theme,
-      ),
+      ).split("\n").map((line) => ` ${line} `),
     );
   }
 
-  return lines.join("\n");
+  const badgeText = badges && badges.length > 0 ? `  ${badges.map((b) => b.text).join("  ")}` : "";
+  return renderRoundedBox({
+    title: `BACKGROUND  ${subtitle}${badgeText}`,
+    bodyLines: body,
+    theme: opts.theme,
+    width,
+  });
 }
 
 // ---------------------------------------------------------------------------
 // Run card
 // ---------------------------------------------------------------------------
 
-function renderRunCard(
+function renderRunEntry(
   run: RunSnapshot,
   now: number,
-  width: number | undefined,
+  width: number,
   theme?: GraphTheme,
-): string {
+): string[] {
   const sid = shortId(run.id);
-  const stateAccent = runAccent(run, theme);
   const trailing = runTrailing(run, theme);
-
   const mode = run.stages.length > 1 ? "chain " : "single";
-  // Row 2 budget: the card body row sits past the stripe (3 cells) and
-  // shares its width with a mode label, the progress strip, and a meta
-  // tail. Reserve ~3 cells for the meta separator and ellipsis padding.
-  const cardWidth = effectiveWidth(width);
-  const stripPrefixW = 4; // leading chat pad + "▎  "
-  const modeW = mode.length + 4; // 4-space separator after mode
-  const interior = cardWidth - stripPrefixW;
+  const bodyWidth = effectiveWidth(width);
+  const interior = Math.max(8, bodyWidth - 4);
   const rawMeta = runCardMeta(run, now);
-  // Row 2 is caller-rendered body content; clamp the metadata tail before it
-  // reaches renderTaggedCard so long/wide stage names cannot overflow.
+  const modeW = mode.length + 4;
   const maxMetaW = Math.max(0, interior - modeW - 3);
   const meta = truncateToWidth(rawMeta, maxMetaW, ELLIPSIS);
   const metaW = visibleWidth(meta);
-  const stripBudget = Math.max(0, cardWidth - stripPrefixW - modeW - metaW - 4);
+  const stripBudget = Math.max(0, interior - modeW - metaW - 2);
 
-  const cells = stageCells(run);
-  const strip = progressStrip(cells, stripBudget, theme);
-  const stripVisibleW = visibleWidth(strip);
-
-  const usedLeftW = modeW + stripVisibleW;
+  const strip = progressStrip(stageCells(run), stripBudget, theme);
+  const usedLeftW = modeW + visibleWidth(strip);
   const gap = Math.max(metaW > 0 ? 1 : 0, interior - usedLeftW - metaW);
 
+  const glyph = statusIconForRun(run);
+  const glyphFg = theme ? hexToAnsi(runAccent(run, theme)) : "";
+  const accent = theme ? hexToAnsi(theme.accent) : "";
+  const text = theme ? hexToAnsi(theme.text) : "";
   const muted = theme ? hexToAnsi(theme.textMuted) : "";
   const dim = theme ? hexToAnsi(theme.dim) : "";
   const reset = theme ? RESET : "";
 
+  const name = truncateToWidth(run.name, Math.max(MIN_TITLE_BUDGET, interior - visibleWidth(sid) - visibleWidth(trailing?.text ?? "") - 8), ELLIPSIS);
+  const line1 = theme
+    ? ` ${glyphFg}${glyph}${RESET}  ${accent}${sid}${RESET}  ${text}${BOLD}${name}${RESET}  ${glyphFg}${trailing?.text ?? ""}${RESET} `
+    : ` ${glyph}  ${sid}  ${name}  ${trailing?.text ?? ""} `;
   const modeSeg = theme ? `${muted}${mode}${reset}` : mode;
   const metaSeg = theme ? `${dim}${meta}${reset}` : meta;
-  const row2 = `${modeSeg}    ${strip}${" ".repeat(gap)}${metaSeg}`;
+  const line2 = `   ${modeSeg}    ${strip}${" ".repeat(gap)}${metaSeg} `;
 
-  return renderTaggedCard({
-    tag: sid,
-    title: run.name,
-    trailing,
-    bodyRows: [row2],
-    accent: stateAccent,
-    width,
-    theme,
-  });
+  return [line1, line2];
 }
 
 function runAccent(run: RunSnapshot, theme?: GraphTheme): string {
@@ -357,6 +338,17 @@ function shortId(id: string): string {
 function emptyStateLine(theme?: GraphTheme): string {
   if (!theme) return "  no in-flight runs";
   return `  ${hexToAnsi(theme.dim)}no in-flight runs${RESET}`;
+}
+
+function statusIconForRun(run: RunSnapshot): string {
+  switch (run.status) {
+    case "completed": return "✓";
+    case "running": return "●";
+    case "failed": return "✗";
+    case "killed": return "⊘";
+    case "pending":
+    default: return "○";
+  }
 }
 
 // Re-export for callers that need to inspect width budgeting.

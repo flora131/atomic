@@ -31,7 +31,7 @@ export type ChatMessageEntry =
       result?: ToolResultMessage;
       isPartial?: boolean;
     }
-  | { role: "tool"; kind: "bashExecution"; message: BashExecutionMessage }
+  | { role: "tool"; kind: "bashExecution"; message: BashExecutionMessage; isPartial?: boolean }
   | { role: "user"; kind: "user"; text: string }
   | { role: "custom"; kind: "custom"; message: CustomMessage<unknown> }
   | { role: "summary"; kind: "branchSummary"; message: BranchSummaryMessage }
@@ -217,6 +217,14 @@ export class LiveChatEntriesController {
     if (message.role === "assistant") {
       this.streamingAssistantIndex = undefined;
       return this.updateAssistantMessage(message as AssistantMessage);
+    }
+    if (message.role === "toolResult") {
+      const toolResult = message as ToolResultMessage;
+      // Match the main InteractiveMode live-chat behavior: tool output is
+      // rendered from tool_execution_end. The subsequent persisted
+      // message_start/toolResult echo is absorbed so it cannot append or
+      // overwrite a second row for the same tool call.
+      if (this.findToolEntryIndex(toolResult.toolCallId) >= 0) return true;
     }
     const entries = chatEntriesFromAgentMessages([message as AgentMessage]);
     if (entries.length === 0) return false;
@@ -474,14 +482,16 @@ export function renderChatMessageEntry(
         messageEntry.message.excludeFromContext,
       );
       if (messageEntry.message.output) component.appendOutput(messageEntry.message.output);
-      component.setComplete(
-        messageEntry.message.exitCode,
-        messageEntry.message.cancelled,
-        messageEntry.message.truncated
-          ? ({ truncated: true } as Parameters<BashExecutionComponent["setComplete"]>[2])
-          : undefined,
-        messageEntry.message.fullOutputPath,
-      );
+      if (messageEntry.isPartial !== true) {
+        component.setComplete(
+          messageEntry.message.exitCode,
+          messageEntry.message.cancelled,
+          messageEntry.message.truncated
+            ? ({ truncated: true } as Parameters<BashExecutionComponent["setComplete"]>[2])
+            : undefined,
+          messageEntry.message.fullOutputPath,
+        );
+      }
       return component;
     }
     case "user":

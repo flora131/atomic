@@ -4,7 +4,7 @@
  *
  * Visual contract (DESIGN.md §5 Picker Rows + pi-subagents/src/tui/render-helpers.ts):
  *  - Rounded `╭─ Title ─╮` chrome in `border` colour with title in `accent`.
- *  - Section header rows use the mauve `▎` glyph (matches GraphView).
+ *  - Section header rows use a simple two-space label indent (matches GraphView).
  *  - Selected row: `picker-row-selected` token (blue bg, surface0 fg, bold).
  *  - Footer: dim hints, active key letters in `text`.
  *
@@ -182,7 +182,7 @@ function renderSectionRow(label: string, inner: number, theme: GraphTheme): stri
   const panelBg = hexBg(theme.bg);
   const mauve = hexToAnsi(theme.mauve);
   const muted = hexToAnsi(theme.textMuted);
-  const content = ` ${mauve}▎${RESET}${panelBg} ${muted}${BOLD}${label}${RESET}`;
+  const content = ` ${mauve} ${RESET}${panelBg} ${muted}${BOLD}${label}${RESET}`;
   return `${border}│${RESET}${panelBg}${padTo(content, inner)}${RESET}${border}│${RESET}`;
 }
 
@@ -195,14 +195,14 @@ function renderFilterRow(inner: number, theme: GraphTheme, state: SessionPickerS
   const accent = hexToAnsi(theme.accent);
   const cursor = state.filterFocused ? `${accent}▌${RESET}${panelBg}` : "";
   const label = state.filterFocused ? `${accent}filter` : `${muted}filter`;
-  const prefixPlain = " ▎ filter  ";
+  const prefixPlain = "   filter  ";
   const valueBudget = Math.max(1, inner - visibleWidth(prefixPlain) - (state.filterFocused ? 1 : 0));
   const rawValue = state.query || "(type to filter by name or id)";
   const shownValue = truncateToWidth(rawValue, valueBudget, "…");
   const value = state.query
     ? `${text}${shownValue}${RESET}${panelBg}`
     : `${muted}${shownValue}${RESET}${panelBg}`;
-  const content = ` ${mauve}▎${RESET}${panelBg} ${label}${RESET}${panelBg}  ${value}${cursor}`;
+  const content = ` ${mauve} ${RESET}${panelBg} ${label}${RESET}${panelBg}  ${value}${cursor}`;
   return `${border}│${RESET}${panelBg}${padTo(content, inner)}${RESET}${border}│${RESET}`;
 }
 

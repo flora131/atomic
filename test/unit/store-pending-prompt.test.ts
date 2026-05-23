@@ -17,6 +17,7 @@ import type { Store } from "../../packages/workflows/src/shared/store.js";
 import type {
   PendingPrompt,
   RunSnapshot,
+  StageSnapshot,
 } from "../../packages/workflows/src/shared/store-types.js";
 
 function makeRun(id: string): RunSnapshot {
@@ -37,6 +38,17 @@ function makePrompt(id: string, overrides: Partial<PendingPrompt> = {}): Pending
     message: `prompt ${id}`,
     createdAt: Date.now(),
     ...overrides,
+  };
+}
+
+function makeStage(id: string): StageSnapshot {
+  return {
+    id,
+    name: `stage-${id}`,
+    status: "running",
+    parentIds: [],
+    startedAt: Date.now(),
+    toolEvents: [],
   };
 }
 
@@ -96,6 +108,31 @@ describe("store.recordPendingPrompt", () => {
     });
     s.recordPendingPrompt("r1", makePrompt("p1"));
     assert.equal(calls, 0);
+  });
+});
+
+describe("store.recordStagePendingPrompt", () => {
+  test("records independent prompts on multiple stages in the same run", async () => {
+    const s = createStore();
+    s.recordRunStart(makeRun("r1"));
+    s.recordStageStart("r1", makeStage("s1"));
+    s.recordStageStart("r1", makeStage("s2"));
+
+    assert.equal(s.recordStagePendingPrompt("r1", "s1", makePrompt("p1")), true);
+    assert.equal(s.recordStagePendingPrompt("r1", "s2", makePrompt("p2")), true);
+
+    const w1 = s.awaitStagePendingPrompt("r1", "s1", "p1");
+    const w2 = s.awaitStagePendingPrompt("r1", "s2", "p2");
+
+    assert.equal(s.resolveStagePendingPrompt("r1", "s1", "p1", "blue"), true);
+    assert.equal(await w1, "blue");
+
+    const run = getRun(s, "r1");
+    assert.equal(run.stages[0]?.pendingPrompt, undefined);
+    assert.equal(run.stages[1]?.pendingPrompt?.id, "p2");
+
+    assert.equal(s.resolveStagePendingPrompt("r1", "s2", "p2", "green"), true);
+    assert.equal(await w2, "green");
   });
 });
 

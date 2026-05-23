@@ -1,9 +1,9 @@
 /**
  * Render the workflow tool result for chat / LLM-tool surfaces.
  *
- * Rich background-workflow surfaces (status list, per-run detail) delegate
- * to the canonical Catppuccin renderers in `src/tui/`. Compact one-liners
- * (list/run/interrupt/resume) stay inline here.
+ * Workflow surfaces delegate to the canonical rounded renderers in `src/tui/`.
+ * Compact status/error/control responses are wrapped in the same rounded
+ * notice panel vocabulary so tool output stays visually consistent.
  *
  * cross-ref:
  *  - src/tui/status-list.ts  band-header status list
@@ -20,6 +20,7 @@ import { renderRunDetail } from "../tui/run-detail.js";
 import { renderWorkflowList } from "../tui/workflow-list.js";
 import { deriveGraphTheme } from "../tui/graph-theme.js";
 import { renderDispatchConfirm } from "../tui/dispatch-confirm.js";
+import { renderRoundedBox } from "../tui/chat-surface.js";
 import { truncateToWidth } from "../tui/text-helpers.js";
 
 // ---------------------------------------------------------------------------
@@ -144,6 +145,23 @@ function fitLine(line: string, width?: number): string {
   return truncateToWidth(line, width, "…");
 }
 
+function renderNotice(
+  title: string,
+  message: string,
+  opts: RenderResultOpts | undefined,
+  themed: boolean,
+): string {
+  const theme = themed ? deriveGraphTheme({}) : undefined;
+  const width = opts?.width;
+  const contentWidth = width && width > 0 ? Math.max(1, width - 4) : undefined;
+  return renderRoundedBox({
+    title,
+    bodyLines: [` ${fitLine(message, contentWidth)} `],
+    theme,
+    width,
+  });
+}
+
 export function renderResult(result: WorkflowToolResult, opts?: RenderResultOpts): string {
   const partial = opts?.isPartial === true;
   const themed = opts?.plain !== true;
@@ -168,7 +186,7 @@ export function renderResult(result: WorkflowToolResult, opts?: RenderResultOpts
     case "statusDetail": {
       if ("error" in result) {
         const r = result as Extract<StatusDetailResult, { error: string }>;
-        return fitLine(`workflow status id=${r.runId}: ${r.error}`, opts?.width);
+        return renderNotice("WORKFLOW STATUS", `id=${r.runId}: ${r.error}`, opts, themed);
       }
       const r = result as Extract<StatusDetailResult, { detail: RunDetail }>;
       return renderRunDetail(r.detail, {
@@ -187,34 +205,36 @@ export function renderResult(result: WorkflowToolResult, opts?: RenderResultOpts
 
     case "get": {
       const r = result as GetResult;
-      if (r.error) return fitLine(`workflow get (${r.workflow}): ${r.error}`, opts?.width);
+      if (r.error) return renderNotice("WORKFLOW GET", `${r.workflow}: ${r.error}`, opts, themed);
       const output = r.details?.output;
       const description = typeof output?.["description"] === "string" ? ` — ${output["description"]}` : "";
-      return fitLine(
-        `workflow get (${r.workflow}): ${r.details?.status ?? "completed"}${description}`,
-        opts?.width,
+      return renderNotice(
+        "WORKFLOW GET",
+        `${r.workflow}: ${r.details?.status ?? "completed"}${description}`,
+        opts,
+        themed,
       );
     }
 
     case "run": {
       const r = result as RunResult;
-      if (partial) return fitLine(`workflow run ${r.runId}: ${r.status} (in progress…)`, opts?.width);
+      if (partial) return renderNotice("WORKFLOW RUN", `${r.runId}: ${r.status} (in progress…)`, opts, themed);
       if (r.status === "failed" && !r.runId) {
         // Not-found path — render the error verbatim, no fake runId banner.
         const label = r.name ? ` (${r.name})` : "";
-        return fitLine(`workflow run${label}: ${r.error ?? "workflow not found"}`, opts?.width);
+        return renderNotice("WORKFLOW RUN", `${label || "workflow"}: ${r.error ?? "workflow not found"}`, opts, themed);
       }
       if (r.error) {
         const label = r.name ? ` (${r.name})` : "";
-        return fitLine(`workflow run ${r.runId}${label}: ${r.status} — ${r.error}`, opts?.width);
+        return renderNotice("WORKFLOW RUN", `${r.runId}${label}: ${r.status} — ${r.error}`, opts, themed);
       }
       if (r.details) {
         const label = r.name ? ` (${r.name})` : "";
-        return fitLine(`workflow run ${r.runId}${label}: ${r.details.mode} ${r.details.status}`, opts?.width);
+        return renderNotice("WORKFLOW RUN", `${r.runId}${label}: ${r.details.mode} ${r.details.status}`, opts, themed);
       }
       if (r.status === "completed" || r.status === "killed") {
         const label = r.name ? ` (${r.name})` : "";
-        return fitLine(`workflow run ${r.runId}${label}: ${r.status}`, opts?.width);
+        return renderNotice("WORKFLOW RUN", `${r.runId}${label}: ${r.status}`, opts, themed);
       }
       // Background dispatch — reuse the same confirmation card rendered by
       // `/workflow <name> ...` when we have the workflow name and run id.
@@ -228,31 +248,33 @@ export function renderResult(result: WorkflowToolResult, opts?: RenderResultOpts
         });
       }
       const label = r.name ? ` (${r.name})` : "";
-      return fitLine(
-        `workflow run ${r.runId}${label}: started in background — ${r.message ?? r.status}`,
-        opts?.width,
+      return renderNotice(
+        "WORKFLOW RUN",
+        `${r.runId}${label}: started in background — ${r.message ?? r.status}`,
+        opts,
+        themed,
       );
     }
 
     case "interrupt": {
       const r = result as InterruptResult;
-      return fitLine(`workflow interrupt ${r.runId}: ${r.message}`, opts?.width);
+      return renderNotice("WORKFLOW INTERRUPT", `${r.runId}: ${r.message}`, opts, themed);
     }
 
     case "kill": {
       const r = result as KillResult;
-      return fitLine(`workflow kill ${r.runId}: ${r.message}`, opts?.width);
+      return renderNotice("WORKFLOW KILL", `${r.runId}: ${r.message}`, opts, themed);
     }
 
     case "resume": {
       const r = result as ResumeResult;
-      return fitLine(`workflow resume ${r.runId}: ${r.message}`, opts?.width);
+      return renderNotice("WORKFLOW RESUME", `${r.runId}: ${r.message}`, opts, themed);
     }
 
     default: {
       // Runtime guard — handles values coerced from external sources.
       const fallback = result as { action: string; message?: string };
-      return fitLine(`workflow: ${fallback.message ?? JSON.stringify(result)}`, opts?.width);
+      return renderNotice("WORKFLOW", fallback.message ?? JSON.stringify(result), opts, themed);
     }
   }
 }

@@ -12,9 +12,9 @@
  *   │                                               │
  *   │  <message>                                    │
  *   │                                               │
- *   │  ┌ response ─────────────────────────────┐    │
+ *   │  ╭ response ─────────────────────────────╮    │
  *   │  │ <text input / choice cycler>          │    │
- *   │  └───────────────────────────────────────┘    │
+ *   │  ╰───────────────────────────────────────╯    │
  *   │                                               │
  *   │  ↵ submit · esc skip                          │
  *   ╰───────────────────────────────────────────────╯
@@ -372,7 +372,7 @@ export function renderPromptCard(opts: PromptCardRenderOpts): string[] {
   }
   lines.push(makePaddedRow(bg, borderColor, innerWidth, ""));
 
-  const fieldLines = renderResponseField(state, theme, innerWidth - 4, opts.cursorOn);
+  const fieldLines = renderResponseFieldBox(state, theme, innerWidth - 4, opts.cursorOn);
   for (const fl of fieldLines) {
     lines.push(makePaddedRow(bg, borderColor, innerWidth, "  " + fl));
   }
@@ -422,6 +422,33 @@ function makePaddedRow(
 function wrapText(text: string, width: number): string[] {
   if (width <= 0) return [text];
   return wrapTextWithAnsi(text, width);
+}
+
+function renderResponseFieldBox(
+  state: PromptCardState,
+  theme: GraphTheme,
+  usable: number,
+  cursorOn: boolean,
+): string[] {
+  const boxWidth = Math.max(4, usable);
+  const contentWidth = Math.max(1, boxWidth - 2);
+  const borderColor = theme.accent;
+  const label = " response ";
+  const labelText = paint(label, theme.textMuted, { bold: true });
+  const labelW = visibleWidth(labelText);
+  const topFill = Math.max(0, boxWidth - labelW - 2);
+  const rows = renderResponseField(state, theme, contentWidth, cursorOn);
+  return [
+    paint("╭", borderColor) + labelText + paint("─".repeat(topFill) + "╮", borderColor),
+    ...rows.map((row) => makeFieldRow(row, contentWidth, borderColor)),
+    paint("╰" + "─".repeat(Math.max(0, boxWidth - 2)) + "╯", borderColor),
+  ];
+}
+
+function makeFieldRow(content: string, width: number, borderColor: string): string {
+  const clipped = truncateToWidth(content, width, "", true);
+  const padded = clipped + " ".repeat(Math.max(0, width - visibleWidth(clipped)));
+  return paint("│", borderColor) + padded + paint("│", borderColor);
 }
 
 function renderResponseField(

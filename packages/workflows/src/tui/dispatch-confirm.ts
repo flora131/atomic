@@ -3,9 +3,10 @@
  * ui/dispatch-mockup.html §1 (compact two-row redesign).
  *
  * Visual contract:
- *  - One status-coloured tagged card:
- *      row 1: ▎ stripe · [tag runId8] · bold workflowName · k=v · k=v · ● running
- *      row 2 (only on overflow): ▎ stripe ·    k=v · k=v · +N more
+ *  - One rounded `DISPATCHED` panel.
+ *  - One status-coloured rounded run card:
+ *      title: runId8 · workflowName · ● running
+ *      body: compact `k=v · k=v · +N more` input summary when present
  *  - One hint row: ▸ /workflow connect <id>   attach & watch
  *
  * What we deliberately do NOT emit (was in the legacy 7-row layout):
@@ -22,8 +23,7 @@
  *    intent (list other in-flight runs), already discoverable from a
  *    bare `/workflow` invocation and the picker's confirm panel.
  *
- * Plain mode degrades the stripe to `│` and drops ANSI; layout shape is
- * preserved.
+ * Plain mode drops ANSI; the rounded panel/card layout shape is preserved.
  *
  * cross-ref:
  *  - ui/dispatch-mockup.html (before / after side-by-side)
@@ -34,8 +34,8 @@
 
 import type { GraphTheme } from "./graph-theme.js";
 import {
-  renderTaggedCard,
   renderHintRows,
+  renderRoundedBox,
   ELLIPSIS,
   chatWidth,
 } from "./chat-surface.js";
@@ -67,9 +67,10 @@ export interface RenderDispatchConfirmOpts {
 }
 
 /**
- * Render the post-dispatch confirmation: one tagged card carrying the
- * runId, workflow name, inputs summary, and a `● running` status badge,
- * followed by one hint row pointing at `/workflow connect <id>`.
+ * Render the post-dispatch confirmation: one rounded panel containing a
+ * rounded run card with runId, workflow name, inputs summary, and a
+ * `● running` status badge, followed by one hint row pointing at
+ * `/workflow connect <id>`.
  */
 export function renderDispatchConfirm(opts: RenderDispatchConfirmOpts): string {
   const width = effectiveWidth(opts.width);
@@ -87,7 +88,7 @@ export function renderDispatchConfirm(opts: RenderDispatchConfirmOpts): string {
   // workflow name) or wrap to a body row. Budget math mirrors
   // `renderTaggedCard`'s row-1 chrome accounting:
   //
-  //   " "(1) ▎(1) " "(1) [tag](tag.length + 2) "  "(2) title(titleW)
+  //   " "(1)  (1) " "(1) [tag](tag.length + 2) "  "(2) title(titleW)
   //   "  "(2) suffix(suffixW) gap(≥1) trailing(trailingW) " "(1)
   //
   // Solve for the max suffix width that still leaves room for the
@@ -116,14 +117,12 @@ export function renderDispatchConfirm(opts: RenderDispatchConfirmOpts): string {
 
   const hasInputs = Object.keys(opts.inputs).length > 0;
   let titleSuffix: string | undefined;
-  let titleSuffixWidth: number | undefined;
   const bodyRows: string[] = [];
 
   if (hasInputs && inlineBudget >= MIN_INLINE_INPUT_BUDGET) {
     const inline = renderInputsSegment(opts.inputs, inlineBudget, theme);
     if (inline && inline.fitted) {
       titleSuffix = inline.rendered;
-      titleSuffixWidth = inline.visibleWidth;
     }
   }
 
@@ -131,30 +130,29 @@ export function renderDispatchConfirm(opts: RenderDispatchConfirmOpts): string {
   // tight, or the rendered inputs spilled past it. Either way, we use
   // the full body interior (width - body chrome) as the wider canvas.
   if (hasInputs && titleSuffix === undefined) {
-    const BODY_PREFIX_W = 4; // " ▎  " — see renderTaggedCard body prefix
+    const BODY_PREFIX_W = 4; // "    " — see renderTaggedCard body prefix
     const bodyBudget = Math.max(0, width - BODY_PREFIX_W - 1);
     const overflowSeg = renderInputsSegment(opts.inputs, bodyBudget, theme);
     if (overflowSeg) bodyRows.push(overflowSeg.rendered);
   }
 
-  const card = renderTaggedCard({
-    tag,
-    title: opts.workflowName,
-    titleSuffix,
-    titleSuffixWidth,
-    trailing,
-    accent,
-    width: opts.width,
-    theme,
-    bodyRows,
-  });
+  const inputRows = bodyRows.length > 0
+    ? bodyRows.map((row) => `   ${row} `)
+    : [`   ${titleSuffix ?? "started in background"} `];
+  const titleLine = ` ●  ${tag}  ${opts.workflowName}  ${trailing.text} `;
 
   const hints = renderHintRows(
     [{ command: `/workflow connect ${tag}`, hint: "attach & watch" }],
     theme,
-  );
+  ).split("\n").map((line) => ` ${line} `);
 
-  return [card, hints].join("\n");
+  return renderRoundedBox({
+    title: "DISPATCHED",
+    bodyLines: [titleLine, ...inputRows, "", ...hints],
+    accent,
+    theme,
+    width,
+  });
 }
 
 /** First 8 chars of the run UUID — the canonical short form. */

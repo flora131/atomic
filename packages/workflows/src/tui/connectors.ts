@@ -38,7 +38,7 @@ export function buildMergeConnector(fromXs: number[], toX: number): ConnectorRes
 
   // Line 0: top row connecting sources with ─, ┬ at source positions
   // Line 1: vertical drop │ from each source down to target row
-  // Line 2: bottom row ─ connecting to target with ┴ at source positions, └─┘ style
+  // Line 2: bottom row ─ connecting to target with ┴ at source positions
 
   const fromSet = new Set(fromXs.map((x) => x - minX));
   const targetCol = toX - minX;
@@ -69,7 +69,7 @@ export function buildMergeConnector(fromXs: number[], toX: number): ConnectorRes
   for (const fx of fromSet) {
     botChars[fx] = "┴";
   }
-  // Mark target with └ or ┘ or ┴ depending on position
+  // Mark target with a join glyph.
   botChars[targetCol] = "┴";
 
   // Middle line: vertical bars at each source position

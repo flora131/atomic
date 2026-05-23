@@ -46,6 +46,39 @@ interface SetWidgetCall {
   opts: { placement?: string } | undefined;
 }
 
+interface FakeTimerHandle {
+  id: number;
+  unrefCalls: number;
+  unref(): void;
+}
+
+function makeFakeTimers(): {
+  setTimeout: (handler: () => void, delayMs: number) => FakeTimerHandle;
+  clearTimeout: (handle: FakeTimerHandle) => void;
+  scheduled: Array<{ handle: FakeTimerHandle; handler: () => void; delayMs: number; cleared: boolean }>;
+} {
+  let nextId = 1;
+  const scheduled: Array<{ handle: FakeTimerHandle; handler: () => void; delayMs: number; cleared: boolean }> = [];
+  return {
+    scheduled,
+    setTimeout(handler: () => void, delayMs: number): FakeTimerHandle {
+      const handle: FakeTimerHandle = {
+        id: nextId++,
+        unrefCalls: 0,
+        unref() {
+          this.unrefCalls += 1;
+        },
+      };
+      scheduled.push({ handle, handler, delayMs, cleared: false });
+      return handle;
+    },
+    clearTimeout(handle: FakeTimerHandle): void {
+      const timer = scheduled.find((entry) => entry.handle === handle);
+      if (timer) timer.cleared = true;
+    },
+  };
+}
+
 function makeMockPi(): {
   pi: {
     ui: {
@@ -160,13 +193,120 @@ describe("installStoreWidget", () => {
     assert.ok(widgetCalls.length >= 2, "expected setWidget to be re-issued");
   });
 
-  test("clears the widget again when the last active run ends", () => {
+  test("refreshes immediately when a stage starts awaiting human input", () => {
+    const { pi, widgetCalls, renderRequests } = makeMockPi();
+    installStoreWidget(pi, storeInstance);
+    const run = makeRun("r1", "my-wf");
+    (run.stages as StageSnapshot[]).push(makeStage("s1", "ask"));
+    storeInstance.recordRunStart(run);
+    const beforeCalls = widgetCalls.length;
+    const beforeRequests = renderRequests.count;
+
+    storeInstance.recordStageAwaitingInput("r1", "s1", true);
+
+    assert.ok(widgetCalls.length > beforeCalls, "expected widget to be re-issued for awaiting input");
+    assert.ok(renderRequests.count > beforeRequests, "expected repaint for awaiting input");
+    const last = widgetCalls[widgetCalls.length - 1]!;
+    const component = last.factory!(null, undefined) as { render(w: number): string[] };
+    assert.match(component.render(120).join("\n"), /● 1 running\s+↵ 1 needs attention/);
+  });
+
+  test("refreshes immediately when a run fails", () => {
+    const { pi, widgetCalls, renderRequests } = makeMockPi();
+    installStoreWidget(pi, storeInstance);
+    const run = makeRun("r1", "my-wf");
+    (run.stages as StageSnapshot[]).push(makeStage("s1", "fail"));
+    storeInstance.recordRunStart(run);
+    const beforeCalls = widgetCalls.length;
+    const beforeRequests = renderRequests.count;
+
+    storeInstance.recordRunEnd("r1", "failed", undefined, "boom");
+
+    assert.ok(widgetCalls.length > beforeCalls, "expected widget to be re-issued for failed run");
+    assert.ok(renderRequests.count > beforeRequests, "expected repaint for failed run");
+    const last = widgetCalls[widgetCalls.length - 1]!;
+    const component = last.factory!(null, undefined) as { render(w: number): string[] };
+    const rendered = component.render(120).join("\n");
+    assert.match(rendered, /✗ 1/);
+    assert.match(rendered, /failed · 0s ago/);
+  });
+
+  test("keeps the widget installed for recently-ended runs", () => {
     const { pi, widgetCalls } = makeMockPi();
     installStoreWidget(pi, storeInstance);
     storeInstance.recordRunStart(makeRun("r1", "my-wf"));
     storeInstance.recordRunEnd("r1", "completed");
+
     const last = widgetCalls[widgetCalls.length - 1]!;
-    assert.equal(last.factory, undefined);
+    assert.equal(typeof last.factory, "function");
+    const component = last.factory!(null, undefined) as { render(w: number): string[] };
+    const lines = component.render(120);
+    assert.ok(lines.some((line) => line.includes("my-wf")));
+    assert.ok(lines.some((line) => line.includes("complete")));
+  });
+
+  test("refreshes the visible widget from a timer while an active run is idle", () => {
+    const originalNow = Date.now;
+    let now = 1_000_000;
+    Date.now = () => now;
+    try {
+      const timers = makeFakeTimers();
+      const { pi, widgetCalls, renderRequests } = makeMockPi();
+      installStoreWidget(pi, storeInstance, timers);
+      storeInstance.recordRunStart(makeRun("r1", "my-wf"));
+      const callsAfterStart = widgetCalls.length;
+      const requestsAfterStart = renderRequests.count;
+      const timer = timers.scheduled.findLast((entry) => !entry.cleared);
+      assert.ok(timer, "expected active widget refresh timer");
+      assert.ok(timer.delayMs > 0 && timer.delayMs <= 1_000);
+
+      now += timer.delayMs;
+      timer.handler();
+
+      assert.ok(widgetCalls.length > callsAfterStart, "expected timer to re-issue the widget");
+      assert.ok(renderRequests.count > requestsAfterStart, "expected timer to request render");
+    } finally {
+      Date.now = originalNow;
+    }
+  });
+
+  test("clears the widget after recently-ended runs become stale without user interaction", () => {
+    const originalNow = Date.now;
+    let now = 1_000_000;
+    Date.now = () => now;
+    try {
+      const timers = makeFakeTimers();
+      const { pi, widgetCalls } = makeMockPi();
+      installStoreWidget(pi, storeInstance, timers);
+      storeInstance.recordRunStart(makeRun("r1", "my-wf"));
+      storeInstance.recordRunEnd("r1", "completed");
+      assert.equal(typeof widgetCalls[widgetCalls.length - 1]!.factory, "function");
+
+      const timer = timers.scheduled.findLast((entry) => !entry.cleared);
+      assert.ok(timer, "expected recent-ended widget refresh timer");
+      assert.ok(timer.delayMs > 0 && timer.delayMs <= 1_000);
+
+      now += 31_000;
+      timer.handler();
+
+      const last = widgetCalls[widgetCalls.length - 1]!;
+      assert.equal(last.factory, undefined);
+    } finally {
+      Date.now = originalNow;
+    }
+  });
+
+  test("clears a scheduled widget refresh timer on dispose", () => {
+    const timers = makeFakeTimers();
+    const { pi } = makeMockPi();
+    const unsubscribe = installStoreWidget(pi, storeInstance, timers);
+    storeInstance.recordRunStart(makeRun("r1", "my-wf"));
+
+    const timer = timers.scheduled.findLast((entry) => !entry.cleared);
+    assert.ok(timer, "expected refresh timer before dispose");
+    unsubscribe();
+
+    assert.equal(timer.cleared, true);
   });
 
   test("returns disposer that removes the widget", () => {
@@ -191,28 +331,29 @@ describe("installStoreWidget", () => {
     assert.doesNotThrow(() => installStoreWidget(piNoSetWidget, storeNoWidget));
   });
 
-  test("does not start an animation timer for running stages (no spinner)", async () => {
+  test("uses a low-frequency clock timer, not a high-frequency spinner timer", () => {
     // Regression: the widget used to keep an 80ms setInterval re-issuing
-    // setWidget so the braille spinner glyph could advance. Now the glyph
-    // is static (statusIcon contract), so the installer must rely solely
-    // on store mutations — no timer wakeups when the user is idle.
-    const { pi, widgetCalls } = makeMockPi();
-    const unsubscribe = installStoreWidget(pi, storeInstance);
-    const run = makeRun("r1", "my-wf");
-    (run.stages as StageSnapshot[]).push(makeStage("s1", "stage-1"));
-    storeInstance.recordRunStart(run);
-    const callsAfterStart = widgetCalls.length;
+    // setWidget so the braille spinner glyph could advance. The glyph is
+    // static now; elapsed-time labels use one-shot second-boundary refreshes.
+    const originalNow = Date.now;
+    let now = 1_000_000;
+    Date.now = () => now;
+    try {
+      const timers = makeFakeTimers();
+      const { pi } = makeMockPi();
+      const unsubscribe = installStoreWidget(pi, storeInstance, timers);
+      const run = makeRun("r1", "my-wf");
+      (run.stages as StageSnapshot[]).push(makeStage("s1", "stage-1"));
+      storeInstance.recordRunStart(run);
 
-    // No store mutations during this window — if a timer were running it
-    // would push additional setWidget calls (one per ~80ms tick).
-    await new Promise((resolve) => setTimeout(resolve, 200));
-
-    assert.equal(
-      widgetCalls.length,
-      callsAfterStart,
-      "widget must not re-render on a timer while idle (would indicate a leaked spinner interval)",
-    );
-    unsubscribe();
+      const timer = timers.scheduled.findLast((entry) => !entry.cleared);
+      assert.ok(timer, "expected clock refresh timer");
+      assert.equal(timer.delayMs, 1_000);
+      assert.equal(timer.handle.unrefCalls, 1);
+      unsubscribe();
+    } finally {
+      Date.now = originalNow;
+    }
   });
 });
 

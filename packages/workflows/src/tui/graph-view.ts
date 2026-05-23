@@ -6,7 +6,7 @@
  *    popup chrome; this renderer leaves one unpainted row above and below
  *    the panel, then paints content on the canvas (`bg`) with full-width
  *    chrome rows for the header (top) and hints (bottom).
- *  - Section labels use the `▎ LABEL` pattern: mauve glyph + `textMuted`
+ *  - Section labels use the `  LABEL` pattern: mauve glyph + `textMuted`
  *    bold caps.
  *  - Hints follow `<key> <label>` separated by ` · ` in `dim`, active key
  *    letters in `text`, labels in `textMuted`.

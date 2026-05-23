@@ -2037,7 +2037,58 @@ describe("executor — stage-control registry integration", () => {
     assert.equal(stage.attachable, undefined);
   });
 
-  test("attached completed stage handle remains chat-capable until detach", async () => {
+  test("completed stage handle remains chat-capable even when not attached at settle time", async () => {
+    const registry = createStageControlRegistry();
+    const store = createStore();
+    let ids: { runId: string; stageId: string } | undefined;
+    let disposeCalls = 0;
+    const promptCalls: string[] = [];
+    const session: StageSessionRuntime = {
+      ...mockSession(),
+      async prompt(text: string) {
+        promptCalls.push(text);
+      },
+      async dispose() {
+        disposeCalls += 1;
+      },
+    };
+    const def = defineWorkflow("complete-chat-wf")
+      .run(async (ctx) => {
+        await ctx.stage("only").prompt("workflow prompt");
+        return {};
+      })
+      .compile();
+
+    await run(def, {}, {
+      adapters: {
+        agentSession: {
+          async create() { return session; },
+        },
+      },
+      store,
+      stageControlRegistry: registry,
+      onStageStart: (runId, stage) => {
+        if (stage.name !== "only" || stage.startedAt !== undefined || ids) return;
+        ids = { runId, stageId: stage.id };
+      },
+    });
+
+    assert.ok(ids, "stage ids should be captured");
+    const retained = registry.get(ids!.runId, ids!.stageId);
+    assert.ok(retained, "completed stage should keep its live chat handle");
+    assert.deepEqual(
+      registry.run(ids!.runId).stages(),
+      [],
+      "completed stage should be detached from workflow pause/resume control",
+    );
+    assert.equal(disposeCalls, 0);
+
+    await retained!.prompt("post-completion chat");
+    assert.deepEqual(promptCalls, ["workflow prompt", "post-completion chat"]);
+    assert.equal(store.runs()[0]?.stages[0]?.status, "completed");
+  });
+
+  test("attached completed stage handle remains chat-capable after detach", async () => {
     const registry = createStageControlRegistry();
     const store = createStore();
     let attachedIds: { runId: string; stageId: string } | undefined;
@@ -2091,8 +2142,12 @@ describe("executor — stage-control registry integration", () => {
 
     store.recordStageAttached(attachedIds!.runId, attachedIds!.stageId, false);
     await sleep(20);
-    assert.equal(registry.get(attachedIds!.runId, attachedIds!.stageId), undefined);
-    assert.equal(disposeCalls, 1);
+    assert.equal(
+      registry.get(attachedIds!.runId, attachedIds!.stageId),
+      retained,
+      "detaching the pane should not destroy the regular post-stage chat session",
+    );
+    assert.equal(disposeCalls, 0);
   });
 
   test("ask_user_question tool execution marks the stage awaiting input transiently", async () => {

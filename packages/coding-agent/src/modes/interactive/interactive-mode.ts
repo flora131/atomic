@@ -3,7 +3,6 @@
  * Handles TUI rendering and user interaction, delegating business logic to AgentSession.
  */
 
-import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -120,9 +119,10 @@ import {
 } from "../../utils/changelog.ts";
 import { copyToClipboard } from "../../utils/clipboard.ts";
 import {
-  extensionForImageMimeType,
-  readClipboardImage,
-} from "../../utils/clipboard-image.ts";
+  combineQueuedMessagesForEditor,
+  openExternalEditorForText,
+  pasteClipboardImageToEditor,
+} from "./chat-input-actions.ts";
 import { parseGitUrl } from "../../utils/git.ts";
 import { getCwdRelativePath } from "../../utils/paths.ts";
 import { getPiUserAgent } from "../../utils/pi-user-agent.ts";
@@ -2950,25 +2950,7 @@ export class InteractiveMode {
   }
 
   private async handleClipboardImagePaste(): Promise<void> {
-    try {
-      const image = await readClipboardImage();
-      if (!image) {
-        return;
-      }
-
-      // Write to temp file
-      const tmpDir = os.tmpdir();
-      const ext = extensionForImageMimeType(image.mimeType) ?? "png";
-      const fileName = `pi-clipboard-${crypto.randomUUID()}.${ext}`;
-      const filePath = path.join(tmpDir, fileName);
-      fs.writeFileSync(filePath, Buffer.from(image.bytes));
-
-      // Insert file path directly
-      this.editor.insertTextAtCursor?.(filePath);
-      this.ui.requestRender();
-    } catch {
-      // Silently ignore clipboard errors (may not have permission, etc.)
-    }
+    await pasteClipboardImageToEditor(this.editor, () => this.ui.requestRender());
   }
 
   private setupEditorSubmitHandler(): void {
@@ -4101,54 +4083,11 @@ export class InteractiveMode {
   }
 
   private openExternalEditor(): void {
-    // Determine editor (respect $VISUAL, then $EDITOR)
-    const editorCmd = process.env.VISUAL || process.env.EDITOR;
-    if (!editorCmd) {
-      this.showWarning(
-        "No editor configured. Set $VISUAL or $EDITOR environment variable.",
-      );
-      return;
-    }
-
-    const currentText =
-      this.editor.getExpandedText?.() ?? this.editor.getText();
-    const tmpFile = path.join(os.tmpdir(), `pi-editor-${Date.now()}.pi.md`);
-
-    try {
-      // Write current content to temp file
-      fs.writeFileSync(tmpFile, currentText, "utf-8");
-
-      // Stop TUI to release terminal
-      this.ui.stop();
-
-      // Split by space to support editor arguments (e.g., "code --wait")
-      const [editor, ...editorArgs] = editorCmd.split(" ");
-
-      // Spawn editor synchronously with inherited stdio for interactive editing
-      const result = spawnSync(editor, [...editorArgs, tmpFile], {
-        stdio: "inherit",
-        shell: process.platform === "win32",
-      });
-
-      // On successful exit (status 0), replace editor content
-      if (result.status === 0) {
-        const newContent = fs.readFileSync(tmpFile, "utf-8").replace(/\n$/, "");
-        this.editor.setText(newContent);
-      }
-      // On non-zero exit, keep original text (no action needed)
-    } finally {
-      // Clean up temp file
-      try {
-        fs.unlinkSync(tmpFile);
-      } catch {
-        // Ignore cleanup errors
-      }
-
-      // Restart TUI
-      this.ui.start();
-      // Force full re-render since external editor uses alternate screen
-      this.ui.requestRender(true);
-    }
+    const currentText = this.editor.getExpandedText?.() ?? this.editor.getText();
+    const updated = openExternalEditorForText(currentText, this.ui, {
+      showWarning: (message) => this.showWarning(message),
+    });
+    if (updated !== undefined) this.editor.setText(updated);
   }
 
   // =========================================================================
@@ -4306,11 +4245,8 @@ export class InteractiveMode {
       }
       return 0;
     }
-    const queuedText = allQueued.join("\n\n");
     const currentText = options?.currentText ?? this.editor.getText();
-    const combinedText = [queuedText, currentText]
-      .filter((t) => t.trim())
-      .join("\n\n");
+    const combinedText = combineQueuedMessagesForEditor(allQueued, currentText);
     this.editor.setText(combinedText);
     this.updatePendingMessagesDisplay();
     if (options?.abort) {

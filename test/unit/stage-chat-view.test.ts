@@ -21,7 +21,8 @@ import { createStore } from "../../packages/workflows/src/shared/store.js";
 import { makeFakeKeybindings } from "../support/fake-keybindings.js";
 import { StageChatView } from "../../packages/workflows/src/tui/stage-chat-view.js";
 import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.js";
-import { CURSOR_MARKER, type EditorComponent } from "@earendil-works/pi-tui";
+import { StageUiBroker } from "../../packages/workflows/src/shared/stage-ui-broker.js";
+import { CURSOR_MARKER, type Component, type EditorComponent, type TUI } from "@earendil-works/pi-tui";
 import type { StageControlHandle } from "../../packages/workflows/src/runs/foreground/stage-control-registry.js";
 import { initTheme, SessionManager, type AgentSession, type AgentSessionEvent } from "@bastani/atomic";
 
@@ -192,7 +193,117 @@ function assistantTextMessage(text: string): AgentSession["messages"][number] {
 }
 
 describe("StageChatView", () => {
-  test("header duration freezes while the stage is paused", () => {
+  test("hosts stage-scoped custom UI inside the attached node", async () => {
+    const store = createStore();
+    setupRun(store, "run-1", "stage-a");
+    const broker = new StageUiBroker(store);
+    const { handle } = makeHandle();
+    let renderRequests = 0;
+    const view = new StageChatView({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageId: "stage-a",
+      workflowName: "test-wf",
+      handle,
+      onDetach: () => {},
+      onClose: () => {},
+      requestRender: () => { renderRequests += 1; },
+      piTui: { requestRender: () => { renderRequests += 1; }, terminal: { rows: 32, columns: 80 } } as unknown as TUI,
+      piTheme: {},
+      piKeybindings: makeFakeKeybindings(),
+      stageUiBroker: broker,
+    });
+
+    const pending = broker.requestCustomUi("run-1", "stage-a", (_tui, _theme, _kb, done) => {
+      const component: Component = {
+        render: () => ["What is your favorite color?"],
+        handleInput: () => done("blue"),
+        invalidate: () => {},
+      };
+      return component;
+    });
+    await flush();
+
+    assert.equal(store.runs()[0]?.stages[0]?.status, "awaiting_input");
+    assert.match(stripAnsi(view.render(80).join("\n")), /What is your favorite color\?/);
+
+    view.handleInput("enter");
+    assert.equal(await pending, "blue");
+    assert.equal(store.runs()[0]?.stages[0]?.status, "running");
+    assert.doesNotMatch(stripAnsi(view.render(80).join("\n")), /What is your favorite color\?/);
+    assert.ok(renderRequests > 0);
+    view.dispose();
+  });
+
+  test("rejects mounted stage custom UI when the attached chat is disposed", async () => {
+    const store = createStore();
+    setupRun(store, "run-1", "stage-a");
+    const broker = new StageUiBroker(store);
+    const { handle } = makeHandle();
+    const view = new StageChatView({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageId: "stage-a",
+      workflowName: "test-wf",
+      handle,
+      onDetach: () => {},
+      onClose: () => {},
+      piTui: { requestRender: () => {}, terminal: { rows: 32, columns: 80 } } as unknown as TUI,
+      piTheme: {},
+      piKeybindings: makeFakeKeybindings(),
+      stageUiBroker: broker,
+    });
+
+    const pending = broker.requestCustomUi("run-1", "stage-a", () => ({
+      render: () => ["pending question"],
+      invalidate: () => {},
+    }));
+    await flush();
+
+    view.dispose();
+    await assert.rejects(pending, /stage chat view disposed/);
+  });
+
+  test("propagates focus to mounted stage custom UI", async () => {
+    const store = createStore();
+    setupRun(store, "run-1", "stage-a");
+    const broker = new StageUiBroker(store);
+    const { handle } = makeHandle();
+    const component: Component & { focused: boolean } = {
+      focused: false,
+      render() {
+        return [this.focused ? "focused prompt" : "blurred prompt"];
+      },
+      invalidate: () => {},
+    };
+    const view = new StageChatView({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageId: "stage-a",
+      workflowName: "test-wf",
+      handle,
+      onDetach: () => {},
+      onClose: () => {},
+      piTui: { requestRender: () => {}, terminal: { rows: 32, columns: 80 } } as unknown as TUI,
+      piTheme: {},
+      piKeybindings: makeFakeKeybindings(),
+      stageUiBroker: broker,
+    });
+
+    const pending = broker.requestCustomUi("run-1", "stage-a", () => component);
+    await flush();
+
+    assert.match(stripAnsi(view.render(80).join("\n")), /focused prompt/);
+    view.focused = false;
+    assert.match(stripAnsi(view.render(80).join("\n")), /blurred prompt/);
+    view.dispose();
+    await assert.rejects(pending);
+  });
+
+  test("header omits workflow duration/status chrome inside the stage chat", () => {
     const originalNow = Date.now;
     try {
       Date.now = () => 71_000;
@@ -227,8 +338,8 @@ describe("StageChatView", () => {
       });
 
       const rendered = stripAnsi(view.render(96).join("\n"));
-      assert.match(rendered, /10s/);
-      assert.doesNotMatch(rendered, /1m 10s/);
+      assert.match(rendered, /test-wf \/ review-a/);
+      assert.doesNotMatch(rendered, /10s|1m 10s|paused|completed|running/);
       view.dispose();
     } finally {
       Date.now = originalNow;
@@ -337,6 +448,38 @@ describe("StageChatView", () => {
     await flush();
     await flush();
     assert.deepEqual(state.promptCalls, ["hello"]);
+    view.dispose();
+  });
+
+  test("stage chat handles /compact through the live AgentSession", async () => {
+    const compactCalls: Array<string | undefined> = [];
+    const agentSession = {
+      compact: async (instructions?: string) => {
+        compactCalls.push(instructions);
+        return {};
+      },
+    } as unknown as AgentSession;
+    const store = createStore();
+    setupRun(store, "run-1", "stage-a");
+    const { handle, state } = makeHandle(undefined, [], "running", agentSession);
+    const view = new StageChatView({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageId: "stage-a",
+      workflowName: "test-wf",
+      handle,
+      onDetach: () => {},
+      onClose: () => {},
+    });
+
+    for (const ch of "/compact keep recent context") view.handleInput(ch);
+    view.handleInput("\r");
+    await flush();
+    await flush();
+
+    assert.deepEqual(compactCalls, ["keep recent context"]);
+    assert.deepEqual(state.promptCalls, []);
     view.dispose();
   });
 
@@ -516,7 +659,7 @@ describe("StageChatView", () => {
     view.dispose();
   });
 
-  test("ctrl+f variants send a follow-up", async () => {
+  test("ctrl+f variants submit normally while idle like the main chat", async () => {
     const ctrlFVariants = ["\x06", "\x1b[102;5u", "\x1b[102;5:1u", "\x1b[27;5;102~"];
 
     for (const key of ctrlFVariants) {
@@ -537,12 +680,47 @@ describe("StageChatView", () => {
       view.handleInput(key);
       await flush();
       await flush();
-      assert.deepEqual(state.followUpCalls, ["afterwards"], JSON.stringify(key));
+      assert.deepEqual(state.promptCalls, ["afterwards"], JSON.stringify(key));
+      assert.deepEqual(state.followUpCalls, [], JSON.stringify(key));
       view.dispose();
     }
   });
 
-  test("Escape interrupts a pending streaming stage without replacing the chat UI", async () => {
+  test("ctrl+f variants queue a follow-up while streaming", async () => {
+    const ctrlFVariants = ["\x06", "\x1b[102;5u", "\x1b[102;5:1u", "\x1b[27;5;102~"];
+
+    for (const key of ctrlFVariants) {
+      const store = createStore();
+      setupRun(store, "run-1", "stage-a");
+      const { handle, state } = makeHandle({
+        promptCalls: [],
+        steerCalls: [],
+        followUpCalls: [],
+        pauseCalls: 0,
+        resumeCalls: [],
+        isStreaming: true,
+      });
+      const view = new StageChatView({
+        store,
+        graphTheme: deriveGraphTheme({}),
+        runId: "run-1",
+        stageId: "stage-a",
+        workflowName: "test-wf",
+        handle,
+        onDetach: () => {},
+        onClose: () => {},
+      });
+      for (const ch of "afterwards") view.handleInput(ch);
+      view.handleInput(key);
+      await flush();
+      await flush();
+      assert.deepEqual(state.followUpCalls, ["afterwards"], JSON.stringify(key));
+      assert.deepEqual(state.promptCalls, [], JSON.stringify(key));
+      view.dispose();
+    }
+  });
+
+  test("Escape interrupts a pending streaming stage without workflow pause UI", async () => {
     const store = createStore();
     setupRun(store, "run-1", "stage-a", "pending");
     const { handle, state } = makeHandle({
@@ -566,8 +744,8 @@ describe("StageChatView", () => {
     view.handleInput("\x1b");
     await flush();
     await flush();
-    assert.equal(state.pauseCalls, 1);
-    assert.equal(view._isLocalPaused, true);
+    assert.equal(state.pauseCalls, 0);
+    assert.equal(view._isLocalPaused, false);
     const rendered = view.render(96).join("\n");
     assert.doesNotMatch(rendered, /PAUSED/);
     assert.doesNotMatch(rendered, /type a message to resume/i);
@@ -737,7 +915,7 @@ describe("StageChatView", () => {
     view.dispose();
   });
 
-  test("Enter after Escape pause sends handle.resume(text)", async () => {
+  test("Enter after Escape interrupt continues to use normal streaming steering", async () => {
     const store = createStore();
     setupRun(store, "run-1", "stage-a");
     const { handle, state } = makeHandle({
@@ -761,13 +939,62 @@ describe("StageChatView", () => {
     view.handleInput("\x1b");
     await flush();
     await flush();
-    assert.equal(view._isLocalPaused, true);
+    assert.equal(view._isLocalPaused, false);
     for (const ch of "go on") view.handleInput(ch);
     view.handleInput("\r");
     await flush();
     await flush();
-    assert.deepEqual(state.resumeCalls, ["go on"]);
+    assert.deepEqual(state.resumeCalls, []);
+    assert.deepEqual(state.steerCalls, ["go on"]);
     assert.equal(view._isLocalPaused, false);
+    view.dispose();
+  });
+
+  test("Ctrl+D with non-empty input stays in the stage chat editor", () => {
+    const store = createStore();
+    setupRun(store, "run-1", "stage-a");
+    const { handle } = makeHandle();
+    let detached = 0;
+    const view = new StageChatView({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageId: "stage-a",
+      workflowName: "test-wf",
+      handle,
+      onDetach: () => { detached += 1; },
+      onClose: () => {},
+    });
+
+    for (const ch of "draft") view.handleInput(ch);
+    view.handleInput("\x04");
+
+    assert.equal(detached, 0);
+    assert.equal(view._inputBuffer, "draft");
+    view.dispose();
+  });
+
+  test("Escape clears bash mode instead of closing the stage chat", () => {
+    const store = createStore();
+    setupRun(store, "run-1", "stage-a");
+    const { handle } = makeHandle();
+    let closed = 0;
+    const view = new StageChatView({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageId: "stage-a",
+      workflowName: "test-wf",
+      handle,
+      onDetach: () => {},
+      onClose: () => { closed += 1; },
+    });
+
+    for (const ch of "!pwd") view.handleInput(ch);
+    view.handleInput("\x1b");
+
+    assert.equal(closed, 0);
+    assert.equal(view._inputBuffer, "");
     view.dispose();
   });
 
@@ -934,6 +1161,13 @@ describe("StageChatView", () => {
   test("Escape interrupts a completed stage ad-hoc chat without closing or workflow pause UI", async () => {
     const store = createStore();
     setupRun(store, "run-1", "stage-a", "completed");
+    let abortCalls = 0;
+    const agentSession = {
+      ...fakeFooterAgentSession(true),
+      abort: () => {
+        abortCalls += 1;
+      },
+    } as unknown as AgentSession;
     const { handle, state } = makeHandle({
       promptCalls: [],
       steerCalls: [],
@@ -941,7 +1175,7 @@ describe("StageChatView", () => {
       pauseCalls: 0,
       resumeCalls: [],
       isStreaming: true,
-    }, [], "completed");
+    }, [], "completed", agentSession);
     let closed = 0;
     const view = new StageChatView({
       store,
@@ -959,7 +1193,8 @@ describe("StageChatView", () => {
     view.handleInput("\x1b");
     await flush();
     await flush();
-    assert.equal(state.pauseCalls, 1);
+    assert.equal(abortCalls, 1);
+    assert.equal(state.pauseCalls, 0);
     assert.equal(closed, 0);
     assert.equal(store.runs()[0]?.stages[0]?.status, "completed");
     const rendered = view.render(96).join("\n");
@@ -1197,9 +1432,12 @@ describe("StageChatView", () => {
       onClose: () => {},
     });
 
-    const rendered = view.render(96).join("\n");
+    const rendered = stripAnsi(view.render(96).join("\n"));
     assert.match(rendered, /persisted prompt/);
     assert.match(rendered, /persisted answer/);
+    assert.match(rendered, /READ-ONLY SESSION/);
+    assert.match(rendered, /archived transcript/);
+    assert.doesNotMatch(rendered, /❯/);
     assert.doesNotMatch(rendered, /pi-workflows\/test-wf\/review-a/);
     view.dispose();
   });
@@ -1249,10 +1487,12 @@ describe("StageChatView", () => {
       onClose: () => {},
     });
 
-    const rendered = view.render(96).join("\n");
+    const rendered = stripAnsi(view.render(96).join("\n"));
     assert.match(rendered, /\$ echo persisted/);
     assert.doesNotMatch(rendered, /\$ \.\.\./);
     assert.match(rendered, /persisted/);
+    assert.match(rendered, /READ-ONLY SESSION/);
+    assert.doesNotMatch(rendered, /❯/);
     view.dispose();
   });
 
@@ -1442,9 +1682,16 @@ describe("StageChatView", () => {
     view.dispose();
   });
 
-  test("Escape pauses streaming stages instead of closing", async () => {
+  test("Escape aborts streaming stage chat like main chat without workflow pause", async () => {
     const store = createStore();
     setupRun(store, "run-1", "stage-a");
+    let abortCalls = 0;
+    const agentSession = {
+      ...fakeFooterAgentSession(true),
+      abort: () => {
+        abortCalls += 1;
+      },
+    } as unknown as AgentSession;
     const { handle, state } = makeHandle({
       promptCalls: [],
       steerCalls: [],
@@ -1452,7 +1699,7 @@ describe("StageChatView", () => {
       pauseCalls: 0,
       resumeCalls: [],
       isStreaming: true,
-    });
+    }, [], "running", agentSession);
     let closed = 0;
     const view = new StageChatView({
       store,
@@ -1467,7 +1714,9 @@ describe("StageChatView", () => {
     view.handleInput("\x1b");
     await flush();
     await flush();
-    assert.equal(state.pauseCalls, 1);
+    assert.equal(abortCalls, 1);
+    assert.equal(state.pauseCalls, 0);
+    assert.equal(store.runs()[0]?.stages[0]?.status, "running");
     assert.equal(closed, 0);
     view.dispose();
   });
@@ -1509,6 +1758,55 @@ describe("StageChatView", () => {
     assert.match(renderedLines.join("\n"), /ok/);
     const toolLine = renderedLines.find((line) => line.includes("$ ls"));
     assert.notEqual(toolLine, undefined);
+    view.dispose();
+  });
+
+  test("does not duplicate ask_user_question output echoed as a toolResult message", () => {
+    const store = createStore();
+    setupRun(store, "run-1", "stage-a");
+    const { handle, emit } = makeHandle();
+    const view = new StageChatView({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageId: "stage-a",
+      workflowName: "test-wf",
+      handle,
+      onDetach: () => {},
+      onClose: () => {},
+    });
+    const answerText = "User has answered your questions: \"What is your favorite color?\"=\"Blue\".";
+
+    emit({
+      type: "tool_execution_start",
+      toolCallId: "ask-1",
+      toolName: "ask_user_question",
+      args: { questions: [] },
+    } as unknown as AgentSessionEvent);
+    emit({
+      type: "tool_execution_end",
+      toolCallId: "ask-1",
+      toolName: "ask_user_question",
+      result: { content: [{ type: "text", text: answerText }] },
+      isError: false,
+    } as unknown as AgentSessionEvent);
+    emit({
+      type: "message_start",
+      message: {
+        role: "toolResult",
+        toolCallId: "ask-1",
+        toolName: "ask_user_question",
+        content: [{ type: "text", text: answerText }],
+        isError: false,
+      },
+    } as unknown as AgentSessionEvent);
+
+    const transcriptMatches = view._transcript.filter((entry) =>
+      entry.role === "tool" && entry.text.includes("User has answered your questions"),
+    );
+    assert.equal(transcriptMatches.length, 1);
+    const rendered = stripAnsi(view.render(100).join("\n"));
+    assert.equal((rendered.match(/User has answered your questions/g) ?? []).length, 1);
     view.dispose();
   });
 
@@ -1650,6 +1948,53 @@ describe("StageChatView", () => {
     });
     const lines = view.render(96);
     assert.equal(lines.length, 32);
+    view.dispose();
+  });
+
+  test("shrinks to a small reported viewport while keeping the composer visible", () => {
+    const store = createStore();
+    setupRun(store, "run-1", "stage-a");
+    const { handle } = makeHandle();
+    const view = new StageChatView({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageId: "stage-a",
+      workflowName: "test-wf",
+      handle,
+      onDetach: () => {},
+      onClose: () => {},
+      getViewportRows: () => 12,
+    });
+
+    const lines = view.render(96).map(stripAnsi);
+    assert.equal(lines.length, 12);
+    assert.match(lines.join("\n"), /❯/);
+    view.dispose();
+  });
+
+  test("tracks viewport shrink after a resize without losing the composer", () => {
+    const store = createStore();
+    setupRun(store, "run-1", "stage-a");
+    const { handle } = makeHandle();
+    let rows = 44;
+    const view = new StageChatView({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageId: "stage-a",
+      workflowName: "test-wf",
+      handle,
+      onDetach: () => {},
+      onClose: () => {},
+      getViewportRows: () => rows,
+    });
+
+    assert.equal(view.render(96).length, 44);
+    rows = 10;
+    const resized = view.render(96).map(stripAnsi);
+    assert.equal(resized.length, 10);
+    assert.match(resized.join("\n"), /❯/);
     view.dispose();
   });
 

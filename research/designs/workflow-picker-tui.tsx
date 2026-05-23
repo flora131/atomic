@@ -403,7 +403,7 @@ function SectionLabel({ label }: { label: string }) {
   return (
     <box height={1} flexDirection="row">
       <text>
-        <span fg={theme.mauve}>▎ </span>
+        <span fg={theme.mauve}>  </span>
         <span fg={theme.textMuted}><strong>{label}</strong></span>
       </text>
     </box>
@@ -605,7 +605,7 @@ function Preview({ wf }: { wf: Workflow }) {
 
       <box height={2} />
 
-      {/* ARGUMENTS — the mauve ▎ indicator bar gives the section label
+      {/* ARGUMENTS — the mauve   indicator bar gives the section label
           real weight against the preview body. */}
       <SectionLabel label="ARGUMENTS" />
       <box height={1} />

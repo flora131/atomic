@@ -21,10 +21,12 @@
  *            pi docs/sdk.md createAgentSession
  */
 
+import { basename } from "node:path";
 import type { CreateAgentSessionOptions } from "@bastani/atomic";
 import type { ChatMessageRenderOptions } from "@bastani/atomic";
 import type { StageAdapters, StageSessionRuntime } from "../runs/foreground/stage-runner.js";
 import type { StageExecutionMeta, StageOptions } from "../shared/types.js";
+import { stageUiBroker, type StageUiBroker } from "../shared/stage-ui-broker.js";
 
 // ---------------------------------------------------------------------------
 // Minimal pi surface
@@ -61,6 +63,8 @@ export interface RuntimeWiringSurface {
 export interface RuntimeAdapterBuildOptions {
   /** Test seam for SDK session creation. */
   createAgentSession?: (options?: CreateAgentSessionOptions) => Promise<{ session: StageSessionRuntime }>;
+  /** Broker that routes stage-local custom UI into attached workflow nodes. */
+  stageUiBroker?: StageUiBroker;
 }
 
 type BindableStageSession = StageSessionRuntime & {
@@ -149,7 +153,7 @@ export async function prepareAtomicStageSessionOptions(
     cwd,
     agentDir,
     settingsManager,
-    builtinPackagePaths: sdk.getBuiltinPackagePaths?.() ?? [],
+    builtinPackagePaths: stageBuiltinPackagePaths(sdk.getBuiltinPackagePaths?.() ?? []),
   });
   await resourceLoader.reload();
 
@@ -160,6 +164,15 @@ export async function prepareAtomicStageSessionOptions(
     settingsManager,
     resourceLoader,
   };
+}
+
+function stageBuiltinPackagePaths(paths: readonly string[]): string[] {
+  // Workflow stages are child AgentSessions owned by the workflow extension.
+  // Loading the workflows extension again inside that child session replays its
+  // `session_start` lifecycle and clears/kills the parent workflow store. Keep
+  // the other builtin packages (subagents, mcp, web-access, intercom), but do
+  // not recursively install workflows into workflow stage sessions.
+  return paths.filter((path) => basename(path) !== "workflows");
 }
 
 async function createPiSdkAgentSession(
@@ -224,7 +237,11 @@ function stripWorkflowOnlyOptions(options: (StageOptions | CreateAgentSessionOpt
   return sessionOptions as CreateAgentSessionOptions;
 }
 
-function makeStageExtensionUiContext(ui: PiUISurface) {
+function makeStageExtensionUiContext(
+  ui: PiUISurface,
+  meta: StageExecutionMeta | undefined,
+  broker: StageUiBroker,
+) {
   return {
     select: ui.select ?? (async () => undefined),
     confirm: ui.confirm ?? (async () => false),
@@ -240,14 +257,22 @@ function makeStageExtensionUiContext(ui: PiUISurface) {
     setFooter: ui.setFooter ?? (() => undefined),
     setHeader: ui.setHeader ?? (() => undefined),
     setTitle: ui.setTitle ?? (() => undefined),
-    custom: ui.custom
-      ? async <T = undefined>(factory: PiCustomOverlayFactory<T>, options?: PiCustomOverlayOptions): Promise<T> => {
-        const result = await ui.custom!(factory as PiCustomOverlayFactory, options ?? { overlay: true });
+    custom: async <T = undefined>(factory: PiCustomOverlayFactory<T>, options?: PiCustomOverlayOptions): Promise<T> => {
+      if (meta !== undefined) {
+        return broker.requestCustomUi(
+          meta.runId,
+          meta.stageId,
+          factory,
+          options,
+          meta.signal,
+        );
+      }
+      if (ui.custom) {
+        const result = await ui.custom(factory as PiCustomOverlayFactory, options ?? { overlay: true });
         return result as T;
       }
-      : async () => {
-        throw new Error("pi-workflows: ask_user_question UI is unavailable");
-      },
+      throw new Error("pi-workflows: ask_user_question UI is unavailable");
+    },
     pasteToEditor: ui.pasteToEditor ?? (() => undefined),
     setEditorText: ui.setEditorText ?? (() => undefined),
     getEditorText: ui.getEditorText ?? (() => ""),
@@ -289,9 +314,10 @@ export function buildRuntimeAdapters(
     options.createAgentSession ??
     pi.createAgentSession ??
     (isTestContext() ? createTestAgentSession : createPiSdkAgentSession);
+  const broker = options.stageUiBroker ?? stageUiBroker;
   const adapters: StageAdapters = {
     agentSession: {
-      async create(stageOptions: CreateAgentSessionOptions & Pick<StageOptions, "mcp" | "fallbackModels">, _meta?: StageExecutionMeta): Promise<StageSessionRuntime> {
+      async create(stageOptions: CreateAgentSessionOptions & Pick<StageOptions, "mcp" | "fallbackModels">, meta?: StageExecutionMeta): Promise<StageSessionRuntime> {
         // Atomic's SDK handles extension / skills / prompt-template /
         // slash-command discovery via the SettingsManager / ResourceLoader.
         // The production default deliberately uses normal DefaultResourceLoader
@@ -302,9 +328,9 @@ export function buildRuntimeAdapters(
         const sessionOptions: CreateAgentSessionOptions = stripWorkflowOnlyOptions(stageOptions) ?? {};
         const result = await createSession(sessionOptions);
         const bindable = result.session as BindableStageSession;
-        if (typeof pi.ui?.custom === "function" && typeof bindable.bindExtensions === "function") {
+        if ((pi.ui !== undefined || meta !== undefined) && typeof bindable.bindExtensions === "function") {
           await bindable.bindExtensions({
-            uiContext: makeStageExtensionUiContext(pi.ui),
+            uiContext: makeStageExtensionUiContext(pi.ui ?? {}, meta, broker),
           });
         }
         return result.session;
@@ -568,7 +594,7 @@ export interface PiUISurface {
   setTheme?: (theme: string | unknown) => { success: boolean; error?: string };
   getToolsExpanded?: () => boolean;
   setToolsExpanded?: (expanded: boolean) => void;
-  getChatRenderSettings?: () => Partial<Omit<ChatMessageRenderOptions, "ui" | "cwd" | "markdownTheme">> | undefined;
+  getChatRenderSettings?: () => Partial<Omit<ChatMessageRenderOptions, "ui" | "cwd">> | undefined;
 }
 
 /**

@@ -13,20 +13,19 @@
  *   2. After `setWidget` we call `ui.requestRender()` to flush the new
  *      content immediately; pi-subagents does the same in its
  *      `rerenderWidget` helper.
- *   3. The widget contents are static per snapshot (no spinner, no live
- *      ticker) so we do not run an animation timer. Store mutations from
- *      stage / tool-execution events are the sole render trigger — this
- *      matches every other workflow status surface (`/workflow status`,
- *      `renderRunDetail`, the orchestrator overlay) which all render
- *      instantly without animation.
+ *   3. The widget contents are static per snapshot (no spinner), but the
+ *      rendered lines include wall-clock labels (`3s`, `complete · 4s ago`)
+ *      and recent-ended visibility. We therefore keep one lightweight
+ *      one-shot refresh timer while the widget is visible, matching other
+ *      live Atomic widgets without reintroducing a high-frequency spinner.
  *   4. The factory builds a pi-tui `Container` of `Text` children styled
  *      via pi's runtime `Theme` (theme.fg, theme.bold). This is what
  *      makes the widget visually distinct from chat content.
  */
 
 import type { Store } from "../shared/store.js";
-import type { StoreSnapshot, RunSnapshot } from "../shared/store-types.js";
-import { buildThemedWidgetLines } from "./widget.js";
+import type { StoreSnapshot } from "../shared/store-types.js";
+import { buildThemedWidgetLines, nextWidgetRefreshDelayMs } from "./widget.js";
 
 export interface PiTheme {
   fg(color: string, text: string): string;
@@ -51,6 +50,20 @@ interface UiSlice {
   ) => void;
   requestRender?: () => void;
 }
+
+interface TimerHandle {
+  unref?: () => void;
+}
+
+interface TimerApi {
+  setTimeout(handler: () => void, delayMs: number): TimerHandle;
+  clearTimeout(handle: TimerHandle): void;
+}
+
+const defaultTimerApi: TimerApi = {
+  setTimeout: (handler, delayMs) => setTimeout(handler, delayMs) as TimerHandle,
+  clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+};
 
 export interface LiveWidgetAPI {
   ui?: UiSlice;
@@ -84,22 +97,44 @@ function widgetFactory(snap: StoreSnapshot): WidgetFactory {
 export function installStoreWidget(
   pi: LiveWidgetAPI,
   storeInstance: Store,
+  timers: TimerApi = defaultTimerApi,
 ): () => void {
   const ui = pi.ui;
   if (!ui?.setWidget) return () => {};
 
+  let disposed = false;
+  let refreshTimer: TimerHandle | undefined;
+
+  const clearRefreshTimer = (): void => {
+    if (refreshTimer === undefined) return;
+    timers.clearTimeout(refreshTimer);
+    refreshTimer = undefined;
+  };
+
+  const scheduleRefresh = (snap: StoreSnapshot): void => {
+    const delayMs = nextWidgetRefreshDelayMs(snap);
+    if (delayMs === undefined) return;
+    refreshTimer = timers.setTimeout(() => {
+      refreshTimer = undefined;
+      rerender();
+    }, delayMs);
+    refreshTimer.unref?.();
+  };
+
   const rerender = (): void => {
+    if (disposed) return;
+    clearRefreshTimer();
     try {
       const snap = storeInstance.snapshot();
-      const hasActiveRuns = (snap.runs as RunSnapshot[]).some(
-        (r) => r.endedAt === undefined,
-      );
-      if (!hasActiveRuns) {
+      const previewLines = buildThemedWidgetLines(snap, undefined);
+      if (previewLines.length === 0) {
         ui.setWidget?.(WIDGET_KEY, undefined);
+        ui.requestRender?.();
         return;
       }
       ui.setWidget?.(WIDGET_KEY, widgetFactory(snap), { placement: "aboveEditor" });
       ui.requestRender?.();
+      scheduleRefresh(snap);
     } catch (err) {
       if (isStale(err)) return;
       throw err;
@@ -110,9 +145,12 @@ export function installStoreWidget(
   rerender();
 
   return () => {
+    disposed = true;
+    clearRefreshTimer();
     unsubscribe();
     try {
       ui.setWidget?.(WIDGET_KEY, undefined);
+      ui.requestRender?.();
     } catch (err) {
       if (!isStale(err)) throw err;
     }

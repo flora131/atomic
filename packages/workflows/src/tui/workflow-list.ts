@@ -1,13 +1,12 @@
 /**
- * `/workflow list` catalogue — chat-surface vocabulary from ui/mockups.html §3.
+ * `/workflow list` catalogue — rounded workflow-tool output surface.
  *
  * Visual contract:
- *  - One full-width `[ WORKFLOWS ]` mauve band (catalogue accent — distinct
- *    from the blue live-run accent used by `[ BACKGROUND ]` / `[ DISPATCHED ]`).
- *  - One card per workflow:
- *      row 1: ▎ stripe · [tag workflow-name]
- *      row 2: ▎ stripe · muted description
- *      row 3: ▎ stripe · dim "inputs"  ·  signature
+ *  - One rounded `WORKFLOWS` panel with the registered count in the title.
+ *  - One rounded card per workflow:
+ *      title: workflow name
+ *      row 1: muted description
+ *      row 2: dim "inputs"  ·  signature
  *  - Hint rows pointing at `/workflow <name> …` and `/workflow inputs <name>`.
  *
  * Truncation policy (ui/mockups.html §4):
@@ -24,13 +23,12 @@
 
 import type { GraphTheme } from "./graph-theme.js";
 import {
-  renderFlatBand,
-  renderTaggedCard,
   renderHintRows,
+  renderRoundedBox,
   ELLIPSIS,
   chatWidth,
 } from "./chat-surface.js";
-import { hexToAnsi, RESET } from "./color-utils.js";
+import { hexToAnsi, RESET, BOLD } from "./color-utils.js";
 import { visibleWidth, truncateToWidth } from "./text-helpers.js";
 
 const INLINE_INPUT_LIMIT = 3;
@@ -58,91 +56,69 @@ export interface RenderWorkflowListOpts {
 }
 
 /**
- * Render the workflow catalogue as a `[ WORKFLOWS ]` band followed by
- * one card per registered workflow.
+ * Render the workflow catalogue as a rounded `WORKFLOWS` panel with
+ * structured rows for each registered workflow.
  */
 export function renderWorkflowList(
   entries: readonly WorkflowListEntry[],
   opts: RenderWorkflowListOpts = {},
 ): string {
-  const lines: string[] = [];
+  const width = effectiveWidth(opts.width);
+  const bodyWidth = Math.max(20, width - 4);
+  const body: string[] = [];
   const subtitle = `${entries.length} registered`;
   const accent = opts.theme?.mauve;
 
-  lines.push(renderFlatBand({
-    label: "WORKFLOWS",
-    subtitle,
-    accent,
-    theme: opts.theme,
-    width: opts.width,
-  }));
-  // Blank line after the band — mirrors the mockup's `.band { padding-bottom }`
-  // + first `.card { margin-top }` (ui/mockups.html §3). The band reads as
-  // a header, not as the first card's row 0.
-  lines.push("");
-
   if (entries.length === 0) {
-    // The blank line emitted after the band already provides spacing
-    // before the empty-state line; no extra spacer needed.
-    lines.push(emptyState(opts.theme));
-    return lines.join("\n");
-  }
-
-  // Blank line between cards mirrors the mockup's `.card { margin: 0.25rem 1.1rem }`
-  // top/bottom margin — without it the three workflow rows collapse into one
-  // visual block (see ui/Screenshot 2026-05-12 "Notice how the spacing is off").
-  for (let i = 0; i < entries.length; i++) {
-    if (i > 0) lines.push("");
-    lines.push(renderWorkflowCard(entries[i]!, opts));
+    body.push(` ${emptyState(opts.theme)} `);
+  } else {
+    for (let i = 0; i < entries.length; i++) {
+      if (i > 0) body.push("");
+      body.push(...renderWorkflowEntry(entries[i]!, { ...opts, width: bodyWidth }));
+    }
   }
 
   if (opts.showHints !== false) {
-    lines.push("");
-    lines.push(
-      renderHintRows(
+    body.push("");
+    body.push(
+      ...renderHintRows(
         [
           { command: "/workflow <name> …", hint: "run a workflow" },
           { command: "/workflow inputs <name>", hint: "inspect input schema" },
         ],
         opts.theme,
-      ),
+      ).split("\n").map((line) => ` ${line} `),
     );
   }
 
-  return lines.join("\n");
+  return renderRoundedBox({
+    title: `WORKFLOWS  ${subtitle}`,
+    bodyLines: body,
+    accent,
+    theme: opts.theme,
+    width,
+  });
 }
 
-function renderWorkflowCard(
+function renderWorkflowEntry(
   entry: WorkflowListEntry,
   opts: RenderWorkflowListOpts,
-): string {
+): string[] {
   const theme = opts.theme;
-  const cardWidth = effectiveWidth(opts.width);
-  const stripPrefix = 3; // "▎  "
-  const interior = Math.max(8, cardWidth - stripPrefix - 1);
-  const accent = theme?.mauve ?? "#000000";
+  const width = effectiveWidth(opts.width);
+  const interior = Math.max(8, width - 2);
+  const titleBudget = Math.max(8, Math.min(TAG_NAME_BUDGET, interior - 2));
+  const title = truncateToWidth(entry.name, titleBudget, ELLIPSIS);
+  const titleLine = theme
+    ? ` ${hexToAnsi(theme.text)}${BOLD}${title}${RESET} `
+    : ` ${title} `;
 
-  // The card primitive treats the tag as fixed-width chrome, so clamp the
-  // workflow name before handing it off. Budget by visible cells to keep CJK /
-  // emoji workflow names inside the requested line width in both modes.
-  const tagBudget = Math.max(8, Math.min(TAG_NAME_BUDGET, cardWidth - stripPrefix - 6));
-  const tag = truncateToWidth(entry.name, tagBudget, ELLIPSIS);
-
-  // Row 2: description (muted)
-  const descBudget = Math.max(8, interior - 2);
+  const descBudget = Math.max(8, interior - 4);
   const description = truncateToWidth(entry.description, descBudget, ELLIPSIS);
-  const row2 = paintMuted(description, theme);
+  const row1 = `   ${paintMuted(description, theme)} `;
+  const row2 = `   ${inputsSignatureRow(entry.inputs, interior - 4, theme)} `;
 
-  // Row 3: inputs signature
-  const row3 = inputsSignatureRow(entry.inputs, interior, theme);
-
-  return renderTaggedCard({
-    tag,
-    bodyRows: [row2, row3],
-    accent,
-    width: opts.width,
-    theme,
-  });
+  return [titleLine, row1, row2];
 }
 
 function inputsSignatureRow(

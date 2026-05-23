@@ -3,14 +3,14 @@
  *
  * Opens when the user types `/workflow <name>` in the TUI without enough
  * key=value tokens to satisfy the declared schema. Mirrors the form phase of
- * flora131/atomic's `workflow-picker-tui.tsx` design (mauve `▎` section
+ * flora131/atomic's `workflow-picker-tui.tsx` design (indented section
  * label, rounded field box per input, caption row, dim footer hints), with
  * the workflow already chosen — there is no fuzzy-list left pane.
  *
- *   ▎ <workflow name>
+ *     <workflow name>
  *     <description, dim>
  *
- *   ▎ INPUTS                                    <focused+1> / <total>
+ *     INPUTS                                    <focused+1> / <total>
  *
  *   ╭ prompt ─────────────────────────────────╮
  *   │ Build me a TUI for…                      │
@@ -34,7 +34,7 @@
  *   - flora131/atomic research/designs/workflow-picker-tui.tsx (PROMPT phase)
  *   - flora131/atomic packages/atomic-sdk/src/components/workflow-picker-panel.tsx
  *   - src/tui/session-picker.ts (sibling overlay; same chrome + key style)
- *   - DESIGN.md §1 Iconography (mauve `▎` for section labels)
+ *   - DESIGN.md §5 Section Labels
  */
 
 import type { WorkflowInputEntry } from "../extension/render-result.js";
@@ -656,7 +656,7 @@ export function renderInputsPicker(opts: InputsPickerRenderOpts): string[] {
   // Header chip — name + description, matching atomic's locked-in chip.
   // Both rows are clipped to terminal width so a long workflow name or
   // description cannot push the picker into a wrap on narrow terminals.
-  const chipPrefix = paint("▎ ", theme.mauve);
+  const chipPrefix = paint("  ", theme.mauve);
   const nameBudget = Math.max(0, width - 2);
   lines.push(
     chipPrefix +
@@ -674,7 +674,7 @@ export function renderInputsPicker(opts: InputsPickerRenderOpts): string[] {
   const focusTargetCount = fields.length;
   const counter = `${Math.min(state.focusedIdx + 1, focusTargetCount)} / ${focusTargetCount}`;
   const labelLeft =
-    paint("▎ ", theme.mauve) + paint("INPUTS", theme.textMuted, { bold: true });
+    paint("  ", theme.mauve) + paint("INPUTS", theme.textMuted, { bold: true });
   const labelLen = visibleWidth(labelLeft);
   if (labelLen + 1 + counter.length <= width) {
     const pad = width - labelLen - counter.length;

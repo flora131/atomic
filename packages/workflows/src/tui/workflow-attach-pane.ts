@@ -30,6 +30,7 @@ import type {
   StageControlHandle,
   StageControlRegistry,
 } from "../runs/foreground/stage-control-registry.js";
+import type { StageUiBroker } from "../shared/stage-ui-broker.js";
 
 /**
  * Surface used to write Pi's footer/status tag while the attach pane is
@@ -52,6 +53,8 @@ export interface WorkflowAttachPaneOpts {
    * the user attaches to a node. Defaults to the singleton registry.
    */
   stageControlRegistry?: StageControlRegistry;
+  /** Broker used to route stage-local custom UI such as ask_user_question into attached chats. */
+  stageUiBroker?: StageUiBroker;
   /**
    * Optional UI status surface. When present, attaching/detaching
    * updates the `pi-workflows` status tag with `<workflow>/<stage>`.
@@ -67,11 +70,12 @@ export interface WorkflowAttachPaneOpts {
   onPromptResolve?: (runId: string, promptId: string, response: unknown) => void;
   /** Live pi-tui host objects used by attached stage chat to reuse coding-agent editor UI. */
   piTui?: TUI;
+  piTheme?: unknown;
   piKeybindings?: unknown;
   /** Host custom editor factory installed by extensions via ctx.ui.setEditorComponent(). */
   piEditorFactory?: (tui: TUI, theme: EditorTheme, keybindings: unknown) => EditorComponent;
   /** Parent chat rendering settings and extension renderers, inherited from the host UI. */
-  getChatRenderSettings?: () => Partial<Omit<ChatMessageRenderOptions, "ui" | "cwd" | "markdownTheme">> | undefined;
+  getChatRenderSettings?: () => Partial<Omit<ChatMessageRenderOptions, "ui" | "cwd">> | undefined;
   /** Parent footer data provider, inherited so attached chats can render the core coding-agent footer. */
   footerData?: ReadonlyFooterDataProvider;
   /**
@@ -113,6 +117,7 @@ export class WorkflowAttachPane implements Component {
   private theme: GraphTheme;
   private runId: string | null;
   private registry: StageControlRegistry | undefined;
+  private stageUiBroker: StageUiBroker | undefined;
   private uiStatus: AttachUiStatusSurface | undefined;
   private onClose: () => void;
   private onHide?: () => void;
@@ -122,9 +127,10 @@ export class WorkflowAttachPane implements Component {
   private hostRequestRender?: () => void;
   private setMouseScrollTracking?: (enabled: boolean) => void;
   private piTui?: TUI;
+  private piTheme?: unknown;
   private piKeybindings?: unknown;
   private piEditorFactory?: (tui: TUI, theme: EditorTheme, keybindings: unknown) => EditorComponent;
-  private getChatRenderSettings?: () => Partial<Omit<ChatMessageRenderOptions, "ui" | "cwd" | "markdownTheme">> | undefined;
+  private getChatRenderSettings?: () => Partial<Omit<ChatMessageRenderOptions, "ui" | "cwd">> | undefined;
   private footerData?: ReadonlyFooterDataProvider;
 
   private mode: WorkflowAttachPaneMode = "graph";
@@ -138,6 +144,7 @@ export class WorkflowAttachPane implements Component {
     this.theme = opts.graphTheme;
     this.runId = opts.runId;
     this.registry = opts.stageControlRegistry;
+    this.stageUiBroker = opts.stageUiBroker;
     this.uiStatus = opts.uiStatus;
     this.onClose = opts.onClose;
     this.onHide = opts.onHide;
@@ -147,6 +154,7 @@ export class WorkflowAttachPane implements Component {
     this.hostRequestRender = opts.requestRender;
     this.setMouseScrollTracking = opts.setMouseScrollTracking;
     this.piTui = opts.piTui;
+    this.piTheme = opts.piTheme;
     this.piKeybindings = opts.piKeybindings;
     this.piEditorFactory = opts.piEditorFactory;
     this.getChatRenderSettings = opts.getChatRenderSettings;
@@ -226,11 +234,13 @@ export class WorkflowAttachPane implements Component {
       onClose: this.onClose,
       requestRender: this.hostRequestRender,
       piTui: this.piTui,
+      piTheme: this.piTheme,
       piKeybindings: this.piKeybindings,
       piEditorFactory: this.piEditorFactory,
       getChatRenderSettings: this.getChatRenderSettings,
       footerData: this.footerData,
       getViewportRows: this.getViewportRows,
+      stageUiBroker: this.stageUiBroker,
     });
     this.store.recordStageAttached(runId, stageId, true);
     this.mode = "stage-chat";
@@ -284,6 +294,17 @@ export class WorkflowAttachPane implements Component {
   private _setAttachedStatus(runId: string, stageId: string): void {
     const value = `pi-workflows/${this._workflowName(runId)}/${this._stageName(runId, stageId)}`;
     this.uiStatus?.setStatus?.(STATUS_KEY, value);
+  }
+
+  setVisible(visible: boolean): void {
+    if (this.mode === "stage-chat" && this.runId && this.lastAttachedStageId) {
+      this.store.recordStageAttached(this.runId, this.lastAttachedStageId, visible);
+      if (visible) this._setAttachedStatus(this.runId, this.lastAttachedStageId);
+      else this.uiStatus?.setStatus?.(STATUS_KEY, undefined);
+      return;
+    }
+    if (visible) this._setBaseStatus();
+    else this.uiStatus?.setStatus?.(STATUS_KEY, undefined);
   }
 
   private _syncMouseScrollTracking(): void {

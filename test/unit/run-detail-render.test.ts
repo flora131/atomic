@@ -110,7 +110,7 @@ describe("inspectRun", () => {
 // ---------------------------------------------------------------------------
 
 describe("renderRunDetail — themed", () => {
-  test("emits band header, stages section, and a cancel hint for an active run", () => {
+  test("emits rounded run panel, stage cards, and a cancel hint for an active run", () => {
     const now = 1_000_000;
     const run = makeRun({
       id: "abc123uuid",
@@ -127,13 +127,14 @@ describe("renderRunDetail — themed", () => {
     const out = renderRunDetail(detail, { theme: deriveGraphTheme({}), now });
     const plain = stripAnsi(out);
 
-    // Band header — pill carries short id, subtitle carries workflow name.
+    // Rounded panel header carries short id, workflow name, and status.
     assert.match(plain, /RUN abc123/);
     assert.match(plain, /refactor-auth/);
     assert.match(plain, /● running/);
 
     // STAGES section label + stage glyphs.
-    assert.match(plain, /▎ STAGES/);
+    assert.match(plain, /STAGES/);
+    assert.doesNotMatch(plain, /\u258e/);
     assert.match(plain, /✓ scout/);
     assert.match(plain, /● planner/);
     assert.match(plain, /○ worker/);
@@ -191,13 +192,13 @@ describe("renderRunDetail — themed", () => {
 });
 
 describe("renderRunDetail — plain", () => {
-  test("plain mode (no theme) is ASCII-safe and includes the band chrome", () => {
+  test("plain mode (no theme) is ANSI-free and includes rounded panel chrome", () => {
     // shortId() truncates run ids to 6 chars for the pill label.
     const detail = detailFromRun(makeRun({ id: "scratch01" }));
     const out = renderRunDetail(detail);
     assert.doesNotMatch(out, /\x1b\[/);
-    assert.match(out, /╭─+╮/);
-    assert.match(out, /│ RUN scratc │/);
+    assert.match(out, /╭ RUN scratc/);
+    assert.match(out, /refactor-auth/);
     assert.match(out, /╰─+╯/);
   });
 });

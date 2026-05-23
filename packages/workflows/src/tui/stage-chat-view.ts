@@ -40,23 +40,14 @@
  */
 
 import {
-  ChatTranscriptComponent,
-  CustomEditor,
-  FooterComponent,
-  ScrollableComponentViewport,
-  SessionManager,
-  LiveChatEntriesController,
-  UsageMeterComponent,
-  WorkingStatusComponent,
-  pickWhimsicalWorkingMessage,
-  renderChatMessageEntry,
+  ChatSessionHost,
+  type ChatSessionHostStyle,
   type AgentSession,
-  type AgentSessionEvent,
   type ChatMessageEntry,
   type ChatMessageRenderOptions,
   type ReadonlyFooterDataProvider,
 } from "@bastani/atomic";
-import { Box, Spacer, Text } from "@earendil-works/pi-tui";
+import { Box, Text } from "@earendil-works/pi-tui";
 import type {
   Component,
   EditorComponent,
@@ -65,12 +56,23 @@ import type {
   TUI,
 } from "@earendil-works/pi-tui";
 import type { Store } from "../shared/store.js";
+import {
+  mountStageCustomUi,
+  stageUiBroker,
+  type MountedStageCustomUi,
+  type StageCustomUiRequest,
+  type StageUiBroker,
+} from "../shared/stage-ui-broker.js";
 import type { StageNotice, StageSnapshot } from "../shared/store-types.js";
-import { elapsedStageMs } from "../shared/timing.js";
 import type { GraphTheme } from "./graph-theme.js";
 import type { StageControlHandle } from "../runs/foreground/stage-control-registry.js";
 import { BOLD, RESET, hexBg, hexToAnsi, lerpColor } from "./color-utils.js";
-import { matchesKey, truncateToWidth, visibleWidth } from "./text-helpers.js";
+import { matchesKey, visibleWidth } from "./text-helpers.js";
+import {
+  fitStageChatFrame,
+  planStageChatFrame,
+  resolveStageChatViewportRows,
+} from "./stage-chat-layout.js";
 
 // ---------------------------------------------------------------------------
 // Options & types
@@ -96,6 +98,7 @@ export interface StageChatViewOpts {
   requestRender?: () => void;
   /** Live pi-tui host objects. When present, stage input uses pi's editor UI. */
   piTui?: TUI;
+  piTheme?: unknown;
   piKeybindings?: unknown;
   /** Currently installed host editor factory, inherited from extension `ctx.ui.setEditorComponent()`. */
   piEditorFactory?: (
@@ -105,7 +108,7 @@ export interface StageChatViewOpts {
   ) => EditorComponent;
   /** Parent chat rendering settings and extension renderers inherited from the host UI. */
   getChatRenderSettings?: () =>
-    | Partial<Omit<ChatMessageRenderOptions, "ui" | "cwd" | "markdownTheme">>
+    | Partial<Omit<ChatMessageRenderOptions, "ui" | "cwd">>
     | undefined;
   /** Parent footer data provider inherited from the host UI for core footer/usage rendering. */
   footerData?: ReadonlyFooterDataProvider;
@@ -117,6 +120,8 @@ export interface StageChatViewOpts {
    * Returning `undefined` falls back to the constant 32-row frame.
    */
   getViewportRows?: () => number | undefined;
+  /** Broker that routes stage-local custom UI, such as ask_user_question, into this node. */
+  stageUiBroker?: StageUiBroker;
 }
 
 /**
@@ -147,18 +152,10 @@ type AgentSnapshotMessage = AgentSession["messages"][number];
  */
 const VIEW_LINE_COUNT = 32;
 
-/** Header strip — `▎ STAGE  wf / stage   <meta>   ● status` */
+/** Header strip — `  STAGE  wf / stage   <meta>   ● status` without a leading marker glyph. */
 const HEADER_ROWS = 1;
 /** Single dim rule between header and body. */
 const SEP_ROWS = 1;
-/** Spinner glyphs — Braille spinner at 80ms per frame. */
-const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-/** Pi's Loader advances at 80ms; use the same cadence for embedded stage chats. */
-const ANIMATION_FRAME_MS = 80;
-const STREAMING_RENDER_THROTTLE_MS = 80;
-const STREAMING_TEXT_TAIL_LINES = 240;
-const STREAMING_TEXT_TAIL_CHARS = 16_000;
-
 const ITALIC = "\x1b[3m";
 const FG_RESET = "\x1b[39m";
 const WEIGHT_RESET = "\x1b[22m";
@@ -180,41 +177,25 @@ export class StageChatView implements Component, Focusable {
   private onClose: () => void;
   private requestRender: (() => void) | undefined;
   private getViewportRows?: () => number | undefined;
-  private editor: EditorComponent | undefined;
+  private piTui?: TUI;
+  private piTheme?: unknown;
+  private piKeybindings?: unknown;
+  private chatHost: ChatSessionHost<NoticeEntry>;
+  private stageUiBroker: StageUiBroker;
+  private mountedCustomUi: MountedStageCustomUi | null = null;
   private getChatRenderSettings?: () =>
-    | Partial<Omit<ChatMessageRenderOptions, "ui" | "cwd" | "markdownTheme">>
+    | Partial<Omit<ChatMessageRenderOptions, "ui" | "cwd">>
     | undefined;
   private footerData?: ReadonlyFooterDataProvider;
 
-  private inputBuffer = "";
-  private transcript: TranscriptEntry[] = [];
-  private statusMessage = "";
   /** True while a pending pause request is in flight (between ctrl+p and resolve). */
   private localPaused = false;
   /** De-dup set so the store subscription doesn't re-append known notices. */
   private seenNoticeIds = new Set<string>();
-  /** Wall-clock at construction, used to colour the spinner frame stably. */
-  private attachedAt = Date.now();
-  /** True after SDK `agent_start` until `agent_end`; mirrors Pi's working-loader lifecycle. */
-  private sdkBusy = false;
-  /** Pi-style per-turn working message, populated from coding-agent's message picker. */
-  private workingMessage: string | undefined;
-  /** User rows optimistically appended by this embedded editor, de-duped on SDK echo. */
-  private optimisticUserSignatures = new Set<string>();
-  /** Pending steering messages emitted by AgentSession queue updates. */
-  private pendingSteeringMessages: readonly string[] = [];
-  /** Pending follow-up messages emitted by AgentSession queue updates. */
-  private pendingFollowUpMessages: readonly string[] = [];
-  /** Chat-mode repaint driver for Pi-style loaders/spinners. */
-  private animationTimer: ReturnType<typeof setInterval> | undefined;
-  /** Coalesces high-frequency SDK deltas while the fixed overlay is streaming. */
-  private renderThrottleTimer: ReturnType<typeof setTimeout> | undefined;
-  /** Scrollable fixed-height body viewport for attached chat history. */
-  private bodyViewport = new ScrollableComponentViewport();
-  private liveChat: LiveChatEntriesController;
 
   private _unsubscribeStore: (() => void) | null = null;
   private _unsubscribeHandle: (() => void) | null = null;
+  private _unregisterStageUiHost: (() => void) | null = null;
 
   constructor(opts: StageChatViewOpts) {
     this.store = opts.store;
@@ -227,14 +208,78 @@ export class StageChatView implements Component, Focusable {
     this.onClose = opts.onClose;
     this.requestRender = opts.requestRender;
     this.getViewportRows = opts.getViewportRows;
+    this.piTui = opts.piTui;
+    this.piTheme = opts.piTheme;
+    this.piKeybindings = opts.piKeybindings;
     this.getChatRenderSettings = opts.getChatRenderSettings;
     this.footerData = opts.footerData;
-    this.liveChat = new LiveChatEntriesController(this.transcript);
-    this.editor = this._createEditor(
-      opts.piTui,
-      opts.piKeybindings,
-      opts.piEditorFactory,
-    );
+    this.stageUiBroker = opts.stageUiBroker ?? stageUiBroker;
+    this.chatHost = new ChatSessionHost<NoticeEntry>({
+      style: this._chatHostStyle(),
+      commands: {
+        ensureAttached: async () => {
+          await this.handle?.ensureAttached();
+        },
+        prompt: async (text) => {
+          if (!this.handle) throw new Error("no live handle on this stage");
+          await this.handle.prompt(text);
+        },
+        steer: async (text) => {
+          if (!this.handle) throw new Error("no live handle on this stage");
+          await this.handle.steer(text);
+        },
+        followUp: async (text) => {
+          if (!this.handle) throw new Error("no live handle on this stage");
+          await this.handle.followUp(text);
+        },
+        interrupt: async () => {
+          await this.handle?.agentSession?.abort();
+        },
+        resume: async (message) => {
+          if (!this.handle) throw new Error("no live handle on this stage");
+          this.localPaused = true;
+          try {
+            await this.handle.resume(message);
+          } finally {
+            this.localPaused = false;
+          }
+        },
+        runBash: async (request) => {
+          if (!this.handle) throw new Error("no live handle on this stage");
+          await this.handle.ensureAttached();
+          const agentSession = this.handle.agentSession;
+          if (!agentSession) throw new Error("no live agent session on this stage");
+          return agentSession.executeBash(request.command, request.onChunk, {
+            excludeFromContext: request.excludeFromContext,
+          });
+        },
+        abortBash: async () => {
+          this.handle?.agentSession?.abortBash();
+        },
+        abortCompaction: async () => {
+          this.handle?.agentSession?.abortCompaction();
+        },
+        handleSlashCommand: async (text) => this._handleSlashCommand(text),
+      },
+      isBashRunning: () => this.handle?.agentSession?.isBashRunning === true,
+      requestRender: opts.requestRender,
+      getAgentSession: () => this.handle?.agentSession,
+      isStreaming: () => this.handle?.isStreaming === true,
+      isPaused: () => this._isPaused(),
+      isDisabled: () => this._isBlocked() || !this.handle,
+      tui: opts.piTui,
+      keybindings: opts.piKeybindings,
+      editorFactory: opts.piEditorFactory,
+      editorTheme: editorThemeFromGraphTheme(this.theme),
+      getChatRenderSettings: opts.getChatRenderSettings,
+      footerData: opts.footerData,
+      renderExtraEntry: (entry) => this._noticeRow(entry),
+    });
+    this._unregisterStageUiHost = this.stageUiBroker.registerHost(this.runId, this.stageId, {
+      showCustomUi: (request) => {
+        void this._showCustomUi(request);
+      },
+    });
 
     // Seed transcript from the live SDK session at attach time, plus any
     // stage notices the workflow body has already recorded.
@@ -257,72 +302,62 @@ export class StageChatView implements Component, Focusable {
       // `stage.setModel`, `stage.compact`, …) so they thread through the
       // transcript without a special render path.
       changed = this._absorbStageNotices(stage) || changed;
-      this._syncAnimationTick();
+      this.chatHost.syncAnimationTick();
       if (changed) this.requestRender?.();
     });
 
     if (this.handle) {
       this._unsubscribeHandle = this.handle.subscribe((event) => {
-        const changed = this._appendEvent(event);
-        this._syncAnimationTick();
-        if (changed) this._requestEventRender();
+        this.chatHost.applyAgentEvent(event);
       });
     }
-    this._syncAnimationTick();
+    this.chatHost.syncAnimationTick();
   }
 
-  private _createEditor(
-    tui: TUI | undefined,
-    keybindings: unknown,
-    editorFactory:
-      | ((
-          tui: TUI,
-          theme: EditorTheme,
-          keybindings: unknown,
-        ) => EditorComponent)
-      | undefined,
-  ): EditorComponent | undefined {
-    if (!tui || !keybindings) return undefined;
-    const editorTheme = editorThemeFromGraphTheme(this.theme);
-    const editor =
-      this._createInheritedEditor(
-        tui,
-        editorTheme,
-        keybindings,
-        editorFactory,
-      ) ??
-      new CustomEditor(
-        tui,
-        editorTheme,
-        keybindings as ConstructorParameters<typeof CustomEditor>[2],
-        { paddingX: 0, autocompleteMaxVisible: 5 },
+  private _chatHostStyle(): ChatSessionHostStyle {
+    return {
+      dim: (text) => paint(text, this.theme.dim),
+      text: (text) => paint(text, this.theme.text),
+      textMuted: (text) => paint(text, this.theme.textMuted),
+      accent: (text) => paint(text, this.theme.accent),
+      accentBold: (text) => paint(text, this.theme.accent, { bold: true }),
+      rule: (hex, text) => hexToAnsi(hex) + text + RESET,
+      cursor: () => cursorBlock(),
+      blank: (width) => this._blank(width),
+      editorRuleColor: (disabled, agentSession, state) =>
+        this._editorRuleColor(disabled, agentSession, state),
+    };
+  }
+
+  private async _showCustomUi(request: StageCustomUiRequest): Promise<void> {
+    this.mountedCustomUi?.component.dispose?.();
+    this.mountedCustomUi = null;
+    if (!this.piTui || this.piTheme === undefined || this.piKeybindings === undefined) {
+      this.stageUiBroker.reject(
+        request,
+        new Error("pi-workflows: stage custom UI cannot mount without attached TUI host"),
       );
-    editor.onChange = (text) => {
-      this.inputBuffer = text;
-    };
-    editor.onSubmit = (text) => {
-      void this._submit("auto", text);
-    };
-    return editor;
-  }
-
-  private _createInheritedEditor(
-    tui: TUI,
-    editorTheme: EditorTheme,
-    keybindings: unknown,
-    editorFactory:
-      | ((
-          tui: TUI,
-          theme: EditorTheme,
-          keybindings: unknown,
-        ) => EditorComponent)
-      | undefined,
-  ): EditorComponent | undefined {
-    if (!editorFactory) return undefined;
+      return;
+    }
     try {
-      return editorFactory(tui, editorTheme, keybindings);
-    } catch {
-      return undefined;
+      this.mountedCustomUi = await mountStageCustomUi(
+        request,
+        this.piTui,
+        this.piTheme,
+        this.piKeybindings,
+        this.stageUiBroker,
+        () => {
+          if (this.mountedCustomUi?.request.id !== request.id) return;
+          this.mountedCustomUi.component.dispose?.();
+          this.mountedCustomUi = null;
+          this.chatHost.focused = this.focused;
+          this.chatHost.scrollToBottom();
+          this.requestRender?.();
+        },
+      );
+      this.requestRender?.();
+    } catch (error) {
+      this.stageUiBroker.reject(request, error);
     }
   }
 
@@ -332,114 +367,13 @@ export class StageChatView implements Component, Focusable {
 
   private _snapshotMessagesFromHandle(): void {
     if (!this.handle) return;
-    this.liveChat.appendMessages(this.handle.messages);
+    this.chatHost.appendMessages(this.handle.messages);
   }
 
   private _snapshotMessagesFromSessionFile(
     stage: StageSnapshot | undefined,
   ): void {
-    if (this.transcript.length > 0) return;
-    const sessionFile = this.handle?.sessionFile ?? stage?.sessionFile;
-    if (sessionFile === undefined) return;
-
-    let messages: readonly AgentSnapshotMessage[];
-    try {
-      messages = SessionManager.open(sessionFile).buildSessionContext()
-        .messages as readonly AgentSnapshotMessage[];
-    } catch {
-      return;
-    }
-
-    this.liveChat.appendMessages(messages);
-  }
-
-  private _appendEvent(event: AgentSessionEvent): boolean {
-    // Shared live transcript ingestion covers assistant/user/custom messages
-    // and tool start/update/end rows. StageChatView keeps workflow-only status
-    // events (pause, compaction captions, animation state) locally.
-    const type = String((event as { type?: unknown }).type ?? "");
-    if (type === "message_start") {
-      const message = (event as { message?: unknown }).message;
-      if (isUserMessageLike(message)) {
-        const signature = userMessageSignature(
-          extractMessageText(message.content),
-        );
-        if (this.optimisticUserSignatures.delete(signature)) return false;
-      }
-    }
-    if (isSharedLiveChatEvent(type)) {
-      const changed = this.liveChat.applyEvent(event);
-      const toolCallEvent = assistantToolCallEvent(event);
-      const changedByToolCall = toolCallEvent !== undefined
-        ? this.liveChat.applyEvent(toolCallEvent)
-        : false;
-      return changed || changedByToolCall;
-    }
-    switch (type) {
-      case "agent_start":
-        this.sdkBusy = true;
-        this.liveChat.clearPendingTools();
-        this.statusMessage = "";
-        return true;
-
-      case "agent_end":
-        this.sdkBusy = false;
-        this.workingMessage = undefined;
-        this.liveChat.clearPendingTools();
-        this.statusMessage = "";
-        return true;
-
-      case "turn_start":
-        this.workingMessage = pickWhimsicalWorkingMessage();
-        return true;
-
-      case "turn_end":
-        this.workingMessage = undefined;
-        return true;
-
-      case "queue_update": {
-        const queue = event as Extract<AgentSessionEvent, { type: "queue_update" }>;
-        this.pendingSteeringMessages = queue.steering;
-        this.pendingFollowUpMessages = queue.followUp;
-        return true;
-      }
-
-      // Compatibility with older/headless shims that predate the SDK's
-      // tool_execution_* events. Project these shims into coding-agent's live
-      // controller rather than maintaining a second workflow tool renderer.
-      case "tool_call":
-      case "tool_use":
-        return this.liveChat.applyEvent(legacyToolStartEvent(event));
-
-      case "tool_result":
-        return this.liveChat.applyEvent(legacyToolResultEvent(event));
-
-      case "thinking_delta":
-      case "thinking":
-        return this.liveChat.applyEvent(legacyThinkingEvent(event));
-
-      case "compaction_start":
-        this.sdkBusy = true;
-        this.statusMessage = "compacting context…";
-        return true;
-
-      case "compaction_end":
-        this.sdkBusy = false;
-        this.statusMessage = "";
-        return true;
-
-      case "auto_retry_start":
-        this.sdkBusy = true;
-        this.statusMessage = "retrying…";
-        return true;
-
-      case "auto_retry_end":
-        this.statusMessage = "";
-        return true;
-
-      default:
-        return false;
-    }
+    this.chatHost.loadSessionFile(this.handle?.sessionFile ?? stage?.sessionFile);
   }
 
   private _absorbStageNotices(stage: StageSnapshot | undefined): boolean {
@@ -450,7 +384,7 @@ export class StageChatView implements Component, Focusable {
       if (this.seenNoticeIds.has(n.id)) continue;
       this.seenNoticeIds.add(n.id);
       changed = true;
-      this.transcript.push({
+      this.chatHost.appendExtraEntry({
         role: "notice",
         noticeId: n.id,
         kind: n.kind,
@@ -484,44 +418,11 @@ export class StageChatView implements Component, Focusable {
     if (typeof reported !== "number" || !Number.isFinite(reported)) {
       return VIEW_LINE_COUNT;
     }
-    return Math.max(VIEW_LINE_COUNT, Math.floor(reported));
+    return resolveStageChatViewportRows(reported, VIEW_LINE_COUNT);
   }
 
   private _isStreaming(): boolean {
-    return this.sdkBusy || Boolean(this.handle?.isStreaming);
-  }
-
-  private _hasPendingToolEntries(): boolean {
-    return this.liveChat.pendingToolIds().length > 0;
-  }
-
-  private _syncAnimationTick(): void {
-    const shouldAnimate =
-      this._isStreaming() || (this.sdkBusy && this._hasPendingToolEntries());
-    if (shouldAnimate && !this.animationTimer) {
-      this.animationTimer = setInterval(() => {
-        this.requestRender?.();
-      }, ANIMATION_FRAME_MS);
-      this.animationTimer.unref?.();
-      return;
-    }
-    if (!shouldAnimate && this.animationTimer) {
-      clearInterval(this.animationTimer);
-      this.animationTimer = undefined;
-    }
-  }
-
-  private _requestEventRender(): void {
-    if (!this._isStreaming()) {
-      this.requestRender?.();
-      return;
-    }
-    if (this.renderThrottleTimer) return;
-    this.renderThrottleTimer = setTimeout(() => {
-      this.renderThrottleTimer = undefined;
-      this.requestRender?.();
-    }, STREAMING_RENDER_THROTTLE_MS);
-    this.renderThrottleTimer.unref?.();
+    return this.chatHost.isStreaming();
   }
 
   private _isBlocked(): boolean {
@@ -534,6 +435,31 @@ export class StageChatView implements Component, Focusable {
     return this.localPaused || stage?.status === "paused";
   }
 
+  private _isReadOnlyArchive(stage: StageSnapshot | undefined = this._currentStage()): boolean {
+    if (this.handle) return false;
+    if (!stage) return true;
+    return stage.status === "completed" || stage.status === "failed" || Boolean(stage.sessionFile);
+  }
+
+  private async _handleSlashCommand(text: string): Promise<boolean> {
+    const [command, ...rest] = text.trim().split(/\s+/);
+    switch (command) {
+      case "/compact": {
+        if (!this.handle) return false;
+        await this.handle.ensureAttached();
+        if (!this.handle.agentSession) return false;
+        await this.handle.agentSession.compact(rest.join(" ") || undefined);
+        return true;
+      }
+      case "/quit":
+      case "/exit":
+        this.onClose();
+        return true;
+      default:
+        return false;
+    }
+  }
+
   // -------------------------------------------------------------------------
   // Top-level render — composes header / body / usage / editor / footer
   // -------------------------------------------------------------------------
@@ -542,44 +468,54 @@ export class StageChatView implements Component, Focusable {
     const w = Math.max(40, width);
     const stage = this._currentStage();
     const blocked = this._isBlocked();
-    const streaming = this._isStreaming() && !blocked;
 
+    this.chatHost.focused = this.focused;
     const headerLines = this._renderHeader(w, stage);
     const sepLines = [this._sepRule(w)];
-    const pendingLines = this._renderPendingMessages(w);
-    const workingLines = this._renderWorkingStatus(w, stage, { streaming });
-    const usageLines = this._renderUsage(w);
-    const editorLines = this._renderEditor(w, blocked);
-    const footerLines = this._renderFooter(w);
+    const customUiActive = this.mountedCustomUi !== null;
+    const readOnlyArchive = this._isReadOnlyArchive(stage);
+    const pendingLines = customUiActive || readOnlyArchive ? [] : this.chatHost.renderPendingMessages(w);
+    const workingLines = customUiActive || readOnlyArchive ? [] : this.chatHost.renderWorkingStatus(w);
+    const usageLines = customUiActive || readOnlyArchive ? [] : this.chatHost.renderUsage(w);
+    const editorLines = customUiActive || readOnlyArchive ? [] : this.chatHost.renderEditor(w);
+    const footerLines = customUiActive || readOnlyArchive ? [] : this.chatHost.renderFooter(w);
 
-    const fixed =
-      HEADER_ROWS +
-      SEP_ROWS +
-      pendingLines.length +
-      workingLines.length +
-      usageLines.length +
-      editorLines.length +
-      footerLines.length;
     const totalRows = this._viewLineCount();
-    const bodyBudget = Math.max(1, totalRows - fixed);
-    this.bodyViewport.setVisibleRows(bodyBudget);
-    if (blocked) this.bodyViewport.scrollToBottom();
-    const bodyLines = blocked
-      ? this._renderBlockedBody(w, bodyBudget, stage)
-      : this._renderBody(w, bodyBudget);
+    const plan = planStageChatFrame({
+      viewportRows: totalRows,
+      headerRows: HEADER_ROWS,
+      separatorRows: SEP_ROWS,
+      pendingRows: pendingLines.length,
+      workingRows: workingLines.length,
+      usageRows: usageLines.length,
+      editorRows: editorLines.length,
+      footerRows: footerLines.length,
+    });
+    const visiblePendingLines = pendingLines.slice(0, plan.pendingRows);
+    const visibleWorkingLines = workingLines.slice(0, plan.workingRows);
+    const visibleUsageLines = usageLines.slice(0, plan.usageRows);
+    const visibleEditorLines = editorLines.slice(0, plan.editorRows);
+    const visibleFooterLines = footerLines.slice(0, plan.footerRows);
+    const bodyBudget = plan.bodyRows;
+    if (blocked) this.chatHost.scrollToBottom();
+    const bodyLines = customUiActive
+      ? this._renderCustomUiBody(w, bodyBudget)
+      : blocked
+        ? this._renderBlockedBody(w, bodyBudget, stage)
+        : readOnlyArchive
+          ? this._renderReadOnlyArchiveBody(w, bodyBudget, stage)
+          : this.chatHost.renderBody(w, bodyBudget);
     const lines = [
       ...headerLines,
       ...sepLines,
       ...bodyLines,
-      ...pendingLines,
-      ...workingLines,
-      ...usageLines,
-      ...editorLines,
-      ...footerLines,
+      ...visiblePendingLines,
+      ...visibleWorkingLines,
+      ...visibleUsageLines,
+      ...visibleEditorLines,
+      ...visibleFooterLines,
     ];
-    while (lines.length < totalRows) lines.push(this._blank(w));
-    if (lines.length > totalRows) lines.length = totalRows;
-    return lines;
+    return fitStageChatFrame(lines, totalRows, this._blank(w));
   }
 
   // -------------------------------------------------------------------------
@@ -592,83 +528,37 @@ export class StageChatView implements Component, Focusable {
   ): string[] {
     const t = this.theme;
     const stageName = stage?.name ?? "stage";
-    const status = stage?.status ?? (this.handle ? "pending" : "completed");
 
-    // Left side: `▎ STAGE  <wf> / <stage>`
+    // Left side: `  STAGE  <wf> / <stage>`
     const left =
-      paint(" ▎ ", t.mauve, { bold: true }) +
+      paint("   ", t.mauve, { bold: true }) +
       paint("STAGE", t.textMuted, { bold: true }) +
       "  " +
       paint(this.workflowName, t.textMuted) +
       paint(" / ", t.dim) +
       paint(stageName, t.text, { bold: true });
 
-    // Right side: stage meta · status pill
+    // Right side: stable session metadata only. Avoid workflow-status chrome
+    // in the embedded chat so the surface does not change colour when the
+    // workflow stage settles.
     const meta = this._headerMeta(stage);
-    const pill = this._statusPill(status);
-    const right = (meta ? paint(meta, t.dim) + "  " : "") + pill.styled + " ";
+    const right = meta ? paint(meta, t.dim) + " " : "";
 
     const leftW =
       visibleWidth(this.workflowName) +
       visibleWidth(stageName) +
       visibleWidth("  STAGE   /  ") +
       1;
-    const rightW = visibleWidth(meta) + (meta ? 2 : 0) + pill.width + 1;
+    const rightW = visibleWidth(meta) + (meta ? 1 : 0);
     const gap = Math.max(1, width - leftW - rightW);
     return [left + " ".repeat(gap) + right];
   }
 
   private _headerMeta(stage: StageSnapshot | undefined): string {
     const parts: string[] = [];
-    if (stage) {
-      const dur = stageDurationText(stage);
-      if (dur) parts.push(dur);
-    }
     const sid = this.handle?.sessionId ?? stage?.sessionId;
     if (sid) parts.push(`session ${shortenId(sid)}`);
     return parts.join(" · ");
-  }
-
-  /**
-   * Render an inline ` ● status ` pill with the status colour applied to a
-   * tinted background. Matches the mockup's `.status-pill` vocabulary.
-   */
-  private _statusPill(status: string): { styled: string; width: number } {
-    const t = this.theme;
-    const map: Record<string, { fg: string; bg: string; label: string }> = {
-      pending: { fg: t.dim, bg: blendBg(t.bg, t.dim, 0.18), label: "pending" },
-      running: {
-        fg: t.accent,
-        bg: blendBg(t.bg, t.accent, 0.18),
-        label: "running",
-      },
-      paused: {
-        fg: t.warning,
-        bg: blendBg(t.bg, t.warning, 0.18),
-        label: "paused",
-      },
-      blocked: {
-        fg: t.warning,
-        bg: blendBg(t.bg, t.warning, 0.18),
-        label: "blocked",
-      },
-      completed: {
-        fg: t.success,
-        bg: blendBg(t.bg, t.success, 0.18),
-        label: "completed",
-      },
-      failed: {
-        fg: t.error,
-        bg: blendBg(t.bg, t.error, 0.18),
-        label: "failed",
-      },
-    };
-    const cfg = map[status] ?? map.pending!;
-    const body = ` ● ${cfg.label} `;
-    return {
-      styled: hexBg(cfg.bg) + hexToAnsi(cfg.fg) + BOLD + body + RESET,
-      width: visibleWidth(body),
-    };
   }
 
   private _sepRule(width: number): string {
@@ -678,6 +568,50 @@ export class StageChatView implements Component, Focusable {
   // -------------------------------------------------------------------------
   // Body — welcome panel / banner + transcript / blocked
   // -------------------------------------------------------------------------
+
+  private _renderReadOnlyArchiveBody(
+    width: number,
+    budget: number,
+    stage: StageSnapshot | undefined,
+  ): string[] {
+    const t = this.theme;
+    const calloutRows = 6;
+    const transcriptBudget = Math.max(1, budget - calloutRows);
+    const lines = this.chatHost.renderBody(width, transcriptBudget);
+    const callout: string[] = [];
+    callout.push(this._blank(width));
+    callout.push(
+      ...this._bannerLines(
+        width,
+        "info",
+        "◌",
+        "READ-ONLY SESSION",
+        stage?.sessionFile ? "archived transcript" : "no live chat session",
+      ),
+    );
+    callout.push(
+      ...new Text(
+        paint("This node is no longer attached to a live chat session.", t.textMuted),
+        2,
+        0,
+      ).render(width),
+    );
+    callout.push(
+      ...new Text(
+        paint("esc", t.accent, { bold: true }) +
+          paint(" close", t.textMuted) +
+          paint("  ·  ", t.dim) +
+          paint("ctrl+d", t.accent, { bold: true }) +
+          paint(" return to graph", t.textMuted),
+        2,
+        0,
+      ).render(width),
+    );
+    lines.push(...callout);
+    while (lines.length < budget) lines.push(this._blank(width));
+    if (lines.length > budget) lines.length = budget;
+    return lines;
+  }
 
   private _renderBlockedBody(
     width: number,
@@ -721,87 +655,13 @@ export class StageChatView implements Component, Focusable {
     return lines;
   }
 
-  private _renderBody(
-    width: number,
-    budget: number,
-  ): string[] {
-    const components: Component[] = [];
-    // Base chat body: delegate transcript composition to the Pi-style
-    // transcript component so the attached stage chat uses the same message
-    // spacing and coding-agent message widgets as the main interactive chat.
-    if (this.transcript.length > 0) {
-      components.push(
-        new ChatTranscriptComponent(this.transcript, (entry) =>
-          this._renderEntry(entry),
-        ),
-      );
-    }
-
-    // Stream a static status message (e.g. "pausing…") as a dim trailing row.
-    if (this.statusMessage) {
-      components.push(new Spacer(1));
-      components.push(
-        new Text(paint(this.statusMessage, this.theme.dim), 2, 0),
-      );
-    }
-
-    this.bodyViewport.setComponents(components);
-    return this.bodyViewport.render(width);
-  }
-
-  // -------------------------------------------------------------------------
-  // Transcript entry → pi/coding-agent Component. Stage chat deliberately uses
-  // the same exported message/tool components as the main interactive chat
-  // instead of maintaining parallel workflow-specific bubbles.
-  // -------------------------------------------------------------------------
-
-  private _renderEntry(entry: TranscriptEntry): Component {
-    if (isChatMessageEntry(entry)) {
-      return renderChatMessageEntry(
-        this._streamingWindowedEntry(entry),
-        this._chatMessageRenderOptions(),
-      );
-    }
-    return this._noticeRow(entry);
-  }
-
-  private _streamingWindowedEntry(entry: ChatMessageEntry): ChatMessageEntry {
-    if (!this._isStreaming() || this.bodyViewport.getScrollFromBottom() !== 0) {
-      return entry;
-    }
-    if (entry.kind !== "assistant") return entry;
-    const content = entry.message.content.map((item) => {
-      if (item.type === "text") {
-        return { ...item, text: tailStreamingText(item.text) };
-      }
-      if (item.type === "thinking") {
-        return { ...item, thinking: tailStreamingText(item.thinking) };
-      }
-      return item;
-    });
-    return {
-      ...entry,
-      message: {
-        ...entry.message,
-        content,
-      },
-    };
-  }
-
-  private _chatMessageRenderOptions(): ChatMessageRenderOptions {
-    const inherited = this.getChatRenderSettings?.();
-    return {
-      ...inherited,
-      ui: this._toolTui(),
-      cwd: this.handle?.agentSession?.sessionManager.getCwd() ?? process.cwd(),
-      showImages: inherited?.showImages ?? true,
-    };
-  }
-
-  private _toolTui(): TUI {
-    return {
-      requestRender: () => this.requestRender?.(),
-    } as TUI;
+  private _renderCustomUiBody(width: number, budget: number): string[] {
+    const component = this.mountedCustomUi?.component;
+    if (component) setComponentFocused(component, this.focused);
+    const lines = component ? component.render(width) : [];
+    const framed = lines.slice(0, budget);
+    while (framed.length < budget) framed.push(this._blank(width));
+    return framed;
   }
 
   private _noticeRow(entry: NoticeEntry): Component {
@@ -823,14 +683,20 @@ export class StageChatView implements Component, Focusable {
   // -------------------------------------------------------------------------
 
   private _banner(
-    kind: "warning" | "success" | "error",
+    kind: "warning" | "success" | "error" | "info",
     glyph: string,
     label: string,
     meta: string,
   ): Component {
     const t = this.theme;
     const fg =
-      kind === "warning" ? t.warning : kind === "success" ? t.success : t.error;
+      kind === "warning"
+        ? t.warning
+        : kind === "success"
+          ? t.success
+          : kind === "info"
+            ? t.info
+            : t.error;
     const bg = blendBg(t.bg, fg, 0.1);
     const head =
       paintOnFill(glyph, fg, { bold: true }) +
@@ -849,7 +715,7 @@ export class StageChatView implements Component, Focusable {
    */
   private _bannerLines(
     width: number,
-    kind: "warning" | "success" | "error",
+    kind: "warning" | "success" | "error" | "info",
     glyph: string,
     label: string,
     meta: string,
@@ -857,42 +723,14 @@ export class StageChatView implements Component, Focusable {
     return this._banner(kind, glyph, label, meta).render(width);
   }
 
-  // -------------------------------------------------------------------------
-  // Editor — top rule + ` ❯ … ` + bottom rule
-  // -------------------------------------------------------------------------
-
-  private _renderEditor(width: number, blocked: boolean): string[] {
-    const t = this.theme;
-    // Disabled only when no live chat handle exists or workflow dependencies
-    // are blocked. A settled attached stage remains a regular chat session.
-    const disabled = blocked || !this.handle;
-    const ruleHex = this._editorRuleColor(disabled);
-    if (!disabled && this.editor) {
-      setEditorFocused(this.editor, this.focused);
-      setEditorPlaceholder(this.editor, undefined);
-      setEditorBorderColor(this.editor, ruleHex);
-      return this.editor.render(width);
-    }
-    if (this.editor) setEditorFocused(this.editor, false);
-    const rule = hexToAnsi(ruleHex) + "─".repeat(width) + RESET;
-
-    const glyphHex = disabled ? t.dim : t.accent;
-    const available = Math.max(1, width - 3);
-    const value = this.inputBuffer
-      ? paint(truncateToWidth(this.inputBuffer, available), t.text) + cursorBlock()
-      : disabled
-        ? ""
-        : cursorBlock();
-
-    const left = paint("❯", glyphHex, { bold: true }) + " " + value;
-    const gap = Math.max(0, width - visibleWidth(stripAnsi(left)));
-    const body = left + " ".repeat(gap);
-    return [rule, body, rule];
-  }
-
-  private _editorRuleColor(disabled: boolean): string {
+  private _editorRuleColor(
+    disabled: boolean,
+    agentSession: AgentSession | undefined,
+    state?: { isBashMode: boolean },
+  ): string {
     if (disabled) return this.theme.borderDim;
-    const level = this.handle?.agentSession?.state.thinkingLevel ?? "off";
+    if (state?.isBashMode) return this.theme.warning;
+    const level = agentSession?.state.thinkingLevel ?? "off";
     switch (level) {
       case "minimal":
         return this.theme.borderDim;
@@ -908,71 +746,6 @@ export class StageChatView implements Component, Focusable {
       default:
         return this.theme.border;
     }
-  }
-
-  // -------------------------------------------------------------------------
-  // Working, usage + footer — mirrors the main chat composer stack
-  // -------------------------------------------------------------------------
-
-  private _renderWorkingStatus(
-    width: number,
-    stage: StageSnapshot | undefined,
-    flags: { streaming: boolean },
-  ): string[] {
-    if (!flags.streaming) return [];
-    const t = this.theme;
-    const dur = stageDurationText(stage);
-    const message = this.workingMessage ?? `Working${dur ? "  · " + dur : ""}`;
-    return new WorkingStatusComponent({
-      spinner: spinnerFrame(),
-      message,
-      spinnerColor: (text) => paint(text, t.accent, { bold: true }),
-      messageColor: (text) => paint(text, t.textMuted),
-    }).render(width);
-  }
-
-  private _renderPendingMessages(width: number): string[] {
-    if (
-      this.pendingSteeringMessages.length === 0 &&
-      this.pendingFollowUpMessages.length === 0
-    ) {
-      return [];
-    }
-    const lines = [this._blank(width)];
-    for (const message of this.pendingSteeringMessages) {
-      lines.push(...this._pendingMessageLine(width, "Steering", message));
-    }
-    for (const message of this.pendingFollowUpMessages) {
-      lines.push(...this._pendingMessageLine(width, "Follow-up", message));
-    }
-    return lines;
-  }
-
-  private _pendingMessageLine(
-    width: number,
-    label: "Steering" | "Follow-up",
-    message: string,
-  ): string[] {
-    const text = `${label}: ${message}`;
-    return new Text(
-      paint(truncateToWidth(text, Math.max(1, width - 2)), this.theme.dim),
-      1,
-      0,
-    ).render(width);
-  }
-
-  private _renderUsage(width: number): string[] {
-    const agentSession = this.handle?.agentSession;
-    if (!agentSession) return [];
-    return new UsageMeterComponent(agentSession).render(width);
-  }
-
-  private _renderFooter(width: number): string[] {
-    const agentSession = this.handle?.agentSession;
-    if (agentSession && this.footerData) {
-      return new FooterComponent(agentSession, this.footerData).render(width);
-    }
-    return [];
   }
 
   // -------------------------------------------------------------------------
@@ -992,179 +765,57 @@ export class StageChatView implements Component, Focusable {
   // -------------------------------------------------------------------------
 
   handleInput(data: string): boolean {
-    if (this.bodyViewport.handleInput(data)) {
+    if (this.mountedCustomUi) {
+      if (matchesKey(data, "ctrl+d")) {
+        this._rejectMountedCustomUi("stage custom UI detached");
+        if (this._isPaused()) this.onClose();
+        else this.onDetach();
+        return true;
+      }
+      if (matchesKey(data, "ctrl+c")) {
+        this._rejectMountedCustomUi("stage custom UI closed");
+        this.onClose();
+        return true;
+      }
+      setComponentFocused(this.mountedCustomUi.component, this.focused);
+      this.mountedCustomUi.component.handleInput?.(data);
+      this.requestRender?.();
+      return true;
+    }
+    if (this.chatHost.handleScrollInput(data)) {
       return true;
     }
     if (matchesKey(data, "ctrl+d")) {
+      if (this.chatHost.hasInputText()) return this.chatHost.handleInput(data);
       if (this._isPaused()) this.onClose();
       else this.onDetach();
       return true;
     }
     if (matchesKey(data, "escape")) {
-      if (this._canPause()) {
-        void this._pause();
-      } else {
-        this.onClose();
+      if (
+        this._isStreaming() ||
+        this.chatHost.isBashRunning() ||
+        this.chatHost.isEditingBashCommand()
+      ) {
+        return this.chatHost.handleInput(data);
       }
+      this.onClose();
       return true;
     }
     if (matchesKey(data, "ctrl+c")) {
       this.onClose();
       return true;
     }
+    const readOnlyArchive = this._isReadOnlyArchive();
+    if (readOnlyArchive) return true;
     const blocked = this._isBlocked();
     if (matchesKey(data, "ctrl+f")) {
       if (blocked) return true;
-      void this._submit("followUp");
+      void this.chatHost.submit("followUp");
       return true;
     }
-    if (this.editor) {
-      if (blocked) return true;
-      this.editor.handleInput(data);
-      return true;
-    }
-    if (matchesKey(data, "enter")) {
-      if (blocked) return true;
-      void this._submit("auto");
-      return true;
-    }
-    if (matchesKey(data, "backspace")) {
-      if (blocked) return true;
-      this.inputBuffer = this.inputBuffer.slice(0, -1);
-      return true;
-    }
-    if (data.length === 1 && data >= " " && data <= "~") {
-      if (blocked) return true;
-      this.inputBuffer += data;
-      return true;
-    }
-    return false;
-  }
-
-  private _canPause(): boolean {
-    if (!this.handle || this.localPaused || this._isBlocked()) return false;
-    const stage = this._currentStage();
-    if (stage?.status === "paused") return false;
-    return this._isStreaming();
-  }
-
-  private async _pause(): Promise<void> {
-    if (!this.handle) {
-      this.statusMessage = "no live handle on this stage";
-      this.requestRender?.();
-      return;
-    }
-    this.localPaused = true;
-    this.statusMessage = "pausing…";
-    this.requestRender?.();
-    try {
-      await this.handle.pause();
-      this.sdkBusy = false;
-      this.statusMessage = "";
-    } catch (err) {
-      this.statusMessage = `pause failed: ${err instanceof Error ? err.message : String(err)}`;
-      this.localPaused = false;
-    } finally {
-      this._syncAnimationTick();
-      this.requestRender?.();
-    }
-  }
-
-  private async _resume(message?: string): Promise<void> {
-    if (!this.handle) {
-      this.statusMessage = "no live handle on this stage";
-      this.requestRender?.();
-      return;
-    }
-    this.localPaused = true;
-    this.sdkBusy = true;
-    this.statusMessage = "resuming…";
-    this._syncAnimationTick();
-    this.requestRender?.();
-    try {
-      await this.handle.resume(message);
-      this.localPaused = false;
-      this.sdkBusy = false;
-      this.statusMessage = "";
-    } catch (err) {
-      this.sdkBusy = false;
-      this.statusMessage = `resume failed: ${err instanceof Error ? err.message : String(err)}`;
-    } finally {
-      this._syncAnimationTick();
-      this.requestRender?.();
-    }
-  }
-
-  private async _submit(
-    mode: "auto" | "followUp",
-    submittedText?: string,
-  ): Promise<void> {
-    const text = (submittedText ?? this.inputBuffer).trim();
-    if (!text) return;
-    this.inputBuffer = "";
-    this.editor?.setText("");
-    if (!this.handle) {
-      this.statusMessage = "no live handle on this stage";
-      this.transcript.push({
-        role: "system",
-        kind: "system",
-        text: "(no live handle — message dropped)",
-      });
-      this.requestRender?.();
-      return;
-    }
-    const isPaused = this._isPaused();
-    const isStreaming = this._isStreaming();
-    const shouldAppendOptimisticUser = mode === "auto" && !isStreaming;
-    if (shouldAppendOptimisticUser) {
-      this.liveChat.appendUserText(text);
-      this.bodyViewport.scrollToBottom();
-      this.optimisticUserSignatures.add(userMessageSignature(text));
-    }
-    this.requestRender?.();
-    try {
-      if (isPaused) {
-        await this._resume(text);
-        return;
-      }
-      if (mode === "followUp") {
-        await this._queueFollowUp(text);
-        return;
-      }
-      if (isStreaming) {
-        await this._queueSteer(text);
-      } else {
-        this.sdkBusy = true;
-        this._syncAnimationTick();
-        await this.handle.ensureAttached();
-        await this.handle.prompt(text);
-        this.sdkBusy = false;
-        this._syncAnimationTick();
-      }
-    } catch (err) {
-      this.sdkBusy = false;
-      this.statusMessage = err instanceof Error ? err.message : String(err);
-      this._syncAnimationTick();
-      this.requestRender?.();
-    }
-  }
-
-  private async _queueSteer(text: string): Promise<void> {
-    const agentSession = this.handle?.agentSession;
-    if (agentSession?.isStreaming) {
-      await agentSession.prompt(text, { streamingBehavior: "steer" });
-      return;
-    }
-    await this.handle?.steer(text);
-  }
-
-  private async _queueFollowUp(text: string): Promise<void> {
-    const agentSession = this.handle?.agentSession;
-    if (agentSession?.isStreaming) {
-      await agentSession.prompt(text, { streamingBehavior: "followUp" });
-      return;
-    }
-    await this.handle?.followUp(text);
+    if (blocked) return true;
+    return this.chatHost.handleInput(data);
   }
 
   invalidate(): void {
@@ -1176,38 +827,41 @@ export class StageChatView implements Component, Focusable {
     this._unsubscribeStore = null;
     this._unsubscribeHandle?.();
     this._unsubscribeHandle = null;
-    if (this.animationTimer) {
-      clearInterval(this.animationTimer);
-      this.animationTimer = undefined;
-    }
-    if (this.renderThrottleTimer) {
-      clearTimeout(this.renderThrottleTimer);
-      this.renderThrottleTimer = undefined;
-    }
-    this.editor = undefined;
+    this._unregisterStageUiHost?.();
+    this._unregisterStageUiHost = null;
+    this._rejectMountedCustomUi("stage chat view disposed");
+    this.chatHost.dispose();
+  }
+
+  private _rejectMountedCustomUi(message: string): void {
+    const mounted = this.mountedCustomUi;
+    if (!mounted) return;
+    this.mountedCustomUi = null;
+    this.stageUiBroker.reject(mounted.request, new Error(`pi-workflows: ${message}`));
+    mounted.component.dispose?.();
   }
 
   // ---- Test seams ----
   get _inputBuffer(): string {
-    return this.inputBuffer;
+    return this.chatHost.inputText();
   }
   get _transcript(): ReadonlyArray<TranscriptDebugEntry> {
-    return this.transcript.flatMap((entry) => transcriptDebugEntries(entry));
+    return this.chatHost.entries().flatMap((entry) => transcriptDebugEntries(entry));
   }
   get _statusMessage(): string {
-    return this.statusMessage;
+    return this.chatHost.statusText();
   }
   get _isLocalPaused(): boolean {
     return this.localPaused;
   }
   get _hasAnimationTick(): boolean {
-    return this.animationTimer !== undefined;
+    return this.chatHost.hasAnimationTick();
   }
   get _bodyScrollFromBottom(): number {
-    return this.bodyViewport.getScrollFromBottom();
+    return this.chatHost.bodyScrollFromBottom();
   }
   get _lastBodyMaxScroll(): number {
-    return this.bodyViewport.getMaxScroll();
+    return this.chatHost.bodyMaxScroll();
   }
 }
 
@@ -1302,172 +956,17 @@ function transcriptDebugToolOutput(entry: TranscriptEntry): string {
   return "";
 }
 
-function setEditorPlaceholder(
-  editor: EditorComponent,
-  placeholder: string | undefined,
-): void {
-  const candidate = editor as EditorComponent & {
-    setPlaceholder?: (value: string | undefined) => void;
-  };
-  candidate.setPlaceholder?.(placeholder);
-}
-
 function cursorBlock(): string {
   return "\x1b[7m \x1b[0m";
 }
 
-function setEditorBorderColor(editor: EditorComponent, hex: string): void {
-  const candidate = editor as EditorComponent & {
-    borderColor?: (text: string) => string;
-  };
-  if (candidate.borderColor !== undefined) {
-    candidate.borderColor = (text: string) => hexToAnsi(hex) + text + RESET;
-  }
-}
-
-function setEditorFocused(editor: EditorComponent, focused: boolean): void {
-  const candidate = editor as EditorComponent & Partial<Focusable>;
+function setComponentFocused(component: Component, focused: boolean): void {
+  const candidate = component as Component & Partial<Focusable>;
   if ("focused" in candidate) candidate.focused = focused;
-}
-
-function isSharedLiveChatEvent(type: string): boolean {
-  return (
-    type === "message_start" ||
-    type === "message_update" ||
-    type === "message_end" ||
-    type === "tool_execution_start" ||
-    type === "tool_execution_update" ||
-    type === "tool_execution_end"
-  );
 }
 
 function isChatMessageEntry(entry: TranscriptEntry): entry is ChatMessageEntry {
   return "kind" in entry && entry.role !== "notice";
-}
-
-function isMessageLike(message: unknown): message is { role?: unknown; content?: unknown } {
-  return message !== null && typeof message === "object" && "role" in message;
-}
-
-function isUserMessageLike(
-  message: unknown,
-): message is { role: "user"; content?: unknown } {
-  return isMessageLike(message) && message.role === "user";
-}
-
-function userMessageSignature(text: string): string {
-  return text.trim();
-}
-
-function assistantToolCallEvent(event: AgentSessionEvent): {
-  type: "tool_execution_start";
-  toolCallId: string;
-  toolName: string;
-  args: unknown;
-} | undefined {
-  const assistantEvent = (event as {
-    assistantMessageEvent?: {
-      type?: unknown;
-      contentIndex?: unknown;
-      partial?: unknown;
-      toolCall?: unknown;
-    };
-  }).assistantMessageEvent;
-  const streamType = String(assistantEvent?.type ?? "");
-  if (!streamType.startsWith("toolcall_")) return undefined;
-
-  const explicit = toolCallPayload(assistantEvent?.toolCall);
-  if (explicit) return explicit;
-
-  const contentIndex = typeof assistantEvent?.contentIndex === "number" ? assistantEvent.contentIndex : undefined;
-  if (contentIndex === undefined) return undefined;
-  const partial = assistantEvent?.partial;
-  if (!isMessageLike(partial) || partial.role !== "assistant") return undefined;
-  const content = partial.content;
-  if (!Array.isArray(content)) return undefined;
-  return toolCallPayload(content[contentIndex]);
-}
-
-function toolCallPayload(value: unknown): {
-  type: "tool_execution_start";
-  toolCallId: string;
-  toolName: string;
-  args: unknown;
-} | undefined {
-  if (value === null || typeof value !== "object") return undefined;
-  const candidate = value as { type?: unknown; id?: unknown; name?: unknown; arguments?: unknown };
-  if (candidate.type !== "toolCall") return undefined;
-  if (typeof candidate.id !== "string" || typeof candidate.name !== "string") return undefined;
-  return {
-    type: "tool_execution_start",
-    toolCallId: candidate.id,
-    toolName: candidate.name,
-    args: candidate.arguments ?? {},
-  };
-}
-
-function legacyToolStartEvent(event: AgentSessionEvent): {
-  type: "tool_execution_start";
-  toolCallId: string;
-  toolName: string;
-  args: unknown;
-} {
-  const payload = event as { toolCallId?: unknown; name?: unknown; input?: unknown; args?: unknown };
-  const toolName = typeof payload.name === "string" ? payload.name : "tool";
-  const toolCallId =
-    typeof payload.toolCallId === "string" ? payload.toolCallId : `live-${toolName}`;
-  return {
-    type: "tool_execution_start",
-    toolCallId,
-    toolName,
-    args: payload.input ?? payload.args ?? {},
-  };
-}
-
-function legacyToolResultEvent(event: AgentSessionEvent): {
-  type: "tool_execution_end";
-  toolCallId: string;
-  toolName: string;
-  result: unknown;
-  isError: boolean;
-} {
-  const payload = event as {
-    toolCallId?: unknown;
-    name?: unknown;
-    output?: unknown;
-    isError?: unknown;
-  };
-  const toolName = typeof payload.name === "string" ? payload.name : "tool";
-  const toolCallId =
-    typeof payload.toolCallId === "string" ? payload.toolCallId : `live-${toolName}`;
-  const output = payload.output;
-  return {
-    type: "tool_execution_end",
-    toolCallId,
-    toolName,
-    result:
-      output !== null && typeof output === "object" && "content" in output
-        ? output
-        : { content: typeof output === "string" ? [{ type: "text", text: output }] : [] },
-    isError: payload.isError === true,
-  };
-}
-
-function legacyThinkingEvent(event: AgentSessionEvent): {
-  type: "message_update";
-  assistantMessageEvent: { type: "thinking_delta"; delta: string };
-  message: { role: "assistant"; content: [] };
-} {
-  const delta = String(
-    (event as { delta?: unknown }).delta ??
-      (event as { text?: unknown }).text ??
-      "",
-  );
-  return {
-    type: "message_update",
-    assistantMessageEvent: { type: "thinking_delta", delta },
-    message: { role: "assistant", content: [] },
-  };
 }
 
 function extractThinkingText(content: unknown): string {
@@ -1515,46 +1014,8 @@ function noticeSummary(n: StageNotice): string {
   return n.from ? `${base} (was ${n.from})` : base;
 }
 
-function tailStreamingText(text: string): string {
-  if (
-    text.length <= STREAMING_TEXT_TAIL_CHARS &&
-    text.split("\n").length <= STREAMING_TEXT_TAIL_LINES
-  ) {
-    return text;
-  }
-  const byChars = text.slice(-STREAMING_TEXT_TAIL_CHARS);
-  const lines = byChars.split("\n");
-  const tail =
-    lines.length > STREAMING_TEXT_TAIL_LINES
-      ? lines.slice(-STREAMING_TEXT_TAIL_LINES).join("\n")
-      : byChars;
-  return `[earlier streaming output hidden while attached]\n\n${tail.trimStart()}`;
-}
-
-function stageDurationText(stage: StageSnapshot | undefined): string {
-  if (!stage) return "";
-  const elapsed = elapsedStageMs(stage);
-  return elapsed === undefined ? "" : formatDuration(elapsed);
-}
-
-function formatDuration(ms: number): string {
-  const s = Math.floor(Math.max(0, ms) / 1000);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  const rs = s % 60;
-  if (m < 60) return rs ? `${m}m ${rs}s` : `${m}m`;
-  const h = Math.floor(m / 60);
-  const rm = m % 60;
-  return rm ? `${h}h ${rm}m` : `${h}h`;
-}
-
 function shortenId(id: string): string {
   return id.length > 10 ? id.slice(0, 8) : id;
-}
-
-function spinnerFrame(): string {
-  const idx = Math.floor(Date.now() / 80) % SPINNER_FRAMES.length;
-  return SPINNER_FRAMES[idx]!;
 }
 
 function bgFn(hex: string): (text: string) => string {

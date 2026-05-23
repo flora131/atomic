@@ -474,12 +474,14 @@ test("renderInputsPicker footer degrades gracefully on narrow terminals", () => 
 
 // ── renderInputsSchema ────────────────────────────────────────────────────
 
-test("renderInputsSchema (plain) preserves legacy text format", () => {
+test("renderInputsSchema (plain) emits rounded panel and field rows", () => {
   const out = renderInputsSchema("demo", FIELDS);
-  assert.match(out, /^Inputs for "demo":/);
-  assert.match(out, /prompt: text \(required\) — task to do/);
-  assert.match(out, /iters: number \[default: 5\]/);
-  assert.match(out, /focus: select \(required\) \[default: "standard"\] \{choices: minimal, standard, exhaustive\}/);
+  assert.match(out, /╭ INPUTS FOR demo /);
+  assert.match(out, /prompt  text  ·  required/);
+  assert.match(out, /task to do/);
+  assert.match(out, /iters  number  ·  optional/);
+  assert.match(out, /default: 5/);
+  assert.match(out, /values: minimal  ·  standard  ·  exhaustive/);
 });
 
 test("renderInputsSchema (pretty) emits themed header and field blocks", () => {
@@ -500,9 +502,10 @@ test("renderInputsSchema (pretty) emits themed header and field blocks", () => {
   assert.match(out, /pass via key=value or run/);
 });
 
-test("renderInputsSchema returns short string for zero-input workflows", () => {
+test("renderInputsSchema returns rounded zero-input panel", () => {
   const out = renderInputsSchema("nullary", []);
-  assert.equal(out, 'Workflow "nullary" has no declared inputs.');
+  assert.match(out, /╭ INPUTS FOR nullary /);
+  assert.match(out, /Workflow has no declared inputs\./);
 });
 
 // ── injected keybindings: word / line / char editing (picker overlay) ──────

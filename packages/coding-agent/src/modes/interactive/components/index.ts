@@ -11,6 +11,14 @@ export {
   type ChatMessageRenderOptions,
 } from "./chat-message-renderer.ts";
 export {
+  ChatSessionHost,
+  type ChatSessionHostBashRequest,
+  type ChatSessionHostCommands,
+  type ChatSessionHostEntry,
+  type ChatSessionHostOpts,
+  type ChatSessionHostStyle,
+} from "./chat-session-host.ts";
+export {
   addChatTranscriptEntry,
   ChatTranscriptComponent,
   ScrollableChatTranscriptComponent,

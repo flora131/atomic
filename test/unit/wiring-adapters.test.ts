@@ -10,9 +10,12 @@ import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { buildRuntimeAdapters, prepareAtomicStageSessionOptions } from "../../packages/workflows/src/extension/wiring.js";
+import { StageUiBroker } from "../../packages/workflows/src/shared/stage-ui-broker.js";
+import { createStore } from "../../packages/workflows/src/shared/store.js";
 import type { CreateAgentSessionOptions } from "@bastani/atomic";
 import type { PiCodingAgentSdk, PiSdkResourceLoader, PiSdkSettingsManager } from "../../packages/workflows/src/extension/wiring.js";
 import type { StageSessionRuntime } from "../../packages/workflows/src/runs/foreground/stage-runner.js";
+import type { StageExecutionMeta } from "../../packages/workflows/src/shared/types.js";
 
 function fakeSession(): StageSessionRuntime {
   let last = "";
@@ -111,7 +114,7 @@ describe("prepareAtomicStageSessionOptions", () => {
     assert.equal(loaderOptions[0]?.agentDir, customAgentDir);
   });
 
-  test("loads Atomic builtin package extensions for workflow stage sessions", async () => {
+  test("loads non-workflow Atomic builtin package extensions for workflow stage sessions", async () => {
     const projectDir = join("/tmp", "project");
     const atomicAgentDir = join("/home", "user", ".atomic", "agent");
     const builtinPackagePaths = [
@@ -125,7 +128,12 @@ describe("prepareAtomicStageSessionOptions", () => {
 
     await prepareAtomicStageSessionOptions({ cwd: projectDir }, sdk);
 
-    assert.deepEqual(loaderOptions[0]?.builtinPackagePaths, builtinPackagePaths);
+    assert.deepEqual(loaderOptions[0]?.builtinPackagePaths, [
+      "/repo/packages/subagents",
+      "/repo/packages/mcp",
+      "/repo/packages/web-access",
+      "/repo/packages/intercom",
+    ]);
   });
 });
 
@@ -228,6 +236,130 @@ describe("buildRuntimeAdapters — SDK AgentSession adapter", () => {
     await adapters.agentSession!.create({ cwd: "/tmp/project", mcp: { allow: ["github"] } });
     assert.equal(Object.prototype.hasOwnProperty.call(calls[0], "mcp"), false);
     assert.equal(calls[0]?.cwd, "/tmp/project");
+  });
+
+  test("binds a broker-backed UI context even when the parent pi surface has no ui", async () => {
+    const store = createStore();
+    store.recordRunStart({
+      id: "run-1",
+      name: "wf",
+      inputs: {},
+      status: "running",
+      stages: [],
+      startedAt: Date.now(),
+    });
+    store.recordStageStart("run-1", {
+      id: "stage-1",
+      name: "ask",
+      status: "running",
+      parentIds: [],
+      toolEvents: [],
+    });
+    const broker = new StageUiBroker(store);
+    let capturedUi:
+      | { custom<T>(factory: Parameters<StageUiBroker["requestCustomUi"]>[2]): Promise<T> }
+      | undefined;
+    const session = {
+      ...fakeSession(),
+      async bindExtensions(bindings: { uiContext?: typeof capturedUi }) {
+        capturedUi = bindings.uiContext;
+      },
+    } satisfies StageSessionRuntime & {
+      bindExtensions(bindings: { uiContext?: typeof capturedUi }): Promise<void>;
+    };
+    const adapters = buildRuntimeAdapters({}, {
+      stageUiBroker: broker,
+      createAgentSession: async () => ({ session }),
+    });
+    const meta: StageExecutionMeta = {
+      runId: "run-1",
+      stageId: "stage-1",
+      stageName: "ask",
+    };
+
+    await adapters.agentSession!.create({}, meta);
+    assert.ok(capturedUi, "stage sessions need a non-noop UI context so ask_user_question does not return no_ui");
+    const pending = capturedUi.custom<string>(() => ({
+      render: () => ["question"],
+      invalidate: () => {},
+    }));
+    assert.equal(store.runs()[0]?.stages[0]?.status, "awaiting_input");
+
+    const unregister = broker.registerHost("run-1", "stage-1", {
+      showCustomUi(request) {
+        broker.resolve(request, "answered");
+      },
+    });
+    assert.equal(await pending, "answered");
+    unregister();
+  });
+
+  test("binds stage custom UI to the stage UI broker instead of parent overlays", async () => {
+    const store = createStore();
+    store.recordRunStart({
+      id: "run-1",
+      name: "wf",
+      inputs: {},
+      status: "running",
+      stages: [],
+      startedAt: Date.now(),
+    });
+    store.recordStageStart("run-1", {
+      id: "stage-1",
+      name: "ask",
+      status: "running",
+      parentIds: [],
+      toolEvents: [],
+    });
+    const broker = new StageUiBroker(store);
+    let capturedUi:
+      | { custom<T>(factory: Parameters<StageUiBroker["requestCustomUi"]>[2]): Promise<T> }
+      | undefined;
+    const session = {
+      ...fakeSession(),
+      async bindExtensions(bindings: { uiContext?: typeof capturedUi }) {
+        capturedUi = bindings.uiContext;
+      },
+    } satisfies StageSessionRuntime & {
+      bindExtensions(bindings: { uiContext?: typeof capturedUi }): Promise<void>;
+    };
+    let parentOverlayCalls = 0;
+    const adapters = buildRuntimeAdapters(
+      {
+        ui: {
+          theme: {},
+          custom() {
+            parentOverlayCalls += 1;
+          },
+        },
+      },
+      {
+        stageUiBroker: broker,
+        createAgentSession: async () => ({ session }),
+      },
+    );
+    const meta: StageExecutionMeta = {
+      runId: "run-1",
+      stageId: "stage-1",
+      stageName: "ask",
+    };
+
+    await adapters.agentSession!.create({}, meta);
+    assert.ok(capturedUi);
+    const pending = capturedUi.custom<string>(() => ({
+      render: () => ["question"],
+      invalidate: () => {},
+    }));
+    assert.equal(store.runs()[0]?.stages[0]?.status, "awaiting_input");
+
+    const unregister = broker.registerHost("run-1", "stage-1", {
+      showCustomUi(request) {
+        broker.resolve(request, "answered");
+      },
+    });
+    assert.equal(await pending, "answered");
+    assert.equal(parentOverlayCalls, 0);
+    unregister();
   });
 });
 

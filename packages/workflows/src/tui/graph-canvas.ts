@@ -30,16 +30,12 @@ function dirsForGlyph(ch: string): Set<Dir> {
     case "─":
       return new Set(["l", "r"]);
     case "╭":
-    case "┌":
       return new Set(["d", "r"]);
     case "╮":
-    case "┐":
       return new Set(["d", "l"]);
     case "╰":
-    case "└":
       return new Set(["u", "r"]);
     case "╯":
-    case "┘":
       return new Set(["u", "l"]);
     case "├":
       return new Set(["u", "d", "r"]);
@@ -65,10 +61,10 @@ function glyphForDirs(dirs: Set<Dir>): string {
   if (has("u", "l", "r")) return "┴";
   if (has("u", "d")) return "│";
   if (has("l", "r")) return "─";
-  if (has("d", "r")) return "┌";
-  if (has("d", "l")) return "┐";
-  if (has("u", "r")) return "└";
-  if (has("u", "l")) return "┘";
+  if (has("d", "r")) return "╭";
+  if (has("d", "l")) return "╮";
+  if (has("u", "r")) return "╰";
+  if (has("u", "l")) return "╯";
   if (has("u") || has("d")) return "│";
   if (has("l") || has("r")) return "─";
   return " ";

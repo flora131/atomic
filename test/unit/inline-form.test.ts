@@ -385,7 +385,7 @@ test("editor: survives the host's resize-handler call sequence at many widths", 
     // statusLine.getTopBorder is host-owned and not exercised here; we pass
     // a faithful shape ({ content, width }) so setTopBorder sees realistic
     // input — the host always passes the same shape.
-    e.editor.setTopBorder!({ content: "▎ session-name", width: w });
+    e.editor.setTopBorder!({ content: "  session-name", width: w });
     // Render must still produce zero rows (the inline-form-card owns chrome).
     assert.deepEqual(e.editor.render(columns), []);
     return w;

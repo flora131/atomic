@@ -48,16 +48,15 @@ describe("renderFlatBand", () => {
     assert.match(out, /\x1b\[/);
   });
 
-  test("plain: no ANSI, leading ▎ marker, same content", () => {
+  test("plain: no ANSI, indented marker-free band, same content", () => {
     const out = renderFlatBand({
       label: "WORKFLOWS",
       subtitle: "3 registered",
       width: 80,
     });
     assert.doesNotMatch(out, /\x1b\[/);
-    // 1-cell leading space before the ▎ marker so the band aligns with
-    // the card stripe `▎` and hint `▸` at column 2.
-    assert.match(out, /^ ▎ \[ WORKFLOWS \]/);
+    // Indentation keeps the band aligned with card content and hint `▸`.
+    assert.match(out, /^   \[ WORKFLOWS \]/);
     assert.match(out, /3 registered/);
     assert.equal(out.includes("\n"), false);
   });
@@ -98,7 +97,7 @@ describe("renderTaggedCard", () => {
     const lines = out.split("\n");
     assert.equal(lines.length, 2, "row 1 + body row 1");
     const plain = lines.map(stripAnsi);
-    assert.match(plain[0]!, /▎/);
+    assert.doesNotMatch(plain[0]!, /\u258e/);
     assert.match(plain[0]!, /abc123/);
     assert.match(plain[0]!, /ship-feature/);
     assert.match(plain[0]!, /running/);
@@ -211,7 +210,7 @@ describe("renderHintRows", () => {
       { command: "/workflow status", hint: "drill into a run" },
     ]);
     // Single-cell leading space so the `▸` arrow column-aligns with the
-    // band's `[ LABEL ]` and the card's `▎` stripe — see renderHintRows.
+    // band's `[ LABEL ]` and the card content — see renderHintRows.
     assert.equal(out, " ▸ /workflow status  drill into a run");
     assert.doesNotMatch(out, /\x1b\[/);
   });

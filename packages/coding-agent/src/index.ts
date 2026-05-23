@@ -24,6 +24,7 @@ export {
 	setEnvValue,
 	VERSION,
 } from "./config.ts";
+export { type BashResult, executeBashWithOperations } from "./core/bash-executor.ts";
 export {
 	AgentSession,
 	type AgentSessionConfig,
@@ -327,6 +328,12 @@ export {
 	BashExecutionComponent,
 	BorderedLoader,
 	chatEntriesFromAgentMessages,
+	ChatSessionHost,
+	type ChatSessionHostBashRequest,
+	type ChatSessionHostCommands,
+	type ChatSessionHostEntry,
+	type ChatSessionHostOpts,
+	type ChatSessionHostStyle,
 	ChatTranscriptComponent,
 	LiveChatEntriesController,
 	renderChatMessageEntry,

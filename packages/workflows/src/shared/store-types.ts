@@ -69,6 +69,8 @@ export interface StageSnapshot {
   readonly toolEvents: ToolEvent[];
   /** True while an in-stage ask_user_question tool is waiting on the user. */
   awaitingInputSince?: number;
+  /** Pending human-in-the-loop prompt owned by this workflow stage/node. */
+  pendingPrompt?: PendingPrompt;
   blockedByStageId?: string;
   notices?: StageNotice[];
   /**

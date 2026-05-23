@@ -21,6 +21,8 @@ import type { PendingPrompt } from "../../packages/workflows/src/shared/store-ty
 import { visibleWidth } from "../../packages/workflows/src/tui/text-helpers.ts";
 
 const theme = deriveGraphTheme({});
+const ANSI_RE = /\x1b\[[0-9;]*m/g;
+const stripAnsi = (s: string): string => s.replace(ANSI_RE, "");
 
 function makePrompt(overrides: Partial<PendingPrompt> = {}): PendingPrompt {
   return {
@@ -194,5 +196,15 @@ describe("renderPromptCard", () => {
     const lines = renderPromptCard({ state, theme, width: 60, cursorOn: false });
     const joined = lines.join("\n");
     assert.ok(joined.includes("UNIQUE-MARKER-XYZ"), "message text must appear in output");
+  });
+
+  test("response field uses rounded border chrome", () => {
+    const state = createPromptCardState(makePrompt({ kind: "input" }));
+    const lines = renderPromptCard({ state, theme, width: 60, cursorOn: false });
+    const plain = lines.map(stripAnsi).join("\n");
+
+    assert.match(plain, /╭ response ─+╮/);
+    assert.match(plain, /╰─+╯/);
+    assert.doesNotMatch(plain, /[\u250c\u2510\u2514\u2518]/);
   });
 });

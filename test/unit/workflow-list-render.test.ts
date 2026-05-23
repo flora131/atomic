@@ -2,9 +2,9 @@
  * Unit tests for the workflow catalogue renderer
  * (`src/tui/workflow-list.ts`).
  *
- * Visual contract from ui/mockups.html §3:
- *   - One full-width `[ WORKFLOWS ]` band (mauve accent).
- *   - One card per workflow: tag (name) + description row + inputs row.
+ * Visual contract:
+ *   - One rounded `WORKFLOWS` panel.
+ *   - One rounded card per workflow: name title + description row + inputs row.
  *   - Optional inputs carry a trailing `?` marker.
  *   - Long lists collapse the tail to `+N more`.
  *   - Hint rows for `/workflow <name> …` and `/workflow inputs <name>`.
@@ -22,10 +22,10 @@ const ANSI_RE = /\x1b\[[0-9;]*m/g;
 const stripAnsi = (s: string) => s.replace(ANSI_RE, "");
 
 describe("renderWorkflowList — empty", () => {
-  test("themed: emits the band header + empty-state copy when no workflows", () => {
+  test("themed: emits the rounded panel header + empty-state copy when no workflows", () => {
     const out = renderWorkflowList([], { theme: deriveGraphTheme({}), width: 100 });
     const plain = stripAnsi(out);
-    assert.match(plain, /\[ WORKFLOWS \]/);
+    assert.match(plain, /╭ WORKFLOWS  0 registered /);
     assert.match(plain, /0 registered/);
     assert.match(plain, /no workflows registered/);
   });
@@ -33,7 +33,8 @@ describe("renderWorkflowList — empty", () => {
   test("plain: same shape without ANSI escapes", () => {
     const out = renderWorkflowList([], { width: 100 });
     assert.doesNotMatch(out, /\x1b\[/);
-    assert.match(out, /^ ▎ \[ WORKFLOWS \]/);
+    assert.match(out, /^╭ WORKFLOWS  0 registered /);
+    assert.doesNotMatch(out, /\u258e/);
     assert.match(out, /0 registered/);
   });
 });
@@ -68,7 +69,7 @@ describe("renderWorkflowList — populated", () => {
     );
     const plain = stripAnsi(out);
 
-    assert.match(plain, /\[ WORKFLOWS \]/);
+    assert.match(plain, /╭ WORKFLOWS  3 registered /);
     assert.match(plain, /3 registered/);
 
     // Tag + description per workflow.
@@ -128,8 +129,9 @@ describe("renderWorkflowList — populated", () => {
       { width: 80 },
     );
     assert.doesNotMatch(out, /\x1b\[/);
-    assert.match(out, /^ ▎ \[ WORKFLOWS \]/);
-    assert.match(out, /│\s+\[wf\]/);
+    assert.match(out, /^╭ WORKFLOWS  1 registered /);
+    assert.doesNotMatch(out, /\u258e/);
+    assert.match(out, /│ wf\s+│/);
     assert.match(out, /desc\./);
     assert.match(out, /inputs\s+p/);
   });

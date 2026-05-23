@@ -3,7 +3,7 @@
  * (`src/tui/dispatch-confirm.ts`).
  *
  * Visual contract — ui/dispatch-mockup.html §1 (compact two-row shape):
- *  - One tagged card: stripe + 8-char runId tag + bold workflow name +
+ *  - One rounded dispatched panel: rounded run card with 8-char runId + workflow name +
  *    inline inputs (`k=v · k=v · +N more`) + right-aligned `● running`
  *    badge.
  *  - Inputs wrap to a second body row only when row 1's interior cannot
@@ -28,7 +28,7 @@ const ANSI_RE = /\x1b\[[0-9;]*m/g;
 const stripAnsi = (s: string) => s.replace(ANSI_RE, "");
 
 describe("renderDispatchConfirm — themed", () => {
-  test("emits one tagged card (runId + workflow + inputs + ● running) and one connect hint", () => {
+  test("emits rounded dispatched panel with run card and connect hint", () => {
     const out = renderDispatchConfirm({
       workflowName: "deep-research-codebase",
       runId: "0391c9c1-aaaa-bbbb-cccc-dddddddddddd",
@@ -59,14 +59,14 @@ describe("renderDispatchConfirm — themed", () => {
     assert.doesNotMatch(plain, /\bstarting…/);
     assert.doesNotMatch(plain, /▸ \/workflow status/);
 
-    // Total visual rows: 1 card row + 1 hint row = 2 newline-separated lines.
-    assert.equal(out.split("\n").length, 2, `expected 2 lines, got:\n${plain}`);
+    assert.match(plain, /^╭ DISPATCHED /);
+    assert.match(plain, /●  0391c9c1  deep-research-codebase  ● running/);
 
     // Themed mode emits ANSI escapes.
     assert.match(out, /\x1b\[/);
   });
 
-  test("wide terminal → inputs ride row 1 as the title suffix (single card line)", () => {
+  test("wide terminal → inputs render inside the rounded run card", () => {
     const out = renderDispatchConfirm({
       workflowName: "deep-research-codebase",
       runId: "be3181c1-aaaa-bbbb-cccc-dddddddddddd",
@@ -75,17 +75,16 @@ describe("renderDispatchConfirm — themed", () => {
       width: 160,
     });
     const lines = stripAnsi(out).split("\n");
-    // Card row carries identity + inputs + status; hint row follows.
-    assert.equal(lines.length, 2);
-    assert.match(lines[0]!, /be3181c1/);
-    assert.match(lines[0]!, /deep-research-codebase/);
-    assert.match(lines[0]!, /prompt="explore the codebase"/);
-    assert.match(lines[0]!, /max_partitions=4/);
-    assert.match(lines[0]!, /● running$/);
-    assert.match(lines[1]!, /▸ \/workflow connect be3181c1/);
+    assert.match(lines[0]!, /DISPATCHED/);
+    assert.match(lines[1]!, /be3181c1/);
+    assert.match(lines[1]!, /deep-research-codebase/);
+    assert.match(lines[2]!, /prompt="explore the codebase"/);
+    assert.match(lines[2]!, /max_partitions=4/);
+    assert.match(lines.join("\n"), /● running/);
+    assert.match(lines.join("\n"), /▸ \/workflow connect be3181c1/);
   });
 
-  test("narrow terminal → inputs wrap to a body row, card grows to 2 rows", () => {
+  test("narrow terminal → rounded card remains width-safe", () => {
     const out = renderDispatchConfirm({
       workflowName: "deep-research-codebase",
       runId: "be3181c1-aaaa-bbbb-cccc-dddddddddddd",
@@ -94,14 +93,10 @@ describe("renderDispatchConfirm — themed", () => {
       width: 60,
     });
     const lines = stripAnsi(out).split("\n");
-    // 1 stripe row (identity + badge) + 1 body row (inputs) + 1 hint row.
-    assert.equal(lines.length, 3, `expected 3 lines, got:\n${stripAnsi(out)}`);
-    assert.match(lines[0]!, /be3181c1/);
-    assert.match(lines[0]!, /● running/);
-    // Body row carries inputs; identity does not repeat on row 2.
-    assert.match(lines[1]!, /prompt=/);
-    assert.doesNotMatch(lines[1]!, /be3181c1/);
-    assert.match(lines[2]!, /▸ \/workflow connect be3181c1/);
+    assert.match(lines.join("\n"), /be3181c1/);
+    assert.match(lines.join("\n"), /● running/);
+    assert.match(lines.join("\n"), /prompt=/);
+    assert.match(lines.join("\n"), /▸ \/workflow connect be3181c1/);
   });
 
   test("zero inputs renders a single identity row + hint, with no body row", () => {
@@ -112,12 +107,11 @@ describe("renderDispatchConfirm — themed", () => {
       theme: deriveGraphTheme({}),
       width: 100,
     });
-    const lines = stripAnsi(out).split("\n");
-    assert.equal(lines.length, 2);
-    assert.match(lines[0]!, /5b91ee54/);
-    assert.match(lines[0]!, /primer/);
-    assert.match(lines[0]!, /● running/);
-    assert.match(lines[1]!, /▸ \/workflow connect 5b91ee54/);
+    const plain = stripAnsi(out);
+    assert.match(plain, /5b91ee54/);
+    assert.match(plain, /primer/);
+    assert.match(plain, /● running/);
+    assert.match(plain, /▸ \/workflow connect 5b91ee54/);
     // No legacy `(none)` placeholder.
     assert.doesNotMatch(stripAnsi(out), /\(none\)/);
   });
@@ -158,7 +152,7 @@ describe("renderDispatchConfirm — themed", () => {
 });
 
 describe("renderDispatchConfirm — plain", () => {
-  test("preserves the compact shape without ANSI escapes", () => {
+  test("preserves the rounded shape without ANSI escapes", () => {
     const out = renderDispatchConfirm({
       workflowName: "ralph",
       runId: "abc12345-aaaa-bbbb-cccc-dddddddddddd",
@@ -167,8 +161,8 @@ describe("renderDispatchConfirm — plain", () => {
     });
     assert.doesNotMatch(out, /\x1b\[/);
 
-    // Plain stripe + tag + bold-degraded workflow name + status badge.
-    assert.match(out, /│\s+\[abc12345\]\s+ralph/);
+    // Plain identity row carries run id, workflow name, and status.
+    assert.match(out, /●  abc12345  ralph  ● running/);
     assert.match(out, /● running/);
 
     // Inputs present (inline on wide terminal).
@@ -192,10 +186,8 @@ describe("renderDispatchConfirm — plain", () => {
       inputs: {},
       width: 100,
     });
-    const lines = out.split("\n");
-    assert.equal(lines.length, 2);
-    assert.match(lines[0]!, /│\s+\[5b91ee54\]\s+primer/);
-    assert.match(lines[0]!, /● running/);
-    assert.match(lines[1]!, /▸ \/workflow connect 5b91ee54/);
+    assert.match(out, /●  5b91ee54  primer  ● running/);
+    assert.match(out, /● running/);
+    assert.match(out, /▸ \/workflow connect 5b91ee54/);
   });
 });

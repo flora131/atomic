@@ -67,6 +67,9 @@ function makeStore(snap: StoreSnapshot): Store {
     recordPendingPrompt: () => false,
     resolvePendingPrompt: () => false,
     awaitPendingPrompt: () => Promise.reject(new Error("test stub")),
+    recordStagePendingPrompt: () => false,
+    resolveStagePendingPrompt: () => false,
+    awaitStagePendingPrompt: () => Promise.reject(new Error("test stub")),
     recordStageSession: () => false,
     recordStageAttachable: () => false,
     recordStageAttached: () => false,
@@ -565,6 +568,20 @@ describe("GraphView keyboard navigation", () => {
     assert.doesNotMatch(text, /╯╰/);
     assert.match(text, /╮ {4,}╭/);
     view.dispose();
+  });
+
+  it("renders switcher with rounded-only panel border chrome", () => {
+    const stages = [makeStage("root"), makeStage("worker", ["root"])];
+    const text = visibleText(
+      renderSwitcher(stages, { query: "", selectedIndex: 0 }, {
+        width: 48,
+        theme: defaultTheme,
+      }),
+    );
+
+    assert.match(text, /╭─+╮/);
+    assert.match(text, /╰─+╯/);
+    assert.doesNotMatch(text, /[\u251c\u2524\u250c\u2510\u2514\u2518+]/);
   });
 
   it("renders switcher rows to the configured width across selection and empty states", () => {

@@ -76,7 +76,7 @@ function renderPlain(name: string, inputs: WorkflowInputEntry[], width?: number)
   const body: string[] = [];
 
   if (inputs.length === 0) {
-    body.push(" Workflow has no declared inputs. ");
+    body.push(` Workflow has no declared inputs. Workflow: "${name}". `);
   } else {
     for (let i = 0; i < inputs.length; i++) {
       if (i > 0) body.push("");
@@ -112,7 +112,7 @@ function renderPretty(
   const body: string[] = [];
 
   if (inputs.length === 0) {
-    body.push(` ${paint("Workflow has no declared inputs.", theme.dim)} `);
+    body.push(` ${paint(`Workflow has no declared inputs. Workflow: "${name}".`, theme.dim)} `);
   } else {
     for (let i = 0; i < inputs.length; i++) {
       if (i > 0) body.push("");

@@ -218,55 +218,60 @@ export class StageChatView implements Component, Focusable {
       style: this._chatHostStyle(),
       commands: {
         ensureAttached: async () => {
-          await this.handle?.ensureAttached();
+          await this._liveHandle()?.ensureAttached();
         },
         prompt: async (text) => {
-          if (!this.handle) throw new Error("no live handle on this stage");
-          await this.handle.prompt(text);
+          const handle = this._liveHandle();
+          if (!handle) throw new Error("no live handle on this stage");
+          await handle.prompt(text);
         },
         steer: async (text) => {
-          if (!this.handle) throw new Error("no live handle on this stage");
-          await this.handle.steer(text);
+          const handle = this._liveHandle();
+          if (!handle) throw new Error("no live handle on this stage");
+          await handle.steer(text);
         },
         followUp: async (text) => {
-          if (!this.handle) throw new Error("no live handle on this stage");
-          await this.handle.followUp(text);
+          const handle = this._liveHandle();
+          if (!handle) throw new Error("no live handle on this stage");
+          await handle.followUp(text);
         },
         interrupt: async () => {
-          await this.handle?.agentSession?.abort();
+          await this._liveHandle()?.agentSession?.abort();
         },
         resume: async (message) => {
-          if (!this.handle) throw new Error("no live handle on this stage");
+          const handle = this._liveHandle();
+          if (!handle) throw new Error("no live handle on this stage");
           this.localPaused = true;
           try {
-            await this.handle.resume(message);
+            await handle.resume(message);
           } finally {
             this.localPaused = false;
           }
         },
         runBash: async (request) => {
-          if (!this.handle) throw new Error("no live handle on this stage");
-          await this.handle.ensureAttached();
-          const agentSession = this.handle.agentSession;
+          const handle = this._liveHandle();
+          if (!handle) throw new Error("no live handle on this stage");
+          await handle.ensureAttached();
+          const agentSession = handle.agentSession;
           if (!agentSession) throw new Error("no live agent session on this stage");
           return agentSession.executeBash(request.command, request.onChunk, {
             excludeFromContext: request.excludeFromContext,
           });
         },
         abortBash: async () => {
-          this.handle?.agentSession?.abortBash();
+          this._liveHandle()?.agentSession?.abortBash();
         },
         abortCompaction: async () => {
-          this.handle?.agentSession?.abortCompaction();
+          this._liveHandle()?.agentSession?.abortCompaction();
         },
         handleSlashCommand: async (text) => this._handleSlashCommand(text),
       },
-      isBashRunning: () => this.handle?.agentSession?.isBashRunning === true,
+      isBashRunning: () => this._liveHandle()?.agentSession?.isBashRunning === true,
       requestRender: opts.requestRender,
-      getAgentSession: () => this.handle?.agentSession,
-      isStreaming: () => this.handle?.isStreaming === true,
+      getAgentSession: () => this._liveHandle()?.agentSession,
+      isStreaming: () => this._liveHandle()?.isStreaming === true,
       isPaused: () => this._isPaused(),
-      isDisabled: () => this._isBlocked() || !this.handle,
+      isDisabled: () => this._isBlocked() || !this._liveHandle(),
       tui: opts.piTui,
       keybindings: opts.piKeybindings,
       editorFactory: opts.piEditorFactory,
@@ -421,6 +426,10 @@ export class StageChatView implements Component, Focusable {
     return resolveStageChatViewportRows(reported, VIEW_LINE_COUNT);
   }
 
+  private _liveHandle(): StageControlHandle | undefined {
+    return this.handle?.isDisposed === true ? undefined : this.handle;
+  }
+
   private _isStreaming(): boolean {
     return this.chatHost.isStreaming();
   }
@@ -436,7 +445,7 @@ export class StageChatView implements Component, Focusable {
   }
 
   private _isReadOnlyArchive(stage: StageSnapshot | undefined = this._currentStage()): boolean {
-    if (this.handle) return false;
+    if (this._liveHandle()) return false;
     if (!stage) return true;
     return stage.status === "completed" || stage.status === "failed" || Boolean(stage.sessionFile);
   }
@@ -445,10 +454,11 @@ export class StageChatView implements Component, Focusable {
     const [command, ...rest] = text.trim().split(/\s+/);
     switch (command) {
       case "/compact": {
-        if (!this.handle) return false;
-        await this.handle.ensureAttached();
-        if (!this.handle.agentSession) return false;
-        await this.handle.agentSession.compact(rest.join(" ") || undefined);
+        const handle = this._liveHandle();
+        if (!handle) return false;
+        await handle.ensureAttached();
+        if (!handle.agentSession) return false;
+        await handle.agentSession.compact(rest.join(" ") || undefined);
         return true;
       }
       case "/quit":

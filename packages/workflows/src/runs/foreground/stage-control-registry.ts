@@ -53,6 +53,8 @@ export interface StageControlHandle {
   readonly sessionId: string | undefined;
   readonly sessionFile: string | undefined;
   readonly isStreaming: boolean;
+  /** True after the executor has released the live SDK session behind this handle. */
+  readonly isDisposed?: boolean;
   readonly messages: AgentSession["messages"];
   /** Live coding-agent session when available, used by embedded chat/footer UI. */
   readonly agentSession?: AgentSession;

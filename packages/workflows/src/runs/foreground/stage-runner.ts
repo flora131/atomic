@@ -45,6 +45,8 @@ export interface StageSessionRuntime {
   readonly thinkingLevel: AgentSession["thinkingLevel"];
   readonly messages: AgentSession["messages"];
   readonly isStreaming: AgentSession["isStreaming"];
+  /** Number of SDK-level queued steering/follow-up messages, when supported. */
+  readonly pendingMessageCount?: number;
   navigateTree: AgentSession["navigateTree"];
   compact: AgentSession["compact"];
   abortCompaction(): void;
@@ -114,6 +116,8 @@ export interface InternalStageContext extends StageContext {
   __sessionMeta(): { sessionId: string | undefined; sessionFile: string | undefined };
   /** Internal: live coding-agent session when the adapter returned one. */
   __agentSession(): AgentSession | undefined;
+  /** Internal: SDK queued steering/follow-up message count, when available. */
+  __pendingMessageCount(): number;
   /** Internal: selected/effective model and fallback attempt metadata. */
   __modelFallbackMeta(): StageModelFallbackMeta;
   /**
@@ -709,6 +713,10 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
 
     __agentSession() {
       return asAgentSession(session);
+    },
+
+    __pendingMessageCount() {
+      return typeof session?.pendingMessageCount === "number" ? session.pendingMessageCount : 0;
     },
 
     __modelFallbackMeta() {

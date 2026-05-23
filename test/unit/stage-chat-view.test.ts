@@ -1158,6 +1158,31 @@ describe("StageChatView", () => {
     view.dispose();
   });
 
+  test("disposed completed stage handle renders as read-only", () => {
+    const store = createStore();
+    setupRun(store, "run-1", "stage-a", "completed");
+    const { handle, state } = makeHandle(undefined, [], "completed");
+    Object.defineProperty(handle, "isDisposed", { value: true });
+    const view = new StageChatView({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageId: "stage-a",
+      workflowName: "test-wf",
+      handle,
+      onDetach: () => {},
+      onClose: () => {},
+    });
+
+    const rendered = stripAnsi(view.render(96).join("\n"));
+    assert.match(rendered, /READ-ONLY SESSION/);
+    assert.doesNotMatch(rendered, /❯/);
+    for (const ch of "new question") view.handleInput(ch);
+    view.handleInput("\r");
+    assert.deepEqual(state.promptCalls, []);
+    view.dispose();
+  });
+
   test("Escape interrupts a completed stage ad-hoc chat without closing or workflow pause UI", async () => {
     const store = createStore();
     setupRun(store, "run-1", "stage-a", "completed");

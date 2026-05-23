@@ -1349,6 +1349,23 @@ export async function run<TInputs extends Record<string, unknown>>(
         unregisterStageHandle();
         await disposeInnerContext();
       };
+      const hasQueuedLiveWork = (): boolean =>
+        innerCtx.isStreaming || innerCtx.__pendingMessageCount() > 0 || activeAskUserQuestionCalls.size > 0;
+      const releaseLiveHandleWhenIdle = async (): Promise<void> => {
+        dropStageControlHandle();
+        if (!hasQueuedLiveWork()) {
+          await releaseLiveHandle();
+          return;
+        }
+        let unsubscribe = (): void => {};
+        const releaseIfIdle = (): void => {
+          if (hasQueuedLiveWork()) return;
+          unsubscribe();
+          void releaseLiveHandle().catch(() => {});
+        };
+        unsubscribe = innerCtx.subscribe(() => queueMicrotask(releaseIfIdle));
+        releaseIfIdle();
+      };
 
       // e. Register a live stage-control handle so attached panes can
       //    prompt/steer/pause/resume the underlying Pi session lazily.
@@ -1371,6 +1388,9 @@ export async function run<TInputs extends Record<string, unknown>>(
         },
         get isStreaming() {
           return innerCtx.isStreaming;
+        },
+        get isDisposed() {
+          return liveHandleReleased;
         },
         get messages() {
           return innerCtx.messages;
@@ -1553,15 +1573,12 @@ export async function run<TInputs extends Record<string, unknown>>(
 
           tracker.onSettle(stageId);
           // The stage has finished participating in workflow scheduling. Drop it
-          // from run-level pause/resume and cascade-pause lookups immediately,
-          // but keep the SDK session alive below while an attached chat pane is
-          // still using its direct handle.
-          dropStageControlHandle();
-          // Keep the direct chat handle registered after the workflow-owned
-          // stage operation settles. The stage no longer participates in
-          // run-level pause/resume or dependency scheduling, but entering the
-          // node should behave like reopening a normal chat session and allow
-          // additional user messages on the same AgentSession.
+          // from run-level pause/resume and cascade-pause lookups immediately.
+          // If no SDK queue/active input remains, release the live chat handle so
+          // the node reopens as a read-only archived session. Queued messages keep
+          // the direct handle alive only until the SDK reports that the queue has
+          // drained.
+          await releaseLiveHandleWhenIdle().catch(() => {});
           limiter.release();
         }
       };

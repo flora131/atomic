@@ -8,7 +8,7 @@
  * ctx.parallel(), and ctx.chain().
  */
 
-import { mkdtempSync, mkdirSync } from "node:fs";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defineWorkflow } from "../src/index.js";
@@ -21,6 +21,8 @@ import type {
 const DEFAULT_MAX_PARTITIONS = 100;
 const DEFAULT_MAX_CONCURRENCY = 4;
 const LOC_PER_PARTITION = 10_000;
+const CLEANUP_RETRY_COUNT = 3;
+const CLEANUP_RETRY_DELAY_MS = 100;
 
 type PromptSection = readonly [tag: string, content: string];
 
@@ -207,522 +209,531 @@ export default defineWorkflow("deep-research-codebase")
       requestedMaxPartitions,
       codebaseLines,
     );
-    const artifactRoot = mkdtempSync(
+    const artifactRoot = await mkdtemp(
       join(tmpdir(), "atomic-deep-research-codebase-"),
     );
-    const wave1ArtifactRoot = join(artifactRoot, "wave1");
-    const wave2ArtifactRoot = join(artifactRoot, "wave2");
-    mkdirSync(wave1ArtifactRoot, { recursive: true });
-    mkdirSync(wave2ArtifactRoot, { recursive: true });
+    try {
+      const wave1ArtifactRoot = join(artifactRoot, "wave1");
+      const wave2ArtifactRoot = join(artifactRoot, "wave2");
+      await Promise.all([
+        mkdir(wave1ArtifactRoot, { recursive: true }),
+        mkdir(wave2ArtifactRoot, { recursive: true }),
+      ]);
 
-    const artifacts: DeepResearchArtifact[] = [];
-    const addArtifact = (
-      stage: string,
-      role: DeepResearchArtifactRole,
-      path: string,
-      partition?: string,
-    ) => {
-      if (partition === undefined) {
-        artifacts.push({ stage, role, path });
+      const artifacts: DeepResearchArtifact[] = [];
+      const addArtifact = (
+        stage: string,
+        role: DeepResearchArtifactRole,
+        path: string,
+        partition?: string,
+      ) => {
+        if (partition === undefined) {
+          artifacts.push({ stage, role, path });
+          return path;
+        }
+
+        artifacts.push({ stage, role, path, partition });
         return path;
-      }
+      };
+      const fileOnlyOutput = (output: string): {
+        output: string;
+        outputMode: WorkflowOutputMode;
+      } => ({
+        output,
+        outputMode: FILE_ONLY_OUTPUT,
+      });
 
-      artifacts.push({ stage, role, path, partition });
-      return path;
-    };
-    const fileOnlyOutput = (output: string): {
-      output: string;
-      outputMode: WorkflowOutputMode;
-    } => ({
-      output,
-      outputMode: FILE_ONLY_OUTPUT,
-    });
+      const scoutPath = addArtifact(
+        "codebase-scout",
+        "scout",
+        join(artifactRoot, "00-codebase-scout.md"),
+      );
+      const historyLocatorPath = addArtifact(
+        "history-locator",
+        "history",
+        join(artifactRoot, "01-history-locator.md"),
+      );
+      const historyAnalyzerPath = addArtifact(
+        "history-analyzer",
+        "history",
+        join(artifactRoot, "02-history-analyzer.md"),
+      );
 
-    const scoutPath = addArtifact(
-      "codebase-scout",
-      "scout",
-      join(artifactRoot, "00-codebase-scout.md"),
-    );
-    const historyLocatorPath = addArtifact(
-      "history-locator",
-      "history",
-      join(artifactRoot, "01-history-locator.md"),
-    );
-    const historyAnalyzerPath = addArtifact(
-      "history-analyzer",
-      "history",
-      join(artifactRoot, "02-history-analyzer.md"),
-    );
+      const noAskQuestionToolSet = [
+        "read",
+        "bash",
+        "edit",
+        "write",
+        "todo",
+        "subagent",
+        "web_search",
+        "code_search",
+        "fetch_content",
+        "get_search_content",
+        "intercom",
+      ];
 
-    const noAskQuestionToolSet = [
-      "read",
-      "bash",
-      "edit",
-      "write",
-      "todo",
-      "subagent",
-      "web_search",
-      "code_search",
-      "fetch_content",
-      "get_search_content",
-      "intercom",
-    ];
-
-    const plannerModelConfig = {
-      model: "openai/gpt-5.5",
-      fallbackModels: [
-        "openai-codex/gpt-5.5",
-        "github-copilot/gpt-5.5",
-        "anthropic/claude-opus-4-7",
-        "github-copilot/claude-opus-4.7",
-      ],
-      thinkingLevel: "high" as const,
-      tools: noAskQuestionToolSet,
-    };
-
-    const explorerModelConfig = {
-      model: "openai/gpt-5.4-mini",
-      fallbackModels: [
-        "openai-codex/gpt-5.4-mini",
-        "github-copilot/gpt-5.4-mini",
-        "anthropic/claude-haiku-4-5",
-        "github-copilot/claude-haiku-4.5",
-      ],
-      thinkingLevel: "low" as const,
-      tools: noAskQuestionToolSet,
-    };
-
-    const initialDiscovery = await ctx.parallel(
-      [
-        {
-          name: "codebase-scout",
-          task: taggedPrompt([
-            [
-              "role",
-              "You are a senior codebase research scout preparing work for specialist agents.",
-            ],
-            ["objective", `Map the repository. Research question: ${prompt}`],
-            [
-              "codebase_skills",
-              codebaseSkillGuidance("locator", "analyzer", "patternFinder"),
-            ],
-            [
-              "instructions",
-              [
-                "Identify the subsystems, files, tests, docs, and runtime/configuration areas most likely to answer the question.",
-                `Propose at most ${partitionCap} independent investigation partitions that can be assigned to parallel specialists.`,
-                "Ground codebase claims in concrete paths, symbols, commands, or docs when possible.",
-                "If evidence is missing or uncertain, say so explicitly instead of guessing.",
-              ].join("\n"),
-            ],
-            [
-              "output_format",
-              [
-                "Markdown with these headings:",
-                "1. Executive orientation",
-                "2. Key paths and why they matter",
-                "3. Suggested partitions",
-                "4. Known unknowns / risks",
-              ].join("\n"),
-            ],
-          ]),
-          ...fileOnlyOutput(scoutPath),
-          ...plannerModelConfig,
-        },
-        {
-          name: "history-locator",
-          task: taggedPrompt([
-            ["role", "You locate prior project research and decision history."],
-            [
-              "objective",
-              "Find existing docs, specs, ADRs, issues/PR notes, TODOs, and research artifacts relevant to the task.",
-            ],
-            ["task", "{task}"],
-            ["codebase_skills", codebaseSkillGuidance("researchLocator")],
-            [
-              "instructions",
-              [
-                "Search broadly before narrowing.",
-                "Prefer exact file paths, section names, and short relevance notes.",
-                "Separate strong evidence from weak/possibly stale evidence.",
-                "If no prior research exists, state that plainly and list where you looked.",
-              ].join("\n"),
-            ],
-            [
-              "output_format",
-              "A markdown table with columns: Path, Evidence, Relevance, Confidence.",
-            ],
-          ]),
-          ...fileOnlyOutput(historyLocatorPath),
-          ...explorerModelConfig,
-        },
-      ],
-      { task: prompt, concurrency: maxConcurrency },
-    );
-
-    const scout =
-      findResult(initialDiscovery, "codebase-scout") ?? initialDiscovery[0]!;
-    const historyLocator =
-      findResult(initialDiscovery, "history-locator") ?? initialDiscovery[1]!;
-    const history = await ctx.chain(
-      [
-        {
-          name: "history-analyzer",
-          task: taggedPrompt([
-            [
-              "role",
-              "You synthesize prior project research for downstream investigators.",
-            ],
-            [
-              "objective",
-              `Extract reusable historical context. Research question: ${prompt}`,
-            ],
-            ["prior_research_locator_output", "{previous}"],
-            ["codebase_skills", codebaseSkillGuidance("researchAnalyzer")],
-            [
-              "instructions",
-              [
-                "Cluster related prior decisions and unresolved questions.",
-                "Identify which findings are still likely valid and which may be stale.",
-                "Quote or cite paths from the locator output for every important claim.",
-                "Do not invent history that is not supported by the locator output.",
-              ].join("\n"),
-            ],
-            [
-              "output_format",
-              [
-                "Markdown with headings:",
-                "1. Prior decisions",
-                "2. Relevant research artifacts",
-                "3. Open questions",
-                "4. How this should steer the new investigation",
-              ].join("\n"),
-            ],
-          ]),
-          previous: historyLocator,
-          reads: [historyLocatorPath],
-          ...fileOnlyOutput(historyAnalyzerPath),
-          ...plannerModelConfig,
-        },
-      ],
-      { task: prompt },
-    );
-
-    const partitionPlan = await ctx.task("partition", {
-      prompt: taggedPrompt([
-        ["role", "You turn scout research into clean work partitions."],
-        [
-          "objective",
-          `Return at most ${partitionCap} independent partitions for this research question: ${prompt}`,
+      const plannerModelConfig = {
+        model: "openai/gpt-5.5",
+        fallbackModels: [
+          "openai-codex/gpt-5.5",
+          "github-copilot/gpt-5.5",
+          "anthropic/claude-opus-4-7",
+          "github-copilot/claude-opus-4.7",
         ],
-        ["scout_output", "{previous}"],
-        [
-          "codebase_skills",
-          codebaseSkillGuidance("locator", "analyzer", "patternFinder"),
+        thinkingLevel: "high" as const,
+        tools: noAskQuestionToolSet,
+      };
+
+      const explorerModelConfig = {
+        model: "openai/gpt-5.4-mini",
+        fallbackModels: [
+          "openai-codex/gpt-5.4-mini",
+          "github-copilot/gpt-5.4-mini",
+          "anthropic/claude-haiku-4-5",
+          "github-copilot/claude-haiku-4.5",
         ],
+        thinkingLevel: "low" as const,
+        tools: noAskQuestionToolSet,
+      };
+
+      const initialDiscovery = await ctx.parallel(
         [
-          "instructions",
-          [
-            "Each partition must be concrete enough for one specialist to investigate independently.",
-            "Prefer boundaries based on files, subsystems, runtime layers, or documented concepts.",
-            "Do not include bullets, numbering, markdown fences, explanations, or duplicate partitions.",
-          ].join("\n"),
-        ],
-        ["output_format", "Plain text only: one partition per line."],
-      ]),
-      previous: scout,
-      reads: [scoutPath],
-      ...plannerModelConfig,
-    });
-
-    const partitions = parsePartitions(partitionPlan.text, partitionCap);
-    const locatorArtifactPaths = new Map<number, string>();
-
-    const wave1Steps: WorkflowTaskStep[] = partitions.flatMap(
-      (partition, index) => {
-        const i = index + 1;
-        const locatorPath = addArtifact(
-          `locator-${i}`,
-          "locator",
-          join(wave1ArtifactRoot, `locator-${i}.md`),
-          partition,
-        );
-        const patternFinderPath = addArtifact(
-          `pattern-finder-${i}`,
-          "pattern-finder",
-          join(wave1ArtifactRoot, `pattern-finder-${i}.md`),
-          partition,
-        );
-        locatorArtifactPaths.set(i, locatorPath);
-        return [
           {
-            name: `locator-${i}`,
-            task: taggedPrompt([
-              ["role", "You are a codebase locator specialist."],
-              [
-                "assignment",
-                `Partition ${i}/${partitions.length}: ${partition}`,
-              ],
-              ["research_question", prompt],
-              [
-                "scout_context",
-                `Read the scout artifact before making evidence claims: ${displayPath(scoutPath)}\nCompact saved-output reference: {previous}`,
-              ],
-              ["codebase_skills", codebaseSkillGuidance("locator")],
-              [
-                "instructions",
-                [
-                  "Find the highest-signal files, tests, docs, commands, configs, and symbols for this partition.",
-                  "Explain why each path matters for the research question.",
-                  "Prioritize exact paths and symbol names over broad descriptions.",
-                  "Flag areas that look relevant but could not be verified.",
-                ].join("\n"),
-              ],
-              [
-                "output_format",
-                [
-                  "Markdown with headings:",
-                  "1. Must-read paths",
-                  "2. Supporting paths",
-                  "3. Entry points / symbols",
-                  "4. Gaps or uncertainty",
-                ].join("\n"),
-              ],
-            ]),
-            previous: scout,
-            reads: [scoutPath],
-            ...fileOnlyOutput(locatorPath),
-            ...explorerModelConfig,
-          },
-          {
-            name: `pattern-finder-${i}`,
-            task: taggedPrompt([
-              ["role", "You are a codebase pattern-finding specialist."],
-              [
-                "assignment",
-                `Partition ${i}/${partitions.length}: ${partition}`,
-              ],
-              ["research_question", prompt],
-              [
-                "scout_context",
-                `Read the scout artifact before making evidence claims: ${displayPath(scoutPath)}\nCompact saved-output reference: {previous}`,
-              ],
-              ["codebase_skills", codebaseSkillGuidance("patternFinder")],
-              [
-                "instructions",
-                [
-                  "Identify recurring implementation patterns, abstractions, naming conventions, and anti-patterns in this partition.",
-                  "Use concrete examples with paths, symbols, or test names.",
-                  "Distinguish established conventions from one-off implementation details.",
-                  "Avoid generic advice that is not grounded in the repository.",
-                ].join("\n"),
-              ],
-              [
-                "output_format",
-                [
-                  "Markdown with headings:",
-                  "1. Established patterns",
-                  "2. Variations / exceptions",
-                  "3. Anti-patterns or risks",
-                  "4. Evidence index",
-                ].join("\n"),
-              ],
-            ]),
-            previous: scout,
-            reads: [scoutPath],
-            ...fileOnlyOutput(patternFinderPath),
-            ...explorerModelConfig,
-          },
-        ];
-      },
-    );
-
-    const wave1 = await ctx.parallel(wave1Steps, {
-      task: prompt,
-      concurrency: maxConcurrency,
-    });
-
-    const wave2Steps: WorkflowTaskStep[] = partitions.flatMap(
-      (partition, index) => {
-        const i = index + 1;
-        const locator = findResult(wave1, `locator-${i}`);
-        const locatorPath = locatorArtifactPaths.get(i) ?? scoutPath;
-        const analyzerPath = addArtifact(
-          `analyzer-${i}`,
-          "analyzer",
-          join(wave2ArtifactRoot, `analyzer-${i}.md`),
-          partition,
-        );
-        const onlineResearcherPath = addArtifact(
-          `online-researcher-${i}`,
-          "online-researcher",
-          join(wave2ArtifactRoot, `online-researcher-${i}.md`),
-          partition,
-        );
-        return [
-          {
-            name: `analyzer-${i}`,
+            name: "codebase-scout",
             task: taggedPrompt([
               [
                 "role",
-                "You are a codebase behavior and architecture analyzer.",
+                "You are a senior codebase research scout preparing work for specialist agents.",
               ],
+              ["objective", `Map the repository. Research question: ${prompt}`],
               [
-                "assignment",
-                `Partition ${i}/${partitions.length}: ${partition}`,
+                "codebase_skills",
+                codebaseSkillGuidance("locator", "analyzer", "patternFinder"),
               ],
-              ["research_question", prompt],
-              [
-                "context",
-                `Read these artifacts before analyzing: ${displayPaths([scoutPath, locatorPath])}\nCompact saved-output reference: {previous}`,
-              ],
-              ["codebase_skills", codebaseSkillGuidance("analyzer")],
               [
                 "instructions",
                 [
-                  "Analyze behavior, control flow, data flow, lifecycle, error handling, and test coverage for this partition.",
-                  "Build on the locator output; do not repeat file discovery except where needed as evidence.",
-                  "Call out edge cases, invariants, and coupling to other partitions.",
-                  "If evidence is incomplete, explain what remains unknown and how to verify it.",
+                  "Identify the subsystems, files, tests, docs, and runtime/configuration areas most likely to answer the question.",
+                  `Propose at most ${partitionCap} independent investigation partitions that can be assigned to parallel specialists.`,
+                  "Ground codebase claims in concrete paths, symbols, commands, or docs when possible.",
+                  "If evidence is missing or uncertain, say so explicitly instead of guessing.",
                 ].join("\n"),
               ],
               [
                 "output_format",
                 [
-                  "Markdown with headings:",
-                  "1. Behavioral model",
-                  "2. Key flows and invariants",
-                  "3. Tests / validation",
-                  "4. Risks, unknowns, and verification steps",
+                  "Markdown with these headings:",
+                  "1. Executive orientation",
+                  "2. Key paths and why they matter",
+                  "3. Suggested partitions",
+                  "4. Known unknowns / risks",
                 ].join("\n"),
               ],
             ]),
-            previous: locator === undefined ? scout : [scout, locator],
-            reads: [scoutPath, locatorPath],
-            ...fileOnlyOutput(analyzerPath),
-            ...explorerModelConfig,
+            ...fileOnlyOutput(scoutPath),
+            ...plannerModelConfig,
           },
           {
-            name: `online-researcher-${i}`,
+            name: "history-locator",
+            task: taggedPrompt([
+              ["role", "You locate prior project research and decision history."],
+              [
+                "objective",
+                "Find existing docs, specs, ADRs, issues/PR notes, TODOs, and research artifacts relevant to the task.",
+              ],
+              ["task", "{task}"],
+              ["codebase_skills", codebaseSkillGuidance("researchLocator")],
+              [
+                "instructions",
+                [
+                  "Search broadly before narrowing.",
+                  "Prefer exact file paths, section names, and short relevance notes.",
+                  "Separate strong evidence from weak/possibly stale evidence.",
+                  "If no prior research exists, state that plainly and list where you looked.",
+                ].join("\n"),
+              ],
+              [
+                "output_format",
+                "A markdown table with columns: Path, Evidence, Relevance, Confidence.",
+              ],
+            ]),
+            ...fileOnlyOutput(historyLocatorPath),
+            ...explorerModelConfig,
+          },
+        ],
+        { task: prompt, concurrency: maxConcurrency },
+      );
+
+      const scout =
+        findResult(initialDiscovery, "codebase-scout") ?? initialDiscovery[0]!;
+      const historyLocator =
+        findResult(initialDiscovery, "history-locator") ?? initialDiscovery[1]!;
+      const history = await ctx.chain(
+        [
+          {
+            name: "history-analyzer",
             task: taggedPrompt([
               [
                 "role",
-                "You are an ecosystem and documentation research specialist.",
+                "You synthesize prior project research for downstream investigators.",
               ],
               [
-                "assignment",
-                `Partition ${i}/${partitions.length}: ${partition}`,
+                "objective",
+                `Extract reusable historical context. Research question: ${prompt}`,
               ],
-              ["research_question", prompt],
-              [
-                "local_context",
-                `Read local artifact context before researching: ${displayPath(locatorPath)}\nCompact saved-output reference: {previous}`,
-              ],
-              ["codebase_skills", codebaseSkillGuidance("onlineResearcher")],
+              ["prior_research_locator_output", "{previous}"],
+              ["codebase_skills", codebaseSkillGuidance("researchAnalyzer")],
               [
                 "instructions",
                 [
-                  "Identify external library/framework behavior, standards, or docs that materially affect the local interpretation.",
-                  "Cite sources, package names, API names, versions, or documentation titles when available.",
-                  "Explain how each external fact applies to this repository.",
-                  "If external research is unnecessary or unavailable, say so and focus on local implications.",
+                  "Cluster related prior decisions and unresolved questions.",
+                  "Identify which findings are still likely valid and which may be stale.",
+                  "Quote or cite paths from the locator output for every important claim.",
+                  "Do not invent history that is not supported by the locator output.",
                 ].join("\n"),
               ],
               [
                 "output_format",
                 [
                   "Markdown with headings:",
-                  "1. Relevant external facts",
-                  "2. Local implications",
-                  "3. Version/API assumptions",
-                  "4. Unverified or unnecessary research",
+                  "1. Prior decisions",
+                  "2. Relevant research artifacts",
+                  "3. Open questions",
+                  "4. How this should steer the new investigation",
                 ].join("\n"),
               ],
             ]),
-            previous: locator === undefined ? scout : locator,
-            reads: [locatorPath],
-            ...fileOnlyOutput(onlineResearcherPath),
-            ...explorerModelConfig,
+            previous: historyLocator,
+            reads: [historyLocatorPath],
+            ...fileOnlyOutput(historyAnalyzerPath),
+            ...plannerModelConfig,
           },
-        ];
-      },
-    );
+        ],
+        { task: prompt },
+      );
 
-    const wave2 = await ctx.parallel(wave2Steps, {
-      task: prompt,
-      concurrency: maxConcurrency,
-    });
-    const historyOverview = history.at(-1)?.text ?? "";
-    const artifactPaths = artifacts.map((artifact) => artifact.path);
-
-    const aggregate = await ctx.task("aggregator", {
-      prompt: taggedPrompt([
-        ["role", "You are the final deep-research aggregator."],
-        [
-          "objective",
-          `Answer the research question comprehensively: ${prompt}`,
-        ],
-        [
-          "prior_research_overview",
-          `Read prior-research artifacts for details: ${displayPaths([historyLocatorPath, historyAnalyzerPath])}\nCompact saved-output reference: ${historyOverview || "(no prior research found)"}`,
-        ],
-        [
-          "partitions",
-          partitions
-            .map((partition, index) => `${index + 1}. ${partition}`)
-            .join("\n"),
-        ],
-        [
-          "artifact_index",
+      const partitionPlan = await ctx.task("partition", {
+        prompt: taggedPrompt([
+          ["role", "You turn scout research into clean work partitions."],
           [
-            "Read the artifacts listed below selectively before synthesizing. They contain the full scout, history, locator, pattern, analyzer, and online-research outputs; this prompt intentionally carries only bounded file references.",
-            artifactIndex(artifacts),
-          ].join("\n"),
-        ],
-        [
-          "codebase_skills",
-          codebaseSkillGuidance(
+            "objective",
+            `Return at most ${partitionCap} independent partitions for this research question: ${prompt}`,
+          ],
+          ["scout_output", "{previous}"],
+          [
+            "codebase_skills",
+            codebaseSkillGuidance("locator", "analyzer", "patternFinder"),
+          ],
+          [
+            "instructions",
+            [
+              "Each partition must be concrete enough for one specialist to investigate independently.",
+              "Prefer boundaries based on files, subsystems, runtime layers, or documented concepts.",
+              "Do not include bullets, numbering, markdown fences, explanations, or duplicate partitions.",
+            ].join("\n"),
+          ],
+          ["output_format", "Plain text only: one partition per line."],
+        ]),
+        previous: scout,
+        reads: [scoutPath],
+        ...plannerModelConfig,
+      });
+
+      const partitions = parsePartitions(partitionPlan.text, partitionCap);
+      const locatorArtifactPaths = new Map<number, string>();
+
+      const wave1Steps: WorkflowTaskStep[] = partitions.flatMap(
+        (partition, index) => {
+          const i = index + 1;
+          const locatorPath = addArtifact(
+            `locator-${i}`,
+            "locator",
+            join(wave1ArtifactRoot, `locator-${i}.md`),
+            partition,
+          );
+          const patternFinderPath = addArtifact(
+            `pattern-finder-${i}`,
+            "pattern-finder",
+            join(wave1ArtifactRoot, `pattern-finder-${i}.md`),
+            partition,
+          );
+          locatorArtifactPaths.set(i, locatorPath);
+          return [
+            {
+              name: `locator-${i}`,
+              task: taggedPrompt([
+                ["role", "You are a codebase locator specialist."],
+                [
+                  "assignment",
+                  `Partition ${i}/${partitions.length}: ${partition}`,
+                ],
+                ["research_question", prompt],
+                [
+                  "scout_context",
+                  `Read the scout artifact before making evidence claims: ${displayPath(scoutPath)}\nCompact saved-output reference: {previous}`,
+                ],
+                ["codebase_skills", codebaseSkillGuidance("locator")],
+                [
+                  "instructions",
+                  [
+                    "Find the highest-signal files, tests, docs, commands, configs, and symbols for this partition.",
+                    "Explain why each path matters for the research question.",
+                    "Prioritize exact paths and symbol names over broad descriptions.",
+                    "Flag areas that look relevant but could not be verified.",
+                  ].join("\n"),
+                ],
+                [
+                  "output_format",
+                  [
+                    "Markdown with headings:",
+                    "1. Must-read paths",
+                    "2. Supporting paths",
+                    "3. Entry points / symbols",
+                    "4. Gaps or uncertainty",
+                  ].join("\n"),
+                ],
+              ]),
+              previous: scout,
+              reads: [scoutPath],
+              ...fileOnlyOutput(locatorPath),
+              ...explorerModelConfig,
+            },
+            {
+              name: `pattern-finder-${i}`,
+              task: taggedPrompt([
+                ["role", "You are a codebase pattern-finding specialist."],
+                [
+                  "assignment",
+                  `Partition ${i}/${partitions.length}: ${partition}`,
+                ],
+                ["research_question", prompt],
+                [
+                  "scout_context",
+                  `Read the scout artifact before making evidence claims: ${displayPath(scoutPath)}\nCompact saved-output reference: {previous}`,
+                ],
+                ["codebase_skills", codebaseSkillGuidance("patternFinder")],
+                [
+                  "instructions",
+                  [
+                    "Identify recurring implementation patterns, abstractions, naming conventions, and anti-patterns in this partition.",
+                    "Use concrete examples with paths, symbols, or test names.",
+                    "Distinguish established conventions from one-off implementation details.",
+                    "Avoid generic advice that is not grounded in the repository.",
+                  ].join("\n"),
+                ],
+                [
+                  "output_format",
+                  [
+                    "Markdown with headings:",
+                    "1. Established patterns",
+                    "2. Variations / exceptions",
+                    "3. Anti-patterns or risks",
+                    "4. Evidence index",
+                  ].join("\n"),
+                ],
+              ]),
+              previous: scout,
+              reads: [scoutPath],
+              ...fileOnlyOutput(patternFinderPath),
+              ...explorerModelConfig,
+            },
+          ];
+        },
+      );
+
+      const wave1 = await ctx.parallel(wave1Steps, {
+        task: prompt,
+        concurrency: maxConcurrency,
+      });
+
+      const wave2Steps: WorkflowTaskStep[] = partitions.flatMap(
+        (partition, index) => {
+          const i = index + 1;
+          const locator = findResult(wave1, `locator-${i}`);
+          const locatorPath = locatorArtifactPaths.get(i) ?? scoutPath;
+          const analyzerPath = addArtifact(
+            `analyzer-${i}`,
             "analyzer",
-            "researchAnalyzer",
-            "onlineResearcher",
-          ),
-        ],
-        [
-          "instructions",
-          [
-            "Synthesize; do not merely concatenate specialist reports.",
-            "Use the artifact index and [Read from] files as the source of detailed specialist evidence instead of relying on inline transcripts.",
-            "Prioritize claims supported by concrete paths, symbols, tests, docs, or cited external references.",
-            "Resolve contradictions explicitly and preserve important uncertainty.",
-            "Avoid inventing facts not supported by the supplied reports; state unknowns instead.",
-            "End with actionable next steps for a developer who will use this research.",
-          ].join("\n"),
-        ],
-        [
-          "output_format",
-          [
-            "Markdown with headings:",
-            "1. Executive answer",
-            "2. Architecture / behavior findings",
-            "3. Evidence by partition",
-            "4. Risks and unknowns",
-            "5. Recommended next steps",
-          ].join("\n"),
-        ],
-      ]),
-      reads: artifactPaths,
-      ...explorerModelConfig,
-    });
+            join(wave2ArtifactRoot, `analyzer-${i}.md`),
+            partition,
+          );
+          const onlineResearcherPath = addArtifact(
+            `online-researcher-${i}`,
+            "online-researcher",
+            join(wave2ArtifactRoot, `online-researcher-${i}.md`),
+            partition,
+          );
+          return [
+            {
+              name: `analyzer-${i}`,
+              task: taggedPrompt([
+                [
+                  "role",
+                  "You are a codebase behavior and architecture analyzer.",
+                ],
+                [
+                  "assignment",
+                  `Partition ${i}/${partitions.length}: ${partition}`,
+                ],
+                ["research_question", prompt],
+                [
+                  "context",
+                  `Read these artifacts before analyzing: ${displayPaths([scoutPath, locatorPath])}\nCompact saved-output reference: {previous}`,
+                ],
+                ["codebase_skills", codebaseSkillGuidance("analyzer")],
+                [
+                  "instructions",
+                  [
+                    "Analyze behavior, control flow, data flow, lifecycle, error handling, and test coverage for this partition.",
+                    "Build on the locator output; do not repeat file discovery except where needed as evidence.",
+                    "Call out edge cases, invariants, and coupling to other partitions.",
+                    "If evidence is incomplete, explain what remains unknown and how to verify it.",
+                  ].join("\n"),
+                ],
+                [
+                  "output_format",
+                  [
+                    "Markdown with headings:",
+                    "1. Behavioral model",
+                    "2. Key flows and invariants",
+                    "3. Tests / validation",
+                    "4. Risks, unknowns, and verification steps",
+                  ].join("\n"),
+                ],
+              ]),
+              previous: locator === undefined ? scout : [scout, locator],
+              reads: [scoutPath, locatorPath],
+              ...fileOnlyOutput(analyzerPath),
+              ...explorerModelConfig,
+            },
+            {
+              name: `online-researcher-${i}`,
+              task: taggedPrompt([
+                [
+                  "role",
+                  "You are an ecosystem and documentation research specialist.",
+                ],
+                [
+                  "assignment",
+                  `Partition ${i}/${partitions.length}: ${partition}`,
+                ],
+                ["research_question", prompt],
+                [
+                  "local_context",
+                  `Read local artifact context before researching: ${displayPath(locatorPath)}\nCompact saved-output reference: {previous}`,
+                ],
+                ["codebase_skills", codebaseSkillGuidance("onlineResearcher")],
+                [
+                  "instructions",
+                  [
+                    "Identify external library/framework behavior, standards, or docs that materially affect the local interpretation.",
+                    "Cite sources, package names, API names, versions, or documentation titles when available.",
+                    "Explain how each external fact applies to this repository.",
+                    "If external research is unnecessary or unavailable, say so and focus on local implications.",
+                  ].join("\n"),
+                ],
+                [
+                  "output_format",
+                  [
+                    "Markdown with headings:",
+                    "1. Relevant external facts",
+                    "2. Local implications",
+                    "3. Version/API assumptions",
+                    "4. Unverified or unnecessary research",
+                  ].join("\n"),
+                ],
+              ]),
+              previous: locator === undefined ? scout : locator,
+              reads: [locatorPath],
+              ...fileOnlyOutput(onlineResearcherPath),
+              ...explorerModelConfig,
+            },
+          ];
+        },
+      );
 
-    return {
-      findings: aggregate.text,
-      partitions,
-      explorer_count: partitions.length,
-      specialist_count: wave1.length + wave2.length,
-      max_concurrency: maxConcurrency,
-      history: historyOverview,
-      artifact_root: artifactRoot,
-      artifact_count: artifacts.length,
-    };
+      const wave2 = await ctx.parallel(wave2Steps, {
+        task: prompt,
+        concurrency: maxConcurrency,
+      });
+      const historyOverview = history.at(-1)?.text ?? "";
+      const artifactPaths = artifacts.map((artifact) => artifact.path);
+
+      const aggregate = await ctx.task("aggregator", {
+        prompt: taggedPrompt([
+          ["role", "You are the final deep-research aggregator."],
+          [
+            "objective",
+            `Answer the research question comprehensively: ${prompt}`,
+          ],
+          [
+            "prior_research_overview",
+            `Read prior-research artifacts for details: ${displayPaths([historyLocatorPath, historyAnalyzerPath])}\nCompact saved-output reference: ${historyOverview || "(no prior research found)"}`,
+          ],
+          [
+            "partitions",
+            partitions
+              .map((partition, index) => `${index + 1}. ${partition}`)
+              .join("\n"),
+          ],
+          [
+            "artifact_index",
+            [
+              "Read the artifacts listed below selectively before synthesizing. They contain the full scout, history, locator, pattern, analyzer, and online-research outputs; this prompt intentionally carries only bounded file references.",
+              artifactIndex(artifacts),
+            ].join("\n"),
+          ],
+          [
+            "codebase_skills",
+            codebaseSkillGuidance(
+              "analyzer",
+              "researchAnalyzer",
+              "onlineResearcher",
+            ),
+          ],
+          [
+            "instructions",
+            [
+              "Synthesize; do not merely concatenate specialist reports.",
+              "Use the artifact index and supplied input files as the source of detailed specialist evidence instead of relying on inline transcripts.",
+              "Prioritize claims supported by concrete paths, symbols, tests, docs, or cited external references.",
+              "Resolve contradictions explicitly and preserve important uncertainty.",
+              "Avoid inventing facts not supported by the supplied reports; state unknowns instead.",
+              "End with actionable next steps for a developer who will use this research.",
+            ].join("\n"),
+          ],
+          [
+            "output_format",
+            [
+              "Markdown with headings:",
+              "1. Executive answer",
+              "2. Architecture / behavior findings",
+              "3. Evidence by partition",
+              "4. Risks and unknowns",
+              "5. Recommended next steps",
+            ].join("\n"),
+          ],
+        ]),
+        reads: artifactPaths,
+        ...explorerModelConfig,
+      });
+
+      return {
+        findings: aggregate.text,
+        partitions,
+        explorer_count: partitions.length,
+        specialist_count: wave1.length + wave2.length,
+        max_concurrency: maxConcurrency,
+        history: historyOverview,
+      };
+    } finally {
+      await rm(artifactRoot, {
+        recursive: true,
+        force: true,
+        maxRetries: CLEANUP_RETRY_COUNT,
+        retryDelay: CLEANUP_RETRY_DELAY_MS,
+      });
+    }
   })
   .compile();

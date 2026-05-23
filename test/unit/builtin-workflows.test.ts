@@ -6,6 +6,8 @@
 
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
+import { dirname } from "node:path";
 import type {
   WorkflowChainOptions,
   WorkflowDefinition,
@@ -55,6 +57,18 @@ function readPathEndsWith(
   return readPaths(options).some((path) =>
     normalizePathSeparators(path).endsWith(normalizedSuffix),
   );
+}
+
+function expectedDeepResearchArtifactCount(partitions: readonly unknown[]): number {
+  const fixedArtifacts = 3;
+  const artifactsPerPartition = 4;
+  return fixedArtifacts + partitions.length * artifactsPerPartition;
+}
+
+function assertStringOutput(
+  output: WorkflowTaskOptions["output"] | undefined,
+): asserts output is string {
+  assert.equal(typeof output, "string");
 }
 
 /** Mock WorkflowRunContext factory that records high-level SDK calls. */
@@ -185,8 +199,8 @@ describe("deep-research-codebase", () => {
     assert.deepEqual(result["partitions"], ["auth logic", "token validation"]);
     assert.equal(result["specialist_count"], 8);
     assert.equal(result["max_concurrency"], 2);
-    assert.equal(typeof result["artifact_root"], "string");
-    assert.equal(result["artifact_count"], 11);
+    assert.equal("artifact_root" in result, false);
+    assert.equal("artifact_count" in result, false);
   });
 
   test("uses artifact handoffs so aggregation stays bounded", async () => {
@@ -215,7 +229,10 @@ describe("deep-research-codebase", () => {
     assert.deepEqual(result["partitions"], ["auth logic", "token validation"]);
     assert.equal(aggregatorOptions?.previous, undefined);
     assert.ok(Array.isArray(aggregatorOptions?.reads));
-    assert.equal(aggregatorReads.length, 11);
+    assert.equal(
+      aggregatorReads.length,
+      expectedDeepResearchArtifactCount(result["partitions"] as readonly unknown[]),
+    );
     assert.match(normalizedAggregatorPrompt, /artifact_index/);
     assert.match(normalizedAggregatorPrompt, /Read the artifacts listed below selectively/);
     assert.match(normalizedAggregatorPrompt, /00-codebase-scout\.md/);
@@ -240,6 +257,47 @@ describe("deep-research-codebase", () => {
     assert.ok(readPathEndsWith(ctx.calls.taskOptions["online-researcher-1"]?.[0], "wave1/locator-1.md"));
     assert.equal(ctx.calls.taskOptions["locator-1"]?.[0]?.outputMode, "file-only");
     assert.equal(ctx.calls.taskOptions["analyzer-1"]?.[0]?.outputMode, "file-only");
+  });
+
+  test("removes temporary artifact handoff directory after aggregation", async () => {
+    const mod = await import("../../packages/workflows/builtin/deep-research-codebase.js");
+    const d = mod.default as unknown as WorkflowDefinition;
+    const ctx = makeMockCtx(
+      { prompt: "Trace auth behavior", max_partitions: 1, max_concurrency: 1 },
+      {
+        task: (name) => {
+          if (name === "partition") return "auth logic";
+          return undefined;
+        },
+      },
+    );
+
+    await d.run(ctx);
+
+    const scoutOutput = ctx.calls.taskOptions["codebase-scout"]?.[0]?.output;
+    assertStringOutput(scoutOutput);
+    assert.equal(existsSync(dirname(scoutOutput)), false);
+  });
+
+  test("removes temporary artifact handoff directory after aggregation failure", async () => {
+    const mod = await import("../../packages/workflows/builtin/deep-research-codebase.js");
+    const d = mod.default as unknown as WorkflowDefinition;
+    const ctx = makeMockCtx(
+      { prompt: "Trace auth behavior", max_partitions: 1, max_concurrency: 1 },
+      {
+        task: (name) => {
+          if (name === "partition") return "auth logic";
+          if (name === "aggregator") throw new Error("aggregation failed");
+          return undefined;
+        },
+      },
+    );
+
+    await assert.rejects(() => d.run(ctx), /aggregation failed/);
+
+    const scoutOutput = ctx.calls.taskOptions["codebase-scout"]?.[0]?.output;
+    assertStringOutput(scoutOutput);
+    assert.equal(existsSync(dirname(scoutOutput)), false);
   });
 });
 

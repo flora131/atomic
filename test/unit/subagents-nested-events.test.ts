@@ -10,16 +10,20 @@ import {
   MAX_NESTED_CHILDREN,
   MAX_NESTED_DEPTH,
   MAX_NESTED_STEPS,
+  MAX_PROCESSED_NESTED_EVENTS,
   NESTED_RUNS_DIR,
   nestedArtifactEnv,
   parseNestedControlRequest,
+  projectNestedEvents,
   readNestedControlRequests,
   readNestedControlResults,
+  readNestedRegistry,
   resolveNestedRouteFromEnv,
   sanitizeSummary,
   validateNestedRouteShape,
   writeNestedControlRequest,
   writeNestedControlResult,
+  writeNestedEvent,
   type NestedRoute,
 } from "../../packages/subagents/src/runs/shared/nested-events.js";
 
@@ -144,6 +148,63 @@ describe("nested subagent event routes", () => {
 
     assert.equal(fs.existsSync(path.dirname(route.eventSink)), false);
     assert.equal(fs.existsSync(path.join(NESTED_RUNS_DIR, route.rootRunId)), false);
+  });
+
+  test("serializes registry projection through a stale-safe lock", () => {
+    const route = trackRoute(createNestedRoute(safeId("lock")));
+    const lockPath = path.join(path.dirname(route.eventSink), ".registry.lock");
+    fs.mkdirSync(lockPath, { mode: 0o700 });
+    const old = new Date(Date.now() - 60_000);
+    fs.utimesSync(lockPath, old, old);
+
+    writeNestedEvent(route, {
+      type: "subagent.nested.started",
+      ts: Date.now(),
+      parentRunId: route.rootRunId,
+      child: {
+        id: "child1",
+        parentRunId: route.rootRunId,
+        depth: 1,
+        path: [{ runId: route.rootRunId }],
+        state: "running",
+      },
+    });
+
+    const registry = projectNestedEvents(route);
+
+    assert.equal(fs.existsSync(lockPath), false);
+    assert.equal(registry.children[0]?.id, "child1");
+  });
+
+  test("keeps a large bounded processed event replay guard", () => {
+    const route = trackRoute(createNestedRoute(safeId("cap")));
+    const registryPath = path.join(path.dirname(route.eventSink), "registry.json");
+    fs.writeFileSync(registryPath, JSON.stringify({
+      rootRunId: route.rootRunId,
+      updatedAt: 0,
+      children: [],
+      processedEvents: Array.from({ length: MAX_PROCESSED_NESTED_EVENTS + 5 }, (_, index) => `old-${index}.json`),
+    }));
+
+    assert.equal(readNestedRegistry(route).processedEvents.length, MAX_PROCESSED_NESTED_EVENTS);
+
+    writeNestedEvent(route, {
+      type: "subagent.nested.started",
+      ts: Date.now(),
+      parentRunId: route.rootRunId,
+      child: {
+        id: "child1",
+        parentRunId: route.rootRunId,
+        depth: 1,
+        path: [{ runId: route.rootRunId }],
+        state: "running",
+      },
+    });
+
+    const registry = projectNestedEvents(route);
+
+    assert.equal(registry.processedEvents.length, MAX_PROCESSED_NESTED_EVENTS);
+    assert.equal(registry.children[0]?.id, "child1");
   });
 
   test("uses the host app prefix for nested artifact env keys", () => {

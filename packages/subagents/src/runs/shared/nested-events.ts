@@ -37,6 +37,11 @@ export const MAX_NESTED_EVENT_BYTES = 64 * 1024;
 export const MAX_NESTED_STEPS = 12;
 export const MAX_NESTED_CHILDREN = 16;
 export const MAX_NESTED_DEPTH = SUBAGENT_PARENT_MAX_DEPTH;
+export const MAX_PROCESSED_NESTED_EVENTS = 20_000;
+const REGISTRY_LOCK_DIR = ".registry.lock";
+const REGISTRY_LOCK_TIMEOUT_MS = 2_000;
+const REGISTRY_LOCK_STALE_MS = 30_000;
+const REGISTRY_LOCK_POLL_MS = 10;
 
 type NestedStatusEventType = "subagent.nested.started" | "subagent.nested.updated" | "subagent.nested.completed";
 type NestedControlResultEventType = "subagent.nested.control-result";
@@ -422,6 +427,45 @@ function registryPath(route: NestedRoute): string {
 	return path.join(commonRouteRoot(route), REGISTRY_FILE);
 }
 
+function registryLockPath(route: NestedRoute): string {
+	return path.join(commonRouteRoot(route), REGISTRY_LOCK_DIR);
+}
+
+function sleepSync(ms: number): void {
+	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function acquireRegistryLock(route: NestedRoute): () => void {
+	const lockPath = registryLockPath(route);
+	const deadline = Date.now() + REGISTRY_LOCK_TIMEOUT_MS;
+	while (true) {
+		try {
+			fs.mkdirSync(lockPath, { mode: 0o700 });
+			try {
+				fs.writeFileSync(path.join(lockPath, "owner.json"), `${JSON.stringify({ pid: process.pid, createdAt: Date.now() })}\n`, { mode: 0o600 });
+			} catch {
+				// Lock ownership metadata is diagnostic only.
+			}
+			return () => fs.rmSync(lockPath, { recursive: true, force: true });
+		} catch (error) {
+			const code = (error as NodeJS.ErrnoException).code;
+			if (code !== "EEXIST") throw error;
+			try {
+				const stat = fs.statSync(lockPath);
+				if (Date.now() - stat.mtimeMs > REGISTRY_LOCK_STALE_MS) {
+					fs.rmSync(lockPath, { recursive: true, force: true });
+					continue;
+				}
+			} catch (statError) {
+				if ((statError as NodeJS.ErrnoException).code !== "ENOENT") throw statError;
+				continue;
+			}
+			if (Date.now() >= deadline) throw new Error(`Timed out waiting for nested registry lock for root '${route.rootRunId}'.`);
+			sleepSync(REGISTRY_LOCK_POLL_MS);
+		}
+	}
+}
+
 export function findNestedRouteForRootId(rootRunId: string): NestedRoute | undefined {
 	assertSafeId("rootRunId", rootRunId);
 	let entries: string[];
@@ -564,7 +608,7 @@ export function readNestedRegistry(route: NestedRoute): NestedRegistry {
 			rootRunId: route.rootRunId,
 			updatedAt: typeof parsed.updatedAt === "number" ? parsed.updatedAt : 0,
 			children: Array.isArray(parsed.children) ? parsed.children.map((child) => sanitizeSummary(child)).filter((child): child is NestedRunSummary => Boolean(child)) : [],
-			processedEvents: Array.isArray(parsed.processedEvents) ? parsed.processedEvents.filter((item): item is string => typeof item === "string") : [],
+			processedEvents: Array.isArray(parsed.processedEvents) ? parsed.processedEvents.filter((item): item is string => typeof item === "string").slice(-MAX_PROCESSED_NESTED_EVENTS) : [],
 		};
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -574,43 +618,48 @@ export function readNestedRegistry(route: NestedRoute): NestedRegistry {
 
 export function projectNestedEvents(route: NestedRoute): NestedRegistry {
 	validateRouteShape(route);
-	let registry = readNestedRegistry(route);
-	const seen = new Set(registry.processedEvents);
-	let changed = false;
-	let entries: string[] = [];
+	const release = acquireRegistryLock(route);
 	try {
-		entries = fs.readdirSync(route.eventSink).filter((entry) => entry.endsWith(".json") || entry.endsWith(".jsonl")).sort();
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-	}
-	for (const entry of entries) {
-		if (seen.has(entry)) continue;
-		const eventPath = path.join(route.eventSink, entry);
-		if (!containedPath(route.eventSink, eventPath)) continue;
-		let content: string;
+		let registry = readNestedRegistry(route);
+		const seen = new Set(registry.processedEvents);
+		let changed = false;
+		let entries: string[] = [];
 		try {
-			const stat = fs.statSync(eventPath);
-			if (!stat.isFile() || stat.size > MAX_NESTED_EVENT_BYTES) continue;
-			content = fs.readFileSync(eventPath, "utf-8");
-		} catch {
-			continue;
+			entries = fs.readdirSync(route.eventSink).filter((entry) => entry.endsWith(".json") || entry.endsWith(".jsonl")).sort();
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 		}
-		for (const event of parseNestedEventRecords(content, route)) {
-			registry = applyNestedEvent(registry, event);
+		for (const entry of entries) {
+			if (seen.has(entry)) continue;
+			const eventPath = path.join(route.eventSink, entry);
+			if (!containedPath(route.eventSink, eventPath)) continue;
+			let content: string;
+			try {
+				const stat = fs.statSync(eventPath);
+				if (!stat.isFile() || stat.size > MAX_NESTED_EVENT_BYTES) continue;
+				content = fs.readFileSync(eventPath, "utf-8");
+			} catch {
+				continue;
+			}
+			for (const event of parseNestedEventRecords(content, route)) {
+				registry = applyNestedEvent(registry, event);
+				changed = true;
+			}
+			seen.add(entry);
 			changed = true;
 		}
-		seen.add(entry);
-		changed = true;
+		if (changed) {
+			// Event files are immutable; retain enough filenames for worst-case bounded fanout without unbounded registry growth.
+			registry = { ...registry, processedEvents: [...seen].slice(-MAX_PROCESSED_NESTED_EVENTS) };
+			// Registry projection is lock-serialized across parent and fanout-child processes.
+			// Child and runner processes only create immutable event files, so parent status.json
+			// remains owned by the existing runner writer and is never rewritten here.
+			writeAtomicJson(registryPath(route), registry);
+		}
+		return registry;
+	} finally {
+		release();
 	}
-	if (changed) {
-		// Event files are immutable and bounded by fanout depth/width; keep a recent replay guard without retaining unbounded filenames.
-		registry = { ...registry, processedEvents: [...seen].slice(-1000) };
-		// Parent projection is the only writer to this sidecar registry. Child and
-		// runner processes only create immutable event files, so parent status.json
-		// remains owned by the existing runner writer and is never rewritten here.
-		writeAtomicJson(registryPath(route), registry);
-	}
-	return registry;
 }
 
 function writeRouteRecord(dir: string, ts: number, payload: object): string {

@@ -65,10 +65,7 @@
     "skills": [
       "./skills"
     ],
-    "prompts": [],
-    "themes": [
-      "themes/*.json"
-    ]
+    "prompts": []
   },
   "dependencies": {
     "jiti": "^2.7.0"

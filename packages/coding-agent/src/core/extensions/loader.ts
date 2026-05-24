@@ -5,7 +5,6 @@
 
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
-import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as _bundledPiAgentCore from "@earendil-works/pi-agent-core";
@@ -30,6 +29,7 @@ import {
 // avoiding a circular dependency. Extensions can import from the Atomic package
 // name (or upstream-compatible pi package names).
 import * as _bundledPiCodingAgent from "../../index.ts";
+import { resolvePath } from "../../utils/paths.ts";
 import { createEventBus, type EventBus } from "../event-bus.ts";
 import type { ExecOptions } from "../exec.ts";
 import type { ResolvedResource } from "../package-manager.ts";
@@ -136,30 +136,6 @@ function getAliases(): Record<string, string> {
   return _aliases;
 }
 
-const UNICODE_SPACES = /[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g;
-
-function normalizeUnicodeSpaces(str: string): string {
-  return str.replace(UNICODE_SPACES, " ");
-}
-
-function expandPath(p: string): string {
-  const normalized = normalizeUnicodeSpaces(p);
-  if (normalized.startsWith("~/")) {
-    return path.join(os.homedir(), normalized.slice(2));
-  }
-  if (normalized.startsWith("~")) {
-    return path.join(os.homedir(), normalized.slice(1));
-  }
-  return normalized;
-}
-
-function resolvePath(extPath: string, cwd: string): string {
-  const expanded = expandPath(extPath);
-  if (path.isAbsolute(expanded)) {
-    return expanded;
-  }
-  return path.resolve(cwd, expanded);
-}
 
 type HandlerFn = (...args: unknown[]) => Promise<unknown>;
 
@@ -459,7 +435,7 @@ async function loadExtension(
   runtime: ExtensionRuntime,
   workflowResources: ResolvedResource[] = [],
 ): Promise<{ extension: Extension | null; error: string | null }> {
-  const resolvedPath = resolvePath(extensionPath, cwd);
+  const resolvedPath = resolvePath(extensionPath, cwd, { normalizeUnicodeSpaces: true });
 
   try {
     const factory = await loadExtensionModule(resolvedPath);
@@ -499,10 +475,11 @@ export async function loadExtensionFromFactory(
   workflowResources: ResolvedResource[] = [],
 ): Promise<Extension> {
   const extension = createExtension(extensionPath, extensionPath);
+  const resolvedCwd = resolvePath(cwd);
   const api = createExtensionAPI(
     extension,
     runtime,
-    cwd,
+    resolvedCwd,
     eventBus,
     workflowResources,
   );
@@ -521,13 +498,14 @@ export async function loadExtensions(
 ): Promise<LoadExtensionsResult> {
   const extensions: Extension[] = [];
   const errors: Array<{ path: string; error: string }> = [];
+  const resolvedCwd = resolvePath(cwd);
   const resolvedEventBus = eventBus ?? createEventBus();
   const runtime = createExtensionRuntime();
 
   for (const extPath of paths) {
     const { extension, error } = await loadExtension(
       extPath,
-      cwd,
+      resolvedCwd,
       resolvedEventBus,
       runtime,
       workflowResources,
@@ -690,6 +668,8 @@ export async function discoverAndLoadExtensions(
   agentDir: string = getAgentDir(),
   eventBus?: EventBus,
 ): Promise<LoadExtensionsResult> {
+  const resolvedCwd = resolvePath(cwd);
+  const resolvedAgentDir = resolvePath(agentDir);
   const allPaths: string[] = [];
   const seen = new Set<string>();
 
@@ -704,16 +684,16 @@ export async function discoverAndLoadExtensions(
   };
 
   // 1. Project-local extensions: cwd/${CONFIG_DIR_NAME}/extensions/
-  const localExtDir = path.join(cwd, CONFIG_DIR_NAME, "extensions");
+  const localExtDir = path.join(resolvedCwd, CONFIG_DIR_NAME, "extensions");
   addPaths(discoverExtensionsInDir(localExtDir));
 
   // 2. Global extensions: agentDir/extensions/
-  const globalExtDir = path.join(agentDir, "extensions");
+  const globalExtDir = path.join(resolvedAgentDir, "extensions");
   addPaths(discoverExtensionsInDir(globalExtDir));
 
   // 3. Explicitly configured paths
   for (const p of configuredPaths) {
-    const resolved = resolvePath(p, cwd);
+    const resolved = resolvePath(p, resolvedCwd, { normalizeUnicodeSpaces: true });
     if (fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()) {
       // Check for package.json with pi manifest or index.ts
       const entries = resolveExtensionEntries(resolved);
@@ -729,5 +709,6 @@ export async function discoverAndLoadExtensions(
     addPaths([resolved]);
   }
 
-  return loadExtensions(allPaths, cwd, eventBus);
+  return loadExtensions(allPaths, resolvedCwd, eventBus);
+
 }

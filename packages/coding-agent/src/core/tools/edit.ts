@@ -13,6 +13,7 @@ import {
 	type EditDiffError,
 	type EditDiffResult,
 	generateDiffString,
+	generateUnifiedPatch,
 	normalizeToLF,
 	restoreLineEndings,
 	stripBom,
@@ -57,8 +58,10 @@ type LegacyEditToolInput = EditToolInput & {
 };
 
 export interface EditToolDetails {
-	/** Unified diff of the changes made */
+	/** Display-oriented diff of the changes made */
 	diff: string;
+	/** Standard unified patch of the changes made */
+	patch: string;
 	/** Line number of the first change in the new file (for editor navigation) */
 	firstChangedLine?: number;
 }
@@ -310,112 +313,56 @@ export function createEditToolDefinition(
 			const { path, edits } = validateEditInput(input);
 			const absolutePath = resolveToCwd(path, cwd);
 
-			return withFileMutationQueue(
-				absolutePath,
-				() =>
-					new Promise<{
-						content: Array<{ type: "text"; text: string }>;
-						details: EditToolDetails | undefined;
-					}>((resolve, reject) => {
-						// Check if already aborted.
-						if (signal?.aborted) {
-							reject(new Error("Operation aborted"));
-							return;
-						}
+			return withFileMutationQueue(absolutePath, async () => {
+				// Do not reject from an abort event listener here: that would release the
+				// mutation queue while an in-flight filesystem operation may still finish.
+				// Checking signal.aborted after each await observes the same aborts while
+				// keeping the queue locked until the current operation has settled.
+				const throwIfAborted = (): void => {
+					if (signal?.aborted) throw new Error("Operation aborted");
+				};
 
-						let aborted = false;
+				throwIfAborted();
 
-						// Set up abort handler.
-						const onAbort = () => {
-							aborted = true;
-							reject(new Error("Operation aborted"));
-						};
+				// Check if file exists.
+				try {
+					await ops.access(absolutePath);
+				} catch (error: unknown) {
+					throwIfAborted();
+					const errorMessage =
+						error instanceof Error && "code" in error ? `Error code: ${error.code}` : String(error);
+					throw new Error(`Could not edit file: ${path}. ${errorMessage}.`);
+				}
+				throwIfAborted();
 
-						if (signal) {
-							signal.addEventListener("abort", onAbort, { once: true });
-						}
+				// Read the file.
+				const buffer = await ops.readFile(absolutePath);
+				const rawContent = buffer.toString("utf-8");
+				throwIfAborted();
 
-						// Perform the edit operation.
-						void (async () => {
-							try {
-								// Check if file exists.
-								try {
-									await ops.access(absolutePath);
-								} catch (error: unknown) {
-									const errorMessage =
-										error instanceof Error && "code" in error ? `Error code: ${error.code}` : String(error);
-									if (signal) {
-										signal.removeEventListener("abort", onAbort);
-									}
-									reject(new Error(`Could not edit file: ${path}. ${errorMessage}.`));
-									return;
-								}
+				// Strip BOM before matching. The model will not include an invisible BOM in oldText.
+				const { bom, text: content } = stripBom(rawContent);
+				const originalEnding = detectLineEnding(content);
+				const normalizedContent = normalizeToLF(content);
+				const { baseContent, newContent } = applyEditsToNormalizedContent(normalizedContent, edits, path);
+				throwIfAborted();
 
-								// Check if aborted before reading.
-								if (aborted) {
-									return;
-								}
+				const finalContent = bom + restoreLineEndings(newContent, originalEnding);
+				await ops.writeFile(absolutePath, finalContent);
+				throwIfAborted();
 
-								// Read the file.
-								const buffer = await ops.readFile(absolutePath);
-								const rawContent = buffer.toString("utf-8");
-
-								// Check if aborted after reading.
-								if (aborted) {
-									return;
-								}
-
-								// Strip BOM before matching. The model will not include an invisible BOM in oldText.
-								const { bom, text: content } = stripBom(rawContent);
-								const originalEnding = detectLineEnding(content);
-								const normalizedContent = normalizeToLF(content);
-								const { baseContent, newContent } = applyEditsToNormalizedContent(
-									normalizedContent,
-									edits,
-									path,
-								);
-
-								// Check if aborted before writing.
-								if (aborted) {
-									return;
-								}
-
-								const finalContent = bom + restoreLineEndings(newContent, originalEnding);
-								await ops.writeFile(absolutePath, finalContent);
-
-								// Check if aborted after writing.
-								if (aborted) {
-									return;
-								}
-
-								// Clean up abort handler.
-								if (signal) {
-									signal.removeEventListener("abort", onAbort);
-								}
-
-								const diffResult = generateDiffString(baseContent, newContent);
-								resolve({
-									content: [
-										{
-											type: "text",
-											text: `Successfully replaced ${edits.length} block(s) in ${path}.`,
-										},
-									],
-									details: { diff: diffResult.diff, firstChangedLine: diffResult.firstChangedLine },
-								});
-							} catch (error: unknown) {
-								// Clean up abort handler.
-								if (signal) {
-									signal.removeEventListener("abort", onAbort);
-								}
-
-								if (!aborted) {
-									reject(error instanceof Error ? error : new Error(String(error)));
-								}
-							}
-						})();
-					}),
-			);
+				const diffResult = generateDiffString(baseContent, newContent);
+				const patch = generateUnifiedPatch(path, baseContent, newContent);
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Successfully replaced ${edits.length} block(s) in ${path}.`,
+						},
+					],
+					details: { diff: diffResult.diff, patch, firstChangedLine: diffResult.firstChangedLine },
+				};
+			});
 		},
 		renderCall(args, theme, context) {
 			const component = getEditCallRenderComponent(context.state, context.lastComponent);

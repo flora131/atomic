@@ -1,5 +1,4 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import chalk from "chalk";
 import { getAgentDir, getAgentDirs, getProjectConfigDirs } from "../config.ts";
@@ -8,7 +7,7 @@ import type { ResourceDiagnostic } from "./diagnostics.ts";
 
 export type { ResourceCollision, ResourceDiagnostic } from "./diagnostics.ts";
 
-import { canonicalizePath, isLocalPath } from "../utils/paths.ts";
+import { canonicalizePath, isLocalPath, resolvePath } from "../utils/paths.ts";
 import { createEventBus, type EventBus } from "./event-bus.ts";
 import { createExtensionRuntime, loadExtensionFromFactory, loadExtensions } from "./extensions/loader.ts";
 import type { Extension, ExtensionFactory, ExtensionRuntime, LoadExtensionsResult } from "./extensions/types.ts";
@@ -77,8 +76,8 @@ export function loadProjectContextFiles(options: {
 	cwd: string;
 	agentDir: string;
 }): Array<{ path: string; content: string }> {
-	const resolvedCwd = options.cwd;
-	const resolvedAgentDir = options.agentDir;
+	const resolvedCwd = resolvePath(options.cwd);
+	const resolvedAgentDir = resolvePath(options.agentDir);
 
 	const contextFiles: Array<{ path: string; content: string }> = [];
 	const seenPaths = new Set<string>();
@@ -212,8 +211,8 @@ export class DefaultResourceLoader implements ResourceLoader {
 	private lastThemePaths: string[];
 
 	constructor(options: DefaultResourceLoaderOptions) {
-		this.cwd = options.cwd;
-		this.agentDir = options.agentDir;
+		this.cwd = resolvePath(options.cwd);
+		this.agentDir = resolvePath(options.agentDir);
 		this.settingsManager = options.settingsManager ?? SettingsManager.create(this.cwd, this.agentDir);
 		this.eventBus = options.eventBus ?? createEventBus();
 		this.packageManager = new DefaultPackageManager({
@@ -437,8 +436,11 @@ export class DefaultResourceLoader implements ResourceLoader {
 		}
 
 		for (const p of this.additionalExtensionPaths) {
-			if (isLocalPath(p) && !existsSync(p)) {
-				extensionsResult.errors.push({ path: p, error: `Extension path does not exist: ${p}` });
+			if (isLocalPath(p)) {
+				const resolved = this.resolveResourcePath(p);
+				if (!existsSync(resolved)) {
+					extensionsResult.errors.push({ path: resolved, error: `Extension path does not exist: ${resolved}` });
+				}
 			}
 		}
 		this.extensionsResult = this.extensionsOverride ? this.extensionsOverride(extensionsResult) : extensionsResult;
@@ -454,8 +456,11 @@ export class DefaultResourceLoader implements ResourceLoader {
 		this.lastSkillPaths = skillPaths;
 		this.updateSkillsFromPaths(skillPaths, metadataByPath);
 		for (const p of this.additionalSkillPaths) {
-			if (isLocalPath(p) && !existsSync(p) && !this.skillDiagnostics.some((d) => d.path === p)) {
-				this.skillDiagnostics.push({ type: "error", message: "Skill path does not exist", path: p });
+			if (isLocalPath(p)) {
+				const resolved = this.resolveResourcePath(p);
+				if (!existsSync(resolved) && !this.skillDiagnostics.some((d) => d.path === resolved)) {
+					this.skillDiagnostics.push({ type: "error", message: "Skill path does not exist", path: resolved });
+				}
 			}
 		}
 
@@ -469,8 +474,15 @@ export class DefaultResourceLoader implements ResourceLoader {
 		this.lastPromptPaths = promptPaths;
 		this.updatePromptsFromPaths(promptPaths, metadataByPath);
 		for (const p of this.additionalPromptTemplatePaths) {
-			if (isLocalPath(p) && !existsSync(p) && !this.promptDiagnostics.some((d) => d.path === p)) {
-				this.promptDiagnostics.push({ type: "error", message: "Prompt template path does not exist", path: p });
+			if (isLocalPath(p)) {
+				const resolved = this.resolveResourcePath(p);
+				if (!existsSync(resolved) && !this.promptDiagnostics.some((d) => d.path === resolved)) {
+					this.promptDiagnostics.push({
+						type: "error",
+						message: "Prompt template path does not exist",
+						path: resolved,
+					});
+				}
 			}
 		}
 
@@ -484,8 +496,9 @@ export class DefaultResourceLoader implements ResourceLoader {
 		this.lastThemePaths = themePaths;
 		this.updateThemesFromPaths(themePaths, metadataByPath);
 		for (const p of this.additionalThemePaths) {
-			if (!existsSync(p) && !this.themeDiagnostics.some((d) => d.path === p)) {
-				this.themeDiagnostics.push({ type: "error", message: "Theme path does not exist", path: p });
+			const resolved = this.resolveResourcePath(p);
+			if (!existsSync(resolved) && !this.themeDiagnostics.some((d) => d.path === resolved)) {
+				this.themeDiagnostics.push({ type: "error", message: "Theme path does not exist", path: resolved });
 			}
 		}
 
@@ -515,10 +528,15 @@ export class DefaultResourceLoader implements ResourceLoader {
 	private normalizeExtensionPaths(
 		entries: Array<{ path: string; metadata: PathMetadata }>,
 	): Array<{ path: string; metadata: PathMetadata }> {
-		return entries.map((entry) => ({
-			path: this.resolveResourcePath(entry.path),
-			metadata: entry.metadata,
-		}));
+		return entries.map((entry) => {
+			const metadata = entry.metadata.baseDir
+				? { ...entry.metadata, baseDir: this.resolveResourcePath(entry.metadata.baseDir) }
+				: entry.metadata;
+			return {
+				path: this.resolveResourcePath(entry.path),
+				metadata,
+			};
+		});
 	}
 
 	private updateSkillsFromPaths(skillPaths: string[], metadataByPath?: Map<string, PathMetadata>): void {
@@ -711,16 +729,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 	}
 
 	private resolveResourcePath(p: string): string {
-		const trimmed = p.trim();
-		let expanded = trimmed;
-		if (trimmed === "~") {
-			expanded = homedir();
-		} else if (trimmed.startsWith("~/")) {
-			expanded = join(homedir(), trimmed.slice(2));
-		} else if (trimmed.startsWith("~")) {
-			expanded = join(homedir(), trimmed.slice(1));
-		}
-		return resolve(this.cwd, expanded);
+		return resolvePath(p, this.cwd, { trim: true });
 	}
 
 	private loadThemes(
@@ -744,7 +753,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		}
 
 		for (const p of paths) {
-			const resolved = resolve(this.cwd, p);
+			const resolved = this.resolveResourcePath(p);
 			if (!existsSync(resolved)) {
 				diagnostics.push({ type: "warning", message: "theme path does not exist", path: resolved });
 				continue;

@@ -24,6 +24,7 @@ import { type Static, Type } from "typebox";
 import { Compile } from "typebox/compile";
 import type { TLocalizedValidationError } from "typebox/error";
 import { getAgentConfigPaths } from "../config.ts";
+import { normalizePath } from "../utils/paths.ts";
 import type { AuthStatus, AuthStorage } from "./auth-storage.ts";
 import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "./provider-display-names.ts";
 import {
@@ -126,6 +127,9 @@ const OpenAIResponsesCompatSchema = Type.Object({
 const AnthropicMessagesCompatSchema = Type.Object({
 	supportsEagerToolInputStreaming: Type.Optional(Type.Boolean()),
 	supportsLongCacheRetention: Type.Optional(Type.Boolean()),
+	sendSessionAffinityHeaders: Type.Optional(Type.Boolean()),
+	supportsCacheControlOnTools: Type.Optional(Type.Boolean()),
+	forceAdaptiveThinking: Type.Optional(Type.Boolean()),
 });
 
 const ProviderCompatSchema = Type.Union([
@@ -337,12 +341,12 @@ export class ModelRegistry {
 	declare readonly authStorage: AuthStorage;
 	declare private modelsJsonPaths: string[];
 
-private constructor(
+	private constructor(
 		authStorage: AuthStorage,
 		modelsJsonPaths: string[],
 	) {
 		this.authStorage = authStorage;
-		this.modelsJsonPaths = modelsJsonPaths;
+		this.modelsJsonPaths = modelsJsonPaths.map((path) => normalizePath(path));
 		this.loadModels();
 	}
 

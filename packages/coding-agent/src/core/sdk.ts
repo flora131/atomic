@@ -12,6 +12,7 @@ import {
   streamSimple,
 } from "@earendil-works/pi-ai";
 import { APP_NAME, getAgentDir } from "../config.ts";
+import { resolvePath } from "../utils/paths.ts";
 import { AgentSession } from "./agent-session.ts";
 import { formatNoModelsAvailableMessage } from "./auth-guidance.ts";
 import { AuthStorage } from "./auth-storage.ts";
@@ -153,7 +154,15 @@ function isHostOrSubdomain(rawUrl: string, host: string): boolean {
 function getAttributionHeaders(
   model: Model<Api>,
   settingsManager: SettingsManager,
+  sessionId?: string,
 ): Record<string, string> | undefined {
+  if (
+    sessionId &&
+    (model.provider === "opencode" || model.provider === "opencode-go" || isHostOrSubdomain(model.baseUrl, "opencode.ai"))
+  ) {
+    return { "x-opencode-session": sessionId, "x-opencode-client": APP_NAME };
+  }
+
   if (!isInstallTelemetryEnabled(settingsManager)) {
     return undefined;
   }
@@ -221,8 +230,8 @@ function getAttributionHeaders(
 export async function createAgentSession(
   options: CreateAgentSessionOptions = {},
 ): Promise<CreateAgentSessionResult> {
-  const cwd = options.cwd ?? options.sessionManager?.getCwd() ?? process.cwd();
-  const agentDir = options.agentDir ?? getDefaultAgentDir();
+  const cwd = resolvePath(options.cwd ?? options.sessionManager?.getCwd() ?? process.cwd());
+  const agentDir = options.agentDir ? resolvePath(options.agentDir) : getDefaultAgentDir();
   let resourceLoader = options.resourceLoader;
 
   // Use provided or create AuthStorage and ModelRegistry
@@ -384,7 +393,7 @@ export async function createAgentSession(
         throw new Error(auth.error);
       }
       const providerRetrySettings = settingsManager.getProviderRetrySettings();
-      const attributionHeaders = getAttributionHeaders(model, settingsManager);
+      const attributionHeaders = getAttributionHeaders(model, settingsManager, options?.sessionId);
       return streamSimple(model, context, {
         ...options,
         apiKey: auth.apiKey,

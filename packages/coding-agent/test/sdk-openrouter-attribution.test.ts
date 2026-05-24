@@ -9,6 +9,7 @@ import {
 	type SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { APP_NAME } from "../src/config.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { ModelRegistry } from "../src/core/model-registry.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
@@ -86,6 +87,7 @@ describe("createAgentSession OpenRouter attribution headers", () => {
 			telemetryEnabled?: boolean;
 			providerHeaders?: Record<string, string>;
 			requestHeaders?: Record<string, string>;
+			sessionId?: string;
 		} = {},
 	): Promise<Record<string, string> | undefined> {
 		const settingsManager = SettingsManager.create(cwd, agentDir);
@@ -112,6 +114,11 @@ describe("createAgentSession OpenRouter attribution headers", () => {
 			registeredProviders.push(model.provider);
 		}
 
+		const sessionManager = SessionManager.inMemory(cwd);
+		if (options.sessionId) {
+			sessionManager.newSession({ id: options.sessionId });
+		}
+
 		const { session } = await createAgentSession({
 			cwd,
 			agentDir,
@@ -119,14 +126,17 @@ describe("createAgentSession OpenRouter attribution headers", () => {
 			authStorage,
 			modelRegistry,
 			settingsManager,
-			sessionManager: SessionManager.inMemory(cwd),
+			sessionManager,
 		});
 
 		try {
 			await session.agent.streamFn(
 				model,
 				{ messages: [] },
-				options.requestHeaders ? { headers: options.requestHeaders } : undefined,
+				{
+					sessionId: session.sessionId,
+					...(options.requestHeaders ? { headers: options.requestHeaders } : {}),
+				},
 			);
 			return capturedOptions?.headers;
 		} finally {
@@ -177,5 +187,27 @@ describe("createAgentSession OpenRouter attribution headers", () => {
 		expect(headers?.["HTTP-Referer"]).toBe("https://provider.example");
 		expect(headers?.["X-OpenRouter-Title"]).toBe("request-title");
 		expect(headers?.["X-OpenRouter-Categories"]).toBe("provider-category");
+	});
+
+	it("adds OpenCode session headers", async () => {
+		const headers = await captureHeaders(createModel("opencode", "https://opencode.ai/zen/v1"), {
+			sessionId: "opencode-session",
+		});
+
+		expect(headers?.["x-opencode-session"]).toBe("opencode-session");
+		expect(headers?.["x-opencode-client"]).toBe(APP_NAME);
+	});
+
+	it("lets configured OpenCode headers override the defaults", async () => {
+		const headers = await captureHeaders(createModel("opencode", "https://opencode.ai/zen/v1"), {
+			sessionId: "opencode-session",
+			providerHeaders: {
+				"x-opencode-session": "configured-session",
+				"x-opencode-client": "configured-client",
+			},
+		});
+
+		expect(headers?.["x-opencode-session"]).toBe("configured-session");
+		expect(headers?.["x-opencode-client"]).toBe("configured-client");
 	});
 });

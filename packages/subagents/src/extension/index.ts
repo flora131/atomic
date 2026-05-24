@@ -312,7 +312,7 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 			text += `\n  ${theme.fg("dim", `⎿  ${line}`)}`;
 		}
 		if (!options.expanded && trimmedPreview.includes("\n")) {
-			text += `\n  ${theme.fg("dim", "Ctrl+O full notification")}`;
+			text += `\n  ${theme.fg("dim", "ctrl+o full notification")}`;
 		}
 		if (details.sessionLabel && details.sessionValue) {
 			text += `\n  ${theme.fg("muted", `${details.sessionLabel}: ${shortenPath(details.sessionValue)}`)}`;

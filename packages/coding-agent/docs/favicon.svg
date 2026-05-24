@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-labelledby="title desc">
+  <title id="title">Atomic favicon</title>
+  <desc id="desc">An upside-down block A in Atomic's Catppuccin Mocha terminal style.</desc>
+  <rect width="32" height="32" rx="7" fill="#1e1e2e" />
+  <path d="M1 8.5A7.5 7.5 0 0 1 8.5 1H23.5A7.5 7.5 0 0 1 31 8.5V23.5A7.5 7.5 0 0 1 23.5 31H8.5A7.5 7.5 0 0 1 1 23.5Z" fill="none" stroke="#313244" stroke-width="2" />
+
+  <!-- TUI-style drop shadow, matching the banner's dim offset cells. -->
+  <g fill="#45475a" opacity="0.72" shape-rendering="crispEdges">
+    <path d="M6 7H12L18 26H13Z" />
+    <path d="M22 7H28L21 26H16Z" />
+    <path d="M9 15H25L24 19H10Z" />
+    <path d="M13 24H21L19 28H15Z" />
+  </g>
+
+  <!-- Upside-down Atomic A / forall mark, adapted from the terminal banner. -->
+  <g fill="#89b4fa" shape-rendering="crispEdges">
+    <path d="M5 6H11L17 25H12Z" />
+    <path d="M21 6H27L20 25H15Z" />
+    <path d="M8 14H24L23 18H9Z" />
+    <path d="M12 23H20L18 27H14Z" />
+  </g>
+
+  <!-- Subtle block highlight for the same solid-cell texture as the TUI logo. -->
+  <g fill="#cdd6f4" opacity="0.18" shape-rendering="crispEdges">
+    <rect x="7" y="7" width="4" height="2" />
+    <rect x="21" y="7" width="4" height="2" />
+    <rect x="9" y="14" width="6" height="1" />
+  </g>
+</svg>

@@ -2,6 +2,8 @@
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
   "name": "Atomic",
+  "logo": "/logo.svg",
+  "favicon": "/favicon.svg",
   "colors": {
     "primary": "#2563EB",
     "light": "#60A5FA",

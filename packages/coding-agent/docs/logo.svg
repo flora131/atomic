@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="648" height="160" viewBox="0 0 648 160" role="img" aria-labelledby="title desc">
+  <title id="title">Atomic</title>
+  <desc id="desc">Atomic wordmark with the blocky terminal favicon mark shown to the left of the title.</desc>
+  <defs>
+    <style>
+      .tile-bg { fill: #ffffff; }
+      .tile-border { stroke: #e5e7eb; }
+      .cell-shadow { fill: #cbd5e1; opacity: 0.42; }
+      .atomic-mark { fill: #2563eb; }
+      .cell-highlight { fill: #111827; opacity: 0.1; }
+      .wordmark { fill: #111827; }
+
+      @media (prefers-color-scheme: dark) {
+        .tile-bg { fill: #1e1e2e; }
+        .tile-border { stroke: #313244; }
+        .cell-shadow { fill: #45475a; opacity: 0.72; }
+        .atomic-mark { fill: #89b4fa; }
+        .cell-highlight { fill: #cdd6f4; opacity: 0.18; }
+        .wordmark { fill: #cdd6f4; }
+      }
+    </style>
+    <clipPath id="tile-clip">
+      <rect x="0" y="0" width="160" height="160" rx="35" />
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#tile-clip)">
+    <g transform="scale(5)">
+      <rect class="tile-bg" width="32" height="32" />
+      <path class="tile-border" d="M1 8.5A7.5 7.5 0 0 1 8.5 1H23.5A7.5 7.5 0 0 1 31 8.5V23.5A7.5 7.5 0 0 1 23.5 31H8.5A7.5 7.5 0 0 1 1 23.5Z" fill="none" stroke-width="2" />
+
+      <!-- TUI-style dim cell shadow, offset one block down and right. -->
+      <g class="cell-shadow" shape-rendering="crispEdges">
+        <path d="M6 7H12L18 26H13Z" />
+        <path d="M22 7H28L21 26H16Z" />
+        <path d="M9 15H25L24 19H10Z" />
+        <path d="M13 24H21L19 28H15Z" />
+        <rect x="14" y="22" width="7" height="2" />
+      </g>
+
+      <!-- Upside-down Atomic A / forall mark, matched to the favicon's Catppuccin blue. -->
+      <g class="atomic-mark" shape-rendering="crispEdges">
+        <path d="M5 6H11L17 25H12Z" />
+        <path d="M21 6H27L20 25H15Z" />
+        <path d="M8 14H24L23 18H9Z" />
+        <path d="M12 23H20L18 27H14Z" />
+      </g>
+
+      <!-- Solid-cell highlight to preserve the low-resolution terminal texture. -->
+      <g class="cell-highlight" shape-rendering="crispEdges">
+        <rect x="7" y="7" width="4" height="2" />
+        <rect x="21" y="7" width="4" height="2" />
+        <rect x="9" y="14" width="6" height="1" />
+      </g>
+    </g>
+  </g>
+
+  <text class="wordmark" x="208" y="110" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="96" font-weight="700" letter-spacing="-0.01em">Atomic</text>
+</svg>

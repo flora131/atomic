@@ -167,10 +167,37 @@ test("card (live): Submit section reviews inputs and offers visible actions", ()
   assert.match(txt, /● prompt/);
   assert.match(txt, /→ build me a tui/);
   assert.match(txt, /Ready to submit your inputs\?/);
+  assert.match(txt, /● verbose\n\s+→ off/);
+  assert.doesNotMatch(txt, /→ false/);
   assert.match(txt, /❯ 1\. Submit answers/);
   assert.match(txt, /2\. Cancel/);
   assert.doesNotMatch(txt, /Chat about this/);
   assert.doesNotMatch(txt, /ctrl\+x/);
+});
+
+test("card (live): wraps invalid Submit prompt instead of clipping", () => {
+  const fields: readonly WorkflowInputEntry[] = [
+    { name: "alpha_required_prompt", type: "string", required: true },
+    { name: "beta_required_context", type: "string", required: true },
+  ];
+  const state = makeState({
+    fields,
+    rawText: { alpha_required_prompt: "", beta_required_context: "" },
+    focusedIdx: fields.length,
+    caret: 0,
+  });
+  const width = 32;
+  const lines = renderInlineCard({ width, state, theme: deriveGraphTheme({}) });
+  const plainLines = lines.map((line) => plain([line]));
+  const txt = plainLines.join("\n");
+  assert.match(txt, /Answer remaining inputs before/);
+  assert.match(txt, /submitting:/);
+  assert.match(txt, /alpha_required_prompt/);
+  assert.match(txt, /beta_required_context/);
+  const promptStart = plainLines.findIndex((line) => line.startsWith("Answer remaining"));
+  const promptLines = plainLines.slice(promptStart, promptStart + 4).join("\n");
+  assert.doesNotMatch(promptLines, /…/);
+  assertLinesWithinWidth(lines, width);
 });
 
 test("card (live): Submit review preserves multiline values", () => {
@@ -382,6 +409,7 @@ test("editor: Submit section validates and submits via visible row", () => {
   missing.editor.handleInput("\r");
   assert.equal(missing.getExited(), null);
   assert.equal(missing.state.focusedIdx, 0);
+  assert.equal(missing.state.submitChoiceIdx, 0);
   missing.dispose();
 
   const state = makeState({

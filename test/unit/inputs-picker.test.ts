@@ -226,6 +226,7 @@ test("Submit tab with missing required fields focuses invalid", () => {
   const action = handleInputsPickerInput("\r", s, FIELDS, KB);
   assert.deepEqual(action, { kind: "noop" });
   assert.equal(s.focusedIdx, 0);
+  assert.equal(s.submitChoiceIdx, 0);
   assert.deepEqual(s.invalidIndices, [0]);
 });
 
@@ -355,10 +356,42 @@ test("renderInputsPicker shows a Submit section instead of a confirm modal", () 
   assert.match(joined, /● prompt/);
   assert.match(joined, /→ build a tui/);
   assert.match(joined, /Ready to submit your inputs\?/);
+  assert.match(joined, /● verbose\n\s+→ off/);
+  assert.doesNotMatch(joined, /→ false/);
   assert.match(joined, /❯ 1\. Submit answers/);
   assert.match(joined, /2\. Cancel/);
   assert.doesNotMatch(joined, /ready to run/);
   assert.doesNotMatch(joined, /ctrl\+x/);
+});
+
+test("renderInputsPicker wraps invalid Submit prompt instead of clipping", () => {
+  const theme = deriveGraphTheme({});
+  const fields: WorkflowInputEntry[] = [
+    { name: "alpha_required_prompt", type: "string", required: true },
+    { name: "beta_required_context", type: "string", required: true },
+  ];
+  const state = createInputsPickerState(fields);
+  state.focusedIdx = fields.length;
+  const width = 32;
+  const lines = renderInputsPicker({
+    width,
+    theme,
+    workflowName: "ralph",
+    fields,
+    state,
+    cursorOn: true,
+  });
+  // eslint-disable-next-line no-control-regex
+  const plainLines = lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, ""));
+  const joined = plainLines.join("\n");
+  assert.match(joined, /Answer remaining inputs before/);
+  assert.match(joined, /submitting:/);
+  assert.match(joined, /alpha_required_prompt/);
+  assert.match(joined, /beta_required_context/);
+  const promptStart = plainLines.findIndex((line) => line.startsWith("Answer remaining"));
+  const promptLines = plainLines.slice(promptStart, promptStart + 4).join("\n");
+  assert.doesNotMatch(promptLines, /…/);
+  for (const line of plainLines) assert.ok(line.length <= width, `row exceeds width: ${JSON.stringify(line)}`);
 });
 
 test("renderInputsPicker preserves multiline values in Submit review", () => {

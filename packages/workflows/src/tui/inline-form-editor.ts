@@ -16,7 +16,7 @@
  *   space               — boolean toggle
  *   enter               — newline (text) | otherwise next field
  *   printable ASCII     — insert at caret (text/string/number)
- *   submit section      — enter submits or cancels via visible rows
+ *   submit section      — ↑/↓ moves rows; 1/2 selects; enter commits row
  *   esc / ctrl+c        — cancel form
  *
  * Editor-mode keys (cursor movement, word jumps, deletions) route through
@@ -461,7 +461,7 @@ export class InlineFormEditor implements PiEditorComponent {
 
   private handleSubmit(data: string, state: InlineFormState): boolean {
     if (matchesAction(this.kb, data, TUI_ACTION.selectUp) || matchesAction(this.kb, data, TUI_ACTION.editorCursorUp)) {
-      state.submitChoiceIdx = (state.submitChoiceIdx - 1 + 2) % 2;
+      state.submitChoiceIdx = 1 - state.submitChoiceIdx;
       return true;
     }
     if (matchesAction(this.kb, data, TUI_ACTION.selectDown) || matchesAction(this.kb, data, TUI_ACTION.editorCursorDown)) {
@@ -716,6 +716,7 @@ export class InlineFormEditor implements PiEditorComponent {
       return f.type === "select" && Boolean(f.choices) && v !== "" && !f.choices!.includes(v);
     });
     if (idx < 0) return;
+    state.submitChoiceIdx = 0;
     state.focusedIdx = idx;
     state.caret = (state.rawText[state.fields[idx]!.name] ?? "").length;
   }

@@ -35,14 +35,17 @@ import type { GraphTheme } from "./graph-theme.js";
 import { paint } from "./color-utils.js";
 import {
   decodePrintableKey,
-  formatReviewValue,
   Key,
   matchesKey,
-  renderWrappedPrefixedLines,
   truncateToWidth,
   visibleWidth,
   wrapPlainText,
 } from "./text-helpers.js";
+import {
+  renderAskChoiceRows,
+  renderSubmitControls as renderSharedSubmitControls,
+  renderSubmitReview,
+} from "./submit-pane.js";
 import {
   type KeybindingsLike,
   TUI_ACTION,
@@ -742,28 +745,6 @@ function renderAskStyleInputBody(
   return renderAskInputRows(field, raw, caret, cursorOn, theme, width);
 }
 
-function renderAskChoiceRows(
-  index: number,
-  label: string,
-  active: boolean,
-  theme: GraphTheme,
-  width: number,
-): string[] {
-  const plainPrefix = `${active ? "❯ " : "  "}${index}. `;
-  const firstPrefix = `${active ? paint("❯ ", theme.accent) : "  "}${index}. `;
-  const continuationPrefix = " ".repeat(visibleWidth(plainPrefix));
-  return renderWrappedPrefixedLines({
-    text: label,
-    width,
-    plainPrefix,
-    firstPrefix,
-    continuationPrefix,
-    styleLine: (line) => active
-      ? paint(line, theme.accent, { bold: true })
-      : paint(line, theme.textMuted),
-  });
-}
-
 function renderAskInputRows(
   field: WorkflowInputEntry,
   raw: string,
@@ -849,7 +830,7 @@ export function renderInputsPicker(opts: InputsPickerRenderOpts): string[] {
     lines.push(...renderActiveInputField(activeField, raw, state.caret, cursorOn, invalid, theme, width));
     lines.push("");
   } else {
-    lines.push(...renderSubmitReview(workflowName, fields, state, theme, width));
+    lines.push(...renderSubmitReview({ workflowName, fields, rawText: state.rawText, theme, width }));
     lines.push("");
   }
 
@@ -869,34 +850,6 @@ function renderFooterHints(width: number, theme: GraphTheme): string {
   return paint(truncateToWidth(hint, width, "…"), theme.dim);
 }
 
-function renderSubmitReview(
-  workflowName: string,
-  fields: readonly WorkflowInputEntry[],
-  state: InputsPickerState,
-  theme: GraphTheme,
-  width: number,
-): string[] {
-  const out: string[] = [paint("Review your inputs", theme.accent, { bold: true }), ""];
-  out.push(truncateToWidth(paint("/workflow ", theme.dim) + paint(workflowName, theme.text), width, "…", true));
-  for (const field of fields) {
-    out.push(truncateToWidth(paint(" ● ", theme.dim) + paint(field.name, theme.textMuted), width, "…", true));
-    out.push(...renderReviewValueRows(String(state.rawText[field.name] ?? ""), theme, width));
-  }
-  return out;
-}
-
-function renderReviewValueRows(raw: string, theme: GraphTheme, width: number): string[] {
-  const plainPrefix = "   → ";
-  const firstPrefix = "   " + paint("→ ", theme.dim);
-  return renderWrappedPrefixedLines({
-    text: formatReviewValue(raw),
-    width,
-    plainPrefix,
-    firstPrefix,
-    styleLine: (line) => paint(line, theme.text),
-  });
-}
-
 function renderSubmitControls(
   fields: readonly WorkflowInputEntry[],
   state: InputsPickerState,
@@ -904,20 +857,13 @@ function renderSubmitControls(
   width: number,
 ): string[] {
   const invalid = computeInvalid(fields, state.rawText);
-  const prompt = invalid.length === 0
-    ? paint("Ready to submit your inputs?", theme.textMuted)
-    : paint(
-        `Answer remaining inputs before submitting: ${invalid.map((i) => fields[i]?.name ?? `#${i + 1}`).join(", ")}`,
-        theme.warning,
-      );
-  return [
-    prompt,
-    "",
-    ...renderAskChoiceRows(1, "Submit answers", state.submitChoiceIdx === 0, theme, width),
-    ...renderAskChoiceRows(2, "Cancel", state.submitChoiceIdx === 1, theme, width),
-    "",
-    renderFooterHints(width, theme),
-  ];
+  return renderSharedSubmitControls({
+    invalidFieldNames: invalid.map((i) => fields[i]!.name),
+    submitChoiceIdx: state.submitChoiceIdx,
+    theme,
+    width,
+    footerHint: renderFooterHints(width, theme),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -935,9 +881,14 @@ function renderSubmitControls(
  *   shift+tab        — previous input field / Submit section
  *   left / right     — select: cycle choices; boolean: flip; text: caret
  *   space            — boolean: flip
- *   enter            — text: newline; otherwise: next field; Submit section: select row
+ *   enter            — text: newline; otherwise: next field
  *   backspace        — delete char left of caret
  *   esc / ctrl+c     — close picker without running
+ *
+ * Keys (Submit pane):
+ *   up / down        — move between Submit answers and Cancel rows
+ *   1 / 2            — choose Submit answers / Cancel immediately
+ *   enter            — commit the active Submit/Cancel row
  */
 export function handleInputsPickerInput(
   key: string,
@@ -1161,7 +1112,7 @@ function handleSubmitKey(
   kb: KeybindingsLike | undefined,
 ): InputsPickerAction {
   if (matchesAction(kb, key, TUI_ACTION.selectUp) || matchesAction(kb, key, TUI_ACTION.editorCursorUp)) {
-    state.submitChoiceIdx = (state.submitChoiceIdx - 1 + 2) % 2;
+    state.submitChoiceIdx = 1 - state.submitChoiceIdx;
     return { kind: "noop" };
   }
   if (matchesAction(kb, key, TUI_ACTION.selectDown) || matchesAction(kb, key, TUI_ACTION.editorCursorDown)) {
@@ -1197,6 +1148,7 @@ function attemptPickerSubmit(
   const invalid = computeInvalid(fields, state.rawText);
   if (invalid.length > 0) {
     state.invalidIndices = invalid;
+    state.submitChoiceIdx = 0;
     state.focusedIdx = invalid[0]!;
     state.caret = (state.rawText[fields[state.focusedIdx]!.name] ?? "").length;
     return { kind: "noop" };

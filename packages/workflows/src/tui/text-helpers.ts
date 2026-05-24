@@ -81,7 +81,11 @@ export function formatReviewValue(value: string): string {
   return trimmed.length === 0 ? "<empty>" : trimmed;
 }
 
-/** Wrap plain text by terminal cell width while preserving paragraph breaks. */
+/**
+ * Wrap plain text by terminal cell width while preserving paragraph breaks.
+ * Within each paragraph, runs of whitespace collapse to a single space; this
+ * keeps labels/descriptions readable but is not intended for preformatted text.
+ */
 export function wrapPlainText(text: string, width: number): string[] {
   const budget = Math.max(1, Math.floor(width));
   const out: string[] = [];

@@ -37,12 +37,15 @@ import type { GraphTheme } from "./graph-theme.js";
 import { invalidForField } from "./inputs-picker.js";
 import { paint } from "./color-utils.js";
 import {
-  formatReviewValue,
-  renderWrappedPrefixedLines,
   truncateToWidth,
   visibleWidth,
   wrapPlainText,
 } from "./text-helpers.js";
+import {
+  renderAskChoiceRows,
+  renderSubmitControls as renderSharedSubmitControls,
+  renderSubmitReview,
+} from "./submit-pane.js";
 
 export interface InlineCardOpts {
   width: number;
@@ -122,7 +125,13 @@ function renderEditingCard(opts: InlineCardOpts): string[] {
     lines.push(...renderActiveField(activeField, raw, state.caret, theme, width));
     lines.push("");
   } else {
-    lines.push(...renderSubmitReview(state, theme, width));
+    lines.push(...renderSubmitReview({
+      workflowName: state.workflowName,
+      fields: state.fields,
+      rawText: state.rawText,
+      theme,
+      width,
+    }));
     lines.push("");
   }
 
@@ -206,76 +215,31 @@ function renderAskStyleFieldBody(
 ): string[] {
   if (field.type === "select" && field.choices && field.choices.length > 0) {
     const selected = Math.max(0, field.choices.indexOf(raw));
-    return field.choices.flatMap((choice, i) => renderAskRows(i + 1, choice, i === selected, theme, width));
+    return field.choices.flatMap((choice, i) => renderAskChoiceRows(i + 1, choice, i === selected, theme, width));
   }
 
   if (field.type === "boolean") {
     const on = raw === "true";
     return [
-      ...renderAskRows(1, "on", on, theme, width),
-      ...renderAskRows(2, "off", !on, theme, width),
+      ...renderAskChoiceRows(1, "on", on, theme, width),
+      ...renderAskChoiceRows(2, "off", !on, theme, width),
     ];
   }
 
   return renderAskInputRows(raw, caret, field.placeholder, theme, width);
 }
 
-function renderAskRows(index: number, label: string, active: boolean, theme: GraphTheme, width: number): string[] {
-  const plainPrefix = `${active ? "❯ " : "  "}${index}. `;
-  const firstPrefix = `${active ? paint("❯ ", theme.accent) : "  "}${index}. `;
-  const continuationPrefix = " ".repeat(visibleWidth(plainPrefix));
-  return renderWrappedPrefixedLines({
-    text: label,
-    width,
-    plainPrefix,
-    firstPrefix,
-    continuationPrefix,
-    styleLine: (line) => active
-      ? paint(line, theme.accent, { bold: true })
-      : paint(line, theme.textMuted),
-  });
-}
-
-function renderSubmitReview(state: InlineFormState, theme: GraphTheme, width: number): string[] {
-  const out: string[] = [paint("Review your inputs", theme.accent, { bold: true }), ""];
-  out.push(truncateToWidth(paint("/workflow ", theme.dim) + paint(state.workflowName, theme.text), width, "…", true));
-  for (const field of state.fields) {
-    out.push(truncateToWidth(paint(" ● ", theme.dim) + paint(field.name, theme.textMuted), width, "…", true));
-    out.push(...renderReviewValueRows(state.rawText[field.name] ?? "", theme, width));
-  }
-  return out;
-}
-
-function renderReviewValueRows(raw: string, theme: GraphTheme, width: number): string[] {
-  const plainPrefix = "   → ";
-  const firstPrefix = "   " + paint("→ ", theme.dim);
-  return renderWrappedPrefixedLines({
-    text: formatReviewValue(raw),
-    width,
-    plainPrefix,
-    firstPrefix,
-    styleLine: (line) => paint(line, theme.text),
-  });
-}
-
 function renderSubmitControls(state: InlineFormState, theme: GraphTheme, width: number): string[] {
   const invalid = state.fields
     .map((field, i) => (invalidForField(field, state.rawText[field.name] ?? "", i) === null ? null : i))
     .filter((i): i is number => i !== null);
-  const prompt = invalid.length === 0
-    ? paint("Ready to submit your inputs?", theme.textMuted)
-    : paint(
-        `Answer remaining inputs before submitting: ${invalid.map((i) => state.fields[i]?.name ?? `#${i + 1}`).join(", ")}`,
-        theme.warning,
-      );
-  return [
-    prompt,
-    "",
-    ...renderAskRows(1, "Submit answers", state.submitChoiceIdx === 0, theme, width),
-    ...renderAskRows(2, "Cancel", state.submitChoiceIdx === 1, theme, width),
-    "",
-    renderFooterHints(theme, width),
-  ];
+  return renderSharedSubmitControls({
+    invalidFieldNames: invalid.map((i) => state.fields[i]!.name),
+    submitChoiceIdx: state.submitChoiceIdx,
+    theme,
+    width,
+    footerHint: renderFooterHints(theme, width),
+  });
 }
 
 function renderAskInputRows(

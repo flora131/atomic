@@ -720,7 +720,7 @@ describe("StageChatView", () => {
     }
   });
 
-  test("Escape interrupts a pending streaming stage without workflow pause UI", async () => {
+  test("Escape pauses a pending streaming stage without making it read-only", async () => {
     const store = createStore();
     setupRun(store, "run-1", "stage-a", "pending");
     const { handle, state } = makeHandle({
@@ -744,11 +744,10 @@ describe("StageChatView", () => {
     view.handleInput("\x1b");
     await flush();
     await flush();
-    assert.equal(state.pauseCalls, 0);
+    assert.equal(state.pauseCalls, 1);
     assert.equal(view._isLocalPaused, false);
-    const rendered = view.render(96).join("\n");
-    assert.doesNotMatch(rendered, /PAUSED/);
-    assert.doesNotMatch(rendered, /type a message to resume/i);
+    const rendered = stripAnsi(view.render(96).join("\n"));
+    assert.doesNotMatch(rendered, /READ-ONLY SESSION/);
     assert.match(rendered, /❯/);
     view.dispose();
   });
@@ -915,7 +914,7 @@ describe("StageChatView", () => {
     view.dispose();
   });
 
-  test("Enter after Escape interrupt continues to use normal streaming steering", async () => {
+  test("Enter after Escape pause resumes with the typed message", async () => {
     const store = createStore();
     setupRun(store, "run-1", "stage-a");
     const { handle, state } = makeHandle({
@@ -925,6 +924,18 @@ describe("StageChatView", () => {
       pauseCalls: 0,
       resumeCalls: [],
       isStreaming: true,
+    });
+    const originalPause = handle.pause.bind(handle);
+    const originalResume = handle.resume.bind(handle);
+    Object.assign(handle, {
+      async pause() {
+        await originalPause();
+        store.recordStagePaused("run-1", "stage-a");
+      },
+      async resume(message?: string) {
+        await originalResume(message);
+        store.recordStageResumed("run-1", "stage-a");
+      },
     });
     const view = new StageChatView({
       store,
@@ -939,14 +950,15 @@ describe("StageChatView", () => {
     view.handleInput("\x1b");
     await flush();
     await flush();
-    assert.equal(view._isLocalPaused, false);
+    assert.equal(state.pauseCalls, 1);
+    assert.equal(store.runs()[0]?.stages[0]?.status, "paused");
     for (const ch of "go on") view.handleInput(ch);
     view.handleInput("\r");
     await flush();
     await flush();
-    assert.deepEqual(state.resumeCalls, []);
-    assert.deepEqual(state.steerCalls, ["go on"]);
-    assert.equal(view._isLocalPaused, false);
+    assert.deepEqual(state.resumeCalls, ["go on"]);
+    assert.deepEqual(state.steerCalls, []);
+    assert.equal(store.runs()[0]?.stages[0]?.status, "running");
     view.dispose();
   });
 
@@ -1707,7 +1719,7 @@ describe("StageChatView", () => {
     view.dispose();
   });
 
-  test("Escape aborts streaming stage chat like main chat without workflow pause", async () => {
+  test("Escape pauses streaming stage chat without moving it to read-only", async () => {
     const store = createStore();
     setupRun(store, "run-1", "stage-a");
     let abortCalls = 0;
@@ -1725,6 +1737,13 @@ describe("StageChatView", () => {
       resumeCalls: [],
       isStreaming: true,
     }, [], "running", agentSession);
+    const originalPause = handle.pause.bind(handle);
+    Object.assign(handle, {
+      async pause() {
+        await originalPause();
+        store.recordStagePaused("run-1", "stage-a");
+      },
+    });
     let closed = 0;
     const view = new StageChatView({
       store,
@@ -1739,10 +1758,13 @@ describe("StageChatView", () => {
     view.handleInput("\x1b");
     await flush();
     await flush();
-    assert.equal(abortCalls, 1);
-    assert.equal(state.pauseCalls, 0);
-    assert.equal(store.runs()[0]?.stages[0]?.status, "running");
+    assert.equal(abortCalls, 0);
+    assert.equal(state.pauseCalls, 1);
+    assert.equal(store.runs()[0]?.stages[0]?.status, "paused");
     assert.equal(closed, 0);
+    const rendered = stripAnsi(view.render(96).join("\n"));
+    assert.doesNotMatch(rendered, /READ-ONLY SESSION/);
+    assert.match(rendered, /❯/);
     view.dispose();
   });
 

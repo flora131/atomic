@@ -236,7 +236,14 @@ export class StageChatView implements Component, Focusable {
           await handle.followUp(text);
         },
         interrupt: async () => {
-          await this._liveHandle()?.agentSession?.abort();
+          const handle = this._liveHandle();
+          if (!handle) return;
+          const status = this._currentStage()?.status ?? handle.status;
+          if (status === "pending" || status === "running" || status === "awaiting_input") {
+            await handle.pause();
+            return;
+          }
+          await handle.agentSession?.abort();
         },
         resume: async (message) => {
           const handle = this._liveHandle();

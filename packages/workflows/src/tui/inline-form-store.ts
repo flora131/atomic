@@ -37,6 +37,8 @@ export interface InlineFormState {
   /** Raw string per field; mirrors `inputs-picker.ts` semantics. */
   rawText: Record<string, string>;
   focusedIdx: number;
+  /** Active row while focusedIdx === fields.length: 0 = submit, 1 = cancel. */
+  submitChoiceIdx: number;
   caret: number;
   status: FormStatus;
   /** Tick counter; bumped on every mutation so renderers can hash-dedupe. */

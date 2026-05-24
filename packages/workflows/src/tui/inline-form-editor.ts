@@ -2,7 +2,7 @@
  * Custom `EditorComponent` swapped in via `ctx.ui.setEditorComponent` while
  * an inline workflow form is active. Owns ALL keystrokes during fill-out:
  *
- *   tab / shift+tab     — move focus across form fields (NOT editor lines)
+ *   tab / shift+tab     — move focus across form fields and Submit section
  *   ↑/↓                 — move focus (or caret between logical lines in `text`)
  *   ←/→                 — caret nav (text) | choice cycle (select) | flip (bool)
  *   alt/ctrl+←/→        — word movement in text/string/number fields
@@ -16,13 +16,13 @@
  *   space               — boolean toggle
  *   enter               — newline (text) | otherwise next field
  *   printable ASCII     — insert at caret (text/string/number)
- *   ctrl+x          — submit form (if valid)
+ *   submit section      — enter submits or cancels via visible rows
  *   esc / ctrl+c        — cancel form
  *
  * Editor-mode keys (cursor movement, word jumps, deletions) route through
  * the Pi `KeybindingsManager` injected by the host at factory time, so any
  * user-configured keybinding overrides surfaces here as well. Form-level
- * keys (tab/shift+tab/ctrl+x/esc/ctrl+c) stay as raw byte checks because
+ * keys (tab/shift+tab/esc/ctrl+c) stay as raw byte checks because
  * they are workflow form contract, not Pi-configurable actions.
  *
  * On submit/cancel the editor calls back to the orchestrator which:
@@ -65,7 +65,7 @@ export type FormEditorOutcome = "submit" | "cancel";
 export interface InlineFormEditorOpts {
   formId: string;
   theme: GraphTheme;
-  /** Called when Ctrl+X passes validation or cancel fires. */
+  /** Called when the Submit row passes validation or cancel fires. */
   onExit: (outcome: FormEditorOutcome) => void;
   /**
    * Pi's `KeybindingsManager` injected as the third arg of the editor
@@ -434,16 +434,10 @@ export class InlineFormEditor implements PiEditorComponent {
     // editor actions, so they stay as raw byte checks:
     //   esc        (\x1b)        — cancel form
     //   ctrl+c     (\x03)        — cancel form
-    //   ctrl+x                — submit form
-    //   tab        (\t)          — focus next field
-    //   shift+tab  (\x1b[Z)      — focus previous field
+    //   tab        (\t)          — focus next field / Submit section
+    //   shift+tab  (\x1b[Z)      — focus previous field / Submit section
     if (matchesKey(data, Key.ctrl("c")) || matchesKey(data, Key.escape)) {
       this.opts.onExit("cancel");
-      return true;
-    }
-    if (matchesKey(data, Key.ctrl("x"))) {
-      if (this.allValid(state)) this.opts.onExit("submit");
-      else this.focusFirstInvalid(state);
       return true;
     }
     if (matchesKey(data, Key.tab)) {
@@ -455,12 +449,50 @@ export class InlineFormEditor implements PiEditorComponent {
       return true;
     }
 
+    if (state.focusedIdx === state.fields.length) return this.handleSubmit(data, state);
+
     const field = state.fields[state.focusedIdx];
     if (!field) return false;
 
     if (field.type === "select") return this.handleSelect(data, field, state);
     if (field.type === "boolean") return this.handleBoolean(data, field, state);
     return this.handleText(data, field, state);
+  }
+
+  private handleSubmit(data: string, state: InlineFormState): boolean {
+    if (matchesAction(this.kb, data, TUI_ACTION.selectUp) || matchesAction(this.kb, data, TUI_ACTION.editorCursorUp)) {
+      state.submitChoiceIdx = (state.submitChoiceIdx - 1 + 2) % 2;
+      return true;
+    }
+    if (matchesAction(this.kb, data, TUI_ACTION.selectDown) || matchesAction(this.kb, data, TUI_ACTION.editorCursorDown)) {
+      state.submitChoiceIdx = (state.submitChoiceIdx + 1) % 2;
+      return true;
+    }
+    if (matchesKey(data, "1")) {
+      state.submitChoiceIdx = 0;
+      return this.submitOrFocusInvalid(state);
+    }
+    if (matchesKey(data, "2")) {
+      state.submitChoiceIdx = 1;
+      this.opts.onExit("cancel");
+      return true;
+    }
+    if (
+      matchesKey(data, Key.enter) ||
+      matchesAction(this.kb, data, TUI_ACTION.selectConfirm) ||
+      matchesAction(this.kb, data, TUI_ACTION.inputSubmit)
+    ) {
+      if (state.submitChoiceIdx === 0) return this.submitOrFocusInvalid(state);
+      this.opts.onExit("cancel");
+      return true;
+    }
+    return false;
+  }
+
+  private submitOrFocusInvalid(state: InlineFormState): boolean {
+    if (this.allValid(state)) this.opts.onExit("submit");
+    else this.focusFirstInvalid(state);
+    return true;
   }
 
   private handleSelect(
@@ -662,9 +694,14 @@ export class InlineFormEditor implements PiEditorComponent {
   }
 
   private moveFocus(state: InlineFormState, delta: number): void {
-    const n = state.fields.length;
-    if (n === 0) return;
+    const n = state.fields.length + 1;
+    if (n <= 1) return;
     state.focusedIdx = (state.focusedIdx + delta + n) % n;
+    if (state.focusedIdx === state.fields.length) {
+      state.caret = 0;
+      state.submitChoiceIdx = 0;
+      return;
+    }
     const next = state.fields[state.focusedIdx]!;
     state.caret = (state.rawText[next.name] ?? "").length;
   }

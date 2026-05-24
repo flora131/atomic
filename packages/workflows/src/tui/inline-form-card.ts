@@ -3,28 +3,21 @@
  *
  * Identity mirrors the multi ask_user_question dialog:
  *   - Top/bottom dynamic border rules wrap the live form.
- *   - A compact tab row shows each input (`■` valid / `□` missing) plus Run,
+ *   - A compact tab row shows each input (`■` valid / `□` missing) plus Submit,
  *     matching the multi-question tab bar affordance.
- *   - The workflow name reads as the dialog heading with the `<i> / <n>`
- *     counter on the right.
- *   - One bordered "node card" per field with the field name centred inside
- *     the top border (matches the DAG node-card title slot in node-card.ts).
- *   - Caption row beneath each field card: `<type>  ·  <required|optional>
- *     ·  <description>` in dim.
+ *   - The active field description is the question heading.
+ *   - The field name lives in the checkbox tab pane.
  *   - Footer hints sit below the bottom rule, like ask_user_question hints.
  *
  *   ───────────────────────────────────────────────────────────────────
- *    ←  □ prompt   ■ iters   ✓ Run  →
+ *    ←  □ prompt   ■ iters   ✓ Submit  →
  *
- *   ralph                                                     1 / 4
+ *   task prompt
  *
- *   ╭───── prompt ─────────────────────────────────────────────────────╮
- *   │ build me a TUI for arg-pickers                                    │
- *   ╰──────────────────────────────────────────────────────────────────╯
- *     text  ·  required  ·  task prompt
+ *   ❯ 1. build me a TUI for arg-pickers
  *
  *   ───────────────────────────────────────────────────────────────────
- *   tab Next  ·  shift+tab Prev  ·  ctrl+x Run  ·  esc Cancel
+ *   Enter to select · ↑/↓ to navigate · Tab to switch input fields · Esc to cancel
  *
  * Submitted forms become a single-line ledger entry in scrollback. Cancelled
  * forms render no rows so cancellation leaves no chat artefact.
@@ -42,8 +35,14 @@ import type { InlineFormState } from "./inline-form-store.js";
 import type { WorkflowInputEntry } from "../extension/render-result.js";
 import type { GraphTheme } from "./graph-theme.js";
 import { invalidForField } from "./inputs-picker.js";
-import { RESET, hexBg, hexToAnsi, paint } from "./color-utils.js";
-import { truncateToWidth, visibleWidth } from "./text-helpers.js";
+import { paint } from "./color-utils.js";
+import {
+  formatReviewValue,
+  renderWrappedPrefixedLines,
+  truncateToWidth,
+  visibleWidth,
+  wrapPlainText,
+} from "./text-helpers.js";
 
 export interface InlineCardOpts {
   width: number;
@@ -116,19 +115,18 @@ function renderEditingCard(opts: InlineCardOpts): string[] {
   const lines: string[] = [];
 
   lines.push(...renderHeaderBand(state, theme, width));
-  if (state.description) {
-    lines.push("  " + paint(state.description, theme.textMuted));
-  }
-  lines.push("");
 
   const activeField = state.fields[state.focusedIdx];
   if (activeField) {
     const raw = state.rawText[activeField.name] ?? "";
-    lines.push(...renderActiveField(activeField, raw, state.focusedIdx, state.caret, theme, width));
+    lines.push(...renderActiveField(activeField, raw, state.caret, theme, width));
+    lines.push("");
+  } else {
+    lines.push(...renderSubmitReview(state, theme, width));
     lines.push("");
   }
 
-  lines.push(...renderFooterBand(theme, width));
+  lines.push(...renderFooterBand(state, theme, width));
   return lines;
 }
 
@@ -137,17 +135,17 @@ function renderEditingCard(opts: InlineCardOpts): string[] {
 // ---------------------------------------------------------------------------
 
 function renderHeaderBand(state: InlineFormState, theme: GraphTheme, width: number): string[] {
-  const focusTargetCount = state.fields.length;
-  const counter = `${Math.min(state.focusedIdx + 1, focusTargetCount)} / ${focusTargetCount}`;
   return [
     renderDialogRule(theme, width),
     renderInputTabBar(state, theme, width),
     "",
-    renderWorkflowHeading(state.workflowName, counter, theme, width),
   ];
 }
 
-function renderFooterBand(theme: GraphTheme, width: number): string[] {
+function renderFooterBand(state: InlineFormState, theme: GraphTheme, width: number): string[] {
+  if (state.focusedIdx === state.fields.length) {
+    return [renderDialogRule(theme, width), ...renderSubmitControls(state, theme, width)];
+  }
   return [renderDialogRule(theme, width), renderFooterHints(theme, width)];
 }
 
@@ -164,35 +162,21 @@ function renderInputTabBar(state: InlineFormState, theme: GraphTheme, width: num
     const box = valid ? "■" : "□";
     const rawSeg = ` ${box} ${field.name} `;
     const styled = i === state.focusedIdx
-      ? hexBg(theme.selection) + hexToAnsi(theme.text) + rawSeg + RESET
-      : paint(rawSeg, valid ? theme.success : theme.textMuted);
+      ? paint(rawSeg, theme.text, { bg: theme.selection, bold: true })
+      : paint(rawSeg, valid ? theme.success : theme.dim);
     pieces.push(styled, " ");
   }
   const allValid = state.fields.every((field, i) => invalidForField(field, state.rawText[field.name] ?? "", i) === null);
-  pieces.push(paint(" ✓ Run ", allValid ? theme.success : theme.dim), " →");
+  const submitText = " ✓ Submit ";
+  const submitStyled = state.focusedIdx === state.fields.length
+    ? paint(submitText, theme.text, { bg: theme.selection, bold: true })
+    : paint(submitText, allValid ? theme.success : theme.dim);
+  pieces.push(submitStyled, " →");
   return truncateToWidth(pieces.join(""), width, "", true);
 }
 
-function renderWorkflowHeading(
-  workflowName: string,
-  counter: string,
-  theme: GraphTheme,
-  width: number,
-): string {
-  const prefix = " ";
-  const counterWidth = visibleWidth(counter);
-  if (width <= prefix.length) return "";
-  if (counterWidth + prefix.length + 1 > width) {
-    return prefix + paint(truncateToWidth(counter, width - prefix.length, "…"), theme.dim);
-  }
-  const nameBudget = Math.max(0, width - prefix.length - counterWidth - 1);
-  const name = truncateToWidth(workflowName, nameBudget, "…");
-  const filler = Math.max(1, width - prefix.length - visibleWidth(name) - counterWidth);
-  return prefix + paint(name, theme.text, { bold: true }) + " ".repeat(filler) + paint(counter, theme.dim);
-}
-
 function renderFooterHints(theme: GraphTheme, width: number): string {
-  const hint = "tab Next  ·  shift+tab Prev  ·  ctrl+x Run  ·  esc Cancel";
+  const hint = "Enter to select · ↑/↓ to navigate · Tab to switch input fields · Esc to cancel";
   return paint(truncateToWidth(hint, width, "…"), theme.dim);
 }
 
@@ -203,42 +187,14 @@ function renderFooterHints(theme: GraphTheme, width: number): string {
 function renderActiveField(
   field: WorkflowInputEntry,
   raw: string,
-  index: number,
   caret: number,
   theme: GraphTheme,
   width: number,
 ): string[] {
-  const invalid = invalidForField(field, raw, index);
-  return [
-    " " + paint(field.name, theme.text, { bold: true }),
-    renderCaption(field, invalid, theme),
-    "",
-    ...renderAskStyleFieldBody(field, raw, caret, theme, width),
-  ];
-}
-
-function renderCaption(
-  field: WorkflowInputEntry,
-  invalid: string | null,
-  theme: GraphTheme,
-): string {
-  const sep = paint("  ·  ", theme.dim);
-  const tagColor = invalid
-    ? theme.error
-    : field.required
-      ? theme.warning
-      : theme.dim;
-  const tagLabel = invalid ?? (field.required ? "required" : "optional");
-  const desc = field.description
-    ? sep + paint(field.description, theme.dim)
-    : "";
-  return (
-    "  " +
-    paint(field.type, theme.dim) +
-    sep +
-    paint(tagLabel, tagColor) +
-    desc
-  );
+  const heading = field.description && field.description.length > 0 ? field.description : field.name;
+  const lines = wrapPlainText(heading, width).map((line) => paint(line, theme.text, { bold: true }));
+  lines.push("", ...renderAskStyleFieldBody(field, raw, caret, theme, width));
+  return lines;
 }
 
 function renderAskStyleFieldBody(
@@ -250,29 +206,76 @@ function renderAskStyleFieldBody(
 ): string[] {
   if (field.type === "select" && field.choices && field.choices.length > 0) {
     const selected = Math.max(0, field.choices.indexOf(raw));
-    return field.choices.map((choice, i) => renderAskRow(i + 1, choice, i === selected, theme, width));
+    return field.choices.flatMap((choice, i) => renderAskRows(i + 1, choice, i === selected, theme, width));
   }
 
   if (field.type === "boolean") {
     const on = raw === "true";
     return [
-      renderAskRow(1, "on", on, theme, width),
-      renderAskRow(2, "off", !on, theme, width),
+      ...renderAskRows(1, "on", on, theme, width),
+      ...renderAskRows(2, "off", !on, theme, width),
     ];
   }
 
   return renderAskInputRows(raw, caret, field.placeholder, theme, width);
 }
 
-function renderAskRow(index: number, label: string, active: boolean, theme: GraphTheme, width: number): string {
-  const pointer = active ? paint("❯ ", theme.accent) : "  ";
-  const prefix = `${pointer}${index}. `;
-  const labelBudget = Math.max(1, width - visibleWidth(`${active ? "❯ " : "  "}${index}. `));
-  const clippedLabel = truncateToWidth(label, labelBudget, "…");
-  const styledLabel = active
-    ? paint(clippedLabel, theme.accent, { bold: true })
-    : paint(clippedLabel, theme.textMuted);
-  return truncateToWidth(prefix + styledLabel, width, "…", true);
+function renderAskRows(index: number, label: string, active: boolean, theme: GraphTheme, width: number): string[] {
+  const plainPrefix = `${active ? "❯ " : "  "}${index}. `;
+  const firstPrefix = `${active ? paint("❯ ", theme.accent) : "  "}${index}. `;
+  const continuationPrefix = " ".repeat(visibleWidth(plainPrefix));
+  return renderWrappedPrefixedLines({
+    text: label,
+    width,
+    plainPrefix,
+    firstPrefix,
+    continuationPrefix,
+    styleLine: (line) => active
+      ? paint(line, theme.accent, { bold: true })
+      : paint(line, theme.textMuted),
+  });
+}
+
+function renderSubmitReview(state: InlineFormState, theme: GraphTheme, width: number): string[] {
+  const out: string[] = [paint("Review your inputs", theme.accent, { bold: true }), ""];
+  out.push(truncateToWidth(paint("/workflow ", theme.dim) + paint(state.workflowName, theme.text), width, "…", true));
+  for (const field of state.fields) {
+    out.push(truncateToWidth(paint(" ● ", theme.dim) + paint(field.name, theme.textMuted), width, "…", true));
+    out.push(...renderReviewValueRows(state.rawText[field.name] ?? "", theme, width));
+  }
+  return out;
+}
+
+function renderReviewValueRows(raw: string, theme: GraphTheme, width: number): string[] {
+  const plainPrefix = "   → ";
+  const firstPrefix = "   " + paint("→ ", theme.dim);
+  return renderWrappedPrefixedLines({
+    text: formatReviewValue(raw),
+    width,
+    plainPrefix,
+    firstPrefix,
+    styleLine: (line) => paint(line, theme.text),
+  });
+}
+
+function renderSubmitControls(state: InlineFormState, theme: GraphTheme, width: number): string[] {
+  const invalid = state.fields
+    .map((field, i) => (invalidForField(field, state.rawText[field.name] ?? "", i) === null ? null : i))
+    .filter((i): i is number => i !== null);
+  const prompt = invalid.length === 0
+    ? paint("Ready to submit your inputs?", theme.textMuted)
+    : paint(
+        `Answer remaining inputs before submitting: ${invalid.map((i) => state.fields[i]?.name ?? `#${i + 1}`).join(", ")}`,
+        theme.warning,
+      );
+  return [
+    prompt,
+    "",
+    ...renderAskRows(1, "Submit answers", state.submitChoiceIdx === 0, theme, width),
+    ...renderAskRows(2, "Cancel", state.submitChoiceIdx === 1, theme, width),
+    "",
+    renderFooterHints(theme, width),
+  ];
 }
 
 function renderAskInputRows(

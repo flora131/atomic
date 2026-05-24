@@ -203,6 +203,7 @@ export async function openInlineInputsForm(
     fields: opts.fields,
     rawText,
     focusedIdx,
+    submitChoiceIdx: 0,
     caret: (rawText[opts.fields[focusedIdx]!.name] ?? "").length,
     status: "editing",
   });

@@ -398,6 +398,28 @@ test("renderInputsPicker normalizes true-like boolean review values", () => {
   assert.doesNotMatch(joined, /→ 1/);
 });
 
+test("renderInputsPicker shows empty boolean review values as empty", () => {
+  const theme = deriveGraphTheme({});
+  const fields: WorkflowInputEntry[] = [
+    { name: "enabled", type: "boolean", required: true },
+  ];
+  const state = createInputsPickerState(fields);
+  state.rawText.enabled = "";
+  state.focusedIdx = fields.length;
+  const lines = renderInputsPicker({
+    width: 80,
+    theme,
+    workflowName: "ralph",
+    fields,
+    state,
+    cursorOn: true,
+  });
+  // eslint-disable-next-line no-control-regex
+  const joined = lines.join("\n").replace(/\x1b\[[0-9;]*m/g, "");
+  assert.match(joined, /● enabled\n\s+→ <empty>/);
+  assert.doesNotMatch(joined, /→ off/);
+});
+
 test("renderInputsPicker wraps invalid Submit prompt instead of clipping", () => {
   const theme = deriveGraphTheme({});
   const fields: WorkflowInputEntry[] = [
@@ -445,6 +467,28 @@ test("renderInputsPicker preserves multiline values in Submit review", () => {
   const joined = lines.join("\n").replace(/\x1b\[[0-9;]*m/g, "");
   assert.match(joined, /→ line one\n\s+line two/);
   assert.doesNotMatch(joined, /line one line two/);
+});
+
+test("renderInputsPicker keeps Submit visible in a narrow tab bar", () => {
+  const theme = deriveGraphTheme({});
+  const fields: WorkflowInputEntry[] = [
+    { name: "very_long_prompt_name", type: "string", required: true },
+    { name: "another_long_context_name", type: "string", required: false },
+  ];
+  const state = createInputsPickerState(fields, { very_long_prompt_name: "ready" });
+  state.focusedIdx = fields.length;
+  const lines = renderInputsPicker({
+    width: 16,
+    theme,
+    workflowName: "ralph",
+    fields,
+    state,
+    cursorOn: true,
+  });
+  // eslint-disable-next-line no-control-regex
+  const tab = (lines[1] ?? "").replace(/\x1b\[[0-9;]*m/g, "");
+  assert.match(tab, /Submit/);
+  assert.ok(tab.length <= 16);
 });
 
 test("renderInputsPicker renders only the active input as ask-style rows", () => {

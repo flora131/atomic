@@ -49,7 +49,6 @@ function makeState(overrides: Partial<Parameters<typeof createForm>[0]> = {}) {
   return createForm({
     formId: "wf-test",
     workflowName: "ralph",
-    description: "loop a thinker",
     fields: FIELDS,
     rawText: { prompt: "", iters: "5", focus: "standard", verbose: "false" },
     focusedIdx: 0,
@@ -185,6 +184,21 @@ test("card (live): normalizes true-like boolean review values", () => {
   assert.doesNotMatch(txt, /→ 1/);
 });
 
+test("card (live): shows empty boolean review values as empty", () => {
+  const fields: readonly WorkflowInputEntry[] = [
+    { name: "enabled", type: "boolean", required: true },
+  ];
+  const state = makeState({
+    fields,
+    rawText: { enabled: "" },
+    focusedIdx: fields.length,
+    caret: 0,
+  });
+  const txt = plain(renderInlineCard({ width: 80, state, theme: deriveGraphTheme({}) }));
+  assert.match(txt, /● enabled\n\s+→ <empty>/);
+  assert.doesNotMatch(txt, /→ off/);
+});
+
 test("card (live): wraps invalid Submit prompt instead of clipping", () => {
   const fields: readonly WorkflowInputEntry[] = [
     { name: "alpha_required_prompt", type: "string", required: true },
@@ -245,6 +259,23 @@ test("card (cancelled): renders no cancellation artefact", () => {
   const state = makeState({ status: "cancelled" });
   const lines = renderInlineCard({ width: 80, state, theme: deriveGraphTheme({}) });
   assert.deepEqual(lines, []);
+});
+
+test("card: keeps Submit visible in a narrow tab bar", () => {
+  const fields: readonly WorkflowInputEntry[] = [
+    { name: "very_long_prompt_name", type: "string", required: true },
+    { name: "another_long_context_name", type: "string", required: false },
+  ];
+  const state = makeState({
+    fields,
+    rawText: { very_long_prompt_name: "ready", another_long_context_name: "" },
+    focusedIdx: fields.length,
+    caret: 0,
+  });
+  const lines = renderInlineCard({ width: 16, state, theme: deriveGraphTheme({}) });
+  const tab = plain([lines[1] ?? ""]);
+  assert.match(tab, /Submit/);
+  assert.ok(tab.length <= 16);
 });
 
 test("card: select field renders choices as ask-user-question numbered rows", () => {
@@ -308,7 +339,6 @@ test("card: live form lines stay within the requested width", () => {
   const longDescription = "Maximum number of codebase partitions to explore in parallel. Actual partitions scale by one per 10K LoC, capped by this value.";
   const state = makeState({
     workflowName: "deep-research-codebase-with-a-very-long-name-that-should-not-overflow-the-terminal",
-    description: "Prepare a comprehensive multi-agent research workflow with enough prose to exceed the viewport.",
     fields: [
       { name: "prompt", type: "text", required: true, description: "Research question or investigation focus for the codebase." },
       { name: "max_partitions", type: "number", required: false, default: 4, description: longDescription },

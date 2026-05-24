@@ -164,7 +164,7 @@ function renderDialogRule(theme: GraphTheme, width: number): string {
 }
 
 function renderInputTabBar(state: InlineFormState, theme: GraphTheme, width: number): string {
-  const pieces: string[] = [" ← "];
+  const fieldPieces: string[] = [" ← "];
   for (let i = 0; i < state.fields.length; i++) {
     const field = state.fields[i]!;
     const raw = state.rawText[field.name] ?? "";
@@ -174,15 +174,16 @@ function renderInputTabBar(state: InlineFormState, theme: GraphTheme, width: num
     const styled = i === state.focusedIdx
       ? paint(rawSeg, theme.text, { bg: theme.selection, bold: true })
       : paint(rawSeg, valid ? theme.success : theme.dim);
-    pieces.push(styled, " ");
+    fieldPieces.push(styled, " ");
   }
   const allValid = state.fields.every((field, i) => invalidForField(field, state.rawText[field.name] ?? "", i) === null);
   const submitText = " ✓ Submit ";
   const submitStyled = state.focusedIdx === state.fields.length
     ? paint(submitText, theme.text, { bg: theme.selection, bold: true })
     : paint(submitText, allValid ? theme.success : theme.dim);
-  pieces.push(submitStyled, " →");
-  return truncateToWidth(pieces.join(""), width, "", true);
+  const submitSuffix = submitStyled + " →";
+  const fieldBudget = Math.max(0, width - visibleWidth(" ✓ Submit  →"));
+  return truncateToWidth(truncateToWidth(fieldPieces.join(""), fieldBudget, "", true) + submitSuffix, width, "", true);
 }
 
 function renderFooterHints(theme: GraphTheme, width: number): string {

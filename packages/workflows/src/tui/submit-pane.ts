@@ -106,6 +106,7 @@ function renderReviewValueRows(
 function formatFieldReviewValue(field: WorkflowInputEntry, raw: string): string {
   if (field.type === "boolean") {
     const normalized = raw.trim().toLowerCase();
+    if (normalized.length === 0) return formatReviewValue(raw);
     return normalized === "true" || normalized === "1" ? "on" : "off";
   }
   return formatReviewValue(raw);

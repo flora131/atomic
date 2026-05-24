@@ -15,8 +15,17 @@ const SHIFT_MODIFIER = 1;
 const LOCK_MODIFIER_MASK = 64 + 128;
 const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
-function graphemes(text: string): string[] {
+export function graphemes(text: string): string[] {
   return Array.from(segmenter.segment(text), (s) => s.segment);
+}
+
+export interface GraphemeSegment {
+  segment: string;
+  index: number;
+}
+
+export function graphemeSegments(text: string): GraphemeSegment[] {
+  return Array.from(segmenter.segment(text), (s) => ({ segment: s.segment, index: s.index }));
 }
 
 function readAnsiCode(text: string, offset: number): string | null {

@@ -136,6 +136,11 @@ function isPrintableGrapheme(data: string): boolean {
   return graphemes(data).length === 1;
 }
 
+function nextSubmitChoiceIdx(current: number, delta: number): number {
+  const count = 2;
+  return (current + delta + count) % count;
+}
+
 /**
  * Move the caret one logical line up inside a multi-line text field.
  * Returns the new caret offset, or `null` when the caret is already on
@@ -462,11 +467,11 @@ export class InlineFormEditor implements PiEditorComponent {
 
   private handleSubmit(data: string, state: InlineFormState): boolean {
     if (matchesAction(this.kb, data, TUI_ACTION.selectUp) || matchesAction(this.kb, data, TUI_ACTION.editorCursorUp)) {
-      state.submitChoiceIdx = 1 - state.submitChoiceIdx;
+      state.submitChoiceIdx = nextSubmitChoiceIdx(state.submitChoiceIdx, -1);
       return true;
     }
     if (matchesAction(this.kb, data, TUI_ACTION.selectDown) || matchesAction(this.kb, data, TUI_ACTION.editorCursorDown)) {
-      state.submitChoiceIdx = 1 - state.submitChoiceIdx;
+      state.submitChoiceIdx = nextSubmitChoiceIdx(state.submitChoiceIdx, +1);
       return true;
     }
     if (matchesKey(data, "1")) {

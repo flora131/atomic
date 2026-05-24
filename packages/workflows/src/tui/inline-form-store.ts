@@ -32,7 +32,6 @@ export type FormStatus = "editing" | "submitted" | "cancelled";
 export interface InlineFormState {
   formId: string;
   workflowName: string;
-  description?: string;
   fields: readonly WorkflowInputEntry[];
   /** Raw string per field; mirrors `inputs-picker.ts` semantics. */
   rawText: Record<string, string>;

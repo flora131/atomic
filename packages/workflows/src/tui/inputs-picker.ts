@@ -35,6 +35,8 @@ import type { GraphTheme } from "./graph-theme.js";
 import { paint } from "./color-utils.js";
 import {
   decodePrintableKey,
+  graphemes,
+  graphemeSegments,
   Key,
   matchesKey,
   truncateToWidth,
@@ -259,16 +261,10 @@ export function computeInvalid(
 // Renderer
 // ---------------------------------------------------------------------------
 
-const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-
-function graphemes(text: string): string[] {
-  return Array.from(graphemeSegmenter.segment(text), (s) => s.segment);
-}
-
 function previousGraphemeOffset(text: string, caret: number): number {
   const c = Math.max(0, Math.min(caret, text.length));
   let prev = 0;
-  for (const s of graphemeSegmenter.segment(text)) {
+  for (const s of graphemeSegments(text)) {
     if (s.index >= c) break;
     prev = s.index;
   }
@@ -277,7 +273,7 @@ function previousGraphemeOffset(text: string, caret: number): number {
 
 function nextGraphemeOffset(text: string, caret: number): number {
   const c = Math.max(0, Math.min(caret, text.length));
-  for (const s of graphemeSegmenter.segment(text)) {
+  for (const s of graphemeSegments(text)) {
     if (s.index >= c) return Math.min(text.length, s.index + s.segment.length);
     if (s.index + s.segment.length > c) return s.index + s.segment.length;
   }
@@ -287,7 +283,7 @@ function nextGraphemeOffset(text: string, caret: number): number {
 function clampGraphemeOffset(text: string, caret: number): number {
   const c = Math.max(0, Math.min(caret, text.length));
   if (c === text.length) return c;
-  for (const s of graphemeSegmenter.segment(text)) {
+  for (const s of graphemeSegments(text)) {
     if (s.index === c) return c;
     if (s.index > c) break;
   }
@@ -343,7 +339,7 @@ function layoutEditableText(raw: string, usable: number): TextLayoutLine[] {
   let line = "";
   let lineStart = 0;
   let lineWidth = 0;
-  for (const s of graphemeSegmenter.segment(raw)) {
+  for (const s of graphemeSegments(raw)) {
     const offset = s.index;
     const g = s.segment;
     if (g === "\n") {
@@ -379,7 +375,7 @@ function visualColumnAt(text: string, caret: number): number {
 
 function offsetAtVisualColumn(text: string, targetCol: number): number {
   let col = 0;
-  for (const s of graphemeSegmenter.segment(text)) {
+  for (const s of graphemeSegments(text)) {
     const w = visibleWidth(s.segment);
     if (col + w > targetCol) return s.index;
     col += w;
@@ -507,7 +503,7 @@ function renderInputTabBar(
   theme: GraphTheme,
   width: number,
 ): string {
-  const pieces: string[] = [" ← "];
+  const fieldPieces: string[] = [" ← "];
   for (let i = 0; i < fields.length; i++) {
     const field = fields[i]!;
     const raw = state.rawText[field.name] ?? "";
@@ -517,15 +513,16 @@ function renderInputTabBar(
     const styled = i === state.focusedIdx
       ? paint(rawSeg, theme.text, { bg: theme.selection, bold: true })
       : paint(rawSeg, valid ? theme.success : theme.dim);
-    pieces.push(styled, " ");
+    fieldPieces.push(styled, " ");
   }
   const allValid = fields.every((field, i) => invalidForField(field, state.rawText[field.name] ?? "", i) === null);
   const submitText = " ✓ Submit ";
   const submitStyled = state.focusedIdx === fields.length
     ? paint(submitText, theme.text, { bg: theme.selection, bold: true })
     : paint(submitText, allValid ? theme.success : theme.dim);
-  pieces.push(submitStyled, " →");
-  return truncateToWidth(pieces.join(""), width, "", true);
+  const submitSuffix = submitStyled + " →";
+  const fieldBudget = Math.max(0, width - visibleWidth(" ✓ Submit  →"));
+  return truncateToWidth(truncateToWidth(fieldPieces.join(""), fieldBudget, "", true) + submitSuffix, width, "", true);
 }
 
 function renderActiveInputField(
@@ -939,11 +936,11 @@ function handleSubmitKey(
   kb: KeybindingsLike | undefined,
 ): InputsPickerAction {
   if (matchesAction(kb, key, TUI_ACTION.selectUp) || matchesAction(kb, key, TUI_ACTION.editorCursorUp)) {
-    state.submitChoiceIdx = 1 - state.submitChoiceIdx;
+    state.submitChoiceIdx = nextSubmitChoiceIdx(state.submitChoiceIdx, -1);
     return { kind: "noop" };
   }
   if (matchesAction(kb, key, TUI_ACTION.selectDown) || matchesAction(kb, key, TUI_ACTION.editorCursorDown)) {
-    state.submitChoiceIdx = 1 - state.submitChoiceIdx;
+    state.submitChoiceIdx = nextSubmitChoiceIdx(state.submitChoiceIdx, +1);
     return { kind: "noop" };
   }
   if (matchesKey(key, "1")) {
@@ -962,6 +959,11 @@ function handleSubmitKey(
     return state.submitChoiceIdx === 0 ? attemptPickerSubmit(state, fields) : { kind: "cancel" };
   }
   return { kind: "noop" };
+}
+
+function nextSubmitChoiceIdx(current: number, delta: number): number {
+  const count = 2;
+  return (current + delta + count) % count;
 }
 
 function isCancelKey(key: string): boolean {

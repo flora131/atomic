@@ -8,18 +8,14 @@
  * The workflow is already chosen, so there is no fuzzy-list pane.
  *
  *   ───────────────────────────────────────────
- *    ←  ■ prompt   ■ focus   ✓ Run  →
+ *    ←  ■ prompt   ■ focus   ✓ Submit  →
  *
- *    <workflow name>                       1 / 2
- *    <description, dim>
- *
- *    prompt
- *     text  ·  required  ·  The high-level task to plan and execute.
+ *   The high-level task to plan and execute.
  *
  *   ❯ 1. Build me a TUI for…
  *
  *   ───────────────────────────────────────────
- *   tab next  ·  shift+tab prev  ·  ctrl+x run  ·  esc cancel
+ *   Enter to select · ↑/↓ to navigate · Tab to switch input fields · Esc to cancel
  *
  * Field-type renderers:
  *   - string / number : single-row ask-style input with blinking cursor
@@ -37,7 +33,22 @@
 import type { WorkflowInputEntry } from "../extension/render-result.js";
 import type { GraphTheme } from "./graph-theme.js";
 import { paint } from "./color-utils.js";
-import { decodePrintableKey, Key, matchesKey, truncateToWidth, visibleWidth } from "./text-helpers.js";
+import {
+  decodePrintableKey,
+  graphemes,
+  graphemeSegments,
+  Key,
+  matchesKey,
+  truncateToWidth,
+  visibleWidth,
+  wrapPlainText,
+} from "./text-helpers.js";
+import {
+  renderAskChoiceRows,
+  renderSubmitControls,
+  renderSubmitReview,
+  renderWorkflowFormFooterHints,
+} from "./submit-pane.js";
 import {
   type KeybindingsLike,
   TUI_ACTION,
@@ -69,8 +80,8 @@ export interface InputsPickerState {
    * `coerceValues()` converts these into typed objects at submit time.
    */
   rawText: Record<string, string>;
-  /** True while the confirmation modal is on top of the form. */
-  confirmOpen: boolean;
+  /** Active row while the focus is on the Submit tab: 0 = submit, 1 = cancel. */
+  submitChoiceIdx: number;
   /**
    * Set of field indices that failed validation on the most recent submit
    * attempt. Used to dim the run hint and to highlight a field if the user
@@ -91,8 +102,6 @@ export interface InputsPickerRenderOpts {
   width: number;
   theme: GraphTheme;
   workflowName: string;
-  /** Optional one-line description shown directly under the workflow chip. */
-  description?: string;
   fields: readonly WorkflowInputEntry[];
   state: InputsPickerState;
   /** True when the blinking cursor is in its visible half-period. */
@@ -142,7 +151,7 @@ export function createInputsPickerState(
   return {
     focusedIdx,
     rawText,
-    confirmOpen: false,
+    submitChoiceIdx: 0,
     invalidIndices: [],
     caret: (rawText[fields[focusedIdx]?.name ?? ""] ?? "").length,
   };
@@ -236,7 +245,7 @@ export function invalidForField(
   return null;
 }
 
-function computeInvalid(
+export function computeInvalid(
   fields: readonly WorkflowInputEntry[],
   raw: Record<string, string>,
 ): number[] {
@@ -252,18 +261,10 @@ function computeInvalid(
 // Renderer
 // ---------------------------------------------------------------------------
 
-const dimSep = (theme: GraphTheme): string => paint("  ·  ", theme.dim);
-
-const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-
-function graphemes(text: string): string[] {
-  return Array.from(graphemeSegmenter.segment(text), (s) => s.segment);
-}
-
 function previousGraphemeOffset(text: string, caret: number): number {
   const c = Math.max(0, Math.min(caret, text.length));
   let prev = 0;
-  for (const s of graphemeSegmenter.segment(text)) {
+  for (const s of graphemeSegments(text)) {
     if (s.index >= c) break;
     prev = s.index;
   }
@@ -272,7 +273,7 @@ function previousGraphemeOffset(text: string, caret: number): number {
 
 function nextGraphemeOffset(text: string, caret: number): number {
   const c = Math.max(0, Math.min(caret, text.length));
-  for (const s of graphemeSegmenter.segment(text)) {
+  for (const s of graphemeSegments(text)) {
     if (s.index >= c) return Math.min(text.length, s.index + s.segment.length);
     if (s.index + s.segment.length > c) return s.index + s.segment.length;
   }
@@ -282,7 +283,7 @@ function nextGraphemeOffset(text: string, caret: number): number {
 function clampGraphemeOffset(text: string, caret: number): number {
   const c = Math.max(0, Math.min(caret, text.length));
   if (c === text.length) return c;
-  for (const s of graphemeSegmenter.segment(text)) {
+  for (const s of graphemeSegments(text)) {
     if (s.index === c) return c;
     if (s.index > c) break;
   }
@@ -338,7 +339,7 @@ function layoutEditableText(raw: string, usable: number): TextLayoutLine[] {
   let line = "";
   let lineStart = 0;
   let lineWidth = 0;
-  for (const s of graphemeSegmenter.segment(raw)) {
+  for (const s of graphemeSegments(raw)) {
     const offset = s.index;
     const g = s.segment;
     if (g === "\n") {
@@ -374,7 +375,7 @@ function visualColumnAt(text: string, caret: number): number {
 
 function offsetAtVisualColumn(text: string, targetCol: number): number {
   let col = 0;
-  for (const s of graphemeSegmenter.segment(text)) {
+  for (const s of graphemeSegments(text)) {
     const w = visibleWidth(s.segment);
     if (col + w > targetCol) return s.index;
     col += w;
@@ -414,178 +415,6 @@ function caretLineDown(raw: string, caret: number): number | null {
  * Exported so the chat-history mirror (inline-form-card) renders fields
  * identically to this overlay — single source of truth for the field shape.
  */
-export function renderField(
-  field: WorkflowInputEntry,
-  raw: string,
-  focused: boolean,
-  caret: number,
-  cursorOn: boolean,
-  invalid: string | null,
-  theme: GraphTheme,
-  width: number,
-): string[] {
-  // Border + label colour pick. Focused fields use `accent` (blue); a field
-  // that's currently flagged as invalid AFTER a submit attempt uses
-  // `error` to draw the eye.
-  const borderColor = invalid && !focused
-    ? theme.error
-    : focused
-      ? theme.accent
-      : theme.borderDim;
-
-  const innerWidth = Math.max(10, width - 4); // 2 chars of border + 1 pad each side
-  const top =
-    paint("╭ ", borderColor) +
-    paint(field.name, focused ? theme.text : theme.textMuted, { bold: focused }) +
-    " " +
-    paint("─".repeat(Math.max(0, innerWidth - field.name.length - 2)) + "╮", borderColor);
-  const bottom = paint("╰" + "─".repeat(innerWidth) + "╯", borderColor);
-
-  // Content row — branch per type.
-  const contentInner = renderFieldContent(
-    field,
-    raw,
-    focused,
-    caret,
-    cursorOn,
-    innerWidth,
-    theme,
-  );
-  const lines: string[] = [];
-  lines.push(top);
-  for (const inner of contentInner) {
-    lines.push(paint("│ ", borderColor) + inner + paint(" │", borderColor));
-  }
-  lines.push(bottom);
-
-  // Caption row — type · required|optional · description / invalid reason.
-  // Composed at full length, then ANSI-clipped to the terminal width so it
-  // never overflows into a second row regardless of how narrow the terminal
-  // gets. On overflow the rightmost cell becomes `…`.
-  const tagColour = invalid
-    ? theme.error
-    : field.required
-      ? theme.warning
-      : theme.dim;
-  const tagLabel = invalid ?? (field.required ? "required" : "optional");
-  const caption =
-    "  " +
-    paint(field.type, theme.dim) +
-    dimSep(theme) +
-    paint(tagLabel, tagColour) +
-    (field.description ? dimSep(theme) + paint(field.description, theme.dim) : "");
-  lines.push(truncateToWidth(caption, width, "…", true));
-  return lines;
-}
-
-/**
- * Return the inner content rows of a field, sized to fit `innerWidth - 2`
- * (the border + padding consume 4 cells total). Text fields are 3 rows
- * tall; all others are a single row.
- */
-function renderFieldContent(
-  field: WorkflowInputEntry,
-  raw: string,
-  focused: boolean,
-  caret: number,
-  cursorOn: boolean,
-  innerWidth: number,
-  theme: GraphTheme,
-): string[] {
-  const usable = innerWidth - 2; // padding on both sides
-
-  if (field.type === "select" && field.choices && field.choices.length > 0) {
-    const cells = field.choices.map((choice) => {
-      const sel = choice === raw;
-      const marker = sel ? "●" : "○";
-      const markerColor = sel
-        ? focused
-          ? theme.accent
-          : theme.success
-        : theme.dim;
-      const textColor = sel
-        ? focused
-          ? theme.text
-          : theme.textMuted
-        : theme.dim;
-      return paint(marker, markerColor) + " " + paint(choice, textColor);
-    });
-    return [padLine(cells.join("   "), usable)];
-  }
-
-  if (field.type === "boolean") {
-    const on = raw === "true";
-    const onCell =
-      paint(on ? "●" : "○", on ? theme.accent : theme.dim) +
-      " " +
-      paint("on", on ? theme.text : theme.dim);
-    const offCell =
-      paint(!on ? "●" : "○", !on ? theme.accent : theme.dim) +
-      " " +
-      paint("off", !on ? theme.text : theme.dim);
-    return [padLine(onCell + "   " + offCell, usable)];
-  }
-
-  if (field.type === "text") {
-    // 3-row scrolling textarea — wrap by terminal cell width and keep the
-    // cursor's visual row in view. Newlines create hard row breaks.
-    const ROWS = 3;
-    if (raw === "") {
-      return Array.from({ length: ROWS }, (_, i) =>
-        i === 0
-          ? renderInlineText("", focused, cursorOn, usable, theme, field.placeholder, true)
-          : padLine("", usable),
-      );
-    }
-    const layout = layoutEditableText(raw, usable);
-    const safeCaret = clampGraphemeOffset(raw, caret);
-    let cursorRow = layout.length - 1;
-    for (let i = 0; i < layout.length; i++) {
-      const line = layout[i]!;
-      const next = layout[i + 1];
-      if (safeCaret >= line.start && safeCaret < line.end) {
-        cursorRow = i;
-        break;
-      }
-      if (safeCaret === line.end) {
-        cursorRow = next?.start === safeCaret ? i + 1 : i;
-      }
-    }
-    cursorRow = Math.max(0, Math.min(cursorRow, layout.length - 1));
-    const start = focused
-      ? Math.max(0, Math.min(cursorRow - ROWS + 1, layout.length - ROWS))
-      : Math.max(0, layout.length - ROWS);
-    const rows: string[] = [];
-    for (let i = 0; i < ROWS; i++) {
-      const rowIdx = start + i;
-      const line = layout[rowIdx];
-      if (!line) {
-        rows.push(padLine("", usable));
-        continue;
-      }
-      const lineCaret = safeCaret >= line.start && safeCaret <= line.end
-        ? safeCaret - line.start
-        : line.text.length;
-      rows.push(
-        renderInlineText(
-          line.text,
-          focused && rowIdx === cursorRow,
-          cursorOn,
-          usable,
-          theme,
-          field.placeholder,
-          false,
-          lineCaret,
-        ),
-      );
-    }
-    return rows;
-  }
-
-  // string / number / integer / default — single-line input.
-  return [renderInlineText(raw, focused, cursorOn, usable, theme, field.placeholder, raw === "", caret)];
-}
-
 /**
  * Render a single editable line. When `value` is empty and the field is
  * focused, paint a dim placeholder with the cursor sitting on its first
@@ -652,24 +481,16 @@ function fitLine(line: string, width: number): string {
 }
 
 function renderPickerHeader(
-  workflowName: string,
-  description: string | undefined,
   fields: readonly WorkflowInputEntry[],
   state: InputsPickerState,
   theme: GraphTheme,
   width: number,
 ): string[] {
-  const focusTargetCount = fields.length;
-  const counter = `${Math.min(state.focusedIdx + 1, focusTargetCount)} / ${focusTargetCount}`;
-  const lines = [
+  return [
     renderPickerRule(theme, width),
     renderInputTabBar(fields, state, theme, width),
     "",
-    renderWorkflowHeading(workflowName, counter, theme, width),
   ];
-  if (description) lines.push("  " + paint(truncateToWidth(description, Math.max(0, width - 2), "…"), theme.textMuted));
-  lines.push("");
-  return lines;
 }
 
 function renderPickerRule(theme: GraphTheme, width: number): string {
@@ -682,39 +503,26 @@ function renderInputTabBar(
   theme: GraphTheme,
   width: number,
 ): string {
-  const pieces: string[] = [" ← "];
+  const fieldPieces: string[] = [" ← "];
   for (let i = 0; i < fields.length; i++) {
     const field = fields[i]!;
     const raw = state.rawText[field.name] ?? "";
     const valid = invalidForField(field, raw, i) === null;
     const box = valid ? "■" : "□";
     const rawSeg = ` ${box} ${field.name} `;
-    const styled = i === state.focusedIdx && !state.confirmOpen
-      ? paint(rawSeg, theme.accent, { bold: true })
-      : paint(rawSeg, valid ? theme.success : theme.textMuted);
-    pieces.push(styled, " ");
+    const styled = i === state.focusedIdx
+      ? paint(rawSeg, theme.text, { bg: theme.selection, bold: true })
+      : paint(rawSeg, valid ? theme.success : theme.dim);
+    fieldPieces.push(styled, " ");
   }
   const allValid = fields.every((field, i) => invalidForField(field, state.rawText[field.name] ?? "", i) === null);
-  pieces.push(paint(" ✓ Run ", allValid ? theme.success : theme.dim), " →");
-  return truncateToWidth(pieces.join(""), width, "", true);
-}
-
-function renderWorkflowHeading(
-  workflowName: string,
-  counter: string,
-  theme: GraphTheme,
-  width: number,
-): string {
-  const prefix = " ";
-  const counterWidth = visibleWidth(counter);
-  if (width <= prefix.length) return "";
-  if (counterWidth + prefix.length + 1 > width) {
-    return prefix + paint(truncateToWidth(counter, width - prefix.length, "…"), theme.dim);
-  }
-  const nameBudget = Math.max(0, width - prefix.length - counterWidth - 1);
-  const name = truncateToWidth(workflowName, nameBudget, "…");
-  const filler = Math.max(1, width - prefix.length - visibleWidth(name) - counterWidth);
-  return prefix + paint(name, theme.text, { bold: true }) + " ".repeat(filler) + paint(counter, theme.dim);
+  const submitText = " ✓ Submit ";
+  const submitStyled = state.focusedIdx === fields.length
+    ? paint(submitText, theme.text, { bg: theme.selection, bold: true })
+    : paint(submitText, allValid ? theme.success : theme.dim);
+  const submitSuffix = submitStyled + " →";
+  const fieldBudget = Math.max(0, width - visibleWidth(" ✓ Submit  →"));
+  return truncateToWidth(truncateToWidth(fieldPieces.join(""), fieldBudget, "", true) + submitSuffix, width, "", true);
 }
 
 function renderActiveInputField(
@@ -726,34 +534,13 @@ function renderActiveInputField(
   theme: GraphTheme,
   width: number,
 ): string[] {
-  return [
-    " " + paint(field.name, theme.text, { bold: true }),
-    renderInputCaption(field, invalid, theme, width),
-    "",
-    ...renderAskStyleInputBody(field, raw, caret, cursorOn, theme, width),
-  ];
-}
-
-function renderInputCaption(
-  field: WorkflowInputEntry,
-  invalid: string | null,
-  theme: GraphTheme,
-  width: number,
-): string {
-  const sep = dimSep(theme);
-  const tagColor = invalid
-    ? theme.error
-    : field.required
-      ? theme.warning
-      : theme.dim;
-  const tagLabel = invalid ?? (field.required ? "required" : "optional");
-  const caption =
-    "  " +
-    paint(field.type, theme.dim) +
-    sep +
-    paint(tagLabel, tagColor) +
-    (field.description ? sep + paint(field.description, theme.dim) : "");
-  return truncateToWidth(caption, width, "…", true);
+  const heading = field.description && field.description.length > 0 ? field.description : field.name;
+  const lines = wrapPlainText(heading, width).map((line) => paint(line, theme.text, { bold: true }));
+  if (invalid) {
+    lines.push(...wrapPlainText(invalid, width).map((line) => paint(line, theme.error)));
+  }
+  lines.push("", ...renderAskStyleInputBody(field, raw, caret, cursorOn, theme, width));
+  return lines;
 }
 
 function renderAskStyleInputBody(
@@ -766,35 +553,18 @@ function renderAskStyleInputBody(
 ): string[] {
   if (field.type === "select" && field.choices && field.choices.length > 0) {
     const selected = Math.max(0, field.choices.indexOf(raw));
-    return field.choices.map((choice, i) => renderAskChoiceRow(i + 1, choice, i === selected, theme, width));
+    return field.choices.flatMap((choice, i) => renderAskChoiceRows(i + 1, choice, i === selected, theme, width));
   }
 
   if (field.type === "boolean") {
     const on = raw === "true";
     return [
-      renderAskChoiceRow(1, "on", on, theme, width),
-      renderAskChoiceRow(2, "off", !on, theme, width),
+      ...renderAskChoiceRows(1, "on", on, theme, width),
+      ...renderAskChoiceRows(2, "off", !on, theme, width),
     ];
   }
 
   return renderAskInputRows(field, raw, caret, cursorOn, theme, width);
-}
-
-function renderAskChoiceRow(
-  index: number,
-  label: string,
-  active: boolean,
-  theme: GraphTheme,
-  width: number,
-): string {
-  const pointer = active ? paint("❯ ", theme.accent) : "  ";
-  const prefix = `${pointer}${index}. `;
-  const labelBudget = Math.max(1, width - visibleWidth(`${active ? "❯ " : "  "}${index}. `));
-  const clippedLabel = truncateToWidth(label, labelBudget, "…");
-  const text = active
-    ? paint(clippedLabel, theme.accent, { bold: true })
-    : paint(clippedLabel, theme.textMuted);
-  return fitLine(prefix + text, width);
 }
 
 function renderAskInputRows(
@@ -868,126 +638,55 @@ function renderAskInputRows(
 }
 
 export function renderInputsPicker(opts: InputsPickerRenderOpts): string[] {
-  const { theme, workflowName, description, fields, state, width, cursorOn } = opts;
+  const { theme, workflowName, fields, state, width, cursorOn } = opts;
   const lines: string[] = [];
+  const isOnSubmitTab = state.focusedIdx === fields.length;
 
-  lines.push(...renderPickerHeader(workflowName, description, fields, state, theme, width));
+  lines.push(...renderPickerHeader(fields, state, theme, width));
 
-  const activeField = fields[state.focusedIdx];
-  if (activeField) {
-    const raw = state.rawText[activeField.name] ?? "";
-    const invalid = state.invalidIndices.includes(state.focusedIdx)
-      ? invalidForField(activeField, raw, state.focusedIdx)
-      : null;
-    lines.push(...renderActiveInputField(activeField, raw, state.caret, cursorOn, invalid, theme, width));
+  if (isOnSubmitTab) {
+    lines.push(...renderSubmitReview({ workflowName, fields, rawText: state.rawText, theme, width }));
     lines.push("");
+  } else {
+    const activeField = fields[state.focusedIdx];
+    if (activeField) {
+      const raw = state.rawText[activeField.name] ?? "";
+      const invalid = state.invalidIndices.includes(state.focusedIdx)
+        ? invalidForField(activeField, raw, state.focusedIdx)
+        : null;
+      lines.push(...renderActiveInputField(activeField, raw, state.caret, cursorOn, invalid, theme, width));
+      lines.push("");
+    }
   }
 
-  const anyInvalid = computeInvalid(fields, state.rawText).length > 0;
   lines.push(renderPickerRule(theme, width));
-  lines.push(renderFooterHints(width, theme, anyInvalid));
-
-  if (state.confirmOpen) {
-    lines.push("");
-    lines.push(...renderConfirmCard(opts));
+  if (isOnSubmitTab) {
+    lines.push(...renderPickerSubmitControls(fields, state, theme, width));
+  } else {
+    lines.push(renderFooterHints(width, theme));
   }
+
   return lines.map((line) => fitLine(line, width));
 }
 
-/**
- * Footer hint row, tier-degraded so it never wraps on resize. Tiers:
- *
- *   wide   (≥ widest):  tab next  ·  shift+tab prev  ·  ctrl+x run  ·  esc cancel
- *   medium (≥ keys):    tab  ·  shift+tab  ·  ctrl+x  ·  esc
- *   tight  (≥ short):   tab  ·  ⇧tab  ·  ctrl+x  ·  esc
- *   narrow (else):      ctrl+x  ·  esc
- */
-function renderFooterHints(width: number, theme: GraphTheme, submitDisabled: boolean): string {
-  const sep = dimSep(theme);
-  const sepWidth = 5; // "  ·  "
-  const submitColor = submitDisabled ? theme.dim : theme.text;
-  const submitLabelColor = submitDisabled ? theme.dim : theme.textMuted;
-  const hint = (key: string, label: string, keyColor = theme.text, labelColor = theme.textMuted): string =>
-    paint(key, keyColor) + " " + paint(label, labelColor);
-  const keyOnly = (key: string, keyColor = theme.text): string => paint(key, keyColor);
-
-  const wide = [
-    { width: 8, render: () => hint("tab", "Next") },
-    { width: 14, render: () => hint("shift+tab", "Prev") },
-    { width: 10, render: () => hint("ctrl+x", "Run", submitColor, submitLabelColor) },
-    { width: 10, render: () => hint("esc", "Cancel") },
-  ];
-  const medium = [
-    { width: 3, render: () => keyOnly("tab") },
-    { width: 9, render: () => keyOnly("shift+tab") },
-    { width: 6, render: () => keyOnly("ctrl+x", submitColor) },
-    { width: 6, render: () => keyOnly("esc") },
-  ];
-  const tight = [
-    { width: 3, render: () => keyOnly("tab") },
-    { width: 4, render: () => keyOnly("⇧tab") },
-    { width: 6, render: () => keyOnly("ctrl+x", submitColor) },
-    { width: 6, render: () => keyOnly("esc") },
-  ];
-  const narrow = [
-    { width: 6, render: () => keyOnly("ctrl+x", submitColor) },
-    { width: 6, render: () => keyOnly("esc") },
-  ];
-
-  for (const tier of [wide, medium, tight, narrow]) {
-    const total = tier.reduce((s, h) => s + h.width, 0) + (tier.length - 1) * sepWidth;
-    if (total <= width) {
-      return tier.map((h) => h.render()).join(sep);
-    }
-  }
-  // Truly tiny terminal — show just the run+cancel keys joined by a single space.
-  return paint("ctrl+x", submitColor) + " " + paint("esc", theme.text);
+/** Footer hint copied from ask_user_question, with workflow-specific tab copy. */
+function renderFooterHints(width: number, theme: GraphTheme): string {
+  return renderWorkflowFormFooterHints(theme, width);
 }
 
-/**
- * Centered "ready to run" card that shows the composed slash invocation.
- * Returns an array of lines so the caller can splat into the master list
- * and each row is clipped to terminal width on its own.
- */
-function renderConfirmCard(opts: InputsPickerRenderOpts): string[] {
-  const { theme, workflowName, fields, state, width } = opts;
-  const values = coerceValues(fields, state.rawText);
-  const head =
-    paint("✓ ", theme.success) +
-    paint("ready to run", theme.text, { bold: true });
-  const cmdParts: string[] = [
-    paint("/workflow ", theme.dim) + paint(workflowName, theme.text),
-  ];
-  for (const f of fields) {
-    if (values[f.name] === undefined) continue;
-    const shown = shortVal(String(state.rawText[f.name] ?? ""));
-    cmdParts.push(
-      paint("  ", theme.dim) +
-        paint(f.name, theme.text) +
-        paint("=", theme.dim) +
-        paint(shown, theme.text),
-    );
-  }
-  const prompt =
-    paint("submit this workflow?  ", theme.dim) +
-    paint("y", theme.success, { bold: true }) +
-    paint(" submit", theme.dim) +
-    paint("  ·  ", theme.dim) +
-    paint("n", theme.error, { bold: true }) +
-    paint(" cancel", theme.dim);
-  return [
-    truncateToWidth(head, width, "…", true),
-    "",
-    ...cmdParts.map((row) => truncateToWidth(row, width, "…", true)),
-    "",
-    truncateToWidth(prompt, width, "…", true),
-  ];
-}
-
-function shortVal(s: string): string {
-  const trimmed = s.replace(/\n/g, " ").trim();
-  if (trimmed.length > 48) return trimmed.slice(0, 45) + "…";
-  return trimmed.length === 0 ? "<empty>" : trimmed;
+function renderPickerSubmitControls(
+  fields: readonly WorkflowInputEntry[],
+  state: InputsPickerState,
+  theme: GraphTheme,
+  width: number,
+): string[] {
+  const invalid = computeInvalid(fields, state.rawText);
+  return renderSubmitControls({
+    invalidFieldNames: invalid.map((i) => fields[i]!.name),
+    submitChoiceIdx: state.submitChoiceIdx,
+    theme,
+    width,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1001,18 +700,19 @@ function shortVal(s: string): string {
  * with the coerced typed value map.
  *
  * Keys (form mode):
- *   tab / down       — next field
- *   shift+tab / up   — previous field
+ *   tab              — switch input fields and the Submit section
+ *   shift+tab        — previous input field / Submit section
  *   left / right     — select: cycle choices; boolean: flip; text: caret
  *   space            — boolean: flip
  *   enter            — text: newline; otherwise: next field
- *   ctrl+x       — open confirm modal (if all required filled)
  *   backspace        — delete char left of caret
  *   esc / ctrl+c     — close picker without running
  *
- * Keys (confirm modal mode):
- *   y / enter        — run
- *   n / esc          — back to form
+ * Keys (Submit pane):
+ *   up / down        — move between Submit answers and Cancel rows
+ *   1                — submit immediately, or focus the first invalid field
+ *   2                — cancel immediately without requiring Enter
+ *   enter            — commit the active Submit/Cancel row
  */
 export function handleInputsPickerInput(
   key: string,
@@ -1027,7 +727,6 @@ export function handleInputsPickerInput(
     if (isCancelKey(key)) return { kind: "cancel" };
     return { kind: "noop" };
   }
-  if (state.confirmOpen) return handleConfirmKey(key, state, fields);
   return handleFormKey(key, state, fields, keybindings);
 }
 
@@ -1039,7 +738,6 @@ function handleFormKey(
 ): InputsPickerAction {
   // ── Global navigation (workflow form contract, not Pi actions) ──
   if (isCancelKey(key)) return { kind: "cancel" };
-  if (matchesKey(key, Key.ctrl("x"))) return attemptPickerSubmit(state, fields);
   if (matchesKey(key, Key.tab)) {
     moveFocus(state, fields, +1);
     return { kind: "noop" };
@@ -1048,6 +746,7 @@ function handleFormKey(
     moveFocus(state, fields, -1);
     return { kind: "noop" };
   }
+  if (state.focusedIdx === fields.length) return handleSubmitKey(key, state, fields, kb);
 
   const field = fields[state.focusedIdx]!;
   const name = field.name;
@@ -1230,23 +929,41 @@ function handleBooleanKey(
   return { kind: "noop" };
 }
 
-function handleConfirmKey(
+function handleSubmitKey(
   key: string,
   state: InputsPickerState,
   fields: readonly WorkflowInputEntry[],
+  kb: KeybindingsLike | undefined,
 ): InputsPickerAction {
-  // Confirm-modal answers are single-char prompts (`y`/`n`) plus the form's
-  // raw esc/enter contract. These do not flow through Pi action ids because
-  // they're a confirmation-modal contract, not an editor-mode action.
-  if (matchesKey(key, "y") || matchesKey(key, Key.shift("y")) || matchesKey(key, Key.enter)) {
-    return { kind: "run", values: coerceValues(fields, state.rawText) };
-  }
-  if (matchesKey(key, Key.ctrl("c"))) return { kind: "cancel" };
-  if (matchesKey(key, "n") || matchesKey(key, Key.shift("n")) || matchesKey(key, Key.escape)) {
-    state.confirmOpen = false;
+  if (matchesAction(kb, key, TUI_ACTION.selectUp) || matchesAction(kb, key, TUI_ACTION.editorCursorUp)) {
+    state.submitChoiceIdx = nextSubmitChoiceIdx(state.submitChoiceIdx, -1);
     return { kind: "noop" };
   }
+  if (matchesAction(kb, key, TUI_ACTION.selectDown) || matchesAction(kb, key, TUI_ACTION.editorCursorDown)) {
+    state.submitChoiceIdx = nextSubmitChoiceIdx(state.submitChoiceIdx, +1);
+    return { kind: "noop" };
+  }
+  if (matchesKey(key, "1")) {
+    state.submitChoiceIdx = 0;
+    return attemptPickerSubmit(state, fields);
+  }
+  if (matchesKey(key, "2")) {
+    state.submitChoiceIdx = 1;
+    return { kind: "cancel" };
+  }
+  if (
+    matchesKey(key, Key.enter) ||
+    matchesAction(kb, key, TUI_ACTION.selectConfirm) ||
+    matchesAction(kb, key, TUI_ACTION.inputSubmit)
+  ) {
+    return state.submitChoiceIdx === 0 ? attemptPickerSubmit(state, fields) : { kind: "cancel" };
+  }
   return { kind: "noop" };
+}
+
+function nextSubmitChoiceIdx(current: number, delta: number): number {
+  const count = 2;
+  return (current + delta + count) % count;
 }
 
 function isCancelKey(key: string): boolean {
@@ -1260,13 +977,13 @@ function attemptPickerSubmit(
   const invalid = computeInvalid(fields, state.rawText);
   if (invalid.length > 0) {
     state.invalidIndices = invalid;
+    state.submitChoiceIdx = 0;
     state.focusedIdx = invalid[0]!;
     state.caret = (state.rawText[fields[state.focusedIdx]!.name] ?? "").length;
     return { kind: "noop" };
   }
   state.invalidIndices = [];
-  state.confirmOpen = true;
-  return { kind: "noop" };
+  return { kind: "run", values: coerceValues(fields, state.rawText) };
 }
 
 function moveFocus(
@@ -1274,9 +991,14 @@ function moveFocus(
   fields: readonly WorkflowInputEntry[],
   delta: number,
 ): void {
-  const n = fields.length;
-  if (n === 0) return;
+  const n = fields.length + 1;
+  if (n <= 1) return;
   state.focusedIdx = (state.focusedIdx + delta + n) % n;
+  if (state.focusedIdx === fields.length) {
+    state.caret = 0;
+    state.submitChoiceIdx = 0;
+    return;
+  }
   const next = fields[state.focusedIdx]!;
   state.caret = (state.rawText[next.name] ?? "").length;
 }

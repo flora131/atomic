@@ -49,10 +49,10 @@ function makeState(overrides: Partial<Parameters<typeof createForm>[0]> = {}) {
   return createForm({
     formId: "wf-test",
     workflowName: "ralph",
-    description: "loop a thinker",
     fields: FIELDS,
     rawText: { prompt: "", iters: "5", focus: "standard", verbose: "false" },
     focusedIdx: 0,
+    submitChoiceIdx: 0,
     caret: 0,
     status: "editing",
     ...overrides,
@@ -106,16 +106,16 @@ test("card (live): uses ask-user-question style tab chrome, not workflow/edit pa
   const txt = plain(lines);
   assert.doesNotMatch(txt, /WORKFLOW/);
   assert.doesNotMatch(txt, /EDIT/);
-  assert.match(txt, /ralph/);
-  assert.match(txt, /loop a thinker/);
+  assert.doesNotMatch(txt, /loop a thinker/);
   assert.match(txt, /prompt/);
   assert.match(txt, /iters/);
   assert.match(txt, /focus/);
   assert.match(txt, /verbose/);
-  assert.match(txt, /1 \/ 4/);
+  assert.match(txt, /task/);
+  assert.doesNotMatch(txt, /1 \/ 4/);
   assert.doesNotMatch(txt, /Run workflow/);
-  assert.match(txt, /tab/);
-  assert.match(txt, /ctrl\+x/);
+  assert.match(txt, /Tab to switch input fields/);
+  assert.doesNotMatch(txt, /ctrl\+x/);
   assert.doesNotMatch(txt, /ctrl\+enter/);
   assert.doesNotMatch(txt, /ctrl\+s/);
 
@@ -126,7 +126,7 @@ test("card (live): uses ask-user-question style tab chrome, not workflow/edit pa
   assert.match(plainLines[1] ?? "", /■ iters/);
   assert.match(plainLines[1] ?? "", /■ focus/);
   assert.match(plainLines[1] ?? "", /■ verbose/);
-  assert.match(plainLines[1] ?? "", /✓ Run/);
+  assert.match(plainLines[1] ?? "", /✓ Submit/);
   assert.match(plainLines[1] ?? "", / →$/);
   assert.ok(plainLines.slice(1).some((line) => /^─+$/.test(line)), "expected bottom dialog border");
   assert.doesNotMatch(txt, /╭─ WORKFLOW ─/);
@@ -136,20 +136,103 @@ test("card (live): uses ask-user-question style tab chrome, not workflow/edit pa
 test("card (live): hint row is anchored at the bottom of the widget", () => {
   const state = makeState();
   const lines = renderInlineCard({ width: 80, state, theme: deriveGraphTheme({}) });
-  // The footer band is the trailing 3 lines; hints live on the middle row.
+  // The footer band is the trailing lines; hints live beneath the bottom rule.
   const tail = lines.slice(-3).map((l) => plain([l]));
-  assert.match(tail.join("\n"), /tab\s+Next/);
-  assert.match(tail.join("\n"), /esc\s+Cancel/);
+  assert.match(tail.join("\n"), /Enter to select/);
+  assert.match(tail.join("\n"), /Tab to switch input fields/);
+  assert.match(tail.join("\n"), /Esc to cancel/);
+  assert.doesNotMatch(tail.join("\n"), /ctrl\+x/);
 });
 
 test("card (live): active field body uses ask-user-question input rows, not inner boxes", () => {
   const state = makeState();
   const lines = renderInlineCard({ width: 80, state, theme: deriveGraphTheme({}) });
   const visible = plain(lines);
-  assert.match(visible, / prompt\n  text\s+·\s+required\s+·\s+task\n\n❯ 1\.  /);
+  assert.match(visible, /task\n\n❯ 1\.  /);
   assert.match(ansi(lines), /\x1b\[7m \x1b\[0m/);
   assert.doesNotMatch(visible, /╭─+ prompt ─+╮/);
   assert.doesNotMatch(visible, /│\s+│/);
+});
+
+test("card (live): Submit section reviews inputs and offers visible actions", () => {
+  const state = makeState({
+    rawText: { prompt: "build me a tui", iters: "5", focus: "minimal", verbose: "false" },
+    focusedIdx: FIELDS.length,
+  });
+  const txt = plain(renderInlineCard({ width: 80, state, theme: deriveGraphTheme({}) }));
+  assert.match(txt, /✓ Submit/);
+  assert.match(txt, /Review your inputs/);
+  assert.match(txt, /\/workflow ralph/);
+  assert.match(txt, /● prompt/);
+  assert.match(txt, /→ build me a tui/);
+  assert.match(txt, /Ready to submit your inputs\?/);
+  assert.match(txt, /● verbose\n\s+→ off/);
+  assert.doesNotMatch(txt, /→ false/);
+  assert.match(txt, /❯ 1\. Submit answers/);
+  assert.match(txt, /2\. Cancel/);
+  assert.doesNotMatch(txt, /Chat about this/);
+  assert.doesNotMatch(txt, /ctrl\+x/);
+});
+
+test("card (live): normalizes true-like boolean review values", () => {
+  const state = makeState({
+    rawText: { prompt: "build me a tui", iters: "5", focus: "minimal", verbose: "1" },
+    focusedIdx: FIELDS.length,
+  });
+  const txt = plain(renderInlineCard({ width: 80, state, theme: deriveGraphTheme({}) }));
+  assert.match(txt, /● verbose\n\s+→ on/);
+  assert.doesNotMatch(txt, /→ 1/);
+});
+
+test("card (live): shows empty boolean review values as empty", () => {
+  const fields: readonly WorkflowInputEntry[] = [
+    { name: "enabled", type: "boolean", required: true },
+  ];
+  const state = makeState({
+    fields,
+    rawText: { enabled: "" },
+    focusedIdx: fields.length,
+    caret: 0,
+  });
+  const txt = plain(renderInlineCard({ width: 80, state, theme: deriveGraphTheme({}) }));
+  assert.match(txt, /● enabled\n\s+→ <empty>/);
+  assert.doesNotMatch(txt, /→ off/);
+});
+
+test("card (live): wraps invalid Submit prompt instead of clipping", () => {
+  const fields: readonly WorkflowInputEntry[] = [
+    { name: "alpha_required_prompt", type: "string", required: true },
+    { name: "beta_required_context", type: "string", required: true },
+  ];
+  const state = makeState({
+    fields,
+    rawText: { alpha_required_prompt: "", beta_required_context: "" },
+    focusedIdx: fields.length,
+    caret: 0,
+  });
+  const width = 32;
+  const lines = renderInlineCard({ width, state, theme: deriveGraphTheme({}) });
+  const plainLines = lines.map((line) => plain([line]));
+  const txt = plainLines.join("\n");
+  assert.match(txt, /Answer remaining inputs before/);
+  assert.match(txt, /submitting:/);
+  assert.match(txt, /alpha_required_prompt/);
+  assert.match(txt, /beta_required_context/);
+  assert.match(txt, /Submit answers \(2 missing\)/);
+  const promptStart = plainLines.findIndex((line) => line.startsWith("Answer remaining"));
+  const promptLines = plainLines.slice(promptStart, promptStart + 4).join("\n");
+  assert.doesNotMatch(promptLines, /…/);
+  assertLinesWithinWidth(lines, width);
+});
+
+test("card (live): Submit review preserves multiline values", () => {
+  const state = makeState({
+    rawText: { prompt: "line one\nline two", iters: "5", focus: "minimal", verbose: "false" },
+    focusedIdx: FIELDS.length,
+  });
+  const txt = plain(renderInlineCard({ width: 80, state, theme: deriveGraphTheme({}) }));
+  assert.match(txt, /→ line one\n\s+line two/);
+  assert.doesNotMatch(txt, /line one line two/);
 });
 
 test("card (submitted): shows ✓ submitted ribbon + composed command", () => {
@@ -176,6 +259,23 @@ test("card (cancelled): renders no cancellation artefact", () => {
   const state = makeState({ status: "cancelled" });
   const lines = renderInlineCard({ width: 80, state, theme: deriveGraphTheme({}) });
   assert.deepEqual(lines, []);
+});
+
+test("card: keeps Submit visible in a narrow tab bar", () => {
+  const fields: readonly WorkflowInputEntry[] = [
+    { name: "very_long_prompt_name", type: "string", required: true },
+    { name: "another_long_context_name", type: "string", required: false },
+  ];
+  const state = makeState({
+    fields,
+    rawText: { very_long_prompt_name: "ready", another_long_context_name: "" },
+    focusedIdx: fields.length,
+    caret: 0,
+  });
+  const lines = renderInlineCard({ width: 16, state, theme: deriveGraphTheme({}) });
+  const tab = plain([lines[1] ?? ""]);
+  assert.match(tab, /Submit/);
+  assert.ok(tab.length <= 16);
 });
 
 test("card: select field renders choices as ask-user-question numbered rows", () => {
@@ -209,12 +309,36 @@ function assertLinesWithinWidth(lines: string[], width: number): void {
   }
 }
 
+test("card: wraps long descriptions and choice labels without ellipses", () => {
+  const fields: readonly WorkflowInputEntry[] = [
+    {
+      name: "strategy",
+      type: "select",
+      required: true,
+      description: "Choose the deployment strategy that prioritizes safety across multiple production regions and rollback windows.",
+      choices: ["roll out gradually across production regions with automated rollback and operator checkpoints"],
+    },
+  ];
+  const state = makeState({
+    fields,
+    rawText: { strategy: fields[0]!.choices![0]! },
+    focusedIdx: 0,
+    caret: 0,
+  });
+  const txt = plain(renderInlineCard({ width: 80, state, theme: deriveGraphTheme({}) }));
+  assert.match(txt, /prioritizes safety across multiple/);
+  assert.match(txt, /production regions and rollback windows/);
+  assert.match(txt, /roll out gradually across production regions/);
+  assert.match(txt, /automated rollback and/);
+  assert.match(txt, /operator checkpoints/);
+  assert.doesNotMatch(txt, /…/);
+});
+
 test("card: live form lines stay within the requested width", () => {
   const width = 113;
   const longDescription = "Maximum number of codebase partitions to explore in parallel. Actual partitions scale by one per 10K LoC, capped by this value.";
   const state = makeState({
     workflowName: "deep-research-codebase-with-a-very-long-name-that-should-not-overflow-the-terminal",
-    description: "Prepare a comprehensive multi-agent research workflow with enough prose to exceed the viewport.",
     fields: [
       { name: "prompt", type: "text", required: true, description: "Research question or investigation focus for the codebase." },
       { name: "max_partitions", type: "number", required: false, default: 4, description: longDescription },
@@ -311,26 +435,81 @@ test("editor: esc variants and ctrl+c variants fire onExit('cancel')", () => {
   }
 });
 
-test("editor: ctrl+x with missing required is blocked and focuses invalid", () => {
+test("editor: ctrl+x no longer submits or focuses invalid", () => {
   const e = makeEditor(); // prompt is empty
   e.state.focusedIdx = 2;
   e.editor.handleInput("\x18");
   assert.equal(e.getExited(), null);
-  assert.equal(e.state.focusedIdx, 0);
+  assert.equal(e.state.focusedIdx, 2);
   e.dispose();
 });
 
-test("editor: ctrl+x with all required filled fires onExit('submit')", () => {
-  for (const key of ["\x18", "\x1b[120;5u"]) {
-    const state = makeState({
-      focusedIdx: 0,
-      rawText: { prompt: "build", iters: "5", focus: "standard", verbose: "false" },
-    });
-    const e = makeEditor(state);
-    e.editor.handleInput(key);
-    assert.deepEqual(e.getExited(), { outcome: "submit" }, `key=${JSON.stringify(key)}`);
-    e.dispose();
-  }
+test("editor: Submit section validates and submits via visible row", () => {
+  const missing = makeEditor();
+  missing.state.focusedIdx = FIELDS.length;
+  missing.editor.handleInput("\r");
+  assert.equal(missing.getExited(), null);
+  assert.equal(missing.state.focusedIdx, 0);
+  assert.equal(missing.state.submitChoiceIdx, 0);
+  missing.dispose();
+
+  const state = makeState({
+    focusedIdx: FIELDS.length,
+    rawText: { prompt: "build", iters: "5", focus: "standard", verbose: "false" },
+  });
+  const e = makeEditor(state);
+  e.editor.handleInput("\r");
+  assert.deepEqual(e.getExited(), { outcome: "submit" });
+  e.dispose();
+});
+
+test("editor: Submit section cancel row exits on Enter", () => {
+  const state = makeState({
+    focusedIdx: FIELDS.length,
+    submitChoiceIdx: 1,
+    rawText: { prompt: "build", iters: "5", focus: "standard", verbose: "false" },
+  });
+  const e = makeEditor(state);
+  e.editor.handleInput("\r");
+  assert.deepEqual(e.getExited(), { outcome: "cancel" });
+  e.dispose();
+});
+
+test("editor: Submit section number hotkeys submit or cancel immediately", () => {
+  const submitState = makeState({
+    focusedIdx: FIELDS.length,
+    rawText: { prompt: "build", iters: "5", focus: "standard", verbose: "false" },
+  });
+  const submit = makeEditor(submitState);
+  submit.editor.handleInput("1");
+  assert.deepEqual(submit.getExited(), { outcome: "submit" });
+  submit.dispose();
+
+  const cancelState = makeState({
+    formId: "wf-cancel-hotkey",
+    focusedIdx: FIELDS.length,
+    rawText: { prompt: "build", iters: "5", focus: "standard", verbose: "false" },
+  });
+  const cancel = makeEditor(cancelState);
+  cancel.editor.handleInput("2");
+  assert.deepEqual(cancel.getExited(), { outcome: "cancel" });
+  assert.equal(cancelState.submitChoiceIdx, 1);
+  cancel.dispose();
+});
+
+test("editor: Submit section arrow keys move between submit and cancel rows", () => {
+  const state = makeState({
+    focusedIdx: FIELDS.length,
+    rawText: { prompt: "build", iters: "5", focus: "standard", verbose: "false" },
+  });
+  const e = makeEditor(state);
+  e.editor.handleInput("\x1b[B");
+  assert.equal(state.submitChoiceIdx, 1);
+  e.editor.handleInput("\x1b[A");
+  assert.equal(state.submitChoiceIdx, 0);
+  e.editor.handleInput("\x1b[A");
+  assert.equal(state.submitChoiceIdx, 1);
+  e.dispose();
 });
 
 test("editor: select field arrow keys cycle, space cycles", () => {
@@ -546,10 +725,11 @@ test("overlay: openInlineInputsForm emits a custom message and swaps editor", as
   // Build the editor via the installed factory and submit it.
   const tui = { requestRender: () => {} };
   const editor = installed!(tui, {}, makeFakeKeybindings());
-  // Fill required prompt and submit.
+  // Fill required prompt, tab to the visible Submit section, and submit.
   editor.handleInput("h");
   editor.handleInput("i");
-  editor.handleInput("\x18");
+  for (let i = 0; i < FIELDS.length; i += 1) editor.handleInput("\t");
+  editor.handleInput("\r");
   const result = await pending;
   assert.equal(result.kind, "run");
   if (result.kind === "run") {
@@ -639,7 +819,8 @@ test("overlay: installed editor accepts pi setup before card render", async () =
   assert.equal(editor.getAutocompleteMaxVisible(), 20);
   editor.handleInput("o");
   editor.handleInput("k");
-  editor.handleInput("\x18");
+  for (let i = 0; i < FIELDS.length; i += 1) editor.handleInput("\t");
+  editor.handleInput("\r");
   const result = await pending;
   assert.equal(result.kind, "run");
 });
@@ -895,7 +1076,7 @@ test("card: inactive filled fields are summarized in the tab row while only the 
   });
   const txt = plain(renderInlineCard({ width: 80, state, theme: deriveGraphTheme({}) }));
   assert.match(txt, /■ prompt/);
-  assert.match(txt, / iters\n  number\s+·\s+optional\n\n❯ 1\. 5/);
+  assert.match(txt, /iters\n\n❯ 1\. 5/);
   assert.doesNotMatch(txt, /first line/);
   assert.doesNotMatch(txt, /⏎/);
 });
@@ -951,8 +1132,8 @@ test("editor: up arrow on first logical line of text falls through to focus-prev
       caret: 3,
     }),
   );
-  e.editor.handleInput("\x1b[A"); // up — no previous logical line, focus wraps to last field
-  assert.equal(e.state.focusedIdx, FIELDS.length - 1);
+  e.editor.handleInput("\x1b[A"); // up — no previous logical line, focus wraps to Submit section
+  assert.equal(e.state.focusedIdx, FIELDS.length);
   e.dispose();
 });
 

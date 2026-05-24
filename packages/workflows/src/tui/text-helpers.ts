@@ -15,6 +15,19 @@ const SHIFT_MODIFIER = 1;
 const LOCK_MODIFIER_MASK = 64 + 128;
 const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
+export function graphemes(text: string): string[] {
+  return Array.from(segmenter.segment(text), (s) => s.segment);
+}
+
+export interface GraphemeSegment {
+  segment: string;
+  index: number;
+}
+
+export function graphemeSegments(text: string): GraphemeSegment[] {
+  return Array.from(segmenter.segment(text), (s) => ({ segment: s.segment, index: s.index }));
+}
+
 function readAnsiCode(text: string, offset: number): string | null {
   const match = ANSI_ESCAPE_RE.exec(text.slice(offset));
   return match?.[0] ?? null;
@@ -66,6 +79,86 @@ function decodeModifyOtherKeysPrintable(data: string): string | undefined {
 /** Decode CSI-u / Kitty printable-key sequences emitted by terminals such as VSCode. */
 export function decodePrintableKey(data: string): string | undefined {
   return decodeKittyPrintable(data) ?? decodeModifyOtherKeysPrintable(data);
+}
+
+/**
+ * Trim review values without flattening authored line breaks.
+ * Empty or whitespace-only values render as an explicit placeholder.
+ */
+export function formatReviewValue(value: string): string {
+  const trimmed = value.trim();
+  return trimmed.length === 0 ? "<empty>" : trimmed;
+}
+
+/**
+ * Wrap plain text by terminal cell width while preserving paragraph breaks.
+ * Within each paragraph, runs of whitespace collapse to a single space; this
+ * keeps labels/descriptions readable but is not intended for preformatted text.
+ */
+export function wrapPlainText(text: string, width: number): string[] {
+  const budget = Math.max(1, Math.floor(width));
+  const out: string[] = [];
+  for (const paragraph of text.split(/\r?\n/)) {
+    const words = paragraph.trim().split(/\s+/).filter((word) => word.length > 0);
+    if (words.length === 0) {
+      out.push("");
+      continue;
+    }
+    let line = "";
+    for (const word of words) {
+      if (visibleWidth(word) > budget) {
+        if (line.length > 0) {
+          out.push(line);
+          line = "";
+        }
+        let chunk = "";
+        for (const g of graphemes(word)) {
+          if (chunk.length > 0 && visibleWidth(chunk) + visibleWidth(g) > budget) {
+            out.push(chunk);
+            chunk = g;
+          } else {
+            chunk += g;
+          }
+        }
+        line = chunk;
+      } else if (line.length === 0) {
+        line = word;
+      } else if (visibleWidth(line) + 1 + visibleWidth(word) <= budget) {
+        line += " " + word;
+      } else {
+        out.push(line);
+        line = word;
+      }
+    }
+    if (line.length > 0) out.push(line);
+  }
+  return out.length > 0 ? out : [""];
+}
+
+export interface WrappedPrefixedLinesOpts {
+  text: string;
+  width: number;
+  plainPrefix: string;
+  firstPrefix: string;
+  continuationPrefix?: string;
+  suffix?: string;
+  preserveAnsi?: boolean;
+  styleLine?: (line: string, index: number) => string;
+}
+
+/**
+ * Shared ask-style row wrapper for numbered choices and review value rows.
+ * Computes the wrapped text budget from the visible prefix width, then clips
+ * the composed ANSI row so narrow terminals never overflow.
+ */
+export function renderWrappedPrefixedLines(opts: WrappedPrefixedLinesOpts): string[] {
+  const continuationPrefix = opts.continuationPrefix ?? " ".repeat(visibleWidth(opts.plainPrefix));
+  const textBudget = Math.max(1, opts.width - visibleWidth(opts.plainPrefix));
+  return wrapPlainText(opts.text, textBudget).map((line, index) => {
+    const prefix = index === 0 ? opts.firstPrefix : continuationPrefix;
+    const styled = opts.styleLine ? opts.styleLine(line, index) : line;
+    return truncateToWidth(prefix + styled, opts.width, opts.suffix ?? "…", opts.preserveAnsi ?? true);
+  });
 }
 
 export function sliceColumns(

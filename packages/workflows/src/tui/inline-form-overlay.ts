@@ -57,7 +57,6 @@ export type InlineFormResult =
 
 export interface OpenInlineFormOpts {
   workflowName: string;
-  description?: string;
   fields: readonly WorkflowInputEntry[];
   prefilled?: Record<string, unknown>;
   theme: GraphTheme;
@@ -199,10 +198,10 @@ export async function openInlineInputsForm(
   const state = createForm({
     formId,
     workflowName: opts.workflowName,
-    description: opts.description,
     fields: opts.fields,
     rawText,
     focusedIdx,
+    submitChoiceIdx: 0,
     caret: (rawText[opts.fields[focusedIdx]!.name] ?? "").length,
     status: "editing",
   });

@@ -12,7 +12,7 @@ import { formatDimensionNote, resizeImage } from "../../utils/image-resize.ts";
 import { detectSupportedImageMimeTypeFromFile } from "../../utils/mime.ts";
 import { formatPathRelativeToCwdOrAbsolute } from "../../utils/paths.ts";
 import type { ToolDefinition, ToolRenderResultOptions } from "../extensions/types.ts";
-import { resolveReadPath } from "./path-utils.ts";
+import { resolveReadPathAsync, resolveToCwd } from "./path-utils.ts";
 import { getTextOutput, invalidArgText, replaceTabs, shortenPath, str } from "./render-utils.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, type TruncationResult, truncateHead } from "./truncate.ts";
@@ -124,7 +124,7 @@ function getCompactReadClassification(
 	const rawPath = str(args?.file_path ?? args?.path);
 	if (!rawPath) return undefined;
 
-	const absolutePath = resolveReadPath(rawPath, cwd);
+	const absolutePath = resolveToCwd(rawPath, cwd);
 	const fileName = basename(absolutePath);
 	if (fileName === "SKILL.md") {
 		return { kind: "skill", label: basename(dirname(absolutePath)) || fileName };
@@ -170,10 +170,10 @@ function formatReadResult(
 	options: ToolRenderResultOptions,
 	theme: Theme,
 	showImages: boolean,
-	cwd: string,
+	_cwd: string,
 	isError: boolean,
 ): string {
-	if (!options.expanded && !isError && getCompactReadClassification(args, cwd)) {
+	if (!options.expanded && !isError) {
 		return "";
 	}
 
@@ -223,7 +223,6 @@ export function createReadToolDefinition(
 			_onUpdate?,
 			ctx?,
 		) {
-			const absolutePath = resolveReadPath(path, cwd);
 			return new Promise<{ content: (TextContent | ImageContent)[]; details: ReadToolDetails | undefined }>(
 				(resolve, reject) => {
 					if (signal?.aborted) {
@@ -239,6 +238,8 @@ export function createReadToolDefinition(
 
 					(async () => {
 						try {
+							const absolutePath = await resolveReadPathAsync(path, cwd);
+							if (aborted) return;
 							// Check if file exists and is readable.
 							await ops.access(absolutePath);
 							if (aborted) return;
@@ -249,10 +250,9 @@ export function createReadToolDefinition(
 							if (mimeType) {
 								// Read image as binary.
 								const buffer = await ops.readFile(absolutePath);
-								const base64 = buffer.toString("base64");
 								if (autoResizeImages) {
 									// Resize image if needed before sending it back to the model.
-									const resized = await resizeImage({ type: "image", data: base64, mimeType });
+									const resized = await resizeImage(buffer, mimeType);
 									if (!resized) {
 										let textNote = `Read image file [${mimeType}]\n[Image omitted: could not be resized below the inline image size limit.]`;
 										if (nonVisionImageNote) textNote += `\n${nonVisionImageNote}`;
@@ -272,7 +272,7 @@ export function createReadToolDefinition(
 									if (nonVisionImageNote) textNote += `\n${nonVisionImageNote}`;
 									content = [
 										{ type: "text", text: textNote },
-										{ type: "image", data: base64, mimeType },
+										{ type: "image", data: buffer.toString("base64"), mimeType },
 									];
 								}
 							} else {

@@ -3,6 +3,7 @@ import { homedir } from "os";
 import { basename, dirname, join, resolve, sep, win32 } from "path";
 import { fileURLToPath } from "url";
 import { spawnProcessSync } from "./utils/child-process.ts";
+import { normalizePath } from "./utils/paths.ts";
 
 // =============================================================================
 // Package Detection
@@ -331,9 +332,7 @@ export function getPackageDir(): string {
 	// This runs before package.json app config is read, so the env var name is hardcoded.
 	const envDir = process.env.ATOMIC_PACKAGE_DIR ?? process.env.PI_PACKAGE_DIR;
 	if (envDir) {
-		if (envDir === "~") return homedir();
-		if (envDir.startsWith("~/")) return homedir() + envDir.slice(1);
-		return envDir;
+		return normalizePath(envDir);
 	}
 
 	if (isBunBinary) {
@@ -511,9 +510,7 @@ export function setEnvValue(name: string, value: string): void {
 }
 
 export function expandTildePath(path: string): string {
-	if (path === "~") return homedir();
-	if (path.startsWith("~/")) return homedir() + path.slice(1);
-	return path;
+	return normalizePath(path);
 }
 
 const DEFAULT_SHARE_VIEWER_URL = "https://pi.dev/session/";

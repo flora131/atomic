@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Synced Atomic's coding-agent fork with upstream Pi patches since v0.75.4 and updated bundled Pi libraries to 0.75.5.
+
+### Fixed
+
+- Carried forward upstream fixes for managed extension installs, git package ref reconciliation, async file tools, export HTML escaping, OpenCode session headers, OAuth device-code login, footer path abbreviation, clipboard native loading, and collapsed read output rendering.
+
 ## [0.8.13] - 2026-05-21
 
 ### Changed

@@ -12,6 +12,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { APP_NAME } from "../src/config.ts";
 import { DefaultPackageManager } from "../src/core/package-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 
@@ -31,6 +32,8 @@ function initGitRepo(repoDir: string): void {
 	git(["init", "--initial-branch=main"], repoDir);
 	git(["config", "--local", "user.email", "test@test.com"], repoDir);
 	git(["config", "--local", "user.name", "Test"], repoDir);
+	git(["config", "--local", "commit.gpgsign", "false"], repoDir);
+	git(["config", "--local", "tag.gpgSign", "false"], repoDir);
 }
 
 // Helper to create a commit with a file
@@ -282,7 +285,7 @@ describe("DefaultPackageManager git update", () => {
 	});
 
 	describe("pinned sources", () => {
-		it("should not update pinned git sources (with @ref)", async () => {
+		it("should not move pinned git sources past their configured ref", async () => {
 			// Create remote repo first to get the initial commit
 			mkdirSync(remoteDir, { recursive: true });
 			initGitRepo(remoteDir);
@@ -301,12 +304,76 @@ describe("DefaultPackageManager git update", () => {
 			// Add new commit to remote
 			createCommit(remoteDir, "extension.ts", "// v2", "Second commit");
 
-			// Update should be skipped for pinned sources
 			await packageManager.update();
 
 			// Should still be on initial commit
 			expect(getCurrentCommit(installedDir)).toBe(initialCommit);
 			expect(getFileContent(installedDir, "extension.ts")).toBe("// v1");
+		});
+
+		it("should checkout the configured pinned git ref during full and targeted updates", async () => {
+			mkdirSync(remoteDir, { recursive: true });
+			initGitRepo(remoteDir);
+			const v1Commit = createCommit(remoteDir, "extension.ts", "// v1", "Initial commit");
+			git(["tag", "v1"], remoteDir);
+			const v2Commit = createCommit(remoteDir, "extension.ts", "// v2", "Second commit");
+			git(["tag", "v2"], remoteDir);
+
+			mkdirSync(join(agentDir, "git", "github.com", "test"), { recursive: true });
+			git(["clone", remoteDir, installedDir], tempDir);
+			git(["checkout", "v1"], installedDir);
+			expect(getCurrentCommit(installedDir)).toBe(v1Commit);
+
+			const pinnedSource = `${gitSource}@v2`;
+			settingsManager.setPackages([pinnedSource]);
+
+			await packageManager.update();
+
+			expect(getCurrentCommit(installedDir)).toBe(v2Commit);
+			expect(getFileContent(installedDir, "extension.ts")).toBe("// v2");
+
+			git(["checkout", "v1"], installedDir);
+
+			await packageManager.update(pinnedSource);
+
+			expect(getCurrentCommit(installedDir)).toBe(v2Commit);
+			expect(getFileContent(installedDir, "extension.ts")).toBe("// v2");
+		});
+
+		it("should not reset an annotated tag checkout that already matches the configured ref", async () => {
+			mkdirSync(remoteDir, { recursive: true });
+			initGitRepo(remoteDir);
+			const taggedCommit = createCommit(remoteDir, "extension.ts", "// v1", "Initial commit");
+			git(["tag", "-a", "v1", "-m", "v1"], remoteDir);
+
+			mkdirSync(join(agentDir, "git", "github.com", "test"), { recursive: true });
+			git(["clone", remoteDir, installedDir], tempDir);
+			git(["checkout", "v1"], installedDir);
+			expect(getCurrentCommit(installedDir)).toBe(taggedCommit);
+
+			settingsManager.setPackages([`${gitSource}@v1`]);
+
+			const executedCommands: string[] = [];
+			const managerWithInternals = packageManager as unknown as {
+				runCommand: (command: string, args: string[], options?: { cwd?: string }) => Promise<void>;
+			};
+			managerWithInternals.runCommand = async (command, args, options) => {
+				executedCommands.push(`${command} ${args.join(" ")}`);
+				const result = spawnSync(command, args, {
+					cwd: options?.cwd,
+					encoding: "utf-8",
+				});
+				if (result.status !== 0) {
+					throw new Error(`Command failed: ${command} ${args.join(" ")}\n${result.stderr}`);
+				}
+			};
+
+			await packageManager.update();
+
+			expect(executedCommands).toContain("git fetch origin v1");
+			expect(executedCommands.some((command) => command.startsWith("git reset --hard"))).toBe(false);
+			expect(executedCommands).not.toContain("git clean -fdx");
+			expect(getCurrentCommit(installedDir)).toBe(taggedCommit);
 		});
 	});
 
@@ -315,7 +382,7 @@ describe("DefaultPackageManager git update", () => {
 			const gitHost = "github.com";
 			const gitPath = "test/extension";
 			const hash = createHash("sha256").update(`git-${gitHost}-${gitPath}`).digest("hex").slice(0, 8);
-			const cachedDir = join(tmpdir(), "pi-extensions", `git-${gitHost}`, hash, gitPath);
+			const cachedDir = join(tmpdir(), `${APP_NAME}-extensions`, `git-${gitHost}`, hash, gitPath);
 			const extensionFile = join(cachedDir, "pi-extensions", "session-breakdown.ts");
 
 			rmSync(cachedDir, { recursive: true, force: true });
@@ -362,7 +429,7 @@ describe("DefaultPackageManager git update", () => {
 			const gitHost = "github.com";
 			const gitPath = "test/extension";
 			const hash = createHash("sha256").update(`git-${gitHost}-${gitPath}`).digest("hex").slice(0, 8);
-			const cachedDir = join(tmpdir(), "pi-extensions", `git-${gitHost}`, hash, gitPath);
+			const cachedDir = join(tmpdir(), `${APP_NAME}-extensions`, `git-${gitHost}`, hash, gitPath);
 			const extensionFile = join(cachedDir, "pi-extensions", "session-breakdown.ts");
 
 			rmSync(cachedDir, { recursive: true, force: true });

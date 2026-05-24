@@ -1,3 +1,4 @@
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import {
   type Component,
   truncateToWidth,
@@ -31,11 +32,7 @@ function formatTokens(count: number): string {
 }
 
 function replaceHome(input: string): string {
-  const home = process.env.HOME || process.env.USERPROFILE;
-  if (home && input.startsWith(home)) {
-    return `~${input.slice(home.length)}`;
-  }
-  return input;
+  return formatCwdForFooter(input, process.env.HOME || process.env.USERPROFILE);
 }
 
 function rightAlign(line: string, width: number): string {
@@ -126,6 +123,20 @@ function getUsageLine(
       ? usageParts.join(separator)
       : theme.fg("muted", contextPercentDisplay);
   return rightAlign(usageText, width);
+}
+
+export function formatCwdForFooter(cwd: string, home: string | undefined): string {
+	if (!home) return cwd;
+
+	const resolvedCwd = resolve(cwd);
+	const resolvedHome = resolve(home);
+	const relativeToHome = relative(resolvedHome, resolvedCwd);
+	const isInsideHome =
+		relativeToHome === "" ||
+		(relativeToHome !== ".." && !relativeToHome.startsWith(`..${sep}`) && !isAbsolute(relativeToHome));
+
+	if (!isInsideHome) return cwd;
+	return relativeToHome === "" ? "~" : `~${sep}${relativeToHome}`;
 }
 
 /**

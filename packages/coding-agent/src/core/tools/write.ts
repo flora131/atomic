@@ -200,44 +200,29 @@ export function createWriteToolDefinition(
 		) {
 			const absolutePath = resolveToCwd(path, cwd);
 			const dir = dirname(absolutePath);
-			return withFileMutationQueue(
-				absolutePath,
-				() =>
-					new Promise<{ content: Array<{ type: "text"; text: string }>; details: undefined }>(
-						(resolve, reject) => {
-							if (signal?.aborted) {
-								reject(new Error("Operation aborted"));
-								return;
-							}
-							let aborted = false;
-							const onAbort = () => {
-								aborted = true;
-								reject(new Error("Operation aborted"));
-							};
-							signal?.addEventListener("abort", onAbort, { once: true });
-							(async () => {
-								try {
-									// Create parent directories if needed.
-									await ops.mkdir(dir);
-									if (aborted) return;
-									// Write the file contents.
-									await ops.writeFile(absolutePath, content);
-									if (aborted) return;
-									signal?.removeEventListener("abort", onAbort);
-									resolve({
-										content: [
-											{ type: "text", text: `Successfully wrote ${content.length} bytes to ${path}` },
-										],
-										details: undefined,
-									});
-								} catch (error: unknown) {
-									signal?.removeEventListener("abort", onAbort);
-									if (!aborted) reject(error);
-								}
-							})();
-						},
-					),
-			);
+			return withFileMutationQueue(absolutePath, async () => {
+				// Do not reject from an abort event listener here: that would release the
+				// mutation queue while an in-flight filesystem operation may still finish.
+				// Checking signal.aborted after each await observes the same aborts while
+				// keeping the queue locked until the current operation has settled.
+				const throwIfAborted = (): void => {
+					if (signal?.aborted) throw new Error("Operation aborted");
+				};
+
+				throwIfAborted();
+				// Create parent directories if needed.
+				await ops.mkdir(dir);
+				throwIfAborted();
+
+				// Write the file contents.
+				await ops.writeFile(absolutePath, content);
+				throwIfAborted();
+
+				return {
+					content: [{ type: "text", text: `Successfully wrote ${content.length} bytes to ${path}` }],
+					details: undefined,
+				};
+			});
 		},
 		renderCall(args, theme, context) {
 			const renderArgs = args as { path?: string; file_path?: string; content?: string } | undefined;

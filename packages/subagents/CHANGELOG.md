@@ -12,8 +12,12 @@
 ## [Unreleased]
 
 ### Added
+- Synced upstream nested subagent fanout support, including child-safe nested `subagent` registration for explicitly authorized agents, nested status/control metadata, and parent-visible nested summaries.
 
 ### Fixed
+- Include selected direct MCP tool names in explicit child tool allowlists when metadata cache/config resolution is available.
+- Treat provider-coerced single-run `output: "false"` the same as boolean `false`, preventing literal `false` output files.
+- Respect read-only completion guard overrides and support disabling completion guards for read-only builtin agents.
 - Smooth live subagent widget animation by requesting redraws on spinner ticks without remounting the widget, preserving 250ms async status polling while reducing flicker.
 - Append the current user-selected model as the final subagent fallback candidate, so retryable provider/model failures still get one last attempt after configured `fallbackModels` are exhausted.
 - Keep subagent running glyphs stable between live animation ticks by deriving their base frame from progress state.

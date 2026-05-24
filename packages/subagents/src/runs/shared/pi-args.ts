@@ -2,20 +2,29 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { APP_NAME } from "@bastani/atomic";
+import { APP_NAME, getEnvValue } from "@bastani/atomic";
+import { encodeNestedPathEnv, parseNestedPathEnv, type NestedPathEntry } from "./nested-path.ts";
+import { resolveMcpDirectToolNames } from "./mcp-direct-tool-allowlist.ts";
 
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"];
 const TASK_ARG_LIMIT = 8000;
 const PROMPT_RUNTIME_EXTENSION_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "subagent-prompt-runtime.ts");
 const ENV_PREFIX = APP_NAME.toUpperCase();
+const FANOUT_CHILD_EXTENSION_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "extension", "fanout-child.ts");
 export const SUBAGENT_CHILD_ENV = `${ENV_PREFIX}_SUBAGENT_CHILD`;
 export const SUBAGENT_ORCHESTRATOR_TARGET_ENV = `${ENV_PREFIX}_SUBAGENT_ORCHESTRATOR_TARGET`;
 export const SUBAGENT_RUN_ID_ENV = `${ENV_PREFIX}_SUBAGENT_RUN_ID`;
 export const SUBAGENT_CHILD_AGENT_ENV = `${ENV_PREFIX}_SUBAGENT_CHILD_AGENT`;
 export const SUBAGENT_CHILD_INDEX_ENV = `${ENV_PREFIX}_SUBAGENT_CHILD_INDEX`;
-export const SUBAGENT_INHERIT_PROJECT_CONTEXT_ENV = `${ENV_PREFIX}_SUBAGENT_INHERIT_PROJECT_CONTEXT`;
-export const SUBAGENT_INHERIT_SKILLS_ENV = `${ENV_PREFIX}_SUBAGENT_INHERIT_SKILLS`;
-export const SUBAGENT_INTERCOM_SESSION_NAME_ENV = `${ENV_PREFIX}_SUBAGENT_INTERCOM_SESSION_NAME`;
+export const SUBAGENT_FANOUT_CHILD_ENV = `${ENV_PREFIX}_SUBAGENT_FANOUT_CHILD`;
+export const SUBAGENT_PARENT_EVENT_SINK_ENV = `${ENV_PREFIX}_SUBAGENT_PARENT_EVENT_SINK`;
+export const SUBAGENT_PARENT_CONTROL_INBOX_ENV = `${ENV_PREFIX}_SUBAGENT_PARENT_CONTROL_INBOX`;
+export const SUBAGENT_PARENT_ROOT_RUN_ID_ENV = `${ENV_PREFIX}_SUBAGENT_PARENT_ROOT_RUN_ID`;
+export const SUBAGENT_PARENT_RUN_ID_ENV = `${ENV_PREFIX}_SUBAGENT_PARENT_RUN_ID`;
+export const SUBAGENT_PARENT_CHILD_INDEX_ENV = `${ENV_PREFIX}_SUBAGENT_PARENT_CHILD_INDEX`;
+export const SUBAGENT_PARENT_DEPTH_ENV = `${ENV_PREFIX}_SUBAGENT_PARENT_DEPTH`;
+export const SUBAGENT_PARENT_PATH_ENV = `${ENV_PREFIX}_SUBAGENT_PARENT_PATH`;
+export const SUBAGENT_PARENT_CAPABILITY_TOKEN_ENV = `${ENV_PREFIX}_SUBAGENT_PARENT_CAPABILITY_TOKEN`;
 
 interface BuildPiArgsInput {
 	baseArgs: string[];
@@ -32,12 +41,21 @@ interface BuildPiArgsInput {
 	extensions?: string[];
 	systemPrompt?: string | null;
 	mcpDirectTools?: string[];
+	cwd?: string;
 	promptFileStem?: string;
 	intercomSessionName?: string;
 	orchestratorIntercomTarget?: string;
 	runId?: string;
 	childAgentName?: string;
 	childIndex?: number;
+	parentEventSink?: string;
+	parentControlInbox?: string;
+	parentRootRunId?: string;
+	parentRunId?: string;
+	parentChildIndex?: number;
+	parentDepth?: number;
+	parentPath?: NestedPathEntry[];
+	parentCapabilityToken?: string;
 }
 
 interface BuildPiArgsResult {
@@ -74,22 +92,27 @@ export function buildPiArgs(input: BuildPiArgsInput): BuildPiArgsResult {
 		args.push("--model", modelArg);
 	}
 
+	const declaredBuiltinTools = input.tools?.filter((tool) => !(tool.includes("/") || tool.endsWith(".ts") || tool.endsWith(".js"))) ?? [];
+	const fanoutAuthorized = declaredBuiltinTools.includes("subagent");
 	const toolExtensionPaths: string[] = [];
 	if (input.tools?.length) {
-		const builtinTools: string[] = [];
+		const builtinTools = [...declaredBuiltinTools];
 		for (const tool of input.tools) {
-			if (tool.includes("/") || tool.endsWith(".ts") || tool.endsWith(".js")) {
+			if (!declaredBuiltinTools.includes(tool) && (tool.includes("/") || tool.endsWith(".ts") || tool.endsWith(".js"))) {
 				toolExtensionPaths.push(tool);
-			} else {
-				builtinTools.push(tool);
 			}
 		}
 		if (builtinTools.length > 0) {
+			if (input.mcpDirectTools?.length) {
+				builtinTools.push(...resolveMcpDirectToolNames(input.mcpDirectTools, input.cwd));
+			}
 			args.push("--tools", builtinTools.join(","));
 		}
 	}
 
-	const runtimeExtensions = [PROMPT_RUNTIME_EXTENSION_PATH];
+	const runtimeExtensions = fanoutAuthorized
+		? [PROMPT_RUNTIME_EXTENSION_PATH, FANOUT_CHILD_EXTENSION_PATH]
+		: [PROMPT_RUNTIME_EXTENSION_PATH];
 	if (input.extensions !== undefined) {
 		args.push("--no-extensions");
 		for (const extPath of [...new Set([...runtimeExtensions, ...toolExtensionPaths, ...input.extensions])]) {
@@ -127,10 +150,52 @@ export function buildPiArgs(input: BuildPiArgsInput): BuildPiArgsResult {
 
 	const env: Record<string, string | undefined> = {};
 	env[SUBAGENT_CHILD_ENV] = "1";
-	env[SUBAGENT_INHERIT_PROJECT_CONTEXT_ENV] = input.inheritProjectContext ? "1" : "0";
-	env[SUBAGENT_INHERIT_SKILLS_ENV] = input.inheritSkills ? "1" : "0";
+	env[SUBAGENT_FANOUT_CHILD_ENV] = fanoutAuthorized ? "1" : "0";
+	const parentEventSinkEnv = getEnvValue(SUBAGENT_PARENT_EVENT_SINK_ENV);
+	const parentControlInboxEnv = getEnvValue(SUBAGENT_PARENT_CONTROL_INBOX_ENV);
+	const parentRootRunIdEnv = getEnvValue(SUBAGENT_PARENT_ROOT_RUN_ID_ENV);
+	const parentRunIdEnv = getEnvValue(SUBAGENT_PARENT_RUN_ID_ENV);
+	const parentChildIndexEnv = getEnvValue(SUBAGENT_PARENT_CHILD_INDEX_ENV);
+	const parentDepthEnv = getEnvValue(SUBAGENT_PARENT_DEPTH_ENV);
+	const parentPathEnv = getEnvValue(SUBAGENT_PARENT_PATH_ENV);
+	const parentCapabilityTokenEnv = getEnvValue(SUBAGENT_PARENT_CAPABILITY_TOKEN_ENV);
+	const inheritedNestedRoute = Boolean(parentEventSinkEnv && parentRootRunIdEnv && parentCapabilityTokenEnv);
+	const parentRunId = input.parentRunId ?? input.runId ?? (inheritedNestedRoute ? getEnvValue(SUBAGENT_RUN_ID_ENV) : undefined) ?? parentRunIdEnv ?? "";
+	const parentChildIndex = input.parentChildIndex !== undefined
+		? String(input.parentChildIndex)
+		: input.childIndex !== undefined
+			? String(input.childIndex)
+			: parentChildIndexEnv ?? "";
+	const inheritedDepth = Number(parentDepthEnv);
+	const parentDepth = input.parentDepth ?? (inheritedNestedRoute && Number.isFinite(inheritedDepth) ? inheritedDepth + 1 : 1);
+	const parentPath = input.parentPath ?? [
+		...parseNestedPathEnv(parentPathEnv),
+		...(parentRunId ? [{
+			runId: parentRunId,
+			...(parentChildIndex && /^\d+$/.test(parentChildIndex) ? { stepIndex: Number(parentChildIndex) } : {}),
+			...(input.childAgentName ? { agent: input.childAgentName } : {}),
+		}] : []),
+	];
+	env[SUBAGENT_PARENT_EVENT_SINK_ENV] = fanoutAuthorized
+		? input.parentEventSink ?? parentEventSinkEnv ?? ""
+		: "";
+	env[SUBAGENT_PARENT_CONTROL_INBOX_ENV] = fanoutAuthorized
+		? input.parentControlInbox ?? parentControlInboxEnv ?? ""
+		: "";
+	env[SUBAGENT_PARENT_ROOT_RUN_ID_ENV] = fanoutAuthorized
+		? input.parentRootRunId ?? parentRootRunIdEnv ?? input.runId ?? ""
+		: "";
+	env[SUBAGENT_PARENT_RUN_ID_ENV] = fanoutAuthorized ? parentRunId : "";
+	env[SUBAGENT_PARENT_CHILD_INDEX_ENV] = fanoutAuthorized ? parentChildIndex : "";
+	env[SUBAGENT_PARENT_DEPTH_ENV] = fanoutAuthorized ? String(parentDepth) : "";
+	env[SUBAGENT_PARENT_PATH_ENV] = fanoutAuthorized ? encodeNestedPathEnv(parentPath) : "";
+	env[SUBAGENT_PARENT_CAPABILITY_TOKEN_ENV] = fanoutAuthorized
+		? input.parentCapabilityToken ?? parentCapabilityTokenEnv ?? ""
+		: "";
+	env[`${ENV_PREFIX}_SUBAGENT_INHERIT_PROJECT_CONTEXT`] = input.inheritProjectContext ? "1" : "0";
+	env[`${ENV_PREFIX}_SUBAGENT_INHERIT_SKILLS`] = input.inheritSkills ? "1" : "0";
 	if (input.intercomSessionName) {
-		env[SUBAGENT_INTERCOM_SESSION_NAME_ENV] = input.intercomSessionName;
+		env[`${ENV_PREFIX}_SUBAGENT_INTERCOM_SESSION_NAME`] = input.intercomSessionName;
 	}
 	if (input.orchestratorIntercomTarget) {
 		env[SUBAGENT_ORCHESTRATOR_TARGET_ENV] = input.orchestratorIntercomTarget;
@@ -152,6 +217,8 @@ export function buildPiArgs(input: BuildPiArgsInput): BuildPiArgsResult {
 
 	return { args, env, tempDir };
 }
+
+export const parseParentPathEnv = parseNestedPathEnv;
 
 export function cleanupTempDir(tempDir: string | null | undefined): void {
 	if (!tempDir) return;

@@ -149,6 +149,21 @@ test("select field: arrows cycle through choices", () => {
   assert.equal(s.rawText.focus, "exhaustive");
 });
 
+test("select field: up/down navigate choices without leaving the field", () => {
+  const s = createInputsPickerState(FIELDS);
+  s.focusedIdx = 2; // focus on `focus` field
+  assert.equal(s.rawText.focus, "standard");
+  handleInputsPickerInput("\x1b[B", s, FIELDS, KB); // down
+  assert.equal(s.rawText.focus, "exhaustive");
+  assert.equal(s.focusedIdx, 2);
+  handleInputsPickerInput("\x1b[B", s, FIELDS, KB); // wraps
+  assert.equal(s.rawText.focus, "minimal");
+  assert.equal(s.focusedIdx, 2);
+  handleInputsPickerInput("\x1b[A", s, FIELDS, KB); // up wraps back
+  assert.equal(s.rawText.focus, "exhaustive");
+  assert.equal(s.focusedIdx, 2);
+});
+
 test("boolean field: space and arrows flip", () => {
   const s = createInputsPickerState(FIELDS);
   s.focusedIdx = 3;
@@ -157,6 +172,21 @@ test("boolean field: space and arrows flip", () => {
   assert.equal(s.rawText.verbose, "true");
   handleInputsPickerInput("\x1b[D", s, FIELDS, KB);
   assert.equal(s.rawText.verbose, "false");
+});
+
+test("boolean field: up/down navigate on/off without leaving the field", () => {
+  const s = createInputsPickerState(FIELDS);
+  s.focusedIdx = 3;
+  s.rawText.verbose = "true";
+  handleInputsPickerInput("\x1b[B", s, FIELDS, KB); // down to off
+  assert.equal(s.rawText.verbose, "false");
+  assert.equal(s.focusedIdx, 3);
+  handleInputsPickerInput("\x1b[B", s, FIELDS, KB); // wraps to on
+  assert.equal(s.rawText.verbose, "true");
+  assert.equal(s.focusedIdx, 3);
+  handleInputsPickerInput("\x1b[A", s, FIELDS, KB); // up wraps to off
+  assert.equal(s.rawText.verbose, "false");
+  assert.equal(s.focusedIdx, 3);
 });
 
 test("esc variants and ctrl+c variants cancel from form mode", () => {
@@ -257,7 +287,7 @@ test("coerceValues parses JSON-shaped text values", () => {
 
 // ── Rendering ─────────────────────────────────────────────────────────────
 
-test("renderInputsPicker emits header, section label, fields, and hints", () => {
+test("renderInputsPicker mirrors ask-question list style for the active field", () => {
   const theme = deriveGraphTheme({});
   const state = createInputsPickerState(FIELDS, { prompt: "build" });
   const lines = renderInputsPicker({
@@ -273,12 +303,14 @@ test("renderInputsPicker emits header, section label, fields, and hints", () => 
   const joined = lines.join("\n").replace(/\x1b\[[0-9;]*m/g, "");
   assert.match(joined, /ralph/);
   assert.match(joined, /loop a thinker/);
-  assert.match(joined, /INPUTS/);
   assert.match(joined, /1 \/ 4/);
+  assert.match(joined, /■ prompt/);
+  assert.match(joined, /■ iters/);
   assert.match(joined, /prompt/);
-  assert.match(joined, /iters/);
-  assert.match(joined, /focus/);
-  assert.match(joined, /verbose/);
+  assert.match(joined, /text\s+·\s+required/);
+  assert.match(joined, /❯ 1\. build/);
+  assert.doesNotMatch(joined, /╭/);
+  assert.doesNotMatch(joined, /╰/);
   assert.doesNotMatch(joined, /Run workflow/);
   assert.match(joined, /tab/);
   assert.match(joined, /ctrl\+x/);
@@ -307,13 +339,7 @@ test("renderInputsPicker shows confirm card when modal is open", () => {
   assert.match(joined, /cancel/);
 });
 
-test("renderInputsPicker pads field content rows to match the field card width", () => {
-  // Regression: when a focused field is empty, the cursor was rendered as a
-  // single `▋` glyph with no trailing padding before the right `│`. The
-  // top and bottom borders span the full card width, so the field looked
-  // like a narrow tower under a wide roof. Every row of the field card
-  // (top border, content rows, bottom border) must share the same visible
-  // width so the right border sits flush.
+test("renderInputsPicker renders only the active input as ask-style rows", () => {
   const theme = deriveGraphTheme({});
   const width = 80;
   const state = createInputsPickerState(FIELDS);
@@ -329,41 +355,16 @@ test("renderInputsPicker pads field content rows to match the field card width",
   const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
   const plain = lines.map(stripAnsi);
 
-  // Find each field-card block (top `╭…╮`, content `│…│`, bottom `╰…╯`).
-  const topIdxs = plain
-    .map((row, i) => (row.startsWith("╭") && row.endsWith("╮") ? i : -1))
-    .filter((i) => i >= 0);
-  assert.ok(topIdxs.length >= 2, "expected multiple field-card blocks");
-
-  for (const topIdx of topIdxs) {
-    const top = plain[topIdx]!;
-    // Walk down until we hit the matching bottom border.
-    let bottomIdx = topIdx + 1;
-    while (bottomIdx < plain.length && !plain[bottomIdx]!.startsWith("╰")) {
-      bottomIdx += 1;
-    }
-    assert.ok(bottomIdx < plain.length, "missing bottom border for field card");
-    const bottom = plain[bottomIdx]!;
-    assert.equal(top.length, bottom.length, "top/bottom border widths must match");
-    for (let i = topIdx + 1; i < bottomIdx; i += 1) {
-      const row = plain[i]!;
-      assert.ok(
-        row.startsWith("│ ") && row.endsWith("│"),
-        `content row not bracketed by │ … │: ${JSON.stringify(row)}`,
-      );
-      assert.equal(
-        row.length,
-        top.length,
-        `content row width ${row.length} != border width ${top.length}: ${JSON.stringify(row)}`,
-      );
-    }
+  assert.ok(plain.some((row) => row.startsWith("❯ 1.")), "active field should render with ask-style pointer");
+  assert.ok(plain.every((row) => !row.startsWith("╭") && !row.startsWith("╰")), "field cards should not render");
+  for (const row of plain) {
+    assert.ok(row.length <= width, `row exceeds width: ${JSON.stringify(row)}`);
   }
 });
 
 test("renderInputsPicker stays well-formed across a wide range of widths (resize sweep)", () => {
-  // Simulates a user resizing their terminal mid-picker — width is the only
-  // signal the renderer gets, so every width from tight (20) to ultra-wide
-  // (320) must produce field rows that line up and a footer that fits.
+  // Simulates a user resizing their terminal mid-picker. Every width from tight
+  // to ultra-wide must keep list rows and footer hints inside the terminal.
   const theme = deriveGraphTheme({});
   const state = createInputsPickerState(FIELDS);
   // eslint-disable-next-line no-control-regex
@@ -380,39 +381,12 @@ test("renderInputsPicker stays well-formed across a wide range of widths (resize
     });
     const plain = lines.map(stripAnsi);
 
-    // No rendered row may exceed `width` visible cells — overflow wraps the
-    // overlay and breaks the card geometry.
     for (const row of plain) {
       assert.ok(
         row.length <= width,
         `width=${width}: row exceeds budget (${row.length} > ${width}): ${JSON.stringify(row)}`,
       );
-    }
-
-    // Every field card's borders + content rows must align.
-    const topIdxs = plain
-      .map((row, i) => (row.startsWith("╭") && row.endsWith("╮") ? i : -1))
-      .filter((i) => i >= 0);
-    assert.ok(topIdxs.length >= 1, `width=${width}: expected at least one field card`);
-    for (const topIdx of topIdxs) {
-      const top = plain[topIdx]!;
-      let bottomIdx = topIdx + 1;
-      while (bottomIdx < plain.length && !plain[bottomIdx]!.startsWith("╰")) bottomIdx += 1;
-      assert.ok(bottomIdx < plain.length, `width=${width}: missing bottom border`);
-      const bottom = plain[bottomIdx]!;
-      assert.equal(top.length, bottom.length, `width=${width}: top/bottom width mismatch`);
-      for (let i = topIdx + 1; i < bottomIdx; i += 1) {
-        const row = plain[i]!;
-        assert.ok(
-          row.startsWith("│ ") && row.endsWith("│"),
-          `width=${width}: content row not bracketed: ${JSON.stringify(row)}`,
-        );
-        assert.equal(
-          row.length,
-          top.length,
-          `width=${width}: content row width ${row.length} != border ${top.length}`,
-        );
-      }
+      assert.ok(!row.startsWith("╭") && !row.startsWith("╰"), `width=${width}: field card border rendered`);
     }
   }
 });

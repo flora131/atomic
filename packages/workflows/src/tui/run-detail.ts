@@ -167,19 +167,16 @@ function renderThemed(detail: RunDetail, now: number, theme: GraphTheme, width: 
 // ---------------------------------------------------------------------------
 
 function summaryRows(detail: RunDetail, now: number): Array<[string, string | undefined]> {
-  const startedAgo = formatRelative(now - detail.startedAt);
-  const updatedAt = detail.endedAt ?? detail.startedAt;
-  const updatedAgo = formatRelative(now - updatedAt);
   const duration = elapsedRunMs(detail, now);
 
   const rows: Array<[string, string | undefined]> = [
     ["workflow", detail.name],
     ["state", statePlain(detail)],
     ["mode", detail.mode === "chain" ? `chain · ${detail.stages.length} stages` : "single"],
-    ["started", `${formatTime(detail.startedAt)}  (${startedAgo} ago)`],
+    ["started", formatTime(detail.startedAt)],
   ];
   if (detail.endedAt !== undefined) {
-    rows.push(["ended", `${formatTime(detail.endedAt)}  (${updatedAgo} ago)`]);
+    rows.push(["ended", formatTime(detail.endedAt)]);
     rows.push(["duration", fmtDuration(duration)]);
   } else {
     rows.push(["elapsed", fmtDuration(duration)]);
@@ -339,8 +336,4 @@ function formatTime(ms: number): string {
   const mm = String(d.getUTCMinutes()).padStart(2, "0");
   const ss = String(d.getUTCSeconds()).padStart(2, "0");
   return `${hh}:${mm}:${ss}`;
-}
-
-function formatRelative(ms: number): string {
-  return fmtDuration(Math.max(0, ms));
 }

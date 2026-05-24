@@ -1,12 +1,13 @@
 import {
   decodeKittyPrintable,
+  Key,
   matchesKey as piMatchesKey,
   truncateToWidth as piTruncateToWidth,
   visibleWidth,
   type KeyId,
 } from "@earendil-works/pi-tui";
 
-export { visibleWidth };
+export { Key, visibleWidth };
 
 const ANSI_ESCAPE_RE = /^\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\)|_[^\x1b]*(?:\x1b\\))/;
 const MODIFY_OTHER_KEYS_RE = /^\x1b\[27;(\d+);(\d+)~$/;
@@ -37,9 +38,9 @@ export function truncateToWidth(
   return piTruncateToWidth(text, width, suffix, false);
 }
 
-/** Use pi-tui's key parser/matcher while preserving the local string API. */
-export function matchesKey(data: string, key: string): boolean {
-  return data === key || piMatchesKey(data, key as KeyId);
+/** Use pi-tui's key parser/matcher with typed key identifiers. */
+export function matchesKey(data: string, key: KeyId): boolean {
+  return data === key || piMatchesKey(data, key);
 }
 
 function decodeModifyOtherKeysPrintable(data: string): string | undefined {

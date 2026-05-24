@@ -18,6 +18,7 @@
  */
 import type { Component } from "@earendil-works/pi-tui";
 import {
+  Key,
   matchesKey,
   sliceColumns,
   truncateToWidth,
@@ -1061,13 +1062,13 @@ export class GraphView implements Component {
     // Vertical-graph navigation: up/down step between depth levels
     // (col), left/right step between siblings at the same depth (row).
     // j/k preserved as a flat-order fallback for muscle memory.
-    if (matchesKey(data, "down"))
+    if (matchesKey(data, Key.down))
       return this._moveByDepth(+1);
-    if (matchesKey(data, "up"))
+    if (matchesKey(data, Key.up))
       return this._moveByDepth(-1);
-    if (matchesKey(data, "right"))
+    if (matchesKey(data, Key.right))
       return this._moveBySibling(+1);
-    if (matchesKey(data, "left"))
+    if (matchesKey(data, Key.left))
       return this._moveBySibling(-1);
     if (matchesKey(data, "j")) {
       this._setFocusedIndex(Math.min(this.focusedIndex + 1, stageCount - 1));
@@ -1087,12 +1088,12 @@ export class GraphView implements Component {
       }
       return true;
     }
-    if (data === "/") {
+    if (matchesKey(data, "/")) {
       this.switcherOpen = true;
       this.switcherState = { query: "", selectedIndex: 0 };
       return true;
     }
-    if (matchesKey(data, "enter")) {
+    if (matchesKey(data, Key.enter)) {
       // Enter attaches the popup interior to the focused stage. The
       // attach shell swaps in the stage-chat view without remounting
       // the overlay; without a callback, fall back to the legacy
@@ -1103,7 +1104,7 @@ export class GraphView implements Component {
     }
     // `ctrl+d` detaches the whole popup (host hides the overlay). This
     // is the graph-mode counterpart of the in-chat back affordance.
-    if (matchesKey(data, "ctrl+d")) {
+    if (matchesKey(data, Key.ctrl("d"))) {
       if (this.onDetach) {
         this.onDetach();
       } else if (this.onHide) {
@@ -1125,7 +1126,7 @@ export class GraphView implements Component {
       this.onHide();
       return true;
     }
-    if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) {
+    if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl("c"))) {
       this.onClose?.();
       return true;
     }
@@ -1136,11 +1137,11 @@ export class GraphView implements Component {
     const run = this._getCurrentRun();
     const stages = run?.stages ?? [];
 
-    if (matchesKey(data, "escape")) {
+    if (matchesKey(data, Key.escape)) {
       this.switcherOpen = false;
       return true;
     }
-    if (matchesKey(data, "enter")) {
+    if (matchesKey(data, Key.enter)) {
       const filtered = filterStages(stages, this.switcherState.query);
       const selected = filtered[this.switcherState.selectedIndex];
       if (selected) {
@@ -1159,7 +1160,7 @@ export class GraphView implements Component {
       this.switcherOpen = false;
       return true;
     }
-    if (matchesKey(data, "down")) {
+    if (matchesKey(data, Key.down)) {
       const filtered = filterStages(stages, this.switcherState.query);
       this.switcherState = {
         ...this.switcherState,
@@ -1170,14 +1171,14 @@ export class GraphView implements Component {
       };
       return true;
     }
-    if (matchesKey(data, "up")) {
+    if (matchesKey(data, Key.up)) {
       this.switcherState = {
         ...this.switcherState,
         selectedIndex: Math.max(this.switcherState.selectedIndex - 1, 0),
       };
       return true;
     }
-    if (matchesKey(data, "backspace")) {
+    if (matchesKey(data, Key.backspace)) {
       this.switcherState = {
         query: this.switcherState.query.slice(0, -1),
         selectedIndex: 0,

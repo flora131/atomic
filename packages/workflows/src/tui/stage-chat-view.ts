@@ -67,7 +67,7 @@ import type { StageNotice, StageSnapshot } from "../shared/store-types.js";
 import type { GraphTheme } from "./graph-theme.js";
 import type { StageControlHandle } from "../runs/foreground/stage-control-registry.js";
 import { BOLD, RESET, hexBg, hexToAnsi, lerpColor } from "./color-utils.js";
-import { matchesKey, visibleWidth } from "./text-helpers.js";
+import { Key, matchesKey, visibleWidth } from "./text-helpers.js";
 import {
   fitStageChatFrame,
   planStageChatFrame,
@@ -784,13 +784,13 @@ export class StageChatView implements Component, Focusable {
 
   handleInput(data: string): boolean {
     if (this.mountedCustomUi) {
-      if (matchesKey(data, "ctrl+d")) {
+      if (matchesKey(data, Key.ctrl("d"))) {
         this._rejectMountedCustomUi("stage custom UI detached");
         if (this._isPaused()) this.onClose();
         else this.onDetach();
         return true;
       }
-      if (matchesKey(data, "ctrl+c")) {
+      if (matchesKey(data, Key.ctrl("c"))) {
         this._rejectMountedCustomUi("stage custom UI closed");
         this.onClose();
         return true;
@@ -803,13 +803,13 @@ export class StageChatView implements Component, Focusable {
     if (this.chatHost.handleScrollInput(data)) {
       return true;
     }
-    if (matchesKey(data, "ctrl+d")) {
+    if (matchesKey(data, Key.ctrl("d"))) {
       if (this.chatHost.hasInputText()) return this.chatHost.handleInput(data);
       if (this._isPaused()) this.onClose();
       else this.onDetach();
       return true;
     }
-    if (matchesKey(data, "escape")) {
+    if (matchesKey(data, Key.escape)) {
       if (
         this._isStreaming() ||
         this.chatHost.isBashRunning() ||
@@ -820,14 +820,14 @@ export class StageChatView implements Component, Focusable {
       this.onClose();
       return true;
     }
-    if (matchesKey(data, "ctrl+c")) {
+    if (matchesKey(data, Key.ctrl("c"))) {
       this.onClose();
       return true;
     }
     const readOnlyArchive = this._isReadOnlyArchive();
     if (readOnlyArchive) return true;
     const blocked = this._isBlocked();
-    if (matchesKey(data, "ctrl+f")) {
+    if (matchesKey(data, Key.ctrl("f"))) {
       if (blocked) return true;
       void this.chatHost.submit("followUp");
       return true;

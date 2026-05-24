@@ -346,6 +346,22 @@ test("editor: select field arrow keys cycle, space cycles", () => {
   e.dispose();
 });
 
+test("editor: select field up/down navigates choices without changing fields", () => {
+  const state = makeState({ focusedIdx: 2 });
+  const e = makeEditor(state);
+  assert.equal(state.rawText.focus, "standard");
+  e.editor.handleInput("\x1b[B");
+  assert.equal(state.rawText.focus, "exhaustive");
+  assert.equal(state.focusedIdx, 2);
+  e.editor.handleInput("\x1b[B");
+  assert.equal(state.rawText.focus, "minimal");
+  assert.equal(state.focusedIdx, 2);
+  e.editor.handleInput("\x1b[A");
+  assert.equal(state.rawText.focus, "exhaustive");
+  assert.equal(state.focusedIdx, 2);
+  e.dispose();
+});
+
 test("editor: boolean field space toggles", () => {
   const state = makeState({ focusedIdx: 3 });
   const e = makeEditor(state);
@@ -354,6 +370,21 @@ test("editor: boolean field space toggles", () => {
   assert.equal(state.rawText.verbose, "true");
   e.editor.handleInput("\x1b[C");
   assert.equal(state.rawText.verbose, "false");
+  e.dispose();
+});
+
+test("editor: boolean field up/down navigates on/off without changing fields", () => {
+  const state = makeState({ focusedIdx: 3, rawText: { prompt: "", iters: "5", focus: "standard", verbose: "true" } });
+  const e = makeEditor(state);
+  e.editor.handleInput("\x1b[B");
+  assert.equal(state.rawText.verbose, "false");
+  assert.equal(state.focusedIdx, 3);
+  e.editor.handleInput("\x1b[B");
+  assert.equal(state.rawText.verbose, "true");
+  assert.equal(state.focusedIdx, 3);
+  e.editor.handleInput("\x1b[A");
+  assert.equal(state.rawText.verbose, "false");
+  assert.equal(state.focusedIdx, 3);
   e.dispose();
 });
 

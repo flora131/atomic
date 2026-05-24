@@ -54,6 +54,10 @@ const DEFAULTS: Readonly<Record<string, readonly string[]>> = {
   // Shift+Enter in legacy + Kitty terminals
   "tui.input.newLine": ["\x1b[13;2u", "\x1b\r"],
   "tui.input.tab": ["\t"],
+  // Select/list actions mirror pi-tui's SelectList bindings.
+  "tui.select.up": ["\x1b[A"],
+  "tui.select.down": ["\x1b[B"],
+  "tui.select.confirm": ["\r", "\n"],
 };
 
 /**

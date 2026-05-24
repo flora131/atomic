@@ -38,6 +38,17 @@ export interface KeybindingsLike {
   matches(data: string, action: string): boolean;
 }
 
+export const TUI_ACTION = {
+  editorCursorUp: "tui.editor.cursorUp",
+  editorCursorDown: "tui.editor.cursorDown",
+  editorCursorLeft: "tui.editor.cursorLeft",
+  editorCursorRight: "tui.editor.cursorRight",
+  inputSubmit: "tui.input.submit",
+  selectUp: "tui.select.up",
+  selectDown: "tui.select.down",
+  selectConfirm: "tui.select.confirm",
+} as const;
+
 /** Runtime guard for hosts that wire the keybindings manager. */
 export function isKeybindingsLike(kb: unknown): kb is KeybindingsLike {
   return (

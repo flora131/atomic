@@ -2,33 +2,30 @@
  * Interactive argument picker for `/workflow <name>` invocations.
  *
  * Opens when the user types `/workflow <name>` in the TUI without enough
- * key=value tokens to satisfy the declared schema. Mirrors the form phase of
- * flora131/atomic's `workflow-picker-tui.tsx` design (indented section
- * label, rounded field box per input, caption row, dim footer hints), with
- * the workflow already chosen — there is no fuzzy-list left pane.
+ * key=value tokens to satisfy the declared schema. Mirrors the
+ * `ask_user_question` dialog shape: a top rule, a compact field tab bar,
+ * one active input at a time, ask-style pointer rows, and dim footer hints.
+ * The workflow is already chosen, so there is no fuzzy-list pane.
  *
- *     <workflow name>
- *     <description, dim>
+ *   ───────────────────────────────────────────
+ *    ←  ■ prompt   ■ focus   ✓ Run  →
  *
- *     INPUTS                                    <focused+1> / <total>
+ *    <workflow name>                       1 / 2
+ *    <description, dim>
  *
- *   ╭ prompt ─────────────────────────────────╮
- *   │ Build me a TUI for…                      │
- *   ╰──────────────────────────────────────────╯
+ *    prompt
  *     text  ·  required  ·  The high-level task to plan and execute.
  *
- *   ╭ focus ──────────────────────────────────╮
- *   │ ● minimal   ○ standard   ○ exhaustive    │
- *   ╰──────────────────────────────────────────╯
- *     select  ·  required  ·  How aggressively to scope the work.
+ *   ❯ 1. Build me a TUI for…
  *
+ *   ───────────────────────────────────────────
  *   tab next  ·  shift+tab prev  ·  ctrl+x run  ·  esc cancel
  *
  * Field-type renderers:
- *   - string / number : single-row text input with blinking cursor
- *   - text            : 3-row scrolling textarea (multi-line input)
- *   - boolean         : on/off toggle (space flips)
- *   - select          : radio row, ←/→ cycles choices
+ *   - string / number : single-row ask-style input with blinking cursor
+ *   - text            : 3-row scrolling ask-style textarea
+ *   - boolean         : vertical on/off choice list (space flips)
+ *   - select          : vertical choice list, ←/→ cycles choices
  *
  * cross-ref:
  *   - flora131/atomic research/designs/workflow-picker-tui.tsx (PROMPT phase)
@@ -40,9 +37,10 @@
 import type { WorkflowInputEntry } from "../extension/render-result.js";
 import type { GraphTheme } from "./graph-theme.js";
 import { paint } from "./color-utils.js";
-import { decodePrintableKey, matchesKey, truncateToWidth, visibleWidth } from "./text-helpers.js";
+import { decodePrintableKey, Key, matchesKey, truncateToWidth, visibleWidth } from "./text-helpers.js";
 import {
   type KeybindingsLike,
+  TUI_ACTION,
   deleteRange,
   lineEnd,
   lineStart,
@@ -649,70 +647,251 @@ function padLine(s: string, usable: number): string {
   return truncateToWidth(s, usable, "…", true);
 }
 
+function fitLine(line: string, width: number): string {
+  return truncateToWidth(line, Math.max(0, width), "…", true);
+}
+
+function renderPickerHeader(
+  workflowName: string,
+  description: string | undefined,
+  fields: readonly WorkflowInputEntry[],
+  state: InputsPickerState,
+  theme: GraphTheme,
+  width: number,
+): string[] {
+  const focusTargetCount = fields.length;
+  const counter = `${Math.min(state.focusedIdx + 1, focusTargetCount)} / ${focusTargetCount}`;
+  const lines = [
+    renderPickerRule(theme, width),
+    renderInputTabBar(fields, state, theme, width),
+    "",
+    renderWorkflowHeading(workflowName, counter, theme, width),
+  ];
+  if (description) lines.push("  " + paint(truncateToWidth(description, Math.max(0, width - 2), "…"), theme.textMuted));
+  lines.push("");
+  return lines;
+}
+
+function renderPickerRule(theme: GraphTheme, width: number): string {
+  return paint("─".repeat(Math.max(1, width)), theme.accent);
+}
+
+function renderInputTabBar(
+  fields: readonly WorkflowInputEntry[],
+  state: InputsPickerState,
+  theme: GraphTheme,
+  width: number,
+): string {
+  const pieces: string[] = [" ← "];
+  for (let i = 0; i < fields.length; i++) {
+    const field = fields[i]!;
+    const raw = state.rawText[field.name] ?? "";
+    const valid = invalidForField(field, raw, i) === null;
+    const box = valid ? "■" : "□";
+    const rawSeg = ` ${box} ${field.name} `;
+    const styled = i === state.focusedIdx && !state.confirmOpen
+      ? paint(rawSeg, theme.accent, { bold: true })
+      : paint(rawSeg, valid ? theme.success : theme.textMuted);
+    pieces.push(styled, " ");
+  }
+  const allValid = fields.every((field, i) => invalidForField(field, state.rawText[field.name] ?? "", i) === null);
+  pieces.push(paint(" ✓ Run ", allValid ? theme.success : theme.dim), " →");
+  return truncateToWidth(pieces.join(""), width, "", true);
+}
+
+function renderWorkflowHeading(
+  workflowName: string,
+  counter: string,
+  theme: GraphTheme,
+  width: number,
+): string {
+  const prefix = " ";
+  const counterWidth = visibleWidth(counter);
+  if (width <= prefix.length) return "";
+  if (counterWidth + prefix.length + 1 > width) {
+    return prefix + paint(truncateToWidth(counter, width - prefix.length, "…"), theme.dim);
+  }
+  const nameBudget = Math.max(0, width - prefix.length - counterWidth - 1);
+  const name = truncateToWidth(workflowName, nameBudget, "…");
+  const filler = Math.max(1, width - prefix.length - visibleWidth(name) - counterWidth);
+  return prefix + paint(name, theme.text, { bold: true }) + " ".repeat(filler) + paint(counter, theme.dim);
+}
+
+function renderActiveInputField(
+  field: WorkflowInputEntry,
+  raw: string,
+  caret: number,
+  cursorOn: boolean,
+  invalid: string | null,
+  theme: GraphTheme,
+  width: number,
+): string[] {
+  return [
+    " " + paint(field.name, theme.text, { bold: true }),
+    renderInputCaption(field, invalid, theme, width),
+    "",
+    ...renderAskStyleInputBody(field, raw, caret, cursorOn, theme, width),
+  ];
+}
+
+function renderInputCaption(
+  field: WorkflowInputEntry,
+  invalid: string | null,
+  theme: GraphTheme,
+  width: number,
+): string {
+  const sep = dimSep(theme);
+  const tagColor = invalid
+    ? theme.error
+    : field.required
+      ? theme.warning
+      : theme.dim;
+  const tagLabel = invalid ?? (field.required ? "required" : "optional");
+  const caption =
+    "  " +
+    paint(field.type, theme.dim) +
+    sep +
+    paint(tagLabel, tagColor) +
+    (field.description ? sep + paint(field.description, theme.dim) : "");
+  return truncateToWidth(caption, width, "…", true);
+}
+
+function renderAskStyleInputBody(
+  field: WorkflowInputEntry,
+  raw: string,
+  caret: number,
+  cursorOn: boolean,
+  theme: GraphTheme,
+  width: number,
+): string[] {
+  if (field.type === "select" && field.choices && field.choices.length > 0) {
+    const selected = Math.max(0, field.choices.indexOf(raw));
+    return field.choices.map((choice, i) => renderAskChoiceRow(i + 1, choice, i === selected, theme, width));
+  }
+
+  if (field.type === "boolean") {
+    const on = raw === "true";
+    return [
+      renderAskChoiceRow(1, "on", on, theme, width),
+      renderAskChoiceRow(2, "off", !on, theme, width),
+    ];
+  }
+
+  return renderAskInputRows(field, raw, caret, cursorOn, theme, width);
+}
+
+function renderAskChoiceRow(
+  index: number,
+  label: string,
+  active: boolean,
+  theme: GraphTheme,
+  width: number,
+): string {
+  const pointer = active ? paint("❯ ", theme.accent) : "  ";
+  const prefix = `${pointer}${index}. `;
+  const labelBudget = Math.max(1, width - visibleWidth(`${active ? "❯ " : "  "}${index}. `));
+  const clippedLabel = truncateToWidth(label, labelBudget, "…");
+  const text = active
+    ? paint(clippedLabel, theme.accent, { bold: true })
+    : paint(clippedLabel, theme.textMuted);
+  return fitLine(prefix + text, width);
+}
+
+function renderAskInputRows(
+  field: WorkflowInputEntry,
+  raw: string,
+  caret: number,
+  cursorOn: boolean,
+  theme: GraphTheme,
+  width: number,
+): string[] {
+  const prefix = "❯ 1. ";
+  const styledPrefix = paint(prefix, theme.accent);
+  const continuationPrefix = " ".repeat(visibleWidth(prefix));
+  const usable = Math.max(1, width - visibleWidth(prefix));
+
+  if (field.type !== "text") {
+    return [styledPrefix + renderInlineText(raw, true, cursorOn, usable, theme, field.placeholder, raw === "", caret)];
+  }
+
+  const ROWS = 3;
+  if (raw === "") {
+    return [
+      styledPrefix + renderInlineText("", true, cursorOn, usable, theme, field.placeholder, true),
+      ...Array.from({ length: ROWS - 1 }, () => continuationPrefix + padLine("", usable)),
+    ];
+  }
+
+  const layout = layoutEditableText(raw, usable);
+  const safeCaret = clampGraphemeOffset(raw, caret);
+  let cursorRow = layout.length - 1;
+  for (let i = 0; i < layout.length; i++) {
+    const line = layout[i]!;
+    const next = layout[i + 1];
+    if (safeCaret >= line.start && safeCaret < line.end) {
+      cursorRow = i;
+      break;
+    }
+    if (safeCaret === line.end) {
+      cursorRow = next?.start === safeCaret ? i + 1 : i;
+    }
+  }
+  cursorRow = Math.max(0, Math.min(cursorRow, layout.length - 1));
+  const start = Math.max(0, Math.min(cursorRow - ROWS + 1, layout.length - ROWS));
+  const rows: string[] = [];
+  for (let i = 0; i < ROWS; i++) {
+    const rowIdx = start + i;
+    const line = layout[rowIdx];
+    const rowPrefix = rowIdx === 0 ? styledPrefix : continuationPrefix;
+    if (!line) {
+      rows.push(rowPrefix + padLine("", usable));
+      continue;
+    }
+    const lineCaret = safeCaret >= line.start && safeCaret <= line.end
+      ? safeCaret - line.start
+      : line.text.length;
+    rows.push(
+      rowPrefix +
+        renderInlineText(
+          line.text,
+          rowIdx === cursorRow,
+          cursorOn,
+          usable,
+          theme,
+          field.placeholder,
+          false,
+          lineCaret,
+        ),
+    );
+  }
+  return rows;
+}
+
 export function renderInputsPicker(opts: InputsPickerRenderOpts): string[] {
   const { theme, workflowName, description, fields, state, width, cursorOn } = opts;
   const lines: string[] = [];
 
-  // Header chip — name + description, matching atomic's locked-in chip.
-  // Both rows are clipped to terminal width so a long workflow name or
-  // description cannot push the picker into a wrap on narrow terminals.
-  const chipPrefix = paint("  ", theme.mauve);
-  const nameBudget = Math.max(0, width - 2);
-  lines.push(
-    chipPrefix +
-      paint(truncateToWidth(workflowName, nameBudget, "…"), theme.text, { bold: true }),
-  );
-  if (description) {
-    const descBudget = Math.max(0, width - 2);
-    lines.push("  " + paint(truncateToWidth(description, descBudget, "…"), theme.textMuted));
-  }
-  lines.push("");
+  lines.push(...renderPickerHeader(workflowName, description, fields, state, theme, width));
 
-  // Section label with field counter (1-based). When the terminal is too
-  // narrow to hold both, the counter is the priority — drop "INPUTS" first
-  // so the user always knows which field they're on.
-  const focusTargetCount = fields.length;
-  const counter = `${Math.min(state.focusedIdx + 1, focusTargetCount)} / ${focusTargetCount}`;
-  const labelLeft =
-    paint("  ", theme.mauve) + paint("INPUTS", theme.textMuted, { bold: true });
-  const labelLen = visibleWidth(labelLeft);
-  if (labelLen + 1 + counter.length <= width) {
-    const pad = width - labelLen - counter.length;
-    lines.push(labelLeft + " ".repeat(pad) + paint(counter, theme.dim));
-  } else if (counter.length + 2 <= width) {
-    // Just the chip + counter, right-aligned.
-    const pad = Math.max(0, width - 2 - counter.length);
-    lines.push(chipPrefix + " ".repeat(pad) + paint(counter, theme.dim));
-  } else {
-    // Truly tiny — counter only, clipped.
-    lines.push(paint(truncateToWidth(counter, width, "…"), theme.dim));
-  }
-  lines.push("");
-
-  // Field blocks.
-  for (let i = 0; i < fields.length; i++) {
-    const f = fields[i]!;
-    const raw = state.rawText[f.name] ?? "";
-    const focused = i === state.focusedIdx && !state.confirmOpen;
-    const invalid = state.invalidIndices.includes(i)
-      ? invalidForField(f, raw, i)
+  const activeField = fields[state.focusedIdx];
+  if (activeField) {
+    const raw = state.rawText[activeField.name] ?? "";
+    const invalid = state.invalidIndices.includes(state.focusedIdx)
+      ? invalidForField(activeField, raw, state.focusedIdx)
       : null;
-    lines.push(...renderField(f, raw, focused, state.caret, cursorOn, invalid, theme, width));
-    lines.push(""); // gap between fields
+    lines.push(...renderActiveInputField(activeField, raw, state.caret, cursorOn, invalid, theme, width));
+    lines.push("");
   }
 
   const anyInvalid = computeInvalid(fields, state.rawText).length > 0;
-
-  // Footer hints — tiered for narrow widths. The widest form ends up around
-  // 61 visible cells; we step down to keys-with-labels-tight, keys-only,
-  // and finally essentials-only when the terminal cannot hold the row.
+  lines.push(renderPickerRule(theme, width));
   lines.push(renderFooterHints(width, theme, anyInvalid));
 
   if (state.confirmOpen) {
     lines.push("");
     lines.push(...renderConfirmCard(opts));
   }
-  return lines;
+  return lines.map((line) => fitLine(line, width));
 }
 
 /**
@@ -860,12 +1039,12 @@ function handleFormKey(
 ): InputsPickerAction {
   // ── Global navigation (workflow form contract, not Pi actions) ──
   if (isCancelKey(key)) return { kind: "cancel" };
-  if (matchesKey(key, "ctrl+x")) return attemptPickerSubmit(state, fields);
-  if (matchesKey(key, "tab")) {
+  if (matchesKey(key, Key.ctrl("x"))) return attemptPickerSubmit(state, fields);
+  if (matchesKey(key, Key.tab)) {
     moveFocus(state, fields, +1);
     return { kind: "noop" };
   }
-  if (matchesKey(key, "shift+tab")) {
+  if (matchesKey(key, Key.shift("tab"))) {
     moveFocus(state, fields, -1);
     return { kind: "noop" };
   }
@@ -887,7 +1066,7 @@ function handleFormKey(
   // KeybindingsManager so user-configured bindings work uniformly.
   const caret = Math.max(0, Math.min(state.caret, cur.length));
 
-  if (matchesAction(kb, key, "tui.editor.cursorUp")) {
+  if (matchesAction(kb, key, TUI_ACTION.editorCursorUp)) {
     if (field.type === "text") {
       const nextCaret = caretLineUp(cur, caret);
       if (nextCaret !== null) {
@@ -898,7 +1077,7 @@ function handleFormKey(
     moveFocus(state, fields, -1);
     return { kind: "noop" };
   }
-  if (matchesAction(kb, key, "tui.editor.cursorDown")) {
+  if (matchesAction(kb, key, TUI_ACTION.editorCursorDown)) {
     if (field.type === "text") {
       const nextCaret = caretLineDown(cur, caret);
       if (nextCaret !== null) {
@@ -925,11 +1104,11 @@ function handleFormKey(
     state.caret = lineEnd(cur, caret);
     return { kind: "noop" };
   }
-  if (matchesAction(kb, key, "tui.editor.cursorLeft")) {
+  if (matchesAction(kb, key, TUI_ACTION.editorCursorLeft)) {
     state.caret = previousGraphemeOffset(cur, caret);
     return { kind: "noop" };
   }
-  if (matchesAction(kb, key, "tui.editor.cursorRight")) {
+  if (matchesAction(kb, key, TUI_ACTION.editorCursorRight)) {
     state.caret = nextGraphemeOffset(cur, caret);
     return { kind: "noop" };
   }
@@ -978,7 +1157,7 @@ function handleFormKey(
     return { kind: "noop" };
   }
   if (
-    matchesAction(kb, key, "tui.input.submit") ||
+    matchesAction(kb, key, TUI_ACTION.inputSubmit) ||
     matchesAction(kb, key, "tui.input.newLine")
   ) {
     if (field.type === "text") {
@@ -1012,19 +1191,15 @@ function handleSelectKey(
   if (choices.length === 0) return { kind: "noop" };
   const current = state.rawText[field.name] ?? choices[0]!;
   const idx = Math.max(0, choices.indexOf(current));
-  if (matchesAction(kb, key, "tui.editor.cursorLeft")) {
+  if (matchesAction(kb, key, TUI_ACTION.selectUp) || matchesAction(kb, key, TUI_ACTION.editorCursorLeft)) {
     state.rawText[field.name] = choices[(idx - 1 + choices.length) % choices.length]!;
     return { kind: "noop" };
   }
-  if (matchesAction(kb, key, "tui.editor.cursorRight")) {
+  if (matchesAction(kb, key, TUI_ACTION.selectDown) || matchesAction(kb, key, TUI_ACTION.editorCursorRight)) {
     state.rawText[field.name] = choices[(idx + 1) % choices.length]!;
     return { kind: "noop" };
   }
-  if (matchesAction(kb, key, "tui.editor.cursorUp")) {
-    moveFocus(state, fields, -1);
-    return { kind: "noop" };
-  }
-  if (matchesAction(kb, key, "tui.editor.cursorDown")) {
+  if (matchesAction(kb, key, TUI_ACTION.selectConfirm) || matchesAction(kb, key, TUI_ACTION.inputSubmit)) {
     moveFocus(state, fields, +1);
     return { kind: "noop" };
   }
@@ -1039,19 +1214,16 @@ function handleBooleanKey(
   kb: KeybindingsLike | undefined,
 ): InputsPickerAction {
   if (
-    matchesKey(key, "space") ||
-    matchesAction(kb, key, "tui.input.submit") ||
-    matchesAction(kb, key, "tui.editor.cursorLeft") ||
-    matchesAction(kb, key, "tui.editor.cursorRight")
+    matchesKey(key, Key.space) ||
+    matchesAction(kb, key, TUI_ACTION.selectUp) ||
+    matchesAction(kb, key, TUI_ACTION.selectDown) ||
+    matchesAction(kb, key, TUI_ACTION.editorCursorLeft) ||
+    matchesAction(kb, key, TUI_ACTION.editorCursorRight)
   ) {
     state.rawText[field.name] = state.rawText[field.name] === "true" ? "false" : "true";
     return { kind: "noop" };
   }
-  if (matchesAction(kb, key, "tui.editor.cursorUp")) {
-    moveFocus(state, fields, -1);
-    return { kind: "noop" };
-  }
-  if (matchesAction(kb, key, "tui.editor.cursorDown")) {
+  if (matchesAction(kb, key, TUI_ACTION.selectConfirm) || matchesAction(kb, key, TUI_ACTION.inputSubmit)) {
     moveFocus(state, fields, +1);
     return { kind: "noop" };
   }
@@ -1066,11 +1238,11 @@ function handleConfirmKey(
   // Confirm-modal answers are single-char prompts (`y`/`n`) plus the form's
   // raw esc/enter contract. These do not flow through Pi action ids because
   // they're a confirmation-modal contract, not an editor-mode action.
-  if (key === "y" || key === "Y" || matchesKey(key, "enter")) {
+  if (matchesKey(key, "y") || matchesKey(key, Key.shift("y")) || matchesKey(key, Key.enter)) {
     return { kind: "run", values: coerceValues(fields, state.rawText) };
   }
-  if (matchesKey(key, "ctrl+c")) return { kind: "cancel" };
-  if (key === "n" || key === "N" || matchesKey(key, "escape")) {
+  if (matchesKey(key, Key.ctrl("c"))) return { kind: "cancel" };
+  if (matchesKey(key, "n") || matchesKey(key, Key.shift("n")) || matchesKey(key, Key.escape)) {
     state.confirmOpen = false;
     return { kind: "noop" };
   }
@@ -1078,7 +1250,7 @@ function handleConfirmKey(
 }
 
 function isCancelKey(key: string): boolean {
-  return matchesKey(key, "ctrl+c") || matchesKey(key, "escape");
+  return matchesKey(key, Key.ctrl("c")) || matchesKey(key, Key.escape);
 }
 
 function attemptPickerSubmit(

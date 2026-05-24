@@ -24,7 +24,10 @@ import type { GraphTheme } from "./graph-theme.js";
 import { keyText } from "@bastani/atomic";
 import { fmtDuration, statusIcon, statusColor } from "./status-helpers.js";
 import { hexToAnsi, hexBg, RESET, BOLD } from "./color-utils.js";
-import { matchesKey, truncateToWidth, visibleWidth } from "./text-helpers.js";
+import { Key, matchesKey, truncateToWidth, visibleWidth } from "./text-helpers.js";
+
+const ESCAPE_CODE = 0x1b;
+const DOUBLE_ESCAPE_SEQUENCE = String.fromCharCode(ESCAPE_CODE, ESCAPE_CODE);
 
 // ---------------------------------------------------------------------------
 // State + filtering
@@ -342,15 +345,15 @@ export function handleSessionPickerInput(
 ): SessionPickerAction {
   // Filter mode — typed chars feed the query, Enter/Esc exit.
   if (state.filterFocused) {
-    if (matchesKey(data, "escape") || data === "\x1b\x1b") {
+    if (matchesKey(data, Key.escape) || data === DOUBLE_ESCAPE_SEQUENCE) {
       state.filterFocused = false;
       return { kind: "noop" };
     }
-    if (matchesKey(data, "enter")) {
+    if (matchesKey(data, Key.enter)) {
       state.filterFocused = false;
       return { kind: "noop" };
     }
-    if (matchesKey(data, "backspace")) {
+    if (matchesKey(data, Key.backspace)) {
       state.query = state.query.slice(0, -1);
       state.selectedIndex = 0;
       return { kind: "noop" };
@@ -364,36 +367,36 @@ export function handleSessionPickerInput(
   }
 
   // Navigation mode.
-  if (data === "/") {
+  if (matchesKey(data, "/")) {
     state.filterFocused = true;
     return { kind: "noop" };
   }
-  if (matchesKey(data, "escape")) return { kind: "close" };
-  if (data === "q" || data === "Q") return { kind: "close" };
-  if (data === "a" || data === "A") {
+  if (matchesKey(data, Key.escape)) return { kind: "close" };
+  if (matchesKey(data, "q") || matchesKey(data, Key.shift("q"))) return { kind: "close" };
+  if (matchesKey(data, "a") || matchesKey(data, Key.shift("a"))) {
     state.includeAll = !state.includeAll;
     state.selectedIndex = 0;
     return { kind: "noop" };
   }
 
   // Arrows + j/k.
-  if (matchesKey(data, "down") || data === "j") {
+  if (matchesKey(data, Key.down) || matchesKey(data, "j")) {
     state.selectedIndex = Math.min(state.selectedIndex + 1, Math.max(0, rows.length - 1));
     return { kind: "noop" };
   }
-  if (matchesKey(data, "up") || data === "k") {
+  if (matchesKey(data, Key.up) || matchesKey(data, "k")) {
     if (rows.length > 0 && state.selectedIndex === 0) return { kind: "noop" };
     state.selectedIndex = Math.max(state.selectedIndex - 1, 0);
     return { kind: "noop" };
   }
 
-  if (matchesKey(data, "enter")) {
+  if (matchesKey(data, Key.enter)) {
     const row = rows[state.selectedIndex];
     if (!row) return { kind: "noop" };
     return { kind: "connect", runId: row.run.id };
   }
   // `x` = kill. Avoids collision with vim's `k` = up.
-  if (data === "x" || data === "X") {
+  if (matchesKey(data, "x") || matchesKey(data, Key.shift("x"))) {
     const row = rows[state.selectedIndex];
     if (!row) return { kind: "noop" };
     return { kind: "kill", runId: row.run.id };

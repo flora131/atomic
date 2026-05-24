@@ -162,6 +162,9 @@ describe("renderRunDetail — themed", () => {
     assert.match(plain, /✓ completed/);
     // shortId() crops the pill label and the action hint to 6 chars.
     assert.match(plain, /workflow resume\s+id=doneru/);
+    assert.match(plain, /started\s+00:15:40/);
+    assert.match(plain, /ended\s+00:16:32/);
+    assert.doesNotMatch(plain, /\([^)]*ago\)/);
     assert.match(plain, /duration/);
     assert.doesNotMatch(plain, /workflow interrupt/);
   });

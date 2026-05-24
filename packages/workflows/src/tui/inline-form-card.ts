@@ -265,12 +265,14 @@ function renderAskStyleFieldBody(
 }
 
 function renderAskRow(index: number, label: string, active: boolean, theme: GraphTheme, width: number): string {
-  const pointer = active ? "❯ " : "  ";
+  const pointer = active ? paint("❯ ", theme.accent) : "  ";
   const prefix = `${pointer}${index}. `;
-  const plain = prefix + label;
-  const clipped = truncateToWidth(plain, width, "…");
-  if (!active) return paint(clipped, theme.textMuted);
-  return hexBg(theme.selection) + hexToAnsi(theme.text) + clipped + RESET;
+  const labelBudget = Math.max(1, width - visibleWidth(`${active ? "❯ " : "  "}${index}. `));
+  const clippedLabel = truncateToWidth(label, labelBudget, "…");
+  const styledLabel = active
+    ? paint(clippedLabel, theme.accent, { bold: true })
+    : paint(clippedLabel, theme.textMuted);
+  return truncateToWidth(prefix + styledLabel, width, "…", true);
 }
 
 function renderAskInputRows(

@@ -193,12 +193,18 @@ export function handleKillConfirmInput(
   state: KillConfirmState,
 ): KillConfirmAction {
   // Direct shortcuts bypass focus.
-  if (data === "y" || data === "Y") return { kind: "confirm" };
-  if (data === "n" || data === "N") return { kind: "cancel" };
+  if (matchesKey(data, "y") || matchesKey(data, Key.shift("y"))) return { kind: "confirm" };
+  if (matchesKey(data, "n") || matchesKey(data, Key.shift("n"))) return { kind: "cancel" };
   if (matchesKey(data, Key.escape)) return { kind: "cancel" };
 
   // Tab / arrows toggle focus.
-  if (matchesKey(data, Key.tab) || matchesKey(data, Key.right) || matchesKey(data, Key.left) || data === "h" || data === "l") {
+  if (
+    matchesKey(data, Key.tab) ||
+    matchesKey(data, Key.right) ||
+    matchesKey(data, Key.left) ||
+    matchesKey(data, "h") ||
+    matchesKey(data, "l")
+  ) {
     state.focusedButton = state.focusedButton === 0 ? 1 : 0;
     return { kind: "noop" };
   }

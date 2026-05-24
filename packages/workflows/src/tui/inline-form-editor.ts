@@ -49,6 +49,7 @@ import type { InlineFormState } from "./inline-form-store.js";
 import { getForm, touch } from "./inline-form-store.js";
 import {
   type KeybindingsLike,
+  TUI_ACTION,
   deleteRange,
   isKeybindingsLike,
   lineEnd,
@@ -57,7 +58,7 @@ import {
   wordLeft,
   wordRight,
 } from "./keybindings-adapter.js";
-import { decodePrintableKey, matchesKey, visibleWidth } from "./text-helpers.js";
+import { decodePrintableKey, Key, matchesKey, visibleWidth } from "./text-helpers.js";
 
 export type FormEditorOutcome = "submit" | "cancel";
 
@@ -436,20 +437,20 @@ export class InlineFormEditor implements PiEditorComponent {
     //   ctrl+x                — submit form
     //   tab        (\t)          — focus next field
     //   shift+tab  (\x1b[Z)      — focus previous field
-    if (matchesKey(data, "ctrl+c") || matchesKey(data, "escape")) {
+    if (matchesKey(data, Key.ctrl("c")) || matchesKey(data, Key.escape)) {
       this.opts.onExit("cancel");
       return true;
     }
-    if (matchesKey(data, "ctrl+x")) {
+    if (matchesKey(data, Key.ctrl("x"))) {
       if (this.allValid(state)) this.opts.onExit("submit");
       else this.focusFirstInvalid(state);
       return true;
     }
-    if (matchesKey(data, "tab")) {
+    if (matchesKey(data, Key.tab)) {
       this.moveFocus(state, +1);
       return true;
     }
-    if (matchesKey(data, "shift+tab")) {
+    if (matchesKey(data, Key.shift("tab"))) {
       this.moveFocus(state, -1);
       return true;
     }
@@ -471,22 +472,19 @@ export class InlineFormEditor implements PiEditorComponent {
     if (choices.length === 0) return false;
     const cur = state.rawText[field.name] ?? choices[0]!;
     const i = Math.max(0, choices.indexOf(cur));
-    if (matchesAction(this.kb, data, "tui.editor.cursorLeft")) {
+    if (matchesAction(this.kb, data, TUI_ACTION.selectUp) || matchesAction(this.kb, data, TUI_ACTION.editorCursorLeft)) {
       state.rawText[field.name] = choices[(i - 1 + choices.length) % choices.length]!;
       return true;
     }
-    if (matchesAction(this.kb, data, "tui.editor.cursorRight") || matchesKey(data, "space")) {
+    if (
+      matchesAction(this.kb, data, TUI_ACTION.selectDown) ||
+      matchesAction(this.kb, data, TUI_ACTION.editorCursorRight) ||
+      matchesKey(data, Key.space)
+    ) {
       state.rawText[field.name] = choices[(i + 1) % choices.length]!;
       return true;
     }
-    if (matchesAction(this.kb, data, "tui.editor.cursorUp")) {
-      this.moveFocus(state, -1);
-      return true;
-    }
-    if (
-      matchesAction(this.kb, data, "tui.editor.cursorDown") ||
-      matchesAction(this.kb, data, "tui.input.submit")
-    ) {
+    if (matchesAction(this.kb, data, TUI_ACTION.selectConfirm) || matchesAction(this.kb, data, TUI_ACTION.inputSubmit)) {
       this.moveFocus(state, +1);
       return true;
     }
@@ -499,21 +497,16 @@ export class InlineFormEditor implements PiEditorComponent {
     state: InlineFormState,
   ): boolean {
     if (
-      matchesKey(data, "space") ||
-      matchesAction(this.kb, data, "tui.editor.cursorLeft") ||
-      matchesAction(this.kb, data, "tui.editor.cursorRight")
+      matchesKey(data, Key.space) ||
+      matchesAction(this.kb, data, TUI_ACTION.selectUp) ||
+      matchesAction(this.kb, data, TUI_ACTION.selectDown) ||
+      matchesAction(this.kb, data, TUI_ACTION.editorCursorLeft) ||
+      matchesAction(this.kb, data, TUI_ACTION.editorCursorRight)
     ) {
       state.rawText[field.name] = state.rawText[field.name] === "true" ? "false" : "true";
       return true;
     }
-    if (matchesAction(this.kb, data, "tui.editor.cursorUp")) {
-      this.moveFocus(state, -1);
-      return true;
-    }
-    if (
-      matchesAction(this.kb, data, "tui.editor.cursorDown") ||
-      matchesAction(this.kb, data, "tui.input.submit")
-    ) {
+    if (matchesAction(this.kb, data, TUI_ACTION.selectConfirm) || matchesAction(this.kb, data, TUI_ACTION.inputSubmit)) {
       this.moveFocus(state, +1);
       return true;
     }
@@ -531,7 +524,7 @@ export class InlineFormEditor implements PiEditorComponent {
 
     // Vertical navigation — text fields walk between logical lines first,
     // single-line scalars advance focus immediately.
-    if (matchesAction(this.kb, data, "tui.editor.cursorUp")) {
+    if (matchesAction(this.kb, data, TUI_ACTION.editorCursorUp)) {
       if (field.type === "text") {
         const newCaret = caretLineUp(cur, caret);
         if (newCaret !== null) {
@@ -542,7 +535,7 @@ export class InlineFormEditor implements PiEditorComponent {
       this.moveFocus(state, -1);
       return true;
     }
-    if (matchesAction(this.kb, data, "tui.editor.cursorDown")) {
+    if (matchesAction(this.kb, data, TUI_ACTION.editorCursorDown)) {
       if (field.type === "text") {
         const newCaret = caretLineDown(cur, caret);
         if (newCaret !== null) {
@@ -579,11 +572,11 @@ export class InlineFormEditor implements PiEditorComponent {
     }
 
     // Character cursor movement.
-    if (matchesAction(this.kb, data, "tui.editor.cursorLeft")) {
+    if (matchesAction(this.kb, data, TUI_ACTION.editorCursorLeft)) {
       state.caret = previousGraphemeOffset(cur, caret);
       return true;
     }
-    if (matchesAction(this.kb, data, "tui.editor.cursorRight")) {
+    if (matchesAction(this.kb, data, TUI_ACTION.editorCursorRight)) {
       state.caret = nextGraphemeOffset(cur, caret);
       return true;
     }
@@ -642,7 +635,7 @@ export class InlineFormEditor implements PiEditorComponent {
     // explicitly equivalent to plain Enter in our form contract; both
     // insert a newline in text fields and advance focus elsewhere.
     if (
-      matchesAction(this.kb, data, "tui.input.submit") ||
+      matchesAction(this.kb, data, TUI_ACTION.inputSubmit) ||
       matchesAction(this.kb, data, "tui.input.newLine")
     ) {
       if (field.type === "text") {

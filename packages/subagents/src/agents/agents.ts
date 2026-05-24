@@ -866,7 +866,9 @@ export function discoverAgentsAll(cwd: string): {
 		...Array.from(chainMap.values()),
 	];
 
-	const userDir = getEnvValue("ATOMIC_CODING_AGENT_DIR") ? userDirOld[0]! : fs.existsSync(userDirNew) ? userDirNew : userDirOld[0]!;
+	const legacyUserAgentDir = userDirOld[0]!;
+	// ATOMIC_CODING_AGENT_DIR is already applied by getUserAgentDirs(); prefer that resolved path over ~/.agents.
+	const userDir = getEnvValue("ATOMIC_CODING_AGENT_DIR") ? legacyUserAgentDir : fs.existsSync(userDirNew) ? userDirNew : legacyUserAgentDir;
 
 	return { builtin, user, project, chains, userDir, projectDir, userChainDir, projectChainDir, userSettingsPath, projectSettingsPath };
 }

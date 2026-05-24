@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { APP_NAME, getEnvValue, type ExtensionAPI } from "@bastani/atomic";
 import type { AgentConfig } from "../../agents/agents.ts";
-import { applyThinkingSuffix } from "../shared/pi-args.ts";
+import { applyThinkingSuffix, SUBAGENT_INTERCOM_SESSION_NAME_ENV } from "../shared/pi-args.ts";
 import { injectSingleOutputInstruction, normalizeSingleOutputOverride, resolveSingleOutputPath, validateFileOnlyOutputMode } from "../shared/single-output.ts";
 import { buildChainInstructions, isParallelStep, resolveStepBehavior, suppressProgressForReadOnlyTask, writeInitialProgressFile, type ChainStep, type ResolvedStepBehavior, type SequentialStep, type StepOverrides } from "../../shared/settings.ts";
 import type { RunnerStep } from "../shared/parallel-utils.ts";
@@ -34,7 +34,7 @@ import {
 	getAsyncConfigPath,
 	resolveChildMaxSubagentDepth,
 } from "../../shared/types.ts";
-import { nestedResultsPath, resolveInheritedNestedRouteFromEnv, resolveNestedParentAddressFromEnv, writeNestedEvent } from "../shared/nested-events.ts";
+import { NESTED_RUNS_DIR, nestedResultsPath, resolveInheritedNestedRouteFromEnv, resolveNestedParentAddressFromEnv, writeNestedEvent } from "../shared/nested-events.ts";
 
 const require = createRequire(import.meta.url);
 const piPackageRoot = resolvePiPackageRoot();
@@ -270,7 +270,7 @@ export function executeAsyncChain(
 	const inheritedNestedRoute = resolveInheritedNestedRouteFromEnv();
 	const nestedAddress = inheritedNestedRoute ? resolveNestedParentAddressFromEnv() : undefined;
 	const asyncDir = inheritedNestedRoute
-		? path.join(TEMP_ROOT_DIR, "nested-subagent-runs", inheritedNestedRoute.rootRunId, id)
+		? path.join(NESTED_RUNS_DIR, inheritedNestedRoute.rootRunId, id)
 		: path.join(ASYNC_DIR, id);
 	try {
 		fs.mkdirSync(asyncDir, { recursive: true });
@@ -476,7 +476,7 @@ export function executeAsyncChain(
 						path: nestedAddress.path,
 						asyncDir,
 						pid: spawnResult.pid,
-						ownerIntercomTarget: getEnvValue(`${APP_NAME.toUpperCase()}_SUBAGENT_INTERCOM_SESSION_NAME`),
+						ownerIntercomTarget: getEnvValue(SUBAGENT_INTERCOM_SESSION_NAME_ENV),
 						leafIntercomTarget: childIntercomTargets?.[0],
 						intercomTarget: childIntercomTargets?.[0],
 						ownerState: "live",
@@ -568,7 +568,7 @@ export function executeAsyncSingle(
 	const inheritedNestedRoute = resolveInheritedNestedRouteFromEnv();
 	const nestedAddress = inheritedNestedRoute ? resolveNestedParentAddressFromEnv() : undefined;
 	const asyncDir = inheritedNestedRoute
-		? path.join(TEMP_ROOT_DIR, "nested-subagent-runs", inheritedNestedRoute.rootRunId, id)
+		? path.join(NESTED_RUNS_DIR, inheritedNestedRoute.rootRunId, id)
 		: path.join(ASYNC_DIR, id);
 	try {
 		fs.mkdirSync(asyncDir, { recursive: true });
@@ -676,7 +676,7 @@ export function executeAsyncSingle(
 						path: nestedAddress.path,
 						asyncDir,
 						pid: spawnResult.pid,
-						ownerIntercomTarget: getEnvValue(`${APP_NAME.toUpperCase()}_SUBAGENT_INTERCOM_SESSION_NAME`),
+						ownerIntercomTarget: getEnvValue(SUBAGENT_INTERCOM_SESSION_NAME_ENV),
 						leafIntercomTarget: childIntercomTarget?.(agent, 0),
 						intercomTarget: childIntercomTarget?.(agent, 0),
 						ownerState: "live",

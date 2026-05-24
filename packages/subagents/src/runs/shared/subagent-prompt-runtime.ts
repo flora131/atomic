@@ -1,11 +1,13 @@
 import type { ExtensionAPI } from "@bastani/atomic";
-import { APP_NAME, getEnvValue } from "@bastani/atomic";
-import { SUBAGENT_FANOUT_CHILD_ENV } from "./pi-args.ts";
+import { getEnvValue } from "@bastani/atomic";
+import {
+	SUBAGENT_FANOUT_CHILD_ENV,
+	SUBAGENT_INHERIT_PROJECT_CONTEXT_ENV,
+	SUBAGENT_INHERIT_SKILLS_ENV,
+	SUBAGENT_INTERCOM_SESSION_NAME_ENV,
+} from "./pi-args.ts";
 
-const ENV_PREFIX = APP_NAME.toUpperCase();
-const SUBAGENT_INHERIT_PROJECT_CONTEXT_ENV = `${ENV_PREFIX}_SUBAGENT_INHERIT_PROJECT_CONTEXT`;
-const SUBAGENT_INHERIT_SKILLS_ENV = `${ENV_PREFIX}_SUBAGENT_INHERIT_SKILLS`;
-export const SUBAGENT_INTERCOM_SESSION_NAME_ENV = `${ENV_PREFIX}_SUBAGENT_INTERCOM_SESSION_NAME`;
+export { SUBAGENT_INTERCOM_SESSION_NAME_ENV } from "./pi-args.ts";
 
 export const CHILD_SUBAGENT_BOUNDARY_INSTRUCTIONS = [
 	"You are a child subagent, not the parent orchestrator.",

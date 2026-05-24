@@ -463,6 +463,7 @@ Important fields:
 | `defaultReads` | Files to read before running in chain/parallel behavior. |
 | `defaultProgress` | Maintain `progress.md`. |
 | `interactive` | Parsed for compatibility but not enforced in v1. |
+| `completionGuard` | Set to `false` to intentionally opt this agent out of automatic completion-guard reminders. Use sparingly for user-authored read-only/review agents whose prompt already prevents premature completion. |
 | `maxSubagentDepth` | Tightens nested delegation for this agent’s children. |
 
 ### Tool and extension selection

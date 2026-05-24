@@ -22,10 +22,10 @@ const IMPORT_PATHS = {
 	vscode: [".vscode/mcp.json"],
 } as const;
 
-type ToolPrefix = "server" | "none" | "short";
+export type ToolPrefix = "server" | "none" | "short";
 type ImportKind = keyof typeof IMPORT_PATHS;
 
-interface ServerEntry {
+export interface ServerEntry {
 	command?: string;
 	args?: string[];
 	env?: Record<string, string>;
@@ -40,7 +40,7 @@ interface ServerEntry {
 	directTools?: boolean | string[];
 }
 
-interface McpConfig {
+export interface McpConfig {
 	mcpServers: Record<string, ServerEntry>;
 	imports?: ImportKind[];
 	settings?: {
@@ -49,23 +49,23 @@ interface McpConfig {
 	};
 }
 
-interface CachedTool {
+export interface CachedTool {
 	name?: string;
 }
 
-interface CachedResource {
+export interface CachedResource {
 	uri?: string;
 	name?: string;
 }
 
-interface ServerCacheEntry {
+export interface ServerCacheEntry {
 	configHash?: string;
 	tools?: CachedTool[];
 	resources?: CachedResource[];
 	cachedAt?: number;
 }
 
-interface MetadataCache {
+export interface MetadataCache {
 	version: number;
 	servers: Record<string, ServerCacheEntry>;
 }
@@ -77,8 +77,9 @@ export function resolveMcpDirectToolNames(mcpDirectTools: string[] | undefined, 
 		const config = loadMcpConfig(cwd);
 		const cache = loadMetadataCache();
 		if (!cache) return [];
-		return resolveDirectToolNames(config, cache, getToolPrefix(config.settings?.toolPrefix), mcpDirectTools);
-	} catch {
+		return resolveMcpDirectToolNamesFromConfig(config, cache, getToolPrefix(config.settings?.toolPrefix), mcpDirectTools);
+	} catch (error) {
+		console.error("Failed to resolve direct MCP tool names for subagent child allowlist:", error);
 		return [];
 	}
 }
@@ -198,10 +199,10 @@ function extractServers(config: unknown, kind: ImportKind): Record<string, Serve
 	return servers && typeof servers === "object" && !Array.isArray(servers) ? servers as Record<string, ServerEntry> : {};
 }
 
-function resolveDirectToolNames(config: McpConfig, cache: MetadataCache, prefix: ToolPrefix, envOverride: string[]): string[] {
+export function resolveMcpDirectToolNamesFromConfig(config: McpConfig, cache: MetadataCache, prefix: ToolPrefix, envOverride: string[]): string[] {
 	const names: string[] = [];
 	const seenNames = new Set<string>();
-	const { servers: selectedServers, tools: selectedTools } = parseSelections(envOverride);
+	const { servers: selectedServers, tools: selectedTools } = parseMcpDirectToolSelections(envOverride);
 
 	for (const [serverName, definition] of Object.entries(config.mcpServers)) {
 		const serverCache = cache.servers[serverName];
@@ -238,7 +239,7 @@ function resolveDirectToolNames(config: McpConfig, cache: MetadataCache, prefix:
 	return names;
 }
 
-function parseSelections(selections: string[]): { servers: Set<string>; tools: Map<string, Set<string>> } {
+export function parseMcpDirectToolSelections(selections: string[]): { servers: Set<string>; tools: Map<string, Set<string>> } {
 	const servers = new Set<string>();
 	const tools = new Map<string, Set<string>>();
 	for (let item of selections) {
@@ -273,7 +274,7 @@ export function computeMcpServerHash(definition: ServerEntry): string {
 		url: definition.url,
 		headers: interpolateEnvRecord(definition.headers),
 		auth: definition.auth,
-		bearerToken: resolveBearerToken(definition),
+		bearerTokenPresent: hasBearerToken(definition),
 		bearerTokenEnv: definition.bearerTokenEnv,
 		exposeResources: definition.exposeResources,
 		excludeTools: definition.excludeTools,
@@ -352,9 +353,9 @@ function resolveConfigPath(value: string | undefined): string | undefined {
 	return resolved;
 }
 
-function resolveBearerToken(definition: Pick<ServerEntry, "bearerToken" | "bearerTokenEnv">): string | undefined {
-	if (typeof definition.bearerToken === "string") return interpolateEnvVars(definition.bearerToken);
-	return typeof definition.bearerTokenEnv === "string" ? process.env[definition.bearerTokenEnv] : undefined;
+function hasBearerToken(definition: Pick<ServerEntry, "bearerToken" | "bearerTokenEnv">): boolean {
+	if (typeof definition.bearerToken === "string") return interpolateEnvVars(definition.bearerToken).length > 0;
+	return typeof definition.bearerTokenEnv === "string" && Boolean(process.env[definition.bearerTokenEnv]);
 }
 
 function stableStringify(value: unknown): string {

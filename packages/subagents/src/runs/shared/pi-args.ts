@@ -8,9 +8,10 @@ import { resolveMcpDirectToolNames } from "./mcp-direct-tool-allowlist.ts";
 
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"];
 const TASK_ARG_LIMIT = 8000;
-const PROMPT_RUNTIME_EXTENSION_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "subagent-prompt-runtime.ts");
+export const SUBAGENT_PARENT_MAX_DEPTH = 3;
+export const PROMPT_RUNTIME_EXTENSION_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "subagent-prompt-runtime.ts");
 const ENV_PREFIX = APP_NAME.toUpperCase();
-const FANOUT_CHILD_EXTENSION_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "extension", "fanout-child.ts");
+export const FANOUT_CHILD_EXTENSION_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "extension", "fanout-child.ts");
 export const SUBAGENT_CHILD_ENV = `${ENV_PREFIX}_SUBAGENT_CHILD`;
 export const SUBAGENT_ORCHESTRATOR_TARGET_ENV = `${ENV_PREFIX}_SUBAGENT_ORCHESTRATOR_TARGET`;
 export const SUBAGENT_RUN_ID_ENV = `${ENV_PREFIX}_SUBAGENT_RUN_ID`;
@@ -25,6 +26,9 @@ export const SUBAGENT_PARENT_CHILD_INDEX_ENV = `${ENV_PREFIX}_SUBAGENT_PARENT_CH
 export const SUBAGENT_PARENT_DEPTH_ENV = `${ENV_PREFIX}_SUBAGENT_PARENT_DEPTH`;
 export const SUBAGENT_PARENT_PATH_ENV = `${ENV_PREFIX}_SUBAGENT_PARENT_PATH`;
 export const SUBAGENT_PARENT_CAPABILITY_TOKEN_ENV = `${ENV_PREFIX}_SUBAGENT_PARENT_CAPABILITY_TOKEN`;
+export const SUBAGENT_INHERIT_PROJECT_CONTEXT_ENV = `${ENV_PREFIX}_SUBAGENT_INHERIT_PROJECT_CONTEXT`;
+export const SUBAGENT_INHERIT_SKILLS_ENV = `${ENV_PREFIX}_SUBAGENT_INHERIT_SKILLS`;
+export const SUBAGENT_INTERCOM_SESSION_NAME_ENV = `${ENV_PREFIX}_SUBAGENT_INTERCOM_SESSION_NAME`;
 
 interface BuildPiArgsInput {
 	baseArgs: string[];
@@ -167,7 +171,8 @@ export function buildPiArgs(input: BuildPiArgsInput): BuildPiArgsResult {
 			? String(input.childIndex)
 			: parentChildIndexEnv ?? "";
 	const inheritedDepth = Number(parentDepthEnv);
-	const parentDepth = input.parentDepth ?? (inheritedNestedRoute && Number.isFinite(inheritedDepth) ? inheritedDepth + 1 : 1);
+	const unclampedParentDepth = input.parentDepth ?? (inheritedNestedRoute && Number.isFinite(inheritedDepth) ? inheritedDepth + 1 : 1);
+	const parentDepth = Math.min(Math.max(1, unclampedParentDepth), SUBAGENT_PARENT_MAX_DEPTH);
 	const parentPath = input.parentPath ?? [
 		...parseNestedPathEnv(parentPathEnv),
 		...(parentRunId ? [{
@@ -192,10 +197,10 @@ export function buildPiArgs(input: BuildPiArgsInput): BuildPiArgsResult {
 	env[SUBAGENT_PARENT_CAPABILITY_TOKEN_ENV] = fanoutAuthorized
 		? input.parentCapabilityToken ?? parentCapabilityTokenEnv ?? ""
 		: "";
-	env[`${ENV_PREFIX}_SUBAGENT_INHERIT_PROJECT_CONTEXT`] = input.inheritProjectContext ? "1" : "0";
-	env[`${ENV_PREFIX}_SUBAGENT_INHERIT_SKILLS`] = input.inheritSkills ? "1" : "0";
+	env[SUBAGENT_INHERIT_PROJECT_CONTEXT_ENV] = input.inheritProjectContext ? "1" : "0";
+	env[SUBAGENT_INHERIT_SKILLS_ENV] = input.inheritSkills ? "1" : "0";
 	if (input.intercomSessionName) {
-		env[`${ENV_PREFIX}_SUBAGENT_INTERCOM_SESSION_NAME`] = input.intercomSessionName;
+		env[SUBAGENT_INTERCOM_SESSION_NAME_ENV] = input.intercomSessionName;
 	}
 	if (input.orchestratorIntercomTarget) {
 		env[SUBAGENT_ORCHESTRATOR_TARGET_ENV] = input.orchestratorIntercomTarget;

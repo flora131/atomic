@@ -31,7 +31,7 @@ function foregroundIds(state: SubagentState | undefined): string[] {
 	return state ? [...state.foregroundControls.keys()] : [];
 }
 
-function nestedScopeFromState(state: SubagentState | undefined): NestedRunResolutionScope | undefined {
+export function nestedScopeFromState(state: SubagentState | undefined): NestedRunResolutionScope | undefined {
 	if (!state) return undefined;
 	const routes: NestedRoute[] = [];
 	const seen = new Set<string>();
@@ -61,7 +61,7 @@ export function resolveSubagentRunId(id: string, deps: ResolveSubagentRunIdDeps 
 	const exactAsync = exactAsyncLocation(id, asyncDirRoot, resultsDir);
 	if (exactAsync) return { kind: "async", id, location: exactAsync };
 	const exactNested = findNestedRunMatchesById(id, nestedScope ? { scope: nestedScope } : {});
-	if (exactNested.length > 1) throw new Error(`Nested run id '${id}' is ambiguous across authorized registries. Provide the full id after stale registries are cleaned up.`);
+	if (exactNested.length > 1) throw new Error(`Nested run id '${id}' is ambiguous across authorized registries. Provide a more specific authorized run id.`);
 	if (exactNested[0]) return { kind: "nested", id, match: exactNested[0] };
 
 	const matches: ResolvedSubagentRunId[] = [];

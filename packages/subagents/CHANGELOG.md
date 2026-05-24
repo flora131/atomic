@@ -16,9 +16,10 @@
 
 ### Fixed
 - Include selected direct MCP tool names in explicit child tool allowlists when metadata cache/config resolution is available.
+- Bound nested fanout control inbox retry/dedupe state and clean stale nested event/run directories during extension startup.
 - Treat provider-coerced single-run `output: "false"` the same as boolean `false`, preventing literal `false` output files.
-- Respect read-only completion guard overrides and support disabling completion guards for read-only builtin agents.
-- Smooth live subagent widget animation by requesting redraws on spinner ticks without remounting the widget, preserving 250ms async status polling while reducing flicker.
+- Respect read-only completion guard overrides and document `completionGuard: false` as a user-authored frontmatter escape hatch.
+- Suppress flashing console windows when spawning child processes on Windows (`windowsHide: true`).
 - Append the current user-selected model as the final subagent fallback candidate, so retryable provider/model failures still get one last attempt after configured `fallbackModels` are exhausted.
 - Keep subagent running glyphs stable between live animation ticks by deriving their base frame from progress state.
 - Treat intermediate child provider/tool errors as recovered when a later clean assistant response succeeds, for both foreground and async subagent runs.

@@ -14,6 +14,7 @@ import { buildDoctorReport } from "../../extension/doctor.ts";
 import { clearPendingForegroundControlNotices } from "../../extension/control-notices.ts";
 import { runSync } from "./execution.ts";
 import { currentModelFullId, resolveModelCandidate } from "../shared/model-fallback.ts";
+import { SUBAGENT_INTERCOM_SESSION_NAME_ENV } from "../shared/pi-args.ts";
 import { aggregateParallelOutputs } from "../shared/parallel-utils.ts";
 import { recordRun } from "../shared/run-history.ts";
 import {
@@ -2461,7 +2462,7 @@ export function createSubagentExecutor(deps: ExecutorDeps): {
 						parentStepIndex: nestedParentAddress.parentStepIndex,
 						depth: nestedParentAddress.depth,
 						path: nestedParentAddress.path,
-						ownerIntercomTarget: getEnvValue(`${APP_NAME.toUpperCase()}_SUBAGENT_INTERCOM_SESSION_NAME`),
+						ownerIntercomTarget: getEnvValue(SUBAGENT_INTERCOM_SESSION_NAME_ENV),
 						leafIntercomTarget,
 						intercomTarget: leafIntercomTarget,
 						ownerState: state === "running" ? "live" : "gone",

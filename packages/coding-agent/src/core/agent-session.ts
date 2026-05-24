@@ -156,6 +156,12 @@ export type AgentSessionEvent =
 	  }
 	| { type: "compaction_start"; reason: "manual" | "threshold" | "overflow" }
 	| { type: "session_info_changed"; name: string | undefined }
+	| {
+			type: "model_changed";
+			model: Model<Api>;
+			previousModel: Model<Api> | undefined;
+			source: "set" | "cycle" | "restore";
+	  }
 	| { type: "thinking_level_changed"; level: ThinkingLevel }
 	| {
 			type: "compaction_end";
@@ -1472,6 +1478,20 @@ export class AgentSession {
 	// Model Management
 	// =========================================================================
 
+	private _emitModelChanged(
+		nextModel: Model<Api>,
+		previousModel: Model<Api> | undefined,
+		source: "set" | "cycle" | "restore",
+	): void {
+		if (modelsAreEqual(previousModel, nextModel)) return;
+		this._emit({
+			type: "model_changed",
+			model: nextModel,
+			previousModel,
+			source,
+		});
+	}
+
 	private async _emitModelSelect(
 		nextModel: Model<Api>,
 		previousModel: Model<Api> | undefined,
@@ -1506,6 +1526,7 @@ export class AgentSession {
 		this.setThinkingLevel(thinkingLevel);
 		this._refreshBaseSystemPromptFromActiveTools();
 
+		this._emitModelChanged(model, previousModel, "set");
 		await this._emitModelSelect(model, previousModel, "set");
 	}
 
@@ -1547,6 +1568,7 @@ export class AgentSession {
 		this.setThinkingLevel(thinkingLevel);
 		this._refreshBaseSystemPromptFromActiveTools();
 
+		this._emitModelChanged(next.model, currentModel, "cycle");
 		await this._emitModelSelect(next.model, currentModel, "cycle");
 
 		return { model: next.model, thinkingLevel: this.thinkingLevel, isScoped: true };
@@ -1573,6 +1595,7 @@ export class AgentSession {
 		this.setThinkingLevel(thinkingLevel);
 		this._refreshBaseSystemPromptFromActiveTools();
 
+		this._emitModelChanged(nextModel, currentModel, "cycle");
 		await this._emitModelSelect(nextModel, currentModel, "cycle");
 
 		return { model: nextModel, thinkingLevel: this.thinkingLevel, isScoped: false };

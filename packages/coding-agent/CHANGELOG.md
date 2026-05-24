@@ -9,6 +9,7 @@
 ### Fixed
 
 - Carried forward upstream fixes for managed extension installs, git package ref reconciliation, async file tools, export HTML escaping, OpenCode session headers, OAuth device-code login, footer path abbreviation, clipboard native loading, and collapsed read output rendering.
+- Refreshed the built-in header model label whenever the active model changes, matching the footer below the chat box.
 
 ## [0.8.13] - 2026-05-21
 

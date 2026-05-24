@@ -100,6 +100,28 @@ describe("InteractiveMode.setToolsExpanded", () => {
 	});
 });
 
+describe("InteractiveMode.handleEvent model changes", () => {
+	test("refreshes the built-in header when the active model changes", async () => {
+		const fakeThis: any = {
+			isInitialized: true,
+			footer: { invalidate: vi.fn() },
+			refreshBuiltInHeader: vi.fn(),
+			updateEditorBorderColor: vi.fn(),
+		};
+
+		await (InteractiveMode as any).prototype.handleEvent.call(fakeThis, {
+			type: "model_changed",
+			model: { id: "faux-2", provider: "faux" },
+			previousModel: { id: "faux-1", provider: "faux" },
+			source: "set",
+		});
+
+		expect(fakeThis.footer.invalidate).toHaveBeenCalledTimes(1);
+		expect(fakeThis.refreshBuiltInHeader).toHaveBeenCalledTimes(1);
+		expect(fakeThis.updateEditorBorderColor).toHaveBeenCalledTimes(1);
+	});
+});
+
 describe("InteractiveMode.createExtensionUIContext setTheme", () => {
 	test("persists theme changes to settings manager", () => {
 		initTheme("dark");

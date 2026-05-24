@@ -228,7 +228,8 @@ describe("installStoreWidget", () => {
     const component = last.factory!(null, undefined) as { render(w: number): string[] };
     const rendered = component.render(120).join("\n");
     assert.match(rendered, /✗ 1/);
-    assert.match(rendered, /failed · 0s ago/);
+    assert.match(rendered, /failed · 0s/);
+    assert.doesNotMatch(rendered, /ago/);
   });
 
   test("keeps the widget installed for recently-ended runs", () => {
@@ -284,13 +285,33 @@ describe("installStoreWidget", () => {
 
       const timer = timers.scheduled.findLast((entry) => !entry.cleared);
       assert.ok(timer, "expected recent-ended widget refresh timer");
-      assert.ok(timer.delayMs > 0 && timer.delayMs <= 1_000);
+      assert.ok(timer.delayMs > 29_000, "terminal-only widget should refresh near expiry, not every second");
 
       now += 31_000;
       timer.handler();
 
       const last = widgetCalls[widgetCalls.length - 1]!;
       assert.equal(last.factory, undefined);
+    } finally {
+      Date.now = originalNow;
+    }
+  });
+
+  test("does not schedule a second-boundary refresh for fully paused runs", () => {
+    const originalNow = Date.now;
+    let now = 1_000_000;
+    Date.now = () => now;
+    try {
+      const timers = makeFakeTimers();
+      const { pi } = makeMockPi();
+      installStoreWidget(pi, storeInstance, timers);
+      const run = makeRun("r1", "my-wf");
+      run.status = "paused";
+      run.pausedAt = now - 5_000;
+      storeInstance.recordRunStart(run);
+
+      const timer = timers.scheduled.findLast((entry) => !entry.cleared);
+      assert.equal(timer, undefined);
     } finally {
       Date.now = originalNow;
     }

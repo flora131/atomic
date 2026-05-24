@@ -19,6 +19,8 @@ import {
   renderWidgetLines,
   buildThemedWidgetLines,
   formatDuration,
+  nextWidgetRefreshDelayMs,
+  RECENT_ENDED_WINDOW_MS,
 } from "../../packages/workflows/src/tui/widget.js";
 import { visibleWidth } from "../../packages/workflows/src/tui/text-helpers.js";
 import type {
@@ -178,13 +180,73 @@ describe("renderWidgetLines — standard form", () => {
   test("count badges reflect status mix", () => {
     const t = Date.now();
     const running = makeRun("r1xxxxxx", "wf-r", "running", [], t - 1000);
+    const paused = makeRun("r4xxxxxx", "wf-p", "paused", [], t - 3000);
     const done = makeRun("r2xxxxxx", "wf-d", "completed", [], t - 5000, t - 1000);
     const failed = makeRun("r3xxxxxx", "wf-f", "failed", [], t - 4000, t - 500);
-    const lines = renderWidgetLines(makeSnap([running, done, failed]), 120).map(stripAnsi);
+    const lines = renderWidgetLines(makeSnap([running, paused, done, failed]), 120).map(stripAnsi);
     const header = lines[0]!;
     assert.ok(header.includes("● 1 running"), "running badge");
+    assert.ok(header.includes("❚❚ 1 paused"), "paused badge");
     assert.ok(header.includes("✓ 1 complete"), "completed badge");
     assert.ok(header.includes("✗ 1 failed"), "failed badge");
+  });
+
+  test("terminal rows render final duration without ticking ago labels", () => {
+    const originalNow = Date.now;
+    try {
+      const startedAt = 1_000;
+      const endedAt = 11_000;
+      const completed = makeRun("r2xxxxxx", "wf-d", "completed", [], startedAt, endedAt);
+      const failed = makeRun("r3xxxxxx", "wf-f", "failed", [], startedAt, endedAt);
+      const killed = makeRun("r4xxxxxx", "wf-k", "killed", [], startedAt, endedAt);
+      completed.durationMs = undefined;
+      failed.durationMs = undefined;
+      killed.durationMs = undefined;
+
+      Date.now = () => 12_000;
+      const at12s = renderWidgetLines(makeSnap([completed, failed, killed]), 120).map(stripAnsi).join("\n");
+      Date.now = () => 29_000;
+      const at29s = renderWidgetLines(makeSnap([completed, failed, killed]), 120).map(stripAnsi).join("\n");
+
+      assert.match(at12s, /complete · 10s/);
+      assert.match(at12s, /failed · 10s/);
+      assert.match(at12s, /killed · 10s/);
+      assert.doesNotMatch(at12s, /ago/);
+      assert.equal(at29s, at12s);
+    } finally {
+      Date.now = originalNow;
+    }
+  });
+
+  test("paused run renders pause status and frozen active elapsed time", () => {
+    const originalNow = Date.now;
+    try {
+      Date.now = () => 71_000;
+      const paused = makeRun("r4xxxxxx", "wf-p", "paused", [], 1_000);
+      paused.pausedAt = 11_000;
+      const lines = renderWidgetLines(makeSnap([paused]), 120).map(stripAnsi);
+      assert.ok(lines.join("\n").includes("❚❚"), "paused glyph");
+      assert.ok(lines[0]!.includes("❚❚ 1 paused"), "paused badge");
+      assert.match(lines[2]!, /10s/);
+      assert.doesNotMatch(lines[2]!, /1m/);
+
+      Date.now = () => 76_000;
+      const later = renderWidgetLines(makeSnap([paused]), 120).map(stripAnsi);
+      assert.equal(later[2], lines[2]);
+    } finally {
+      Date.now = originalNow;
+    }
+  });
+
+  test("terminal and fully paused widgets do not schedule second-boundary refreshes", () => {
+    const now = 1_000_000;
+    const terminal = makeRun("r2xxxxxx", "wf-d", "completed", [], now - 20_000, now - 10_000);
+    const terminalDelay = nextWidgetRefreshDelayMs(makeSnap([terminal]), now);
+    assert.equal(terminalDelay, RECENT_ENDED_WINDOW_MS - 10_000 + 1);
+
+    const paused = makeRun("r4xxxxxx", "wf-p", "paused", [], now - 20_000);
+    paused.pausedAt = now - 5_000;
+    assert.equal(nextWidgetRefreshDelayMs(makeSnap([paused]), now), undefined);
   });
 
   test("standard panel scales to the provided terminal width", () => {

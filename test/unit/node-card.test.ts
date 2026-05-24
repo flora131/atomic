@@ -38,6 +38,7 @@ function makeStage(opts: Partial<StageSnapshot> = {}): StageSnapshot {
     durationMs: opts.durationMs,
     pausedDurationMs: opts.pausedDurationMs,
     startedAt: opts.startedAt,
+    endedAt: opts.endedAt,
     pausedAt: opts.pausedAt,
     resumedAt: opts.resumedAt,
     blockedByStageId: opts.blockedByStageId,
@@ -304,6 +305,22 @@ describe("renderNodeCard — duration line", () => {
     const body = stripAnsi(lines[1]!);
     // fmtDuration(65000) → "1m 5s" (per status-helpers.ts).
     assert.match(body, /1m 5s/);
+  });
+
+  test("freezes terminal duration using endedAt when durationMs is missing", () => {
+    const originalNow = Date.now;
+    try {
+      Date.now = () => 71_000;
+      const lines = renderNodeCard(
+        makeStage({ status: "completed", startedAt: 1_000, endedAt: 11_000 }),
+        { theme },
+      );
+      const body = stripAnsi(lines[1]!);
+      assert.match(body, /10s/);
+      assert.doesNotMatch(body, /1m/);
+    } finally {
+      Date.now = originalNow;
+    }
   });
 
   test("freezes the duration line while paused and resumes active elapsed time", () => {

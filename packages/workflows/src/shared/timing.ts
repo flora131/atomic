@@ -1,5 +1,6 @@
 interface StageTimerSnapshot {
   readonly startedAt?: number;
+  readonly endedAt?: number;
   readonly durationMs?: number;
   readonly pausedDurationMs?: number;
   readonly pausedAt?: number;
@@ -7,6 +8,7 @@ interface StageTimerSnapshot {
 
 interface RunTimerSnapshot {
   readonly startedAt: number;
+  readonly endedAt?: number;
   readonly durationMs?: number;
   readonly pausedDurationMs?: number;
   readonly pausedAt?: number;
@@ -39,10 +41,12 @@ export function accumulatePausedDurationMs(
 export function elapsedStageMs(stage: StageTimerSnapshot, now = Date.now()): number | undefined {
   if (stage.durationMs !== undefined) return nonNegative(stage.durationMs);
   if (stage.startedAt === undefined) return undefined;
-  return elapsedFromStart(stage.startedAt, now, stage.pausedDurationMs, stage.pausedAt);
+  const effectiveNow = stage.endedAt ?? now;
+  return elapsedFromStart(stage.startedAt, effectiveNow, stage.pausedDurationMs, stage.pausedAt);
 }
 
 export function elapsedRunMs(run: RunTimerSnapshot, now = Date.now()): number {
   if (run.durationMs !== undefined) return nonNegative(run.durationMs);
-  return elapsedFromStart(run.startedAt, now, run.pausedDurationMs, run.pausedAt);
+  const effectiveNow = run.endedAt ?? now;
+  return elapsedFromStart(run.startedAt, effectiveNow, run.pausedDurationMs, run.pausedAt);
 }

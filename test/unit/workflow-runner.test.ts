@@ -176,11 +176,16 @@ describe("programmatic workflow runner", () => {
 
   test("runs a named workflow from an explicit definition object", async () => {
     const prompts: string[] = [];
+    const dir = mkdtempSync(join(tmpdir(), "workflow-runner-deep-research-"));
     const result = await runWorkflow(
       {
         mode: "workflow",
         workflow: "deep-research-codebase",
-        inputs: { prompt: "map workflow sdk", max_partitions: 1 },
+        inputs: {
+          prompt: "map workflow sdk",
+          max_partitions: 1,
+          output_path: join(dir, "research.md"),
+        },
       },
       { adapterOptions: { createAgentSession: makeSessionFactory(prompts) } },
     );

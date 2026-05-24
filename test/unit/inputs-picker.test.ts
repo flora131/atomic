@@ -253,6 +253,18 @@ test("Submit tab returns coerced values and Cancel row cancels", () => {
   }
 });
 
+test("Submit tab number hotkeys submit or cancel immediately", () => {
+  const submit = createInputsPickerState(FIELDS, { prompt: "hi", focus: "minimal" });
+  submit.focusedIdx = FIELDS.length;
+  const run = handleInputsPickerInput("1", submit, FIELDS, KB);
+  assert.equal(run.kind, "run");
+
+  const cancel = createInputsPickerState(FIELDS, { prompt: "hi", focus: "minimal" });
+  cancel.focusedIdx = FIELDS.length;
+  assert.deepEqual(handleInputsPickerInput("2", cancel, FIELDS, KB), { kind: "cancel" });
+  assert.equal(cancel.submitChoiceIdx, 1);
+});
+
 test("Submit tab arrow keys move between submit and cancel rows", () => {
   const s = createInputsPickerState(FIELDS, { prompt: "hi", focus: "minimal" });
   s.focusedIdx = FIELDS.length;
@@ -304,6 +316,11 @@ test("coerceValues parses JSON-shaped text values", () => {
 
 test("wrapPlainText handles width=1 long words", () => {
   assert.deepEqual(wrapPlainText("abc", 1), ["a", "b", "c"]);
+});
+
+test("wrapPlainText preserves empty rows for empty and whitespace-only input", () => {
+  assert.deepEqual(wrapPlainText("", 80), [""]);
+  assert.deepEqual(wrapPlainText("   \t  ", 80), [""]);
 });
 
 test("renderInputsPicker mirrors ask-question list style for the active field", () => {
@@ -364,6 +381,24 @@ test("renderInputsPicker shows a Submit section instead of a confirm modal", () 
   assert.doesNotMatch(joined, /ctrl\+x/);
 });
 
+test("renderInputsPicker normalizes true-like boolean review values", () => {
+  const theme = deriveGraphTheme({});
+  const state = createInputsPickerState(FIELDS, { prompt: "build a tui", verbose: 1 });
+  state.focusedIdx = FIELDS.length;
+  const lines = renderInputsPicker({
+    width: 80,
+    theme,
+    workflowName: "ralph",
+    fields: FIELDS,
+    state,
+    cursorOn: true,
+  });
+  // eslint-disable-next-line no-control-regex
+  const joined = lines.join("\n").replace(/\x1b\[[0-9;]*m/g, "");
+  assert.match(joined, /● verbose\n\s+→ on/);
+  assert.doesNotMatch(joined, /→ 1/);
+});
+
 test("renderInputsPicker wraps invalid Submit prompt instead of clipping", () => {
   const theme = deriveGraphTheme({});
   const fields: WorkflowInputEntry[] = [
@@ -388,6 +423,7 @@ test("renderInputsPicker wraps invalid Submit prompt instead of clipping", () =>
   assert.match(joined, /submitting:/);
   assert.match(joined, /alpha_required_prompt/);
   assert.match(joined, /beta_required_context/);
+  assert.match(joined, /Submit answers \(2 missing\)/);
   const promptStart = plainLines.findIndex((line) => line.startsWith("Answer remaining"));
   const promptLines = plainLines.slice(promptStart, promptStart + 4).join("\n");
   assert.doesNotMatch(promptLines, /…/);
@@ -526,7 +562,9 @@ test("renderInputsPicker footer uses ask-question input-field copy", () => {
 
   const narrow = renderAt(24);
   assert.ok(narrow.length <= 24);
-  assert.match(narrow, /^Enter to select/);
+  assert.match(narrow, /Enter/);
+  assert.match(narrow, /Tab/);
+  assert.match(narrow, /Esc/);
 });
 
 // ── renderInputsSchema ────────────────────────────────────────────────────

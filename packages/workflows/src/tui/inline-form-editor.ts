@@ -16,7 +16,7 @@
  *   space               — boolean toggle
  *   enter               — newline (text) | otherwise next field
  *   printable ASCII     — insert at caret (text/string/number)
- *   submit section      — ↑/↓ moves rows; 1/2 selects; enter commits row
+ *   submit section      — ↑/↓ moves rows; 1 submits, 2 cancels immediately; enter commits row
  *   esc / ctrl+c        — cancel form
  *
  * Editor-mode keys (cursor movement, word jumps, deletions) route through

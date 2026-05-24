@@ -45,6 +45,7 @@ import {
   renderAskChoiceRows,
   renderSubmitControls as renderSharedSubmitControls,
   renderSubmitReview,
+  renderWorkflowFormFooterHints,
 } from "./submit-pane.js";
 import {
   type KeybindingsLike,
@@ -244,7 +245,7 @@ export function invalidForField(
   return null;
 }
 
-function computeInvalid(
+export function computeInvalid(
   fields: readonly WorkflowInputEntry[],
   raw: Record<string, string>,
 ): number[] {
@@ -846,8 +847,7 @@ export function renderInputsPicker(opts: InputsPickerRenderOpts): string[] {
 
 /** Footer hint copied from ask_user_question, with workflow-specific tab copy. */
 function renderFooterHints(width: number, theme: GraphTheme): string {
-  const hint = "Enter to select · ↑/↓ to navigate · Tab to switch input fields · Esc to cancel";
-  return paint(truncateToWidth(hint, width, "…"), theme.dim);
+  return renderWorkflowFormFooterHints(theme, width);
 }
 
 function renderSubmitControls(
@@ -862,7 +862,6 @@ function renderSubmitControls(
     submitChoiceIdx: state.submitChoiceIdx,
     theme,
     width,
-    footerHint: renderFooterHints(width, theme),
   });
 }
 
@@ -887,7 +886,8 @@ function renderSubmitControls(
  *
  * Keys (Submit pane):
  *   up / down        — move between Submit answers and Cancel rows
- *   1 / 2            — choose Submit answers / Cancel immediately
+ *   1                — submit immediately, or focus the first invalid field
+ *   2                — cancel immediately without requiring Enter
  *   enter            — commit the active Submit/Cancel row
  */
 export function handleInputsPickerInput(

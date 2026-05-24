@@ -34,7 +34,7 @@
 import type { InlineFormState } from "./inline-form-store.js";
 import type { WorkflowInputEntry } from "../extension/render-result.js";
 import type { GraphTheme } from "./graph-theme.js";
-import { invalidForField } from "./inputs-picker.js";
+import { computeInvalid, invalidForField } from "./inputs-picker.js";
 import { paint } from "./color-utils.js";
 import {
   truncateToWidth,
@@ -45,6 +45,7 @@ import {
   renderAskChoiceRows,
   renderSubmitControls as renderSharedSubmitControls,
   renderSubmitReview,
+  renderWorkflowFormFooterHints,
 } from "./submit-pane.js";
 
 export interface InlineCardOpts {
@@ -185,8 +186,7 @@ function renderInputTabBar(state: InlineFormState, theme: GraphTheme, width: num
 }
 
 function renderFooterHints(theme: GraphTheme, width: number): string {
-  const hint = "Enter to select · ↑/↓ to navigate · Tab to switch input fields · Esc to cancel";
-  return paint(truncateToWidth(hint, width, "…"), theme.dim);
+  return renderWorkflowFormFooterHints(theme, width);
 }
 
 // ---------------------------------------------------------------------------
@@ -230,15 +230,12 @@ function renderAskStyleFieldBody(
 }
 
 function renderSubmitControls(state: InlineFormState, theme: GraphTheme, width: number): string[] {
-  const invalid = state.fields
-    .map((field, i) => (invalidForField(field, state.rawText[field.name] ?? "", i) === null ? null : i))
-    .filter((i): i is number => i !== null);
+  const invalid = computeInvalid(state.fields, state.rawText);
   return renderSharedSubmitControls({
     invalidFieldNames: invalid.map((i) => state.fields[i]!.name),
     submitChoiceIdx: state.submitChoiceIdx,
     theme,
     width,
-    footerHint: renderFooterHints(theme, width),
   });
 }
 

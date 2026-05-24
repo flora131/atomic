@@ -22,7 +22,17 @@ export interface SubmitControlsRenderOpts {
   submitChoiceIdx: number;
   theme: GraphTheme;
   width: number;
-  footerHint: string;
+}
+
+export function renderWorkflowFormFooterHints(theme: GraphTheme, width: number): string {
+  const hints = [
+    "Enter to select · ↑/↓ to navigate · Tab to switch input fields · Esc to cancel",
+    "Enter · ↑/↓ · Tab · Esc",
+    "Enter · Tab · Esc",
+    "Esc",
+  ];
+  const selected = hints.find((hint) => visibleWidth(hint) <= width) ?? hints[hints.length - 1]!;
+  return paint(truncateToWidth(selected, width, "…"), theme.dim);
 }
 
 export function renderAskChoiceRows(
@@ -57,18 +67,22 @@ export function renderSubmitReview(opts: SubmitPaneRenderOpts): string[] {
 }
 
 export function renderSubmitControls(opts: SubmitControlsRenderOpts): string[] {
-  const { invalidFieldNames, submitChoiceIdx, theme, width, footerHint } = opts;
-  const promptText = invalidFieldNames.length === 0
+  const { invalidFieldNames, submitChoiceIdx, theme, width } = opts;
+  const invalidCount = invalidFieldNames.length;
+  const promptText = invalidCount === 0
     ? "Ready to submit your inputs?"
     : `Answer remaining inputs before submitting: ${invalidFieldNames.join(", ")}`;
-  const promptColor = invalidFieldNames.length === 0 ? theme.textMuted : theme.warning;
+  const promptColor = invalidCount === 0 ? theme.textMuted : theme.warning;
+  const submitLabel = invalidCount === 0
+    ? "Submit answers"
+    : `Submit answers (${invalidCount} missing)`;
   return [
     ...wrapPlainText(promptText, width).map((line) => paint(line, promptColor)),
     "",
-    ...renderAskChoiceRows(1, "Submit answers", submitChoiceIdx === 0, theme, width),
+    ...renderAskChoiceRows(1, submitLabel, submitChoiceIdx === 0, theme, width),
     ...renderAskChoiceRows(2, "Cancel", submitChoiceIdx === 1, theme, width),
     "",
-    footerHint,
+    renderWorkflowFormFooterHints(theme, width),
   ];
 }
 
@@ -90,6 +104,9 @@ function renderReviewValueRows(
 }
 
 function formatFieldReviewValue(field: WorkflowInputEntry, raw: string): string {
-  if (field.type === "boolean") return raw === "true" ? "on" : "off";
+  if (field.type === "boolean") {
+    const normalized = raw.trim().toLowerCase();
+    return normalized === "true" || normalized === "1" ? "on" : "off";
+  }
   return formatReviewValue(raw);
 }

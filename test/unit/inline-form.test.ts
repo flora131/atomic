@@ -175,6 +175,16 @@ test("card (live): Submit section reviews inputs and offers visible actions", ()
   assert.doesNotMatch(txt, /ctrl\+x/);
 });
 
+test("card (live): normalizes true-like boolean review values", () => {
+  const state = makeState({
+    rawText: { prompt: "build me a tui", iters: "5", focus: "minimal", verbose: "1" },
+    focusedIdx: FIELDS.length,
+  });
+  const txt = plain(renderInlineCard({ width: 80, state, theme: deriveGraphTheme({}) }));
+  assert.match(txt, /● verbose\n\s+→ on/);
+  assert.doesNotMatch(txt, /→ 1/);
+});
+
 test("card (live): wraps invalid Submit prompt instead of clipping", () => {
   const fields: readonly WorkflowInputEntry[] = [
     { name: "alpha_required_prompt", type: "string", required: true },
@@ -194,6 +204,7 @@ test("card (live): wraps invalid Submit prompt instead of clipping", () => {
   assert.match(txt, /submitting:/);
   assert.match(txt, /alpha_required_prompt/);
   assert.match(txt, /beta_required_context/);
+  assert.match(txt, /Submit answers \(2 missing\)/);
   const promptStart = plainLines.findIndex((line) => line.startsWith("Answer remaining"));
   const promptLines = plainLines.slice(promptStart, promptStart + 4).join("\n");
   assert.doesNotMatch(promptLines, /…/);
@@ -420,6 +431,40 @@ test("editor: Submit section validates and submits via visible row", () => {
   e.editor.handleInput("\r");
   assert.deepEqual(e.getExited(), { outcome: "submit" });
   e.dispose();
+});
+
+test("editor: Submit section cancel row exits on Enter", () => {
+  const state = makeState({
+    focusedIdx: FIELDS.length,
+    submitChoiceIdx: 1,
+    rawText: { prompt: "build", iters: "5", focus: "standard", verbose: "false" },
+  });
+  const e = makeEditor(state);
+  e.editor.handleInput("\r");
+  assert.deepEqual(e.getExited(), { outcome: "cancel" });
+  e.dispose();
+});
+
+test("editor: Submit section number hotkeys submit or cancel immediately", () => {
+  const submitState = makeState({
+    focusedIdx: FIELDS.length,
+    rawText: { prompt: "build", iters: "5", focus: "standard", verbose: "false" },
+  });
+  const submit = makeEditor(submitState);
+  submit.editor.handleInput("1");
+  assert.deepEqual(submit.getExited(), { outcome: "submit" });
+  submit.dispose();
+
+  const cancelState = makeState({
+    formId: "wf-cancel-hotkey",
+    focusedIdx: FIELDS.length,
+    rawText: { prompt: "build", iters: "5", focus: "standard", verbose: "false" },
+  });
+  const cancel = makeEditor(cancelState);
+  cancel.editor.handleInput("2");
+  assert.deepEqual(cancel.getExited(), { outcome: "cancel" });
+  assert.equal(cancelState.submitChoiceIdx, 1);
+  cancel.dispose();
 });
 
 test("editor: Submit section arrow keys move between submit and cancel rows", () => {

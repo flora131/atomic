@@ -55,7 +55,6 @@ export type InputsPickerResult =
 
 export interface OpenInputsPickerOpts {
   workflowName: string;
-  description?: string;
   fields: WorkflowInputEntry[];
   /** Prefilled values (e.g. from `key=value` slash args). The form
    *  seeds these into the form so the user doesn't re-type what they typed. */
@@ -78,7 +77,7 @@ export function openInputsPicker(
   opts: OpenInputsPickerOpts,
 ): Promise<InputsPickerResult> {
   return new Promise<InputsPickerResult>((resolve) => {
-    const { workflowName, description, fields, prefilled, theme } = opts;
+    const { workflowName, fields, prefilled, theme } = opts;
     const custom = ui.custom;
     if (typeof custom !== "function") {
       resolve({ kind: "cancel" });
@@ -124,7 +123,6 @@ export function openInputsPicker(
             width,
             theme,
             workflowName,
-            description,
             fields,
             state,
             cursorOn,

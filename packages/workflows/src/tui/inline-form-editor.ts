@@ -47,6 +47,7 @@ import type { GraphTheme } from "./graph-theme.js";
 import type { WorkflowInputEntry } from "../extension/render-result.js";
 import type { InlineFormState } from "./inline-form-store.js";
 import { getForm, touch } from "./inline-form-store.js";
+import { computeInvalid } from "./inputs-picker.js";
 import {
   type KeybindingsLike,
   TUI_ACTION,
@@ -465,7 +466,7 @@ export class InlineFormEditor implements PiEditorComponent {
       return true;
     }
     if (matchesAction(this.kb, data, TUI_ACTION.selectDown) || matchesAction(this.kb, data, TUI_ACTION.editorCursorDown)) {
-      state.submitChoiceIdx = (state.submitChoiceIdx + 1) % 2;
+      state.submitChoiceIdx = 1 - state.submitChoiceIdx;
       return true;
     }
     if (matchesKey(data, "1")) {
@@ -707,41 +708,15 @@ export class InlineFormEditor implements PiEditorComponent {
   }
 
   private focusFirstInvalid(state: InlineFormState): void {
-    const idx = state.fields.findIndex((f) => {
-      const v = state.rawText[f.name] ?? "";
-      if (f.required && v.trim() === "") return true;
-      if ((f.type === "number" || f.type === "integer") && v !== "" && !Number.isFinite(Number(v))) {
-        return true;
-      }
-      return f.type === "select" && Boolean(f.choices) && v !== "" && !f.choices!.includes(v);
-    });
-    if (idx < 0) return;
+    const [idx] = computeInvalid(state.fields, state.rawText);
+    if (idx === undefined) return;
     state.submitChoiceIdx = 0;
     state.focusedIdx = idx;
     state.caret = (state.rawText[state.fields[idx]!.name] ?? "").length;
   }
 
   private allValid(state: InlineFormState): boolean {
-    for (const f of state.fields) {
-      const v = state.rawText[f.name] ?? "";
-      if (f.required && v.trim() === "") return false;
-      if (
-        (f.type === "number" || f.type === "integer") &&
-        v !== "" &&
-        !Number.isFinite(Number(v))
-      ) {
-        return false;
-      }
-      if (
-        f.type === "select" &&
-        f.choices &&
-        v !== "" &&
-        !f.choices.includes(v)
-      ) {
-        return false;
-      }
-    }
-    return true;
+    return computeInvalid(state.fields, state.rawText).length === 0;
   }
 }
 

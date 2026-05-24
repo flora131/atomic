@@ -43,7 +43,7 @@ import {
 } from "./text-helpers.js";
 import {
   renderAskChoiceRows,
-  renderSubmitControls as renderSharedSubmitControls,
+  renderSubmitControls,
   renderSubmitReview,
   renderWorkflowFormFooterHints,
 } from "./submit-pane.js";
@@ -154,7 +154,7 @@ function renderHeaderBand(state: InlineFormState, theme: GraphTheme, width: numb
 
 function renderFooterBand(state: InlineFormState, theme: GraphTheme, width: number): string[] {
   if (state.focusedIdx === state.fields.length) {
-    return [renderDialogRule(theme, width), ...renderSubmitControls(state, theme, width)];
+    return [renderDialogRule(theme, width), ...renderInlineSubmitControls(state, theme, width)];
   }
   return [renderDialogRule(theme, width), renderFooterHints(theme, width)];
 }
@@ -229,9 +229,9 @@ function renderAskStyleFieldBody(
   return renderAskInputRows(raw, caret, field.placeholder, theme, width);
 }
 
-function renderSubmitControls(state: InlineFormState, theme: GraphTheme, width: number): string[] {
+function renderInlineSubmitControls(state: InlineFormState, theme: GraphTheme, width: number): string[] {
   const invalid = computeInvalid(state.fields, state.rawText);
-  return renderSharedSubmitControls({
+  return renderSubmitControls({
     invalidFieldNames: invalid.map((i) => state.fields[i]!.name),
     submitChoiceIdx: state.submitChoiceIdx,
     theme,

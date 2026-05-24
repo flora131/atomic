@@ -530,10 +530,9 @@ async function interruptNestedRun(target: ResolvedSubagentRunId & { kind: "neste
 	if (run.state === "failed") return { content: [{ type: "text", text: `Nested run ${run.id} has failed and cannot be interrupted.` }], isError: true, details: { mode: "management", results: [] } };
 	if (run.state === "paused") return { content: [{ type: "text", text: `Nested run ${run.id} is already paused.` }], isError: true, details: { mode: "management", results: [] } };
 	const result = await sendNestedControlRequest(target, "interrupt");
-	if (result?.ok) return { content: [{ type: "text", text: result.message }], details: { mode: "management", results: [] } };
+	if (result) return { content: [{ type: "text", text: result.message }], isError: result.ok ? undefined : true, details: { mode: "management", results: [] } };
 	const direct = directNestedAsyncInterrupt(target);
 	if (direct) return direct;
-	if (result) return { content: [{ type: "text", text: result.message }], isError: true, details: { mode: "management", results: [] } };
 	return { content: [{ type: "text", text: `Nested run ${run.id} owner is not reachable and no safe direct async interrupt fallback is available.` }], isError: true, details: { mode: "management", results: [] } };
 }
 

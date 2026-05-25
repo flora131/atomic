@@ -1082,7 +1082,7 @@ function runFailureMetadata(err: unknown, stages: readonly StageSnapshot[]): Run
   const failureKind = failedStage?.failureKind ?? classified.kind;
 
   return {
-    errorMessage: failedStage?.error ?? classified.userMessage,
+    errorMessage: classified.userMessage,
     failureKind,
     failureMessage: failedStage?.failureMessage ?? classified.message,
     ...(failedStage !== undefined ? { failedStageId: failedStage.id } : {}),

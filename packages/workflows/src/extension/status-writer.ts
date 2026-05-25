@@ -42,6 +42,8 @@ export interface StatusWriterOpts {
 }
 
 export interface StatusWriter {
+  /** Wait until all currently queued status writes have reached disk. */
+  flush(): Promise<void>;
   /** Stop receiving store updates and cancel any pending flush. */
   unsubscribe(): void;
 }
@@ -105,7 +107,7 @@ export function createStatusWriter(
   opts: StatusWriterOpts = {},
 ): StatusWriter {
   if (!config.statusFile) {
-    return { unsubscribe() {} };
+    return { async flush() {}, unsubscribe() {} };
   }
 
   const filePath = resolveStatusFilePath(config, opts);
@@ -117,6 +119,7 @@ export function createStatusWriter(
   let active = true;
   let writing = false;
   let pendingContent: string | null = null;
+  let drainPromise: Promise<void> | null = null;
 
   function recordWriteError(err: unknown): void {
     const msg = err instanceof Error ? err.message : String(err);
@@ -148,16 +151,28 @@ export function createStatusWriter(
       }
     } finally {
       writing = false;
-      if (active && pendingContent !== null) void drainWrites();
     }
+  }
+
+  function ensureDrain(): Promise<void> {
+    drainPromise ??= drainWrites().finally(() => {
+      drainPromise = null;
+      if (active && pendingContent !== null) void ensureDrain();
+    });
+    return drainPromise;
   }
 
   const unsubscribeStore = store.subscribe((snap: StoreSnapshot) => {
     pendingContent = JSON.stringify(snap, null, 2);
-    void drainWrites();
+    void ensureDrain();
   });
 
   return {
+    async flush() {
+      while (active && (pendingContent !== null || drainPromise !== null)) {
+        await ensureDrain();
+      }
+    },
     unsubscribe() {
       active = false;
       pendingContent = null;

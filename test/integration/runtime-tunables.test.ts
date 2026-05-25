@@ -496,7 +496,7 @@ describe("runtime tunables — statusFile", () => {
       startedAt: Date.now(),
     });
 
-    await sleep(50);
+    await writer.flush();
     writer.unsubscribe();
 
     const raw = await readFile(filePath, "utf8");
@@ -526,7 +526,7 @@ describe("runtime tunables — statusFile", () => {
     });
     s.recordRunEnd("rt-run-done", "completed", { answer: 42 });
 
-    await sleep(50);
+    await writer.flush();
     writer.unsubscribe();
 
     const snap = JSON.parse(await readFile(filePath, "utf8")) as {
@@ -554,7 +554,7 @@ describe("runtime tunables — statusFile", () => {
     });
     s.recordRunEnd("rt-run-fail", "failed", undefined, "something went wrong");
 
-    await sleep(50);
+    await writer.flush();
     writer.unsubscribe();
 
     const snap = JSON.parse(await readFile(filePath, "utf8")) as {
@@ -581,7 +581,7 @@ describe("runtime tunables — statusFile", () => {
       startedAt: Date.now(),
     });
 
-    await sleep(50);
+    await writer.flush();
     writer.unsubscribe();
 
     await assert.rejects(readFile(filePath, "utf8"));
@@ -605,7 +605,7 @@ describe("runtime tunables — statusFile", () => {
       startedAt: Date.now(),
     });
 
-    await sleep(30);
+    await writer.flush();
 
     s.recordRunStart({
       id: "rt-multi-2",
@@ -616,7 +616,7 @@ describe("runtime tunables — statusFile", () => {
       startedAt: Date.now(),
     });
 
-    await sleep(50);
+    await writer.flush();
     writer.unsubscribe();
 
     const snap = JSON.parse(await readFile(filePath, "utf8")) as { runs: Array<{ id: string }> };
@@ -644,7 +644,7 @@ describe("runtime tunables — statusFile", () => {
       startedAt: Date.now(),
     });
 
-    await sleep(50);
+    await writer.flush();
     writer.unsubscribe();
 
     const raw = await readFile(expectedPath, "utf8");
@@ -669,7 +669,7 @@ describe("runtime tunables — statusFile", () => {
       startedAt: Date.now(),
     });
 
-    await sleep(50);
+    await writer.flush();
     writer.unsubscribe();
 
     const snapBefore = await readFile(filePath, "utf8");

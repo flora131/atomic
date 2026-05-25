@@ -1747,7 +1747,7 @@ describe("tool run-control actions", () => {
     assert.deepEqual(sent, []);
   });
 
-  test("makeExecuteWorkflowTool preserves explicit empty reload reason", async () => {
+  test("makeExecuteWorkflowTool treats explicit empty reload reason as omitted", async () => {
     const registry = createRegistry([]);
     const runtime = createExtensionRuntime({ registry });
     const handler = makeExecuteWorkflowTool(runtime, () => undefined, () => undefined);
@@ -1757,7 +1757,7 @@ describe("tool run-control actions", () => {
     assert.equal(result.action, "reload");
     const reload = result as { action: string; status: string; message: string };
     assert.equal(reload.status, "ok");
-    assert.equal(reload.message, "Reloaded workflow resources ().");
+    assert.equal(reload.message, "Reloaded workflow resources.");
   });
 
   test("makeExecuteWorkflowTool reload is skipped while workflows are in flight", async () => {

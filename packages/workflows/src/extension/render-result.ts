@@ -11,7 +11,7 @@
  *  - pi-subagents src/extension/index.ts renderResult slot
  */
 
-import type { RunSnapshot, StageSnapshot, StageStatus } from "../shared/store-types.js";
+import type { PendingPrompt, RunSnapshot, StageSnapshot, StageStatus } from "../shared/store-types.js";
 import type { WorkflowDetails } from "../shared/types.js";
 import type { RunDetail } from "../runs/background/status.js";
 import { renderInputsSchema } from "../shared/render-inputs-schema.js";
@@ -106,7 +106,7 @@ type StageListItem = {
   sessionFile?: string;
   error?: string;
   awaitingInputSince?: number;
-  pendingPrompt?: { id: string; kind: string; message: string; choices?: readonly string[]; createdAt: number };
+  pendingPrompt?: PendingPrompt;
 };
 type StageListResult = { action: "stages"; runId: string; filter: string; stages: StageListItem[]; error?: string };
 type StageDetailResult = { action: "stage"; runId: string; stage?: StageSnapshot; error?: string };

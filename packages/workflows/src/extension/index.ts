@@ -1300,8 +1300,8 @@ export function makeExecuteWorkflowTool(
         return {
           action: "reload",
           status: "ok",
-          message: args.reason !== undefined
-            ? `Reloaded workflow resources (${args.reason}).`
+          message: args.reason?.trim()
+            ? `Reloaded workflow resources (${args.reason.trim()}).`
             : "Reloaded workflow resources.",
         };
       }

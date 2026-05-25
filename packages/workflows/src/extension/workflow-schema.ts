@@ -164,7 +164,7 @@ export const WorkflowParametersSchema = Type.Object({
     Type.Literal("followUp"),
     Type.Literal("resume"),
   ], {
-    description: "Delivery mode for the send action: auto-select, answer a prompt, prompt/steer/follow up live work, or resume a paused stage.",
+    description: "Delivery mode for the send action: auto answers pending prompts first, then resumes paused stages, steers streaming stages, or queues a follow-up.",
   })),
   promptId: Type.Optional(Type.String({
     description: "Pending prompt identifier to answer when using the send action.",

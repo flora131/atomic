@@ -219,7 +219,7 @@ Workflows always run as **background tasks** — the chat editor stays free whil
     "text": "optional string payload for send/resume; explicit empty text answers pending prompts",
     "response": "optional structured payload for answering pending prompts; explicit empty response is valid",
     "message": "optional string payload for send/resume when text is not provided",
-    "delivery": "optional send delivery mode: auto, answer, prompt, steer, followUp, or resume",
+    "delivery": "optional send delivery mode: auto, answer, prompt, steer, followUp, or resume; auto prioritizes answer, then resume, steer, followUp",
     "promptId": "optional pending prompt identifier for send/answer",
     "reason": "optional human-readable reload reason",
     "all": "optional boolean for pause/interrupt/kill all; cannot be combined with stageId",
@@ -230,8 +230,8 @@ Workflows always run as **background tasks** — the chat editor stays free whil
 
 - **`renderCall`** — renders a compact workflow call summary in the chat scroll.
 - **`renderResult`** — renders the result or dispatch banner; live progress continues through the widget and graph viewer. Named workflow runs are background-oriented.
-- **`transcript`** — falls back to stored stage snapshots when no live session transcript is available; snapshot entries are ordered chronologically before `tail`/`limit` is applied, with terminal result/error entries kept after tool entries when timestamps are missing or tied. `includeToolOutput` applies to snapshot tool events; live session transcripts may not expose tool output.
-- **`send`** — answers pending stage prompts only when `text`, `response`, or `message` is present; an explicit empty string is a valid answer, while an omitted payload is a no-op.
+- **`transcript`** — uses a registered live stage handle when one exists, even before live messages arrive; otherwise it falls back to stored stage snapshots. Snapshot entries are ordered chronologically before `tail`/`limit` is applied, with terminal result/error entries kept after tool entries when timestamps are missing or tied. `includeToolOutput` applies to snapshot tool events; live session transcripts may not expose tool output.
+- **`send`** — answers pending stage prompts only when `text`, `response`, or `message` is present; an explicit empty string is a valid answer, while an omitted payload is a no-op. `delivery: "auto"` answers pending prompts first, then resumes paused stages, steers streaming stages, or queues a follow-up.
 - **`reload`** — refreshes workflow resources directly in-process instead of queuing a literal `/workflow reload` chat follow-up.
 
 ### F2 keyboard shortcut

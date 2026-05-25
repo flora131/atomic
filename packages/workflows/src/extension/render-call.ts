@@ -5,6 +5,7 @@
 
 import { truncateToWidth } from "../tui/text-helpers.js";
 
+/** Renderer-only subset of the canonical WorkflowToolArgs from index.ts. */
 export interface WorkflowToolArgs {
   workflow?: string;
   inputs?: Record<string, unknown>;

@@ -125,6 +125,24 @@ describe("stageControlRegistry — register/get/forRun/run", () => {
     r.clear();
     assert.equal(disposeCalls, 1);
   });
+
+  test("clear disposes detached direct chat handles", () => {
+    const r = createStageControlRegistry();
+    let disposeCalls = 0;
+    const handle = {
+      ...makeHandle("run-1", "stage-a"),
+      dispose() {
+        disposeCalls += 1;
+      },
+    };
+    r.register(handle);
+    assert.equal(r.detachControl("run-1", "stage-a", handle), true);
+
+    r.clear();
+
+    assert.equal(disposeCalls, 1);
+    assert.equal(r.get("run-1", "stage-a"), undefined);
+  });
 });
 
 describe("stageControlRegistry — pause fan-out", () => {

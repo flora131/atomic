@@ -10,8 +10,9 @@ import {
 
 describe("prompt callsite stack frame filtering", () => {
   test("filters source workflow runtime frames", () => {
+    const runtimePath = join(process.cwd(), "packages/workflows/src/runs/foreground/executor.ts");
     const frame = normalizedPromptCallsiteFrame(
-      "    at promptReplayKey (/repo/packages/workflows/src/runs/foreground/executor.ts:262:13)",
+      `    at promptReplayKey (${runtimePath}:262:13)`,
     );
 
     assert.equal(frame, undefined);
@@ -54,6 +55,10 @@ describe("prompt callsite stack frame filtering", () => {
       ".atomic/workflows/review.ts:10:5",
     );
     assert.equal(
+      normalizedPromptCallsiteFrame("    at workflow (.atomic/workflows/packages/workflows/src/review.ts:10:5)"),
+      ".atomic/workflows/packages/workflows/src/review.ts:10:5",
+    );
+    assert.equal(
       normalizedPromptCallsiteFrame("    at workflow (test/unit/executor.test.ts:800:20)"),
       "test/unit/executor.test.ts:800:20",
     );
@@ -71,6 +76,7 @@ describe("prompt callsite stack frame filtering", () => {
     assert.equal(isWorkflowRuntimeFrame("packages/workflows/src/runs/foreground/executor.ts"), true);
     assert.equal(isWorkflowRuntimeFrame("packages/coding-agent/dist/builtin/workflows/src/runs/foreground/executor.ts"), true);
     assert.equal(isWorkflowRuntimeFrame("node_modules/@bastani/workflows/src/runs/foreground/executor.ts"), true);
+    assert.equal(isWorkflowRuntimeFrame(".atomic/workflows/packages/workflows/src/review.ts"), false);
     assert.equal(isWorkflowRuntimeFrame("packages/workflows/builtin/ralph.ts"), false);
     assert.equal(isWorkflowRuntimeFrame("packages/coding-agent/dist/builtin/workflows/builtin/ralph.ts"), false);
   });

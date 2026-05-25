@@ -697,6 +697,25 @@ describe("executor.run", () => {
     assert.deepEqual(completedCapture.parentIds, [promptStage.id]);
   });
 
+  test("ctx.ui.select with empty options completes without creating a prompt node", async () => {
+    const st = createStore();
+    const def = defineWorkflow("prompt-node-empty-select-wf")
+      .run(async (ctx) => {
+        const choice = await ctx.ui.select("Pick one", [] as readonly string[]);
+        return { choice };
+      })
+      .compile();
+
+    const result = await run(def, {}, {
+      store: st,
+      usePromptNodesForUi: true,
+    });
+
+    assert.equal(result.status, "completed");
+    assert.deepEqual(result.result, { choice: "" });
+    assert.equal(st.runs().find((candidate) => candidate.id === result.runId)?.stages.length, 0);
+  });
+
   test("aborting a pending ctx.ui prompt node does not keep a replayable answer", async () => {
     const st = createStore();
     const controller = new AbortController();
@@ -3303,6 +3322,59 @@ describe("executor — stage-control registry integration", () => {
 
     assert.equal(registry.get(ids!.runId, ids!.stageId), retained);
     assert.equal(disposeCalls, 0);
+  });
+
+  test("ask_user_question tool execution without call ids ignores unrelated anonymous tool ends", async () => {
+    const store = createStore();
+    const def = defineWorkflow("stage-hil-anonymous-callid-wf")
+      .run(async (ctx) => {
+        await ctx.stage("ask").prompt("ask the user");
+        return {};
+      })
+      .compile();
+    const listeners = new Set<(event: { type: string; [key: string]: unknown }) => void>();
+    const stageStatus = (): string | undefined => store.runs()[0]?.stages[0]?.status;
+    const emit = (event: { type: string; [key: string]: unknown }): void => {
+      for (const listener of listeners) listener(event);
+    };
+    const session: StageSessionRuntime = {
+      ...mockSession(),
+      async prompt() {
+        emit({ type: "tool_execution_start", toolName: "ask_user_question" });
+        emit({ type: "tool_execution_start", toolName: "ask_user_question" });
+        assert.equal(stageStatus(), "awaiting_input");
+
+        emit({ type: "tool_execution_end", toolName: "bash" });
+        assert.equal(stageStatus(), "awaiting_input");
+
+        emit({ type: "tool_execution_end", toolName: "ask_user_question" });
+        assert.equal(stageStatus(), "awaiting_input");
+
+        emit({ type: "tool_execution_end", toolName: "ask_user_question" });
+        assert.equal(stageStatus(), "running");
+      },
+      subscribe(listener) {
+        listeners.add(listener as (event: { type: string; [key: string]: unknown }) => void);
+        return () => {
+          listeners.delete(listener as (event: { type: string; [key: string]: unknown }) => void);
+        };
+      },
+    };
+
+    const result = await run(def, {}, {
+      adapters: {
+        agentSession: {
+          async create() {
+            return session;
+          },
+        },
+      },
+      store,
+      stageControlRegistry: createStageControlRegistry(),
+    });
+
+    assert.equal(result.status, "completed");
+    assert.equal(store.runs()[0]!.stages[0]!.status, "completed");
   });
 
   test("ask_user_question tool execution marks the stage awaiting input transiently", async () => {

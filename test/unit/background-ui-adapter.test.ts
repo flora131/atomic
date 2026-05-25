@@ -87,6 +87,15 @@ describe("buildBackgroundUIAdapter — round-trip", () => {
     assert.equal(await pending, "a");
   });
 
+  test("select: empty options resolves to empty string without recording a prompt", async () => {
+    const store = createStore();
+    seedRun(store);
+    const ui = buildBackgroundUIAdapter(store, "r1");
+
+    assert.equal(await ui.select("Pick", [] as readonly string[]), "");
+    assert.equal(activePrompt(store, "r1"), undefined);
+  });
+
   test("editor: forwards `initial` text + resolves to edited string", async () => {
     const store = createStore();
     seedRun(store);

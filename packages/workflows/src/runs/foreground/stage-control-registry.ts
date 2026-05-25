@@ -133,8 +133,9 @@ export interface StageControlRegistry {
   /** Build a run-level control aggregate. Cheap; not memoised. */
   run(runId: string): WorkflowRunControlHandle;
   /**
-   * Drop every registration. Used on session boundaries to release
-   * any leaked handles when the host store is cleared.
+   * Drop every registration and invoke each handle's optional dispose hook.
+   * Used on session boundaries to release retained direct chat handles and
+   * their subscriptions when the host store is cleared.
    */
   clear(): void;
 }

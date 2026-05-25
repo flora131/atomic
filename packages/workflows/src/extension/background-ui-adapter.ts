@@ -150,6 +150,7 @@ export function buildBackgroundUIAdapter(
       message: string,
       options: readonly T[],
     ): Promise<T> {
+      if (options.length === 0) return "" as T;
       const response = await ask(store, runId, {
         kind: "select",
         message,
@@ -158,7 +159,7 @@ export function buildBackgroundUIAdapter(
       if (typeof response === "string" && (options as readonly string[]).includes(response)) {
         return response as T;
       }
-      return options[0];
+      return options[0]!;
     },
 
     async editor(initial?: string): Promise<string> {

@@ -14,8 +14,7 @@ export interface PromptCallsiteFrame {
   readonly columnNumber: string;
 }
 
-const WORKFLOW_RUNTIME_ROOTS = [
-  "/packages/workflows/src/",
+const PACKAGED_WORKFLOW_RUNTIME_ROOTS = [
   "/dist/builtin/workflows/src/",
   "/node_modules/@bastani/workflows/src/",
 ] as const;
@@ -50,10 +49,25 @@ export function normalizeStackPath(framePath: string): string {
   return normalized;
 }
 
+function currentModuleRuntimeRoot(): string | undefined {
+  const modulePath = normalizeStackPath(fileURLToPath(import.meta.url));
+  const markers = ["packages/workflows/src/", ...PACKAGED_WORKFLOW_RUNTIME_ROOTS.map((root) => root.slice(1))];
+  for (const marker of markers) {
+    const index = modulePath.indexOf(marker);
+    if (index >= 0) return modulePath.slice(0, index + marker.length);
+  }
+  return undefined;
+}
+
+const CURRENT_WORKFLOW_RUNTIME_ROOT = currentModuleRuntimeRoot();
+
 export function isWorkflowRuntimeFrame(normalizedPath: string): boolean {
   const path = normalizeSlashes(normalizedPath);
+  if (CURRENT_WORKFLOW_RUNTIME_ROOT !== undefined && path.startsWith(CURRENT_WORKFLOW_RUNTIME_ROOT)) {
+    return true;
+  }
   const comparable = path.startsWith("/") ? path : `/${path}`;
-  return WORKFLOW_RUNTIME_ROOTS.some((runtimeRoot) => comparable.includes(runtimeRoot));
+  return PACKAGED_WORKFLOW_RUNTIME_ROOTS.some((runtimeRoot) => comparable.includes(runtimeRoot));
 }
 
 export function parsePromptStackFrame(stackLine: string): PromptCallsiteFrame | undefined {

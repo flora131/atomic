@@ -267,8 +267,8 @@ function makeUnavailableUIContext(): WorkflowUIContext {
 }
 
 type AskUserQuestionToolEvent =
-  | { phase: "start"; callId: string }
-  | { phase: "end"; callId: string; nameMatched: boolean };
+  | { phase: "start"; callId?: string }
+  | { phase: "end"; callId?: string; nameMatched: boolean };
 
 function stringField(value: Record<string, unknown>, keys: readonly string[]): string | undefined {
   for (const key of keys) {
@@ -288,7 +288,7 @@ function askUserQuestionToolEvent(event: unknown): AskUserQuestionToolEvent | un
   const record = event as Record<string, unknown>;
   const type = typeof record["type"] === "string" ? record["type"] : "";
   const toolName = stringField(record, ["toolName", "tool_name", "name"]);
-  const callId = stringField(record, ["toolCallId", "tool_call_id", "toolUseId", "tool_use_id", "id"]) ?? "__ask_user_question__";
+  const callId = stringField(record, ["toolCallId", "tool_call_id", "toolUseId", "tool_use_id", "id"]);
 
   if (type === "tool_execution_start" && isAskUserQuestionToolName(toolName)) {
     return { phase: "start", callId };
@@ -1784,11 +1784,12 @@ export async function run<TInputs extends Record<string, unknown>>(
         return response === true;
       },
       async select<T extends string>(message: string, options: readonly T[]): Promise<T> {
+        if (options.length === 0) return "" as T;
         const response = await ask({ kind: "select", message, choices: options });
         if (typeof response === "string" && (options as readonly string[]).includes(response)) {
           return response as T;
         }
-        return options[0];
+        return options[0]!;
       },
       async editor(initial?: string): Promise<string> {
         const response = await ask({
@@ -1943,25 +1944,35 @@ export async function run<TInputs extends Record<string, unknown>>(
         models: opts.models,
       });
       const activeAskUserQuestionCalls = new Set<string>();
+      let activeAskUserQuestionAnonymousCalls = 0;
+      const hasActiveAskUserQuestion = (): boolean =>
+        activeAskUserQuestionCalls.size > 0 || activeAskUserQuestionAnonymousCalls > 0;
       const unsubscribeAskUserQuestionWatcher = innerCtx.subscribe((event) => {
         const toolEvent = askUserQuestionToolEvent(event);
         if (!toolEvent) return;
         if (toolEvent.phase === "start") {
-          activeAskUserQuestionCalls.add(toolEvent.callId);
+          if (toolEvent.callId !== undefined) activeAskUserQuestionCalls.add(toolEvent.callId);
+          else activeAskUserQuestionAnonymousCalls += 1;
           activeStore.recordStageAwaitingInput(runId, stageId, true);
           return;
         }
 
-        if (toolEvent.nameMatched || activeAskUserQuestionCalls.has(toolEvent.callId)) {
+        if (toolEvent.callId !== undefined && activeAskUserQuestionCalls.has(toolEvent.callId)) {
           activeAskUserQuestionCalls.delete(toolEvent.callId);
-          if (activeAskUserQuestionCalls.size === 0) {
-            activeStore.recordStageAwaitingInput(runId, stageId, false);
-          }
+        } else if (toolEvent.callId === undefined && toolEvent.nameMatched) {
+          activeAskUserQuestionAnonymousCalls = Math.max(0, activeAskUserQuestionAnonymousCalls - 1);
+        } else {
+          return;
+        }
+
+        if (!hasActiveAskUserQuestion()) {
+          activeStore.recordStageAwaitingInput(runId, stageId, false);
         }
       });
       const disposeInnerContext = async (): Promise<void> => {
         unsubscribeAskUserQuestionWatcher();
         activeAskUserQuestionCalls.clear();
+        activeAskUserQuestionAnonymousCalls = 0;
         activeStore.recordStageAwaitingInput(runId, stageId, false);
         await innerCtx.__dispose();
       };

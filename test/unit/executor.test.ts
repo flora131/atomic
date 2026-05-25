@@ -630,6 +630,202 @@ describe("executor.run", () => {
     assert.equal(hung.skippedReason, "fail-fast");
   });
 
+  test("continuation rejects replay when stage topology changes", async () => {
+    const st = createStore();
+    const sourceDef = defineWorkflow("resume-topology-source-wf")
+      .run(async (ctx) => {
+        const first = await ctx.stage("first").prompt("first");
+        await ctx.stage("second").prompt(`second:${first}`);
+        return {};
+      })
+      .compile();
+
+    const firstRun = await run(sourceDef, {}, {
+      store: st,
+      adapters: {
+        prompt: {
+          prompt: async (text) => {
+            if (text.startsWith("second:")) throw new Error("rate limit exceeded");
+            return "first-result";
+          },
+        },
+      },
+    });
+    assert.equal(firstRun.status, "failed");
+    const source = st.runs().find((candidate) => candidate.id === firstRun.runId)!;
+    const failedStageId = source.failedStageId!;
+
+    const changedDef = defineWorkflow("resume-topology-source-wf")
+      .run(async (ctx) => {
+        await ctx.stage("second").prompt("second-without-parent");
+        return {};
+      })
+      .compile();
+
+    const calls: string[] = [];
+    const continued = await run(changedDef, {}, {
+      store: st,
+      continuation: { source, resumeFromStageId: failedStageId },
+      adapters: {
+        prompt: {
+          prompt: async (text) => {
+            calls.push(text);
+            return "unexpected";
+          },
+        },
+      },
+    });
+
+    assert.equal(continued.status, "failed");
+    assert.match(continued.error ?? "", /insufficient_state: replay topology mismatch/);
+    assert.deepEqual(calls, []);
+  });
+
+  test("continuation replays multiple completed parallel siblings without topology drift", async () => {
+    const st = createStore();
+    const def = defineWorkflow("resume-parallel-roots-wf")
+      .run(async (ctx) => {
+        const results = await ctx.parallel([
+          { name: "alpha", prompt: "alpha" },
+          { name: "beta", prompt: "beta" },
+        ], { concurrency: 2, failFast: false });
+        await ctx.stage("fail-after-parallel").prompt(results.map((result) => result.text).join(","));
+        return {};
+      })
+      .compile();
+
+    const firstRun = await run(def, {}, {
+      store: st,
+      adapters: {
+        prompt: {
+          prompt: async (text) => {
+            if (text === "alpha" || text === "beta") return `${text}:done`;
+            throw new Error("rate limit exceeded");
+          },
+        },
+      },
+    });
+    assert.equal(firstRun.status, "failed");
+    const source = st.runs().find((candidate) => candidate.id === firstRun.runId)!;
+    const failedStageId = source.failedStageId!;
+
+    const continuationCalls: string[] = [];
+    const continued = await run(def, {}, {
+      store: st,
+      continuation: { source, resumeFromStageId: failedStageId },
+      adapters: {
+        prompt: {
+          prompt: async (text) => {
+            continuationCalls.push(text);
+            return "resumed";
+          },
+        },
+      },
+    });
+
+    assert.equal(continued.status, "completed");
+    assert.deepEqual(continuationCalls, ["alpha:done,beta:done"]);
+    assert.equal(continued.stages.find((stage) => stage.name === "alpha")?.replayed, true);
+    assert.equal(continued.stages.find((stage) => stage.name === "beta")?.replayed, true);
+  });
+
+  test("continuation rejects ambiguous duplicate-name replay topology", async () => {
+    const st = createStore();
+    const def = defineWorkflow("resume-ambiguous-duplicate-wf")
+      .run(async (ctx) => {
+        await ctx.parallel([
+          { name: "duplicate", prompt: "one" },
+          { name: "duplicate", prompt: "two" },
+        ], { concurrency: 2, failFast: false });
+        await ctx.stage("fail-after-duplicates").prompt("fail");
+        return {};
+      })
+      .compile();
+
+    const firstRun = await run(def, {}, {
+      store: st,
+      adapters: {
+        prompt: {
+          prompt: async (text) => {
+            if (text === "fail") throw new Error("rate limit exceeded");
+            return `${text}:done`;
+          },
+        },
+      },
+    });
+    assert.equal(firstRun.status, "failed");
+    const source = st.runs().find((candidate) => candidate.id === firstRun.runId)!;
+    const failedStageId = source.failedStageId!;
+
+    const ambiguousReplayDef = defineWorkflow("resume-ambiguous-duplicate-wf")
+      .run(async (ctx) => {
+        await ctx.stage("duplicate").prompt("one-of-two-roots");
+        return {};
+      })
+      .compile();
+
+    const continued = await run(ambiguousReplayDef, {}, {
+      store: st,
+      continuation: { source, resumeFromStageId: failedStageId },
+      adapters: {
+        prompt: {
+          prompt: async () => "unexpected",
+        },
+      },
+    });
+
+    assert.equal(continued.status, "failed");
+    assert.match(continued.error ?? "", /insufficient_state: replay topology ambiguous/);
+  });
+
+  test("replayed stage contexts reject mutation methods", async () => {
+    const st = createStore();
+    const sourceDef = defineWorkflow("resume-replay-mutation-source-wf")
+      .run(async (ctx) => {
+        const first = await ctx.stage("first").prompt("first");
+        await ctx.stage("second").prompt(`second:${first}`);
+        return {};
+      })
+      .compile();
+
+    const firstRun = await run(sourceDef, {}, {
+      store: st,
+      adapters: {
+        prompt: {
+          prompt: async (text) => {
+            if (text.startsWith("second:")) throw new Error("rate limit exceeded");
+            return "first-result";
+          },
+        },
+      },
+    });
+    assert.equal(firstRun.status, "failed");
+    const source = st.runs().find((candidate) => candidate.id === firstRun.runId)!;
+    const failedStageId = source.failedStageId!;
+
+    const mutationDef = defineWorkflow("resume-replay-mutation-source-wf")
+      .run(async (ctx) => {
+        await ctx.stage("first").setModel("openai/example" as never);
+        return {};
+      })
+      .compile();
+
+    const continued = await run(mutationDef, {}, {
+      store: st,
+      continuation: { source, resumeFromStageId: failedStageId },
+      adapters: {
+        prompt: {
+          prompt: async () => "unexpected",
+        },
+      },
+    });
+
+    assert.equal(continued.status, "failed");
+    assert.match(continued.error ?? "", /replayed stage "first" cannot set model/);
+    const replayed = continued.stages.find((stage) => stage.name === "first")!;
+    assert.equal(replayed.replayed, true);
+  });
+
   test("continuation replays completed parallel sibling after failed source stage", async () => {
     const st = createStore();
     let failOnce = true;

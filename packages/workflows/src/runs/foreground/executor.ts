@@ -1091,11 +1091,17 @@ function runFailureMetadata(err: unknown, stages: readonly StageSnapshot[]): Run
 }
 
 type ContinuationReplayDecision =
-  | { readonly kind: "execute" }
+  | { readonly kind: "execute"; readonly source?: StageSnapshot }
   | { readonly kind: "replay"; readonly source: StageSnapshot };
 
 interface ContinuationReplayIndex {
-  decide(stageName: string): ContinuationReplayDecision;
+  decide(stageName: string, parentIds: readonly string[], stageId: string): ContinuationReplayDecision;
+}
+
+function sameStringSet(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false;
+  const rightSet = new Set(right);
+  return left.every((value) => rightSet.has(value));
 }
 
 function createContinuationReplayIndex(continuation: RunContinuationOpts | undefined): ContinuationReplayIndex {
@@ -1115,15 +1121,29 @@ function createContinuationReplayIndex(continuation: RunContinuationOpts | undef
     }
   }
 
-  const consumedByName = new Map<string, number>();
+  const consumedSourceStageIds = new Set<string>();
+  const sourceStageIdByContinuationStageId = new Map<string, string>();
   return {
-    decide(stageName: string): ContinuationReplayDecision {
-      const stages = stagesByName.get(stageName);
-      const index = consumedByName.get(stageName) ?? 0;
-      consumedByName.set(stageName, index + 1);
-      const source = stages?.[index];
-      if (source?.status === "completed") return { kind: "replay", source };
-      return { kind: "execute" };
+    decide(stageName: string, parentIds: readonly string[], stageId: string): ContinuationReplayDecision {
+      const candidates = stagesByName.get(stageName)?.filter((stage) => !consumedSourceStageIds.has(stage.id)) ?? [];
+      if (candidates.length === 0) return { kind: "execute" };
+
+      const translatedParentIds = parentIds.map((parentId) => sourceStageIdByContinuationStageId.get(parentId));
+      const hasUnmappedParent = translatedParentIds.some((parentId) => parentId === undefined);
+      const matches = hasUnmappedParent
+        ? []
+        : candidates.filter((stage) => sameStringSet(translatedParentIds as string[], stage.parentIds));
+
+      if (matches.length !== 1) {
+        const reason = matches.length === 0 ? "mismatch" : "ambiguous";
+        throw new Error(`pi-workflows: insufficient_state: replay topology ${reason} for stage "${stageName}" in source run ${continuation.source.id}`);
+      }
+
+      const source = matches[0]!;
+      consumedSourceStageIds.add(source.id);
+      sourceStageIdByContinuationStageId.set(stageId, source.id);
+      if (source.status === "completed") return { kind: "replay", source };
+      return { kind: "execute", source };
     },
   };
 }
@@ -1421,7 +1441,7 @@ export async function run<TInputs extends Record<string, unknown>>(
       const parentIds = tracker.onSpawn(stageId, name);
 
       // c. Create StageSnapshot as "pending"
-      const replayDecision = replayIndex.decide(name);
+      const replayDecision = replayIndex.decide(name, parentIds, stageId);
       const replaySource = replayDecision.kind === "replay" ? replayDecision.source : undefined;
       const shouldReplay = replaySource !== undefined;
 
@@ -1468,43 +1488,56 @@ export async function run<TInputs extends Record<string, unknown>>(
         activeStore.recordStageStart(runId, stageSnapshot);
         opts.onStageStart?.(runId, stageSnapshot);
         appendStageStartOnce();
-        activeStore.recordStageEnd(runId, stageSnapshot);
-        opts.onStageEnd?.(runId, stageSnapshot);
-        if (opts.persistence) {
-          appendStageEnd(opts.persistence, {
-            runId,
-            stageId,
-            status: "completed",
-            durationMs: 0,
-            ...(stageSnapshot.result !== undefined ? { summary: stageSnapshot.result } : {}),
-            replayedFromStageId: replaySource.id,
-            replayed: true,
-          });
-        }
-        tracker.onSettle(stageId);
+        let replayFinalized = false;
+        const finalizeReplayStage = (): void => {
+          if (replayFinalized) return;
+          replayFinalized = true;
+          activeStore.recordStageEnd(runId, stageSnapshot);
+          opts.onStageEnd?.(runId, stageSnapshot);
+          if (opts.persistence) {
+            appendStageEnd(opts.persistence, {
+              runId,
+              stageId,
+              status: "completed",
+              durationMs: 0,
+              ...(stageSnapshot.result !== undefined ? { summary: stageSnapshot.result } : {}),
+              replayedFromStageId: replaySource.id,
+              replayed: true,
+            });
+          }
+          tracker.onSettle(stageId);
+        };
         const replayResult = replaySource.result ?? "";
+        const replayText = async (): Promise<string> => {
+          await Promise.resolve();
+          finalizeReplayStage();
+          return replayResult;
+        };
+        const rejectReplayMutation = (action: string): never => {
+          throw new Error(`pi-workflows: replayed stage "${name}" cannot ${action}`);
+        };
         const replayContext: StageContext & Pick<InternalStageContext, "__modelFallbackMeta"> = {
           name,
-          prompt: async () => replayResult,
-          complete: async () => replayResult,
-          steer: async () => {},
-          followUp: async () => {},
+          prompt: replayText,
+          complete: replayText,
+          steer: async () => rejectReplayMutation("steer"),
+          followUp: async () => rejectReplayMutation("follow up"),
           subscribe: () => () => {},
           get sessionFile() { return replaySource.sessionFile; },
           get sessionId() { return replaySource.sessionId ?? ""; },
-          setModel: async () => {},
-          setThinkingLevel: () => {},
-          cycleModel: async () => undefined,
-          cycleThinkingLevel: () => undefined,
+          setModel: async () => rejectReplayMutation("set model"),
+          setThinkingLevel: () => rejectReplayMutation("set thinking level"),
+          cycleModel: async () => rejectReplayMutation("cycle model"),
+          cycleThinkingLevel: () => rejectReplayMutation("cycle thinking level"),
           get agent() { return undefined as never; },
           get model() { return replaySource.model as never; },
           get thinkingLevel() { return undefined as never; },
           get messages() { return [] as never; },
           get isStreaming() { return false; },
-          navigateTree: async () => ({ cancelled: false }),
-          compact: async () => ({}) as never,
-          abortCompaction: () => {},
-          abort: async () => {},
+          navigateTree: async () => rejectReplayMutation("navigate conversation tree"),
+          compact: async () => rejectReplayMutation("compact"),
+          abortCompaction: () => rejectReplayMutation("abort compaction"),
+          abort: async () => rejectReplayMutation("abort"),
           __modelFallbackMeta: () => ({
             ...(replaySource.model !== undefined ? { model: replaySource.model } : {}),
             ...(replaySource.attemptedModels !== undefined ? { attemptedModels: replaySource.attemptedModels } : {}),

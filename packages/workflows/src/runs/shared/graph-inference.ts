@@ -37,6 +37,26 @@ export class GraphFrontierTracker {
   }
 
   /**
+   * Replace the recorded parents for a stage before it settles.
+   *
+   * Continuation replay uses source-run topology as authoritative: a replayed
+   * stage may spawn with provisional parents inferred from the continuation's
+   * current frontier, then install the translated source parents before the
+   * stage is recorded or settled.
+   */
+  replaceParents(stageId: string, parentIds: readonly string[]): void {
+    const parents = Array.from(parentIds);
+    this.stageParents.set(stageId, parents);
+    const node = this.nodes.get(stageId);
+    if (node !== undefined) {
+      this.nodes.set(stageId, {
+        ...node,
+        parentIds: Object.freeze(parents),
+      });
+    }
+  }
+
+  /**
    * Call when the stage's Promise settles.
    * Removes the stage's parents from the frontier and adds stageId to frontier.
    */

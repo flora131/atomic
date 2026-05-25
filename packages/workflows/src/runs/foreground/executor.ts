@@ -40,6 +40,8 @@ import type {
   RunSnapshot,
   WorkflowOverlayAdapter,
   WorkflowFailureKind,
+  PendingPrompt,
+  PromptKind,
 } from "../../shared/store-types.js";
 import type { StageControlHandle, StageControlRegistry, AgentSessionEventListener } from "./stage-control-registry.js";
 import type { Store } from "../../shared/store.js";
@@ -68,6 +70,7 @@ import {
 import { validateWorkflowModels } from "../shared/model-fallback.js";
 import type { WorkflowFailure } from "../../shared/workflow-failures.js";
 import { classifyWorkflowFailure } from "../../shared/workflow-failures.js";
+import { selectPromptCallsiteFrame } from "../shared/prompt-callsite.js";
 
 export interface ResolvedInputs extends Record<string, unknown> {}
 
@@ -80,6 +83,8 @@ export interface RunOpts {
   adapters?: StageAdapters;
   /** HIL adapter injected by the pi runtime or test harness. */
   ui?: WorkflowUIAdapter;
+  /** Internal detached-run mode: surface ctx.ui.* as node-local workflow prompt stages. */
+  usePromptNodesForUi?: boolean;
   /** Store override (for testing; defaults to singleton store) */
   store?: Store;
   /** Persistence port for writing session entries (run.start, stage.start, etc.). */
@@ -183,6 +188,70 @@ function resolveInputConcurrency(
 // ---------------------------------------------------------------------------
 // HIL unavailable fallback — rejects with precise per-primitive error
 // ---------------------------------------------------------------------------
+
+interface PromptDescriptor {
+  readonly kind: PromptKind;
+  readonly message: string;
+  readonly choices?: readonly string[];
+  readonly initial?: string;
+}
+
+function fallbackForPromptDescriptor(descriptor: PromptDescriptor): unknown {
+  switch (descriptor.kind) {
+    case "input":
+    case "editor":
+      return descriptor.initial ?? "";
+    case "confirm":
+      return false;
+    case "select":
+      return descriptor.choices?.[0] ?? "";
+  }
+}
+
+function makePrompt(descriptor: PromptDescriptor): PendingPrompt {
+  return {
+    id: `hil-${crypto.randomUUID()}`,
+    kind: descriptor.kind,
+    message: descriptor.message,
+    ...(descriptor.choices !== undefined ? { choices: descriptor.choices } : {}),
+    ...(descriptor.initial !== undefined ? { initial: descriptor.initial } : {}),
+    createdAt: Date.now(),
+  };
+}
+
+function stableHash(value: unknown): string {
+  const input = JSON.stringify(value);
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function promptDescriptorHash(descriptor: PromptDescriptor): string {
+  return stableHash({
+    kind: descriptor.kind,
+    message: descriptor.message,
+    choices: descriptor.choices ?? [],
+    initial: descriptor.initial ?? null,
+  });
+}
+
+function promptReplayKey(descriptor: PromptDescriptor): string {
+  return `prompt:${descriptor.kind}:${promptDescriptorHash(descriptor)}:${promptCallsiteHash()}`;
+}
+
+function promptCallsiteHash(): string {
+  const frame = selectPromptCallsiteFrame(new Error().stack ?? "") ?? "unknown";
+  return stableHash(frame);
+}
+
+function hilAbortError(signal: AbortSignal): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new Error("pi-workflows: HIL aborted");
+}
 
 function makeUnavailableUIContext(): WorkflowUIContext {
   const msg = (primitive: string): string =>
@@ -1094,12 +1163,52 @@ function runFailureMetadata(err: unknown, stages: readonly StageSnapshot[]): Run
   };
 }
 
+function stageReplayFields(stage: StageSnapshot): Partial<Pick<StageSnapshot, "replayKey" | "replayedFromStageId" | "replayed">> {
+  return {
+    ...(stage.replayKey !== undefined ? { replayKey: stage.replayKey } : {}),
+    ...(stage.replayedFromStageId !== undefined ? { replayedFromStageId: stage.replayedFromStageId } : {}),
+    ...(stage.replayed !== undefined ? { replayed: stage.replayed } : {}),
+  };
+}
+
+type PromptAnswerReplaySafety = "allowed" | "unavailable" | "ambiguous";
+
+function getPromptAnswerState(
+  hasReplayAnswer: boolean,
+  replaySourceId: string | undefined,
+  answerReplay: PromptAnswerReplaySafety,
+): StageSnapshot["promptAnswerState"] {
+  if (replaySourceId === undefined) return undefined;
+  if (hasReplayAnswer) return "available";
+  if (answerReplay === "ambiguous") return "ambiguous";
+  return "unavailable";
+}
+
 type ContinuationReplayDecision =
-  | { readonly kind: "execute"; readonly source?: StageSnapshot }
-  | { readonly kind: "replay"; readonly source: StageSnapshot };
+  | {
+      readonly kind: "execute";
+      readonly source?: StageSnapshot;
+      readonly parentIds: readonly string[];
+      readonly answerReplay: PromptAnswerReplaySafety;
+    }
+  | {
+      readonly kind: "replay";
+      readonly source: StageSnapshot;
+      readonly parentIds: readonly string[];
+      readonly answerReplay: PromptAnswerReplaySafety;
+    };
+
+interface ContinuationReplayInput {
+  readonly displayName: string;
+  readonly replayKey: string;
+  readonly parentIds: readonly string[];
+  readonly stageId: string;
+  readonly kind: "stage" | "prompt";
+}
 
 interface ContinuationReplayIndex {
-  decide(stageName: string, parentIds: readonly string[], stageId: string): ContinuationReplayDecision;
+  decide(input: ContinuationReplayInput): ContinuationReplayDecision;
+  markPromptAnswerReplayed(stageId: string): void;
 }
 
 function sameStringSet(left: readonly string[], right: readonly string[]): boolean {
@@ -1108,46 +1217,133 @@ function sameStringSet(left: readonly string[], right: readonly string[]): boole
   return left.every((value) => rightSet.has(value));
 }
 
+function sortedIdentity(values: readonly string[]): string {
+  return [...values].sort().join("\u0000");
+}
+
 function createContinuationReplayIndex(continuation: RunContinuationOpts | undefined): ContinuationReplayIndex {
-  if (continuation === undefined) return { decide: () => ({ kind: "execute" }) };
+  if (continuation === undefined) {
+    return {
+      decide: (input) => ({
+        kind: "execute",
+        parentIds: input.parentIds,
+        answerReplay: "unavailable",
+      }),
+      markPromptAnswerReplayed: () => {},
+    };
+  }
   const resumeStage = continuation.source.stages.find((stage) => stage.id === continuation.resumeFromStageId);
   if (resumeStage === undefined) {
     throw new Error(`pi-workflows: insufficient_state: resume stage ${continuation.resumeFromStageId} was not found in source run ${continuation.source.id}`);
   }
 
-  const stagesByName = new Map<string, StageSnapshot[]>();
+  const stagesByReplayIdentity = new Map<string, StageSnapshot[]>();
+  const promptDuplicateCounts = new Map<string, number>();
   for (const stage of continuation.source.stages) {
-    const stages = stagesByName.get(stage.name);
+    const identity = stage.replayKey ?? stage.name;
+    const stages = stagesByReplayIdentity.get(identity);
     if (stages === undefined) {
-      stagesByName.set(stage.name, [stage]);
+      stagesByReplayIdentity.set(identity, [stage]);
     } else {
       stages.push(stage);
     }
+    const duplicateKey = `${identity}\u0001${sortedIdentity(stage.parentIds)}`;
+    promptDuplicateCounts.set(duplicateKey, (promptDuplicateCounts.get(duplicateKey) ?? 0) + 1);
   }
 
   const consumedSourceStageIds = new Set<string>();
-  const sourceStageIdByContinuationStageId = new Map<string, string>();
+  const continuationStageIdBySourceStageId = new Map<string, string>();
+  const replayablePromptContinuationStageIds = new Set<string>();
+
+  const failTopology = (displayName: string, replayKey: string, reason: "mismatch" | "ambiguous"): never => {
+    throw new Error(`pi-workflows: insufficient_state: replay topology ${reason} for stage "${displayName}" (replayKey "${replayKey}") in source run ${continuation.source.id}`);
+  };
+
+  const translateSourceParents = (source: StageSnapshot): string[] | undefined => {
+    const parentIds: string[] = [];
+    for (const sourceParentId of source.parentIds) {
+      const continuationParentId = continuationStageIdBySourceStageId.get(sourceParentId);
+      if (continuationParentId === undefined) return undefined;
+      parentIds.push(continuationParentId);
+    }
+    return parentIds;
+  };
+
+  const allSameParentSet = (candidates: readonly { readonly parentIds: readonly string[] }[]): boolean => {
+    const first = candidates[0]?.parentIds;
+    if (first === undefined) return false;
+    return candidates.every((candidate) => sameStringSet(candidate.parentIds, first));
+  };
+
+  const hasOnlyReplayablePromptParentDrift = (
+    sourceParentIds: readonly string[],
+    provisionalParentIds: readonly string[],
+  ): boolean => {
+    const sourceParentSet = new Set(sourceParentIds);
+    const provisionalParentSet = new Set(provisionalParentIds);
+    const driftParentIds = [
+      ...sourceParentIds.filter((parentId) => !provisionalParentSet.has(parentId)),
+      ...provisionalParentIds.filter((parentId) => !sourceParentSet.has(parentId)),
+    ];
+    return driftParentIds.length > 0 && driftParentIds.every((parentId) => replayablePromptContinuationStageIds.has(parentId));
+  };
+
   return {
-    decide(stageName: string, parentIds: readonly string[], stageId: string): ContinuationReplayDecision {
-      const candidates = stagesByName.get(stageName)?.filter((stage) => !consumedSourceStageIds.has(stage.id)) ?? [];
-      if (candidates.length === 0) return { kind: "execute" };
+    markPromptAnswerReplayed(stageId: string): void {
+      replayablePromptContinuationStageIds.add(stageId);
+    },
 
-      const translatedParentIds = parentIds.map((parentId) => sourceStageIdByContinuationStageId.get(parentId));
-      const hasUnmappedParent = translatedParentIds.some((parentId) => parentId === undefined);
-      const matches = hasUnmappedParent
-        ? []
-        : candidates.filter((stage) => sameStringSet(translatedParentIds as string[], stage.parentIds));
-
-      if (matches.length !== 1) {
-        const reason = matches.length === 0 ? "mismatch" : "ambiguous";
-        throw new Error(`pi-workflows: insufficient_state: replay topology ${reason} for stage "${stageName}" in source run ${continuation.source.id}`);
+    decide(input: ContinuationReplayInput): ContinuationReplayDecision {
+      const { displayName, replayKey, parentIds, stageId, kind } = input;
+      let identity = replayKey;
+      let candidates = stagesByReplayIdentity.get(replayKey)?.filter((stage) => !consumedSourceStageIds.has(stage.id)) ?? [];
+      if (candidates.length === 0) {
+        identity = displayName;
+        candidates = stagesByReplayIdentity.get(displayName)?.filter((stage) => !consumedSourceStageIds.has(stage.id) && stage.replayKey === undefined) ?? [];
+      }
+      if (candidates.length === 0) {
+        return { kind: "execute", parentIds, answerReplay: "unavailable" };
       }
 
-      const source = matches[0]!;
-      consumedSourceStageIds.add(source.id);
-      sourceStageIdByContinuationStageId.set(stageId, source.id);
-      if (source.status === "completed") return { kind: "replay", source };
-      return { kind: "execute", source };
+      const mappedCandidates = candidates
+        .map((source) => ({ source, parentIds: translateSourceParents(source) }))
+        .filter((candidate): candidate is { readonly source: StageSnapshot; readonly parentIds: string[] } => candidate.parentIds !== undefined);
+
+      if (mappedCandidates.length === 0) {
+        failTopology(displayName, replayKey, "mismatch");
+      }
+
+      const provisionalMatches = mappedCandidates.filter((candidate) => sameStringSet(candidate.parentIds, parentIds));
+      const hasPromptDriftMatch = kind === "prompt" &&
+        allSameParentSet(mappedCandidates) &&
+        hasOnlyReplayablePromptParentDrift(mappedCandidates[0]!.parentIds, parentIds);
+      let matches: typeof mappedCandidates | undefined;
+      if (provisionalMatches.length > 0) {
+        matches = provisionalMatches;
+      } else if (hasPromptDriftMatch) {
+        matches = mappedCandidates;
+      }
+      if (matches === undefined) {
+        return failTopology(displayName, replayKey, "mismatch");
+      }
+      if (matches.length > 1 && (kind !== "prompt" || !allSameParentSet(matches))) {
+        failTopology(displayName, replayKey, "ambiguous");
+      }
+
+      const selected = matches[0]!;
+      const duplicateKey = `${identity}\u0001${sortedIdentity(selected.source.parentIds)}`;
+      const ambiguousPromptAnswer = kind === "prompt" && (promptDuplicateCounts.get(duplicateKey) ?? 0) > 1;
+      const answerReplay: PromptAnswerReplaySafety = ambiguousPromptAnswer
+        ? "ambiguous"
+        : selected.source.status === "completed"
+          ? "allowed"
+          : "unavailable";
+      consumedSourceStageIds.add(selected.source.id);
+      continuationStageIdBySourceStageId.set(selected.source.id, stageId);
+      if (selected.source.status === "completed" && answerReplay === "allowed") {
+        return { kind: "replay", source: selected.source, parentIds: selected.parentIds, answerReplay };
+      }
+      return { kind: "execute", source: selected.source, parentIds: selected.parentIds, answerReplay };
     },
   };
 }
@@ -1432,26 +1628,204 @@ export async function run<TInputs extends Record<string, unknown>>(
     { once: true },
   );
 
+  const buildPromptNodeUiAdapter = (): WorkflowUIAdapter => {
+    const ask = async (descriptor: PromptDescriptor): Promise<unknown> => {
+      if (ownController.signal.aborted) {
+        return fallbackForPromptDescriptor(descriptor);
+      }
+
+      const prompt = makePrompt(descriptor);
+      const stageId = crypto.randomUUID();
+      const provisionalParentIds = tracker.onSpawn(stageId, descriptor.kind);
+      const replayKey = promptReplayKey(descriptor);
+      const replayDecision = replayIndex.decide({
+        displayName: descriptor.kind,
+        replayKey,
+        parentIds: provisionalParentIds,
+        stageId,
+        kind: "prompt",
+      });
+      const parentIds = replayDecision.parentIds;
+      if (!sameStringSet(parentIds, provisionalParentIds)) {
+        tracker.replaceParents(stageId, parentIds);
+      }
+      const replaySource = replayDecision.source;
+      const replayAnswer = replayDecision.kind === "replay"
+        ? activeStore.getStagePromptAnswer(opts.continuation?.source.id ?? "", replayDecision.source.id)
+        : undefined;
+      const shouldReplay = replayAnswer !== undefined;
+      if (shouldReplay) {
+        replayIndex.markPromptAnswerReplayed(stageId);
+      }
+      const replaySourceId = replaySource?.id;
+      const promptAnswerStatus = getPromptAnswerState(shouldReplay, replaySourceId, replayDecision.answerReplay);
+      const stageSnapshot: StageSnapshot = {
+        id: stageId,
+        name: descriptor.kind,
+        replayKey,
+        status: shouldReplay ? "completed" : "running",
+        parentIds: Object.freeze(parentIds),
+        startedAt: prompt.createdAt,
+        toolEvents: [],
+        attachable: !shouldReplay,
+        ...(shouldReplay ? {
+          endedAt: prompt.createdAt,
+          durationMs: 0,
+          promptAnswerState: promptAnswerStatus,
+          replayedFromStageId: replaySourceId,
+          replayed: true,
+        } : replaySourceId !== undefined ? {
+          promptAnswerState: promptAnswerStatus,
+          replayedFromStageId: replaySourceId,
+          replayed: false,
+        } : {}),
+      };
+      let finalized = false;
+      const finalizePromptStage = (status: "completed" | "failed" | "skipped"): void => {
+        if (finalized) return;
+        finalized = true;
+        stageSnapshot.status = status;
+        stageSnapshot.endedAt = Date.now();
+        stageSnapshot.durationMs = elapsedStageMs(stageSnapshot, stageSnapshot.endedAt);
+        activeStore.recordStageAttachable(runId, stageId, false);
+        activeStore.recordStageEnd(runId, stageSnapshot);
+        opts.onStageEnd?.(runId, stageSnapshot);
+        if (opts.persistence) {
+          appendStageEnd(opts.persistence, {
+            runId,
+            stageId,
+            status: stageSnapshot.status,
+            durationMs: stageSnapshot.durationMs,
+            ...(stageSnapshot.error !== undefined ? { error: stageSnapshot.error } : {}),
+            ...(stageSnapshot.failureKind !== undefined ? { failureKind: stageSnapshot.failureKind } : {}),
+            ...(stageSnapshot.failureMessage !== undefined ? { failureMessage: stageSnapshot.failureMessage } : {}),
+            ...(stageSnapshot.skippedReason !== undefined ? { skippedReason: stageSnapshot.skippedReason } : {}),
+            ...stageReplayFields(stageSnapshot),
+          });
+        }
+        tracker.onSettle(stageId);
+      };
+
+      activeStore.recordStageStart(runId, stageSnapshot);
+      opts.onStageStart?.(runId, stageSnapshot);
+      if (opts.persistence) {
+        appendStageStart(opts.persistence, {
+          runId,
+          stageId,
+          name: stageSnapshot.name,
+          parentIds: stageSnapshot.parentIds,
+          ...stageReplayFields(stageSnapshot),
+          ts: prompt.createdAt,
+        });
+      }
+      if (shouldReplay) {
+        await Promise.resolve();
+        finalizePromptStage("completed");
+        return replayAnswer.value;
+      }
+      const accepted = activeStore.recordStagePendingPrompt(runId, stageId, prompt);
+      if (!accepted) {
+        stageSnapshot.skippedReason = "prompt-unavailable";
+        finalizePromptStage("skipped");
+        return fallbackForPromptDescriptor(descriptor);
+      }
+
+      const waiter = activeStore.awaitStagePendingPrompt(runId, stageId, prompt.id);
+      try {
+        const response = await new Promise<unknown>((resolve, reject) => {
+          const onAbort = (): void => {
+            activeStore.resolveStagePendingPrompt(runId, stageId, prompt.id, fallbackForPromptDescriptor(descriptor));
+            reject(hilAbortError(ownController.signal));
+          };
+          if (ownController.signal.aborted) {
+            onAbort();
+            return;
+          }
+          ownController.signal.addEventListener("abort", onAbort, { once: true });
+          waiter.then(
+            (value) => {
+              ownController.signal.removeEventListener("abort", onAbort);
+              resolve(value);
+            },
+            (err: unknown) => {
+              ownController.signal.removeEventListener("abort", onAbort);
+              reject(err);
+            },
+          );
+        });
+        finalizePromptStage("completed");
+        return response;
+      } catch (err) {
+        if (ownController.signal.aborted) {
+          stageSnapshot.skippedReason = "run-aborted";
+          finalizePromptStage("skipped");
+        } else {
+          applyFailureToStage(stageSnapshot, classifyWorkflowFailure(err));
+          finalizePromptStage("failed");
+        }
+        throw err;
+      }
+    };
+
+    return {
+      async input(promptText: string): Promise<string> {
+        const response = await ask({ kind: "input", message: promptText });
+        return typeof response === "string" ? response : String(response ?? "");
+      },
+      async confirm(message: string): Promise<boolean> {
+        const response = await ask({ kind: "confirm", message });
+        return response === true;
+      },
+      async select<T extends string>(message: string, options: readonly T[]): Promise<T> {
+        const response = await ask({ kind: "select", message, choices: options });
+        if (typeof response === "string" && (options as readonly string[]).includes(response)) {
+          return response as T;
+        }
+        return options[0];
+      },
+      async editor(initial?: string): Promise<string> {
+        const response = await ask({
+          kind: "editor",
+          message: "Edit and save to continue.",
+          initial,
+        });
+        return typeof response === "string" ? response : initial ?? "";
+      },
+    };
+  };
+
   // 5. Build WorkflowRunContext
   const ctx: WorkflowRunContext<TInputs> = {
     inputs: resolvedInputs as TInputs,
-    ui: opts.ui ?? makeUnavailableUIContext(),
+    ui: opts.usePromptNodesForUi === true ? buildPromptNodeUiAdapter() : opts.ui ?? makeUnavailableUIContext(),
 
     stage(name: string, options?: StageOptions, stageFailFastScope?: ParallelFailFastScope) {
       // a. Generate stageId
       const stageId = crypto.randomUUID();
 
-      // b. tracker.onSpawn → parentIds
-      const parentIds = tracker.onSpawn(stageId, name);
+      // b. tracker.onSpawn → provisional parentIds
+      const provisionalParentIds = tracker.onSpawn(stageId, name);
 
       // c. Create StageSnapshot as "pending"
-      const replayDecision = replayIndex.decide(name, parentIds, stageId);
+      const replayKey = `stage:${name}`;
+      const replayDecision = replayIndex.decide({
+        displayName: name,
+        replayKey,
+        parentIds: provisionalParentIds,
+        stageId,
+        kind: "stage",
+      });
+      const parentIds = replayDecision.parentIds;
+      if (!sameStringSet(parentIds, provisionalParentIds)) {
+        tracker.replaceParents(stageId, parentIds);
+      }
       const replaySource = replayDecision.kind === "replay" ? replayDecision.source : undefined;
       const shouldReplay = replaySource !== undefined;
 
       const stageSnapshot: StageSnapshot = {
         id: stageId,
         name,
+        replayKey,
         status: shouldReplay ? "completed" : "pending",
         parentIds: Object.freeze(parentIds),
         toolEvents: [],
@@ -1482,8 +1856,7 @@ export async function run<TInputs extends Record<string, unknown>>(
           stageId,
           name,
           parentIds: stageSnapshot.parentIds,
-          ...(stageSnapshot.replayedFromStageId !== undefined ? { replayedFromStageId: stageSnapshot.replayedFromStageId } : {}),
-          ...(stageSnapshot.replayed !== undefined ? { replayed: stageSnapshot.replayed } : {}),
+          ...stageReplayFields(stageSnapshot),
           ts: stageSnapshot.startedAt ?? Date.now(),
         });
       };
@@ -1505,8 +1878,7 @@ export async function run<TInputs extends Record<string, unknown>>(
               status: "completed",
               durationMs: 0,
               ...(stageSnapshot.result !== undefined ? { summary: stageSnapshot.result } : {}),
-              replayedFromStageId: replaySource.id,
-              replayed: true,
+              ...stageReplayFields(stageSnapshot),
             });
           }
           tracker.onSettle(stageId);
@@ -1739,8 +2111,7 @@ export async function run<TInputs extends Record<string, unknown>>(
             ...(stageSnapshot.failureMessage !== undefined ? { failureMessage: stageSnapshot.failureMessage } : {}),
             ...(stageSnapshot.skippedReason !== undefined ? { skippedReason: stageSnapshot.skippedReason } : {}),
             ...(stageSnapshot.result !== undefined && stageSnapshot.status === "completed" ? { summary: stageSnapshot.result } : {}),
-            ...(stageSnapshot.replayedFromStageId !== undefined ? { replayedFromStageId: stageSnapshot.replayedFromStageId } : {}),
-            ...(stageSnapshot.replayed !== undefined ? { replayed: stageSnapshot.replayed } : {}),
+            ...stageReplayFields(stageSnapshot),
           });
         }
 

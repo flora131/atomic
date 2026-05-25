@@ -169,11 +169,13 @@ describe("appendStageStart", () => {
       stageId: "s-new",
       name: "first",
       parentIds: [],
+      replayKey: "prompt:confirm:abc:1",
       replayedFromStageId: "s-old",
       replayed: true,
       ts: 1,
     });
     const p = api._entries[0]!.payload;
+    assert.equal(p["replayKey"], "prompt:confirm:abc:1");
     assert.equal(p["replayedFromStageId"], "s-old");
     assert.equal(p["replayed"], true);
   });
@@ -259,11 +261,13 @@ describe("appendStageEnd", () => {
       stageId: "s-new",
       status: "completed",
       summary: "old result",
+      replayKey: "prompt:confirm:abc:1",
       replayedFromStageId: "s-old",
       replayed: true,
     });
     const p = api._entries[0]!.payload;
     assert.equal(p["summary"], "old result");
+    assert.equal(p["replayKey"], "prompt:confirm:abc:1");
     assert.equal(p["replayedFromStageId"], "s-old");
     assert.equal(p["replayed"], true);
   });

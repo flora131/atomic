@@ -63,7 +63,7 @@ import {
   type StageCustomUiRequest,
   type StageUiBroker,
 } from "../shared/stage-ui-broker.js";
-import type { StageNotice, StageSnapshot } from "../shared/store-types.js";
+import type { PendingPrompt, StageNotice, StageSnapshot, StageStatus } from "../shared/store-types.js";
 import type { GraphTheme } from "./graph-theme.js";
 import type { StageControlHandle } from "../runs/foreground/stage-control-registry.js";
 import { BOLD, RESET, hexBg, hexToAnsi, lerpColor } from "./color-utils.js";
@@ -73,10 +73,21 @@ import {
   planStageChatFrame,
   resolveStageChatViewportRows,
 } from "./stage-chat-layout.js";
+import {
+  createPromptCardState,
+  defaultResponseFor,
+  handlePromptCardInput,
+  renderPromptCard,
+  type PromptCardState,
+} from "./prompt-card.js";
 
 // ---------------------------------------------------------------------------
 // Options & types
 // ---------------------------------------------------------------------------
+
+function isReadOnlyArchiveStatus(status: StageStatus): boolean {
+  return status === "completed" || status === "failed" || status === "skipped";
+}
 
 export interface StageChatViewOpts {
   store: Store;
@@ -183,6 +194,7 @@ export class StageChatView implements Component, Focusable {
   private chatHost: ChatSessionHost<NoticeEntry>;
   private stageUiBroker: StageUiBroker;
   private mountedCustomUi: MountedStageCustomUi | null = null;
+  private promptState: PromptCardState | null = null;
   private getChatRenderSettings?: () =>
     | Partial<Omit<ChatMessageRenderOptions, "ui" | "cwd">>
     | undefined;
@@ -299,6 +311,7 @@ export class StageChatView implements Component, Focusable {
     const initialStage = this._currentStage();
     this._snapshotMessagesFromSessionFile(initialStage);
     this._absorbStageNotices(initialStage);
+    this._syncPromptState(initialStage?.pendingPrompt);
 
     this._unsubscribeStore = this.store.subscribe(() => {
       const stage = this._currentStage();
@@ -314,6 +327,7 @@ export class StageChatView implements Component, Focusable {
       // `stage.setModel`, `stage.compact`, …) so they thread through the
       // transcript without a special render path.
       changed = this._absorbStageNotices(stage) || changed;
+      changed = this._syncPromptState(stage?.pendingPrompt) || changed;
       this.chatHost.syncAnimationTick();
       if (changed) this.requestRender?.();
     });
@@ -416,6 +430,19 @@ export class StageChatView implements Component, Focusable {
     return run?.stages.find((s) => s.id === this.stageId);
   }
 
+  private _syncPromptState(prompt: PendingPrompt | undefined): boolean {
+    if (!prompt) {
+      const changed = this.promptState !== null;
+      this.promptState = null;
+      return changed;
+    }
+    if (!this.promptState || this.promptState.prompt.id !== prompt.id) {
+      this.promptState = createPromptCardState(prompt);
+      return true;
+    }
+    return false;
+  }
+
   // -------------------------------------------------------------------------
   // Frame sizing
   // -------------------------------------------------------------------------
@@ -449,13 +476,13 @@ export class StageChatView implements Component, Focusable {
   private _isPaused(
     stage: StageSnapshot | undefined = this._currentStage(),
   ): boolean {
-    return this.localPaused || stage?.status === "paused";
+    return this.localPaused || stage?.status === "paused" || this._liveHandle()?.status === "paused";
   }
 
   private _isReadOnlyArchive(stage: StageSnapshot | undefined = this._currentStage()): boolean {
     if (this._liveHandle()) return false;
     if (!stage) return true;
-    return stage.status === "completed" || stage.status === "failed" || Boolean(stage.sessionFile);
+    return isReadOnlyArchiveStatus(stage.status) || Boolean(stage.sessionFile);
   }
 
   private async _handleSlashCommand(text: string): Promise<boolean> {
@@ -491,12 +518,15 @@ export class StageChatView implements Component, Focusable {
     const headerLines = this._renderHeader(w, stage);
     const sepLines = [this._sepRule(w)];
     const customUiActive = this.mountedCustomUi !== null;
+    this._syncPromptState(stage?.pendingPrompt);
+    const promptActive = !customUiActive && this.promptState !== null;
     const readOnlyArchive = this._isReadOnlyArchive(stage);
-    const pendingLines = customUiActive || readOnlyArchive ? [] : this.chatHost.renderPendingMessages(w);
-    const workingLines = customUiActive || readOnlyArchive ? [] : this.chatHost.renderWorkingStatus(w);
-    const usageLines = customUiActive || readOnlyArchive ? [] : this.chatHost.renderUsage(w);
-    const editorLines = customUiActive || readOnlyArchive ? [] : this.chatHost.renderEditor(w);
-    const footerLines = customUiActive || readOnlyArchive ? [] : this.chatHost.renderFooter(w);
+    const chatChromeHidden = customUiActive || promptActive || readOnlyArchive;
+    const pendingLines = chatChromeHidden ? [] : this.chatHost.renderPendingMessages(w);
+    const workingLines = chatChromeHidden ? [] : this.chatHost.renderWorkingStatus(w);
+    const usageLines = chatChromeHidden ? [] : this.chatHost.renderUsage(w);
+    const editorLines = chatChromeHidden ? [] : this.chatHost.renderEditor(w);
+    const footerLines = chatChromeHidden ? [] : this.chatHost.renderFooter(w);
 
     const totalRows = this._viewLineCount();
     const plan = planStageChatFrame({
@@ -516,13 +546,20 @@ export class StageChatView implements Component, Focusable {
     const visibleFooterLines = footerLines.slice(0, plan.footerRows);
     const bodyBudget = plan.bodyRows;
     if (blocked) this.chatHost.scrollToBottom();
-    const bodyLines = customUiActive
-      ? this._renderCustomUiBody(w, bodyBudget)
-      : blocked
-        ? this._renderBlockedBody(w, bodyBudget, stage)
-        : readOnlyArchive
-          ? this._renderReadOnlyArchiveBody(w, bodyBudget, stage)
-          : this.chatHost.renderBody(w, bodyBudget);
+
+    let bodyLines: string[];
+    if (customUiActive) {
+      bodyLines = this._renderCustomUiBody(w, bodyBudget);
+    } else if (promptActive) {
+      bodyLines = this._renderPromptBody(w, bodyBudget);
+    } else if (blocked) {
+      bodyLines = this._renderBlockedBody(w, bodyBudget, stage);
+    } else if (readOnlyArchive) {
+      bodyLines = this._renderReadOnlyArchiveBody(w, bodyBudget, stage);
+    } else {
+      bodyLines = this.chatHost.renderBody(w, bodyBudget);
+    }
+
     const lines = [
       ...headerLines,
       ...sepLines,
@@ -677,6 +714,23 @@ export class StageChatView implements Component, Focusable {
     const component = this.mountedCustomUi?.component;
     if (component) setComponentFocused(component, this.focused);
     const lines = component ? component.render(width) : [];
+    return this._fitBodyLines(lines, width, budget);
+  }
+
+  private _renderPromptBody(width: number, budget: number): string[] {
+    const state = this.promptState;
+    const lines = state
+      ? renderPromptCard({
+        state,
+        theme: this.theme,
+        width,
+        cursorOn: this.focused,
+      })
+      : [];
+    return this._fitBodyLines(lines, width, budget);
+  }
+
+  private _fitBodyLines(lines: readonly string[], width: number, budget: number): string[] {
     const framed = lines.slice(0, budget);
     while (framed.length < budget) framed.push(this._blank(width));
     return framed;
@@ -778,6 +832,23 @@ export class StageChatView implements Component, Focusable {
     return true;
   }
 
+  private _handlePromptInput(data: string): void {
+    const state = this.promptState;
+    if (!state) return;
+    const action = handlePromptCardInput(data, state);
+    if (action.kind === "noop") {
+      this.requestRender?.();
+      return;
+    }
+    const prompt = state.prompt;
+    const response = action.kind === "submit"
+      ? action.response
+      : defaultResponseFor(prompt);
+    this.promptState = null;
+    this.store.resolveStagePendingPrompt(this.runId, this.stageId, prompt.id, response);
+    this.requestRender?.();
+  }
+
   // -------------------------------------------------------------------------
   // Input
   // -------------------------------------------------------------------------
@@ -800,13 +871,18 @@ export class StageChatView implements Component, Focusable {
       this.requestRender?.();
       return true;
     }
-    if (this.chatHost.handleScrollInput(data)) {
-      return true;
-    }
+    this._syncPromptState(this._currentStage()?.pendingPrompt);
     if (matchesKey(data, Key.ctrl("d"))) {
-      if (this.chatHost.hasInputText()) return this.chatHost.handleInput(data);
+      if (!this.promptState && this.chatHost.hasInputText()) return this.chatHost.handleInput(data);
       if (this._isPaused()) this.onClose();
       else this.onDetach();
+      return true;
+    }
+    if (this.promptState) {
+      this._handlePromptInput(data);
+      return true;
+    }
+    if (this.chatHost.handleScrollInput(data)) {
       return true;
     }
     if (matchesKey(data, Key.escape)) {
@@ -837,7 +913,7 @@ export class StageChatView implements Component, Focusable {
   }
 
   invalidate(): void {
-    // Stateless render reads directly from snapshot + handle.
+    this._syncPromptState(this._currentStage()?.pendingPrompt);
   }
 
   dispose(): void {

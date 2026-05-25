@@ -648,18 +648,23 @@ describe("ralph", () => {
 
     const orchestratorPrompt = ctx.calls.prompts["orchestrator-1"]?.[0] ?? "";
     assert.equal(ctx.calls.task.includes("project-setup-1"), false);
-    assert.match(orchestratorPrompt, /project_initialization_preflight/);
-    assert.match(orchestratorPrompt, /actual language, framework, and build system/);
-    assert.match(orchestratorPrompt, /Do not rely on hard-coded assumptions/);
-    assert.match(orchestratorPrompt, /Infer the project type and setup requirements from repository evidence/);
-    assert.match(orchestratorPrompt, /source layout, setup docs, package\/build manifests/);
-    assert.match(orchestratorPrompt, /dependencies, generated files, local toolchains, submodules/);
-    assert.match(orchestratorPrompt, /When repository evidence shows missing initialization/);
-    assert.match(orchestratorPrompt, /run or delegate the appropriate documented setup command/);
-    assert.match(orchestratorPrompt, /You are responsible for initializing the checkout/);
-    assert.match(orchestratorPrompt, /not user handoff work/);
-    assert.match(orchestratorPrompt, /delegate a focused discovery task before implementation instead of guessing/);
-    assert.match(orchestratorPrompt, /complete or delegate required setup before implementation delegation/);
+    const expectedSetupInstructions = [
+      /project_initialization_preflight/,
+      /actual language, framework, and build system/,
+      /Do not rely on hard-coded assumptions/,
+      /Infer the project type and setup requirements from repository evidence/,
+      /source layout, setup docs, package\/build manifests/,
+      /dependencies, generated files, local toolchains, submodules/,
+      /When repository evidence shows missing initialization/,
+      /run or delegate the appropriate documented setup command/,
+      /You are responsible for initializing the checkout/,
+      /not user handoff work/,
+      /delegate a focused discovery task before implementation instead of guessing/,
+      /complete or delegate required setup before implementation delegation/,
+    ];
+    for (const expectedInstruction of expectedSetupInstructions) {
+      assert.match(orchestratorPrompt, expectedInstruction);
+    }
     assert.equal("project_readiness" in result, false);
   });
 

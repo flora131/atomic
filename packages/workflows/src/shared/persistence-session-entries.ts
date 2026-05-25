@@ -42,6 +42,7 @@ export interface StageStartPayload {
   readonly name: string;
   readonly parentIds: readonly string[];
   readonly model?: string;
+  readonly replayKey?: string;
   readonly replayedFromStageId?: string;
   readonly replayed?: boolean;
   readonly ts: number;
@@ -64,6 +65,7 @@ export interface StageEndPayload {
   readonly failureKind?: string;
   readonly failureMessage?: string;
   readonly skippedReason?: string;
+  readonly replayKey?: string;
   readonly replayedFromStageId?: string;
   readonly replayed?: boolean;
 }
@@ -113,6 +115,7 @@ export function appendStageStart(api: PersistenceAPI, payload: StageStartPayload
     name: payload.name,
     parentIds: [...payload.parentIds],
     ...(payload.model !== undefined ? { model: payload.model } : {}),
+    ...(payload.replayKey !== undefined ? { replayKey: payload.replayKey } : {}),
     ...(payload.replayedFromStageId !== undefined ? { replayedFromStageId: payload.replayedFromStageId } : {}),
     ...(payload.replayed !== undefined ? { replayed: payload.replayed } : {}),
     ts: payload.ts,
@@ -147,6 +150,7 @@ export function appendStageEnd(
     ...(payload.failureKind !== undefined ? { failureKind: payload.failureKind } : {}),
     ...(payload.failureMessage !== undefined ? { failureMessage: payload.failureMessage } : {}),
     ...(payload.skippedReason !== undefined ? { skippedReason: payload.skippedReason } : {}),
+    ...(payload.replayKey !== undefined ? { replayKey: payload.replayKey } : {}),
     ...(payload.replayedFromStageId !== undefined ? { replayedFromStageId: payload.replayedFromStageId } : {}),
     ...(payload.replayed !== undefined ? { replayed: payload.replayed } : {}),
   });

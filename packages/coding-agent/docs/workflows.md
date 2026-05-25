@@ -272,7 +272,7 @@ Named runs go to the background. Common controls:
 /workflow kill <run-id>                # destructive abort
 ```
 
-Human-in-the-loop prompts from `ctx.ui.input`, `ctx.ui.confirm`, `ctx.ui.select`, and `ctx.ui.editor` appear in the workflow graph viewer, not as chat modals — use `/workflow connect <run-id>` (or F2) to answer them.
+Human-in-the-loop prompts from `ctx.ui.input`, `ctx.ui.confirm`, `ctx.ui.select`, and `ctx.ui.editor` appear as awaiting-input nodes in the workflow graph viewer, not as chat modals — use `/workflow connect <run-id>` (or F2), focus the node, and press Enter to answer them locally.
 
 ## When to Use Workflows
 
@@ -497,7 +497,7 @@ Use `connect` for the workflow graph. Use `attach` when you want a chat pane for
 
 <p align="center"><img src="images/workflow-graph.png" alt="Workflow Graph Viewer" width="600" /></p>
 
-Human-in-the-loop prompts from `ctx.ui.input`, `ctx.ui.confirm`, `ctx.ui.select`, and `ctx.ui.editor` appear in the workflow UI/graph viewer, not as ordinary chat modals.
+Human-in-the-loop prompts from `ctx.ui.input`, `ctx.ui.confirm`, `ctx.ui.select`, and `ctx.ui.editor` appear as awaiting-input nodes in the workflow UI/graph viewer, not as ordinary chat modals.
 
 ## Monitor and Control Runs
 

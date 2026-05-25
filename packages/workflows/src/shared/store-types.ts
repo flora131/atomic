@@ -75,6 +75,10 @@ export interface StageSnapshot {
   failureMessage?: string;
   /** Reason for stages skipped by fail-fast/cascade handling. */
   skippedReason?: string;
+  /** Stable continuation replay identity, separate from display name. */
+  replayKey?: string;
+  /** Snapshot-safe prompt answer availability marker; never contains the raw answer. */
+  promptAnswerState?: "available" | "unavailable" | "ambiguous";
   /** Source stage id when this stage was replayed during failed-run continuation. */
   replayedFromStageId?: string;
   /** True when provider work was skipped by continuation replay. */

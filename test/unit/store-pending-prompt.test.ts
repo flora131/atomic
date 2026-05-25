@@ -149,6 +149,25 @@ describe("store.recordStagePendingPrompt", () => {
     assert.equal(getRun(s, "r1").stages[0]?.pendingPrompt, undefined);
   });
 
+  test("resolved stage prompt answers stay in private ledger and out of snapshots", async () => {
+    const s = createStore();
+    s.recordRunStart(makeRun("r1"));
+    s.recordStageStart("r1", makeStage("s1"));
+    assert.equal(s.recordStagePendingPrompt("r1", "s1", makePrompt("p1", { message: "Secret?" })), true);
+    const waiter = s.awaitStagePendingPrompt("r1", "s1", "p1");
+    assert.equal(s.resolveStagePendingPrompt("r1", "s1", "p1", "super-secret-value"), true);
+    assert.equal(await waiter, "super-secret-value");
+
+    const answer = s.getStagePromptAnswer("r1", "s1");
+    assert.equal(answer?.value, "super-secret-value");
+    assert.equal(answer?.kind, "input");
+    assert.equal(JSON.stringify(s.snapshot()).includes("super-secret-value"), false);
+    assert.equal(getRun(s, "r1").stages[0]?.promptAnswerState, "available");
+
+    assert.equal(s.removeRun("r1"), true);
+    assert.equal(s.getStagePromptAnswer("r1", "s1"), undefined);
+  });
+
   test("records independent prompts on multiple stages in the same run", async () => {
     const s = createStore();
     s.recordRunStart(makeRun("r1"));

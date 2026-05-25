@@ -70,6 +70,8 @@ function makeStore(snap: StoreSnapshot): Store {
     recordStagePendingPrompt: () => false,
     resolveStagePendingPrompt: () => false,
     awaitStagePendingPrompt: () => Promise.reject(new Error("test stub")),
+    getStagePromptAnswer: () => undefined,
+    clearStagePromptAnswer: () => {},
     recordStageSession: () => false,
     recordStageAttachable: () => false,
     recordStageAttached: () => false,
@@ -815,6 +817,41 @@ describe("GraphView keyboard navigation", () => {
     const lines = view.render(96);
     assert.equal(lines.length, 10);
     assert.match(visibleText(lines.slice(-4)), /GRAPH/);
+    view.dispose();
+  });
+
+  it("renders stage-local pending prompts as graph nodes without the global prompt overlay", () => {
+    const stages = [{
+      ...makeStage("input"),
+      status: "awaiting_input" as const,
+      startedAt: Date.now() - 1000,
+      awaitingInputSince: Date.now() - 1000,
+      attachable: true,
+      pendingPrompt: {
+        id: "prompt-1",
+        kind: "input" as const,
+        message: "Your name?",
+        createdAt: Date.now() - 1000,
+      },
+    }];
+    const snap = makeSnap(stages);
+    const store = makeStore(snap);
+    const onStageAttach = mock(() => {});
+    const view = new GraphView({
+      mode: "overlay",
+      runId: "run-1",
+      store,
+      graphTheme: defaultTheme,
+      getViewportRows: () => 32,
+      onStageAttach,
+    });
+
+    const rendered = visibleText(view.render(96));
+    assert.doesNotMatch(rendered, /AWAITING INPUT/);
+    assert.match(rendered, /waiting for response/);
+    assert.match(rendered, /enter to respond/);
+    view.handleInput("\r");
+    assert.deepEqual(onStageAttach.mock.calls[0], ["run-1", "input"]);
     view.dispose();
   });
 

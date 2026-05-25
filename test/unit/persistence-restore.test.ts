@@ -224,8 +224,8 @@ describe("restoreOnSessionStart", () => {
     const st = createStore();
     const entries: SessionEntry[] = [
       { id: "e1", type: "workflow.run.start", payload: { runId: "r2", name: "wf", inputs: {}, resumedFromRunId: "r1", resumeFromStageId: "old-failed", ts: 1 } },
-      { id: "e2", type: "workflow.stage.start", payload: { runId: "r2", stageId: "s-new", name: "first", parentIds: [], replayedFromStageId: "s-old", replayed: true, ts: 2 } },
-      { id: "e3", type: "workflow.stage.end", payload: { runId: "r2", stageId: "s-new", status: "completed", summary: "old result", replayedFromStageId: "s-old", replayed: true } },
+      { id: "e2", type: "workflow.stage.start", payload: { runId: "r2", stageId: "s-new", name: "first", parentIds: [], replayKey: "prompt:confirm:abc:1", replayedFromStageId: "s-old", replayed: true, ts: 2 } },
+      { id: "e3", type: "workflow.stage.end", payload: { runId: "r2", stageId: "s-new", status: "completed", summary: "old result", replayKey: "prompt:confirm:abc:1", replayedFromStageId: "s-old", replayed: true } },
     ];
     restoreOnSessionStart(makeSessionManager(entries), { resumeInFlight: "never", persistRuns: true }, st);
     const run = st.runs()[0]!;
@@ -233,6 +233,7 @@ describe("restoreOnSessionStart", () => {
     assert.equal(run.resumeFromStageId, "old-failed");
     const stage = run.stages[0]!;
     assert.equal(stage.result, "old result");
+    assert.equal(stage.replayKey, "prompt:confirm:abc:1");
     assert.equal(stage.replayedFromStageId, "s-old");
     assert.equal(stage.replayed, true);
   });

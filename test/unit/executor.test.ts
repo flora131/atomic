@@ -8,6 +8,34 @@ import { createStore } from "../../packages/workflows/src/shared/store.js";
 import { WORKFLOW_AUTH_FAILURE_MESSAGE } from "../../packages/workflows/src/shared/workflow-failures.js";
 import { defineWorkflow } from "../../packages/workflows/src/workflows/define-workflow.js";
 import type { AgentSession, CreateAgentSessionOptions } from "@bastani/atomic";
+import type { StageSnapshot } from "../../packages/workflows/src/shared/store-types.js";
+
+async function waitForExecutorStagePendingPrompt(
+  store: ReturnType<typeof createStore>,
+  timeoutMs = 1000,
+): Promise<{ runId: string; stageId: string; promptId: string }> {
+  const pending = await waitForExecutorStagePendingPrompts(store, 1, timeoutMs);
+  const stage = pending.stages[0]!;
+  return { runId: pending.runId, stageId: stage.id, promptId: stage.pendingPrompt!.id };
+}
+
+async function waitForExecutorStagePendingPrompts(
+  store: ReturnType<typeof createStore>,
+  count: number,
+  timeoutMs = 1000,
+): Promise<{ runId: string; stages: StageSnapshot[] }> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    for (const runSnapshot of store.runs()) {
+      const stages = runSnapshot.stages.filter((stage) => stage.pendingPrompt !== undefined);
+      if (stages.length === count) {
+        return { runId: runSnapshot.id, stages };
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`${count} stage pending prompts did not appear`);
+}
 
 // ---------------------------------------------------------------------------
 // resolveInputs
@@ -631,6 +659,308 @@ describe("executor.run", () => {
     assert.equal(hung.skippedReason, "fail-fast");
   });
 
+  test("continuation maps replayed ctx.ui prompt nodes before downstream stages", async () => {
+    const st = createStore();
+    const def = defineWorkflow("resume-prompt-node-parent-wf")
+      .run(async (ctx) => {
+        await ctx.stage("before").prompt("before");
+        const proceed = await ctx.ui.confirm("continue?");
+        await ctx.stage("after").prompt(proceed ? "after yes" : "after no");
+        return { proceed };
+      })
+      .compile();
+
+    const firstRunPromise = run(def, {}, {
+      store: st,
+      usePromptNodesForUi: true,
+      adapters: {
+        prompt: {
+          prompt: async (text) => {
+            if (text.startsWith("after")) throw new Error("rate limit exceeded");
+            return "before-result";
+          },
+        },
+      },
+    });
+    const firstPrompt = await waitForExecutorStagePendingPrompt(st);
+    st.resolveStagePendingPrompt(firstPrompt.runId, firstPrompt.stageId, firstPrompt.promptId, true);
+    const firstRun = await firstRunPromise;
+
+    assert.equal(firstRun.status, "failed");
+    const source = st.runs().find((candidate) => candidate.id === firstRun.runId)!;
+    const sourcePrompt = source.stages.find((stage) => stage.name === "confirm")!;
+    const sourceAfter = source.stages.find((stage) => stage.name === "after")!;
+    assert.deepEqual(sourceAfter.parentIds, [sourcePrompt.id]);
+    const failedStageId = source.failedStageId!;
+
+    const continuationCalls: string[] = [];
+    const continued = await run(def, {}, {
+      store: st,
+      continuation: { source, resumeFromStageId: failedStageId },
+      usePromptNodesForUi: true,
+      adapters: {
+        prompt: {
+          prompt: async (text) => {
+            continuationCalls.push(text);
+            return "after-resumed";
+          },
+        },
+      },
+    });
+
+    assert.equal(continued.status, "completed");
+    assert.deepEqual(continuationCalls, ["after yes"]);
+    const replayedPrompt = continued.stages.find((stage) => stage.name === "confirm")!;
+    const continuedAfter = continued.stages.find((stage) => stage.name === "after")!;
+    assert.equal(replayedPrompt.status, "completed");
+    assert.notEqual(replayedPrompt.attachable, true);
+    assert.equal(replayedPrompt.replayed, true);
+    assert.equal(replayedPrompt.replayedFromStageId, sourcePrompt.id);
+    assert.equal(replayedPrompt.promptAnswerState, "available");
+    assert.equal(replayedPrompt.result, undefined);
+    assert.deepEqual(continuedAfter.parentIds, [replayedPrompt.id]);
+  });
+
+  test("continuation re-prompts completed ctx.ui prompt nodes when prior answer is unavailable", async () => {
+    const st = createStore();
+    const def = defineWorkflow("resume-prompt-node-missing-answer-wf")
+      .run(async (ctx) => {
+        await ctx.stage("before").prompt("before");
+        const proceed = await ctx.ui.confirm("continue?");
+        await ctx.stage("after").prompt(proceed ? "after yes" : "after no");
+        return { proceed };
+      })
+      .compile();
+
+    const firstRunPromise = run(def, {}, {
+      store: st,
+      usePromptNodesForUi: true,
+      adapters: {
+        prompt: {
+          prompt: async (text) => {
+            if (text.startsWith("after")) throw new Error("rate limit exceeded");
+            return "before-result";
+          },
+        },
+      },
+    });
+    const firstPrompt = await waitForExecutorStagePendingPrompt(st);
+    st.resolveStagePendingPrompt(firstPrompt.runId, firstPrompt.stageId, firstPrompt.promptId, true);
+    const firstRun = await firstRunPromise;
+    const source = st.runs().find((candidate) => candidate.id === firstRun.runId)!;
+    const sourcePrompt = source.stages.find((stage) => stage.name === "confirm")!;
+    st.clearStagePromptAnswer(source.id, sourcePrompt.id);
+
+    const continuationCalls: string[] = [];
+    const continuedPromise = run(def, {}, {
+      store: st,
+      continuation: { source, resumeFromStageId: source.failedStageId! },
+      usePromptNodesForUi: true,
+      adapters: {
+        prompt: {
+          prompt: async (text) => {
+            continuationCalls.push(text);
+            return "after-resumed";
+          },
+        },
+      },
+    });
+    const freshPrompt = await waitForExecutorStagePendingPrompt(st);
+    const pendingStage = st
+      .runs()
+      .find((candidate) => candidate.id === freshPrompt.runId)!
+      .stages.find((stage) => stage.id === freshPrompt.stageId)!;
+    assert.equal(pendingStage.name, "confirm");
+    assert.equal(pendingStage.replayedFromStageId, sourcePrompt.id);
+    assert.equal(pendingStage.replayed, false);
+    assert.equal(pendingStage.promptAnswerState, "unavailable");
+    st.resolveStagePendingPrompt(freshPrompt.runId, freshPrompt.stageId, freshPrompt.promptId, false);
+
+    const continued = await continuedPromise;
+    assert.equal(continued.status, "completed");
+    assert.deepEqual(continuationCalls, ["after no"]);
+  });
+
+  test("continuation disambiguates parallel ctx.ui prompt nodes by replayKey", async () => {
+    const st = createStore();
+    const def = defineWorkflow("resume-parallel-prompt-replay-key-wf")
+      .run(async (ctx) => {
+        const [left, right] = await Promise.all([
+          ctx.ui.confirm("left branch?"),
+          ctx.ui.confirm("right branch?"),
+        ]);
+        await ctx.stage("after").prompt(`after left:${left} right:${right}`);
+        return { left, right };
+      })
+      .compile();
+
+    const firstRunPromise = run(def, {}, {
+      store: st,
+      usePromptNodesForUi: true,
+      adapters: {
+        prompt: {
+          prompt: async () => {
+            throw new Error("rate limit exceeded");
+          },
+        },
+      },
+    });
+
+    const pendingPrompts = await waitForExecutorStagePendingPrompts(st, 2);
+    for (const stage of pendingPrompts.stages) {
+      st.resolveStagePendingPrompt(
+        pendingPrompts.runId,
+        stage.id,
+        stage.pendingPrompt!.id,
+        stage.pendingPrompt!.message.startsWith("left"),
+      );
+    }
+
+    const firstRun = await firstRunPromise;
+    assert.equal(firstRun.status, "failed");
+    const source = st.runs().find((candidate) => candidate.id === firstRun.runId)!;
+    const sourcePrompts = source.stages.filter((stage) => stage.name === "confirm");
+    assert.equal(new Set(sourcePrompts.map((stage) => stage.replayKey)).size, 2);
+
+    const continuationCalls: string[] = [];
+    const continued = await run(def, {}, {
+      store: st,
+      continuation: { source, resumeFromStageId: source.failedStageId! },
+      usePromptNodesForUi: true,
+      adapters: {
+        prompt: {
+          prompt: async (text) => {
+            continuationCalls.push(text);
+            return "after-resumed";
+          },
+        },
+      },
+    });
+
+    assert.equal(continued.status, "completed");
+    assert.deepEqual(continuationCalls, ["after left:true right:false"]);
+    assert.equal(continued.stages.filter((stage) => stage.name === "confirm" && stage.replayed === true).length, 2);
+  });
+
+  test("continuation preserves concurrent prompt topology before settlement", async () => {
+    const st = createStore();
+    const def = defineWorkflow("resume-concurrent-prompt-topology-wf")
+      .run(async (ctx) => {
+        const first = ctx.ui.confirm("same?");
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        const second = ctx.ui.confirm("same?");
+        const answers = await Promise.all([first, second]);
+        await ctx.stage("after").prompt(`after ${answers[0]}/${answers[1]}`);
+        return { answers };
+      })
+      .compile();
+
+    const firstRunPromise = run(def, {}, {
+      store: st,
+      usePromptNodesForUi: true,
+      adapters: {
+        prompt: {
+          prompt: async () => {
+            throw new Error("rate limit exceeded");
+          },
+        },
+      },
+    });
+
+    const sourcePending = await waitForExecutorStagePendingPrompts(st, 2);
+    for (const stage of sourcePending.stages) {
+      st.resolveStagePendingPrompt(sourcePending.runId, stage.id, stage.pendingPrompt!.id, stage === sourcePending.stages[0]);
+    }
+    const firstRun = await firstRunPromise;
+    assert.equal(firstRun.status, "failed");
+    const source = st.runs().find((candidate) => candidate.id === firstRun.runId)!;
+    const sourcePrompts = source.stages.filter((stage) => stage.name === "confirm");
+    assert.equal(sourcePrompts.length, 2);
+    assert.deepEqual(sourcePrompts.map((stage) => stage.parentIds), [[], []]);
+
+    const continuationCalls: string[] = [];
+    const continued = await run(def, {}, {
+      store: st,
+      continuation: { source, resumeFromStageId: source.failedStageId! },
+      usePromptNodesForUi: true,
+      adapters: {
+        prompt: {
+          prompt: async (text) => {
+            continuationCalls.push(text);
+            return "resumed";
+          },
+        },
+      },
+    });
+
+    assert.equal(continued.status, "completed");
+    assert.deepEqual(continuationCalls, ["after true/false"]);
+    const replayedPrompts = continued.stages.filter((stage) => stage.name === "confirm");
+    assert.equal(replayedPrompts.length, 2);
+    assert.deepEqual(replayedPrompts.map((stage) => stage.parentIds), [[], []]);
+    assert.equal(replayedPrompts.filter((stage) => stage.replayed === true).length, 2);
+  });
+
+  test("continuation re-prompts ambiguous duplicate same-callsite prompts", async () => {
+    const st = createStore();
+    const def = defineWorkflow("resume-ambiguous-same-callsite-prompt-wf")
+      .run(async (ctx) => {
+        const askSame = () => ctx.ui.confirm("same?");
+        const [left, right] = await Promise.all([0, 1].map(() => askSame()));
+        await ctx.stage("after").prompt(`after ${left}/${right}`);
+        return { left, right };
+      })
+      .compile();
+
+    const firstRunPromise = run(def, {}, {
+      store: st,
+      usePromptNodesForUi: true,
+      adapters: {
+        prompt: {
+          prompt: async () => {
+            throw new Error("rate limit exceeded");
+          },
+        },
+      },
+    });
+
+    const sourcePending = await waitForExecutorStagePendingPrompts(st, 2);
+    st.resolveStagePendingPrompt(sourcePending.runId, sourcePending.stages[0]!.id, sourcePending.stages[0]!.pendingPrompt!.id, true);
+    st.resolveStagePendingPrompt(sourcePending.runId, sourcePending.stages[1]!.id, sourcePending.stages[1]!.pendingPrompt!.id, false);
+    const firstRun = await firstRunPromise;
+    assert.equal(firstRun.status, "failed");
+    const source = st.runs().find((candidate) => candidate.id === firstRun.runId)!;
+    const sourcePrompts = source.stages.filter((stage) => stage.name === "confirm");
+    assert.equal(new Set(sourcePrompts.map((stage) => stage.replayKey)).size, 1);
+
+    const continuationCalls: string[] = [];
+    const continuedPromise = run(def, {}, {
+      store: st,
+      continuation: { source, resumeFromStageId: source.failedStageId! },
+      usePromptNodesForUi: true,
+      adapters: {
+        prompt: {
+          prompt: async (text) => {
+            continuationCalls.push(text);
+            return "resumed";
+          },
+        },
+      },
+    });
+
+    const freshPrompts = await waitForExecutorStagePendingPrompts(st, 2);
+    const ambiguousStages = freshPrompts.stages;
+    assert.deepEqual(ambiguousStages.map((stage) => stage.promptAnswerState), ["ambiguous", "ambiguous"]);
+    assert.deepEqual(ambiguousStages.map((stage) => stage.replayed), [false, false]);
+    st.resolveStagePendingPrompt(freshPrompts.runId, ambiguousStages[0]!.id, ambiguousStages[0]!.pendingPrompt!.id, false);
+    st.resolveStagePendingPrompt(freshPrompts.runId, ambiguousStages[1]!.id, ambiguousStages[1]!.pendingPrompt!.id, false);
+
+    const continued = await continuedPromise;
+    assert.equal(continued.status, "completed");
+    assert.deepEqual(continuationCalls, ["after false/false"]);
+    assert.equal(continued.stages.filter((stage) => stage.name === "confirm" && stage.replayed === true).length, 0);
+  });
+
   test("continuation rejects replay when stage topology changes", async () => {
     const st = createStore();
     const sourceDef = defineWorkflow("resume-topology-source-wf")
@@ -659,6 +989,116 @@ describe("executor.run", () => {
     const changedDef = defineWorkflow("resume-topology-source-wf")
       .run(async (ctx) => {
         await ctx.stage("second").prompt("second-without-parent");
+        return {};
+      })
+      .compile();
+
+    const calls: string[] = [];
+    const continued = await run(changedDef, {}, {
+      store: st,
+      continuation: { source, resumeFromStageId: failedStageId },
+      adapters: {
+        prompt: {
+          prompt: async (text) => {
+            calls.push(text);
+            return "unexpected";
+          },
+        },
+      },
+    });
+
+    assert.equal(continued.status, "failed");
+    assert.match(continued.error ?? "", /insufficient_state: replay topology mismatch/);
+    assert.deepEqual(calls, []);
+  });
+
+  test("continuation rejects single-candidate replay when a parent stage is inserted", async () => {
+    const st = createStore();
+    const sourceDef = defineWorkflow("resume-inserted-parent-source-wf")
+      .run(async (ctx) => {
+        const a = await ctx.stage("A").prompt("A");
+        const b = await ctx.stage("B").prompt(`B:${a}`);
+        await ctx.stage("after").prompt(`after:${b}`);
+        return {};
+      })
+      .compile();
+
+    const firstRun = await run(sourceDef, {}, {
+      store: st,
+      adapters: {
+        prompt: {
+          prompt: async (text) => {
+            if (text.startsWith("after:")) throw new Error("rate limit exceeded");
+            return text.toLowerCase();
+          },
+        },
+      },
+    });
+    assert.equal(firstRun.status, "failed");
+    const source = st.runs().find((candidate) => candidate.id === firstRun.runId)!;
+    const failedStageId = source.failedStageId!;
+
+    const changedDef = defineWorkflow("resume-inserted-parent-source-wf")
+      .run(async (ctx) => {
+        const a = await ctx.stage("A").prompt("A");
+        const x = await ctx.stage("X").prompt(`X:${a}`);
+        await ctx.stage("B").prompt(`B:${x}`);
+        return {};
+      })
+      .compile();
+
+    const calls: string[] = [];
+    const continued = await run(changedDef, {}, {
+      store: st,
+      continuation: { source, resumeFromStageId: failedStageId },
+      adapters: {
+        prompt: {
+          prompt: async (text) => {
+            calls.push(text);
+            return "continued";
+          },
+        },
+      },
+    });
+
+    assert.equal(continued.status, "failed");
+    assert.match(continued.error ?? "", /insufficient_state: replay topology mismatch/);
+    assert.deepEqual(calls, ["X:a"]);
+  });
+
+  test("continuation rejects replay when parallel roots become sequential", async () => {
+    const st = createStore();
+    const sourceDef = defineWorkflow("resume-parallel-to-sequential-source-wf")
+      .run(async (ctx) => {
+        const results = await ctx.parallel([
+          { name: "a", prompt: "a" },
+          { name: "b", prompt: "b" },
+        ], { concurrency: 2, failFast: false });
+        await ctx.stage("after").prompt(results.map((result) => result.text).join(","));
+        return {};
+      })
+      .compile();
+
+    const firstRun = await run(sourceDef, {}, {
+      store: st,
+      adapters: {
+        prompt: {
+          prompt: async (text) => {
+            if (text === "after") throw new Error("unexpected exact prompt");
+            if (text.includes(",")) throw new Error("rate limit exceeded");
+            return `${text}:done`;
+          },
+        },
+      },
+    });
+    assert.equal(firstRun.status, "failed");
+    const source = st.runs().find((candidate) => candidate.id === firstRun.runId)!;
+    const failedStageId = source.failedStageId!;
+
+    const changedDef = defineWorkflow("resume-parallel-to-sequential-source-wf")
+      .run(async (ctx) => {
+        const a = await ctx.stage("a").prompt("a");
+        await ctx.stage("b").prompt(`b after ${a}`);
         return {};
       })
       .compile();

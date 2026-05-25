@@ -278,10 +278,12 @@ function _buildStageSnapshots(
   return [...stageMap.values()];
 }
 
-function replayMetadata(payload: Record<string, unknown>): Pick<StageSnapshot, "replayedFromStageId" | "replayed"> {
+function replayMetadata(payload: Record<string, unknown>): Pick<StageSnapshot, "replayKey" | "replayedFromStageId" | "replayed"> {
+  const replayKey = payload["replayKey"];
   const replayedFromStageId = payload["replayedFromStageId"];
   const replayed = payload["replayed"];
   return {
+    ...(typeof replayKey === "string" ? { replayKey } : {}),
     ...(typeof replayedFromStageId === "string" ? { replayedFromStageId } : {}),
     ...(typeof replayed === "boolean" ? { replayed } : {}),
   };

@@ -5,6 +5,7 @@
 
 import type {
   PendingPrompt,
+  PromptKind,
   RunSnapshot,
   StageSnapshot,
   StageNotice,
@@ -41,6 +42,15 @@ export interface RunEndMetadata {
   readonly failureMessage?: string;
   readonly failedStageId?: string;
   readonly resumable?: boolean;
+}
+
+export interface PromptAnswerRecord {
+  readonly runId: string;
+  readonly stageId: string;
+  readonly promptId: string;
+  readonly kind: PromptKind;
+  readonly value: unknown;
+  readonly answeredAt: number;
 }
 
 export interface Store {
@@ -121,6 +131,10 @@ export interface Store {
   ): boolean;
   /** Wait for a stage/node-scoped HIL prompt to resolve. */
   awaitStagePendingPrompt(runId: string, stageId: string, promptId: string): Promise<unknown>;
+  /** Return the live-only prompt answer record for a completed prompt stage, if still available. */
+  getStagePromptAnswer(runId: string, stageId: string): PromptAnswerRecord | undefined;
+  /** Clear the live-only prompt answer record for a stage. Primarily used by tests/cleanup. */
+  clearStagePromptAnswer(runId: string, stageId: string): void;
   /**
    * Record Pi/pi SDK session metadata for a stage after lazy
    * attach. The serializable snapshot tracks this so post-mortem reopen
@@ -188,6 +202,7 @@ export function createStore(): Store {
   const _runs: RunSnapshot[] = [];
   const _notices: WorkflowNotice[] = [];
   const _listeners: Set<(snap: StoreSnapshot) => void> = new Set();
+  const _stagePromptAnswers = new Map<string, PromptAnswerRecord>();
   let _version = 0;
 
   /**
@@ -228,6 +243,10 @@ export function createStore(): Store {
     if (!entry) return;
     _resolvers.delete(promptId);
     entry.reject(new Error(reason));
+  }
+
+  function stagePromptAnswerKey(runId: string, stageId: string): string {
+    return `${runId}:${stageId}`;
   }
 
   function rejectStagePrompt(stage: StageSnapshot, reason: string): void {
@@ -334,6 +353,8 @@ export function createStore(): Store {
       existing.failureKind = stage.failureKind;
       existing.failureMessage = stage.failureMessage;
       existing.skippedReason = stage.skippedReason;
+      existing.replayKey = stage.replayKey;
+      existing.promptAnswerState = stage.promptAnswerState;
       existing.replayedFromStageId = stage.replayedFromStageId;
       existing.replayed = stage.replayed;
       delete existing.awaitingInputSince;
@@ -399,6 +420,9 @@ export function createStore(): Store {
         rejectPrompt(pending.id, `pi-workflows: run ${runId} was removed before prompt resolved`);
       }
       rejectAllStagePrompts(run, `pi-workflows: run ${runId} was removed before prompt resolved`);
+      for (const stage of run.stages) {
+        _stagePromptAnswers.delete(stagePromptAnswerKey(runId, stage.id));
+      }
       _runs.splice(index, 1);
       for (let i = _notices.length - 1; i >= 0; i--) {
         if (_notices[i]?.runId === runId) _notices.splice(i, 1);
@@ -504,6 +528,15 @@ export function createStore(): Store {
       if (!stage) return false;
       const pending = stage.pendingPrompt;
       if (!pending || pending.id !== promptId) return false;
+      _stagePromptAnswers.set(stagePromptAnswerKey(runId, stageId), {
+        runId,
+        stageId,
+        promptId,
+        kind: pending.kind,
+        value: response,
+        answeredAt: Date.now(),
+      });
+      stage.promptAnswerState = "available";
       stage.pendingPrompt = undefined;
       if (stage.status === "awaiting_input") {
         stage.status = "running";
@@ -542,6 +575,14 @@ export function createStore(): Store {
         }
         _resolvers.set(promptId, { promptId, resolve, reject });
       });
+    },
+
+    getStagePromptAnswer(runId: string, stageId: string): PromptAnswerRecord | undefined {
+      return _stagePromptAnswers.get(stagePromptAnswerKey(runId, stageId));
+    },
+
+    clearStagePromptAnswer(runId: string, stageId: string): void {
+      _stagePromptAnswers.delete(stagePromptAnswerKey(runId, stageId));
     },
 
     recordStageSession(
@@ -742,7 +783,7 @@ export function createStore(): Store {
     },
 
     clear(): void {
-      if (_runs.length === 0 && _notices.length === 0 && _resolvers.size === 0) return;
+      if (_runs.length === 0 && _notices.length === 0 && _resolvers.size === 0 && _stagePromptAnswers.size === 0) return;
       _runs.length = 0;
       _notices.length = 0;
       // Reject any outstanding HIL waiters so background promises terminate
@@ -752,6 +793,7 @@ export function createStore(): Store {
         entry.reject(new Error("pi-workflows: store cleared"));
       }
       _resolvers.clear();
+      _stagePromptAnswers.clear();
       _version++;
       notify();
     },

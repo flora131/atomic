@@ -115,7 +115,7 @@ type TranscriptResult = {
   action: "transcript";
   runId: string;
   stageId: string;
-  source: "live" | "snapshot";
+  source: "live" | "snapshot" | "error";
   entries: TranscriptEntry[];
   truncated: boolean;
   sessionId?: string;

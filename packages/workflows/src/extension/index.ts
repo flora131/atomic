@@ -546,9 +546,7 @@ function compactWorkflowToolMessage(
     result.action === "send" ? result.stageId : undefined,
   ].filter((part): part is string => part !== undefined && part.length > 0)
     .join("/");
-  return target.length > 0
-    ? `${result.action}: ${target} ${result.status} — ${result.message}`
-    : `${result.action}: ${result.status} — ${result.message}`;
+  return `${result.action}:${target ? ` ${target}` : ""} ${result.status} — ${result.message}`;
 }
 
 function renderTranscriptToolContent(
@@ -1095,7 +1093,7 @@ export function makeExecuteWorkflowTool(
             action: "transcript",
             runId: "--all",
             stageId: "",
-            source: "snapshot",
+            source: "error",
             entries: [],
             truncated: false,
           };
@@ -1105,7 +1103,7 @@ export function makeExecuteWorkflowTool(
             action: "transcript",
             runId: target.target,
             stageId: "",
-            source: "snapshot",
+            source: "error",
             entries: [
               { role: "notice", text: ambiguousRunMessage(target.target, target.matches) },
             ],
@@ -1117,7 +1115,7 @@ export function makeExecuteWorkflowTool(
             action: "transcript",
             runId: target.target,
             stageId: "",
-            source: "snapshot",
+            source: "error",
             entries: [{ role: "notice", text: target.message }],
             truncated: false,
           };
@@ -1128,7 +1126,7 @@ export function makeExecuteWorkflowTool(
             action: "transcript",
             runId: target.runId,
             stageId: "",
-            source: "snapshot",
+            source: "error",
             entries: [
               {
                 role: "notice",
@@ -1143,7 +1141,7 @@ export function makeExecuteWorkflowTool(
         const run = store.runs().find((r) => r.id === target.runId);
         const snapshot = run?.stages.find((s) => s.id === stage.stageId);
         const liveHandle = stageControlRegistry.get(target.runId, stage.stageId);
-        if (liveHandle !== undefined && liveHandle.messages.length > 0) {
+        if (liveHandle !== undefined) {
           const limited = applyEntryLimit(
             liveHandle.messages.map((m) => transcriptEntryFromMessage(m as MessageLike)),
             args,
@@ -1302,7 +1300,7 @@ export function makeExecuteWorkflowTool(
         return {
           action: "reload",
           status: "ok",
-          message: args.reason
+          message: args.reason !== undefined
             ? `Reloaded workflow resources (${args.reason}).`
             : "Reloaded workflow resources.",
         };
@@ -2056,11 +2054,15 @@ function factory(pi: ExtensionAPI): void {
   }
 
   async function reloadWorkflowResourcesNow(options?: { allowInFlight?: boolean }): Promise<void> {
+    const activeRuns = inFlightRunCount();
     if (options?.allowInFlight !== true) {
-      const activeRuns = inFlightRunCount();
       if (activeRuns > 0) {
         throw new WorkflowReloadBlockedError(reloadBlockedMessage(activeRuns));
       }
+    } else if (activeRuns > 0 && process.env.ATOMIC_WORKFLOW_DEBUG === "1") {
+      console.warn(
+        `Workflow reload bypassed in-flight guard with ${activeRuns} active run(s).`,
+      );
     }
 
     const configResult = await loadWorkflowConfig();

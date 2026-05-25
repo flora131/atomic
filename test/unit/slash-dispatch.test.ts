@@ -1316,6 +1316,44 @@ describe("tool run-control actions", () => {
     assert.deepEqual(tailTranscript.entries, [{ role: "assistant", text: "done", timestamp: 4 }]);
   });
 
+  test("makeExecuteWorkflowTool labels empty live handles as live transcript source", async () => {
+    const runId = `stage-tool-live-empty-handle-${Date.now()}`;
+    store.recordRunStart(makeInflightRun(runId));
+    store.recordStageStart(runId, {
+      id: "stage-live-empty-handle-1",
+      name: "live-empty-handle",
+      status: "running",
+      parentIds: [],
+      toolEvents: [],
+      result: "snapshot-result",
+    });
+    const { dispose } = registerLiveStageHandle(runId, "stage-live-empty-handle-1");
+    const handler = makeToolHandler();
+
+    try {
+      const result = await handler({ action: "transcript", runId, stageId: "live-empty-handle" }, {} as never);
+
+      assert.equal(result.action, "transcript");
+      const transcript = result as { action: string; source: string; entries: unknown[]; truncated: boolean };
+      assert.equal(transcript.source, "live");
+      assert.equal(transcript.truncated, false);
+      assert.deepEqual(transcript.entries, []);
+    } finally {
+      dispose();
+    }
+  });
+
+  test("makeExecuteWorkflowTool uses error transcript source for target errors", async () => {
+    const handler = makeToolHandler();
+
+    const result = await handler({ action: "transcript", runId: "missing-run", stageId: "stage" }, {} as never);
+
+    assert.equal(result.action, "transcript");
+    const transcript = result as { action: string; source: string; entries: Array<{ role: string; text?: string }> };
+    assert.equal(transcript.source, "error");
+    assert.equal(transcript.entries[0]?.role, "notice");
+  });
+
   test("makeExecuteWorkflowTool preserves empty live transcript text blocks", async () => {
     const runId = `stage-tool-live-empty-block-${Date.now()}`;
     store.recordRunStart(makeInflightRun(runId));
@@ -1707,6 +1745,19 @@ describe("tool run-control actions", () => {
     assert.match(reload.message, /Reloaded workflow resources/);
     assert.equal(reloads, 1);
     assert.deepEqual(sent, []);
+  });
+
+  test("makeExecuteWorkflowTool preserves explicit empty reload reason", async () => {
+    const registry = createRegistry([]);
+    const runtime = createExtensionRuntime({ registry });
+    const handler = makeExecuteWorkflowTool(runtime, () => undefined, () => undefined);
+
+    const result = await handler({ action: "reload", reason: "" }, {} as never);
+
+    assert.equal(result.action, "reload");
+    const reload = result as { action: string; status: string; message: string };
+    assert.equal(reload.status, "ok");
+    assert.equal(reload.message, "Reloaded workflow resources ().");
   });
 
   test("makeExecuteWorkflowTool reload is skipped while workflows are in flight", async () => {

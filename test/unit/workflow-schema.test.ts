@@ -107,9 +107,13 @@ describe("WorkflowParametersSchema stage options", () => {
     }
   });
 
-  test("rejects invalid stage-control enum values", () => {
+  test("rejects invalid stage-control enum values and transcript counts", () => {
     assert.equal(Value.Check(WorkflowParametersSchema, { action: "stages", statusFilter: "cancelled" }), false);
     assert.equal(Value.Check(WorkflowParametersSchema, { action: "transcript", format: "markdown" }), false);
+    assert.equal(Value.Check(WorkflowParametersSchema, { action: "transcript", limit: -1 }), false);
+    assert.equal(Value.Check(WorkflowParametersSchema, { action: "transcript", limit: 1.5 }), false);
+    assert.equal(Value.Check(WorkflowParametersSchema, { action: "transcript", tail: -1 }), false);
+    assert.equal(Value.Check(WorkflowParametersSchema, { action: "transcript", tail: 1.5 }), false);
     assert.equal(Value.Check(WorkflowParametersSchema, { action: "send", delivery: "chat" }), false);
   });
 

@@ -139,10 +139,12 @@ export const WorkflowParametersSchema = Type.Object({
   format: Type.Optional(Type.Union([Type.Literal("text"), Type.Literal("json")], {
     description: "Agent-visible output format for data-bearing inspection actions.",
   })),
-  limit: Type.Optional(Type.Number({
+  limit: Type.Optional(Type.Integer({
+    minimum: 0,
     description: "Transcript-only: maximum number of most recent transcript entries to return; applied before tool output is serialized.",
   })),
-  tail: Type.Optional(Type.Number({
+  tail: Type.Optional(Type.Integer({
+    minimum: 0,
     description: "Transcript-only: return only the last N transcript entries; overrides limit when both are provided.",
   })),
   includeToolOutput: Type.Optional(Type.Boolean({

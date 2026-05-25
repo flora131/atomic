@@ -177,13 +177,16 @@ Inputs:
 |---|---|---|---|---|
 | `prompt` | text | yes | — | The task or goal to plan, execute, and refine. |
 | `max_loops` | number | no | `10` | Maximum plan/orchestrate/review iterations. |
+| `base_branch` | string | no | `origin/main` | Branch reviewers compare the current code delta against. |
 
 Run examples:
 
 ```text
 /workflow ralph prompt="Implement specs/2026-03-rate-limit.md and validate the changed behavior"
-/workflow ralph prompt="Migrate the database layer to Drizzle" max_loops=5
+/workflow ralph prompt="Migrate the database layer to Drizzle" max_loops=5 base_branch=develop
 ```
+
+Ralph writes each planner RFC to `specs/<date>-<topic>.md` in the current workspace, returns the path as `plan_path`, then instructs the orchestrator to read that spec path instead of inlining the full plan. The orchestrator also maintains OS-temp implementation notes, returned as `implementation_notes_path`, for decisions, spec deviations, tradeoffs, blockers, and validation outcomes. After the review loop, Ralph runs a final PR-preparation phase that reviews changes against `base_branch` and creates a pull request when repository state and GitHub credentials allow it; when multiple GitHub accounts are logged in, it uses `git config` identity as a hint and tries available credentials until one works. If it creates a PR, the final phase posts the implementation notes contents as a PR comment.
 
 A typical end-to-end flow is `/skill:research-codebase` → `/skill:create-spec` → `/workflow ralph prompt="Implement specs/<date>-<topic>.md"`.
 

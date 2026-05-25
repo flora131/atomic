@@ -7,10 +7,16 @@
  * iteration feeds review findings into the next planner with ctx.task().
  */
 
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, extname, join } from "node:path";
 import { defineWorkflow } from "../src/index.js";
 import type { WorkflowTaskResult } from "../src/shared/types.js";
 
 const DEFAULT_MAX_LOOPS = 10;
+const DEFAULT_SPEC_DIR = "specs";
+const IMPLEMENTATION_NOTES_FILENAME = "implementation-notes.md";
+const MAX_SPEC_SLUG_LENGTH = 80;
 
 type ReviewFinding = {
   readonly title: string;
@@ -225,6 +231,82 @@ function positiveInteger(value: number | undefined, fallback: number): number {
     : fallback;
 }
 
+function normalizeBranchInput(
+  value: string | undefined,
+  fallback: string,
+): string {
+  const trimmed = value?.trim();
+  if (!trimmed) return fallback;
+
+  const looksLikeSafeGitRef =
+    /^(?!-)(?!.*(?:\.\.|@\{|\/\/|\.lock(?:\/|$)))[A-Za-z0-9][A-Za-z0-9._/@+-]*$/.test(
+      trimmed,
+    );
+  return looksLikeSafeGitRef ? trimmed : fallback;
+}
+
+function slugifySpecTopic(prompt: string): string {
+  const slug = prompt
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, MAX_SPEC_SLUG_LENGTH)
+    .replace(/-+$/g, "");
+  return slug.length > 0 ? slug : "plan";
+}
+
+function defaultSpecPath(prompt: string, now = new Date()): string {
+  const date = now.toISOString().slice(0, 10);
+  return join(DEFAULT_SPEC_DIR, `${date}-${slugifySpecTopic(prompt)}.md`);
+}
+
+function suffixedPath(path: string, suffix: number): string {
+  const extension = extname(path);
+  const stem = extension.length === 0 ? path : path.slice(0, -extension.length);
+  return `${stem}-${suffix}${extension}`;
+}
+
+function isFileExistsError(error: unknown): boolean {
+  return error instanceof Error && (error as { readonly code?: string }).code === "EEXIST";
+}
+
+async function writeSpecFile(path: string, content: string): Promise<string> {
+  await mkdir(dirname(path), { recursive: true });
+
+  for (let suffix = 0; ; suffix += 1) {
+    const candidate = suffix === 0 ? path : suffixedPath(path, suffix + 1);
+    try {
+      await writeFile(candidate, content.endsWith("\n") ? content : `${content}\n`, {
+        encoding: "utf8",
+        flag: "wx",
+      });
+      return candidate;
+    } catch (error) {
+      if (isFileExistsError(error)) continue;
+      throw error;
+    }
+  }
+}
+
+async function createImplementationNotesFile(prompt: string): Promise<string> {
+  const notesDir = await mkdtemp(join(tmpdir(), "atomic-ralph-notes-"));
+  const notesPath = join(notesDir, IMPLEMENTATION_NOTES_FILENAME);
+  const initialNotes = [
+    "# Implementation Notes",
+    "",
+    `Task: ${prompt || "(empty prompt)"}`,
+    "",
+    "## Running Notes",
+    "",
+    "- Record implementation decisions, deviations from the spec, tradeoffs, blockers, validation notes, and anything else the user should know.",
+  ].join("\n");
+  await writeFile(notesPath, `${initialNotes}\n`, {
+    encoding: "utf8",
+    flag: "wx",
+  });
+  return notesPath;
+}
+
 function parseReviewDecision(text: string): ReviewDecision | undefined {
   try {
     const parsed = JSON.parse(text) as Partial<ReviewDecision>;
@@ -274,15 +356,22 @@ function reviewerErrorResult(
     },
   };
   return {
-    name: `reviewer-${iteration}-error`,
-    stageName: `reviewer-${iteration}-error`,
+    name: "reviewer-error",
+    stageName: "reviewer-error",
     text: JSON.stringify(decision, null, 2),
   };
 }
 
+function discoveryContextLabel(name: string | undefined): string {
+  if (name?.startsWith("infra-locate-")) return "Infrastructure locator";
+  if (name?.startsWith("infra-analyze-")) return "Infrastructure analyzer";
+  if (name?.startsWith("infra-patterns-")) return "Infrastructure pattern finder";
+  return "Infrastructure discovery";
+}
+
 function formatDiscovery(results: readonly WorkflowTaskResult[]): string {
   return results
-    .map((result) => `### ${result.name}\n\n${result.text}`)
+    .map((result) => `### ${discoveryContextLabel(result.name)}\n\n${result.text}`)
     .join("\n\n---\n\n");
 }
 
@@ -306,17 +395,28 @@ export default defineWorkflow("ralph")
     default: DEFAULT_MAX_LOOPS,
     description: `Maximum plan/orchestrate/review iterations (default ${DEFAULT_MAX_LOOPS}).`,
   })
+  .input("base_branch", {
+    type: "string",
+    default: "origin/main",
+    description:
+      "Branch reviewers compare the current code delta against (default origin/main).",
+  })
   .run(async (ctx) => {
     const inputs = ctx.inputs as {
       prompt?: string;
       max_loops?: number;
+      base_branch?: string;
     };
     const prompt = inputs.prompt ?? "";
     const maxLoops = positiveInteger(inputs.max_loops, DEFAULT_MAX_LOOPS);
+    const comparisonBaseBranch = normalizeBranchInput(inputs.base_branch, "origin/main");
 
     let reviewReport = "";
     let finalPlan = "";
+    let finalPlanPath = "";
     let finalResult = "";
+    let finalPrReport = "";
+    const implementationNotesPath = await createImplementationNotesFile(prompt);
     let approved = false;
     let iterationsCompleted = 0;
 
@@ -398,172 +498,188 @@ export default defineWorkflow("ralph")
     for (let iteration = 1; iteration <= maxLoops; iteration += 1) {
       iterationsCompleted = iteration;
 
-      const planAndExecute = await ctx.chain(
-        [
-          {
-            name: `planner-${iteration}`,
-            task: taggedPrompt([
-              [
-                "role",
-                "You are a technical architect. Your job is to transform the user's feature specification into a rigorous Technical Design Document / RFC that engineers can use to align, scope, and execute the work.",
-              ],
-              [
-                "critical_deliverable",
-                [
-                  "Your final output is a filled-in RFC rendered as markdown text.",
-                  "Render the RFC Template in this prompt with every section populated by feature-specific content drawn from the user's specification and your codebase investigation.",
-                  "Do not implement code changes in this stage; this stage only investigates and authors the RFC.",
-                ].join("\n"),
-              ],
-              [
-                "task",
-                `Plan iteration ${iteration}/${maxLoops} for this user specification:\n${prompt}`,
-              ],
-              [
-                "previous_review_findings",
-                reviewReport
-                  ? "Previous review findings:\n{previous}"
-                  : "No prior review findings; this is the first iteration.",
-              ],
-              [
-                "short_circuit",
-                [
-                  "If the user specification is a file path instead of raw prose, and it explicitly asks you to forward or use that path rather than author an RFC, output only the absolute path and stop.",
-                  "Otherwise, author the RFC normally.",
-                ].join("\n"),
-              ],
-              [
-                "investigation_phase",
-                [
-                  "Before drafting, read the specification carefully and identify the concrete problem, success criteria, hard constraints, and non-goals.",
-                  "Survey the codebase using file/search tools such as read plus grep/rg/find/glob-style shell commands to ground the RFC in current architecture.",
-                  "Name concrete services, modules, files, tests, data models, APIs, CLIs, config files, and external integrations this work will touch.",
-                  "Capture metadata with bash: `git config user.name` for Author(s), and `date '+%Y-%m-%d'` for Created / Last Updated.",
-                  "Look for prior art: existing RFCs, ADRs, README files, specs, docs, tests, or code comments that explain why the current state exists.",
-                ].join("\n"),
-              ],
-              [
-                "authoring_principles",
-                [
-                  "Be specific: `src/server/auth.ts:42` beats `the auth layer`.",
-                  "Trade-offs over conclusions: Alternatives Considered must include at least two real alternatives with honest pros, cons, and rejection reasons.",
-                  "Non-goals matter: explicitly exclude work that is out of scope to prevent scope creep.",
-                  "Diagrams are load-bearing: Section 4.1 must include a Mermaid system architecture diagram grounded in real components.",
-                  "Surface open questions in Section 9 with owner placeholders such as `[OWNER: infra team]`; do not paper over uncertainty.",
-                  "Match depth to stakes: a small refactor can be concise, but every template section header must remain present.",
-                  "If prior review findings are present, explicitly address each finding or explain why it is obsolete.",
-                ].join("\n"),
-              ],
-              [
-                "stage_contract",
-                [
-                  "This stage is investigation-first RFC authoring. The RFC is only valid if it is grounded in repository inspection performed during this stage.",
-                  "Do not fill the template from generic architecture guesses. Before writing the final RFC, inspect relevant code, docs, tests, configs, and prior design material.",
-                  "Treat the output format as the report after investigation, not a substitute for investigation.",
-                ].join("\n"),
-              ],
-              [
-                "evidence_expectations",
-                [
-                  "Every major design claim should be traceable to concrete evidence: file paths, symbols, commands, docs, tests, configs, or prior RFCs.",
-                  "Include those concrete references inside the RFC sections where they support the design.",
-                  "If expected evidence cannot be found, say so in the relevant RFC section or Open Questions rather than papering over the gap.",
-                ].join("\n"),
-              ],
-              [
-                "output_discipline",
-                [
-                  "Render the RFC Template exactly as the final document structure: preserve every header and the metadata table.",
-                  "Replace instructional placeholders with real, feature-specific content; do not leave template guidance in the final RFC.",
-                  "Output nothing after the RFC: no meta-commentary, no summary of what you wrote, no implementation log.",
-                ].join("\n"),
-              ],
-              ["rfc_template", PLANNER_RFC_TEMPLATE],
-            ]),
-            ...(reviewReport
-              ? { previous: { name: "review-report", text: reviewReport } }
-              : {}),
-            ...plannerModelConfig,
-          },
-          {
-            name: `orchestrator-${iteration}`,
-            task: taggedPrompt([
-              [
-                "role",
-                "You are a sub-agent orchestrator with many tools available. Your primary implementation tool is the `subagent` tool.",
-              ],
-              [
-                "objective",
-                `Implement iteration ${iteration}/${maxLoops} for the task: ${prompt}`,
-              ],
-              ["planner_notes", "{previous}"],
-              [
-                "delegation_policy",
-                [
-                  "You are not the implementer. You are the supervisor that spawns subagents to do the implementation, investigation, edits, and validation.",
-                  "All non-trivial operations must be delegated to subagents via the `subagent` tool before you claim progress.",
-                  "Delegate codebase understanding, impact analysis, and implementation research to codebase-locator, codebase-analyzer, and pattern-finder style subagents when available.",
-                  "Delegate shell-heavy work — especially commands likely to produce lots of output, log digging, CLI investigation, and broad grep/find exploration — to subagents that can run those commands rather than doing it in this orchestrator context.",
-                  "Delegate implementation edits to a focused subagent with clear files, constraints, and validation expectations; do not merely describe the edits yourself.",
-                  "Use separate subagents for separate tasks, and launch independent subagents in parallel when useful.",
-                  "Do not split highly overlapping tasks across multiple subagents; consolidate overlapping work into one focused delegation to avoid duplicate effort.",
-                  "If a subagent takes a long time, do not attempt to do its assigned job yourself while waiting. Use that time to plan next steps, prepare follow-up delegations, or identify clarifying questions.",
-                ].join("\n"),
-              ],
-              [
-                "execution_contract",
-                [
-                  "The required output format is a completion report, not the task itself.",
-                  "Do not jump straight to the report. First spawn the necessary subagents, wait for their results, coordinate any follow-up subagents, and only then write the report.",
-                  "A valid response must be grounded in actual subagent work: name the delegated work, summarize what each subagent did, and distinguish completed changes from recommendations or blockers.",
-                  "If you cannot spawn or use subagents, treat that as a blocker and report it honestly instead of pretending the requested work was done.",
-                ].join("\n"),
-              ],
-              [
-                "subagent_tracking",
-                [
-                  "Use the `todo` tool as your active control ledger for subagent work.",
-                  "Before launching subagents, create todo items for each delegated task with enough detail to identify owner, purpose, and expected output.",
-                  "Mark todo items in_progress when the corresponding subagent starts, append progress/results as subagents report back, and close them only after you have incorporated or explicitly rejected their result.",
-                  "Keep pending, in_progress, blocked, and completed work accurate so you do not lose track of parallel subagents or unresolved follow-ups.",
-                  "Before writing the final report, review the todo list and resolve every pending/in_progress item as completed, blocked, or deferred with an explanation.",
-                ].join("\n"),
-              ],
-              [
-                "instructions",
-                [
-                  "Start from the planner notes and decompose the work into delegated subagent tasks.",
-                  "Pass each subagent the relevant task, constraints, files, validation expectations, and any prior review findings.",
-                  "Coordinate subagent results into the smallest coherent set of changes that satisfies the planner notes.",
-                  "Preserve existing architecture and repository conventions unless the plan explicitly justifies a change.",
-                  "Run or delegate the most relevant validation commands available in the repository.",
-                  "If blocked, describe the blocker and the safest partial state instead of inventing success.",
-                  "Do not hide failures; reviewers need accurate status.",
-                ].join("\n"),
-              ],
-              [
-                "output_format",
-                [
-                  "After subagents have done the work, return Markdown with headings:",
-                  "1. Delegations performed — subagents spawned and what each completed",
-                  "2. Changes made — concrete changes from subagent work, not intentions",
-                  "3. Files touched",
-                  "4. Validation run / recommended",
-                  "5. Deferred work or blockers",
-                ].join("\n"),
-              ],
-            ]),
-            ...orchestratorModelConfig,
-          },
-        ],
-        { task: prompt },
-      );
-      const planner = planAndExecute[0]!;
-      const orchestrator = planAndExecute[1]!;
+      const planner = await ctx.task(`planner-${iteration}`, {
+        prompt: taggedPrompt([
+          [
+            "role",
+            "You are a technical architect. Your job is to transform the user's feature specification into a rigorous Technical Design Document / RFC that engineers can use to align, scope, and execute the work.",
+          ],
+          [
+            "critical_deliverable",
+            [
+              "Your final output is a filled-in RFC rendered as markdown text.",
+              "Render the RFC Template in this prompt with every section populated by feature-specific content drawn from the user's specification and your codebase investigation.",
+              "Do not implement code changes in this stage; this stage only investigates and authors the RFC.",
+            ].join("\n"),
+          ],
+          [
+            "task",
+            `Plan iteration ${iteration}/${maxLoops} for this user specification:\n${prompt}`,
+          ],
+          [
+            "previous_review_findings",
+            reviewReport
+              ? "Previous review findings:\n{previous}"
+              : "No prior review findings; this is the first iteration.",
+          ],
+          [
+            "input_spec_files",
+            [
+              "If the user specification is a file path instead of raw prose, read that file and use it as source material for the RFC.",
+              "Still author the RFC normally; do not output only a forwarded path.",
+            ].join("\n"),
+          ],
+          [
+            "investigation_phase",
+            [
+              "Before drafting, read the specification carefully and identify the concrete problem, success criteria, hard constraints, and non-goals.",
+              "Survey the codebase using file/search tools such as read plus grep/rg/find/glob-style shell commands to ground the RFC in current architecture.",
+              "Name concrete services, modules, files, tests, data models, APIs, CLIs, config files, and external integrations this work will touch.",
+              "Capture metadata with bash: `git config user.name` for Author(s), and `date '+%Y-%m-%d'` for Created / Last Updated.",
+              "Look for prior art: existing RFCs, ADRs, README files, specs, docs, tests, or code comments that explain why the current state exists.",
+            ].join("\n"),
+          ],
+          [
+            "authoring_principles",
+            [
+              "Be specific: `src/server/auth.ts:42` beats `the auth layer`.",
+              "Trade-offs over conclusions: Alternatives Considered must include at least two real alternatives with honest pros, cons, and rejection reasons.",
+              "Non-goals matter: explicitly exclude work that is out of scope to prevent scope creep.",
+              "Diagrams are load-bearing: Section 4.1 must include a Mermaid system architecture diagram grounded in real components.",
+              "Surface open questions in Section 9 with owner placeholders such as `[OWNER: infra team]`; do not paper over uncertainty.",
+              "Match depth to stakes: a small refactor can be concise, but every template section header must remain present.",
+              "If prior review findings are present, explicitly address each finding or explain why it is obsolete.",
+            ].join("\n"),
+          ],
+          [
+            "stage_contract",
+            [
+              "This stage is investigation-first RFC authoring. The RFC is only valid if it is grounded in repository inspection performed during this stage.",
+              "Do not fill the template from generic architecture guesses. Before writing the final RFC, inspect relevant code, docs, tests, configs, and prior design material.",
+              "Treat the output format as the report after investigation, not a substitute for investigation.",
+            ].join("\n"),
+          ],
+          [
+            "evidence_expectations",
+            [
+              "Every major design claim should be traceable to concrete evidence: file paths, symbols, commands, docs, tests, configs, or prior RFCs.",
+              "Include those concrete references inside the RFC sections where they support the design.",
+              "If expected evidence cannot be found, say so in the relevant RFC section or Open Questions rather than papering over the gap.",
+            ].join("\n"),
+          ],
+          [
+            "output_discipline",
+            [
+              "Render the RFC Template exactly as the final document structure: preserve every header and the metadata table.",
+              "Replace instructional placeholders with real, feature-specific content; do not leave template guidance in the final RFC.",
+              "Output nothing after the RFC: no meta-commentary, no summary of what you wrote, no implementation log.",
+            ].join("\n"),
+          ],
+          ["rfc_template", PLANNER_RFC_TEMPLATE],
+        ]),
+        ...(reviewReport
+          ? { previous: { name: "review-report", text: reviewReport } }
+          : {}),
+        ...plannerModelConfig,
+      });
       finalPlan = planner.text;
+      const specPath = await writeSpecFile(defaultSpecPath(prompt), planner.text);
+      finalPlanPath = specPath;
+
+      const orchestrator = await ctx.task(`orchestrator-${iteration}`, {
+        prompt: taggedPrompt([
+          [
+            "role",
+            "You are a sub-agent orchestrator with many tools available. Your primary implementation tool is the `subagent` tool.",
+          ],
+          [
+            "objective",
+            `Implement iteration ${iteration}/${maxLoops} for the task: ${prompt}`,
+          ],
+          [
+            "spec_file",
+            [
+              `The technical specification for this iteration was written to: ${specPath}`,
+              "Read this file before delegating or implementing anything.",
+              "Do not rely on an inline planner transcript; the spec file is the authoritative plan for this iteration.",
+            ].join("\n"),
+          ],
+          [
+            "implementation_notes",
+            [
+              `Keep a running Markdown implementation notes file at this OS temp directory path: ${implementationNotesPath}`,
+              "The file has already been initialized for this workflow run; update it while you implement the spec.",
+              "Record decisions you had to make that were not in the spec, things you had to change from the spec, tradeoffs you had to make, blockers, validation outcomes, and anything else the user should know.",
+              "Ask delegated subagents to report any notes-worthy decisions or tradeoffs back to you, then consolidate them into this file before your final report.",
+              "Do not include secrets, credentials, tokens, or unrelated environment details in the notes file.",
+            ].join("\n"),
+          ],
+          [
+            "delegation_policy",
+            [
+              "You are not the implementer. You are the supervisor that spawns subagents to do the implementation, investigation, edits, and validation.",
+              "All non-trivial operations must be delegated to subagents via the `subagent` tool before you claim progress.",
+              "Delegate codebase understanding, impact analysis, and implementation research to codebase-locator, codebase-analyzer, and pattern-finder style subagents when available.",
+              "Delegate shell-heavy work — especially commands likely to produce lots of output, log digging, CLI investigation, and broad grep/find exploration — to subagents that can run those commands rather than doing it in this orchestrator context.",
+              "Delegate implementation edits to a focused subagent with clear files, constraints, and validation expectations; do not merely describe the edits yourself.",
+              "Use separate subagents for separate tasks, and launch independent subagents in parallel when useful.",
+              "Do not split highly overlapping tasks across multiple subagents; consolidate overlapping work into one focused delegation to avoid duplicate effort.",
+              "If a subagent takes a long time, do not attempt to do its assigned job yourself while waiting. Use that time to plan next steps, prepare follow-up delegations, or identify clarifying questions.",
+            ].join("\n"),
+          ],
+          [
+            "execution_contract",
+            [
+              "The required output format is a completion report, not the task itself.",
+              "Do not jump straight to the report. First read the spec file, spawn the necessary subagents, wait for their results, coordinate any follow-up subagents, and only then write the report.",
+              "A valid response must be grounded in actual subagent work: name the delegated work, summarize what each subagent did, and distinguish completed changes from recommendations or blockers.",
+              "If you cannot read the spec file, spawn subagents, or use subagents, treat that as a blocker and report it honestly instead of pretending the requested work was done.",
+            ].join("\n"),
+          ],
+          [
+            "subagent_tracking",
+            [
+              "Use the `todo` tool as your active control ledger for subagent work.",
+              "Before launching subagents, create todo items for each delegated task with enough detail to identify owner, purpose, and expected output.",
+              "Mark todo items in_progress when the corresponding subagent starts, append progress/results as subagents report back, and close them only after you have incorporated or explicitly rejected their result.",
+              "Keep pending, in_progress, blocked, and completed work accurate so you do not lose track of parallel subagents or unresolved follow-ups.",
+              "Before writing the final report, review the todo list and resolve every pending/in_progress item as completed, blocked, or deferred with an explanation.",
+            ].join("\n"),
+          ],
+          [
+            "instructions",
+            [
+              `Start by reading the spec file at ${specPath}.`,
+              "Decompose the work into delegated subagent tasks based on that spec file.",
+              "Pass each subagent the relevant task, constraints, files, validation expectations, any prior review findings from the spec, and instructions to report implementation-note-worthy decisions or tradeoffs.",
+              "Coordinate subagent results into the smallest coherent set of changes that satisfies the spec.",
+              "Preserve existing architecture and repository conventions unless the spec explicitly justifies a change.",
+              "Run or delegate the most relevant validation commands available in the repository.",
+              `Before your final report, update the running implementation notes file at ${implementationNotesPath} with decisions, spec deviations, tradeoffs, blockers, and validation outcomes from this iteration.`,
+              "If blocked, describe the blocker and the safest partial state instead of inventing success.",
+              "Do not hide failures; reviewers need accurate status.",
+            ].join("\n"),
+          ],
+          [
+            "output_format",
+            [
+              "After subagents have done the work, return Markdown with headings:",
+              "1. Spec file — the path you read",
+              "2. Delegations performed — subagents spawned and what each completed",
+              "3. Changes made — concrete changes from subagent work, not intentions",
+              "4. Files touched",
+              "5. Validation run / recommended",
+              "6. Deferred work or blockers",
+              "7. Implementation notes — confirm the OS temp notes path was updated",
+            ].join("\n"),
+          ],
+        ]),
+        reads: [specPath, implementationNotesPath],
+        ...orchestratorModelConfig,
+      });
       finalResult = orchestrator.text;
 
-      const simplifier = await ctx.task(`code-simplifier-${iteration}`, {
+      await ctx.task(`code-simplifier-${iteration}`, {
         prompt: taggedPrompt([
           [
             "role",
@@ -795,10 +911,16 @@ export default defineWorkflow("ralph")
         ],
         [
           "objective",
-          `Review iteration ${iteration}/${maxLoops} for the task: ${prompt}`,
+          `Review the current code delta for the task: ${prompt}`,
         ],
-        ["latest_orchestrator_result", orchestrator.text],
-        ["latest_simplifier_result", simplifier.text],
+        [
+          "comparison_baseline",
+          [
+            `The baseline branch for comparison is \`${comparisonBaseBranch}\`.`,
+            "Compare the current working tree against this baseline branch, not against previous workflow reasoning or expected loop progress.",
+            `Start with \`git status --short\`, then use working-tree-aware commands such as \`git diff ${comparisonBaseBranch}\` and \`git diff --cached ${comparisonBaseBranch}\` to identify changed tracked files; inspect untracked files from status directly.`,
+          ].join("\n"),
+        ],
         ["infrastructure_discovery", discoveryContext],
         [
           "project_guidance",
@@ -826,7 +948,7 @@ export default defineWorkflow("ralph")
             "A finding should meaningfully impact accuracy, performance, security, or maintainability.",
             "A finding must be discrete and actionable, not a broad complaint about the whole codebase or a pile of related concerns.",
             "Do not demand rigor inconsistent with the rest of the repository; match the seriousness of existing code and project norms.",
-            "Flag only bugs introduced by this iteration's patch; do not flag pre-existing issues unless the patch makes them worse in a concrete way.",
+            "Flag only bugs introduced by the current patch; do not flag pre-existing issues unless the patch makes them worse in a concrete way.",
             "Do not rely on unstated assumptions about author intent or codebase behavior.",
             "Speculation is insufficient: identify the code path, scenario, environment, or input that is provably affected.",
             "Do not flag intentional behavior changes as bugs unless they clearly violate the task or documented contract.",
@@ -858,8 +980,8 @@ export default defineWorkflow("ralph")
         [
           "review_stage_contract",
           [
-            "The structured review decision is only valid after you inspect the actual repository state for this iteration.",
-            "Do not approve based solely on orchestrator, simplifier, or discovery summaries.",
+            "The structured review decision is only valid after you inspect the actual repository state and compare it against the stated baseline branch.",
+            "Do not approve based solely on workflow stage summaries or prior agent reasoning.",
             "The tool call is the final verdict after review work, not a shortcut around review work.",
           ].join("\n"),
         ],
@@ -916,15 +1038,13 @@ export default defineWorkflow("ralph")
         reviews = await ctx.parallel(
           [
             {
-              name: `reviewer-${iteration}-a`,
+              name: "reviewer-a",
               task: reviewPrompt,
-              previous: [orchestrator, simplifier, ...discovery],
               ...reviewerModelConfig,
             },
             {
-              name: `reviewer-${iteration}-b`,
+              name: "reviewer-b",
               task: reviewPrompt,
-              previous: [orchestrator, simplifier, ...discovery],
               ...reviewerModelConfig,
             },
           ],
@@ -942,9 +1062,75 @@ export default defineWorkflow("ralph")
       if (approved) break;
     }
 
+    const prResult = await ctx.task("pull-request", {
+      prompt: taggedPrompt([
+        [
+          "role",
+          "You are a careful release engineer preparing a pull request from the current workspace state.",
+        ],
+        [
+          "objective",
+          `Review the changes since the base branch \`${comparisonBaseBranch}\` and create a pull request if possible and credentials are available.`,
+        ],
+        [
+          "workflow_context",
+          [
+            `Original task: ${prompt}`,
+            `Review loop approved: ${approved ? "yes" : "no"}`,
+            finalPlanPath
+              ? `Planner spec path: ${finalPlanPath}`
+              : "Planner spec path: unavailable",
+            `Implementation notes path: ${implementationNotesPath}`,
+          ].join("\n"),
+        ],
+        [
+          "required_checks",
+          [
+            "Start by inspecting `git status --short` so unstaged, staged, and untracked changes are all visible.",
+            `Review the patch against \`${comparisonBaseBranch}\` with working-tree-aware commands such as \`git diff ${comparisonBaseBranch}\` and \`git diff --cached ${comparisonBaseBranch}\`.`,
+            "If untracked files are present, inspect them directly before deciding whether they belong in the PR.",
+            "Read the implementation notes file and use its full contents as the body of a PR comment after the pull request exists.",
+            "Check the local Git identity with `git config user.name` and `git config user.email` so you can prefer the matching GitHub account when multiple accounts are logged in.",
+            "Check whether GitHub credentials are available with non-destructive commands such as `gh auth status` and `gh auth status --show-token-scopes` before attempting PR creation.",
+            "If multiple GitHub accounts or hosts are logged in, use the git config username/email as a heuristic to choose the most likely identity, but try each available credential/account and use the first one that can read the repository and create the PR.",
+          ].join("\n"),
+        ],
+        [
+          "pr_policy",
+          [
+            "Create a PR only if there are meaningful changes, a remote/branch target is available, credentials are available, and the current state is suitable for review.",
+            "If no logged-in account can access the repository or create the PR, do not fake success; report each credential/account tried, what failed, and provide the command the user can run later.",
+            "When you successfully create or update the PR, create a PR comment containing the implementation notes file contents as the last action of this workflow stage.",
+            "If PR creation is not possible, do not create a standalone comment elsewhere; include the implementation notes path and summary in your report instead.",
+            "If the review loop did not approve, prefer reporting the remaining blockers over creating a PR unless the changes are still intentionally ready for human review.",
+            "Do not make unrelated code edits in this phase. Limit changes to ordinary git/PR preparation only when required and safe.",
+          ].join("\n"),
+        ],
+        [
+          "output_format",
+          [
+            "Return Markdown with headings:",
+            "1. Change review — summary of files and diff scope inspected",
+            "2. PR status — created PR URL, or why no PR was created",
+            "3. Implementation notes comment — whether the PR comment was created as the last action, or why it could not be created",
+            "4. Commands run — include exit status or clear outcome",
+            "5. Follow-up for the user — exact next steps if credentials or repository state blocked PR creation",
+          ].join("\n"),
+        ],
+      ]),
+      reads: finalPlanPath
+        ? [finalPlanPath, implementationNotesPath]
+        : [implementationNotesPath],
+      ...orchestratorModelConfig,
+    });
+    finalPrReport = prResult.text;
+
     return {
       result: finalResult,
       plan: finalPlan,
+      plan_path: finalPlanPath,
+      implementation_notes_path: implementationNotesPath,
+      pr_report: finalPrReport,
       approved,
       iterations_completed: iterationsCompleted,
       review_report: reviewReport,

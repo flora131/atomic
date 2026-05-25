@@ -292,16 +292,17 @@ Final Markdown research documents are written to dated `research/` paths relativ
 
 ### `ralph`
 
-Plan → orchestrate → simplify → infrastructure discovery → parallel review loop. Named after the [Ralph Wiggum Method](https://ghuntley.com/ralph/).
+Plan → write a spec under `specs/` → orchestrate from that spec path while maintaining OS-temp implementation notes → simplify → infrastructure discovery → parallel review loop → PR preparation. The workflow result includes the generated spec as `plan_path`, the notes file as `implementation_notes_path`, and the final PR phase report as `pr_report`. The PR phase uses local git identity as a hint when multiple GitHub accounts are logged in, tries available credentials until one works, and posts the implementation notes as a PR comment when a PR is created. Named after the [Ralph Wiggum Method](https://ghuntley.com/ralph/).
 
 ```text
-/workflow ralph prompt="Migrate the database layer to Drizzle ORM"
+/workflow ralph prompt="Migrate the database layer to Drizzle ORM" base_branch=develop
 ```
 
-| Input       | Type     | Required | Default | Description                                |
-| ----------- | -------- | -------- | ------- | ------------------------------------------ |
-| `prompt`    | `text`   | ✓        | —       | High-level task or goal to accomplish.     |
-| `max_loops` | `number` | —        | `10`    | Maximum plan → orchestrate → review loops. |
+| Input         | Type     | Required | Default | Description                                      |
+| ------------- | -------- | -------- | ------- | ------------------------------------------------ |
+| `prompt`      | `text`   | ✓        | —       | High-level task or goal to accomplish.           |
+| `max_loops`   | `number` | —        | `10`    | Maximum plan → orchestrate → review loops.       |
+| `base_branch` | `string` | —        | `origin/main` | Branch reviewers compare the current delta with. |
 
 ### `open-claude-design`
 

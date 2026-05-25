@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import type {
   WorkflowChainOptions,
   WorkflowDefinition,
@@ -493,6 +493,23 @@ describe("deep-research-codebase", () => {
 // ---------------------------------------------------------------------------
 
 describe("ralph", () => {
+  let previousCwd = process.cwd();
+  let tempCwd: string | undefined;
+
+  beforeEach(() => {
+    previousCwd = process.cwd();
+    tempCwd = mkdtempSync(join(tmpdir(), "atomic-ralph-test-"));
+    process.chdir(tempCwd);
+  });
+
+  afterEach(() => {
+    process.chdir(previousCwd);
+    if (tempCwd !== undefined) {
+      rmSync(tempCwd, { recursive: true, force: true });
+      tempCwd = undefined;
+    }
+  });
+
   function approvedReviewJson(): string {
     return JSON.stringify({
       findings: [],
@@ -510,12 +527,201 @@ describe("ralph", () => {
     assert.equal(mod.default.name, "ralph");
   });
 
-  test("has prompt and max_loops inputs", async () => {
+  test("has prompt, max_loops, and base_branch inputs", async () => {
     const mod = await import("../../packages/workflows/builtin/ralph.js");
     assert.equal(mod.default.inputs["prompt"]?.required, true);
     assert.equal(mod.default.inputs["max_iterations"], undefined);
     assert.equal(mod.default.inputs["max_loops"]?.type, "number");
-    assert.equal((mod.default.inputs["max_loops"] as { default?: number }).default, 10);
+    assert.equal(
+      (mod.default.inputs["max_loops"] as { default?: number }).default,
+      10,
+    );
+    assert.equal(mod.default.inputs["base_branch"]?.type, "string");
+    assert.equal(
+      (mod.default.inputs["base_branch"] as { default?: string }).default,
+      "origin/main",
+    );
+  });
+
+  test("builds reviewer context from default origin/main baseline without biased stage outputs", async () => {
+    const mod = await import("../../packages/workflows/builtin/ralph.js");
+    const d = mod.default as unknown as WorkflowDefinition;
+    const ctx = makeMockCtx(
+      { prompt: "Refactor tests", max_loops: 5 },
+      {
+        task: (name) => {
+          if (name === "orchestrator-1") return "BIASING_ORCHESTRATOR_OUTPUT";
+          if (name === "code-simplifier-1") return "BIASING_SIMPLIFIER_OUTPUT";
+          if (name.startsWith("infra-")) return "review infrastructure context";
+          if (name.startsWith("reviewer-")) return approvedReviewJson();
+          return undefined;
+        },
+      },
+    );
+
+    await d.run(ctx);
+
+    assert.equal(ctx.calls.task.includes("reviewer-1-a"), false);
+    assert.equal(ctx.calls.task.includes("reviewer-1-b"), false);
+    const reviewerPrompt = ctx.calls.prompts["reviewer-a"]?.[0] ?? "";
+    assert.match(reviewerPrompt, /baseline branch for comparison is `origin\/main`/);
+    assert.match(reviewerPrompt, /git status --short/);
+    assert.match(reviewerPrompt, /git diff origin\/main/);
+    assert.doesNotMatch(reviewerPrompt, /Review iteration 1\/5/);
+    assert.doesNotMatch(reviewerPrompt, /infra-locate-1/);
+    assert.doesNotMatch(reviewerPrompt, /latest_orchestrator_result/);
+    assert.doesNotMatch(reviewerPrompt, /latest_simplifier_result/);
+    assert.doesNotMatch(reviewerPrompt, /BIASING_ORCHESTRATOR_OUTPUT/);
+    assert.doesNotMatch(reviewerPrompt, /BIASING_SIMPLIFIER_OUTPUT/);
+    const reviewerOptions = ctx.calls.taskOptions["reviewer-a"]?.[0];
+    const previous = Array.isArray(reviewerOptions?.previous)
+      ? reviewerOptions.previous
+      : reviewerOptions?.previous === undefined
+        ? []
+        : [reviewerOptions.previous];
+    assert.equal(
+      previous.some((item) => typeof item === "object" && item.name === "orchestrator-1"),
+      false,
+    );
+    assert.equal(
+      previous.some((item) => typeof item === "object" && item.name === "code-simplifier-1"),
+      false,
+    );
+  });
+
+  test("builds reviewer context from the configured base branch", async () => {
+    const mod = await import("../../packages/workflows/builtin/ralph.js");
+    const d = mod.default as unknown as WorkflowDefinition;
+    const ctx = makeMockCtx(
+      { prompt: "Refactor tests", max_loops: 5, base_branch: "feature-parent" },
+      {
+        task: (name) => {
+          if (name.startsWith("reviewer-")) return approvedReviewJson();
+          return undefined;
+        },
+      },
+    );
+
+    await d.run(ctx);
+
+    const reviewerPrompt = ctx.calls.prompts["reviewer-a"]?.[0] ?? "";
+    assert.match(reviewerPrompt, /baseline branch for comparison is `feature-parent`/);
+    assert.match(reviewerPrompt, /git status --short/);
+    assert.match(reviewerPrompt, /git diff feature-parent/);
+    assert.doesNotMatch(reviewerPrompt, /Review iteration 1\/5/);
+  });
+
+  test("falls back to origin/main for unsafe base branch input", async () => {
+    const mod = await import("../../packages/workflows/builtin/ralph.js");
+    const d = mod.default as unknown as WorkflowDefinition;
+    const ctx = makeMockCtx(
+      { prompt: "Refactor tests", max_loops: 1, base_branch: "main; echo pwn" },
+      {
+        task: (name) => {
+          if (name.startsWith("reviewer-")) return approvedReviewJson();
+          return undefined;
+        },
+      },
+    );
+
+    await d.run(ctx);
+
+    const reviewerPrompt = ctx.calls.prompts["reviewer-a"]?.[0] ?? "";
+    assert.match(reviewerPrompt, /baseline branch for comparison is `origin\/main`/);
+    assert.doesNotMatch(reviewerPrompt, /echo pwn/);
+  });
+
+  test("writes planner spec to specs and passes only the path to orchestrator", async () => {
+    const mod = await import("../../packages/workflows/builtin/ralph.js");
+    const d = mod.default as unknown as WorkflowDefinition;
+    const planText = "# SPEC SENTINEL\n\nFull planner RFC body.";
+    const ctx = makeMockCtx(
+      { prompt: "Write specs", max_loops: 1 },
+      {
+        task: (name) => {
+          if (name === "planner-1") return planText;
+          if (name.startsWith("reviewer-")) return approvedReviewJson();
+          return undefined;
+        },
+      },
+    );
+
+    const result = await d.run(ctx);
+
+    const planPath = result["plan_path"];
+    assert.equal(typeof planPath, "string");
+    assert.match(normalizePathSeparators(planPath as string), /^specs\/\d{4}-\d{2}-\d{2}-write-specs\.md$/);
+    assert.equal(readFileSync(planPath as string, "utf8"), `${planText}\n`);
+    assert.equal(result["plan"], planText);
+
+    const orchestratorPrompt = ctx.calls.prompts["orchestrator-1"]?.[0] ?? "";
+    const normalizedOrchestratorPrompt = normalizePathSeparators(orchestratorPrompt);
+    assert.match(
+      normalizedOrchestratorPrompt,
+      new RegExp(String.raw`specs/\d{4}-\d{2}-\d{2}-write-specs\.md`),
+    );
+    assert.doesNotMatch(orchestratorPrompt, /SPEC SENTINEL/);
+    const implementationNotesPath = result["implementation_notes_path"];
+    assert.equal(typeof implementationNotesPath, "string");
+    assert.ok(isAbsolute(implementationNotesPath as string));
+    assert.ok(
+      normalizePathSeparators(implementationNotesPath as string).startsWith(
+        normalizePathSeparators(tmpdir()),
+      ),
+    );
+    assert.match(normalizePathSeparators(implementationNotesPath as string), /implementation-notes\.md$/);
+    assert.equal(existsSync(implementationNotesPath as string), true);
+    assert.match(orchestratorPrompt, /implementation-notes\.md/);
+    assert.match(orchestratorPrompt, /OS temp/);
+    assert.match(orchestratorPrompt, /decisions you had to make/);
+    assert.match(orchestratorPrompt, /tradeoffs/);
+    assert.match(normalizedOrchestratorPrompt, new RegExp(normalizePathSeparators(implementationNotesPath as string).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    const orchestratorOptions = ctx.calls.taskOptions["orchestrator-1"]?.[0];
+    assert.deepEqual(orchestratorOptions?.reads, [planPath, implementationNotesPath]);
+    assert.equal(orchestratorOptions?.previous, undefined);
+  });
+
+  test("runs final PR phase after review loop", async () => {
+    const mod = await import("../../packages/workflows/builtin/ralph.js");
+    const d = mod.default as unknown as WorkflowDefinition;
+    const ctx = makeMockCtx(
+      { prompt: "Refactor tests", max_loops: 1, base_branch: "feature-parent" },
+      {
+        task: (name) => {
+          if (name.startsWith("reviewer-")) return approvedReviewJson();
+          if (name === "pull-request") return "PR unavailable: credentials missing.";
+          return undefined;
+        },
+      },
+    );
+
+    const result = await d.run(ctx);
+
+    assert.equal(ctx.calls.task.at(-1), "pull-request");
+    assert.equal(result["pr_report"], "PR unavailable: credentials missing.");
+    const planPath = result["plan_path"];
+    assert.equal(typeof planPath, "string");
+    const implementationNotesPath = result["implementation_notes_path"];
+    assert.equal(typeof implementationNotesPath, "string");
+    const prPrompt = ctx.calls.prompts["pull-request"]?.[0] ?? "";
+    assert.match(prPrompt, /Review the changes since the base branch `feature-parent`/);
+    assert.match(prPrompt, /create a pull request if possible/);
+    assert.match(prPrompt, /gh auth status/);
+    assert.match(prPrompt, /git config user\.name/);
+    assert.match(prPrompt, /git config user\.email/);
+    assert.match(prPrompt, /multiple GitHub accounts/);
+    assert.match(prPrompt, /try each available credential\/account/);
+    assert.match(prPrompt, /first one that can read the repository and create the PR/);
+    assert.match(prPrompt, /git status --short/);
+    assert.match(prPrompt, /git diff feature-parent/);
+    assert.match(prPrompt, /implementation notes/);
+    assert.match(prPrompt, /PR comment/);
+    assert.match(prPrompt, /last action/);
+    assert.match(normalizePathSeparators(prPrompt), /Planner spec path: specs\//);
+    assert.match(normalizePathSeparators(prPrompt), /Implementation notes path: .*implementation-notes\.md/);
+    const prOptions = ctx.calls.taskOptions["pull-request"]?.[0];
+    assert.deepEqual(prOptions?.reads, [planPath, implementationNotesPath]);
+    assert.equal(prOptions?.previous, undefined);
   });
 
   test("terminates after one iteration when both reviewers approve", async () => {
@@ -558,13 +764,13 @@ describe("ralph", () => {
     const patternsPrompt = ctx.calls.prompts["infra-patterns-1"]?.[0] ?? "";
     assert.match(patternsPrompt, /evidence-gathering stage for repository conventions/);
     assert.match(patternsPrompt, /Do not describe generic best practices/);
-    assert.ok(ctx.calls.parallel.some((names) => names.includes("reviewer-1-a") && names.includes("reviewer-1-b")));
-    const reviewerPrompt = ctx.calls.prompts["reviewer-1-a"]?.[0] ?? "";
+    assert.ok(ctx.calls.parallel.some((names) => names.includes("reviewer-a") && names.includes("reviewer-b")));
+    const reviewerPrompt = ctx.calls.prompts["reviewer-a"]?.[0] ?? "";
     assert.match(reviewerPrompt, /grumpy senior developer/);
     assert.match(reviewerPrompt, /download or install them/);
     assert.match(reviewerPrompt, /only valid after you inspect the actual repository state/);
     assert.match(reviewerPrompt, /parsing the JSON object returned by this tool/);
-    const reviewerOptions = ctx.calls.taskOptions["reviewer-1-a"]?.[0];
+    const reviewerOptions = ctx.calls.taskOptions["reviewer-a"]?.[0];
     assert.ok(reviewerOptions?.customTools?.some((tool) => tool.name === "review_decision"));
     assert.equal(ctx.calls.parallelOptions.at(-1)?.failFast, false);
     assert.equal(result["approved"], true);
@@ -577,8 +783,11 @@ describe("ralph", () => {
     const ctx = makeMockCtx(
       { prompt: "test task", max_loops: 2 },
       {
-        task: (name) => {
-          if (name === "reviewer-1-a" || name === "reviewer-1-b") {
+        task: (name, _options, calls) => {
+          if (
+            (name === "reviewer-a" || name === "reviewer-b") &&
+            calls.task.filter((taskName) => taskName === name).length === 1
+          ) {
             return JSON.stringify({
               findings: [
                 {
@@ -599,7 +808,7 @@ describe("ralph", () => {
               reviewer_error: null,
             });
           }
-          if (name === "reviewer-2-a" || name === "reviewer-2-b") return approvedReviewJson();
+          if (name === "reviewer-a" || name === "reviewer-b") return approvedReviewJson();
           return undefined;
         },
       },

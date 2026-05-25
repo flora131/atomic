@@ -3,7 +3,7 @@
 <p align="center"><img width="800" height="450" alt="atomic-promo" src="./assets/atomic-promo.gif" /></p>
 
 <p align="center">
-  <b>Atomic is the workflow layer for coding agents.</b><br>
+  <b>Atomic is the workflow layer for coding agents, giving developers a programmable control plane for complex engineering work.</b><br>
   The model-backed agent session does the work. Atomic makes sure it follows the process.
 </p>
 

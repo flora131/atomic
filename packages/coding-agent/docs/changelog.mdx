@@ -3,15 +3,16 @@ title: "Changelog"
 description: "What's new in Atomic"
 ---
 
-<Update label="May 25, 2026" tags={["v0.8.14-0"]}>
+<Update label="May 25, 2026" tags={["v0.8.14"]}>
 
-## Prerelease updates
+## Stable release
 
+- **0.8.14 is the stable promotion of the 0.8.14 prerelease.** It keeps the upstream Pi sync, bundled workflow documentation refresh, and bundled subagent guidance updates from the prerelease.
 - **Synced with upstream Pi patches.** Atomic's coding-agent fork is now aligned with upstream Pi patches since v0.75.4 and bundles Pi libraries at 0.75.5.
 - **Bundled workflow docs are current.** The docs now describe Ralph's final PR-preparation phase, deep-research report artifacts, and newer workflow inspection/control actions such as `stages`, `stage`, `transcript`, `send`, `pause`, and `reload`. See [Workflows](/workflows).
 - **Bundled subagent guidance is easier to find.** Atomic now documents how to use bundled subagents for delegation, background work, nested fanout boundaries, model fallbacks, and custom agent guardrails. See [Subagents](/subagents).
 
-## Fixes carried forward
+## Fixes
 
 - Managed extension installs, git package ref reconciliation, async file tools, export HTML escaping, OpenCode session headers, OAuth device-code login, footer path abbreviation, clipboard native loading, and collapsed read output rendering received upstream fixes.
 - The built-in header model label now refreshes when you change models, matching the footer below the chat box.

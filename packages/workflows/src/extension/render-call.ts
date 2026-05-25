@@ -8,7 +8,21 @@ import { truncateToWidth } from "../tui/text-helpers.js";
 export interface WorkflowToolArgs {
   workflow?: string;
   inputs?: Record<string, unknown>;
-  action?: "run" | "list" | "get" | "status" | "interrupt" | "kill" | "resume" | "inputs";
+  action?:
+    | "run"
+    | "list"
+    | "get"
+    | "status"
+    | "stages"
+    | "stage"
+    | "transcript"
+    | "send"
+    | "pause"
+    | "interrupt"
+    | "kill"
+    | "resume"
+    | "reload"
+    | "inputs";
   runId?: string;
   task?: { name?: string; prompt?: string; task?: string } | string;
   tasks?: readonly unknown[];
@@ -61,6 +75,24 @@ export function renderCall(args: WorkflowToolArgs, opts: RenderCallOpts = {}): s
       break;
     case "run":
       line = name === undefined ? "workflow: run" : `workflow: run ${quoted(name)}`;
+      break;
+    case "stages":
+      line = name === undefined ? "workflow: list stages" : `workflow: list stages for ${quoted(name)}`;
+      break;
+    case "stage":
+      line = name === undefined ? "workflow: inspect stage" : `workflow: inspect stage in ${quoted(name)}`;
+      break;
+    case "transcript":
+      line = name === undefined ? "workflow: read stage transcript" : `workflow: read stage transcript in ${quoted(name)}`;
+      break;
+    case "send":
+      line = name === undefined ? "workflow: send to stage" : `workflow: send to stage in ${quoted(name)}`;
+      break;
+    case "pause":
+      line = name === undefined ? "workflow: pause run" : `workflow: pause run ${quoted(name)}`;
+      break;
+    case "reload":
+      line = "workflow: reload runtime";
       break;
     case "interrupt":
       line = name === undefined

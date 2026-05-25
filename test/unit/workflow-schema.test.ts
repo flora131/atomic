@@ -50,6 +50,69 @@ describe("WorkflowParametersSchema stage options", () => {
     assert.equal(Value.Check(WorkflowParametersSchema, payload), true);
   });
 
+  test("accepts stage introspection and control actions", () => {
+    for (const statusFilter of ["pending", "running", "awaiting_input", "paused", "blocked", "completed", "failed", "skipped", "all"] as const) {
+      assert.equal(Value.Check(WorkflowParametersSchema, {
+        action: "stages",
+        runId: "abc123",
+        statusFilter,
+      }), true);
+    }
+    assert.equal(Value.Check(WorkflowParametersSchema, {
+      action: "transcript",
+      runId: "abc123",
+      stageId: "review",
+      format: "text",
+      tail: 20,
+      includeToolOutput: true,
+    }), true);
+    assert.equal(Value.Check(WorkflowParametersSchema, {
+      action: "send",
+      runId: "abc123",
+      stageId: "review",
+      text: "continue",
+      delivery: "followUp",
+      promptId: "prompt-1",
+    }), true);
+    assert.equal(Value.Check(WorkflowParametersSchema, {
+      action: "pause",
+      runId: "abc123",
+      stageId: "review",
+    }), true);
+    assert.equal(Value.Check(WorkflowParametersSchema, {
+      action: "reload",
+      reason: "created a workflow file",
+    }), true);
+  });
+
+  test("exposes descriptions for agent-facing action fields", () => {
+    const properties = (WorkflowParametersSchema as unknown as {
+      properties: Record<string, { description?: string }>;
+    }).properties;
+
+    for (const field of [
+      "statusFilter",
+      "format",
+      "limit",
+      "tail",
+      "includeToolOutput",
+      "text",
+      "response",
+      "delivery",
+      "promptId",
+      "reason",
+    ]) {
+      assert.equal(typeof properties[field]?.description, "string", `${field} description`);
+      assert.ok((properties[field]?.description ?? "").length > 0, `${field} description`);
+    }
+  });
+
+  test("rejects invalid stage-control enum values", () => {
+    assert.equal(Value.Check(WorkflowParametersSchema, { action: "stages", statusFilter: "cancelled" }), false);
+    assert.equal(Value.Check(WorkflowParametersSchema, { action: "transcript", format: "markdown" }), false);
+    assert.equal(Value.Check(WorkflowParametersSchema, { action: "send", delivery: "chat" }), false);
+  });
+
   test("rejects non-array and non-string fallbackModels", () => {
     assert.equal(Value.Check(WorkflowParametersSchema, {
       task: { name: "planner", prompt: "plan", fallbackModels: "openai/fallback" },

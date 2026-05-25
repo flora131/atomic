@@ -20,11 +20,15 @@ import {
   tokenizeWorkflowArgs,
   makeExecuteWorkflowTool,
 } from "../../packages/workflows/src/extension/index.js";
+import { renderResult } from "../../packages/workflows/src/extension/render-result.js";
+import type { WorkflowToolResult } from "../../packages/workflows/src/extension/render-result.js";
 import type {
   ExtensionAPI,
   PiArgumentCompletion,
   PiCommandContext,
   PiCommandOptions,
+  PiToolOpts,
+  WorkflowToolArgs,
 } from "../../packages/workflows/src/extension/index.js";
 import { createRegistry } from "../../packages/workflows/src/workflows/registry.js";
 import { defineWorkflow } from "../../packages/workflows/src/workflows/define-workflow.js";
@@ -43,8 +47,13 @@ import { killAllRuns } from "../../packages/workflows/src/runs/background/status
 import { cancellationRegistry } from "../../packages/workflows/src/runs/background/cancellation-registry.js";
 import { jobTracker } from "../../packages/workflows/src/runs/background/job-tracker.js";
 import type { StageSessionRuntime } from "../../packages/workflows/src/runs/foreground/stage-runner.js";
+import {
+  stageControlRegistry,
+  type StageControlHandle,
+} from "../../packages/workflows/src/runs/foreground/stage-control-registry.js";
 
 afterEach(async () => {
+  stageControlRegistry.clear();
   killAllRuns({ store, cancellation: cancellationRegistry });
   await Promise.all(jobTracker.runIds().map((runId) => jobTracker.get(runId)?.promise));
   store.clear();
@@ -413,6 +422,7 @@ describe("getArgumentCompletions includes workflow names", () => {
     assert.ok(labels.includes("kill"));
     assert.ok(labels.includes("resume"));
     assert.ok(labels.includes("inputs"));
+    assert.ok(labels.includes("reload"));
     assert.equal(labels.includes("session"), false);
 
     assert.ok(labels.includes("deep-research-codebase"));
@@ -890,6 +900,88 @@ describe("tool run-control actions", () => {
     return makeExecuteWorkflowTool(runtime, () => undefined);
   }
 
+  async function makeRegisteredWorkflowTool(): Promise<PiToolOpts<WorkflowToolArgs, WorkflowToolResult>> {
+    const { pi } = buildMockPi();
+    addFactoryStubs(pi);
+    let registered: PiToolOpts<WorkflowToolArgs, WorkflowToolResult> | undefined;
+    pi.registerTool = (opts) => {
+      registered = opts as unknown as PiToolOpts<WorkflowToolArgs, WorkflowToolResult>;
+    };
+    const factoryModule = await import("../../packages/workflows/src/extension/index.js");
+    factoryModule.default(pi);
+    assert.ok(registered, "expected workflow tool registration");
+    return registered;
+  }
+
+  function registerLiveStageHandle(
+    runId: string,
+    stageId: string,
+  ): { followUps: string[]; dispose: () => void } {
+    const followUps: string[] = [];
+    const handle: StageControlHandle = {
+      runId,
+      stageId,
+      stageName: "ask",
+      status: "running",
+      sessionId: undefined,
+      sessionFile: undefined,
+      isStreaming: false,
+      messages: [],
+      async ensureAttached(): Promise<void> {},
+      async prompt(): Promise<void> {},
+      async steer(): Promise<void> {},
+      async followUp(text: string): Promise<void> {
+        followUps.push(text);
+      },
+      async pause(): Promise<void> {},
+      async resume(): Promise<void> {},
+      subscribe: () => () => {},
+    };
+    return { followUps, dispose: stageControlRegistry.register(handle) };
+  }
+
+  test("registered workflow tool content preserves full transcript text and supports JSON format", async () => {
+    const runId = `tool-content-transcript-${Date.now()}`;
+    const longText = `start-${"x".repeat(180)}-sentinel-end`;
+    store.recordRunStart(makeInflightRun(runId));
+    store.recordStageStart(runId, {
+      id: "stage-tool-content-1",
+      name: "summarize",
+      status: "completed",
+      parentIds: [],
+      toolEvents: [],
+      result: longText,
+      sessionId: "session-tool-content",
+      sessionFile: "/tmp/tool-content.jsonl",
+    });
+    const tool = await makeRegisteredWorkflowTool();
+
+    const textResult = await tool.execute(
+      "tool-content-text",
+      { action: "transcript", runId, stageId: "summarize" },
+      undefined,
+      undefined,
+      {} as never,
+    );
+    const textBlock = textResult.content[0];
+    assert.equal(textBlock?.type, "text");
+    const textContent = textBlock.type === "text" ? textBlock.text : "";
+    assert.ok(textContent.includes(longText), "plain tool content should include the full transcript entry");
+    assert.equal(textContent.includes("╭"), false, "tool content should not use clipped UI chrome");
+
+    const jsonResult = await tool.execute(
+      "tool-content-json",
+      { action: "transcript", runId, stageId: "summarize", format: "json" },
+      undefined,
+      undefined,
+      {} as never,
+    );
+    const jsonBlock = jsonResult.content[0];
+    assert.equal(jsonBlock?.type, "text");
+    const parsed = JSON.parse(jsonBlock.type === "text" ? jsonBlock.text : "{}");
+    assert.equal(parsed.entries[0].text, longText);
+  });
+
   test("makeExecuteWorkflowTool kill without runId defaults to the active run", async () => {
     const runId = `kill-tool-active-${Date.now()}`;
     store.recordRunStart(makeInflightRun(runId));
@@ -951,6 +1043,353 @@ describe("tool run-control actions", () => {
     assert.equal(r.runId, runId);
     assert.match(r.message, /No active stages to interrupt/);
     assert.equal(store.runs().find((run) => run.id === runId)?.status, "running");
+  });
+
+  test("makeExecuteWorkflowTool lists and inspects workflow stages", async () => {
+    const runId = `stage-tool-list-${Date.now()}`;
+    store.recordRunStart(makeInflightRun(runId));
+    store.recordStageStart(runId, { id: "stage-running-1", name: "scan", status: "running", parentIds: [], toolEvents: [] });
+    store.recordStageStart(runId, { id: "stage-failed-1", name: "review", status: "failed", parentIds: [], toolEvents: [], error: "boom" });
+    const handler = makeToolHandler();
+
+    const listResult = await handler({ action: "stages", runId, statusFilter: "failed" }, {} as never);
+    assert.equal(listResult.action, "stages");
+    const list = listResult as { action: string; stages: Array<{ name: string; status: string; error?: string }> };
+    assert.deepEqual(list.stages.map((stage) => stage.name), ["review"]);
+    assert.equal(list.stages[0]!.status, "failed");
+
+    const detailResult = await handler({ action: "stage", runId, stageId: "scan" }, {} as never);
+    assert.equal(detailResult.action, "stage");
+    const detail = detailResult as { action: string; stage?: { id: string; name: string; status: string } };
+    assert.equal(detail.stage?.id, "stage-running-1");
+    assert.equal(detail.stage?.status, "running");
+  });
+
+  test("makeExecuteWorkflowTool stages supports all stage status filters", async () => {
+    const runId = `stage-tool-status-filters-${Date.now()}`;
+    store.recordRunStart(makeInflightRun(runId));
+    for (const status of ["pending", "running", "awaiting_input", "paused", "blocked", "completed", "failed", "skipped"] as const) {
+      store.recordStageStart(runId, {
+        id: `stage-${status}`,
+        name: status,
+        status,
+        parentIds: [],
+        toolEvents: [],
+      });
+    }
+    const handler = makeToolHandler();
+
+    const completedResult = await handler({ action: "stages", runId, statusFilter: "completed" }, {} as never);
+
+    assert.equal(completedResult.action, "stages");
+    const completed = completedResult as { action: string; stages: Array<{ name: string; status: string }> };
+    assert.deepEqual(completed.stages.map(({ name, status }) => ({ name, status })), [
+      { name: "completed", status: "completed" },
+    ]);
+  });
+
+  test("makeExecuteWorkflowTool stages reports missing and ambiguous run targets", async () => {
+    const handler = makeToolHandler();
+
+    const missing = await handler({ action: "stages" }, {} as never);
+    assert.equal(missing.action, "stages");
+    const missingStages = missing as { action: string; runId: string; error?: string; stages: unknown[] };
+    assert.equal(missingStages.runId, "");
+    assert.deepEqual(missingStages.stages, []);
+    assert.match(missingStages.error ?? "", /No active run to inspect/);
+    assert.match(renderResult(missing, { plain: true }), /No active run to inspect/);
+
+    store.recordRunStart(makeInflightRun("stages-ambiguous-run-a"));
+    store.recordRunStart(makeInflightRun("stages-ambiguous-run-b"));
+    const ambiguous = await handler({ action: "stages", runId: "stages-ambiguous-run" }, {} as never);
+    assert.equal(ambiguous.action, "stages");
+    const ambiguousStages = ambiguous as { action: string; runId: string; error?: string; stages: unknown[] };
+    assert.equal(ambiguousStages.runId, "stages-ambiguous-run");
+    assert.deepEqual(ambiguousStages.stages, []);
+    assert.match(ambiguousStages.error ?? "", /Ambiguous run prefix/);
+    assert.match(renderResult(ambiguous, { plain: true }), /Ambiguous run prefix/);
+  });
+
+  test("makeExecuteWorkflowTool returns chronologically final snapshot result after tools", async () => {
+    const runId = `stage-tool-transcript-${Date.now()}`;
+    store.recordRunStart(makeInflightRun(runId));
+    store.recordStageStart(runId, {
+      id: "stage-transcript-1",
+      name: "summarize",
+      status: "completed",
+      parentIds: [],
+      toolEvents: [{ name: "read", output: "file contents", startedAt: 1, endedAt: 2 }],
+      result: "done",
+      sessionId: "session-1",
+      sessionFile: "/tmp/session.jsonl",
+    });
+    const handler = makeToolHandler();
+
+    const result = await handler({ action: "transcript", runId, stageId: "summarize", tail: 1, includeToolOutput: true }, {} as never);
+
+    assert.equal(result.action, "transcript");
+    const transcript = result as { action: string; source: string; entries: Array<{ role: string; text?: string; output?: string }>; truncated: boolean; sessionFile?: string };
+    assert.equal(transcript.source, "snapshot");
+    assert.equal(transcript.sessionFile, "/tmp/session.jsonl");
+    assert.equal(transcript.truncated, true);
+    assert.deepEqual(transcript.entries, [{ role: "assistant", text: "done" }]);
+  });
+
+  test("makeExecuteWorkflowTool returns final snapshot error after timestamped tools", async () => {
+    const runId = `stage-tool-transcript-error-${Date.now()}`;
+    store.recordRunStart(makeInflightRun(runId));
+    store.recordStageStart(runId, {
+      id: "stage-transcript-error-1",
+      name: "review",
+      status: "failed",
+      parentIds: [],
+      toolEvents: [{ name: "grep", output: "matches", startedAt: 10, endedAt: 11 }],
+      error: "boom",
+      endedAt: 12,
+    });
+    const handler = makeToolHandler();
+
+    const result = await handler({ action: "transcript", runId, stageId: "review", tail: 1, includeToolOutput: true }, {} as never);
+
+    assert.equal(result.action, "transcript");
+    const transcript = result as { action: string; entries: Array<{ role: string; text?: string; timestamp?: number }>; truncated: boolean };
+    assert.equal(transcript.truncated, true);
+    assert.deepEqual(transcript.entries, [{ role: "notice", text: "boom", timestamp: 12 }]);
+  });
+
+  test("makeExecuteWorkflowTool keeps terminal snapshot entries after tools for tied timestamps", async () => {
+    const runId = `stage-tool-transcript-tie-${Date.now()}`;
+    store.recordRunStart(makeInflightRun(runId));
+    store.recordStageStart(runId, {
+      id: "stage-transcript-tie-1",
+      name: "tie",
+      status: "completed",
+      parentIds: [],
+      toolEvents: [{ name: "read", output: "file contents", startedAt: 4, endedAt: 5 }],
+      result: "finished",
+      endedAt: 5,
+    });
+    const handler = makeToolHandler();
+
+    const result = await handler({ action: "transcript", runId, stageId: "tie", tail: 1, includeToolOutput: true }, {} as never);
+
+    assert.equal(result.action, "transcript");
+    const transcript = result as { action: string; entries: Array<{ role: string; text?: string; timestamp?: number }>; truncated: boolean };
+    assert.equal(transcript.truncated, true);
+    assert.deepEqual(transcript.entries, [{ role: "assistant", text: "finished", timestamp: 5 }]);
+  });
+
+  test("makeExecuteWorkflowTool preserves empty final snapshot result after tools", async () => {
+    const runId = `stage-tool-transcript-empty-result-${Date.now()}`;
+    store.recordRunStart(makeInflightRun(runId));
+    store.recordStageStart(runId, {
+      id: "stage-transcript-empty-result-1",
+      name: "empty-result",
+      status: "completed",
+      parentIds: [],
+      toolEvents: [{ name: "read", output: "file contents", startedAt: 1, endedAt: 2 }],
+      result: "",
+    });
+    const handler = makeToolHandler();
+
+    const result = await handler({ action: "transcript", runId, stageId: "empty-result", tail: 1, includeToolOutput: true }, {} as never);
+
+    assert.equal(result.action, "transcript");
+    const transcript = result as { action: string; entries: Array<{ role: string; text?: string }>; truncated: boolean };
+    assert.equal(transcript.truncated, true);
+    assert.deepEqual(transcript.entries, [{ role: "assistant", text: "" }]);
+  });
+
+  test("makeExecuteWorkflowTool preserves empty final snapshot error after tools", async () => {
+    const runId = `stage-tool-transcript-empty-error-${Date.now()}`;
+    store.recordRunStart(makeInflightRun(runId));
+    store.recordStageStart(runId, {
+      id: "stage-transcript-empty-error-1",
+      name: "empty-error",
+      status: "failed",
+      parentIds: [],
+      toolEvents: [{ name: "grep", output: "matches", startedAt: 10, endedAt: 11 }],
+      error: "",
+    });
+    const handler = makeToolHandler();
+
+    const result = await handler({ action: "transcript", runId, stageId: "empty-error", tail: 1, includeToolOutput: true }, {} as never);
+
+    assert.equal(result.action, "transcript");
+    const transcript = result as { action: string; entries: Array<{ role: string; text?: string }>; truncated: boolean };
+    assert.equal(transcript.truncated, true);
+    assert.deepEqual(transcript.entries, [{ role: "notice", text: "" }]);
+  });
+
+  test("makeExecuteWorkflowTool answers stage pending prompts", async () => {
+    const runId = `stage-tool-send-${Date.now()}`;
+    store.recordRunStart(makeInflightRun(runId));
+    store.recordStageStart(runId, { id: "stage-prompt-1", name: "ask", status: "awaiting_input", parentIds: [], toolEvents: [] });
+    store.recordStagePendingPrompt(runId, "stage-prompt-1", { id: "prompt-1", kind: "input", message: "Value?", createdAt: Date.now() });
+    const handler = makeToolHandler();
+
+    const result = await handler({ action: "send", runId, stageId: "ask", text: "42" }, {} as never);
+
+    assert.equal(result.action, "send");
+    const send = result as { action: string; delivery: string; status: string; message: string };
+    assert.equal(send.delivery, "answer");
+    assert.equal(send.status, "ok");
+    assert.match(send.message, /Answered prompt/);
+    const stage = store.runs().find((run) => run.id === runId)?.stages.find((s) => s.id === "stage-prompt-1");
+    assert.equal(stage?.pendingPrompt, undefined);
+  });
+
+  test("makeExecuteWorkflowTool leaves pending prompts untouched when payload is omitted", async () => {
+    const runId = `stage-tool-send-omitted-${Date.now()}`;
+    store.recordRunStart(makeInflightRun(runId));
+    store.recordStageStart(runId, { id: "stage-prompt-omitted", name: "ask-omitted", status: "awaiting_input", parentIds: [], toolEvents: [] });
+    store.recordStagePendingPrompt(runId, "stage-prompt-omitted", { id: "prompt-omitted", kind: "input", message: "Value?", createdAt: Date.now() });
+    const handler = makeToolHandler();
+
+    const result = await handler({ action: "send", runId, stageId: "ask-omitted" }, {} as never);
+
+    assert.equal(result.action, "send");
+    const send = result as { action: string; delivery: string; status: string; message: string };
+    assert.equal(send.delivery, "answer");
+    assert.equal(send.status, "noop");
+    assert.match(send.message, /requires text, response, or message/);
+    const stage = store.runs().find((run) => run.id === runId)?.stages.find((s) => s.id === "stage-prompt-omitted");
+    assert.equal(stage?.pendingPrompt?.id, "prompt-omitted");
+  });
+
+  test("makeExecuteWorkflowTool delivery answer without a pending prompt does not fall through to live followUp", async () => {
+    const runId = `stage-tool-send-answer-no-prompt-${Date.now()}`;
+    store.recordRunStart(makeInflightRun(runId));
+    store.recordStageStart(runId, { id: "stage-no-prompt", name: "ask", status: "running", parentIds: [], toolEvents: [] });
+    const { followUps, dispose } = registerLiveStageHandle(runId, "stage-no-prompt");
+    const handler = makeToolHandler();
+
+    try {
+      const result = await handler({ action: "send", runId, stageId: "ask", delivery: "answer", text: "42" }, {} as never);
+
+      assert.equal(result.action, "send");
+      const send = result as { action: string; delivery: string; status: string; message: string };
+      assert.equal(send.delivery, "answer");
+      assert.equal(send.status, "noop");
+      assert.match(send.message, /No pending prompt/);
+      assert.deepEqual(followUps, []);
+    } finally {
+      dispose();
+    }
+  });
+
+  test("makeExecuteWorkflowTool auto delivery without a targeted prompt still queues a live followUp", async () => {
+    const runId = `stage-tool-send-auto-live-${Date.now()}`;
+    store.recordRunStart(makeInflightRun(runId));
+    store.recordStageStart(runId, { id: "stage-auto-live", name: "ask", status: "running", parentIds: [], toolEvents: [] });
+    const { followUps, dispose } = registerLiveStageHandle(runId, "stage-auto-live");
+    const handler = makeToolHandler();
+
+    try {
+      const result = await handler({ action: "send", runId, stageId: "ask", text: "next" }, {} as never);
+
+      assert.equal(result.action, "send");
+      const send = result as { action: string; delivery: string; status: string; message: string };
+      assert.equal(send.delivery, "followUp");
+      assert.equal(send.status, "ok");
+      assert.deepEqual(followUps, ["next"]);
+    } finally {
+      dispose();
+    }
+  });
+
+  test("makeExecuteWorkflowTool promptId mismatch does not fall through to live followUp", async () => {
+    const runId = `stage-tool-send-prompt-mismatch-${Date.now()}`;
+    store.recordRunStart(makeInflightRun(runId));
+    store.recordStageStart(runId, { id: "stage-prompt-mismatch", name: "ask", status: "awaiting_input", parentIds: [], toolEvents: [] });
+    store.recordStagePendingPrompt(runId, "stage-prompt-mismatch", { id: "prompt-real", kind: "input", message: "Value?", createdAt: Date.now() });
+    const { followUps, dispose } = registerLiveStageHandle(runId, "stage-prompt-mismatch");
+    const handler = makeToolHandler();
+
+    try {
+      const result = await handler({ action: "send", runId, stageId: "ask", promptId: "prompt-missing", text: "42" }, {} as never);
+
+      assert.equal(result.action, "send");
+      const send = result as { action: string; delivery: string; status: string; message: string };
+      assert.equal(send.delivery, "answer");
+      assert.equal(send.status, "noop");
+      assert.match(send.message, /No matching pending prompt prompt-missing/);
+      assert.deepEqual(followUps, []);
+      const stage = store.runs().find((run) => run.id === runId)?.stages.find((s) => s.id === "stage-prompt-mismatch");
+      assert.equal(stage?.pendingPrompt?.id, "prompt-real");
+    } finally {
+      dispose();
+    }
+  });
+
+  test("makeExecuteWorkflowTool treats explicit empty text prompt payload as an answer", async () => {
+    const runId = `stage-tool-send-empty-${Date.now()}`;
+    store.recordRunStart(makeInflightRun(runId));
+    store.recordStageStart(runId, { id: "stage-prompt-empty", name: "ask-empty", status: "awaiting_input", parentIds: [], toolEvents: [] });
+    store.recordStagePendingPrompt(runId, "stage-prompt-empty", { id: "prompt-empty", kind: "input", message: "Value?", createdAt: Date.now() });
+    const handler = makeToolHandler();
+
+    const result = await handler({ action: "send", runId, stageId: "ask-empty", text: "" }, {} as never);
+
+    assert.equal(result.action, "send");
+    const send = result as { action: string; delivery: string; status: string; message: string };
+    assert.equal(send.delivery, "answer");
+    assert.equal(send.status, "ok");
+    assert.match(send.message, /Answered prompt/);
+    const stage = store.runs().find((run) => run.id === runId)?.stages.find((s) => s.id === "stage-prompt-empty");
+    assert.equal(stage?.pendingPrompt, undefined);
+  });
+
+  test("makeExecuteWorkflowTool treats explicit empty response prompt payload as an answer", async () => {
+    const runId = `stage-tool-send-empty-response-${Date.now()}`;
+    store.recordRunStart(makeInflightRun(runId));
+    store.recordStageStart(runId, { id: "stage-prompt-empty-response", name: "ask-empty-response", status: "awaiting_input", parentIds: [], toolEvents: [] });
+    store.recordStagePendingPrompt(runId, "stage-prompt-empty-response", { id: "prompt-empty-response", kind: "input", message: "Value?", createdAt: Date.now() });
+    const handler = makeToolHandler();
+
+    const result = await handler({ action: "send", runId, stageId: "ask-empty-response", response: "" }, {} as never);
+
+    assert.equal(result.action, "send");
+    const send = result as { action: string; delivery: string; status: string; message: string };
+    assert.equal(send.delivery, "answer");
+    assert.equal(send.status, "ok");
+    assert.match(send.message, /Answered prompt/);
+    const stage = store.runs().find((run) => run.id === runId)?.stages.find((s) => s.id === "stage-prompt-empty-response");
+    assert.equal(stage?.pendingPrompt, undefined);
+  });
+
+  test("makeExecuteWorkflowTool reloads directly without sending a literal slash command", async () => {
+    const registry = createRegistry([]);
+    const runtime = createExtensionRuntime({ registry });
+    let reloads = 0;
+    const handler = makeExecuteWorkflowTool(runtime, () => undefined, async () => {
+      reloads += 1;
+    });
+    const sent: string[] = [];
+
+    const result = await handler({ action: "reload", reason: "test" }, {
+      sendUserMessage: (content: string) => {
+        sent.push(content);
+      },
+    } as never);
+
+    assert.equal(result.action, "reload");
+    const reload = result as { action: string; status: string; message: string };
+    assert.equal(reload.status, "ok");
+    assert.match(reload.message, /Reloaded workflow resources/);
+    assert.equal(reloads, 1);
+    assert.deepEqual(sent, []);
+  });
+
+  test("makeExecuteWorkflowTool reload returns noop when no direct callback is available", async () => {
+    const handler = makeToolHandler();
+
+    const result = await handler({ action: "reload", reason: "test" }, {} as never);
+
+    assert.equal(result.action, "reload");
+    const reload = result as { action: string; status: string; message: string };
+    assert.equal(reload.status, "noop");
+    assert.match(reload.message, /Reload unavailable/);
   });
 
   test("makeExecuteWorkflowTool returns ambiguous run-prefix messages", async () => {

@@ -192,6 +192,7 @@ registry.get("alpha"); // compiled workflow definition | undefined
 | `/workflow interrupt [run-id\|--all]` | Pause active/named/all active runs so they can resume    |
 | `/workflow kill [run-id\|--all]`      | Kill and remove active/named/all active runs from status |
 | `/workflow resume <run-id>`           | Resume paused work or re-open a run snapshot             |
+| `/workflow reload`                    | Reload discovered workflow resources in-process          |
 | `/workflow inputs <name>`             | Print the input schema for a workflow                    |
 
 Input overrides are bare `key=value` tokens (no leading `--`). Values are JSON-parsed when possible, so numbers, booleans, and quoted strings work as expected (e.g. `count=3`, `flag=true`, `prompt="multi word value"`). A whole-object override can be passed as a single JSON token (e.g. `{"prompt":"...","count":3}`).
@@ -207,10 +208,10 @@ Workflows always run as **background tasks** — the chat editor stays free whil
   "parameters": {
     "workflow": "string (optional) — workflow ID or normalized name",
     "inputs": "object (optional) — key/value map of workflow inputs",
-    "action": "'run' | 'list' | 'get' | 'inputs' | 'status' | 'interrupt' | 'kill' | 'resume'",
-    "runId": "optional run id or unique prefix; interrupt/kill default to the active run; use '--all' or all:true for interrupt/kill all",
-    "stageId": "optional stage id, prefix, or name for resume",
-    "message": "optional resume message",
+    "action": "'run' | 'list' | 'get' | 'inputs' | 'status' | 'stages' | 'stage' | 'transcript' | 'send' | 'pause' | 'interrupt' | 'kill' | 'resume' | 'reload'",
+    "runId": "optional run id or unique prefix; control actions default to the active run where safe; use '--all' or all:true for interrupt/kill all",
+    "stageId": "optional stage id, prefix, or name for stage-scoped actions",
+    "text/response/message": "optional payload for send/resume; explicit empty text/response answers pending prompts, omitted payload does not",
     "all": "optional boolean for interrupt/kill all",
     "task/tasks/chain": "optional direct workflow-native orchestration modes"
   }
@@ -219,6 +220,9 @@ Workflows always run as **background tasks** — the chat editor stays free whil
 
 - **`renderCall`** — renders a compact workflow call summary in the chat scroll.
 - **`renderResult`** — renders the result or dispatch banner; live progress continues through the widget and graph viewer. Named workflow runs are background-oriented.
+- **`transcript`** — falls back to stored stage snapshots when no live session transcript is available; snapshot entries are ordered chronologically before `tail`/`limit` is applied, with terminal result/error entries kept after tool entries when timestamps are missing or tied.
+- **`send`** — answers pending stage prompts only when `text`, `response`, or `message` is present; an explicit empty string is a valid answer, while an omitted payload is a no-op.
+- **`reload`** — refreshes workflow resources directly in-process instead of queuing a literal `/workflow reload` chat follow-up.
 
 ### F2 keyboard shortcut
 

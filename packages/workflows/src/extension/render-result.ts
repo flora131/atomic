@@ -11,7 +11,7 @@
  *  - pi-subagents src/extension/index.ts renderResult slot
  */
 
-import type { RunSnapshot, StageSnapshot } from "../shared/store-types.js";
+import type { RunSnapshot, StageSnapshot, StageStatus } from "../shared/store-types.js";
 import type { WorkflowDetails } from "../shared/types.js";
 import type { RunDetail } from "../runs/background/status.js";
 import { renderInputsSchema } from "../shared/render-inputs-schema.js";
@@ -98,6 +98,32 @@ type RunResult = {
    */
   message?: string;
 };
+type StageListItem = {
+  id: string;
+  name: string;
+  status: StageStatus;
+  sessionId?: string;
+  sessionFile?: string;
+  error?: string;
+  awaitingInputSince?: number;
+  pendingPrompt?: { id: string; kind: string; message: string; choices?: readonly string[]; createdAt: number };
+};
+type StageListResult = { action: "stages"; runId: string; filter: string; stages: StageListItem[]; error?: string };
+type StageDetailResult = { action: "stage"; runId: string; stage?: StageSnapshot; error?: string };
+type TranscriptEntry = { role: string; text?: string; toolName?: string; output?: string; timestamp?: number };
+type TranscriptResult = {
+  action: "transcript";
+  runId: string;
+  stageId: string;
+  source: "live" | "snapshot";
+  entries: TranscriptEntry[];
+  truncated: boolean;
+  sessionId?: string;
+  sessionFile?: string;
+};
+type SendResult = { action: "send"; runId: string; stageId: string; delivery: string; status: "ok" | "noop"; message: string };
+type PauseResult = { action: "pause"; runId: string; status: string; message: string };
+type ReloadResult = { action: "reload"; status: "ok" | "noop"; message: string };
 type InterruptResult = { action: "interrupt"; runId: string; status: string; message: string };
 type KillResult = { action: "kill"; runId: string; status: string; message: string };
 type ResumeResult = { action: "resume"; runId: string; status: string; message: string };
@@ -109,6 +135,12 @@ export type WorkflowToolResult =
   | InputsResult
   | GetResult
   | RunResult
+  | StageListResult
+  | StageDetailResult
+  | TranscriptResult
+  | SendResult
+  | PauseResult
+  | ReloadResult
   | InterruptResult
   | KillResult
   | ResumeResult;
@@ -254,6 +286,42 @@ export function renderResult(result: WorkflowToolResult, opts?: RenderResultOpts
         opts,
         themed,
       );
+    }
+
+    case "stages": {
+      const r = result as StageListResult;
+      if (r.error) return renderNotice("WORKFLOW STAGES", `${r.runId || "(none)"}: ${r.error}`, opts, themed);
+      const counts = r.stages.map((s) => `${s.name} (${s.id.slice(0, 12)}): ${s.status}`).join("; ");
+      return renderNotice("WORKFLOW STAGES", `${r.runId}: ${r.filter} — ${counts || "no stages"}`, opts, themed);
+    }
+
+    case "stage": {
+      const r = result as StageDetailResult;
+      if (r.error || !r.stage) return renderNotice("WORKFLOW STAGE", `${r.runId}: ${r.error ?? "stage not found"}`, opts, themed);
+      const extra = r.stage.error ? ` — ${r.stage.error}` : r.stage.result ? ` — ${r.stage.result}` : "";
+      return renderNotice("WORKFLOW STAGE", `${r.runId}: ${r.stage.name} (${r.stage.id.slice(0, 12)}) ${r.stage.status}${extra}`, opts, themed);
+    }
+
+    case "transcript": {
+      const r = result as TranscriptResult;
+      const text = r.entries.map((entry) => `${entry.role}: ${entry.text ?? entry.output ?? entry.toolName ?? ""}`).join(" | ");
+      const suffix = r.truncated ? " (truncated)" : "";
+      return renderNotice("WORKFLOW TRANSCRIPT", `${r.runId}/${r.stageId.slice(0, 12)} ${r.source}: ${text || "no transcript entries"}${suffix}`, opts, themed);
+    }
+
+    case "send": {
+      const r = result as SendResult;
+      return renderNotice("WORKFLOW SEND", `${r.runId}/${r.stageId.slice(0, 12)} ${r.delivery}: ${r.message}`, opts, themed);
+    }
+
+    case "pause": {
+      const r = result as PauseResult;
+      return renderNotice("WORKFLOW PAUSE", `${r.runId}: ${r.message}`, opts, themed);
+    }
+
+    case "reload": {
+      const r = result as ReloadResult;
+      return renderNotice("WORKFLOW RELOAD", r.message, opts, themed);
     }
 
     case "interrupt": {

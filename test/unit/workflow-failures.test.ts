@@ -40,4 +40,51 @@ describe("classifyWorkflowFailure", () => {
     assert.equal(failure.retryable, true);
     assert.equal(failure.resumable, true);
   });
+
+  test("does not treat log information/input errors as auth failures", () => {
+    for (const message of [
+      "failed to log information about request",
+      "failed to log input before validation",
+    ]) {
+      const failure = classifyWorkflowFailure(new Error(message));
+      assert.equal(failure.kind, "unknown");
+      assert.equal(failure.userMessage, message);
+      assert.equal(failure.retryable, false);
+    }
+  });
+
+  test("still treats bounded log in guidance as auth failure", () => {
+    const failure = classifyWorkflowFailure(new Error("Please log in to continue"));
+    assert.equal(failure.kind, "auth");
+    assert.equal(failure.userMessage, WORKFLOW_AUTH_FAILURE_MESSAGE);
+  });
+
+  test("does not treat generic domain/tool model errors as provider outages", () => {
+    for (const message of [
+      "domain model validation failed",
+      "invalid model parameter passed to tool",
+    ]) {
+      const failure = classifyWorkflowFailure(new Error(message));
+      assert.equal(failure.kind, "unknown");
+      assert.equal(failure.retryable, false);
+    }
+  });
+
+  test("still treats unavailable model errors as provider outages", () => {
+    const failure = classifyWorkflowFailure(new Error("model unavailable"));
+    assert.equal(failure.kind, "provider");
+    assert.equal(failure.retryable, true);
+  });
+
+  test("does not treat generic OAuth metadata errors as auth failures", () => {
+    const failure = classifyWorkflowFailure(new Error("OAuth callback metadata parse failed"));
+    assert.equal(failure.kind, "unknown");
+    assert.equal(failure.userMessage, "OAuth callback metadata parse failed");
+  });
+
+  test("still treats OAuth token errors as auth failures", () => {
+    const failure = classifyWorkflowFailure(new Error("OAuth token expired"));
+    assert.equal(failure.kind, "auth");
+    assert.equal(failure.userMessage, WORKFLOW_AUTH_FAILURE_MESSAGE);
+  });
 });

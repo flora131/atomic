@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
-- Stopped eagerly starting MCP OAuth callback handling during session startup, preventing non-blocking OAuth initialization failures from surfacing as workflow/orchestrator errors.
+- Demoted non-blocking MCP OAuth callback startup failures to debug logging so workflow/orchestrator output no longer shows benign initialization noise.
 
 ## [2.6.1] - 2026-05-13
 

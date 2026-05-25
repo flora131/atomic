@@ -1,6 +1,7 @@
 import { afterEach, test } from "bun:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync } from "node:fs";
+import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import mcpAdapter from "../../packages/mcp/index.ts";
@@ -13,6 +14,53 @@ type SessionStartHandler = (event: SessionStartEvent, ctx: SessionStartContext) 
 const originalArgv = [...process.argv];
 const originalCwd = process.cwd();
 const originalAtomicAgentDir = process.env.ATOMIC_CODING_AGENT_DIR;
+const OAUTH_CALLBACK_PORT = 19876;
+const OAUTH_CALLBACK_PORT_SCAN_ATTEMPTS = 25;
+
+async function occupyCallbackPort(port: number): Promise<Server | null> {
+  const server = createServer((_req, res) => {
+    res.statusCode = 204;
+    res.end();
+  });
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const onError = (error: Error) => reject(error);
+      server.once("error", onError);
+      server.listen(port, "localhost", () => {
+        server.off("error", onError);
+        resolve();
+      });
+    });
+    return server;
+  } catch (error) {
+    const nodeError = error as Error & { readonly code?: string };
+    if (nodeError.code === "EADDRINUSE") {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function occupyCallbackPorts(): Promise<Server[]> {
+  const servers: Server[] = [];
+  try {
+    for (let offset = 0; offset < OAUTH_CALLBACK_PORT_SCAN_ATTEMPTS; offset += 1) {
+      const server = await occupyCallbackPort(OAUTH_CALLBACK_PORT + offset);
+      if (server) servers.push(server);
+    }
+    return servers;
+  } catch (error) {
+    await closeServers(servers);
+    throw error;
+  }
+}
+
+async function closeServers(servers: Server[]): Promise<void> {
+  await Promise.all(servers.map((server) => new Promise<void>((resolve) => {
+    server.close(() => resolve());
+  })));
+}
 
 afterEach(async () => {
   process.argv = [...originalArgv];
@@ -25,7 +73,8 @@ afterEach(async () => {
   await stopCallbackServer();
 });
 
-test("MCP session startup leaves OAuth callback handling lazy", async () => {
+test("MCP session startup suppresses non-blocking OAuth callback initialization failures", async () => {
+  const occupiedServers = await occupyCallbackPorts();
   const tempDir = mkdtempSync(join(tmpdir(), "atomic-mcp-oauth-startup-"));
   const configPath = join(tempDir, "mcp.json");
   writeFileSync(configPath, JSON.stringify({ mcpServers: {} }));
@@ -69,5 +118,6 @@ test("MCP session startup leaves OAuth callback handling lazy", async () => {
     );
   } finally {
     console.error = originalConsoleError;
+    await closeServers(occupiedServers);
   }
 });

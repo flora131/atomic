@@ -41,6 +41,51 @@ describe("classifyWorkflowFailure", () => {
     assert.equal(failure.resumable, true);
   });
 
+  test("uses structured HTTP statuses before message fallback", () => {
+    const auth = classifyWorkflowFailure({ message: "request failed", status: 401 });
+    assert.equal(auth.kind, "auth");
+    assert.equal(auth.userMessage, WORKFLOW_AUTH_FAILURE_MESSAGE);
+
+    const rateLimit = classifyWorkflowFailure({ message: "request failed", statusCode: 429 });
+    assert.equal(rateLimit.kind, "rate_limit");
+    assert.equal(rateLimit.retryable, true);
+
+    const provider = classifyWorkflowFailure({ message: "request failed", status: 503 });
+    assert.equal(provider.kind, "provider");
+    assert.equal(provider.retryable, true);
+  });
+
+  test("uses structured codes and causes before message fallback", () => {
+    const auth = classifyWorkflowFailure({ message: "provider error", code: "AUTH_REQUIRED" });
+    assert.equal(auth.kind, "auth");
+
+    const rateLimit = classifyWorkflowFailure(new Error("outer failure", {
+      cause: { message: "inner failure", code: "rate_limit_exceeded" },
+    }));
+    assert.equal(rateLimit.kind, "rate_limit");
+
+    const cancelled = classifyWorkflowFailure({ message: "stopped", code: "AbortError" });
+    assert.equal(cancelled.kind, "cancelled");
+  });
+
+  test("uses SDK assistant error shapes", () => {
+    const failure = classifyWorkflowFailure({
+      role: "assistant",
+      stopReason: "error",
+      errorMessage: "provider request failed",
+      diagnostics: [{ error: { code: 429, message: "quota exceeded" } }],
+    });
+    assert.equal(failure.kind, "rate_limit");
+    assert.equal(failure.message, "provider request failed");
+
+    const cancelled = classifyWorkflowFailure({
+      role: "assistant",
+      stopReason: "aborted",
+      errorMessage: "stream aborted",
+    });
+    assert.equal(cancelled.kind, "cancelled");
+  });
+
   test("does not treat log information/input errors as auth failures", () => {
     for (const message of [
       "failed to log information about request",
@@ -70,10 +115,12 @@ describe("classifyWorkflowFailure", () => {
     }
   });
 
-  test("still treats unavailable model errors as provider outages", () => {
-    const failure = classifyWorkflowFailure(new Error("model unavailable"));
-    assert.equal(failure.kind, "provider");
-    assert.equal(failure.retryable, true);
+  test("still treats unavailable or missing model errors as provider outages", () => {
+    for (const message of ["model unavailable", "model not found"]) {
+      const failure = classifyWorkflowFailure(new Error(message));
+      assert.equal(failure.kind, "provider");
+      assert.equal(failure.retryable, true);
+    }
   });
 
   test("does not treat generic OAuth metadata errors as auth failures", () => {

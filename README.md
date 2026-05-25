@@ -21,6 +21,7 @@
 
 <p align="center">
   <a href="https://docs.bastani.ai/"><img src="https://img.shields.io/badge/docs-atomic-blue" alt="Docs"></a>
+  <a href="https://discord.gg/9CvdXUGXR4"><img src="https://img.shields.io/badge/join%20community-discord-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
   <a href="https://deepwiki.com/flora131/atomic"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
   <a href="./package.json"><img src="https://img.shields.io/badge/TypeScript-6.x-3178C6?logo=typescript&logoColor=white" alt="TypeScript"></a>
   <a href="./package.json"><img src="https://img.shields.io/badge/Bun-Runtime-f9f1e1?logo=bun&logoColor=black" alt="Bun"></a>
@@ -319,6 +320,12 @@ Research lives in `research/`, specs live in `specs/`, and workflow runs can per
 Full documentation lives at **[docs.bastani.ai](https://docs.bastani.ai/)** — the CLI and SDK reference, security model, containerized execution, the workflow panel, session management, configuration, troubleshooting, FAQ, and side-by-side comparisons with Spec-Kit, DeerFlow, and Hermes.
 
 The docs are open source in this repository under [`packages/coding-agent/docs`](./packages/coding-agent/docs). Open a PR against this project to suggest a change.
+
+---
+
+## Support & ideas
+
+Join the [Atomic Discord community](https://discord.gg/9CvdXUGXR4) to get in touch with us and other Atomic users. Use it for questions and help, feedback or feature ideas, and sharing what you've been able to build with Atomic.
 
 ---
 

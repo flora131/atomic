@@ -233,7 +233,7 @@ Workflows define the outer loop: inputs, steps, branches, parallelism, retries, 
 | `open-claude-design`     | End-to-end design generation: discovers your design system, generates from a prompt, refines with feedback, and exports a handoff directory.                                                                                                                                                 | `/workflow open-claude-design prompt="Team activity feed" reference=./mocks/feed.png output_type=prototype`                                                                                  |
 | _author your own_        | Anything outside the built-ins: issue-to-PR, review-to-merge, migration, triage, release, compliance, or team-specific review pipelines. Describe the process in natural language and Atomic can scaffold a `defineWorkflow()` file with typed CLI flags.                                    | _"Create a reusable workflow that takes an issue, writes a plan, creates a branch, runs implementation and review stages, runs tests and lint, then stops for approval before final output."_ |
 
-Run `/workflow list` to see installed workflows and `/workflow inputs <name>` for input schemas. `/workflow status <id>`, `/workflow connect <id>`, and `/workflow resume <id>` manage running or paused runs. Runnable references live in [`examples/`](./examples).
+Run `/workflow list` to see installed workflows and `/workflow inputs <name>` for input schemas. `/workflow status <id>`, `/workflow connect <id>`, and `/workflow resume <id>` manage running or paused runs. Runnable references live in [`packages/coding-agent/examples/`](./packages/coding-agent/examples).
 
 ### 2. Skills
 

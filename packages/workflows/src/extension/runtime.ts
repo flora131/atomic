@@ -24,8 +24,9 @@ import type {
   WorkflowModelCatalogPort,
 } from "../shared/types.js";
 import type { StageAdapters } from "../runs/foreground/stage-runner.js";
-import { runChain, runParallel, runTask, type RunOpts } from "../runs/foreground/executor.js";
+import { resolveInputs, runChain, runParallel, runTask, type RunOpts } from "../runs/foreground/executor.js";
 import type { Store } from "../shared/store.js";
+import type { RunSnapshot } from "../shared/store-types.js";
 import type { CancellationRegistry } from "../runs/background/cancellation-registry.js";
 import { store as defaultStore } from "../shared/store.js";
 import { dispatch } from "./dispatcher.js";
@@ -39,6 +40,7 @@ import {
   type WorkflowResultIntercomPort,
 } from "../intercom/result-intercom.js";
 import { validateWorkflowModels } from "../runs/shared/model-fallback.js";
+import { runDetached } from "../runs/background/runner.js";
 
 // ---------------------------------------------------------------------------
 // Options
@@ -81,6 +83,10 @@ export interface ExtensionRuntimeOpts {
 // Public interface
 // ---------------------------------------------------------------------------
 
+export type ResumeFailedRunResult =
+  | { ok: true; runId: string; sourceRunId: string; resumeFromStageId: string; message: string }
+  | { ok: false; reason: "run_not_found" | "not_resumable" | "workflow_not_found" | "insufficient_state"; message: string };
+
 export interface ExtensionRuntime {
   /**
    * Live registry — read-only reference.
@@ -96,6 +102,9 @@ export interface ExtensionRuntime {
 
   /** Execute direct single/parallel/chain workflow tool modes. */
   runDirect(args: WorkflowToolArgs): Promise<WorkflowDetails>;
+
+  /** Start a linked continuation for a failed resumable named workflow run. */
+  resumeFailedRun(sourceRunId: string, stageId?: string): ResumeFailedRunResult;
 }
 
 // ---------------------------------------------------------------------------
@@ -312,6 +321,59 @@ export function createExtensionRuntime(opts: ExtensionRuntimeOpts = {}): Extensi
     throw new Error("WorkflowRuntime.runDirect: no direct execution mode supplied");
   }
 
+  function matchesResumeStageIdentifier(stage: RunSnapshot["stages"][number], identifier: string): boolean {
+    return stage.id === identifier || stage.name === identifier || stage.id.startsWith(identifier);
+  }
+
+  function resolveResumeStage(source: RunSnapshot, stageId?: string): { ok: true; stageId: string } | { ok: false; message: string } {
+    if (stageId !== undefined) {
+      const stage = source.stages.find((candidate) => matchesResumeStageIdentifier(candidate, stageId));
+      if (stage === undefined) return { ok: false, message: `insufficient_state: stage not found in source run ${source.id}: ${stageId}` };
+      if (stage.status !== "failed") return { ok: false, message: `insufficient_state: stage ${stage.name} is ${stage.status}, not failed` };
+      return { ok: true, stageId: stage.id };
+    }
+    const failedStageId = source.failedStageId ?? source.stages.find((stage) => stage.status === "failed")?.id;
+    if (failedStageId === undefined) {
+      return { ok: false, message: `insufficient_state: failed run ${source.id} does not identify a failed stage` };
+    }
+    return { ok: true, stageId: failedStageId };
+  }
+
+  function resumeFailedRun(sourceRunId: string, stageId?: string): ResumeFailedRunResult {
+    const source = activeStore.runs().find((run) => run.id === sourceRunId);
+    if (source === undefined) {
+      return { ok: false, reason: "run_not_found", message: `run not found: ${sourceRunId}` };
+    }
+    if (source.status !== "failed" || source.endedAt === undefined || source.resumable === false) {
+      return { ok: false, reason: "not_resumable", message: `run ${sourceRunId} is not a failed resumable workflow run` };
+    }
+    const def = registry.get(source.name);
+    if (def === undefined) {
+      return { ok: false, reason: "workflow_not_found", message: `workflow_not_found: ${source.name}` };
+    }
+    const resolvedStage = resolveResumeStage(source, stageId);
+    if (!resolvedStage.ok) {
+      return { ok: false, reason: "insufficient_state", message: resolvedStage.message };
+    }
+    const sourceInputs = { ...source.inputs };
+    try {
+      resolveInputs(def.inputs, sourceInputs);
+    } catch (err) {
+      return { ok: false, reason: "insufficient_state", message: `insufficient_state: ${err instanceof Error ? err.message : String(err)}` };
+    }
+    const accepted = runDetached(def, sourceInputs, {
+      ...runOptions({ workflow: def.name, inputs: sourceInputs }),
+      continuation: { source, resumeFromStageId: resolvedStage.stageId },
+    });
+    return {
+      ok: true,
+      runId: accepted.runId,
+      sourceRunId: source.id,
+      resumeFromStageId: resolvedStage.stageId,
+      message: `Resuming failed workflow "${def.name}" from run ${source.id.slice(0, 8)} at stage ${resolvedStage.stageId.slice(0, 8)} (new run ${accepted.runId}).`,
+    };
+  }
+
   async function runDirectAsync(args: WorkflowToolArgs): Promise<WorkflowDetails> {
     const runId = crypto.randomUUID();
     const mode = directMode(args);
@@ -382,5 +444,7 @@ export function createExtensionRuntime(opts: ExtensionRuntimeOpts = {}): Extensi
         return summarized;
       });
     },
+
+    resumeFailedRun,
   };
 }

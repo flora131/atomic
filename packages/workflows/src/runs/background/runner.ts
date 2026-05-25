@@ -44,7 +44,7 @@ export interface DetachedAccepted {
 }
 
 export interface DetachedRunOpts
-  extends Omit<RunOpts, "runId" | "signal" | "cancellation" | "deferWorkflowStart"> {
+  extends Omit<RunOpts, "signal" | "cancellation" | "deferWorkflowStart"> {
   /**
    * Override CancellationRegistry (default: singleton cancellationRegistry).
    */
@@ -92,8 +92,8 @@ export function runDetached<TInputs extends Record<string, unknown>>(
   const registry = opts.cancellation ?? defaultCancellationRegistry;
   const tracker = opts.jobs ?? defaultJobTracker;
 
-  // 1. Pre-allocate runId
-  const runId = crypto.randomUUID();
+  // 1. Pre-allocate runId unless the caller supplied one for continuation/tests.
+  const runId = opts.runId ?? crypto.randomUUID();
 
   // 2. Create AbortController for this run
   const controller = new AbortController();

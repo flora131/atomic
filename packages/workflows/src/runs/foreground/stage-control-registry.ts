@@ -34,7 +34,8 @@ export type StageControlStatus =
   | "paused"
   | "blocked"
   | "completed"
-  | "failed";
+  | "failed"
+  | "skipped";
 
 export type AgentSessionEventListener = (event: AgentSessionEvent) => void;
 
@@ -192,7 +193,7 @@ export function createStageControlRegistry(): StageControlRegistry {
         );
         for (const handle of targets) {
           if (handle.status === "paused") continue;
-          if (handle.status === "completed" || handle.status === "failed") continue;
+          if (handle.status === "completed" || handle.status === "failed" || handle.status === "skipped") continue;
           await handle.pause();
         }
         return controlledEntries(runId)

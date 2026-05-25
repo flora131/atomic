@@ -11,12 +11,37 @@ import type {
   StoreSnapshot,
   ToolEvent,
   RunStatus,
+  StageStatus,
+  WorkflowFailureKind,
   WorkflowNotice,
 } from "./store-types.js";
 import { accumulatePausedDurationMs, elapsedRunMs } from "./timing.js";
 
 /** Statuses that represent a terminal run state — cannot be overwritten. */
 const TERMINAL_STATUSES: ReadonlySet<RunStatus> = new Set(["completed", "failed", "killed"]);
+
+function isTerminalStageStatus(status: StageStatus): boolean {
+  return status === "completed" || status === "failed" || status === "skipped";
+}
+
+function cannotAwaitInput(status: StageStatus): boolean {
+  return isTerminalStageStatus(status) || status === "paused" || status === "blocked";
+}
+
+function cannotBlock(status: StageStatus): boolean {
+  return isTerminalStageStatus(status) || status === "paused";
+}
+
+function cannotPause(status: StageStatus): boolean {
+  return isTerminalStageStatus(status) || status === "paused" || status === "blocked";
+}
+
+export interface RunEndMetadata {
+  readonly failureKind?: WorkflowFailureKind;
+  readonly failureMessage?: string;
+  readonly failedStageId?: string;
+  readonly resumable?: boolean;
+}
 
 export interface Store {
   runs(): readonly RunSnapshot[];
@@ -39,6 +64,7 @@ export interface Store {
     status: RunStatus,
     result?: Record<string, unknown>,
     error?: string,
+    metadata?: RunEndMetadata,
   ): boolean;
   /**
    * Remove a run from live workflow history/status. Any pending HIL prompt
@@ -305,6 +331,11 @@ export function createStore(): Store {
       existing.durationMs = stage.durationMs;
       existing.result = stage.result;
       existing.error = stage.error;
+      existing.failureKind = stage.failureKind;
+      existing.failureMessage = stage.failureMessage;
+      existing.skippedReason = stage.skippedReason;
+      existing.replayedFromStageId = stage.replayedFromStageId;
+      existing.replayed = stage.replayed;
       delete existing.awaitingInputSince;
       rejectStagePrompt(existing, `pi-workflows: stage ${stage.id} ended before prompt resolved`);
       _version++;
@@ -316,6 +347,7 @@ export function createStore(): Store {
       status: RunStatus,
       result?: Record<string, unknown>,
       error?: string,
+      metadata?: RunEndMetadata,
     ): boolean {
       const run = findRun(runId);
       if (!run) return false;
@@ -337,6 +369,12 @@ export function createStore(): Store {
       }
       if ((status === "failed" || status === "killed") && error !== undefined) {
         run.error = error;
+      }
+      if (metadata !== undefined) {
+        if (metadata.failureKind !== undefined) run.failureKind = metadata.failureKind;
+        if (metadata.failureMessage !== undefined) run.failureMessage = metadata.failureMessage;
+        if (metadata.failedStageId !== undefined) run.failedStageId = metadata.failedStageId;
+        if (metadata.resumable !== undefined) run.resumable = metadata.resumable;
       }
       // Abandon any waiting HIL prompt — workflow body never resumed past
       // it, but the awaiter promise must reject so the executor's catch
@@ -444,7 +482,7 @@ export function createStore(): Store {
       if (TERMINAL_STATUSES.has(run.status)) return false;
       const stage = findStage(run, stageId);
       if (!stage) return false;
-      if (stage.status === "completed" || stage.status === "failed") return false;
+      if (isTerminalStageStatus(stage.status)) return false;
       if (stage.pendingPrompt !== undefined) return false;
       stage.pendingPrompt = { ...prompt };
       stage.status = "awaiting_input";
@@ -570,7 +608,7 @@ export function createStore(): Store {
       if (TERMINAL_STATUSES.has(run.status)) return false;
       const stage = findStage(run, stageId);
       if (!stage) return false;
-      if (stage.status === "completed" || stage.status === "failed" || stage.status === "paused" || stage.status === "blocked") return false;
+      if (cannotAwaitInput(stage.status)) return false;
 
       if (awaiting) {
         if (stage.status === "awaiting_input") return false;
@@ -592,7 +630,7 @@ export function createStore(): Store {
       if (TERMINAL_STATUSES.has(run.status)) return false;
       const stage = findStage(run, stageId);
       if (!stage) return false;
-      if (stage.status === "completed" || stage.status === "failed" || stage.status === "paused") return false;
+      if (cannotBlock(stage.status)) return false;
       if (stage.status === "blocked") {
         if (stage.blockedByStageId === blockedBy) return false;
         stage.blockedByStageId = blockedBy;
@@ -637,7 +675,7 @@ export function createStore(): Store {
       if (TERMINAL_STATUSES.has(run.status)) return false;
       const stage = findStage(run, stageId);
       if (!stage) return false;
-      if (stage.status === "paused" || stage.status === "blocked" || stage.status === "completed" || stage.status === "failed") return false;
+      if (cannotPause(stage.status)) return false;
       stage.status = "paused";
       stage.pausedAt = pausedAt ?? Date.now();
       stage.resumedAt = undefined;

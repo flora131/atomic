@@ -425,6 +425,272 @@ describe("executor.run", () => {
     assert.ok(wfResult.error!.includes("stage error"));
   });
 
+  test("continuation replays completed stages and resumes at failed stage", async () => {
+    const st = createStore();
+    const def = defineWorkflow("resume-failed-wf")
+      .run(async (ctx) => {
+        const first = await ctx.stage("first").prompt("first");
+        const second = await ctx.stage("second").prompt(`second:${first}`);
+        const third = await ctx.stage("third").prompt(`third:${second}`);
+        return { first, second, third };
+      })
+      .compile();
+
+    const firstRunCalls: string[] = [];
+    const firstRun = await run(def, {}, {
+      store: st,
+      adapters: {
+        prompt: {
+          prompt: async (text) => {
+            firstRunCalls.push(text);
+            if (text.startsWith("second:")) throw new Error("rate limit exceeded");
+            return "first-result";
+          },
+        },
+      },
+    });
+
+    assert.equal(firstRun.status, "failed");
+    assert.deepEqual(firstRunCalls, ["first", "second:first-result"]);
+    const source = st.runs().find((candidate) => candidate.id === firstRun.runId)!;
+    const failedStageId = source.failedStageId!;
+
+    const continuationCalls: string[] = [];
+    const continued = await run(def, {}, {
+      store: st,
+      continuation: { source, resumeFromStageId: failedStageId },
+      adapters: {
+        prompt: {
+          prompt: async (text) => {
+            continuationCalls.push(text);
+            if (text.startsWith("second:")) return "second-result";
+            return "third-result";
+          },
+        },
+      },
+    });
+
+    assert.equal(continued.status, "completed");
+    assert.deepEqual(continuationCalls, ["second:first-result", "third:second-result"]);
+    const replayed = continued.stages[0]!;
+    assert.equal(replayed.status, "completed");
+    assert.equal(replayed.replayed, true);
+    assert.equal(replayed.replayedFromStageId, source.stages[0]!.id);
+    assert.equal(continued.result?.["first"], "first-result");
+    const continuedRun = st.runs().find((candidate) => candidate.id === continued.runId)!;
+    assert.equal(continuedRun.resumedFromRunId, source.id);
+    assert.equal(continuedRun.resumeFromStageId, failedStageId);
+    assert.equal(source.status, "failed", "source failed run remains terminal/immutable");
+  });
+
+  test("auth stage failures surface workflow login guidance and preserve details", async () => {
+    const st = createStore();
+    const def = defineWorkflow("auth-fail-wf")
+      .run(async (ctx) => {
+        await ctx.stage("needs-login").prompt("x");
+        return {};
+      })
+      .compile();
+
+    const wfResult = await run(def, {}, {
+      adapters: {
+        prompt: {
+          prompt: async () => {
+            throw new Error("No API key found for provider");
+          },
+        },
+      },
+      store: st,
+    });
+
+    assert.equal(wfResult.status, "failed");
+    assert.equal(wfResult.error, "You must be logged in to run workflows. Run /login and try again.");
+    const storedRun = st.runs()[0]!;
+    const stage = storedRun.stages[0]!;
+    assert.equal(stage.error, "You must be logged in to run workflows. Run /login and try again.");
+    assert.equal(stage.failureKind, "auth");
+    assert.equal(stage.failureMessage, "No API key found for provider");
+    assert.equal(storedRun.failureKind, "auth");
+    assert.equal(storedRun.failureMessage, "No API key found for provider");
+    assert.equal(storedRun.failedStageId, stage.id);
+    assert.equal(storedRun.resumable, true);
+  });
+
+  test("parallel fail-fast marks slow sibling skipped instead of completed", async () => {
+    const st = createStore();
+    const def = defineWorkflow("parallel-fail-fast-skip-wf")
+      .run(async (ctx) => {
+        await ctx.parallel([
+          { name: "fast", prompt: "fail" },
+          { name: "slow", prompt: "slow" },
+        ], { concurrency: 2 });
+        return {};
+      })
+      .compile();
+
+    const result = await run(def, {}, {
+      store: st,
+      adapters: {
+        prompt: {
+          prompt: async (text) => {
+            if (text === "fail") throw new Error("boom");
+            await new Promise<void>((resolve) => setTimeout(resolve, 20));
+            return "slow-ok";
+          },
+        },
+      },
+    });
+
+    assert.equal(result.status, "failed");
+    const stages = st.runs().find((runSnap) => runSnap.id === result.runId)!.stages;
+    assert.equal(stages.find((stage) => stage.name === "fast")?.status, "failed");
+    const slow = stages.find((stage) => stage.name === "slow")!;
+    assert.equal(slow.status, "skipped");
+    assert.equal(slow.skippedReason, "fail-fast");
+  });
+
+  test("caught parallel fail-fast failure does not skip later normal task", async () => {
+    const st = createStore();
+    const def = defineWorkflow("parallel-fail-fast-catch-then-task-wf")
+      .run(async (ctx) => {
+        try {
+          await ctx.parallel([
+            { name: "fast", prompt: "fail" },
+            { name: "slow", prompt: "slow" },
+          ], { concurrency: 2 });
+        } catch {
+          // The workflow intentionally recovers and continues with normal work.
+        }
+
+        const after = await ctx.task("after", { prompt: "after" });
+        return { after: after.text };
+      })
+      .compile();
+
+    const result = await run(def, {}, {
+      store: st,
+      adapters: {
+        prompt: {
+          prompt: async (text) => {
+            if (text === "fail") throw new Error("boom");
+            if (text === "slow") {
+              await new Promise((resolve) => setTimeout(resolve, 50));
+              return "slow-ok";
+            }
+            return "after-ok";
+          },
+        },
+      },
+    });
+
+    assert.equal(result.status, "completed");
+    assert.equal(result.result?.["after"], "after-ok");
+    const stages = st.runs().find((runSnap) => runSnap.id === result.runId)!.stages;
+    const after = stages.find((stage) => stage.name === "after")!;
+    assert.equal(after.status, "completed");
+    assert.equal(after.skippedReason, undefined);
+    assert.equal(stages.find((stage) => stage.name === "slow")?.status, "skipped");
+  });
+
+  test("parallel fail-fast fails without waiting for a hung sibling", async () => {
+    const st = createStore();
+    const def = defineWorkflow("parallel-fail-fast-hung-wf")
+      .run(async (ctx) => {
+        await ctx.parallel([
+          { name: "fast", prompt: "fail" },
+          { name: "hung", prompt: "hang" },
+        ], { concurrency: 2 });
+        return {};
+      })
+      .compile();
+
+    const result = await Promise.race([
+      run(def, {}, {
+        store: st,
+        adapters: {
+          prompt: {
+            prompt: async (text) => {
+              if (text === "fail") throw new Error("boom");
+              await new Promise<string>(() => {});
+              return "unreachable";
+            },
+          },
+        },
+      }),
+      new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 100)),
+    ]);
+
+    assert.notEqual(result, "timeout");
+    if (result === "timeout") return;
+    assert.equal(result.status, "failed");
+    const stages = st.runs().find((runSnap) => runSnap.id === result.runId)!.stages;
+    assert.equal(stages.find((stage) => stage.name === "fast")?.status, "failed");
+    const hung = stages.find((stage) => stage.name === "hung")!;
+    assert.equal(hung.status, "skipped");
+    assert.equal(hung.skippedReason, "fail-fast");
+  });
+
+  test("continuation replays completed parallel sibling after failed source stage", async () => {
+    const st = createStore();
+    let failOnce = true;
+    const def = defineWorkflow("resume-parallel-sibling-wf")
+      .run(async (ctx) => {
+        const results = await ctx.parallel([
+          { name: "failed-first", prompt: "fail-once" },
+          { name: "completed-second", prompt: "already-done" },
+        ], { concurrency: 2, failFast: false });
+        return { results: results.map((result) => result.text).join(",") };
+      })
+      .compile();
+
+    const firstRunCalls: string[] = [];
+    const firstRun = await run(def, {}, {
+      store: st,
+      adapters: {
+        prompt: {
+          prompt: async (text) => {
+            firstRunCalls.push(text);
+            if (text === "fail-once" && failOnce) {
+              failOnce = false;
+              throw new Error("rate limit exceeded");
+            }
+            return `${text}:ok`;
+          },
+        },
+      },
+    });
+
+    assert.equal(firstRun.status, "failed");
+    assert.deepEqual(firstRunCalls.sort(), ["already-done", "fail-once"]);
+    const source = st.runs().find((candidate) => candidate.id === firstRun.runId)!;
+    const failed = source.stages.find((stage) => stage.name === "failed-first")!;
+    const completed = source.stages.find((stage) => stage.name === "completed-second")!;
+    assert.equal(failed.status, "failed");
+    assert.equal(completed.status, "completed");
+    assert.ok(source.stages.indexOf(completed) > source.stages.indexOf(failed));
+
+    const continuationCalls: string[] = [];
+    const continued = await run(def, {}, {
+      store: st,
+      continuation: { source, resumeFromStageId: failed.id },
+      adapters: {
+        prompt: {
+          prompt: async (text) => {
+            continuationCalls.push(text);
+            return `${text}:resumed`;
+          },
+        },
+      },
+    });
+
+    assert.equal(continued.status, "completed");
+    assert.deepEqual(continuationCalls, ["fail-once"]);
+    const replayed = continued.stages.find((stage) => stage.name === "completed-second")!;
+    assert.equal(replayed.status, "completed");
+    assert.equal(replayed.replayed, true);
+    assert.equal(replayed.replayedFromStageId, completed.id);
+  });
+
   test("failed fallback attempts are recorded on the stage snapshot", async () => {
     const def = defineWorkflow("failed-fallback-metadata")
       .run(async (ctx) => {
@@ -1259,9 +1525,79 @@ describe("executor.run — lifecycle persistence", () => {
 
     const stageEnd = calls.find((c) => c.type === "workflow.stage.end");
     assert.equal(stageEnd?.payload["status"], "failed");
+    assert.equal(stageEnd.payload["error"], "boom");
+    assert.equal(stageEnd.payload["failureKind"], "unknown");
+    assert.equal(stageEnd.payload["failureMessage"], "boom");
 
     const runEnd = calls.find((c) => c.type === "workflow.run.end");
     assert.equal(runEnd?.payload["status"], "failed");
+    assert.equal(runEnd.payload["error"], "boom");
+    assert.equal(runEnd.payload["failureKind"], "unknown");
+    assert.equal(runEnd.payload["failureMessage"], "boom");
+    assert.equal(runEnd.payload["failedStageId"], stageEnd.payload["stageId"]);
+    assert.equal(runEnd.payload["resumable"], true);
+  });
+
+  test("fail-fast skipped queued parallel stages persist start before end", async () => {
+    const { persistence, calls } = makePersistence();
+    const st = createStore();
+    const promptCalls: string[] = [];
+
+    const def = defineWorkflow("fail-fast-pending-persist-wf")
+      .run(async (ctx) => {
+        await ctx.parallel([
+          { name: "first", prompt: "fail" },
+          { name: "queued-a", prompt: "queued-a" },
+          { name: "queued-b", prompt: "queued-b" },
+        ], { concurrency: 3 });
+        return {};
+      })
+      .compile();
+
+    const wfResult = await run(def, {}, {
+      config: { defaultConcurrency: 1, maxDepth: 10, persistRuns: false, statusFile: false, resumeInFlight: "never" },
+      adapters: {
+        prompt: {
+          prompt: async (text) => {
+            promptCalls.push(text);
+            await Promise.resolve();
+            if (text === "fail") throw new Error("boom");
+            await new Promise<string>(() => {});
+            return `unexpected:${text}`;
+          },
+        },
+      },
+      store: st,
+      persistence,
+    });
+
+    assert.equal(wfResult.status, "failed");
+    assert.equal(promptCalls[0], "fail");
+
+    const stages = st.runs().find((runSnap) => runSnap.id === wfResult.runId)!.stages;
+    for (const name of ["queued-a", "queued-b"]) {
+      const stage = stages.find((candidate) => candidate.name === name)!;
+      assert.equal(stage.status, "skipped");
+      assert.equal(stage.skippedReason, "fail-fast");
+    }
+
+    const stageEntryKey = (payload: Record<string, unknown>): string =>
+      `${String(payload["runId"])}:${String(payload["stageId"])}`;
+    const startsByStage = new Map<string, number>();
+    for (const call of calls) {
+      if (call.type === "workflow.stage.start") {
+        const key = stageEntryKey(call.payload);
+        startsByStage.set(key, (startsByStage.get(key) ?? 0) + 1);
+        continue;
+      }
+      if (call.type !== "workflow.stage.end") continue;
+      const key = stageEntryKey(call.payload);
+      assert.equal(startsByStage.get(key) ?? 0, 1, `stage ${key} ended without exactly one preceding start`);
+    }
+
+    const stageStartCount = calls.filter((call) => call.type === "workflow.stage.start").length;
+    const stageEndCount = calls.filter((call) => call.type === "workflow.stage.end").length;
+    assert.equal(stageStartCount, stageEndCount);
   });
 
   test("no appendEntry calls when persistence not provided", async () => {

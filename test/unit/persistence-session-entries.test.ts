@@ -84,6 +84,21 @@ describe("appendRunStart", () => {
     assert.equal(label, "wf:my-workflow:abcdefgh");
   });
 
+  test("includes continuation metadata when provided", () => {
+    const api = makeMockApi();
+    appendRunStart(api, {
+      runId: "r2",
+      name: "wf",
+      inputs: {},
+      resumedFromRunId: "r1",
+      resumeFromStageId: "s2",
+      ts: 1,
+    });
+    const p = api._entries[0]!.payload;
+    assert.equal(p["resumedFromRunId"], "r1");
+    assert.equal(p["resumeFromStageId"], "s2");
+  });
+
   test("no-op when appendEntry absent", () => {
     const api: PersistenceAPI = {};
     // Should not throw
@@ -147,6 +162,22 @@ describe("appendStageStart", () => {
     assert.equal("model" in api._entries[0]!.payload, false);
   });
 
+  test("includes replay metadata when provided", () => {
+    const api = makeMockApi();
+    appendStageStart(api, {
+      runId: "r2",
+      stageId: "s-new",
+      name: "first",
+      parentIds: [],
+      replayedFromStageId: "s-old",
+      replayed: true,
+      ts: 1,
+    });
+    const p = api._entries[0]!.payload;
+    assert.equal(p["replayedFromStageId"], "s-old");
+    assert.equal(p["replayed"], true);
+  });
+
   test("no-op when appendEntry absent", () => {
     const api: PersistenceAPI = {};
     appendStageStart(api, { runId: "r1", stageId: "s1", name: "n", parentIds: [], ts: 1 });
@@ -203,6 +234,40 @@ describe("appendStageEnd", () => {
     assert.equal("summary" in p, false);
   });
 
+  test("includes optional failure metadata when provided", () => {
+    const api = makeMockApi();
+    appendStageEnd(api, {
+      runId: "r1",
+      stageId: "s1",
+      status: "failed",
+      error: "login required",
+      failureKind: "auth",
+      failureMessage: "No API key found",
+      skippedReason: "fail-fast",
+    });
+    const p = api._entries[0]!.payload;
+    assert.equal(p["error"], "login required");
+    assert.equal(p["failureKind"], "auth");
+    assert.equal(p["failureMessage"], "No API key found");
+    assert.equal(p["skippedReason"], "fail-fast");
+  });
+
+  test("includes optional replay metadata when provided", () => {
+    const api = makeMockApi();
+    appendStageEnd(api, {
+      runId: "r2",
+      stageId: "s-new",
+      status: "completed",
+      summary: "old result",
+      replayedFromStageId: "s-old",
+      replayed: true,
+    });
+    const p = api._entries[0]!.payload;
+    assert.equal(p["summary"], "old result");
+    assert.equal(p["replayedFromStageId"], "s-old");
+    assert.equal(p["replayed"], true);
+  });
+
   test("emitMessage=true calls appendCustomMessageEntry when summary provided", () => {
     const api = makeMockApi();
     appendStageEnd(
@@ -250,6 +315,26 @@ describe("appendRunEnd", () => {
     const api = makeMockApi();
     appendRunEnd(api, { runId: "r1", status: "completed", result: { out: 42 }, ts: 1 });
     assert.equal((api._entries[0]!.payload["result"] as Record<string, unknown>)["out"], 42);
+  });
+
+  test("includes optional run failure metadata when provided", () => {
+    const api = makeMockApi();
+    appendRunEnd(api, {
+      runId: "r1",
+      status: "failed",
+      error: "login required",
+      failureKind: "auth",
+      failureMessage: "No API key found",
+      failedStageId: "s1",
+      resumable: true,
+      ts: 1,
+    });
+    const p = api._entries[0]!.payload;
+    assert.equal(p["error"], "login required");
+    assert.equal(p["failureKind"], "auth");
+    assert.equal(p["failureMessage"], "No API key found");
+    assert.equal(p["failedStageId"], "s1");
+    assert.equal(p["resumable"], true);
   });
 
   test("no-op when appendEntry absent", () => {

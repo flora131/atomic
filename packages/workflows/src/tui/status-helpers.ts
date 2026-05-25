@@ -28,6 +28,8 @@ export function statusColor(
       return theme.error;
     case "blocked":
       return theme.dim;
+    case "skipped":
+      return theme.dim;
     case "pending":
     default:
       return theme.dim;
@@ -41,6 +43,8 @@ export function statusIcon(status: StageStatus | RunStatus): string {
       return "○";
     case "blocked":
       return "↑";
+    case "skipped":
+      return "⊘";
     case "running":
       return "●";
     case "paused":

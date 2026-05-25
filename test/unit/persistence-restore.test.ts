@@ -219,4 +219,108 @@ describe("restoreOnSessionStart", () => {
     assert.equal(s2!.status, "failed");
     assert.notEqual(s2!.error, undefined);
   });
+
+  test("restores continuation and replay metadata", () => {
+    const st = createStore();
+    const entries: SessionEntry[] = [
+      { id: "e1", type: "workflow.run.start", payload: { runId: "r2", name: "wf", inputs: {}, resumedFromRunId: "r1", resumeFromStageId: "old-failed", ts: 1 } },
+      { id: "e2", type: "workflow.stage.start", payload: { runId: "r2", stageId: "s-new", name: "first", parentIds: [], replayedFromStageId: "s-old", replayed: true, ts: 2 } },
+      { id: "e3", type: "workflow.stage.end", payload: { runId: "r2", stageId: "s-new", status: "completed", summary: "old result", replayedFromStageId: "s-old", replayed: true } },
+    ];
+    restoreOnSessionStart(makeSessionManager(entries), { resumeInFlight: "never", persistRuns: true }, st);
+    const run = st.runs()[0]!;
+    assert.equal(run.resumedFromRunId, "r1");
+    assert.equal(run.resumeFromStageId, "old-failed");
+    const stage = run.stages[0]!;
+    assert.equal(stage.result, "old result");
+    assert.equal(stage.replayedFromStageId, "s-old");
+    assert.equal(stage.replayed, true);
+  });
+
+  test("restores malformed and non-terminal stage.end statuses as failed", () => {
+    const st = createStore();
+    const entries: SessionEntry[] = [
+      { id: "e1", type: "workflow.run.start", payload: { runId: "r1", name: "wf", inputs: {}, ts: 1 } },
+      { id: "e2", type: "workflow.stage.start", payload: { runId: "r1", stageId: "s1", name: "one", parentIds: [], ts: 2 } },
+      { id: "e3", type: "workflow.stage.end", payload: { runId: "r1", stageId: "s1", status: "running" } },
+      { id: "e4", type: "workflow.stage.start", payload: { runId: "r1", stageId: "s2", name: "two", parentIds: [], ts: 3 } },
+      { id: "e5", type: "workflow.stage.end", payload: { runId: "r1", stageId: "s2", status: "nonsense" } },
+    ];
+    restoreOnSessionStart(makeSessionManager(entries), { resumeInFlight: "never", persistRuns: true }, st);
+    assert.equal(st.runs()[0]!.stages[0]!.status, "failed");
+    assert.equal(st.runs()[0]!.stages[1]!.status, "failed");
+  });
+
+  test("restores failed terminal run metadata from run.end entries", () => {
+    const st = createStore();
+    const entries: SessionEntry[] = [
+      { id: "e1", type: "workflow.run.start", payload: { runId: "r1", name: "wf", inputs: {}, ts: 1 } },
+      { id: "e2", type: "workflow.stage.start", payload: { runId: "r1", stageId: "s1", name: "fetch", parentIds: [], ts: 2 } },
+      { id: "e3", type: "workflow.stage.end", payload: { runId: "r1", stageId: "s1", status: "failed", error: "rate limit", failureKind: "rate_limit" } },
+      {
+        id: "e4",
+        type: "workflow.run.end",
+        payload: {
+          runId: "r1",
+          status: "failed",
+          error: "rate limit",
+          failureKind: "rate_limit",
+          failureMessage: "429 too many requests",
+          failedStageId: "s1",
+          resumable: true,
+          ts: 3,
+        },
+      },
+    ];
+
+    restoreOnSessionStart(makeSessionManager(entries), { resumeInFlight: "never", persistRuns: true }, st);
+    const run = st.runs()[0]!;
+    assert.equal(run.status, "failed");
+    assert.equal(run.error, "rate limit");
+    assert.equal(run.failureKind, "rate_limit");
+    assert.equal(run.failureMessage, "429 too many requests");
+    assert.equal(run.failedStageId, "s1");
+    assert.equal(run.resumable, true);
+  });
+
+  test("ignores invalid run failureKind from run.end entries", () => {
+    const st = createStore();
+    const entries: SessionEntry[] = [
+      { id: "e1", type: "workflow.run.start", payload: { runId: "r1", name: "wf", inputs: {}, ts: 1 } },
+      { id: "e2", type: "workflow.run.end", payload: { runId: "r1", status: "failed", error: "boom", failureKind: "not-real", resumable: true, ts: 2 } },
+    ];
+
+    restoreOnSessionStart(makeSessionManager(entries), { resumeInFlight: "never", persistRuns: true }, st);
+    const run = st.runs()[0]!;
+    assert.equal(run.status, "failed");
+    assert.equal(run.failureKind, undefined);
+    assert.equal(run.resumable, true);
+  });
+
+  test("restores stage failure metadata from stage.end entries", () => {
+    const st = createStore();
+    const entries: SessionEntry[] = [
+      { id: "e1", type: "workflow.run.start", payload: { runId: "r1", name: "wf", inputs: {}, ts: 1 } },
+      { id: "e2", type: "workflow.stage.start", payload: { runId: "r1", stageId: "s1", name: "fetch", parentIds: [], ts: 2 } },
+      {
+        id: "e3",
+        type: "workflow.stage.end",
+        payload: {
+          runId: "r1",
+          stageId: "s1",
+          status: "failed",
+          error: "You must be logged in to run workflows. Run /login and try again.",
+          failureKind: "auth",
+          failureMessage: "No API key found",
+          durationMs: 100,
+        },
+      },
+    ];
+    restoreOnSessionStart(makeSessionManager(entries), { resumeInFlight: "never", persistRuns: true }, st);
+    const stage = st.runs()[0]!.stages[0]!;
+    assert.equal(stage.status, "failed");
+    assert.equal(stage.error, "You must be logged in to run workflows. Run /login and try again.");
+    assert.equal(stage.failureKind, "auth");
+    assert.equal(stage.failureMessage, "No API key found");
+  });
 });

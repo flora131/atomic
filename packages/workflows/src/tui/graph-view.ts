@@ -989,6 +989,7 @@ export class GraphView implements Component {
     blocked: number;
     completed: number;
     failed: number;
+    skipped: number;
   } {
     const c = {
       pending: 0,
@@ -998,6 +999,7 @@ export class GraphView implements Component {
       blocked: 0,
       completed: 0,
       failed: 0,
+      skipped: 0,
     };
     for (const s of run.stages) c[s.status]++;
     return c;

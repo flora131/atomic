@@ -156,6 +156,16 @@ describe("renderNodeCard — status border colours", () => {
     );
   });
 
+  test("skipped status uses dim, not success or error", () => {
+    const lines = renderNodeCard(
+      makeStage({ status: "skipped", durationMs: 800 }),
+      { theme },
+    );
+    assert.ok(lines[0]!.includes(hexToAnsi(theme.dim)));
+    assert.equal(lines[0]!.includes(hexToAnsi(theme.success)), false);
+    assert.equal(lines[0]!.includes(hexToAnsi(theme.error)), false);
+  });
+
   test("focused running stage locks the border to warning (not pulsing lerp)", () => {
     const lines = renderNodeCard(
       makeStage({ status: "running", startedAt: Date.now() - 500 }),

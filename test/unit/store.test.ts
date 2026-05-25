@@ -57,11 +57,13 @@ describe("store stage blocking", () => {
       makeStage("paused", { status: "paused" }),
       makeStage("completed", { status: "completed" }),
       makeStage("failed", { status: "failed" }),
+      makeStage("skipped", { status: "skipped" }),
     ]));
 
     assert.equal(s.recordStageAwaitingInput("r1", "paused", true), false);
     assert.equal(s.recordStageAwaitingInput("r1", "completed", true), false);
     assert.equal(s.recordStageAwaitingInput("r1", "failed", true), false);
+    assert.equal(s.recordStageAwaitingInput("r1", "skipped", true), false);
   });
 
   test("transitions pending → blocked → pending and snapshots only include blockedByStageId while set", () => {
@@ -79,13 +81,15 @@ describe("store stage blocking", () => {
     assert.equal("blockedByStageId" in stage, false);
   });
 
-  test("blocked stage cannot be paused again", () => {
+  test("blocked and skipped stages cannot be paused", () => {
     const s = createStore();
-    s.recordRunStart(makeRun("r1", [makeStage("a")]));
+    s.recordRunStart(makeRun("r1", [makeStage("a"), makeStage("skipped", { status: "skipped" })]));
 
     assert.equal(s.recordStageBlocked("r1", "a", "root"), true);
     assert.equal(s.recordStagePaused("r1", "a"), false);
+    assert.equal(s.recordStagePaused("r1", "skipped"), false);
     assert.equal(s.snapshot().runs[0]!.stages[0]!.status, "blocked");
+    assert.equal(s.snapshot().runs[0]!.stages[1]!.status, "skipped");
   });
 
   test("refuses terminal and paused stage blocked transitions", () => {
@@ -93,11 +97,13 @@ describe("store stage blocking", () => {
     s.recordRunStart(makeRun("r1", [
       makeStage("completed", { status: "completed" }),
       makeStage("failed", { status: "failed" }),
+      makeStage("skipped", { status: "skipped" }),
       makeStage("paused", { status: "paused" }),
     ]));
 
     assert.equal(s.recordStageBlocked("r1", "completed", "root"), false);
     assert.equal(s.recordStageBlocked("r1", "failed", "root"), false);
+    assert.equal(s.recordStageBlocked("r1", "skipped", "root"), false);
     assert.equal(s.recordStageBlocked("r1", "paused", "root"), false);
   });
 

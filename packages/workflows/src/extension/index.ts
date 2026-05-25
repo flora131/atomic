@@ -730,13 +730,22 @@ export function makeExecuteWorkflowTool(
         const isPaused =
           run?.status === "paused" ||
           (run?.stages.some((s) => s.status === "paused") ?? false);
+        if (!isPaused && run?.status === "failed" && run.endedAt !== undefined && run.resumable !== false) {
+          const continuation = activeRuntime.resumeFailedRun(target.runId, stage.stageId);
+          return {
+            action: "resume",
+            runId: continuation.ok ? continuation.runId : target.runId,
+            status: continuation.ok ? "running" : "noop",
+            message: continuation.message,
+          };
+        }
         const result = resumeRun(target.runId, { stageId: stage.stageId, message: args.message });
         if (result.ok) {
-          const message = isPaused
+          const message = result.message ?? (isPaused
             ? result.resumed.length === 0
               ? `No paused stages on run ${result.runId.slice(0, 8)}.`
               : `Resumed ${result.resumed.length} stage(s) on run ${result.runId.slice(0, 8)}${args.message ? ` with message: "${args.message}"` : ""}.`
-            : `Snapshot available: run ${result.runId} (${result.snapshot.name}) — status: ${result.snapshot.status}, stages: ${result.snapshot.stages.length}`;
+            : `Snapshot available: run ${result.runId} (${result.snapshot.name}) — status: ${result.snapshot.status}, stages: ${result.snapshot.stages.length}`);
           return {
             action: "resume",
             runId: result.runId,
@@ -1255,6 +1264,9 @@ function factory(pi: ExtensionAPI): void {
     },
     runDirect(args) {
       return runtimeRef.current.runDirect(args);
+    },
+    resumeFailedRun(sourceRunId, stageId) {
+      return runtimeRef.current.resumeFailedRun(sourceRunId, stageId);
     },
   };
 
@@ -1868,6 +1880,11 @@ function factory(pi: ExtensionAPI): void {
       const isPaused =
         run?.status === "paused" ||
         (run?.stages.some((s) => s.status === "paused") ?? false);
+      if (!isPaused && run?.status === "failed" && run.endedAt !== undefined && run.resumable !== false) {
+        const continuation = runtimeForContext(ctx).resumeFailedRun(runId, stageId);
+        print(continuation.message);
+        return true;
+      }
       const result = resumeRun(runId, { stageId, message });
       if (!result.ok) {
         print(`Run not found: ${runId.slice(0, 8)}`);
@@ -1877,7 +1894,7 @@ function factory(pi: ExtensionAPI): void {
         // Non-paused fallback: reopen the orchestrator overlay as before.
         overlay.open(result.runId, overlaySurfaceFromContext(ctx));
         print(
-          `Snapshot available: run ${result.runId} (${result.snapshot.name}) \u2014 status: ${result.snapshot.status}, stages: ${result.snapshot.stages.length}`,
+          result.message ?? `Snapshot available: run ${result.runId} (${result.snapshot.name}) \u2014 status: ${result.snapshot.status}, stages: ${result.snapshot.stages.length}`,
         );
         return true;
       }

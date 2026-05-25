@@ -112,6 +112,16 @@ describe("store.recordPendingPrompt", () => {
 });
 
 describe("store.recordStagePendingPrompt", () => {
+  test("returns false for skipped terminal stages", () => {
+    const s = createStore();
+    s.recordRunStart(makeRun("r1"));
+    s.recordStageStart("r1", { ...makeStage("s1"), status: "skipped", skippedReason: "fail-fast" });
+
+    assert.equal(s.recordStagePendingPrompt("r1", "s1", makePrompt("p1")), false);
+    assert.equal(getRun(s, "r1").stages[0]?.pendingPrompt, undefined);
+    assert.equal(getRun(s, "r1").stages[0]?.status, "skipped");
+  });
+
   test("rejects a stage prompt waiter when that stage ends", async () => {
     const s = createStore();
     s.recordRunStart(makeRun("r1"));

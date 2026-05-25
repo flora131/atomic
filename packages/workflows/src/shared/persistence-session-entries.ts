@@ -31,6 +31,8 @@ export interface RunStartPayload {
   readonly runId: string;
   readonly name: string;
   readonly inputs: Readonly<Record<string, unknown>>;
+  readonly resumedFromRunId?: string;
+  readonly resumeFromStageId?: string;
   readonly ts: number;
 }
 
@@ -40,6 +42,8 @@ export interface StageStartPayload {
   readonly name: string;
   readonly parentIds: readonly string[];
   readonly model?: string;
+  readonly replayedFromStageId?: string;
+  readonly replayed?: boolean;
   readonly ts: number;
 }
 
@@ -56,12 +60,23 @@ export interface StageEndPayload {
   readonly status: string;
   readonly durationMs?: number;
   readonly summary?: string;
+  readonly error?: string;
+  readonly failureKind?: string;
+  readonly failureMessage?: string;
+  readonly skippedReason?: string;
+  readonly replayedFromStageId?: string;
+  readonly replayed?: boolean;
 }
 
 export interface RunEndPayload {
   readonly runId: string;
   readonly status: string;
   readonly result?: unknown;
+  readonly error?: string;
+  readonly failureKind?: string;
+  readonly failureMessage?: string;
+  readonly failedStageId?: string;
+  readonly resumable?: boolean;
   readonly ts: number;
 }
 
@@ -79,6 +94,8 @@ export function appendRunStart(api: PersistenceAPI, payload: RunStartPayload): v
     runId: payload.runId,
     name: payload.name,
     inputs: payload.inputs,
+    ...(payload.resumedFromRunId !== undefined ? { resumedFromRunId: payload.resumedFromRunId } : {}),
+    ...(payload.resumeFromStageId !== undefined ? { resumeFromStageId: payload.resumeFromStageId } : {}),
     ts: payload.ts,
   });
   if (entryId && typeof api.setLabel === "function") {
@@ -96,6 +113,8 @@ export function appendStageStart(api: PersistenceAPI, payload: StageStartPayload
     name: payload.name,
     parentIds: [...payload.parentIds],
     ...(payload.model !== undefined ? { model: payload.model } : {}),
+    ...(payload.replayedFromStageId !== undefined ? { replayedFromStageId: payload.replayedFromStageId } : {}),
+    ...(payload.replayed !== undefined ? { replayed: payload.replayed } : {}),
     ts: payload.ts,
   });
 }
@@ -124,6 +143,12 @@ export function appendStageEnd(
     status: payload.status,
     ...(payload.durationMs !== undefined ? { durationMs: payload.durationMs } : {}),
     ...(payload.summary !== undefined ? { summary: payload.summary } : {}),
+    ...(payload.error !== undefined ? { error: payload.error } : {}),
+    ...(payload.failureKind !== undefined ? { failureKind: payload.failureKind } : {}),
+    ...(payload.failureMessage !== undefined ? { failureMessage: payload.failureMessage } : {}),
+    ...(payload.skippedReason !== undefined ? { skippedReason: payload.skippedReason } : {}),
+    ...(payload.replayedFromStageId !== undefined ? { replayedFromStageId: payload.replayedFromStageId } : {}),
+    ...(payload.replayed !== undefined ? { replayed: payload.replayed } : {}),
   });
   if (opts?.emitMessage === true && payload.summary && typeof api.appendCustomMessageEntry === "function") {
     api.appendCustomMessageEntry(
@@ -140,6 +165,11 @@ export function appendRunEnd(api: PersistenceAPI, payload: RunEndPayload): void 
     runId: payload.runId,
     status: payload.status,
     ...(payload.result !== undefined ? { result: payload.result as Record<string, unknown> } : {}),
+    ...(payload.error !== undefined ? { error: payload.error } : {}),
+    ...(payload.failureKind !== undefined ? { failureKind: payload.failureKind } : {}),
+    ...(payload.failureMessage !== undefined ? { failureMessage: payload.failureMessage } : {}),
+    ...(payload.failedStageId !== undefined ? { failedStageId: payload.failedStageId } : {}),
+    ...(payload.resumable !== undefined ? { resumable: payload.resumable } : {}),
     ts: payload.ts,
   });
 }

@@ -188,7 +188,7 @@ function runCardMeta(run: RunSnapshot, now: number): string {
   const isChain = run.stages.length > 1;
   const total = run.stages.length;
   const done = run.stages.filter(
-    (s) => s.status === "completed" || s.status === "failed",
+    (s) => s.status === "completed" || s.status === "failed" || s.status === "skipped",
   ).length;
   const ago = run.endedAt !== undefined
     ? `${fmtDuration(now - run.endedAt)} ago`
@@ -239,7 +239,7 @@ function lastStageDuration(run: RunSnapshot, now: number): string | undefined {
   // Pick a representative stage duration: the most-recent terminal stage,
   // or the running stage if everything's still in flight.
   const candidate =
-    [...run.stages].reverse().find((s) => s.status === "completed" || s.status === "failed") ??
+    [...run.stages].reverse().find((s) => s.status === "completed" || s.status === "failed" || s.status === "skipped") ??
     run.stages.find((s) => s.status === "running");
   if (!candidate) return undefined;
   return stageDurationString(candidate, now);

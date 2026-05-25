@@ -248,6 +248,40 @@ describe("resumeRun", () => {
       assert.equal(stored!.name, "my-wf");
     }
   });
+
+  test("failed resumable terminal run returns snapshot mode for continuation callers", () => {
+    const st = createStore();
+    st.recordRunStart(makeRun({ id: "r1" }));
+    st.recordRunEnd("r1", "failed", undefined, "boom", {
+      failureKind: "unknown",
+      failedStageId: "s1",
+      resumable: true,
+    });
+    const result = resumeRun("r1", { store: st });
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.mode, "snapshot");
+      assert.equal(result.snapshot.status, "failed");
+      assert.equal(result.message, undefined);
+    }
+  });
+
+  test("failed non-resumable terminal run returns a clear non-resumable snapshot mode", () => {
+    const st = createStore();
+    st.recordRunStart(makeRun({ id: "r1" }));
+    st.recordRunEnd("r1", "failed", undefined, "boom", {
+      failureKind: "cancelled",
+      failedStageId: "s1",
+      resumable: false,
+    });
+    const result = resumeRun("r1", { store: st });
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.mode, "not_resumable");
+      assert.equal(result.snapshot.status, "failed");
+      assert.match(result.message ?? "", /not resumable/);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

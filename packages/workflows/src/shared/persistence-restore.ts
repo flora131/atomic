@@ -7,7 +7,8 @@
  */
 
 import type { Store } from "./store.js";
-import type { RunSnapshot, StageSnapshot } from "./store-types.js";
+import type { RunSnapshot, StageSnapshot, StageStatus } from "./store-types.js";
+import { isWorkflowFailureKind } from "./workflow-failures.js";
 
 // ---------------------------------------------------------------------------
 // Config option
@@ -161,10 +162,15 @@ export function restoreOnSessionStart(
   if (typeof getEntries !== "function") return;
 
   const entries = getEntries.call(sessionManager);
-  const inFlight = scanInFlightRuns(entries as readonly SessionEntry[]);
+  const sessionEntries = entries as readonly SessionEntry[];
+  restoreEndedFailedRuns(sessionEntries, store);
+  const inFlight = scanInFlightRuns(sessionEntries);
   if (inFlight.length === 0) return;
 
   for (const run of inFlight) {
+    const runMeta = findRunStartMetadata(sessionEntries, run.runId);
+    const stages = _buildStageSnapshots(sessionEntries, run.runId);
+
     if (config.resumeInFlight === "auto") {
       // Re-hydrate the run into the store as "running"
       const runSnapshot: RunSnapshot = {
@@ -172,8 +178,10 @@ export function restoreOnSessionStart(
         name: run.name,
         inputs: run.inputs,
         status: "running",
-        stages: _buildStageSnapshots(entries as readonly SessionEntry[], run.runId),
+        stages,
         startedAt: run.startTs,
+        ...(runMeta.resumedFromRunId !== undefined ? { resumedFromRunId: runMeta.resumedFromRunId } : {}),
+        ...(runMeta.resumeFromStageId !== undefined ? { resumeFromStageId: runMeta.resumeFromStageId } : {}),
       };
       store.recordRunStart(runSnapshot);
       callbacks.onResume?.(run);
@@ -184,10 +192,14 @@ export function restoreOnSessionStart(
         name: run.name,
         inputs: run.inputs,
         status: "failed",
-        stages: _buildStageSnapshots(entries as readonly SessionEntry[], run.runId),
+        stages,
         startedAt: run.startTs,
         endedAt: Date.now(),
         error: "Run did not complete — process was interrupted.",
+        failureKind: "unknown",
+        resumable: false,
+        ...(runMeta.resumedFromRunId !== undefined ? { resumedFromRunId: runMeta.resumedFromRunId } : {}),
+        ...(runMeta.resumeFromStageId !== undefined ? { resumeFromStageId: runMeta.resumeFromStageId } : {}),
       };
       store.recordRunStart(runSnapshot);
       store.recordRunEnd(run.runId, "failed");
@@ -224,6 +236,7 @@ function _buildStageSnapshots(
           status: "running",
           parentIds: Array.isArray(parentIds) ? (parentIds as string[]) : [],
           startedAt: typeof ts === "number" ? ts : undefined,
+          ...replayMetadata(entry.payload),
           toolEvents: [],
         });
       }
@@ -234,13 +247,22 @@ function _buildStageSnapshots(
       const status = entry.payload["status"];
       const durationMs = entry.payload["durationMs"];
       const summary = entry.payload["summary"];
+      const error = entry.payload["error"];
+      const failureKind = entry.payload["failureKind"];
+      const failureMessage = entry.payload["failureMessage"];
+      const skippedReason = entry.payload["skippedReason"];
       if (typeof stageId !== "string") continue;
       endedStages.add(stageId);
       const snap = stageMap.get(stageId);
       if (snap) {
-        snap.status = (status === "completed" || status === "failed") ? status : "failed";
+        snap.status = restoreStageStatus(status);
         if (typeof durationMs === "number") snap.durationMs = durationMs;
         if (typeof summary === "string") snap.result = summary;
+        if (typeof error === "string") snap.error = error;
+        if (typeof failureKind === "string" && isWorkflowFailureKind(failureKind)) snap.failureKind = failureKind;
+        if (typeof failureMessage === "string") snap.failureMessage = failureMessage;
+        if (typeof skippedReason === "string") snap.skippedReason = skippedReason;
+        Object.assign(snap, replayMetadata(entry.payload));
       }
     }
   }
@@ -254,4 +276,115 @@ function _buildStageSnapshots(
   }
 
   return [...stageMap.values()];
+}
+
+function replayMetadata(payload: Record<string, unknown>): Pick<StageSnapshot, "replayedFromStageId" | "replayed"> {
+  const replayedFromStageId = payload["replayedFromStageId"];
+  const replayed = payload["replayed"];
+  return {
+    ...(typeof replayedFromStageId === "string" ? { replayedFromStageId } : {}),
+    ...(typeof replayed === "boolean" ? { replayed } : {}),
+  };
+}
+
+function restoreStageStatus(status: unknown): StageStatus {
+  switch (status) {
+    case "completed":
+    case "failed":
+    case "skipped":
+      return status;
+    default:
+      return "failed";
+  }
+}
+
+function restoreEndedFailedRuns(entries: readonly SessionEntry[], store: Store): void {
+  const started = new Map<string, { readonly name: string; readonly inputs: Readonly<Record<string, unknown>>; readonly startTs: number }>();
+  const ended = new Map<string, Record<string, unknown>>();
+
+  for (const entry of entries) {
+    if (entry.type === "workflow.run.start") {
+      const runId = entry.payload["runId"];
+      const name = entry.payload["name"];
+      const inputs = entry.payload["inputs"];
+      const ts = entry.payload["ts"];
+      if (typeof runId === "string" && typeof name === "string" && typeof ts === "number") {
+        started.set(runId, {
+          name,
+          inputs: (inputs !== null && typeof inputs === "object" && !Array.isArray(inputs))
+            ? (inputs as Record<string, unknown>)
+            : {},
+          startTs: ts,
+        });
+      }
+    }
+    if (entry.type === "workflow.run.end") {
+      const runId = entry.payload["runId"];
+      if (typeof runId === "string") ended.set(runId, entry.payload);
+    }
+  }
+
+  for (const [runId, start] of started) {
+    if (store.runs().some((run) => run.id === runId)) continue;
+    const end = ended.get(runId);
+    const status = restoreTerminalRunStatus(end?.["status"]);
+    if (end === undefined || status === undefined) continue;
+
+    const runMeta = findRunStartMetadata(entries, runId);
+    const stages = _buildStageSnapshots(entries, runId);
+    store.recordRunStart({
+      id: runId,
+      name: start.name,
+      inputs: start.inputs,
+      status: "running",
+      stages,
+      startedAt: start.startTs,
+      ...(runMeta.resumedFromRunId !== undefined ? { resumedFromRunId: runMeta.resumedFromRunId } : {}),
+      ...(runMeta.resumeFromStageId !== undefined ? { resumeFromStageId: runMeta.resumeFromStageId } : {}),
+    });
+
+    const error = end["error"];
+    const failureKind = end["failureKind"];
+    const failureMessage = end["failureMessage"];
+    const failedStageId = end["failedStageId"];
+    const resumable = end["resumable"];
+    store.recordRunEnd(
+      runId,
+      status,
+      undefined,
+      typeof error === "string" ? error : undefined,
+      {
+        ...(typeof failureKind === "string" && isWorkflowFailureKind(failureKind) ? { failureKind } : {}),
+        ...(typeof failureMessage === "string" ? { failureMessage } : {}),
+        ...(typeof failedStageId === "string" ? { failedStageId } : {}),
+        ...(typeof resumable === "boolean" ? { resumable } : {}),
+      },
+    );
+  }
+}
+
+function restoreTerminalRunStatus(status: unknown): "failed" | "killed" | undefined {
+  switch (status) {
+    case "failed":
+    case "killed":
+      return status;
+    default:
+      return undefined;
+  }
+}
+
+function findRunStartMetadata(
+  entries: readonly SessionEntry[],
+  runId: string,
+): { readonly resumedFromRunId?: string; readonly resumeFromStageId?: string } {
+  for (const entry of entries) {
+    if (entry.type !== "workflow.run.start" || entry.payload["runId"] !== runId) continue;
+    const resumedFromRunId = entry.payload["resumedFromRunId"];
+    const resumeFromStageId = entry.payload["resumeFromStageId"];
+    return {
+      ...(typeof resumedFromRunId === "string" ? { resumedFromRunId } : {}),
+      ...(typeof resumeFromStageId === "string" ? { resumeFromStageId } : {}),
+    };
+  }
+  return {};
 }

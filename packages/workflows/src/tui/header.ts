@@ -202,6 +202,7 @@ export function renderHeader(run: RunSnapshot, opts: HeaderOpts): string[] {
     blocked: 0,
     completed: 0,
     failed: 0,
+    skipped: 0,
   };
   for (const s of run.stages) counts[s.status]++;
 
@@ -211,6 +212,7 @@ export function renderHeader(run: RunSnapshot, opts: HeaderOpts): string[] {
   if (counts.awaiting_input > 0) badges.push({ text: `↵ ${counts.awaiting_input}`, fg: theme.info });
   if (counts.paused > 0) badges.push({ text: `❚❚ ${counts.paused}`, fg: theme.warning });
   if (counts.pending > 0) badges.push({ text: `○ ${counts.pending}`, fg: theme.dim });
+  if (counts.skipped > 0) badges.push({ text: `⊘ ${counts.skipped}`, fg: theme.dim });
   if (counts.failed > 0) badges.push({ text: `✗ ${counts.failed}`, fg: theme.error });
 
   return renderBandHeader({

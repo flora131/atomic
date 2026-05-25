@@ -71,6 +71,8 @@ function pickBorder(
       return theme.error;
     case "blocked":
       return theme.dim;
+    case "skipped":
+      return theme.dim;
     case "pending":
     default:
       // Pending has no semantic colour; the focused-tab carries the

@@ -11,7 +11,10 @@ export type StageStatus =
   | "paused"
   | "blocked"
   | "completed"
-  | "failed";
+  | "failed"
+  | "skipped";
+
+export type WorkflowFailureKind = "auth" | "rate_limit" | "provider" | "cancelled" | "unknown";
 
 /**
  * Human-in-the-loop prompt kind. Mirrors the four `WorkflowUIContext` methods.
@@ -66,6 +69,16 @@ export interface StageSnapshot {
   durationMs?: number;
   result?: string;
   error?: string;
+  /** Structured workflow failure category for failed stages. */
+  failureKind?: WorkflowFailureKind;
+  /** Original unsanitized error text when different from `error`. */
+  failureMessage?: string;
+  /** Reason for stages skipped by fail-fast/cascade handling. */
+  skippedReason?: string;
+  /** Source stage id when this stage was replayed during failed-run continuation. */
+  replayedFromStageId?: string;
+  /** True when provider work was skipped by continuation replay. */
+  replayed?: boolean;
   readonly toolEvents: ToolEvent[];
   /** True while an in-stage ask_user_question tool is waiting on the user. */
   awaitingInputSince?: number;
@@ -127,6 +140,16 @@ export interface RunSnapshot {
   resumedAt?: number;
   result?: Record<string, unknown>;
   error?: string;
+  /** Structured workflow failure category for failed runs. */
+  failureKind?: WorkflowFailureKind;
+  /** Original unsanitized error text when different from `error`. */
+  failureMessage?: string;
+  failedStageId?: string;
+  resumable?: boolean;
+  /** Source failed run when this run is a continuation. */
+  resumedFromRunId?: string;
+  /** Source stage id where continuation resumes real execution. */
+  resumeFromStageId?: string;
   /**
    * Pending human-in-the-loop prompt. Set when a background workflow calls
    * `ctx.ui.input/confirm/select/editor`; cleared when the user responds via

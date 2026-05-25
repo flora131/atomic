@@ -504,6 +504,7 @@ function stageGlyph(status: StageStatus): string {
     case "completed": return "✓";
     case "running":   return "●";
     case "failed":    return "✗";
+    case "skipped":   return "⊘";
     case "pending":
     default:          return "○";
   }
@@ -514,6 +515,7 @@ function stageColor(status: StageStatus, theme: GraphTheme): string {
     case "completed": return hexToAnsi(theme.success);
     case "running":   return hexToAnsi(theme.warning);
     case "failed":    return hexToAnsi(theme.error);
+    case "skipped":   return hexToAnsi(theme.dim);
     case "pending":
     default:          return hexToAnsi(theme.dim);
   }

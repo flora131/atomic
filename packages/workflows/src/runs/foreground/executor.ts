@@ -33,7 +33,14 @@ import type {
   WorkflowModelCatalogPort,
 } from "../../shared/types.js";
 import type { InternalStageContext, StageAdapters } from "./stage-runner.js";
-import type { RunStatus, StageNotice, StageSnapshot, RunSnapshot, WorkflowOverlayAdapter } from "../../shared/store-types.js";
+import type {
+  RunStatus,
+  StageNotice,
+  StageSnapshot,
+  RunSnapshot,
+  WorkflowOverlayAdapter,
+  WorkflowFailureKind,
+} from "../../shared/store-types.js";
 import type { StageControlHandle, StageControlRegistry, AgentSessionEventListener } from "./stage-control-registry.js";
 import type { Store } from "../../shared/store.js";
 import type { CancellationRegistry } from "../background/cancellation-registry.js";
@@ -59,8 +66,15 @@ import {
   appendRunEnd,
 } from "../../shared/persistence-session-entries.js";
 import { validateWorkflowModels } from "../shared/model-fallback.js";
+import type { WorkflowFailure } from "../../shared/workflow-failures.js";
+import { classifyWorkflowFailure } from "../../shared/workflow-failures.js";
 
 export interface ResolvedInputs extends Record<string, unknown> {}
+
+export interface RunContinuationOpts {
+  readonly source: RunSnapshot;
+  readonly resumeFromStageId: string;
+}
 
 export interface RunOpts {
   adapters?: StageAdapters;
@@ -113,6 +127,8 @@ export interface RunOpts {
    * the runId before starting the background promise.
    */
   runId?: string;
+  /** Replay completed stages from a failed source run, then resume at this stage. */
+  continuation?: RunContinuationOpts;
   onRunStart?: (snapshot: RunSnapshot) => void;
   onStageStart?: (runId: string, snapshot: StageSnapshot) => void;
   onStageEnd?: (runId: string, snapshot: StageSnapshot) => void;
@@ -519,16 +535,22 @@ async function mapParallelSteps<T>(
   concurrency: number | undefined,
   failFast: boolean | undefined,
   mapper: (step: WorkflowTaskStep) => Promise<T>,
+  onFirstFailure?: (error: unknown) => void,
 ): Promise<T[]> {
   const limit = positiveConcurrency(concurrency) ?? steps.length;
+  const failFastEnabled = failFast !== false;
   const results = new Array<T>(steps.length);
   const failures: Array<{ readonly index: number; readonly error: unknown }> = [];
   let nextIndex = 0;
   let firstFailure: unknown;
+  let rejectFirstFailure: (reason: unknown) => void = () => {};
+  const firstFailurePromise = new Promise<never>((_, reject) => {
+    rejectFirstFailure = reject;
+  });
 
   async function worker(): Promise<void> {
     while (true) {
-      if (failFast !== false && firstFailure !== undefined) return;
+      if (failFastEnabled && firstFailure !== undefined) return;
       const index = nextIndex;
       nextIndex += 1;
       const step = steps[index];
@@ -537,15 +559,29 @@ async function mapParallelSteps<T>(
         results[index] = await mapper(step);
       } catch (err) {
         failures.push({ index, error: err });
-        firstFailure ??= err;
-        if (failFast !== false) throw err;
+        if (firstFailure === undefined) {
+          firstFailure = err;
+          onFirstFailure?.(err);
+          if (failFastEnabled) rejectFirstFailure(err);
+        }
+        if (failFastEnabled) return;
       }
     }
   }
 
-  await Promise.all(
-    Array.from({ length: Math.min(limit, steps.length) }, () => worker()),
-  );
+  const workers = Array.from({ length: Math.min(limit, steps.length) }, () => worker());
+  const allWorkers = Promise.all(workers);
+
+  if (!failFastEnabled) {
+    await allWorkers;
+  } else {
+    try {
+      await Promise.race([allWorkers, firstFailurePromise]);
+    } catch (err) {
+      void allWorkers.catch(() => {});
+      throw err;
+    }
+  }
 
   if (failures.length > 0) {
     throw new AggregateError(
@@ -1013,11 +1049,93 @@ function appendRunEndWhenRecorded(
     readonly runId: string;
     readonly status: RunStatus;
     readonly result?: Record<string, unknown>;
+    readonly error?: string;
+    readonly failureKind?: WorkflowFailureKind;
+    readonly failureMessage?: string;
+    readonly failedStageId?: string;
+    readonly resumable?: boolean;
     readonly ts: number;
   },
 ): void {
   if (!persistence || !recorded) return;
   appendRunEnd(persistence, payload);
+}
+
+interface RunFailureMetadata {
+  readonly errorMessage: string;
+  readonly failureKind: WorkflowFailureKind;
+  readonly failureMessage: string;
+  readonly failedStageId?: string;
+  readonly resumable: boolean;
+}
+
+function applyFailureToStage(stage: StageSnapshot, failure: WorkflowFailure): void {
+  stage.status = "failed";
+  stage.error = failure.userMessage;
+  stage.failureKind = failure.kind;
+  stage.failureMessage = failure.message;
+}
+
+function runFailureMetadata(err: unknown, stages: readonly StageSnapshot[]): RunFailureMetadata {
+  const classified = classifyWorkflowFailure(err);
+  const failedStage = stages.find((stage) => stage.status === "failed");
+  const failureKind = failedStage?.failureKind ?? classified.kind;
+
+  return {
+    errorMessage: failedStage?.error ?? classified.userMessage,
+    failureKind,
+    failureMessage: failedStage?.failureMessage ?? classified.message,
+    ...(failedStage !== undefined ? { failedStageId: failedStage.id } : {}),
+    resumable: failureKind !== "cancelled",
+  };
+}
+
+type ContinuationReplayDecision =
+  | { readonly kind: "execute" }
+  | { readonly kind: "replay"; readonly source: StageSnapshot };
+
+interface ContinuationReplayIndex {
+  decide(stageName: string): ContinuationReplayDecision;
+}
+
+function createContinuationReplayIndex(continuation: RunContinuationOpts | undefined): ContinuationReplayIndex {
+  if (continuation === undefined) return { decide: () => ({ kind: "execute" }) };
+  const resumeStage = continuation.source.stages.find((stage) => stage.id === continuation.resumeFromStageId);
+  if (resumeStage === undefined) {
+    throw new Error(`pi-workflows: insufficient_state: resume stage ${continuation.resumeFromStageId} was not found in source run ${continuation.source.id}`);
+  }
+
+  const stagesByName = new Map<string, StageSnapshot[]>();
+  for (const stage of continuation.source.stages) {
+    const stages = stagesByName.get(stage.name);
+    if (stages === undefined) {
+      stagesByName.set(stage.name, [stage]);
+    } else {
+      stages.push(stage);
+    }
+  }
+
+  const consumedByName = new Map<string, number>();
+  return {
+    decide(stageName: string): ContinuationReplayDecision {
+      const stages = stagesByName.get(stageName);
+      const index = consumedByName.get(stageName) ?? 0;
+      consumedByName.set(stageName, index + 1);
+      const source = stages?.[index];
+      if (source?.status === "completed") return { kind: "replay", source };
+      return { kind: "execute" };
+    },
+  };
+}
+
+interface ParallelFailFastStage {
+  readonly skip: () => void;
+}
+
+interface ParallelFailFastScope {
+  failed: boolean;
+  firstFailure?: unknown;
+  readonly activeStages: Map<string, ParallelFailFastStage>;
 }
 
 // ---------------------------------------------------------------------------
@@ -1031,17 +1149,25 @@ function finalizeKilled(
   persistence: WorkflowPersistencePort | undefined,
   onRunEnd: RunOpts["onRunEnd"],
 ): RunResult {
-  const recorded = activeStore.recordRunEnd(runId, "killed", undefined, "workflow killed");
-  onRunEnd?.(runId, "killed", undefined, "workflow killed");
+  const errorMessage = "workflow killed";
+  const metadata = {
+    failureKind: "cancelled" as const,
+    failureMessage: errorMessage,
+    resumable: false,
+  };
+  const recorded = activeStore.recordRunEnd(runId, "killed", undefined, errorMessage, metadata);
+  onRunEnd?.(runId, "killed", undefined, errorMessage);
   appendRunEndWhenRecorded(persistence, recorded, {
     runId,
     status: "killed",
+    error: errorMessage,
+    ...metadata,
     ts: Date.now(),
   });
   return {
     runId,
     status: "killed",
-    error: "workflow killed",
+    error: errorMessage,
     stages: [...runSnapshot.stages],
   };
 }
@@ -1080,6 +1206,7 @@ export async function run<TInputs extends Record<string, unknown>>(
 
   // 2. Generate runId (or use pre-allocated seam from caller)
   const runId = opts.runId ?? crypto.randomUUID();
+  const replayIndex = createContinuationReplayIndex(opts.continuation);
 
   // 2a. Create own AbortController; forward caller signal if provided
   const ownController = new AbortController();
@@ -1100,6 +1227,10 @@ export async function run<TInputs extends Record<string, unknown>>(
     status: "running",
     stages: [],
     startedAt: Date.now(),
+    ...(opts.continuation !== undefined ? {
+      resumedFromRunId: opts.continuation.source.id,
+      resumeFromStageId: opts.continuation.resumeFromStageId,
+    } : {}),
   };
 
   activeStore.recordRunStart(runSnapshot);
@@ -1120,6 +1251,8 @@ export async function run<TInputs extends Record<string, unknown>>(
       runId,
       name: def.name,
       inputs: resolvedInputs,
+      ...(runSnapshot.resumedFromRunId !== undefined ? { resumedFromRunId: runSnapshot.resumedFromRunId } : {}),
+      ...(runSnapshot.resumeFromStageId !== undefined ? { resumeFromStageId: runSnapshot.resumeFromStageId } : {}),
       ts: runSnapshot.startedAt,
     });
   }
@@ -1147,7 +1280,7 @@ export async function run<TInputs extends Record<string, unknown>>(
   };
 
   const isTerminalStage = (stage: StageSnapshot): boolean =>
-    stage.status === "completed" || stage.status === "failed";
+    stage.status === "completed" || stage.status === "failed" || stage.status === "skipped";
 
   const stageById = (stageId: string): StageSnapshot | undefined =>
     runSnapshot.stages.find((stage) => stage.id === stageId);
@@ -1280,7 +1413,7 @@ export async function run<TInputs extends Record<string, unknown>>(
     inputs: resolvedInputs as TInputs,
     ui: opts.ui ?? makeUnavailableUIContext(),
 
-    stage(name: string, options?: StageOptions) {
+    stage(name: string, options?: StageOptions, stageFailFastScope?: ParallelFailFastScope) {
       // a. Generate stageId
       const stageId = crypto.randomUUID();
 
@@ -1288,12 +1421,24 @@ export async function run<TInputs extends Record<string, unknown>>(
       const parentIds = tracker.onSpawn(stageId, name);
 
       // c. Create StageSnapshot as "pending"
+      const replayDecision = replayIndex.decide(name);
+      const replaySource = replayDecision.kind === "replay" ? replayDecision.source : undefined;
+      const shouldReplay = replaySource !== undefined;
+
       const stageSnapshot: StageSnapshot = {
         id: stageId,
         name,
-        status: "pending",
+        status: shouldReplay ? "completed" : "pending",
         parentIds: Object.freeze(parentIds),
         toolEvents: [],
+        ...(shouldReplay ? {
+          startedAt: Date.now(),
+          endedAt: Date.now(),
+          durationMs: 0,
+          ...(replaySource.result !== undefined ? { result: replaySource.result } : {}),
+          replayedFromStageId: replaySource.id,
+          replayed: true,
+        } : {}),
         // Store mcp scope options on snapshot when provided
         ...(options?.mcp !== undefined
           ? { mcpScope: { allow: options.mcp.allow ?? null, deny: options.mcp.deny ?? null } }
@@ -1301,8 +1446,73 @@ export async function run<TInputs extends Record<string, unknown>>(
         // Mark attachable up-front: the live stage handle is registered
         // below before the first onStageStart fires, so consumers that
         // hook onStageStart see `attachable: true` for the pending stage.
-        attachable: true,
+        attachable: !shouldReplay,
       };
+
+      let stageStartEntryAppended = false;
+      const appendStageStartOnce = (): void => {
+        if (!opts.persistence || stageStartEntryAppended) return;
+        stageStartEntryAppended = true;
+        appendStageStart(opts.persistence, {
+          runId,
+          stageId,
+          name,
+          parentIds: stageSnapshot.parentIds,
+          ...(stageSnapshot.replayedFromStageId !== undefined ? { replayedFromStageId: stageSnapshot.replayedFromStageId } : {}),
+          ...(stageSnapshot.replayed !== undefined ? { replayed: stageSnapshot.replayed } : {}),
+          ts: stageSnapshot.startedAt ?? Date.now(),
+        });
+      };
+
+      if (shouldReplay) {
+        activeStore.recordStageStart(runId, stageSnapshot);
+        opts.onStageStart?.(runId, stageSnapshot);
+        appendStageStartOnce();
+        activeStore.recordStageEnd(runId, stageSnapshot);
+        opts.onStageEnd?.(runId, stageSnapshot);
+        if (opts.persistence) {
+          appendStageEnd(opts.persistence, {
+            runId,
+            stageId,
+            status: "completed",
+            durationMs: 0,
+            ...(stageSnapshot.result !== undefined ? { summary: stageSnapshot.result } : {}),
+            replayedFromStageId: replaySource.id,
+            replayed: true,
+          });
+        }
+        tracker.onSettle(stageId);
+        const replayResult = replaySource.result ?? "";
+        const replayContext: StageContext & Pick<InternalStageContext, "__modelFallbackMeta"> = {
+          name,
+          prompt: async () => replayResult,
+          complete: async () => replayResult,
+          steer: async () => {},
+          followUp: async () => {},
+          subscribe: () => () => {},
+          get sessionFile() { return replaySource.sessionFile; },
+          get sessionId() { return replaySource.sessionId ?? ""; },
+          setModel: async () => {},
+          setThinkingLevel: () => {},
+          cycleModel: async () => undefined,
+          cycleThinkingLevel: () => undefined,
+          get agent() { return undefined as never; },
+          get model() { return replaySource.model as never; },
+          get thinkingLevel() { return undefined as never; },
+          get messages() { return [] as never; },
+          get isStreaming() { return false; },
+          navigateTree: async () => ({ cancelled: false }),
+          compact: async () => ({}) as never,
+          abortCompaction: () => {},
+          abort: async () => {},
+          __modelFallbackMeta: () => ({
+            ...(replaySource.model !== undefined ? { model: replaySource.model } : {}),
+            ...(replaySource.attemptedModels !== undefined ? { attemptedModels: replaySource.attemptedModels } : {}),
+            ...(replaySource.modelAttempts !== undefined ? { modelAttempts: replaySource.modelAttempts } : {}),
+          }),
+        };
+        return replayContext;
+      }
 
       // d. Create inner AgentSession-like StageContext (raw, without lifecycle wrapping).
       //    Must come before the registry registration because the handle
@@ -1465,6 +1675,59 @@ export async function run<TInputs extends Record<string, unknown>>(
           return innerCtx.subscribe(listener);
         },
       };
+      let stageFinalized = false;
+      const finalizeStageSnapshot = (): boolean => {
+        if (stageFinalized) return false;
+        stageFinalized = true;
+        stageSnapshot.endedAt = Date.now();
+        stageSnapshot.durationMs = elapsedStageMs(stageSnapshot, stageSnapshot.endedAt);
+
+        const finalModelMeta = innerCtx.__modelFallbackMeta();
+        if (finalModelMeta.model !== undefined) stageSnapshot.model = finalModelMeta.model;
+        if (finalModelMeta.attemptedModels !== undefined) stageSnapshot.attemptedModels = finalModelMeta.attemptedModels;
+        if (finalModelMeta.modelAttempts !== undefined) stageSnapshot.modelAttempts = finalModelMeta.modelAttempts;
+
+        activeStore.recordStageEnd(runId, stageSnapshot);
+        opts.onStageEnd?.(runId, stageSnapshot);
+
+        if (opts.persistence) {
+          appendStageStartOnce();
+          appendStageEnd(opts.persistence, {
+            runId,
+            stageId,
+            status: stageSnapshot.status,
+            durationMs: stageSnapshot.durationMs,
+            ...(stageSnapshot.error !== undefined ? { error: stageSnapshot.error } : {}),
+            ...(stageSnapshot.failureKind !== undefined ? { failureKind: stageSnapshot.failureKind } : {}),
+            ...(stageSnapshot.failureMessage !== undefined ? { failureMessage: stageSnapshot.failureMessage } : {}),
+            ...(stageSnapshot.skippedReason !== undefined ? { skippedReason: stageSnapshot.skippedReason } : {}),
+            ...(stageSnapshot.result !== undefined && stageSnapshot.status === "completed" ? { summary: stageSnapshot.result } : {}),
+            ...(stageSnapshot.replayedFromStageId !== undefined ? { replayedFromStageId: stageSnapshot.replayedFromStageId } : {}),
+            ...(stageSnapshot.replayed !== undefined ? { replayed: stageSnapshot.replayed } : {}),
+          });
+        }
+
+        stageFailFastScope?.activeStages.delete(stageId);
+        tracker.onSettle(stageId);
+        return true;
+      };
+      let skippedForParallelFailFast = false;
+      const markSkippedForParallelFailFast = (): void => {
+        skippedForParallelFailFast = true;
+        stageSnapshot.status = "skipped";
+        stageSnapshot.skippedReason = "fail-fast";
+      };
+      const parallelFailFastError = (): unknown =>
+        stageFailFastScope?.firstFailure ?? new Error("pi-workflows: skipped after parallel fail-fast");
+      const skipForParallelFailFast = (): void => {
+        if (isTerminalStage(stageSnapshot)) return;
+        markSkippedForParallelFailFast();
+        finalizeStageSnapshot();
+        void innerCtx.abort().catch(() => {});
+        void releaseLiveHandleWhenIdle().catch(() => {});
+      };
+      stageFailFastScope?.activeStages.set(stageId, { skip: skipForParallelFailFast });
+
       let stageControlDropped = false;
       dropStageControlHandle = (): void => {
         if (stageControlDropped) return;
@@ -1498,12 +1761,18 @@ export async function run<TInputs extends Record<string, unknown>>(
 
       const runTrackedStageCall = async (call: () => Promise<string>): Promise<string> => {
         await waitForStageRelease();
+        if (stageFinalized) {
+          throw parallelFailFastError();
+        }
 
         // Block here until a concurrency slot is available for this run.
         await limiter.acquire();
 
         try {
           await waitForStageRelease();
+          if (stageFinalized) {
+            throw parallelFailFastError();
+          }
         } catch (err) {
           limiter.release();
           throw err;
@@ -1514,15 +1783,7 @@ export async function run<TInputs extends Record<string, unknown>>(
         activeStore.recordStageStart(runId, stageSnapshot);
 
         // Persistence: append stage.start entry
-        if (opts.persistence) {
-          appendStageStart(opts.persistence, {
-            runId,
-            stageId,
-            name,
-            parentIds: stageSnapshot.parentIds,
-            ts: stageSnapshot.startedAt,
-          });
-        }
+        appendStageStartOnce();
 
         const mcpAllow = options?.mcp?.allow ?? null;
         const mcpDeny = options?.mcp?.deny ?? null;
@@ -1557,6 +1818,13 @@ export async function run<TInputs extends Record<string, unknown>>(
             if (modelMeta.attemptedModels !== undefined) stageSnapshot.attemptedModels = modelMeta.attemptedModels;
             if (modelMeta.modelAttempts !== undefined) stageSnapshot.modelAttempts = modelMeta.modelAttempts;
           }
+          if (stageFailFastScope?.failed === true && stageFailFastScope.activeStages.has(stageId)) {
+            markSkippedForParallelFailFast();
+            throw parallelFailFastError();
+          }
+          if (stageFinalized) {
+            throw parallelFailFastError();
+          }
           stageSnapshot.status = "completed";
           const assistantText = innerCtx.__getLastAssistantText();
           if (assistantText !== undefined) {
@@ -1564,38 +1832,16 @@ export async function run<TInputs extends Record<string, unknown>>(
           }
           return result;
         } catch (err) {
-          if (!ownController.signal.aborted) {
-            stageSnapshot.status = "failed";
-            stageSnapshot.error = err instanceof Error ? err.message : String(err);
+          if (!ownController.signal.aborted && !skippedForParallelFailFast) {
+            applyFailureToStage(stageSnapshot, classifyWorkflowFailure(err));
           }
           throw err;
         } finally {
-          stageSnapshot.endedAt = Date.now();
-          stageSnapshot.durationMs = elapsedStageMs(stageSnapshot, stageSnapshot.endedAt);
-
-          const finalModelMeta = innerCtx.__modelFallbackMeta();
-          if (finalModelMeta.model !== undefined) stageSnapshot.model = finalModelMeta.model;
-          if (finalModelMeta.attemptedModels !== undefined) stageSnapshot.attemptedModels = finalModelMeta.attemptedModels;
-          if (finalModelMeta.modelAttempts !== undefined) stageSnapshot.modelAttempts = finalModelMeta.modelAttempts;
-
           if (opts.mcp && hasMcpScope) {
             opts.mcp.clearScope(stageId);
           }
 
-          activeStore.recordStageEnd(runId, stageSnapshot);
-          opts.onStageEnd?.(runId, stageSnapshot);
-
-          // Persistence: append stage.end entry
-          if (opts.persistence) {
-            appendStageEnd(opts.persistence, {
-              runId,
-              stageId,
-              status: stageSnapshot.status,
-              durationMs: stageSnapshot.durationMs,
-            });
-          }
-
-          tracker.onSettle(stageId);
+          finalizeStageSnapshot();
           // The stage has finished participating in workflow scheduling. Drop it
           // from run-level pause/resume and cascade-pause lookups immediately.
           // If no SDK queue/active input remains, release the live chat handle so
@@ -1691,9 +1937,13 @@ export async function run<TInputs extends Record<string, unknown>>(
       return stageContext;
     },
 
-    async task(name: string, options: WorkflowTaskOptions): Promise<WorkflowTaskResult> {
+    async task(name: string, options: WorkflowTaskOptions, stageFailFastScope?: ParallelFailFastScope): Promise<WorkflowTaskResult> {
       const runTaskOnce = async (taskOptions: WorkflowTaskOptions): Promise<WorkflowTaskResult> => {
-        const stage = ctx.stage(name, taskStageOptions(taskOptions));
+        const stage = (ctx.stage as typeof ctx.stage & ((stageName: string, stageOptions?: StageOptions, scope?: ParallelFailFastScope) => StageContext))(
+          name,
+          taskStageOptions(taskOptions),
+          stageFailFastScope,
+        );
         const rawText = await stage.prompt(
           applyTaskContext(`${taskReadInstruction(taskOptions)}${taskPrompt(taskOptions)}`, taskPrevious(taskOptions)),
           taskPromptOptions(taskOptions),
@@ -1757,12 +2007,23 @@ export async function run<TInputs extends Record<string, unknown>>(
 
     async parallel(steps: readonly WorkflowTaskStep[], options: WorkflowParallelOptions = {}): Promise<WorkflowTaskResult[]> {
       const fallback = parallelFallbackTask(steps, options);
+      const failFastScope: ParallelFailFastScope | undefined = options.failFast === false
+        ? undefined
+        : { failed: false, activeStages: new Map<string, ParallelFailFastStage>() };
       return mapParallelSteps(steps, options.concurrency, options.failFast, async (step) => {
         const prompt = replaceTaskPlaceholder(step.prompt ?? step.task ?? fallback, options.task ?? fallback);
-        return ctx.task(
+        return await (ctx.task as typeof ctx.task & ((taskName: string, taskOptions: WorkflowTaskOptions, scope?: ParallelFailFastScope) => Promise<WorkflowTaskResult>))(
           step.name,
           taskWithSharedDefaults(taskOptionsFromStep(step, prompt, taskPrevious(step)), options),
+          failFastScope,
         );
+      }, (error) => {
+        if (failFastScope === undefined) return;
+        failFastScope.failed = true;
+        failFastScope.firstFailure = error;
+        for (const stage of failFastScope.activeStages.values()) {
+          stage.skip();
+        }
       });
     },
   };
@@ -1805,21 +2066,25 @@ export async function run<TInputs extends Record<string, unknown>>(
       return finalizeKilled(runId, runSnapshot, activeStore, opts.persistence, opts.onRunEnd);
     }
 
-    const errorMessage = err instanceof Error ? err.message : String(err);
-
-    const recorded = activeStore.recordRunEnd(runId, "failed", undefined, errorMessage);
-    opts.onRunEnd?.(runId, "failed", undefined, errorMessage);
+    const metadata = runFailureMetadata(err, runSnapshot.stages);
+    const recorded = activeStore.recordRunEnd(runId, "failed", undefined, metadata.errorMessage, metadata);
+    opts.onRunEnd?.(runId, "failed", undefined, metadata.errorMessage);
 
     appendRunEndWhenRecorded(opts.persistence, recorded, {
       runId,
       status: "failed",
+      error: metadata.errorMessage,
+      failureKind: metadata.failureKind,
+      failureMessage: metadata.failureMessage,
+      ...(metadata.failedStageId !== undefined ? { failedStageId: metadata.failedStageId } : {}),
+      resumable: metadata.resumable,
       ts: Date.now(),
     });
 
     return {
       runId,
       status: "failed",
-      error: errorMessage,
+      error: metadata.errorMessage,
       stages: [...runSnapshot.stages],
     };
   } finally {

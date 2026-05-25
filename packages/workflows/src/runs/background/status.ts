@@ -39,7 +39,14 @@ export type DestroyRunResult =
   | { ok: false; runId: string; reason: "not_found" };
 
 export type ResumeResult =
-  | { ok: true; runId: string; snapshot: RunSnapshot; resumed: readonly StageSnapshot[] }
+  | {
+      ok: true;
+      runId: string;
+      snapshot: RunSnapshot;
+      resumed: readonly StageSnapshot[];
+      mode?: "snapshot" | "paused" | "not_resumable";
+      message?: string;
+    }
   | { ok: false; runId: string; reason: "not_found" };
 
 export type PauseResult =
@@ -289,7 +296,23 @@ export function resumeRun(
   // Return a deep copy of the snapshot for safe consumption
   const snapshot: RunSnapshot = JSON.parse(JSON.stringify(run)) as RunSnapshot;
   const resumedCopy: StageSnapshot[] = JSON.parse(JSON.stringify(resumed)) as StageSnapshot[];
-  return { ok: true, runId, snapshot, resumed: resumedCopy };
+  if (run.status === "failed" && run.endedAt !== undefined && run.resumable === false) {
+    return {
+      ok: true,
+      runId,
+      snapshot,
+      resumed: resumedCopy,
+      mode: "not_resumable",
+      message: "This failed workflow is not resumable; inspect the snapshot and rerun the workflow when ready.",
+    };
+  }
+  return {
+    ok: true,
+    runId,
+    snapshot,
+    resumed: resumedCopy,
+    mode: resumedCopy.length > 0 ? "paused" : "snapshot",
+  };
 }
 
 // ---------------------------------------------------------------------------

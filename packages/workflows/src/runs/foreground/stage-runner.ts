@@ -594,13 +594,22 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
     },
 
     async complete(text, completeOpts) {
-      if (!adapters.complete) {
+      if (adapters.complete) {
+        lastAssistantText = await adapters.complete.complete(text, completeOpts, meta);
+        adapterMessages = assistantMessage(lastAssistantText);
+        return lastAssistantText;
+      }
+      if (
+        completeOpts?.model !== undefined ||
+        completeOpts?.maxTokens !== undefined ||
+        completeOpts?.fallbackModels !== undefined
+      ) {
         throw new Error(
-          "pi-workflows: complete adapter not configured — provide a CompleteAdapter via RunOpts.adapters.complete",
+          "pi-workflows: complete options require a CompleteAdapter via RunOpts.adapters.complete",
         );
       }
-      lastAssistantText = await adapters.complete.complete(text, completeOpts, meta);
-      adapterMessages = assistantMessage(lastAssistantText);
+      await promptWithFallback(text, undefined);
+      lastAssistantText = lastAssistantTextFromSession(session, lastAssistantText) ?? "";
       return lastAssistantText;
     },
 

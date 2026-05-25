@@ -84,6 +84,8 @@ export interface StageControlHandle {
    * before the session exists are buffered and bound on first attach.
    */
   subscribe(listener: AgentSessionEventListener): () => void;
+  /** Release the underlying SDK session and unregister this direct chat handle. */
+  dispose?(): void | Promise<void>;
 }
 
 /**
@@ -267,7 +269,13 @@ export function createStageControlRegistry(): StageControlRegistry {
       return makeRunHandle(runId);
     },
     clear(): void {
+      const handles = [..._byRun.values()].flatMap((runMap) =>
+        [...runMap.values()].map((entry) => entry.handle),
+      );
       _byRun.clear();
+      for (const handle of handles) {
+        void handle.dispose?.();
+      }
     },
   };
 }

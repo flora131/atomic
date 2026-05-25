@@ -69,6 +69,16 @@ describe("buildRuntimeAdapters — SDK sessions", () => {
     assert.equal(stage.getLastAssistantText(), "sdk:hello");
   });
 
+  test("stage complete falls back to the SDK session adapter", async () => {
+    const adapters = buildRuntimeAdapters({}, {
+      createAgentSession: async () => ({ session: fakeSession() }),
+    });
+    const stage = createStageContext({ stageId: "s", stageName: "Stage", runId: "r", adapters });
+    const result = await stage.complete("finish");
+    assert.equal(result, "sdk:finish");
+    assert.equal(stage.getLastAssistantText(), "sdk:finish");
+  });
+
   test("stage prompt output options do not override createAgentSession options", async () => {
     const calls: Array<CreateAgentSessionOptions | undefined> = [];
     const adapters = buildRuntimeAdapters({}, {

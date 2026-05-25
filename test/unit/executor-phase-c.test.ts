@@ -268,7 +268,7 @@ describe("executor adapter errors — Phase C", () => {
 
     const result = await run(def, {}, { adapters: {}, store: createStore() });
     assert.equal(result.status, "failed");
-    assert.ok(result.error!.includes("complete adapter not configured"));
+    assert.ok(result.error!.includes("prompt adapter not configured"));
   });
 
 

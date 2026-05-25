@@ -37,7 +37,17 @@ import {
 import type { PendingPrompt } from "../shared/store-types.js";
 import type { GraphTheme } from "./graph-theme.js";
 import { hexToAnsi, hexBg, paint, RESET, BOLD } from "./color-utils.js";
-import { Key, matchesKey } from "./text-helpers.js";
+import { Key, decodePrintableKey, matchesKey } from "./text-helpers.js";
+import {
+  type KeybindingsLike,
+  TUI_ACTION,
+  deleteRange,
+  lineEnd,
+  lineStart,
+  matchesAction,
+  wordLeft,
+  wordRight,
+} from "./keybindings-adapter.js";
 
 // ---------------------------------------------------------------------------
 // State
@@ -98,6 +108,7 @@ export type PromptCardAction =
 export function handlePromptCardInput(
   data: string,
   state: PromptCardState,
+  keybindings?: KeybindingsLike,
 ): PromptCardAction {
   if (matchesKey(data, Key.ctrl("c")) || matchesKey(data, Key.escape)) {
     return { kind: "cancel" };
@@ -109,9 +120,9 @@ export function handlePromptCardInput(
     case "select":
       return handleSelect(data, state);
     case "input":
-      return handleInput(data, state);
+      return handleInput(data, state, keybindings);
     case "editor":
-      return handleEditor(data, state);
+      return handleEditor(data, state, keybindings);
   }
 }
 
@@ -154,56 +165,138 @@ function handleSelect(data: string, state: PromptCardState): PromptCardAction {
   return action;
 }
 
-function handleInput(data: string, state: PromptCardState): PromptCardAction {
-  if (matchesKey(data, Key.enter)) {
+function handleInput(
+  data: string,
+  state: PromptCardState,
+  keybindings: KeybindingsLike | undefined,
+): PromptCardAction {
+  if (matchesTextAction(keybindings, data, TUI_ACTION.inputSubmit, Key.enter)) {
     return { kind: "submit", response: state.rawText };
   }
-  return applyTextEdit(data, state);
+  if (matchesAction(keybindings, data, "tui.input.newLine")) {
+    insertText(state, "\n");
+    return { kind: "noop" };
+  }
+  return applyTextEdit(data, state, keybindings, { multiline: true });
 }
 
-function handleEditor(data: string, state: PromptCardState): PromptCardAction {
+function handleEditor(
+  data: string,
+  state: PromptCardState,
+  keybindings: KeybindingsLike | undefined,
+): PromptCardAction {
   if (matchesKey(data, Key.tab) || matchesKey(data, Key.shift("tab"))) {
     state.editorSubmitFocused = !state.editorSubmitFocused;
     return { kind: "noop" };
   }
   if (state.editorSubmitFocused) {
-    if (matchesKey(data, Key.enter)) {
+    if (matchesTextAction(keybindings, data, TUI_ACTION.inputSubmit, Key.enter)) {
       return { kind: "submit", response: state.rawText };
     }
     return { kind: "noop" };
   }
-  if (matchesKey(data, Key.enter)) {
-    state.rawText = state.rawText.slice(0, state.caret) + "\n" + state.rawText.slice(state.caret);
-    state.caret += 1;
+  if (
+    matchesTextAction(keybindings, data, TUI_ACTION.inputSubmit, Key.enter) ||
+    matchesAction(keybindings, data, "tui.input.newLine")
+  ) {
+    insertText(state, "\n");
     return { kind: "noop" };
   }
-  return applyTextEdit(data, state);
+  return applyTextEdit(data, state, keybindings, { multiline: true });
 }
 
 function applyTextEdit(
   data: string,
   state: PromptCardState,
+  keybindings: KeybindingsLike | undefined,
+  opts: { multiline: boolean },
 ): PromptCardAction {
-  if (matchesKey(data, Key.left)) {
-    state.caret = previousGraphemeBoundary(state.rawText, state.caret);
+  const caret = Math.max(0, Math.min(state.caret, state.rawText.length));
+  state.caret = caret;
+
+  if (opts.multiline && matchesAction(keybindings, data, TUI_ACTION.editorCursorUp)) {
+    const nextCaret = caretLineUp(state.rawText, caret);
+    if (nextCaret !== null) state.caret = nextCaret;
     return { kind: "noop" };
   }
-  if (matchesKey(data, Key.right)) {
-    state.caret = nextGraphemeBoundary(state.rawText, state.caret);
+  if (opts.multiline && matchesAction(keybindings, data, TUI_ACTION.editorCursorDown)) {
+    const nextCaret = caretLineDown(state.rawText, caret);
+    if (nextCaret !== null) state.caret = nextCaret;
     return { kind: "noop" };
   }
-  if (matchesKey(data, Key.backspace)) {
-    if (state.caret > 0) {
-      const prev = previousGraphemeBoundary(state.rawText, state.caret);
-      state.rawText = state.rawText.slice(0, prev) + state.rawText.slice(state.caret);
-      state.caret = prev;
+  if (matchesAction(keybindings, data, "tui.editor.cursorWordLeft")) {
+    state.caret = wordLeft(state.rawText, caret);
+    return { kind: "noop" };
+  }
+  if (matchesAction(keybindings, data, "tui.editor.cursorWordRight")) {
+    state.caret = wordRight(state.rawText, caret);
+    return { kind: "noop" };
+  }
+  if (matchesAction(keybindings, data, "tui.editor.cursorLineStart")) {
+    state.caret = lineStart(state.rawText, caret);
+    return { kind: "noop" };
+  }
+  if (matchesAction(keybindings, data, "tui.editor.cursorLineEnd")) {
+    state.caret = lineEnd(state.rawText, caret);
+    return { kind: "noop" };
+  }
+  if (matchesTextAction(keybindings, data, TUI_ACTION.editorCursorLeft, Key.left)) {
+    state.caret = previousGraphemeBoundary(state.rawText, caret);
+    return { kind: "noop" };
+  }
+  if (matchesTextAction(keybindings, data, TUI_ACTION.editorCursorRight, Key.right)) {
+    state.caret = nextGraphemeBoundary(state.rawText, caret);
+    return { kind: "noop" };
+  }
+  if (matchesAction(keybindings, data, "tui.editor.deleteWordBackward")) {
+    const start = wordLeft(state.rawText, caret);
+    const result = deleteRange(state.rawText, start, caret, caret);
+    state.rawText = result.text;
+    state.caret = result.caret;
+    return { kind: "noop" };
+  }
+  if (matchesAction(keybindings, data, "tui.editor.deleteWordForward")) {
+    const end = wordRight(state.rawText, caret);
+    const result = deleteRange(state.rawText, caret, end, caret);
+    state.rawText = result.text;
+    state.caret = result.caret;
+    return { kind: "noop" };
+  }
+  if (matchesAction(keybindings, data, "tui.editor.deleteToLineStart")) {
+    const start = lineStart(state.rawText, caret);
+    const result = deleteRange(state.rawText, start, caret, caret);
+    state.rawText = result.text;
+    state.caret = result.caret;
+    return { kind: "noop" };
+  }
+  if (matchesAction(keybindings, data, "tui.editor.deleteToLineEnd")) {
+    const end = lineEnd(state.rawText, caret);
+    const result = deleteRange(state.rawText, caret, end, caret);
+    state.rawText = result.text;
+    state.caret = result.caret;
+    return { kind: "noop" };
+  }
+  if (matchesTextAction(keybindings, data, "tui.editor.deleteCharBackward", Key.backspace)) {
+    if (caret > 0) {
+      const prev = previousGraphemeBoundary(state.rawText, caret);
+      const result = deleteRange(state.rawText, prev, caret, caret);
+      state.rawText = result.text;
+      state.caret = result.caret;
     }
     return { kind: "noop" };
   }
-  if (isPrintableText(data)) {
-    state.rawText =
-      state.rawText.slice(0, state.caret) + data + state.rawText.slice(state.caret);
-    state.caret += data.length;
+  if (matchesAction(keybindings, data, "tui.editor.deleteCharForward")) {
+    if (caret < state.rawText.length) {
+      const result = deleteRange(state.rawText, caret, nextGraphemeBoundary(state.rawText, caret), caret);
+      state.rawText = result.text;
+      state.caret = result.caret;
+    }
+    return { kind: "noop" };
+  }
+
+  const printable = decodePrintableKey(data) ?? data;
+  if (isPrintableText(printable)) {
+    insertText(state, printable);
     return { kind: "noop" };
   }
   return { kind: "noop" };
@@ -250,8 +343,71 @@ function nextGraphemeBoundary(value: string, caret: number): number {
   return value.length;
 }
 
+function clampGraphemeBoundary(value: string, caret: number): number {
+  const safeCaret = Math.max(0, Math.min(caret, value.length));
+  if (safeCaret === value.length) return safeCaret;
+  for (const part of graphemeParts(value)) {
+    if (part.start === safeCaret) return safeCaret;
+    if (part.start > safeCaret) break;
+  }
+  return previousGraphemeBoundary(value, safeCaret);
+}
+
 function isPrintableText(data: string): boolean {
   return data.length > 0 && !data.startsWith("\x1b") && !/[\x00-\x1f\x7f]/.test(data);
+}
+
+function insertText(state: PromptCardState, text: string): void {
+  const caret = Math.max(0, Math.min(state.caret, state.rawText.length));
+  state.rawText = state.rawText.slice(0, caret) + text + state.rawText.slice(caret);
+  state.caret = caret + text.length;
+}
+
+function matchesTextAction(
+  keybindings: KeybindingsLike | undefined,
+  data: string,
+  action: string,
+  fallback?: Parameters<typeof matchesKey>[1],
+): boolean {
+  return matchesAction(keybindings, data, action) || (fallback !== undefined && matchesKey(data, fallback));
+}
+
+function visualColumnAt(text: string, caret: number): number {
+  return visibleWidth(text.slice(0, clampGraphemeBoundary(text, caret)));
+}
+
+function offsetAtVisualColumn(text: string, targetCol: number): number {
+  let col = 0;
+  for (const part of graphemeParts(text)) {
+    const width = part.width;
+    if (col + width > targetCol) return part.start;
+    col += width;
+  }
+  return text.length;
+}
+
+function caretLineUp(raw: string, caret: number): number | null {
+  const safe = clampGraphemeBoundary(raw, caret);
+  const lineStartOffset = raw.lastIndexOf("\n", safe - 1) + 1;
+  if (lineStartOffset === 0) return null;
+  const prevLineEnd = lineStartOffset - 1;
+  const prevLineStart = raw.lastIndexOf("\n", prevLineEnd - 1) + 1;
+  const col = visualColumnAt(raw.slice(lineStartOffset, safe), raw.slice(lineStartOffset, safe).length);
+  const prevLine = raw.slice(prevLineStart, prevLineEnd);
+  return prevLineStart + offsetAtVisualColumn(prevLine, col);
+}
+
+function caretLineDown(raw: string, caret: number): number | null {
+  const safe = clampGraphemeBoundary(raw, caret);
+  const nextNl = raw.indexOf("\n", safe);
+  if (nextNl === -1) return null;
+  const lineStartOffset = raw.lastIndexOf("\n", safe - 1) + 1;
+  const col = visualColumnAt(raw.slice(lineStartOffset, safe), raw.slice(lineStartOffset, safe).length);
+  const nextLineStart = nextNl + 1;
+  const nextNlAfter = raw.indexOf("\n", nextLineStart);
+  const nextLineEnd = nextNlAfter === -1 ? raw.length : nextNlAfter;
+  const nextLine = raw.slice(nextLineStart, nextLineEnd);
+  return nextLineStart + offsetAtVisualColumn(nextLine, col);
 }
 
 /**
@@ -358,9 +514,8 @@ export interface PromptCardRenderOpts {
 export function renderPromptCard(opts: PromptCardRenderOpts): string[] {
   const { state, theme, width } = opts;
   const innerWidth = Math.max(20, width - 2);
-  const accent = theme.accent;
-  const borderColor = accent;
-  const bg = hexBg(theme.backgroundPanel);
+  const borderColor = theme.border;
+  const bg = "";
 
   const lines: string[] = [];
   lines.push(makeBorderTop(borderColor, " AWAITING INPUT ", theme, innerWidth, bg));
@@ -390,9 +545,9 @@ function makeBorderTop(
   innerWidth: number,
   bg: string,
 ): string {
-  const labelText = paint(label, theme.text, { bold: true });
+  const labelText = paint(label, theme.textMuted, { bold: true });
   const labelW = visibleWidth(labelText);
-  const fillLen = Math.max(0, innerWidth - labelW - 2);
+  const fillLen = Math.max(0, innerWidth - labelW);
   return (
     bg +
     paint("╭", color) +

@@ -1505,6 +1505,10 @@ export async function run<TInputs extends Record<string, unknown>>(
   const stageById = (stageId: string): StageSnapshot | undefined =>
     runSnapshot.stages.find((stage) => stage.id === stageId);
 
+  const setStageParentIds = (stage: StageSnapshot, parentIds: readonly string[]): void => {
+    (stage as { parentIds: readonly string[] }).parentIds = Object.freeze([...parentIds]);
+  };
+
   const hasAncestor = (stage: StageSnapshot, ancestorId: string): boolean => {
     const queue = [...stage.parentIds];
     const seen = new Set<string>();
@@ -1968,46 +1972,13 @@ export async function run<TInputs extends Record<string, unknown>>(
         unregisterStageHandle();
         await disposeInnerContext();
       };
-      const hasQueuedLiveWork = (): boolean =>
-        innerCtx.isStreaming || innerCtx.__pendingMessageCount() > 0 || activeAskUserQuestionCalls.size > 0;
       const releaseLiveHandleWhenIdle = async (): Promise<void> => {
+        // Completion removes the stage from workflow-level pause/resume and
+        // dependency cascades, but must not turn the attached/reopenable chat
+        // into a read-only archive. Keep the direct live handle registered for
+        // post-completion follow-ups until the registry/store is explicitly
+        // cleared by the host.
         dropStageControlHandle();
-        if (!hasQueuedLiveWork()) {
-          await releaseLiveHandle();
-          return;
-        }
-
-        // The queued-work branch installs asynchronous cleanup and returns once
-        // the release watcher is armed. Inner-context events normally trigger
-        // the subscription when streaming/pending-message counters change, but
-        // SDK prompt/tool cleanup can also drain after the stage has stopped
-        // emitting workflow-visible events. The unref'd 250 ms interval is a
-        // fallback for that silent drain path and is cleared as soon as the
-        // handle becomes idle.
-        let unsubscribe = (): void => {};
-        let pollTimer: ReturnType<typeof setInterval> | undefined;
-        const cleanupWatcher = (): void => {
-          unsubscribe();
-          if (pollTimer !== undefined) {
-            clearInterval(pollTimer);
-            pollTimer = undefined;
-          }
-        };
-        const releaseIfIdle = (): void => {
-          if (liveHandleReleased) {
-            cleanupWatcher();
-            return;
-          }
-          if (hasQueuedLiveWork()) return;
-          cleanupWatcher();
-          void releaseLiveHandle().catch((error: unknown) => {
-            console.debug("pi-workflows: failed to release idle stage handle", error);
-          });
-        };
-        unsubscribe = innerCtx.subscribe(() => queueMicrotask(releaseIfIdle));
-        pollTimer = setInterval(releaseIfIdle, 250);
-        pollTimer.unref?.();
-        releaseIfIdle();
       };
 
       // e. Register a live stage-control handle so attached panes can
@@ -2082,6 +2053,9 @@ export async function run<TInputs extends Record<string, unknown>>(
         },
         subscribe(listener: AgentSessionEventListener) {
           return innerCtx.subscribe(listener);
+        },
+        async dispose() {
+          await releaseLiveHandle();
         },
       };
       let stageFinalized = false;
@@ -2186,6 +2160,12 @@ export async function run<TInputs extends Record<string, unknown>>(
           throw err;
         }
 
+        if (opts.continuation === undefined && stageSnapshot.startedAt === undefined) {
+          const actualParentIds = tracker.onSpawn(stageId, name);
+          if (!sameStringSet(actualParentIds, stageSnapshot.parentIds)) {
+            setStageParentIds(stageSnapshot, actualParentIds);
+          }
+        }
         stageSnapshot.status = "running";
         stageSnapshot.startedAt = Date.now();
         activeStore.recordStageStart(runId, stageSnapshot);
@@ -2251,11 +2231,9 @@ export async function run<TInputs extends Record<string, unknown>>(
 
           finalizeStageSnapshot();
           // The stage has finished participating in workflow scheduling. Drop it
-          // from run-level pause/resume and cascade-pause lookups immediately.
-          // If no SDK queue/active input remains, release the live chat handle so
-          // the node reopens as a read-only archived session. Queued messages keep
-          // the direct handle alive only until the SDK reports that the queue has
-          // drained.
+          // from run-level pause/resume and cascade-pause lookups immediately,
+          // while retaining the direct chat handle so completed nodes can be
+          // reopened and continued instead of becoming read-only archives.
           await releaseLiveHandleWhenIdle().catch(() => {});
           limiter.release();
         }

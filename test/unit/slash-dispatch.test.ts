@@ -988,6 +988,65 @@ describe("tool run-control actions", () => {
     return { followUps, prompts, steers, dispose: stageControlRegistry.register(handle) };
   }
 
+  async function waitForToolPrompt(
+    runId: string,
+    timeoutMs = 1000,
+  ): Promise<{ stageId: string; promptId: string }> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const run = store.runs().find((candidate) => candidate.id === runId);
+      const stage = run?.stages.find((candidate) => candidate.pendingPrompt !== undefined);
+      if (stage?.pendingPrompt) return { stageId: stage.id, promptId: stage.pendingPrompt.id };
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    throw new Error(`pending prompt did not appear for run ${runId}`);
+  }
+
+  async function waitForToolRunEnded(runId: string, timeoutMs = 1000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const run = store.runs().find((candidate) => candidate.id === runId);
+      if (run?.endedAt !== undefined) return;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    throw new Error(`run ${runId} did not end`);
+  }
+
+  test("workflow tool answers ctx.ui.input prompts on running workflows", async () => {
+    const def = defineWorkflow("tool-answers-ctx-ui-input")
+      .run(async (ctx) => {
+        const answer = await ctx.ui.input("Value?");
+        return { answer };
+      })
+      .compile();
+    const runtime = createExtensionRuntime({ registry: createRegistry([def]) });
+    const handler = makeExecuteWorkflowTool(runtime, () => undefined, () => undefined);
+
+    const started = await handler({ action: "run", workflow: "tool-answers-ctx-ui-input" }, {} as never);
+    assert.equal(started.action, "run");
+    const runId = (started as { runId: string }).runId;
+    assert.ok(runId);
+
+    const prompt = await waitForToolPrompt(runId);
+    const stages = await handler({ action: "stages", runId, statusFilter: "all" }, {} as never);
+    assert.equal(stages.action, "stages");
+    const awaitingStage = (stages as { stages: Array<{ id: string; status: string; pendingPrompt?: { kind: string; message: string } }> })
+      .stages.find((stage) => stage.id === prompt.stageId);
+    assert.equal(awaitingStage?.status, "awaiting_input");
+    assert.equal(awaitingStage?.pendingPrompt?.kind, "input");
+    assert.equal(awaitingStage?.pendingPrompt?.message, "Value?");
+
+    const sent = await handler({ action: "send", runId, stageId: prompt.stageId, text: "from workflow tool" }, {} as never);
+    assert.equal(sent.action, "send");
+    assert.equal((sent as { delivery: string; status: string }).delivery, "answer");
+    assert.equal((sent as { delivery: string; status: string }).status, "ok");
+
+    await waitForToolRunEnded(runId);
+    const completed = store.runs().find((candidate) => candidate.id === runId);
+    assert.equal(completed?.status, "completed");
+    assert.deepEqual(completed?.result, { answer: "from workflow tool" });
+  });
+
   test("registered workflow tool content preserves full transcript text and supports JSON format", async () => {
     const runId = `tool-content-transcript-${Date.now()}`;
     const longText = `start-${"x".repeat(180)}-sentinel-end`;

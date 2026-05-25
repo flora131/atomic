@@ -659,6 +659,44 @@ describe("executor.run", () => {
     assert.equal(hung.skippedReason, "fail-fast");
   });
 
+  test("ctx.ui prompt node settles into the graph before the stage that consumes its answer", async () => {
+    const st = createStore();
+    const def = defineWorkflow("prompt-node-answer-flow-wf")
+      .run(async (ctx) => {
+        const capture = ctx.stage("capture favorite color");
+        const color = await ctx.ui.input("What is your favorite color?");
+        await capture.prompt(`Favorite color captured: ${color}`);
+        return { color };
+      })
+      .compile();
+
+    const runPromise = run(def, {}, {
+      store: st,
+      usePromptNodesForUi: true,
+      adapters: {
+        prompt: {
+          prompt: async (text) => `ok:${text}`,
+        },
+      },
+    });
+    const prompt = await waitForExecutorStagePendingPrompt(st);
+    const pendingSnapshot = st.runs().find((candidate) => candidate.id === prompt.runId)!;
+    const captureStage = pendingSnapshot.stages.find((stage) => stage.name === "capture favorite color")!;
+    const promptStage = pendingSnapshot.stages.find((stage) => stage.id === prompt.stageId)!;
+
+    assert.equal(captureStage.status, "pending");
+    assert.deepEqual(promptStage.parentIds, []);
+
+    st.resolveStagePendingPrompt(prompt.runId, prompt.stageId, prompt.promptId, "blue");
+    const result = await runPromise;
+    assert.equal(result.status, "completed");
+    const completedCapture = st
+      .runs()
+      .find((candidate) => candidate.id === prompt.runId)!
+      .stages.find((stage) => stage.name === "capture favorite color")!;
+    assert.deepEqual(completedCapture.parentIds, [promptStage.id]);
+  });
+
   test("continuation maps replayed ctx.ui prompt nodes before downstream stages", async () => {
     const st = createStore();
     const def = defineWorkflow("resume-prompt-node-parent-wf")
@@ -1450,7 +1488,7 @@ describe("executor.run", () => {
     assert.match(snapshotStage?.error ?? "", adapterError);
   });
 
-  test("complete throws clear error when adapter absent", async () => {
+  test("complete falls back to SDK session and fails clearly when no stage adapter exists", async () => {
     const def = defineWorkflow("complete-wf")
       .run(async (ctx) => {
         await ctx.stage("s").complete("summarize this");
@@ -1460,7 +1498,7 @@ describe("executor.run", () => {
 
     const wfResult = await run(def, {}, { store: createStore() });
     assert.equal(wfResult.status, "failed");
-    assert.ok(wfResult.error!.includes("complete adapter not configured"));
+    assert.ok(wfResult.error!.includes("prompt adapter not configured"));
   });
 
   test("resolves inputs with schema defaults", async () => {
@@ -3070,7 +3108,7 @@ describe("executor — stage-control registry integration", () => {
     assert.equal(stage.attachable, undefined);
   });
 
-  test("completed idle stage handle is released after settle", async () => {
+  test("completed idle stage handle stays resumable after settle", async () => {
     const registry = createStageControlRegistry();
     const store = createStore();
     let ids: { runId: string; stageId: string } | undefined;
@@ -3107,18 +3145,21 @@ describe("executor — stage-control registry integration", () => {
     });
 
     assert.ok(ids, "stage ids should be captured");
-    assert.equal(registry.get(ids!.runId, ids!.stageId), undefined);
+    const retained = registry.get(ids!.runId, ids!.stageId);
+    assert.ok(retained, "completed stage should remain attachable as a live chat handle");
     assert.deepEqual(
       registry.run(ids!.runId).stages(),
       [],
       "completed stage should be detached from workflow pause/resume control",
     );
-    assert.equal(disposeCalls, 1);
+    assert.equal(disposeCalls, 0);
     assert.deepEqual(promptCalls, ["workflow prompt"]);
+    await retained.prompt("post-completion follow-up");
+    assert.deepEqual(promptCalls, ["workflow prompt", "post-completion follow-up"]);
     assert.equal(store.runs()[0]?.stages[0]?.status, "completed");
   });
 
-  test("attached completed idle stage handle is released after settle", async () => {
+  test("attached completed idle stage handle stays resumable after settle", async () => {
     const registry = createStageControlRegistry();
     const store = createStore();
     let attachedIds: { runId: string; stageId: string } | undefined;
@@ -3156,18 +3197,21 @@ describe("executor — stage-control registry integration", () => {
     });
 
     assert.ok(attachedIds, "stage should have been attached before prompt");
-    assert.equal(registry.get(attachedIds!.runId, attachedIds!.stageId), undefined);
+    const retained = registry.get(attachedIds!.runId, attachedIds!.stageId);
+    assert.ok(retained, "completed attached stage should keep its chat handle");
     assert.deepEqual(
       registry.run(attachedIds!.runId).stages(),
       [],
       "completed stage should be detached from workflow pause/resume control",
     );
     assert.equal(store.runs()[0]?.stages[0]?.status, "completed");
-    assert.equal(disposeCalls, 1);
+    assert.equal(disposeCalls, 0);
     assert.deepEqual(promptCalls, ["workflow prompt"]);
+    await retained.prompt("post-completion follow-up");
+    assert.deepEqual(promptCalls, ["workflow prompt", "post-completion follow-up"]);
   });
 
-  test("completed stage handle is kept only until queued messages drain", async () => {
+  test("completed stage handle remains resumable after queued messages drain", async () => {
     const registry = createStageControlRegistry();
     const store = createStore();
     let ids: { runId: string; stageId: string } | undefined;
@@ -3223,8 +3267,8 @@ describe("executor — stage-control registry integration", () => {
     }
     await waitForMicrotasks();
 
-    assert.equal(registry.get(ids!.runId, ids!.stageId), undefined);
-    assert.equal(disposeCalls, 1);
+    assert.equal(registry.get(ids!.runId, ids!.stageId), retained);
+    assert.equal(disposeCalls, 0);
   });
 
   test("ask_user_question tool execution marks the stage awaiting input transiently", async () => {

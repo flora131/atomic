@@ -820,6 +820,40 @@ describe("GraphView keyboard navigation", () => {
     view.dispose();
   });
 
+  it("hides unstarted placeholder stages while a prompt stage is awaiting input", () => {
+    const stages = [
+      makeStage("capture"),
+      {
+        ...makeStage("input"),
+        status: "awaiting_input" as const,
+        startedAt: Date.now() - 1000,
+        awaitingInputSince: Date.now() - 1000,
+        attachable: true,
+        pendingPrompt: {
+          id: "prompt-1",
+          kind: "input" as const,
+          message: "Favorite color?",
+          createdAt: Date.now() - 1000,
+        },
+      },
+    ];
+    const snap = makeSnap(stages);
+    const store = makeStore(snap);
+    const view = new GraphView({
+      mode: "overlay",
+      runId: "run-1",
+      store,
+      graphTheme: defaultTheme,
+      getViewportRows: () => 32,
+    });
+
+    const rendered = visibleText(view.render(96));
+    assert.doesNotMatch(rendered, /capture/);
+    assert.match(rendered, /input/);
+    assert.match(rendered, /waiting for response/);
+    view.dispose();
+  });
+
   it("renders stage-local pending prompts as graph nodes without the global prompt overlay", () => {
     const stages = [{
       ...makeStage("input"),

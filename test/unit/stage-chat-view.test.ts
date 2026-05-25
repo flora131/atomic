@@ -190,6 +190,37 @@ function makePendingPrompt(overrides: Partial<PendingPrompt> = {}): PendingPromp
   };
 }
 
+class FakePromptEditor implements EditorComponent {
+  text = "";
+  focused = false;
+  borderColor?: (str: string) => string;
+  onSubmit?: (text: string) => void;
+  onChange?: (text: string) => void;
+
+  render(_width: number): string[] {
+    return [`fake-pi-editor:${this.text}${this.focused ? CURSOR_MARKER : ""}`];
+  }
+
+  handleInput(data: string): void {
+    if (data === "\r" || data === "\n") {
+      this.onSubmit?.(this.text);
+      return;
+    }
+    this.text += data;
+    this.onChange?.(this.text);
+  }
+
+  invalidate(): void {}
+
+  getText(): string {
+    return this.text;
+  }
+
+  setText(text: string): void {
+    this.text = text;
+  }
+}
+
 function assistantTextMessage(text: string): AgentSession["messages"][number] {
   return {
     role: "assistant",
@@ -240,6 +271,86 @@ describe("StageChatView", () => {
     const stage = store.runs()[0]?.stages[0];
     assert.equal(stage?.pendingPrompt, undefined);
     assert.equal(stage?.status, "running");
+    view.dispose();
+  });
+
+  test("uses host pi-tui editor primitive for structured text prompts", async () => {
+    const store = createStore();
+    setupRun(store, "run-1", "stage-a");
+    const prompt = makePendingPrompt({ initial: "seed" });
+    assert.equal(store.recordStagePendingPrompt("run-1", "stage-a", prompt), true);
+    const pending = store.awaitStagePendingPrompt("run-1", "stage-a", prompt.id);
+    const { handle } = makeHandle();
+    let createdEditor: FakePromptEditor | undefined;
+    const view = new StageChatView({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageId: "stage-a",
+      workflowName: "test-wf",
+      handle,
+      onDetach: () => {},
+      onClose: () => {},
+      piTui: { requestRender: () => {}, terminal: { rows: 32, columns: 80 } } as unknown as TUI,
+      piTheme: {},
+      piKeybindings: makeFakeKeybindings(),
+      piEditorFactory: () => {
+        createdEditor = new FakePromptEditor();
+        return createdEditor;
+      },
+    });
+
+    const visible = stripAnsi(view.render(80).join("\n"));
+    assert.match(visible, /fake-pi-editor:seed/);
+    assert.doesNotMatch(visible, /╭ response/);
+
+    view.handleInput("!");
+    assert.equal(createdEditor?.getText(), "seed!");
+    view.handleInput("\r");
+
+    assert.equal(await pending, "seed!");
+    assert.equal(store.runs()[0]?.stages[0]?.pendingPrompt, undefined);
+    view.dispose();
+  });
+
+  test("scrolls long structured stage pending prompts", () => {
+    const store = createStore();
+    setupRun(store, "run-1", "stage-a");
+    const prompt = makePendingPrompt({
+      message: [
+        "SECTION 1 top of the long question.",
+        "SECTION 2 middle of the long question with enough words to wrap across several rows in a narrow viewport.",
+        "SECTION 3 more content that should not be permanently clipped by the prompt body renderer.",
+        "SECTION 4 continue scrolling to reach the response field and footer hints.",
+        "SECTION 5 bottom of the long question.",
+      ].join("\n\n"),
+    });
+    assert.equal(store.recordStagePendingPrompt("run-1", "stage-a", prompt), true);
+    const { handle } = makeHandle();
+    const view = new StageChatView({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageId: "stage-a",
+      workflowName: "test-wf",
+      handle,
+      onDetach: () => {},
+      onClose: () => {},
+      getViewportRows: () => 12,
+    });
+
+    const top = stripAnsi(view.render(72).join("\n"));
+    assert.match(top, /SECTION 1/);
+    assert.doesNotMatch(top, /SECTION 5/);
+
+    view.handleInput("end");
+    const bottom = stripAnsi(view.render(72).join("\n"));
+    assert.doesNotMatch(bottom, /SECTION 1/);
+    assert.match(bottom, /SECTION 5|response|Submit/);
+
+    view.handleInput("home");
+    const restoredTop = stripAnsi(view.render(72).join("\n"));
+    assert.match(restoredTop, /SECTION 1/);
     view.dispose();
   });
 

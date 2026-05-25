@@ -19,8 +19,10 @@ import {
 import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.ts";
 import type { PendingPrompt } from "../../packages/workflows/src/shared/store-types.ts";
 import { visibleWidth } from "../../packages/workflows/src/tui/text-helpers.ts";
+import { makeFakeKeybindings } from "../support/fake-keybindings.ts";
 
 const theme = deriveGraphTheme({});
+const keybindings = makeFakeKeybindings();
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
 const stripAnsi = (s: string): string => s.replace(ANSI_RE, "");
 
@@ -128,6 +130,31 @@ describe("handlePromptCardInput — input", () => {
       { kind: "submit", response: "answer" },
     );
   });
+
+  test("supports readline-style movement and delete keybindings", () => {
+    const state = createPromptCardState(makePrompt({ kind: "input", initial: "alpha beta gamma" }));
+
+    handlePromptCardInput("\x01", state, keybindings); // ctrl+a
+    assert.equal(state.caret, 0);
+    handlePromptCardInput("\x1bf", state, keybindings); // alt+f
+    assert.equal(state.caret, 5);
+    handlePromptCardInput("\x1bf", state, keybindings); // alt+f over whitespace + beta
+    assert.equal(state.caret, 10);
+    handlePromptCardInput("\x17", state, keybindings); // ctrl+w
+    assert.equal(state.rawText, "alpha  gamma");
+    assert.equal(state.caret, 6);
+    handlePromptCardInput("\x05", state, keybindings); // ctrl+e
+    assert.equal(state.caret, "alpha  gamma".length);
+    handlePromptCardInput("\x0b", state, keybindings); // ctrl+k at end noops
+    assert.equal(state.rawText, "alpha  gamma");
+  });
+
+  test("decodes terminal printable key sequences", () => {
+    const state = createPromptCardState(makePrompt({ kind: "input" }));
+    handlePromptCardInput("\x1b[97;1u", state, keybindings);
+    assert.equal(state.rawText, "a");
+    assert.equal(state.caret, 1);
+  });
 });
 
 describe("handlePromptCardInput — editor", () => {
@@ -146,6 +173,16 @@ describe("handlePromptCardInput — editor", () => {
       handlePromptCardInput("\r", state),
       { kind: "submit", response: "draft" },
     );
+  });
+
+  test("moves the caret up and down across editor lines", () => {
+    const state = createPromptCardState(makePrompt({ kind: "editor", initial: "abc\ndefgh\nij" }));
+    state.caret = 7; // after "def"
+
+    handlePromptCardInput("\x1b[A", state, keybindings);
+    assert.equal(state.caret, 3);
+    handlePromptCardInput("\x1b[B", state, keybindings);
+    assert.equal(state.caret, 7);
   });
 });
 
@@ -169,14 +206,14 @@ describe("defaultResponseFor", () => {
 });
 
 describe("renderPromptCard", () => {
-  test("renders multiple lines, each within width", () => {
+  test("renders multiple lines, each exactly matching the requested width", () => {
     const state = createPromptCardState(
       makePrompt({ kind: "input", message: "What's your name?" }),
     );
     const lines = renderPromptCard({ state, theme, width: 60, cursorOn: true });
     assert.ok(lines.length > 0);
     for (const line of lines) {
-      assert.ok(visibleWidth(line) <= 60, `line exceeds 60 cells: ${visibleWidth(line)}`);
+      assert.equal(visibleWidth(line), 60, `line width mismatch: ${visibleWidth(line)}`);
     }
   });
 
@@ -206,5 +243,13 @@ describe("renderPromptCard", () => {
     assert.match(plain, /╭ response ─+╮/);
     assert.match(plain, /╰─+╯/);
     assert.doesNotMatch(plain, /[\u250c\u2510\u2514\u2518]/);
+  });
+
+  test("outer prompt card does not paint a background slab behind the border", () => {
+    const state = createPromptCardState(makePrompt({ kind: "input" }));
+    const lines = renderPromptCard({ state, theme, width: 60, cursorOn: false });
+
+    assert.ok(!lines[0]!.startsWith("\x1b[48;"));
+    assert.ok(!lines.at(-1)!.startsWith("\x1b[48;"));
   });
 });

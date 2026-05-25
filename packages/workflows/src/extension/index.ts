@@ -3266,6 +3266,7 @@ function factory(pi: ExtensionAPI): void {
         persistence: persistenceRef.current,
       });
       store.clear();
+      stageControlRegistry.clear();
 
       // pi-intercom session naming lives here so we don't trip the
       // loader's "Action methods cannot be called during extension

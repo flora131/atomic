@@ -140,7 +140,7 @@ export const WorkflowParametersSchema = Type.Object({
     description: "Agent-visible output format for data-bearing inspection actions.",
   })),
   limit: Type.Optional(Type.Number({
-    description: "Maximum number of transcript entries to return; applied before tool output is serialized.",
+    description: "Maximum number of most recent transcript entries to return; applied before tool output is serialized.",
   })),
   tail: Type.Optional(Type.Number({
     description: "Return only the last N transcript entries; overrides limit when both are provided.",

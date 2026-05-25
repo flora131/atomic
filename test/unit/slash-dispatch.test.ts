@@ -798,6 +798,43 @@ describe("/workflow interrupt chat command", () => {
     assert.equal(run?.status, "running");
     assert.equal(msgs.some((m) => m.includes("No active stages to interrupt")), true);
   });
+
+  test("top-level /workflow reload is skipped while workflows are in flight", async () => {
+    const runId = `reload-slash-blocked-${Date.now()}`;
+    store.recordRunStart(makeInflightRun(runId));
+
+    const { pi, commands } = buildMockPi();
+    addFactoryStubs(pi);
+
+    const factoryModule = await import("../../packages/workflows/src/extension/index.js");
+    factoryModule.default(pi);
+
+    const workflowCmd = commands.find((c) => c.name === "workflow")!;
+    const { ctx, messages } = buildCtx();
+
+    await workflowCmd.options.handler("reload", ctx);
+
+    assert.equal(messages.some((message) => message.includes("still in flight")), true);
+    assert.equal(messages.some((message) => message.includes("Reloaded workflow resources")), false);
+  });
+
+  test("top-level /workflow reload reports reload failures", async () => {
+    const { pi, commands } = buildMockPi();
+    addFactoryStubs(pi);
+    pi.getWorkflowResources = () => {
+      throw new Error("package loader unavailable");
+    };
+
+    const factoryModule = await import("../../packages/workflows/src/extension/index.js");
+    factoryModule.default(pi);
+
+    const workflowCmd = commands.find((c) => c.name === "workflow")!;
+    const { ctx, messages } = buildCtx();
+
+    await workflowCmd.options.handler("reload", ctx);
+
+    assert.equal(messages.some((message) => message.includes("Reload failed: package loader unavailable")), true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -897,7 +934,7 @@ describe("tool run-control actions", () => {
   function makeToolHandler() {
     const registry = createRegistry([]);
     const runtime = createExtensionRuntime({ registry });
-    return makeExecuteWorkflowTool(runtime, () => undefined);
+    return makeExecuteWorkflowTool(runtime, () => undefined, () => undefined);
   }
 
   async function makeRegisteredWorkflowTool(): Promise<PiToolOpts<WorkflowToolArgs, WorkflowToolResult>> {
@@ -1135,6 +1172,27 @@ describe("tool run-control actions", () => {
     assert.deepEqual(transcript.entries, [{ role: "assistant", text: "done" }]);
   });
 
+  test("makeExecuteWorkflowTool returns no truncation marker for tail zero", async () => {
+    const runId = `stage-tool-transcript-tail-zero-${Date.now()}`;
+    store.recordRunStart(makeInflightRun(runId));
+    store.recordStageStart(runId, {
+      id: "stage-transcript-tail-zero-1",
+      name: "tail-zero",
+      status: "completed",
+      parentIds: [],
+      toolEvents: [{ name: "read", output: "file contents", startedAt: 1, endedAt: 2 }],
+      result: "done",
+    });
+    const handler = makeToolHandler();
+
+    const result = await handler({ action: "transcript", runId, stageId: "tail-zero", tail: 0, includeToolOutput: true }, {} as never);
+
+    assert.equal(result.action, "transcript");
+    const transcript = result as { action: string; entries: unknown[]; truncated: boolean };
+    assert.equal(transcript.truncated, false);
+    assert.deepEqual(transcript.entries, []);
+  });
+
   test("makeExecuteWorkflowTool returns final snapshot error after timestamped tools", async () => {
     const runId = `stage-tool-transcript-error-${Date.now()}`;
     store.recordRunStart(makeInflightRun(runId));
@@ -1358,6 +1416,24 @@ describe("tool run-control actions", () => {
     assert.equal(stage?.pendingPrompt, undefined);
   });
 
+  test("makeExecuteWorkflowTool ignores explicit undefined prompt payloads", async () => {
+    const runId = `stage-tool-send-undefined-${Date.now()}`;
+    store.recordRunStart(makeInflightRun(runId));
+    store.recordStageStart(runId, { id: "stage-prompt-undefined", name: "ask-undefined", status: "awaiting_input", parentIds: [], toolEvents: [] });
+    store.recordStagePendingPrompt(runId, "stage-prompt-undefined", { id: "prompt-undefined", kind: "input", message: "Value?", createdAt: Date.now() });
+    const handler = makeToolHandler();
+
+    const result = await handler({ action: "send", runId, stageId: "ask-undefined", text: undefined }, {} as never);
+
+    assert.equal(result.action, "send");
+    const send = result as { action: string; delivery: string; status: string; message: string };
+    assert.equal(send.delivery, "answer");
+    assert.equal(send.status, "noop");
+    assert.match(send.message, /requires text, response, or message/);
+    const stage = store.runs().find((run) => run.id === runId)?.stages.find((s) => s.id === "stage-prompt-undefined");
+    assert.equal(stage?.pendingPrompt?.id, "prompt-undefined");
+  });
+
   test("makeExecuteWorkflowTool reloads directly without sending a literal slash command", async () => {
     const registry = createRegistry([]);
     const runtime = createExtensionRuntime({ registry });
@@ -1368,6 +1444,7 @@ describe("tool run-control actions", () => {
     const sent: string[] = [];
 
     const result = await handler({ action: "reload", reason: "test" }, {
+      // Sentinel-only property: production ExtensionAPI does not expose this.
       sendUserMessage: (content: string) => {
         sent.push(content);
       },
@@ -1381,15 +1458,37 @@ describe("tool run-control actions", () => {
     assert.deepEqual(sent, []);
   });
 
-  test("makeExecuteWorkflowTool reload returns noop when no direct callback is available", async () => {
-    const handler = makeToolHandler();
+  test("makeExecuteWorkflowTool reload is skipped while workflows are in flight", async () => {
+    const registry = createRegistry([]);
+    const runtime = createExtensionRuntime({ registry });
+    let reloads = 0;
+    const handler = makeExecuteWorkflowTool(runtime, () => undefined, () => {
+      reloads += 1;
+    });
+    store.recordRunStart(makeInflightRun(`reload-blocked-${Date.now()}`));
 
     const result = await handler({ action: "reload", reason: "test" }, {} as never);
 
     assert.equal(result.action, "reload");
     const reload = result as { action: string; status: string; message: string };
     assert.equal(reload.status, "noop");
-    assert.match(reload.message, /Reload unavailable/);
+    assert.match(reload.message, /still in flight/);
+    assert.equal(reloads, 0);
+  });
+
+  test("makeExecuteWorkflowTool reload surfaces callback failures as noop", async () => {
+    const registry = createRegistry([]);
+    const runtime = createExtensionRuntime({ registry });
+    const handler = makeExecuteWorkflowTool(runtime, () => undefined, async () => {
+      throw new Error("bad workflow config");
+    });
+
+    const result = await handler({ action: "reload", reason: "test" }, {} as never);
+
+    assert.equal(result.action, "reload");
+    const reload = result as { action: string; status: string; message: string };
+    assert.equal(reload.status, "noop");
+    assert.match(reload.message, /Reload failed: bad workflow config/);
   });
 
   test("makeExecuteWorkflowTool returns ambiguous run-prefix messages", async () => {
@@ -1528,7 +1627,7 @@ describe("tool run-control actions", () => {
       store,
       adapters: { prompt: { prompt: async (text) => { calls.push(text); return "second-new"; } } },
     });
-    const handler = makeExecuteWorkflowTool(runtime, () => undefined);
+    const handler = makeExecuteWorkflowTool(runtime, () => undefined, () => undefined);
 
     const result = await handler({ action: "resume", runId: sourceRunId }, {} as never);
 

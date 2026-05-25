@@ -294,8 +294,8 @@ export function resumeRun(
   }
 
   // Return a deep copy of the snapshot for safe consumption
-  const snapshot: RunSnapshot = JSON.parse(JSON.stringify(run)) as RunSnapshot;
-  const resumedCopy: StageSnapshot[] = JSON.parse(JSON.stringify(resumed)) as StageSnapshot[];
+  const snapshot = structuredClone(run);
+  const resumedCopy = structuredClone(resumed);
   if (run.status === "failed" && run.endedAt !== undefined && run.resumable === false) {
     return {
       ok: true,
@@ -366,7 +366,7 @@ export function pauseRun(
     }
     void handle.pause();
     const stageSnap = run.stages.find((s) => s.id === opts.stageId);
-    const paused: StageSnapshot[] = stageSnap ? [JSON.parse(JSON.stringify(stageSnap)) as StageSnapshot] : [];
+    const paused: StageSnapshot[] = stageSnap ? [structuredClone(stageSnap)] : [];
     // Only mark the whole run paused when every active stage is paused.
     const stillActive = run.stages.some(
       (s) => s.status === "running" && s.id !== opts.stageId,
@@ -385,10 +385,21 @@ export function pauseRun(
   for (const handle of handles) {
     void handle.pause();
     const stageSnap = run.stages.find((s) => s.id === handle.stageId);
-    if (stageSnap) pausedSnaps.push(JSON.parse(JSON.stringify(stageSnap)) as StageSnapshot);
+    if (stageSnap) pausedSnaps.push(structuredClone(stageSnap));
   }
   activeStore.recordRunPaused(runId);
   return { ok: true, runId, paused: pausedSnaps };
+}
+
+export function pauseAllRuns(opts?: {
+  store?: Store;
+  stageControlRegistry?: StageControlRegistry;
+}): PauseResult[] {
+  const activeStore = opts?.store ?? defaultStore;
+  const inFlight = activeStore.runs().filter((r) => r.endedAt === undefined);
+  return inFlight.map((r) =>
+    pauseRun(r.id, { store: activeStore, stageControlRegistry: opts?.stageControlRegistry }),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -449,7 +460,7 @@ export function inspectRun(
   }
 
   // Deep copy so callers cannot mutate the store via the snapshot.
-  const copy = JSON.parse(JSON.stringify(candidate)) as RunSnapshot;
+  const copy = structuredClone(candidate);
 
   const detail: RunDetail = {
     runId: copy.id,

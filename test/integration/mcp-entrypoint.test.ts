@@ -160,7 +160,7 @@ describe("MCP entrypoints — workflow tool execute", () => {
     const { pi, emits: e } = makeMockPiWithEvents();
     emits = e;
     const runtime = buildTestRuntime(pi);
-    toolExecute = makeExecuteWorkflowTool(runtime, () => undefined);
+    toolExecute = makeExecuteWorkflowTool(runtime, () => undefined, () => undefined);
   });
 
   test("tool execute emits mcp.scope.set (set then clear) when running mcp-restricted workflow", async () => {
@@ -199,7 +199,7 @@ describe("MCP entrypoints — workflow tool execute", () => {
       adapters: noopAdapters,
       mcp: makeMcpPort(piNoEvents),
     });
-    const execute = makeExecuteWorkflowTool(runtime, () => undefined);
+    const execute = makeExecuteWorkflowTool(runtime, () => undefined, () => undefined);
     // Should not throw, should complete
     const result = await execute({ action: "run", workflow: "mcp-restricted", inputs: {} }, {});
     assert.equal((result as { action: string }).action, "run");

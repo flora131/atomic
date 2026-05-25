@@ -20,6 +20,7 @@ import {
   destroyAllRuns,
   resumeRun,
   pauseRun,
+  pauseAllRuns,
   interruptRun,
   interruptAllRuns,
   inspectRun,
@@ -176,7 +177,6 @@ interface PiModelContext {
 }
 
 export interface PiCommandContext extends PiModelContext {
-  reload?: () => Promise<void> | void;
   ui: {
     notify: (message: string, type?: "info" | "warning" | "error") => void;
   } & PiUISurface;
@@ -275,16 +275,6 @@ export interface ExtensionAPI {
     event: string,
     renderer: (payload: unknown) => string,
   ) => void;
-  /**
-   * Inject a custom message into the chat history. Used by the inline
-   * workflow input form to emit a sticky card under `customType:
-   * "workflows:input-form"`. The card stays in scrollback and is
-   * re-rendered by the registered renderer on every `tui.requestRender()`.
-   */
-  sendUserMessage?: (
-    content: string,
-    options?: { deliverAs?: "steer" | "followUp" | "nextTurn" },
-  ) => void | Promise<void>;
   sendMessage?: <T = unknown>(
     message: {
       customType: string;
@@ -731,7 +721,7 @@ type MessageLike = {
 };
 
 function cloneStage(stage: StageSnapshot): StageSnapshot {
-  return JSON.parse(JSON.stringify(stage)) as StageSnapshot;
+  return structuredClone(stage);
 }
 
 function summarizeStage(stage: StageSnapshot): WorkflowStageSummary {
@@ -759,6 +749,9 @@ function applyEntryLimit<T>(
   args: WorkflowToolArgs,
 ): { entries: T[]; truncated: boolean } {
   const count = boundedCount(args);
+  if (count === 0) {
+    return { entries: [], truncated: false };
+  }
   if (entries.length <= count) {
     return { entries: [...entries], truncated: false };
   }
@@ -800,26 +793,26 @@ function transcriptEntriesFromToolEvents(
   }));
 }
 
-function hasOwnPayloadProperty(args: WorkflowToolArgs): boolean {
+function hasPayloadProperty(args: WorkflowToolArgs): boolean {
   return (
-    Object.hasOwn(args, "text") ||
-    Object.hasOwn(args, "response") ||
-    Object.hasOwn(args, "message")
+    args.text !== undefined ||
+    args.response !== undefined ||
+    args.message !== undefined
   );
 }
 
 function promptPayloadFromArgs(args: WorkflowToolArgs): unknown {
-  if (Object.hasOwn(args, "response")) return args.response;
-  if (Object.hasOwn(args, "text")) return args.text;
+  if (args.response !== undefined) return args.response;
+  if (args.text !== undefined) return args.text;
   return args.message;
 }
 
 function textPayloadFromArgs(args: WorkflowToolArgs): string | undefined {
-  if (Object.hasOwn(args, "text")) return args.text;
-  if (Object.hasOwn(args, "response") && typeof args.response === "string") {
+  if (args.text !== undefined) return args.text;
+  if (typeof args.response === "string") {
     return args.response;
   }
-  if (Object.hasOwn(args, "message")) return args.message;
+  if (args.message !== undefined) return args.message;
   return undefined;
 }
 
@@ -895,6 +888,26 @@ function stageFailureMessage(runId: string, resultReason: string): string {
   }
 }
 
+function inFlightRunCount(): number {
+  return store.runs().filter((run) => run.endedAt === undefined).length;
+}
+
+function reloadBlockedMessage(count = inFlightRunCount()): string {
+  return `Reload skipped: ${count} workflow run(s) still in flight. Wait for them to finish, or pause/kill them before reloading workflow resources.`;
+}
+
+class WorkflowReloadBlockedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WorkflowReloadBlockedError";
+  }
+}
+
+function reloadFailureMessage(error: unknown): string {
+  if (error instanceof WorkflowReloadBlockedError) return error.message;
+  return `Reload failed: ${error instanceof Error ? error.message : String(error)}`;
+}
+
 // ---------------------------------------------------------------------------
 // Tool execute — dispatch with real registry for list/inputs/run (Phase E)
 //                + real status/interrupt/resume (Phase D)
@@ -903,7 +916,7 @@ function stageFailureMessage(runId: string, resultReason: string): string {
 export function makeExecuteWorkflowTool(
   runtime: ExtensionRuntime | ((ctx: PiExecuteContext) => ExtensionRuntime),
   getPersistence: () => WorkflowPersistencePort | undefined,
-  reloadWorkflowResources?: () => Promise<void> | void,
+  reloadWorkflowResources: () => Promise<void> | void,
 ) {
   return async function executeWorkflowTool(
     args: WorkflowToolArgs,
@@ -961,9 +974,7 @@ export function makeExecuteWorkflowTool(
         const snapshots = store.runs().filter((r) => r.endedAt === undefined);
         return {
           action: "status",
-          snapshots: snapshots.map(
-            (s) => JSON.parse(JSON.stringify(s)) as typeof s,
-          ),
+          snapshots: snapshots.map((snapshot) => structuredClone(snapshot)),
         };
       }
 
@@ -971,13 +982,31 @@ export function makeExecuteWorkflowTool(
         const target = resolveToolRunTarget(args, "No active run to inspect.");
         const filter = args.statusFilter ?? "all";
         if (target.kind === "all") {
-          return { action: "stages", runId: "--all", filter, stages: [], error: "Stage listing requires a single run." };
+          return {
+            action: "stages",
+            runId: "--all",
+            filter,
+            stages: [],
+            error: "Stage listing requires a single run.",
+          };
         }
         if (target.kind === "ambiguous") {
-          return { action: "stages", runId: target.target, filter, stages: [], error: ambiguousRunMessage(target.target, target.matches) };
+          return {
+            action: "stages",
+            runId: target.target,
+            filter,
+            stages: [],
+            error: ambiguousRunMessage(target.target, target.matches),
+          };
         }
         if (target.kind === "not_found") {
-          return { action: "stages", runId: target.target, filter, stages: [], error: target.message };
+          return {
+            action: "stages",
+            runId: target.target,
+            filter,
+            stages: [],
+            error: target.message,
+          };
         }
         const run = store.runs().find((r) => r.id === target.runId);
         const stages = (run?.stages ?? [])
@@ -988,39 +1017,131 @@ export function makeExecuteWorkflowTool(
 
       case "stage": {
         const target = resolveToolRunTarget(args, "No active run to inspect.");
-        if (target.kind === "all") return { action: "stage", runId: "--all", error: "Stage inspection requires a single run." };
-        if (target.kind === "ambiguous") return { action: "stage", runId: target.target, error: ambiguousRunMessage(target.target, target.matches) };
-        if (target.kind === "not_found") return { action: "stage", runId: target.target, error: target.message };
+        if (target.kind === "all") {
+          return {
+            action: "stage",
+            runId: "--all",
+            error: "Stage inspection requires a single run.",
+          };
+        }
+        if (target.kind === "ambiguous") {
+          return {
+            action: "stage",
+            runId: target.target,
+            error: ambiguousRunMessage(target.target, target.matches),
+          };
+        }
+        if (target.kind === "not_found") {
+          return {
+            action: "stage",
+            runId: target.target,
+            error: target.message,
+          };
+        }
         const stage = resolveToolStageTarget(target.runId, args.stageId);
         if (!stage.ok || stage.stageId === undefined) {
-          return { action: "stage", runId: target.runId, error: stage.ok ? "Stage id, prefix, or name is required." : stage.message };
+          return {
+            action: "stage",
+            runId: target.runId,
+            error: stage.ok
+              ? "Stage id, prefix, or name is required."
+              : stage.message,
+          };
         }
         const run = store.runs().find((r) => r.id === target.runId);
         const snapshot = run?.stages.find((s) => s.id === stage.stageId);
         return snapshot
           ? { action: "stage", runId: target.runId, stage: cloneStage(snapshot) }
-          : { action: "stage", runId: target.runId, error: `Stage not found in run ${target.runId.slice(0, 8)}: ${stage.stageId}` };
+          : {
+              action: "stage",
+              runId: target.runId,
+              error: `Stage not found in run ${target.runId.slice(0, 8)}: ${stage.stageId}`,
+            };
       }
 
       case "transcript": {
         const target = resolveToolRunTarget(args, "No active run to inspect.");
-        if (target.kind === "all") return { action: "transcript", runId: "--all", stageId: "", source: "snapshot", entries: [], truncated: false };
-        if (target.kind === "ambiguous") return { action: "transcript", runId: target.target, stageId: "", source: "snapshot", entries: [{ role: "notice", text: ambiguousRunMessage(target.target, target.matches) }], truncated: false };
-        if (target.kind === "not_found") return { action: "transcript", runId: target.target, stageId: "", source: "snapshot", entries: [{ role: "notice", text: target.message }], truncated: false };
+        if (target.kind === "all") {
+          return {
+            action: "transcript",
+            runId: "--all",
+            stageId: "",
+            source: "snapshot",
+            entries: [],
+            truncated: false,
+          };
+        }
+        if (target.kind === "ambiguous") {
+          return {
+            action: "transcript",
+            runId: target.target,
+            stageId: "",
+            source: "snapshot",
+            entries: [
+              { role: "notice", text: ambiguousRunMessage(target.target, target.matches) },
+            ],
+            truncated: false,
+          };
+        }
+        if (target.kind === "not_found") {
+          return {
+            action: "transcript",
+            runId: target.target,
+            stageId: "",
+            source: "snapshot",
+            entries: [{ role: "notice", text: target.message }],
+            truncated: false,
+          };
+        }
         const stage = resolveToolStageTarget(target.runId, args.stageId);
         if (!stage.ok || stage.stageId === undefined) {
-          return { action: "transcript", runId: target.runId, stageId: "", source: "snapshot", entries: [{ role: "notice", text: stage.ok ? "Stage id, prefix, or name is required." : stage.message }], truncated: false };
+          return {
+            action: "transcript",
+            runId: target.runId,
+            stageId: "",
+            source: "snapshot",
+            entries: [
+              {
+                role: "notice",
+                text: stage.ok
+                  ? "Stage id, prefix, or name is required."
+                  : stage.message,
+              },
+            ],
+            truncated: false,
+          };
         }
         const run = store.runs().find((r) => r.id === target.runId);
         const snapshot = run?.stages.find((s) => s.id === stage.stageId);
         const liveHandle = stageControlRegistry.get(target.runId, stage.stageId);
         if (liveHandle !== undefined && liveHandle.messages.length > 0) {
-          const limited = applyEntryLimit(liveHandle.messages.map((m) => transcriptEntryFromMessage(m as MessageLike)), args);
-          return { action: "transcript", runId: target.runId, stageId: stage.stageId, source: "live", entries: limited.entries, truncated: limited.truncated, sessionId: liveHandle.sessionId, sessionFile: liveHandle.sessionFile };
+          const limited = applyEntryLimit(
+            liveHandle.messages.map((m) => transcriptEntryFromMessage(m as MessageLike)),
+            args,
+          );
+          return {
+            action: "transcript",
+            runId: target.runId,
+            stageId: stage.stageId,
+            source: "live",
+            entries: limited.entries,
+            truncated: limited.truncated,
+            sessionId: liveHandle.sessionId,
+            sessionFile: liveHandle.sessionFile,
+          };
         }
         const fallback = snapshotTranscriptEntries(snapshot, args.includeToolOutput === true);
         const limited = applyEntryLimit(fallback, args);
-        return { action: "transcript", runId: target.runId, stageId: stage.stageId, source: "snapshot", entries: limited.entries, truncated: limited.truncated, sessionId: snapshot?.sessionId, sessionFile: snapshot?.sessionFile };
+        return {
+          action: "transcript",
+          runId: target.runId,
+          stageId: stage.stageId,
+          source: "snapshot",
+          entries: limited.entries,
+          truncated: limited.truncated,
+          sessionId: snapshot?.sessionId,
+          sessionFile: snapshot?.sessionFile,
+        };
       }
 
       case "send": {
@@ -1056,7 +1177,7 @@ export function makeExecuteWorkflowTool(
           if (promptId === undefined) {
             return workflowSendResult(target.runId, stage.stageId, "answer", "noop", "No pending prompt to answer.");
           }
-          if (!hasOwnPayloadProperty(args)) {
+          if (!hasPayloadProperty(args)) {
             return workflowSendResult(target.runId, stage.stageId, "answer", "noop", "Send requires text, response, or message.");
           }
           const ok = store.resolveStagePendingPrompt(target.runId, stage.stageId, promptId, promptPayloadFromArgs(args));
@@ -1095,9 +1216,16 @@ export function makeExecuteWorkflowTool(
       case "pause": {
         const target = resolveToolRunTarget(args, "No in-flight runs to pause.");
         if (target.kind === "all") {
-          const results = interruptAllRuns();
+          const results = pauseAllRuns();
           const paused = results.filter((r) => r.ok).length;
-          return { action, runId: "--all", status: paused > 0 ? "paused" : "noop", message: paused > 0 ? `Paused ${paused} run(s).` : "No in-flight runs to pause." };
+          return {
+            action,
+            runId: "--all",
+            status: paused > 0 ? "paused" : "noop",
+            message: paused > 0
+              ? `Paused ${paused} run(s).`
+              : "No in-flight runs to pause.",
+          };
         }
         if (target.kind === "ambiguous") return { action, runId: target.target, status: "noop", message: ambiguousRunMessage(target.target, target.matches) };
         if (target.kind === "not_found") return { action, runId: target.target, status: "noop", message: target.message };
@@ -1110,11 +1238,30 @@ export function makeExecuteWorkflowTool(
       }
 
       case "reload": {
-        if (typeof reloadWorkflowResources !== "function") {
-          return { action: "reload", status: "noop", message: "Reload unavailable in this runtime." };
+        const activeRuns = inFlightRunCount();
+        if (activeRuns > 0) {
+          return {
+            action: "reload",
+            status: "noop",
+            message: reloadBlockedMessage(activeRuns),
+          };
         }
-        await reloadWorkflowResources();
-        return { action: "reload", status: "ok", message: args.reason ? `Reloaded workflow resources (${args.reason}).` : "Reloaded workflow resources." };
+        try {
+          await reloadWorkflowResources();
+        } catch (error) {
+          return {
+            action: "reload",
+            status: "noop",
+            message: reloadFailureMessage(error),
+          };
+        }
+        return {
+          action: "reload",
+          status: "ok",
+          message: args.reason
+            ? `Reloaded workflow resources (${args.reason}).`
+            : "Reloaded workflow resources.",
+        };
       }
 
       case "kill": {
@@ -1842,13 +1989,20 @@ function factory(pi: ExtensionAPI): void {
   let intercomControlUnsubscribe: (() => void) | null = null;
   let workflowReloadQueue: Promise<void> = Promise.resolve();
 
-  async function reloadWorkflowResources(): Promise<void> {
-    const reload = workflowReloadQueue.then(reloadWorkflowResourcesNow);
+  async function reloadWorkflowResources(options?: { allowInFlight?: boolean }): Promise<void> {
+    const reload = workflowReloadQueue.then(() => reloadWorkflowResourcesNow(options));
     workflowReloadQueue = reload.catch(() => {});
     await reload;
   }
 
-  async function reloadWorkflowResourcesNow(): Promise<void> {
+  async function reloadWorkflowResourcesNow(options?: { allowInFlight?: boolean }): Promise<void> {
+    if (options?.allowInFlight !== true) {
+      const activeRuns = inFlightRunCount();
+      if (activeRuns > 0) {
+        throw new WorkflowReloadBlockedError(reloadBlockedMessage(activeRuns));
+      }
+    }
+
     const configResult = await loadWorkflowConfig();
     configLoadRef.current = configResult;
 
@@ -1916,7 +2070,7 @@ function factory(pi: ExtensionAPI): void {
   // Load startup config before discovery so workflow paths and tunables are applied.
   const discoveryPromise = pi.disableAsyncDiscovery
     ? Promise.resolve()
-    : reloadWorkflowResources();
+    : reloadWorkflowResources({ allowInFlight: true });
 
   // -------------------------------------------------------------------------
   // 1. Register the `workflow` tool
@@ -2526,20 +2680,22 @@ function factory(pi: ExtensionAPI): void {
         }
 
         // -----------------------------------------------------------------------
-        // reload — refresh workflow resources in-process; fall back to host reload
-        // only when the local reload path is unavailable in a future runtime.
+        // reload — refresh workflow resources in-process when no workflows are
+        // currently running. Reload swaps runtime/persistence wiring, so doing it
+        // mid-flight would split active runs across old and new resources.
         // -----------------------------------------------------------------------
         if (subcommand === "reload") {
-          if (typeof reloadWorkflowResources === "function") {
+          const activeRuns = inFlightRunCount();
+          if (activeRuns > 0) {
+            print(reloadBlockedMessage(activeRuns));
+            return;
+          }
+          try {
             await reloadWorkflowResources();
             print("Reloaded workflow resources.");
-            return;
+          } catch (error) {
+            print(reloadFailureMessage(error));
           }
-          if (typeof ctx.reload !== "function") {
-            print("Reload unavailable: host does not expose ctx.reload().");
-            return;
-          }
-          await ctx.reload();
           return;
         }
 

@@ -371,7 +371,7 @@ describe("MockExtensionAPI — tool registration", () => {
         },
       },
     });
-    const executeWorkflowTool = makeExecuteWorkflowTool(runtime, () => undefined);
+    const executeWorkflowTool = makeExecuteWorkflowTool(runtime, () => undefined, () => undefined);
 
     const started = await executeWorkflowTool({
       task: { name: "blocking-scout", task: "wait for interrupt" },

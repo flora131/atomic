@@ -676,16 +676,29 @@ export default defineWorkflow("ralph")
     const comparisonBaseBranch = normalizeBranchInput(inputs.base_branch, "origin/main");
     const { ledger, ledgerPath, artifactDir } = await createGoalLedger(objective);
 
-    const modelConfig = {
+    const workerModelConfig = {
       model: "openai/gpt-5.5",
       fallbackModels: [
         "openai-codex/gpt-5.5",
         "github-copilot/gpt-5.5",
-        "anthropic/claude-sonnet-4-6",
-        "github-copilot/claude-sonnet-4.6",
+        "anthropic/claude-sonnet-4-7",
+        "github-copilot/claude-sonnet-4.7",
+      ],
+      thinkingLevel: "low" as const,
+      tools: goalRunnerTools,
+    };
+
+    const reviewerModelConfig = {
+      model: "openai/gpt-5.5",
+      fallbackModels: [
+        "openai-codex/gpt-5.5",
+        "github-copilot/gpt-5.5",
+        "anthropic/claude-sonnet-4-7",
+        "github-copilot/claude-sonnet-4.7",
       ],
       thinkingLevel: "high" as const,
-      tools: goalRunnerTools,
+      tools: [...goalRunnerTools, reviewGateTool.name],
+      customTools: [reviewGateTool],
     };
 
     let latestReviews: ReviewRecord[] = [];
@@ -715,7 +728,7 @@ export default defineWorkflow("ralph")
         ].join("\n"),
         reads: [ledgerPath],
         output: workTurnPath,
-        ...modelConfig,
+        ...workerModelConfig,
       });
 
       ledger.turns = turn;
@@ -727,12 +740,6 @@ export default defineWorkflow("ralph")
       });
       appendLifecycleEvent(ledger, "receipt_recorded", `Worker turn ${turn} receipt recorded.`, turn);
       await writeGoalLedger(ledgerPath, ledger);
-
-      const reviewerModelConfig = {
-        ...modelConfig,
-        tools: [...goalRunnerTools, reviewGateTool.name],
-        customTools: [reviewGateTool],
-      };
 
       const reviewerSteps = [
         {

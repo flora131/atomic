@@ -23,6 +23,11 @@ interface MockCalls {
 
 interface MockResponders {
   task?: (name: string, options: WorkflowTaskOptions, calls: MockCalls) => string | undefined;
+  parallel?: (
+    steps: readonly WorkflowTaskStep[],
+    options: WorkflowParallelOptions,
+    calls: MockCalls,
+  ) => Promise<WorkflowTaskResult[] | undefined> | WorkflowTaskResult[] | undefined;
 }
 
 function promptText(options: WorkflowTaskOptions): string {
@@ -80,6 +85,8 @@ function makeMockCtx<TInputs extends Record<string, unknown>>(
       options: WorkflowParallelOptions = {},
     ): Promise<WorkflowTaskResult[]> => {
       calls.parallelOptions.push(options);
+      const override = await responders.parallel?.(steps, options, calls);
+      if (override !== undefined) return override;
       return Promise.all(steps.map((step) => runTask(step.name, step)));
     },
     ui,
@@ -111,6 +118,22 @@ describe("ralph git worktree integration", () => {
 
   function safeCleanupReport(): string {
     return "Worktree cleanup: safe-to-remove";
+  }
+
+  function preserveCleanupReport(): string {
+    return "Worktree cleanup: preserve";
+  }
+
+  function assertRalphResultShape(result: Record<string, unknown>, repo: string): void {
+    assert.equal(typeof result["result"], "string");
+    assert.equal(typeof result["plan"], "string");
+    assert.equal(typeof result["plan_path"], "string");
+    assert.ok(String(result["plan_path"]).startsWith(join(repo, "specs")));
+    assert.equal(typeof result["implementation_notes_path"], "string");
+    assert.equal(typeof result["pr_report"], "string");
+    assert.equal(typeof result["approved"], "boolean");
+    assert.equal(typeof result["iterations_completed"], "number");
+    assert.equal(typeof result["review_report"], "string");
   }
 
   function initializeGitRepository(name = "repo"): string {
@@ -171,18 +194,20 @@ describe("ralph git worktree integration", () => {
     );
   }
 
-  test("creates a relative git_worktree_dir and removes it after success", async () => {
+  test("creates a relative git_worktree_dir from repo root and removes it after success", async () => {
     const mod = await import("../../packages/workflows/builtin/ralph.js");
     const d = mod.default as unknown as WorkflowDefinition;
     const repo = initializeGitRepository();
-    const expectedWorktree = join(requireTempRoot(), "worktrees", "ralph");
-    process.chdir(repo);
+    const subdir = join(repo, "nested");
+    mkdirSync(subdir, { recursive: true });
+    const expectedWorktree = join(repo, "worktrees", "ralph");
+    process.chdir(subdir);
     const ctx = makeMockCtx(
       {
         prompt: "Add a small feature",
         max_loops: 1,
         base_branch: "main",
-        git_worktree_dir: join("..", "worktrees", "ralph"),
+        git_worktree_dir: join("worktrees", "ralph"),
       },
       {
         task: (name, options) => {
@@ -202,8 +227,8 @@ describe("ralph git worktree integration", () => {
 
     const result = await d.run(ctx);
 
+    assertRalphResultShape(result, subdir);
     const planPath = String(result["plan_path"]);
-    assert.ok(planPath.startsWith(join(repo, "specs")));
     assert.equal(planPath.startsWith(expectedWorktree), false);
     const orchestratorReads = ctx.calls.taskOptions["orchestrator-1"]?.[0]?.reads;
     assert.ok(Array.isArray(orchestratorReads) && orchestratorReads.includes(planPath));
@@ -286,6 +311,114 @@ describe("ralph git worktree integration", () => {
     assert.match(warnings.join("\n"), /git -C .* worktree remove --force/);
   });
 
+  test("parses the last exact cleanup marker before removing a worktree", async () => {
+    const mod = await import("../../packages/workflows/builtin/ralph.js");
+    const d = mod.default as unknown as WorkflowDefinition;
+    const repo = initializeGitRepository();
+    const expectedWorktree = join(requireTempRoot(), "last-marker-worktree");
+    process.chdir(repo);
+    const ctx = makeMockCtx(
+      {
+        prompt: "Add a small feature",
+        max_loops: 1,
+        base_branch: "main",
+        git_worktree_dir: expectedWorktree,
+      },
+      {
+        task: (name) => {
+          if (name !== "pull-request") return undefined;
+          return [
+            "Quoted instruction: Worktree cleanup: safe-to-remove or Worktree cleanup: preserve",
+            preserveCleanupReport(),
+            safeCleanupReport(),
+          ].join("\n");
+        },
+      },
+    );
+
+    await d.run(ctx);
+
+    assertWorktreeWasRemoved(repo, expectedWorktree);
+  });
+
+  test("preserves worktree when cleanup markers appear only in prose", async () => {
+    const mod = await import("../../packages/workflows/builtin/ralph.js");
+    const d = mod.default as unknown as WorkflowDefinition;
+    const repo = initializeGitRepository();
+    const expectedWorktree = join(requireTempRoot(), "prose-marker-worktree");
+    process.chdir(repo);
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (message?: unknown) => {
+      warnings.push(String(message));
+    };
+
+    try {
+      const ctx = makeMockCtx(
+        {
+          prompt: "Add a small feature",
+          max_loops: 1,
+          base_branch: "main",
+          git_worktree_dir: expectedWorktree,
+        },
+        {
+          task: (name) => name === "pull-request"
+            ? "The instruction mentioned Worktree cleanup: safe-to-remove, but no exact signal line was emitted."
+            : undefined,
+        },
+      );
+
+      await d.run(ctx);
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    assertWorktreeRegistered(repo, expectedWorktree);
+    assert.match(warnings.join("\n"), /did not confirm pushed or empty changes/);
+  });
+
+  test("fails fast when base_branch does not exist", async () => {
+    const mod = await import("../../packages/workflows/builtin/ralph.js");
+    const d = mod.default as unknown as WorkflowDefinition;
+    const repo = initializeGitRepository();
+    const requestedWorktree = join(requireTempRoot(), "missing-base-worktree");
+    process.chdir(repo);
+    const ctx = makeMockCtx({
+      prompt: "Add a small feature",
+      max_loops: 1,
+      base_branch: "missing-branch",
+      git_worktree_dir: requestedWorktree,
+    });
+
+    await assert.rejects(
+      () => d.run(ctx),
+      /Failed to create git worktree at requested git_worktree_dir/,
+    );
+    assert.deepEqual(ctx.calls.task, []);
+  });
+
+  test("fails fast when requested git_worktree_dir is a non-empty directory", async () => {
+    const mod = await import("../../packages/workflows/builtin/ralph.js");
+    const d = mod.default as unknown as WorkflowDefinition;
+    const repo = initializeGitRepository();
+    const requestedWorktree = join(requireTempRoot(), "non-empty-directory");
+    mkdirSync(requestedWorktree, { recursive: true });
+    writeFileSync(join(requestedWorktree, "README.md"), "already here\n", "utf8");
+    process.chdir(repo);
+    const ctx = makeMockCtx({
+      prompt: "Add a small feature",
+      max_loops: 1,
+      base_branch: "main",
+      git_worktree_dir: requestedWorktree,
+    });
+
+    await assert.rejects(
+      () => d.run(ctx),
+      /Failed to create git worktree at requested git_worktree_dir/,
+    );
+    assert.deepEqual(ctx.calls.task, []);
+  });
+
   test("fails fast with recovery guidance when requested git_worktree_dir cannot be created", async () => {
     const mod = await import("../../packages/workflows/builtin/ralph.js");
     const d = mod.default as unknown as WorkflowDefinition;
@@ -352,6 +485,51 @@ describe("ralph git worktree integration", () => {
     assertWorktreeWasRemoved(repo, expectedWorktree);
   });
 
+  test("propagates worktree cwd across multiple iterations", async () => {
+    const mod = await import("../../packages/workflows/builtin/ralph.js");
+    const d = mod.default as unknown as WorkflowDefinition;
+    const repo = initializeGitRepository();
+    const expectedWorktree = join(requireTempRoot(), "multi-iteration-worktree");
+    process.chdir(repo);
+    const ctx = makeMockCtx(
+      {
+        prompt: "Add a small feature",
+        max_loops: 2,
+        base_branch: "main",
+        git_worktree_dir: expectedWorktree,
+      },
+      {
+        parallel: (steps) => {
+          if (steps.some((step) => step.name.startsWith("reviewer-"))) {
+            return steps.map((step) => makeTaskResult(step.name, JSON.stringify({
+              findings: [{
+                title: "[P2] Continue first pass",
+                body: "Force a second iteration for cwd coverage.",
+                confidence_score: 0.9,
+                code_location: { absolute_file_path: join(repo, "README.md"), line_range: { start: 1, end: 1 } },
+              }],
+              overall_correctness: "patch is incorrect",
+              overall_explanation: "continue",
+              overall_confidence_score: 0.9,
+              stop_review_loop: false,
+              reviewer_error: null,
+            })));
+          }
+          return undefined;
+        },
+        task: (name) => name === "pull-request" ? safeCleanupReport() : undefined,
+      },
+    );
+
+    await d.run(ctx);
+
+    for (const name of ["planner-1", "orchestrator-1", "code-simplifier-1", "planner-2", "orchestrator-2", "code-simplifier-2"]) {
+      assert.equal(ctx.calls.taskOptions[name]?.[0]?.cwd, expectedWorktree, `unexpected cwd for ${name}`);
+    }
+    assertEveryRalphStageCwd(ctx, expectedWorktree);
+    assertWorktreeWasRemoved(repo, expectedWorktree);
+  });
+
   test("fails fast when git_worktree_dir is unusable", async () => {
     const mod = await import("../../packages/workflows/builtin/ralph.js");
     const d = mod.default as unknown as WorkflowDefinition;
@@ -404,7 +582,8 @@ describe("ralph git worktree integration", () => {
 
       const result = await d.run(ctx);
 
-      assert.equal(typeof result["plan_path"], "string");
+      assertRalphResultShape(result, repo);
+      assert.ok(String(result["pr_report"]).includes(safeCleanupReport()));
     } finally {
       console.warn = originalWarn;
     }

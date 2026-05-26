@@ -1326,10 +1326,9 @@ describe("ralph", () => {
       "",
     );
     const description = mod.default.inputs["git_worktree_dir"]?.description ?? "";
-    assert.match(description, /inside a Git repository/);
-    assert.match(description, /detached-HEAD worktree/);
-    assert.match(description, /failed runs preserve it for recovery/);
-    assert.match(description, /concurrent runs/);
+    assert.match(description, /inside a Git repo/);
+    assert.match(description, /detached worktree/);
+    assert.match(description, /repo-root-relative path/);
     assert.deepEqual(Object.keys(mod.default.inputs).sort(), ["base_branch", "git_worktree_dir", "max_loops", "prompt"]);
   });
 

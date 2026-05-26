@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { defineWorkflow } from "../src/index.js";
 import type { WorkflowRunContext, WorkflowTaskResult } from "../src/shared/types.js";
+import { WORKER_PREFLIGHT_CONTRACT } from "./shared-prompts.js";
 
 const DEFAULT_MAX_LOOPS = 10;
 const DEFAULT_SPEC_DIR = "specs";
@@ -365,11 +366,13 @@ function requireGitRepositoryForWorktree(cwd = process.cwd()): string {
   return repoRootResult.stdout.trim();
 }
 
-type GitWorktreeSetup = {
-  readonly cwd?: string;
-  readonly created: boolean;
-  readonly repositoryCwd?: string;
-};
+type GitWorktreeSetup =
+  | { readonly cwd?: undefined; readonly created: false }
+  | {
+      readonly cwd: string;
+      readonly created: true;
+      readonly repositoryRoot: string;
+    };
 
 async function addGitWorktree(
   worktreeDir: string,
@@ -393,19 +396,26 @@ function removeGitWorktree(worktreeDir: string, cwd = process.cwd()): GitCommand
 }
 
 function quoteRecoveryCommandArgument(value: string): string {
-  if (process.platform === "win32") return `'${value.replace(/'/g, "''")}'`;
+  if (process.platform === "win32") return `"${value.replace(/"/g, "\"\"")}"`;
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
-function formatWorktreeRecoveryCommand(repositoryCwd: string, worktreeDir: string): string {
-  return `git -C ${quoteRecoveryCommandArgument(repositoryCwd)} worktree remove --force ${quoteRecoveryCommandArgument(worktreeDir)}`;
+function formatWorktreeRecoveryCommand(repositoryRoot: string, worktreeDir: string): string {
+  return `git -C ${quoteRecoveryCommandArgument(repositoryRoot)} worktree remove --force ${quoteRecoveryCommandArgument(worktreeDir)}`;
 }
 
 const WORKTREE_CLEANUP_SAFE_MARKER = "Worktree cleanup: safe-to-remove";
 const WORKTREE_CLEANUP_PRESERVE_MARKER = "Worktree cleanup: preserve";
 
 function prReportAllowsWorktreeCleanup(report: string): boolean {
-  return report.includes(WORKTREE_CLEANUP_SAFE_MARKER);
+  const cleanupLines = report
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) =>
+      line === WORKTREE_CLEANUP_SAFE_MARKER ||
+      line === WORKTREE_CLEANUP_PRESERVE_MARKER,
+    );
+  return cleanupLines.at(-1) === WORKTREE_CLEANUP_SAFE_MARKER;
 }
 
 async function createGitWorktreeIfRequested(
@@ -416,19 +426,19 @@ async function createGitWorktreeIfRequested(
   const trimmed = value?.trim();
   if (!trimmed) return { created: false };
 
-  requireGitRepositoryForWorktree(cwd);
+  const repoRoot = requireGitRepositoryForWorktree(cwd);
 
-  const requestedWorktreeDir = resolveWorktreePath(trimmed, cwd);
-  const requestedResult = await addGitWorktree(requestedWorktreeDir, baseBranch, cwd);
+  const requestedWorktreeDir = resolveWorktreePath(trimmed, repoRoot);
+  const requestedResult = await addGitWorktree(requestedWorktreeDir, baseBranch, repoRoot);
   if (requestedResult.status !== 0) {
     throw new Error(
       [
         `Failed to create git worktree at requested git_worktree_dir ${requestedWorktreeDir} from ${baseBranch}: ${gitFailureMessage(requestedResult)}`,
-        `If another active Ralph run is using this path, wait for it to finish. If this is an orphaned worktree from an interrupted run, recover or remove it with: ${formatWorktreeRecoveryCommand(cwd, requestedWorktreeDir)}`,
+        `If another active Ralph run is using this path, wait for it to finish. If this is an orphaned worktree from an interrupted run, recover or remove it with: ${formatWorktreeRecoveryCommand(repoRoot, requestedWorktreeDir)}`,
       ].join("\n"),
     );
   }
-  return { cwd: requestedWorktreeDir, created: true, repositoryCwd: cwd };
+  return { cwd: requestedWorktreeDir, created: true, repositoryRoot: repoRoot };
 }
 
 function workflowCwdOption(workflowCwd: string | undefined): { cwd?: string } {
@@ -774,19 +784,7 @@ async function runRalphWorkflow(
         ],
         [
           "project_initialization_preflight",
-          [
-            // Intentionally duplicated from goal.ts: Ralph keeps its worker preflight inline
-            // because this prompt is stage-specific and includes Ralph-only orchestration context.
-            "Before normal implementation delegation, determine whether this checkout appears initialized for its actual language, framework, and build system.",
-            "Do not rely on hard-coded assumptions about JavaScript, TypeScript, Python, Rust, Go, Java, mobile, or any other ecosystem. Infer the project type and setup requirements from repository evidence.",
-            "Inspect source layout, setup docs, package/build manifests, lockfiles, toolchain files, generated-artifact conventions, CI workflows, workflow configuration, and package scripts or equivalent task definitions.",
-            "Look for evidence that dependencies, generated files, local toolchains, submodules, codegen outputs, or other project-specific initialization artifacts are missing for this checkout.",
-            "When repository evidence shows missing initialization, run or delegate the appropriate documented setup command before implementation work.",
-            "You are responsible for initializing the checkout when setup commands are documented; missing dependencies, generated files, or local toolchains are setup work, not user handoff work.",
-            "Once setup succeeds, continue normal implementation orchestration. Do not treat missing dependencies or generated setup artifacts in a fresh worktree as implementation failures.",
-            "If setup requirements cannot be determined confidently, delegate a focused discovery task before implementation instead of guessing.",
-            "If setup remains blocked after evidence-based discovery and setup attempts, report the blocker with commands tried and the exact evidence needed to continue.",
-          ].join("\n"),
+          WORKER_PREFLIGHT_CONTRACT,
         ],
         [
           "delegation_policy",
@@ -1347,7 +1345,7 @@ export default defineWorkflow("ralph")
     type: "string",
     default: "",
     description:
-      "Optional git worktree checkout path. Ralph must be invoked from inside a Git repository when this is set; otherwise it fails fast. Relative paths resolve from that repository cwd. When set, all Ralph stages run from a detached-HEAD worktree created from base_branch. Successful runs remove the worktree; failed runs preserve it for recovery. Do not share one worktree path across concurrent runs.",
+      "Optional Git worktree path; when set, Ralph must start inside a Git repo and runs stages from a detached worktree created at this repo-root-relative path."
   })
   .run(async (ctx) => {
     const ralphCtx = ctx as WorkflowRunContext<RalphInputs>;
@@ -1380,7 +1378,7 @@ export default defineWorkflow("ralph")
       return result;
     } finally {
       if (worktree.created && worktree.cwd !== undefined) {
-        const recoveryCommand = formatWorktreeRecoveryCommand(worktree.repositoryCwd ?? workflowStartCwd, worktree.cwd);
+        const recoveryCommand = formatWorktreeRecoveryCommand(worktree.repositoryRoot, worktree.cwd);
         if (result === undefined) {
           console.warn(
             [
@@ -1396,7 +1394,7 @@ export default defineWorkflow("ralph")
             ].join("\n"),
           );
         } else {
-          const cleanupResult = removeGitWorktree(worktree.cwd, worktree.repositoryCwd);
+          const cleanupResult = removeGitWorktree(worktree.cwd, worktree.repositoryRoot);
           if (cleanupResult.status !== 0) {
             console.warn(
               [

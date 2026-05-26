@@ -1362,6 +1362,8 @@ describe("ralph", () => {
     assert.match(prompt, /detached HEAD/);
     assert.match(prompt, /git checkout -b <branch>/);
     assert.ok(prompt.includes("git push origin HEAD:refs/heads/<branch>"));
+    assert.ok(prompt.includes("Worktree cleanup: safe-to-remove"));
+    assert.ok(prompt.includes("Worktree cleanup: preserve"));
   });
 });
 

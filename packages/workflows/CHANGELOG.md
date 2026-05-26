@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Added Ralph `git_worktree_dir` support for running stages from an optional detached Git worktree.
+
+### Changed
+
+- Split worker project-initialization preflight guidance from Goal receipt/reporting instructions.
+
 ## [0.8.17] - 2026-05-26
 
 ### Changed

@@ -8,10 +8,9 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
+import { dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { defineWorkflow } from "../src/index.js";
 import type { WorkflowRunContext, WorkflowTaskResult } from "../src/shared/types.js";
 
@@ -348,19 +347,12 @@ function gitFailureMessage(result: GitCommandResult): string {
   return result.stderr.trim() || result.stdout.trim() || `git exited with status ${result.status}`;
 }
 
-function resolveOptionalWorktreePath(value: string | undefined, cwd = process.cwd()): string | undefined {
-  const trimmed = value?.trim();
-  if (!trimmed) return undefined;
+function resolveWorktreePath(value: string, cwd = process.cwd()): string {
+  const trimmed = value.trim();
   if (trimmed.includes("\0")) {
     throw new Error("git_worktree_dir contains an unusable null byte path segment; provide a valid path or omit git_worktree_dir.");
   }
   return isAbsolute(trimmed) ? resolve(trimmed) : resolve(cwd, trimmed);
-}
-
-function safeWorktreePathSegment(value: string): string {
-  const segment = value.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
-  // This is only a filename segment; the clipped readable text is made unique by the digest.
-  return segment.length > 0 ? segment.slice(0, 60) : "worktree";
 }
 
 function requireGitRepositoryForWorktree(cwd = process.cwd()): string {
@@ -371,13 +363,6 @@ function requireGitRepositoryForWorktree(cwd = process.cwd()): string {
     );
   }
   return repoRootResult.stdout.trim();
-}
-
-function defaultGitWorktreePath(baseBranch: string, repoRoot: string): string {
-  const repoName = safeWorktreePathSegment(basename(repoRoot) || "repo");
-  const branchName = safeWorktreePathSegment(baseBranch.replace(/^refs\/heads\//, ""));
-  const digest = createHash("sha256").update(`${repoRoot}\0${baseBranch}`).digest("hex").slice(0, 12);
-  return join(tmpdir(), "atomic-ralph-worktrees", `${repoName}-${branchName}-${digest}`);
 }
 
 type GitWorktreeSetup = {
@@ -416,6 +401,13 @@ function formatWorktreeRecoveryCommand(repositoryCwd: string, worktreeDir: strin
   return `git -C ${quoteRecoveryCommandArgument(repositoryCwd)} worktree remove --force ${quoteRecoveryCommandArgument(worktreeDir)}`;
 }
 
+const WORKTREE_CLEANUP_SAFE_MARKER = "Worktree cleanup: safe-to-remove";
+const WORKTREE_CLEANUP_PRESERVE_MARKER = "Worktree cleanup: preserve";
+
+function prReportAllowsWorktreeCleanup(report: string): boolean {
+  return report.includes(WORKTREE_CLEANUP_SAFE_MARKER);
+}
+
 async function createGitWorktreeIfRequested(
   value: string | undefined,
   baseBranch: string,
@@ -424,34 +416,19 @@ async function createGitWorktreeIfRequested(
   const trimmed = value?.trim();
   if (!trimmed) return { created: false };
 
-  const repoRoot = requireGitRepositoryForWorktree(cwd);
+  requireGitRepositoryForWorktree(cwd);
 
-  const requestedWorktreeDir = resolveOptionalWorktreePath(value, cwd);
-  if (requestedWorktreeDir !== undefined) {
-    const requestedResult = await addGitWorktree(requestedWorktreeDir, baseBranch, cwd);
-    if (requestedResult.status !== 0) {
-      throw new Error(
-        [
-          `Failed to create git worktree at requested git_worktree_dir ${requestedWorktreeDir} from ${baseBranch}: ${gitFailureMessage(requestedResult)}`,
-          `If this path is an orphaned Ralph worktree from an interrupted run, recover or remove it with: ${formatWorktreeRecoveryCommand(cwd, requestedWorktreeDir)}`,
-        ].join("\n"),
-      );
-    }
-    return { cwd: requestedWorktreeDir, created: true, repositoryCwd: cwd };
+  const requestedWorktreeDir = resolveWorktreePath(trimmed, cwd);
+  const requestedResult = await addGitWorktree(requestedWorktreeDir, baseBranch, cwd);
+  if (requestedResult.status !== 0) {
+    throw new Error(
+      [
+        `Failed to create git worktree at requested git_worktree_dir ${requestedWorktreeDir} from ${baseBranch}: ${gitFailureMessage(requestedResult)}`,
+        `If another active Ralph run is using this path, wait for it to finish. If this is an orphaned worktree from an interrupted run, recover or remove it with: ${formatWorktreeRecoveryCommand(cwd, requestedWorktreeDir)}`,
+      ].join("\n"),
+    );
   }
-
-  const fallbackWorktreeDir = defaultGitWorktreePath(baseBranch, repoRoot);
-  const fallbackResult = await addGitWorktree(fallbackWorktreeDir, baseBranch, cwd);
-  if (fallbackResult.status === 0) {
-    return { cwd: fallbackWorktreeDir, created: true, repositoryCwd: cwd };
-  }
-
-  throw new Error(
-    [
-      `Failed to create fallback git worktree at ${fallbackWorktreeDir} from ${baseBranch}: ${gitFailureMessage(fallbackResult)}`,
-      `If this path is an orphaned Ralph worktree from an interrupted run, recover or remove it with: ${formatWorktreeRecoveryCommand(cwd, fallbackWorktreeDir)}`,
-    ].join("\n"),
-  );
+  return { cwd: requestedWorktreeDir, created: true, repositoryCwd: cwd };
 }
 
 function workflowCwdOption(workflowCwd: string | undefined): { cwd?: string } {
@@ -599,7 +576,7 @@ async function runRalphWorkflow(
   let approved = false;
   let iterationsCompleted = 0;
 
-  let noAskQuestionToolSet = [
+  const noAskQuestionToolSet = [
     "read",
     "bash",
     "edit",
@@ -613,7 +590,7 @@ async function runRalphWorkflow(
     "intercom",
   ];
 
-  let plannerModelConfig = {
+  const plannerModelConfig = {
     model: "openai/gpt-5.5",
     fallbackModels: [
       "openai-codex/gpt-5.5",
@@ -625,7 +602,7 @@ async function runRalphWorkflow(
     tools: noAskQuestionToolSet,
   };
 
-  let orchestratorModelConfig = {
+  const orchestratorModelConfig = {
     model: "openai/gpt-5.5",
     fallbackModels: [
       "openai-codex/gpt-5.5",
@@ -637,7 +614,7 @@ async function runRalphWorkflow(
     tools: noAskQuestionToolSet,
   };
 
-  let simplifierModelConfig = {
+  const simplifierModelConfig = {
     model: "openai/gpt-5.5",
     fallbackModels: [
       "openai-codex/gpt-5.5",
@@ -649,7 +626,7 @@ async function runRalphWorkflow(
     tools: noAskQuestionToolSet,
   };
 
-  let reviewerModelConfig = {
+  const reviewerModelConfig = {
     model: "openai/gpt-5.5",
     fallbackModels: [
       "openai-codex/gpt-5.5",
@@ -662,7 +639,7 @@ async function runRalphWorkflow(
     customTools: [reviewDecisionTool],
   };
 
-  let explorerModelConfig = {
+  const explorerModelConfig = {
     model: "openai/gpt-5.4-mini",
     fallbackModels: [
       "openai-codex/gpt-5.4-mini",
@@ -780,6 +757,7 @@ async function runRalphWorkflow(
           "spec_file",
           [
             `The technical specification for this iteration was written to: ${specPath}`,
+            "This is an absolute host-repository path and may be outside the worktree cwd; read it exactly as provided, not as a path relative to the worktree.",
             "Read this file before delegating or implementing anything.",
             "Do not rely on an inline planner transcript; the spec file is the authoritative plan for this iteration.",
           ].join("\n"),
@@ -1306,6 +1284,7 @@ async function runRalphWorkflow(
           "If no logged-in account can access the repository or create the PR, do not fake success; report each credential/account tried, what failed, and provide the command the user can run later.",
           "When you successfully create or update the PR, create a PR comment containing the implementation notes file contents as the last action of this workflow stage.",
           "Ralph worktrees are detached HEAD checkouts. If you are preparing a PR from a detached HEAD, create and push a branch from the current HEAD, for example with `git checkout -b <branch>` or `git push origin HEAD:refs/heads/<branch>`, before opening the PR.",
+          `Include an exact cleanup signal line in your final report: \`${WORKTREE_CLEANUP_SAFE_MARKER}\` only if a PR branch was pushed or there are no meaningful changes to preserve; otherwise include \`${WORKTREE_CLEANUP_PRESERVE_MARKER}\` so Ralph keeps the worktree for recovery.`,
           "If PR creation is not possible, do not create a standalone comment elsewhere; include the implementation notes path and summary in your report instead.",
           "If the review loop did not approve, prefer reporting the remaining blockers over creating a PR unless the changes are still intentionally ready for human review.",
           "Do not make unrelated code edits in this phase. Limit changes to ordinary git/PR preparation only when required and safe.",
@@ -1320,6 +1299,7 @@ async function runRalphWorkflow(
           "3. Implementation notes comment — whether the PR comment was created as the last action, or why it could not be created",
           "4. Commands run — include exit status or clear outcome",
           "5. Follow-up for the user — exact next steps if credentials or repository state blocked PR creation",
+          `6. Worktree cleanup — include exactly one cleanup signal line: \`${WORKTREE_CLEANUP_SAFE_MARKER}\` or \`${WORKTREE_CLEANUP_PRESERVE_MARKER}\`.`,
         ].join("\n"),
       ],
     ]),
@@ -1377,33 +1357,42 @@ export default defineWorkflow("ralph")
     const maxLoops = positiveInteger(inputs.max_loops, DEFAULT_MAX_LOOPS);
     const comparisonBaseBranch = normalizeBranchInput(inputs.base_branch, "origin/main");
     const worktree = await createGitWorktreeIfRequested(inputs.git_worktree_dir, comparisonBaseBranch, workflowStartCwd);
-    // Discovery validates workflow shape without executing helpers, so this
-    // live adapter keeps direct stage primitive calls visible while the helper
-    // owns the real orchestration body.
+    // Discovery's static workflowRunCreatesStage guard in
+    // packages/workflows/src/extension/discovery.ts checks this run function
+    // for direct stage primitive calls without executing helper bodies. Keep
+    // this live adapter explicit so Ralph remains discoverable while
+    // runRalphWorkflow owns the real orchestration body.
     const workflowCtx: WorkflowRunContext<RalphInputs> = {
       ...ralphCtx,
       task: (name, options) => ralphCtx.task(name, options),
       parallel: (steps, options) => ralphCtx.parallel(steps, options),
     };
-    let runSucceeded = false;
+    let result: RalphWorkflowResult | undefined;
 
     try {
-      const result = await runRalphWorkflow(workflowCtx, {
+      result = await runRalphWorkflow(workflowCtx, {
         prompt,
         maxLoops,
         comparisonBaseBranch,
         workflowStartCwd,
         workflowCwd: worktree.cwd,
       });
-      runSucceeded = true;
       return result;
     } finally {
       if (worktree.created && worktree.cwd !== undefined) {
-        if (!runSucceeded) {
+        const recoveryCommand = formatWorktreeRecoveryCommand(worktree.repositoryCwd ?? workflowStartCwd, worktree.cwd);
+        if (result === undefined) {
           console.warn(
             [
               `Preserving Ralph git worktree after failed run: ${worktree.cwd}`,
-              `Recover work there, then remove it with: ${formatWorktreeRecoveryCommand(worktree.repositoryCwd ?? workflowStartCwd, worktree.cwd)}`,
+              `Recover work there, then remove it with: ${recoveryCommand}`,
+            ].join("\n"),
+          );
+        } else if (!prReportAllowsWorktreeCleanup(result.pr_report)) {
+          console.warn(
+            [
+              `Preserving Ralph git worktree because the PR stage did not confirm pushed or empty changes: ${worktree.cwd}`,
+              `Recover or remove it manually with: ${recoveryCommand}`,
             ].join("\n"),
           );
         } else {
@@ -1413,7 +1402,7 @@ export default defineWorkflow("ralph")
               [
                 `Failed to remove Ralph git worktree after successful run: ${worktree.cwd}`,
                 `Git reported: ${gitFailureMessage(cleanupResult)}`,
-                `Recover or remove it manually with: ${formatWorktreeRecoveryCommand(worktree.repositoryCwd ?? workflowStartCwd, worktree.cwd)}`,
+                `Recover or remove it manually with: ${recoveryCommand}`,
               ].join("\n"),
             );
           }

@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.8.16] - 2026-05-26
+
+### Changed
+- Promoted the 0.8.16 prerelease package version to a stable release.
+
 ## [0.8.15] - 2026-05-26
 
 ### Changed

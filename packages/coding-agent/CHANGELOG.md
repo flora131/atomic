@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.8.16] - 2026-05-26
+
+### Changed
+
+- Promoted the 0.8.16 prerelease changes to a stable release.
+
 ## [0.8.16-0] - 2026-05-26
 
 ### Breaking Changes

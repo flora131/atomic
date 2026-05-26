@@ -11,6 +11,8 @@
 
 ## [Unreleased]
 
+## [0.8.15] - 2026-05-26
+
 ### Added
 - Synced upstream nested subagent fanout support, including child-safe nested `subagent` registration for explicitly authorized agents, nested status/control metadata, and parent-visible nested summaries.
 

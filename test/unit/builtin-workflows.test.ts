@@ -6,6 +6,7 @@
 
 import { afterEach, beforeEach, describe, test } from "bun:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
@@ -1273,7 +1274,7 @@ describe("ralph", () => {
     assert.equal(mod.default.name, "ralph");
   });
 
-  test("declares prompt, max_loops, and base_branch inputs", async () => {
+  test("declares prompt, max_loops, base_branch, and git_worktree_dir inputs", async () => {
     const mod = await import("../../packages/workflows/builtin/ralph.js");
     assert.equal(mod.default.inputs["prompt"]?.type, "text");
     assert.equal(mod.default.inputs["prompt"]?.required, true);
@@ -1287,7 +1288,103 @@ describe("ralph", () => {
       (mod.default.inputs["base_branch"] as { default?: string }).default,
       "origin/main",
     );
-    assert.deepEqual(Object.keys(mod.default.inputs).sort(), ["base_branch", "max_loops", "prompt"]);
+    assert.equal(mod.default.inputs["git_worktree_dir"]?.type, "string");
+    assert.equal(
+      (mod.default.inputs["git_worktree_dir"] as { default?: string }).default,
+      "",
+    );
+    assert.deepEqual(Object.keys(mod.default.inputs).sort(), ["base_branch", "git_worktree_dir", "max_loops", "prompt"]);
+  });
+
+  test("creates a relative git_worktree_dir and runs stages from it", async () => {
+    const mod = await import("../../packages/workflows/builtin/ralph.js");
+    const d = mod.default as unknown as WorkflowDefinition;
+    const tempRoot = mkdtempSync(join(tmpdir(), "atomic-ralph-worktree-"));
+    const repo = join(tempRoot, "repo");
+    const expectedWorktree = join(tempRoot, "worktrees", "ralph");
+    const previousCwd = process.cwd();
+
+    try {
+      mkdirSync(repo, { recursive: true });
+      execFileSync("git", ["init", "-b", "main"], { cwd: repo, stdio: "ignore" });
+      execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repo, stdio: "ignore" });
+      execFileSync("git", ["config", "user.name", "Test User"], { cwd: repo, stdio: "ignore" });
+      writeFileSync(join(repo, "README.md"), "# test repo\n", "utf8");
+      execFileSync("git", ["add", "README.md"], { cwd: repo, stdio: "ignore" });
+      execFileSync("git", ["-c", "commit.gpgsign=false", "commit", "-m", "initial"], { cwd: repo, stdio: "ignore" });
+
+      process.chdir(repo);
+      const ctx = makeMockCtx({
+        prompt: "Add a small feature",
+        max_loops: 1,
+        base_branch: "main",
+        git_worktree_dir: join("..", "worktrees", "ralph"),
+      });
+
+      const result = await d.run(ctx);
+
+      assert.ok(existsSync(join(expectedWorktree, ".git")), "expected git worktree checkout");
+      assert.equal(
+        execFileSync("git", ["-C", expectedWorktree, "rev-parse", "HEAD"]).toString().trim(),
+        execFileSync("git", ["-C", repo, "rev-parse", "main"]).toString().trim(),
+      );
+      assert.ok(String(result["plan_path"]).startsWith(expectedWorktree));
+      for (const [taskName, entries] of Object.entries(ctx.calls.taskOptions)) {
+        for (const options of entries) {
+          assert.equal(options.cwd, expectedWorktree, `expected ${taskName} to run in the worktree`);
+        }
+      }
+    } finally {
+      process.chdir(previousCwd);
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("falls back to a default worktree path when git_worktree_dir is invalid", async () => {
+    const mod = await import("../../packages/workflows/builtin/ralph.js");
+    const d = mod.default as unknown as WorkflowDefinition;
+    const tempRoot = mkdtempSync(join(tmpdir(), "atomic-ralph-worktree-fallback-"));
+    const repo = join(tempRoot, "repo");
+    const previousCwd = process.cwd();
+
+    try {
+      mkdirSync(repo, { recursive: true });
+      execFileSync("git", ["init", "-b", "main"], { cwd: repo, stdio: "ignore" });
+      execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repo, stdio: "ignore" });
+      execFileSync("git", ["config", "user.name", "Test User"], { cwd: repo, stdio: "ignore" });
+      writeFileSync(join(repo, "README.md"), "# test repo\n", "utf8");
+      execFileSync("git", ["add", "README.md"], { cwd: repo, stdio: "ignore" });
+      execFileSync("git", ["-c", "commit.gpgsign=false", "commit", "-m", "initial"], { cwd: repo, stdio: "ignore" });
+
+      process.chdir(repo);
+      const ctx = makeMockCtx({
+        prompt: "Add a small feature",
+        max_loops: 1,
+        base_branch: "main",
+        git_worktree_dir: "invalid\0path",
+      });
+
+      const result = await d.run(ctx);
+      const fallbackWorktree = ctx.calls.taskOptions["planner-1"]?.[0]?.cwd;
+      if (fallbackWorktree === undefined) throw new Error("expected planner cwd to use fallback worktree");
+
+      assert.ok(isAbsolute(fallbackWorktree));
+      assert.ok(fallbackWorktree.startsWith(join(tmpdir(), "atomic-ralph-worktrees")));
+      assert.ok(existsSync(join(fallbackWorktree, ".git")), "expected fallback git worktree checkout");
+      assert.equal(
+        execFileSync("git", ["-C", fallbackWorktree, "rev-parse", "HEAD"]).toString().trim(),
+        execFileSync("git", ["-C", repo, "rev-parse", "main"]).toString().trim(),
+      );
+      assert.ok(String(result["plan_path"]).startsWith(fallbackWorktree));
+      for (const [taskName, entries] of Object.entries(ctx.calls.taskOptions)) {
+        for (const options of entries) {
+          assert.equal(options.cwd, fallbackWorktree, `expected ${taskName} to run in the fallback worktree`);
+        }
+      }
+    } finally {
+      process.chdir(previousCwd);
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 });
 

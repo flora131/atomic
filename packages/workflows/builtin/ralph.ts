@@ -7,9 +7,11 @@
  * iteration feeds review findings into the next planner with ctx.task().
  */
 
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, extname, join } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { defineWorkflow } from "../src/index.js";
 import type { WorkflowTaskResult } from "../src/shared/types.js";
 
@@ -288,6 +290,128 @@ async function writeSpecFile(path: string, content: string): Promise<string> {
   }
 }
 
+type GitCommandResult = {
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly status: number | null;
+  readonly error?: Error;
+};
+
+const GIT_LOCAL_ENV_VARS = [
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_COMMON_DIR",
+  "GIT_CONFIG",
+  "GIT_CONFIG_COUNT",
+  "GIT_CONFIG_PARAMETERS",
+  "GIT_DIR",
+  "GIT_GRAFT_FILE",
+  "GIT_IMPLICIT_WORK_TREE",
+  "GIT_INDEX_FILE",
+  "GIT_NO_REPLACE_OBJECTS",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_PREFIX",
+  "GIT_REPLACE_REF_BASE",
+  "GIT_SHALLOW_FILE",
+  "GIT_WORK_TREE",
+] as const;
+
+function gitProcessEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  for (const key of GIT_LOCAL_ENV_VARS) {
+    delete env[key];
+  }
+  return env;
+}
+
+function runGit(args: readonly string[], cwd = process.cwd()): GitCommandResult {
+  const result = spawnSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    env: gitProcessEnv(),
+  });
+  return {
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+    status: result.status,
+    ...(result.error === undefined ? {} : { error: result.error }),
+  };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function gitFailureMessage(result: GitCommandResult): string {
+  if (result.error !== undefined) return result.error.message;
+  return result.stderr.trim() || result.stdout.trim() || `git exited with status ${result.status}`;
+}
+
+function resolveOptionalWorktreePath(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed || trimmed.includes("\0")) return undefined;
+  return isAbsolute(trimmed) ? resolve(trimmed) : resolve(process.cwd(), trimmed);
+}
+
+function safeWorktreePathSegment(value: string): string {
+  const segment = value.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+  return segment.length > 0 ? segment.slice(0, 60) : "worktree";
+}
+
+function defaultGitWorktreePath(baseBranch: string): string {
+  const repoRootResult = runGit(["rev-parse", "--show-toplevel"]);
+  if (repoRootResult.status !== 0) {
+    throw new Error(`Failed to resolve repository root for git_worktree_dir fallback: ${gitFailureMessage(repoRootResult)}`);
+  }
+
+  const repoRoot = repoRootResult.stdout.trim();
+  const repoName = safeWorktreePathSegment(basename(repoRoot) || "repo");
+  const branchName = safeWorktreePathSegment(baseBranch.replace(/^refs\/heads\//, ""));
+  const digest = createHash("sha256").update(`${repoRoot}\0${baseBranch}`).digest("hex").slice(0, 12);
+  return join(tmpdir(), "atomic-ralph-worktrees", `${repoName}-${branchName}-${digest}`);
+}
+
+async function addGitWorktree(worktreeDir: string, baseBranch: string): Promise<GitCommandResult> {
+  try {
+    await mkdir(dirname(worktreeDir), { recursive: true });
+  } catch (error) {
+    return {
+      stdout: "",
+      stderr: `failed to create worktree parent directory: ${errorMessage(error)}`,
+      status: 1,
+    };
+  }
+  return runGit(["worktree", "add", "--detach", worktreeDir, baseBranch]);
+}
+
+async function createGitWorktreeIfRequested(
+  value: string | undefined,
+  baseBranch: string,
+): Promise<string | undefined> {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+
+  const requestedWorktreeDir = resolveOptionalWorktreePath(value);
+  if (requestedWorktreeDir !== undefined) {
+    const requestedResult = await addGitWorktree(requestedWorktreeDir, baseBranch);
+    if (requestedResult.status === 0) return requestedWorktreeDir;
+  }
+
+  const fallbackWorktreeDir = defaultGitWorktreePath(baseBranch);
+  const fallbackResult = await addGitWorktree(fallbackWorktreeDir, baseBranch);
+  if (fallbackResult.status === 0) return fallbackWorktreeDir;
+
+  throw new Error(`Failed to create fallback git worktree at ${fallbackWorktreeDir} from ${baseBranch}: ${gitFailureMessage(fallbackResult)}`);
+}
+
+function pathInWorkflowCwd(filePath: string, workflowCwd: string | undefined): string {
+  if (workflowCwd === undefined || isAbsolute(filePath)) return filePath;
+  return join(workflowCwd, filePath);
+}
+
+function workflowCwdOption(workflowCwd: string | undefined): { cwd?: string } {
+  return workflowCwd === undefined ? {} : { cwd: workflowCwd };
+}
+
 async function createImplementationNotesFile(prompt: string): Promise<string> {
   const notesDir = await mkdtemp(join(tmpdir(), "atomic-ralph-notes-"));
   const notesPath = join(notesDir, IMPLEMENTATION_NOTES_FILENAME);
@@ -401,15 +525,24 @@ export default defineWorkflow("ralph")
     description:
       "Branch reviewers compare the current code delta against (default origin/main).",
   })
+  .input("git_worktree_dir", {
+    type: "string",
+    default: "",
+    description:
+      "Optional git worktree checkout path. Relative paths resolve from the current working directory; when set, all Ralph stages run from this worktree created from base_branch.",
+  })
   .run(async (ctx) => {
     const inputs = ctx.inputs as {
       prompt?: string;
       max_loops?: number;
       base_branch?: string;
+      git_worktree_dir?: string;
     };
     const prompt = inputs.prompt ?? "";
     const maxLoops = positiveInteger(inputs.max_loops, DEFAULT_MAX_LOOPS);
     const comparisonBaseBranch = normalizeBranchInput(inputs.base_branch, "origin/main");
+    const workflowCwd = await createGitWorktreeIfRequested(inputs.git_worktree_dir, comparisonBaseBranch);
+    const cwdOption = workflowCwdOption(workflowCwd);
 
     let reviewReport = "";
     let finalPlan = "";
@@ -581,9 +714,10 @@ export default defineWorkflow("ralph")
           ? { previous: { name: "review-report", text: reviewReport } }
           : {}),
         ...plannerModelConfig,
+        ...cwdOption,
       });
       finalPlan = planner.text;
-      const specPath = await writeSpecFile(defaultSpecPath(prompt), planner.text);
+      const specPath = await writeSpecFile(pathInWorkflowCwd(defaultSpecPath(prompt), workflowCwd), planner.text);
       finalPlanPath = specPath;
 
       const orchestrator = await ctx.task(`orchestrator-${iteration}`, {
@@ -691,6 +825,7 @@ export default defineWorkflow("ralph")
         ]),
         reads: [specPath, implementationNotesPath],
         ...orchestratorModelConfig,
+        ...cwdOption,
       });
       finalResult = orchestrator.text;
 
@@ -789,6 +924,7 @@ export default defineWorkflow("ralph")
         ]),
         previous: [planner, orchestrator],
         ...simplifierModelConfig,
+        ...cwdOption,
       });
 
       const discovery = await ctx.parallel(
@@ -828,6 +964,7 @@ export default defineWorkflow("ralph")
               ],
             ]),
             ...explorerModelConfig,
+            ...cwdOption,
           },
           {
             name: `infra-analyze-${iteration}`,
@@ -868,6 +1005,7 @@ export default defineWorkflow("ralph")
               ],
             ]),
             ...explorerModelConfig,
+            ...cwdOption,
           },
           {
             name: `infra-patterns-${iteration}`,
@@ -909,9 +1047,10 @@ export default defineWorkflow("ralph")
               ],
             ]),
             ...explorerModelConfig,
+            ...cwdOption,
           },
         ],
-        { task: prompt },
+        { task: prompt, ...cwdOption },
       );
 
       const discoveryContext = formatDiscovery(discovery);
@@ -1056,14 +1195,16 @@ export default defineWorkflow("ralph")
               name: "reviewer-a",
               task: reviewPrompt,
               ...reviewerModelConfig,
+              ...cwdOption,
             },
             {
               name: "reviewer-b",
               task: reviewPrompt,
               ...reviewerModelConfig,
+              ...cwdOption,
             },
           ],
-          { task: prompt, failFast: false },
+          { task: prompt, failFast: false, ...cwdOption },
         );
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -1137,6 +1278,7 @@ export default defineWorkflow("ralph")
         ? [finalPlanPath, implementationNotesPath]
         : [implementationNotesPath],
       ...orchestratorModelConfig,
+      ...cwdOption,
     });
     finalPrReport = prResult.text;
 

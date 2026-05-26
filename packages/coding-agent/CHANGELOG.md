@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.8.17-0] - 2026-05-26
+
 ### Breaking Changes
 
 - Removed bundled Ralph's configurable `review_quorum` and `blocker_threshold` inputs; `max_turns` remains configurable alongside `objective` and optional `base_branch` ([#1061](https://github.com/flora131/atomic/issues/1061)).

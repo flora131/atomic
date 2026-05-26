@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import type {
   WorkflowChainOptions,
   WorkflowDefinition,
@@ -148,17 +148,25 @@ describe("ralph git worktree integration", () => {
     return repo;
   }
 
+  function assertSamePath(actual: string | undefined, expected: string | undefined, message: string): void {
+    if (actual === undefined || expected === undefined) {
+      assert.equal(actual, expected, message);
+      return;
+    }
+    assert.equal(canonicalPathForComparison(actual), canonicalPathForComparison(expected), message);
+  }
+
   function assertEveryRalphStageCwd(
     ctx: { readonly calls: MockCalls },
     expectedCwd: string | undefined,
   ): void {
     for (const [taskName, entries] of Object.entries(ctx.calls.taskOptions)) {
       for (const options of entries) {
-        assert.equal(options.cwd, expectedCwd, `unexpected cwd for ${taskName}`);
+        assertSamePath(options.cwd, expectedCwd, `unexpected cwd for ${taskName}`);
       }
     }
     for (const options of ctx.calls.parallelOptions) {
-      assert.equal(options.cwd, expectedCwd, "unexpected cwd for parallel stage");
+      assertSamePath(options.cwd, expectedCwd, "unexpected cwd for parallel stage");
     }
   }
 
@@ -170,8 +178,18 @@ describe("ralph git worktree integration", () => {
       .map((line) => line.slice("worktree ".length));
   }
 
-  function normalizePathForComparison(path: string): string {
-    const normalized = path.replace(/\\/g, "/");
+  function canonicalPathForComparison(path: string): string {
+    let canonical = path;
+    try {
+      canonical = realpathSync.native(path);
+    } catch {
+      try {
+        canonical = join(realpathSync.native(dirname(path)), basename(path));
+      } catch {
+        canonical = path;
+      }
+    }
+    const normalized = canonical.replace(/\\/g, "/");
     return process.platform === "win32" ? normalized.toLowerCase() : normalized;
   }
 
@@ -186,9 +204,9 @@ describe("ralph git worktree integration", () => {
 
   function assertWorktreeWasRemoved(repo: string, worktreePath: string): void {
     assert.equal(existsSync(worktreePath), false, "expected Ralph-created worktree checkout to be removed");
-    const expectedPath = normalizePathForComparison(worktreePath);
+    const expectedPath = canonicalPathForComparison(worktreePath);
     assert.equal(
-      worktreeListEntries(repo).some((entry) => normalizePathForComparison(entry) === expectedPath),
+      worktreeListEntries(repo).some((entry) => canonicalPathForComparison(entry) === expectedPath),
       false,
       "expected git worktree metadata to be removed",
     );
@@ -212,7 +230,7 @@ describe("ralph git worktree integration", () => {
       {
         task: (name, options) => {
           if (name === "planner-1") {
-            assert.equal(options.cwd, expectedWorktree);
+            assertSamePath(options.cwd, expectedWorktree, "expected planner to run from worktree");
             assertWorktreeRegistered(repo, expectedWorktree);
             assert.equal(
               execFileSync("git", ["-C", expectedWorktree, "rev-parse", "HEAD"]).toString().trim(),
@@ -524,7 +542,7 @@ describe("ralph git worktree integration", () => {
     await d.run(ctx);
 
     for (const name of ["planner-1", "orchestrator-1", "code-simplifier-1", "planner-2", "orchestrator-2", "code-simplifier-2"]) {
-      assert.equal(ctx.calls.taskOptions[name]?.[0]?.cwd, expectedWorktree, `unexpected cwd for ${name}`);
+      assertSamePath(ctx.calls.taskOptions[name]?.[0]?.cwd, expectedWorktree, `unexpected cwd for ${name}`);
     }
     assertEveryRalphStageCwd(ctx, expectedWorktree);
     assertWorktreeWasRemoved(repo, expectedWorktree);

@@ -39,6 +39,19 @@ describe("/atomic guide command", () => {
     assert.match(getAtomicGuideMessage(normalizeAtomicGuideMode("what's new"), cwd), /^# What's new/);
   });
 
+  test("explains goal versus ralph across onboarding sections", () => {
+    const cwd = "/repo";
+    const overview = getAtomicGuideMessage(normalizeAtomicGuideMode("overview"), cwd);
+    const example = getAtomicGuideMessage(normalizeAtomicGuideMode("example"), cwd);
+    const workflows = getAtomicGuideMessage(normalizeAtomicGuideMode("workflows"), cwd);
+
+    assert.match(overview, /`goal` \| small-to-medium scoped changes/);
+    assert.match(overview, /`ralph` \| larger migrations, broad refactors, multi-package changes, and spec-to-PR work/);
+    assert.match(example, /For small-to-medium scoped changes where you can identify the work surface, exact outcome, and validation, use `goal`/);
+    assert.match(workflows, /Use `goal` for small-to-medium scope changes/);
+    assert.match(workflows, /Keep using `ralph` for larger migrations, broad refactors, multi-package changes, and spec-to-PR work/);
+  });
+
   test("treats adversarial punctuation arguments as unknown help requests", () => {
     assert.equal(normalizeAtomicGuideMode(`${"!".repeat(50_000)}a`), "help");
   });

@@ -17,11 +17,12 @@ Use a workflow when a task should be repeatable, inspectable, resumable, or spli
 - **Package distribution** - Ship workflows through Atomic packages, settings, or conventional directories
 
 **Example use cases:**
+- Small, outcome-driven code or docs changes with explicit done criteria
 - Codebase research with parallel local and external research stages
 - Review/fix loops with independent reviewers and a synthesis stage
 - Release planning with human approval gates
 - Documentation audits that save findings as artifacts
-- Multi-stage migrations with validation and rollback checks
+- Multi-stage migrations, broad refactors, and validation/rollback plans
 - Reusable team workflows distributed through npm, git, or project settings
 
 ## Table of Contents
@@ -139,9 +140,13 @@ Atomic bundles four workflows that cover the most common multi-stage jobs. They 
 | Workflow | What it does | When to use |
 |---|---|---|
 | `deep-research-codebase` | Scout + research-history chain → parallel specialist waves → aggregator. Indexes the whole repo and synthesizes findings. | Broad or cross-cutting research before you decide what to change. Prefer `/skill:research-codebase` for one subsystem. |
-| `goal` | Persisted goal ledger → bounded worker turns → receipts → three-reviewer gate → deterministic reducer → final report. | Focused implementation against a clear objective or spec where you want auditable progress, reviewer-quorum completion, repeated-blocker detection, and explicit stop decisions. |
-| `ralph` | RFC planning → sub-agent orchestration → simplification → infrastructure discovery → parallel review → PR handoff. | Larger spec-to-PR jobs where you want a generated technical plan, delegated implementation, iterative review, and pull-request preparation. |
+| `goal` | Persisted goal ledger → bounded worker turns → receipts → three-reviewer gate → deterministic reducer → final report. | Small-to-medium scope changes when you can identify the work surface, state the exact outcome, and name the validation that proves it is done — for example tests, lint/typecheck, docs builds, or observable behavior. |
+| `ralph` | RFC planning → sub-agent orchestration → simplification → infrastructure discovery → parallel review → PR handoff. | Larger migrations, broad refactors, multi-package changes, and spec-to-PR work where you want Atomic to plan the approach, delegate implementation through sub-agents, simplify, review, iterate, and prepare a pull-request report. |
 | `open-claude-design` | Design-system onboarding → reference import → HTML generation → impeccable-driven refinement → quality gate → rich HTML handoff. Renders a live `preview.html` you can iterate against (opens through `playwright-cli` when available). | UI, page, component, theme, or design-token work that benefits from generation + critique loops. |
+
+Use `goal` for small-to-medium scope changes when you can identify the work surface, state the exact outcome you want, and name the validation that proves it is done — for example specific tests, lint/typecheck commands, docs builds, or observable behavior. It keeps the run bounded, captures receipts in a goal ledger, gates completion through reviewers, and stops as `complete`, `blocked`, or `needs_human`.
+
+Keep using `ralph` for larger migrations, broad refactors, multi-package changes, and spec-to-PR work where you want Atomic to plan the approach, delegate implementation through sub-agents, simplify, review, iterate, and prepare a pull-request report.
 
 ### `deep-research-codebase`
 
@@ -192,7 +197,7 @@ Inputs:
 
 | Input | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `objective` | text | yes | — | Goal-runner objective. |
+| `objective` | text | yes | — | Goal-runner objective. Include the desired end state, expected outcome, testing/validation instructions, and any explicit done criteria. |
 | `max_turns` | number | no | `10` | Maximum worker/review turns before human follow-up is needed. |
 | `base_branch` | string | no | `origin/main` | Branch reviewers compare the current code delta against. |
 
@@ -201,12 +206,14 @@ Inputs:
 Run examples:
 
 ```text
-/workflow goal objective="Implement specs/2026-03-rate-limit.md and validate the changed behavior"
-/workflow goal objective="Migrate the database layer to Drizzle" base_branch=develop
-/workflow goal objective="Finish the docs refresh" max_turns=2
+/workflow goal objective="Implement specs/2026-03-rate-limit.md, add the requested regression tests, run bun test packages/api/rate-limit.test.ts, and finish only when burst traffic returns 429 with Retry-After"
+/workflow goal objective="Update the CLI docs to describe the new --json flag, include one usage example, and verify the docs build still passes" max_turns=3
+/workflow goal objective="Fix the settings form validation bug; add/adjust the focused test and consider it done when invalid emails show the inline error without submitting"
 ```
 
 `goal` creates an OS-temp `goal-ledger.json` artifact, renders goal-continuation context for each worker turn, writes each worker receipt to `work-turn-N.md`, and appends receipts, reviewer decisions, blockers, reducer decisions, and lifecycle events to the ledger. The objective is treated as user-provided data, not higher-priority instructions.
+
+Write the `objective` like a compact acceptance spec. Say what should exist when the run is done, how you want testing handled, which command(s) or manual checks matter, and what outcome proves completion. The workflow is intentionally lean: it does not first generate an RFC or migration plan, so the developer-supplied objective is where scope, validation, and completion criteria belong.
 
 The worker may claim readiness, but it cannot finalize completion. Three reviewers independently inspect the ledger, worker receipt, repository state, and diff against `base_branch`; each returns structured JSON with findings, evidence, verification still remaining, and an optional blocker. A TypeScript reducer marks the goal complete only when reviewer quorum approves, marks blocked only when the same dependency/tool blocker repeats for the blocker threshold, continues when evidence is missing, and returns `needs_human` when `max_turns` is exhausted or worker execution fails.
 
@@ -226,7 +233,7 @@ Result fields:
 | `remaining_work` | Remaining gaps/blockers when incomplete, or `none`. |
 | `review_report` | Markdown report containing the last structured reviewer decision payloads used by the reducer. |
 
-Use `goal` when you already have a clear objective or reviewed spec and want the leanest auditable implementation loop.
+Use `goal` when you already have a clear objective or reviewed spec and want the leanest auditable implementation loop. It is the default choice for small-to-medium scope changes when you can identify the work surface, state the exact outcome you want, and name the validation that proves it is done — for example specific tests, lint/typecheck commands, docs builds, or observable behavior. It keeps the run bounded, captures receipts in a goal ledger, gates completion through reviewers, and stops as `complete`, `blocked`, or `needs_human`.
 
 ### `ralph`
 
@@ -241,11 +248,11 @@ Inputs:
 Run examples:
 
 ```text
-/workflow ralph prompt="Implement specs/2026-03-rate-limit.md and prepare the PR"
 /workflow ralph prompt="Plan and migrate the database layer to Drizzle" max_loops=3 base_branch=develop
+/workflow ralph prompt="Refactor authentication across the API, CLI, and web UI, then prepare the PR"
 ```
 
-`ralph` is a heavier spec-to-PR workflow. Each iteration writes an RFC-style technical design document under `specs/`, initializes an OS-temp implementation notes file, delegates implementation through sub-agents, runs a behavior-preserving code simplifier, discovers review infrastructure, and asks two reviewers to inspect the patch against `base_branch`. The loop stops when every reviewer approves or `max_loops` is reached, then runs a pull-request preparation stage.
+Keep using `ralph` for larger migrations, broad refactors, multi-package changes, and spec-to-PR work where you want Atomic to plan the approach, delegate implementation through sub-agents, simplify, review, iterate, and prepare a pull-request report. Each iteration writes an RFC-style technical design document under `specs/`, initializes an OS-temp implementation notes file, delegates implementation through sub-agents, runs a behavior-preserving code simplifier, discovers review infrastructure, and asks two reviewers to inspect the patch against `base_branch`. The loop stops when every reviewer approves or `max_loops` is reached, then runs a pull-request preparation stage.
 
 Result fields:
 
@@ -260,7 +267,7 @@ Result fields:
 | `iterations_completed` | Number of plan/orchestrate/review loops completed. |
 | `review_report` | Markdown report containing the latest reviewer payloads. |
 
-A typical end-to-end flow is `/skill:research-codebase` → `/skill:create-spec` → `/workflow goal objective="Implement the researched rate-limit behavior and validate it"`. Use `/workflow ralph` instead when you want Atomic to generate the RFC, coordinate implementation sub-agents, iterate on review findings, and prepare a PR report in one workflow.
+A typical end-to-end flow is `/skill:research-codebase` → `/skill:create-spec` → `/workflow goal objective="Implement the researched rate-limit behavior, run the focused tests, and finish when the documented burst behavior is validated"` when you can identify the work surface, state the exact outcome, and name the validation that proves it is done. Keep using `/workflow ralph` for larger migrations, broad refactors, multi-package changes, and spec-to-PR work where you want Atomic to plan, delegate through sub-agents, simplify, review, iterate, and prepare a pull-request report.
 
 ### `open-claude-design`
 
@@ -291,11 +298,11 @@ Run a deep codebase research workflow on how the rate limiter behaves under burs
 ```
 
 ```text
-Use the goal workflow to implement specs/2026-03-rate-limit.md and cap it at 5 turns.
+Use the goal workflow to implement specs/2026-03-rate-limit.md, run the focused rate-limit tests, finish only when burst traffic returns 429 with Retry-After, and cap it at 5 turns.
 ```
 
 ```text
-Use the ralph workflow to plan, implement, review, and prepare a PR for specs/2026-03-rate-limit.md.
+Use the ralph workflow to plan a database-layer migration, implement it, review it, and prepare a PR.
 ```
 
 ```text
@@ -338,6 +345,8 @@ If the task is only deterministic TypeScript with no LLM/session stage, use a sc
 | User goal | Use |
 |-----------|-----|
 | Run, inspect, attach to, pause, interrupt, resume, or check status for an existing workflow | `/workflow ...` or `workflow({ action: ... })` |
+| Implement a small-to-medium scope change with an identifiable work surface, exact outcome, and named validation | `/workflow goal objective="..."` so Atomic keeps the run bounded, captures receipts in a goal ledger, gates completion through reviewers, and stops as `complete`, `blocked`, or `needs_human` |
+| Plan and execute a larger migration, broad refactor, multi-package change, or spec-to-PR effort | `/workflow ralph prompt="..."` so Atomic can plan the approach, delegate implementation through sub-agents, simplify, review, iterate, and prepare a pull-request report |
 | Create or edit reusable automation | a TypeScript workflow definition with `defineWorkflow(...).run(...).compile()` |
 | Track one-off work without saving a workflow file | direct `workflow({ task })`, `workflow({ tasks })`, or `workflow({ chain })` calls |
 | Make a workflow robust | design the stage graph, context handoffs, artifacts, validation gates, model fallbacks, and human approval points before coding |

@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Clarified bundled workflow docs and `/atomic` onboarding copy for using `goal` on smaller scoped changes with explicit outcomes, testing instructions, and done criteria, while positioning `ralph` for larger migrations, broad refactors, and PR-prep workflows.
+
 ## [0.8.17] - 2026-05-26
 
 ### Changed

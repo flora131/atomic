@@ -7,7 +7,7 @@ export const ATOMIC_GUIDE_COMMAND_DESCRIPTION = "Atomic onboarding and help guid
 
 const OVERVIEW = `# Atomic overview
 
-Atomic turns one-off prompts into developer workflows: on-call debugging, repo research that turns into implementation, testing and review loops, and larger multi-stage automation. Start it in a project with \`atomic\`, then talk to it normally. Use \`@file\` to attach files, \`!command\` to run shell output through the model, and \`!!command\` to run shell output without adding it to context.
+Atomic turns one-off prompts into developer workflows: on-call debugging, repo research that turns into implementation, testing and review loops, and larger multi-stage automation. Use \`/workflow goal\` for small-to-medium changes with a clear work surface, exact outcome, and named validation; keep \`/workflow ralph\` for larger migrations, broad refactors, and spec-to-PR work. Start Atomic in a project with \`atomic\`, then talk to it normally. Use \`@file\` to attach files, \`!command\` to run shell output through the model, and \`!!command\` to run shell output without adding it to context.
 
 ## Core session commands
 
@@ -26,10 +26,32 @@ Atomic turns one-off prompts into developer workflows: on-call debugging, repo r
 | Goal | How to use |
 |---|---|
 | On-call / broken behavior | Run \`/run debugger "Reproduce the failure, patch the root cause, and validate it"\` for a focused fix loop, or ask Atomic in chat to build a reusable workflow that does the same |
-| Research → spec → implementation | Chain \`/skill:research-codebase\` → \`/skill:create-spec\` → direct implementation or \`/workflow ralph ...\`; ask Atomic in chat to turn the repeatable process into a reusable workflow using the workflow docs |
+| Research → spec → implementation | Chain \`/skill:research-codebase\` → \`/skill:create-spec\` → \`/workflow goal objective="..."\` for bounded scoped work with explicit validation; use \`/workflow ralph ...\` when the work needs planning, broad refactoring, or PR prep |
 | Testing / regression hardening | Run \`/skill:tdd\` for test-first work, then \`/parallel-review current diff\`, then land the change |
 | Large repo discovery | Run \`/parallel codebase-locator "map the area" -> codebase-analyzer "trace the current flow" -> codebase-pattern-finder "find patterns" --bg\`, or \`/workflow deep-research-codebase\` for whole-repo synthesis |
 | UI / product polish | Run \`/skill:impeccable\` for interface critique and refinement, or \`/workflow open-claude-design\` for generation + refinement loops |
+
+## Built-in workflows
+
+| Workflow | When to use | How to run |
+|---|---|---|
+| \`deep-research-codebase\` | broad repo or cross-cutting research before you decide what to change (for one area, use \`/skill:research-codebase\`; this indexes the whole repo) | \`/workflow deep-research-codebase prompt="How do payment retries work end to end?"\` |
+| \`goal\` | small-to-medium scoped changes when you can name the work surface, outcome, and validation; keeps receipts in a ledger and stops as \`complete\`, \`blocked\`, or \`needs_human\` | \`/workflow goal objective="Implement specs/<date>-<topic>.md, run focused tests, and validate the changed behavior"\` |
+| \`ralph\` | larger migrations, broad refactors, multi-package changes, and spec-to-PR work where you want Atomic to plan, delegate, simplify, review, iterate, and prepare a PR report | \`/workflow ralph prompt="Plan and implement specs/<date>-<topic>.md, then prepare the PR"\` |
+| \`open-claude-design\` | UI and design-system work that benefits from generation and refinement loops | \`/workflow open-claude-design prompt="Refresh the settings page hierarchy"\` |
+
+Use \`/workflow list\` to see what is available and \`/workflow inputs <name>\` to inspect inputs in your environment.
+
+## Top skills
+
+| Skill | When to use | How to run |
+|---|---|---|
+| \`research-codebase\` | write a grounded research artifact for one subsystem or question | \`/skill:research-codebase how the rate limiter works in src/middleware/\` |
+| \`create-spec\` | turn research into an implementation-ready plan | \`/skill:create-spec from research/docs/<date>-<topic>.md\` |
+| \`tdd\` | do test-first feature or bug work | \`/skill:tdd\` |
+| \`prompt-engineer\` | tighten a vague prompt before a long run | \`/skill:prompt-engineer Draft a sharper implementation prompt for ...\` |
+| \`subagent\` | learn delegation patterns and exact \`/run\`, \`/parallel\`, and \`/chain\` usage | \`/skill:subagent\` |
+| \`impeccable\` | critique or refine frontend and product UI | \`/skill:impeccable\` |
 
 ## Subagents
 
@@ -46,27 +68,6 @@ How the direct commands map to repo work:
 - \`/run\` = one specialist on one job, for example \`/run codebase-locator "Map the webhook retry flow"\`
 - \`/parallel\` = several independent specialists at once, for example \`/parallel codebase-locator "map retry files" -> codebase-pattern-finder "find existing retry/backoff patterns" -> codebase-online-researcher "research current retry guidance" --bg\`
 - \`/chain\` = ordered handoffs, for example \`/chain codebase-locator "find the auth files" -> codebase-analyzer "trace the auth flow" -> debugger "patch the failing auth edge case"\`
-
-## Top skills
-
-| Skill | When to use | How to run |
-|---|---|---|
-| \`research-codebase\` | write a grounded research artifact for one subsystem or question | \`/skill:research-codebase how the rate limiter works in src/middleware/\` |
-| \`create-spec\` | turn research into an implementation-ready plan | \`/skill:create-spec from research/docs/<date>-<topic>.md\` |
-| \`tdd\` | do test-first feature or bug work | \`/skill:tdd\` |
-| \`prompt-engineer\` | tighten a vague prompt before a long run | \`/skill:prompt-engineer Draft a sharper implementation prompt for ...\` |
-| \`subagent\` | learn delegation patterns and exact \`/run\`, \`/parallel\`, and \`/chain\` usage | \`/skill:subagent\` |
-| \`impeccable\` | critique or refine frontend and product UI | \`/skill:impeccable\` |
-
-## Built-in workflows
-
-| Workflow | When to use | How to run |
-|---|---|---|
-| \`deep-research-codebase\` | broad repo or cross-cutting research before you decide what to change (for one area, use \`/skill:research-codebase\`; this indexes the whole repo) | \`/workflow deep-research-codebase prompt="How do payment retries work end to end?"\` |
-| \`ralph\` | larger implementation loops with a persisted goal ledger, reviewer quorum, and explicit stop decisions | \`/workflow ralph objective="Implement specs/<date>-<topic>.md and validate the changed behavior"\` |
-| \`open-claude-design\` | UI and design-system work that benefits from generation and refinement loops | \`/workflow open-claude-design prompt="Refresh the settings page hierarchy"\` |
-
-Use \`/workflow list\` to see what is available and \`/workflow inputs <name>\` to inspect inputs in your environment.
 
 ─────────────────────────────────────────────────────────────────
 
@@ -105,15 +106,21 @@ For ordinary work, ask Atomic directly and require validation:
 
 \`Implement the approved spec in specs/<date>-<topic>.md. Run focused tests and summarize validation.\`
 
-For larger work, use subagents or a workflow:
+For small-to-medium scoped changes where you can identify the work surface, exact outcome, and validation, use \`goal\`:
 
-\`/workflow ralph objective="Implement specs/<date>-<topic>.md and validate the changed behavior"\`
+\`/workflow goal objective="Implement specs/<date>-<topic>.md, run focused tests, and finish when the documented behavior is validated"\`
+
+For larger migrations, broad refactors, multi-package changes, or spec-to-PR work, use \`ralph\`:
+
+\`/workflow ralph prompt="Plan and implement specs/<date>-<topic>.md, then prepare the PR"\`
 
 ## 4. Decide and land
 
-If you used \`ralph\`, the workflow already persisted receipts and ran parallel reviewers. Use its final reducer status and review feedback to decide whether to ship or iterate again.
+If you used \`goal\`, the workflow already persisted receipts in a goal ledger and reviewer-gated completion. Use its final status — \`complete\`, \`blocked\`, or \`needs_human\` — plus the remaining-work report to decide whether to ship, unblock, or clarify.
 
-If you implemented directly instead of using \`ralph\`, you can still run:
+If you used \`ralph\`, the workflow planned the approach, delegated implementation through sub-agents, simplified, reviewed, iterated, and prepared a pull-request report. Use its review feedback and PR report to decide whether to ship or iterate again.
+
+If you implemented directly instead of using a workflow, you can still run:
 
 \`/parallel-review current diff\`
 
@@ -137,10 +144,15 @@ You do not have to write TypeScript to add one. Describe the workflow you want i
 | Workflow | When to use | How to run |
 |---|---|---|
 | \`deep-research-codebase\` | broad repo or cross-cutting research before you decide what to change (for one area, use \`/skill:research-codebase\`; this indexes the whole repo) | \`/workflow deep-research-codebase prompt="How do payment retries work end to end?"\` |
-| \`ralph\` | larger implementation and review loops with reviewer-gated completion | \`/workflow ralph objective="Implement specs/<date>-<topic>.md and validate the changed behavior"\` |
+| \`goal\` | small-to-medium scoped changes with a clear outcome and named validation | \`/workflow goal objective="Update the CLI docs, include one usage example, and verify the docs build passes"\` |
+| \`ralph\` | larger migrations, broad refactors, multi-package changes, and spec-to-PR work | \`/workflow ralph prompt="Plan a database-layer migration, implement it, review it, and prepare the PR"\` |
 | \`open-claude-design\` | frontend and product design work | \`/workflow open-claude-design prompt="Refresh the settings page hierarchy"\` |
 
 Use \`/workflow inputs <name>\` to inspect the exact inputs in your environment.
+
+Use \`goal\` for small-to-medium scope changes when you can identify the work surface, state the exact outcome you want, and name the validation that proves it is done — for example specific tests, lint/typecheck commands, docs builds, or observable behavior. It keeps the run bounded, captures receipts in a goal ledger, gates completion through reviewers, and stops as \`complete\`, \`blocked\`, or \`needs_human\`.
+
+Keep using \`ralph\` for larger migrations, broad refactors, multi-package changes, and spec-to-PR work where you want Atomic to plan the approach, delegate implementation through sub-agents, simplify, review, iterate, and prepare a pull-request report.
 
 Use \`/skill:research-codebase ...\` when you want research on one subsystem, directory, or focused question. Use \`/workflow deep-research-codebase ...\` when the answer needs end-to-end tracing across many parts of the repo.
 
@@ -179,9 +191,13 @@ Why this is good:
 
 \`/workflow list\`
 
+\`/workflow inputs goal\`
+
+\`/workflow goal objective="Fix the settings form validation bug, add the focused test, and finish when invalid emails show the inline error without submitting"\`
+
 \`/workflow inputs ralph\`
 
-\`/workflow ralph objective="Migrate the database layer to Drizzle"\`
+\`/workflow ralph prompt="Migrate the database layer to Drizzle and prepare the PR"\`
 
 \`/workflow status\`
 

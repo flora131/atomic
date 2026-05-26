@@ -8,7 +8,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { defineWorkflow } from "../src/index.js";
@@ -318,6 +318,8 @@ const GIT_LOCAL_ENV_VARS = [
 ] as const;
 
 function gitProcessEnv(): NodeJS.ProcessEnv {
+  // Only Ralph's internal bookkeeping Git commands use this scrubbed env;
+  // worker stages keep the host/CI credential configuration they inherit.
   const env = { ...process.env };
   for (const key of GIT_LOCAL_ENV_VARS) {
     delete env[key];
@@ -366,13 +368,9 @@ function requireGitRepositoryForWorktree(cwd = process.cwd()): string {
   return repoRootResult.stdout.trim();
 }
 
-type GitWorktreeSetup =
-  | { readonly cwd?: undefined; readonly created: false }
-  | {
-      readonly cwd: string;
-      readonly created: true;
-      readonly repositoryRoot: string;
-    };
+type GitWorktreeSetup = {
+  readonly cwd?: string;
+};
 
 async function addGitWorktree(
   worktreeDir: string,
@@ -384,15 +382,26 @@ async function addGitWorktree(
   } catch (error) {
     return {
       stdout: "",
-      stderr: `failed to create worktree parent directory: ${errorMessage(error)}`,
+      stderr: `mkdir: failed to create worktree parent directory: ${errorMessage(error)}`,
       status: 1,
     };
   }
   return runGit(["worktree", "add", "--detach", worktreeDir, baseBranch], cwd);
 }
 
-function removeGitWorktree(worktreeDir: string, cwd = process.cwd()): GitCommandResult {
-  return runGit(["worktree", "remove", "--force", worktreeDir], cwd);
+function existingPathIsGitWorktree(worktreeDir: string): boolean {
+  const result = runGit(["-C", worktreeDir, "rev-parse", "--is-inside-work-tree"]);
+  return result.status === 0 && result.stdout.trim() === "true";
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch (error) {
+    if ((error as { readonly code?: string }).code === "ENOENT") return false;
+    throw error;
+  }
 }
 
 function quoteRecoveryCommandArgument(value: string): string {
@@ -404,31 +413,24 @@ function formatWorktreeRecoveryCommand(repositoryRoot: string, worktreeDir: stri
   return `git -C ${quoteRecoveryCommandArgument(repositoryRoot)} worktree remove --force ${quoteRecoveryCommandArgument(worktreeDir)}`;
 }
 
-const WORKTREE_CLEANUP_SAFE_MARKER = "Worktree cleanup: safe-to-remove";
-const WORKTREE_CLEANUP_PRESERVE_MARKER = "Worktree cleanup: preserve";
-
-function prReportAllowsWorktreeCleanup(report: string): boolean {
-  const cleanupLines = report
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) =>
-      line === WORKTREE_CLEANUP_SAFE_MARKER ||
-      line === WORKTREE_CLEANUP_PRESERVE_MARKER,
-    );
-  return cleanupLines.at(-1) === WORKTREE_CLEANUP_SAFE_MARKER;
-}
-
 async function createGitWorktreeIfRequested(
   value: string | undefined,
   baseBranch: string,
   cwd = process.cwd(),
 ): Promise<GitWorktreeSetup> {
   const trimmed = value?.trim();
-  if (!trimmed) return { created: false };
+  if (!trimmed) return {};
 
   const repoRoot = requireGitRepositoryForWorktree(cwd);
 
   const requestedWorktreeDir = resolveWorktreePath(trimmed, repoRoot);
+  if (await pathExists(requestedWorktreeDir)) {
+    if (existingPathIsGitWorktree(requestedWorktreeDir)) {
+      return { cwd: requestedWorktreeDir };
+    }
+    throw new Error(`git_worktree_dir already exists but is not a Git worktree: ${requestedWorktreeDir}`);
+  }
+
   const requestedResult = await addGitWorktree(requestedWorktreeDir, baseBranch, repoRoot);
   if (requestedResult.status !== 0) {
     throw new Error(
@@ -438,7 +440,7 @@ async function createGitWorktreeIfRequested(
       ].join("\n"),
     );
   }
-  return { cwd: requestedWorktreeDir, created: true, repositoryRoot: repoRoot };
+  return { cwd: requestedWorktreeDir };
 }
 
 function workflowCwdOption(workflowCwd: string | undefined): { cwd?: string } {
@@ -750,6 +752,8 @@ async function runRalphWorkflow(
       ...cwdOption,
     });
     finalPlan = planner.text;
+    // Keep generated specs under the directory where Ralph was invoked, not in
+    // the worktree, so plan artifacts remain easy to find across retries.
     const specPath = await writeSpecFile(resolve(workflowStartCwd, defaultSpecPath(prompt)), planner.text);
     finalPlanPath = specPath;
 
@@ -1281,8 +1285,8 @@ async function runRalphWorkflow(
           "Create a PR only if there are meaningful changes, a remote/branch target is available, credentials are available, and the current state is suitable for review.",
           "If no logged-in account can access the repository or create the PR, do not fake success; report each credential/account tried, what failed, and provide the command the user can run later.",
           "When you successfully create or update the PR, create a PR comment containing the implementation notes file contents as the last action of this workflow stage.",
-          "Ralph worktrees are detached HEAD checkouts. If you are preparing a PR from a detached HEAD, create and push a branch from the current HEAD, for example with `git checkout -b <branch>` or `git push origin HEAD:refs/heads/<branch>`, before opening the PR.",
-          `Include an exact cleanup signal line in your final report: \`${WORKTREE_CLEANUP_SAFE_MARKER}\` only if a PR branch was pushed or there are no meaningful changes to preserve; otherwise include \`${WORKTREE_CLEANUP_PRESERVE_MARKER}\` so Ralph keeps the worktree for recovery.`,
+          "Ralph-created worktrees are detached HEAD checkouts. If you are preparing a PR from a detached HEAD, create and push a branch from the current HEAD, for example with `git checkout -b <branch>` or `git push origin HEAD:refs/heads/<branch>`, before opening the PR.",
+          "Ralph does not remove git_worktree_dir automatically. Leave the worktree intact for retries or user recovery.",
           "If PR creation is not possible, do not create a standalone comment elsewhere; include the implementation notes path and summary in your report instead.",
           "If the review loop did not approve, prefer reporting the remaining blockers over creating a PR unless the changes are still intentionally ready for human review.",
           "Do not make unrelated code edits in this phase. Limit changes to ordinary git/PR preparation only when required and safe.",
@@ -1297,7 +1301,6 @@ async function runRalphWorkflow(
           "3. Implementation notes comment — whether the PR comment was created as the last action, or why it could not be created",
           "4. Commands run — include exit status or clear outcome",
           "5. Follow-up for the user — exact next steps if credentials or repository state blocked PR creation",
-          `6. Worktree cleanup — include exactly one cleanup signal line: \`${WORKTREE_CLEANUP_SAFE_MARKER}\` or \`${WORKTREE_CLEANUP_PRESERVE_MARKER}\`.`,
         ].join("\n"),
       ],
     ]),
@@ -1345,7 +1348,7 @@ export default defineWorkflow("ralph")
     type: "string",
     default: "",
     description:
-      "Optional Git worktree path; when set, Ralph must start inside a Git repo and runs stages from a detached worktree created at this repo-root-relative path."
+      "Optional Git worktree path. Ralph must start inside a Git repo; absolute paths are used as-is, relative paths resolve from the repo root, existing Git worktrees are reused as-is, and missing paths are created from base_branch."
   })
   .run(async (ctx) => {
     const ralphCtx = ctx as WorkflowRunContext<RalphInputs>;
@@ -1365,47 +1368,12 @@ export default defineWorkflow("ralph")
       task: (name, options) => ralphCtx.task(name, options),
       parallel: (steps, options) => ralphCtx.parallel(steps, options),
     };
-    let result: RalphWorkflowResult | undefined;
-
-    try {
-      result = await runRalphWorkflow(workflowCtx, {
-        prompt,
-        maxLoops,
-        comparisonBaseBranch,
-        workflowStartCwd,
-        workflowCwd: worktree.cwd,
-      });
-      return result;
-    } finally {
-      if (worktree.created && worktree.cwd !== undefined) {
-        const recoveryCommand = formatWorktreeRecoveryCommand(worktree.repositoryRoot, worktree.cwd);
-        if (result === undefined) {
-          console.warn(
-            [
-              `Preserving Ralph git worktree after failed run: ${worktree.cwd}`,
-              `Recover work there, then remove it with: ${recoveryCommand}`,
-            ].join("\n"),
-          );
-        } else if (!prReportAllowsWorktreeCleanup(result.pr_report)) {
-          console.warn(
-            [
-              `Preserving Ralph git worktree because the PR stage did not confirm pushed or empty changes: ${worktree.cwd}`,
-              `Recover or remove it manually with: ${recoveryCommand}`,
-            ].join("\n"),
-          );
-        } else {
-          const cleanupResult = removeGitWorktree(worktree.cwd, worktree.repositoryRoot);
-          if (cleanupResult.status !== 0) {
-            console.warn(
-              [
-                `Failed to remove Ralph git worktree after successful run: ${worktree.cwd}`,
-                `Git reported: ${gitFailureMessage(cleanupResult)}`,
-                `Recover or remove it manually with: ${recoveryCommand}`,
-              ].join("\n"),
-            );
-          }
-        }
-      }
-    }
+    return await runRalphWorkflow(workflowCtx, {
+      prompt,
+      maxLoops,
+      comparisonBaseBranch,
+      workflowStartCwd,
+      workflowCwd: worktree.cwd,
+    });
   })
   .compile();

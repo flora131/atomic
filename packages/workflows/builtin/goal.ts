@@ -418,8 +418,7 @@ function reviewerErrorDecision(message: string): ReviewDecision {
     goal_oracle_satisfied: false,
     receipt_assessment:
       "No reviewer receipt could be produced because reviewer execution failed.",
-    verification_remaining:
-      "Recover reviewer execution and re-run oracle validation.",
+    verification_remaining: "Recover reviewer execution and re-run oracle validation.",
     stop_review_loop: false,
     reviewer_error: {
       kind: "reviewer_failure",
@@ -460,26 +459,19 @@ function reviewDecisionToRecord(args: {
   const blocker = blockerFromReviewDecision(args.decision);
   const approved = reviewApproved(args.decision);
   const gaps = [
-    ...args.decision.findings.map(
-      (finding) => `${finding.title}: ${finding.body}`,
-    ),
+    ...args.decision.findings.map((finding) => `${finding.title}: ${finding.body}`),
     ...(verificationRemainingIsNone(args.decision.verification_remaining)
       ? []
       : [args.decision.verification_remaining]),
     ...(args.decision.reviewer_error == null
       ? []
-      : [
-          `${args.decision.reviewer_error.kind}: ${args.decision.reviewer_error.message}`,
-        ]),
+      : [`${args.decision.reviewer_error.kind}: ${args.decision.reviewer_error.message}`]),
   ];
 
   return {
     ...args.decision,
     decision: approved ? "complete" : blocker === null ? "continue" : "blocked",
-    evidence: [
-      args.decision.receipt_assessment,
-      args.decision.overall_explanation,
-    ],
+    evidence: [args.decision.receipt_assessment, args.decision.overall_explanation],
     gaps,
     blocker,
     confidence_score: args.decision.overall_confidence_score,
@@ -544,9 +536,8 @@ function renderReviewHistory(ledger: GoalLedger): string {
     return "No previous reviewer findings; this is the first worker turn.";
   }
 
-  const recentTurns = [
-    ...new Set(ledger.reviews.map((review) => review.turn)),
-  ].slice(-REVIEW_HISTORY_TURN_COUNT);
+  const recentTurns = [...new Set(ledger.reviews.map((review) => review.turn))]
+    .slice(-REVIEW_HISTORY_TURN_COUNT);
   const recentTurnSet = new Set(recentTurns);
   const recentReviews = ledger.reviews.filter((review) =>
     recentTurnSet.has(review.turn),
@@ -621,20 +612,14 @@ function blockerCandidate(
       continue;
     }
     const key = normalizeBlocker(decision.blocker);
-    const existing = counts.get(key) ?? {
-      blocker: decision.blocker.trim(),
-      reviewers: [],
-    };
+    const existing = counts.get(key) ?? { blocker: decision.blocker.trim(), reviewers: [] };
     existing.reviewers.push(decision.reviewer);
     counts.set(key, existing);
   }
 
   let selected: { blocker: string; reviewers: string[] } | undefined;
   for (const entry of counts.values()) {
-    if (
-      selected === undefined ||
-      entry.reviewers.length > selected.reviewers.length
-    ) {
+    if (selected === undefined || entry.reviewers.length > selected.reviewers.length) {
       selected = entry;
     }
   }
@@ -668,14 +653,9 @@ function collectRemainingWork(reviews: readonly ReviewRecord[]): string {
   const gaps = reviews.flatMap((review) => review.gaps);
   const blockers = reviews
     .map((review) => review.blocker)
-    .filter(
-      (blocker): blocker is string =>
-        typeof blocker === "string" && blocker.trim().length > 0,
-    );
+    .filter((blocker): blocker is string => typeof blocker === "string" && blocker.trim().length > 0);
   const items = [...gaps, ...blockers];
-  return items.length > 0
-    ? items.join("; ")
-    : "Reviewer quorum did not prove completion.";
+  return items.length > 0 ? items.join("; ") : "Reviewer quorum did not prove completion.";
 }
 
 function reduceGoalDecision(
@@ -706,14 +686,13 @@ function reduceGoalDecision(
   }
 
   const observation = blockerCandidate(options.turn, turnReviews);
-  const blockerCount =
-    observation === undefined
-      ? 0
-      : consecutiveBlockerTurns(
-          [...ledger.blockers, observation],
-          observation.blocker,
-          options.turn,
-        );
+  const blockerCount = observation === undefined
+    ? 0
+    : consecutiveBlockerTurns(
+        [...ledger.blockers, observation],
+        observation.blocker,
+        options.turn,
+      );
 
   if (observation !== undefined && blockerCount >= options.blockerThreshold) {
     return {
@@ -944,10 +923,7 @@ function renderReviewerPrompt(args: {
 
 function formatReviewReport(reviews: readonly ReviewRecord[]): string {
   return reviews
-    .map(
-      (review) =>
-        `### ${review.reviewer} (turn ${review.turn})\n\n${review.raw_text}`,
-    )
+    .map((review) => `### ${review.reviewer} (turn ${review.turn})\n\n${review.raw_text}`)
     .join("\n\n---\n\n");
 }
 
@@ -956,13 +932,12 @@ function renderFinalReport(
   ledgerPath: string,
   remainingWork: string,
 ): string {
-  const receiptLines =
-    ledger.receipts.length > 0
-      ? ledger.receipts.map(
-          (receipt) =>
-            `- Turn ${receipt.turn}: ${receipt.summary} (artifact: ${receipt.artifact_path})`,
-        )
-      : ["- No receipts captured."];
+  const receiptLines = ledger.receipts.length > 0
+    ? ledger.receipts.map(
+        (receipt) =>
+          `- Turn ${receipt.turn}: ${receipt.summary} (artifact: ${receipt.artifact_path})`,
+      )
+    : ["- No receipts captured."];
 
   const lastDecision = ledger.decisions.at(-1);
   return [
@@ -1025,12 +1000,8 @@ export default defineWorkflow("goal")
     const maxTurns = positiveInteger(inputs.max_turns, DEFAULT_MAX_TURNS);
     const reviewQuorum = DEFAULT_REVIEW_QUORUM;
     const blockerThreshold = Math.min(DEFAULT_BLOCKER_THRESHOLD, maxTurns);
-    const comparisonBaseBranch = normalizeBranchInput(
-      inputs.base_branch,
-      "origin/main",
-    );
-    const { ledger, ledgerPath, artifactDir } =
-      await createGoalLedger(objective);
+    const comparisonBaseBranch = normalizeBranchInput(inputs.base_branch, "origin/main");
+    const { ledger, ledgerPath, artifactDir } = await createGoalLedger(objective);
 
     const workerModelConfig = {
       model: "openai/gpt-5.5",
@@ -1060,17 +1031,8 @@ export default defineWorkflow("goal")
     let latestReviews: ReviewRecord[] = [];
     let terminalRemainingWork: string | undefined;
 
-    for (
-      let turn = 1;
-      turn <= maxTurns && ledger.status === "active";
-      turn += 1
-    ) {
-      appendLifecycleEvent(
-        ledger,
-        "work_turn_started",
-        `Worker turn ${turn} started.`,
-        turn,
-      );
+    for (let turn = 1; turn <= maxTurns && ledger.status === "active"; turn += 1) {
+      appendLifecycleEvent(ledger, "work_turn_started", `Worker turn ${turn} started.`, turn);
       await writeGoalLedger(ledgerPath, ledger);
 
       const workTurnPath = join(artifactDir, `work-turn-${turn}.md`);
@@ -1115,12 +1077,7 @@ export default defineWorkflow("goal")
           complete_votes: 0,
           review_quorum: reviewQuorum,
         });
-        appendLifecycleEvent(
-          ledger,
-          "status_decided",
-          terminalRemainingWork,
-          turn,
-        );
+        appendLifecycleEvent(ledger, "status_decided", terminalRemainingWork, turn);
         await writeGoalLedger(ledgerPath, ledger);
         break;
       }
@@ -1132,12 +1089,7 @@ export default defineWorkflow("goal")
         artifact_path: workTurnPath,
         summary: summarizeText(worker.text),
       });
-      appendLifecycleEvent(
-        ledger,
-        "receipt_recorded",
-        `Worker turn ${turn} receipt recorded.`,
-        turn,
-      );
+      appendLifecycleEvent(ledger, "receipt_recorded", `Worker turn ${turn} receipt recorded.`, turn);
       await writeGoalLedger(ledgerPath, ledger);
 
       const reviewerSteps = [
@@ -1216,8 +1168,7 @@ export default defineWorkflow("goal")
 
       latestReviews = reviewResults.map((result) => {
         const reviewerName = result.name ?? result.stageName;
-        const parsed =
-          parseReviewDecision(result.text) ??
+        const parsed = parseReviewDecision(result.text) ??
           reviewerErrorDecision(
             `Reviewer ${reviewerName} returned invalid structured JSON.`,
           );
@@ -1256,10 +1207,9 @@ export default defineWorkflow("goal")
       await writeGoalLedger(ledgerPath, ledger);
     }
 
-    const remainingWork =
-      ledger.status === "complete"
-        ? "none"
-        : (terminalRemainingWork ?? collectRemainingWork(latestReviews));
+    const remainingWork = ledger.status === "complete"
+      ? "none"
+      : terminalRemainingWork ?? collectRemainingWork(latestReviews);
     const finalReport = renderFinalReport(ledger, ledgerPath, remainingWork);
     const reviewReport = formatReviewReport(latestReviews);
 

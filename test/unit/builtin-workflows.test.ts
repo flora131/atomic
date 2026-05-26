@@ -6,10 +6,9 @@
 
 import { afterEach, beforeEach, describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join } from "node:path";
+import { dirname, join } from "node:path";
 import type {
   WorkflowChainOptions,
   WorkflowDefinition,
@@ -1268,39 +1267,22 @@ describe("goal", () => {
 // ---------------------------------------------------------------------------
 
 describe("ralph", () => {
-  let previousCwd = process.cwd();
-  let tempRoot: string | undefined;
+  let previousCwd: string;
+  let tempCwd: string | undefined;
 
   beforeEach(() => {
     previousCwd = process.cwd();
-    tempRoot = mkdtempSync(join(tmpdir(), "atomic-ralph-test-"));
-    process.chdir(tempRoot);
+    tempCwd = mkdtempSync(join(tmpdir(), "atomic-ralph-unit-"));
+    process.chdir(tempCwd);
   });
 
   afterEach(() => {
     process.chdir(previousCwd);
-    if (tempRoot !== undefined) {
-      rmSync(tempRoot, { recursive: true, force: true });
-      tempRoot = undefined;
+    if (tempCwd !== undefined) {
+      rmSync(tempCwd, { recursive: true, force: true });
+      tempCwd = undefined;
     }
   });
-
-  function requireTempRoot(): string {
-    if (tempRoot === undefined) throw new Error("expected Ralph test temp root");
-    return tempRoot;
-  }
-
-  function initializeGitRepository(name = "repo"): string {
-    const repo = join(requireTempRoot(), name);
-    mkdirSync(repo, { recursive: true });
-    execFileSync("git", ["init", "-b", "main"], { cwd: repo, stdio: "ignore" });
-    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repo, stdio: "ignore" });
-    execFileSync("git", ["config", "user.name", "Test User"], { cwd: repo, stdio: "ignore" });
-    writeFileSync(join(repo, "README.md"), "# test repo\n", "utf8");
-    execFileSync("git", ["add", "README.md"], { cwd: repo, stdio: "ignore" });
-    execFileSync("git", ["-c", "commit.gpgsign=false", "commit", "-m", "initial"], { cwd: repo, stdio: "ignore" });
-    return repo;
-  }
 
   function assertEveryRalphStageCwd(
     ctx: { readonly calls: MockCalls },
@@ -1314,12 +1296,6 @@ describe("ralph", () => {
     for (const options of ctx.calls.parallelOptions) {
       assert.equal(options.cwd, expectedCwd, "unexpected cwd for parallel stage");
     }
-  }
-
-  function assertWorktreeWasRemoved(repo: string, worktreePath: string): void {
-    assert.equal(existsSync(worktreePath), false, "expected Ralph-created worktree checkout to be removed");
-    const worktreeList = execFileSync("git", ["-C", repo, "worktree", "list", "--porcelain"]).toString();
-    assert.equal(worktreeList.includes(worktreePath), false, "expected git worktree metadata to be removed");
   }
 
   test("loads and has Ralph workflow shape", async () => {
@@ -1347,10 +1323,11 @@ describe("ralph", () => {
       (mod.default.inputs["git_worktree_dir"] as { default?: string }).default,
       "",
     );
-    assert.match(
-      mod.default.inputs["git_worktree_dir"]?.description ?? "",
-      /host repository/,
-    );
+    const description = mod.default.inputs["git_worktree_dir"]?.description ?? "";
+    assert.match(description, /host repository/);
+    assert.match(description, /detached-HEAD worktree/);
+    assert.match(description, /failed runs preserve it for recovery/);
+    assert.match(description, /concurrent runs/);
     assert.deepEqual(Object.keys(mod.default.inputs).sort(), ["base_branch", "git_worktree_dir", "max_loops", "prompt"]);
   });
 
@@ -1368,151 +1345,21 @@ describe("ralph", () => {
     assertEveryRalphStageCwd(ctx, undefined);
   });
 
-  test("creates a relative git_worktree_dir and runs stages from it", async () => {
+  test("pull-request stage documents detached HEAD branch handoff", async () => {
     const mod = await import("../../packages/workflows/builtin/ralph.js");
     const d = mod.default as unknown as WorkflowDefinition;
-    const repo = initializeGitRepository();
-    const expectedWorktree = join(requireTempRoot(), "worktrees", "ralph");
-    process.chdir(repo);
-    const ctx = makeMockCtx(
-      {
-        prompt: "Add a small feature",
-        max_loops: 1,
-        base_branch: "main",
-        git_worktree_dir: join("..", "worktrees", "ralph"),
-      },
-      {
-        task: (name, options) => {
-          if (name === "planner-1") {
-            assert.equal(options.cwd, expectedWorktree);
-            assert.ok(existsSync(join(expectedWorktree, ".git")), "expected git worktree checkout during stage execution");
-            assert.equal(
-              execFileSync("git", ["-C", expectedWorktree, "rev-parse", "HEAD"]).toString().trim(),
-              execFileSync("git", ["-C", repo, "rev-parse", "main"]).toString().trim(),
-            );
-          }
-          return undefined;
-        },
-      },
-    );
-
-    const result = await d.run(ctx);
-
-    assert.ok(String(result["plan_path"]).startsWith(join(repo, "specs")));
-    assert.equal(String(result["plan_path"]).startsWith(expectedWorktree), false);
-    assertEveryRalphStageCwd(ctx, expectedWorktree);
-    assertWorktreeWasRemoved(repo, expectedWorktree);
-  });
-
-  test("creates an absolute git_worktree_dir and runs stages from it", async () => {
-    const mod = await import("../../packages/workflows/builtin/ralph.js");
-    const d = mod.default as unknown as WorkflowDefinition;
-    const repo = initializeGitRepository();
-    const expectedWorktree = join(requireTempRoot(), "absolute-worktrees", "ralph");
-    process.chdir(repo);
     const ctx = makeMockCtx({
       prompt: "Add a small feature",
       max_loops: 1,
       base_branch: "main",
-      git_worktree_dir: expectedWorktree,
     });
 
     await d.run(ctx);
 
-    assertEveryRalphStageCwd(ctx, expectedWorktree);
-    assertWorktreeWasRemoved(repo, expectedWorktree);
-  });
-
-  test("fails fast when requested git_worktree_dir cannot be created", async () => {
-    const mod = await import("../../packages/workflows/builtin/ralph.js");
-    const d = mod.default as unknown as WorkflowDefinition;
-    const repo = initializeGitRepository();
-    const occupiedWorktreePath = join(requireTempRoot(), "occupied-worktree");
-    mkdirSync(occupiedWorktreePath, { recursive: true });
-    writeFileSync(join(occupiedWorktreePath, "README.md"), "already here\n", "utf8");
-    process.chdir(repo);
-    const ctx = makeMockCtx({
-      prompt: "Add a small feature",
-      max_loops: 1,
-      base_branch: "main",
-      git_worktree_dir: occupiedWorktreePath,
-    });
-
-    await assert.rejects(
-      () => d.run(ctx),
-      /Failed to create git worktree at requested git_worktree_dir/,
-    );
-    assert.deepEqual(ctx.calls.task, []);
-  });
-
-  test("can re-run with the same git_worktree_dir", async () => {
-    const mod = await import("../../packages/workflows/builtin/ralph.js");
-    const d = mod.default as unknown as WorkflowDefinition;
-    const repo = initializeGitRepository();
-    const expectedWorktree = join(requireTempRoot(), "repeat-worktree");
-    process.chdir(repo);
-
-    const firstCtx = makeMockCtx({
-      prompt: "Add a small feature",
-      max_loops: 1,
-      base_branch: "main",
-      git_worktree_dir: expectedWorktree,
-    });
-    const secondCtx = makeMockCtx({
-      prompt: "Add a small feature",
-      max_loops: 1,
-      base_branch: "main",
-      git_worktree_dir: expectedWorktree,
-    });
-
-    await d.run(firstCtx);
-    assertWorktreeWasRemoved(repo, expectedWorktree);
-    await d.run(secondCtx);
-
-    assertEveryRalphStageCwd(firstCtx, expectedWorktree);
-    assertEveryRalphStageCwd(secondCtx, expectedWorktree);
-    assertWorktreeWasRemoved(repo, expectedWorktree);
-  });
-
-  test("falls back to a default worktree path when git_worktree_dir is invalid", async () => {
-    const mod = await import("../../packages/workflows/builtin/ralph.js");
-    const d = mod.default as unknown as WorkflowDefinition;
-    const repo = initializeGitRepository();
-    process.chdir(repo);
-    let fallbackWorktree: string | undefined;
-    const ctx = makeMockCtx(
-      {
-        prompt: "Add a small feature",
-        max_loops: 1,
-        base_branch: "main",
-        git_worktree_dir: "invalid\0path",
-      },
-      {
-        task: (name, options) => {
-          if (name === "planner-1") {
-            const cwd = options.cwd;
-            if (cwd === undefined) throw new Error("expected planner cwd to use fallback worktree");
-            fallbackWorktree = cwd;
-            assert.ok(existsSync(join(cwd, ".git")), "expected fallback git worktree checkout during stage execution");
-            assert.equal(
-              execFileSync("git", ["-C", cwd, "rev-parse", "HEAD"]).toString().trim(),
-              execFileSync("git", ["-C", repo, "rev-parse", "main"]).toString().trim(),
-            );
-          }
-          return undefined;
-        },
-      },
-    );
-
-    const result = await d.run(ctx);
-    if (fallbackWorktree === undefined) throw new Error("expected planner cwd to use fallback worktree");
-
-    assert.ok(isAbsolute(fallbackWorktree));
-    assert.ok(fallbackWorktree.startsWith(join(tmpdir(), "atomic-ralph-worktrees")));
-    assert.ok(String(result["plan_path"]).startsWith(join(repo, "specs")));
-    assert.equal(String(result["plan_path"]).startsWith(fallbackWorktree), false);
-    assertEveryRalphStageCwd(ctx, fallbackWorktree);
-    assertWorktreeWasRemoved(repo, fallbackWorktree);
+    const prompt = ctx.calls.prompts["pull-request"]?.[0] ?? "";
+    assert.match(prompt, /detached HEAD/);
+    assert.match(prompt, /git checkout -b <branch>/);
+    assert.ok(prompt.includes("git push origin HEAD:refs/heads/<branch>"));
   });
 });
 

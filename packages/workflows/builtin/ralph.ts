@@ -297,6 +297,8 @@ type GitCommandResult = {
   readonly error?: Error;
 };
 
+// Scrub only Git's local repository/worktree-scoping environment so internal
+// Git commands operate from the cwd we pass instead of an inherited checkout.
 const GIT_LOCAL_ENV_VARS = [
   "GIT_ALTERNATE_OBJECT_DIRECTORIES",
   "GIT_COMMON_DIR",
@@ -346,10 +348,10 @@ function gitFailureMessage(result: GitCommandResult): string {
   return result.stderr.trim() || result.stdout.trim() || `git exited with status ${result.status}`;
 }
 
-function resolveOptionalWorktreePath(value: string | undefined): string | undefined {
+function resolveOptionalWorktreePath(value: string | undefined, cwd = process.cwd()): string | undefined {
   const trimmed = value?.trim();
   if (!trimmed || trimmed.includes("\0")) return undefined;
-  return isAbsolute(trimmed) ? resolve(trimmed) : resolve(process.cwd(), trimmed);
+  return isAbsolute(trimmed) ? resolve(trimmed) : resolve(cwd, trimmed);
 }
 
 function safeWorktreePathSegment(value: string): string {
@@ -357,8 +359,8 @@ function safeWorktreePathSegment(value: string): string {
   return segment.length > 0 ? segment.slice(0, 60) : "worktree";
 }
 
-function defaultGitWorktreePath(baseBranch: string): string {
-  const repoRootResult = runGit(["rev-parse", "--show-toplevel"]);
+function defaultGitWorktreePath(baseBranch: string, cwd = process.cwd()): string {
+  const repoRootResult = runGit(["rev-parse", "--show-toplevel"], cwd);
   if (repoRootResult.status !== 0) {
     throw new Error(`Failed to resolve repository root for git_worktree_dir fallback: ${gitFailureMessage(repoRootResult)}`);
   }
@@ -370,7 +372,17 @@ function defaultGitWorktreePath(baseBranch: string): string {
   return join(tmpdir(), "atomic-ralph-worktrees", `${repoName}-${branchName}-${digest}`);
 }
 
-async function addGitWorktree(worktreeDir: string, baseBranch: string): Promise<GitCommandResult> {
+type GitWorktreeSetup = {
+  readonly cwd?: string;
+  readonly created: boolean;
+  readonly repositoryCwd?: string;
+};
+
+async function addGitWorktree(
+  worktreeDir: string,
+  baseBranch: string,
+  cwd = process.cwd(),
+): Promise<GitCommandResult> {
   try {
     await mkdir(dirname(worktreeDir), { recursive: true });
   } catch (error) {
@@ -380,32 +392,39 @@ async function addGitWorktree(worktreeDir: string, baseBranch: string): Promise<
       status: 1,
     };
   }
-  return runGit(["worktree", "add", "--detach", worktreeDir, baseBranch]);
+  return runGit(["worktree", "add", "--detach", worktreeDir, baseBranch], cwd);
+}
+
+function removeGitWorktree(worktreeDir: string, cwd = process.cwd()): GitCommandResult {
+  return runGit(["worktree", "remove", "--force", worktreeDir], cwd);
 }
 
 async function createGitWorktreeIfRequested(
   value: string | undefined,
   baseBranch: string,
-): Promise<string | undefined> {
+  cwd = process.cwd(),
+): Promise<GitWorktreeSetup> {
   const trimmed = value?.trim();
-  if (!trimmed) return undefined;
+  if (!trimmed) return { created: false };
 
-  const requestedWorktreeDir = resolveOptionalWorktreePath(value);
+  const requestedWorktreeDir = resolveOptionalWorktreePath(value, cwd);
   if (requestedWorktreeDir !== undefined) {
-    const requestedResult = await addGitWorktree(requestedWorktreeDir, baseBranch);
-    if (requestedResult.status === 0) return requestedWorktreeDir;
+    const requestedResult = await addGitWorktree(requestedWorktreeDir, baseBranch, cwd);
+    if (requestedResult.status !== 0) {
+      throw new Error(
+        `Failed to create git worktree at requested git_worktree_dir ${requestedWorktreeDir} from ${baseBranch}: ${gitFailureMessage(requestedResult)}`,
+      );
+    }
+    return { cwd: requestedWorktreeDir, created: true, repositoryCwd: cwd };
   }
 
-  const fallbackWorktreeDir = defaultGitWorktreePath(baseBranch);
-  const fallbackResult = await addGitWorktree(fallbackWorktreeDir, baseBranch);
-  if (fallbackResult.status === 0) return fallbackWorktreeDir;
+  const fallbackWorktreeDir = defaultGitWorktreePath(baseBranch, cwd);
+  const fallbackResult = await addGitWorktree(fallbackWorktreeDir, baseBranch, cwd);
+  if (fallbackResult.status === 0) {
+    return { cwd: fallbackWorktreeDir, created: true, repositoryCwd: cwd };
+  }
 
   throw new Error(`Failed to create fallback git worktree at ${fallbackWorktreeDir} from ${baseBranch}: ${gitFailureMessage(fallbackResult)}`);
-}
-
-function pathInWorkflowCwd(filePath: string, workflowCwd: string | undefined): string {
-  if (workflowCwd === undefined || isAbsolute(filePath)) return filePath;
-  return join(workflowCwd, filePath);
 }
 
 function workflowCwdOption(workflowCwd: string | undefined): { cwd?: string } {
@@ -529,7 +548,7 @@ export default defineWorkflow("ralph")
     type: "string",
     default: "",
     description:
-      "Optional git worktree checkout path. Relative paths resolve from the current working directory; when set, all Ralph stages run from this worktree created from base_branch.",
+      "Optional git worktree checkout path. Ralph assumes it is invoked from inside the host repository; relative paths resolve from that repository cwd. When set, all Ralph stages run from a temporary worktree created from base_branch and removed when the workflow finishes.",
   })
   .run(async (ctx) => {
     const inputs = ctx.inputs as {
@@ -538,12 +557,16 @@ export default defineWorkflow("ralph")
       base_branch?: string;
       git_worktree_dir?: string;
     };
+    const workflowStartCwd = process.cwd();
     const prompt = inputs.prompt ?? "";
     const maxLoops = positiveInteger(inputs.max_loops, DEFAULT_MAX_LOOPS);
     const comparisonBaseBranch = normalizeBranchInput(inputs.base_branch, "origin/main");
-    const workflowCwd = await createGitWorktreeIfRequested(inputs.git_worktree_dir, comparisonBaseBranch);
+    const worktree = await createGitWorktreeIfRequested(inputs.git_worktree_dir, comparisonBaseBranch, workflowStartCwd);
+    const workflowCwd = worktree.cwd;
     const cwdOption = workflowCwdOption(workflowCwd);
+    let runError: unknown;
 
+    try {
     let reviewReport = "";
     let finalPlan = "";
     let finalPlanPath = "";
@@ -717,7 +740,7 @@ export default defineWorkflow("ralph")
         ...cwdOption,
       });
       finalPlan = planner.text;
-      const specPath = await writeSpecFile(pathInWorkflowCwd(defaultSpecPath(prompt), workflowCwd), planner.text);
+      const specPath = await writeSpecFile(resolve(workflowStartCwd, defaultSpecPath(prompt)), planner.text);
       finalPlanPath = specPath;
 
       const orchestrator = await ctx.task(`orchestrator-${iteration}`, {
@@ -1292,5 +1315,16 @@ export default defineWorkflow("ralph")
       iterations_completed: iterationsCompleted,
       review_report: reviewReport,
     };
+    } catch (error) {
+      runError = error;
+      throw error;
+    } finally {
+      if (worktree.created && worktree.cwd !== undefined) {
+        const cleanupResult = removeGitWorktree(worktree.cwd, worktree.repositoryCwd);
+        if (cleanupResult.status !== 0 && runError === undefined) {
+          throw new Error(`Failed to remove git worktree at ${worktree.cwd}: ${gitFailureMessage(cleanupResult)}`);
+        }
+      }
+    }
   })
   .compile();

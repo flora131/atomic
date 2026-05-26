@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.8.16-0] - 2026-05-26
+
 ### Breaking Changes
 
 - Removed Ralph's `prompt` and `max_loops` compatibility inputs from the bundled workflow; use `objective` and `max_turns` instead ([#1061](https://github.com/flora131/atomic/issues/1061)).

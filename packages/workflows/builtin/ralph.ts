@@ -350,32 +350,30 @@ function gitFailureMessage(result: GitCommandResult): string {
 
 function resolveOptionalWorktreePath(value: string | undefined, cwd = process.cwd()): string | undefined {
   const trimmed = value?.trim();
-  if (!trimmed || trimmed.includes("\0")) return undefined;
+  if (!trimmed) return undefined;
+  if (trimmed.includes("\0")) {
+    throw new Error("git_worktree_dir contains an unusable null byte path segment; provide a valid path or omit git_worktree_dir.");
+  }
   return isAbsolute(trimmed) ? resolve(trimmed) : resolve(cwd, trimmed);
 }
 
 function safeWorktreePathSegment(value: string): string {
   const segment = value.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
-  // The readable segment is clipped; default path uniqueness comes from the digest.
+  // This is only a filename segment; the clipped readable text is made unique by the digest.
   return segment.length > 0 ? segment.slice(0, 60) : "worktree";
 }
 
-function requireGitRepositoryForWorktree(cwd = process.cwd()): void {
+function requireGitRepositoryForWorktree(cwd = process.cwd()): string {
   const repoRootResult = runGit(["rev-parse", "--show-toplevel"], cwd);
   if (repoRootResult.status !== 0) {
     throw new Error(
       `git_worktree_dir requires Ralph to be invoked from inside a Git repository. Start Ralph from a Git checkout or omit git_worktree_dir. Git reported: ${gitFailureMessage(repoRootResult)}`,
     );
   }
+  return repoRootResult.stdout.trim();
 }
 
-function defaultGitWorktreePath(baseBranch: string, cwd = process.cwd()): string {
-  const repoRootResult = runGit(["rev-parse", "--show-toplevel"], cwd);
-  if (repoRootResult.status !== 0) {
-    throw new Error(`Failed to resolve repository root for git_worktree_dir fallback: ${gitFailureMessage(repoRootResult)}`);
-  }
-
-  const repoRoot = repoRootResult.stdout.trim();
+function defaultGitWorktreePath(baseBranch: string, repoRoot: string): string {
   const repoName = safeWorktreePathSegment(basename(repoRoot) || "repo");
   const branchName = safeWorktreePathSegment(baseBranch.replace(/^refs\/heads\//, ""));
   const digest = createHash("sha256").update(`${repoRoot}\0${baseBranch}`).digest("hex").slice(0, 12);
@@ -409,8 +407,13 @@ function removeGitWorktree(worktreeDir: string, cwd = process.cwd()): GitCommand
   return runGit(["worktree", "remove", "--force", worktreeDir], cwd);
 }
 
+function quoteRecoveryCommandArgument(value: string): string {
+  if (process.platform === "win32") return `'${value.replace(/'/g, "''")}'`;
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
 function formatWorktreeRecoveryCommand(repositoryCwd: string, worktreeDir: string): string {
-  return `git -C ${JSON.stringify(repositoryCwd)} worktree remove --force ${JSON.stringify(worktreeDir)}`;
+  return `git -C ${quoteRecoveryCommandArgument(repositoryCwd)} worktree remove --force ${quoteRecoveryCommandArgument(worktreeDir)}`;
 }
 
 async function createGitWorktreeIfRequested(
@@ -421,7 +424,7 @@ async function createGitWorktreeIfRequested(
   const trimmed = value?.trim();
   if (!trimmed) return { created: false };
 
-  requireGitRepositoryForWorktree(cwd);
+  const repoRoot = requireGitRepositoryForWorktree(cwd);
 
   const requestedWorktreeDir = resolveOptionalWorktreePath(value, cwd);
   if (requestedWorktreeDir !== undefined) {
@@ -437,7 +440,7 @@ async function createGitWorktreeIfRequested(
     return { cwd: requestedWorktreeDir, created: true, repositoryCwd: cwd };
   }
 
-  const fallbackWorktreeDir = defaultGitWorktreePath(baseBranch, cwd);
+  const fallbackWorktreeDir = defaultGitWorktreePath(baseBranch, repoRoot);
   const fallbackResult = await addGitWorktree(fallbackWorktreeDir, baseBranch, cwd);
   if (fallbackResult.status === 0) {
     return { cwd: fallbackWorktreeDir, created: true, repositoryCwd: cwd };
@@ -794,6 +797,8 @@ async function runRalphWorkflow(
         [
           "project_initialization_preflight",
           [
+            // Intentionally duplicated from goal.ts: Ralph keeps its worker preflight inline
+            // because this prompt is stage-specific and includes Ralph-only orchestration context.
             "Before normal implementation delegation, determine whether this checkout appears initialized for its actual language, framework, and build system.",
             "Do not rely on hard-coded assumptions about JavaScript, TypeScript, Python, Rust, Go, Java, mobile, or any other ecosystem. Infer the project type and setup requirements from repository evidence.",
             "Inspect source layout, setup docs, package/build manifests, lockfiles, toolchain files, generated-artifact conventions, CI workflows, workflow configuration, and package scripts or equivalent task definitions.",
@@ -1372,16 +1377,18 @@ export default defineWorkflow("ralph")
     const maxLoops = positiveInteger(inputs.max_loops, DEFAULT_MAX_LOOPS);
     const comparisonBaseBranch = normalizeBranchInput(inputs.base_branch, "origin/main");
     const worktree = await createGitWorktreeIfRequested(inputs.git_worktree_dir, comparisonBaseBranch, workflowStartCwd);
-    // Discovery validates workflow shape without executing helpers, so keep an
-    // unreachable direct stage call in this wrapper while runRalphWorkflow owns
-    // the real ctx.task()/ctx.parallel() orchestration.
-    if (Date.now() < 0) {
-      await ralphCtx.task("__discovery-stage-guard__", { prompt: "unused static guard" });
-    }
+    // Discovery validates workflow shape without executing helpers, so this
+    // live adapter keeps direct stage primitive calls visible while the helper
+    // owns the real orchestration body.
+    const workflowCtx: WorkflowRunContext<RalphInputs> = {
+      ...ralphCtx,
+      task: (name, options) => ralphCtx.task(name, options),
+      parallel: (steps, options) => ralphCtx.parallel(steps, options),
+    };
     let runSucceeded = false;
 
     try {
-      const result = await runRalphWorkflow(ralphCtx, {
+      const result = await runRalphWorkflow(workflowCtx, {
         prompt,
         maxLoops,
         comparisonBaseBranch,
@@ -1402,7 +1409,13 @@ export default defineWorkflow("ralph")
         } else {
           const cleanupResult = removeGitWorktree(worktree.cwd, worktree.repositoryCwd);
           if (cleanupResult.status !== 0) {
-            throw new Error(`Failed to remove git worktree at ${worktree.cwd}: ${gitFailureMessage(cleanupResult)}`);
+            console.warn(
+              [
+                `Failed to remove Ralph git worktree after successful run: ${worktree.cwd}`,
+                `Git reported: ${gitFailureMessage(cleanupResult)}`,
+                `Recover or remove it manually with: ${formatWorktreeRecoveryCommand(worktree.repositoryCwd ?? workflowStartCwd, worktree.cwd)}`,
+              ].join("\n"),
+            );
           }
         }
       }

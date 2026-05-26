@@ -1270,6 +1270,8 @@ describe("ralph", () => {
   let previousCwd: string;
   let tempCwd: string | undefined;
 
+  // These cwd-sensitive mock tests run serially in this file; keep future Ralph
+  // tests here from relying on concurrent process.chdir behavior.
   beforeEach(() => {
     previousCwd = process.cwd();
     tempCwd = mkdtempSync(join(tmpdir(), "atomic-ralph-unit-"));

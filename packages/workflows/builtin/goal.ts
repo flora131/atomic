@@ -283,6 +283,8 @@ const GOAL_CONTINUATION_REFERENCE = [
   "Do not report the goal as done unless the goal is complete. Do not mark a goal complete merely because the workflow turn is ending.",
 ].join("\n");
 
+// Intentionally duplicated with Ralph's stage prompt: goal owns a reusable worker
+// contract, while Ralph keeps equivalent guidance inline with its orchestration context.
 const WORKER_PREFLIGHT_CONTRACT = [
   "Before normal implementation delegation, determine whether this checkout appears initialized for its actual language, framework, and build system.",
   "Do not rely on hard-coded assumptions about JavaScript, TypeScript, Python, Rust, Go, Java, mobile, or any other ecosystem. Infer the project type and setup requirements from repository evidence.",

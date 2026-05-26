@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join } from "node:path";
+import { dirname, join } from "node:path";
 import type {
   WorkflowChainOptions,
   WorkflowDefinition,
@@ -197,8 +197,11 @@ describe("ralph git worktree integration", () => {
 
     const result = await d.run(ctx);
 
-    assert.ok(String(result["plan_path"]).startsWith(join(repo, "specs")));
-    assert.equal(String(result["plan_path"]).startsWith(expectedWorktree), false);
+    const planPath = String(result["plan_path"]);
+    assert.ok(planPath.startsWith(join(repo, "specs")));
+    assert.equal(planPath.startsWith(expectedWorktree), false);
+    const orchestratorReads = ctx.calls.taskOptions["orchestrator-1"]?.[0]?.reads;
+    assert.ok(Array.isArray(orchestratorReads) && orchestratorReads.includes(planPath));
     assertEveryRalphStageCwd(ctx, expectedWorktree);
     assertWorktreeWasRemoved(repo, expectedWorktree);
   });
@@ -246,8 +249,7 @@ describe("ralph git worktree integration", () => {
     const d = mod.default as unknown as WorkflowDefinition;
     const repo = initializeGitRepository();
     const occupiedWorktreePath = join(requireTempRoot(), "occupied-worktree");
-    mkdirSync(occupiedWorktreePath, { recursive: true });
-    writeFileSync(join(occupiedWorktreePath, "README.md"), "already here\n", "utf8");
+    execFileSync("git", ["worktree", "add", "--detach", occupiedWorktreePath, "main"], { cwd: repo, stdio: "ignore" });
     process.chdir(repo);
     const ctx = makeMockCtx({
       prompt: "Add a small feature",
@@ -297,45 +299,64 @@ describe("ralph git worktree integration", () => {
     assertWorktreeWasRemoved(repo, expectedWorktree);
   });
 
-  test("falls back to a default worktree path when git_worktree_dir is invalid", async () => {
+  test("fails fast when git_worktree_dir is unusable", async () => {
     const mod = await import("../../packages/workflows/builtin/ralph.js");
     const d = mod.default as unknown as WorkflowDefinition;
     const repo = initializeGitRepository();
     process.chdir(repo);
-    let fallbackWorktree: string | undefined;
-    const ctx = makeMockCtx(
-      {
-        prompt: "Add a small feature",
-        max_loops: 1,
-        base_branch: "main",
-        git_worktree_dir: "invalid\0path",
-      },
-      {
-        task: (name, options) => {
-          if (name === "planner-1") {
-            const cwd = options.cwd;
-            if (cwd === undefined) throw new Error("expected planner cwd to use fallback worktree");
-            fallbackWorktree = cwd;
-            assertWorktreeRegistered(repo, cwd);
-            assert.equal(
-              execFileSync("git", ["-C", cwd, "rev-parse", "HEAD"]).toString().trim(),
-              execFileSync("git", ["-C", repo, "rev-parse", "main"]).toString().trim(),
-            );
-          }
-          return undefined;
-        },
-      },
+    const ctx = makeMockCtx({
+      prompt: "Add a small feature",
+      max_loops: 1,
+      base_branch: "main",
+      git_worktree_dir: "invalid\0path",
+    });
+
+    await assert.rejects(
+      () => d.run(ctx),
+      /git_worktree_dir contains an unusable null byte path segment/,
     );
+    assert.deepEqual(ctx.calls.task, []);
+  });
 
-    const result = await d.run(ctx);
-    if (fallbackWorktree === undefined) throw new Error("expected planner cwd to use fallback worktree");
+  test("warns but returns the successful result when cleanup fails", async () => {
+    const mod = await import("../../packages/workflows/builtin/ralph.js");
+    const d = mod.default as unknown as WorkflowDefinition;
+    const repo = initializeGitRepository();
+    const expectedWorktree = join(requireTempRoot(), "cleanup-failure-worktree");
+    process.chdir(repo);
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (message?: unknown) => {
+      warnings.push(String(message));
+    };
 
-    assert.ok(isAbsolute(fallbackWorktree));
-    assert.ok(fallbackWorktree.startsWith(join(tmpdir(), "atomic-ralph-worktrees")));
-    assert.ok(String(result["plan_path"]).startsWith(join(repo, "specs")));
-    assert.equal(String(result["plan_path"]).startsWith(fallbackWorktree), false);
-    assertEveryRalphStageCwd(ctx, fallbackWorktree);
-    assertWorktreeWasRemoved(repo, fallbackWorktree);
+    try {
+      const ctx = makeMockCtx(
+        {
+          prompt: "Add a small feature",
+          max_loops: 1,
+          base_branch: "main",
+          git_worktree_dir: expectedWorktree,
+        },
+        {
+          task: (name) => {
+            if (name === "pull-request") {
+              execFileSync("git", ["worktree", "remove", "--force", expectedWorktree], { cwd: repo, stdio: "ignore" });
+            }
+            return undefined;
+          },
+        },
+      );
+
+      const result = await d.run(ctx);
+
+      assert.equal(typeof result["plan_path"], "string");
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    assert.match(warnings.join("\n"), /Failed to remove Ralph git worktree after successful run/);
+    assert.match(warnings.join("\n"), /git -C .* worktree remove --force/);
   });
 
   test("preserves the worktree for recovery when the workflow fails", async () => {

@@ -275,7 +275,9 @@ export function createStageControlRegistry(): StageControlRegistry {
       );
       _byRun.clear();
       for (const handle of handles) {
-        void handle.dispose?.();
+        void Promise.resolve(handle.dispose?.()).catch((err: unknown) => {
+          console.debug("pi-workflows: stage handle dispose failed", err);
+        });
       }
     },
   };

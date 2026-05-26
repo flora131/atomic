@@ -702,12 +702,12 @@ describe("executor.run", () => {
     assert.deepEqual(completedCapture.parentIds, [promptStage.id]);
   });
 
-  test("ctx.ui.select with empty options completes without creating a prompt node", async () => {
+  test("ctx.ui.select with empty options fails without creating a prompt node", async () => {
     const st = createStore();
     const def = defineWorkflow("prompt-node-empty-select-wf")
       .run(async (ctx) => {
-        const choice = await ctx.ui.select("Pick one", [] as readonly string[]);
-        return { choice };
+        await ctx.ui.select("Pick one", [] as readonly string[]);
+        return {};
       })
       .compile();
 
@@ -716,8 +716,8 @@ describe("executor.run", () => {
       usePromptNodesForUi: true,
     });
 
-    assert.equal(result.status, "completed");
-    assert.deepEqual(result.result, { choice: "" });
+    assert.equal(result.status, "failed");
+    assert.match(result.error ?? "", /ctx\.ui\.select requires at least one option/);
     assert.equal(st.runs().find((candidate) => candidate.id === result.runId)?.stages.length, 0);
   });
 

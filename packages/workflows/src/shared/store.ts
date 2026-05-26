@@ -143,7 +143,9 @@ export interface Store {
   /**
    * Return the live-only prompt answer record for a completed prompt stage, if
    * still available. The returned value may contain secrets and must never be
-   * logged, serialized, or copied into snapshots/persistence.
+   * logged, serialized, or copied into snapshots/persistence. Answers remain
+   * resident in memory until explicitly cleared, the run is removed, or the
+   * store is cleared.
    */
   getStagePromptAnswer(runId: string, stageId: string): PromptAnswerRecord | undefined;
   /** Clear the live-only prompt answer record for a stage. Primarily used by tests/cleanup. */

@@ -150,7 +150,9 @@ export function buildBackgroundUIAdapter(
       message: string,
       options: readonly T[],
     ): Promise<T> {
-      if (options.length === 0) return "" as T;
+      if (options.length === 0) {
+        throw new Error("pi-workflows: ctx.ui.select requires at least one option");
+      }
       const response = await ask(store, runId, {
         kind: "select",
         message,

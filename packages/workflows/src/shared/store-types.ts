@@ -66,7 +66,7 @@ export interface StageSnapshot {
   /**
    * Parent stage ids. Treat as immutable from consumer code; the executor may
    * replace the frozen array before a stage starts when late topology inference
-   * refreshes parents.
+   * refreshes parents, so do not cache this reference across store updates.
    */
   parentIds: readonly string[];
   startedAt?: number;

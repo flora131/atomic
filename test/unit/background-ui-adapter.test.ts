@@ -87,12 +87,15 @@ describe("buildBackgroundUIAdapter — round-trip", () => {
     assert.equal(await pending, "a");
   });
 
-  test("select: empty options resolves to empty string without recording a prompt", async () => {
+  test("select: empty options rejects without recording a prompt", async () => {
     const store = createStore();
     seedRun(store);
     const ui = buildBackgroundUIAdapter(store, "r1");
 
-    assert.equal(await ui.select("Pick", [] as readonly string[]), "");
+    await assert.rejects(
+      ui.select("Pick", [] as readonly string[]),
+      /ctx\.ui\.select requires at least one option/,
+    );
     assert.equal(activePrompt(store, "r1"), undefined);
   });
 

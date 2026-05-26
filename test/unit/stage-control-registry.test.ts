@@ -143,6 +143,31 @@ describe("stageControlRegistry — register/get/forRun/run", () => {
     assert.equal(disposeCalls, 1);
     assert.equal(r.get("run-1", "stage-a"), undefined);
   });
+
+  test("clear observes asynchronous dispose failures", async () => {
+    const r = createStageControlRegistry();
+    const previousDebug = console.debug;
+    let logged = false;
+    console.debug = () => {
+      logged = true;
+    };
+    try {
+      r.register({
+        ...makeHandle("run-1", "stage-a"),
+        async dispose() {
+          throw new Error("dispose failed");
+        },
+      });
+
+      assert.doesNotThrow(() => r.clear());
+      await Promise.resolve();
+
+      assert.equal(logged, true);
+      assert.equal(r.get("run-1", "stage-a"), undefined);
+    } finally {
+      console.debug = previousDebug;
+    }
+  });
 });
 
 describe("stageControlRegistry — pause fan-out", () => {

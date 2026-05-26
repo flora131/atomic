@@ -247,8 +247,9 @@ function promptReplayKey(descriptor: PromptDescriptor): string {
 function promptCallsiteHash(): string {
   // Capturing an Error stack is intentional here: HIL prompts are an
   // interactive slow path, and the author callsite is part of the replay key.
-  // Raise the frame limit around capture so deeply nested workflow helpers do
-  // not collapse distinct prompt callsites to the shared "unknown" fallback.
+  // Raise the frame limit around synchronous stack construction so deeply
+  // nested workflow helpers do not collapse distinct prompt callsites to the
+  // shared "unknown" fallback; restore the process-global setting immediately.
   const previousLimit = Error.stackTraceLimit;
   Error.stackTraceLimit = Math.max(previousLimit, 50);
   try {
@@ -1310,6 +1311,8 @@ function createContinuationReplayIndex(continuation: RunContinuationOpts | undef
       let identity = replayKey;
       let candidates = stagesByReplayIdentity.get(replayKey)?.filter((stage) => !consumedSourceStageIds.has(stage.id)) ?? [];
       if (candidates.length === 0) {
+        // Legacy snapshots created before replayKey existed can only be matched
+        // by display name. Current stage and prompt nodes always carry replayKey.
         identity = displayName;
         candidates = stagesByReplayIdentity.get(displayName)?.filter((stage) => !consumedSourceStageIds.has(stage.id) && stage.replayKey === undefined) ?? [];
       }
@@ -1518,6 +1521,8 @@ export async function run<TInputs extends Record<string, unknown>>(
     runSnapshot.stages.find((stage) => stage.id === stageId);
 
   const setStageParentIds = (stage: StageSnapshot, parentIds: readonly string[]): void => {
+    // Keep tracker and snapshot parent arrays in sync when topology is refreshed;
+    // consumers should not cache the old parentIds reference across updates.
     stage.parentIds = Object.freeze([...parentIds]);
   };
 
@@ -1667,7 +1672,8 @@ export async function run<TInputs extends Record<string, unknown>>(
       }
       const replaySource = replayDecision.source;
       const replayAnswer = replayDecision.kind === "replay"
-        ? activeStore.getStagePromptAnswer(opts.continuation?.source.id ?? "", replayDecision.source.id)
+        // Replay decisions are only produced when continuation is present.
+        ? activeStore.getStagePromptAnswer(opts.continuation!.source.id, replayDecision.source.id)
         : undefined;
       const shouldReplay = replayAnswer !== undefined;
       if (shouldReplay) {
@@ -1799,7 +1805,9 @@ export async function run<TInputs extends Record<string, unknown>>(
         return response === true;
       },
       async select<T extends string>(message: string, options: readonly T[]): Promise<T> {
-        if (options.length === 0) return "" as T;
+        if (options.length === 0) {
+          throw new Error("pi-workflows: ctx.ui.select requires at least one option");
+        }
         const response = await ask({ kind: "select", message, choices: options });
         if (typeof response === "string" && (options as readonly string[]).includes(response)) {
           return response as T;

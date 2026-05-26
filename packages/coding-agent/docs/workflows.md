@@ -144,10 +144,6 @@ Atomic bundles four workflows that cover the most common multi-stage jobs. They 
 | `ralph` | RFC planning → sub-agent orchestration → simplification → infrastructure discovery → parallel review → PR handoff. | Larger migrations, broad refactors, multi-package changes, and spec-to-PR work where you want Atomic to plan the approach, delegate implementation through sub-agents, simplify, review, iterate, and prepare a pull-request report. |
 | `open-claude-design` | Design-system onboarding → reference import → HTML generation → impeccable-driven refinement → quality gate → rich HTML handoff. Renders a live `preview.html` you can iterate against (opens through `playwright-cli` when available). | UI, page, component, theme, or design-token work that benefits from generation + critique loops. |
 
-Use `goal` for small-to-medium scope changes when you can identify the work surface, state the exact outcome you want, and name the validation that proves it is done — for example specific tests, lint/typecheck commands, docs builds, or observable behavior. It keeps the run bounded, captures receipts in a goal ledger, gates completion through reviewers, and stops as `complete`, `blocked`, or `needs_human`.
-
-Keep using `ralph` for larger migrations, broad refactors, multi-package changes, and spec-to-PR work where you want Atomic to plan the approach, delegate implementation through sub-agents, simplify, review, iterate, and prepare a pull-request report.
-
 ### `deep-research-codebase`
 
 Inputs:
@@ -233,8 +229,6 @@ Result fields:
 | `remaining_work` | Remaining gaps/blockers when incomplete, or `none`. |
 | `review_report` | Markdown report containing the last structured reviewer decision payloads used by the reducer. |
 
-Use `goal` when you already have a clear objective or reviewed spec and want the leanest auditable implementation loop. It is the default choice for small-to-medium scope changes when you can identify the work surface, state the exact outcome you want, and name the validation that proves it is done — for example specific tests, lint/typecheck commands, docs builds, or observable behavior. It keeps the run bounded, captures receipts in a goal ledger, gates completion through reviewers, and stops as `complete`, `blocked`, or `needs_human`.
-
 ### `ralph`
 
 Inputs:
@@ -252,7 +246,7 @@ Run examples:
 /workflow ralph prompt="Refactor authentication across the API, CLI, and web UI, then prepare the PR"
 ```
 
-Keep using `ralph` for larger migrations, broad refactors, multi-package changes, and spec-to-PR work where you want Atomic to plan the approach, delegate implementation through sub-agents, simplify, review, iterate, and prepare a pull-request report. Each iteration writes an RFC-style technical design document under `specs/`, initializes an OS-temp implementation notes file, delegates implementation through sub-agents, runs a behavior-preserving code simplifier, discovers review infrastructure, and asks two reviewers to inspect the patch against `base_branch`. The loop stops when every reviewer approves or `max_loops` is reached, then runs a pull-request preparation stage.
+Each `ralph` iteration writes an RFC-style technical design document under `specs/`, initializes an OS-temp implementation notes file, delegates implementation through sub-agents, runs a behavior-preserving code simplifier, discovers review infrastructure, and asks two reviewers to inspect the patch against `base_branch`. The loop stops when every reviewer approves or `max_loops` is reached, then runs a pull-request preparation stage.
 
 Result fields:
 

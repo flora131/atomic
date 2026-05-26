@@ -150,10 +150,6 @@ You do not have to write TypeScript to add one. Describe the workflow you want i
 
 Use \`/workflow inputs <name>\` to inspect the exact inputs in your environment.
 
-Use \`goal\` for small-to-medium scope changes when you can identify the work surface, state the exact outcome you want, and name the validation that proves it is done — for example specific tests, lint/typecheck commands, docs builds, or observable behavior. It keeps the run bounded, captures receipts in a goal ledger, gates completion through reviewers, and stops as \`complete\`, \`blocked\`, or \`needs_human\`.
-
-Keep using \`ralph\` for larger migrations, broad refactors, multi-package changes, and spec-to-PR work where you want Atomic to plan the approach, delegate implementation through sub-agents, simplify, review, iterate, and prepare a pull-request report.
-
 Use \`/skill:research-codebase ...\` when you want research on one subsystem, directory, or focused question. Use \`/workflow deep-research-codebase ...\` when the answer needs end-to-end tracing across many parts of the repo.
 
 If you are drafting research, reviewer, or synthesis prompts for a workflow, use \`/skill:prompt-engineer\` first. It is a good fit when a stage prompt feels vague, overloaded, or underspecified.

@@ -48,8 +48,8 @@ describe("/atomic guide command", () => {
     assert.match(overview, /`goal` \| small-to-medium scoped changes/);
     assert.match(overview, /`ralph` \| larger migrations, broad refactors, multi-package changes, and spec-to-PR work/);
     assert.match(example, /For small-to-medium scoped changes where you can identify the work surface, exact outcome, and validation, use `goal`/);
-    assert.match(workflows, /Use `goal` for small-to-medium scope changes/);
-    assert.match(workflows, /Keep using `ralph` for larger migrations, broad refactors, multi-package changes, and spec-to-PR work/);
+    assert.match(workflows, /\| `goal` \| small-to-medium scoped changes with a clear outcome and named validation/);
+    assert.match(workflows, /\| `ralph` \| larger migrations, broad refactors, multi-package changes, and spec-to-PR work/);
   });
 
   test("treats adversarial punctuation arguments as unknown help requests", () => {

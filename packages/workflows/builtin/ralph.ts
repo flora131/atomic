@@ -14,6 +14,7 @@ import { defineWorkflow } from "../src/index.js";
 import type { WorkflowTaskResult } from "../src/shared/types.js";
 
 const DEFAULT_MAX_TURNS = 10;
+// Ralph runs three independent reviewer personas; two approvals form a majority.
 const DEFAULT_REVIEW_QUORUM = 2;
 const DEFAULT_BLOCKER_THRESHOLD = 3;
 const REVIEW_HISTORY_TURN_COUNT = 3;

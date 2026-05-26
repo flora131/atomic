@@ -2,6 +2,7 @@
  * Main DAG executor: run(def, inputs, opts) → RunResult
  */
 
+import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { CONFIG_DIR_NAME } from "@bastani/atomic";
@@ -220,13 +221,7 @@ function makePrompt(descriptor: PromptDescriptor): PendingPrompt {
 }
 
 function stableHash(value: unknown): string {
-  const input = JSON.stringify(value);
-  let hash = 2166136261;
-  for (let i = 0; i < input.length; i++) {
-    hash ^= input.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(36);
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 32);
 }
 
 function promptDescriptorHash(descriptor: PromptDescriptor): string {
@@ -247,17 +242,8 @@ function promptReplayKey(descriptor: PromptDescriptor): string {
 function promptCallsiteHash(): string {
   // Capturing an Error stack is intentional here: HIL prompts are an
   // interactive slow path, and the author callsite is part of the replay key.
-  // Raise the frame limit around synchronous stack construction so deeply
-  // nested workflow helpers do not collapse distinct prompt callsites to the
-  // shared "unknown" fallback; restore the process-global setting immediately.
-  const previousLimit = Error.stackTraceLimit;
-  Error.stackTraceLimit = Math.max(previousLimit, 50);
-  try {
-    const frame = selectPromptCallsiteFrame(new Error().stack ?? "") ?? "unknown";
-    return stableHash(frame);
-  } finally {
-    Error.stackTraceLimit = previousLimit;
-  }
+  const frame = selectPromptCallsiteFrame(new Error().stack ?? "") ?? "unknown";
+  return stableHash(frame);
 }
 
 function hilAbortError(signal: AbortSignal): Error {

@@ -111,11 +111,10 @@ export function runDetached<TInputs extends Record<string, unknown>>(
   const {
     jobs: _jobs,
     cancellation: _cancellation,
-    ui: _ignoredFgUi,
+    ui: _ui,
     store: storeOverride,
     ...restOpts
   } = opts;
-  void _ignoredFgUi;
   const store: Store = storeOverride ?? defaultStore;
   const execOpts: RunOpts = {
     ...restOpts,

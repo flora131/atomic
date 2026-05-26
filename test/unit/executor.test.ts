@@ -884,44 +884,38 @@ describe("executor.run", () => {
 
   test("deep prompt call stacks still preserve distinct replay keys", async () => {
     const st = createStore();
-    const previousLimit = Error.stackTraceLimit;
-    Error.stackTraceLimit = 4;
-    try {
-      const def = defineWorkflow("deep-prompt-callsite-wf")
-        .run(async (ctx) => {
-          const left = callThroughStack(14, () => ctx.ui.confirm("same?"));
-          const right = callThroughStack(14, () => ctx.ui.confirm("same?"));
-          const answers = await Promise.all([left, right]);
-          return { answers };
-        })
-        .compile();
+    const def = defineWorkflow("deep-prompt-callsite-wf")
+      .run(async (ctx) => {
+        const left = callThroughStack(14, () => ctx.ui.confirm("same?"));
+        const right = callThroughStack(14, () => ctx.ui.confirm("same?"));
+        const answers = await Promise.all([left, right]);
+        return { answers };
+      })
+      .compile();
 
-      const runPromise = run(def, {}, {
-        store: st,
-        usePromptNodesForUi: true,
-      });
-      const pendingPrompts = await waitForExecutorStagePendingPrompts(st, 2);
-      for (const [index, stage] of pendingPrompts.stages.entries()) {
-        st.resolveStagePendingPrompt(
-          pendingPrompts.runId,
-          stage.id,
-          stage.pendingPrompt!.id,
-          index === 0,
-        );
-      }
-
-      const result = await runPromise;
-      assert.equal(result.status, "completed");
-      const source = st.runs().find((candidate) => candidate.id === result.runId)!;
-      const promptReplayKeys = source
-        .stages
-        .filter((stage) => stage.name === "confirm")
-        .map((stage) => stage.replayKey);
-      assert.equal(promptReplayKeys.length, 2);
-      assert.equal(new Set(promptReplayKeys).size, 2);
-    } finally {
-      Error.stackTraceLimit = previousLimit;
+    const runPromise = run(def, {}, {
+      store: st,
+      usePromptNodesForUi: true,
+    });
+    const pendingPrompts = await waitForExecutorStagePendingPrompts(st, 2);
+    for (const [index, stage] of pendingPrompts.stages.entries()) {
+      st.resolveStagePendingPrompt(
+        pendingPrompts.runId,
+        stage.id,
+        stage.pendingPrompt!.id,
+        index === 0,
+      );
     }
+
+    const result = await runPromise;
+    assert.equal(result.status, "completed");
+    const source = st.runs().find((candidate) => candidate.id === result.runId)!;
+    const promptReplayKeys = source
+      .stages
+      .filter((stage) => stage.name === "confirm")
+      .map((stage) => stage.replayKey);
+    assert.equal(promptReplayKeys.length, 2);
+    assert.equal(new Set(promptReplayKeys).size, 2);
   });
 
   test("continuation disambiguates parallel ctx.ui prompt nodes by replayKey", async () => {

@@ -493,6 +493,9 @@ export class StageChatView implements Component, Focusable {
     if (!prompt || prompt.id !== promptId) return;
     this.promptState = null;
     this._disposePromptEditor();
+    // A false return means the prompt was already resolved/removed (for
+    // example by run abort). The local UI is already stale, so clearing it is
+    // the least surprising recovery path.
     this.store.resolveStagePendingPrompt(this.runId, this.stageId, prompt.id, response);
     this.requestRender?.();
   }

@@ -366,10 +366,10 @@ export function createStore(): Store {
       existing.failureKind = stage.failureKind;
       existing.failureMessage = stage.failureMessage;
       existing.skippedReason = stage.skippedReason;
-      existing.replayKey = stage.replayKey;
-      existing.promptAnswerState = stage.promptAnswerState;
-      existing.replayedFromStageId = stage.replayedFromStageId;
-      existing.replayed = stage.replayed;
+      if (stage.replayKey !== undefined) existing.replayKey = stage.replayKey;
+      if (stage.promptAnswerState !== undefined) existing.promptAnswerState = stage.promptAnswerState;
+      if (stage.replayedFromStageId !== undefined) existing.replayedFromStageId = stage.replayedFromStageId;
+      if (stage.replayed !== undefined) existing.replayed = stage.replayed;
       delete existing.awaitingInputSince;
       rejectStagePrompt(existing, `pi-workflows: stage ${stage.id} ended before prompt resolved`);
       _version++;

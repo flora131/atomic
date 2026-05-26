@@ -191,6 +191,31 @@ describe("store.recordStagePendingPrompt", () => {
     assert.equal(await w2, "green");
   });
 
+  test("recordStageEnd preserves existing replay metadata when caller omits it", () => {
+    const s = createStore();
+    s.recordRunStart(makeRun("r1"));
+    s.recordStageStart("r1", {
+      ...makeStage("s1"),
+      replayKey: "prompt:confirm:key",
+      promptAnswerState: "available",
+      replayedFromStageId: "source-stage",
+      replayed: true,
+    });
+
+    s.recordStageEnd("r1", {
+      ...makeStage("s1"),
+      status: "completed",
+      endedAt: Date.now(),
+      durationMs: 1,
+    });
+
+    const stage = getRun(s, "r1").stages[0]!;
+    assert.equal(stage.replayKey, "prompt:confirm:key");
+    assert.equal(stage.promptAnswerState, "available");
+    assert.equal(stage.replayedFromStageId, "source-stage");
+    assert.equal(stage.replayed, true);
+  });
+
   test("removeRun purges prompt answer ledger entries for every stage in the run", async () => {
     const s = createStore();
     s.recordRunStart(makeRun("r1"));

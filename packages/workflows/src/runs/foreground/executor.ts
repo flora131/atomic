@@ -247,8 +247,16 @@ function promptReplayKey(descriptor: PromptDescriptor): string {
 function promptCallsiteHash(): string {
   // Capturing an Error stack is intentional here: HIL prompts are an
   // interactive slow path, and the author callsite is part of the replay key.
-  const frame = selectPromptCallsiteFrame(new Error().stack ?? "") ?? "unknown";
-  return stableHash(frame);
+  // Raise the frame limit around capture so deeply nested workflow helpers do
+  // not collapse distinct prompt callsites to the shared "unknown" fallback.
+  const previousLimit = Error.stackTraceLimit;
+  Error.stackTraceLimit = Math.max(previousLimit, 50);
+  try {
+    const frame = selectPromptCallsiteFrame(new Error().stack ?? "") ?? "unknown";
+    return stableHash(frame);
+  } finally {
+    Error.stackTraceLimit = previousLimit;
+  }
 }
 
 function hilAbortError(signal: AbortSignal): Error {
@@ -1812,6 +1820,8 @@ export async function run<TInputs extends Record<string, unknown>>(
   // 5. Build WorkflowRunContext
   const ctx: WorkflowRunContext<TInputs> = {
     inputs: resolvedInputs as TInputs,
+    // Prompt nodes and caller-provided UI adapters are mutually exclusive;
+    // executor-owned prompt nodes intentionally take precedence when enabled.
     ui: opts.usePromptNodesForUi === true ? buildPromptNodeUiAdapter() : opts.ui ?? makeUnavailableUIContext(),
 
     stage(name: string, options?: StageOptions, stageFailFastScope?: ParallelFailFastScope) {

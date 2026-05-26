@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- Removed Ralph's `prompt` and `max_loops` compatibility inputs from the bundled workflow; use `objective` and `max_turns` instead ([#1061](https://github.com/flora131/atomic/issues/1061)).
+
+### Changed
+
+- Updated bundled Ralph docs and guide examples for the Goal Runner workflow with goal-ledger receipts, reviewer quorum, repeated-blocker gating, and `max_turns`/`objective` inputs ([#1061](https://github.com/flora131/atomic/issues/1061)).
+
 ## [0.8.15] - 2026-05-26
 
 ### Changed

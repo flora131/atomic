@@ -510,138 +510,67 @@ describe("ralph", () => {
     }
   });
 
-  function approvedReviewJson(): string {
+  function reviewJson(
+    decision: "complete" | "continue" | "blocked",
+    overrides: Partial<{
+      evidence: readonly string[];
+      gaps: readonly string[];
+      blocker: string | null;
+      explanation: string;
+    }> = {},
+  ): string {
     return JSON.stringify({
-      findings: [],
-      overall_correctness: "patch is correct",
-      overall_explanation: "No actionable findings remain.",
-      overall_confidence_score: 0.9,
-      goal_oracle_satisfied: true,
-      receipt_assessment: "Receipts and validation match the inferred oracle.",
-      verification_remaining: "none",
-      stop_review_loop: true,
-      reviewer_error: null,
+      decision,
+      evidence: overrides.evidence ?? ["focused validation passed"],
+      gaps: overrides.gaps ?? [],
+      blocker: overrides.blocker ?? null,
+      confidence_score: 0.9,
+      explanation: overrides.explanation ?? `${decision} decision from test reviewer`,
     });
   }
 
-  test("loads and has correct shape", async () => {
+  test("loads and has Goal Runner shape", async () => {
     const mod = await import("../../packages/workflows/builtin/ralph.js");
     assertWorkflowDefinition(mod.default);
     assert.equal(mod.default.name, "ralph");
   });
 
-  test("has prompt, max_loops, and base_branch inputs", async () => {
+  test("declares canonical goal-runner inputs without aliases", async () => {
     const mod = await import("../../packages/workflows/builtin/ralph.js");
-    assert.equal(mod.default.inputs["prompt"]?.required, true);
-    assert.equal(mod.default.inputs["max_iterations"], undefined);
-    assert.equal(mod.default.inputs["max_loops"]?.type, "number");
+    assert.equal(mod.default.inputs["objective"]?.type, "text");
+    assert.equal(mod.default.inputs["objective"]?.required, true);
+    assert.equal(mod.default.inputs["max_turns"]?.type, "number");
     assert.equal(
-      (mod.default.inputs["max_loops"] as { default?: number }).default,
+      (mod.default.inputs["max_turns"] as { default?: number }).default,
       10,
     );
-    assert.equal(mod.default.inputs["base_branch"]?.type, "string");
+    assert.equal(mod.default.inputs["review_quorum"]?.type, "number");
     assert.equal(
-      (mod.default.inputs["base_branch"] as { default?: string }).default,
-      "origin/main",
+      (mod.default.inputs["review_quorum"] as { default?: number }).default,
+      2,
     );
-  });
-
-  test("builds reviewer context from default origin/main baseline without biased stage outputs", async () => {
-    const mod = await import("../../packages/workflows/builtin/ralph.js");
-    const d = mod.default as unknown as WorkflowDefinition;
-    const ctx = makeMockCtx(
-      { prompt: "Refactor tests", max_loops: 5 },
-      {
-        task: (name) => {
-          if (name === "orchestrator-1") return "BIASING_ORCHESTRATOR_OUTPUT";
-          if (name === "code-simplifier-1") return "BIASING_SIMPLIFIER_OUTPUT";
-          if (name.startsWith("infra-")) return "review infrastructure context";
-          if (name.startsWith("reviewer-")) return approvedReviewJson();
-          return undefined;
-        },
-      },
-    );
-
-    await d.run(ctx);
-
-    assert.equal(ctx.calls.task.includes("reviewer-1-a"), false);
-    assert.equal(ctx.calls.task.includes("reviewer-1-b"), false);
-    const reviewerPrompt = ctx.calls.prompts["reviewer-a"]?.[0] ?? "";
-    assert.match(reviewerPrompt, /baseline branch for comparison is `origin\/main`/);
-    assert.match(reviewerPrompt, /git status --short/);
-    assert.match(reviewerPrompt, /git diff origin\/main/);
-    assert.doesNotMatch(reviewerPrompt, /Review iteration 1\/5/);
-    assert.doesNotMatch(reviewerPrompt, /infra-locate-1/);
-    assert.doesNotMatch(reviewerPrompt, /latest_orchestrator_result/);
-    assert.doesNotMatch(reviewerPrompt, /latest_simplifier_result/);
-    assert.doesNotMatch(reviewerPrompt, /BIASING_ORCHESTRATOR_OUTPUT/);
-    assert.doesNotMatch(reviewerPrompt, /BIASING_SIMPLIFIER_OUTPUT/);
-    const reviewerOptions = ctx.calls.taskOptions["reviewer-a"]?.[0];
-    const previous = Array.isArray(reviewerOptions?.previous)
-      ? reviewerOptions.previous
-      : reviewerOptions?.previous === undefined
-        ? []
-        : [reviewerOptions.previous];
+    assert.equal(mod.default.inputs["blocker_threshold"]?.type, "number");
     assert.equal(
-      previous.some((item) => typeof item === "object" && item.name === "orchestrator-1"),
-      false,
+      (mod.default.inputs["blocker_threshold"] as { default?: number }).default,
+      3,
     );
-    assert.equal(
-      previous.some((item) => typeof item === "object" && item.name === "code-simplifier-1"),
-      false,
-    );
+    assert.equal(mod.default.inputs["prompt"], undefined);
+    assert.equal(mod.default.inputs["max_loops"], undefined);
   });
 
-  test("builds reviewer context from the configured base branch", async () => {
+  test("persists a goal ledger and completes only after reviewer quorum", async () => {
     const mod = await import("../../packages/workflows/builtin/ralph.js");
     const d = mod.default as unknown as WorkflowDefinition;
     const ctx = makeMockCtx(
-      { prompt: "Refactor tests", max_loops: 5, base_branch: "feature-parent" },
+      { objective: "Refactor tests", max_turns: 5, review_quorum: 2 },
       {
         task: (name) => {
-          if (name.startsWith("reviewer-")) return approvedReviewJson();
-          return undefined;
-        },
-      },
-    );
-
-    await d.run(ctx);
-
-    const reviewerPrompt = ctx.calls.prompts["reviewer-a"]?.[0] ?? "";
-    assert.match(reviewerPrompt, /baseline branch for comparison is `feature-parent`/);
-    assert.match(reviewerPrompt, /git status --short/);
-    assert.match(reviewerPrompt, /git diff feature-parent/);
-    assert.doesNotMatch(reviewerPrompt, /Review iteration 1\/5/);
-  });
-
-  test("falls back to origin/main for unsafe base branch input", async () => {
-    const mod = await import("../../packages/workflows/builtin/ralph.js");
-    const d = mod.default as unknown as WorkflowDefinition;
-    const ctx = makeMockCtx(
-      { prompt: "Refactor tests", max_loops: 1, base_branch: "main; echo pwn" },
-      {
-        task: (name) => {
-          if (name.startsWith("reviewer-")) return approvedReviewJson();
-          return undefined;
-        },
-      },
-    );
-
-    await d.run(ctx);
-
-    const reviewerPrompt = ctx.calls.prompts["reviewer-a"]?.[0] ?? "";
-    assert.match(reviewerPrompt, /baseline branch for comparison is `origin\/main`/);
-    assert.doesNotMatch(reviewerPrompt, /echo pwn/);
-  });
-
-  test("prompts orchestrator to discover project initialization generically", async () => {
-    const mod = await import("../../packages/workflows/builtin/ralph.js");
-    const d = mod.default as unknown as WorkflowDefinition;
-    const ctx = makeMockCtx(
-      { prompt: "Refactor tests", max_loops: 1 },
-      {
-        task: (name) => {
-          if (name.startsWith("reviewer-")) return approvedReviewJson();
+          if (name.startsWith("completion-reviewer-") || name.startsWith("evidence-reviewer-")) {
+            return reviewJson("complete", { evidence: ["tests passed", "receipts inspected"] });
+          }
+          if (name.startsWith("risk-reviewer-")) {
+            return reviewJson("continue", { gaps: ["risk reviewer wants one optional check"] });
+          }
           return undefined;
         },
       },
@@ -649,242 +578,76 @@ describe("ralph", () => {
 
     const result = await d.run(ctx);
 
-    const orchestratorPrompt = ctx.calls.prompts["orchestrator-1"]?.[0] ?? "";
-    assert.equal(ctx.calls.task.includes("project-setup-1"), false);
-    const expectedSetupInstructions = [
-      /project_initialization_preflight/,
-      /actual language, framework, and build system/,
-      /Do not rely on hard-coded assumptions/,
-      /Infer the project type and setup requirements from repository evidence/,
-      /source layout, setup docs, package\/build manifests/,
-      /dependencies, generated files, local toolchains, submodules/,
-      /When repository evidence shows missing initialization/,
-      /run or delegate the appropriate documented setup command/,
-      /You are responsible for initializing the checkout/,
-      /not user handoff work/,
-      /delegate a focused discovery task before implementation instead of guessing/,
-      /complete or delegate required setup before implementation delegation/,
-    ];
-    for (const expectedInstruction of expectedSetupInstructions) {
-      assert.match(orchestratorPrompt, expectedInstruction);
-    }
-    assert.equal("project_readiness" in result, false);
-  });
-
-  test("writes planner goal contract to OS-temp artifacts and passes only the path to orchestrator", async () => {
-    const mod = await import("../../packages/workflows/builtin/ralph.js");
-    const d = mod.default as unknown as WorkflowDefinition;
-    const planText = "# GOAL CONTRACT SENTINEL\n\nFull planner goal contract body.";
-    const ctx = makeMockCtx(
-      { prompt: "Write goal contract", max_loops: 1 },
-      {
-        task: (name) => {
-          if (name === "planner-1") return planText;
-          if (name.startsWith("reviewer-")) return approvedReviewJson();
-          return undefined;
-        },
-      },
-    );
-
-    const result = await d.run(ctx);
-
-    const planPath = result["plan_path"];
-    assert.equal(typeof planPath, "string");
-    assert.ok(isAbsolute(planPath as string));
-    assert.match(normalizePathSeparators(planPath as string), /atomic-goal-notes-[^/]+\/goal-contract\.md$/);
-    assert.equal(readFileSync(planPath as string, "utf8"), `${planText}\n`);
-    assert.equal(result["plan"], planText);
-
-    const orchestratorPrompt = ctx.calls.prompts["orchestrator-1"]?.[0] ?? "";
-    const normalizedOrchestratorPrompt = normalizePathSeparators(orchestratorPrompt);
-    assert.match(
-      normalizedOrchestratorPrompt,
-      new RegExp(normalizePathSeparators(planPath as string).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
-    );
-    assert.doesNotMatch(orchestratorPrompt, /GOAL CONTRACT SENTINEL/);
-    const implementationNotesPath = result["implementation_notes_path"];
-    assert.equal(typeof implementationNotesPath, "string");
-    assert.ok(isAbsolute(implementationNotesPath as string));
+    assert.equal(ctx.calls.task.includes("planner-1"), false);
+    assert.equal(ctx.calls.task.includes("orchestrator-1"), false);
+    assert.equal(ctx.calls.task.includes("code-simplifier-1"), false);
+    assert.equal(ctx.calls.task.includes("pull-request"), false);
+    assert.ok(ctx.calls.task.includes("work-turn-1"));
     assert.ok(
-      normalizePathSeparators(implementationNotesPath as string).startsWith(
-        normalizePathSeparators(tmpdir()),
+      ctx.calls.parallel.some((names) =>
+        names.includes("completion-reviewer-1") &&
+        names.includes("evidence-reviewer-1") &&
+        names.includes("risk-reviewer-1"),
       ),
     );
-    assert.match(normalizePathSeparators(implementationNotesPath as string), /implementation-notes\.md$/);
-    assert.equal(existsSync(implementationNotesPath as string), true);
-    assert.match(orchestratorPrompt, /implementation-notes\.md/);
-    assert.match(orchestratorPrompt, /OS temp/);
-    assert.match(orchestratorPrompt, /decisions you had to make/);
-    assert.match(orchestratorPrompt, /tradeoffs/);
-    assert.match(normalizedOrchestratorPrompt, new RegExp(normalizePathSeparators(implementationNotesPath as string).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-    const orchestratorOptions = ctx.calls.taskOptions["orchestrator-1"]?.[0];
-    assert.deepEqual(orchestratorOptions?.reads, [planPath, implementationNotesPath]);
-    assert.equal(orchestratorOptions?.previous, undefined);
-  });
-
-  test("embeds final audit requirements in reviewers before PR phase", async () => {
-    const mod = await import("../../packages/workflows/builtin/ralph.js");
-    const d = mod.default as unknown as WorkflowDefinition;
-    const ctx = makeMockCtx(
-      { prompt: "Refactor tests", max_loops: 1, base_branch: "feature-parent" },
-      {
-        task: (name) => {
-          if (name.startsWith("reviewer-")) return approvedReviewJson();
-          if (name === "pull-request") return "PR unavailable: credentials missing.";
-          return undefined;
-        },
-      },
-    );
-
-    const result = await d.run(ctx);
-
-    assert.equal(ctx.calls.task.includes("final-audit"), false);
-    assert.equal(ctx.calls.task.at(-1), "pull-request");
-    assert.equal("final_audit_report" in result, false);
-    assert.equal(result["pr_report"], "PR unavailable: credentials missing.");
-    const planPath = result["plan_path"];
-    assert.equal(typeof planPath, "string");
-    const implementationNotesPath = result["implementation_notes_path"];
-    assert.equal(typeof implementationNotesPath, "string");
-    const reviewerPrompt = ctx.calls.prompts["reviewer-a"]?.[0] ?? "";
-    assert.match(reviewerPrompt, /completion audit for the current iteration/);
-    assert.match(reviewerPrompt, /original owner outcome/);
-    assert.match(reviewerPrompt, /verification oracle/);
-    assert.match(reviewerPrompt, /planning, discovery, task selection/);
-
-    const prPrompt = ctx.calls.prompts["pull-request"]?.[0] ?? "";
-    assert.match(prPrompt, /Review the changes since the base branch `feature-parent`/);
-    assert.match(prPrompt, /create a pull request if possible/);
-    assert.match(prPrompt, /gh auth status/);
-    assert.match(prPrompt, /git config user\.name/);
-    assert.match(prPrompt, /git config user\.email/);
-    assert.match(prPrompt, /multiple GitHub accounts/);
-    assert.match(prPrompt, /try each available credential\/account/);
-    assert.match(prPrompt, /first one that can read the repository and create the PR/);
-    assert.match(prPrompt, /git status --short/);
-    assert.match(prPrompt, /git diff feature-parent/);
-    assert.match(prPrompt, /implementation notes/);
-    assert.match(prPrompt, /latest structured reviewer decisions/);
-    assert.match(prPrompt, /PR comment/);
-    assert.match(prPrompt, /last action/);
-    assert.match(normalizePathSeparators(prPrompt), /Planner goal contract path: .*goal-contract\.md/);
-    assert.match(normalizePathSeparators(prPrompt), /Implementation notes path: .*implementation-notes\.md/);
-    const prOptions = ctx.calls.taskOptions["pull-request"]?.[0];
-    assert.deepEqual(prOptions?.reads, [planPath, implementationNotesPath]);
-    assert.equal(prOptions?.previous, undefined);
-  });
-
-  test("terminates after one iteration when both reviewers approve", async () => {
-    const mod = await import("../../packages/workflows/builtin/ralph.js");
-    const d = mod.default as unknown as WorkflowDefinition;
-    const ctx = makeMockCtx(
-      { prompt: "Refactor tests", max_loops: 5 },
-      {
-        task: (name) => {
-          if (name.startsWith("reviewer-")) return approvedReviewJson();
-          return undefined;
-        },
-      },
-    );
-
-    const result = await d.run(ctx);
-
-    assert.deepEqual(ctx.calls.stage, []);
-    assert.ok(ctx.calls.task.includes("planner-1"));
-    const plannerPrompt = ctx.calls.prompts["planner-1"]?.[0] ?? "";
-    assert.match(plannerPrompt, /investigation-first goal-charter and goal contract authoring/);
-    assert.match(plannerPrompt, /concrete goal contract/);
-    assert.match(plannerPrompt, /verification oracle/);
-    assert.match(plannerPrompt, /work surface/);
-    assert.match(plannerPrompt, /review criteria tied to the oracle/);
-    assert.match(plannerPrompt, /supporting context rather than the primary success criterion/);
-    assert.match(plannerPrompt, /report after investigation, not a substitute/);
-    assert.ok(ctx.calls.task.includes("orchestrator-1"));
-    const orchestratorPrompt = ctx.calls.prompts["orchestrator-1"]?.[0] ?? "";
-    assert.match(orchestratorPrompt, /not the implementer/);
-    assert.match(orchestratorPrompt, /concrete goal contract/);
-    assert.match(orchestratorPrompt, /largest safe useful slice/);
-    assert.match(orchestratorPrompt, /active, blocked, completed, and verification status/);
-    assert.match(orchestratorPrompt, /receipt/);
-    assert.match(orchestratorPrompt, /completion report, not the task itself/);
-    assert.match(orchestratorPrompt, /Use the `todo` tool as your active control ledger/);
-    assert.match(orchestratorPrompt, /After subagents have done the work/);
-    assert.ok(ctx.calls.task.includes("code-simplifier-1"));
-    const simplifierPrompt = ctx.calls.prompts["code-simplifier-1"]?.[0] ?? "";
-    assert.match(simplifierPrompt, /active code-refinement stage, not just a commentary stage/);
-    assert.match(simplifierPrompt, /edits actually applied from observations only/);
-    assert.equal(ctx.calls.task.some((name) => name.startsWith("infra-")), false);
-    assert.equal(ctx.calls.parallel.some((names) => names.some((name) => name.startsWith("infra-"))), false);
-    assert.ok(ctx.calls.parallel.some((names) => names.includes("reviewer-a") && names.includes("reviewer-b")));
-    const reviewerPrompt = ctx.calls.prompts["reviewer-a"]?.[0] ?? "";
-    assert.match(reviewerPrompt, /grumpy senior developer/);
-    assert.match(reviewerPrompt, /verification oracle/);
-    assert.match(reviewerPrompt, /receipts/);
-    assert.match(reviewerPrompt, /not whether the supporting goal contract looks complete/);
-    assert.match(reviewerPrompt, /testing, linting, typecheck, build, generated-artifact, and CI patterns/);
-    assert.match(reviewerPrompt, /commands and conventions copied from actual repository scripts\/configs/);
-    assert.match(reviewerPrompt, /targeted tests, lint, typecheck, build/);
-    assert.match(reviewerPrompt, /end-to-end QA check/);
-    assert.match(reviewerPrompt, /tmux skill for terminal app environments/);
-    assert.match(reviewerPrompt, /playwright-cli for web app environments/);
-    assert.match(reviewerPrompt, /capture a screenshot as a certificate of correct completion/);
-    assert.match(reviewerPrompt, /capture the terminal window\/output that shows proof of correctness/);
-    assert.match(reviewerPrompt, /download or install them/);
-    assert.match(reviewerPrompt, /only valid after you inspect the actual repository state/);
-    assert.match(reviewerPrompt, /parsing the JSON object returned by this tool/);
-    const allStagePrompts = Object.values(ctx.calls.prompts).flat().join("\n\n---\n\n");
-    const promptBrandLeakPattern = new RegExp(
-      [
-        ["Goal", "Buddy"].join(""),
-        ["goal", "buddy"].join(""),
-        [["design"].join(""), ["inspi", "ration"].join("")].join(" "),
-        [["Intent", " -> Oracle"].join(""), " -> Surface -> Loop -> Proof"].join(""),
-        "Ralph",
-      ].join("|"),
-    );
-    assert.doesNotMatch(allStagePrompts, promptBrandLeakPattern);
-    const reviewerOptions = ctx.calls.taskOptions["reviewer-a"]?.[0];
-    assert.ok(reviewerOptions?.customTools?.some((tool) => tool.name === "review_decision"));
-    assert.equal(ctx.calls.parallelOptions.at(-1)?.failFast, false);
+    assert.equal(result["status"], "complete");
     assert.equal(result["approved"], true);
+    assert.equal(result["turns_completed"], 1);
     assert.equal(result["iterations_completed"], 1);
+    assert.equal(typeof result["goal_id"], "string");
+    assert.equal(typeof result["result"], "string");
+    assert.equal(typeof result["review_report"], "string");
+    assert.equal(typeof result["ledger_path"], "string");
+    assert.match(normalizePathSeparators(result["ledger_path"] as string), /atomic-goal-runner-[^/]+\/goal-ledger\.json$/);
+    const ledger = JSON.parse(readFileSync(result["ledger_path"] as string, "utf8")) as {
+      goal_id: string;
+      objective: string;
+      objective_revision: number;
+      status: string;
+      turns: number;
+      created_at: string;
+      updated_at: string;
+      receipts: readonly { artifact_path: string }[];
+      reviews: readonly unknown[];
+      blockers: readonly unknown[];
+      decisions: readonly { decision: string }[];
+      lifecycle: readonly { event: string; status: string; turn: number }[];
+    };
+    assert.equal(ledger.goal_id, result["goal_id"]);
+    assert.equal(ledger.objective, "Refactor tests");
+    assert.equal(ledger.objective_revision, 1);
+    assert.equal(ledger.status, "complete");
+    assert.equal(ledger.turns, 1);
+    assert.equal(typeof ledger.created_at, "string");
+    assert.equal(typeof ledger.updated_at, "string");
+    assert.equal(ledger.receipts.length, 1);
+    assert.equal(ledger.reviews.length, 3);
+    assert.equal(ledger.blockers.length, 0);
+    assert.deepEqual(ledger.decisions.map((decision) => decision.decision), ["complete"]);
+    assert.deepEqual(
+      ledger.lifecycle.map((event) => event.event),
+      ["created", "work_turn_started", "receipt_recorded", "reviews_recorded", "status_decided"],
+    );
+    assert.match(normalizePathSeparators(ledger.receipts[0]!.artifact_path), /work-turn-1\.md$/);
+    assert.equal(existsSync(ledger.receipts[0]!.artifact_path), true);
   });
 
-  test("feeds actionable review findings into the next planner iteration", async () => {
+  test("carries receipts and reviewer gaps into the next worker continuation", async () => {
     const mod = await import("../../packages/workflows/builtin/ralph.js");
     const d = mod.default as unknown as WorkflowDefinition;
     const ctx = makeMockCtx(
-      { prompt: "test task", max_loops: 2 },
+      { objective: "Finish the migration", max_turns: 2, review_quorum: 2 },
       {
         task: (name, _options, calls) => {
-          if (
-            (name === "reviewer-a" || name === "reviewer-b") &&
-            calls.task.filter((taskName) => taskName === name).length === 1
-          ) {
-            return JSON.stringify({
-              findings: [
-                {
-                  title: "[P2] Cover edge cases",
-                  body: "This scenario still lacks coverage for the changed behavior.",
-                  confidence_score: 0.8,
-                  priority: 2,
-                  code_location: {
-                    absolute_file_path: "/tmp/example.test.ts",
-                    line_range: { start: 1, end: 1 },
-                  },
-                },
-              ],
-              overall_correctness: "patch is incorrect",
-              overall_explanation: "Actionable findings remain.",
-              overall_confidence_score: 0.8,
-              goal_oracle_satisfied: false,
-              receipt_assessment: "Receipts do not yet prove the oracle.",
-              verification_remaining: "Edge-case tests remain.",
-              stop_review_loop: false,
-              reviewer_error: null,
-            });
+          if (name.startsWith("completion-reviewer-") || name.startsWith("evidence-reviewer-")) {
+            const firstRound = calls.task.includes("work-turn-2") === false;
+            return firstRound
+              ? reviewJson("continue", { gaps: ["migration tests are missing"] })
+              : reviewJson("complete", { evidence: ["migration tests passed"] });
           }
-          if (name === "reviewer-a" || name === "reviewer-b") return approvedReviewJson();
+          if (name.startsWith("risk-reviewer-")) {
+            return reviewJson("continue", { gaps: ["risk review noted no blocker"] });
+          }
           return undefined;
         },
       },
@@ -892,21 +655,27 @@ describe("ralph", () => {
 
     const result = await d.run(ctx);
 
-    assert.ok(ctx.calls.task.includes("planner-2"));
-    assert.ok(ctx.calls.prompts["planner-2"]?.[0]?.includes("Previous review findings"));
-    assert.equal(result["approved"], true);
-    assert.equal(result["iterations_completed"], 2);
-    assert.match(String(result["review_report"]), /patch is correct/);
+    assert.ok(ctx.calls.task.includes("work-turn-2"));
+    assert.equal(result["status"], "complete");
+    assert.equal(result["turns_completed"], 2);
+    const ledger = JSON.parse(readFileSync(result["ledger_path"] as string, "utf8")) as {
+      decisions: readonly { decision: string }[];
+      blockers: readonly unknown[];
+    };
+    assert.deepEqual(ledger.decisions.map((decision) => decision.decision), ["continue", "complete"]);
+    assert.equal(ledger.blockers.length, 0);
   });
 
-  test("does not approve reviewer output unless the structured object parses", async () => {
+  test("falls back from fractional positive integer controls", async () => {
     const mod = await import("../../packages/workflows/builtin/ralph.js");
     const d = mod.default as unknown as WorkflowDefinition;
     const ctx = makeMockCtx(
-      { prompt: "test task", max_loops: 1 },
+      { objective: "Keep working", max_turns: 0.5, review_quorum: 0.5 },
       {
         task: (name) => {
-          if (name.startsWith("reviewer-")) return "overall_correctness: patch is correct";
+          if (name.startsWith("completion-reviewer-") || name.startsWith("evidence-reviewer-") || name.startsWith("risk-reviewer-")) {
+            return reviewJson("continue", { gaps: ["not done yet"] });
+          }
           return undefined;
         },
       },
@@ -914,8 +683,85 @@ describe("ralph", () => {
 
     const result = await d.run(ctx);
 
+    assert.equal(result["status"], "needs_human");
     assert.equal(result["approved"], false);
-    assert.equal(result["iterations_completed"], 1);
+    assert.equal(result["turns_completed"], 10);
+  });
+
+  test("exposes the structured reviewer gate tool to reviewer stages", async () => {
+    const mod = await import("../../packages/workflows/builtin/ralph.js");
+    const d = mod.default as unknown as WorkflowDefinition;
+    const ctx = makeMockCtx(
+      { objective: "Refactor tests", max_turns: 1 },
+      {
+        task: (name) => {
+          if (name.startsWith("completion-reviewer-") || name.startsWith("evidence-reviewer-")) {
+            return reviewJson("complete");
+          }
+          if (name.startsWith("risk-reviewer-")) return reviewJson("continue");
+          return undefined;
+        },
+      },
+    );
+
+    await d.run(ctx);
+
+    const reviewerOptions = ctx.calls.taskOptions["completion-reviewer-1"]?.[0];
+    assert.ok(reviewerOptions?.customTools?.some((tool) => tool.name === "review_gate_decision"));
+    assert.ok(reviewerOptions?.tools?.includes("review_gate_decision"));
+
+  });
+
+  test("requires repeated same-blocker evidence before blocked status", async () => {
+    const mod = await import("../../packages/workflows/builtin/ralph.js");
+    const d = mod.default as unknown as WorkflowDefinition;
+    const ctx = makeMockCtx(
+      { objective: "Deploy the app", max_turns: 5, blocker_threshold: 2 },
+      {
+        task: (name) => {
+          if (name.endsWith("reviewer-1") || name.endsWith("reviewer-2")) {
+            return reviewJson("blocked", {
+              blocker: "missing production credentials",
+              gaps: ["cannot deploy without credentials"],
+            });
+          }
+          return undefined;
+        },
+      },
+    );
+
+    const result = await d.run(ctx);
+
+    assert.equal(result["status"], "blocked");
+    assert.equal(result["turns_completed"], 2);
+    assert.equal(ctx.calls.task.includes("work-turn-3"), false);
+    assert.match(String(result["remaining_work"]), /missing production credentials/);
+  });
+
+  test("stops as needs_human when max turns are exhausted without quorum", async () => {
+    const mod = await import("../../packages/workflows/builtin/ralph.js");
+    const d = mod.default as unknown as WorkflowDefinition;
+    const ctx = makeMockCtx(
+      { objective: "Finish documentation", max_turns: 1, review_quorum: 2 },
+      {
+        task: (name) => {
+          if (name.startsWith("completion-reviewer-")) {
+            return reviewJson("complete", { evidence: ["draft exists"] });
+          }
+          if (name.startsWith("evidence-reviewer-") || name.startsWith("risk-reviewer-")) {
+            return reviewJson("continue", { gaps: ["published docs proof missing"] });
+          }
+          return undefined;
+        },
+      },
+    );
+
+    const result = await d.run(ctx);
+
+    assert.equal(result["status"], "needs_human");
+    assert.equal(result["approved"], false);
+    assert.equal(result["turns_completed"], 1);
+    assert.match(String(result["remaining_work"]), /published docs proof missing/);
   });
 });
 

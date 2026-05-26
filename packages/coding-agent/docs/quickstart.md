@@ -73,12 +73,12 @@ Atomic ships with three workflows you can run immediately. Use `/workflow list` 
 | Workflow | When to use | Example |
 |---|---|---|
 | `deep-research-codebase` | Broad, cross-cutting research before you decide what to change. Scout → research-history → parallel specialist waves → aggregator. | `/workflow deep-research-codebase prompt="How do payment retries work end to end?"` |
-| `ralph` | Larger implementation loops with built-in plan → orchestrate → simplify → review iteration, plus final PR preparation when repo state, branch target, and GitHub credentials allow it. | `/workflow ralph prompt="Implement specs/2026-03-rate-limit.md and validate the behavior" max_loops=5` |
+| `ralph` | Larger implementation loops with a persisted goal ledger, bounded worker turns, parallel reviewer gate, reviewer quorum, repeated-blocker detection, and explicit final status. | `/workflow ralph objective="Implement specs/2026-03-rate-limit.md and validate the behavior" max_turns=5` |
 | `open-claude-design` | UI and design-system work with generation, critique, and refinement loops; renders a live `preview.html` you can iterate against. | `/workflow open-claude-design prompt="Refresh the settings page hierarchy" output_type=page` |
 
 <p align="center"><img src="images/workflow-list.png" alt="Workflow List" width="600" /></p>
 
-Inputs are bare `key=value` tokens. Values are JSON-parsed when possible, so `max_loops=5`, `flag=true`, and `prompt="multi word value"` preserve useful types. If you call `/workflow <name>` without required inputs, the TUI opens an inline picker; pass `--no-picker` to skip it.
+Inputs are bare `key=value` tokens. Values are JSON-parsed when possible, so `max_turns=5`, `flag=true`, and `objective="multi word value"` preserve useful types. If you call `/workflow <name>` without required inputs, the TUI opens an inline picker; pass `--no-picker` to skip it.
 
 You can also launch workflows with **natural language** — just describe the task in chat and ask Atomic to run the matching workflow:
 
@@ -86,7 +86,7 @@ You can also launch workflows with **natural language** — just describe the ta
 Run a deep codebase research workflow on how the rate limiter behaves under burst traffic.
 ```
 
-Atomic picks the workflow, fills in inputs from the request, and confirms before launch. Ralph may create a pull request at the end only when the current repository state, remote/branch target, and available GitHub credentials make that safe; otherwise it reports the exact follow-up steps.
+Atomic picks the workflow, fills in inputs from the request, and confirms before launch. Ralph persists receipts in a goal ledger and stops only when reviewer quorum proves completion, the same blocker repeats enough times, or the turn limit requires human follow-up.
 
 ### Monitor and steer a run
 

@@ -424,11 +424,11 @@ describe("/workflow <name> dispatch — no per-workflow aliases", () => {
   });
 
   test("/workflow dispatch and tool dispatch reach same registry", async () => {
-    // Tool route: dispatch ralph with required prompt input (avoids resolveInputs throw)
+    // Tool route: dispatch ralph with required objective input (avoids resolveInputs throw)
     const toolExecute = mock.tools[0]!.opts.execute;
     const toolOut = await toolExecute(
       "test-tool-call",
-      { workflow: "ralph", inputs: { prompt: "test" }, action: "run" },
+      { workflow: "ralph", inputs: { objective: "test" }, action: "run" },
       undefined,
       undefined,
       {} as never,
@@ -440,7 +440,7 @@ describe("/workflow <name> dispatch — no per-workflow aliases", () => {
     // but we can verify execute does NOT say "unknown subcommand".
     const cmd = getCommand(mock.commands, "workflow");
     const messages: string[] = [];
-    await cmd!.options.handler("ralph prompt=test", { ui: { notify: (m: string) => messages.push(m) } });
+    await cmd!.options.handler("ralph objective=test", { ui: { notify: (m: string) => messages.push(m) } });
     assert.equal(messages.some((m) => m.includes("unknown subcommand")), false);
   });
 

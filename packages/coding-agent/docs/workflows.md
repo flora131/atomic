@@ -139,7 +139,7 @@ Atomic bundles three workflows that cover the most common multi-stage jobs. They
 | Workflow | What it does | When to use |
 |---|---|---|
 | `deep-research-codebase` | Scout + research-history chain → parallel specialist waves → aggregator. Indexes the whole repo and synthesizes findings. | Broad or cross-cutting research before you decide what to change. Prefer `/skill:research-codebase` for one subsystem. |
-| `ralph` | Goal contract → orchestrate → simplify → parallel review/audit loop → PR preparation. Reviewer findings feed back into the next planner and completion is judged against an inferred verification oracle. | Larger autonomous implementation loops where you want implementation, receipts, review, validation, audit, and conditional PR creation built in. |
+| `ralph` | Goal ledger → continuation context → bounded worker turns → parallel reviewer gate → TypeScript reducer → final report. | Larger autonomous implementation loops where you want persisted receipts, independent review, reviewer-quorum completion, repeated-blocker detection, and explicit stop decisions. |
 | `open-claude-design` | Design-system onboarding → reference import → HTML generation → impeccable-driven refinement → quality gate → rich HTML handoff. Renders a live `preview.html` you can iterate against (opens through `playwright-cli` when available). | UI, page, component, theme, or design-token work that benefits from generation + critique loops. |
 
 ### `deep-research-codebase`
@@ -191,35 +191,40 @@ Inputs:
 
 | Input | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `prompt` | text | yes | — | The task or goal to plan, execute, and refine. |
-| `max_loops` | number | no | `10` | Maximum plan/orchestrate/review iterations. |
+| `objective` | text | yes | — | Goal-runner objective. |
+| `max_turns` | number | no | `10` | Maximum worker/review turns. |
+| `review_quorum` | number | no | `2` | Reviewer `complete` votes required before completion. |
+| `blocker_threshold` | number | no | `3` | Consecutive turns with the same blocker required before `blocked`. |
 | `base_branch` | string | no | `origin/main` | Branch reviewers compare the current code delta against. |
 
 Run examples:
 
 ```text
-/workflow ralph prompt="Implement specs/2026-03-rate-limit.md and validate the changed behavior"
-/workflow ralph prompt="Migrate the database layer to Drizzle" max_loops=5 base_branch=develop
+/workflow ralph objective="Implement specs/2026-03-rate-limit.md and validate the changed behavior"
+/workflow ralph objective="Migrate the database layer to Drizzle" max_turns=5 review_quorum=2 base_branch=develop
 ```
 
-Ralph writes each planner goal contract to an OS-temp workflow artifact, returns the path as `plan_path`, then instructs the orchestrator to read that path instead of inlining the full plan. The goal contract captures owner intent, verification oracle, work surface, execution loop, and proof requirements; any user-supplied spec remains supporting input rather than the primary success criterion. The orchestrator also maintains OS-temp implementation notes, returned as `implementation_notes_path`, for the active work surface, receipts, decisions, goal-contract deviations, tradeoffs, blockers, and validation outcomes.
+Ralph creates an OS-temp `goal-ledger.json` artifact, renders goal-continuation context for each worker turn, writes each worker receipt to `work-turn-N.md`, and appends receipts, reviewer decisions, blockers, and reducer decisions to the ledger. The objective is treated as user-provided data, not higher-priority instructions, and token budget / budget-limit behavior is intentionally excluded.
 
-The review loop also performs the completion audit: reviewers map receipts and verification results back to the original owner outcome and inferred oracle before approving. After approval or loop exhaustion, Ralph runs PR preparation: reviewing changes against `base_branch`, checking the current diff and untracked files, checking local git identity (`git config user.name` and `git config user.email`), and looking for GitHub credentials. It creates a pull request only when there are meaningful changes, a usable remote/branch target, suitable repository state, and credentials that can access the repository. When multiple GitHub accounts are logged in, it uses local git identity as a hint and tries available credentials until one works. If PR creation succeeds, the final phase posts the implementation notes and reviewer approval summary as a PR comment. If not, `pr_report` explains what blocked creation and the commands or steps to run later.
+The worker may claim readiness, but it cannot finalize completion. Three reviewers independently inspect the ledger, worker receipt, repository state, and diff against `base_branch`; each returns structured JSON with `decision: complete | continue | blocked`, evidence, gaps, and an optional blocker. A TypeScript reducer marks the goal complete only when `review_quorum` reviewers say `complete`, marks blocked only when the same blocker repeats for `blocker_threshold` consecutive turns, continues when evidence is missing, and returns `needs_human` when `max_turns` is exhausted.
 
 Result fields:
 
 | Field | Meaning |
 |---|---|
-| `result` | Final orchestrator summary. |
-| `plan` | Last planner output text. |
-| `plan_path` | OS-temp path to the latest planner goal contract. |
-| `implementation_notes_path` | OS-temp Markdown notes maintained during orchestration. |
-| `pr_report` | Final PR-preparation report, including created PR URL or why no PR was created. |
-| `approved` | Whether the review loop approved the patch. |
-| `iterations_completed` | Number of plan/orchestrate/review loops run. |
-| `review_report` | Last structured review report used to decide whether to stop, including oracle satisfaction and remaining verification. |
+| `result` | Final report with objective, status, receipts, turns, and remaining work. |
+| `status` | Final reducer status: `complete`, `blocked`, or `needs_human` (or `active` only if externally interrupted). |
+| `approved` | Whether the reducer reached `complete`. |
+| `goal_id` | Per-run goal identifier stored in the ledger. |
+| `objective` | Normalized goal objective used by the run. |
+| `ledger_path` | OS-temp path to `goal-ledger.json`, including receipts, reviewer decisions, reducer decisions, blockers, and lifecycle events. |
+| `turns_completed` | Worker/review turns completed. |
+| `iterations_completed` | Same value as `turns_completed`, retained for status summaries. |
+| `receipts` | Ledger receipt summaries and worker artifact paths. |
+| `remaining_work` | Remaining gaps/blockers when incomplete, or `none`. |
+| `review_report` | Markdown report containing the last structured reviewer decision payloads used by the reducer. |
 
-A typical end-to-end flow is `/skill:research-codebase` → `/workflow ralph prompt="Implement the researched rate-limit behavior and validate it"`. If you already have a spec, pass it in the prompt as supporting input.
+A typical end-to-end flow is `/skill:research-codebase` → `/workflow ralph objective="Implement the researched rate-limit behavior and validate it"`. If you already have a spec, pass it in the objective as supporting input.
 
 ### `open-claude-design`
 
@@ -250,7 +255,7 @@ Run a deep codebase research workflow on how the rate limiter behaves under burs
 ```
 
 ```text
-Use the ralph workflow to implement specs/2026-03-rate-limit.md and cap it at 5 loops.
+Use the ralph workflow to implement specs/2026-03-rate-limit.md and cap it at 5 turns.
 ```
 
 ```text

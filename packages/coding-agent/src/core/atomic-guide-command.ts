@@ -63,7 +63,7 @@ How the direct commands map to repo work:
 | Workflow | When to use | How to run |
 |---|---|---|
 | \`deep-research-codebase\` | broad repo or cross-cutting research before you decide what to change (for one area, use \`/skill:research-codebase\`; this indexes the whole repo) | \`/workflow deep-research-codebase prompt="How do payment retries work end to end?"\` |
-| \`ralph\` | larger implementation loops where you want implementation, review, and validation built in | \`/workflow ralph prompt="Implement specs/<date>-<topic>.md and validate the changed behavior"\` |
+| \`ralph\` | larger implementation loops with a persisted goal ledger, reviewer quorum, and explicit stop decisions | \`/workflow ralph objective="Implement specs/<date>-<topic>.md and validate the changed behavior"\` |
 | \`open-claude-design\` | UI and design-system work that benefits from generation and refinement loops | \`/workflow open-claude-design prompt="Refresh the settings page hierarchy"\` |
 
 Use \`/workflow list\` to see what is available and \`/workflow inputs <name>\` to inspect inputs in your environment.
@@ -107,11 +107,11 @@ For ordinary work, ask Atomic directly and require validation:
 
 For larger work, use subagents or a workflow:
 
-\`/workflow ralph prompt="Implement specs/<date>-<topic>.md and validate the changed behavior"\`
+\`/workflow ralph objective="Implement specs/<date>-<topic>.md and validate the changed behavior"\`
 
 ## 4. Decide and land
 
-If you used \`ralph\`, the workflow already ran parallel reviewers. Use its final result and review feedback to decide whether to ship or iterate again.
+If you used \`ralph\`, the workflow already persisted receipts and ran parallel reviewers. Use its final reducer status and review feedback to decide whether to ship or iterate again.
 
 If you implemented directly instead of using \`ralph\`, you can still run:
 
@@ -137,7 +137,7 @@ You do not have to write TypeScript to add one. Describe the workflow you want i
 | Workflow | When to use | How to run |
 |---|---|---|
 | \`deep-research-codebase\` | broad repo or cross-cutting research before you decide what to change (for one area, use \`/skill:research-codebase\`; this indexes the whole repo) | \`/workflow deep-research-codebase prompt="How do payment retries work end to end?"\` |
-| \`ralph\` | larger implementation and review loops | \`/workflow ralph prompt="Implement specs/<date>-<topic>.md and validate the changed behavior"\` |
+| \`ralph\` | larger implementation and review loops with reviewer-gated completion | \`/workflow ralph objective="Implement specs/<date>-<topic>.md and validate the changed behavior"\` |
 | \`open-claude-design\` | frontend and product design work | \`/workflow open-claude-design prompt="Refresh the settings page hierarchy"\` |
 
 Use \`/workflow inputs <name>\` to inspect the exact inputs in your environment.
@@ -181,7 +181,7 @@ Why this is good:
 
 \`/workflow inputs ralph\`
 
-\`/workflow ralph prompt="Migrate the database layer to Drizzle" max_loops=5\`
+\`/workflow ralph objective="Migrate the database layer to Drizzle" max_turns=5\`
 
 \`/workflow status\`
 

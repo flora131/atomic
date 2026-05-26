@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- Removed Ralph's configurable `max_turns`, `review_quorum`, and `blocker_threshold` inputs; the workflow now only accepts `objective` and `base_branch` while keeping fixed controller defaults ([#1061](https://github.com/flora131/atomic/issues/1061)).
+
+### Changed
+
+- Aligned Ralph's goal-continuation prompt more closely with Codex `/goal` hidden continuation guidance, including current-state evidence, non-shrinking scope, fidelity, completion audit, and strict blocked audit language ([#1061](https://github.com/flora131/atomic/issues/1061)).
+- Restored Ralph's stronger historical review gate prompt and `review_decision` schema with findings, oracle satisfaction, receipt assessment, verification remaining, and reviewer-error guard fields.
+
 ## [0.8.16] - 2026-05-26
 
 ### Changed

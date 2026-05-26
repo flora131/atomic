@@ -181,7 +181,7 @@ Why this is good:
 
 \`/workflow inputs ralph\`
 
-\`/workflow ralph objective="Migrate the database layer to Drizzle" max_turns=5\`
+\`/workflow ralph objective="Migrate the database layer to Drizzle"\`
 
 \`/workflow status\`
 

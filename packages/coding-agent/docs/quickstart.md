@@ -73,12 +73,12 @@ Atomic ships with three workflows you can run immediately. Use `/workflow list` 
 | Workflow | When to use | Example |
 |---|---|---|
 | `deep-research-codebase` | Broad, cross-cutting research before you decide what to change. Scout → research-history → parallel specialist waves → aggregator. | `/workflow deep-research-codebase prompt="How do payment retries work end to end?"` |
-| `ralph` | Larger implementation loops with a persisted goal ledger, bounded worker turns, parallel reviewer gate, reviewer quorum, repeated-blocker detection, and explicit final status. | `/workflow ralph objective="Implement specs/2026-03-rate-limit.md and validate the behavior" max_turns=5` |
+| `ralph` | Larger implementation loops with a persisted goal ledger, bounded worker turns, parallel reviewer gate, reviewer quorum, repeated-blocker detection, and explicit final status. | `/workflow ralph objective="Implement specs/2026-03-rate-limit.md and validate the behavior"` |
 | `open-claude-design` | UI and design-system work with generation, critique, and refinement loops; renders a live `preview.html` you can iterate against. | `/workflow open-claude-design prompt="Refresh the settings page hierarchy" output_type=page` |
 
 <p align="center"><img src="images/workflow-list.png" alt="Workflow List" width="600" /></p>
 
-Inputs are bare `key=value` tokens. Values are JSON-parsed when possible, so `max_turns=5`, `flag=true`, and `objective="multi word value"` preserve useful types. If you call `/workflow <name>` without required inputs, the TUI opens an inline picker; pass `--no-picker` to skip it.
+Inputs are bare `key=value` tokens. Values are JSON-parsed when possible, so `count=5`, `flag=true`, and `objective="multi word value"` preserve useful types. If you call `/workflow <name>` without required inputs, the TUI opens an inline picker; pass `--no-picker` to skip it.
 
 You can also launch workflows with **natural language** — just describe the task in chat and ask Atomic to run the matching workflow:
 

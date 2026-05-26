@@ -311,16 +311,15 @@ Final Markdown research documents are written to dated `research/` paths relativ
 Goal Runner workflow: initialize a persisted goal ledger with a per-run goal id and lifecycle events, render goal-continuation context, run bounded worker LM turns, append receipts, run three independent reviewers, and let a TypeScript reducer decide `complete`, `continue`, `blocked`, or `needs_human`. Token budget behavior is intentionally excluded.
 
 ```text
-/workflow ralph objective="Migrate the database layer to Drizzle ORM" max_turns=5 review_quorum=2
+/workflow ralph objective="Migrate the database layer to Drizzle ORM" base_branch=develop
 ```
 
-| Input               | Type     | Required | Default       | Description                                      |
-| ------------------- | -------- | -------- | ------------- | ------------------------------------------------ |
-| `objective`         | `text`   | ✓        | —             | Goal-runner objective.                           |
-| `max_turns`         | `number` | —        | `10`          | Maximum worker/review turns.                     |
-| `review_quorum`     | `number` | —        | `2`           | Reviewer `complete` votes required to complete.  |
-| `blocker_threshold` | `number` | —        | `3`           | Consecutive same-blocker turns required to block; requires at least two observations and is capped by `max_turns` when possible. |
-| `base_branch`       | `string` | —        | `origin/main` | Branch reviewers compare the current delta with. |
+| Input         | Type     | Required | Default       | Description                                      |
+| ------------- | -------- | -------- | ------------- | ------------------------------------------------ |
+| `objective`   | `text`   | ✓        | —             | Goal-runner objective.                           |
+| `base_branch` | `string` | —        | `origin/main` | Branch reviewers compare the current delta with. |
+
+Ralph uses fixed controller defaults internally: 10 worker/review turns, 2 reviewer `complete` votes for completion, and 3 consecutive same-blocker turns before blocked status.
 
 ### `open-claude-design`
 

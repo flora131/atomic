@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- Removed bundled Ralph's configurable `max_turns`, `review_quorum`, and `blocker_threshold` inputs; use only `objective` and optional `base_branch` ([#1061](https://github.com/flora131/atomic/issues/1061)).
+
+### Changed
+
+- Updated bundled Ralph docs and prompts to more closely match Codex `/goal` continuation guidance while retaining deterministic reviewer-gated completion ([#1061](https://github.com/flora131/atomic/issues/1061)).
+- Restored bundled Ralph's stronger historical review gate prompt and `review_decision` schema with findings, oracle satisfaction, receipt assessment, verification remaining, and reviewer-error guard fields.
+
 ## [0.8.16] - 2026-05-26
 
 ### Changed

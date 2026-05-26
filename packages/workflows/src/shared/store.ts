@@ -524,6 +524,7 @@ export function createStore(): Store {
       if (isTerminalStageStatus(stage.status)) return false;
       if (stage.pendingPrompt !== undefined) return false;
       stage.pendingPrompt = { ...prompt };
+      stage.promptFootprint = { ...prompt };
       stage.status = "awaiting_input";
       stage.awaitingInputSince = prompt.createdAt;
       _version++;

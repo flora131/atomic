@@ -1678,6 +1678,7 @@ export async function run<TInputs extends Record<string, unknown>>(
         status: shouldReplay ? "completed" : "running",
         parentIds: Object.freeze(parentIds),
         startedAt: prompt.createdAt,
+        promptFootprint: { ...prompt },
         toolEvents: [],
         attachable: !shouldReplay,
         ...(shouldReplay ? {

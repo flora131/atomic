@@ -84,6 +84,8 @@ export interface StageSnapshot {
   replayKey?: string;
   /** Snapshot-safe prompt answer availability marker; never contains the raw answer. */
   promptAnswerState?: "available" | "unavailable" | "ambiguous";
+  /** Snapshot-safe descriptor of the prompt UI shown by this stage; never contains the raw answer. */
+  promptFootprint?: PendingPrompt;
   /** Source stage id when this stage was replayed during failed-run continuation. */
   replayedFromStageId?: string;
   /** True when provider work was skipped by continuation replay. */

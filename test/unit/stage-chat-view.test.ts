@@ -321,6 +321,84 @@ describe("StageChatView", () => {
     view.dispose();
   });
 
+  test("read-only completed prompt node keeps the question and response visible", () => {
+    const store = createStore();
+    setupRun(store, "run-1", "stage-a");
+    const prompt = makePendingPrompt({
+      kind: "input",
+      message: "What should we call this release?",
+    });
+    assert.equal(store.recordStagePendingPrompt("run-1", "stage-a", prompt), true);
+    assert.equal(store.resolveStagePendingPrompt("run-1", "stage-a", prompt.id, "Nebula"), true);
+    const resolvedStage = store.runs()[0]!.stages[0]!;
+    store.recordStageEnd("run-1", {
+      ...resolvedStage,
+      status: "completed",
+      endedAt: Date.now(),
+      durationMs: 1,
+    });
+
+    const view = new StageChatView({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageId: "stage-a",
+      workflowName: "test-wf",
+      handle: undefined,
+      onDetach: () => {},
+      onClose: () => {},
+    });
+
+    const visible = stripAnsi(view.render(80).join("\n"));
+    assert.match(visible, /QUESTION ASKED/);
+    assert.match(visible, /What should we call this release\?/);
+    assert.match(visible, /prompt type\s+input/);
+    assert.match(visible, /your response/);
+    assert.match(visible, /Nebula/);
+    assert.doesNotMatch(visible, /READ-ONLY SESSION/);
+    assert.equal(JSON.stringify(store.snapshot()).includes("Nebula"), false);
+    view.dispose();
+  });
+
+  test("read-only select prompt node shows choices and selected response", () => {
+    const store = createStore();
+    setupRun(store, "run-1", "stage-a");
+    const prompt = makePendingPrompt({
+      kind: "select",
+      message: "Which path should we take?",
+      choices: ["alpha", "beta"],
+    });
+    assert.equal(store.recordStagePendingPrompt("run-1", "stage-a", prompt), true);
+    assert.equal(store.resolveStagePendingPrompt("run-1", "stage-a", prompt.id, "beta"), true);
+    const resolvedStage = store.runs()[0]!.stages[0]!;
+    store.recordStageEnd("run-1", {
+      ...resolvedStage,
+      status: "completed",
+      endedAt: Date.now(),
+      durationMs: 1,
+    });
+
+    const view = new StageChatView({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageId: "stage-a",
+      workflowName: "test-wf",
+      handle: undefined,
+      onDetach: () => {},
+      onClose: () => {},
+    });
+
+    const visible = stripAnsi(view.render(80).join("\n"));
+    assert.match(visible, /QUESTION ASKED/);
+    assert.match(visible, /Which path should we take\?/);
+    assert.match(visible, /prompt type\s+select/);
+    assert.match(visible, /alpha/);
+    assert.match(visible, /beta/);
+    assert.match(visible, /your response/);
+    view.dispose();
+  });
+
   test("lets the host prompt editor handle page keys", () => {
     const store = createStore();
     setupRun(store, "run-1", "stage-a");

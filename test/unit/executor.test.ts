@@ -848,6 +848,8 @@ describe("executor.run", () => {
     assert.equal(replayedPrompt.replayed, true);
     assert.equal(replayedPrompt.replayedFromStageId, sourcePrompt.id);
     assert.equal(replayedPrompt.promptAnswerState, "available");
+    assert.equal(replayedPrompt.promptFootprint?.kind, "confirm");
+    assert.equal(replayedPrompt.promptFootprint?.message, "continue?");
     assert.equal(replayedPrompt.result, undefined);
     assert.deepEqual(continuedAfter.parentIds, [replayedPrompt.id]);
   });

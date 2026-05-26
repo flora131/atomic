@@ -15,7 +15,7 @@
 
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { Key } from "@earendil-works/pi-tui";
+import { Key, type EditorComponent, type TUI } from "@earendil-works/pi-tui";
 import { createStore } from "../../packages/workflows/src/shared/store.js";
 import {
   WorkflowAttachPane,
@@ -24,6 +24,7 @@ import {
 import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.js";
 import { createStageControlRegistry } from "../../packages/workflows/src/runs/foreground/stage-control-registry.js";
 import type { StageControlHandle } from "../../packages/workflows/src/runs/foreground/stage-control-registry.js";
+import type { PendingPrompt } from "../../packages/workflows/src/shared/store-types.js";
 import type { AgentSession } from "@bastani/atomic";
 
 function setupRun(store: ReturnType<typeof createStore>, runId: string, stages: Array<{ id: string; name: string; status?: "pending" | "running" | "paused" | "completed" }>) {
@@ -43,6 +44,46 @@ function setupRun(store: ReturnType<typeof createStore>, runId: string, stages: 
       parentIds: [],
       toolEvents: [],
     });
+  }
+}
+
+function makePendingPrompt(overrides: Partial<PendingPrompt> = {}): PendingPrompt {
+  return {
+    id: "prompt-1",
+    kind: "input",
+    message: "What should the workflow use?",
+    createdAt: Date.now(),
+    ...overrides,
+  };
+}
+
+class FakePromptEditor implements EditorComponent {
+  text = "";
+  focused = false;
+  onSubmit?: (text: string) => void;
+  onChange?: (text: string) => void;
+
+  render(): string[] {
+    return [`fake-prompt-editor:${this.text}`];
+  }
+
+  handleInput(data: string): void {
+    if (data === Key.enter || data === "\r" || data === "\n") {
+      this.onSubmit?.(this.text);
+      return;
+    }
+    this.text += data;
+    this.onChange?.(this.text);
+  }
+
+  invalidate(): void {}
+
+  getText(): string {
+    return this.text;
+  }
+
+  setText(text: string): void {
+    this.text = text;
   }
 }
 
@@ -127,6 +168,98 @@ describe("WorkflowAttachPane", () => {
     assert.equal(pane._mode, "stage-chat");
     assert.equal(pane._lastAttachedStageId, "stage-b");
     assert.equal(pane._hasChatView, true);
+    pane.dispose();
+  });
+
+  test("answering a stage prompt returns to the graph", async () => {
+    const store = createStore();
+    setupRun(store, "run-1", [{ id: "stage-a", name: "A" }]);
+    const registry = createStageControlRegistry();
+    registry.register(makeHandle("run-1", "stage-a"));
+    const prompt = makePendingPrompt();
+    assert.equal(store.recordStagePendingPrompt("run-1", "stage-a", prompt), true);
+    const pending = store.awaitStagePendingPrompt("run-1", "stage-a", prompt.id);
+    const pane = new WorkflowAttachPane({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageControlRegistry: registry,
+      onClose: () => {},
+      initialAttachStageId: "stage-a",
+    });
+
+    assert.equal(pane._mode, "stage-chat");
+    for (const ch of "answer") pane.handleInput(ch);
+    pane.handleInput(Key.enter);
+
+    assert.equal(await pending, "answer");
+    assert.equal(pane._mode, "graph");
+    assert.equal(pane._hasChatView, false);
+    assert.equal(pane._lastAttachedStageId, "stage-a");
+    pane.dispose();
+  });
+
+  test("answering a stage prompt through the host editor returns to the graph", async () => {
+    const store = createStore();
+    setupRun(store, "run-1", [{ id: "stage-a", name: "A" }]);
+    const registry = createStageControlRegistry();
+    registry.register(makeHandle("run-1", "stage-a"));
+    const prompt = makePendingPrompt({ initial: "seed" });
+    assert.equal(store.recordStagePendingPrompt("run-1", "stage-a", prompt), true);
+    const pending = store.awaitStagePendingPrompt("run-1", "stage-a", prompt.id);
+    let createdEditor: FakePromptEditor | undefined;
+    const pane = new WorkflowAttachPane({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageControlRegistry: registry,
+      onClose: () => {},
+      initialAttachStageId: "stage-a",
+      piTui: { requestRender: () => {}, terminal: { rows: 32, columns: 80 } } as unknown as TUI,
+      piTheme: {},
+      piKeybindings: {},
+      piEditorFactory: () => {
+        createdEditor = new FakePromptEditor();
+        return createdEditor;
+      },
+    });
+
+    assert.equal(pane._mode, "stage-chat");
+    assert.equal(createdEditor?.getText(), "seed");
+    pane.handleInput("!");
+    pane.handleInput(Key.enter);
+
+    assert.equal(await pending, "seed!");
+    assert.equal(pane._mode, "graph");
+    assert.equal(pane._hasChatView, false);
+    assert.equal(pane._lastAttachedStageId, "stage-a");
+    pane.dispose();
+  });
+
+  test("declining a stage prompt returns to the graph", async () => {
+    const store = createStore();
+    setupRun(store, "run-1", [{ id: "stage-a", name: "A" }]);
+    const registry = createStageControlRegistry();
+    registry.register(makeHandle("run-1", "stage-a"));
+    const prompt = makePendingPrompt({ initial: "default" });
+    assert.equal(store.recordStagePendingPrompt("run-1", "stage-a", prompt), true);
+    const pending = store.awaitStagePendingPrompt("run-1", "stage-a", prompt.id);
+    const pane = new WorkflowAttachPane({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageControlRegistry: registry,
+      onClose: () => {},
+      initialAttachStageId: "stage-a",
+    });
+
+    assert.equal(pane._mode, "stage-chat");
+    pane.handleInput(Key.escape);
+
+    assert.equal(await pending, "default");
+    assert.equal(pane._mode, "graph");
+    assert.equal(pane._hasChatView, false);
+    assert.equal(pane._lastAttachedStageId, "stage-a");
     pane.dispose();
   });
 

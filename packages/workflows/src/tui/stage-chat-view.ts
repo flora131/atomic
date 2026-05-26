@@ -498,6 +498,7 @@ export class StageChatView implements Component, Focusable {
     // the least surprising recovery path.
     this.store.resolveStagePendingPrompt(this.runId, this.stageId, prompt.id, response);
     this.requestRender?.();
+    this.onDetach();
   }
 
   // -------------------------------------------------------------------------
@@ -686,6 +687,10 @@ export class StageChatView implements Component, Focusable {
     budget: number,
     stage: StageSnapshot | undefined,
   ): string[] {
+    if (stage?.promptFootprint) {
+      return this._renderReadOnlyPromptArchiveBody(width, budget, stage);
+    }
+
     const t = this.theme;
     const calloutRows = 6;
     const transcriptBudget = Math.max(1, budget - calloutRows);
@@ -723,6 +728,78 @@ export class StageChatView implements Component, Focusable {
     while (lines.length < budget) lines.push(this._blank(width));
     if (lines.length > budget) lines.length = budget;
     return lines;
+  }
+
+  private _renderReadOnlyPromptArchiveBody(
+    width: number,
+    budget: number,
+    stage: StageSnapshot,
+  ): string[] {
+    const t = this.theme;
+    const prompt = stage.promptFootprint;
+    if (!prompt) return this._fitBodyLines([], width, budget);
+
+    const innerWidth = Math.max(2, width - 2);
+    const bodyLines: string[] = [];
+    const messageBox = new Box(2, 1);
+    messageBox.addChild(new Text(paint(prompt.message, t.text), 0, 0));
+    bodyLines.push(...messageBox.render(innerWidth));
+    bodyLines.push(...new Text(paint("prompt type", t.textMuted, { bold: true }) + paint(`  ${prompt.kind}`, t.text), 2, 0).render(innerWidth));
+
+    if (prompt.kind === "select" && prompt.choices && prompt.choices.length > 0) {
+      bodyLines.push(...new Text(paint("choices", t.textMuted, { bold: true }), 2, 0).render(innerWidth));
+      for (const choice of prompt.choices) {
+        bodyLines.push(...new Text(paint("• ", t.dim) + paint(choice, t.text), 4, 0).render(innerWidth));
+      }
+    } else if (prompt.kind === "confirm") {
+      bodyLines.push(...new Text(paint("choices", t.textMuted, { bold: true }) + paint("  yes / no", t.text), 2, 0).render(innerWidth));
+    }
+
+    if ((prompt.kind === "input" || prompt.kind === "editor") && prompt.initial && prompt.initial.length > 0) {
+      bodyLines.push(...new Text(paint("initial value shown", t.textMuted, { bold: true }), 2, 0).render(innerWidth));
+      bodyLines.push(...new Text(paint(prompt.initial, t.dim), 4, 0).render(innerWidth));
+    }
+
+    const answer = this._readOnlyPromptAnswer(stage, prompt);
+    bodyLines.push("");
+    bodyLines.push(...new Text(paint("your response", t.textMuted, { bold: true }), 2, 0).render(innerWidth));
+    bodyLines.push(...new Text(paint(answer, answer.startsWith("(") ? t.dim : t.text), 4, 0).render(innerWidth));
+    bodyLines.push(...new Text(
+      paint("esc", t.accent, { bold: true }) +
+        paint(" close", t.textMuted) +
+        paint("  ·  ", t.dim) +
+        paint("ctrl+d", t.accent, { bold: true }) +
+        paint(" return to graph", t.textMuted),
+      2,
+      0,
+    ).render(innerWidth));
+
+    const title = stage.status === "skipped" ? "QUESTION SKIPPED" : "QUESTION ASKED";
+    const cardLines = renderRoundedBoxLines({
+      title,
+      bodyLines,
+      width,
+      theme: t,
+      accent: t.border,
+    });
+    return this._fitPromptBodyLines(cardLines, width, budget);
+  }
+
+  private _readOnlyPromptAnswer(stage: StageSnapshot, prompt: PendingPrompt): string {
+    const answer = this.store.getStagePromptAnswer(this.runId, stage.id);
+    if (answer && answer.promptId === prompt.id) {
+      return formatReadOnlyPromptAnswer(answer.value, prompt.kind);
+    }
+    switch (stage.promptAnswerState) {
+      case "ambiguous":
+        return "(response replay is ambiguous)";
+      case "unavailable":
+        return "(response unavailable)";
+      case "available":
+        return "(response no longer in live memory)";
+      default:
+        return "(no response saved)";
+    }
   }
 
   private _renderBlockedBody(
@@ -1151,6 +1228,18 @@ interface TranscriptDebugEntry {
   readonly toolCallId: string;
   readonly state: string;
   readonly output: string;
+}
+
+function formatReadOnlyPromptAnswer(value: unknown, kind: PendingPrompt["kind"]): string {
+  if (kind === "confirm") return value === true ? "yes" : "no";
+  if (typeof value === "string") return value.length > 0 ? value : "(empty response)";
+  if (typeof value === "number" || typeof value === "boolean" || value === null) return String(value);
+  try {
+    const encoded = JSON.stringify(value);
+    return encoded ?? String(value);
+  } catch {
+    return String(value);
+  }
 }
 
 function transcriptDebugEntries(entry: TranscriptEntry): TranscriptDebugEntry[] {

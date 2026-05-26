@@ -162,7 +162,11 @@ describe("store.recordStagePendingPrompt", () => {
     assert.equal(answer?.value, "super-secret-value");
     assert.equal(answer?.kind, "input");
     assert.equal(JSON.stringify(s.snapshot()).includes("super-secret-value"), false);
-    assert.equal(getRun(s, "r1").stages[0]?.promptAnswerState, "available");
+    const stage = getRun(s, "r1").stages[0];
+    assert.equal(stage?.promptAnswerState, "available");
+    assert.equal(stage?.promptFootprint?.id, "p1");
+    assert.equal(stage?.promptFootprint?.message, "Secret?");
+    assert.equal(stage?.pendingPrompt, undefined);
 
     assert.equal(s.removeRun("r1"), true);
     assert.equal(s.getStagePromptAnswer("r1", "s1"), undefined);

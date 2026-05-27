@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { run, runChain, runParallel, runTask, resolveInputs } from "../../packages/workflows/src/runs/foreground/executor.js";
@@ -272,7 +272,7 @@ describe("executor.run", () => {
   });
 
   test("ctx.stage defaults cwd to gitWorktreeDir while preserving the workflow relative cwd", async () => {
-    const tempRoot = mkdtempSync(join(tmpdir(), "atomic-workflow-git-worktree-"));
+    const tempRoot = realpathSync.native(mkdtempSync(join(tmpdir(), "atomic-workflow-git-worktree-")));
     const repo = join(tempRoot, "repo");
     mkdirSync(repo, { recursive: true });
     execFileSync("git", ["init", "-b", "main"], { cwd: repo, stdio: "ignore" });
@@ -315,7 +315,7 @@ describe("executor.run", () => {
   });
 
   test("ctx.stage preserves explicit absolute cwd when gitWorktreeDir is set", async () => {
-    const tempRoot = mkdtempSync(join(tmpdir(), "atomic-workflow-git-worktree-"));
+    const tempRoot = realpathSync.native(mkdtempSync(join(tmpdir(), "atomic-workflow-git-worktree-")));
     const repo = join(tempRoot, "repo");
     mkdirSync(repo, { recursive: true });
     execFileSync("git", ["init", "-b", "main"], { cwd: repo, stdio: "ignore" });
@@ -358,7 +358,7 @@ describe("executor.run", () => {
 
   test("ctx.stage preserves logical symlink repo cwd for gitWorktreeDir", async () => {
     if (process.platform === "win32") return;
-    const tempRoot = mkdtempSync(join(tmpdir(), "atomic-workflow-git-worktree-"));
+    const tempRoot = realpathSync.native(mkdtempSync(join(tmpdir(), "atomic-workflow-git-worktree-")));
     const repo = join(tempRoot, "real-repo");
     mkdirSync(join(repo, "nested"), { recursive: true });
     execFileSync("git", ["init", "-b", "main"], { cwd: repo, stdio: "ignore" });
@@ -399,7 +399,7 @@ describe("executor.run", () => {
 
   test("ctx.stage preserves logical symlink worktree parent for gitWorktreeDir", async () => {
     if (process.platform === "win32") return;
-    const tempRoot = mkdtempSync(join(tmpdir(), "atomic-workflow-git-worktree-"));
+    const tempRoot = realpathSync.native(mkdtempSync(join(tmpdir(), "atomic-workflow-git-worktree-")));
     const repo = join(tempRoot, "repo");
     mkdirSync(repo, { recursive: true });
     execFileSync("git", ["init", "-b", "main"], { cwd: repo, stdio: "ignore" });
@@ -442,7 +442,7 @@ describe("executor.run", () => {
   });
 
   test("ctx.stage resolves explicit relative cwd against the gitWorktreeDir cwd", async () => {
-    const tempRoot = mkdtempSync(join(tmpdir(), "atomic-workflow-git-worktree-"));
+    const tempRoot = realpathSync.native(mkdtempSync(join(tmpdir(), "atomic-workflow-git-worktree-")));
     const repo = join(tempRoot, "repo");
     mkdirSync(join(repo, "nested", "deeper"), { recursive: true });
     execFileSync("git", ["init", "-b", "main"], { cwd: repo, stdio: "ignore" });
@@ -481,7 +481,7 @@ describe("executor.run", () => {
   });
 
   test("ctx.task, ctx.parallel, and ctx.chain inherit gitWorktreeDir cwd defaults", async () => {
-    const tempRoot = mkdtempSync(join(tmpdir(), "atomic-workflow-git-worktree-"));
+    const tempRoot = realpathSync.native(mkdtempSync(join(tmpdir(), "atomic-workflow-git-worktree-")));
     const repo = join(tempRoot, "repo");
     mkdirSync(join(repo, "nested"), { recursive: true });
     execFileSync("git", ["init", "-b", "main"], { cwd: repo, stdio: "ignore" });
@@ -525,7 +525,7 @@ describe("executor.run", () => {
   });
 
   test("worktree and gitWorktreeDir are mutually exclusive", async () => {
-    const tempRoot = mkdtempSync(join(tmpdir(), "atomic-workflow-git-worktree-"));
+    const tempRoot = realpathSync.native(mkdtempSync(join(tmpdir(), "atomic-workflow-git-worktree-")));
     const repo = join(tempRoot, "repo");
     mkdirSync(repo, { recursive: true });
     execFileSync("git", ["init", "-b", "main"], { cwd: repo, stdio: "ignore" });

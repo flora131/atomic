@@ -15,6 +15,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Replaced regex-based workflow discovery stage validation with source-free startup validation based on stage-primitive observation plus runtime empty-graph validation based on actual stage creation.
 - Split worker project-initialization preflight guidance from Goal receipt/reporting instructions.
 
+### Fixed
+
+- Avoided blank deep-research display paths when a displayed artifact path equals the workflow invocation directory.
+- Warned when workflow startup stage-validation probes throw before observing stage creation instead of silently accepting the workflow.
+- Distinguished Ralph same-repository worktree classification failures from definitely non-Git existing `git_worktree_dir` paths.
+
 ## [0.8.17] - 2026-05-26
 
 ### Changed

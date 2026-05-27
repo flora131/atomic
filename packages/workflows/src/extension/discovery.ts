@@ -86,16 +86,18 @@ export type DiagnosticLevel = "error" | "warn";
  * condition (e.g. a duplicate that was skipped).
  *
  * Codes:
- *   INVALID_DEFINITION — failed structural validation
- *   DUPLICATE_NAME     — normalizedName already registered; skipped (warn)
- *   IMPORT_FAILED      — dynamic import of a workflow file threw
- *   PATH_NOT_FOUND     — a config-specified path does not exist
- *   CONFIG_INVALID     — DiscoveryConfig has an invalid structure
+ *   INVALID_DEFINITION      — failed definition validation
+ *   VALIDATION_PROBE_FAILED — startup stage-validation probe threw before observing stage creation
+ *   DUPLICATE_NAME          — normalizedName already registered; skipped (warn)
+ *   IMPORT_FAILED           — dynamic import of a workflow file threw
+ *   PATH_NOT_FOUND          — a config-specified path does not exist
+ *   CONFIG_INVALID          — DiscoveryConfig has an invalid structure
  */
 export interface DiscoveryDiagnostic {
   readonly level: DiagnosticLevel;
   readonly code:
     | "INVALID_DEFINITION"
+    | "VALIDATION_PROBE_FAILED"
     | "DUPLICATE_NAME"
     | "IMPORT_FAILED"
     | "PATH_NOT_FOUND"
@@ -156,6 +158,23 @@ const WORKFLOW_STAGE_OBSERVED = Symbol("workflow-stage-observed");
 const WORKFLOW_STAGE_VALIDATION_ERROR =
   "run must create at least one workflow stage with ctx.stage(), ctx.task(), ctx.chain(), or ctx.parallel()";
 
+interface DefinitionValidationResult {
+  readonly reason: string | null;
+  readonly warning?: string;
+}
+
+function validationSuccess(warning?: string): DefinitionValidationResult {
+  return warning === undefined ? { reason: null } : { reason: null, warning };
+}
+
+function validationFailure(reason: string): DefinitionValidationResult {
+  return { reason };
+}
+
+function diagnosticErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /**
  * Validate a candidate value as a WorkflowDefinition by shape only.
  * Returns null when valid, or a human-readable rejection reason string.
@@ -206,7 +225,7 @@ function validationInputsFor(def: WorkflowDefinition): Record<string, unknown> {
   return inputs;
 }
 
-async function validateWorkflowCreatesStage(def: WorkflowDefinition): Promise<string | null> {
+async function validateWorkflowCreatesStage(def: WorkflowDefinition): Promise<DefinitionValidationResult> {
   let stageObserved = false;
 
   const markStageObserved = (): never => {
@@ -237,15 +256,19 @@ async function validateWorkflowCreatesStage(def: WorkflowDefinition): Promise<st
   try {
     await def.run(ctx);
   } catch (err) {
-    // Discovery validation is a structural/startup guard, not a full workflow
+    // Discovery validation is a startup graph-shape probe, not a full workflow
     // execution. If the workflow reaches any stage-producing primitive, it is
-    // valid for startup purposes; if it throws before that point, fail open and
-    // leave the real executor to report the runtime failure with run context.
-    if (stageObserved || err === WORKFLOW_STAGE_OBSERVED) return null;
-    return null;
+    // valid for startup purposes. If it throws before that point, keep the
+    // workflow registered so runtime execution can report the original failure
+    // with run context, but emit a warning so startup feedback is not silent or
+    // confused with a clean empty-graph completion.
+    if (stageObserved || err === WORKFLOW_STAGE_OBSERVED) return validationSuccess();
+    return validationSuccess(
+      `run threw during startup stage-validation probe before creating a workflow stage; runtime execution will report the original error if invoked: ${diagnosticErrorMessage(err)}`,
+    );
   }
 
-  return stageObserved ? null : WORKFLOW_STAGE_VALIDATION_ERROR;
+  return stageObserved ? validationSuccess() : validationFailure(WORKFLOW_STAGE_VALIDATION_ERROR);
 }
 
 /**
@@ -253,9 +276,9 @@ async function validateWorkflowCreatesStage(def: WorkflowDefinition): Promise<st
  * authored run function to confirm it reaches a stage-producing primitive.
  * Returns null when valid, or a human-readable rejection reason string.
  */
-async function validateDefinition(value: unknown): Promise<string | null> {
+async function validateDefinition(value: unknown): Promise<DefinitionValidationResult> {
   const shapeReason = validateDefinitionShape(value);
-  if (shapeReason !== null) return shapeReason;
+  if (shapeReason !== null) return validationFailure(shapeReason);
 
   return await validateWorkflowCreatesStage(value as WorkflowDefinition);
 }
@@ -297,12 +320,20 @@ async function applyBatch(
   diagnostics: DiscoveryDiagnostic[],
 ): Promise<WorkflowRegistry> {
   for (const { value, exportKey, kind, filePath, configuredName } of candidates) {
-    const reason = await validateDefinition(value);
-    if (reason !== null) {
+    const validation = await validateDefinition(value);
+    if (validation.warning !== undefined) {
+      diagnostics.push({
+        level: "warn",
+        code: "VALIDATION_PROBE_FAILED",
+        message: `${kind} export "${exportKey}" probe warning: ${validation.warning}`,
+        source: filePath ?? exportKey,
+      });
+    }
+    if (validation.reason !== null) {
       diagnostics.push({
         level: "error",
         code: "INVALID_DEFINITION",
-        message: `${kind} export "${exportKey}" rejected: ${reason}`,
+        message: `${kind} export "${exportKey}" rejected: ${validation.reason}`,
         source: filePath ?? exportKey,
       });
       continue;

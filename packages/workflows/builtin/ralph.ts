@@ -390,7 +390,15 @@ async function addGitWorktree(
   return runGit(["worktree", "add", "--detach", worktreeDir, baseBranch], cwd);
 }
 
-type ExistingGitWorktreeStatus = "same-repository" | "foreign-repository" | "not-git-worktree";
+type ExistingGitWorktreeStatus =
+  | { readonly kind: "same-repository" }
+  | { readonly kind: "foreign-repository" }
+  | { readonly kind: "not-git-worktree" }
+  | { readonly kind: "unclassified"; readonly reason: string };
+
+type GitCommonDirResult =
+  | { readonly ok: true; readonly path: string }
+  | { readonly ok: false; readonly reason: string };
 
 function comparableGitPath(path: string): string {
   let canonical = path;
@@ -409,27 +417,43 @@ function resolveGitPath(value: string, cwd: string): string | undefined {
   return isAbsolute(trimmed) ? resolve(trimmed) : resolve(cwd, trimmed);
 }
 
-function gitCommonDir(cwd: string): string | undefined {
-  const result = runGit(["-C", cwd, "rev-parse", "--git-common-dir"]);
-  if (result.status !== 0) return undefined;
-  return resolveGitPath(result.stdout, cwd);
+function gitCommonDir(cwd: string): GitCommonDirResult {
+  const result = runGit(["rev-parse", "--git-common-dir"], cwd);
+  if (result.status !== 0) {
+    return { ok: false, reason: gitFailureMessage(result) };
+  }
+  const path = resolveGitPath(result.stdout, cwd);
+  if (path === undefined) {
+    return { ok: false, reason: "git rev-parse --git-common-dir returned an empty path" };
+  }
+  return { ok: true, path };
 }
 
 function existingPathGitWorktreeStatus(worktreeDir: string, repoRoot: string): ExistingGitWorktreeStatus {
-  const insideWorkTreeResult = runGit(["-C", worktreeDir, "rev-parse", "--is-inside-work-tree"]);
+  const insideWorkTreeResult = runGit(["rev-parse", "--is-inside-work-tree"], worktreeDir);
   if (insideWorkTreeResult.status !== 0 || insideWorkTreeResult.stdout.trim() !== "true") {
-    return "not-git-worktree";
+    return { kind: "not-git-worktree" };
   }
 
   const repoCommonDir = gitCommonDir(repoRoot);
-  const worktreeCommonDir = gitCommonDir(worktreeDir);
-  if (repoCommonDir === undefined || worktreeCommonDir === undefined) {
-    return "not-git-worktree";
+  if (!repoCommonDir.ok) {
+    return {
+      kind: "unclassified",
+      reason: `could not inspect invoking Git repository common directory at ${repoRoot}: ${repoCommonDir.reason}`,
+    };
   }
 
-  return comparableGitPath(repoCommonDir) === comparableGitPath(worktreeCommonDir)
-    ? "same-repository"
-    : "foreign-repository";
+  const worktreeCommonDir = gitCommonDir(worktreeDir);
+  if (!worktreeCommonDir.ok) {
+    return {
+      kind: "unclassified",
+      reason: `could not inspect existing git_worktree_dir common directory at ${worktreeDir}: ${worktreeCommonDir.reason}`,
+    };
+  }
+
+  return comparableGitPath(repoCommonDir.path) === comparableGitPath(worktreeCommonDir.path)
+    ? { kind: "same-repository" }
+    : { kind: "foreign-repository" };
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -464,15 +488,18 @@ async function createGitWorktreeIfRequested(
   const requestedWorktreeDir = resolveWorktreePath(trimmed, repoRoot);
   if (await pathExists(requestedWorktreeDir)) {
     const existingStatus = existingPathGitWorktreeStatus(requestedWorktreeDir, repoRoot);
-    if (existingStatus === "same-repository") {
+    if (existingStatus.kind === "same-repository") {
       // Match Claude Code's named-worktree model: an existing same-repository
       // worktree is resumed/shared as-is rather than guarded by an app-level
       // lock. Users choose distinct git_worktree_dir values when they need
       // isolation between concurrent Ralph runs.
       return { cwd: requestedWorktreeDir };
     }
-    if (existingStatus === "foreign-repository") {
+    if (existingStatus.kind === "foreign-repository") {
       throw new Error(`git_worktree_dir already exists but does not belong to the invoking Git repository: ${requestedWorktreeDir}`);
+    }
+    if (existingStatus.kind === "unclassified") {
+      throw new Error(`git_worktree_dir already exists but Ralph could not verify whether it belongs to the invoking Git repository: ${requestedWorktreeDir}. ${existingStatus.reason}`);
     }
     throw new Error(`git_worktree_dir already exists but is not a Git worktree: ${requestedWorktreeDir}`);
   }

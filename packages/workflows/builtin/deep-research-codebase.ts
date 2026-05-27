@@ -299,7 +299,8 @@ function displayPath(path: string): string {
 
 function displayPathFrom(cwd: string, path: string): string {
   const relativePath = relative(cwd, path);
-  if (relativePath.length === 0 || (!relativePath.startsWith("..") && !isAbsolute(relativePath))) {
+  if (relativePath.length === 0) return ".";
+  if (!relativePath.startsWith("..") && !isAbsolute(relativePath)) {
     return displayPath(relativePath);
   }
   return displayPath(path);

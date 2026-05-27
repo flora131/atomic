@@ -733,6 +733,35 @@ describe("discoverWorkflows — INVALID_DEFINITION diagnostics", () => {
     assert.equal(errors.filter((e) => e.code === "INVALID_DEFINITION").length, 0);
   });
 
+  test("workflow that throws during the startup probe registers with a warning", async () => {
+    const cwd = makeTempDir("valid-probe-warning");
+    const wfDir = join(cwd, ".atomic", "workflows");
+    mkdirSync(wfDir, { recursive: true });
+    writeFileSync(
+      join(wfDir, "throws-before-stage.js"),
+      [
+        `export default {`,
+        `  __piWorkflow: true,`,
+        `  name: "Throws Before Stage",`,
+        `  normalizedName: "throws-before-stage",`,
+        `  description: "Throws before creating a stage",`,
+        `  inputs: {},`,
+        `  run: async () => { throw new Error("probe boom"); },`,
+        `};`,
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const { registry, errors } = await discoverWorkflows({ cwd, homeDir: makeTempDir("empty-probe-warning"), includeBundled: false });
+
+    assert.equal(registry.has("throws-before-stage"), true);
+    assert.equal(errors.filter((e) => e.code === "INVALID_DEFINITION").length, 0);
+    const warnings = errors.filter((e) => e.code === "VALIDATION_PROBE_FAILED");
+    assert.equal(warnings.length, 1);
+    assert.equal(warnings[0]!.level, "warn");
+    assert.match(warnings[0]!.message, /probe boom/);
+  });
+
   test("PATH_NOT_FOUND for configured path that does not exist", async () => {
     const cwd = makeTempDir("path-not-found");
     const missingPath = join(makeTempDir("ghost-dir"), "ghost.js");

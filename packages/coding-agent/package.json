@@ -51,7 +51,7 @@
     "@earendil-works/pi-agent-core": "^0.75.5",
     "@earendil-works/pi-ai": "^0.75.5",
     "@earendil-works/pi-tui": "^0.75.5",
-    "@modelcontextprotocol/ext-apps": "^1.2.2",
+    "@modelcontextprotocol/ext-apps": "^1.7.2",
     "@modelcontextprotocol/sdk": "^1.25.1",
     "@mozilla/readability": "^0.6.0",
     "@silvia-odwyer/photon-node": "^0.3.4",

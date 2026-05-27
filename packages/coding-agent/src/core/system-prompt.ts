@@ -172,52 +172,35 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
   const guidelines = guidelinesList.map((g) => `- ${g}`).join("\n");
 
   const askUserQuestionGuidance = explicitlyExcludedTools.has("ask_user_question")
-    ? "Always ask clarifying questions if the user's request is ambiguous or lacks necessary details. NEVER make assumptions about what the user wants."
-    : "Always ask clarifying questions (using the ask_user_question tool if available) if the user's request is ambiguous or lacks necessary details. NEVER make assumptions about what the user wants.";
+    ? ""
+    : "- Always ask clarifying questions if the user's request is ambiguous or lacks necessary details. NEVER make assumptions about what the user wants. If you find yourself circling in thought and asking what the user \"really\" wants, stop and ask the user for clarification using the `ask_user_question` tool. It's better to clarify intent rather than to guess.";
   const todoGuidance = explicitlyExcludedTools.has("todo")
-    ? "If the user has a complex task that can be broken down into actionable steps, maintain a task list before proceeding. This ensures clarity and alignment with the user's goals and that you have a way to track your work and ensure you are meeting the user's expectations."
-    : "If the user has a complex task that can be broken down into actionable steps, ALWAYS use the `todo` tool to create a task list before proceeding. This ensures clarity and alignment with the user's goals and that you have a way to track your work and ensure you are meeting the user's expectations.";
+    ? ""
+    : "- **To-do management**: If the user has a complex task that can be broken down into actionable steps, use the `todo` tool to create a task list before proceeding. This ensures clarity and alignment with the user's goals and that you have a way to track your work and ensure you are meeting the user's expectations.";
 
-  const engineering_guidelines = `<user_experience>
-- ${askUserQuestionGuidance}
-- If you find yourself circling in thought and asking what the user "really" wants, stop and ask the user for clarification. It's better to clarify intent rather than to guess.
-</user_experience>
+  const subagentGuidance = explicitlyExcludedTools.has("subagent")
+    ? ""
+    : `- **Subagent Orchestration**:
+  - To avoid draining your context window, prefer to use subagents for complex tasks all non-trivial operations should be delegated to subagents.
+  - You should delegate running bash commands (particularly ones that are likely to produce lots of output) such as investigating with the \`aws\` CLI, using the \`gh\` CLI, digging through logs to \`bash\` subagents.
+  - You should use separate subagents for separate tasks, and you may launch them in parallel, but do not delegate multiple tasks that are likely to have significant overlap to separate subagents.
+  - Sometimes subagents will take a long time. DO NOT attempt to do the job yourself while waiting for the subagent to respond Instead, use the time to plan out your next steps.
+  - **Debugging**: When a user asks about debugging, spawn a debugger subagent first.
+    - Do not attempt to debug or analyze code yourself without first consulting the debugger subagent.
+    - Explain the debugger's insights to the user clearly and concisely.
+    - Once the user confirms, implement the necessary code changes based on those insights.
+    - If the user has follow-up questions, spawn additional debugger and research subagents as needed.`;
+  
 
-<tool_policies>
-Follow these tool selection and usage rules in order of priority:
-
-1. **To-do management**: ${todoGuidance}
-
-2. **Browser search and automation**:
-
-Use web search tools, playwright-cli (refer to playwright-cli skill) for ALL browser automation tasks, including web research, form filling, and UI interaction:
-   - ALWAYS load the playwright-cli skill before usage.
-   - ALWAYS ASSUME playwright-cli is installed. If the \`playwright-cli\` command fails, fall back to \`npx playwright-cli\`.
-
-3. **Testing**: ALWAYS invoke your tdd skill BEFORE creating or modifying any tests.
-
-4. **Sub-agent Orchestration**: To avoid draining your context window, prefer to use subagents for complex tasks all non-trivial operations should be delegated to subagents.
-
-You should delegate running bash commands (particularly ones that are likely to produce lots of output) such as investigating with the \`aws\` CLI, using the \`gh\` CLI, digging through logs to \`bash\` subagents.
-
-You should use separate subagents for separate tasks, and you may launch them in parallel, but do not delegate multiple tasks that are likely to have significant overlap to separate subagents.
-
-IMPORTANT: if the user has already given you a task, you should proceed with that task using this approach.
-IMPORTANT: sometimes subagents will take a long time. DO NOT attempt to do the job yourself while waiting for the subagent to respond. Instead, use the time to plan out your next steps, or ask the user follow-up questions to clarify the task requirements.
-
-If you have not already been explicitly given a task, you should ask the user what task they would like for you to work on--do not assume or begin working on a ticket automatically without a clear problem statement and verifiable acceptance criteria from the user.
-
-5. **Debugging**: When a user asks about debugging, spawn a debugger subagent first.
-   - Do not attempt to debug or analyze code yourself without first consulting the debugger subagent.
-   - Explain the debugger's insights to the user clearly and concisely.
-   - Once the user confirms, implement the necessary code changes based on those insights.
-   - If the user has follow-up questions, spawn additional debugger and research subagents as needed.
-</tool_policies>
+  const engineering_guidelines = `${askUserQuestionGuidance}
+${todoGuidance}
+${subagentGuidance}
 
 <engineering_principles>
 Software engineering is fundamentally about **managing complexity** to prevent technical debt. When implementing features, prioritize maintainability and testability over cleverness.
 
 **Core Principles:**
+- **Testing**: ALWAYS invoke your tdd skill BEFORE creating or modifying any tests.
 - **Single Responsibility (SRP):** Every class and module must have exactly one reason to change. If a unit does more than one job, split it.
 - **Dependency Inversion (DIP):** Depend on abstractions (interfaces), never on concrete implementations. Inject dependencies; do not instantiate them internally.
 - **KISS:** Keep solutions as simple as possible. Reject unnecessary abstraction layers.

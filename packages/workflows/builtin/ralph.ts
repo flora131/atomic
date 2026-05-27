@@ -380,15 +380,22 @@ type GitCommonDirResult =
   | { readonly ok: true; readonly path: string }
   | { readonly ok: false; readonly reason: string };
 
-function comparableGitPath(path: string): string {
-  let canonical = path;
+type ComparableGitPathResult =
+  | { readonly ok: true; readonly path: string }
+  | { readonly ok: false; readonly reason: string };
+
+function comparableGitPath(path: string): ComparableGitPathResult {
+  let canonical: string;
   try {
     canonical = realpathSync.native(path);
-  } catch {
-    canonical = resolve(path);
+  } catch (error) {
+    return {
+      ok: false,
+      reason: `could not resolve canonical Git path ${path}: ${errorMessage(error)}`,
+    };
   }
   const normalized = canonical.replace(/\\/g, "/");
-  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+  return { ok: true, path: process.platform === "win32" ? normalized.toLowerCase() : normalized };
 }
 
 function resolveGitPath(value: string, cwd: string): string | undefined {
@@ -431,7 +438,23 @@ function existingPathGitWorktreeStatus(worktreeDir: string, repoRoot: string): E
     };
   }
 
-  return comparableGitPath(repoCommonDir.path) === comparableGitPath(worktreeCommonDir.path)
+  const comparableRepoCommonDir = comparableGitPath(repoCommonDir.path);
+  if (!comparableRepoCommonDir.ok) {
+    return {
+      kind: "unclassified",
+      reason: `could not canonicalize invoking Git repository common directory at ${repoCommonDir.path}: ${comparableRepoCommonDir.reason}`,
+    };
+  }
+
+  const comparableWorktreeCommonDir = comparableGitPath(worktreeCommonDir.path);
+  if (!comparableWorktreeCommonDir.ok) {
+    return {
+      kind: "unclassified",
+      reason: `could not canonicalize existing git_worktree_dir common directory at ${worktreeCommonDir.path}: ${comparableWorktreeCommonDir.reason}`,
+    };
+  }
+
+  return comparableRepoCommonDir.path === comparableWorktreeCommonDir.path
     ? { kind: "same-repository" }
     : { kind: "foreign-repository" };
 }

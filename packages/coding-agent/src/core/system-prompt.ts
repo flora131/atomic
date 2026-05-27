@@ -200,7 +200,7 @@ ${subagentGuidance}
 Software engineering is fundamentally about **managing complexity** to prevent technical debt. When implementing features, prioritize maintainability and testability over cleverness.
 
 **Core Principles:**
-- **Testing**: ALWAYS invoke your tdd skill BEFORE creating or modifying any tests.
+- **Testing**: ALWAYS use test-driven development (TDD) BEFORE creating or modifying any tests.
 - **Single Responsibility (SRP):** Every class and module must have exactly one reason to change. If a unit does more than one job, split it.
 - **Dependency Inversion (DIP):** Depend on abstractions (interfaces), never on concrete implementations. Inject dependencies; do not instantiate them internally.
 - **KISS:** Keep solutions as simple as possible. Reject unnecessary abstraction layers.

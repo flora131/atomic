@@ -105,6 +105,64 @@ export default defineWorkflow("review-and-merge")
   .compile();
 ```
 
+### Reusable Git worktrees
+
+Use `gitWorktreeDir` when a workflow should run stages in a reusable Git worktree instead of the invoking checkout. The executor creates the worktree if it is missing, reuses it when it already exists as a same-repository worktree root, and defaults the stage/task `cwd` to the matching path inside that worktree.
+
+```typescript
+import { defineWorkflow } from "@bastani/workflows";
+
+export default defineWorkflow("safe-implementation")
+  .description("Run implementation stages in a reusable worktree.")
+  .input("task", { type: "text", required: true })
+  .input("worktree", { type: "string", default: "" })
+  .input("base_branch", { type: "string", default: "origin/main" })
+  .worktreeFromInputs({
+    gitWorktreeDir: "worktree",
+    baseBranch: "base_branch",
+  })
+  .run(async (ctx) => {
+    const result = await ctx.task("implement", {
+      task: String(ctx.inputs.task),
+      // No cwd needed: when `worktree` is non-empty, this task runs from the
+      // corresponding cwd inside that reusable Git worktree.
+    });
+    return { result: result.text };
+  })
+  .compile();
+```
+
+You can also pass worktree options per stage/task or as shared chain/parallel defaults:
+
+```typescript
+await ctx.stage("review", {
+  gitWorktreeDir: "../review-worktree",
+  baseBranch: "origin/main",
+}).prompt("Review the current changes.");
+
+await ctx.parallel([
+  { name: "security", task: "Security review" },
+  { name: "runtime", task: "Runtime review" },
+], {
+  gitWorktreeDir: "../review-worktree",
+  baseBranch: "origin/main",
+  failFast: false,
+});
+```
+
+Worktree semantics:
+
+- `gitWorktreeDir` must be used from inside a Git repository. Relative paths resolve from the logical invoking repository root; absolute paths are used as-is.
+- If the requested path exists, it must be an actual Git worktree/checkout root belonging to the invoking repository. Existing subdirectories are rejected so writes do not silently land in the main checkout.
+- If the path is missing, the parent directory is created and Git runs `git worktree add --detach <path> <baseBranch>`. `baseBranch` defaults to `HEAD` when omitted.
+- The default execution cwd preserves the caller's repo-relative cwd inside the worktree. For example, invoking a workflow from `repo/packages/api` with `gitWorktreeDir=../repo-wt` runs stages from `../repo-wt/packages/api`.
+- Symlinked repo/worktree paths preserve their logical spelling in the default cwd, matching Codex-style worktree behavior.
+- Explicit `cwd` still wins. Relative `cwd` values are resolved against the worktree default cwd; absolute `cwd` values are used as provided.
+
+`worktree: true` is different: it creates temporary isolated worktrees for direct task/parallel/chain execution and cleans them up afterward. It is mutually exclusive with `gitWorktreeDir`, which is intended for named/reusable worktrees that remain available across retries.
+
+For advanced integrations, the SDK also exports `setupGitWorktree(options)`, which returns `{ worktreeRoot, cwd, repositoryRoot, created }` and uses the same validation/path behavior as the executor.
+
 ### Model fallbacks
 
 Stages and high-level task helpers can retry transient provider/model failures with an ordered `fallbackModels` list. The primary `model` is tried first, then each fallback, and finally the current pi-selected model when available. Fallbacks are only used for retryable model/provider failures such as rate limits, quota/auth/provider outages, unavailable models, network timeouts, and 5xx errors — ordinary tool, shell, validation, cancellation, and workflow-code failures are not retried.
@@ -280,7 +338,7 @@ await runWorkflow({
 });
 ```
 
-The programmatic definition object mirrors the workflow tool: named workflow runs, single-task runs, parallel `tasks`, and mixed `chain` runs accept the same direct options (`reads`, `output`, `outputMode`, `worktree`, `maxOutput`, `artifacts`, `concurrency`, `failFast`, and stage/session options such as `cwd`, `agentDir`, `model`, `tools`, `context`, and `sessionDir`). `chainDir` is chain-only: it provides the shared artifact directory for chain reads, outputs, and worktree diffs.
+The programmatic definition object mirrors the workflow tool: named workflow runs, single-task runs, parallel `tasks`, and mixed `chain` runs accept the same direct options (`reads`, `output`, `outputMode`, `worktree`, `gitWorktreeDir`, `baseBranch`, `maxOutput`, `artifacts`, `concurrency`, `failFast`, and stage/session options such as `cwd`, `agentDir`, `model`, `tools`, `context`, and `sessionDir`). `chainDir` is chain-only: it provides the shared artifact directory for chain reads, outputs, and worktree diffs.
 
 Workflow stage sessions follow Atomic SDK directory defaults: `DefaultResourceLoader` is initialized with the project `cwd` and the Atomic default `~/.atomic/agent` directory, while legacy `.pi` paths remain readable where the SDK supports multiple config directories. A stage-supplied `agentDir` is treated as an explicit user override; a stage-supplied `resourceLoader` owns discovery, with `cwd`/`agentDir` left for session naming and tool path resolution.
 
@@ -333,8 +391,9 @@ Plan → orchestrate → simplify → discover → review → PR-handoff workflo
 | Input         | Type     | Required | Default       | Description                                                   |
 | ------------- | -------- | -------- | ------------- | ------------------------------------------------------------- |
 | `prompt`      | `text`   | ✓        | —             | Task, feature request, issue summary, or spec path to plan, execute, refine, review, and prepare for PR. |
-| `max_loops`   | `number` | —        | `10`          | Maximum plan/orchestrate/review iterations before PR handoff. |
-| `base_branch` | `string` | —        | `origin/main` | Branch reviewers and PR-prep compare the current delta with.  |
+| `max_loops`        | `number` | —        | `10`          | Maximum plan/orchestrate/review iterations before PR handoff. |
+| `base_branch`      | `string` | —        | `origin/main` | Branch reviewers and PR-prep compare the current delta with; also used to create a missing worktree. |
+| `git_worktree_dir` | `string` | —        | `""`          | Optional reusable Git worktree root. Empty runs in the invoking checkout; non-empty values run Ralph stages in the created/reused worktree. |
 
 ### `open-claude-design`
 

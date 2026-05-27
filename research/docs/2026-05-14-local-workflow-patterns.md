@@ -155,12 +155,13 @@ const definition: WorkflowDefinition<TInputs> = {
   normalizedName,
   description: state.description,
   inputs: frozenInputs,
+  inputBindings,
   run: state.runFn,
 };
 ```
 
 **Key aspects**:
-- Definitions carry a `__piWorkflow: true` sentinel, authored name, normalized registry key, description, input schema map, and run function.
+- Definitions carry a `__piWorkflow: true` sentinel, authored name, normalized registry key, description, input schema map, optional input bindings, and run function.
 - Registry operations include `register`, `upsert`, `merge`, `get`, `has`, `remove`, `names`, and `all`.
 - Discovery supports bundled, project-local, user-global, settings-project, and settings-global sources.
 - Discovery validates exported workflow definitions before registering them.
@@ -218,6 +219,8 @@ const specialistResults = await Promise.all(
 - `chain` passes prior task output via `{previous}` / context handoff semantics.
 - `parallel` uses `Promise.all` over task/stage operations.
 - Built-in workflows show sequential pipelines and parallel fan-out/fan-in.
+- Reusable Git worktree defaults can be declared once with `defineWorkflow(...).worktreeFromInputs({ gitWorktreeDir, baseBranch })`; the executor applies the resolved inputs as workflow-wide defaults for `ctx.stage`, `ctx.task`, `ctx.chain`, and `ctx.parallel`.
+- Per-stage/task `gitWorktreeDir` and `baseBranch` can still be supplied directly. `gitWorktreeDir` creates/reuses a named worktree, preserves the invoking repo-relative cwd inside it, and differs from temporary `worktree: true` isolation.
 
 ### Pattern 7: Subagent tool-call adapter shape
 **Found in**: `src/shared/types.ts:91-106`, `src/extension/wiring.ts:213-239`, `test/unit/executor-subagent-call-shape.test.ts:1-124`

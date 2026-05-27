@@ -140,13 +140,17 @@ export interface StageMcpOptions {
 /**
  * Options accepted by WorkflowRunContext.stage(name, options?).
  * All pi SDK createAgentSession options are forwarded to the stage session;
- * `mcp` remains workflow-owned and is stripped before SDK session creation.
+ * workflow-owned options such as `mcp` and `gitWorktreeDir` are stripped before SDK session creation.
  */
 export interface StageOptions extends Omit<CreateAgentSessionOptions, "model">, WorkflowModelFallbackFields {
   /** Model id or pi SDK model object used as the primary stage model. */
   model?: WorkflowModelValue;
   /** Per-stage MCP server gating. No-op when no WorkflowMcpPort is configured. */
   mcp?: StageMcpOptions;
+  /** Reusable Git worktree root. Defaults this stage cwd to the corresponding worktree cwd unless cwd is explicitly provided. */
+  gitWorktreeDir?: string;
+  /** Git ref used when creating gitWorktreeDir. Defaults to HEAD. */
+  baseBranch?: string;
   /**
    * Override the session log directory for this stage.
    * Converted to a pi SessionManager before createAgentSession() is called.
@@ -271,8 +275,12 @@ export interface WorkflowSharedTaskDefaults extends StageOptions {
   outputMode?: WorkflowOutputMode;
   /** Files the task should read before responding; relative paths resolve via chainDir for chains, otherwise cwd. */
   reads?: readonly string[] | false;
-  /** Workflow-owned isolation flag; not forwarded to createAgentSession(). */
+  /** Workflow-owned temporary isolation flag; not forwarded to createAgentSession(). */
   worktree?: boolean;
+  /** Reusable Git worktree root. Defaults cwd to the corresponding worktree cwd unless cwd is explicitly provided. */
+  gitWorktreeDir?: string;
+  /** Git ref used when creating gitWorktreeDir. Defaults to HEAD. */
+  baseBranch?: string;
   /** Default output truncation limits for steps that do not set one. */
   maxOutput?: WorkflowMaxOutput;
   /** Whether to include debug artifacts such as sessions and worktree diffs. */
@@ -400,8 +408,12 @@ export interface WorkflowTaskSessionFields {
   output?: string | false;
   outputMode?: WorkflowOutputMode;
   reads?: readonly string[] | false;
-  /** Workflow-owned isolation flag; not forwarded to createAgentSession(). */
+  /** Workflow-owned temporary isolation flag; not forwarded to createAgentSession(). */
   worktree?: boolean;
+  /** Reusable Git worktree root. Defaults cwd to the corresponding worktree cwd unless cwd is explicitly provided. */
+  gitWorktreeDir?: string;
+  /** Git ref used when creating gitWorktreeDir. Defaults to HEAD. */
+  baseBranch?: string;
   maxOutput?: WorkflowMaxOutput;
   /** Whether to include debug artifacts such as sessions and worktree diffs. */
   artifacts?: boolean;
@@ -421,6 +433,8 @@ export interface WorkflowParallelChainStep {
   readonly concurrency?: number;
   readonly failFast?: boolean;
   readonly worktree?: boolean;
+  readonly gitWorktreeDir?: string;
+  readonly baseBranch?: string;
 }
 
 export type WorkflowChainStep = WorkflowDirectTaskItem | WorkflowParallelChainStep;
@@ -438,6 +452,8 @@ export interface WorkflowDirectOptions extends StageOptions {
   output?: string | false;
   outputMode?: WorkflowOutputMode;
   worktree?: boolean;
+  gitWorktreeDir?: string;
+  baseBranch?: string;
   maxOutput?: WorkflowMaxOutput;
   artifacts?: boolean;
 }
@@ -573,6 +589,15 @@ export type WorkflowRunFn<TInputs extends Record<string, unknown> = Record<strin
 // Compiled workflow definition
 // ---------------------------------------------------------------------------
 
+export interface WorkflowWorktreeInputBinding {
+  readonly gitWorktreeDir: string;
+  readonly baseBranch?: string;
+}
+
+export interface WorkflowInputBindings {
+  readonly worktree?: WorkflowWorktreeInputBinding;
+}
+
 export interface WorkflowDefinition<TInputs extends Record<string, unknown> = Record<string, unknown>> {
   /** Sentinel consumed by the registry loader to validate the export. */
   readonly __piWorkflow: true;
@@ -581,5 +606,7 @@ export interface WorkflowDefinition<TInputs extends Record<string, unknown> = Re
   readonly normalizedName: string;
   readonly description: string;
   readonly inputs: Readonly<Record<string, WorkflowInputSchema>>;
+  /** Optional input-to-runtime defaults declared by the workflow builder. */
+  readonly inputBindings?: WorkflowInputBindings;
   readonly run: WorkflowRunFn<TInputs>;
 }

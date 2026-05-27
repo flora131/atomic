@@ -7,11 +7,9 @@
  * iteration feeds review findings into the next planner with ctx.task().
  */
 
-import { spawnSync } from "node:child_process";
-import { realpathSync } from "node:fs";
-import { mkdir, mkdtemp, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { defineWorkflow } from "../src/index.js";
 import type { WorkflowRunContext, WorkflowTaskResult } from "../src/shared/types.js";
 import { WORKER_PREFLIGHT_CONTRACT } from "./shared-prompts.js";
@@ -271,258 +269,6 @@ async function writeSpecFile(path: string, content: string): Promise<string> {
   return path;
 }
 
-type GitCommandResult = {
-  readonly stdout: string;
-  readonly stderr: string;
-  readonly status: number | null;
-  readonly error?: Error;
-};
-
-// Scrub only Git's local repository/worktree-scoping environment so internal
-// Git commands operate from the cwd we pass instead of an inherited checkout.
-const GIT_LOCAL_ENV_VARS = [
-  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-  "GIT_COMMON_DIR",
-  "GIT_CONFIG",
-  "GIT_CONFIG_COUNT",
-  "GIT_CONFIG_PARAMETERS",
-  "GIT_DIR",
-  "GIT_GRAFT_FILE",
-  "GIT_IMPLICIT_WORK_TREE",
-  "GIT_INDEX_FILE",
-  "GIT_NO_REPLACE_OBJECTS",
-  "GIT_OBJECT_DIRECTORY",
-  "GIT_PREFIX",
-  "GIT_REPLACE_REF_BASE",
-  "GIT_SHALLOW_FILE",
-  "GIT_WORK_TREE",
-] as const;
-
-function gitProcessEnv(): NodeJS.ProcessEnv {
-  // Only Ralph's internal bookkeeping Git commands use this scrubbed env;
-  // worker stages keep the host/CI credential configuration they inherit.
-  const env = { ...process.env };
-  for (const key of GIT_LOCAL_ENV_VARS) {
-    delete env[key];
-  }
-  return env;
-}
-
-function runGit(args: readonly string[], cwd = process.cwd()): GitCommandResult {
-  const result = spawnSync("git", args, {
-    cwd,
-    encoding: "utf8",
-    env: gitProcessEnv(),
-  });
-  return {
-    stdout: result.stdout ?? "",
-    stderr: result.stderr ?? "",
-    status: result.status,
-    ...(result.error === undefined ? {} : { error: result.error }),
-  };
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function gitFailureMessage(result: GitCommandResult): string {
-  if (result.error !== undefined) return result.error.message;
-  return result.stderr.trim() || result.stdout.trim() || `git exited with status ${result.status}`;
-}
-
-function resolveWorktreePath(value: string, cwd = process.cwd()): string {
-  const trimmed = value.trim();
-  if (trimmed.includes("\0")) {
-    throw new Error("git_worktree_dir contains an unusable null byte; provide a valid path or omit git_worktree_dir.");
-  }
-  return isAbsolute(trimmed) ? resolve(trimmed) : resolve(cwd, trimmed);
-}
-
-function requireGitRepositoryForWorktree(cwd = process.cwd()): string {
-  const repoRootResult = runGit(["rev-parse", "--show-toplevel"], cwd);
-  if (repoRootResult.status !== 0) {
-    throw new Error(
-      `git_worktree_dir requires Ralph to be invoked from inside a Git repository. Start Ralph from a Git checkout or omit git_worktree_dir. Git reported: ${gitFailureMessage(repoRootResult)}`,
-    );
-  }
-  return repoRootResult.stdout.trim();
-}
-
-type GitWorktreeSetup = {
-  readonly cwd?: string;
-};
-
-async function addGitWorktree(
-  worktreeDir: string,
-  baseBranch: string,
-  cwd = process.cwd(),
-): Promise<GitCommandResult> {
-  try {
-    await mkdir(dirname(worktreeDir), { recursive: true });
-  } catch (error) {
-    return {
-      stdout: "",
-      stderr: `mkdir: failed to create worktree parent directory: ${errorMessage(error)}`,
-      status: 1,
-    };
-  }
-  return runGit(["worktree", "add", "--detach", worktreeDir, baseBranch], cwd);
-}
-
-type ExistingGitWorktreeStatus =
-  | { readonly kind: "same-repository" }
-  | { readonly kind: "foreign-repository" }
-  | { readonly kind: "not-git-worktree" }
-  | { readonly kind: "unclassified"; readonly reason: string };
-
-type GitCommonDirResult =
-  | { readonly ok: true; readonly path: string }
-  | { readonly ok: false; readonly reason: string };
-
-type ComparableGitPathResult =
-  | { readonly ok: true; readonly path: string }
-  | { readonly ok: false; readonly reason: string };
-
-function comparableGitPath(path: string): ComparableGitPathResult {
-  let canonical: string;
-  try {
-    canonical = realpathSync.native(path);
-  } catch (error) {
-    return {
-      ok: false,
-      reason: `could not resolve canonical Git path ${path}: ${errorMessage(error)}`,
-    };
-  }
-  const normalized = canonical.replace(/\\/g, "/");
-  return { ok: true, path: process.platform === "win32" ? normalized.toLowerCase() : normalized };
-}
-
-function resolveGitPath(value: string, cwd: string): string | undefined {
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-  return isAbsolute(trimmed) ? resolve(trimmed) : resolve(cwd, trimmed);
-}
-
-function gitCommonDir(cwd: string): GitCommonDirResult {
-  const result = runGit(["rev-parse", "--git-common-dir"], cwd);
-  if (result.status !== 0) {
-    return { ok: false, reason: gitFailureMessage(result) };
-  }
-  const path = resolveGitPath(result.stdout, cwd);
-  if (path === undefined) {
-    return { ok: false, reason: "git rev-parse --git-common-dir returned an empty path" };
-  }
-  return { ok: true, path };
-}
-
-function existingPathGitWorktreeStatus(worktreeDir: string, repoRoot: string): ExistingGitWorktreeStatus {
-  const insideWorkTreeResult = runGit(["rev-parse", "--is-inside-work-tree"], worktreeDir);
-  if (insideWorkTreeResult.status !== 0 || insideWorkTreeResult.stdout.trim() !== "true") {
-    return { kind: "not-git-worktree" };
-  }
-
-  const repoCommonDir = gitCommonDir(repoRoot);
-  if (!repoCommonDir.ok) {
-    return {
-      kind: "unclassified",
-      reason: `could not inspect invoking Git repository common directory at ${repoRoot}: ${repoCommonDir.reason}`,
-    };
-  }
-
-  const worktreeCommonDir = gitCommonDir(worktreeDir);
-  if (!worktreeCommonDir.ok) {
-    return {
-      kind: "unclassified",
-      reason: `could not inspect existing git_worktree_dir common directory at ${worktreeDir}: ${worktreeCommonDir.reason}`,
-    };
-  }
-
-  const comparableRepoCommonDir = comparableGitPath(repoCommonDir.path);
-  if (!comparableRepoCommonDir.ok) {
-    return {
-      kind: "unclassified",
-      reason: `could not canonicalize invoking Git repository common directory at ${repoCommonDir.path}: ${comparableRepoCommonDir.reason}`,
-    };
-  }
-
-  const comparableWorktreeCommonDir = comparableGitPath(worktreeCommonDir.path);
-  if (!comparableWorktreeCommonDir.ok) {
-    return {
-      kind: "unclassified",
-      reason: `could not canonicalize existing git_worktree_dir common directory at ${worktreeCommonDir.path}: ${comparableWorktreeCommonDir.reason}`,
-    };
-  }
-
-  return comparableRepoCommonDir.path === comparableWorktreeCommonDir.path
-    ? { kind: "same-repository" }
-    : { kind: "foreign-repository" };
-}
-
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await stat(path);
-    return true;
-  } catch (error) {
-    if ((error as { readonly code?: string }).code === "ENOENT") return false;
-    throw error;
-  }
-}
-
-function quoteRecoveryCommandArgument(value: string): string {
-  if (process.platform === "win32") return `"${value.replace(/"/g, "\"\"")}"`;
-  return `'${value.replace(/'/g, "'\\''")}'`;
-}
-
-function formatWorktreeRecoveryCommand(repositoryRoot: string, worktreeDir: string): string {
-  return `git -C ${quoteRecoveryCommandArgument(repositoryRoot)} worktree remove --force ${quoteRecoveryCommandArgument(worktreeDir)}`;
-}
-
-async function createGitWorktreeIfRequested(
-  value: string | undefined,
-  baseBranch: string,
-  cwd = process.cwd(),
-): Promise<GitWorktreeSetup> {
-  const trimmed = value?.trim();
-  if (!trimmed) return {};
-
-  const repoRoot = requireGitRepositoryForWorktree(cwd);
-
-  const requestedWorktreeDir = resolveWorktreePath(trimmed, repoRoot);
-  if (await pathExists(requestedWorktreeDir)) {
-    const existingStatus = existingPathGitWorktreeStatus(requestedWorktreeDir, repoRoot);
-    if (existingStatus.kind === "same-repository") {
-      // Match Claude Code's named-worktree model: an existing same-repository
-      // worktree is resumed/shared as-is rather than guarded by an app-level
-      // lock. Users choose distinct git_worktree_dir values when they need
-      // isolation between concurrent Ralph runs.
-      return { cwd: requestedWorktreeDir };
-    }
-    if (existingStatus.kind === "foreign-repository") {
-      throw new Error(`git_worktree_dir already exists but does not belong to the invoking Git repository: ${requestedWorktreeDir}`);
-    }
-    if (existingStatus.kind === "unclassified") {
-      throw new Error(`git_worktree_dir already exists but Ralph could not verify whether it belongs to the invoking Git repository: ${requestedWorktreeDir}. ${existingStatus.reason}`);
-    }
-    throw new Error(`git_worktree_dir already exists but is not a Git worktree: ${requestedWorktreeDir}`);
-  }
-
-  const requestedResult = await addGitWorktree(requestedWorktreeDir, baseBranch, repoRoot);
-  if (requestedResult.status !== 0) {
-    throw new Error(
-      [
-        `Failed to create git worktree at requested git_worktree_dir ${requestedWorktreeDir} from ${baseBranch}: ${gitFailureMessage(requestedResult)}`,
-        `If another process just created this same-repository worktree, rerun Ralph to resume it. If this is an orphaned worktree from an interrupted run, recover or remove it with: ${formatWorktreeRecoveryCommand(repoRoot, requestedWorktreeDir)}`,
-      ].join("\n"),
-    );
-  }
-  return { cwd: requestedWorktreeDir };
-}
-
-function workflowCwdOption(workflowCwd: string | undefined): { cwd?: string } {
-  return workflowCwd === undefined ? {} : { cwd: workflowCwd };
-}
-
 async function createImplementationNotesFile(prompt: string): Promise<string> {
   const notesDir = await mkdtemp(join(tmpdir(), "atomic-ralph-notes-"));
   const notesPath = join(notesDir, IMPLEMENTATION_NOTES_FILENAME);
@@ -628,7 +374,6 @@ type RalphWorkflowOptions = {
   readonly maxLoops: number;
   readonly comparisonBaseBranch: string;
   readonly workflowStartCwd: string;
-  readonly workflowCwd?: string;
 };
 
 type RalphWorkflowResult = {
@@ -651,9 +396,7 @@ async function runRalphWorkflow(
     maxLoops,
     comparisonBaseBranch,
     workflowStartCwd,
-    workflowCwd,
   } = options;
-  const cwdOption = workflowCwdOption(workflowCwd);
 
   let reviewReport = "";
   let finalPlan = "";
@@ -842,7 +585,6 @@ async function runRalphWorkflow(
         : {}),
       ...(iteration > 1 ? { reads: [workflowSpecPath] } : {}),
       ...plannerModelConfig,
-      ...cwdOption,
     });
     finalPlan = planner.text;
     const specPath = await writeSpecFile(workflowSpecPath, planner.text);
@@ -944,7 +686,6 @@ async function runRalphWorkflow(
       ]),
       reads: [specPath, implementationNotesPath],
       ...orchestratorModelConfig,
-      ...cwdOption,
     });
     finalResult = orchestrator.text;
 
@@ -1043,7 +784,6 @@ async function runRalphWorkflow(
       ]),
       previous: [planner, orchestrator],
       ...simplifierModelConfig,
-      ...cwdOption,
     });
 
     const discovery = await ctx.parallel(
@@ -1083,7 +823,6 @@ async function runRalphWorkflow(
             ],
           ]),
           ...explorerModelConfig,
-          ...cwdOption,
         },
         {
           name: `infra-analyze-${iteration}`,
@@ -1124,7 +863,6 @@ async function runRalphWorkflow(
             ],
           ]),
           ...explorerModelConfig,
-          ...cwdOption,
         },
         {
           name: `infra-patterns-${iteration}`,
@@ -1166,10 +904,9 @@ async function runRalphWorkflow(
             ],
           ]),
           ...explorerModelConfig,
-          ...cwdOption,
         },
       ],
-      { task: prompt, ...cwdOption },
+      { task: prompt },
     );
 
     const discoveryContext = formatDiscovery(discovery);
@@ -1314,16 +1051,14 @@ async function runRalphWorkflow(
             name: "reviewer-a",
             task: reviewPrompt,
             ...reviewerModelConfig,
-            ...cwdOption,
           },
           {
             name: "reviewer-b",
             task: reviewPrompt,
             ...reviewerModelConfig,
-            ...cwdOption,
           },
         ],
-        { task: prompt, failFast: false, ...cwdOption },
+        { task: prompt, failFast: false },
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -1399,7 +1134,6 @@ async function runRalphWorkflow(
       ? [finalPlanPath, implementationNotesPath]
       : [implementationNotesPath],
     ...orchestratorModelConfig,
-    ...cwdOption,
   });
   finalPrReport = prResult.text;
 
@@ -1413,24 +1147,6 @@ async function runRalphWorkflow(
     iterations_completed: iterationsCompleted,
     review_report: reviewReport,
   };
-}
-
-export async function runRalphWorkflowFromCwd(
-  ctx: WorkflowRunContext<RalphInputs>,
-  workflowStartCwd = process.cwd(),
-): Promise<RalphWorkflowResult> {
-  const inputs = ctx.inputs;
-  const prompt = inputs.prompt ?? "";
-  const maxLoops = positiveInteger(inputs.max_loops, DEFAULT_MAX_LOOPS);
-  const comparisonBaseBranch = normalizeBranchInput(inputs.base_branch, "origin/main");
-  const worktree = await createGitWorktreeIfRequested(inputs.git_worktree_dir, comparisonBaseBranch, workflowStartCwd);
-  return await runRalphWorkflow(ctx, {
-    prompt,
-    maxLoops,
-    comparisonBaseBranch,
-    workflowStartCwd,
-    workflowCwd: worktree.cwd,
-  });
 }
 
 export default defineWorkflow("ralph")
@@ -1459,5 +1175,19 @@ export default defineWorkflow("ralph")
     description:
       "Optional Git worktree path. Ralph must start inside a Git repo; absolute paths are used as-is, relative paths resolve from the repo root, existing Git worktrees from the invoking repository are reused/shared as-is, and missing paths are created from base_branch."
   })
-  .run(async (ctx) => runRalphWorkflowFromCwd(ctx as WorkflowRunContext<RalphInputs>, ctx.cwd))
+  .worktreeFromInputs({ gitWorktreeDir: "git_worktree_dir", baseBranch: "base_branch" })
+  .run(async (ctx) => {
+    const workflowCtx = ctx as WorkflowRunContext<RalphInputs>;
+    const workflowStartCwd = workflowCtx.cwd ?? process.cwd();
+    const inputs = workflowCtx.inputs;
+    const prompt = inputs.prompt ?? "";
+    const maxLoops = positiveInteger(inputs.max_loops, DEFAULT_MAX_LOOPS);
+    const comparisonBaseBranch = normalizeBranchInput(inputs.base_branch, "origin/main");
+    return await runRalphWorkflow(workflowCtx, {
+      prompt,
+      maxLoops,
+      comparisonBaseBranch,
+      workflowStartCwd,
+    });
+  })
   .compile();

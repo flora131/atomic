@@ -66,6 +66,8 @@ const WorkflowTaskOptionProperties = {
   outputMode: Type.Optional(Type.Union([Type.Literal("inline"), Type.Literal("file-only")])),
   reads: Type.Optional(Type.Union([Type.Array(Type.String()), Type.Literal(false)])),
   worktree: Type.Optional(Type.Boolean()),
+  gitWorktreeDir: Type.Optional(Type.String()),
+  baseBranch: Type.Optional(Type.String()),
   maxOutput: Type.Optional(MaxOutputSchema),
   artifacts: Type.Optional(Type.Boolean()),
 };
@@ -83,6 +85,8 @@ const ParallelChainStepSchema = Type.Object({
   concurrency: Type.Optional(Type.Number()),
   failFast: Type.Optional(Type.Boolean()),
   worktree: Type.Optional(Type.Boolean()),
+  gitWorktreeDir: Type.Optional(Type.String()),
+  baseBranch: Type.Optional(Type.String()),
 });
 
 export const WorkflowParametersSchema = Type.Object({

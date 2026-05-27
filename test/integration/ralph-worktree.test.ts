@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { setupGitWorktree } from "../../packages/workflows/src/index.js";
 import type {
   WorkflowChainOptions,
   WorkflowParallelOptions,
@@ -15,10 +16,9 @@ import type {
 } from "../../packages/workflows/src/shared/types.js";
 
 type RalphTestModule = {
-  runRalphWorkflowFromCwd(
-    ctx: WorkflowRunContext<Record<string, unknown>>,
-    workflowStartCwd: string,
-  ): Promise<Record<string, unknown>>;
+  default: {
+    run(ctx: WorkflowRunContext<Record<string, unknown>>): Promise<Record<string, unknown>>;
+  };
 };
 
 interface MockCalls {
@@ -44,6 +44,35 @@ function makeTaskResult(name: string, text: string): WorkflowTaskResult {
   return { name, stageName: name, text };
 }
 
+function ralphWorktreeDefaults(
+  inputs: Record<string, unknown>,
+  cwd: string | undefined,
+): { cwd?: string } {
+  if (typeof cwd !== "string") return {};
+  const gitWorktreeDir = inputs["git_worktree_dir"];
+  if (typeof gitWorktreeDir !== "string" || gitWorktreeDir.trim().length === 0) return {};
+  const baseBranch = typeof inputs["base_branch"] === "string" ? inputs["base_branch"] : undefined;
+  try {
+    return { cwd: setupGitWorktree({ gitWorktreeDir, baseBranch, cwd }).cwd };
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new Error(error.message
+        .replaceAll("gitWorktreeDir", "git_worktree_dir")
+        .replace("requires the workflow to be invoked", "requires Ralph to be invoked"));
+    }
+    throw error;
+  }
+}
+
+function withRalphWorktreeDefaults<TOptions extends { readonly cwd?: string }>(
+  inputs: Record<string, unknown>,
+  workflowCwd: string | undefined,
+  options: TOptions,
+): TOptions {
+  if (options.cwd !== undefined) return options;
+  return { ...options, ...ralphWorktreeDefaults(inputs, workflowCwd) };
+}
+
 function makeMockCtx<TInputs extends Record<string, unknown>>(
   inputs: TInputs,
   responders: MockResponders = {},
@@ -61,42 +90,38 @@ function makeMockCtx<TInputs extends Record<string, unknown>>(
     editor: async (initial?: string) => initial ?? "mock-editor-content",
   };
 
-  const runTask = async (name: string, options: WorkflowTaskOptions): Promise<WorkflowTaskResult> => {
-    calls.task.push(name);
-    calls.taskOptions[name] = [...(calls.taskOptions[name] ?? []), options];
-    const text = promptText(options);
-    const override = responders.task?.(name, options, calls);
-    return makeTaskResult(name, override ?? `[mock-task:${name}] ${text.slice(0, 80)}`);
-  };
-
-  return {
+  const ctx = {
     inputs,
     calls,
     stage: (name: string) => {
       throw new Error(`ctx.stage should not be used by builtin workflow ${name}`);
     },
-    task: runTask,
-    chain: async (
-      steps: readonly WorkflowTaskStep[],
-      _options?: WorkflowChainOptions,
-    ): Promise<WorkflowTaskResult[]> => {
+    async task(this: WorkflowRunContext<TInputs>, name: string, options: WorkflowTaskOptions): Promise<WorkflowTaskResult> {
+      const taskOptions = withRalphWorktreeDefaults(inputs, this.cwd, options);
+      calls.task.push(name);
+      calls.taskOptions[name] = [...(calls.taskOptions[name] ?? []), taskOptions];
+      const text = promptText(taskOptions);
+      const override = responders.task?.(name, taskOptions, calls);
+      return makeTaskResult(name, override ?? `[mock-task:${name}] ${text.slice(0, 80)}`);
+    },
+    async chain(this: WorkflowRunContext<TInputs>, steps: readonly WorkflowTaskStep[], _options?: WorkflowChainOptions): Promise<WorkflowTaskResult[]> {
       const results: WorkflowTaskResult[] = [];
       for (const step of steps) {
-        results.push(await runTask(step.name, step));
+        results.push(await this.task(step.name, step));
       }
       return results;
     },
-    parallel: async (
-      steps: readonly WorkflowTaskStep[],
-      options: WorkflowParallelOptions = {},
-    ): Promise<WorkflowTaskResult[]> => {
-      calls.parallelOptions.push(options);
-      const override = await responders.parallel?.(steps, options, calls);
+    async parallel(this: WorkflowRunContext<TInputs>, steps: readonly WorkflowTaskStep[], options: WorkflowParallelOptions = {}): Promise<WorkflowTaskResult[]> {
+      const parallelOptions = withRalphWorktreeDefaults(inputs, this.cwd, options);
+      calls.parallelOptions.push(parallelOptions);
+      const preparedSteps = steps.map((step) => withRalphWorktreeDefaults(inputs, this.cwd, step));
+      const override = await responders.parallel?.(preparedSteps, parallelOptions, calls);
       if (override !== undefined) return override;
-      return Promise.all(steps.map((step) => runTask(step.name, step)));
+      return Promise.all(preparedSteps.map((step) => this.task(step.name, step)));
     },
     ui,
   };
+  return ctx;
 }
 
 describe("ralph git worktree integration", () => {
@@ -192,12 +217,16 @@ describe("ralph git worktree integration", () => {
     execFileSync("git", ["worktree", "add", "--detach", worktreePath, "main"], { cwd: repo, stdio: "ignore" });
   }
 
-  test("creates a relative git_worktree_dir from repo root and leaves it after success", async () => {
+  test("creates a relative git_worktree_dir from repo root and preserves the relative cwd", async () => {
     const mod = await import("../../packages/workflows/builtin/ralph.js") as unknown as RalphTestModule;
     const repo = initializeGitRepository();
     const subdir = join(repo, "nested");
     mkdirSync(subdir, { recursive: true });
-    const expectedWorktree = join(repo, "worktrees", "ralph");
+    writeFileSync(join(subdir, "fixture.txt"), "nested fixture\n", "utf8");
+    execFileSync("git", ["add", "nested/fixture.txt"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["-c", "commit.gpgsign=false", "commit", "-m", "add nested fixture"], { cwd: repo, stdio: "ignore" });
+    const expectedWorktreeRoot = join(repo, "worktrees", "ralph");
+    const expectedCwd = join(expectedWorktreeRoot, "nested");
     const ctx = makeMockCtx(
       {
         prompt: "Add a small feature",
@@ -208,10 +237,10 @@ describe("ralph git worktree integration", () => {
       {
         task: (name, options) => {
           if (name === "planner-1") {
-            assertSamePath(options.cwd, expectedWorktree, "expected planner to run from worktree");
-            assertWorktreeRegistered(repo, expectedWorktree);
+            assertSamePath(options.cwd, expectedCwd, "expected planner to run from corresponding worktree subdirectory");
+            assertWorktreeRegistered(repo, expectedWorktreeRoot);
             assert.equal(
-              execFileSync("git", ["-C", expectedWorktree, "rev-parse", "HEAD"]).toString().trim(),
+              execFileSync("git", ["-C", expectedWorktreeRoot, "rev-parse", "HEAD"]).toString().trim(),
               execFileSync("git", ["-C", repo, "rev-parse", "main"]).toString().trim(),
             );
           }
@@ -220,15 +249,15 @@ describe("ralph git worktree integration", () => {
       },
     );
 
-    const result = await mod.runRalphWorkflowFromCwd(ctx, subdir);
+    const result = await mod.default.run({ ...ctx, cwd: subdir });
 
     assertRalphResultShape(result, subdir);
     const planPath = String(result["plan_path"]);
-    assert.equal(planPath.startsWith(expectedWorktree), false);
+    assert.equal(planPath.startsWith(expectedWorktreeRoot), false);
     const orchestratorReads = ctx.calls.taskOptions["orchestrator-1"]?.[0]?.reads;
     assert.ok(Array.isArray(orchestratorReads) && orchestratorReads.includes(planPath));
-    assertEveryRalphStageCwd(ctx, expectedWorktree);
-    assertWorktreeRegistered(repo, expectedWorktree);
+    assertEveryRalphStageCwd(ctx, expectedCwd);
+    assertWorktreeRegistered(repo, expectedWorktreeRoot);
   });
 
   test("fails fast outside a git repo when git_worktree_dir is requested", async () => {
@@ -242,7 +271,7 @@ describe("ralph git worktree integration", () => {
     });
 
     await assert.rejects(
-      () => mod.runRalphWorkflowFromCwd(ctx, requireTempRoot()),
+      () => mod.default.run({ ...ctx, cwd: requireTempRoot() }),
       /git_worktree_dir requires Ralph to be invoked from inside a Git repository/,
     );
     assert.deepEqual(ctx.calls.task, []);
@@ -260,7 +289,7 @@ describe("ralph git worktree integration", () => {
       git_worktree_dir: expectedWorktree,
     });
 
-    await mod.runRalphWorkflowFromCwd(ctx, repo);
+    await mod.default.run({ ...ctx, cwd: repo });
 
     assertEveryRalphStageCwd(ctx, expectedWorktree);
     assertWorktreeRegistered(repo, expectedWorktree);
@@ -280,11 +309,51 @@ describe("ralph git worktree integration", () => {
       git_worktree_dir: expectedWorktree,
     });
 
-    await mod.runRalphWorkflowFromCwd(ctx, repo);
+    await mod.default.run({ ...ctx, cwd: repo });
 
     assertEveryRalphStageCwd(ctx, expectedWorktree);
     assert.equal(existsSync(uncommittedPath), true);
     assertWorktreeRegistered(repo, expectedWorktree);
+  });
+
+  test("fails fast when existing git_worktree_dir is a subdirectory of the invoking repository", async () => {
+    const mod = await import("../../packages/workflows/builtin/ralph.js") as unknown as RalphTestModule;
+    const repo = initializeGitRepository();
+    const requestedWorktree = join(repo, "src");
+    mkdirSync(requestedWorktree, { recursive: true });
+    const ctx = makeMockCtx({
+      prompt: "Add a small feature",
+      max_loops: 1,
+      base_branch: "main",
+      git_worktree_dir: "src",
+    });
+
+    await assert.rejects(
+      () => mod.default.run({ ...ctx, cwd: repo }),
+      /git_worktree_dir already exists but is not a Git worktree root/,
+    );
+    assert.deepEqual(ctx.calls.task, []);
+  });
+
+  test("fails fast when existing git_worktree_dir is a subdirectory of a same-repository worktree", async () => {
+    const mod = await import("../../packages/workflows/builtin/ralph.js") as unknown as RalphTestModule;
+    const repo = initializeGitRepository();
+    const existingWorktree = join(requireTempRoot(), "existing-worktree-with-subdir");
+    addDetachedWorktree(repo, existingWorktree);
+    const requestedWorktree = join(existingWorktree, "nested");
+    mkdirSync(requestedWorktree, { recursive: true });
+    const ctx = makeMockCtx({
+      prompt: "Add a small feature",
+      max_loops: 1,
+      base_branch: "main",
+      git_worktree_dir: requestedWorktree,
+    });
+
+    await assert.rejects(
+      () => mod.default.run({ ...ctx, cwd: repo }),
+      /git_worktree_dir already exists but is not a Git worktree root/,
+    );
+    assert.deepEqual(ctx.calls.task, []);
   });
 
   test("fails fast when existing git_worktree_dir is a worktree from another repository", async () => {
@@ -301,7 +370,7 @@ describe("ralph git worktree integration", () => {
     });
 
     await assert.rejects(
-      () => mod.runRalphWorkflowFromCwd(ctx, repo),
+      () => mod.default.run({ ...ctx, cwd: repo }),
       /git_worktree_dir already exists but does not belong to the invoking Git repository/,
     );
     assert.deepEqual(ctx.calls.task, []);
@@ -319,7 +388,7 @@ describe("ralph git worktree integration", () => {
     });
 
     await assert.rejects(
-      () => mod.runRalphWorkflowFromCwd(ctx, repo),
+      () => mod.default.run({ ...ctx, cwd: repo }),
       /git_worktree_dir already exists but does not belong to the invoking Git repository/,
     );
     assert.deepEqual(ctx.calls.task, []);
@@ -343,9 +412,9 @@ describe("ralph git worktree integration", () => {
       git_worktree_dir: expectedWorktree,
     });
 
-    await mod.runRalphWorkflowFromCwd(firstCtx, repo);
+    await mod.default.run({ ...firstCtx, cwd: repo });
     assertWorktreeRegistered(repo, expectedWorktree);
-    await mod.runRalphWorkflowFromCwd(secondCtx, repo);
+    await mod.default.run({ ...secondCtx, cwd: repo });
 
     assertEveryRalphStageCwd(firstCtx, expectedWorktree);
     assertEveryRalphStageCwd(secondCtx, expectedWorktree);
@@ -364,8 +433,33 @@ describe("ralph git worktree integration", () => {
     });
 
     await assert.rejects(
-      () => mod.runRalphWorkflowFromCwd(ctx, repo),
+      () => mod.default.run({ ...ctx, cwd: repo }),
       /Failed to create git worktree at requested git_worktree_dir/,
+    );
+    assert.deepEqual(ctx.calls.task, []);
+  });
+
+  test("reports filesystem failures before invoking git worktree add", async () => {
+    const mod = await import("../../packages/workflows/builtin/ralph.js") as unknown as RalphTestModule;
+    const repo = initializeGitRepository();
+    const fileWhereParentDirectoryShouldBe = join(requireTempRoot(), "not-a-directory");
+    const requestedWorktree = join(fileWhereParentDirectoryShouldBe, "worktree");
+    writeFileSync(fileWhereParentDirectoryShouldBe, "blocks mkdir\n", "utf8");
+    const ctx = makeMockCtx({
+      prompt: "Add a small feature",
+      max_loops: 1,
+      base_branch: "main",
+      git_worktree_dir: requestedWorktree,
+    });
+
+    await assert.rejects(
+      () => mod.default.run({ ...ctx, cwd: repo }),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, /Failed to create parent directory for requested git_worktree_dir/);
+        assert.doesNotMatch(error.message, /Git reported/);
+        return true;
+      },
     );
     assert.deepEqual(ctx.calls.task, []);
   });
@@ -384,7 +478,7 @@ describe("ralph git worktree integration", () => {
     });
 
     await assert.rejects(
-      () => mod.runRalphWorkflowFromCwd(ctx, repo),
+      () => mod.default.run({ ...ctx, cwd: repo }),
       /git_worktree_dir already exists but is not a Git worktree/,
     );
     assert.deepEqual(ctx.calls.task, []);
@@ -401,7 +495,7 @@ describe("ralph git worktree integration", () => {
     });
 
     await assert.rejects(
-      () => mod.runRalphWorkflowFromCwd(ctx, repo),
+      () => mod.default.run({ ...ctx, cwd: repo }),
       /git_worktree_dir contains an unusable null byte/,
     );
     assert.deepEqual(ctx.calls.task, []);
@@ -440,7 +534,7 @@ describe("ralph git worktree integration", () => {
       },
     );
 
-    await mod.runRalphWorkflowFromCwd(ctx, repo);
+    await mod.default.run({ ...ctx, cwd: repo });
 
     for (const name of ["planner-1", "orchestrator-1", "code-simplifier-1", "planner-2", "orchestrator-2", "code-simplifier-2"]) {
       assertSamePath(ctx.calls.taskOptions[name]?.[0]?.cwd, expectedWorktree, `unexpected cwd for ${name}`);
@@ -468,7 +562,7 @@ describe("ralph git worktree integration", () => {
       },
     );
 
-    await assert.rejects(() => mod.runRalphWorkflowFromCwd(ctx, repo), /planner failed/);
+    await assert.rejects(() => mod.default.run({ ...ctx, cwd: repo }), /planner failed/);
 
     assertWorktreeRegistered(repo, expectedWorktree);
   });

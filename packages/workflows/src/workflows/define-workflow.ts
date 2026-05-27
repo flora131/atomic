@@ -8,7 +8,7 @@
  * cross-ref: v0.x packages/atomic-sdk/src/define-workflow.ts
  */
 
-import type { WorkflowDefinition, WorkflowInputSchema, WorkflowRunFn } from "../shared/types.js";
+import type { WorkflowDefinition, WorkflowInputBindings, WorkflowInputSchema, WorkflowRunFn, WorkflowWorktreeInputBinding } from "../shared/types.js";
 import { normalizeWorkflowName } from "./identity.js";
 
 // ---------------------------------------------------------------------------
@@ -19,6 +19,7 @@ interface BuilderState<TInputs extends Record<string, unknown>> {
   readonly name: string;
   readonly description: string;
   readonly inputs: Readonly<Record<string, WorkflowInputSchema>>;
+  readonly inputBindings: WorkflowInputBindings;
   readonly runFn: WorkflowRunFn<TInputs> | undefined;
 }
 
@@ -45,6 +46,8 @@ export interface WorkflowBuilder<TInputs extends Record<string, unknown> = Recor
     key: K,
     schema: WorkflowInputSchema,
   ): WorkflowBuilder<TInputs & Record<K, unknown>>;
+  /** Bind workflow inputs to reusable git worktree runtime defaults. */
+  worktreeFromInputs(binding: WorkflowWorktreeInputBinding): WorkflowBuilder<TInputs>;
   /** Seal the run function.  Returns a builder on which .compile() is available. */
   run(fn: WorkflowRunFn<TInputs>): CompletedWorkflowBuilder<TInputs>;
 }
@@ -59,6 +62,7 @@ export interface CompletedWorkflowBuilder<TInputs extends Record<string, unknown
     key: K,
     schema: WorkflowInputSchema,
   ): CompletedWorkflowBuilder<TInputs & Record<K, unknown>>;
+  worktreeFromInputs(binding: WorkflowWorktreeInputBinding): CompletedWorkflowBuilder<TInputs>;
   run(fn: WorkflowRunFn<TInputs>): CompletedWorkflowBuilder<TInputs>;
   /** Freeze and return the completed WorkflowDefinition. */
   compile(): WorkflowDefinition<TInputs>;
@@ -83,6 +87,16 @@ function makeBuilder<TInputs extends Record<string, unknown>>(
       } as BuilderState<TInputs & Record<K, unknown>>);
     },
 
+    worktreeFromInputs(binding: WorkflowWorktreeInputBinding) {
+      return makeBuilder<TInputs>({
+        ...state,
+        inputBindings: {
+          ...state.inputBindings,
+          worktree: { ...binding },
+        },
+      });
+    },
+
     run(fn: WorkflowRunFn<TInputs>) {
       return makeBuilder<TInputs>({ ...state, runFn: fn });
     },
@@ -98,6 +112,7 @@ function makeBuilder<TInputs extends Record<string, unknown>>(
 
       // Deep-freeze inputs map first, then the top-level definition.
       const frozenInputs = Object.freeze({ ...state.inputs });
+      const inputBindings = Object.freeze({ ...state.inputBindings });
 
       const definition: WorkflowDefinition<TInputs> = {
         __piWorkflow: true,
@@ -105,6 +120,7 @@ function makeBuilder<TInputs extends Record<string, unknown>>(
         normalizedName,
         description: state.description,
         inputs: frozenInputs,
+        ...(Object.keys(inputBindings).length > 0 ? { inputBindings } : {}),
         run: state.runFn,
       };
 
@@ -143,6 +159,7 @@ export function defineWorkflow(name: string): WorkflowBuilder {
     name,
     description: "",
     inputs: {},
+    inputBindings: {},
     runFn: undefined,
   };
 

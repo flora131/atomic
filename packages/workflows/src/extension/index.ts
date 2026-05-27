@@ -456,6 +456,8 @@ export interface WorkflowToolArgs extends StageOptions {
   maxOutput?: WorkflowMaxOutput;
   artifacts?: boolean;
   worktree?: boolean;
+  gitWorktreeDir?: string;
+  baseBranch?: string;
 }
 
 // ---------------------------------------------------------------------------

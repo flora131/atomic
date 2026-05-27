@@ -1,6 +1,7 @@
-import { describe, test } from "bun:test";
+import { afterEach, beforeEach, describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { run, runChain, runParallel, runTask, resolveInputs } from "../../packages/workflows/src/runs/foreground/executor.js";
@@ -41,6 +42,25 @@ function callThroughStack<T>(depth: number, fn: () => Promise<T>): Promise<T> {
   if (depth <= 0) return fn();
   return callThroughStack(depth - 1, fn);
 }
+
+let savedGitEnv: Map<string, string | undefined> | undefined;
+
+beforeEach(() => {
+  savedGitEnv = new Map<string, string | undefined>();
+  for (const key of Object.keys(process.env).filter((candidate) => candidate.startsWith("GIT_"))) {
+    savedGitEnv.set(key, process.env[key]);
+    delete process.env[key];
+  }
+});
+
+afterEach(() => {
+  if (savedGitEnv === undefined) return;
+  for (const [key, value] of savedGitEnv) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  savedGitEnv = undefined;
+});
 
 // ---------------------------------------------------------------------------
 // resolveInputs
@@ -249,6 +269,290 @@ describe("executor.run", () => {
     assert.equal(wfResult.status, "completed");
     assert.deepEqual(seenPrompts.sort(), ["audit UI", "audit UI"]);
     assert.equal(wfResult.result?.["count"], 2);
+  });
+
+  test("ctx.stage defaults cwd to gitWorktreeDir while preserving the workflow relative cwd", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "atomic-workflow-git-worktree-"));
+    const repo = join(tempRoot, "repo");
+    mkdirSync(repo, { recursive: true });
+    execFileSync("git", ["init", "-b", "main"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["config", "user.name", "Test User"], { cwd: repo, stdio: "ignore" });
+    mkdirSync(join(repo, "nested"), { recursive: true });
+    writeFileSync(join(repo, "nested", "fixture.txt"), "fixture\n", "utf8");
+    execFileSync("git", ["add", "nested/fixture.txt"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["-c", "commit.gpgsign=false", "commit", "-m", "initial"], { cwd: repo, stdio: "ignore" });
+    const workflowCwd = join(repo, "nested");
+    const worktreeRoot = join(repo, "worktrees", "sdk");
+    const expectedStageCwd = join(worktreeRoot, "nested");
+    const calls: CreateAgentSessionOptions[] = [];
+    const def = defineWorkflow("stage-git-worktree-wf")
+      .run(async (ctx) => {
+        await ctx.stage("worker", {
+          gitWorktreeDir: join("worktrees", "sdk"),
+          baseBranch: "main",
+        }).prompt("inspect");
+        return { ok: true };
+      })
+      .compile();
+
+    const wfResult = await run(def, {}, {
+      cwd: workflowCwd,
+      adapters: {
+        agentSession: {
+          async create(options) {
+            calls.push(options);
+            return mockSession();
+          },
+        },
+      },
+      store: createStore(),
+    });
+
+    assert.equal(wfResult.status, "completed");
+    assert.equal(calls[0]?.cwd, expectedStageCwd);
+    assert.equal(existsSync(join(worktreeRoot, ".git")), true);
+  });
+
+  test("ctx.stage preserves explicit absolute cwd when gitWorktreeDir is set", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "atomic-workflow-git-worktree-"));
+    const repo = join(tempRoot, "repo");
+    mkdirSync(repo, { recursive: true });
+    execFileSync("git", ["init", "-b", "main"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["config", "user.name", "Test User"], { cwd: repo, stdio: "ignore" });
+    writeFileSync(join(repo, "README.md"), "# repo\n", "utf8");
+    execFileSync("git", ["add", "README.md"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["-c", "commit.gpgsign=false", "commit", "-m", "initial"], { cwd: repo, stdio: "ignore" });
+    const explicitCwd = join(tempRoot, "explicit-cwd");
+    mkdirSync(explicitCwd, { recursive: true });
+    const calls: CreateAgentSessionOptions[] = [];
+    const def = defineWorkflow("stage-git-worktree-explicit-cwd-wf")
+      .run(async (ctx) => {
+        await ctx.stage("worker", {
+          gitWorktreeDir: join("worktrees", "sdk"),
+          baseBranch: "main",
+          cwd: explicitCwd,
+        }).prompt("inspect");
+        return { ok: true };
+      })
+      .compile();
+
+    const wfResult = await run(def, {}, {
+      cwd: repo,
+      adapters: {
+        agentSession: {
+          async create(options) {
+            calls.push(options);
+            return mockSession();
+          },
+        },
+      },
+      store: createStore(),
+    });
+
+    assert.equal(wfResult.status, "completed");
+    assert.equal(calls[0]?.cwd, explicitCwd);
+    assert.equal(existsSync(join(repo, "worktrees", "sdk", ".git")), true);
+  });
+
+  test("ctx.stage preserves logical symlink repo cwd for gitWorktreeDir", async () => {
+    if (process.platform === "win32") return;
+    const tempRoot = mkdtempSync(join(tmpdir(), "atomic-workflow-git-worktree-"));
+    const repo = join(tempRoot, "real-repo");
+    mkdirSync(join(repo, "nested"), { recursive: true });
+    execFileSync("git", ["init", "-b", "main"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["config", "user.name", "Test User"], { cwd: repo, stdio: "ignore" });
+    writeFileSync(join(repo, "nested", "fixture.txt"), "fixture\n", "utf8");
+    execFileSync("git", ["add", "nested/fixture.txt"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["-c", "commit.gpgsign=false", "commit", "-m", "initial"], { cwd: repo, stdio: "ignore" });
+    const repoLink = join(tempRoot, "repo-link");
+    symlinkSync(repo, repoLink, "dir");
+    const calls: CreateAgentSessionOptions[] = [];
+    const def = defineWorkflow("stage-git-worktree-symlink-repo-wf")
+      .run(async (ctx) => {
+        await ctx.stage("worker", {
+          gitWorktreeDir: join("worktrees", "sdk"),
+          baseBranch: "main",
+        }).prompt("inspect");
+        return { ok: true };
+      })
+      .compile();
+
+    const wfResult = await run(def, {}, {
+      cwd: join(repoLink, "nested"),
+      adapters: {
+        agentSession: {
+          async create(options) {
+            calls.push(options);
+            return mockSession();
+          },
+        },
+      },
+      store: createStore(),
+    });
+
+    assert.equal(wfResult.status, "completed");
+    assert.equal(calls[0]?.cwd, join(repoLink, "worktrees", "sdk", "nested"));
+  });
+
+  test("ctx.stage preserves logical symlink worktree parent for gitWorktreeDir", async () => {
+    if (process.platform === "win32") return;
+    const tempRoot = mkdtempSync(join(tmpdir(), "atomic-workflow-git-worktree-"));
+    const repo = join(tempRoot, "repo");
+    mkdirSync(repo, { recursive: true });
+    execFileSync("git", ["init", "-b", "main"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["config", "user.name", "Test User"], { cwd: repo, stdio: "ignore" });
+    writeFileSync(join(repo, "README.md"), "# repo\n", "utf8");
+    execFileSync("git", ["add", "README.md"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["-c", "commit.gpgsign=false", "commit", "-m", "initial"], { cwd: repo, stdio: "ignore" });
+    const realWorktrees = join(tempRoot, "real-worktrees");
+    mkdirSync(realWorktrees, { recursive: true });
+    const worktreesLink = join(tempRoot, "worktrees-link");
+    symlinkSync(realWorktrees, worktreesLink, "dir");
+    const calls: CreateAgentSessionOptions[] = [];
+    const def = defineWorkflow("stage-git-worktree-symlink-parent-wf")
+      .run(async (ctx) => {
+        await ctx.stage("worker", {
+          gitWorktreeDir: join(worktreesLink, "sdk"),
+          baseBranch: "main",
+        }).prompt("inspect");
+        return { ok: true };
+      })
+      .compile();
+
+    const wfResult = await run(def, {}, {
+      cwd: repo,
+      adapters: {
+        agentSession: {
+          async create(options) {
+            calls.push(options);
+            return mockSession();
+          },
+        },
+      },
+      store: createStore(),
+    });
+
+    assert.equal(wfResult.status, "completed");
+    assert.equal(calls[0]?.cwd, join(worktreesLink, "sdk"));
+    assert.equal(existsSync(join(worktreesLink, "sdk", ".git")), true);
+  });
+
+  test("ctx.stage resolves explicit relative cwd against the gitWorktreeDir cwd", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "atomic-workflow-git-worktree-"));
+    const repo = join(tempRoot, "repo");
+    mkdirSync(join(repo, "nested", "deeper"), { recursive: true });
+    execFileSync("git", ["init", "-b", "main"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["config", "user.name", "Test User"], { cwd: repo, stdio: "ignore" });
+    writeFileSync(join(repo, "nested", "deeper", "fixture.txt"), "fixture\n", "utf8");
+    execFileSync("git", ["add", "nested/deeper/fixture.txt"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["-c", "commit.gpgsign=false", "commit", "-m", "initial"], { cwd: repo, stdio: "ignore" });
+    const calls: CreateAgentSessionOptions[] = [];
+    const def = defineWorkflow("stage-git-worktree-relative-cwd-wf")
+      .run(async (ctx) => {
+        await ctx.stage("worker", {
+          gitWorktreeDir: join("worktrees", "sdk"),
+          baseBranch: "main",
+          cwd: "deeper",
+        }).prompt("inspect");
+        return { ok: true };
+      })
+      .compile();
+
+    const wfResult = await run(def, {}, {
+      cwd: join(repo, "nested"),
+      adapters: {
+        agentSession: {
+          async create(options) {
+            calls.push(options);
+            return mockSession();
+          },
+        },
+      },
+      store: createStore(),
+    });
+
+    assert.equal(wfResult.status, "completed");
+    assert.equal(calls[0]?.cwd, join(repo, "worktrees", "sdk", "nested", "deeper"));
+  });
+
+  test("ctx.task, ctx.parallel, and ctx.chain inherit gitWorktreeDir cwd defaults", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "atomic-workflow-git-worktree-"));
+    const repo = join(tempRoot, "repo");
+    mkdirSync(join(repo, "nested"), { recursive: true });
+    execFileSync("git", ["init", "-b", "main"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["config", "user.name", "Test User"], { cwd: repo, stdio: "ignore" });
+    writeFileSync(join(repo, "nested", "fixture.txt"), "fixture\n", "utf8");
+    execFileSync("git", ["add", "nested/fixture.txt"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["-c", "commit.gpgsign=false", "commit", "-m", "initial"], { cwd: repo, stdio: "ignore" });
+    const calls: CreateAgentSessionOptions[] = [];
+    const expectedCwd = join(repo, "worktrees", "sdk", "nested");
+    const def = defineWorkflow("task-parallel-chain-git-worktree-wf")
+      .run(async (ctx) => {
+        await ctx.task("task", { task: "inspect", gitWorktreeDir: join("worktrees", "sdk"), baseBranch: "main" });
+        await ctx.parallel([
+          { name: "parallel-a", task: "inspect a" },
+          { name: "parallel-b", task: "inspect b" },
+        ], { gitWorktreeDir: join("worktrees", "sdk"), baseBranch: "main" });
+        await ctx.chain([
+          { name: "chain-a", task: "inspect chain" },
+        ], { gitWorktreeDir: join("worktrees", "sdk"), baseBranch: "main" });
+        return { ok: true };
+      })
+      .compile();
+
+    const wfResult = await run(def, {}, {
+      cwd: join(repo, "nested"),
+      adapters: {
+        agentSession: {
+          async create(options) {
+            calls.push(options);
+            return mockSession();
+          },
+        },
+      },
+      store: createStore(),
+    });
+
+    assert.equal(wfResult.status, "completed");
+    assert.equal(calls.length, 4);
+    assert.deepEqual(calls.map((call) => call.cwd), [expectedCwd, expectedCwd, expectedCwd, expectedCwd]);
+  });
+
+  test("worktree and gitWorktreeDir are mutually exclusive", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "atomic-workflow-git-worktree-"));
+    const repo = join(tempRoot, "repo");
+    mkdirSync(repo, { recursive: true });
+    execFileSync("git", ["init", "-b", "main"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["config", "user.name", "Test User"], { cwd: repo, stdio: "ignore" });
+    writeFileSync(join(repo, "README.md"), "# repo\n", "utf8");
+    execFileSync("git", ["add", "README.md"], { cwd: repo, stdio: "ignore" });
+    execFileSync("git", ["-c", "commit.gpgsign=false", "commit", "-m", "initial"], { cwd: repo, stdio: "ignore" });
+    const def = defineWorkflow("mixed-worktree-mode-wf")
+      .run(async (ctx) => {
+        await ctx.task("worker", {
+          task: "inspect",
+          worktree: true,
+          gitWorktreeDir: join("worktrees", "sdk"),
+        });
+        return { ok: true };
+      })
+      .compile();
+
+    const wfResult = await run(def, {}, {
+      cwd: repo,
+      adapters: { agentSession: { async create() { return mockSession(); } } },
+      store: createStore(),
+    });
+
+    assert.equal(wfResult.status, "failed");
+    assert.match(wfResult.error ?? "", /worktree and gitWorktreeDir are mutually exclusive/);
   });
 
   test("ctx.task forwards createAgentSession options to the SDK session", async () => {

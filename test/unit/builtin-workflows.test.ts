@@ -1324,9 +1324,10 @@ describe("ralph", () => {
       prompt: "Add a small feature",
       max_loops: 1,
       base_branch: "main",
+      git_worktree_dir: "",
     });
 
-    await mod.runRalphWorkflowFromCwd(ctx, requireRalphTempCwd());
+    await mod.default.run({ ...ctx, cwd: requireRalphTempCwd() });
 
     assertEveryRalphStageCwd(ctx, undefined);
   });
@@ -1337,9 +1338,10 @@ describe("ralph", () => {
       prompt: "Add a small feature",
       max_loops: 1,
       base_branch: "main",
+      git_worktree_dir: "",
     });
 
-    await mod.runRalphWorkflowFromCwd(ctx, requireRalphTempCwd());
+    await mod.default.run({ ...ctx, cwd: requireRalphTempCwd() });
 
     const prompt = ctx.calls.prompts["pull-request"]?.[0] ?? "";
     assert.match(prompt, /detached HEAD/);
@@ -1365,6 +1367,7 @@ describe("ralph", () => {
         prompt,
         max_loops: 2,
         base_branch: "main",
+        git_worktree_dir: "",
       },
       {
         task: (name) => {
@@ -1375,7 +1378,7 @@ describe("ralph", () => {
       },
     );
 
-    const result = await mod.runRalphWorkflowFromCwd(ctx, cwd);
+    const result = await mod.default.run({ ...ctx, cwd });
 
     assert.equal(result["plan_path"], expectedSpecPath);
     assert.equal(readFileSync(expectedSpecPath, "utf8"), "second revised spec\n");

@@ -50,4 +50,18 @@ describe("defineWorkflow builder", () => {
     assert.deepEqual(Object.keys(def.inputs), ["a", "b"]);
     assert.deepEqual(def.inputs["b"], { type: "number", default: 4 });
   });
+
+  test("worktreeFromInputs stores workflow input bindings", () => {
+    const def = defineWorkflow("worktree-inputs")
+      .input("git_worktree_dir", { type: "string", default: "" })
+      .input("base_branch", { type: "string", default: "main" })
+      .worktreeFromInputs({ gitWorktreeDir: "git_worktree_dir", baseBranch: "base_branch" })
+      .run(async () => ({}))
+      .compile();
+
+    assert.deepEqual(def.inputBindings?.worktree, {
+      gitWorktreeDir: "git_worktree_dir",
+      baseBranch: "base_branch",
+    });
+  });
 });

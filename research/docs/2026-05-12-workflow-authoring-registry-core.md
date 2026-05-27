@@ -21,7 +21,7 @@ Scout context included adjacent areas: tests (`test/unit`, `test/integration`, `
 
 ## Summary
 
-The workflow authoring core is a small TypeScript DSL centered on `defineWorkflow(name).description(...).input(...).run(fn).compile()`. A compiled workflow is a frozen `WorkflowDefinition` object with a `__piWorkflow: true` sentinel, authored name, normalized registry key, input schema map, and async run function. Registry state is immutable-style: operations return a new registry backed by an ordered `Map` keyed by normalized workflow name.
+The workflow authoring core is a small TypeScript DSL centered on `defineWorkflow(name).description(...).input(...).run(fn).compile()`. A compiled workflow is a frozen `WorkflowDefinition` object with a `__piWorkflow: true` sentinel, authored name, normalized registry key, input schema map, optional input bindings such as `.worktreeFromInputs(...)`, and async run function. Registry state is immutable-style: operations return a new registry backed by an ordered `Map` keyed by normalized workflow name.
 
 Builtin workflows are authored using the same public DSL under `workflows/` and re-exported from `workflows/index.ts`. The extension discovery layer imports that manifest for bundled workflows and also discovers project/user/settings workflow files, validates exported workflow definitions structurally, applies source precedence, and returns a populated `WorkflowRegistry` plus source records and diagnostics. Runtime dispatch uses the registry for `list`, `inputs`, and `run`, then forwards execution to foreground or background runners.
 
@@ -34,17 +34,18 @@ Builtin workflows are authored using the same public DSL under `workflows/` and 
 - The builder is typed in two phases:
   - `WorkflowBuilder` exposes `description()`, `input()`, and `run()` before compilation (`src/workflows/define-workflow.ts:37-50`).
   - `CompletedWorkflowBuilder` exposes `compile()` only after `run()` has been called at the type level (`src/workflows/define-workflow.ts:56-64`).
-- Builder methods are immutable/chained. `description()`, `input()`, and `run()` call `makeBuilder()` with copied state rather than mutating the previous builder (`src/workflows/define-workflow.ts:71-88`).
+- Builder methods are immutable/chained. `description()`, `input()`, `worktreeFromInputs()`, and `run()` call `makeBuilder()` with copied state rather than mutating the previous builder (`src/workflows/define-workflow.ts:71-88`).
 - Runtime `compile()` still guards against missing `.run(fn)` and throws `defineWorkflow("..."): .run(fn) must be called before .compile()` (`src/workflows/define-workflow.ts:90-95`).
 - `compile()` computes `normalizedName`, freezes a shallow copy of the inputs map, constructs the sentinel-bearing definition, and freezes the top-level definition (`src/workflows/define-workflow.ts:97-111`).
 
 ### 2. Workflow definition and context shape
 
-- `WorkflowDefinition` is defined in shared types and consists of `__piWorkflow: true`, `name`, `normalizedName`, `description`, readonly `inputs`, and async `run` (`src/shared/types.ts:291-300`).
+- `WorkflowDefinition` is defined in shared types and consists of `__piWorkflow: true`, `name`, `normalizedName`, `description`, readonly `inputs`, optional `inputBindings`, and async `run` (`src/shared/types.ts:291-300`).
 - Input schemas support `text`/`string`, `number`, `boolean`, and `select`, with optional `description`, `required`, and type-specific defaults. `select` includes a readonly `choices` array (`src/shared/types.ts:21-56`).
 - Workflow run functions receive a `WorkflowRunContext<TInputs>` with readonly `inputs`, a `stage(name, options?)` factory, and HIL `ui` primitives (`src/shared/types.ts:231-245`).
 - `StageContext` intentionally mirrors much of pi's `AgentSession` surface while wrapping `prompt()` and `subscribe()` and retaining deprecated `subagent()` and `complete()` helpers (`src/shared/types.ts:177-225`).
-- `StageOptions` extends pi `CreateAgentSessionOptions` and adds optional per-stage MCP gating (`src/shared/types.ts:89-109`).
+- `StageOptions` extends pi `CreateAgentSessionOptions` and adds optional per-stage MCP gating plus reusable Git worktree defaults (`gitWorktreeDir`, `baseBranch`) (`src/shared/types.ts:89-109`).
+- `.worktreeFromInputs({ gitWorktreeDir, baseBranch })` binds resolved workflow input values to workflow-wide worktree defaults. When the bound worktree input is non-empty, `ctx.stage`, `ctx.task`, `ctx.chain`, and `ctx.parallel` default their cwd to the corresponding reusable Git worktree cwd unless explicitly overridden.
 
 ### 3. Identity normalization
 

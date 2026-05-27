@@ -56,6 +56,7 @@ import {
   createWorktrees,
   diffWorktrees,
   findWorktreeTaskCwdConflict,
+  setupGitWorktree,
   formatWorktreeDiffSummary,
   formatWorktreeTaskCwdConflict,
   type WorktreeSetup,
@@ -186,6 +187,23 @@ function resolveInputConcurrency(
   if (typeof value !== "number" || !Number.isFinite(value) || value < 1) return undefined;
 
   return Math.floor(value);
+}
+
+function resolveInputRuntimeDefaults(
+  def: Pick<WorkflowDefinition, "inputBindings">,
+  resolvedInputs: ResolvedInputs,
+): Partial<StageOptions> {
+  const defaults: Partial<StageOptions> = {};
+  const worktree = def.inputBindings?.worktree;
+  if (worktree !== undefined) {
+    const gitWorktreeDir = resolvedInputs[worktree.gitWorktreeDir];
+    if (typeof gitWorktreeDir === "string" && gitWorktreeDir.trim().length > 0) {
+      defaults.gitWorktreeDir = gitWorktreeDir;
+      const baseBranch = worktree.baseBranch === undefined ? undefined : resolvedInputs[worktree.baseBranch];
+      if (typeof baseBranch === "string") defaults.baseBranch = baseBranch;
+    }
+  }
+  return defaults;
 }
 
 // ---------------------------------------------------------------------------
@@ -399,6 +417,8 @@ function taskStageOptions(options: WorkflowTaskExecutionOptions): StageOptions {
     outputMode: _outputMode,
     reads: _reads,
     worktree: _worktree,
+    gitWorktreeDir: _gitWorktreeDir,
+    baseBranch: _baseBranch,
     maxOutput: _maxOutput,
     artifacts: _artifacts,
     ...stageOptions
@@ -552,6 +572,8 @@ function directTaskWithDefaults(
     output,
     outputMode,
     worktree,
+    gitWorktreeDir,
+    baseBranch,
     maxOutput,
     artifacts,
     ...stageDefaults
@@ -569,6 +591,8 @@ function directTaskWithDefaults(
     ...(item.output === undefined && output !== undefined ? { output } : {}),
     ...(item.outputMode === undefined && outputMode !== undefined ? { outputMode } : {}),
     ...(item.worktree === undefined && worktree !== undefined ? { worktree } : {}),
+    ...(item.gitWorktreeDir === undefined && gitWorktreeDir !== undefined ? { gitWorktreeDir } : {}),
+    ...(item.baseBranch === undefined && baseBranch !== undefined ? { baseBranch } : {}),
     ...(item.maxOutput === undefined && maxOutput !== undefined ? { maxOutput } : {}),
     ...(item.artifacts === undefined && artifacts !== undefined ? { artifacts } : {}),
   };
@@ -716,6 +740,31 @@ function normalizeDirectTaskCwd(cwd: string | undefined): string | undefined {
   return isAbsolute(cwd) ? cwd : resolve(process.cwd(), cwd);
 }
 
+function resolveWorktreeCwdOverride(cwd: string | undefined, worktreeCwd: string): string | undefined {
+  if (cwd === undefined || cwd.length === 0) return undefined;
+  return isAbsolute(cwd) ? cwd : resolve(worktreeCwd, cwd);
+}
+
+function stageOptionsWithInputDefaults<T extends StageOptions>(options: T | undefined, inputDefaults: Partial<StageOptions>): T | undefined {
+  const defaults = withoutUndefinedProperties(inputDefaults);
+  if (Object.keys(defaults).length === 0) return options;
+  return { ...defaults, ...withoutUndefinedProperties(options ?? {}) } as T;
+}
+
+function stageOptionsWithGitWorktree<T extends StageOptions>(options: T | undefined, workflowCwd: string): T | undefined {
+  if (options === undefined) return undefined;
+  if (typeof options.gitWorktreeDir !== "string" || options.gitWorktreeDir.trim().length === 0) {
+    return options;
+  }
+  const setup = setupGitWorktree({
+    gitWorktreeDir: options.gitWorktreeDir,
+    baseBranch: options.baseBranch,
+    cwd: workflowCwd,
+  });
+  const explicitCwd = resolveWorktreeCwdOverride(options.cwd, setup.cwd);
+  return { ...options, gitWorktreeDir: undefined, baseBranch: undefined, cwd: explicitCwd ?? setup.cwd };
+}
+
 function directWorktreeDiffsDir(options: WorkflowDirectOptions, setup: WorktreeSetup, runId: string, scope: string): string {
   const baseDir = options.chainDir ?? join(setup.cwd, CONFIG_DIR_NAME, "workflows");
   return join(baseDir, "worktree-diffs", runId, scope);
@@ -732,6 +781,10 @@ function prepareDirectWorktrees(
       tasks: [...tasks],
       agents: tasks.map((task) => task.name),
     };
+  }
+
+  if (typeof options.gitWorktreeDir === "string" || tasks.some((task) => typeof task.gitWorktreeDir === "string")) {
+    throw new Error("pi-workflows: worktree and gitWorktreeDir are mutually exclusive; use gitWorktreeDir for a reusable worktree or worktree:true for temporary isolated worktrees.");
   }
 
   const sharedCwd = resolveSharedDirectWorktreeCwd(tasks);
@@ -1019,8 +1072,13 @@ async function runDirectChainStep(
   runId: string,
 ): Promise<{ results: WorkflowTaskResult[]; artifacts: WorkflowArtifact[] }> {
   if ("parallel" in step) {
-    const expanded = expandedParallelTasks(step.parallel.map((item) => directTaskWithDefaults(item, options)));
-    const stepOptions = { ...options, worktree: options.worktree === true || step.worktree === true };
+    const stepOptions = {
+      ...options,
+      worktree: options.worktree === true || step.worktree === true,
+      ...(step.gitWorktreeDir !== undefined ? { gitWorktreeDir: step.gitWorktreeDir } : {}),
+      ...(step.baseBranch !== undefined ? { baseBranch: step.baseBranch } : {}),
+    };
+    const expanded = expandedParallelTasks(step.parallel.map((item) => directTaskWithDefaults(item, stepOptions)));
     const prepared = prepareDirectWorktrees(expanded, stepOptions, `${runId}-s${index}`, `step-${index}`);
     try {
       const steps = prepared.tasks.map((item) =>
@@ -1494,6 +1552,7 @@ export async function run<TInputs extends Record<string, unknown>>(
   // 4. Create GraphFrontierTracker and per-run ConcurrencyLimiter
   const tracker = new GraphFrontierTracker();
   const inputConcurrency = resolveInputConcurrency(def.inputs, resolvedInputs);
+  const inputRuntimeDefaults = resolveInputRuntimeDefaults(def, resolvedInputs);
   const limiter = createRunLimiter(inputConcurrency ?? opts.config?.defaultConcurrency);
   interface ReleaseBarrier {
     readonly promise: Promise<void>;
@@ -1826,14 +1885,16 @@ export async function run<TInputs extends Record<string, unknown>>(
   };
 
   // 5. Build WorkflowRunContext
+  const workflowCwd = opts.cwd ?? process.cwd();
   const ctx: WorkflowRunContext<TInputs> = {
     inputs: resolvedInputs as TInputs,
-    cwd: opts.cwd ?? process.cwd(),
+    cwd: workflowCwd,
     // Prompt nodes and caller-provided UI adapters are mutually exclusive;
     // executor-owned prompt nodes intentionally take precedence when enabled.
     ui: opts.usePromptNodesForUi === true ? buildPromptNodeUiAdapter() : opts.ui ?? makeUnavailableUIContext(),
 
     stage(name: string, options?: StageOptions, stageFailFastScope?: ParallelFailFastScope) {
+      options = stageOptionsWithGitWorktree(stageOptionsWithInputDefaults(options, inputRuntimeDefaults), workflowCwd);
       // a. Generate stageId
       const stageId = crypto.randomUUID();
 
@@ -2379,16 +2440,17 @@ export async function run<TInputs extends Record<string, unknown>>(
 
     async task(name: string, options: WorkflowTaskOptions, stageFailFastScope?: ParallelFailFastScope): Promise<WorkflowTaskResult> {
       const runTaskOnce = async (taskOptions: WorkflowTaskOptions): Promise<WorkflowTaskResult> => {
+        const resolvedTaskOptions = stageOptionsWithGitWorktree(stageOptionsWithInputDefaults(taskOptions, inputRuntimeDefaults), workflowCwd) ?? taskOptions;
         const stage = (ctx.stage as typeof ctx.stage & ((stageName: string, stageOptions?: StageOptions, scope?: ParallelFailFastScope) => StageContext))(
           name,
-          taskStageOptions(taskOptions),
+          taskStageOptions(resolvedTaskOptions),
           stageFailFastScope,
         );
         const rawText = await stage.prompt(
-          applyTaskContext(`${taskReadInstruction(taskOptions)}${taskPrompt(taskOptions)}`, taskPrevious(taskOptions)),
-          taskPromptOptions(taskOptions),
+          applyTaskContext(`${taskReadInstruction(resolvedTaskOptions)}${taskPrompt(resolvedTaskOptions)}`, taskPrevious(resolvedTaskOptions)),
+          taskPromptOptions(resolvedTaskOptions),
         );
-        const text = truncateTaskOutput(rawText, taskOptions.maxOutput);
+        const text = truncateTaskOutput(rawText, resolvedTaskOptions.maxOutput);
         const sessionId = (() => {
           try {
             return stage.sessionId;

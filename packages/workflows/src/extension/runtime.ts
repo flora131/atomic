@@ -190,6 +190,8 @@ export function createExtensionRuntime(opts: ExtensionRuntimeOpts = {}): Extensi
       maxOutput,
       artifacts,
       worktree,
+      gitWorktreeDir,
+      baseBranch,
       ...stageOptions
     } = args;
 
@@ -206,6 +208,8 @@ export function createExtensionRuntime(opts: ExtensionRuntimeOpts = {}): Extensi
       ...(maxOutput !== undefined ? { maxOutput } : {}),
       ...(typeof artifacts === "boolean" ? { artifacts } : {}),
       ...(typeof worktree === "boolean" ? { worktree } : {}),
+      ...(typeof gitWorktreeDir === "string" ? { gitWorktreeDir } : {}),
+      ...(typeof baseBranch === "string" ? { baseBranch } : {}),
     };
   }
 

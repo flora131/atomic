@@ -144,6 +144,8 @@ function stripWorkflowOnlyOptions(options: StageOptions | undefined): CreateAgen
     context,
     forkFromSessionFile,
     sessionDir,
+    gitWorktreeDir: _gitWorktreeDir,
+    baseBranch: _baseBranch,
     ...sessionOptions
   } = options;
   if (sessionOptions.sessionManager === undefined) {

@@ -18,6 +18,8 @@ export type { RunOpts, RunResult, ResolvedInputs } from "./runs/foreground/execu
 export type { AgentSessionAdapter, StageAdapters } from "./runs/foreground/stage-runner.js";
 export { GraphFrontierTracker } from "./runs/shared/graph-inference.js";
 export type { StageNode } from "./runs/shared/graph-inference.js";
+export { setupGitWorktree } from "./runs/shared/worktree.js";
+export type { GitWorktreeSetupOptions, GitWorktreeSetupResult } from "./runs/shared/worktree.js";
 export { createStore, store } from "./shared/store.js";
 export type { RunStatus, StageStatus, ToolEvent, StageSnapshot, RunSnapshot, StoreSnapshot, WorkflowNotice, NoticeLevel, WorkflowOverlayAdapter, PromptKind, PendingPrompt } from "./shared/store-types.js";
 

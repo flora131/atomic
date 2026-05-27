@@ -237,16 +237,20 @@ Inputs:
 |---|---|---|---|---|
 | `prompt` | text | yes | — | Task, feature request, issue summary, or spec path to plan, execute, refine, review, and prepare for PR. |
 | `max_loops` | number | no | `10` | Maximum plan/orchestrate/review iterations before the workflow proceeds to PR handoff without reviewer approval. |
-| `base_branch` | string | no | `origin/main` | Branch reviewers and the PR-prep stage compare the current code delta against. |
+| `base_branch` | string | no | `origin/main` | Branch reviewers and the PR-prep stage compare the current code delta against; also used to create a missing worktree. |
+| `git_worktree_dir` | string | no | `""` | Optional reusable Git worktree root. Empty runs in the invoking checkout; non-empty values run Ralph stages in the created/reused worktree. |
 
 Run examples:
 
 ```text
 /workflow ralph prompt="Plan and migrate the database layer to Drizzle" max_loops=3 base_branch=develop
 /workflow ralph prompt="Refactor authentication across the API, CLI, and web UI, then prepare the PR"
+/workflow ralph prompt="Safely implement the API refactor" git_worktree_dir=../atomic-ralph-api-wt base_branch=main
 ```
 
 Each `ralph` iteration writes an RFC-style technical design document under `specs/`, initializes an OS-temp implementation notes file, delegates implementation through sub-agents, runs a behavior-preserving code simplifier, discovers review infrastructure, and asks two reviewers to inspect the patch against `base_branch`. The loop stops when every reviewer approves or `max_loops` is reached, then runs a pull-request preparation stage.
+
+Set `git_worktree_dir` when you want Ralph's worker stages isolated in a reusable Git worktree. Relative paths resolve from the invoking repository root, existing same-repository worktree roots are reused, and missing paths are created from `base_branch`. Ralph preserves the invoking repo-relative cwd inside the worktree, so launching from `repo/packages/api` with `git_worktree_dir=../repo-wt` runs stages from `../repo-wt/packages/api`.
 
 Result fields:
 
@@ -663,7 +667,7 @@ workflow({
 })
 ```
 
-Direct mode supports top-level/default options and per-task options such as `context`, `forkFromSessionFile`, `model`, `fallbackModels`, `thinkingLevel`, `tools`, `noTools`, `customTools`, `mcp`, `output`, `outputMode`, `reads`, `worktree`, `maxOutput`, `artifacts`, `sessionDir`, `cwd`, and `agentDir`. Direct chains also support `chainName`, `chainDir`, and `failFast`.
+Direct mode supports top-level/default options and per-task options such as `context`, `forkFromSessionFile`, `model`, `fallbackModels`, `thinkingLevel`, `tools`, `noTools`, `customTools`, `mcp`, `output`, `outputMode`, `reads`, `worktree`, `gitWorktreeDir`, `baseBranch`, `maxOutput`, `artifacts`, `sessionDir`, `cwd`, and `agentDir`. Direct chains also support `chainName`, `chainDir`, and `failFast`.
 
 For large fan-outs, prefer `outputMode: "file-only"` so the parent result contains compact file references instead of full output. Treat intercom payloads from async direct runs as user-visible workflow output.
 
@@ -713,6 +717,7 @@ Builder basics:
 - Workflow names normalize for lookup: trim, lowercase, convert whitespace/underscore to hyphen, remove other punctuation, and collapse hyphens.
 - `.description(text)` sets the listing text.
 - `.input(key, schema)` declares typed user inputs.
+- `.worktreeFromInputs({ gitWorktreeDir, baseBranch })` optionally maps input names to workflow-wide reusable Git worktree defaults.
 - `.run(async (ctx) => { ... })` defines the workflow body.
 - `.compile()` returns the workflow definition for discovery.
 
@@ -773,8 +778,27 @@ Common task/stage options include:
 - `context: "fresh" | "fork"`, `forkFromSessionFile`
 - `model`, `fallbackModels`, `thinkingLevel`, `scopedModels`, `modelRegistry`
 - `tools`, `noTools`, `customTools`, `mcp: { allow?: string[], deny?: string[] }`
-- `output`, `outputMode`, `reads`, `worktree`, `maxOutput`, `artifacts`, `sessionDir`, `cwd`, `agentDir`
+- `output`, `outputMode`, `reads`, `worktree`, `gitWorktreeDir`, `baseBranch`, `maxOutput`, `artifacts`, `sessionDir`, `cwd`, `agentDir`
 - advanced host-supplied SDK seams: `authStorage`, `resourceLoader`, `sessionManager`, `settingsManager`, `sessionStartEvent`
+
+`gitWorktreeDir` selects a reusable Git worktree root for `ctx.stage`, `ctx.task`, `ctx.chain`, and `ctx.parallel`. If the path is missing, Atomic creates it with `git worktree add --detach <path> <baseBranch>`; if it exists, it must be a same-repository worktree root. The default stage cwd becomes the matching cwd inside the worktree and preserves the invoking repo-relative subdirectory. Explicit `cwd` still wins; relative `cwd` values resolve from the worktree cwd, while absolute `cwd` values are used as provided. `gitWorktreeDir` is mutually exclusive with `worktree: true`: use `gitWorktreeDir` for named/reusable worktrees and `worktree: true` for temporary direct-mode worktrees that are cleaned up after the run.
+
+To bind user inputs to a workflow-wide worktree default, use the builder method:
+
+```ts
+export default defineWorkflow("safe-implementation")
+  .input("task", { type: "text", required: true })
+  .input("git_worktree_dir", { type: "string", default: "" })
+  .input("base_branch", { type: "string", default: "origin/main" })
+  .worktreeFromInputs({ gitWorktreeDir: "git_worktree_dir", baseBranch: "base_branch" })
+  .run(async (ctx) => {
+    const result = await ctx.task("implement", { task: String(ctx.inputs.task) });
+    return { result: result.text };
+  })
+  .compile();
+```
+
+For lower-level integrations, `@bastani/workflows` also exports `setupGitWorktree({ gitWorktreeDir, baseBranch, cwd })`, returning `{ worktreeRoot, cwd, repositoryRoot, created }` with the same validation, symlink-preserving path handling, and cwd-preservation behavior used by workflow stages.
 
 `fallbackModels` retries transient provider/model failures with the primary `model` first, then each fallback, then the current Atomic-selected model when available. It is for rate limits, quota/auth/provider outages, unavailable models, network timeouts, and 5xx errors — not workflow-code errors, tool failures, validation failures, or cancellations.
 

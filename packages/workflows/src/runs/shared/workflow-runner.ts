@@ -45,6 +45,8 @@ export interface WorkflowDefinition extends StageOptions {
   output?: string | false;
   outputMode?: WorkflowOutputMode;
   worktree?: boolean;
+  gitWorktreeDir?: string;
+  baseBranch?: string;
   maxOutput?: WorkflowMaxOutput;
   artifacts?: boolean;
 }
@@ -165,6 +167,8 @@ function directOptions(definition: WorkflowDefinition): WorkflowDirectOptions {
     output,
     outputMode,
     worktree,
+    gitWorktreeDir,
+    baseBranch,
     maxOutput,
     artifacts,
     ...stageOptions
@@ -181,6 +185,8 @@ function directOptions(definition: WorkflowDefinition): WorkflowDirectOptions {
     ...(output !== undefined ? { output } : {}),
     ...(outputMode !== undefined ? { outputMode } : {}),
     ...(typeof worktree === "boolean" ? { worktree } : {}),
+    ...(typeof gitWorktreeDir === "string" ? { gitWorktreeDir } : {}),
+    ...(typeof baseBranch === "string" ? { baseBranch } : {}),
     ...(maxOutput !== undefined ? { maxOutput } : {}),
     ...(typeof artifacts === "boolean" ? { artifacts } : {}),
   };

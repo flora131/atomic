@@ -141,7 +141,7 @@ Atomic bundles four workflows that cover the most common multi-stage jobs. They 
 |---|---|---|
 | `deep-research-codebase` | Scout + research-history chain → parallel specialist waves → aggregator. Indexes the whole repo and synthesizes findings. | Broad or cross-cutting research before you decide what to change. Prefer `/skill:research-codebase` for one subsystem. |
 | `goal` | Persisted goal ledger → bounded worker turns → receipts → three-reviewer gate → deterministic reducer → final report. | Small-to-medium scope changes when you can identify the work surface, state the exact outcome, and name the validation that proves it is done — for example tests, lint/typecheck, docs builds, or observable behavior. |
-| `ralph` | RFC planning → sub-agent orchestration → simplification → infrastructure discovery → parallel review → PR handoff. | Larger migrations, broad refactors, multi-package changes, and spec-to-PR work where you want Atomic to plan the approach, delegate implementation through sub-agents, simplify, review, iterate, and prepare a pull-request report. |
+| `ralph` | Goal ledger → bounded work turns → worktree-isolated implementation/review → structured reviewer gate → final status and PR handoff. | Larger migrations, broad refactors, multi-package changes, and spec-to-PR work where you want Atomic to preserve the full objective, capture receipts, review deterministically, and prepare a pull-request report. |
 | `open-claude-design` | Design-system onboarding → reference import → HTML generation → impeccable-driven refinement → quality gate → rich HTML handoff. Renders a live `preview.html` you can iterate against (opens through `playwright-cli` when available). | UI, page, component, theme, or design-token work that benefits from generation + critique loops. |
 
 ### `deep-research-codebase`
@@ -235,33 +235,36 @@ Inputs:
 
 | Input | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `prompt` | text | yes | — | Task, feature request, issue summary, or spec path to plan, execute, refine, review, and prepare for PR. |
-| `max_loops` | number | no | `10` | Maximum plan/orchestrate/review iterations before the workflow proceeds to PR handoff without reviewer approval. |
+| `objective` | text | yes | — | Full task objective. Include the desired end state, constraints, validation instructions, and any spec, issue, or PR-prep context. |
+| `max_turns` | number | no | `10` | Maximum worker/review turns before the workflow stops for human follow-up. |
 | `base_branch` | string | no | `origin/main` | Branch reviewers and the PR-prep stage compare the current code delta against. |
+
+`ralph` no longer accepts the old `prompt`, `max_loops`, `review_quorum`, or `blocker_threshold` inputs. Reviewer quorum and repeated-blocker thresholds are fixed controller defaults so runs stay deterministic.
 
 Run examples:
 
 ```text
-/workflow ralph prompt="Plan and migrate the database layer to Drizzle" max_loops=3 base_branch=develop
-/workflow ralph prompt="Refactor authentication across the API, CLI, and web UI, then prepare the PR"
+/workflow ralph objective="Plan and migrate the database layer to Drizzle, run the focused validation, and prepare a PR" max_turns=3 base_branch=develop
+/workflow ralph objective="Refactor authentication across the API, CLI, and web UI; finish only when tests pass and the PR handoff is ready"
 ```
 
-Each `ralph` iteration writes an RFC-style technical design document under `specs/`, initializes an OS-temp implementation notes file, delegates implementation through sub-agents, runs a behavior-preserving code simplifier, discovers review infrastructure, and asks two reviewers to inspect the patch against `base_branch`. The loop stops when every reviewer approves or `max_loops` is reached, then runs a pull-request preparation stage.
+Ralph keeps the full objective in a persisted goal ledger, runs bounded worker turns, records receipts and validation evidence, and asks parallel structured reviewers to inspect the ledger, repository state, and diff against `base_branch`. Parallel implementation or review passes can use isolated git worktrees so concurrent writers do not clobber the main checkout; Atomic captures per-worktree diff stats and patch artifacts before cleaning up temporary worktrees and branches. The reducer marks the run `complete` only when the fixed reviewer quorum approves, `blocked` only when the same blocker repeats enough times, and `needs_human` when `max_turns` is exhausted or execution fails. When possible, the final phase prepares a pull-request report against `base_branch`.
 
 Result fields:
 
 | Field | Meaning |
 |---|---|
-| `result` | Final implementation report from the orchestrator stage. |
-| `plan` | Latest RFC-style plan text. |
-| `plan_path` | Path to the latest generated spec under `specs/`. |
-| `implementation_notes_path` | OS-temp notes file containing decisions, deviations, blockers, and validation notes. |
-| `pr_report` | Pull-request preparation report: diff review, PR status, commands, and follow-up steps. |
-| `approved` | Whether the reviewer loop approved before PR handoff. |
-| `iterations_completed` | Number of plan/orchestrate/review loops completed. |
-| `review_report` | Markdown report containing the latest reviewer payloads. |
+| `result` | Final report with objective, status, receipts, turns, and remaining work. |
+| `status` | Final reducer status: `complete`, `blocked`, or `needs_human` (or `active` if externally interrupted). |
+| `approved` | Whether the reducer reached `complete`. |
+| `objective` | Normalized objective used by the run. |
+| `ledger_path` | OS-temp goal-ledger path containing receipts, reviewer decisions, reducer decisions, blockers, and lifecycle events. |
+| `turns_completed` | Worker/review turns completed. |
+| `remaining_work` | Remaining gaps or blockers when incomplete, or `none`. |
+| `review_report` | Markdown report containing the latest structured reviewer decisions. |
+| `pr_report` | Pull-request preparation report when PR handoff runs. |
 
-A typical end-to-end flow is `/skill:research-codebase` → `/skill:create-spec` → `/workflow goal objective="Implement the researched rate-limit behavior, run the focused tests, and finish when the documented burst behavior is validated"` when you can identify the work surface, state the exact outcome, and name the validation that proves it is done. Keep using `/workflow ralph` for larger migrations, broad refactors, multi-package changes, and spec-to-PR work where you want Atomic to plan, delegate through sub-agents, simplify, review, iterate, and prepare a pull-request report.
+A typical end-to-end flow is `/skill:research-codebase` → `/skill:create-spec` → `/workflow goal objective="Implement the researched rate-limit behavior, run the focused tests, and finish when the documented burst behavior is validated"` when you can identify the work surface, state the exact outcome, and name the validation that proves it is done. Keep using `/workflow ralph objective="..."` for larger migrations, broad refactors, multi-package changes, and spec-to-PR work where you want Atomic to preserve a full objective, delegate implementation, review with deterministic gates, and prepare a pull-request report.
 
 ### `open-claude-design`
 
@@ -340,7 +343,7 @@ If the task is only deterministic TypeScript with no LLM/session stage, use a sc
 |-----------|-----|
 | Run, inspect, attach to, pause, interrupt, resume, or check status for an existing workflow | `/workflow ...` or `workflow({ action: ... })` |
 | Implement a small-to-medium scope change with an identifiable work surface, exact outcome, and named validation | `/workflow goal objective="..."` so Atomic keeps the run bounded, captures receipts in a goal ledger, gates completion through reviewers, and stops as `complete`, `blocked`, or `needs_human` |
-| Plan and execute a larger migration, broad refactor, multi-package change, or spec-to-PR effort | `/workflow ralph prompt="..."` so Atomic can plan the approach, delegate implementation through sub-agents, simplify, review, iterate, and prepare a pull-request report |
+| Plan and execute a larger migration, broad refactor, multi-package change, or spec-to-PR effort | `/workflow ralph objective="..."` so Atomic can preserve the full objective, delegate implementation, review with deterministic gates, and prepare a pull-request report |
 | Create or edit reusable automation | a TypeScript workflow definition with `defineWorkflow(...).run(...).compile()` |
 | Track one-off work without saving a workflow file | direct `workflow({ task })`, `workflow({ tasks })`, or `workflow({ chain })` calls |
 | Make a workflow robust | design the stage graph, context handoffs, artifacts, validation gates, model fallbacks, and human approval points before coding |
@@ -663,7 +666,9 @@ workflow({
 })
 ```
 
-Direct mode supports top-level/default options and per-task options such as `context`, `forkFromSessionFile`, `model`, `fallbackModels`, `thinkingLevel`, `tools`, `noTools`, `customTools`, `mcp`, `output`, `outputMode`, `reads`, `worktree`, `maxOutput`, `artifacts`, `sessionDir`, `cwd`, and `agentDir`. Direct chains also support `chainName`, `chainDir`, and `failFast`.
+Direct mode supports top-level/default options and per-task options such as `context`, `forkFromSessionFile`, `model`, `fallbackModels`, `thinkingLevel`, `tools`, `noTools`, `excludedTools`, `customTools`, `mcp`, `output`, `outputMode`, `reads`, `worktree`, `maxOutput`, `artifacts`, `sessionDir`, `cwd`, and `agentDir`. Direct chains also support `chainName`, `chainDir`, and `failFast`.
+
+For parallel writers, set `worktree: true` on top-level parallel runs or chain parallel groups. Atomic creates temporary git worktrees from `HEAD`, rejects conflicting task-level `cwd` overrides, appends per-task diff stats to the result, writes full patch artifacts when artifacts are enabled, and cleans up temp worktrees and branches afterward. Async/background chains support the same worktree isolation.
 
 For large fan-outs, prefer `outputMode: "file-only"` so the parent result contains compact file references instead of full output. Treat intercom payloads from async direct runs as user-visible workflow output.
 
@@ -772,11 +777,13 @@ Common task/stage options include:
 - `previous` for handoff context
 - `context: "fresh" | "fork"`, `forkFromSessionFile`
 - `model`, `fallbackModels`, `thinkingLevel`, `scopedModels`, `modelRegistry`
-- `tools`, `noTools`, `customTools`, `mcp: { allow?: string[], deny?: string[] }`
+- `tools`, `noTools`, `excludedTools`, `customTools`, `mcp: { allow?: string[], deny?: string[] }`
 - `output`, `outputMode`, `reads`, `worktree`, `maxOutput`, `artifacts`, `sessionDir`, `cwd`, `agentDir`
 - advanced host-supplied SDK seams: `authStorage`, `resourceLoader`, `sessionManager`, `settingsManager`, `sessionStartEvent`
 
 `fallbackModels` retries transient provider/model failures with the primary `model` first, then each fallback, then the current Atomic-selected model when available. It is for rate limits, quota/auth/provider outages, unavailable models, network timeouts, and 5xx errors — not workflow-code errors, tool failures, validation failures, or cancellations.
+
+`excludedTools` is a provider/session-level denylist for SDK integrations that support it. Use `tools` when you want an explicit allowlist and `excludedTools` when the provider should keep its normal tool set except for named tools. Headless Copilot workflow stages merge caller-supplied `excludedTools` with Atomic's required `ask_user` exclusion so native tmux-pane HIL remains the interaction surface without dropping your own exclusions.
 
 ## Programmatic Usage
 

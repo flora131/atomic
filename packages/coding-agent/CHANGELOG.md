@@ -5,6 +5,7 @@
 ### Changed
 
 - Clarified bundled workflow docs and `/atomic` onboarding copy for using `goal` on smaller scoped changes with explicit outcomes, testing instructions, and done criteria, while positioning `ralph` for larger migrations, broad refactors, and PR-prep workflows.
+- Updated the docs changelog and impacted workflow, subagent, and SDK docs for the latest Ralph goal-runner releases, worktree isolation behavior, and `excludedTools` SDK guidance.
 
 ## [0.8.17] - 2026-05-26
 

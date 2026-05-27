@@ -280,7 +280,9 @@ await runWorkflow({
 });
 ```
 
-The programmatic definition object mirrors the workflow tool: named workflow runs, single-task runs, parallel `tasks`, and mixed `chain` runs accept the same direct options (`reads`, `output`, `outputMode`, `worktree`, `maxOutput`, `artifacts`, `concurrency`, `failFast`, and stage/session options such as `cwd`, `agentDir`, `model`, `tools`, `context`, and `sessionDir`). `chainDir` is chain-only: it provides the shared artifact directory for chain reads, outputs, and worktree diffs.
+The programmatic definition object mirrors the workflow tool: named workflow runs, single-task runs, parallel `tasks`, and mixed `chain` runs accept the same direct options (`reads`, `output`, `outputMode`, `worktree`, `maxOutput`, `artifacts`, `concurrency`, `failFast`, and stage/session options such as `cwd`, `agentDir`, `model`, `tools`, `excludedTools`, `context`, and `sessionDir`). `chainDir` is chain-only: it provides the shared artifact directory for chain reads, outputs, and worktree diffs.
+
+Use `worktree: true` for parallel writer stages that must not share one checkout. The runner creates temporary git worktrees from `HEAD`, captures per-worktree diff summaries and patch artifacts, then cleans up the temporary worktrees and branches. Provider/session integrations that support `excludedTools` can use it as a denylist; headless Copilot stages merge caller exclusions with Atomic's required `ask_user` exclusion.
 
 Workflow stage sessions follow Atomic SDK directory defaults: `DefaultResourceLoader` is initialized with the project `cwd` and the Atomic default `~/.atomic/agent` directory, while legacy `.pi` paths remain readable where the SDK supports multiple config directories. A stage-supplied `agentDir` is treated as an explicit user override; a stage-supplied `resourceLoader` owns discovery, with `cwd`/`agentDir` left for session naming and tool path resolution.
 
@@ -324,17 +326,19 @@ Goal Runner workflow: initialize a persisted goal ledger with a per-run goal id 
 
 ### `ralph`
 
-Plan → orchestrate → simplify → discover → review → PR-handoff workflow: write an RFC-style technical design document under `specs/`, delegate implementation through sub-agents, simplify recent changes, discover review infrastructure, run parallel reviewers, iterate until approval or the loop limit, then prepare a pull-request report.
+Goal-ledger workflow for larger migrations, broad refactors, multi-package changes, and spec-to-PR work: preserve the full objective, run bounded worker/review turns, capture receipts, review with a fixed structured reviewer gate, use worktree isolation for concurrent implementation/review passes, and prepare a pull-request report when possible.
 
 ```text
-/workflow ralph prompt="Plan and migrate the database layer to Drizzle ORM" max_loops=3 base_branch=develop
+/workflow ralph objective="Plan and migrate the database layer to Drizzle ORM, validate the migration, and prepare a PR" max_turns=3 base_branch=develop
 ```
 
 | Input         | Type     | Required | Default       | Description                                                   |
 | ------------- | -------- | -------- | ------------- | ------------------------------------------------------------- |
-| `prompt`      | `text`   | ✓        | —             | Task, feature request, issue summary, or spec path to plan, execute, refine, review, and prepare for PR. |
-| `max_loops`   | `number` | —        | `10`          | Maximum plan/orchestrate/review iterations before PR handoff. |
+| `objective`   | `text`   | ✓        | —             | Full task objective, including constraints, validation, and PR-prep context. |
+| `max_turns`   | `number` | —        | `10`          | Maximum worker/review turns before human follow-up is needed. |
 | `base_branch` | `string` | —        | `origin/main` | Branch reviewers and PR-prep compare the current delta with.  |
+
+The legacy `prompt`, `max_loops`, `review_quorum`, and `blocker_threshold` inputs were removed. Reviewer quorum and repeated-blocker thresholds are fixed controller defaults.
 
 ### `open-claude-design`
 

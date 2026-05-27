@@ -501,6 +501,20 @@ const { session } = await createAgentSession({
 });
 ```
 
+#### Provider session `excludedTools`
+
+Use `tools` for an Atomic session allowlist. Provider-backed workflow SDK integrations that expose provider session options may also support `excludedTools`, a denylist that keeps the provider's normal tool set except for the named tools.
+
+For Copilot-backed headless workflow stages, Atomic merges your `excludedTools` with its required `ask_user` exclusion instead of replacing your list. That keeps native tmux-pane human input as the interaction surface while preserving your own exclusions.
+
+```typescript
+// Provider session options in workflow/agent SDK integrations that support Copilot
+const sessionOptions = {
+  excludedTools: ["dangerous_tool"],
+};
+// Headless Copilot stages run with ["dangerous_tool", "ask_user"].
+```
+
 #### Tools with Custom cwd
 
 When you pass a custom `cwd`, `createAgentSession()` builds selected built-in tools for that cwd.

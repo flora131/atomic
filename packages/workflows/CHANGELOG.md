@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Updated README guidance for Ralph's `objective`/`max_turns` inputs, worktree-isolated parallel execution, and SDK `excludedTools` session options.
+
 ## [0.8.17] - 2026-05-26
 
 ### Changed

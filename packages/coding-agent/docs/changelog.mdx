@@ -3,6 +3,25 @@ title: "Changelog"
 description: "What's new in Atomic"
 ---
 
+<Update label="May 26, 2026" tags={["v0.8.17", "v0.8.16", "v0.8.15"]}>
+
+## Latest releases
+
+- **0.8.17 is the latest stable release.** It promotes the Ralph simplification from the prerelease while keeping `objective`, `max_turns`, and optional `base_branch` as the workflow inputs. Reviewer quorum and repeated-blocker thresholds now use fixed controller defaults. See [Workflows](/workflows).
+- **Ralph now runs as a deterministic Goal Runner.** The workflow keeps a goal ledger, records worker receipts, gates completion through parallel structured reviewers, reports `complete`, `blocked`, or `needs_human`, and keeps the full objective intact across turns.
+- **Workflow human-input prompts are visible graph nodes.** `ctx.ui.input`, `confirm`, `select`, and `editor` prompts render as `awaiting_input` stages with `StageSnapshot.promptAnswerState` metadata, and prompt answers replay only from live in-memory state.
+- **Workflow inspection and control expanded.** The workflow tool supports stage introspection and control actions such as `stages`, `stage`, `transcript`, `send`, `pause`, and `reload`.
+- **Direct workflow and subagent runs can isolate parallel writers with worktrees.** Use `worktree: true` for parallel tasks or chain parallel groups when concurrent agents may edit files; Atomic captures per-worktree diff summaries and patch artifacts.
+- **SDK tool exclusions are documented.** Provider/session integrations that support `excludedTools` can deny specific tools, and headless Copilot workflow stages merge the caller's exclusions with Atomic's required `ask_user` exclusion instead of replacing them. See [SDK](/sdk) and [Workflows](/workflows).
+
+## Fixes
+
+- Workflow prompt-node handling now returns cleanly to the graph orchestrator after answers or skips.
+- MCP OAuth callback handling no longer starts eagerly during session startup.
+- Bundled subagent fixes cover nested fanout state, child allowlists, async runner config permissions, fallback models, read-only guard overrides, Windows child process spawning, stable running glyphs, and recovered intermediate child errors.
+
+</Update>
+
 <Update label="May 25, 2026" tags={["v0.8.14"]}>
 
 ## Stable release

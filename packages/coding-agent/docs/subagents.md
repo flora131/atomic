@@ -104,7 +104,32 @@ Subagents can run with fresh or forked context:
 
 For adversarial review or research, prefer fresh context so the specialist inspects the repository directly. Use forked context when a writer needs the parent conversation history in a separate branch.
 
-For parallel implementation work, `worktree: true` can give each child an isolated git worktree so concurrent edits do not clobber each other.
+For parallel implementation work, use `worktree: true` when multiple writer children might edit at the same time. Each child gets an isolated git worktree so concurrent edits do not clobber each other.
+
+## Worktree isolation
+
+`worktree: true` applies to top-level parallel `tasks`, chain steps with `{ parallel: [...] }`, and async/background chains. Use it for intentionally parallel writer workflows; keep normal work single-writer when possible.
+
+```ts
+subagent({
+  tasks: [
+    { agent: "debugger", task: "Fix package A" },
+    { agent: "code-simplifier", task: "Clean up package B" },
+  ],
+  worktree: true,
+})
+```
+
+Requirements and behavior:
+
+- The run must start inside a git repository with a clean working tree.
+- Each parallel child gets a temporary worktree branched from `HEAD`.
+- Task-level `cwd` overrides must be omitted or match the shared cwd.
+- `node_modules/` is symlinked into each worktree when present.
+- Results include per-child diff stats, and full patch files are written with artifacts.
+- Temporary worktrees and branches are cleaned up after diff capture.
+
+If a project needs generated files, virtualenvs, copied local config, or other setup inside each temporary worktree, configure the subagents extension `worktreeSetupHook` so those helper paths can be created and excluded from captured patches.
 
 ## Nested and fanout boundaries
 

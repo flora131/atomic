@@ -198,6 +198,8 @@ export interface AgentSessionConfig {
 	initialActiveToolNames?: string[];
 	/** Optional allowlist of tool names. When provided, only these tool names are exposed. */
 	allowedToolNames?: string[];
+	/** Optional blocklist of tool names. Matching names are omitted from the final exposed registry. */
+	excludedToolNames?: string[];
 	/**
 	 * Override base tools (useful for custom runtimes).
 	 *
@@ -324,6 +326,7 @@ export class AgentSession {
 	private _extensionRunnerRef?: { current?: ExtensionRunner };
 	private _initialActiveToolNames?: string[];
 	private _allowedToolNames?: Set<string>;
+	private _excludedToolNames?: Set<string>;
 	private _baseToolsOverride?: Record<string, AgentTool>;
 	private _sessionStartEvent: SessionStartEvent;
 	private _extensionUIContext?: ExtensionUIContext;
@@ -357,6 +360,7 @@ export class AgentSession {
 		this._extensionRunnerRef = config.extensionRunnerRef;
 		this._initialActiveToolNames = config.initialActiveToolNames;
 		this._allowedToolNames = config.allowedToolNames ? new Set(config.allowedToolNames) : undefined;
+		this._excludedToolNames = config.excludedToolNames ? new Set(config.excludedToolNames) : undefined;
 		this._baseToolsOverride = config.baseToolsOverride;
 		this._sessionStartEvent = config.sessionStartEvent ?? { type: "session_start", reason: "startup" };
 
@@ -982,6 +986,7 @@ export class AgentSession {
 			customPrompt: loaderSystemPrompt,
 			appendSystemPrompt,
 			selectedTools: validToolNames,
+			excludedTools: this._excludedToolNames ? Array.from(this._excludedToolNames) : undefined,
 			toolSnippets,
 			promptGuidelines,
 		};
@@ -2345,7 +2350,16 @@ export class AgentSession {
 		const previousRegistryNames = new Set(this._toolRegistry.keys());
 		const previousActiveToolNames = this.getActiveToolNames();
 		const allowedToolNames = this._allowedToolNames;
-		const isAllowedTool = (name: string): boolean => !allowedToolNames || allowedToolNames.has(name);
+		const excludedToolNames = this._excludedToolNames;
+		const isExposedTool = (name: string): boolean => {
+			if (allowedToolNames && !allowedToolNames.has(name)) {
+				return false;
+			}
+			if (excludedToolNames?.has(name)) {
+				return false;
+			}
+			return true;
+		};
 
 		const registeredTools = this._extensionRunner.getAllRegisteredTools();
 		const allCustomTools = [
@@ -2354,10 +2368,10 @@ export class AgentSession {
 				definition,
 				sourceInfo: createSyntheticSourceInfo(`<sdk:${definition.name}>`, { source: "sdk" }),
 			})),
-		].filter((tool) => isAllowedTool(tool.definition.name));
+		].filter((tool) => isExposedTool(tool.definition.name));
 		const definitionRegistry = new Map<string, ToolDefinitionEntry>(
 			Array.from(this._baseToolDefinitions.entries())
-				.filter(([name]) => isAllowedTool(name))
+				.filter(([name]) => isExposedTool(name))
 				.map(([name, definition]) => [
 					name,
 					{
@@ -2393,7 +2407,7 @@ export class AgentSession {
 		const wrappedExtensionTools = wrapRegisteredTools(allCustomTools, runner);
 		const wrappedBuiltInTools = wrapRegisteredTools(
 			Array.from(this._baseToolDefinitions.values())
-				.filter((definition) => isAllowedTool(definition.name))
+				.filter((definition) => isExposedTool(definition.name))
 				.map((definition) => ({
 					definition,
 					sourceInfo: createSyntheticSourceInfo(`<builtin:${definition.name}>`, { source: "builtin" }),
@@ -2409,7 +2423,7 @@ export class AgentSession {
 
 		const nextActiveToolNames = (
 			options?.activeToolNames ? [...options.activeToolNames] : [...previousActiveToolNames]
-		).filter((name) => isAllowedTool(name));
+		).filter((name) => isExposedTool(name));
 
 		if (allowedToolNames) {
 			for (const toolName of this._toolRegistry.keys()) {

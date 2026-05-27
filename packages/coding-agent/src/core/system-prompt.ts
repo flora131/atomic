@@ -5,6 +5,15 @@
 import { getDocsPath, getExamplesPath, getReadmePath } from "../config.ts";
 import { formatSkillsForPrompt, type Skill } from "./skills.ts";
 
+const DEFAULT_PROMPT_TOOLS = [
+  "read",
+  "bash",
+  "edit",
+  "write",
+  "ask_user_question",
+  "todo",
+] as const;
+
 export interface SystemPromptModel {
   /** Provider identifier for the selected model. */
   provider: string;
@@ -19,6 +28,8 @@ export interface BuildSystemPromptOptions {
   customPrompt?: string;
   /** Tools to include in prompt. Default: [read, bash, edit, write, ask_user_question, todo] */
   selectedTools?: string[];
+  /** Tool names explicitly excluded by the caller and omitted from generated guidance. */
+  excludedTools?: string[];
   /** Optional one-line tool snippets keyed by tool name. */
   toolSnippets?: Record<string, string>;
   /** Additional guideline bullets appended to the default system prompt guidelines. */
@@ -42,6 +53,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
   const {
     customPrompt,
     selectedTools,
+    excludedTools,
     toolSnippets,
     promptGuidelines,
     appendSystemPrompt,
@@ -67,6 +79,10 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 
   const contextFiles = providedContextFiles ?? [];
   const skills = providedSkills ?? [];
+  const explicitlyExcludedTools = new Set(excludedTools ?? []);
+  const isPromptToolAvailable = (name: string): boolean =>
+    (!selectedTools || selectedTools.includes(name)) &&
+    !explicitlyExcludedTools.has(name);
 
   if (customPrompt) {
     let prompt = customPrompt;
@@ -85,9 +101,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
     }
 
     // Append skills section (only if read tool is available)
-    const customPromptHasRead =
-      !selectedTools || selectedTools.includes("read");
-    if (customPromptHasRead && skills.length > 0) {
+    if (isPromptToolAvailable("read") && skills.length > 0) {
       prompt += formatSkillsForPrompt(skills);
     }
 
@@ -107,14 +121,9 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 
   // Build tools list based on selected tools.
   // A tool appears in Available tools only when the caller provides a one-line snippet.
-  const tools = selectedTools || [
-    "read",
-    "bash",
-    "edit",
-    "write",
-    "ask_user_question",
-    "todo",
-  ];
+  const tools = (selectedTools ?? DEFAULT_PROMPT_TOOLS).filter(
+    (name) => !explicitlyExcludedTools.has(name),
+  );
   const visibleTools = tools.filter((name) => !!toolSnippets?.[name]);
   const toolsList =
     visibleTools.length > 0
@@ -162,15 +171,22 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 
   const guidelines = guidelinesList.map((g) => `- ${g}`).join("\n");
 
+  const askUserQuestionGuidance = explicitlyExcludedTools.has("ask_user_question")
+    ? "Always ask clarifying questions if the user's request is ambiguous or lacks necessary details. NEVER make assumptions about what the user wants."
+    : "Always ask clarifying questions (using the ask_user_question tool if available) if the user's request is ambiguous or lacks necessary details. NEVER make assumptions about what the user wants.";
+  const todoGuidance = explicitlyExcludedTools.has("todo")
+    ? "If the user has a complex task that can be broken down into actionable steps, maintain a task list before proceeding. This ensures clarity and alignment with the user's goals and that you have a way to track your work and ensure you are meeting the user's expectations."
+    : "If the user has a complex task that can be broken down into actionable steps, ALWAYS use the `todo` tool to create a task list before proceeding. This ensures clarity and alignment with the user's goals and that you have a way to track your work and ensure you are meeting the user's expectations.";
+
   const engineering_guidelines = `<user_experience>
-- Always ask clarifying questions (using the ask_user_question tool if available) if the user's request is ambiguous or lacks necessary details. NEVER make assumptions about what the user wants.
+- ${askUserQuestionGuidance}
 - If you find yourself circling in thought and asking what the user "really" wants, stop and ask the user for clarification. It's better to clarify intent rather than to guess.
 </user_experience>
 
 <tool_policies>
 Follow these tool selection and usage rules in order of priority:
 
-1. **To-do management**: If the user has a complex task that can be broken down into actionable steps, ALWAYS use the \`todo\` tool to create a task list before proceeding. This ensures clarity and alignment with the user's goals and that you have a way to track your work and ensure you are meeting the user's expectations.
+1. **To-do management**: ${todoGuidance}
 
 2. **Browser search and automation**:
 

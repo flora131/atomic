@@ -12,7 +12,7 @@ The runtime example shows how to build a recreate function that closes over proc
 | `02-custom-model.ts` | Select model and thinking level |
 | `03-custom-prompt.ts` | Replace or modify system prompt |
 | `04-skills.ts` | Discover, filter, or replace skills |
-| `05-tools.ts` | Built-in tool allowlists |
+| `05-tools.ts` | Tool allowlists and exclusions |
 | `06-extensions.ts` | Logging, blocking, result modification |
 | `07-context-files.ts` | AGENTS.md context files |
 | `08-slash-commands.ts` | File-based slash commands |
@@ -26,7 +26,7 @@ The runtime example shows how to build a recreate function that closes over proc
 
 ```bash
 cd packages/coding-agent
-npx tsx examples/sdk/01-minimal.ts
+bun examples/sdk/01-minimal.ts
 ```
 
 ## Quick Reference
@@ -62,6 +62,9 @@ const { session } = await createAgentSession({ resourceLoader: loader, authStora
 
 // Read-only
 const { session } = await createAgentSession({ tools: ["read", "grep", "find", "ls"], authStorage, modelRegistry });
+
+// Defaults minus one tool
+const { session } = await createAgentSession({ excludeTools: ["ask_user_question"], authStorage, modelRegistry });
 
 // In-memory
 const { session } = await createAgentSession({
@@ -114,7 +117,8 @@ await session.prompt("Hello");
 | `agentDir` | `~/.pi/agent` | Config directory |
 | `model` | From settings/first available | Model to use |
 | `thinkingLevel` | From settings/"off" | off, low, medium, high |
-| `tools` | `["read", "bash", "edit", "write"]` built-ins | Allowlist tool names across built-in, extension, and custom tools |
+| `tools` | Default active built-ins | Allowlist tool names across built-in, extension, and custom tools |
+| `excludeTools` | `[]` | Blocklist tool names across built-in, extension, and custom tools; applied after `tools` |
 | `customTools` | `[]` | Additional tool definitions |
 | `resourceLoader` | DefaultResourceLoader | Resource loader for extensions, skills, prompts, themes |
 | `sessionManager` | `SessionManager.create(cwd)` | Persistence |

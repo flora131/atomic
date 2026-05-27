@@ -1,7 +1,11 @@
 /**
  * Tools Configuration
  *
- * Use tool names to choose which built-in tools are enabled.
+ * Use tool names to choose which tools are exposed.
+ *
+ * `tools` is an allowlist. `excludeTools` removes names from the final exposed
+ * set after any allowlist is applied, which is useful for keeping the default
+ * tools while removing one tool such as ask_user_question.
  *
  * Tool names are matched against all available tools. If you use a custom `cwd`,
  * createAgentSession() applies that cwd when it builds the actual built-in tools.
@@ -27,6 +31,23 @@ const { session: customToolsSession } = await createAgentSession({
 });
 console.log("Custom tools session created");
 customToolsSession.dispose();
+
+// Keep defaults but remove one tool (for example, no human-in-the-loop prompts)
+const { session: defaultsWithoutAskSession } = await createAgentSession({
+	excludeTools: ["ask_user_question"],
+	sessionManager: SessionManager.inMemory(),
+});
+console.log("Defaults minus ask_user_question session created");
+defaultsWithoutAskSession.dispose();
+
+// Allowlist first, then subtract exclusions
+const { session: allowlistWithExclusionSession } = await createAgentSession({
+	tools: ["read", "bash", "ask_user_question"],
+	excludeTools: ["ask_user_question"],
+	sessionManager: SessionManager.inMemory(),
+});
+console.log("Allowlist with exclusion session created");
+allowlistWithExclusionSession.dispose();
 
 // With custom cwd
 const customCwd = "/path/to/project";

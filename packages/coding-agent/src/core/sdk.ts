@@ -78,9 +78,17 @@ export interface CreateAgentSessionOptions {
    * When omitted, pi enables the default built-in tools (read, bash, edit, write,
    * ask_user_question, todo) and leaves extension/custom tools enabled unless
    * `noTools` changes that default.
-   * When provided, only the listed tool names are enabled.
+   * When provided, only the listed tool names are enabled, minus any names in
+   * `excludeTools`.
    */
   tools?: string[];
+  /**
+   * Optional blocklist of tool names.
+   *
+   * Matching built-in, extension, and SDK custom tools are omitted from the
+   * final session tool registry and active tool set. Unknown names are ignored.
+   */
+  excludeTools?: string[];
   /** Custom tools to register (in addition to built-in tools). */
   customTools?: ToolDefinition[];
 
@@ -323,14 +331,13 @@ export async function createAgentSession(
     thinkingLevel = clampThinkingLevel(model, thinkingLevel) as ThinkingLevel;
   }
 
-  const defaultActiveToolNames = [...defaultToolNames];
   const allowedToolNames =
     options.tools ?? (options.noTools === "all" ? [] : undefined);
   const initialActiveToolNames: string[] = options.tools
     ? [...options.tools]
     : options.noTools
       ? []
-      : defaultActiveToolNames;
+      : [...defaultToolNames];
 
   let agent: Agent;
 
@@ -463,6 +470,7 @@ export async function createAgentSession(
     modelRegistry,
     initialActiveToolNames,
     allowedToolNames,
+    excludedToolNames: options.excludeTools,
     extensionRunnerRef,
     sessionStartEvent: options.sessionStartEvent,
   });

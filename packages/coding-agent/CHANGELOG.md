@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added SDK `excludeTools` support for omitting named built-in, extension, and custom tools from `createAgentSession()` sessions while preserving existing `tools` and `noTools` behavior ([#1070](https://github.com/flora131/atomic/issues/1070)).
+
 ### Changed
 
 - Clarified bundled workflow docs and `/atomic` onboarding copy for using `goal` on smaller scoped changes with explicit outcomes, testing instructions, and done criteria, while positioning `ralph` for larger migrations, broad refactors, and PR-prep workflows.

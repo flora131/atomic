@@ -13,7 +13,7 @@ import { createAgentSession } from "../../../src/core/sdk.ts";
 import { SessionManager } from "../../../src/core/session-manager.ts";
 import { SettingsManager } from "../../../src/core/settings-manager.ts";
 
-describe("regression #3592: no-builtin-tools keeps extension tools enabled", () => {
+describe("noTools builtin mode keeps extension tools enabled", () => {
 	let tempDir: string;
 	let agentDir: string;
 
@@ -78,7 +78,7 @@ describe("regression #3592: no-builtin-tools keeps extension tools enabled", () 
 				.getAllTools()
 				.map((tool) => tool.name)
 				.sort(),
-		).toEqual(["bash", "dynamic_tool", "edit", "find", "grep", "ls", "read", "write"]);
+		).toEqual(["ask_user_question", "bash", "dynamic_tool", "edit", "find", "grep", "ls", "read", "todo", "write"]);
 		expect(session.getActiveToolNames()).toEqual(["dynamic_tool"]);
 		expect(session.systemPrompt).toContain("- dynamic_tool: Run dynamic test behavior");
 		expect(session.systemPrompt).not.toContain("- read:");

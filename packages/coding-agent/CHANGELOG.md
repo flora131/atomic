@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added session-scoped `orchestrationContext` support to SDK agent sessions and extension contexts for workflow-stage policy enforcement.
+
 ## [0.8.19] - 2026-05-27
 
 ### Changed

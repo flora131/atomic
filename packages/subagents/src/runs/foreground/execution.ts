@@ -64,6 +64,8 @@ import {
 	summarizeRecentMutatingFailures,
 } from "../shared/long-running-guard.ts";
 
+type RunningSingleResult = SingleResult & { messages: Message[] };
+
 const artifactOutputByResult = new WeakMap<SingleResult, string>();
 
 function emptyUsage(): Usage {
@@ -164,7 +166,7 @@ async function runSingleAttempt(
 		parentCapabilityToken: options.nestedRoute?.capabilityToken,
 	});
 
-	const result: SingleResult = {
+	const result: RunningSingleResult = {
 		agent: agent.name,
 		task,
 		exitCode: 0,
@@ -203,7 +205,13 @@ async function runSingleAttempt(
 		lastActivityAt: startTime,
 	};
 	result.progress = progress;
-	const spawnEnv = { ...process.env, ...sharedEnv, ...getSubagentDepthEnv(options.maxSubagentDepth) };
+	const spawnEnv = {
+		...process.env,
+		...sharedEnv,
+		...getSubagentDepthEnv(options.maxSubagentDepth, {
+			workflowStageSubagentGuard: options.workflowStageSubagentGuard,
+		}),
+	};
 	let observedMutationAttempt = false;
 
 	const exitCode = await new Promise<number>((resolve) => {

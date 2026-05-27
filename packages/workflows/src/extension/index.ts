@@ -85,7 +85,7 @@ import type { StatusWriter } from "./status-writer.js";
 import { setMcpScope, clearMcpScope } from "./mcp.js";
 import type { PiMcpExtensionAPI, PiEventBus } from "./mcp.js";
 import type { StageSessionRuntime } from "../runs/foreground/stage-runner.js";
-import type { CreateAgentSessionOptions } from "@bastani/atomic";
+import { APP_NAME, getEnvValue, type CreateAgentSessionOptions } from "@bastani/atomic";
 
 // ---------------------------------------------------------------------------
 // Minimal ExtensionAPI structural types
@@ -937,6 +937,21 @@ function reloadFailureMessage(error: unknown): string {
   return `Reload failed: ${error instanceof Error ? error.message : String(error)}`;
 }
 
+const WORKFLOW_STAGE_SUBAGENT_GUARD_ENV = `${APP_NAME.toUpperCase()}_WORKFLOW_STAGE_SUBAGENT_GUARD`;
+
+function hasWorkflowStageSubagentGuardEnv(): boolean {
+  return getEnvValue(WORKFLOW_STAGE_SUBAGENT_GUARD_ENV) === "1";
+}
+
+interface OrchestrationContextShape {
+  kind?: string;
+}
+
+function isWorkflowStageToolContext(ctx: PiExecuteContext): boolean {
+  const orchestrationContext = ctx.orchestrationContext as OrchestrationContextShape | undefined;
+  return orchestrationContext?.kind === "workflow-stage" || hasWorkflowStageSubagentGuardEnv();
+}
+
 // ---------------------------------------------------------------------------
 // Tool execute — dispatch with real registry for list/inputs/run (Phase E)
 //                + real status/interrupt/resume (Phase D)
@@ -953,6 +968,15 @@ export function makeExecuteWorkflowTool(
   ): Promise<WorkflowToolResult> {
     const action = args.action ?? "run";
     const runId = args.runId ?? "";
+    if (isWorkflowStageToolContext(ctx)) {
+      return {
+        action: "run",
+        runId,
+        status: "failed",
+        error: "workflows cannot invoke workflows from workflow stages",
+        stages: [],
+      };
+    }
     const activeRuntime =
       typeof runtime === "function" ? runtime(ctx) : runtime;
 

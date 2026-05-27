@@ -18,6 +18,7 @@ export interface RunnerSubagentStep {
 	outputMode?: "inline" | "file-only";
 	sessionFile?: string;
 	maxSubagentDepth?: number;
+	workflowStageSubagentGuard?: boolean;
 }
 
 export interface ParallelStepGroup {

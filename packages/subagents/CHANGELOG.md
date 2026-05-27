@@ -13,6 +13,7 @@
 
 ### Fixed
 - Fixed builtin subagent skill resolution from project cwd ([#1087](https://github.com/flora131/atomic/issues/1087)).
+- Capped subagent fanout spawned from workflow stages to a single child level with a workflow-specific nested-subagent error.
 
 ## [0.8.18] - 2026-05-27
 

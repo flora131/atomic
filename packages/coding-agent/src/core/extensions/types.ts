@@ -309,10 +309,25 @@ export interface CompactOptions {
 	onError?: (error: Error) => void;
 }
 
+export interface WorkflowStageOrchestrationContext {
+	readonly kind: "workflow-stage";
+	readonly workflowRunId: string;
+	readonly workflowStageId: string;
+	readonly workflowStageName: string;
+	readonly constraints: {
+		readonly disableWorkflowTool: true;
+		readonly maxSubagentDepth: 1;
+	};
+}
+
+export type OrchestrationContext = WorkflowStageOrchestrationContext;
+
 /**
  * Context passed to extension event handlers.
  */
 export interface ExtensionContext {
+	/** Session-scoped orchestration policy for child runtimes such as workflow stages. */
+	readonly orchestrationContext?: OrchestrationContext;
 	/** UI methods for user interaction */
 	ui: ExtensionUIContext;
 	/** Whether UI is available (false in print/RPC mode) */

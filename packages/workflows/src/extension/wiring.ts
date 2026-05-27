@@ -22,8 +22,7 @@
  */
 
 import { basename } from "node:path";
-import type { CreateAgentSessionOptions } from "@bastani/atomic";
-import type { ChatMessageRenderOptions } from "@bastani/atomic";
+import type { ChatMessageRenderOptions, CreateAgentSessionOptions } from "@bastani/atomic";
 import type { StageAdapters, StageSessionRuntime } from "../runs/foreground/stage-runner.js";
 import type { StageExecutionMeta, StageOptions } from "../shared/types.js";
 import { stageUiBroker, type StageUiBroker } from "../shared/stage-ui-broker.js";
@@ -237,6 +236,31 @@ function stripWorkflowOnlyOptions(options: (StageOptions | CreateAgentSessionOpt
   return sessionOptions as CreateAgentSessionOptions;
 }
 
+function makeWorkflowStageOrchestrationContext(meta: StageExecutionMeta): NonNullable<CreateAgentSessionOptions["orchestrationContext"]> {
+  return {
+    kind: "workflow-stage",
+    workflowRunId: meta.runId,
+    workflowStageId: meta.stageId,
+    workflowStageName: meta.stageName,
+    constraints: {
+      disableWorkflowTool: true,
+      maxSubagentDepth: 1,
+    },
+  };
+}
+
+function withWorkflowStageSessionOptions(
+  options: CreateAgentSessionOptions,
+  meta: StageExecutionMeta | undefined,
+): CreateAgentSessionOptions {
+  const excludedTools = Array.from(new Set([...(options.excludedTools ?? []), "workflow"]));
+  return {
+    ...options,
+    excludedTools,
+    ...(meta ? { orchestrationContext: makeWorkflowStageOrchestrationContext(meta) } : {}),
+  };
+}
+
 function makeStageExtensionUiContext(
   ui: PiUISurface,
   meta: StageExecutionMeta | undefined,
@@ -325,7 +349,10 @@ export function buildRuntimeAdapters(
         // extensions, tools, prompts, and skills as the parent chat. Callers
         // can still opt into a custom resource set by passing `resourceLoader`
         // through `stage(name, options)`.
-        const sessionOptions: CreateAgentSessionOptions = stripWorkflowOnlyOptions(stageOptions) ?? {};
+        const sessionOptions = withWorkflowStageSessionOptions(
+          stripWorkflowOnlyOptions(stageOptions) ?? {},
+          meta,
+        );
         const result = await createSession(sessionOptions);
         const bindable = result.session as BindableStageSession;
         if ((pi.ui !== undefined || meta !== undefined) && typeof bindable.bindExtensions === "function") {

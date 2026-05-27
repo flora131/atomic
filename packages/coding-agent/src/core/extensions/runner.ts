@@ -37,6 +37,7 @@ import type {
 	MessageEndEvent,
 	MessageEndEventResult,
 	MessageRenderer,
+	OrchestrationContext,
 	ProviderConfig,
 	RegisteredCommand,
 	RegisteredTool,
@@ -243,6 +244,7 @@ export class ExtensionRunner {
 	private cwd: string;
 	private sessionManager: SessionManager;
 	private modelRegistry: ModelRegistry;
+	private orchestrationContext: OrchestrationContext | undefined;
 	private errorListeners: Set<ExtensionErrorListener> = new Set();
 	private getModel: () => Model<Api> | undefined = () => undefined;
 	private isIdleFn: () => boolean = () => true;
@@ -269,6 +271,7 @@ export class ExtensionRunner {
 		cwd: string,
 		sessionManager: SessionManager,
 		modelRegistry: ModelRegistry,
+		orchestrationContext?: OrchestrationContext,
 	) {
 		this.extensions = extensions;
 		this.runtime = runtime;
@@ -276,6 +279,7 @@ export class ExtensionRunner {
 		this.cwd = cwd;
 		this.sessionManager = sessionManager;
 		this.modelRegistry = modelRegistry;
+		this.orchestrationContext = orchestrationContext;
 	}
 
 	bindCore(
@@ -612,6 +616,10 @@ export class ExtensionRunner {
 			get model() {
 				runner.assertActive();
 				return getModel();
+			},
+			get orchestrationContext() {
+				runner.assertActive();
+				return runner.orchestrationContext;
 			},
 			isIdle: () => {
 				runner.assertActive();

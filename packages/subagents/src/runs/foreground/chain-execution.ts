@@ -114,6 +114,7 @@ interface ParallelChainRunInput {
 	totalSteps: number;
 	worktreeSetup?: WorktreeSetup;
 	maxSubagentDepth: number;
+	workflowStageSubagentGuard?: boolean;
 	nestedRoute?: NestedRouteInfo;
 }
 
@@ -243,6 +244,7 @@ async function runParallelChainTasks(input: ParallelChainRunInput): Promise<Sing
 				outputPath,
 				outputMode: behavior.outputMode,
 				maxSubagentDepth,
+				workflowStageSubagentGuard: input.workflowStageSubagentGuard,
 				controlConfig: input.controlConfig,
 				onControlEvent: input.onControlEvent,
 				intercomSessionName: input.childIntercomTarget?.(task.agent, input.globalTaskIndex + taskIndex),
@@ -336,6 +338,7 @@ interface ChainExecutionParams {
 	chainSkills?: string[];
 	chainDir?: string;
 	maxSubagentDepth: number;
+	workflowStageSubagentGuard?: boolean;
 	nestedRoute?: NestedRouteInfo;
 	worktreeSetupHook?: string;
 	worktreeSetupHookTimeoutMs?: number;
@@ -600,6 +603,7 @@ export async function executeChain(params: ChainExecutionParams): Promise<ChainE
 					nestedRoute: params.nestedRoute,
 					worktreeSetup,
 					maxSubagentDepth: params.maxSubagentDepth,
+					workflowStageSubagentGuard: params.workflowStageSubagentGuard,
 				});
 				globalTaskIndex += step.parallel.length;
 
@@ -796,6 +800,7 @@ export async function executeChain(params: ChainExecutionParams): Promise<ChainE
 				outputPath,
 				outputMode: behavior.outputMode,
 				maxSubagentDepth,
+				workflowStageSubagentGuard: params.workflowStageSubagentGuard,
 				controlConfig,
 				onControlEvent,
 				intercomSessionName: childIntercomTarget?.(seqStep.agent, globalTaskIndex),

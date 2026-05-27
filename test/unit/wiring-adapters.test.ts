@@ -186,6 +186,27 @@ describe("buildRuntimeAdapters — SDK AgentSession adapter", () => {
     assert.equal(calls[0]?.cwd, "/tmp/project");
   });
 
+  test("agentSession.create marks workflow stages with orchestration constraints and excludes workflow tool", async () => {
+    const calls: Array<CreateAgentSessionOptions | undefined> = [];
+    const adapters = buildRuntimeAdapters({}, {
+      createAgentSession: async (options) => { calls.push(options); return { session: fakeSession() }; },
+    });
+
+    await adapters.agentSession!.create(
+      { cwd: "/tmp/project", excludedTools: ["ask_user_question", "workflow"] },
+      { runId: "run-1", stageId: "stage-1", stageName: "Implement" },
+    );
+
+    assert.deepEqual(calls[0]?.excludedTools, ["ask_user_question", "workflow"]);
+    assert.deepEqual(calls[0]?.orchestrationContext, {
+      kind: "workflow-stage",
+      workflowRunId: "run-1",
+      workflowStageId: "stage-1",
+      workflowStageName: "Implement",
+      constraints: { disableWorkflowTool: true, maxSubagentDepth: 1 },
+    });
+  });
+
   test("agentSession.create forwards stage options unchanged (pi SDK leaves resource isolation to SettingsManager)", async () => {
     const calls: Array<CreateAgentSessionOptions | undefined> = [];
     const adapters = buildRuntimeAdapters({}, {

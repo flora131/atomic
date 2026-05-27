@@ -109,6 +109,7 @@ interface AsyncChainParams {
 	chainSkills?: string[];
 	sessionFilesByFlatIndex?: (string | undefined)[];
 	maxSubagentDepth: number;
+	workflowStageSubagentGuard?: boolean;
 	worktreeSetupHook?: string;
 	worktreeSetupHookTimeoutMs?: number;
 	controlConfig?: ResolvedControlConfig;
@@ -135,6 +136,7 @@ interface AsyncSingleParams {
 	modelOverride?: string;
 	availableModels?: AvailableModelInfo[];
 	maxSubagentDepth: number;
+	workflowStageSubagentGuard?: boolean;
 	worktreeSetupHook?: string;
 	worktreeSetupHookTimeoutMs?: number;
 	controlConfig?: ResolvedControlConfig;
@@ -241,6 +243,7 @@ export function executeAsyncChain(
 		sessionRoot,
 		sessionFilesByFlatIndex,
 		maxSubagentDepth,
+		workflowStageSubagentGuard,
 		worktreeSetupHook,
 		worktreeSetupHookTimeoutMs,
 		controlConfig,
@@ -348,6 +351,7 @@ export function executeAsyncChain(
 			outputMode: behavior.outputMode,
 			sessionFile,
 			maxSubagentDepth: resolveChildMaxSubagentDepth(maxSubagentDepth, a.maxSubagentDepth),
+			workflowStageSubagentGuard,
 		};
 	};
 
@@ -427,6 +431,7 @@ export function executeAsyncChain(
 				childIntercomTargets,
 				resultMode,
 				nestedRoute: nestedRoute ?? inheritedNestedRoute,
+				workflowStageSubagentGuard,
 				nestedSelf: inheritedNestedRoute && nestedAddress ? {
 					parentRunId: nestedAddress.parentRunId,
 					parentStepIndex: nestedAddress.parentStepIndex,
@@ -551,6 +556,7 @@ export function executeAsyncSingle(
 		sessionRoot,
 		sessionFile,
 		maxSubagentDepth,
+		workflowStageSubagentGuard,
 		worktreeSetupHook,
 		worktreeSetupHookTimeoutMs,
 		controlConfig,
@@ -624,6 +630,7 @@ export function executeAsyncSingle(
 						outputMode,
 						sessionFile,
 						maxSubagentDepth: resolveChildMaxSubagentDepth(maxSubagentDepth, agentConfig.maxSubagentDepth),
+						workflowStageSubagentGuard,
 					},
 				],
 				resultPath: inheritedNestedRoute ? nestedResultsPath(inheritedNestedRoute.rootRunId, id) : path.join(RESULTS_DIR, `${id}.json`),
@@ -645,6 +652,7 @@ export function executeAsyncSingle(
 				childIntercomTargets: childIntercomTarget ? [childIntercomTarget(agent, 0)] : undefined,
 				resultMode: "single",
 				nestedRoute: nestedRoute ?? inheritedNestedRoute,
+				workflowStageSubagentGuard,
 				nestedSelf: inheritedNestedRoute && nestedAddress ? {
 					parentRunId: nestedAddress.parentRunId,
 					parentStepIndex: nestedAddress.parentStepIndex,

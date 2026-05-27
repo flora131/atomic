@@ -83,10 +83,13 @@ import {
 	SUBAGENT_CONTROL_EVENT,
 	SUBAGENT_CONTROL_INTERCOM_EVENT,
 	checkSubagentDepth,
+	isWorkflowStageOrchestrationContext,
 	resolveTopLevelParallelConcurrency,
 	resolveTopLevelParallelMaxTasks,
 	resolveChildMaxSubagentDepth,
-	resolveCurrentMaxSubagentDepth,
+	resolveSubagentDepthPolicy,
+	resolveWorkflowStageMaxSubagentDepth,
+	subagentDepthBlockedMessage,
 	wrapForkTask,
 } from "../../shared/types.ts";
 
@@ -167,6 +170,7 @@ interface ExecutionContextData {
 	effectiveAsync: boolean;
 	controlConfig: ResolvedControlConfig;
 	intercomBridge: IntercomBridgeState;
+	workflowStageSubagentGuard?: boolean;
 	nestedRoute?: NestedRouteInfo;
 }
 
@@ -602,10 +606,17 @@ async function resumeAsyncRun(input: {
 		};
 	}
 
-	const { blocked, depth, maxDepth } = checkSubagentDepth(input.deps.config.maxSubagentDepth);
+	const resumeDepthPolicy = resolveSubagentDepthPolicy(input.ctx, input.deps.config.maxSubagentDepth);
+	const { blocked, depth, maxDepth, workflowStageGuard } = checkSubagentDepth(resumeDepthPolicy.maxSubagentDepth);
 	if (blocked) {
 		return {
-			content: [{ type: "text", text: `Nested subagent resume blocked (depth=${depth}, max=${maxDepth}). Complete the follow-up directly instead.` }],
+			content: [{
+				type: "text",
+				text: subagentDepthBlockedMessage(depth, maxDepth, {
+					action: "resume",
+					workflowStageGuard: workflowStageGuard || resumeDepthPolicy.workflowStageSubagentGuard,
+				}),
+			}],
 			isError: true,
 			details: { mode: "management", results: [] },
 		};
@@ -655,7 +666,8 @@ async function resumeAsyncRun(input: {
 		shareEnabled: input.params.share === true,
 		sessionRoot: input.deps.getSubagentSessionRoot(parentSessionFile),
 		sessionFile: target.sessionFile,
-		maxSubagentDepth: resolveCurrentMaxSubagentDepth(input.deps.config.maxSubagentDepth),
+		maxSubagentDepth: resolveWorkflowStageMaxSubagentDepth(input.ctx, input.deps.config.maxSubagentDepth),
+		workflowStageSubagentGuard: isWorkflowStageOrchestrationContext(input.ctx),
 		worktreeSetupHook: input.deps.config.worktreeSetupHook,
 		worktreeSetupHookTimeoutMs: input.deps.config.worktreeSetupHookTimeoutMs,
 		controlConfig: resolveControlConfig(input.deps.config.control, input.params.control),
@@ -1064,7 +1076,9 @@ function runAsyncPath(data: ExecutionContextData, deps: ExecutorDeps): AgentTool
 		currentModel: currentModelFullId(ctx.model),
 	};
 	const availableModels: ModelInfo[] = ctx.modelRegistry.getAvailable().map(toModelInfo);
-	const currentMaxSubagentDepth = resolveCurrentMaxSubagentDepth(deps.config.maxSubagentDepth);
+	const depthPolicy = resolveSubagentDepthPolicy(ctx, deps.config.maxSubagentDepth);
+	const currentMaxSubagentDepth = depthPolicy.maxSubagentDepth;
+	const workflowStageSubagentGuard = depthPolicy.workflowStageSubagentGuard;
 	const currentProvider = ctx.model?.provider;
 	const controlIntercomTarget = intercomBridge.active ? intercomBridge.orchestratorTarget : undefined;
 	const childIntercomTarget = intercomBridge.active ? (agent: string, index: number) => resolveSubagentIntercomTarget(id, agent, index) : undefined;
@@ -1105,6 +1119,7 @@ function runAsyncPath(data: ExecutionContextData, deps: ExecutorDeps): AgentTool
 			chainSkills: [],
 			sessionFilesByFlatIndex: params.tasks.map((_, index) => sessionFileForIndex(index)),
 			maxSubagentDepth: currentMaxSubagentDepth,
+			workflowStageSubagentGuard,
 			worktreeSetupHook: deps.config.worktreeSetupHook,
 			worktreeSetupHookTimeoutMs: deps.config.worktreeSetupHookTimeoutMs,
 			controlConfig,
@@ -1133,6 +1148,7 @@ function runAsyncPath(data: ExecutionContextData, deps: ExecutorDeps): AgentTool
 			chainSkills,
 			sessionFilesByFlatIndex: collectChainSessionFiles(chain, sessionFileForIndex),
 			maxSubagentDepth: currentMaxSubagentDepth,
+			workflowStageSubagentGuard,
 			worktreeSetupHook: deps.config.worktreeSetupHook,
 			worktreeSetupHookTimeoutMs: deps.config.worktreeSetupHookTimeoutMs,
 			controlConfig,
@@ -1176,6 +1192,7 @@ function runAsyncPath(data: ExecutionContextData, deps: ExecutorDeps): AgentTool
 			outputMode: effectiveOutputMode,
 			modelOverride,
 			maxSubagentDepth,
+			workflowStageSubagentGuard,
 			worktreeSetupHook: deps.config.worktreeSetupHook,
 			worktreeSetupHookTimeoutMs: deps.config.worktreeSetupHookTimeoutMs,
 			controlConfig,
@@ -1211,7 +1228,9 @@ async function runChainPath(data: ExecutionContextData, deps: ExecutorDeps): Pro
 	const normalized = normalizeSkillInput(params.skill);
 	const chainSkills = normalized === false ? [] : (normalized ?? []);
 	const chain = wrapChainTasksForFork(params.chain as ChainStep[], params.context);
-	const currentMaxSubagentDepth = resolveCurrentMaxSubagentDepth(deps.config.maxSubagentDepth);
+	const depthPolicy = resolveSubagentDepthPolicy(ctx, deps.config.maxSubagentDepth);
+	const currentMaxSubagentDepth = depthPolicy.maxSubagentDepth;
+	const workflowStageSubagentGuard = data.workflowStageSubagentGuard || depthPolicy.workflowStageSubagentGuard;
 	const chainResult = await executeChain({
 		chain,
 		task: params.task,
@@ -1238,6 +1257,7 @@ async function runChainPath(data: ExecutionContextData, deps: ExecutorDeps): Pro
 		chainSkills,
 		chainDir: params.chainDir,
 		maxSubagentDepth: currentMaxSubagentDepth,
+		workflowStageSubagentGuard,
 		worktreeSetupHook: deps.config.worktreeSetupHook,
 		worktreeSetupHookTimeoutMs: deps.config.worktreeSetupHookTimeoutMs,
 	});
@@ -1274,6 +1294,7 @@ async function runChainPath(data: ExecutionContextData, deps: ExecutorDeps): Pro
 			chainSkills: chainResult.requestedAsync.chainSkills,
 			sessionFilesByFlatIndex: collectChainSessionFiles(asyncChain, sessionFileForIndex),
 			maxSubagentDepth: currentMaxSubagentDepth,
+			workflowStageSubagentGuard,
 			worktreeSetupHook: deps.config.worktreeSetupHook,
 			worktreeSetupHookTimeoutMs: deps.config.worktreeSetupHookTimeoutMs,
 			controlConfig,
@@ -1323,6 +1344,7 @@ interface ForegroundParallelRunInput {
 	maxOutput?: MaxOutputConfig;
 	paramsCwd: string;
 	maxSubagentDepths: number[];
+	workflowStageSubagentGuard?: boolean;
 	availableModels: ModelInfo[];
 	modelOverrides: (string | undefined)[];
 	behaviors: Array<ReturnType<typeof resolveStepBehavior>>;
@@ -1486,6 +1508,7 @@ async function runForegroundParallelTasks(input: ForegroundParallelRunInput): Pr
 			outputPath,
 			outputMode: behavior?.outputMode,
 			maxSubagentDepth: input.maxSubagentDepths[index],
+			workflowStageSubagentGuard: input.workflowStageSubagentGuard,
 			controlConfig: input.controlConfig,
 			onControlEvent: input.onControlEvent,
 			intercomSessionName: input.childIntercomTarget?.(task.agent, index),
@@ -1496,39 +1519,39 @@ async function runForegroundParallelTasks(input: ForegroundParallelRunInput): Pr
 			preferredModelProvider: input.ctx.model?.provider,
 			currentModel: currentModelFullId(input.ctx.model),
 			skills: effectiveSkills === false ? [] : effectiveSkills,
-				onUpdate: input.onUpdate
-					? (progressUpdate) => {
-						const stepResults = progressUpdate.details?.results || [];
-						const stepProgress = progressUpdate.details?.progress || [];
-						if (input.foregroundControl && stepProgress.length > 0) {
-							const current = stepProgress[0];
-							input.foregroundControl.currentAgent = task.agent;
-							input.foregroundControl.currentIndex = index;
-							input.foregroundControl.currentActivityState = current?.activityState;
-							input.foregroundControl.lastActivityAt = current?.lastActivityAt;
-							input.foregroundControl.currentTool = current?.currentTool;
-							input.foregroundControl.currentToolStartedAt = current?.currentToolStartedAt;
-							input.foregroundControl.currentPath = current?.currentPath;
-							input.foregroundControl.turnCount = current?.turnCount;
-							input.foregroundControl.tokens = current?.tokens;
-							input.foregroundControl.toolCount = current?.toolCount;
-							input.foregroundControl.updatedAt = Date.now();
-						}
-						if (stepResults.length > 0) input.liveResults[index] = stepResults[0];
-						if (stepProgress.length > 0) input.liveProgress[index] = stepProgress[0];
-						const mergedResults = input.liveResults.filter((result): result is SingleResult => result !== undefined);
-						const mergedProgress = input.liveProgress.filter((progress): progress is AgentProgress => progress !== undefined);
-						input.onUpdate?.({
-							content: progressUpdate.content,
-							details: {
-								mode: "parallel",
-								results: mergedResults,
-								progress: mergedProgress,
-								controlEvents: progressUpdate.details?.controlEvents,
-								totalSteps: input.tasks.length,
-							},
-						});
+			onUpdate: input.onUpdate
+				? (progressUpdate) => {
+					const stepResults = progressUpdate.details?.results || [];
+					const stepProgress = progressUpdate.details?.progress || [];
+					if (input.foregroundControl && stepProgress.length > 0) {
+						const current = stepProgress[0];
+						input.foregroundControl.currentAgent = task.agent;
+						input.foregroundControl.currentIndex = index;
+						input.foregroundControl.currentActivityState = current?.activityState;
+						input.foregroundControl.lastActivityAt = current?.lastActivityAt;
+						input.foregroundControl.currentTool = current?.currentTool;
+						input.foregroundControl.currentToolStartedAt = current?.currentToolStartedAt;
+						input.foregroundControl.currentPath = current?.currentPath;
+						input.foregroundControl.turnCount = current?.turnCount;
+						input.foregroundControl.tokens = current?.tokens;
+						input.foregroundControl.toolCount = current?.toolCount;
+						input.foregroundControl.updatedAt = Date.now();
 					}
+					if (stepResults.length > 0) input.liveResults[index] = stepResults[0];
+					if (stepProgress.length > 0) input.liveProgress[index] = stepProgress[0];
+					const mergedResults = input.liveResults.filter((result): result is SingleResult => result !== undefined);
+					const mergedProgress = input.liveProgress.filter((progress): progress is AgentProgress => progress !== undefined);
+					input.onUpdate?.({
+						content: progressUpdate.content,
+						details: {
+							mode: "parallel",
+							results: mergedResults,
+							progress: mergedProgress,
+							controlEvents: progressUpdate.details?.controlEvents,
+							totalSteps: input.tasks.length,
+						},
+					});
+				}
 				: undefined,
 		}).finally(() => {
 			if (input.foregroundControl?.currentIndex === index) {
@@ -1585,7 +1608,9 @@ async function runParallelPath(data: ExecutionContextData, deps: ExecutorDeps): 
 		agentConfigs.push(config);
 	}
 
-	const currentMaxSubagentDepth = resolveCurrentMaxSubagentDepth(deps.config.maxSubagentDepth);
+	const depthPolicy = resolveSubagentDepthPolicy(ctx, deps.config.maxSubagentDepth);
+	const currentMaxSubagentDepth = depthPolicy.maxSubagentDepth;
+	const workflowStageSubagentGuard = depthPolicy.workflowStageSubagentGuard;
 	const maxSubagentDepths = agentConfigs.map((config) =>
 		resolveChildMaxSubagentDepth(currentMaxSubagentDepth, config.maxSubagentDepth),
 	);
@@ -1703,6 +1728,7 @@ async function runParallelPath(data: ExecutionContextData, deps: ExecutorDeps): 
 				chainSkills: [],
 				sessionFilesByFlatIndex: tasks.map((_, index) => sessionFileForIndex(index)),
 				maxSubagentDepth: currentMaxSubagentDepth,
+				workflowStageSubagentGuard,
 				worktreeSetupHook: deps.config.worktreeSetupHook,
 				worktreeSetupHookTimeoutMs: deps.config.worktreeSetupHookTimeoutMs,
 				controlConfig,
@@ -1767,6 +1793,7 @@ async function runParallelPath(data: ExecutionContextData, deps: ExecutorDeps): 
 			artifactsDir,
 			maxOutput: params.maxOutput,
 			paramsCwd: effectiveCwd,
+			workflowStageSubagentGuard,
 			availableModels,
 			modelOverrides,
 			behaviors,
@@ -1902,7 +1929,9 @@ async function runSinglePath(data: ExecutionContextData, deps: ExecutorDeps): Pr
 	const rawOutput = params.output !== undefined ? params.output : agentConfig.output;
 	let effectiveOutput = normalizeSingleOutputOverride(rawOutput, agentConfig.output);
 	const effectiveOutputMode = params.outputMode ?? "inline";
-	const currentMaxSubagentDepth = resolveCurrentMaxSubagentDepth(deps.config.maxSubagentDepth);
+	const depthPolicy = resolveSubagentDepthPolicy(ctx, deps.config.maxSubagentDepth);
+	const currentMaxSubagentDepth = depthPolicy.maxSubagentDepth;
+	const workflowStageSubagentGuard = depthPolicy.workflowStageSubagentGuard;
 	const maxSubagentDepth = resolveChildMaxSubagentDepth(currentMaxSubagentDepth, agentConfig.maxSubagentDepth);
 
 	if (params.clarify === true && ctx.hasUI) {
@@ -1971,6 +2000,7 @@ async function runSinglePath(data: ExecutionContextData, deps: ExecutorDeps): Pr
 				outputMode: effectiveOutputMode,
 				modelOverride,
 				maxSubagentDepth,
+				workflowStageSubagentGuard,
 				worktreeSetupHook: deps.config.worktreeSetupHook,
 				worktreeSetupHookTimeoutMs: deps.config.worktreeSetupHookTimeoutMs,
 				controlConfig,
@@ -2049,6 +2079,7 @@ async function runSinglePath(data: ExecutionContextData, deps: ExecutorDeps): Pr
 		outputPath,
 		outputMode: effectiveOutputMode,
 		maxSubagentDepth,
+		workflowStageSubagentGuard,
 		onUpdate: forwardSingleUpdate,
 		controlConfig,
 		onControlEvent,
@@ -2278,16 +2309,15 @@ export function createSubagentExecutor(deps: ExecutorDeps): {
 			return handleManagementAction(params.action, paramsWithResolvedCwd, { ...ctx, cwd: requestCwd });
 		}
 
-		const { blocked, depth, maxDepth } = checkSubagentDepth(deps.config.maxSubagentDepth);
+		const depthPolicy = resolveSubagentDepthPolicy(ctx, deps.config.maxSubagentDepth);
+		const { blocked, depth, maxDepth, workflowStageGuard } = checkSubagentDepth(depthPolicy.maxSubagentDepth);
+		const workflowStageSubagentGuard = workflowStageGuard || depthPolicy.workflowStageSubagentGuard;
 		if (blocked) {
 			return {
 				content: [
 					{
 						type: "text",
-						text:
-							`Nested subagent call blocked (depth=${depth}, max=${maxDepth}). ` +
-							"You are running at the maximum subagent nesting depth. " +
-							"Complete your current task directly without delegating to further subagents.",
+						text: subagentDepthBlockedMessage(depth, maxDepth, { workflowStageGuard: workflowStageSubagentGuard }),
 					},
 				],
 				isError: true,
@@ -2406,6 +2436,7 @@ export function createSubagentExecutor(deps: ExecutorDeps): {
 			effectiveAsync,
 			controlConfig,
 			intercomBridge,
+			workflowStageSubagentGuard,
 			nestedRoute,
 		};
 

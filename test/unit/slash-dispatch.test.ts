@@ -33,7 +33,7 @@ import type {
 import { createRegistry } from "../../packages/workflows/src/workflows/registry.js";
 import { defineWorkflow } from "../../packages/workflows/src/workflows/define-workflow.js";
 import type { WorkflowDefinition } from "../../packages/workflows/src/shared/types.js";
-import { createExtensionRuntime } from "../../packages/workflows/src/extension/runtime.js";
+import { createExtensionRuntime, type ExtensionRuntime } from "../../packages/workflows/src/extension/runtime.js";
 import { store } from "../../packages/workflows/src/shared/store.js";
 import { WORKFLOW_AUTH_FAILURE_MESSAGE } from "../../packages/workflows/src/shared/workflow-failures.js";
 import type {
@@ -936,6 +936,69 @@ describe("tool run-control actions", () => {
     const runtime = createExtensionRuntime({ registry });
     return makeExecuteWorkflowTool(runtime, () => undefined, () => undefined);
   }
+
+  function makeDispatchTrackingWorkflowHandler(): {
+    handler: ReturnType<typeof makeExecuteWorkflowTool>;
+    wasDispatched: () => boolean;
+  } {
+    let dispatched = false;
+    const runtime = {
+      dispatch: async () => {
+        dispatched = true;
+        return { action: "run", runId: "unexpected", status: "running", stages: [] };
+      },
+    } as unknown as ExtensionRuntime;
+
+    return {
+      handler: makeExecuteWorkflowTool(runtime, () => undefined, () => undefined),
+      wasDispatched: () => dispatched,
+    };
+  }
+
+  const WORKFLOW_STAGE_SUBAGENT_GUARD_ENV = "ATOMIC_WORKFLOW_STAGE_SUBAGENT_GUARD";
+
+  function restoreWorkflowStageGuard(previousGuard: string | undefined): void {
+    if (previousGuard === undefined) {
+      delete process.env[WORKFLOW_STAGE_SUBAGENT_GUARD_ENV];
+      return;
+    }
+    process.env[WORKFLOW_STAGE_SUBAGENT_GUARD_ENV] = previousGuard;
+  }
+
+  function assertWorkflowToolBlocked(result: WorkflowToolResult, wasDispatched: () => boolean): void {
+    assert.equal(wasDispatched(), false);
+    assert.match((result as { error?: string }).error ?? "", /workflows cannot invoke workflows/);
+  }
+
+  test("makeExecuteWorkflowTool blocks workflow tool execution from workflow-stage context", async () => {
+    const { handler, wasDispatched } = makeDispatchTrackingWorkflowHandler();
+
+    const result = await handler({ action: "run", workflow: "demo" }, {
+      orchestrationContext: {
+        kind: "workflow-stage",
+        workflowRunId: "run-1",
+        workflowStageId: "stage-1",
+        workflowStageName: "Stage",
+        constraints: { disableWorkflowTool: true, maxSubagentDepth: 1 },
+      },
+    });
+
+    assertWorkflowToolBlocked(result, wasDispatched);
+  });
+
+  test("makeExecuteWorkflowTool blocks workflow tool execution from env workflow-stage guard", async () => {
+    const previousGuard = process.env[WORKFLOW_STAGE_SUBAGENT_GUARD_ENV];
+    const { handler, wasDispatched } = makeDispatchTrackingWorkflowHandler();
+
+    try {
+      process.env[WORKFLOW_STAGE_SUBAGENT_GUARD_ENV] = "1";
+      const result = await handler({ action: "run", workflow: "demo" }, {});
+
+      assertWorkflowToolBlocked(result, wasDispatched);
+    } finally {
+      restoreWorkflowStageGuard(previousGuard);
+    }
+  });
 
   async function makeRegisteredWorkflowTool(): Promise<PiToolOpts<WorkflowToolArgs, WorkflowToolResult>> {
     const { pi } = buildMockPi();

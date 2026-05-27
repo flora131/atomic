@@ -20,6 +20,7 @@ import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 import type {
   ExtensionRunner,
   LoadExtensionsResult,
+  OrchestrationContext,
   SessionStartEvent,
   ToolDefinition,
 } from "./extensions/index.ts";
@@ -102,6 +103,8 @@ export interface CreateAgentSessionOptions {
   settingsManager?: SettingsManager;
   /** Session start event metadata for extension runtime startup. */
   sessionStartEvent?: SessionStartEvent;
+  /** Session-scoped orchestration policy exposed to extension/tool handlers. */
+  orchestrationContext?: OrchestrationContext;
 }
 
 /** Result from createAgentSession */
@@ -473,6 +476,7 @@ export async function createAgentSession(
     excludedToolNames: options.excludedTools,
     extensionRunnerRef,
     sessionStartEvent: options.sessionStartEvent,
+    orchestrationContext: options.orchestrationContext,
   });
   const extensionsResult = resourceLoader.getExtensions();
 

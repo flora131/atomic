@@ -11,7 +11,10 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { defineWorkflow } from "../src/index.js";
-import type { WorkflowRunContext, WorkflowTaskResult } from "../src/shared/types.js";
+import type {
+  WorkflowRunContext,
+  WorkflowTaskResult,
+} from "../src/shared/types.js";
 import { WORKER_PREFLIGHT_CONTRACT } from "./shared-prompts.js";
 
 const DEFAULT_MAX_LOOPS = 10;
@@ -346,13 +349,16 @@ function reviewerErrorResult(
 function discoveryContextLabel(name: string | undefined): string {
   if (name?.startsWith("infra-locate-")) return "Infrastructure locator";
   if (name?.startsWith("infra-analyze-")) return "Infrastructure analyzer";
-  if (name?.startsWith("infra-patterns-")) return "Infrastructure pattern finder";
+  if (name?.startsWith("infra-patterns-"))
+    return "Infrastructure pattern finder";
   return "Infrastructure discovery";
 }
 
 function formatDiscovery(results: readonly WorkflowTaskResult[]): string {
   return results
-    .map((result) => `### ${discoveryContextLabel(result.name)}\n\n${result.text}`)
+    .map(
+      (result) => `### ${discoveryContextLabel(result.name)}\n\n${result.text}`,
+    )
     .join("\n\n---\n\n");
 }
 
@@ -391,12 +397,7 @@ async function runRalphWorkflow(
   ctx: WorkflowRunContext<RalphInputs>,
   options: RalphWorkflowOptions,
 ): Promise<RalphWorkflowResult> {
-  const {
-    prompt,
-    maxLoops,
-    comparisonBaseBranch,
-    workflowStartCwd,
-  } = options;
+  const { prompt, maxLoops, comparisonBaseBranch, workflowStartCwd } = options;
 
   let reviewReport = "";
   let finalPlan = "";
@@ -411,20 +412,6 @@ async function runRalphWorkflow(
   let approved = false;
   let iterationsCompleted = 0;
 
-  const noAskQuestionToolSet = [
-    "read",
-    "bash",
-    "edit",
-    "write",
-    "todo",
-    "subagent",
-    "web_search",
-    "code_search",
-    "fetch_content",
-    "get_search_content",
-    "intercom",
-  ];
-
   const plannerModelConfig = {
     model: "openai/gpt-5.5",
     fallbackModels: [
@@ -434,7 +421,7 @@ async function runRalphWorkflow(
       "github-copilot/claude-opus-4.7",
     ],
     thinkingLevel: "high" as const,
-    tools: noAskQuestionToolSet,
+    excludeTools: ["ask_user_question"],
   };
 
   const orchestratorModelConfig = {
@@ -446,7 +433,7 @@ async function runRalphWorkflow(
       "github-copilot/claude-sonnet-4.6",
     ],
     thinkingLevel: "medium" as const,
-    tools: noAskQuestionToolSet,
+    excludeTools: ["ask_user_question"],
   };
 
   const simplifierModelConfig = {
@@ -458,7 +445,7 @@ async function runRalphWorkflow(
       "github-copilot/claude-sonnet-4.6",
     ],
     thinkingLevel: "medium" as const,
-    tools: noAskQuestionToolSet,
+    excludeTools: ["ask_user_question"],
   };
 
   const reviewerModelConfig = {
@@ -470,7 +457,7 @@ async function runRalphWorkflow(
       "github-copilot/claude-opus-4.7",
     ],
     thinkingLevel: "high" as const,
-    tools: noAskQuestionToolSet,
+    excludeTools: ["ask_user_question"],
     customTools: [reviewDecisionTool],
   };
 
@@ -483,7 +470,7 @@ async function runRalphWorkflow(
       "github-copilot/claude-haiku-4.5",
     ],
     thinkingLevel: "low" as const,
-    tools: noAskQuestionToolSet,
+    excludeTools: ["ask_user_question"],
   };
 
   for (let iteration = 1; iteration <= maxLoops; iteration += 1) {
@@ -620,10 +607,7 @@ async function runRalphWorkflow(
             "Do not include secrets, credentials, tokens, or unrelated environment details in the notes file.",
           ].join("\n"),
         ],
-        [
-          "project_initialization_preflight",
-          WORKER_PREFLIGHT_CONTRACT,
-        ],
+        ["project_initialization_preflight", WORKER_PREFLIGHT_CONTRACT],
         [
           "delegation_policy",
           [
@@ -868,10 +852,7 @@ async function runRalphWorkflow(
         {
           name: `infra-patterns-${iteration}`,
           task: taggedPrompt([
-            [
-              "role",
-              "You find repository patterns that a patch must follow.",
-            ],
+            ["role", "You find repository patterns that a patch must follow."],
             [
               "objective",
               `Extract conventions relevant to reviewing this task: ${prompt}`,
@@ -920,10 +901,7 @@ async function runRalphWorkflow(
           "Be terse, concrete, and technically fair. Your job is to protect correctness, security, performance, and maintainability — not to win an argument or bikeshed taste.",
         ].join("\n"),
       ],
-      [
-        "objective",
-        `Review the current code delta for the task: ${prompt}`,
-      ],
+      ["objective", `Review the current code delta for the task: ${prompt}`],
       [
         "comparison_baseline",
         [
@@ -1174,16 +1152,22 @@ export default defineWorkflow("ralph")
     type: "string",
     default: "",
     description:
-      "Optional Git worktree path. Ralph must start inside a Git repo; absolute paths are used as-is, relative paths resolve from the repo root, existing Git worktrees from the invoking repository are reused/shared as-is, and missing paths are created from base_branch."
+      "Optional Git worktree path. Ralph must start inside a Git repo; absolute paths are used as-is, relative paths resolve from the repo root, existing Git worktrees from the invoking repository are reused/shared as-is, and missing paths are created from base_branch.",
   })
-  .worktreeFromInputs({ gitWorktreeDir: "git_worktree_dir", baseBranch: "base_branch" })
+  .worktreeFromInputs({
+    gitWorktreeDir: "git_worktree_dir",
+    baseBranch: "base_branch",
+  })
   .run(async (ctx) => {
     const workflowCtx = ctx as WorkflowRunContext<RalphInputs>;
     const workflowStartCwd = workflowCtx.cwd ?? process.cwd();
     const inputs = workflowCtx.inputs;
     const prompt = inputs.prompt ?? "";
     const maxLoops = positiveInteger(inputs.max_loops, DEFAULT_MAX_LOOPS);
-    const comparisonBaseBranch = normalizeBranchInput(inputs.base_branch, "origin/main");
+    const comparisonBaseBranch = normalizeBranchInput(
+      inputs.base_branch,
+      "origin/main",
+    );
     return await runRalphWorkflow(workflowCtx, {
       prompt,
       maxLoops,

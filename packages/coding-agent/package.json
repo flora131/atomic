@@ -63,7 +63,7 @@
     "hosted-git-info": "^9.0.2",
     "ignore": "^7.0.5",
     "jiti": "^2.7.0",
-    "linkedom": "^0.16.0",
+    "linkedom": "^0.18.12",
     "minimatch": "^10.2.3",
     "open": "^10.2.0",
     "p-limit": "^6.1.0",

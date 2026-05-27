@@ -42,7 +42,7 @@
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
-    "linkedom": "^0.16.0",
+    "linkedom": "^0.18.12",
     "p-limit": "^6.1.0",
     "turndown": "^7.2.0",
     "unpdf": "^1.6.2"

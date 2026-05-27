@@ -465,6 +465,10 @@ async function createGitWorktreeIfRequested(
   if (await pathExists(requestedWorktreeDir)) {
     const existingStatus = existingPathGitWorktreeStatus(requestedWorktreeDir, repoRoot);
     if (existingStatus === "same-repository") {
+      // Match Claude Code's named-worktree model: an existing same-repository
+      // worktree is resumed/shared as-is rather than guarded by an app-level
+      // lock. Users choose distinct git_worktree_dir values when they need
+      // isolation between concurrent Ralph runs.
       return { cwd: requestedWorktreeDir };
     }
     if (existingStatus === "foreign-repository") {
@@ -478,7 +482,7 @@ async function createGitWorktreeIfRequested(
     throw new Error(
       [
         `Failed to create git worktree at requested git_worktree_dir ${requestedWorktreeDir} from ${baseBranch}: ${gitFailureMessage(requestedResult)}`,
-        `If another active Ralph run is using this path, wait for it to finish. If this is an orphaned worktree from an interrupted run, recover or remove it with: ${formatWorktreeRecoveryCommand(repoRoot, requestedWorktreeDir)}`,
+        `If another process just created this same-repository worktree, rerun Ralph to resume it. If this is an orphaned worktree from an interrupted run, recover or remove it with: ${formatWorktreeRecoveryCommand(repoRoot, requestedWorktreeDir)}`,
       ].join("\n"),
     );
   }
@@ -1390,7 +1394,7 @@ export default defineWorkflow("ralph")
     type: "string",
     default: "",
     description:
-      "Optional Git worktree path. Ralph must start inside a Git repo; absolute paths are used as-is, relative paths resolve from the repo root, existing Git worktrees from the invoking repository are reused as-is, and missing paths are created from base_branch."
+      "Optional Git worktree path. Ralph must start inside a Git repo; absolute paths are used as-is, relative paths resolve from the repo root, existing Git worktrees from the invoking repository are reused/shared as-is, and missing paths are created from base_branch."
   })
   .run(async (ctx) => {
     const ralphCtx = ctx as WorkflowRunContext<RalphInputs>;

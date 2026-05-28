@@ -219,7 +219,6 @@ export interface WorkflowKilledNoticeRenderOpts {
   theme: GraphTheme;
   run: RunSnapshot;
   previousStatus: RunStatus;
-  wasInFlight: boolean;
 }
 
 const KILLED_TITLE = "Workflow killed";
@@ -252,7 +251,7 @@ function renderKilledTextRow(
 export function renderWorkflowKilledNotice(
   opts: WorkflowKilledNoticeRenderOpts,
 ): string[] {
-  const { width, theme, run, previousStatus, wasInFlight } = opts;
+  const { width, theme, run, previousStatus } = opts;
   const inner = Math.max(4, width - 2);
   const idShort = run.id.slice(0, 8);
   const stageCount = run.stages.length;
@@ -285,10 +284,7 @@ export function renderWorkflowKilledNotice(
   ));
   lines.push(renderBlankRow(inner, theme));
 
-  const action = wasInFlight
-    ? "Active stage work was aborted."
-    : "Run had already ended; no live work was aborted.";
-  lines.push(renderKilledTextRow(inner, theme, `      ${success}✓${RESET}${panelBg} ${muted}${action}${RESET}`));
+  lines.push(renderKilledTextRow(inner, theme, `      ${success}✓${RESET}${panelBg} ${muted}Active stage work was aborted.${RESET}`));
   lines.push(renderKilledTextRow(
     inner,
     theme,

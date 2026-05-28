@@ -111,7 +111,6 @@ test("workflow killed notice renders transparent completion details", () => {
     theme,
     run,
     previousStatus: "running",
-    wasInFlight: true,
   });
   const joined = lines.join("\n");
   assert.match(joined, /Workflow killed/);
@@ -140,7 +139,6 @@ test("workflow killed notice stays within narrow panes", () => {
       stages: [{ id: "s1", name: "plan", status: "running", parentIds: [], toolEvents: [] }],
     }),
     previousStatus: "running",
-    wasInFlight: true,
   });
   for (const line of lines) {
     assert.ok(visibleWidth(line) <= width, `line exceeds ${width}: ${visibleWidth(line)} ${JSON.stringify(line)}`);

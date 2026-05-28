@@ -1944,7 +1944,6 @@ function factory(pi: ExtensionAPI): void {
           kind: "killed",
           run,
           previousStatus: result.previousStatus,
-          wasInFlight: true,
         });
       }
     },
@@ -2264,7 +2263,6 @@ function factory(pi: ExtensionAPI): void {
               kind: "killed",
               run,
               previousStatus: killed.previousStatus,
-              wasInFlight: true,
             });
           }
           print(
@@ -2457,7 +2455,6 @@ function factory(pi: ExtensionAPI): void {
             kind: "killed",
             run,
             previousStatus: result.previousStatus,
-            wasInFlight: true,
           });
         }
         print(

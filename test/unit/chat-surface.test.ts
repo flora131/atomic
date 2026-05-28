@@ -269,7 +269,6 @@ describe("registerChatSurfaceRenderer", () => {
           startedAt: 1000,
         },
         previousStatus: "running",
-        wasInFlight: true,
       },
     }) as { render(width: number): string[] };
     const rendered = stripAnsi(component.render(72).join("\n"));

@@ -84,7 +84,6 @@ export interface KilledPayload {
   kind: "killed";
   run: RunSnapshot;
   previousStatus: RunStatus;
-  wasInFlight: boolean;
 }
 
 export type ChatSurfacePayload =
@@ -234,7 +233,6 @@ function renderPayload(
         theme,
         run: payload.run,
         previousStatus: payload.previousStatus,
-        wasInFlight: payload.wasInFlight,
       }).join("\n");
   }
 }

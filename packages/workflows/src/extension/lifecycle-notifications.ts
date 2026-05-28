@@ -139,15 +139,23 @@ export function installWorkflowLifecycleNotifications(
 
   const emit = (details: WorkflowLifecycleNoticeDetails): void => {
     const content = formatWorkflowLifecycleNoticeText(details);
-    void send(
-      {
-        customType: LIFECYCLE_NOTICE_CUSTOM_TYPE,
-        content,
-        display: true,
-        details,
-      },
-      { triggerTurn: true, deliverAs: "steer" },
-    );
+    try {
+      // Store subscribers are notified in a tight loop. A lifecycle notice
+      // failure must never abort sibling subscribers such as status writers.
+      void Promise.resolve(
+        send(
+          {
+            customType: LIFECYCLE_NOTICE_CUSTOM_TYPE,
+            content,
+            display: true,
+            details,
+          },
+          { triggerTurn: true, deliverAs: "steer" },
+        ),
+      ).catch(() => undefined);
+    } catch {
+      // Best-effort notification only; keep store delivery isolated.
+    }
   };
 
   const emitTerminalNoticeOnce = (

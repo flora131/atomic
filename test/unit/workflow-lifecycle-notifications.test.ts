@@ -419,6 +419,54 @@ describe("installWorkflowLifecycleNotifications", () => {
     assert.deepEqual(options, [{ triggerTurn: true, deliverAs: "steer" }]);
   });
 
+  test("swallows synchronous send failures so sibling subscribers still receive snapshots", () => {
+    const store = createStore();
+    const seenStatuses: string[] = [];
+    installWorkflowLifecycleNotifications({
+      store,
+      config: { enabled: true, notifyOn: ["completed"] },
+      sendMessage() {
+        throw new Error("send failed");
+      },
+    });
+    const unsubscribeSibling = store.subscribe((snapshot) => {
+      const run = snapshot.runs.find((candidate) => candidate.id === "run-send-throw");
+      if (run) seenStatuses.push(run.status);
+    });
+
+    store.recordRunStart({ id: "run-send-throw", name: "throw", inputs: {}, status: "running", stages: [], startedAt: 1 });
+    assert.doesNotThrow(() => {
+      assert.equal(store.recordRunEnd("run-send-throw", "completed", {}), true);
+    });
+    unsubscribeSibling();
+
+    assert.deepEqual(seenStatuses, ["running", "completed"]);
+  });
+
+  test("swallows rejected send promises without surfacing unhandled rejections", async () => {
+    const store = createStore();
+    let siblingSawCompletion = false;
+    installWorkflowLifecycleNotifications({
+      store,
+      config: { enabled: true, notifyOn: ["completed"] },
+      sendMessage() {
+        return Promise.reject(new Error("send rejected"));
+      },
+    });
+    const unsubscribeSibling = store.subscribe((snapshot) => {
+      siblingSawCompletion ||= snapshot.runs.some(
+        (run) => run.id === "run-send-reject" && run.status === "completed",
+      );
+    });
+
+    store.recordRunStart({ id: "run-send-reject", name: "reject", inputs: {}, status: "running", stages: [], startedAt: 1 });
+    assert.equal(store.recordRunEnd("run-send-reject", "completed", {}), true);
+    await Promise.resolve();
+    unsubscribeSibling();
+
+    assert.equal(siblingSawCompletion, true);
+  });
+
   test("registers lifecycle renderer once per host and returns a notice card", () => {
     const host = {};
     const registered: RegisteredRenderer[] = [];

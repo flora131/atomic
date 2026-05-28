@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import { APP_NAME, getEnvValue, type ExtensionAPI, type ExtensionContext } from "@bastani/atomic";
 import { type AgentConfig, type AgentScope } from "../../agents/agents.ts";
 import { getArtifactsDir } from "../../shared/artifacts.ts";
@@ -78,6 +77,7 @@ import {
 	type SingleResult,
 	type SubagentRunMode,
 	type SubagentState,
+	type SubagentToolResult,
 	DEFAULT_ARTIFACT_CONFIG,
 	SUBAGENT_ACTIONS,
 	SUBAGENT_CONTROL_EVENT,
@@ -110,7 +110,7 @@ interface TaskParam {
 }
 
 export interface SubagentParamsLike {
-	action?: string;
+	action?: (typeof SUBAGENT_ACTIONS)[number];
 	id?: string;
 	runId?: string;
 	dir?: string;
@@ -118,6 +118,8 @@ export interface SubagentParamsLike {
 	agent?: string;
 	task?: string;
 	message?: string;
+	chainName?: string;
+	config?: unknown;
 	chain?: ChainStep[];
 	tasks?: TaskParam[];
 	concurrency?: number;
@@ -136,7 +138,7 @@ export interface SubagentParamsLike {
 	skill?: string | string[] | boolean;
 	output?: string | boolean;
 	outputMode?: "inline" | "file-only";
-	agentScope?: unknown;
+	agentScope?: string;
 	chainDir?: string;
 }
 
@@ -184,7 +186,7 @@ interface ExecutionContextData {
 	effectiveCwd: string;
 	ctx: ExtensionContext;
 	signal: AbortSignal;
-	onUpdate?: (r: AgentToolResult<Details>) => void;
+	onUpdate?: (r: SubagentToolResult) => void;
 	agents: AgentConfig[];
 	runId: string;
 	shareEnabled: boolean;
@@ -246,7 +248,7 @@ function nestedResolutionScopeForExecutor(deps: ResolvedExecutorDeps): NestedRun
 	};
 }
 
-function foregroundStatusResult(control: SubagentState["foregroundControls"] extends Map<string, infer T> ? T : never): AgentToolResult<Details> {
+function foregroundStatusResult(control: SubagentState["foregroundControls"] extends Map<string, infer T> ? T : never): SubagentToolResult {
 	let nestedWarning: string | undefined;
 	try {
 		updateForegroundNestedProjection(control);
@@ -429,7 +431,7 @@ function emitControlNotification(input: {
 	}
 }
 
-function interruptAsyncRun(state: SubagentState, runId: string | undefined): AgentToolResult<Details> | null {
+function interruptAsyncRun(state: SubagentState, runId: string | undefined): SubagentToolResult | null {
 	const target = getAsyncInterruptTarget(state, runId);
 	if (!target) return null;
 	const status = readStatus(target.asyncDir);
@@ -539,7 +541,7 @@ async function sendNestedControlRequest(target: ResolvedSubagentRunId & { kind: 
 	return waitForNestedControlResult(target, requestId);
 }
 
-function directNestedAsyncInterrupt(target: ResolvedSubagentRunId & { kind: "nested" }): AgentToolResult<Details> | undefined {
+function directNestedAsyncInterrupt(target: ResolvedSubagentRunId & { kind: "nested" }): SubagentToolResult | undefined {
 	const run = target.match.run;
 	const asyncDir = resolveNestedAsyncDir(target.match.rootRunId, run);
 	if (!asyncDir) return undefined;
@@ -555,7 +557,7 @@ function directNestedAsyncInterrupt(target: ResolvedSubagentRunId & { kind: "nes
 	}
 }
 
-async function interruptNestedRun(target: ResolvedSubagentRunId & { kind: "nested" }): Promise<AgentToolResult<Details>> {
+async function interruptNestedRun(target: ResolvedSubagentRunId & { kind: "nested" }): Promise<SubagentToolResult> {
 	const run = target.match.run;
 	if (run.state === "complete") return { content: [{ type: "text", text: `Nested run ${run.id} is already complete and cannot be interrupted.` }], isError: true, details: { mode: "management", results: [] } };
 	if (run.state === "failed") return { content: [{ type: "text", text: `Nested run ${run.id} has failed and cannot be interrupted.` }], isError: true, details: { mode: "management", results: [] } };
@@ -567,7 +569,7 @@ async function interruptNestedRun(target: ResolvedSubagentRunId & { kind: "neste
 	return { content: [{ type: "text", text: `Nested run ${run.id} owner is not reachable and no safe direct async interrupt fallback is available.` }], isError: true, details: { mode: "management", results: [] } };
 }
 
-async function resumeLiveNestedRun(input: { target: ResolvedSubagentRunId & { kind: "nested" }; message: string }): Promise<AgentToolResult<Details>> {
+async function resumeLiveNestedRun(input: { target: ResolvedSubagentRunId & { kind: "nested" }; message: string }): Promise<SubagentToolResult> {
 	const run = input.target.match.run;
 	const result = await sendNestedControlRequest(input.target, "resume", input.message);
 	if (result) return { content: [{ type: "text", text: result.message }], isError: result.ok ? undefined : true, details: { mode: "management", results: [] } };
@@ -579,7 +581,7 @@ async function resumeAsyncRun(input: {
 	requestCwd: string;
 	ctx: ExtensionContext;
 	deps: ResolvedExecutorDeps;
-}): Promise<AgentToolResult<Details>> {
+}): Promise<SubagentToolResult> {
 	const followUp = (input.params.message ?? input.params.task ?? "").trim();
 	if (!followUp) {
 		return {
@@ -803,7 +805,7 @@ function validateExecutionInput(
 	hasTasks: boolean,
 	hasSingle: boolean,
 	allowClarifyTaskPrompt: boolean,
-): AgentToolResult<Details> | null {
+): SubagentToolResult | null {
 	if (Number(hasChain) + Number(hasTasks) + Number(hasSingle) !== 1) {
 		return {
 			content: [
@@ -907,7 +909,7 @@ function applyAgentDefaultContext(params: SubagentParamsLike, agents: AgentConfi
 		: params;
 }
 
-function buildRequestedModeError(params: SubagentParamsLike, message: string): AgentToolResult<Details> {
+function buildRequestedModeError(params: SubagentParamsLike, message: string): SubagentToolResult {
 	return withForkContext(
 		{
 			content: [{ type: "text", text: message }],
@@ -959,7 +961,7 @@ function expandChainParallelCounts(chain: ChainStep[]): { chain?: ChainStep[]; e
 	return { chain: expandedChain };
 }
 
-function normalizeRepeatedParallelCounts(params: SubagentParamsLike): { params?: SubagentParamsLike; error?: AgentToolResult<Details> } {
+function normalizeRepeatedParallelCounts(params: SubagentParamsLike): { params?: SubagentParamsLike; error?: SubagentToolResult } {
 	if (params.tasks) {
 		const expandedTasks = expandTopLevelTaskCounts(params.tasks);
 		if (expandedTasks.error) {
@@ -978,9 +980,9 @@ function normalizeRepeatedParallelCounts(params: SubagentParamsLike): { params?:
 }
 
 function withForkContext(
-	result: AgentToolResult<Details>,
+	result: SubagentToolResult,
 	context: SubagentParamsLike["context"],
-): AgentToolResult<Details> {
+): SubagentToolResult {
 	if (context !== "fork" || !result.details) return result;
 	return {
 		...result,
@@ -991,7 +993,7 @@ function withForkContext(
 	};
 }
 
-function toExecutionErrorResult(params: SubagentParamsLike, error: unknown): AgentToolResult<Details> {
+function toExecutionErrorResult(params: SubagentParamsLike, error: unknown): SubagentToolResult {
 	const message = error instanceof Error ? error.message : String(error);
 	return withForkContext(
 		{
@@ -1043,7 +1045,7 @@ function wrapChainTasksForFork(chain: ChainStep[], context: SubagentParamsLike["
 	});
 }
 
-function runAsyncPath(data: ExecutionContextData, deps: ResolvedExecutorDeps): AgentToolResult<Details> | null {
+function runAsyncPath(data: ExecutionContextData, deps: ResolvedExecutorDeps): SubagentToolResult | null {
 	const {
 		params,
 		effectiveCwd,
@@ -1231,7 +1233,7 @@ function runAsyncPath(data: ExecutionContextData, deps: ResolvedExecutorDeps): A
 	return null;
 }
 
-async function runChainPath(data: ExecutionContextData, deps: ResolvedExecutorDeps): Promise<AgentToolResult<Details>> {
+async function runChainPath(data: ExecutionContextData, deps: ResolvedExecutorDeps): Promise<SubagentToolResult> {
 	const {
 		params,
 		effectiveCwd,
@@ -1384,12 +1386,12 @@ interface ForegroundParallelRunInput {
 	concurrencyLimit: number;
 	liveResults: (SingleResult | undefined)[];
 	liveProgress: (AgentProgress | undefined)[];
-	onUpdate?: (r: AgentToolResult<Details>) => void;
+	onUpdate?: (r: SubagentToolResult) => void;
 	worktreeSetup?: WorktreeSetup;
 	runtime: Pick<SubagentExecutorRuntimeDeps, "runSync">;
 }
 
-function buildParallelModeError(message: string): AgentToolResult<Details> {
+function buildParallelModeError(message: string): SubagentToolResult {
 	return {
 		content: [{ type: "text", text: message }],
 		isError: true,
@@ -1404,7 +1406,7 @@ function createParallelWorktreeSetup(
 	tasks: TaskParam[],
 	setupHook: ExtensionConfig["worktreeSetupHook"],
 	setupHookTimeoutMs: ExtensionConfig["worktreeSetupHookTimeoutMs"],
-): { setup?: WorktreeSetup; errorResult?: AgentToolResult<Details> } {
+): { setup?: WorktreeSetup; errorResult?: SubagentToolResult } {
 	if (!enabled) return {};
 	try {
 		return {
@@ -1590,7 +1592,7 @@ async function runForegroundParallelTasks(input: ForegroundParallelRunInput): Pr
 	});
 }
 
-async function runParallelPath(data: ExecutionContextData, deps: ResolvedExecutorDeps): Promise<AgentToolResult<Details>> {
+async function runParallelPath(data: ExecutionContextData, deps: ResolvedExecutorDeps): Promise<SubagentToolResult> {
 	const {
 		params,
 		effectiveCwd,
@@ -1916,7 +1918,7 @@ async function runParallelPath(data: ExecutionContextData, deps: ResolvedExecuto
 	}
 }
 
-async function runSinglePath(data: ExecutionContextData, deps: ResolvedExecutorDeps): Promise<AgentToolResult<Details>> {
+async function runSinglePath(data: ExecutionContextData, deps: ResolvedExecutorDeps): Promise<SubagentToolResult> {
 	const {
 		params,
 		effectiveCwd,
@@ -2073,7 +2075,7 @@ async function runSinglePath(data: ExecutionContextData, deps: ResolvedExecutorD
 	}
 
 	const forwardSingleUpdate = onUpdate
-		? (update: AgentToolResult<Details>) => {
+		? (update: SubagentToolResult) => {
 			if (foregroundControl) {
 				const firstProgress = update.details?.progress?.[0];
 				foregroundControl.currentAgent = params.agent;
@@ -2210,18 +2212,18 @@ export function createSubagentExecutor(rawDeps: ExecutorDeps): {
 		id: string,
 		params: SubagentParamsLike,
 		signal: AbortSignal,
-		onUpdate: ((r: AgentToolResult<Details>) => void) | undefined,
+		onUpdate: ((r: SubagentToolResult) => void) | undefined,
 		ctx: ExtensionContext,
-	) => Promise<AgentToolResult<Details>>;
+	) => Promise<SubagentToolResult>;
 } {
 	const deps: ResolvedExecutorDeps = { ...rawDeps, runtime: resolveSubagentExecutorRuntimeDeps(rawDeps.runtime) };
 	const execute = async (
 		_id: string,
 		params: SubagentParamsLike,
 		signal: AbortSignal,
-		onUpdate: ((r: AgentToolResult<Details>) => void) | undefined,
+		onUpdate: ((r: SubagentToolResult) => void) | undefined,
 		ctx: ExtensionContext,
-	): Promise<AgentToolResult<Details>> => {
+	): Promise<SubagentToolResult> => {
 		deps.state.baseCwd = ctx.cwd;
 		deps.state.foregroundRuns ??= new Map();
 		deps.state.foregroundControls ??= new Map();
@@ -2280,7 +2282,12 @@ export function createSubagentExecutor(rawDeps: ExecutorDeps): {
 					const foreground = getForegroundControl(deps.state, undefined);
 					if (foreground) return foregroundStatusResult(foreground);
 				}
-				return inspectSubagentStatus(paramsWithResolvedCwd, { state: deps.state, nested: nestedResolutionScopeForExecutor(deps) });
+				return inspectSubagentStatus({
+					action: "status",
+					id: paramsWithResolvedCwd.id,
+					runId: paramsWithResolvedCwd.runId,
+					dir: paramsWithResolvedCwd.dir,
+				}, { state: deps.state, nested: nestedResolutionScopeForExecutor(deps) });
 			}
 			if (params.action === "resume") {
 				return resumeAsyncRun({ params: paramsWithResolvedCwd, requestCwd, ctx, deps });
@@ -2445,7 +2452,7 @@ export function createSubagentExecutor(rawDeps: ExecutorDeps): {
 			sessionFileForIndex(idx) ?? path.join(sessionDirForIndex(idx), "session.jsonl");
 
 		const onUpdateWithContext = onUpdate
-			? (r: AgentToolResult<Details>) => onUpdate(withForkContext(r, effectiveParams.context))
+			? (r: SubagentToolResult) => onUpdate(withForkContext(r, effectiveParams.context))
 			: undefined;
 
 		const execData: ExecutionContextData = {
@@ -2488,7 +2495,7 @@ export function createSubagentExecutor(rawDeps: ExecutorDeps): {
 			deps.state.lastForegroundControlId = runId;
 		}
 
-		const writeNestedForegroundEvent = (type: "subagent.nested.started" | "subagent.nested.completed", result?: AgentToolResult<Details>): void => {
+		const writeNestedForegroundEvent = (type: "subagent.nested.started" | "subagent.nested.completed", result?: SubagentToolResult): void => {
 			if (!inheritedNestedRoute || !nestedParentAddress) return;
 			const now = Date.now();
 			const details = result?.details;

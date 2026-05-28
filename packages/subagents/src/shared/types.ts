@@ -5,6 +5,7 @@
 import * as os from "node:os";
 import * as path from "node:path";
 import type { Message } from "@earendil-works/pi-ai";
+import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { FSWatcher } from "node:fs";
 import type { ExtensionContext } from "@bastani/atomic";
 import { APP_NAME, getEnvValue, WORKFLOW_STAGE_SUBAGENT_GUARD_ENV } from "@bastani/atomic";
@@ -254,6 +255,8 @@ export interface Details {
 	totalSteps?: number;         // Total steps in chain
 	currentStepIndex?: number;   // 0-indexed current step (for running chains)
 }
+
+export type SubagentToolResult = AgentToolResult<Details> & { isError?: boolean };
 
 // ============================================================================
 // Artifacts

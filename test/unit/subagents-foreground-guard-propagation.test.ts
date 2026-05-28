@@ -1,8 +1,9 @@
-import { beforeEach, describe, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, mock, test } from "bun:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { createSubagentExecutor } from "../../packages/subagents/src/runs/foreground/subagent-executor.js";
 import { WORKFLOW_STAGE_SUBAGENT_GUARD_ENV } from "../../packages/subagents/src/shared/types.js";
 
 interface MinimalRunSyncOptions {
@@ -48,20 +49,10 @@ interface MinimalAgentConfig {
 	maxSubagentDepth?: number;
 }
 
-interface MinimalExecutorModule {
-	createSubagentExecutor: (deps: Record<string, unknown>) => {
-		execute: (
-			id: string,
-			params: Record<string, unknown>,
-			signal: AbortSignal,
-			onUpdate: undefined,
-			ctx: Record<string, unknown>,
-		) => Promise<{ isError?: boolean }>;
-	};
-}
-
-const executorModulePath = "../../packages/subagents/src/runs/foreground/subagent-executor.ts";
-const { createSubagentExecutor } = await import(executorModulePath) as MinimalExecutorModule;
+type ExecutorForTest = ReturnType<typeof createSubagentExecutor>;
+type ExecutorDepsForTest = Parameters<typeof createSubagentExecutor>[0];
+type ExecutorContextForTest = Parameters<ExecutorForTest["execute"]>[4];
+type ExecutorResultForTest = Awaited<ReturnType<ExecutorForTest["execute"]>>;
 
 const runSyncCalls: CapturedRunSyncCall[] = [];
 const asyncChainCalls: CapturedAsyncChainCall[] = [];
@@ -138,22 +129,32 @@ function makeState() {
 	};
 }
 
-function makeWorkflowStageContext(cwd: string, uiResult?: unknown): Record<string, unknown> {
+function makeUiContext(uiResult?: unknown): ExecutorContextForTest["ui"] {
+	const ui: Pick<ExecutorContextForTest["ui"], "custom"> = {
+		custom: async <T>() => uiResult as T,
+	};
+	return ui as ExecutorContextForTest["ui"];
+}
+
+function makeModelRegistry(): ExecutorContextForTest["modelRegistry"] {
+	const modelRegistry: Pick<ExecutorContextForTest["modelRegistry"], "getAvailable"> = {
+		getAvailable: () => [],
+	};
+	return modelRegistry as ExecutorContextForTest["modelRegistry"];
+}
+
+function makeWorkflowStageContext(cwd: string, uiResult?: unknown): ExecutorContextForTest {
 	return {
 		cwd,
 		hasUI: uiResult !== undefined,
-		ui: {
-			custom: mock(async () => uiResult),
-		},
+		ui: makeUiContext(uiResult),
 		model: undefined,
-		modelRegistry: {
-			getAvailable: () => [],
-		},
+		modelRegistry: makeModelRegistry(),
 		sessionManager: {
 			getSessionFile: () => undefined,
 			getSessionId: () => "parent-session",
 			getLeafId: () => null,
-		},
+		} as ExecutorContextForTest["sessionManager"],
 		orchestrationContext: {
 			kind: "workflow-stage",
 			workflowRunId: "workflow-run-1",
@@ -161,19 +162,32 @@ function makeWorkflowStageContext(cwd: string, uiResult?: unknown): Record<strin
 			workflowStageName: "Stage 1",
 			constraints: { disableWorkflowTool: true, maxSubagentDepth: 1 },
 		},
+		isIdle: () => true,
+		signal: undefined,
+		abort: () => {},
+		hasPendingMessages: () => false,
+		shutdown: () => {},
+		getContextUsage: () => undefined,
+		compact: () => {},
+		getSystemPrompt: () => "",
+	} satisfies ExecutorContextForTest;
+}
+
+function makePi(): ExecutorDepsForTest["pi"] {
+	const pi: Pick<ExecutorDepsForTest["pi"], "events" | "getSessionName"> = {
+		events: {
+			on: (_channel: string, _handler: (data: unknown) => void) => () => {},
+			emit: (_channel: string, _data: unknown) => {},
+		},
+		getSessionName: () => "parent-session-name",
 	};
+	return pi as ExecutorDepsForTest["pi"];
 }
 
 function makeExecutor(cwd: string, agents: MinimalAgentConfig[]) {
 	const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "atomic-subagent-guard-"));
-	return createSubagentExecutor({
-		pi: {
-			events: {
-				on: () => () => {},
-				emit: () => {},
-			},
-			getSessionName: () => "parent-session-name",
-		},
+	const deps = {
+		pi: makePi(),
 		state: makeState(),
 		config: { maxSubagentDepth: 2, parallel: { concurrency: 4, maxTasks: 8 } },
 		asyncByDefault: false,
@@ -188,7 +202,8 @@ function makeExecutor(cwd: string, agents: MinimalAgentConfig[]) {
 			formatAsyncStartedMessage: (message: string) => `Started ${message}`,
 			isAsyncAvailable: () => true,
 		},
-	});
+	} satisfies ExecutorDepsForTest;
+	return createSubagentExecutor(deps);
 }
 
 function clearSubagentGuardEnv(): void {
@@ -206,6 +221,10 @@ function resetCapturedCalls(): void {
 	executeAsyncSingleMock.mockClear();
 }
 
+function assertNoErrorFlag(result: ExecutorResultForTest): void {
+	assert.equal("isError" in result ? result.isError : undefined, undefined);
+}
+
 function assertGuardedRunSyncCalls(expectedAgentNames: string[]): void {
 	assert.deepEqual(runSyncCalls.map((call) => call.agentName), expectedAgentNames);
 	for (const call of runSyncCalls) {
@@ -219,6 +238,7 @@ beforeEach(() => {
 	clearSubagentGuardEnv();
 });
 
+afterAll(clearSubagentGuardEnv);
 
 describe("foreground workflow-stage subagent guard propagation", () => {
 	test("passes workflow-stage guard to sequential and parallel chain children", async () => {
@@ -240,7 +260,7 @@ describe("foreground workflow-stage subagent guard propagation", () => {
 			makeWorkflowStageContext(cwd),
 		);
 
-		assert.equal(result.isError, undefined);
+		assertNoErrorFlag(result);
 		assertGuardedRunSyncCalls(["alpha", "beta", "gamma"]);
 	});
 
@@ -260,7 +280,7 @@ describe("foreground workflow-stage subagent guard propagation", () => {
 			makeWorkflowStageContext(cwd),
 		);
 
-		assert.equal(result.isError, undefined);
+		assertNoErrorFlag(result);
 		assertGuardedRunSyncCalls(["alpha", "beta"]);
 	});
 
@@ -286,7 +306,7 @@ describe("foreground workflow-stage subagent guard propagation", () => {
 			makeWorkflowStageContext(cwd, uiResult),
 		);
 
-		assert.equal(result.isError, undefined);
+		assertNoErrorFlag(result);
 		assert.equal(runSyncCalls.length, 0);
 		assert.equal(asyncChainCalls.length, 1);
 		assert.equal(asyncChainCalls[0]!.params.maxSubagentDepth, 1);
@@ -316,7 +336,7 @@ describe("foreground workflow-stage subagent guard propagation", () => {
 			makeWorkflowStageContext(cwd, uiResult),
 		);
 
-		assert.equal(result.isError, undefined);
+		assertNoErrorFlag(result);
 		assert.equal(runSyncCalls.length, 0);
 		assert.equal(asyncSingleCalls.length, 1);
 		assert.equal(asyncSingleCalls[0]!.params.maxSubagentDepth, 1);

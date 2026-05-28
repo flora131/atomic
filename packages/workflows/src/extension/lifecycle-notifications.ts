@@ -53,6 +53,7 @@ export interface WorkflowLifecycleNotificationOptions {
   readonly store: Store;
   readonly sendMessage?: ExtensionAPI["sendMessage"];
   readonly registerMessageRenderer?: ExtensionAPI["registerMessageRenderer"];
+  readonly rendererHost?: object;
   readonly config: WorkflowLifecycleNotificationConfig;
   readonly state?: WorkflowLifecycleNotificationState;
   readonly seedExisting?: boolean;
@@ -102,6 +103,13 @@ export function seedWorkflowLifecycleNotificationState(
   }
 }
 
+/**
+ * Suppress lifecycle notice emission while still observing snapshot changes and
+ * marking matching lifecycle states as delivered. This is intended for restore
+ * or replay paths where historical workflow states should seed dedupe state
+ * without notifying the current chat; it is not a generic temporary mute that
+ * should emit the same notices later.
+ */
 export function withWorkflowLifecycleNotificationsSuppressed<T>(
   state: WorkflowLifecycleNotificationState,
   fn: () => T,
@@ -200,12 +208,12 @@ export function installWorkflowLifecycleNotifications(
 }
 
 export function registerLifecycleNoticeRenderer(
-  options: Pick<WorkflowLifecycleNotificationOptions, "registerMessageRenderer">,
+  options: Pick<WorkflowLifecycleNotificationOptions, "registerMessageRenderer" | "rendererHost">,
 ): void {
   const register = options.registerMessageRenderer;
   if (typeof register !== "function") return;
 
-  const host = register as object;
+  const host = options.rendererHost ?? register;
   if (rendererRegisteredHosts.has(host)) return;
 
   const renderer: RawRenderer = (raw) => {
@@ -235,7 +243,11 @@ export function formatWorkflowLifecycleNoticeText(details: WorkflowLifecycleNoti
   if (details.scope === "run") {
     return `❓ Workflow "${details.workflowName}" needs input (run ${details.runId}).${prompt} Respond: /workflow connect ${details.runId} to answer this run-level prompt.`;
   }
-  return `❓ Workflow "${details.workflowName}" needs input (run ${details.runId}, stage ${details.stageName ?? details.stageId ?? "unknown"}).${prompt} Respond: /workflow connect ${details.runId} or workflow({ action: "send", runId: "${details.runId}", stageId: "${details.stageId ?? ""}", promptId: "${details.promptId ?? ""}", response: ... })`;
+  const stage = details.stageName ?? details.stageId ?? "unknown";
+  const responseHint = details.stageId && details.promptId
+    ? `/workflow connect ${details.runId} or workflow({ action: "send", runId: "${details.runId}", stageId: "${details.stageId}", promptId: "${details.promptId}", response: ... })`
+    : `/workflow connect ${details.runId}`;
+  return `❓ Workflow "${details.workflowName}" needs input (run ${details.runId}, stage ${stage}).${prompt} Respond: ${responseHint}.`;
 }
 
 function makeTerminalNotice(

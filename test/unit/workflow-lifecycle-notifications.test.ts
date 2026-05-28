@@ -5,6 +5,7 @@ import {
   installWorkflowLifecycleNotifications,
   LIFECYCLE_NOTICE_CUSTOM_TYPE,
   LIFECYCLE_NOTICE_SNIPPET_LIMIT,
+  registerLifecycleNoticeRenderer,
   resetWorkflowLifecycleNotificationState,
   seedWorkflowLifecycleNotificationState,
   withWorkflowLifecycleNotificationsSuppressed,
@@ -19,6 +20,16 @@ interface SentMessage {
   readonly content?: string;
   readonly display?: boolean;
   readonly details?: WorkflowLifecycleNoticeDetails;
+}
+
+interface CardComponent {
+  render(width: number): string[];
+  invalidate?(): void;
+}
+
+interface RegisteredRenderer {
+  readonly event: string;
+  readonly renderer: (payload: unknown) => unknown;
 }
 
 type SendOptions = {
@@ -146,6 +157,9 @@ describe("installWorkflowLifecycleNotifications", () => {
     assert.equal(sent[0]?.details?.scope, "stage");
     assert.equal(sent[0]?.details?.stageId, "stage-ask");
     assert.equal(sent[0]?.details?.createdAt, 123);
+    assert.match(sent[0]?.content ?? "", /Respond: \/workflow connect run-4\./);
+    assert.doesNotMatch(sent[0]?.content ?? "", /workflow\(\{ action: "send"/);
+    assert.doesNotMatch(sent[0]?.content ?? "", /promptId: ""/);
   });
 
   test("emits promptless awaiting-input after resolving a structured stage prompt", () => {
@@ -403,5 +417,41 @@ describe("installWorkflowLifecycleNotifications", () => {
     store.recordRunStart({ id: "run-7", name: "turn", inputs: {}, status: "running", stages: [], startedAt: 1 });
     store.recordRunEnd("run-7", "completed", {});
     assert.deepEqual(options, [{ triggerTurn: true, deliverAs: "steer" }]);
+  });
+
+  test("registers lifecycle renderer once per host and returns a notice card", () => {
+    const host = {};
+    const registered: RegisteredRenderer[] = [];
+    registerLifecycleNoticeRenderer({
+      rendererHost: host,
+      registerMessageRenderer(event, renderer) {
+        registered.push({ event, renderer: renderer as (payload: unknown) => unknown });
+      },
+    });
+    registerLifecycleNoticeRenderer({
+      rendererHost: host,
+      registerMessageRenderer(event, renderer) {
+        registered.push({ event, renderer: renderer as (payload: unknown) => unknown });
+      },
+    });
+
+    assert.equal(registered.length, 1);
+    assert.equal(registered[0]?.event, LIFECYCLE_NOTICE_CUSTOM_TYPE);
+    const rendered = registered[0]?.renderer({
+      details: {
+        kind: "completed",
+        scope: "run",
+        runId: "run-card",
+        workflowName: "cards",
+        status: "completed",
+        createdAt: 1,
+      } satisfies WorkflowLifecycleNoticeDetails,
+    });
+
+    assert.equal(typeof rendered, "object");
+    assert.notEqual(rendered, null);
+    assert.deepEqual((rendered as CardComponent).render(80), [
+      '✅ Workflow "cards" completed (run run-card). Inspect: /workflow status run-card',
+    ]);
   });
 });

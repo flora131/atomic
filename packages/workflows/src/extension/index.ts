@@ -1993,6 +1993,7 @@ function factory(pi: ExtensionAPI): void {
     current: WORKFLOW_CONFIG_DEFAULTS.workflowNotifications,
   };
   registerLifecycleNoticeRenderer({
+    rendererHost: pi,
     registerMessageRenderer: pi.registerMessageRenderer
       ? (event, renderer) =>
           pi.registerMessageRenderer?.(
@@ -3409,6 +3410,9 @@ function factory(pi: ExtensionAPI): void {
               },
               store,
             );
+            // The suppressed subscriber observes restore replay and marks matching
+            // notices delivered. Seed explicitly as a defensive backstop for
+            // runtimes without a lifecycle-notification subscriber installed.
             seedWorkflowLifecycleNotificationState(
               lifecycleNotificationState,
               store.snapshot(),

@@ -6,7 +6,7 @@ import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { getAgentConfigPaths, getAgentDirs, getProjectConfigDirs } from "@bastani/atomic";
+import { getAgentConfigPaths, getAgentDirs, getBuiltinPackagePaths, getProjectConfigDirs } from "@bastani/atomic";
 
 export type SkillSource =
 	| "project"
@@ -314,6 +314,17 @@ function collectSettingsPackageSkillPaths(cwd: string): SkillSearchPath[] {
 	return results;
 }
 
+function collectBuiltinPackageSkillPaths(): SkillSearchPath[] {
+	try {
+		return getBuiltinPackagePaths().flatMap((packageRoot) =>
+			extractSkillPathsFromPackageRoot(packageRoot, "builtin", true)
+		);
+	} catch {
+		// Builtin package discovery is additive; keep project/user/settings skill resolution working if unavailable.
+		return [];
+	}
+}
+
 function buildSkillPaths(cwd: string): SkillSearchPath[] {
 	const skillPaths: SkillSearchPath[] = [
 		...getProjectConfigDirs(cwd).map((configDir) => ({ path: path.join(configDir, "skills"), source: "project" as const })),
@@ -324,6 +335,7 @@ function buildSkillPaths(cwd: string): SkillSearchPath[] {
 		...collectSettingsPackageSkillPaths(cwd),
 		...extractSkillPathsFromPackageRoot(cwd, "project-package"),
 		...collectSettingsSkillPaths(cwd),
+		...collectBuiltinPackageSkillPaths(),
 	];
 
 	const deduped = new Map<string, SkillSearchPath>();

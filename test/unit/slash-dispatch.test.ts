@@ -35,6 +35,7 @@ import { defineWorkflow } from "../../packages/workflows/src/workflows/define-wo
 import type { WorkflowDefinition } from "../../packages/workflows/src/shared/types.js";
 import { createExtensionRuntime, type ExtensionRuntime } from "../../packages/workflows/src/extension/runtime.js";
 import { store } from "../../packages/workflows/src/shared/store.js";
+import { WORKFLOW_STAGE_SUBAGENT_GUARD_ENV } from "@bastani/atomic";
 import { WORKFLOW_AUTH_FAILURE_MESSAGE } from "../../packages/workflows/src/shared/workflow-failures.js";
 import type {
   PiCustomComponent,
@@ -954,8 +955,6 @@ describe("tool run-control actions", () => {
       wasDispatched: () => dispatched,
     };
   }
-
-  const WORKFLOW_STAGE_SUBAGENT_GUARD_ENV = "ATOMIC_WORKFLOW_STAGE_SUBAGENT_GUARD";
 
   function restoreWorkflowStageGuard(previousGuard: string | undefined): void {
     if (previousGuard === undefined) {

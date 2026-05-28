@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Capped subagent fanout spawned from workflow stages to a single child level with a workflow-specific nested-subagent error.
+
 ## [0.24.3] - 2026-05-14
 
 ### Added

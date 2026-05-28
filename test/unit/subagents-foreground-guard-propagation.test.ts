@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as asyncExecution from "../../packages/subagents/src/runs/background/async-execution.ts";
 import * as foregroundExecution from "../../packages/subagents/src/runs/foreground/execution.ts";
+import { WORKFLOW_STAGE_SUBAGENT_GUARD_ENV } from "../../packages/subagents/src/shared/types.js";
 
 interface MinimalRunSyncOptions {
 	maxSubagentDepth?: number;
@@ -199,7 +200,7 @@ function makeExecutor(cwd: string, agents: MinimalAgentConfig[]) {
 function clearSubagentGuardEnv(): void {
 	delete process.env.ATOMIC_SUBAGENT_DEPTH;
 	delete process.env.ATOMIC_SUBAGENT_MAX_DEPTH;
-	delete process.env.ATOMIC_WORKFLOW_STAGE_SUBAGENT_GUARD;
+	delete process.env[WORKFLOW_STAGE_SUBAGENT_GUARD_ENV];
 }
 
 function resetCapturedCalls(): void {

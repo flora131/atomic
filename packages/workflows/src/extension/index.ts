@@ -967,6 +967,10 @@ export function makeExecuteWorkflowTool(
     const action = args.action ?? "run";
     const runId = args.runId ?? "";
     if (isWorkflowStageToolContext(ctx)) {
+      // Workflow stages must not invoke the workflow tool at all, including
+      // read-only inspection actions. The tool is normally excluded from stage
+      // sessions; this guard is a defense-in-depth fallback for stale or
+      // hand-crafted registrations.
       return {
         action: "run",
         runId,

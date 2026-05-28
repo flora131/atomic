@@ -567,6 +567,7 @@ interface SingleStepContext {
 	nestedRoute?: NestedRouteInfo;
 	onAttemptStart?: (attempt: { model?: string; thinking?: string }) => void;
 	onChildEvent?: (event: ChildEvent) => void;
+	workflowStageSubagentGuard?: boolean;
 }
 
 /** Run a single pi agent step, returning output and metadata */
@@ -1400,6 +1401,7 @@ async function runSubagent(config: SubagentRunConfig): Promise<void> {
 							},
 							onAttemptStart: (attempt) => updateStepModel(fi, attempt.model, attempt.thinking),
 							onChildEvent: (event) => updateStepFromChildEvent(fi, event),
+							workflowStageSubagentGuard: config.workflowStageSubagentGuard,
 						});
 						if (task.sessionFile) {
 							latestSessionFile = task.sessionFile;
@@ -1546,6 +1548,7 @@ async function runSubagent(config: SubagentRunConfig): Promise<void> {
 				},
 				onAttemptStart: (attempt) => updateStepModel(flatIndex, attempt.model, attempt.thinking),
 				onChildEvent: (event) => updateStepFromChildEvent(flatIndex, event),
+				workflowStageSubagentGuard: config.workflowStageSubagentGuard,
 			});
 			if (seqStep.sessionFile) {
 				latestSessionFile = seqStep.sessionFile;

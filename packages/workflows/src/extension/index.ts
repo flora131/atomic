@@ -2244,6 +2244,10 @@ function factory(pi: ExtensionAPI): void {
             print(`Run not found: ${result.runId}`);
             return true;
           }
+          if (run.endedAt !== undefined) {
+            print(formatAlreadyEndedRetainedMessage(result.runId));
+            return true;
+          }
           const confirmed = await openKillConfirm(ui, run, theme);
           if (!confirmed) {
             print(
@@ -2430,6 +2434,10 @@ function factory(pi: ExtensionAPI): void {
         return true;
       }
       const run = store.runs().find((r) => r.id === resolved.runId);
+      if (run?.endedAt !== undefined) {
+        print(formatAlreadyEndedRetainedMessage(resolved.runId));
+        return true;
+      }
       if (!yes && run && ctx.ui) {
         const confirmed = await openKillConfirm(ctx.ui, run, theme);
         if (!confirmed) {
@@ -3140,14 +3148,7 @@ function factory(pi: ExtensionAPI): void {
         }
 
         if (subcommand === "status") {
-          return completeToken(partial, [
-            {
-              value: "--all ",
-              label: "--all",
-              description: "Compatibility no-op; retained runs are shown by default",
-            },
-            ...runIdItems(),
-          ]);
+          return completeToken(partial, runIdItems());
         }
 
         if (subcommand === "connect") {

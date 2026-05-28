@@ -163,7 +163,7 @@ export function restoreOnSessionStart(
 
   const entries = getEntries.call(sessionManager);
   const sessionEntries = entries as readonly SessionEntry[];
-  restoreEndedFailedRuns(sessionEntries, store);
+  restoreTerminalRuns(sessionEntries, store);
   const inFlight = scanInFlightRuns(sessionEntries);
   if (inFlight.length === 0) return;
 
@@ -300,7 +300,7 @@ function restoreStageStatus(status: unknown): StageStatus {
   }
 }
 
-function restoreEndedFailedRuns(entries: readonly SessionEntry[], store: Store): void {
+function restoreTerminalRuns(entries: readonly SessionEntry[], store: Store): void {
   const started = new Map<string, { readonly name: string; readonly inputs: Readonly<Record<string, unknown>>; readonly startTs: number }>();
   const ended = new Map<string, Record<string, unknown>>();
 
@@ -365,8 +365,9 @@ function restoreEndedFailedRuns(entries: readonly SessionEntry[], store: Store):
   }
 }
 
-function restoreTerminalRunStatus(status: unknown): "failed" | "killed" | undefined {
+function restoreTerminalRunStatus(status: unknown): "completed" | "failed" | "killed" | undefined {
   switch (status) {
+    case "completed":
     case "failed":
     case "killed":
       return status;

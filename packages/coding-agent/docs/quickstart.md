@@ -102,7 +102,7 @@ Keep using `ralph` for larger migrations, broad refactors, multi-package changes
 Named workflow runs execute in the background. After launch you get a run id; use it to inspect, attach, pause, or resume:
 
 ```text
-/workflow status                  # list current-session active and retained terminal runs
+/workflow status                  # list this session's active and terminal runs
 /workflow connect <run-id>        # open the graph viewer (F2 also opens the latest)
 /workflow attach <run-id> <stage> # chat with one stage
 /workflow interrupt <run-id>      # pause resumably

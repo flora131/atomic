@@ -133,7 +133,8 @@ describe("restoreOnSessionStart", () => {
       { onCrashed: (r) => crashed.push(r) },
     );
     assert.equal(crashed.length, 0);
-    assert.equal(st.runs().length, 0);
+    assert.equal(st.runs().length, 1);
+    assert.equal(st.runs()[0]?.status, "completed");
   });
 
   test("resumeInFlight=never: marks run as failed and calls onCrashed", () => {
@@ -282,6 +283,22 @@ describe("restoreOnSessionStart", () => {
     assert.equal(run.failureMessage, "429 too many requests");
     assert.equal(run.failedStageId, "s1");
     assert.equal(run.resumable, true);
+  });
+
+  test("restores completed terminal runs from run.end entries", () => {
+    const st = createStore();
+    const entries: SessionEntry[] = [
+      { id: "e1", type: "workflow.run.start", payload: { runId: "r1", name: "wf", inputs: {}, ts: 1 } },
+      { id: "e2", type: "workflow.stage.start", payload: { runId: "r1", stageId: "s1", name: "fetch", parentIds: [], ts: 2 } },
+      { id: "e3", type: "workflow.stage.end", payload: { runId: "r1", stageId: "s1", status: "completed", summary: "done" } },
+      { id: "e4", type: "workflow.run.end", payload: { runId: "r1", status: "completed", ts: 3 } },
+    ];
+
+    restoreOnSessionStart(makeSessionManager(entries), { resumeInFlight: "never", persistRuns: true }, st);
+    const run = st.runs()[0]!;
+    assert.equal(run.status, "completed");
+    assert.notEqual(run.endedAt, undefined);
+    assert.equal(run.stages[0]!.status, "completed");
   });
 
   test("ignores invalid run failureKind from run.end entries", () => {

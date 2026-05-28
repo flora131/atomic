@@ -51,13 +51,13 @@ export function createSessionPickerState(): SessionPickerState {
 /** A run plus a derived bucket — keeps the renderer monomorphic. */
 export interface PickerRow {
   readonly run: RunSnapshot;
-  readonly bucket: "active" | "recent";
+  readonly bucket: "active" | "terminal";
 }
 
 const RECENT_WINDOW_MS = 60 * 60 * 1000;
 
 /**
- * Slice runs into picker rows. Active = `endedAt === undefined`. Recent =
+ * Slice runs into picker rows. Active = `endedAt === undefined`. Terminal =
  * retained terminal runs. With `includeAll` false, terminal rows are limited
  * to the legacy recent-ended one-hour window.
  *
@@ -88,7 +88,7 @@ export function selectRunsForPicker(
     }
 
     if (includeAll || now - endedAt <= RECENT_WINDOW_MS) {
-      terminal.push({ run: r, bucket: "recent" });
+      terminal.push({ run: r, bucket: "terminal" });
     }
   }
   active.sort((a, b) => a.run.startedAt - b.run.startedAt);
@@ -312,7 +312,7 @@ export function renderSessionPicker(opts: SessionPickerRenderOpts): string[] {
   for (let i = 0; i < visible.length; i++) {
     const row = visible[i]!;
     if (row.bucket !== prevBucket) {
-      lines.push(renderSectionRow(row.bucket === "active" ? "ACTIVE" : "RECENT", inner, theme));
+      lines.push(renderSectionRow(row.bucket === "active" ? "ACTIVE" : "TERMINAL", inner, theme));
       prevBucket = row.bucket;
     }
     const absIndex = Math.max(0, start) + i;
@@ -402,7 +402,7 @@ export function handleSessionPickerInput(
   // `x` = kill. Avoids collision with vim's `k` = up.
   if (matchesKey(data, "x") || matchesKey(data, Key.shift("x"))) {
     const row = rows[state.selectedIndex];
-    if (!row) return { kind: "noop" };
+    if (!row || row.run.endedAt !== undefined) return { kind: "noop" };
     return { kind: "kill", runId: row.run.id };
   }
 

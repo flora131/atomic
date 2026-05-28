@@ -699,9 +699,7 @@ describe("MockExtensionAPI — slash command registration", () => {
     assert.ok(inputs?.some((c) => c.value === "inputs deep-research-codebase "));
 
     const status = cmd.options.getArgumentCompletions?.("status --");
-    const statusAll = status?.find((c) => c.value === "status --all ");
-    assert.ok(statusAll);
-    assert.match(statusAll.description ?? "", /Compatibility no-op/);
+    assert.equal(status?.some((c) => c.value === "status --all ") ?? false, false);
 
     const interrupt = cmd.options.getArgumentCompletions?.("interrupt -");
     assert.ok(interrupt?.some((c) => c.value === "interrupt -y "));

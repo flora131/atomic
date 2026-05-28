@@ -757,23 +757,28 @@ describe("/workflow interrupt chat command", () => {
 
     const { workflowCmd } = await registerWorkflowCommand();
     const msgs: string[] = [];
+    let confirmCalls = 0;
     const ctx: PiCommandContext = {
       ui: {
         notify: (message: string) => { msgs.push(message); },
-        confirm: async () => true,
+        confirm: async () => {
+          confirmCalls++;
+          return true;
+        },
       },
     };
 
     await workflowCmd.options.handler(`kill ${runId}`, ctx);
 
     const joined = msgs.join("\n");
+    assert.equal(confirmCalls, 0);
     assert.match(joined, /already ended/i);
     assert.match(joined, /retained/i);
     assert.doesNotMatch(joined, /Run not found/);
     assert.equal(store.runs().find((r) => r.id === runId)?.status, status);
   });
 
-  test("picker kill on a terminal row reports already-ended retained copy", async () => {
+  test("picker kill on a terminal row is a no-op", async () => {
     const runId = `picker-kill-ended-${Date.now()}`;
     recordTerminalRun(runId, "completed");
 
@@ -788,6 +793,7 @@ describe("/workflow interrupt chat command", () => {
       } else {
         (component as PiCustomComponent).render(80);
         (component as PiCustomComponent).handleInput?.("x");
+        (component as PiCustomComponent).handleInput?.("\x1b");
       }
       return undefined;
     };
@@ -800,10 +806,7 @@ describe("/workflow interrupt chat command", () => {
 
     await workflowCmd.options.handler("connect", ctx);
 
-    const joined = msgs.join("\n");
-    assert.match(joined, /already ended/i);
-    assert.match(joined, /retained/i);
-    assert.doesNotMatch(joined, /Run not found/);
+    assert.deepEqual(msgs, []);
   });
 
   test("/workflow connect no-custom-UI fallback includes older retained terminal runs", async () => {

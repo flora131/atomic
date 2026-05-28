@@ -168,6 +168,20 @@ describe("SDK tool exclusions", () => {
 		session.dispose();
 	});
 
+	it("excludes workflow from a real workflow-stage-style tool registry", async () => {
+		const session = await createSession({
+			extensionToolName: "workflow",
+			excludedTools: ["workflow"],
+		});
+
+		await session.bindExtensions({});
+
+		expect(session.getActiveToolNames()).not.toContain("workflow");
+		expect(session.getToolDefinition("workflow")).toBeUndefined();
+
+		session.dispose();
+	});
+
 	it("keeps dynamically registered extension tools excluded after extensions bind", async () => {
 		const session = await createSession({
 			extensionToolName: "dynamic_tool",

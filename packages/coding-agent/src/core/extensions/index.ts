@@ -95,6 +95,7 @@ export type {
 	MessageRenderOptions,
 	MessageStartEvent,
 	OrchestrationContext,
+	WorkflowStageOrchestrationContext,
 	MessageUpdateEvent,
 	ModelSelectEvent,
 	ModelSelectSource,

@@ -1230,7 +1230,7 @@ async function runChainPath(data: ExecutionContextData, deps: ExecutorDeps): Pro
 	const chain = wrapChainTasksForFork(params.chain as ChainStep[], params.context);
 	const depthPolicy = resolveSubagentDepthPolicy(ctx, deps.config.maxSubagentDepth);
 	const currentMaxSubagentDepth = depthPolicy.maxSubagentDepth;
-	const workflowStageSubagentGuard = data.workflowStageSubagentGuard || depthPolicy.workflowStageSubagentGuard;
+	const workflowStageSubagentGuard = depthPolicy.workflowStageSubagentGuard;
 	const chainResult = await executeChain({
 		chain,
 		task: params.task,

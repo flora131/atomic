@@ -7,12 +7,12 @@ import * as path from "node:path";
 import type { Message } from "@earendil-works/pi-ai";
 import type { FSWatcher } from "node:fs";
 import type { ExtensionContext } from "@bastani/atomic";
-import { APP_NAME, getEnvValue } from "@bastani/atomic";
+import { APP_NAME, getEnvValue, WORKFLOW_STAGE_SUBAGENT_GUARD_ENV } from "@bastani/atomic";
 
 const ENV_PREFIX = APP_NAME.toUpperCase();
 const SUBAGENT_MAX_DEPTH_ENV = `${ENV_PREFIX}_SUBAGENT_MAX_DEPTH`;
 const SUBAGENT_DEPTH_ENV = `${ENV_PREFIX}_SUBAGENT_DEPTH`;
-export const WORKFLOW_STAGE_SUBAGENT_GUARD_ENV = `${ENV_PREFIX}_WORKFLOW_STAGE_SUBAGENT_GUARD`;
+export { WORKFLOW_STAGE_SUBAGENT_GUARD_ENV };
 
 // ============================================================================
 // Basic Types
@@ -793,7 +793,7 @@ export function resolveSubagentDepthPolicy(
 	};
 }
 
-export function workflowStageSubagentDepthMessage(depth: number, maxDepth: number, action = "call"): string {
+export function workflowStageSubagentDepthMessage(depth: number, maxDepth: number, action: "call" | "resume" = "call"): string {
 	return `Nested subagent ${action} blocked (depth=${depth}, max=${maxDepth}). sub-agents inside workflow stages cannot spawn nested sub-agents.`;
 }
 
@@ -831,11 +831,12 @@ export function checkSubagentDepth(configMaxDepth?: number): SubagentDepthCheck 
 export function getSubagentDepthEnv(maxDepth?: number, options?: { workflowStageSubagentGuard?: boolean }): Record<string, string> {
 	const parentDepth = Number(getEnvValue(SUBAGENT_DEPTH_ENV) ?? "0");
 	const nextDepth = Number.isFinite(parentDepth) ? parentDepth + 1 : 1;
-	const propagateWorkflowStageGuard = options?.workflowStageSubagentGuard || hasWorkflowStageSubagentGuard();
 	return {
 		[SUBAGENT_DEPTH_ENV]: String(nextDepth),
 		[SUBAGENT_MAX_DEPTH_ENV]: String(normalizeMaxSubagentDepth(maxDepth) ?? resolveCurrentMaxSubagentDepth()),
-		...(propagateWorkflowStageGuard ? { [WORKFLOW_STAGE_SUBAGENT_GUARD_ENV]: "1" } : {}),
+		...(options?.workflowStageSubagentGuard || hasWorkflowStageSubagentGuard()
+			? { [WORKFLOW_STAGE_SUBAGENT_GUARD_ENV]: "1" }
+			: {}),
 	};
 }
 

@@ -315,8 +315,8 @@ export interface WorkflowStageOrchestrationContext {
 	readonly workflowStageId: string;
 	readonly workflowStageName: string;
 	readonly constraints: {
-		readonly disableWorkflowTool: true;
-		readonly maxSubagentDepth: 1;
+		readonly disableWorkflowTool: boolean;
+		readonly maxSubagentDepth: number;
 	};
 }
 

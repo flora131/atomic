@@ -43,6 +43,22 @@ describe("subagent workflow-stage depth guard", () => {
     assert.equal(resolveWorkflowStageMaxSubagentDepth({}, undefined), 2);
   });
 
+  test("workflow-stage first-level subagent call is allowed", () => {
+    delete process.env[DEPTH_ENV];
+    delete process.env[MAX_DEPTH_ENV];
+    delete process.env[WORKFLOW_STAGE_SUBAGENT_GUARD_ENV];
+
+    const result = checkSubagentDepth(1);
+    assert.equal(result.blocked, false);
+    assert.equal(result.depth, 0);
+    assert.equal(result.maxDepth, 1);
+
+    const env = getSubagentDepthEnv(1, { workflowStageSubagentGuard: true });
+    assert.equal(env[DEPTH_ENV], "1");
+    assert.equal(env[MAX_DEPTH_ENV], "1");
+    assert.equal(env[WORKFLOW_STAGE_SUBAGENT_GUARD_ENV], "1");
+  });
+
   test("workflow-stage child env marker produces nested workflow-stage rejection message", () => {
     delete process.env[DEPTH_ENV];
     delete process.env[MAX_DEPTH_ENV];

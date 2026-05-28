@@ -298,7 +298,7 @@ export interface ExtensionAPI {
     },
     options?: {
       triggerTurn?: boolean;
-      deliverAs?: "steer" | "followUp" | "nextTurn" | "append";
+      deliverAs?: "steer" | "followUp" | "nextTurn";
     },
   ) => void | Promise<void>;
   registerFlag?: (name: string, opts: PiFlagNamedOpts) => void;

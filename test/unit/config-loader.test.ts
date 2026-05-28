@@ -563,7 +563,6 @@ describe("loadWorkflowConfig — workflowNotifications", () => {
       workflowNotifications: {
         enabled: false,
         notifyOn: ["failed", "awaiting_input"],
-        triggerTurn: true,
       },
     });
 
@@ -571,7 +570,6 @@ describe("loadWorkflowConfig — workflowNotifications", () => {
     assert.deepEqual(result.config?.workflowNotifications, {
       enabled: false,
       notifyOn: ["failed", "awaiting_input"],
-      triggerTurn: true,
     });
     assert.equal(result.diagnostics.length, 0);
   });

@@ -8,10 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- Added main-chat lifecycle notices for workflow completion, failure, and awaiting-input pauses with global notification config controls ([#1085](https://github.com/flora131/atomic/issues/1085)).
+- Added main-chat lifecycle steer notices for workflow completion, failure, and awaiting-input pauses with global notification config controls ([#1085](https://github.com/flora131/atomic/issues/1085)).
 
 ### Fixed
 
+- Fixed workflow lifecycle notices to steer the model context for completion, failure, and awaiting-input events instead of passive append-only delivery ([#1085](https://github.com/flora131/atomic/issues/1085)).
 - Fixed stage awaiting-input lifecycle notice dedupe so promptless pauses after resolved prompts are not suppressed by historical prompt metadata ([#1085](https://github.com/flora131/atomic/issues/1085)).
 - Reset workflow lifecycle-notification dedupe state at chat session boundaries so reused workflow run IDs in later sessions still emit completion/failure/input notices ([#1085](https://github.com/flora131/atomic/issues/1085)).
 - Warn before starting or resuming another session when workflows are still in flight, allowing users to cancel before those runs are killed and current-session workflow history is cleared ([#1082](https://github.com/flora131/atomic/issues/1082)).

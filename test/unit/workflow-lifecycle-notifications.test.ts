@@ -23,13 +23,12 @@ interface SentMessage {
 
 type SendOptions = {
   readonly triggerTurn?: boolean;
-  readonly deliverAs?: "steer" | "followUp" | "nextTurn" | "append";
+  readonly deliverAs?: "steer" | "followUp" | "nextTurn";
 };
 
 const config = {
   enabled: true,
   notifyOn: ["completed", "failed", "awaiting_input"] as const,
-  triggerTurn: false,
 };
 
 function runningStage(overrides: Partial<StageSnapshot> = {}): StageSnapshot {
@@ -95,7 +94,7 @@ describe("installWorkflowLifecycleNotifications", () => {
     store.recordNotice({ id: "nudge", level: "info", message: "force notify", createdAt: 3 });
 
     assert.equal(sent.length, 1);
-    assert.deepEqual(options, [{ triggerTurn: false, deliverAs: "append" }]);
+    assert.deepEqual(options, [{ triggerTurn: true, deliverAs: "steer" }]);
     assert.equal(sent[0]?.customType, LIFECYCLE_NOTICE_CUSTOM_TYPE);
     assert.equal(sent[0]?.display, true);
     assert.equal(sent[0]?.details?.kind, "completed");
@@ -105,7 +104,7 @@ describe("installWorkflowLifecycleNotifications", () => {
   });
 
   test("emits failure notice with stage and truncated error context", () => {
-    const { store, sent } = install();
+    const { store, sent, options } = install();
     const longError = `${"No API key. ".repeat(40)}tail`;
     store.recordRunStart({ id: "run-2", name: "deploy", inputs: {}, status: "running", stages: [], startedAt: 1 });
     store.recordStageStart("run-2", runningStage({ id: "stage-2", name: "publish" }));
@@ -113,6 +112,7 @@ describe("installWorkflowLifecycleNotifications", () => {
     assert.equal(store.recordRunEnd("run-2", "failed", undefined, longError, { failedStageId: "stage-2" }), true);
 
     assert.equal(sent.length, 1);
+    assert.deepEqual(options, [{ triggerTurn: true, deliverAs: "steer" }]);
     assert.equal(sent[0]?.details?.kind, "failed");
     assert.equal(sent[0]?.details?.stageName, "publish");
     assert.equal(sent[0]?.details?.error?.length, LIFECYCLE_NOTICE_SNIPPET_LIMIT);
@@ -120,13 +120,14 @@ describe("installWorkflowLifecycleNotifications", () => {
   });
 
   test("emits awaiting-input notice for a stage pending prompt", () => {
-    const { store, sent } = install();
+    const { store, sent, options } = install();
     store.recordRunStart({ id: "run-3", name: "review", inputs: {}, status: "running", stages: [], startedAt: 1 });
     store.recordStageStart("run-3", runningStage());
 
     assert.equal(store.recordStagePendingPrompt("run-3", "stage-1", prompt()), true);
 
     assert.equal(sent.length, 1);
+    assert.deepEqual(options, [{ triggerTurn: true, deliverAs: "steer" }]);
     assert.equal(sent[0]?.details?.kind, "awaiting_input");
     assert.equal(sent[0]?.details?.scope, "stage");
     assert.equal(sent[0]?.details?.promptId, "prompt-1");
@@ -233,7 +234,7 @@ describe("installWorkflowLifecycleNotifications", () => {
     const sent: SentMessage[] = [];
     installWorkflowLifecycleNotifications({
       store,
-      config: { enabled: true, notifyOn: ["failed"], triggerTurn: true },
+      config: { enabled: true, notifyOn: ["failed"] },
       sendMessage(message) { sent.push(message as SentMessage); },
     });
     store.recordRunStart({ id: "run-5", name: "filtered", inputs: {}, status: "running", stages: [], startedAt: 1 });
@@ -242,7 +243,7 @@ describe("installWorkflowLifecycleNotifications", () => {
 
     installWorkflowLifecycleNotifications({
       store,
-      config: { enabled: false, notifyOn: ["completed", "failed", "awaiting_input"], triggerTurn: false },
+      config: { enabled: false, notifyOn: ["completed", "failed", "awaiting_input"] },
       sendMessage(message) { sent.push(message as SentMessage); },
     });
     store.recordRunStart({ id: "run-6", name: "disabled", inputs: {}, status: "running", stages: [], startedAt: 1 });
@@ -270,7 +271,7 @@ describe("installWorkflowLifecycleNotifications", () => {
     const sent: SentMessage[] = [];
     installWorkflowLifecycleNotifications({
       store,
-      config: { enabled: true, notifyOn: ["completed", "failed"], triggerTurn: false },
+      config: { enabled: true, notifyOn: ["completed", "failed"] },
       sendMessage(message) { sent.push(message as SentMessage); },
     });
     startRun(store, "run-filtered-prompt", "legacy filtered");
@@ -391,16 +392,16 @@ describe("installWorkflowLifecycleNotifications", () => {
     assert.deepEqual(sent.map((message) => message.details?.runId), ["run-live"]);
   });
 
-  test("passes configured triggerTurn option", () => {
+  test("always triggers a steer turn for emitted lifecycle notices", () => {
     const store = createStore();
     const options: SendOptions[] = [];
     installWorkflowLifecycleNotifications({
       store,
-      config: { enabled: true, notifyOn: ["completed"], triggerTurn: true },
+      config: { enabled: true, notifyOn: ["completed"] },
       sendMessage(_message, sendOptions) { options.push(sendOptions ?? {}); },
     });
     store.recordRunStart({ id: "run-7", name: "turn", inputs: {}, status: "running", stages: [], startedAt: 1 });
     store.recordRunEnd("run-7", "completed", {});
-    assert.deepEqual(options, [{ triggerTurn: true, deliverAs: "followUp" }]);
+    assert.deepEqual(options, [{ triggerTurn: true, deliverAs: "steer" }]);
   });
 });

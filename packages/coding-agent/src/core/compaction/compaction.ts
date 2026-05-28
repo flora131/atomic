@@ -81,14 +81,7 @@ function getMessageFromEntry(entry: SessionEntry): AgentMessage | undefined {
 		return entry.message;
 	}
 	if (entry.type === "custom_message") {
-		return createCustomMessage(
-			entry.customType,
-			entry.content,
-			entry.display,
-			entry.details,
-			entry.timestamp,
-			entry.excludeFromContext,
-		);
+		return createCustomMessage(entry.customType, entry.content, entry.display, entry.details, entry.timestamp);
 	}
 	if (entry.type === "branch_summary") {
 		return createBranchSummaryMessage(entry.summary, entry.fromId, entry.timestamp);
@@ -130,14 +123,6 @@ export const DEFAULT_COMPACTION_SETTINGS: CompactionSettings = {
 	reserveTokens: 16384,
 	keepRecentTokens: 20000,
 };
-
-function isExcludedFromContext(message: object): boolean {
-	return "excludeFromContext" in message && message.excludeFromContext === true;
-}
-
-function isContextParticipatingCustomEntry(entry: SessionEntry): boolean {
-	return entry.type === "custom_message" && !entry.excludeFromContext;
-}
 
 // ============================================================================
 // Token calculation
@@ -275,10 +260,6 @@ export function estimateTokens(message: AgentMessage): number {
 			return Math.ceil(chars / 4);
 		}
 		case "custom":
-			if (isExcludedFromContext(message)) {
-				return 0;
-			}
-			// fall through
 		case "toolResult": {
 			if (typeof message.content === "string") {
 				chars = message.content.length;
@@ -325,10 +306,6 @@ function findValidCutPoints(entries: SessionEntry[], startIndex: number, endInde
 				switch (role) {
 					case "bashExecution":
 					case "custom":
-						if (!isExcludedFromContext(entry.message)) {
-							cutPoints.push(i);
-						}
-						break;
 					case "branchSummary":
 					case "compactionSummary":
 					case "user":
@@ -351,8 +328,8 @@ function findValidCutPoints(entries: SessionEntry[], startIndex: number, endInde
 				break;
 		}
 
-		// branch_summary and context-participating custom_message entries are user-role messages, valid cut points
-		if (entry.type === "branch_summary" || isContextParticipatingCustomEntry(entry)) {
+		// branch_summary and custom_message are user-role messages, valid cut points
+		if (entry.type === "branch_summary" || entry.type === "custom_message") {
 			cutPoints.push(i);
 		}
 	}
@@ -367,13 +344,13 @@ function findValidCutPoints(entries: SessionEntry[], startIndex: number, endInde
 export function findTurnStartIndex(entries: SessionEntry[], entryIndex: number, startIndex: number): number {
 	for (let i = entryIndex; i >= startIndex; i--) {
 		const entry = entries[i];
-		// branch_summary and context-participating custom_message entries are user-role messages, can start a turn
-		if (entry.type === "branch_summary" || isContextParticipatingCustomEntry(entry)) {
+		// branch_summary and custom_message are user-role messages, can start a turn
+		if (entry.type === "branch_summary" || entry.type === "custom_message") {
 			return i;
 		}
 		if (entry.type === "message") {
 			const role = entry.message.role;
-			if (role === "user" || role === "bashExecution" || (role === "custom" && !isExcludedFromContext(entry.message))) {
+			if (role === "user" || role === "bashExecution") {
 				return i;
 			}
 		}

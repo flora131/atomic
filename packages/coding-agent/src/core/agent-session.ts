@@ -1357,22 +1357,19 @@ export class AgentSession {
 	/**
 	 * Send a custom message to the session. Creates a CustomMessageEntry.
 	 *
-	 * Handles four cases:
-	 * - Append: appends to state/session without steering or triggering a turn
+	 * Handles three cases:
 	 * - Streaming: queues message, processed when loop pulls from queue
 	 * - Not streaming + triggerTurn: appends to state/session, starts new turn
 	 * - Not streaming + no trigger: appends to state/session, no turn
 	 *
 	 * @param message Custom message with customType, content, display, details
 	 * @param options.triggerTurn If true and not streaming, triggers a new LLM turn
-	 * @param options.deliverAs Delivery mode: "steer", "followUp", "nextTurn", or "append"
+	 * @param options.deliverAs Delivery mode: "steer", "followUp", or "nextTurn"
 	 */
 	async sendCustomMessage<T = unknown>(
 		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details">,
-		options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" | "append" },
+		options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" },
 	): Promise<void> {
-		const isAppendDelivery = options?.deliverAs === "append";
-		const appendEntryOptions = isAppendDelivery ? { excludeFromContext: true } : undefined;
 		const appMessage = {
 			role: "custom" as const,
 			customType: message.customType,
@@ -1380,24 +1377,8 @@ export class AgentSession {
 			display: message.display,
 			details: message.details,
 			timestamp: Date.now(),
-			...(appendEntryOptions ?? {}),
 		} satisfies CustomMessage<T>;
-		const appendCustomMessage = (): void => {
-			this.agent.state.messages.push(appMessage);
-			this.sessionManager.appendCustomMessageEntry(
-				message.customType,
-				message.content,
-				message.display,
-				message.details,
-				appendEntryOptions,
-			);
-			this._emit({ type: "message_start", message: appMessage });
-			this._emit({ type: "message_end", message: appMessage });
-		};
-
-		if (isAppendDelivery) {
-			appendCustomMessage();
-		} else if (options?.deliverAs === "nextTurn") {
+		if (options?.deliverAs === "nextTurn") {
 			this._pendingNextTurnMessages.push(appMessage);
 		} else if (this.isStreaming) {
 			if (options?.deliverAs === "followUp") {
@@ -1408,7 +1389,15 @@ export class AgentSession {
 		} else if (options?.triggerTurn) {
 			await this.agent.prompt(appMessage);
 		} else {
-			appendCustomMessage();
+			this.agent.state.messages.push(appMessage);
+			this.sessionManager.appendCustomMessageEntry(
+				message.customType,
+				message.content,
+				message.display,
+				message.details,
+			);
+			this._emit({ type: "message_start", message: appMessage });
+			this._emit({ type: "message_end", message: appMessage });
 		}
 	}
 

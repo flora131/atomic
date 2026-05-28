@@ -82,7 +82,6 @@ describe("withWorkflowDefaults — explicit values are preserved", () => {
     }).workflowNotifications, {
       enabled: false,
       notifyOn: ["failed"],
-      triggerTurn: false,
     });
   });
 
@@ -116,7 +115,7 @@ describe("withWorkflowDefaults — partial config: only absent fields get defaul
       persistRuns: false,
       statusFile: true,
       resumeInFlight: "never",
-      workflowNotifications: { enabled: false, notifyOn: ["completed"], triggerTurn: true },
+      workflowNotifications: { enabled: false, notifyOn: ["completed"] },
       workflows: { wf: { path: "/x.ts" } },
     };
     const result = withWorkflowDefaults(config);
@@ -125,7 +124,7 @@ describe("withWorkflowDefaults — partial config: only absent fields get defaul
     assert.equal(result.persistRuns, false);
     assert.equal(result.statusFile, true);
     assert.equal(result.resumeInFlight, "never");
-    assert.deepEqual(result.workflowNotifications, { enabled: false, notifyOn: ["completed"], triggerTurn: true });
+    assert.deepEqual(result.workflowNotifications, { enabled: false, notifyOn: ["completed"] });
     assert.deepEqual(result.workflows, { wf: { path: "/x.ts" } });
   });
 });
@@ -160,11 +159,10 @@ describe("withWorkflowDefaults — WORKFLOW_CONFIG_DEFAULTS constants", () => {
     assert.equal(WORKFLOW_CONFIG_DEFAULTS.resumeInFlight, "ask");
   });
 
-  test("WORKFLOW_CONFIG_DEFAULTS.workflowNotifications enables all lifecycle notices", () => {
+  test("WORKFLOW_CONFIG_DEFAULTS.workflowNotifications enables all lifecycle steer notices", () => {
     assert.deepEqual(WORKFLOW_CONFIG_DEFAULTS.workflowNotifications, {
       enabled: true,
       notifyOn: ["completed", "failed", "awaiting_input"],
-      triggerTurn: false,
     });
   });
 });

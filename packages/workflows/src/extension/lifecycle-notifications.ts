@@ -24,7 +24,6 @@ export const WORKFLOW_LIFECYCLE_NOTICE_KINDS = [
 export interface WorkflowLifecycleNotificationConfig {
   readonly enabled: boolean;
   readonly notifyOn: readonly WorkflowLifecycleNoticeKind[];
-  readonly triggerTurn: boolean;
 }
 
 export interface WorkflowLifecycleNoticeDetails {
@@ -139,9 +138,7 @@ export function installWorkflowLifecycleNotifications(
         display: true,
         details,
       },
-      options.config.triggerTurn
-        ? { triggerTurn: true, deliverAs: "followUp" }
-        : { triggerTurn: false, deliverAs: "append" },
+      { triggerTurn: true, deliverAs: "steer" },
     );
   };
 

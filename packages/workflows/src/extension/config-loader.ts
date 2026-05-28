@@ -45,8 +45,6 @@ export interface WorkflowNotificationsConfig {
   readonly enabled?: boolean;
   /** Lifecycle states that should create chat notices. */
   readonly notifyOn?: readonly WorkflowLifecycleNoticeKind[];
-  /** Whether an inserted notice should trigger an assistant turn. Default: false. */
-  readonly triggerTurn?: boolean;
 }
 
 export interface WorkflowExtensionConfig {
@@ -184,9 +182,6 @@ function validateConfig(value: unknown): string | null {
     const notifications = value as Record<string, unknown>;
     if ("enabled" in notifications && typeof notifications["enabled"] !== "boolean") {
       return `"workflowNotifications.enabled" must be a boolean, got ${JSON.stringify(notifications["enabled"])}`;
-    }
-    if ("triggerTurn" in notifications && typeof notifications["triggerTurn"] !== "boolean") {
-      return `"workflowNotifications.triggerTurn" must be a boolean, got ${JSON.stringify(notifications["triggerTurn"])}`;
     }
     if ("notifyOn" in notifications) {
       const notifyOn = notifications["notifyOn"];
@@ -346,7 +341,6 @@ export const WORKFLOW_CONFIG_DEFAULTS = {
   workflowNotifications: {
     enabled: true,
     notifyOn: ["completed", "failed", "awaiting_input"] as const,
-    triggerTurn: false,
   },
 } as const;
 
@@ -363,7 +357,6 @@ export interface WorkflowEffectiveConfig {
   readonly workflowNotifications: {
     readonly enabled: boolean;
     readonly notifyOn: readonly WorkflowLifecycleNoticeKind[];
-    readonly triggerTurn: boolean;
   };
   readonly workflows?: Readonly<Record<string, WorkflowConfigEntry>>;
 }
@@ -392,9 +385,6 @@ export function withWorkflowDefaults(
       notifyOn:
         config.workflowNotifications?.notifyOn
         ?? WORKFLOW_CONFIG_DEFAULTS.workflowNotifications.notifyOn,
-      triggerTurn:
-        config.workflowNotifications?.triggerTurn
-        ?? WORKFLOW_CONFIG_DEFAULTS.workflowNotifications.triggerTurn,
     },
     ...(config.workflows !== undefined ? { workflows: config.workflows } : {}),
   };

@@ -315,11 +315,12 @@ export interface WorkflowStageOrchestrationContext {
 	readonly workflowStageId: string;
 	readonly workflowStageName: string;
 	readonly constraints: {
-		readonly disableWorkflowTool: boolean;
+		readonly disableWorkflowTool: true;
 		readonly maxSubagentDepth: number;
 	};
 }
 
+// Union alias kept for forward-compatible orchestration context variants.
 export type OrchestrationContext = WorkflowStageOrchestrationContext;
 
 /**

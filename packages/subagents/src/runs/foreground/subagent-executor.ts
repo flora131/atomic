@@ -170,7 +170,6 @@ interface ExecutionContextData {
 	effectiveAsync: boolean;
 	controlConfig: ResolvedControlConfig;
 	intercomBridge: IntercomBridgeState;
-	workflowStageSubagentGuard?: boolean;
 	nestedRoute?: NestedRouteInfo;
 }
 
@@ -2436,7 +2435,6 @@ export function createSubagentExecutor(deps: ExecutorDeps): {
 			effectiveAsync,
 			controlConfig,
 			intercomBridge,
-			workflowStageSubagentGuard,
 			nestedRoute,
 		};
 

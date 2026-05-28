@@ -985,22 +985,6 @@ describe("tool run-control actions", () => {
     assertWorkflowToolBlocked(result, wasDispatched);
   });
 
-  test("makeExecuteWorkflowTool allows workflow-stage context when constraint opts in", async () => {
-    const { handler, wasDispatched } = makeDispatchTrackingWorkflowHandler();
-
-    await handler({ action: "run", workflow: "demo" }, {
-      orchestrationContext: {
-        kind: "workflow-stage",
-        workflowRunId: "run-1",
-        workflowStageId: "stage-1",
-        workflowStageName: "Stage",
-        constraints: { disableWorkflowTool: false, maxSubagentDepth: 1 },
-      },
-    });
-
-    assert.equal(wasDispatched(), true);
-  });
-
   test("makeExecuteWorkflowTool blocks workflow tool execution from env workflow-stage guard", async () => {
     const previousGuard = process.env[WORKFLOW_STAGE_SUBAGENT_GUARD_ENV];
     const { handler, wasDispatched } = makeDispatchTrackingWorkflowHandler();

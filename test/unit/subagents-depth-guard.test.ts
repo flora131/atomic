@@ -4,7 +4,7 @@ import {
   checkSubagentDepth,
   getSubagentDepthEnv,
   resolveWorkflowStageMaxSubagentDepth,
-  workflowStageSubagentDepthMessage,
+  subagentDepthBlockedMessage,
   WORKFLOW_STAGE_SUBAGENT_GUARD_ENV,
 } from "../../packages/subagents/src/shared/types.js";
 
@@ -34,7 +34,7 @@ describe("subagent workflow-stage depth guard", () => {
         workflowRunId: "run-1",
         workflowStageId: "stage-1",
         workflowStageName: "Stage",
-        constraints: { disableWorkflowTool: true as const, maxSubagentDepth: 1 as const },
+        constraints: { disableWorkflowTool: true as const, maxSubagentDepth: 0 },
       },
     };
 
@@ -76,8 +76,8 @@ describe("subagent workflow-stage depth guard", () => {
     assert.equal(result.blocked, true);
     assert.equal(result.workflowStageGuard, true);
     assert.match(
-      workflowStageSubagentDepthMessage(result.depth, result.maxDepth),
-      /sub-agents inside workflow stages cannot spawn nested sub-agents/,
+      subagentDepthBlockedMessage(result.depth, result.maxDepth, { workflowStageGuard: true }),
+      /Sub-agents inside workflow stages cannot spawn nested sub-agents/,
     );
   });
 });

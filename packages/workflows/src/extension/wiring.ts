@@ -253,6 +253,8 @@ function withWorkflowStageSessionOptions(
   options: CreateAgentSessionOptions,
   meta: StageExecutionMeta | undefined,
 ): CreateAgentSessionOptions {
+  // Workflow stage sessions should never see the workflow tool, even when older
+  // meta-less callers cannot receive the richer runtime orchestration context.
   const excludedTools = Array.from(new Set([...(options.excludedTools ?? []), "workflow"]));
   return {
     ...options,

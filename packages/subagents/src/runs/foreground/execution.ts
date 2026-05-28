@@ -64,8 +64,6 @@ import {
 	summarizeRecentMutatingFailures,
 } from "../shared/long-running-guard.ts";
 
-type RunningSingleResult = SingleResult & { messages: Message[] };
-
 const artifactOutputByResult = new WeakMap<SingleResult, string>();
 
 function emptyUsage(): Usage {
@@ -166,7 +164,7 @@ async function runSingleAttempt(
 		parentCapabilityToken: options.nestedRoute?.capabilityToken,
 	});
 
-	const result: RunningSingleResult = {
+	const result: SingleResult = {
 		agent: agent.name,
 		task,
 		exitCode: 0,
@@ -413,7 +411,7 @@ async function runSingleAttempt(
 		const fireUpdate = () => {
 			if (!options.onUpdate || processClosed) return;
 			progress.durationMs = Date.now() - startTime;
-			emitUpdateSnapshot(getFinalOutput(result.messages) || "(running...)");
+			emitUpdateSnapshot(getFinalOutput(result.messages ?? []) || "(running...)");
 		};
 
 		const processLine = (line: string) => {
@@ -466,7 +464,7 @@ async function runSingleAttempt(
 			}
 
 			if (evt.type === "message_end" && evt.message) {
-				result.messages.push(evt.message);
+				result.messages?.push(evt.message);
 				if (evt.message.role === "assistant") {
 					result.usage.turns++;
 					progress.turnCount = result.usage.turns;
@@ -498,7 +496,7 @@ async function runSingleAttempt(
 			}
 
 			if (evt.type === "tool_result_end" && evt.message) {
-				result.messages.push(evt.message);
+				result.messages?.push(evt.message);
 				const resultText = extractTextFromContent(evt.message.content);
 				appendRecentOutput(progress, resultText.split("\n").slice(-10));
 				const toolSnapshot = pendingToolResult;
@@ -655,7 +653,7 @@ async function runSingleAttempt(
 		result.exitCode = 1;
 	}
 	if (result.exitCode === 0 && !result.error) {
-		const errInfo = detectSubagentError(result.messages);
+		const errInfo = detectSubagentError(result.messages ?? []);
 		if (errInfo.hasError) {
 			result.exitCode = errInfo.exitCode ?? 1;
 			result.error = errInfo.details
@@ -679,12 +677,12 @@ async function runSingleAttempt(
 		durationMs: progress.durationMs,
 	};
 
-	let fullOutput = getFinalOutput(result.messages);
+	let fullOutput = getFinalOutput(result.messages ?? []);
 	const completionGuard = result.exitCode === 0 && !result.error && agent.completionGuard !== false
 		? evaluateCompletionMutationGuard({
 			agent: agent.name,
 			task,
-			messages: result.messages,
+			messages: result.messages ?? [],
 			tools: agent.tools,
 			mcpDirectTools: agent.mcpDirectTools,
 		})

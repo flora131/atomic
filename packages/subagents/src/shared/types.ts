@@ -774,7 +774,9 @@ export function resolveWorkflowStageMaxSubagentDepth(
 ): number {
 	const maxDepth = resolveCurrentMaxSubagentDepth(configMaxDepth);
 	return isWorkflowStageOrchestrationContext(ctx)
-		? Math.min(maxDepth, ctx.orchestrationContext?.constraints.maxSubagentDepth ?? 1)
+		// Workflow stages reserve one child-subagent hop; a 0-depth constraint would
+		// prevent the stage from delegating to its configured subagent at all.
+		? Math.min(maxDepth, Math.max(1, ctx.orchestrationContext?.constraints.maxSubagentDepth ?? 1))
 		: maxDepth;
 }
 
@@ -793,8 +795,8 @@ export function resolveSubagentDepthPolicy(
 	};
 }
 
-export function workflowStageSubagentDepthMessage(depth: number, maxDepth: number, action: "call" | "resume" = "call"): string {
-	return `Nested subagent ${action} blocked (depth=${depth}, max=${maxDepth}). sub-agents inside workflow stages cannot spawn nested sub-agents.`;
+function workflowStageSubagentDepthMessage(depth: number, maxDepth: number, action: "call" | "resume" = "call"): string {
+	return `Nested subagent ${action} blocked (depth=${depth}, max=${maxDepth}). Sub-agents inside workflow stages cannot spawn nested sub-agents.`;
 }
 
 export function subagentDepthBlockedMessage(
@@ -830,6 +832,8 @@ export function checkSubagentDepth(configMaxDepth?: number): SubagentDepthCheck 
 
 export function getSubagentDepthEnv(maxDepth?: number, options?: { workflowStageSubagentGuard?: boolean }): Record<string, string> {
 	const parentDepth = Number(getEnvValue(SUBAGENT_DEPTH_ENV) ?? "0");
+	// Preserve an inherited workflow-stage marker for descendants; callers that
+	// mutate process.env in tests must clear it to avoid intentional propagation.
 	const nextDepth = Number.isFinite(parentDepth) ? parentDepth + 1 : 1;
 	return {
 		[SUBAGENT_DEPTH_ENV]: String(nextDepth),

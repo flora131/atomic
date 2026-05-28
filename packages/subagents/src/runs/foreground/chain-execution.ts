@@ -405,9 +405,9 @@ export async function executeChain(params: ChainExecutionParams): Promise<ChainE
 	const shouldClarify = clarify !== false && ctx.hasUI && !hasParallelSteps;
 	let tuiBehaviorOverrides: (BehaviorOverride | undefined)[] | undefined;
 	const availableModels: ModelInfo[] = ctx.modelRegistry.getAvailable().map(toModelInfo);
-	const availableSkills = discoverAvailableSkills(cwd ?? ctx.cwd);
 
 	if (shouldClarify) {
+		const availableSkills = discoverAvailableSkills(cwd ?? ctx.cwd);
 		const seqSteps = chainSteps as SequentialStep[];
 		const agentConfigs: AgentConfig[] = [];
 		for (const step of seqSteps) {

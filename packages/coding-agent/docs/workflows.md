@@ -314,12 +314,12 @@ If required inputs are missing or ambiguous, Atomic will either ask or open the 
 Named runs go to the background. Common controls:
 
 ```text
-/workflow status                       # list in-flight runs (--all includes ended runs)
-/workflow connect <run-id>             # graph viewer (F2 also opens the latest)
+/workflow status                       # list retained active and terminal runs
+/workflow connect <run-id>             # graph viewer, including terminal runs
 /workflow attach <run-id> <stage>      # chat with a single stage
 /workflow interrupt <run-id>           # pause resumably
 /workflow resume <run-id> [stage] msg  # forward a steer message and resume
-/workflow kill <run-id>                # destructive abort
+/workflow kill <run-id>                # abort and retain for inspection
 ```
 
 Human-in-the-loop prompts from `ctx.ui.input`, `ctx.ui.confirm`, `ctx.ui.select`, and `ctx.ui.editor` appear as awaiting-input nodes in the workflow graph viewer, not as chat modals — use `/workflow connect <run-id>` (or F2), focus the node, and press Enter to answer them locally.
@@ -547,7 +547,7 @@ In the TUI, `/workflow <name>` opens an input picker when the workflow declares 
 /workflow reload
 ```
 
-Use `connect` for the workflow graph. Use `attach` when you want a chat pane for a specific stage. Use `interrupt`, `pause`, and `resume` for resumable live work; `resume` on a non-paused run reopens the saved snapshot or overlay. Use `kill` only when the run should be terminated and removed from live history/status. Use `/workflow reload` after adding, editing, installing, or removing workflow resources and you want Atomic to rediscover them in-process. `/workflow status` lists in-flight runs by default; `/workflow status --all` includes retained ended runs.
+Use `connect` for the workflow graph. Use `attach` when you want a chat pane for a specific stage. Use `interrupt`, `pause`, and `resume` for resumable live work; `resume` on a non-paused run reopens the saved snapshot or overlay. Use `kill` only when the run should be terminated; killed runs are retained in live history/status for read-only inspection. Use `/workflow reload` after adding, editing, installing, or removing workflow resources and you want Atomic to rediscover them in-process. `/workflow status` lists all retained active and terminal runs by default; `/workflow status --all` is retained as a compatibility alias.
 
 <p align="center"><img src="images/workflow-graph.png" alt="Workflow Graph Viewer" width="600" /></p>
 
@@ -595,7 +595,7 @@ Control behavior:
 - `interrupt` is resumable: it pauses live work when pausable stages exist and keeps the run in live history/status.
 - `pause` is useful for pausing a live run or a single live stage without treating it as a destructive abort.
 - `resume` can target a stage with `stageId`; the target may be a stage id, unique prefix, or stage name. `message` is forwarded to paused work.
-- `kill` is destructive: it aborts in-flight work and removes the run from live history/status.
+- `kill` aborts in-flight work, marks the run `killed`, and retains it in live history/status for inspection.
 - `reload` refreshes discovered workflow resources in-process; the optional `reason` is echoed in the result.
 
 Use slash commands for graph connect and stage attach because those are interactive TUI surfaces. When a run needs user input or attention, surface that to the user instead of polling silently.

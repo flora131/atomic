@@ -710,8 +710,139 @@ function makeInflightRun(id: string) {
   };
 }
 
+async function registerWorkflowCommand() {
+  const { pi, commands, sent } = buildMockPi();
+  addFactoryStubs(pi);
+  const factoryModule = await import("../../packages/workflows/src/extension/index.js");
+  factoryModule.default(pi);
+  const workflowCmd = commands.find((c) => c.name === "workflow");
+  assert.notEqual(workflowCmd, undefined);
+  return { pi, commands, sent, workflowCmd: workflowCmd! };
+}
+
+function recordTerminalRun(
+  id: string,
+  status: "completed" | "failed" | "killed",
+  overrides: { name?: string; startedAt?: number; endedAt?: number } = {},
+): void {
+  store.recordRunStart({
+    ...makeInflightRun(id),
+    name: overrides.name ?? "terminal-wf",
+    startedAt: overrides.startedAt ?? Date.now() - 10_000,
+  });
+  const completed = status === "completed";
+  store.recordRunEnd(
+    id,
+    status,
+    completed ? { ok: true } : undefined,
+    completed ? undefined : status,
+  );
+  if (overrides.endedAt !== undefined) {
+    const run = store.runs().find((r) => r.id === id);
+    if (run) {
+      run.endedAt = overrides.endedAt;
+      run.durationMs = run.endedAt - run.startedAt;
+    }
+  }
+}
+
 describe("/workflow interrupt chat command", () => {
-  test("top-level /workflow kill <id> kills and removes from chat without requiring confirmation", async () => {
+  test.each([
+    ["completed"],
+    ["failed"],
+    ["killed"],
+  ] as const)("top-level /workflow kill <id> reports %s runs as already ended and retained", async (status) => {
+    const runId = `slash-kill-${status}-${Date.now()}`;
+    recordTerminalRun(runId, status);
+
+    const { workflowCmd } = await registerWorkflowCommand();
+    const msgs: string[] = [];
+    const ctx: PiCommandContext = {
+      ui: {
+        notify: (message: string) => { msgs.push(message); },
+        confirm: async () => true,
+      },
+    };
+
+    await workflowCmd.options.handler(`kill ${runId}`, ctx);
+
+    const joined = msgs.join("\n");
+    assert.match(joined, /already ended/i);
+    assert.match(joined, /retained/i);
+    assert.doesNotMatch(joined, /Run not found/);
+    assert.equal(store.runs().find((r) => r.id === runId)?.status, status);
+  });
+
+  test("picker kill on a terminal row reports already-ended retained copy", async () => {
+    const runId = `picker-kill-ended-${Date.now()}`;
+    recordTerminalRun(runId, "completed");
+
+    const { workflowCmd } = await registerWorkflowCommand();
+    const msgs: string[] = [];
+    const customFn: PiCustomOverlayFunction = (factoryArg, options) => {
+      const tui: PiCustomOverlayFactoryTui = { requestRender: () => undefined };
+      const component = factoryArg(tui, {}, {}, () => undefined);
+      if (component instanceof Promise) throw new Error("expected sync factory");
+      if (options.overlay) {
+        (component as PiCustomComponent).handleInput?.("y");
+      } else {
+        (component as PiCustomComponent).render(80);
+        (component as PiCustomComponent).handleInput?.("x");
+      }
+      return undefined;
+    };
+    const ctx: PiCommandContext = {
+      ui: {
+        notify: (message: string) => { msgs.push(message); },
+        custom: customFn,
+      },
+    };
+
+    await workflowCmd.options.handler("connect", ctx);
+
+    const joined = msgs.join("\n");
+    assert.match(joined, /already ended/i);
+    assert.match(joined, /retained/i);
+    assert.doesNotMatch(joined, /Run not found/);
+  });
+
+  test("/workflow connect no-custom-UI fallback includes older retained terminal runs", async () => {
+    const oldEndedAt = Date.now() - 2 * 60 * 60 * 1000;
+    recordTerminalRun("old-connect-terminal-run", "completed", {
+      name: "old-connect-terminal",
+      startedAt: oldEndedAt - 5_000,
+      endedAt: oldEndedAt,
+    });
+
+    const { workflowCmd } = await registerWorkflowCommand();
+    const { ctx, messages } = buildCtx();
+
+    await workflowCmd.options.handler("connect", ctx);
+
+    const joined = messages.join("\n");
+    assert.match(joined, /old-connect-terminal/);
+    assert.match(joined, /Picker requires a UI surface/);
+  });
+
+  test("/workflow attach no-custom-UI fallback includes older retained terminal runs", async () => {
+    const oldEndedAt = Date.now() - 2 * 60 * 60 * 1000;
+    recordTerminalRun("old-attach-terminal-run", "failed", {
+      name: "old-attach-terminal",
+      startedAt: oldEndedAt - 5_000,
+      endedAt: oldEndedAt,
+    });
+
+    const { workflowCmd } = await registerWorkflowCommand();
+    const { ctx, messages } = buildCtx();
+
+    await workflowCmd.options.handler("attach", ctx);
+
+    const joined = messages.join("\n");
+    assert.match(joined, /old-attach-terminal/);
+    assert.match(joined, /Picker requires a UI surface/);
+  });
+
+  test("top-level /workflow kill <id> kills and retains run without requiring confirmation", async () => {
     const runId = `kill-chat-${Date.now()}`;
     store.recordRunStart(makeInflightRun(runId));
 
@@ -738,8 +869,8 @@ describe("/workflow interrupt chat command", () => {
 
     const run = store.runs().find((r) => r.id === runId);
     assert.equal(confirmCalls, 0);
-    assert.equal(run, undefined);
-    assert.equal(msgs.some((m) => m.includes("killed and removed")), true);
+    assert.equal(run?.status, "killed");
+    assert.equal(msgs.some((m) => m.includes("killed and retained for inspection")), true);
     assert.equal(sent.some((m) => (m.details as { kind?: string } | undefined)?.kind === "killed"), true);
   });
 
@@ -1181,7 +1312,7 @@ describe("tool run-control actions", () => {
     const r = result as { action: string; status: string; runId: string };
     assert.equal(r.status, "killed");
     assert.equal(r.runId, runId);
-    assert.equal(store.runs().some((run) => run.id === runId), false);
+    assert.equal(store.runs().find((run) => run.id === runId)?.status, "killed");
   });
 
   test("makeExecuteWorkflowTool kill supports unique run id prefixes", async () => {
@@ -1195,7 +1326,7 @@ describe("tool run-control actions", () => {
     const r = result as { action: string; status: string; runId: string };
     assert.equal(r.status, "killed");
     assert.equal(r.runId, runId);
-    assert.equal(store.runs().some((run) => run.id === runId), false);
+    assert.equal(store.runs().find((run) => run.id === runId)?.status, "killed");
   });
 
   test("makeExecuteWorkflowTool kill supports all:true", async () => {
@@ -1213,9 +1344,9 @@ describe("tool run-control actions", () => {
     assert.equal(result.action, "kill");
     const r = result as { action: string; status: string };
     assert.equal(r.status, "killed");
-    assert.equal(store.runs().some((run) => run.id === r1), false);
-    assert.equal(store.runs().some((run) => run.id === r2), false);
-    assert.equal(store.runs().some((run) => run.id === ended), true);
+    assert.equal(store.runs().find((run) => run.id === r1)?.status, "killed");
+    assert.equal(store.runs().find((run) => run.id === r2)?.status, "killed");
+    assert.equal(store.runs().find((run) => run.id === ended)?.status, "completed");
   });
 
   test("makeExecuteWorkflowTool pause all reports noop when no runs are in flight", async () => {

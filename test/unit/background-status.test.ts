@@ -43,20 +43,24 @@ describe("statusRuns", () => {
     assert.equal(result[0]!.runId, "r1");
   });
 
-  test("excludes ended runs by default", () => {
+  test("includes retained ended runs by default", () => {
     const st = createStore();
     st.recordRunStart(makeRun({ id: "r1" }));
     st.recordRunEnd("r1", "completed");
-    assert.equal(statusRuns({ store: st }).length, 0);
-  });
-
-  test("includes ended runs when all=true", () => {
-    const st = createStore();
-    st.recordRunStart(makeRun({ id: "r1" }));
-    st.recordRunEnd("r1", "completed");
-    const result = statusRuns({ all: true, store: st });
+    const result = statusRuns({ store: st });
     assert.equal(result.length, 1);
     assert.equal(result[0]!.runId, "r1");
+    assert.equal(result[0]!.status, "completed");
+  });
+
+  test("treats all as a compatibility no-op", () => {
+    const st = createStore();
+    st.recordRunStart(makeRun({ id: "active" }));
+    st.recordRunStart(makeRun({ id: "ended" }));
+    st.recordRunEnd("ended", "failed");
+    const defaultResult = statusRuns({ store: st });
+    assert.deepEqual(statusRuns({ all: true, store: st }), defaultResult);
+    assert.deepEqual(statusRuns({ all: false, store: st }), defaultResult);
   });
 
   test("entry has correct shape", () => {

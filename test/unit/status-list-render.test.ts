@@ -60,7 +60,7 @@ describe("renderStatusList — empty", () => {
     const plain = stripAnsi(out);
     assert.match(plain, /╭ BACKGROUND  0 runs /);
     assert.match(plain, /0 runs/);
-    assert.match(plain, /no in-flight runs/);
+    assert.match(plain, /no workflow runs in current session/);
   });
 });
 

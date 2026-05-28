@@ -19,7 +19,7 @@
  *     overlay.open(activeRunId).
  *   - /workflow resume + /workflow attach + /workflow pause routing.
  *   - Graph-mode Ctrl+D / `h` never kills the run.
- *   - `q` kills and removes the active run (regression gate).
+ *   - `q` kills and retains the active run for inspection (regression gate).
  */
 
 import { describe, test } from "bun:test";
@@ -962,7 +962,7 @@ describe("buildGraphOverlayAdapter — Ctrl+D / h non-destructive hide", () => {
     assert.equal(run!.endedAt, undefined);
   });
 
-  test("`q` on a real custom mount kills and removes the active run (regression gate)", () => {
+  test("`q` on a real custom mount kills and retains the active run (regression gate)", () => {
     const runId = `q-kill-${Date.now()}`;
     const store = createStore();
     store.recordRunStart({
@@ -993,7 +993,9 @@ describe("buildGraphOverlayAdapter — Ctrl+D / h non-destructive hide", () => {
     capturedComponent!.handleInput!("q");
 
     const run = store.runs().find((r) => r.id === runId);
-    assert.equal(run, undefined, "`q` must remove the run from live history/status");
+    assert.ok(run, "`q` must retain the run in live history/status for inspection");
+    assert.equal(run.status, "killed");
+    assert.notEqual(run.endedAt, undefined);
   });
 });
 

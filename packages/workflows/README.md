@@ -243,12 +243,12 @@ registry.get("alpha"); // compiled workflow definition | undefined
 | `/workflow <name> [key=value ...]`    | Start a named workflow, passing optional input overrides |
 | `/workflow <name> --help`             | Print the workflow's input schema                        |
 | `/workflow list`                      | List all registered workflows with descriptions          |
-| `/workflow status [run-id]`           | Show active runs or details for one run                  |
+| `/workflow status [run-id]`           | Show active plus retained terminal/current-session runs, or details for one run |
 | `/workflow connect [run-id]`          | Attach to a workflow run overlay                         |
 | `/workflow attach [run-id] [stage]`   | Open the attach/chat pane for a run or stage             |
 | `/workflow pause [run-id] [stage]`    | Pause a live run or stage                                |
 | `/workflow interrupt [run-id\|--all]` | Pause active/named/all active runs so they can resume    |
-| `/workflow kill [run-id\|--all]`      | Kill and remove active/named/all active runs from status |
+| `/workflow kill [run-id\|--all]`      | Abort in-flight work, mark runs killed, and retain them for inspection |
 | `/workflow resume <run-id>`           | Resume paused work or re-open a run snapshot             |
 | `/workflow reload`                    | Reload discovered workflow resources in-process          |
 | `/workflow inputs <name>`             | Print the input schema for a workflow                    |

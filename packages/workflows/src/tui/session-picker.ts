@@ -38,14 +38,14 @@ export interface SessionPickerState {
   query: string;
   /** 0-based index into the filtered/visible list. */
   selectedIndex: number;
-  /** Toggle for "include long-ended runs". Default false. */
+  /** Toggle for terminal run visibility. Default true so retained terminal runs stay inspectable. */
   includeAll: boolean;
   /** True when the filter input has focus (typing routes to query). */
   filterFocused: boolean;
 }
 
 export function createSessionPickerState(): SessionPickerState {
-  return { query: "", selectedIndex: 0, includeAll: false, filterFocused: false };
+  return { query: "", selectedIndex: 0, includeAll: true, filterFocused: false };
 }
 
 /** A run plus a derived bucket — keeps the renderer monomorphic. */
@@ -58,10 +58,11 @@ const RECENT_WINDOW_MS = 60 * 60 * 1000;
 
 /**
  * Slice runs into picker rows. Active = `endedAt === undefined`. Recent =
- * ended within the last hour. With `includeAll`, the hour cutoff is dropped.
+ * retained terminal runs. With `includeAll` false, terminal rows are limited
+ * to the legacy recent-ended one-hour window.
  *
  * Sort: active first (newest start last in the list = bottom-of-pane),
- * then recent newest-end first.
+ * then terminal newest-end first.
  */
 export function selectRunsForPicker(
   runs: readonly RunSnapshot[],
@@ -76,20 +77,23 @@ export function selectRunsForPicker(
   };
 
   const active: PickerRow[] = [];
-  const recent: PickerRow[] = [];
+  const terminal: PickerRow[] = [];
   for (const r of runs) {
     if (!matches(r)) continue;
-    if (r.endedAt === undefined) {
+
+    const endedAt = r.endedAt;
+    if (endedAt === undefined) {
       active.push({ run: r, bucket: "active" });
       continue;
     }
-    if (includeAll || now - (r.endedAt ?? 0) <= RECENT_WINDOW_MS) {
-      recent.push({ run: r, bucket: "recent" });
+
+    if (includeAll || now - endedAt <= RECENT_WINDOW_MS) {
+      terminal.push({ run: r, bucket: "recent" });
     }
   }
   active.sort((a, b) => a.run.startedAt - b.run.startedAt);
-  recent.sort((a, b) => (b.run.endedAt ?? 0) - (a.run.endedAt ?? 0));
-  return [...active, ...recent];
+  terminal.sort((a, b) => (b.run.endedAt ?? 0) - (a.run.endedAt ?? 0));
+  return [...active, ...terminal];
 }
 
 // ---------------------------------------------------------------------------

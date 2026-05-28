@@ -71,6 +71,9 @@ test("kill confirm renders run identity and button row", () => {
   assert.match(joined, /Cancel/);
   assert.match(joined, /Kill run/);
   assert.match(joined, /1\/2 stages running/);
+  assert.match(joined, /marks the run killed/);
+  assert.match(joined, /Retains it in history\/status for inspection/);
+  assert.doesNotMatch(joined, /Removes the run from live history\/status/);
 });
 
 test("kill confirm clamps long and wide workflow names to the dialog width", () => {
@@ -114,7 +117,9 @@ test("workflow killed notice renders transparent completion details", () => {
   assert.match(joined, /Workflow killed/);
   assert.match(joined, /issue-973-validation/);
   assert.match(joined, /abc12345/);
-  assert.match(joined, /removed from live history/);
+  assert.doesNotMatch(joined, /removed from live history/);
+  assert.match(joined, /retained/i);
+  assert.match(joined, /read-only inspection/i);
   assert.match(joined, /Active stage work was aborted/);
   assert.doesNotMatch(joined, /close/);
   for (const line of lines) {
@@ -166,10 +171,30 @@ test("session list renders the band-header chrome with both runs and a detail hi
   assert.match(out, /\/workflow status \w+/);
 });
 
+test("session list includeAll:true includes old retained terminal runs", () => {
+  const theme = deriveGraphTheme({});
+  const now = 3 * 60 * 60 * 1000;
+  const oldTerminal = makeRun({
+    id: "33333333-0000-0000-0000-000000000000",
+    name: "old-retained-terminal",
+    status: "completed",
+    startedAt: now - 2 * 60 * 60 * 1000 - 10_000,
+    endedAt: now - 2 * 60 * 60 * 1000,
+    durationMs: 10_000,
+  });
+
+  const activeOnly = renderSessionList([oldTerminal], { theme, includeAll: false, now });
+  const includeAll = renderSessionList([oldTerminal], { theme, includeAll: true, now });
+
+  assert.doesNotMatch(activeOnly, /old-retained-terminal/);
+  assert.match(includeAll, /old-retained-terminal/);
+  assert.match(includeAll, /333333/);
+});
+
 test("session list emits the band-header chrome with a quiet empty state", () => {
   const theme = deriveGraphTheme({});
   const out = renderSessionList([], { theme, includeAll: false });
   assert.match(out, /BACKGROUND/);
   assert.match(out, /0 runs/);
-  assert.match(out, /no in-flight runs/);
+  assert.match(out, /no workflow runs in current session/);
 });

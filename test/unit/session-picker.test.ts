@@ -29,7 +29,7 @@ function makeRun(over: Partial<RunSnapshot>): RunSnapshot {
   };
 }
 
-test("selectRunsForPicker buckets active vs recent, drops old by default", () => {
+test("selectRunsForPicker buckets active vs retained terminal by default", () => {
   const now = 10_000_000;
   const hourMs = 60 * 60 * 1000;
   const runs: RunSnapshot[] = [
@@ -37,12 +37,12 @@ test("selectRunsForPicker buckets active vs recent, drops old by default", () =>
     makeRun({ id: "b-recent", status: "completed", startedAt: now - 5000, endedAt: now - 1000, durationMs: 4000 }),
     makeRun({ id: "c-old", status: "completed", startedAt: now - hourMs * 4, endedAt: now - hourMs * 3, durationMs: hourMs }),
   ];
-  const rows = selectRunsForPicker(runs, "", false, now);
-  assert.deepEqual(rows.map((r) => r.run.id), ["a-active", "b-recent"]);
-  assert.deepEqual(rows.map((r) => r.bucket), ["active", "recent"]);
+  const rows = selectRunsForPicker(runs, "", true, now);
+  assert.deepEqual(rows.map((r) => r.run.id), ["a-active", "b-recent", "c-old"]);
+  assert.deepEqual(rows.map((r) => r.bucket), ["active", "recent", "recent"]);
 
-  const all = selectRunsForPicker(runs, "", true, now);
-  assert.equal(all.length, 3);
+  const legacyRecentOnly = selectRunsForPicker(runs, "", false, now);
+  assert.deepEqual(legacyRecentOnly.map((r) => r.run.id), ["a-active", "b-recent"]);
 });
 
 test("selectRunsForPicker filters by name and runId prefix", () => {
@@ -106,11 +106,11 @@ test("handleSessionPickerInput: double esc exits filter mode", () => {
 
 test("handleSessionPickerInput: a toggles includeAll", () => {
   const state = createSessionPickerState();
-  assert.equal(state.includeAll, false);
-  handleSessionPickerInput("a", state, []);
   assert.equal(state.includeAll, true);
   handleSessionPickerInput("a", state, []);
   assert.equal(state.includeAll, false);
+  handleSessionPickerInput("a", state, []);
+  assert.equal(state.includeAll, true);
 });
 
 test("handleSessionPickerInput: esc variants close", () => {

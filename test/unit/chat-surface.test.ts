@@ -192,7 +192,7 @@ describe("renderHintRows", () => {
     const out = renderHintRows(
       [
         { command: "/workflow connect 0391c9c1", hint: "attach & watch" },
-        { command: "/workflow status", hint: "list in-flight runs" },
+        { command: "/workflow status", hint: "list retained runs" },
       ],
       theme,
     );
@@ -275,7 +275,9 @@ describe("registerChatSurfaceRenderer", () => {
     const rendered = stripAnsi(component.render(72).join("\n"));
     assert.match(rendered, /Workflow killed/);
     assert.match(rendered, /demo-kill/);
-    assert.match(rendered, /removed from live history/);
+    assert.doesNotMatch(rendered, /removed from live history/);
+    assert.match(rendered, /retained/i);
+    assert.match(rendered, /read-only inspection/i);
     assert.doesNotMatch(rendered, /close/);
   });
 });

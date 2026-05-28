@@ -79,7 +79,7 @@ export interface DetailPayload {
   detail: RunDetail;
 }
 
-/** Inline notice after a workflow run is destructively killed and removed. */
+/** Inline notice after a workflow run is killed and retained for inspection. */
 export interface KilledPayload {
   kind: "killed";
   run: RunSnapshot;

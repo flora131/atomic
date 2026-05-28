@@ -213,7 +213,7 @@ describe("statusRuns — lists detached run during active stage", () => {
     if (job) await job.promise;
   });
 
-  test("completed run no longer listed in statusRuns (default: in-flight only)", async () => {
+  test("settled retained run remains listed in statusRuns by default", async () => {
     const store = createStore();
     const cancellation = createCancellationRegistry();
     const jobs = createJobTracker();
@@ -230,10 +230,12 @@ describe("statusRuns — lists detached run during active stage", () => {
     await new Promise((resolve) => setTimeout(resolve, 5));
 
     const runs = statusRuns({ store });
-    assert.equal(runs.find((r) => r.runId === accepted.runId), undefined);
+    const found = runs.find((r) => r.runId === accepted.runId);
+    assert.notEqual(found, undefined);
+    assert.notEqual(store.runs().find((r) => r.id === accepted.runId)?.endedAt, undefined);
   });
 
-  test("statusRuns all:true includes completed run", async () => {
+  test("statusRuns all:true is equivalent to default retained-run status", async () => {
     const store = createStore();
     const cancellation = createCancellationRegistry();
     const jobs = createJobTracker();
@@ -246,8 +248,7 @@ describe("statusRuns — lists detached run during active stage", () => {
     if (job) await job.promise;
     await new Promise((resolve) => setTimeout(resolve, 5));
 
-    const runsAll = statusRuns({ all: true, store });
-    assert.notEqual(runsAll.find((r) => r.runId === accepted.runId), undefined);
+    assert.deepEqual(statusRuns({ all: true, store }), statusRuns({ store }));
   });
 });
 

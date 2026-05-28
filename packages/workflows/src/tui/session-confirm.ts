@@ -154,12 +154,12 @@ export function renderKillConfirm(opts: KillConfirmRenderOpts): string[] {
   lines.push(renderTextRow(
     inner,
     theme,
-    `      ${muted}Aborts the active stage and discards partial work.${RESET}`,
+    `      ${muted}Aborts in-flight work and marks the run killed.${RESET}`,
   ));
   lines.push(renderTextRow(
     inner,
     theme,
-    `      ${muted}Removes the run from live history/status.${RESET}`,
+    `      ${muted}Retains it in history/status for inspection.${RESET}`,
   ));
   lines.push(renderBlankRow(inner, theme));
 
@@ -287,12 +287,12 @@ export function renderWorkflowKilledNotice(
 
   const action = wasInFlight
     ? "Active stage work was aborted."
-    : "The completed run was removed.";
+    : "Run had already ended; no live work was aborted.";
   lines.push(renderKilledTextRow(inner, theme, `      ${success}✓${RESET}${panelBg} ${muted}${action}${RESET}`));
   lines.push(renderKilledTextRow(
     inner,
     theme,
-    `      ${success}✓${RESET}${panelBg} ${muted}Run removed from live history and status.${RESET}`,
+    `      ${success}✓${RESET}${panelBg} ${muted}Run retained for read-only inspection.${RESET}`,
   ));
   lines.push(renderBlankRow(inner, theme));
   lines.push(renderKilledFooter(width, theme));

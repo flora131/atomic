@@ -19,7 +19,7 @@ import type { Store } from "../shared/store.js";
 import type { ChatMessageRenderOptions, ReadonlyFooterDataProvider } from "@bastani/atomic";
 import { WorkflowAttachPane } from "./workflow-attach-pane.js";
 import { deriveGraphThemeFromPiTheme } from "./graph-theme.js";
-import { destroyRun } from "../runs/background/status.js";
+import { killRun as defaultKillRun } from "../runs/background/status.js";
 import { cancellationRegistry } from "../runs/background/cancellation-registry.js";
 import { stageControlRegistry as defaultStageControlRegistry } from "../runs/foreground/stage-control-registry.js";
 import type { StageControlRegistry } from "../runs/foreground/stage-control-registry.js";
@@ -109,9 +109,9 @@ export interface BuildGraphOverlayAdapterOpts {
   /** Broker used to route stage-local custom UI into attached stage chats. */
   stageUiBroker?: StageUiBroker;
   /**
-   * Destructive kill hook used by graph-mode `q`. The extension factory
-   * supplies this so persistence can record a terminal event before the run is
-   * removed from live history/status.
+   * Kill hook used by graph-mode `q`. The extension factory supplies this so
+   * persistence can record a terminal event while retaining the run for
+   * inspection.
    */
   onKillRun?: (runId: string) => void;
 }
@@ -124,7 +124,7 @@ export function buildGraphOverlayAdapter(
   const registry = buildOpts.stageControlRegistry ?? defaultStageControlRegistry;
   const stageUiBroker = buildOpts.stageUiBroker;
   const killRun = buildOpts.onKillRun ?? ((id: string): void => {
-    destroyRun(id, { store, cancellation: cancellationRegistry });
+    defaultKillRun(id, { store, cancellation: cancellationRegistry });
   });
   let currentView: WorkflowAttachPane | null = null;
   // pi-tui returns an OverlayHandle via `options.onHandle`. We hold onto

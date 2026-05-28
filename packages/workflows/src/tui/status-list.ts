@@ -336,8 +336,8 @@ function shortId(id: string): string {
 }
 
 function emptyStateLine(theme?: GraphTheme): string {
-  if (!theme) return "  no in-flight runs";
-  return `  ${hexToAnsi(theme.dim)}no in-flight runs${RESET}`;
+  if (!theme) return "  no workflow runs in current session";
+  return `  ${hexToAnsi(theme.dim)}no workflow runs in current session${RESET}`;
 }
 
 function statusIconForRun(run: RunSnapshot): string {

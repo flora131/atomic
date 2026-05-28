@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Warn before starting or resuming another session when workflows are still in flight, allowing users to cancel before those runs are killed and current-session workflow history is cleared ([#1082](https://github.com/flora131/atomic/issues/1082)).
 - Prevented workflow stage sessions from exposing or executing the `workflow` tool while preserving stage-level subagent delegation.
+- Retained completed, failed, and killed workflow runs in user-facing status/connect surfaces and changed workflow kill controls to mark runs killed without removing them from live inspection history ([#1083](https://github.com/flora131/atomic/issues/1083)).
 
 ## [0.8.18] - 2026-05-27
 

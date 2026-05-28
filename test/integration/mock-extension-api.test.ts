@@ -128,6 +128,25 @@ async function runTool(
   return out.details;
 }
 
+function recordWorkflowRun(
+  id: string,
+  name: string,
+  status: "running" | "completed" | "failed" | "killed",
+  error?: string,
+): void {
+  defaultStore.recordRunStart({
+    id,
+    name,
+    inputs: {},
+    stages: [],
+    status: "running",
+    startedAt: Date.now(),
+  });
+  if (status !== "running") {
+    defaultStore.recordRunEnd(id, status, undefined, error);
+  }
+}
+
 function getCommand(commands: RegisteredCommand[], name: string): RegisteredCommand | undefined {
   return commands.find((c) => c.name === name);
 }
@@ -464,6 +483,26 @@ describe("MockExtensionAPI — tool registration", () => {
     );
   });
 
+  test("tool execute status includes retained terminal snapshots", async () => {
+    const execute = mock.tools[0]!.opts.execute;
+    const activeId = `status-active-${Date.now()}`;
+    const completedId = `status-completed-${Date.now()}`;
+    const failedId = `status-failed-${Date.now()}`;
+    const killedId = `status-killed-${Date.now()}`;
+    recordWorkflowRun(activeId, "active", "running");
+    recordWorkflowRun(completedId, "completed", "completed");
+    recordWorkflowRun(failedId, "failed", "failed", "boom");
+    recordWorkflowRun(killedId, "killed", "killed", "killed");
+
+    const result = await runTool(execute, { inputs: {}, action: "status" });
+    const snapshots = (result as { action: "status"; snapshots: Array<{ id: string; status: string }> }).snapshots;
+
+    assert.deepEqual(
+      [activeId, completedId, failedId, killedId].map((id) => snapshots.find((s) => s.id === id)?.status),
+      ["running", "completed", "failed", "killed"],
+    );
+  });
+
   test("tool execute returns inputs stub for action='inputs'", async () => {
     const execute = mock.tools[0]!.opts.execute;
     const result = await runTool(execute, { workflow: "wf", inputs: {}, action: "inputs" });
@@ -660,7 +699,9 @@ describe("MockExtensionAPI — slash command registration", () => {
     assert.ok(inputs?.some((c) => c.value === "inputs deep-research-codebase "));
 
     const status = cmd.options.getArgumentCompletions?.("status --");
-    assert.ok(status?.some((c) => c.value === "status --all "));
+    const statusAll = status?.find((c) => c.value === "status --all ");
+    assert.ok(statusAll);
+    assert.match(statusAll.description ?? "", /Compatibility no-op/);
 
     const interrupt = cmd.options.getArgumentCompletions?.("interrupt -");
     assert.ok(interrupt?.some((c) => c.value === "interrupt -y "));
@@ -766,7 +807,7 @@ describe("renderCall — all action branches", () => {
   });
 
   test("action='status' returns status string", () => {
-    assert.equal(renderCall({ action: "status" }), "workflow: list in-flight runs");
+    assert.equal(renderCall({ action: "status" }), "workflow: list retained runs");
   });
 
   test("action='inputs' includes workflow", () => {
@@ -920,7 +961,7 @@ describe("renderResult — all action branches", () => {
     const out = renderResult({ action: "status", snapshots: [] });
     assert.match(out, /BACKGROUND/);
     assert.match(out, /0 runs/);
-    assert.match(out, /no in-flight runs/);
+    assert.match(out, /no workflow runs in current session/);
   });
 
   test("action='status' with snapshots renders cards", () => {
@@ -1013,10 +1054,10 @@ describe("renderResult — all action branches", () => {
       action: "kill",
       runId: "r-kill",
       status: "killed",
-      message: "Killed and removed",
+      message: "Killed and retained for inspection",
     });
     assert.ok(out.includes("r-kill"));
-    assert.ok(out.includes("Killed and removed"));
+    assert.ok(out.includes("Killed and retained for inspection"));
   });
 
   test("action='resume' shows message", () => {

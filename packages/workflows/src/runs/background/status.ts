@@ -1,5 +1,5 @@
 /**
- * Status / kill / resume control helpers for in-flight workflow runs.
+ * Status / kill / resume helpers for retained workflow runs and live controls.
  *
  * These helpers operate against the singleton store and are consumed by:
  *   - The `workflow` tool execute handler (action: "status" | "kill" | "resume")
@@ -95,27 +95,22 @@ export type InspectRunResult =
 // ---------------------------------------------------------------------------
 
 /**
- * Returns a summary of all in-flight (not-yet-ended) runs in the store.
- * If `all` is true, returns completed/failed runs too.
+ * Returns a summary of all retained runs in the current store/session.
+ *
+ * Terminal snapshots are retained for inspection and are visible by default;
+ * the legacy `all` option is accepted as a compatibility no-op.
  */
 export function statusRuns(opts?: { all?: boolean; store?: Store }): RunStatusEntry[] {
   const activeStore = opts?.store ?? defaultStore;
-  const runs = activeStore.runs();
-  const result: RunStatusEntry[] = [];
 
-  for (const run of runs) {
-    if (!opts?.all && run.endedAt !== undefined) continue;
-    result.push({
-      runId: run.id,
-      name: run.name,
-      status: run.status,
-      startedAt: run.startedAt,
-      durationMs: run.durationMs,
-      stageCount: run.stages.length,
-    });
-  }
-
-  return result;
+  return activeStore.runs().map((run) => ({
+    runId: run.id,
+    name: run.name,
+    status: run.status,
+    startedAt: run.startedAt,
+    durationMs: run.durationMs,
+    stageCount: run.stages.length,
+  }));
 }
 
 // ---------------------------------------------------------------------------

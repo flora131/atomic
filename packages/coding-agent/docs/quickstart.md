@@ -102,12 +102,12 @@ Keep using `ralph` for larger migrations, broad refactors, multi-package changes
 Named workflow runs execute in the background. After launch you get a run id; use it to inspect, attach, pause, or resume:
 
 ```text
-/workflow status                  # list in-flight runs (add --all for ended runs)
+/workflow status                  # list current-session active and retained terminal runs
 /workflow connect <run-id>        # open the graph viewer (F2 also opens the latest)
 /workflow attach <run-id> <stage> # chat with one stage
 /workflow interrupt <run-id>      # pause resumably
 /workflow resume <run-id> "go"    # send a steer message and resume
-/workflow kill <run-id>           # destructive abort
+/workflow kill <run-id>           # abort and retain for inspection
 ```
 
 Human-in-the-loop prompts (`ctx.ui.input`, `confirm`, `select`, `editor`) surface in the graph viewer, not as chat modals — connect to the run to answer them. See [Workflows](/workflows) for the full reference and authoring guide.

@@ -67,7 +67,7 @@ export function renderCall(args: WorkflowToolArgs, opts: RenderCallOpts = {}): s
       line = "workflow: list registered workflows";
       break;
     case "status":
-      line = "workflow: list in-flight runs";
+      line = "workflow: list retained runs";
       break;
     case "inputs":
       line = name === undefined

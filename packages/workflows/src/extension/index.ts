@@ -15,9 +15,8 @@ import { restoreOnSessionStart } from "../shared/persistence-restore.js";
 import type { SessionManager } from "../shared/persistence-restore.js";
 import { installCompactionHook } from "../shared/persistence-compaction-policy.js";
 import {
+  killRun,
   killAllRuns,
-  destroyRun,
-  destroyAllRuns,
   resumeRun,
   pauseRun,
   pauseAllRuns,
@@ -897,6 +896,10 @@ function snapshotTranscriptEntries(
   return sortTranscriptEntriesChronologically(entries);
 }
 
+function formatAlreadyEndedRetainedMessage(runId: string): string {
+  return `Run ${runId.slice(0, 8)} already ended; retained for inspection.`;
+}
+
 function stageFailureMessage(
   runId: string,
   resultReason: string,
@@ -1020,9 +1023,9 @@ export function makeExecuteWorkflowTool(
             error: `run not found: ${target}`,
           };
         }
-        // List mode — emit live snapshots; the renderer produces the
+        // List mode — emit all retained snapshots; the renderer produces the
         // canonical band + card surface.
-        const snapshots = store.runs().filter((r) => r.endedAt === undefined);
+        const snapshots = store.runs();
         return {
           action: "status",
           snapshots: snapshots.map((snapshot) => structuredClone(snapshot)),
@@ -1341,7 +1344,7 @@ export function makeExecuteWorkflowTool(
               message: allStageConflictMessage("kill"),
             };
           }
-          const results = destroyAllRuns({
+          const results = killAllRuns({
             cancellation: cancellationRegistry,
             persistence: getPersistence(),
           });
@@ -1352,7 +1355,7 @@ export function makeExecuteWorkflowTool(
             status: killed > 0 ? "killed" : "noop",
             message:
               killed > 0
-                ? `Killed and removed ${killed} run(s).`
+                ? `Killed and retained ${killed} run(s) for inspection.`
                 : "No in-flight runs to kill.",
           };
         }
@@ -1362,7 +1365,7 @@ export function makeExecuteWorkflowTool(
         if (target.kind === "not_found") {
           return { action, runId: target.target, status: "noop", message: target.message };
         }
-        const result = destroyRun(target.runId, {
+        const result = killRun(target.runId, {
           cancellation: cancellationRegistry,
           persistence: getPersistence(),
         });
@@ -1371,14 +1374,16 @@ export function makeExecuteWorkflowTool(
             action,
             runId: result.runId,
             status: "killed",
-            message: `Run ${result.runId} killed and removed (was ${result.previousStatus}).`,
+            message: `Run ${result.runId} killed and retained for inspection (was ${result.previousStatus}).`,
           };
         }
         return {
           action,
           runId: target.runId,
           status: "noop",
-          message: `Run not found: ${target.runId}`,
+          message: result.reason === "already_ended"
+            ? formatAlreadyEndedRetainedMessage(target.runId)
+            : `Run not found: ${target.runId}`,
         };
       }
 
@@ -1930,7 +1935,7 @@ function factory(pi: ExtensionAPI): void {
   const overlay: GraphOverlayPort = buildGraphOverlayAdapter(pi, store, {
     onKillRun: (runId) => {
       const run = store.runs().find((r) => r.id === runId);
-      const result = destroyRun(runId, {
+      const result = killRun(runId, {
         cancellation: cancellationRegistry,
         persistence: persistenceRef.current,
       });
@@ -1939,7 +1944,7 @@ function factory(pi: ExtensionAPI): void {
           kind: "killed",
           run,
           previousStatus: result.previousStatus,
-          wasInFlight: result.wasInFlight,
+          wasInFlight: true,
         });
       }
     },
@@ -2204,7 +2209,7 @@ function factory(pi: ExtensionAPI): void {
    *   connect [runId|prefix]              no arg → picker overlay; arg → attach to graph
    *   attach  [runId|prefix [stageId]]    open the in-place attach pane on a stage
    *   interrupt [runId|prefix|--all] [-y] confirmation overlay unless -y
-   *   kill      [runId|prefix|--all] [-y] kill and remove from history/status
+   *   kill      [runId|prefix|--all] [-y] kill and retain for inspection
    *   pause     [runId|prefix [stageId]]    pause a run or specific stage
    *   resume  [runId|prefix [stageId] …]  resume paused work or reopen snapshot
    */
@@ -2223,7 +2228,7 @@ function factory(pi: ExtensionAPI): void {
         const ui = ctx.ui;
         if (!ui || typeof ui.custom !== "function") {
           print(
-            `${renderSessionList(store.runs(), { theme, includeAll: false })}\n\nPicker requires a UI surface. Pass a runId: /workflow connect <id>`,
+            `${renderSessionList(store.runs(), { theme, includeAll: true })}\n\nPicker requires a UI surface. Pass a runId: /workflow connect <id>`,
           );
           return true;
         }
@@ -2246,7 +2251,7 @@ function factory(pi: ExtensionAPI): void {
             );
             return true;
           }
-          const killed = destroyRun(result.runId, {
+          const killed = killRun(result.runId, {
             cancellation: cancellationRegistry,
             persistence: persistenceRef.current,
           });
@@ -2255,13 +2260,15 @@ function factory(pi: ExtensionAPI): void {
               kind: "killed",
               run,
               previousStatus: killed.previousStatus,
-              wasInFlight: killed.wasInFlight,
+              wasInFlight: true,
             });
           }
           print(
             killed.ok
-              ? `Run ${killed.runId.slice(0, 8)} killed and removed.`
-              : `Run not found: ${result.runId.slice(0, 8)}.`,
+              ? `Run ${killed.runId.slice(0, 8)} killed and retained for inspection.`
+              : killed.reason === "already_ended"
+                ? formatAlreadyEndedRetainedMessage(killed.runId)
+                : `Run not found: ${result.runId.slice(0, 8)}.`,
           );
           return true;
         }
@@ -2389,7 +2396,7 @@ function factory(pi: ExtensionAPI): void {
         }
         if (!yes && ctx.ui && typeof ctx.ui.confirm === "function") {
           const ok = await ctx.ui.confirm(
-            `Kill and remove all ${inFlight.length} in-flight workflow runs?`,
+            `Kill and retain all ${inFlight.length} in-flight workflow runs?`,
             `Aborts: ${inFlight.map((r) => `${r.name} (${r.id.slice(0, 8)})`).join(", ")}`,
           );
           if (!ok) {
@@ -2397,14 +2404,14 @@ function factory(pi: ExtensionAPI): void {
             return true;
           }
         }
-        const results = destroyAllRuns({
+        const results = killAllRuns({
           cancellation: cancellationRegistry,
           persistence: persistenceRef.current,
         });
         const killed = results.filter((r) => r.ok).length;
         print(
           killed > 0
-            ? `Killed and removed ${killed} run(s).`
+            ? `Killed and retained ${killed} run(s) for inspection.`
             : "No in-flight runs to kill.",
         );
         return true;
@@ -2432,7 +2439,7 @@ function factory(pi: ExtensionAPI): void {
           return true;
         }
       }
-      const result = destroyRun(resolved.runId, {
+      const result = killRun(resolved.runId, {
         cancellation: cancellationRegistry,
         persistence: persistenceRef.current,
       });
@@ -2442,14 +2449,18 @@ function factory(pi: ExtensionAPI): void {
             kind: "killed",
             run,
             previousStatus: result.previousStatus,
-            wasInFlight: result.wasInFlight,
+            wasInFlight: true,
           });
         }
         print(
-          `Run ${result.runId.slice(0, 8)} killed and removed (was ${result.previousStatus}).`,
+          `Run ${result.runId.slice(0, 8)} killed and retained for inspection (was ${result.previousStatus}).`,
         );
       } else {
-        print(`Run not found: ${target}`);
+        print(
+          result.reason === "already_ended"
+            ? formatAlreadyEndedRetainedMessage(result.runId)
+            : `Run not found: ${target}`,
+        );
       }
       return true;
     }
@@ -2462,7 +2473,7 @@ function factory(pi: ExtensionAPI): void {
         const ui = ctx.ui;
         if (!ui || typeof ui.custom !== "function") {
           print(
-            `${renderSessionList(store.runs(), { theme, includeAll: false })}\n\nPicker requires a UI surface. Pass a runId: /workflow attach <id> [stageId]`,
+            `${renderSessionList(store.runs(), { theme, includeAll: true })}\n\nPicker requires a UI surface. Pass a runId: /workflow attach <id> [stageId]`,
           );
           return true;
         }
@@ -2724,9 +2735,8 @@ function factory(pi: ExtensionAPI): void {
 
         // -----------------------------------------------------------------------
         // status — band-header rich list, or per-run detail when an id is
-        // supplied. `/workflow status` lists everything in-flight (`--all`
-        // includes ended runs older than an hour); `/workflow status <id>`
-        // drills into a single run via the inspectRun detail block.
+        // supplied. `/workflow status` lists all retained snapshots; `/workflow
+        // status <id>` drills into a single run via the inspectRun detail block.
         // -----------------------------------------------------------------------
         if (subcommand === "status") {
           const target = parts[1];
@@ -2752,13 +2762,12 @@ function factory(pi: ExtensionAPI): void {
             emitChatSurface(pi, { kind: "detail", detail: inspected.detail });
             return;
           }
-          // Mirror renderSessionList's filter: keep `--all` semantics, then
-          // hand the already-filtered snapshot to the chat-surface renderer.
-          const includeAll = parts.includes("--all");
+          // Status lists all retained snapshots by default; --all remains
+          // accepted as a compatibility no-op.
           const rows = selectRunsForPicker(
             store.runs(),
             "",
-            includeAll,
+            true,
             Date.now(),
           );
           emitChatSurface(pi, { kind: "status", runs: rows.map((r) => r.run) });
@@ -2804,7 +2813,7 @@ function factory(pi: ExtensionAPI): void {
         }
 
         // -----------------------------------------------------------------------
-        // kill — destructive fast path: abort and remove from history/status.
+        // kill — abort in-flight work, mark killed, and retain for inspection.
         // -----------------------------------------------------------------------
         if (subcommand === "kill") {
           const killArgs = parts.slice(1);
@@ -3083,7 +3092,7 @@ function factory(pi: ExtensionAPI): void {
           {
             value: "status ",
             label: "status",
-            description: "List in-flight runs",
+            description: "List current-session active and retained terminal runs",
           },
           {
             value: "interrupt ",
@@ -3093,7 +3102,7 @@ function factory(pi: ExtensionAPI): void {
           {
             value: "kill ",
             label: "kill",
-            description: "Kill and remove a run",
+            description: "Kill and retain a run for inspection",
           },
           {
             value: "pause ",
@@ -3135,7 +3144,7 @@ function factory(pi: ExtensionAPI): void {
             {
               value: "--all ",
               label: "--all",
-              description: "Include recently ended runs",
+              description: "Compatibility no-op; retained runs are shown by default",
             },
             ...runIdItems(),
           ]);
@@ -3154,7 +3163,7 @@ function factory(pi: ExtensionAPI): void {
         }
 
         if (subcommand === "interrupt" || subcommand === "kill") {
-          const verb = subcommand === "kill" ? "Kill and remove" : "Interrupt";
+          const verb = subcommand === "kill" ? "Kill and retain" : "Interrupt";
           return completeToken(partial, [
             {
               value: "--all ",
@@ -3315,10 +3324,10 @@ function factory(pi: ExtensionAPI): void {
 
     pi.on("session_start", async (_event, ctx) => {
       // Workflow lifecycle is scoped to the originating chat session.
-      // A new session inherits a clean store; any leftover runs from a
+      // A new session inherits a clean store; any leftover live runs from a
       // previous session in the same pi process are killed (subprocess
-      // aborted) and dropped. `restoreOnSessionStart` below then loads
-      // *this* session's persisted runs from disk.
+      // aborted), then all stale snapshots are cleared. `restoreOnSessionStart`
+      // below loads *this* session's persisted runs from disk.
       killAllRuns({
         store,
         cancellation: cancellationRegistry,

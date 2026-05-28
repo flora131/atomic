@@ -140,6 +140,28 @@ export interface SubagentParamsLike {
 	chainDir?: string;
 }
 
+export interface SubagentExecutorRuntimeDeps {
+	runSync: typeof runSync;
+	executeAsyncChain: typeof executeAsyncChain;
+	executeAsyncSingle: typeof executeAsyncSingle;
+	isAsyncAvailable: typeof isAsyncAvailable;
+	formatAsyncStartedMessage: typeof formatAsyncStartedMessage;
+}
+
+const defaultSubagentExecutorRuntimeDeps: SubagentExecutorRuntimeDeps = {
+	runSync,
+	executeAsyncChain,
+	executeAsyncSingle,
+	isAsyncAvailable,
+	formatAsyncStartedMessage,
+};
+
+function resolveSubagentExecutorRuntimeDeps(
+	overrides?: Partial<SubagentExecutorRuntimeDeps>,
+): SubagentExecutorRuntimeDeps {
+	return { ...defaultSubagentExecutorRuntimeDeps, ...overrides };
+}
+
 interface ExecutorDeps {
 	pi: ExtensionAPI;
 	state: SubagentState;
@@ -150,6 +172,11 @@ interface ExecutorDeps {
 	expandTilde: (p: string) => string;
 	discoverAgents: (cwd: string, scope: AgentScope) => { agents: AgentConfig[] };
 	allowMutatingManagementActions?: boolean;
+	runtime?: Partial<SubagentExecutorRuntimeDeps>;
+}
+
+interface ResolvedExecutorDeps extends Omit<ExecutorDeps, "runtime"> {
+	runtime: SubagentExecutorRuntimeDeps;
 }
 
 interface ExecutionContextData {
@@ -209,7 +236,7 @@ function formatForegroundActivity(control: SubagentState["foregroundControls"] e
 	return [`active ${seconds}s ago`, ...facts].join(" | ");
 }
 
-function nestedResolutionScopeForExecutor(deps: ExecutorDeps): NestedRunResolutionScope | undefined {
+function nestedResolutionScopeForExecutor(deps: ResolvedExecutorDeps): NestedRunResolutionScope | undefined {
 	if (deps.allowMutatingManagementActions !== false) return undefined;
 	const route = resolveInheritedNestedRouteFromEnv();
 	const address = route ? resolveNestedParentAddressFromEnv() : undefined;
@@ -551,7 +578,7 @@ async function resumeAsyncRun(input: {
 	params: SubagentParamsLike;
 	requestCwd: string;
 	ctx: ExtensionContext;
-	deps: ExecutorDeps;
+	deps: ResolvedExecutorDeps;
 }): Promise<AgentToolResult<Details>> {
 	const followUp = (input.params.message ?? input.params.task ?? "").trim();
 	if (!followUp) {
@@ -647,7 +674,7 @@ async function resumeAsyncRun(input: {
 	const runId = randomUUID().slice(0, 8);
 	const artifactConfig: ArtifactConfig = { ...DEFAULT_ARTIFACT_CONFIG, enabled: input.params.artifacts !== false };
 	const availableModels = input.ctx.modelRegistry.getAvailable().map(toModelInfo);
-	const result = executeAsyncSingle(runId, {
+	const result = input.deps.runtime.executeAsyncSingle(runId, {
 		agent: target.agent,
 		task: buildRevivedAsyncTask(target, followUp),
 		agentConfig,
@@ -688,7 +715,7 @@ async function resumeAsyncRun(input: {
 		revivedTarget ? `Intercom target: ${revivedTarget} (if registered)` : undefined,
 		`Status if needed: subagent({ action: "status", id: "${revivedId}" })`,
 	].filter((line): line is string => Boolean(line));
-	return { content: [{ type: "text", text: formatAsyncStartedMessage(lines.join("\n")) }], details: result.details };
+	return { content: [{ type: "text", text: input.deps.runtime.formatAsyncStartedMessage(lines.join("\n")) }], details: result.details };
 }
 
 function resultSummaryForIntercom(result: SingleResult): string {
@@ -1016,7 +1043,7 @@ function wrapChainTasksForFork(chain: ChainStep[], context: SubagentParamsLike["
 	});
 }
 
-function runAsyncPath(data: ExecutionContextData, deps: ExecutorDeps): AgentToolResult<Details> | null {
+function runAsyncPath(data: ExecutionContextData, deps: ResolvedExecutorDeps): AgentToolResult<Details> | null {
 	const {
 		params,
 		effectiveCwd,
@@ -1059,7 +1086,7 @@ function runAsyncPath(data: ExecutionContextData, deps: ExecutorDeps): AgentTool
 		}
 	}
 
-	if (!isAsyncAvailable()) {
+	if (!deps.runtime.isAsyncAvailable()) {
 		return {
 			content: [{ type: "text", text: `Async mode requires upstream jiti for TypeScript execution but it could not be found. Ensure the ${APP_NAME}-subagents package dependencies are installed.` }],
 			isError: true,
@@ -1099,7 +1126,7 @@ function runAsyncPath(data: ExecutionContextData, deps: ExecutorDeps): AgentTool
 			...(task.reads !== undefined && task.reads !== true ? { reads: task.reads } : {}),
 			...(task.progress !== undefined ? { progress: task.progress } : {}),
 		}));
-		return executeAsyncChain(id, {
+		return deps.runtime.executeAsyncChain(id, {
 			chain: [{
 				parallel: parallelTasks,
 				concurrency: resolveTopLevelParallelConcurrency(params.concurrency, deps.config.parallel?.concurrency),
@@ -1132,7 +1159,7 @@ function runAsyncPath(data: ExecutionContextData, deps: ExecutorDeps): AgentTool
 		const normalized = normalizeSkillInput(params.skill);
 		const chainSkills = normalized === false ? [] : (normalized ?? []);
 		const chain = wrapChainTasksForFork(params.chain as ChainStep[], params.context);
-		return executeAsyncChain(id, {
+		return deps.runtime.executeAsyncChain(id, {
 			chain,
 			task: params.task,
 			agents,
@@ -1173,7 +1200,7 @@ function runAsyncPath(data: ExecutionContextData, deps: ExecutorDeps): AgentTool
 		const skills = normalizedSkills === false ? [] : normalizedSkills;
 		const maxSubagentDepth = resolveChildMaxSubagentDepth(currentMaxSubagentDepth, a.maxSubagentDepth);
 		const modelOverride = resolveModelCandidate((params.model as string | undefined) ?? a.model, availableModels, currentProvider);
-		return executeAsyncSingle(id, {
+		return deps.runtime.executeAsyncSingle(id, {
 			agent: params.agent!,
 			task: params.context === "fork" ? wrapForkTask(params.task ?? "") : (params.task ?? ""),
 			agentConfig: a,
@@ -1204,7 +1231,7 @@ function runAsyncPath(data: ExecutionContextData, deps: ExecutorDeps): AgentTool
 	return null;
 }
 
-async function runChainPath(data: ExecutionContextData, deps: ExecutorDeps): Promise<AgentToolResult<Details>> {
+async function runChainPath(data: ExecutionContextData, deps: ResolvedExecutorDeps): Promise<AgentToolResult<Details>> {
 	const {
 		params,
 		effectiveCwd,
@@ -1259,10 +1286,11 @@ async function runChainPath(data: ExecutionContextData, deps: ExecutorDeps): Pro
 		workflowStageSubagentGuard,
 		worktreeSetupHook: deps.config.worktreeSetupHook,
 		worktreeSetupHookTimeoutMs: deps.config.worktreeSetupHookTimeoutMs,
+		runSync: deps.runtime.runSync,
 	});
 
 	if (chainResult.requestedAsync) {
-		if (!isAsyncAvailable()) {
+		if (!deps.runtime.isAsyncAvailable()) {
 			return {
 				content: [{ type: "text", text: `Background mode requires upstream jiti for TypeScript execution but it could not be found. Ensure the ${APP_NAME}-subagents package dependencies are installed.` }],
 				isError: true,
@@ -1278,7 +1306,7 @@ async function runChainPath(data: ExecutionContextData, deps: ExecutorDeps): Pro
 			currentModel: currentModelFullId(ctx.model),
 		};
 		const asyncChain = wrapChainTasksForFork(chainResult.requestedAsync.chain, params.context);
-		return executeAsyncChain(id, {
+		return deps.runtime.executeAsyncChain(id, {
 			chain: asyncChain,
 			task: params.task,
 			agents,
@@ -1358,6 +1386,7 @@ interface ForegroundParallelRunInput {
 	liveProgress: (AgentProgress | undefined)[];
 	onUpdate?: (r: AgentToolResult<Details>) => void;
 	worktreeSetup?: WorktreeSetup;
+	runtime: Pick<SubagentExecutorRuntimeDeps, "runSync">;
 }
 
 function buildParallelModeError(message: string): AgentToolResult<Details> {
@@ -1490,7 +1519,7 @@ async function runForegroundParallelTasks(input: ForegroundParallelRunInput): Pr
 			};
 		}
 		const agentConfig = input.agents.find((agent) => agent.name === task.agent);
-		return runSync(input.ctx.cwd, input.agents, task.agent, taskText, {
+		return input.runtime.runSync(input.ctx.cwd, input.agents, task.agent, taskText, {
 			cwd: taskCwd,
 			signal: input.signal,
 			interruptSignal: interruptController.signal,
@@ -1561,7 +1590,7 @@ async function runForegroundParallelTasks(input: ForegroundParallelRunInput): Pr
 	});
 }
 
-async function runParallelPath(data: ExecutionContextData, deps: ExecutorDeps): Promise<AgentToolResult<Details>> {
+async function runParallelPath(data: ExecutionContextData, deps: ResolvedExecutorDeps): Promise<AgentToolResult<Details>> {
 	const {
 		params,
 		effectiveCwd,
@@ -1682,7 +1711,7 @@ async function runParallelPath(data: ExecutionContextData, deps: ExecutorDeps): 
 		}
 
 		if (result.runInBackground) {
-			if (!isAsyncAvailable()) {
+			if (!deps.runtime.isAsyncAvailable()) {
 				return {
 					content: [{ type: "text", text: `Background mode requires upstream jiti for TypeScript execution but it could not be found. Ensure the ${APP_NAME}-subagents package dependencies are installed.` }],
 					isError: true,
@@ -1712,7 +1741,7 @@ async function runParallelPath(data: ExecutionContextData, deps: ExecutorDeps): 
 					...(progress !== undefined ? { progress } : {}),
 				};
 			});
-			return executeAsyncChain(id, {
+			return deps.runtime.executeAsyncChain(id, {
 				chain: [{ parallel: parallelTasks, concurrency: parallelConcurrency, worktree: params.worktree }],
 				resultMode: "parallel",
 				agents,
@@ -1808,6 +1837,7 @@ async function runParallelPath(data: ExecutionContextData, deps: ExecutorDeps): 
 			liveProgress,
 			onUpdate,
 			worktreeSetup,
+			runtime: deps.runtime,
 		});
 		for (let i = 0; i < results.length; i++) {
 			const run = results[i]!;
@@ -1886,7 +1916,7 @@ async function runParallelPath(data: ExecutionContextData, deps: ExecutorDeps): 
 	}
 }
 
-async function runSinglePath(data: ExecutionContextData, deps: ExecutorDeps): Promise<AgentToolResult<Details>> {
+async function runSinglePath(data: ExecutionContextData, deps: ResolvedExecutorDeps): Promise<AgentToolResult<Details>> {
 	const {
 		params,
 		effectiveCwd,
@@ -1966,7 +1996,7 @@ async function runSinglePath(data: ExecutionContextData, deps: ExecutorDeps): Pr
 		if (override?.skills !== undefined) skillOverride = override.skills;
 
 		if (result.runInBackground) {
-			if (!isAsyncAvailable()) {
+			if (!deps.runtime.isAsyncAvailable()) {
 				return {
 					content: [{ type: "text", text: `Background mode requires upstream jiti for TypeScript execution but it could not be found. Ensure the ${APP_NAME}-subagents package dependencies are installed.` }],
 					isError: true,
@@ -1981,7 +2011,7 @@ async function runSinglePath(data: ExecutionContextData, deps: ExecutorDeps): Pr
 				currentModelProvider: ctx.model?.provider,
 				currentModel: currentModelFullId(ctx.model),
 			};
-			return executeAsyncSingle(id, {
+			return deps.runtime.executeAsyncSingle(id, {
 				agent: params.agent!,
 				task: params.context === "fork" ? wrapForkTask(task) : task,
 				agentConfig,
@@ -2062,7 +2092,7 @@ async function runSinglePath(data: ExecutionContextData, deps: ExecutorDeps): Pr
 		}
 		: undefined;
 
-	const r = await runSync(ctx.cwd, agents, params.agent!, task, {
+	const r = await deps.runtime.runSync(ctx.cwd, agents, params.agent!, task, {
 		cwd: effectiveCwd,
 		signal,
 		interruptSignal: interruptController.signal,
@@ -2175,7 +2205,7 @@ async function runSinglePath(data: ExecutionContextData, deps: ExecutorDeps): Pr
 	};
 }
 
-export function createSubagentExecutor(deps: ExecutorDeps): {
+export function createSubagentExecutor(rawDeps: ExecutorDeps): {
 	execute: (
 		id: string,
 		params: SubagentParamsLike,
@@ -2184,6 +2214,7 @@ export function createSubagentExecutor(deps: ExecutorDeps): {
 		ctx: ExtensionContext,
 	) => Promise<AgentToolResult<Details>>;
 } {
+	const deps: ResolvedExecutorDeps = { ...rawDeps, runtime: resolveSubagentExecutorRuntimeDeps(rawDeps.runtime) };
 	const execute = async (
 		_id: string,
 		params: SubagentParamsLike,

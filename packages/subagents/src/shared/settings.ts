@@ -70,6 +70,7 @@ interface ParallelTaskItem {
 /** Parallel step: multiple agents running concurrently */
 interface ParallelStep {
 	parallel: ParallelTaskItem[];
+	cwd?: string;
 	concurrency?: number;
 	failFast?: boolean;
 	worktree?: boolean;

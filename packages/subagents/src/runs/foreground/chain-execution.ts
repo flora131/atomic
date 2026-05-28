@@ -61,6 +61,23 @@ import {
 import { resolveModelCandidate } from "../shared/model-fallback.ts";
 import { validateFileOnlyOutputMode } from "../shared/single-output.ts";
 
+type RunSyncDependency = typeof runSync;
+
+type ChainForegroundControl = {
+	updatedAt: number;
+	currentAgent?: string;
+	currentIndex?: number;
+	currentActivityState?: ActivityState;
+	lastActivityAt?: number;
+	currentTool?: string;
+	currentToolStartedAt?: number;
+	currentPath?: string;
+	turnCount?: number;
+	tokens?: number;
+	toolCount?: number;
+	interrupt?: () => boolean;
+};
+
 interface ChainExecutionDetailsInput {
 	results: SingleResult[];
 	includeProgress?: boolean;
@@ -98,16 +115,7 @@ interface ParallelChainRunInput {
 	controlConfig: ResolvedControlConfig;
 	childIntercomTarget?: (agent: string, index: number) => string | undefined;
 	orchestratorIntercomTarget?: string;
-	foregroundControl?: {
-		updatedAt: number;
-		currentAgent?: string;
-		currentIndex?: number;
-		currentActivityState?: ActivityState;
-		lastActivityAt?: number;
-		currentTool?: string;
-		currentToolStartedAt?: number;
-		interrupt?: () => boolean;
-	};
+	foregroundControl?: ChainForegroundControl;
 	results: SingleResult[];
 	allProgress: AgentProgress[];
 	chainAgents: string[];
@@ -116,6 +124,7 @@ interface ParallelChainRunInput {
 	maxSubagentDepth: number;
 	workflowStageSubagentGuard?: boolean;
 	nestedRoute?: NestedRouteInfo;
+	runSync: RunSyncDependency;
 }
 
 function buildChainExecutionDetails(input: ChainExecutionDetailsInput): Details {
@@ -228,7 +237,7 @@ async function runParallelChainTasks(input: ParallelChainRunInput): Promise<Sing
 				};
 			}
 
-			const result = await runSync(input.ctx.cwd, input.agents, task.agent, taskStr, {
+			const result = await input.runSync(input.ctx.cwd, input.agents, task.agent, taskStr, {
 				cwd: taskCwd,
 				signal: input.signal,
 				interruptSignal: interruptController.signal,
@@ -325,16 +334,7 @@ interface ChainExecutionParams {
 	controlConfig: ResolvedControlConfig;
 	childIntercomTarget?: (agent: string, index: number) => string | undefined;
 	orchestratorIntercomTarget?: string;
-	foregroundControl?: {
-		updatedAt: number;
-		currentAgent?: string;
-		currentIndex?: number;
-		currentActivityState?: ActivityState;
-		lastActivityAt?: number;
-		currentTool?: string;
-		currentToolStartedAt?: number;
-		interrupt?: () => boolean;
-	};
+	foregroundControl?: ChainForegroundControl;
 	chainSkills?: string[];
 	chainDir?: string;
 	maxSubagentDepth: number;
@@ -342,6 +342,7 @@ interface ChainExecutionParams {
 	nestedRoute?: NestedRouteInfo;
 	worktreeSetupHook?: string;
 	worktreeSetupHookTimeoutMs?: number;
+	runSync?: RunSyncDependency;
 }
 
 interface ChainExecutionResult {
@@ -359,6 +360,7 @@ interface ChainExecutionResult {
  * Execute a chain of subagent steps
  */
 export async function executeChain(params: ChainExecutionParams): Promise<ChainExecutionResult> {
+	const executeRunSync = params.runSync ?? runSync;
 	const {
 		chain: chainSteps,
 		agents,
@@ -604,6 +606,7 @@ export async function executeChain(params: ChainExecutionParams): Promise<ChainE
 					worktreeSetup,
 					maxSubagentDepth: params.maxSubagentDepth,
 					workflowStageSubagentGuard: params.workflowStageSubagentGuard,
+					runSync: executeRunSync,
 				});
 				globalTaskIndex += step.parallel.length;
 
@@ -784,7 +787,7 @@ export async function executeChain(params: ChainExecutionParams): Promise<ChainE
 				};
 			}
 
-			const r = await runSync(ctx.cwd, agents, seqStep.agent, stepTask, {
+			const r = await executeRunSync(ctx.cwd, agents, seqStep.agent, stepTask, {
 				cwd: resolveChildCwd(cwd ?? ctx.cwd, seqStep.cwd),
 				signal,
 				interruptSignal: interruptController.signal,

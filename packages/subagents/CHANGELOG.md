@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Hardened workflow-stage subagent guard propagation tests with an internal executor runtime DI seam ([#1088](https://github.com/flora131/atomic/issues/1088)).
 - Capped subagent fanout spawned from workflow stages to a single child level with a workflow-specific nested-subagent error.
 
 ## [0.24.3] - 2026-05-14

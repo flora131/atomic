@@ -1,10 +1,8 @@
-import { afterAll, beforeEach, describe, mock, spyOn, test } from "bun:test";
+import { beforeEach, describe, mock, test } from "bun:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import * as asyncExecution from "../../packages/subagents/src/runs/background/async-execution.ts";
-import * as foregroundExecution from "../../packages/subagents/src/runs/foreground/execution.ts";
 import { WORKFLOW_STAGE_SUBAGENT_GUARD_ENV } from "../../packages/subagents/src/shared/types.js";
 
 interface MinimalRunSyncOptions {
@@ -51,7 +49,7 @@ interface MinimalAgentConfig {
 }
 
 interface MinimalExecutorModule {
-	createSubagentExecutor: (deps: unknown) => {
+	createSubagentExecutor: (deps: Record<string, unknown>) => {
 		execute: (
 			id: string,
 			params: Record<string, unknown>,
@@ -62,14 +60,22 @@ interface MinimalExecutorModule {
 	};
 }
 
+const executorModulePath = "../../packages/subagents/src/runs/foreground/subagent-executor.ts";
+const { createSubagentExecutor } = await import(executorModulePath) as MinimalExecutorModule;
+
 const runSyncCalls: CapturedRunSyncCall[] = [];
 const asyncChainCalls: CapturedAsyncChainCall[] = [];
 const asyncSingleCalls: CapturedAsyncSingleCall[] = [];
 
 const emptyUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 0 };
 
-const runSyncMock = mock(async (...args: [string, MinimalAgentConfig[], string, string, MinimalRunSyncOptions]) => {
-	const [, , agentName, task, options] = args;
+const runSyncMock = mock(async (
+	_cwd: string,
+	_agents: MinimalAgentConfig[],
+	agentName: string,
+	task: string,
+	options: MinimalRunSyncOptions,
+) => {
 	runSyncCalls.push({ agentName, options });
 	return {
 		agent: agentName,
@@ -81,8 +87,7 @@ const runSyncMock = mock(async (...args: [string, MinimalAgentConfig[], string, 
 	};
 });
 
-const executeAsyncChainMock = mock((...args: [string, MinimalAsyncChainParams]) => {
-	const [id, params] = args;
+const executeAsyncChainMock = mock((id: string, params: MinimalAsyncChainParams) => {
 	asyncChainCalls.push({ id, params });
 	return {
 		content: [{ type: "text" as const, text: "Launching in background..." }],
@@ -90,31 +95,13 @@ const executeAsyncChainMock = mock((...args: [string, MinimalAsyncChainParams]) 
 	};
 });
 
-const executeAsyncSingleMock = mock((...args: [string, MinimalAsyncSingleParams]) => {
-	const [id, params] = args;
+const executeAsyncSingleMock = mock((id: string, params: MinimalAsyncSingleParams) => {
 	asyncSingleCalls.push({ id, params });
 	return {
 		content: [{ type: "text" as const, text: "Launching in background..." }],
 		details: { mode: "single" as const, results: [] },
 	};
 });
-
-const runSyncSpy = spyOn(foregroundExecution, "runSync").mockImplementation(
-	runSyncMock as typeof foregroundExecution.runSync,
-);
-const executeAsyncChainSpy = spyOn(asyncExecution, "executeAsyncChain").mockImplementation(
-	executeAsyncChainMock as typeof asyncExecution.executeAsyncChain,
-);
-const executeAsyncSingleSpy = spyOn(asyncExecution, "executeAsyncSingle").mockImplementation(
-	executeAsyncSingleMock as typeof asyncExecution.executeAsyncSingle,
-);
-const formatAsyncStartedMessageSpy = spyOn(asyncExecution, "formatAsyncStartedMessage").mockImplementation(
-	(id: string) => `Started ${id}`,
-);
-const isAsyncAvailableSpy = spyOn(asyncExecution, "isAsyncAvailable").mockImplementation(() => true);
-
-const executorModulePath = "../../packages/subagents/src/runs/foreground/subagent-executor.ts";
-const { createSubagentExecutor } = await import(executorModulePath) as MinimalExecutorModule;
 
 function makeAgent(name: string, maxSubagentDepth?: number): MinimalAgentConfig {
 	return {
@@ -194,6 +181,13 @@ function makeExecutor(cwd: string, agents: MinimalAgentConfig[]) {
 		getSubagentSessionRoot: () => path.join(tempRoot, "sessions"),
 		expandTilde: (p: string) => p,
 		discoverAgents: () => ({ agents }),
+		runtime: {
+			runSync: runSyncMock,
+			executeAsyncChain: executeAsyncChainMock,
+			executeAsyncSingle: executeAsyncSingleMock,
+			formatAsyncStartedMessage: (message: string) => `Started ${message}`,
+			isAsyncAvailable: () => true,
+		},
 	});
 }
 
@@ -225,14 +219,6 @@ beforeEach(() => {
 	clearSubagentGuardEnv();
 });
 
-afterAll(() => {
-	runSyncSpy.mockRestore();
-	executeAsyncChainSpy.mockRestore();
-	executeAsyncSingleSpy.mockRestore();
-	formatAsyncStartedMessageSpy.mockRestore();
-	isAsyncAvailableSpy.mockRestore();
-	clearSubagentGuardEnv();
-});
 
 describe("foreground workflow-stage subagent guard propagation", () => {
 	test("passes workflow-stage guard to sequential and parallel chain children", async () => {

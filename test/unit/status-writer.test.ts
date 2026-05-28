@@ -328,7 +328,7 @@ describe("createStatusWriter — statusFile:true", () => {
       startedAt: Date.now(),
     });
 
-    await sleep(50);
+    await writer.flush();
     writer.unsubscribe();
 
     const raw = await readFile(expectedPath, "utf8");

@@ -319,6 +319,8 @@ For providers or proxies using `api: "anthropic-messages"`, use `compat.supports
 
 By default, Atomic sends per-tool `eager_input_streaming: true`. If a proxy or Anthropic-compatible backend rejects that field, set `supportsEagerToolInputStreaming` to `false`. Atomic will omit `tools[].eager_input_streaming` and send the legacy `fine-grained-tool-streaming-2025-05-14` beta header for tool-enabled requests instead.
 
+The built-in Anthropic `claude-opus-4-8` model gets adaptive-thinking metadata from `ModelRegistry`. Custom Anthropic-compatible providers in `models.json` do not inherit that built-in supplement, so custom Opus 4.8 entries must set model-level `thinkingLevelMap.xhigh` and `compat.forceAdaptiveThinking` explicitly.
+
 ```json
 {
   "providers": {
@@ -332,9 +334,15 @@ By default, Atomic sends per-tool `eager_input_streaming: true`. If a proxy or A
       },
       "models": [
         {
-          "id": "claude-opus-4-7",
+          "id": "claude-opus-4-8",
           "reasoning": true,
-          "input": ["text", "image"]
+          "input": ["text", "image"],
+          "thinkingLevelMap": {
+            "xhigh": "xhigh"
+          },
+          "compat": {
+            "forceAdaptiveThinking": true
+          }
         }
       ]
     }
@@ -346,6 +354,7 @@ By default, Atomic sends per-tool `eager_input_streaming: true`. If a proxy or A
 |-------|-------------|
 | `supportsEagerToolInputStreaming` | Whether the provider accepts per-tool `eager_input_streaming`. Default: `true`. Set to `false` to omit that field and use the legacy fine-grained tool streaming beta header on tool-enabled requests. |
 | `supportsLongCacheRetention` | Whether the provider accepts Anthropic long cache retention (`cache_control.ttl: "1h"`) when cache retention is `long`. Default: `true`. |
+| `forceAdaptiveThinking` | Forces Anthropic adaptive-thinking payloads for reasoning-enabled models that require effort-based thinking instead of budget-token thinking. Set this on custom Opus 4.8 entries because built-in `ModelRegistry` supplements do not apply to custom providers. |
 
 ## OpenAI Compatibility
 

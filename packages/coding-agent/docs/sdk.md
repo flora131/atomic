@@ -383,18 +383,18 @@ When you pass a custom `ResourceLoader`, `cwd` and `agentDir` no longer control 
 ### Model
 
 ```typescript
-import { getModel } from "@earendil-works/pi-ai";
 import { AuthStorage, ModelRegistry } from "@bastani/atomic";
 
 const authStorage = AuthStorage.create();
 const modelRegistry = ModelRegistry.create(authStorage);
 
-// Find specific built-in model (doesn't check if API key exists)
-const opus = getModel("anthropic", "claude-opus-4-5");
+// Find a specific model through Atomic's registry.
+// ModelRegistry.find sees built-in, Atomic-supplemented, and custom models
+// from models.json. It doesn't check if API key exists.
+const opus = modelRegistry.find("anthropic", "claude-opus-4-8");
 if (!opus) throw new Error("Model not found");
 
-// Find any model by provider/id, including custom models from models.json
-// (doesn't check if API key exists)
+// Find any other model by provider/id, including custom models from models.json.
 const customModel = modelRegistry.find("my-provider", "my-model");
 
 // Get only models that have valid API keys configured
@@ -898,7 +898,6 @@ interface LoadExtensionsResult {
 ## Complete Example
 
 ```typescript
-import { getModel } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import {
   AuthStorage,
@@ -933,7 +932,8 @@ const statusTool = defineTool({
   }),
 });
 
-const model = getModel("anthropic", "claude-opus-4-5");
+// Resolve through Atomic's registry so Atomic-supplemented models are included.
+const model = modelRegistry.find("anthropic", "claude-opus-4-8");
 if (!model) throw new Error("Model not found");
 
 // In-memory settings with overrides

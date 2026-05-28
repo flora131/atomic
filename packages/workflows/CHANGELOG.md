@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Added main-chat lifecycle steer notices for workflow completion, failure, and awaiting-input pauses with global notification config controls ([#1085](https://github.com/flora131/atomic/issues/1085)).
 
+### Changed
+
+- Updated bundled workflow latest-Opus fallback chains to prefer Anthropic `claude-opus-4-8` while retaining existing GitHub Copilot `claude-opus-4.7` fallbacks.
+
 ### Fixed
 
 - Escaped workflow lifecycle notice text and structured response hints, isolated lifecycle send failures from store subscribers, and rejected empty lifecycle notification event lists ([#1085](https://github.com/flora131/atomic/issues/1085)).

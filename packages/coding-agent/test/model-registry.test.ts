@@ -57,6 +57,10 @@ describe("ModelRegistry", () => {
 		return registry.getAll().filter((m) => m.provider === provider);
 	}
 
+	function getAnthropicCompat(model: Model<Api> | undefined): AnthropicMessagesCompat | undefined {
+		return model?.compat as AnthropicMessagesCompat | undefined;
+	}
+
 	function toShPath(value: string): string {
 		let escaped = "";
 		for (const char of value.replace(/\\/g, "/")) {
@@ -95,6 +99,61 @@ describe("ModelRegistry", () => {
 	const emptyContext: Context = {
 		messages: [],
 	};
+
+	describe("built-in model supplements", () => {
+		test("adds Anthropic Claude Opus 4.8 by cloning Opus 4.7 metadata with adaptive thinking", () => {
+			const registry = ModelRegistry.create(authStorage, modelsJsonPath);
+			const opus47 = registry.find("anthropic", "claude-opus-4-7");
+			const opus48 = registry.find("anthropic", "claude-opus-4-8");
+
+			expect(opus47).toBeDefined();
+			expect(opus48).toBeDefined();
+			expect(opus48?.name).toBe("Claude Opus 4.8");
+			expect(opus48?.reasoning).toBe(true);
+			expect(opus48?.api).toBe(opus47?.api);
+			expect(opus48?.baseUrl).toBe(opus47?.baseUrl);
+			expect(opus48?.cost).toEqual(opus47?.cost);
+			expect(opus48?.contextWindow).toBe(opus47?.contextWindow);
+			expect(opus48?.maxTokens).toBe(opus47?.maxTokens);
+
+			const compat = getAnthropicCompat(opus48);
+			expect(compat?.forceAdaptiveThinking).toBe(true);
+			expect(opus48?.thinkingLevelMap?.xhigh).toBe("xhigh");
+		});
+
+		test("applies provider and per-model overrides after supplementing Opus 4.8", () => {
+			writeRawModelsJson({
+				anthropic: {
+					baseUrl: "https://anthropic-proxy.example.com/v1",
+					compat: {
+						supportsLongCacheRetention: true,
+					},
+					modelOverrides: {
+						"claude-opus-4-8": {
+							name: "Proxy Opus 4.8",
+							thinkingLevelMap: { high: "high" },
+							compat: {
+								supportsCacheControlOnTools: true,
+							},
+						},
+					},
+				},
+			});
+
+			const registry = ModelRegistry.create(authStorage, modelsJsonPath);
+			const opus48 = registry.find("anthropic", "claude-opus-4-8");
+			const compat = getAnthropicCompat(opus48);
+
+			expect(opus48?.name).toBe("Proxy Opus 4.8");
+			expect(opus48?.baseUrl).toBe("https://anthropic-proxy.example.com/v1");
+			expect(opus48?.thinkingLevelMap).toMatchObject({ xhigh: "xhigh", high: "high" });
+			expect(compat).toMatchObject({
+				forceAdaptiveThinking: true,
+				supportsLongCacheRetention: true,
+				supportsCacheControlOnTools: true,
+			});
+		});
+	});
 
 	describe("baseUrl override (no custom models)", () => {
 		test("overriding baseUrl keeps all built-in models", () => {

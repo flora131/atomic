@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Updated bundled subagent latest-Opus fallback chains to prefer Anthropic `claude-opus-4-8` while retaining existing GitHub Copilot `claude-opus-4.7` fallbacks.
+
 ### Fixed
 
 - Hardened workflow-stage subagent guard propagation tests with an internal executor runtime DI seam ([#1088](https://github.com/flora131/atomic/issues/1088)).

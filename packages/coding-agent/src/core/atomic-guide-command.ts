@@ -167,7 +167,7 @@ It should accept one required text input called target for a diff, PR summary, o
 
 Run two independent review stages in parallel with fresh context:
 - one reviewer focused on correctness, regressions, and missing tests using openai-codex/gpt-5.5 at xhigh thinking
-- one reviewer focused on edge cases, maintainability, and hidden risks using anthropic/claude-opus-4-7 at xhigh thinking
+- one reviewer focused on edge cases, maintainability, and hidden risks using anthropic/claude-opus-4-8 at xhigh thinking
 
 Then add an aggregate stage that consolidates both reviews, deduplicates overlap, keeps only evidence-backed issues, and separates blockers from optional suggestions using openai/gpt-5.5 at high thinking.
 

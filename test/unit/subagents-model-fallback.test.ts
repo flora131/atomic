@@ -8,7 +8,9 @@ import type { AvailableModelInfo } from "../../packages/subagents/src/runs/share
 
 const models: AvailableModelInfo[] = [
   { provider: "anthropic", id: "claude-sonnet-4", fullId: "anthropic/claude-sonnet-4" },
+  { provider: "anthropic", id: "claude-opus-4-8", fullId: "anthropic/claude-opus-4-8" },
   { provider: "github-copilot", id: "claude-sonnet-4", fullId: "github-copilot/claude-sonnet-4" },
+  { provider: "github-copilot", id: "claude-opus-4.7", fullId: "github-copilot/claude-opus-4.7" },
   { provider: "openai", id: "gpt-5-mini", fullId: "openai/gpt-5-mini" },
 ];
 
@@ -36,6 +38,19 @@ describe("subagent model fallback helpers", () => {
         "github-copilot/claude-sonnet-4",
       ),
       ["github-copilot/claude-sonnet-4", "openai/gpt-5-mini"],
+    );
+  });
+
+  test("normalizes Anthropic Opus 4.8 with existing Copilot Opus 4.7 fallback", () => {
+    assert.deepEqual(
+      buildModelCandidates(
+        "claude-opus-4-8",
+        ["github-copilot/claude-opus-4.7"],
+        models,
+        "anthropic",
+        "openai/gpt-5-mini",
+      ),
+      ["anthropic/claude-opus-4-8", "github-copilot/claude-opus-4.7", "openai/gpt-5-mini"],
     );
   });
 

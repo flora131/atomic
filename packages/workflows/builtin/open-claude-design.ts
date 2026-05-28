@@ -227,7 +227,7 @@ export default defineWorkflow("open-claude-design")
     const specFileUrl = `file://${specPath}`;
 
     const designModelConfig = {
-      model: "anthropic/claude-opus-4-7",
+      model: "anthropic/claude-opus-4-8",
       fallbackModels: [
         "github-copilot/claude-opus-4.7",
         "anthropic/claude-sonnet-4-6",

@@ -10,7 +10,9 @@ import type { WorkflowModelInfo } from "../../packages/workflows/src/shared/type
 
 const models: readonly WorkflowModelInfo[] = [
   { provider: "anthropic", id: "claude-sonnet-4", fullId: "anthropic/claude-sonnet-4" },
+  { provider: "anthropic", id: "claude-opus-4-8", fullId: "anthropic/claude-opus-4-8" },
   { provider: "github-copilot", id: "claude-sonnet-4", fullId: "github-copilot/claude-sonnet-4" },
+  { provider: "github-copilot", id: "claude-opus-4.7", fullId: "github-copilot/claude-opus-4.7" },
   { provider: "openai", id: "gpt-5-mini", fullId: "openai/gpt-5-mini" },
 ];
 
@@ -38,6 +40,28 @@ describe("model fallback helpers", () => {
       }),
       ["github-copilot/claude-sonnet-4", "openai/gpt-5-mini"],
     );
+  });
+
+  test("buildModelCandidateIds accepts Anthropic Opus 4.8 with existing Copilot Opus 4.7 fallback", () => {
+    assert.deepEqual(
+      buildModelCandidateIds({
+        primaryModel: "anthropic/claude-opus-4-8",
+        fallbackModels: ["github-copilot/claude-opus-4.7", "anthropic/claude-opus-4-8"],
+        availableModels: models,
+      }),
+      ["anthropic/claude-opus-4-8", "github-copilot/claude-opus-4.7"],
+    );
+  });
+
+  test("validateWorkflowModels accepts first-class Anthropic Claude Opus 4.8", async () => {
+    const warnings = await validateWorkflowModels({
+      catalog: { listModels: async () => models },
+      requests: [
+        { model: "anthropic/claude-opus-4-8", fallbackModels: ["github-copilot/claude-opus-4.7"] },
+      ],
+    });
+
+    assert.deepEqual(warnings, []);
   });
 
   test("validateWorkflowModels reports all unavailable and ambiguous models", async () => {

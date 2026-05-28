@@ -21,6 +21,12 @@ const DEFAULT_MAX_LOOPS = 10;
 const DEFAULT_SPEC_DIR = "specs";
 const IMPLEMENTATION_NOTES_FILENAME = "implementation-notes.md";
 const MAX_SPEC_SLUG_LENGTH = 80;
+const OPUS_REVIEW_FALLBACK_MODELS = [
+  "openai-codex/gpt-5.5",
+  "github-copilot/gpt-5.5",
+  "anthropic/claude-opus-4-8",
+  "github-copilot/claude-opus-4.7",
+] as const;
 
 type ReviewFinding = {
   readonly title: string;
@@ -414,12 +420,7 @@ async function runRalphWorkflow(
 
   const plannerModelConfig = {
     model: "openai/gpt-5.5",
-    fallbackModels: [
-      "openai-codex/gpt-5.5",
-      "github-copilot/gpt-5.5",
-      "anthropic/claude-opus-4-7",
-      "github-copilot/claude-opus-4.7",
-    ],
+    fallbackModels: [...OPUS_REVIEW_FALLBACK_MODELS],
     thinkingLevel: "high" as const,
     excludedTools: ["ask_user_question"],
   };
@@ -450,12 +451,7 @@ async function runRalphWorkflow(
 
   const reviewerModelConfig = {
     model: "openai/gpt-5.5",
-    fallbackModels: [
-      "openai-codex/gpt-5.5",
-      "github-copilot/gpt-5.5",
-      "anthropic/claude-opus-4-7",
-      "github-copilot/claude-opus-4.7",
-    ],
+    fallbackModels: [...OPUS_REVIEW_FALLBACK_MODELS],
     thinkingLevel: "high" as const,
     excludedTools: ["ask_user_question"],
     customTools: [reviewDecisionTool],

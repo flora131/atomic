@@ -22,6 +22,20 @@ const mockModels: Model<"anthropic-messages">[] = [
 		maxTokens: 8192,
 	},
 	{
+		id: "claude-opus-4-8",
+		name: "Claude Opus 4.8",
+		api: "anthropic-messages",
+		provider: "anthropic",
+		baseUrl: "https://api.anthropic.com",
+		reasoning: true,
+		thinkingLevelMap: { xhigh: "xhigh" },
+		compat: { forceAdaptiveThinking: true },
+		input: ["text", "image"],
+		cost: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+		contextWindow: 1000000,
+		maxTokens: 128000,
+	},
+	{
 		id: "gpt-4o",
 		name: "GPT-4o",
 		api: "anthropic-messages", // Using same type for simplicity
@@ -64,6 +78,20 @@ const mockOpenRouterModels: Model<"anthropic-messages">[] = [
 ];
 
 const allModels = [...mockModels, ...mockOpenRouterModels];
+type ResolveCliModelRegistry = Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+
+function createTestRegistry(models: Model<"anthropic-messages">[] = allModels): ResolveCliModelRegistry {
+	// resolveCliModel only reads getAll(); tests avoid constructing a full ModelRegistry.
+	return {
+		getAll: () => models,
+	} as unknown as ResolveCliModelRegistry;
+}
+
+describe("defaultModelPerProvider", () => {
+	test("uses Claude Opus 4.8 as the Anthropic default", () => {
+		expect(defaultModelPerProvider.anthropic).toBe("claude-opus-4-8");
+	});
+});
 
 describe("parseModelPattern", () => {
 	describe("simple patterns without colons", () => {
@@ -208,9 +236,7 @@ describe("parseModelPattern", () => {
 
 describe("resolveCliModel", () => {
 	test("resolves --model provider/id without --provider", () => {
-		const registry = {
-			getAll: () => allModels,
-		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+		const registry = createTestRegistry();
 
 		const result = resolveCliModel({
 			cliModel: "openai/gpt-4o",
@@ -223,9 +249,7 @@ describe("resolveCliModel", () => {
 	});
 
 	test("resolves fuzzy patterns within an explicit provider", () => {
-		const registry = {
-			getAll: () => allModels,
-		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+		const registry = createTestRegistry();
 
 		const result = resolveCliModel({
 			cliProvider: "openai",
@@ -239,9 +263,7 @@ describe("resolveCliModel", () => {
 	});
 
 	test("supports --model <pattern>:<thinking> (without explicit --thinking)", () => {
-		const registry = {
-			getAll: () => allModels,
-		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+		const registry = createTestRegistry();
 
 		const result = resolveCliModel({
 			cliModel: "sonnet:high",
@@ -253,10 +275,22 @@ describe("resolveCliModel", () => {
 		expect(result.thinkingLevel).toBe("high");
 	});
 
+	test("resolves Anthropic Claude Opus 4.8 with provider prefix and xhigh thinking", () => {
+		const registry = createTestRegistry();
+
+		const result = resolveCliModel({
+			cliModel: "anthropic/claude-opus-4-8:xhigh",
+			modelRegistry: registry,
+		});
+
+		expect(result.error).toBeUndefined();
+		expect(result.model?.provider).toBe("anthropic");
+		expect(result.model?.id).toBe("claude-opus-4-8");
+		expect(result.thinkingLevel).toBe("xhigh");
+	});
+
 	test("prefers exact model id match over provider inference (OpenRouter-style ids)", () => {
-		const registry = {
-			getAll: () => allModels,
-		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+		const registry = createTestRegistry();
 
 		const result = resolveCliModel({
 			cliModel: "openai/gpt-4o:extended",
@@ -269,9 +303,7 @@ describe("resolveCliModel", () => {
 	});
 
 	test("does not strip invalid :suffix as thinking level in --model (treat as raw id)", () => {
-		const registry = {
-			getAll: () => allModels,
-		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+		const registry = createTestRegistry();
 
 		const result = resolveCliModel({
 			cliProvider: "openai",
@@ -285,9 +317,7 @@ describe("resolveCliModel", () => {
 	});
 
 	test("allows custom model ids for explicit providers without double prefixing", () => {
-		const registry = {
-			getAll: () => allModels,
-		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+		const registry = createTestRegistry();
 
 		const result = resolveCliModel({
 			cliProvider: "openrouter",
@@ -301,9 +331,7 @@ describe("resolveCliModel", () => {
 	});
 
 	test("returns a clear error when there are no models", () => {
-		const registry = {
-			getAll: () => [],
-		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+		const registry = createTestRegistry([]);
 
 		const result = resolveCliModel({
 			cliProvider: "openai",
@@ -342,9 +370,7 @@ describe("resolveCliModel", () => {
 			contextWindow: 128000,
 			maxTokens: 8192,
 		};
-		const registry = {
-			getAll: () => [...allModels, zaiModel, gatewayModel],
-		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+		const registry = createTestRegistry([...allModels, zaiModel, gatewayModel]);
 
 		const result = resolveCliModel({
 			cliModel: "zai/glm-5",
@@ -357,9 +383,7 @@ describe("resolveCliModel", () => {
 	});
 
 	test("resolves provider-prefixed fuzzy patterns (openrouter/qwen -> openrouter model)", () => {
-		const registry = {
-			getAll: () => allModels,
-		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+		const registry = createTestRegistry();
 
 		const result = resolveCliModel({
 			cliModel: "openrouter/qwen",

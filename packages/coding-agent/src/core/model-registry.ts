@@ -292,6 +292,64 @@ function mergeCompat(
 	return merged as Model<Api>["compat"];
 }
 
+const ANTHROPIC_OPUS_4_7_MODEL_ID = "claude-opus-4-7";
+const ANTHROPIC_OPUS_4_8_MODEL_ID = "claude-opus-4-8";
+
+interface BuiltInModelSupplement {
+	provider: KnownProvider;
+	baseModelId: string;
+	targetModelId: string;
+	targetName: string;
+	reasoning: boolean;
+	compat?: ModelOverride["compat"];
+	thinkingLevelMap: NonNullable<Model<Api>["thinkingLevelMap"]>;
+}
+
+/**
+ * Atomic-owned supplements for models missing from the generated pi-ai catalog.
+ * Remove entries once the upstream provider catalog includes the target model.
+ */
+const BUILT_IN_MODEL_SUPPLEMENTS: readonly BuiltInModelSupplement[] = [
+	{
+		provider: "anthropic",
+		baseModelId: ANTHROPIC_OPUS_4_7_MODEL_ID,
+		targetModelId: ANTHROPIC_OPUS_4_8_MODEL_ID,
+		targetName: "Claude Opus 4.8",
+		reasoning: true,
+		compat: { forceAdaptiveThinking: true },
+		thinkingLevelMap: { xhigh: "xhigh" },
+	},
+];
+
+function applyBuiltInModelSupplements(provider: KnownProvider, models: Model<Api>[]): Model<Api>[] {
+	let supplemented = models;
+
+	for (const supplement of BUILT_IN_MODEL_SUPPLEMENTS) {
+		if (supplement.provider !== provider) continue;
+		if (supplemented.some((model) => model.id === supplement.targetModelId)) continue;
+
+		const baseModel = supplemented.find((model) => model.id === supplement.baseModelId);
+		if (!baseModel) continue;
+
+		supplemented = [
+			...supplemented,
+			{
+				...baseModel,
+				id: supplement.targetModelId,
+				name: supplement.targetName,
+				reasoning: supplement.reasoning,
+				compat: mergeCompat(baseModel.compat, supplement.compat),
+				thinkingLevelMap: {
+					...baseModel.thinkingLevelMap,
+					...supplement.thinkingLevelMap,
+				},
+			},
+		];
+	}
+
+	return supplemented;
+}
+
 /**
  * Deep merge a model override into a model.
  * Handles nested objects (cost, compat) by merging rather than replacing.
@@ -421,7 +479,8 @@ export class ModelRegistry {
 		modelOverrides: Map<string, Map<string, ModelOverride>>,
 	): Model<Api>[] {
 		return getProviders().flatMap((provider) => {
-			const models = getModels(provider as KnownProvider) as Model<Api>[];
+			const knownProvider = provider as KnownProvider;
+			const models = applyBuiltInModelSupplements(knownProvider, getModels(knownProvider) as Model<Api>[]);
 			const providerOverride = overrides.get(provider);
 			const perModelOverrides = modelOverrides.get(provider);
 

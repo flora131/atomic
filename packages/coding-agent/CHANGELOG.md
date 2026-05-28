@@ -4,7 +4,12 @@
 
 ### Added
 
+- Added first-class Anthropic `claude-opus-4-8` support via an Atomic model-registry supplement with adaptive thinking metadata.
 - Added session-scoped `orchestrationContext` support to SDK agent sessions and extension contexts for workflow-stage policy enforcement.
+
+### Changed
+
+- Made Anthropic `claude-opus-4-8` the default Anthropic model.
 
 ## [0.8.19] - 2026-05-27
 

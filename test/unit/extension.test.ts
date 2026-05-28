@@ -1,4 +1,4 @@
-import { test } from "bun:test";
+import { beforeEach, test } from "bun:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -46,6 +46,10 @@ function getSessionBeforeSwitchHandler(): SessionBeforeSwitchHandler {
   return handler;
 }
 
+beforeEach(() => {
+  store.clear();
+});
+
 test("extension factory is a function", () => {
   assert.equal(typeof factory, "function");
 });
@@ -77,7 +81,8 @@ test("session_before_switch prompts for /new and /resume when workflows are in f
       const promptText = `${prompts[0]?.title}\n${prompts[0]?.message}`;
       assert.match(promptText, reason === "new" ? /new session/i : /resume another session/i);
       assert.match(promptText, /stop|kill/i);
-      assert.match(promptText, /in-flight workflows/i);
+      assert.match(promptText, /1 in-flight workflow/i);
+      assert.doesNotMatch(promptText, /1 in-flight workflows/i);
       assert.match(promptText, /clear workflow history tied to (the )?current session/i);
       assert.equal(store.runs().length, 1);
       assert.equal(store.runs()[0]?.endedAt, undefined);
@@ -85,6 +90,44 @@ test("session_before_switch prompts for /new and /resume when workflows are in f
       store.clear();
     }
   }
+});
+
+test("session_before_switch renders plural in-flight workflow counts", async () => {
+  store.recordRunStart(workflowRun({ id: "run-1" }));
+  store.recordRunStart(workflowRun({ id: "run-2" }));
+  const handler = getSessionBeforeSwitchHandler();
+
+  const prompts: Array<{ title: string; message?: string }> = [];
+  const result = await handler({ reason: "new" }, {
+    ui: {
+      confirm: async (title: string, message?: string) => {
+        prompts.push({ title, message });
+        return true;
+      },
+    },
+  });
+
+  assert.equal(result, undefined);
+  assert.equal(prompts.length, 1);
+  assert.match(prompts[0]?.title ?? "", /2 in-flight workflows/i);
+  assert.match(prompts[0]?.message ?? "", /2 in-flight workflows/i);
+});
+
+test("session_before_switch fails open when confirm throws", async () => {
+  store.recordRunStart(workflowRun());
+  const handler = getSessionBeforeSwitchHandler();
+
+  const result = await handler({ reason: "new" }, {
+    ui: {
+      confirm: async () => {
+        throw new Error("confirm unavailable");
+      },
+    },
+  });
+
+  assert.equal(result, undefined);
+  assert.equal(store.runs().length, 1);
+  assert.equal(store.runs()[0]?.endedAt, undefined);
 });
 
 test("session_before_switch cancels /new and /resume when warning is declined", async () => {

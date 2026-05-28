@@ -3262,6 +3262,8 @@ function factory(pi: ExtensionAPI): void {
         : undefined;
       if (reason !== "new" && reason !== "resume") return undefined;
 
+      // "In-flight" intentionally includes paused runs: session_start kills any run
+      // without endedAt, so warn for the same set that would be stopped by the switch.
       const inFlightWorkflowCount = inFlightRunCount();
       if (inFlightWorkflowCount === 0) return undefined;
 
@@ -3269,12 +3271,19 @@ function factory(pi: ExtensionAPI): void {
       // Headless/non-interactive callers intentionally fail open so automation cannot wedge.
       if (typeof confirmSessionSwitch !== "function") return undefined;
 
-      const workflowPlural = inFlightWorkflowCount === 1 ? "" : "s";
+      const workflowNoun = inFlightWorkflowCount === 1 ? "workflow" : "workflows";
       const actionLabel = reason === "new" ? "Start a new session" : "Resume another session";
-      const promptTitle = `${actionLabel} and stop ${inFlightWorkflowCount} in-flight workflow${workflowPlural}?`;
+      const messageLabel = reason === "new" ? "Starting a new session" : "Resuming another session";
+      const promptTitle = `${actionLabel} and stop ${inFlightWorkflowCount} in-flight ${workflowNoun}?`;
       const promptMessage =
-        `${actionLabel} will stop/kill in-flight workflows and clear workflow history tied to the current session.`;
-      const shouldSwitchSession = await confirmSessionSwitch(promptTitle, promptMessage);
+        `${messageLabel} will stop/kill ${inFlightWorkflowCount} in-flight ${workflowNoun} and clear workflow history tied to the current session.`;
+      let shouldSwitchSession: boolean | undefined;
+      try {
+        shouldSwitchSession = await confirmSessionSwitch(promptTitle, promptMessage);
+      } catch {
+        // Keep headless/failed UI behavior fail-open so session automation cannot wedge.
+        return undefined;
+      }
       if (shouldSwitchSession) return undefined;
 
       const cancelledLabel = reason === "new" ? "New session" : "Resume";

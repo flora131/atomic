@@ -2284,14 +2284,23 @@ function factory(pi: ExtensionAPI): void {
       },
       renderCall: (args, _theme, _context) =>
         dynamicTextRenderComponent((width) => renderCall(args, { width })),
-      renderResult: (result, opts, _theme, context) =>
-        dynamicTextRenderComponent((width) =>
+      renderResult: (result, opts, _theme, context) => {
+        // Capture wall-clock ONCE per chat entry. The lambda below is
+        // invoked on every TUI re-render; without a captured `now`, every
+        // tick would recompute elapsed/running durations and trigger
+        // pi-tui's full-redraw path for any entry above the viewport —
+        // visible as whole-screen flicker on terminals without
+        // synchronized output support (e.g. mosh).
+        const capturedNow = Date.now();
+        return dynamicTextRenderComponent((width) =>
           renderResult(result.details, {
             ...opts,
             width,
+            now: capturedNow,
             runInputs: (context as { args?: WorkflowToolArgs }).args?.inputs,
           }),
-        ),
+        );
+      },
     });
   }
 

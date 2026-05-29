@@ -2269,7 +2269,11 @@ export class InteractiveMode {
       this.widgetContainerBelow,
       this.extensionWidgetsBelow,
       false,
-      false,
+      // leadingSpacer: blank line between the footer (model + cwd identity) and
+      // below-editor widgets such as the workflow companion counter, so the
+      // transient run status is visually separated from the session identity
+      // line. Only emitted when a below-editor widget is actually present.
+      true,
     );
     this.ui.requestRender();
   }

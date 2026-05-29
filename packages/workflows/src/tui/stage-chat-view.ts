@@ -198,6 +198,7 @@ export class StageChatView implements Component, Focusable {
   private chatHost: ChatSessionHost<NoticeEntry>;
   private stageUiBroker: StageUiBroker;
   private mountedCustomUi: MountedStageCustomUi | null = null;
+  private mountingRequestId: string | null = null;
   private promptState: PromptCardState | null = null;
   private promptEditor: EditorComponent | null = null;
   private promptEditorPromptId: string | null = null;
@@ -367,7 +368,15 @@ export class StageChatView implements Component, Focusable {
   private async _showCustomUi(request: StageCustomUiRequest): Promise<void> {
     this.mountedCustomUi?.component.dispose?.();
     this.mountedCustomUi = null;
+    // Track the request currently being mounted. `mountStageCustomUi` is async,
+    // so the broker can resolve/reject/abort the request (clearing it via
+    // `_hideMountedCustomUi`) before we finish awaiting. Without this guard the
+    // post-await assignment below would strand a settled gate as a permanent
+    // `mountedCustomUi`, hiding the transcript and crashing on the next
+    // keystroke routed into the dead component (readiness gate #1099).
+    this.mountingRequestId = request.id;
     if (!this.piTui || this.piTheme === undefined || this.piKeybindings === undefined) {
+      this.mountingRequestId = null;
       this.stageUiBroker.reject(
         request,
         new Error("pi-workflows: stage custom UI cannot mount without attached TUI host"),
@@ -375,7 +384,7 @@ export class StageChatView implements Component, Focusable {
       return;
     }
     try {
-      this.mountedCustomUi = await mountStageCustomUi(
+      const mounted = await mountStageCustomUi(
         request,
         this.piTui,
         this.piTheme,
@@ -390,8 +399,17 @@ export class StageChatView implements Component, Focusable {
           this.requestRender?.();
         },
       );
+      // Settled or superseded while mounting: drop the freshly-built component
+      // instead of showing a gate the broker has already torn down.
+      if (this.mountingRequestId !== request.id) {
+        mounted.component.dispose?.();
+        return;
+      }
+      this.mountingRequestId = null;
+      this.mountedCustomUi = mounted;
       this.requestRender?.();
     } catch (error) {
+      if (this.mountingRequestId === request.id) this.mountingRequestId = null;
       this.stageUiBroker.reject(request, error);
     }
   }
@@ -579,6 +597,13 @@ export class StageChatView implements Component, Focusable {
     this._syncPromptState(stage?.pendingPrompt);
     const promptActive = !customUiActive && this.promptState !== null;
     const readOnlyArchive = this._isReadOnlyArchive(stage);
+
+    // ask_user_question / readiness-gate custom UI renders as a bottom panel
+    // (in the high-priority composer slot) so the live transcript stays visible
+    // and scrollable above it — matching the standalone ask_user_question tool.
+    // Structured prompt nodes and read-only archives keep their full-body
+    // treatment below.
+    const customUiLines = customUiActive ? this._renderCustomUi(w) : [];
     const chatChromeHidden = customUiActive || promptActive || readOnlyArchive;
     const pendingLines = chatChromeHidden ? [] : this.chatHost.renderPendingMessages(w);
     const workingLines = chatChromeHidden ? [] : this.chatHost.renderWorkingStatus(w);
@@ -594,27 +619,32 @@ export class StageChatView implements Component, Focusable {
       pendingRows: pendingLines.length,
       workingRows: workingLines.length,
       usageRows: usageLines.length,
-      editorRows: editorLines.length,
+      // The custom UI question takes the reserved bottom (composer) slot so the
+      // transcript above keeps as much room as possible and the question never
+      // clips below the overlay boundary.
+      editorRows: customUiActive ? customUiLines.length : editorLines.length,
       footerRows: footerLines.length,
     });
     const visiblePendingLines = pendingLines.slice(0, plan.pendingRows);
     const visibleWorkingLines = workingLines.slice(0, plan.workingRows);
     const visibleUsageLines = usageLines.slice(0, plan.usageRows);
-    const visibleEditorLines = editorLines.slice(0, plan.editorRows);
+    const visibleEditorLines = customUiActive
+      ? customUiLines.slice(0, plan.editorRows)
+      : editorLines.slice(0, plan.editorRows);
     const visibleFooterLines = footerLines.slice(0, plan.footerRows);
     const bodyBudget = plan.bodyRows;
     if (blocked) this.chatHost.scrollToBottom();
 
     let bodyLines: string[];
-    if (customUiActive) {
-      bodyLines = this._renderCustomUiBody(w, bodyBudget);
-    } else if (promptActive) {
+    if (promptActive) {
       bodyLines = this._renderPromptBody(w, bodyBudget);
     } else if (blocked) {
       bodyLines = this._renderBlockedBody(w, bodyBudget, stage);
     } else if (readOnlyArchive) {
       bodyLines = this._renderReadOnlyArchiveBody(w, bodyBudget, stage);
     } else {
+      // Live transcript. When a custom UI question is active it renders in the
+      // composer slot above; the transcript here stays visible and scrollable.
       bodyLines = this.chatHost.renderBody(w, bodyBudget);
     }
 
@@ -844,11 +874,13 @@ export class StageChatView implements Component, Focusable {
     return lines;
   }
 
-  private _renderCustomUiBody(width: number, budget: number): string[] {
+  // Natural-height render of the mounted custom UI (no body padding): it is
+  // placed in the composer slot so the transcript stays scrollable above it.
+  private _renderCustomUi(width: number): string[] {
     const component = this.mountedCustomUi?.component;
-    if (component) setComponentFocused(component, this.focused);
-    const lines = component ? component.render(width) : [];
-    return this._fitBodyLines(lines, width, budget);
+    if (!component) return [];
+    setComponentFocused(component, this.focused);
+    return component.render(width);
   }
 
   private _renderPromptBody(width: number, budget: number): string[] {
@@ -1051,6 +1083,14 @@ export class StageChatView implements Component, Focusable {
         this.onClose();
         return true;
       }
+      // Let scroll input (mouse wheel / pageUp / pageDown / home / end) reach
+      // the transcript so history stays scrollable while the question is shown,
+      // matching the standalone ask_user_question tool. Navigation keys
+      // (arrows / enter / typing) fall through to the question component.
+      if (this.chatHost.handleScrollInput(data)) {
+        this.requestRender?.();
+        return true;
+      }
       setComponentFocused(this.mountedCustomUi.component, this.focused);
       this.mountedCustomUi.component.handleInput?.(data);
       this.requestRender?.();
@@ -1170,6 +1210,7 @@ export class StageChatView implements Component, Focusable {
     this._unsubscribeHandle?.();
     this._unsubscribeHandle = null;
     this._rejectMountedCustomUi("stage chat view disposed");
+    this.mountingRequestId = null;
     this._disposePromptEditor();
     this._unregisterStageUiHost?.();
     this._unregisterStageUiHost = null;
@@ -1177,6 +1218,9 @@ export class StageChatView implements Component, Focusable {
   }
 
   private _hideMountedCustomUi(request: StageCustomUiRequest): void {
+    // Signal any in-flight `_showCustomUi` mount for this request to drop its
+    // component when it finishes — the broker is already tearing it down.
+    if (this.mountingRequestId === request.id) this.mountingRequestId = null;
     const mounted = this.mountedCustomUi;
     if (!mounted || mounted.request.id !== request.id) return;
     this.mountedCustomUi = null;

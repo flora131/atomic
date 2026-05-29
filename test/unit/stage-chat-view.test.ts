@@ -668,6 +668,310 @@ describe("StageChatView", () => {
     await assert.rejects(pending);
   });
 
+  // Regression: readiness-gate (#1099) crash. When a stage custom UI request
+  // settles *during* mount (e.g. the ask_user_question gate resolves before
+  // `_showCustomUi` finishes awaiting `mountStageCustomUi`), the resolved
+  // component must NOT be assigned to `mountedCustomUi`. Otherwise the gate
+  // stays "active" forever: the transcript is hidden (cannot scroll) and the
+  // next keystroke is dispatched into the stale component, crashing the TUI.
+  test("drops a stage custom UI that settles during mount (gate readiness regression)", async () => {
+    const store = createStore();
+    setupRun(store, "run-1", "stage-a");
+    const broker = new StageUiBroker(store);
+    const { handle } = makeHandle();
+    let staleInputs = 0;
+    const view = new StageChatView({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageId: "stage-a",
+      workflowName: "test-wf",
+      handle,
+      onDetach: () => {},
+      onClose: () => {},
+      piTui: { requestRender: () => {}, terminal: { rows: 32, columns: 80 } } as unknown as TUI,
+      piTheme: {},
+      piKeybindings: makeFakeKeybindings(),
+      stageUiBroker: broker,
+    });
+
+    // Factory resolves the request synchronously while it is still being
+    // mounted (before `_showCustomUi` assigns `mountedCustomUi`).
+    const pending = broker.requestCustomUi("run-1", "stage-a", (_tui, _theme, _kb, done) => {
+      done("Yes");
+      return {
+        render: () => ["STALE READINESS GATE"],
+        handleInput: () => {
+          staleInputs += 1;
+          throw new Error("stale custom UI received input");
+        },
+        invalidate: () => {},
+      };
+    });
+
+    assert.equal(await pending, "Yes");
+    // Let `_showCustomUi`'s post-await continuation run.
+    await flush();
+    await flush();
+
+    // 1) Transcript must not be hidden behind the already-settled gate.
+    const rendered = stripAnsi(view.render(80).join("\n"));
+    assert.doesNotMatch(rendered, /STALE READINESS GATE/);
+    assert.equal(store.runs()[0]?.stages[0]?.status, "running");
+
+    // 2) Entering a message must not crash by routing into the stale UI.
+    assert.doesNotThrow(() => view.handleInput("x"));
+    assert.equal(staleInputs, 0);
+
+    view.dispose();
+  });
+
+  // Regression: while an ask_user_question / readiness-gate custom UI is shown,
+  // the transcript must stay visible AND scrollable (like the standalone
+  // ask_user_question tool), instead of being replaced by the question.
+  test("keeps the transcript visible and scrollable while a custom UI question is shown", async () => {
+    const store = createStore();
+    setupRun(store, "run-1", "stage-a");
+    const broker = new StageUiBroker(store);
+    const { handle } = makeHandle(undefined, [
+      { role: "assistant", content: [{ type: "text", text: "EARLIER-HISTORY-MARKER" }] },
+    ] as unknown as AgentSession["messages"]);
+    const view = new StageChatView({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageId: "stage-a",
+      workflowName: "test-wf",
+      handle,
+      onDetach: () => {},
+      onClose: () => {},
+      piTui: { requestRender: () => {}, terminal: { rows: 32, columns: 80 } } as unknown as TUI,
+      piTheme: {},
+      piKeybindings: makeFakeKeybindings(),
+      stageUiBroker: broker,
+    });
+
+    const questionInputs: string[] = [];
+    const pending = broker.requestCustomUi("run-1", "stage-a", (_tui, _theme, _kb, done) => ({
+      render: () => ["Proceed with the plan?"],
+      handleInput: (data: string) => {
+        questionInputs.push(data);
+        if (data === "y") done("Yes");
+      },
+      invalidate: () => {},
+    }));
+    await flush();
+
+    // Both the prior transcript and the question render together.
+    const rendered = stripAnsi(view.render(80).join("\n"));
+    assert.match(rendered, /EARLIER-HISTORY-MARKER/);
+    assert.match(rendered, /Proceed with the plan\?/);
+
+    // Scroll input (mouse wheel) is consumed by the transcript, not the
+    // question component, so history stays scrollable while the gate is open.
+    assert.equal(view.handleInput("\x1b[<64;1;1M"), true);
+    assert.equal(questionInputs.length, 0);
+
+    // Navigation/typing still reaches the question component.
+    view.handleInput("a");
+    assert.deepEqual(questionInputs, ["a"]);
+
+    // And answering still resolves the question.
+    view.handleInput("y");
+    assert.equal(await pending, "Yes");
+    view.dispose();
+  });
+
+  // Routing contract for the question UI: selection/navigation/cancel keys must
+  // reach the question component (so Yes/No/Chat-about-this/ESC=cancel work),
+  // while scroll keys stay with the transcript. ESC is NOT intercepted by the
+  // stage view — it reaches the questionnaire, which treats cancel as decline
+  // ("effectively No").
+  test("forwards question keys (incl. ESC) to the custom UI but keeps scroll keys for the transcript", async () => {
+    const store = createStore();
+    setupRun(store, "run-1", "stage-a");
+    const broker = new StageUiBroker(store);
+    const { handle } = makeHandle(undefined, [
+      { role: "assistant", content: [{ type: "text", text: "HISTORY-LINE" }] },
+    ] as unknown as AgentSession["messages"]);
+    const view = new StageChatView({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageId: "stage-a",
+      workflowName: "test-wf",
+      handle,
+      onDetach: () => {},
+      onClose: () => {},
+      piTui: { requestRender: () => {}, terminal: { rows: 32, columns: 80 } } as unknown as TUI,
+      piTheme: {},
+      piKeybindings: makeFakeKeybindings(),
+      stageUiBroker: broker,
+    });
+
+    const received: string[] = [];
+    const pending = broker.requestCustomUi("run-1", "stage-a", (_tui, _theme, _kb, _done) => ({
+      render: () => ["QUESTION-PANEL"],
+      handleInput: (data: string) => { received.push(data); },
+      invalidate: () => {},
+    }));
+    await flush();
+
+    // Enter (confirm), arrows (navigate Yes/No/Chat), ESC (cancel), and typing
+    // all reach the questionnaire.
+    const forwarded = ["\x1b", "\r", "\n", "\x1b[A", "\x1b[B", "1", "2", "y", "n", " "];
+    for (const key of forwarded) assert.equal(view.handleInput(key), true);
+    assert.deepEqual(received, forwarded);
+
+    // Mouse-wheel scroll is consumed by the transcript and never reaches the
+    // question component, so history stays scrollable.
+    received.length = 0;
+    for (const wheel of ["\x1b[<64;1;1M", "\x1b[<65;10;10M"]) {
+      assert.equal(view.handleInput(wheel), true);
+    }
+    assert.deepEqual(received, []);
+
+    const rendered = stripAnsi(view.render(80).join("\n"));
+    assert.match(rendered, /HISTORY-LINE/);
+    assert.match(rendered, /QUESTION-PANEL/);
+
+    view.dispose();
+    await assert.rejects(pending);
+  });
+
+  test("ctrl+c closes and ctrl+d detaches while a custom UI question is shown", async () => {
+    for (const variant of [
+      { key: "\x03", expect: "close", reason: /closed/ },
+      { key: "\x04", expect: "detach", reason: /detached/ },
+    ] as const) {
+      const store = createStore();
+      setupRun(store, "run-1", "stage-a");
+      const broker = new StageUiBroker(store);
+      const { handle } = makeHandle();
+      let closed = 0;
+      let detached = 0;
+      const view = new StageChatView({
+        store,
+        graphTheme: deriveGraphTheme({}),
+        runId: "run-1",
+        stageId: "stage-a",
+        workflowName: "test-wf",
+        handle,
+        onDetach: () => { detached += 1; },
+        onClose: () => { closed += 1; },
+        piTui: { requestRender: () => {}, terminal: { rows: 32, columns: 80 } } as unknown as TUI,
+        piTheme: {},
+        piKeybindings: makeFakeKeybindings(),
+        stageUiBroker: broker,
+      });
+      const pending = broker.requestCustomUi("run-1", "stage-a", () => ({
+        render: () => ["Q"],
+        invalidate: () => {},
+      }));
+      await flush();
+
+      assert.equal(view.handleInput(variant.key), true);
+      await assert.rejects(pending, variant.reason);
+      if (variant.expect === "close") {
+        assert.equal(closed, 1);
+        assert.equal(detached, 0);
+      } else {
+        assert.equal(detached, 1);
+        assert.equal(closed, 0);
+      }
+      // Custom UI is gone, so the transcript renders again.
+      assert.doesNotMatch(stripAnsi(view.render(80).join("\n")), /Q/);
+      view.dispose();
+    }
+  });
+
+  test("fuzz: random input never crashes the stage chat (custom UI mounted and idle)", async () => {
+    // Deterministic LCG so failures are reproducible.
+    let seed = 0x1234abcd >>> 0;
+    const rand = (): number => {
+      seed = (Math.imul(seed, 1103515245) + 12345) >>> 0;
+      return seed / 0xffffffff;
+    };
+    const pick = <T>(arr: readonly T[]): T => arr[Math.floor(rand() * arr.length)]!;
+    const alphabet = [
+      "\x1b", "\r", "\n", "\t", "\x7f", "\b", " ", "a", "y", "n", "1", "2", "9", "Z",
+      "\x1b[A", "\x1b[B", "\x1b[C", "\x1b[D", "\x1b[H", "\x1b[F", "\x1b[5~", "\x1b[6~", "\x1b[3~",
+      "\x1b[<64;1;1M", "\x1b[<65;10;10M", "\x1b[M   ", "\x1bOH", "\x1bOF",
+      "\x01", "\x05", "\x0b", "\x15", "\x17", "\u00e4", "\ud83d\ude80",
+      "\x1b[200~paste\x1b[201~", "\x00", "\x1b[<0;5;5m",
+    ];
+    const widths = [40, 56, 80, 120, 200];
+
+    // Phase A: custom UI mounted (the path the scrollback fix changed). The stub
+    // never resolves and the alphabet omits ctrl+c/ctrl+d, so it stays mounted.
+    {
+      const store = createStore();
+      setupRun(store, "run-1", "stage-a");
+      const broker = new StageUiBroker(store);
+      const { handle } = makeHandle(undefined, [
+        { role: "assistant", content: [{ type: "text", text: "FUZZ-HISTORY" }] },
+      ] as unknown as AgentSession["messages"]);
+      const view = new StageChatView({
+        store,
+        graphTheme: deriveGraphTheme({}),
+        runId: "run-1",
+        stageId: "stage-a",
+        workflowName: "test-wf",
+        handle,
+        onDetach: () => {},
+        onClose: () => {},
+        piTui: { requestRender: () => {}, terminal: { rows: 32, columns: 80 } } as unknown as TUI,
+        piTheme: {},
+        piKeybindings: makeFakeKeybindings(),
+        stageUiBroker: broker,
+      });
+      const pending = broker.requestCustomUi("run-1", "stage-a", () => ({
+        render: () => ["FUZZ-QUESTION"],
+        handleInput: () => {},
+        invalidate: () => {},
+      }));
+      await flush();
+      for (let i = 0; i < 2000; i++) {
+        assert.doesNotThrow(() => view.handleInput(pick(alphabet)));
+        assert.doesNotThrow(() => assert.ok(Array.isArray(view.render(pick(widths)))));
+      }
+      // Still mounted + transcript still visible above it.
+      const rendered = stripAnsi(view.render(80).join("\n"));
+      assert.match(rendered, /FUZZ-QUESTION/);
+      assert.match(rendered, /FUZZ-HISTORY/);
+      view.dispose();
+      await assert.rejects(pending);
+    }
+
+    // Phase B: idle live stage (composer path) — include teardown keys too.
+    {
+      const store = createStore();
+      setupRun(store, "run-1", "stage-a");
+      const { handle } = makeHandle(undefined, [
+        { role: "assistant", content: [{ type: "text", text: "FUZZ-IDLE" }] },
+      ] as unknown as AgentSession["messages"]);
+      const view = new StageChatView({
+        store,
+        graphTheme: deriveGraphTheme({}),
+        runId: "run-1",
+        stageId: "stage-a",
+        workflowName: "test-wf",
+        handle,
+        onDetach: () => {},
+        onClose: () => {},
+        piTui: { requestRender: () => {}, terminal: { rows: 32, columns: 80 } } as unknown as TUI,
+        piTheme: {},
+        piKeybindings: makeFakeKeybindings(),
+      });
+      const idleAlphabet = [...alphabet, "\x03", "\x04", "\x06"];
+      for (let i = 0; i < 2000; i++) {
+        assert.doesNotThrow(() => view.handleInput(pick(idleAlphabet)));
+        assert.doesNotThrow(() => assert.ok(Array.isArray(view.render(pick(widths)))));
+      }
+      view.dispose();
+    }
+  });
+
   test("header omits workflow duration/status chrome inside the stage chat", () => {
     const originalNow = Date.now;
     try {

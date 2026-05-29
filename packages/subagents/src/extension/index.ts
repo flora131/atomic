@@ -23,7 +23,7 @@ import { discoverAgents } from "../agents/agents.ts";
 import { cleanupAllArtifactDirs, cleanupOldArtifacts, getArtifactsDir } from "../shared/artifacts.ts";
 import { resolveCurrentSessionId } from "../shared/session-identity.ts";
 import { cleanupOldChainDirs } from "../shared/settings.ts";
-import { clearLegacyResultAnimationTimer, renderWidget, renderSubagentResult } from "../tui/render.ts";
+import { renderWidget, renderSubagentResult, stopResultAnimations, stopWidgetAnimation, syncResultAnimation } from "../tui/render.ts";
 import { SubagentParams } from "./schemas.ts";
 import { createSubagentExecutor, type SubagentParamsLike } from "../runs/foreground/subagent-executor.ts";
 import { createAsyncJobTracker } from "../runs/background/async-job-tracker.ts";
@@ -135,8 +135,10 @@ function createSlashResultComponent(
 	details: SlashMessageDetails,
 	options: { expanded: boolean },
 	theme: ExtensionContext["ui"]["theme"],
+	requestRender: () => void,
 ): Container {
 	const container = new Container();
+	const animationState: { subagentResultAnimationTimer?: ReturnType<typeof setInterval> } = {};
 	let lastVersion = -1;
 	container.render = (width: number): string[] => {
 		const snapshot = getSlashRenderableSnapshot(details);
@@ -144,6 +146,9 @@ function createSlashResultComponent(
 			lastVersion = snapshot.version;
 			rebuildSlashResultContainer(container, snapshot.result, options, theme);
 		}
+		// Keep the live slash card's spinner animating by scheduling steady
+		// re-renders while it runs (and tearing the timer down once it settles).
+		syncResultAnimation(snapshot.result, { state: animationState, invalidate: requestRender });
 		return Container.prototype.render.call(container, width);
 	};
 	return container;
@@ -266,6 +271,8 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 
 	const runtimeCleanup = () => {
 		stopResultWatcher();
+		stopWidgetAnimation();
+		stopResultAnimations();
 		clearPendingForegroundControlNotices(state);
 		if (state.poller) {
 			clearInterval(state.poller);
@@ -289,7 +296,7 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 	pi.registerMessageRenderer<SlashMessageDetails>(SLASH_RESULT_TYPE, (message, options, theme) => {
 		const details = resolveSlashMessageDetails(message.details);
 		if (!details) return undefined;
-		return createSlashResultComponent(details, options, theme);
+		return createSlashResultComponent(details, options, theme, () => state.lastUiContext?.ui.requestRender?.());
 	});
 
 	pi.registerMessageRenderer<SubagentNotifyDetails>("subagent-notify", (message, options, theme) => {
@@ -458,7 +465,9 @@ DIAGNOSTICS:
 		},
 
 		renderResult(result, options, theme, context) {
-			clearLegacyResultAnimationTimer(context);
+			// Animate the live subagent spinner by scheduling steady re-renders
+			// while the result is running; the timer stops once it settles.
+			syncResultAnimation(result, context);
 			return renderSubagentResult(result, options, theme);
 		},
 
@@ -549,6 +558,8 @@ DIAGNOSTICS:
 			delete globalStore[eventUnsubscribeStoreKey];
 		}
 		stopResultWatcher();
+		stopWidgetAnimation();
+		stopResultAnimations();
 		if (state.poller) clearInterval(state.poller);
 		state.poller = null;
 		clearPendingForegroundControlNotices(state);

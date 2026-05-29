@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Fixed the subagent running spinner freezing/stuttering and the surrounding TUI flickering while subagents run: the running glyph is now driven by wall-clock time with a steady re-render ticker (result cards, slash result cards, and the async-agents widget), so it animates smoothly and continuously instead of only advancing when progress data changes. Per-frame diffs stay limited to the spinner glyph cell, so the differential renderer keeps doing partial redraws (no full-screen clear / flicker), and the ticker is torn down on completion, reload, and session shutdown ([#1084](https://github.com/flora131/atomic/issues/1084)).
 - Hardened workflow-stage subagent guard propagation tests with an internal executor runtime DI seam ([#1088](https://github.com/flora131/atomic/issues/1088)).
 - Capped subagent fanout spawned from workflow stages to a single child level with a workflow-specific nested-subagent error.
 

@@ -6,11 +6,14 @@ import {
   clearLegacyResultAnimationTimer,
   currentRunningFrame,
   renderSubagentResult,
+  renderWidget,
   RUNNING_ANIMATION_MS,
   stopResultAnimations,
+  stopWidgetAnimation,
   syncResultAnimation,
   widgetRenderKey,
 } from "../../packages/subagents/src/tui/render.js";
+import type { ExtensionContext } from "@bastani/atomic";
 import type { AsyncJobState, Details } from "../../packages/subagents/src/shared/types.js";
 
 type RenderTheme = Parameters<typeof renderSubagentResult>[2];
@@ -37,6 +40,11 @@ function withMockedNow<T>(now: number, run: () => T): T {
 
 function stripSpinnerChars(line: string): string {
   return [...line].filter((char) => !SPINNER_CHARS.has(char)).join("");
+}
+
+function firstSpinnerChar(text: string): string | undefined {
+  for (const char of text) if (SPINNER_CHARS.has(char)) return char;
+  return undefined;
 }
 
 function runningSingleResult(): AgentToolResult<Details> {
@@ -116,16 +124,24 @@ describe("subagent running spinner animation (issue #1084)", () => {
     assert.ok(changedLines > 0, "expected at least one spinner line to animate");
   });
 
-  test("running glyph cycles through every frame over a full period", () => {
+  test("running glyph cycles through frames in order over a full period", () => {
     const result = runningSingleResult();
-    const seen = new Set<string>();
-    const base = 0;
-    for (let frame = 0; frame < RUNNING_FRAMES.length; frame++) {
-      const out = withMockedNow(base + frame * RUNNING_ANIMATION_MS, () =>
+    const sequence: string[] = [];
+    for (let frame = 0; frame <= RUNNING_FRAMES.length; frame++) {
+      const out = withMockedNow(frame * RUNNING_ANIMATION_MS, () =>
         renderSubagentResult(result, { expanded: false }, theme).render(120).join("\n"));
-      for (const char of out) if (SPINNER_CHARS.has(char)) seen.add(char);
+      const glyph = firstSpinnerChar(out);
+      assert.ok(glyph, `expected a spinner glyph at frame ${frame}`);
+      sequence.push(glyph!);
     }
-    assert.equal(seen.size, RUNNING_FRAMES.length, "spinner should visit every frame across one full period");
+    // Every distinct frame is visited...
+    assert.equal(new Set(sequence).size, RUNNING_FRAMES.length, "spinner should visit every frame");
+    // ...and each step advances to the cyclic successor in RUNNING_FRAMES order.
+    for (let i = 1; i < sequence.length; i++) {
+      const prev = RUNNING_FRAMES.indexOf(sequence[i - 1]!);
+      const cur = RUNNING_FRAMES.indexOf(sequence[i]!);
+      assert.equal(cur, (prev + 1) % RUNNING_FRAMES.length, `frame ${i} did not advance by exactly one step`);
+    }
   });
 
   test("async widget spinner advances with wall clock for running jobs", () => {
@@ -239,6 +255,67 @@ describe("subagent result animation timer lifecycle", () => {
     assert.ok(context.state.subagentResultAnimationTimer);
     stopResultAnimations();
     assert.equal(context.state.subagentResultAnimationTimer, undefined);
+  });
+
+  test("a throwing invalidate tears the ticker down instead of crashing", async () => {
+    const context = {
+      state: {} as { subagentResultAnimationTimer?: ReturnType<typeof setInterval> },
+      invalidate: () => {
+        throw new Error("This extension ctx is stale after session replacement or reload");
+      },
+    };
+    syncResultAnimation(runningSingleResult(), context);
+    assert.ok(context.state.subagentResultAnimationTimer);
+    await new Promise((resolve) => setTimeout(resolve, RUNNING_ANIMATION_MS * 2 + 40));
+    assert.equal(context.state.subagentResultAnimationTimer, undefined, "a throwing tick must stop and clear its own timer");
+  });
+});
+
+describe("async widget animation ticker lifecycle", () => {
+  afterEach(() => {
+    stopWidgetAnimation();
+  });
+
+  function mockWidgetCtx(): { ctx: ExtensionContext; renders: () => number } {
+    let renderCount = 0;
+    const ctx = {
+      hasUI: true,
+      ui: {
+        setWidget: () => {},
+        getToolsExpanded: () => false,
+        requestRender: () => {
+          renderCount++;
+        },
+      },
+    } as unknown as ExtensionContext;
+    return { ctx, renders: () => renderCount };
+  }
+
+  function runningJob(): AsyncJobState {
+    return {
+      asyncId: "job1",
+      asyncDir: "/tmp/job1",
+      status: "running",
+      mode: "single",
+      agents: ["worker"],
+      updatedAt: 10_000,
+      lastActivityAt: 10_000,
+      toolCount: 1,
+      turnCount: 1,
+    };
+  }
+
+  test("running jobs drive periodic re-renders; finished jobs stop them", async () => {
+    const { ctx, renders } = mockWidgetCtx();
+    renderWidget(ctx, [runningJob()]);
+    await new Promise((resolve) => setTimeout(resolve, RUNNING_ANIMATION_MS * 3 + 40));
+    const whileRunning = renders();
+    assert.ok(whileRunning >= 1, `expected periodic widget re-renders while running, saw ${whileRunning}`);
+
+    renderWidget(ctx, [{ ...runningJob(), status: "complete" }]);
+    const afterStop = renders();
+    await new Promise((resolve) => setTimeout(resolve, RUNNING_ANIMATION_MS * 3 + 40));
+    assert.equal(renders(), afterStop, "widget ticker must stop once no job is running");
   });
 });
 

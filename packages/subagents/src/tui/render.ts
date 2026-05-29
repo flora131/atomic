@@ -99,7 +99,6 @@ const RUNNING_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", 
  * never needs a full-clear (no flicker).
  */
 export const RUNNING_ANIMATION_MS = 80;
-const STALE_EXTENSION_CONTEXT_MESSAGE = "This extension ctx is stale after session replacement or reload";
 
 type ProgressSeedSource = Partial<Pick<AgentProgress, "index" | "toolCount" | "tokens" | "durationMs" | "lastActivityAt" | "currentToolStartedAt" | "turnCount">>;
 
@@ -141,29 +140,21 @@ function progressRunningSeed(progress: ProgressSeedSource | undefined): number |
 	);
 }
 
+type ResultAnimationState = { subagentResultAnimationTimer?: ReturnType<typeof setInterval> };
+
 interface ResultAnimationContext {
-	state: { subagentResultAnimationTimer?: ReturnType<typeof setInterval> };
+	state: ResultAnimationState;
 	invalidate: () => void;
 }
 
-interface LegacyResultAnimationContext {
-	state: { subagentResultAnimationTimer?: ReturnType<typeof setInterval> };
-}
-
-interface ResultAnimationEntry {
-	state: ResultAnimationContext["state"];
-	invalidate: () => void;
-}
+type LegacyResultAnimationContext = { state: ResultAnimationState };
+type ResultAnimationEntry = ResultAnimationContext;
 
 // Registry of every live result-animation timer so they can be torn down in one
 // shot on reload/shutdown even if their owning render context never re-renders.
 // Each tick reads the latest `invalidate` from here so a re-sync can refresh the
 // callback if the host ever swaps render contexts for the same renderable.
 const resultAnimationTimers = new Map<ReturnType<typeof setInterval>, ResultAnimationEntry>();
-
-function isStaleExtensionContextError(error: unknown): boolean {
-	return error instanceof Error && error.message.includes(STALE_EXTENSION_CONTEXT_MESSAGE);
-}
 
 function resultIsRunning(result: AgentToolResult<Details>): boolean {
 	return Boolean(
@@ -208,8 +199,10 @@ export function syncResultAnimation(result: AgentToolResult<Details>, context: R
 		if (!entry) return;
 		try {
 			entry.invalidate();
-		} catch (error) {
-			if (!isStaleExtensionContextError(error)) throw error;
+		} catch {
+			// A cosmetic spinner tick must never crash the host (e.g. a stale extension
+			// context after reload/session swap, or any other render glitch). Stop this
+			// timer; the next real render re-syncs and restarts it while still running.
 			stopResultAnimation(context);
 		}
 	}, RUNNING_ANIMATION_MS);
@@ -986,9 +979,12 @@ function hasAnimatedWidgetJobs(jobs: AsyncJobState[]): boolean {
 function refreshAnimatedWidget(): void {
 	if (!latestWidgetCtx?.hasUI) return;
 	try {
+		// The cast is required because narrowing on `hasUI` above collapses `ui` to
+		// the base ExtensionUIContext, which does not declare the optional
+		// requestRender that the running interactive host actually provides.
 		(latestWidgetCtx as RenderRequestingContext).ui.requestRender?.();
-	} catch (error) {
-		if (!isStaleExtensionContextError(error)) throw error;
+	} catch {
+		// Never let a cosmetic widget tick crash the host; stop on any error.
 		stopWidgetAnimation();
 	}
 }
@@ -1005,11 +1001,17 @@ function ensureWidgetAnimation(): void {
 	widgetTimer.unref?.();
 }
 
-export function stopWidgetAnimation(): void {
+// Stop only the ticker, keeping the last-rendered widget context/jobs intact.
+function stopWidgetTicker(): void {
 	if (widgetTimer) {
 		clearInterval(widgetTimer);
 		widgetTimer = undefined;
 	}
+}
+
+// Full teardown: stop the ticker and forget the driving context/jobs entirely.
+export function stopWidgetAnimation(): void {
+	stopWidgetTicker();
 	latestWidgetCtx = undefined;
 	latestWidgetJobs = [];
 }
@@ -1100,8 +1102,10 @@ export function renderWidget(ctx: ExtensionContext, jobs: AsyncJobState[]): void
 	latestWidgetCtx = ctx;
 	latestWidgetJobs = [...jobs];
 	ctx.ui.setWidget(WIDGET_KEY, buildWidgetComponent(jobs, () => ctx.ui.getToolsExpanded?.() ?? false));
+	// Keep the just-rendered ctx/jobs as the last-rendered state; only the ticker
+	// is conditional on whether anything is still animating.
 	if (hasAnimatedWidgetJobs(jobs)) ensureWidgetAnimation();
-	else stopWidgetAnimation();
+	else stopWidgetTicker();
 }
 
 function renderSingleCompact(d: Details, r: Details["results"][number], theme: Theme): Component {

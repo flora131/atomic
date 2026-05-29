@@ -7,7 +7,6 @@ This document covers setup, the local dev loop, testing patterns, and project la
 ## Prerequisites
 
 - **[Bun](https://bun.sh) ≥ 1.3.14** — runtime, package manager, and test runner
-- **[pi](https://github.com/earendil-works/pi)** — the host that loads the extension
 
 This repo uses **Bun** for all development, scripts, and testing. The `@bastani/workflows` workspace package ships raw `.ts` files with no build step; Atomic bundles it into `@bastani/atomic` during the coding-agent build.
 
@@ -74,7 +73,7 @@ bun --cwd packages/coding-agent run build
 
 ---
 
-## Local dev loop with pi
+## Local dev loop with atomic
 
 The extension entrypoint is now:
 
@@ -84,26 +83,26 @@ packages/workflows/src/extension/index.ts
 
 Three options, from heaviest to lightest:
 
-### A. `pi plugin install` against the local package path (persisted)
+### A. `atomic plugin install` against the local package path (persisted)
 
 ```bash
-pi plugin install -l "$PWD/packages/workflows"   # project-local
+atomic plugin install -l "$PWD/packages/workflows"   # project-local
 # or
-pi plugin install    "$PWD/packages/workflows"   # global
+atomic plugin install    "$PWD/packages/workflows"   # global
 ```
 
-pi adds the absolute package path to its settings file and resolves the package's `pi` manifest. From inside pi, `/reload` re-imports the extension after you edit source — no restart needed.
+atomic adds the absolute package path to its settings file and resolves the package's `atomic` manifest. From inside atomic, `/reload` re-imports the extension after you edit source — no restart needed.
 
 ### B. One-off load with `-e` (no settings write)
 
 ```bash
-pi -e "$PWD/packages/workflows/src/extension/index.ts"
+atomic -e "$PWD/packages/workflows/src/extension/index.ts"
 ```
 
 The fastest iteration loop. Combine with `--no-extensions` to isolate the extension under test:
 
 ```bash
-pi --no-extensions \
+atomic --no-extensions \
    -e "$PWD/packages/workflows/src/extension/index.ts" \
    "/workflow list"
 ```
@@ -111,11 +110,11 @@ pi --no-extensions \
 ### C. Symlink into the extensions directory
 
 ```bash
-mkdir -p ~/.pi/agent/extensions
-ln -s "$PWD/packages/workflows" ~/.pi/agent/extensions/workflows
+mkdir -p ~/.atomic/agent/extensions
+ln -s "$PWD/packages/workflows" ~/.atomic/agent/extensions/workflows
 ```
 
-Useful when you want the extension persisted globally but don't want pi to track it in settings.
+Useful when you want the extension persisted globally but don't want atomic to track it in settings.
 
 ---
 
@@ -123,16 +122,16 @@ Useful when you want the extension persisted globally but don't want pi to track
 
 Run these from the workspace root:
 
-| Command                    | Description                 |
-| -------------------------- | --------------------------- |
-| `bun run typecheck`        | Type-check the workspace    |
-| `bun test`                 | Run unit tests              |
-| `bun run test:unit`        | Run unit tests              |
-| `bun run test:integration` | Run integration tests       |
-| `bun run test:all`         | Run both unit + integration |
-| `bun run lint`             | Alias for typecheck         |
+| Command                    | Description                                                      |
+| -------------------------- | ---------------------------------------------------------------- |
+| `bun run typecheck`        | Type-check the workspace                                         |
+| `bun test`                 | Run unit tests                                                   |
+| `bun run test:unit`        | Run unit tests                                                   |
+| `bun run test:integration` | Run integration tests                                            |
+| `bun run test:all`         | Run both unit + integration                                      |
+| `bun run lint`             | Alias for typecheck                                              |
 | `bun run hooks:install`    | Install `prek.toml` Git hooks using `default_install_hook_types` |
-| `bun run hooks:run`        | Run all `prek.toml` hooks across the repository |
+| `bun run hooks:run`        | Run all `prek.toml` hooks across the repository                  |
 
 Both `typecheck` and `lint` run `tsc --noEmit`. There is no separate ESLint pipeline. Git hook configuration lives in [`prek.toml`](./prek.toml), not `.pre-commit-config.yaml`.
 
@@ -203,15 +202,15 @@ Examples import the workspace package `@bastani/workflows`.
 │   └── workflows/
 │       ├── package.json                 # private bundled @bastani/workflows metadata
 │       ├── src/
-│       │   ├── extension/               # pi extension entry point, commands, tools, hooks
-│       │   ├── intercom/                # pi-intercom adapter
+│       │   ├── extension/               # atomic extension entry point, commands, tools, hooks
+│       │   ├── intercom/                # intercom adapter
 │       │   ├── runs/                    # foreground/background workflow execution
 │       │   ├── shared/                  # store, store-types, types, persistence helpers
 │       │   ├── tui/                     # widget and DAG overlay renderers
 │       │   ├── workflows/               # defineWorkflow, registry, identity helpers
 │       │   └── index.ts                 # public entry point
 │       ├── workflows/                   # bundled workflow definitions
-│       ├── skills/                      # bundled pi skills
+│       ├── skills/                      # bundled atomic skills
 │       ├── agents/                      # bundled agent definitions
 │       ├── themes/                      # bundled themes
 │       └── README.md
@@ -241,7 +240,7 @@ Examples import the workspace package `@bastani/workflows`.
 
 ## Releasing
 
-Atomic mirrors pi's tag-driven release flow: push a `v<version>` git tag and CI cross-compiles binaries, publishes to npm with OIDC provenance, and creates the GitHub Release with binaries attached.
+Atomic uses a tag-driven release flow: push a `v<version>` git tag and CI cross-compiles binaries, publishes to npm with OIDC provenance, and creates the GitHub Release with binaries attached.
 
 ### Workflow
 

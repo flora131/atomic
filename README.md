@@ -344,7 +344,9 @@ Join the [Atomic Discord community](https://discord.gg/9CvdXUGXR4) to get in tou
 
 ## Contributing
 
-See [DEV_SETUP.md](DEV_SETUP.md) for development setup, testing guidelines, and contribution workflow.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and [DEV_SETUP.md](DEV_SETUP.md) for development setup and testing details.
+
+Looking to contribute workflows? Check out the atomic-workflows repo [here](https://github.com/lavaman131/atomic-workflows).
 
 ## License
 

@@ -6,7 +6,12 @@
 
 import { beforeEach, describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { installStoreWidget, installToolExecutionHooks } from "../../packages/workflows/src/tui/store-widget-installer.js";
+import {
+  installStoreWidget,
+  installToolExecutionHooks,
+  decideWidgetAction,
+} from "../../packages/workflows/src/tui/store-widget-installer.js";
+import type { WidgetRenderState } from "../../packages/workflows/src/tui/store-widget-installer.js";
 import { createStore } from "../../packages/workflows/src/shared/store.js";
 import type { Store } from "../../packages/workflows/src/shared/store.js";
 import type { RunSnapshot, StageSnapshot } from "../../packages/workflows/src/shared/store-types.js";
@@ -131,6 +136,41 @@ function makeMockPi(): {
 }
 
 // ---------------------------------------------------------------------------
+// decideWidgetAction (pure)
+// ---------------------------------------------------------------------------
+
+describe("decideWidgetAction", () => {
+  const hidden: WidgetRenderState = { mounted: false, lines: [] };
+
+  test("hidden + empty next lines → none", () => {
+    assert.equal(decideWidgetAction(hidden, []), "none");
+  });
+
+  test("hidden + non-empty next lines → mount", () => {
+    assert.equal(decideWidgetAction(hidden, ["● 80c5fe ralph · single · 0/1 · 3m 23s"]), "mount");
+  });
+
+  test("mounted + empty next lines → unmount", () => {
+    const mounted: WidgetRenderState = { mounted: true, lines: ["● 80c5fe ralph · single · 0/1 · 3m 23s"] };
+    assert.equal(decideWidgetAction(mounted, []), "unmount");
+  });
+
+  test("mounted + changed lines (elapsed advanced) → update", () => {
+    const mounted: WidgetRenderState = { mounted: true, lines: ["● 80c5fe ralph · single · 0/1 · 3m 23s"] };
+    assert.equal(
+      decideWidgetAction(mounted, ["● 80c5fe ralph · single · 0/1 · 3m 29s"]),
+      "update",
+    );
+  });
+
+  test("mounted + identical lines → none", () => {
+    const lines = ["● 80c5fe ralph · single · 0/1 · 3m 23s", "     single · 3m 23s"];
+    const mounted: WidgetRenderState = { mounted: true, lines };
+    assert.equal(decideWidgetAction(mounted, [...lines]), "none");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // installStoreWidget
 // ---------------------------------------------------------------------------
 
@@ -141,24 +181,22 @@ describe("installStoreWidget", () => {
     storeInstance = createStore();
   });
 
-  test("clears the widget when there are no active runs", () => {
+  test("does not mount the widget when there are no active runs", () => {
+    // New in-place contract: a hidden→hidden refresh is "none", so the
+    // installer never issues setWidget on first install with no runs.
     const { pi, widgetCalls } = makeMockPi();
     installStoreWidget(pi, storeInstance);
-    assert.equal(widgetCalls.length, 1);
-    assert.equal(widgetCalls[0]!.key, "workflow.run");
-    assert.equal(widgetCalls[0]!.factory, undefined);
+    assert.equal(widgetCalls.length, 0);
   });
 
-  test("re-calls setWidget with a fresh factory when a run starts", () => {
+  test("mounts the widget with a factory exactly once when a run starts", () => {
     const { pi, widgetCalls } = makeMockPi();
     installStoreWidget(pi, storeInstance);
-    const before = widgetCalls.length;
     storeInstance.recordRunStart(makeRun("r1", "my-wf"));
-    const newCalls = widgetCalls.slice(before);
-    const factoryCall = newCalls.find((c) => typeof c.factory === "function");
-    assert.ok(factoryCall, "expected at least one setWidget(factory) call");
-    assert.equal(factoryCall.key, "workflow.run");
-    assert.deepEqual(factoryCall.opts, { placement: "aboveEditor" });
+    const factoryCalls = widgetCalls.filter((c) => typeof c.factory === "function");
+    assert.equal(factoryCalls.length, 1, "expected exactly one setWidget(factory) mount");
+    assert.equal(factoryCalls[0]!.key, "workflow.run");
+    assert.deepEqual(factoryCalls[0]!.opts, { placement: "belowEditor" });
   });
 
   test("factory builds a Container with Text lines that include the workflow name", () => {
@@ -184,69 +222,82 @@ describe("installStoreWidget", () => {
     assert.deepEqual(narrowLines, [" ▾  1 background · 1 ●"]);
   });
 
-  test("requests a render after each setWidget so pi flushes the change", () => {
+  test("requests a render and mounts exactly once when a run starts", () => {
     const { pi, widgetCalls, renderRequests } = makeMockPi();
     installStoreWidget(pi, storeInstance);
     const beforeRequests = renderRequests.count;
     storeInstance.recordRunStart(makeRun("r1", "my-wf"));
     assert.ok(renderRequests.count > beforeRequests, "expected requestRender on store mutation");
-    assert.ok(widgetCalls.length >= 2, "expected setWidget to be re-issued");
+    const factoryCalls = widgetCalls.filter((c) => typeof c.factory === "function");
+    assert.equal(factoryCalls.length, 1, "expected exactly one setWidget(factory) mount");
   });
 
-  test("refreshes immediately when a stage starts awaiting human input", () => {
+  test("repaints the mounted widget in place when a stage starts awaiting human input", () => {
     const { pi, widgetCalls, renderRequests } = makeMockPi();
     installStoreWidget(pi, storeInstance);
     const run = makeRun("r1", "my-wf");
     (run.stages as StageSnapshot[]).push(makeStage("s1", "ask"));
     storeInstance.recordRunStart(run);
-    const beforeCalls = widgetCalls.length;
+    // Capture the originally-mounted long-lived component.
+    const mountCall = widgetCalls.findLast((c) => typeof c.factory === "function")!;
+    const component = mountCall.factory!(null, undefined) as { render(w: number): string[] };
+    const callsAfterMount = widgetCalls.length;
     const beforeRequests = renderRequests.count;
 
     storeInstance.recordStageAwaitingInput("r1", "s1", true);
 
-    assert.ok(widgetCalls.length > beforeCalls, "expected widget to be re-issued for awaiting input");
-    assert.ok(renderRequests.count > beforeRequests, "expected repaint for awaiting input");
-    const last = widgetCalls[widgetCalls.length - 1]!;
-    const component = last.factory!(null, undefined) as { render(w: number): string[] };
+    assert.equal(widgetCalls.length, callsAfterMount, "awaiting input must not remount the widget");
+    assert.ok(renderRequests.count > beforeRequests, "expected in-place repaint for awaiting input");
     assert.match(component.render(120).join("\n"), /● 1 running\s+↵ 1 needs attention/);
   });
 
-  test("refreshes immediately when a run fails", () => {
+  test("repaints the mounted widget in place when a run fails", () => {
     const { pi, widgetCalls, renderRequests } = makeMockPi();
     installStoreWidget(pi, storeInstance);
     const run = makeRun("r1", "my-wf");
     (run.stages as StageSnapshot[]).push(makeStage("s1", "fail"));
     storeInstance.recordRunStart(run);
-    const beforeCalls = widgetCalls.length;
+    // Capture the originally-mounted long-lived component.
+    const mountCall = widgetCalls.findLast((c) => typeof c.factory === "function")!;
+    const component = mountCall.factory!(null, undefined) as { render(w: number): string[] };
+    const callsAfterMount = widgetCalls.length;
     const beforeRequests = renderRequests.count;
 
     storeInstance.recordRunEnd("r1", "failed", undefined, "boom");
 
-    assert.ok(widgetCalls.length > beforeCalls, "expected widget to be re-issued for failed run");
-    assert.ok(renderRequests.count > beforeRequests, "expected repaint for failed run");
-    const last = widgetCalls[widgetCalls.length - 1]!;
-    const component = last.factory!(null, undefined) as { render(w: number): string[] };
+    assert.equal(widgetCalls.length, callsAfterMount, "failure must not remount the widget");
+    assert.ok(renderRequests.count > beforeRequests, "expected in-place repaint for failed run");
     const rendered = component.render(120).join("\n");
     assert.match(rendered, /✗ 1/);
     assert.match(rendered, /failed · 0s/);
     assert.doesNotMatch(rendered, /ago/);
   });
 
-  test("keeps the widget installed for recently-ended runs", () => {
+  test("keeps the widget mounted in place for recently-ended runs", () => {
     const { pi, widgetCalls } = makeMockPi();
     installStoreWidget(pi, storeInstance);
     storeInstance.recordRunStart(makeRun("r1", "my-wf"));
+    // Capture the originally-mounted long-lived component.
+    const mountCall = widgetCalls.findLast((c) => typeof c.factory === "function")!;
+    const component = mountCall.factory!(null, undefined) as { render(w: number): string[] };
+    const factoryCallsAfterStart = widgetCalls.filter((c) => typeof c.factory === "function").length;
+
     storeInstance.recordRunEnd("r1", "completed");
 
-    const last = widgetCalls[widgetCalls.length - 1]!;
-    assert.equal(typeof last.factory, "function");
-    const component = last.factory!(null, undefined) as { render(w: number): string[] };
+    assert.equal(
+      widgetCalls.filter((c) => typeof c.factory === "function").length,
+      factoryCallsAfterStart,
+      "ending a run must not remount a fresh widget factory",
+    );
     const lines = component.render(120);
     assert.ok(lines.some((line) => line.includes("my-wf")));
     assert.ok(lines.some((line) => line.includes("complete")));
   });
 
-  test("refreshes the visible widget from a timer while an active run is idle", () => {
+  test("updates in place (no remount) when the clock-refresh timer fires for an active run", () => {
+    // Flicker regression (#1109): a once-per-second elapsed-label refresh must
+    // update the long-lived widget in place (requestRender only) and MUST NOT
+    // re-issue setWidget (which would dispose+remount the host component).
     const originalNow = Date.now;
     let now = 1_000_000;
     Date.now = () => now;
@@ -255,8 +306,14 @@ describe("installStoreWidget", () => {
       const { pi, widgetCalls, renderRequests } = makeMockPi();
       installStoreWidget(pi, storeInstance, timers);
       storeInstance.recordRunStart(makeRun("r1", "my-wf"));
-      const callsAfterStart = widgetCalls.length;
+      // Capture the originally-mounted long-lived component.
+      const mountCall = widgetCalls.findLast((c) => typeof c.factory === "function")!;
+      const component = mountCall.factory!(null, undefined) as { render(w: number): string[] };
+      const setWidgetCallsAfterStart = widgetCalls.length;
       const requestsAfterStart = renderRequests.count;
+      const labelBefore = component.render(120).join("\n");
+      assert.match(labelBefore, /single · 0s/);
+
       const timer = timers.scheduled.findLast((entry) => !entry.cleared);
       assert.ok(timer, "expected active widget refresh timer");
       assert.ok(timer.delayMs > 0 && timer.delayMs <= 1_000);
@@ -264,8 +321,15 @@ describe("installStoreWidget", () => {
       now += timer.delayMs;
       timer.handler();
 
-      assert.ok(widgetCalls.length > callsAfterStart, "expected timer to re-issue the widget");
-      assert.ok(renderRequests.count > requestsAfterStart, "expected timer to request render");
+      assert.equal(
+        widgetCalls.length,
+        setWidgetCallsAfterStart,
+        "clock tick must NOT re-issue setWidget (no dispose/remount)",
+      );
+      assert.ok(renderRequests.count > requestsAfterStart, "clock tick must request an in-place render");
+      const labelAfter = component.render(120).join("\n");
+      assert.notEqual(labelAfter, labelBefore, "long-lived component must reflect the advanced elapsed label");
+      assert.match(labelAfter, /single · 1s/);
     } finally {
       Date.now = originalNow;
     }

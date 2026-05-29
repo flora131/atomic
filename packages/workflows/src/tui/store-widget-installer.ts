@@ -1,26 +1,43 @@
 /**
- * Widget installer — wires the orchestrator's above-editor widget to the
- * workflow store, mirroring the eager `setWidget + requestRender` pattern
- * from nicobailon/pi-subagents src/tui/render.ts `renderWidget`.
+ * Widget installer — wires the orchestrator's below-editor widget to the
+ * workflow store using a single long-lived component that is updated in
+ * place (issue #1109).
+ *
+ * Placement note (belowEditor, not aboveEditor): the widget renders a live
+ * elapsed clock that re-renders every second. pi-tui full-clears the screen +
+ * scrollback whenever a changed line is above the viewport fold. An
+ * aboveEditor widget gets pushed above the fold once the bottom region grows
+ * tall, so each clock tick repainted the whole screen (the resize flicker in
+ * #1109). belowEditor keeps the widget among the last rendered lines (always
+ * within the bottom viewport), so the clock tick is a clean differential
+ * redraw. See the `setWidget` call site for the full rationale.
  *
  * Pattern:
- *   1. Every store mutation re-calls `ui.setWidget(WIDGET_KEY, factory)`
- *      with a *fresh* factory. Pi disposes the previous component,
- *      mounts the new one, and redraws. There is no long-lived component
- *      that subscribes to the store internally — that pattern leaves the
- *      widget visually stale after `up-arrow` history recall and similar
- *      editor events that force a re-render without a setWidget call.
- *   2. After `setWidget` we call `ui.requestRender()` to flush the new
- *      content immediately; pi-subagents does the same in its
- *      `rerenderWidget` helper.
- *   3. The widget contents are static per snapshot (no spinner), but the
+ *   1. The widget mounts once (`ui.setWidget(WIDGET_KEY, factory)`) on the
+ *      hidden→visible transition and unmounts once
+ *      (`ui.setWidget(WIDGET_KEY, undefined)`) on visible→hidden. Pi treats
+ *      every `setWidget` call as a full replacement — it disposes the
+ *      previous component, constructs a fresh one, rebuilds the widget
+ *      container, and redraws — so re-issuing `setWidget` on each store
+ *      mutation or clock tick produces a visible flicker. We therefore call
+ *      it only on real mount/unmount transitions.
+ *   2. For every other refresh — store mutations that change content and
+ *      the one-shot clock-refresh timer alike — we call `ui.requestRender()`
+ *      only. Pi re-invokes the *same* mounted component's `render(width)`
+ *      with no dispose/remount, so the elapsed-time label keeps ticking
+ *      smoothly without flicker.
+ *   3. The long-lived component reads the *latest* store snapshot through a
+ *      live getter (`() => currentSnap`) at render time, so it is never
+ *      visually stale — including after `up-arrow` history recall and other
+ *      editor events that force a host re-render without a `setWidget` call.
+ *   4. The mount / unmount / update / none decision is extracted into the
+ *      pure, unit-testable `decideWidgetAction`, keeping this module a thin
+ *      orchestration layer over a pure policy (SRP).
+ *   5. The widget contents are static per snapshot (no spinner), but the
  *      rendered lines include wall-clock labels (`3s`, `complete · 4s ago`)
  *      and recent-ended visibility. We therefore keep one lightweight
  *      one-shot refresh timer while the widget is visible, matching other
  *      live Atomic widgets without reintroducing a high-frequency spinner.
- *   4. The factory builds a pi-tui `Container` of `Text` children styled
- *      via pi's runtime `Theme` (theme.fg, theme.bold). This is what
- *      makes the widget visually distinct from chat content.
  */
 
 import type { Store } from "../shared/store.js";
@@ -80,16 +97,57 @@ function isStale(err: unknown): boolean {
   return err instanceof Error && err.message.includes(STALE_CONTEXT);
 }
 
+/** The four ways a refresh can reach (or skip) the terminal. */
+export type WidgetAction = "mount" | "unmount" | "update" | "none";
+
+export interface WidgetRenderState {
+  /** Whether the widget is currently mounted (factory installed via setWidget). */
+  readonly mounted: boolean;
+  /** Plain preview lines last rendered while mounted (empty when not mounted). */
+  readonly lines: readonly string[];
+}
+
+function linesEqual(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
 /**
- * Build the widget factory closure. Pi invokes the factory with
- * `(this.ui, theme)` — we use the supplied theme to apply pi's terminal
- * palette to every span.
+ * Pure decision: given the previous mount state + previously rendered lines
+ * and the next preview lines, decide how a refresh should reach the terminal.
+ *  - hidden  → visible             => "mount"   (setWidget(factory))
+ *  - visible → hidden              => "unmount" (setWidget(undefined))
+ *  - visible → visible, changed    => "update"  (requestRender only — no remount)
+ *  - visible → visible, identical  => "none"    (skip the redundant repaint)
+ *  - hidden  → hidden              => "none"
+ *
+ * No UI/terminal dependency, so it is unit-testable without a real terminal.
  */
-function widgetFactory(snap: StoreSnapshot): WidgetFactory {
+export function decideWidgetAction(
+  prev: WidgetRenderState,
+  nextLines: readonly string[],
+): WidgetAction {
+  const nextVisible = nextLines.length > 0;
+  if (!prev.mounted) return nextVisible ? "mount" : "none";
+  if (!nextVisible) return "unmount";
+  return linesEqual(prev.lines, nextLines) ? "none" : "update";
+}
+
+/**
+ * Build the long-lived widget factory closure. Pi invokes the factory once
+ * with `(this.ui, theme)` at mount; the returned component is reused across
+ * renders. It closes over a *live* snapshot getter rather than a captured
+ * snapshot, so each `requestRender()` recomputes lines from the latest
+ * snapshot (and a fresh `Date.now()`) with no dispose/remount.
+ */
+function widgetFactory(getSnap: () => StoreSnapshot): WidgetFactory {
   return (_tui, theme) => {
     return {
       render: (width: number) =>
-        buildThemedWidgetLines(snap, theme as PiTheme | undefined, width),
+        buildThemedWidgetLines(getSnap(), theme as PiTheme | undefined, width),
     };
   };
 }
@@ -104,6 +162,12 @@ export function installStoreWidget(
 
   let disposed = false;
   let refreshTimer: TimerHandle | undefined;
+  // In-place widget state: whether the long-lived component is mounted, the
+  // latest snapshot it should render, and the last plain preview lines used
+  // to detect no-op refreshes.
+  let mounted = false;
+  let currentSnap: StoreSnapshot;
+  let lastLines: readonly string[] = [];
 
   const clearRefreshTimer = (): void => {
     if (refreshTimer === undefined) return;
@@ -125,16 +189,47 @@ export function installStoreWidget(
     if (disposed) return;
     clearRefreshTimer();
     try {
-      const snap = storeInstance.snapshot();
-      const previewLines = buildThemedWidgetLines(snap, undefined);
-      if (previewLines.length === 0) {
-        ui.setWidget?.(WIDGET_KEY, undefined);
-        ui.requestRender?.();
-        return;
+      currentSnap = storeInstance.snapshot();
+      const nextLines = buildThemedWidgetLines(currentSnap, undefined);
+      const action = decideWidgetAction({ mounted, lines: lastLines }, nextLines);
+
+      switch (action) {
+        case "mount":
+          // Mount the single long-lived component. It reads `currentSnap`
+          // through the getter on every subsequent render, so we never need
+          // to re-issue setWidget to refresh content.
+          ui.setWidget?.(WIDGET_KEY, widgetFactory(() => currentSnap), {
+            // belowEditor (not aboveEditor): the widget renders a live elapsed
+            // clock that re-renders every second. pi-tui's differential
+            // renderer does a full screen+scrollback clear whenever a *changed*
+            // line sits ABOVE the viewport fold (tui.js `firstChanged <
+            // prevViewportTop -> fullRender(true)`). An aboveEditor widget is
+            // pushed above the fold when the bottom region (usage meter,
+            // multi-line editor, below-editor widgets, footer) grows tall,
+            // so each clock tick then repainted the whole screen — the resize
+            // flicker in #1109. belowEditor keeps the widget among the last
+            // rendered lines (always within the bottom viewport), so its
+            // per-second tick is a clean in-place differential redraw.
+            placement: "belowEditor",
+          });
+          ui.requestRender?.();
+          mounted = true;
+          break;
+        case "unmount":
+          ui.setWidget?.(WIDGET_KEY, undefined);
+          ui.requestRender?.();
+          mounted = false;
+          break;
+        case "update":
+          // In place — NO setWidget, NO dispose/remount (the #1109 flicker fix).
+          ui.requestRender?.();
+          break;
+        case "none":
+          break;
       }
-      ui.setWidget?.(WIDGET_KEY, widgetFactory(snap), { placement: "aboveEditor" });
-      ui.requestRender?.();
-      scheduleRefresh(snap);
+
+      lastLines = nextLines;
+      scheduleRefresh(currentSnap);
     } catch (err) {
       if (isStale(err)) return;
       throw err;

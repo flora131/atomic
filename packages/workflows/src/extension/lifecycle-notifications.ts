@@ -13,6 +13,7 @@ import type {
   StageStatus,
   StoreSnapshot,
 } from "../shared/store-types.js";
+import { wrapPlainText } from "../tui/text-helpers.js";
 
 export const LIFECYCLE_NOTICE_CUSTOM_TYPE = "workflows:lifecycle-notice";
 export const LIFECYCLE_NOTICE_SNIPPET_LIMIT = 240;
@@ -353,9 +354,16 @@ function truncateSnippet(value: string): string {
 }
 
 function makeNoticeComponent(details: WorkflowLifecycleNoticeDetails): PiMessageRenderComponent {
+  const text = formatWorkflowLifecycleNoticeText(details);
   return {
-    render(): string[] {
-      return [formatWorkflowLifecycleNoticeText(details)];
+    render(width: number): string[] {
+      // Wrap to the render width so a long run id / workflow name never emits a
+      // line wider than the terminal. pi-tui hard-throws ("Rendered line N
+      // exceeds terminal width") on any over-wide rendered line, which would
+      // crash the whole TUI on narrow terminals or after a resize (#1109).
+      // `wrapPlainText` hard-breaks long unbreakable tokens (e.g. UUIDs), so
+      // every returned line is guaranteed to fit within `width`.
+      return wrapPlainText(text, width);
     },
     invalidate() {
       /* stored lifecycle notices are immutable */

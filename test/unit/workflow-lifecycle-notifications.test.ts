@@ -1,5 +1,6 @@
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import {
   createWorkflowLifecycleNotificationState,
   installWorkflowLifecycleNotifications,
@@ -587,5 +588,51 @@ describe("installWorkflowLifecycleNotifications", () => {
     assert.deepEqual((rendered as CardComponent).render(80), [
       '✅ Workflow "cards" completed (run run-card). Inspect: /workflow status run-card',
     ]);
+  });
+
+  test("wraps long lifecycle notices to the render width so no rendered line overflows the terminal (#1109 width-overflow crash)", () => {
+    const registered: RegisteredRenderer[] = [];
+    registerLifecycleNoticeRenderer({
+      rendererHost: {},
+      registerMessageRenderer(event, renderer) {
+        registered.push({ event, renderer: renderer as (payload: unknown) => unknown });
+      },
+    });
+
+    const details: WorkflowLifecycleNoticeDetails = {
+      kind: "completed",
+      scope: "run",
+      runId: "a3df3bfb-bea6-4c68-a05c-3f7bac10cd13",
+      workflowName: "deep-research-codebase",
+      status: "completed",
+      createdAt: 1,
+    };
+    const component = registered[0]?.renderer({ details }) as CardComponent;
+
+    // Sanity: the single-line form really does overflow a normal terminal —
+    // this is the line that crashed pi-tui ("Rendered line N exceeds terminal width").
+    assert.ok(visibleWidth(formatWorkflowLifecycleNoticeText(details)) > 120);
+
+    // No rendered line may ever exceed the render width — this is the invariant
+    // pi-tui enforces with a hard throw, even at very narrow widths where the
+    // UUID itself must be hard-broken across lines.
+    for (const width of [120, 80, 40, 24]) {
+      for (const line of component.render(width)) {
+        assert.ok(
+          visibleWidth(line) <= width,
+          `line exceeds width ${width}: ${JSON.stringify(line)} (w=${visibleWidth(line)})`,
+        );
+      }
+    }
+
+    // Where the terminal is wide enough to hold the run id token, wrapping must
+    // not drop it so `/workflow status <id>` stays usable.
+    for (const width of [120, 80, 40]) {
+      const lines = component.render(width);
+      assert.ok(
+        lines.some((line) => line.includes(details.runId)),
+        `runId missing after wrap at width ${width}: ${JSON.stringify(lines)}`,
+      );
+    }
   });
 });

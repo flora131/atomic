@@ -173,7 +173,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 
   const askUserQuestionGuidance = explicitlyExcludedTools.has("ask_user_question")
     ? ""
-    : "- Always ask clarifying questions if the user's request is ambiguous or lacks necessary details. NEVER make assumptions about what the user wants. If you find yourself circling in thought and asking what the user \"really\" wants, stop and ask the user for clarification using the `ask_user_question` tool. It's better to clarify intent rather than to guess.";
+    : "- Always ask clarifying questions if the user's request is ambiguous or lacks necessary details. NEVER make assumptions about what the user wants. If you find yourself circling in thought and asking what the user \"really\" wants, stop and ask the user for clarification using the ask_user_question tool if available. It's better to clarify intent rather than to guess.";
   const todoGuidance = explicitlyExcludedTools.has("todo")
     ? ""
     : "- **To-do management**: If the user has a complex task that can be broken down into actionable steps, use the `todo` tool to create a task list before proceeding. This ensures clarity and alignment with the user's goals and that you have a way to track your work and ensure you are meeting the user's expectations.";

@@ -217,6 +217,13 @@ export function buildGraphOverlayAdapter(
     if (mounted) {
       currentView?.retarget(runId, stageId);
       setMouseScrollTracking(currentView?.wantsMouseScrollTracking() ?? true);
+      // Restore keyboard focus to the visible overlay after retargeting.
+      // pi-tui dispatches key events only to the focused component, so a
+      // mounted-but-visible overlay that is retargeted (e.g. to a stage-scoped
+      // HIL prompt / readiness gate) would otherwise appear frozen — arrows,
+      // Enter, Ctrl+D and `q` all dead — if focus stayed on an underlying or
+      // previously-focused pane (issue #1120).
+      currentHandle?.focus();
       return;
     }
 

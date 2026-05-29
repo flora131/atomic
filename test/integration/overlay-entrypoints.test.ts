@@ -454,6 +454,31 @@ describe("buildGraphOverlayAdapter — open with pi.ui.custom", () => {
     assert.equal(calls.length, 1);
   });
 
+  // Regression for issue #1120: retargeting a visible, mounted overlay must
+  // restore keyboard focus. pi-tui only dispatches key events to the focused
+  // component, so without this the retargeted overlay (e.g. brought to a
+  // stage-scoped HIL prompt / readiness gate) appears frozen — arrows, Enter,
+  // Ctrl+D and `q` all dead.
+  test("retargeting a visible mounted overlay restores keyboard focus (#1120)", () => {
+    const { ui, calls } = buildMockUi();
+    const store = createStore();
+    const adapter = buildGraphOverlayAdapter({ ui }, store);
+
+    adapter.open("run-1");
+    const { handle } = calls[0]!;
+    let focusCalls = 0;
+    handle.focus = () => {
+      focusCalls++;
+    };
+    handle.isHidden = () => false; // mounted AND visible
+
+    // Retarget the visible overlay to a different run/stage.
+    adapter.open("run-2");
+
+    assert.equal(calls.length, 1, "retarget must not remount");
+    assert.equal(focusCalls, 1, "visible retarget must restore keyboard focus (#1120)");
+  });
+
   test("toggle() on a visible mount calls setHidden(true)+unfocus (no remount)", () => {
     const { ui, calls } = buildMockUi();
     const store = createStore();

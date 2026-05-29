@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Added a deterministic readiness gate after `ask_user_question` tool calls inside workflow stages: when a model turn issues an `ask_user_question` call, the workflow asks "Are you ready to move on to the next stage?" (`y`/`n`) before completing/advancing the stage. Answering `n` keeps execution in the current stage (re-arming detection so a subsequent question + turn end re-prompts), while `y` resumes normal sequential and dependent parallel progression. The gate applies to all `ask_user_question` calls (including "Chat about this") and is independent of how the underlying UI is implemented ([#1099](https://github.com/flora131/atomic/issues/1099)).
+
 ## [0.8.20] - 2026-05-29
 
 ### Changed

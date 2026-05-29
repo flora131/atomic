@@ -2061,12 +2061,18 @@ export async function run<TInputs extends Record<string, unknown>>(
       });
       const activeAskUserQuestionCalls = new Set<string>();
       let activeAskUserQuestionAnonymousCalls = 0;
+      // Set whenever an ask_user_question tool call is observed during the
+      // current model turn. Drives the deterministic readiness gate (#1099):
+      // after a turn that asked the user a question ends, the workflow must
+      // confirm readiness before completing/advancing the stage.
+      let askUserQuestionObservedThisTurn = false;
       const hasActiveAskUserQuestion = (): boolean =>
         activeAskUserQuestionCalls.size > 0 || activeAskUserQuestionAnonymousCalls > 0;
       const unsubscribeAskUserQuestionWatcher = innerCtx.subscribe((event) => {
         const toolEvent = askUserQuestionToolEvent(event);
         if (!toolEvent) return;
         if (toolEvent.phase === "start") {
+          askUserQuestionObservedThisTurn = true;
           if (toolEvent.callId !== undefined) activeAskUserQuestionCalls.add(toolEvent.callId);
           else activeAskUserQuestionAnonymousCalls += 1;
           activeStore.recordStageAwaitingInput(runId, stageId, true);
@@ -2271,6 +2277,23 @@ export async function run<TInputs extends Record<string, unknown>>(
         }
       };
 
+      // Deterministic readiness gate (#1099). After a model turn that issued an
+      // ask_user_question tool call ends, confirm with the user before the stage
+      // completes/advances. Answering "n" keeps execution in this stage and lets
+      // the conversation continue (the gate re-arms); "y" resumes progression.
+      // If no UI adapter is available the gate cannot prompt, so we proceed.
+      const runReadinessGate = async (): Promise<boolean> => {
+        try {
+          const answer = await ctx.ui.select(
+            "Are you ready to move on to the next stage?",
+            ["y", "n"] as const,
+          );
+          return answer !== "n";
+        } catch {
+          return true;
+        }
+      };
+
       const runTrackedStageCall = async (call: () => Promise<string>): Promise<string> => {
         await waitForStageRelease();
         if (stageFinalized) {
@@ -2320,7 +2343,16 @@ export async function run<TInputs extends Record<string, unknown>>(
           else ownController.signal.addEventListener("abort", abortSession, { once: true });
           let result = "";
           try {
-            result = await raceAbort(call(), ownController.signal);
+            // Re-run the model turn while the user is not yet ready to move on.
+            // Each iteration re-arms ask_user_question detection so a follow-up
+            // question + turn end re-prompts the readiness gate.
+            while (true) {
+              askUserQuestionObservedThisTurn = false;
+              result = await raceAbort(call(), ownController.signal);
+              if (ownController.signal.aborted) break;
+              if (!askUserQuestionObservedThisTurn) break;
+              if (await runReadinessGate()) break;
+            }
           } finally {
             ownController.signal.removeEventListener("abort", abortSession);
           }

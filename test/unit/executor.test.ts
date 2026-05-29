@@ -3605,4 +3605,152 @@ describe("executor — stage-control registry integration", () => {
     assert.ok(observedStatuses.includes("awaiting_input"));
     assert.equal(store.runs()[0]!.stages[0]!.status, "completed");
   });
+
+  test("readiness gate holds a sequential stage on n and advances on y", async () => {
+    const events: string[] = [];
+    const gatePrompts: string[] = [];
+    const gateAnswers = ["n", "y"];
+    let gateIndex = 0;
+    // A single smart session whose behaviour branches on the prompt text:
+    // "ask the user" turns emit an ask_user_question tool call.
+    const smartSession = (): StageSessionRuntime => {
+      const listeners = new Set<(e: { type: string; [k: string]: unknown }) => void>();
+      let turn = 0;
+      return {
+        ...mockSession(),
+        async prompt(text: string) {
+          if (text.includes("ask the user")) {
+            turn += 1;
+            events.push(`first:turn:${turn}`);
+            const callId = `first-${turn}`;
+            for (const l of listeners) l({ type: "tool_execution_start", toolCallId: callId, toolName: "ask_user_question" });
+            for (const l of listeners) l({ type: "tool_execution_end", toolCallId: callId, toolName: "ask_user_question" });
+            return;
+          }
+          events.push("second:turn");
+        },
+        subscribe(listener) {
+          listeners.add(listener as (e: { type: string; [k: string]: unknown }) => void);
+          return () => listeners.delete(listener as (e: { type: string; [k: string]: unknown }) => void);
+        },
+      };
+    };
+    const def = defineWorkflow("readiness-gate-sequential-wf")
+      .run(async (ctx) => {
+        await ctx.stage("first").prompt("ask the user");
+        await ctx.stage("second").prompt("do follow-up work");
+        return {};
+      })
+      .compile();
+    const store = createStore();
+    const result = await run(def, {}, {
+      adapters: {
+        agentSession: {
+          async create() {
+            return smartSession();
+          },
+        },
+      },
+      store,
+      stageControlRegistry: createStageControlRegistry(),
+      ui: {
+        input: async () => "",
+        confirm: async () => true,
+        editor: async () => "",
+        select: async (message, options) => {
+          gatePrompts.push(message);
+          const answer = gateAnswers[gateIndex++] ?? "y";
+          return (options as readonly string[]).includes(answer) ? (answer as never) : (options[0] as never);
+        },
+      },
+    });
+
+    assert.equal(result.status, "completed");
+    // Gate prompted twice (after each ask turn) with the exact question text.
+    assert.deepEqual(gatePrompts, [
+      "Are you ready to move on to the next stage?",
+      "Are you ready to move on to the next stage?",
+    ]);
+    // "n" re-ran the first stage's model turn; "y" advanced to the second stage.
+    assert.deepEqual(events, ["first:turn:1", "first:turn:2", "second:turn"]);
+    const stages = store.runs()[0]!.stages;
+    assert.equal(stages.find((s) => s.name === "first")?.status, "completed");
+    assert.equal(stages.find((s) => s.name === "second")?.status, "completed");
+  });
+
+  test("readiness gate gates a parallel stage before dependent progression", async () => {
+    const events: string[] = [];
+    const gatePrompts: string[] = [];
+    const gateAnswers = ["n", "y"];
+    let gateIndex = 0;
+    const smartSession = (): StageSessionRuntime => {
+      const listeners = new Set<(e: { type: string; [k: string]: unknown }) => void>();
+      let turn = 0;
+      return {
+        ...mockSession(),
+        async prompt(text: string) {
+          if (text.includes("ask the user")) {
+            turn += 1;
+            events.push(`ask:turn:${turn}`);
+            for (const l of listeners) l({ type: "tool_execution_start", toolName: "ask_user_question" });
+            for (const l of listeners) l({ type: "tool_execution_end", toolName: "ask_user_question" });
+            return;
+          }
+          if (text.includes("sibling work")) events.push("sibling:turn");
+          else events.push("dependent:turn");
+        },
+        subscribe(listener) {
+          listeners.add(listener as (e: { type: string; [k: string]: unknown }) => void);
+          return () => listeners.delete(listener as (e: { type: string; [k: string]: unknown }) => void);
+        },
+      };
+    };
+    const def = defineWorkflow("readiness-gate-parallel-wf")
+      .run(async (ctx) => {
+        const results = await ctx.parallel([
+          { name: "ask", prompt: "ask the user" },
+          { name: "sibling", prompt: "sibling work" },
+        ], { concurrency: 2 });
+        await ctx.task("dependent", { prompt: "use prior results", previous: results });
+        return {};
+      })
+      .compile();
+    const store = createStore();
+    const result = await run(def, {}, {
+      adapters: {
+        agentSession: {
+          async create() {
+            return smartSession();
+          },
+        },
+      },
+      store,
+      stageControlRegistry: createStageControlRegistry(),
+      ui: {
+        input: async () => "",
+        confirm: async () => true,
+        editor: async () => "",
+        select: async (message, options) => {
+          gatePrompts.push(message);
+          const answer = gateAnswers[gateIndex++] ?? "y";
+          return (options as readonly string[]).includes(answer) ? (answer as never) : (options[0] as never);
+        },
+      },
+    });
+
+    assert.equal(result.status, "completed");
+    assert.deepEqual(gatePrompts, [
+      "Are you ready to move on to the next stage?",
+      "Are you ready to move on to the next stage?",
+    ]);
+    // The dependent stage only runs after the gated parallel stage answers "y".
+    assert.ok(events.includes("ask:turn:1"));
+    assert.ok(events.includes("ask:turn:2"));
+    assert.equal(events[events.length - 1], "dependent:turn");
+    assert.ok(events.indexOf("ask:turn:2") < events.indexOf("dependent:turn"));
+    const stages = store.runs()[0]!.stages;
+    assert.equal(stages.find((s) => s.name === "ask")?.status, "completed");
+    assert.equal(stages.find((s) => s.name === "sibling")?.status, "completed");
+    assert.equal(stages.find((s) => s.name === "dependent")?.status, "completed");
+  });
 });

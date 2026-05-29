@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- Bumped `linkedom` to 0.18.12 to align with the pi 0.77.0 upgrade.
+
 ## [0.8.18] - 2026-05-27
 
 ### Changed

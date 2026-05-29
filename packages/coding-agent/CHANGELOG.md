@@ -5,6 +5,12 @@
 ### Added
 
 - Added session-scoped `orchestrationContext` support to SDK agent sessions and extension contexts for workflow-stage policy enforcement.
+- Added support for the Claude Opus 4.8 model across model configuration, selection, and validation via the `@earendil-works/pi-ai` 0.77.0 upgrade ([#1097](https://github.com/flora131/atomic/issues/1097)).
+
+### Changed
+
+- Upgraded the pi runtime packages (`@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`, `@earendil-works/pi-tui`) from 0.75.5 to 0.77.0 and bumped `@modelcontextprotocol/ext-apps` to 1.7.2, `highlight.js` to 11.x, `linkedom` to 0.18.x, `undici` to 8.x, and `vitest` (dev) to 4.x.
+- Switched the `highlight.js` import to the package-root default export and replaced the Node stream pipeline in the tools downloader with `Bun.write()` to align with the upgraded dependencies.
 
 ## [0.8.19] - 2026-05-27
 

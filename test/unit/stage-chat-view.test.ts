@@ -2678,4 +2678,25 @@ describe("StageChatView", () => {
     assert.equal(view._inputBuffer, before);
     view.dispose();
   });
+
+  test("does not request mouse-scroll tracking (main chat select-to-copy parity)", () => {
+    const store = createStore();
+    setupRun(store, "run-1", "stage-a", "pending");
+    const { handle } = makeHandle();
+    const view = new StageChatView({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageId: "stage-a",
+      workflowName: "test-wf",
+      handle,
+      onDetach: () => {},
+      onClose: () => {},
+    });
+    // Parity with main chat: the chat surface must never enable
+    // `\x1b[?1000h` mouse reporting, so the terminal keeps native
+    // click-drag select-to-copy. cross-ref: issue #1110.
+    assert.equal(view.wantsMouseScrollTracking(), false);
+    view.dispose();
+  });
 });

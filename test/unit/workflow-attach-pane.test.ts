@@ -451,7 +451,7 @@ describe("WorkflowAttachPane", () => {
     pane.dispose();
   });
 
-  test("keeps mouse scroll tracking active for graph and stage chat scrolling", () => {
+  test("disables mouse reporting in stage chat, keeps it in graph (select-to-copy parity)", () => {
     const store = createStore();
     setupRun(store, "run-1", [{ id: "stage-a", name: "A" }]);
     const registry = createStageControlRegistry();
@@ -466,15 +466,26 @@ describe("WorkflowAttachPane", () => {
       setMouseScrollTracking: (enabled) => mouseTracking.push(enabled),
     });
 
+    // Graph mode keeps mouse reporting on so the wheel scrolls the canvas.
+    assert.equal(pane.wantsMouseScrollTracking(), true);
     assert.deepEqual(mouseTracking, [true]);
+
+    // Attaching to a stage chat turns mouse reporting OFF so the terminal
+    // keeps native click-drag select-to-copy (main chat parity, #1110).
     pane.handleInput(Key.enter);
     assert.equal(pane._mode, "stage-chat");
-    assert.deepEqual(mouseTracking, [true, true]);
+    assert.equal(pane.wantsMouseScrollTracking(), false);
+    assert.deepEqual(mouseTracking, [true, false]);
+
+    // Detaching back to graph re-enables wheel tracking.
     pane.handleInput(Key.ctrl("d"));
     assert.equal(pane._mode, "graph");
-    assert.deepEqual(mouseTracking, [true, true, true]);
+    assert.equal(pane.wantsMouseScrollTracking(), true);
+    assert.deepEqual(mouseTracking, [true, false, true]);
+
+    // Dispose always clears mouse reporting.
     pane.dispose();
-    assert.deepEqual(mouseTracking, [true, true, true, false]);
+    assert.deepEqual(mouseTracking, [true, false, true, false]);
   });
 
   test("forwards getViewportRows to graph mode", () => {

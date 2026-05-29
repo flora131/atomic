@@ -95,9 +95,21 @@ const FULLSCREEN_OVERLAY_OPTIONS: PiOverlayOptions = {
 const MOUSE_SCROLL_TRACKING_ON = "\x1b[?1000h\x1b[?1006h";
 const MOUSE_SCROLL_TRACKING_OFF = "\x1b[?1006l\x1b[?1000l";
 
-function setMouseScrollTracking(enabled: boolean): void {
-  if (!process.stdout.isTTY) return;
-  process.stdout.write(enabled ? MOUSE_SCROLL_TRACKING_ON : MOUSE_SCROLL_TRACKING_OFF);
+/**
+ * Emit the mouse-reporting enable/disable control sequence. Prefers pi-tui's
+ * `Terminal.write` (`write`) so the bytes route through pi-tui's terminal
+ * abstraction (raw-mode / Windows VT setup) for robust cross-platform and
+ * cross-terminal behavior, instead of bypassing it with a bare
+ * `process.stdout.write`. Falls back to `process.stdout` only when no pi-tui
+ * terminal writer is available (e.g. headless hosts / tests).
+ */
+function writeMouseScrollTracking(enabled: boolean, write?: (data: string) => void): void {
+  const sequence = enabled ? MOUSE_SCROLL_TRACKING_ON : MOUSE_SCROLL_TRACKING_OFF;
+  if (write) {
+    write(sequence);
+    return;
+  }
+  if (process.stdout.isTTY) process.stdout.write(sequence);
 }
 
 export interface BuildGraphOverlayAdapterOpts {
@@ -134,6 +146,16 @@ export function buildGraphOverlayAdapter(
   let currentHandle: PiOverlayHandle | null = null;
   let mounted = false;
   let finishMounted: (() => void) | null = null;
+  // Captured pi-tui terminal writer for the active overlay. Set when the
+  // overlay factory runs (see `open`) and cleared on dispose. Routing mouse-
+  // reporting sequences through pi-tui's `Terminal.write` keeps terminal mode
+  // changes inside pi-tui's abstraction; the `process.stdout` fallback in
+  // `writeMouseScrollTracking` covers hosts that don't surface a terminal.
+  let terminalWrite: ((data: string) => void) | undefined;
+
+  function setMouseScrollTracking(enabled: boolean): void {
+    writeMouseScrollTracking(enabled, terminalWrite);
+  }
 
   function close(): void {
     setMouseScrollTracking(false);
@@ -196,6 +218,7 @@ export function buildGraphOverlayAdapter(
         setMouseScrollTracking(false);
         unsubscribe();
         view.dispose();
+        terminalWrite = undefined;
       },
     };
   }
@@ -232,10 +255,19 @@ export function buildGraphOverlayAdapter(
       keybindings: PiKeybindings,
       done: (result: undefined) => void,
     ): PiCustomComponent => {
+      // Prefer pi-tui's Terminal.write for mouse-reporting sequences; capture
+      // it before constructing the pane so the pane's initial
+      // `_syncMouseScrollTracking()` already routes through pi-tui.
+      terminalWrite = typeof tui.terminal?.write === "function"
+        ? (data: string): void => {
+            tui.terminal?.write?.(data);
+          }
+        : undefined;
       const finish = (): void => {
         if (settled) return;
         settled = true;
         setMouseScrollTracking(false);
+        terminalWrite = undefined;
         currentView?.dispose();
         currentView = null;
         currentHandle = null;

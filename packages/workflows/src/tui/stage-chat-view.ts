@@ -1001,8 +1001,25 @@ export class StageChatView implements Component, Focusable {
     return " ".repeat(width);
   }
 
+  /**
+   * Stage chat follows main chat conventions: it does NOT put the terminal
+   * into application mouse-reporting mode. Main chat
+   * (packages/coding-agent/src/modes/interactive) never enables `\x1b[?1000h`
+   * button tracking, which is what lets the terminal keep doing native
+   * click-drag text selection (select-to-copy). Enabling mouse reporting here
+   * just to capture the wheel would suppress that native selection, so the
+   * chat surface (composer/transcript and interactive prompts) opts out.
+   *
+   * Transcript scrolling stays at parity with main chat through the shared
+   * `ChatSessionHost`/`ScrollableComponentViewport` keyboard bindings
+   * (PageUp/PageDown/Home/End). Wheel sequences are still parsed defensively
+   * if a terminal or multiplexer forwards them (mirroring main chat's
+   * `mouseWheelDeltaRows` fallback), but we never request them.
+   *
+   * cross-ref: https://github.com/flora131/atomic/issues/1110
+   */
   wantsMouseScrollTracking(): boolean {
-    return true;
+    return false;
   }
 
   private _handlePromptInput(data: string): void {

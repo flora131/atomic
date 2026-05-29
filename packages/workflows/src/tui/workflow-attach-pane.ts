@@ -101,9 +101,13 @@ export interface WorkflowAttachPaneOpts {
    */
   requestRender?: () => void;
   /**
-   * Host hook for terminal mouse reporting. Graph mode uses wheel input
-   * for canvas scrolling; stage-chat mode uses it for transcript history
-   * scrolling and drops non-wheel mouse bytes before they reach the editor.
+   * Host hook for terminal mouse reporting (`\x1b[?1000h\x1b[?1006h`). Graph
+   * mode enables it so the wheel can scroll the canvas. Stage-chat mode keeps
+   * it OFF to match main chat conventions: leaving the terminal out of
+   * mouse-reporting mode preserves native click-drag text selection
+   * (select-to-copy) in the chat surface. Transcript scrolling in chat mode
+   * uses the shared keyboard bindings (PageUp/PageDown/Home/End) instead.
+   * cross-ref: https://github.com/flora131/atomic/issues/1110
    */
   setMouseScrollTracking?: (enabled: boolean) => void;
 }

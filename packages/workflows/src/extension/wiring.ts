@@ -494,10 +494,15 @@ export interface PiCustomOverlayOptions {
  * Surface of the Pi `TUI` instance exposed to overlay factories. The
  * `terminal` accessor is optional because some host implementations and
  * test mocks do not surface it; consumers must handle `undefined`.
+ *
+ * `terminal.write` mirrors pi-tui's `Terminal.write(data)` builtin and is the
+ * preferred path for emitting raw control sequences (e.g. mouse-reporting
+ * mode) so output is routed through pi-tui's terminal abstraction — which
+ * owns raw-mode/Windows VT setup — rather than a bare `process.stdout.write`.
  */
 export interface PiCustomOverlayFactoryTui {
   requestRender?: () => void;
-  terminal?: { rows?: number; columns?: number };
+  terminal?: { rows?: number; columns?: number; write?: (data: string) => void };
   setFocus?: (target: unknown) => void;
   start?: () => void;
   stop?: () => void;

@@ -5,7 +5,8 @@
 import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
-import { CONFIG_DIR_NAME } from "@bastani/atomic";
+import { CONFIG_DIR_NAME, createAskUserQuestionToolDefinition } from "@bastani/atomic";
+import { stageUiBroker } from "../../shared/stage-ui-broker.js";
 import type {
   WorkflowDefinition,
   WorkflowRunContext,
@@ -89,6 +90,21 @@ export interface RunOpts {
   ui?: WorkflowUIAdapter;
   /** Internal detached-run mode: surface ctx.ui.* as node-local workflow prompt stages. */
   usePromptNodesForUi?: boolean;
+  /**
+   * Readiness-gate confirmation seam (#1099). When an ask_user_question tool
+   * call is observed during a stage, the executor calls this after the model
+   * turn ends to ask whether to advance. Returning false keeps execution in the
+   * stage (the executor steers the stage to continue and re-gates after the
+   * next turn); true advances. When omitted, runs with usePromptNodesForUi
+   * render the gate through the stage UI broker, and other runs proceed without
+   * gating (tests/headless).
+   */
+  confirmStageReadiness?: (request: {
+    readonly runId: string;
+    readonly stageId: string;
+    readonly stageName: string;
+    readonly signal: AbortSignal;
+  }) => Promise<boolean>;
   /** Store override (for testing; defaults to singleton store) */
   store?: Store;
   /** Persistence port for writing session entries (run.start, stage.start, etc.). */
@@ -315,6 +331,82 @@ function askUserQuestionToolEvent(event: unknown): AskUserQuestionToolEvent | un
     return { phase: "end", callId, nameMatched: isAskUserQuestionToolName(toolName) };
   }
   return undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Readiness gate (#1099)
+// ---------------------------------------------------------------------------
+// After a workflow stage's model turn issues an ask_user_question tool call,
+// the workflow confirms readiness before completing/advancing the stage. The
+// gate reuses the structured ask_user_question UI rendered through the stage UI
+// broker, so it appears inline in the attached stage chat (the same surface the
+// tool itself used) instead of a detached workflow prompt node the user never
+// sees. Answering anything other than "Yes" (including "Chat about this", a
+// typed answer, or cancelling) keeps execution in the stage.
+
+const READINESS_GATE_STEER_MESSAGE =
+  "The user is not ready to move on to the next stage yet and wants to keep working in " +
+  "this stage. Continue the conversation here: address their latest input and any " +
+  "follow-up questions, and help them further. Do not assume this stage is finished.";
+
+const READINESS_GATE_QUESTION_PARAMS = {
+  questions: [
+    {
+      question: "Are you ready to move on to the next stage?",
+      header: "Continue?",
+      options: [
+        { label: "Yes", description: "Complete this stage and advance the workflow." },
+        { label: "No", description: "Stay in this stage and keep working or discussing." },
+      ],
+    },
+  ],
+};
+
+let cachedReadinessGateTool: ReturnType<typeof createAskUserQuestionToolDefinition> | undefined;
+function readinessGateTool(): ReturnType<typeof createAskUserQuestionToolDefinition> {
+  return (cachedReadinessGateTool ??= createAskUserQuestionToolDefinition());
+}
+
+/**
+ * Render the readiness gate inline in the attached stage chat by invoking the
+ * ask_user_question tool with a pre-filled body, routing its custom UI through
+ * the stage UI broker for (runId, stageId). Returns true only when the user
+ * chooses "Yes"; "No", "Chat about this", a typed answer, or cancellation all
+ * mean "not ready". If no stage chat host is attached the broker request stays
+ * pending (the stage shows awaiting_input) exactly like the tool itself.
+ */
+async function askReadinessViaStageBroker(
+  runId: string,
+  stageId: string,
+  signal: AbortSignal,
+): Promise<boolean> {
+  const execute = readinessGateTool().execute;
+  if (execute === undefined) return true;
+  const gateContext = {
+    hasUI: true,
+    ui: {
+      custom: (factory: unknown, options?: unknown): Promise<unknown> =>
+        stageUiBroker.requestCustomUi(
+          runId,
+          stageId,
+          factory as Parameters<typeof stageUiBroker.requestCustomUi>[2],
+          options as Parameters<typeof stageUiBroker.requestCustomUi>[3],
+          signal,
+        ),
+    },
+  };
+  const result = await execute(
+    `readiness-gate-${stageId}`,
+    READINESS_GATE_QUESTION_PARAMS as Parameters<typeof execute>[1],
+    signal,
+    undefined,
+    gateContext as unknown as Parameters<typeof execute>[4],
+  );
+  const details = (result as {
+    details?: { answers?: ReadonlyArray<{ answer?: unknown }>; cancelled?: boolean };
+  }).details;
+  if (details === undefined || details.cancelled === true) return false;
+  return details.answers?.[0]?.answer === "Yes";
 }
 
 // ---------------------------------------------------------------------------
@@ -2279,17 +2371,24 @@ export async function run<TInputs extends Record<string, unknown>>(
 
       // Deterministic readiness gate (#1099). After a model turn that issued an
       // ask_user_question tool call ends, confirm with the user before the stage
-      // completes/advances. Answering "n" keeps execution in this stage and lets
-      // the conversation continue (the gate re-arms); "y" resumes progression.
-      // If no UI adapter is available the gate cannot prompt, so we proceed.
-      const runReadinessGate = async (): Promise<boolean> => {
+      // completes/advances. "No" keeps execution in this stage (steer + re-gate
+      // after the next turn); "Yes" resumes progression. The gate engages only
+      // when a confirmation seam is available, so headless/test runs proceed.
+      const readinessGateEnabled =
+        opts.confirmStageReadiness !== undefined || opts.usePromptNodesForUi === true;
+      const confirmReadiness = async (): Promise<boolean> => {
         try {
-          const answer = await ctx.ui.select(
-            "Are you ready to move on to the next stage?",
-            ["y", "n"] as const,
-          );
-          return answer !== "n";
+          if (opts.confirmStageReadiness !== undefined) {
+            return await opts.confirmStageReadiness({
+              runId,
+              stageId,
+              stageName: name,
+              signal: ownController.signal,
+            });
+          }
+          return await askReadinessViaStageBroker(runId, stageId, ownController.signal);
         } catch {
+          // A gate failure must not strand the workflow; proceed on error.
           return true;
         }
       };
@@ -2343,15 +2442,24 @@ export async function run<TInputs extends Record<string, unknown>>(
           else ownController.signal.addEventListener("abort", abortSession, { once: true });
           let result = "";
           try {
-            // Re-run the model turn while the user is not yet ready to move on.
-            // Each iteration re-arms ask_user_question detection so a follow-up
-            // question + turn end re-prompts the readiness gate.
+            // Run the stage turn, then gate before completing. Once an
+            // ask_user_question call is observed the gate stays armed: on "No"
+            // we steer the stage to keep the conversation going and re-gate
+            // after that follow-up turn, repeating until the user answers "Yes".
+            let gatingActive = false;
+            let continuationMessage: string | undefined;
             while (true) {
               askUserQuestionObservedThisTurn = false;
-              result = await raceAbort(call(), ownController.signal);
+              result =
+                continuationMessage === undefined
+                  ? await raceAbort(call(), ownController.signal)
+                  : await raceAbort(innerCtx.prompt(continuationMessage), ownController.signal);
+              continuationMessage = undefined;
               if (ownController.signal.aborted) break;
-              if (!askUserQuestionObservedThisTurn) break;
-              if (await runReadinessGate()) break;
+              if (askUserQuestionObservedThisTurn) gatingActive = true;
+              if (!readinessGateEnabled || !gatingActive) break;
+              if (await confirmReadiness()) break;
+              continuationMessage = READINESS_GATE_STEER_MESSAGE;
             }
           } finally {
             ownController.signal.removeEventListener("abort", abortSession);

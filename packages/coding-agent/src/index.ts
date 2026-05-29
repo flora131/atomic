@@ -171,6 +171,9 @@ export {
 	wrapRegisteredTool,
 	wrapRegisteredTools,
 } from "./core/extensions/index.ts";
+// Builtin tool definitions reusable by first-party extensions (e.g. workflows
+// invoking the structured ask_user_question UI deterministically).
+export { createAskUserQuestionToolDefinition } from "./core/tools/index.ts";
 // Footer data provider (git branch + extension statuses - data not otherwise available to extensions)
 export type { ReadonlyFooterDataProvider } from "./core/footer-data-provider.ts";
 export { convertToLlm } from "./core/messages.ts";

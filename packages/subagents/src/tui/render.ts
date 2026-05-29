@@ -88,7 +88,6 @@ function truncLine(text: string, maxWidth: number): string {
 }
 
 const RUNNING_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-const STATIC_RUNNING_GLYPH = "●";
 
 /**
  * Spinner cadence (ms per frame). The running glyph is derived from wall-clock
@@ -123,10 +122,9 @@ function runningSeed(...values: Array<number | undefined>): number | undefined {
 
 function runningGlyph(seed?: number): string {
 	// Fold the wall-clock frame into the (optional) progress seed so the glyph
-	// advances over time. The frame is always defined, so a running entity always
+	// advances over time. The frame is always finite, so a running entity always
 	// animates; the seed only offsets its starting phase between concurrent agents.
-	const animatedSeed = runningSeed(seed, currentRunningFrame());
-	if (animatedSeed === undefined) return STATIC_RUNNING_GLYPH;
+	const animatedSeed = runningSeed(seed, currentRunningFrame()) ?? 0;
 	return RUNNING_FRAMES[Math.abs(animatedSeed) % RUNNING_FRAMES.length]!;
 }
 
@@ -152,9 +150,16 @@ interface LegacyResultAnimationContext {
 	state: { subagentResultAnimationTimer?: ReturnType<typeof setInterval> };
 }
 
+interface ResultAnimationEntry {
+	state: ResultAnimationContext["state"];
+	invalidate: () => void;
+}
+
 // Registry of every live result-animation timer so they can be torn down in one
 // shot on reload/shutdown even if their owning render context never re-renders.
-const resultAnimationTimers = new Map<ReturnType<typeof setInterval>, ResultAnimationContext["state"]>();
+// Each tick reads the latest `invalidate` from here so a re-sync can refresh the
+// callback if the host ever swaps render contexts for the same renderable.
+const resultAnimationTimers = new Map<ReturnType<typeof setInterval>, ResultAnimationEntry>();
 
 function isStaleExtensionContextError(error: unknown): boolean {
 	return error instanceof Error && error.message.includes(STALE_EXTENSION_CONTEXT_MESSAGE);
@@ -190,10 +195,19 @@ export function syncResultAnimation(result: AgentToolResult<Details>, context: R
 		stopResultAnimation(context);
 		return;
 	}
-	if (context.state.subagentResultAnimationTimer) return;
+	const existing = context.state.subagentResultAnimationTimer;
+	if (existing) {
+		// Keep using the most recent invalidate in case the host handed us a fresh
+		// render context object on this re-sync.
+		const entry = resultAnimationTimers.get(existing);
+		if (entry) entry.invalidate = context.invalidate;
+		return;
+	}
 	const timer = setInterval(() => {
+		const entry = resultAnimationTimers.get(timer);
+		if (!entry) return;
 		try {
-			context.invalidate();
+			entry.invalidate();
 		} catch (error) {
 			if (!isStaleExtensionContextError(error)) throw error;
 			stopResultAnimation(context);
@@ -201,13 +215,13 @@ export function syncResultAnimation(result: AgentToolResult<Details>, context: R
 	}, RUNNING_ANIMATION_MS);
 	timer.unref?.();
 	context.state.subagentResultAnimationTimer = timer;
-	resultAnimationTimers.set(timer, context.state);
+	resultAnimationTimers.set(timer, { state: context.state, invalidate: context.invalidate });
 }
 
 export function stopResultAnimations(): void {
-	for (const [timer, state] of resultAnimationTimers) {
+	for (const [timer, entry] of resultAnimationTimers) {
 		clearInterval(timer);
-		state.subagentResultAnimationTimer = undefined;
+		entry.state.subagentResultAnimationTimer = undefined;
 	}
 	resultAnimationTimers.clear();
 }
@@ -957,12 +971,16 @@ interface RenderRequestingContext {
 	ui: ExtensionContext["ui"] & { requestRender?: () => void };
 }
 
+// There is only ever one async-agents widget per host process, so the widget
+// ticker keeps its driving context/jobs in module-level singletons.
 let latestWidgetCtx: ExtensionContext | undefined;
 let latestWidgetJobs: AsyncJobState[] = [];
 let widgetTimer: ReturnType<typeof setInterval> | undefined;
 
 function hasAnimatedWidgetJobs(jobs: AsyncJobState[]): boolean {
-	return jobs.some((job) => job.status === "running");
+	// Animate while any job — or any of its nested steps — is still running so the
+	// header/step spinners never freeze before the work actually settles.
+	return jobs.some((job) => job.status === "running" || job.steps?.some((step) => step.status === "running"));
 }
 
 function refreshAnimatedWidget(): void {

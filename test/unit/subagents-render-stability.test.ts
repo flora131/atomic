@@ -81,6 +81,9 @@ describe("subagent running spinner animation (issue #1084)", () => {
     assert.notEqual(second, first, "running spinner should advance after one animation interval");
   });
 
+  // NOTE: this invariant assumes the render path only consults Date.now() for
+  // time (which the tests mock). If elapsed-time labels ever start reading
+  // performance.now()/process.uptime(), this assertion would start to drift.
   test("renders within the same animation frame are identical (deterministic, no churn)", () => {
     const result = runningSingleResult();
     const frameStart = 10_000;
@@ -200,6 +203,22 @@ describe("subagent result animation timer lifecycle", () => {
     assert.equal(context.state.subagentResultAnimationTimer, undefined, "completed result must stop the animation timer");
   });
 
+  test("re-sync refreshes the invalidate callback used by the ticker", async () => {
+    let firstCalls = 0;
+    let secondCalls = 0;
+    const state = {} as { subagentResultAnimationTimer?: ReturnType<typeof setInterval> };
+    syncResultAnimation(runningSingleResult(), { state, invalidate: () => firstCalls++ });
+    const timer = state.subagentResultAnimationTimer;
+    // Re-sync with the same (stable) state object but a fresh invalidate closure,
+    // mirroring the host handing us a new render context for the same renderable.
+    syncResultAnimation(runningSingleResult(), { state, invalidate: () => secondCalls++ });
+    assert.equal(state.subagentResultAnimationTimer, timer, "timer should be reused across re-sync");
+    await new Promise((resolve) => setTimeout(resolve, RUNNING_ANIMATION_MS * 3 + 40));
+    stopResultAnimations();
+    assert.equal(firstCalls, 0, "stale invalidate must not be called after re-sync");
+    assert.ok(secondCalls >= 1, `refreshed invalidate should fire, saw ${secondCalls}`);
+  });
+
   test("invokes invalidate on each animation tick", async () => {
     let ticks = 0;
     const context = {
@@ -224,6 +243,10 @@ describe("subagent result animation timer lifecycle", () => {
 });
 
 describe("subagent render stability invariants", () => {
+  afterEach(() => {
+    stopResultAnimations();
+  });
+
   test("widget render key is stable when only wall clock changes", () => {
     const job: AsyncJobState = {
       asyncId: "abc123",

@@ -1,4 +1,4 @@
-<h1 align="center">Atomic</h1>
+<h1 align="center">Atomic - Dynamic Workflows for Software Engineering</h1>
 
 <p align="center"><img width="800" height="450" alt="atomic-promo" src="./assets/atomic-promo.gif" /></p>
 

@@ -486,6 +486,31 @@ describe("renderResult — run variant", () => {
     assert.ok(out.includes("wf"));
     assert.match(out, /running/);
   });
+
+  test("renderResult honours opts.now so scrollback entries don't tick on host re-renders", () => {
+    const snapshot = {
+      id: "run-1-uuid",
+      name: "wf-tick-test",
+      inputs: {},
+      status: "running" as const,
+      stages: [],
+      startedAt: 0,
+    };
+    const first = renderResult({ action: "status", snapshots: [snapshot] }, { now: 60_000, plain: true });
+    const second = renderResult({ action: "status", snapshots: [snapshot] }, { now: 120_000, plain: true });
+    assert.notEqual(
+      first,
+      second,
+      "sanity: differing opts.now must produce differing output (proves elapsed is sensitive to the param)",
+    );
+    const stableFirst = renderResult({ action: "status", snapshots: [snapshot] }, { now: 60_000, plain: true });
+    const stableSecond = renderResult({ action: "status", snapshots: [snapshot] }, { now: 60_000, plain: true });
+    assert.equal(
+      stableFirst,
+      stableSecond,
+      "workflow tool result must be stable when opts.now is captured once per chat entry",
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -161,6 +161,15 @@ export interface RenderResultOpts {
    * When false/undefined the canonical Catppuccin chrome is rendered.
    */
   plain?: boolean;
+  /**
+   * Stable wall-clock used for elapsed-time labels in scrollback. Capture
+   * once when the chat entry is created so subsequent host re-renders do
+   * not silently tick `elapsed` / `running` durations — every off-viewport
+   * tick forces pi-tui's full-redraw path (CSI 2J + CSI H + CSI 3J) and
+   * is visible as whole-screen flicker under terminal emulators that do
+   * not implement synchronized output (e.g. mosh).
+   */
+  now?: number;
 }
 
 /**
@@ -227,6 +236,7 @@ export function renderResult(result: WorkflowToolResult, opts?: RenderResultOpts
       return renderStatusList(r.snapshots, {
         theme: themed ? deriveGraphTheme({}) : undefined,
         width: opts?.width,
+        now: opts?.now,
       });
     }
 
@@ -239,6 +249,7 @@ export function renderResult(result: WorkflowToolResult, opts?: RenderResultOpts
       return renderRunDetail(r.detail, {
         theme: themed ? deriveGraphTheme({}) : undefined,
         width: opts?.width,
+        now: opts?.now,
       });
     }
 

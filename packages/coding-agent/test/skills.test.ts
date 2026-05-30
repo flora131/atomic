@@ -41,7 +41,7 @@ describe("skills", () => {
 			expect(diagnostics).toHaveLength(0);
 		});
 
-		it("should warn when name doesn't match parent directory", () => {
+		it("should allow skill names that differ from the parent directory", () => {
 			const { skills, diagnostics } = loadSkillsFromDir({
 				dir: join(fixturesDir, "name-mismatch"),
 				source: "test",
@@ -51,7 +51,7 @@ describe("skills", () => {
 			expect(skills[0].name).toBe("different-name");
 			expect(
 				diagnostics.some((d: ResourceDiagnostic) => d.message.includes("does not match parent directory")),
-			).toBe(true);
+			).toBe(false);
 		});
 
 		it("should warn when name contains invalid characters", () => {

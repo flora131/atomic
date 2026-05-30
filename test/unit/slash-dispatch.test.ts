@@ -763,6 +763,31 @@ function recordTerminalRun(
   }
 }
 
+function registerTestStageHandle(
+  runId: string,
+  stageId: string,
+  status: StageControlHandle["status"] = "running",
+): void {
+  const handle: StageControlHandle = {
+    runId,
+    stageId,
+    stageName: "worker",
+    status,
+    sessionId: undefined,
+    sessionFile: undefined,
+    isStreaming: false,
+    messages: [],
+    async ensureAttached(): Promise<void> {},
+    async prompt(): Promise<void> {},
+    async steer(): Promise<void> {},
+    async followUp(): Promise<void> {},
+    async pause(): Promise<void> {},
+    async resume(): Promise<void> {},
+    subscribe: () => () => {},
+  };
+  stageControlRegistry.register(handle);
+}
+
 describe("/workflow interrupt chat command", () => {
   test.each([
     ["completed"],
@@ -2682,6 +2707,69 @@ describe("/workflow command in non-interactive (-p) mode", () => {
       () => handler("kill definitely-missing", headlessNoOpCtx()),
       /Run not found: definitely-missing/,
     );
+  });
+
+  test.each([
+    ["reload", "reload", /Reloaded workflow resources\./],
+    ["interrupt", "interrupt", /interrupted and can be resumed/],
+    ["kill", "kill", /killed and retained for inspection/],
+    ["pause", "pause", /Paused 1 stage\(s\)/],
+    ["resume", "resume", /Resumed 1 stage\(s\)/],
+  ])("/workflow %s emits displayable success output in headless mode", async (_label, action, expected) => {
+    const { handler, sent } = await registerWorkflowCommand();
+    const runId = `headless-success-${action}-${Date.now()}`;
+    const stageId = `stage-${action}`;
+
+    if (action !== "reload") {
+      const stageStatus = action === "resume" ? "paused" : "running";
+      store.recordRunStart({
+        ...makeInflightRun(runId),
+        stages: [
+          {
+            id: stageId,
+            name: "worker",
+            status: stageStatus,
+            parentIds: [],
+            startedAt: Date.now(),
+            toolEvents: [],
+          },
+        ],
+      });
+      registerTestStageHandle(runId, stageId, stageStatus);
+    }
+
+    await handler(action === "reload" ? "reload" : `${action} ${runId}`, headlessNoOpCtx());
+
+    const outputs = commandOutputMessages(sent);
+    assert.ok(outputs.length > 0, `expected /workflow ${action} to emit command output`);
+    const content = outputs.map((message) => message.content ?? "").join("\n");
+    assert.match(content, expected);
+  });
+
+  test("/workflow interrupt --all emits displayable success output in headless mode", async () => {
+    const { handler, sent } = await registerWorkflowCommand();
+    const runId = `headless-interrupt-all-${Date.now()}`;
+    const stageId = "stage-interrupt-all";
+    store.recordRunStart({
+      ...makeInflightRun(runId),
+      stages: [{ id: stageId, name: "worker", status: "running", parentIds: [], startedAt: Date.now(), toolEvents: [] }],
+    });
+    registerTestStageHandle(runId, stageId);
+
+    await handler("interrupt --all", headlessNoOpCtx());
+
+    const content = commandOutputMessages(sent).map((message) => message.content ?? "").join("\n");
+    assert.match(content, /Interrupted 1 run\(s\)\./);
+  });
+
+  test("/workflow kill --all emits displayable success output in headless mode", async () => {
+    const { handler, sent } = await registerWorkflowCommand();
+    store.recordRunStart(makeInflightRun(`headless-kill-all-${Date.now()}`));
+
+    await handler("kill --all", headlessNoOpCtx());
+
+    const content = commandOutputMessages(sent).map((message) => message.content ?? "").join("\n");
+    assert.match(content, /Killed and retained 1 run\(s\) for inspection\./);
   });
 
   test("/workflow rejects declared HiL workflows in headless mode with a visible command error", async () => {

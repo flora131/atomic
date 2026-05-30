@@ -1052,10 +1052,14 @@ function fallbackRunDetailFromResult(
 ): RunDetail {
   const now = Date.now();
   const stages = result.stages?.map((stage) => structuredClone(stage)) ?? [];
+  // This path is a degraded last-resort view used only when the retained run
+  // snapshot has disappeared before output rendering. Timestamps are synthetic,
+  // so prefer a conservative failed status over fabricating success if the tool
+  // result status is not one of the known run states.
   return {
     runId: result.runId,
     name: result.name ?? workflowName,
-    status: isRunStatus(result.status) ? result.status : "completed",
+    status: isRunStatus(result.status) ? result.status : "failed",
     mode: stages.length > 1 ? "chain" : "single",
     startedAt: now,
     endedAt: now,
@@ -1087,8 +1091,8 @@ function emitTerminalRunDetailSurface(
 export const WORKFLOW_COMMAND_OUTPUT_CUSTOM_TYPE = "workflows:command-output";
 
 interface WorkflowCommandOutputDetails {
-  readonly command: "inputs" | "help";
-  readonly workflowName: string;
+  readonly command: string;
+  readonly workflowName?: string;
 }
 
 function emitWorkflowCommandOutput(
@@ -1139,10 +1143,16 @@ class WorkflowHeadlessCommandError extends Error {
 function createWorkflowCommandReporter(
   ctx: PiCommandContext,
   policy: WorkflowExecutionPolicy = workflowPolicyFromContext(ctx),
+  pi?: ExtensionAPI,
 ): WorkflowCommandReporter {
   return {
     info(message: string): void {
-      if (policy.mode === "non_interactive") return;
+      if (policy.mode === "non_interactive") {
+        if (pi) {
+          emitWorkflowCommandOutput(pi, message, { command: "message" });
+        }
+        return;
+      }
       ctx.ui.notify(message, "info");
     },
     error(message: string): void {
@@ -1692,7 +1702,7 @@ export function makeExecuteWorkflowTool(
           run?.status === "paused" ||
           (run?.stages.some((s) => s.status === "paused") ?? false);
         if (!isPaused && run?.status === "failed" && run.endedAt !== undefined && run.resumable !== false) {
-          const continuation = activeRuntime.resumeFailedRun(target.runId, stage.stageId);
+          const continuation = activeRuntime.resumeFailedRun(target.runId, stage.stageId, { policy });
           return {
             action: "resume",
             runId: continuation.ok ? continuation.runId : target.runId,
@@ -2300,8 +2310,8 @@ function factory(pi: ExtensionAPI): void {
     runDirect(args, options) {
       return runtimeRef.current.runDirect(args, options);
     },
-    resumeFailedRun(sourceRunId, stageId) {
-      return runtimeRef.current.resumeFailedRun(sourceRunId, stageId);
+    resumeFailedRun(sourceRunId, stageId, options) {
+      return runtimeRef.current.resumeFailedRun(sourceRunId, stageId, options);
     },
   };
 
@@ -2990,7 +3000,7 @@ function factory(pi: ExtensionAPI): void {
         run?.status === "paused" ||
         (run?.stages.some((s) => s.status === "paused") ?? false);
       if (!isPaused && run?.status === "failed" && run.endedAt !== undefined && run.resumable !== false) {
-        const continuation = runtimeForContext(ctx).resumeFailedRun(runId, stageId);
+        const continuation = runtimeForContext(ctx).resumeFailedRun(runId, stageId, { policy });
         if (continuation.ok) {
           print(continuation.message);
         } else {
@@ -3038,7 +3048,7 @@ function factory(pi: ExtensionAPI): void {
         "Run or inspect pi workflows. Usage: /workflow <name> [key=value…] | /workflow [list|status|connect|attach|interrupt|kill|pause|resume|inputs|reload] [args]",
       handler: async (args: string, ctx: PiCommandContext) => {
         const policy = workflowPolicyFromContext(ctx);
-        const reporter = createWorkflowCommandReporter(ctx, policy);
+        const reporter = createWorkflowCommandReporter(ctx, policy, pi);
         const print = (msg: string): void => reporter.info(msg);
         const fail = (msg: string): void => reporter.error(msg);
         const withImplicitYesFlag = (tokens: string[]): string[] =>

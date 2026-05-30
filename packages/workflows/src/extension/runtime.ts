@@ -110,7 +110,7 @@ export interface ExtensionRuntime {
   runDirect(args: WorkflowToolArgs, options?: RuntimeDispatchOptions): Promise<WorkflowDetails>;
 
   /** Start a linked continuation for a failed resumable named workflow run. */
-  resumeFailedRun(sourceRunId: string, stageId?: string): ResumeFailedRunResult;
+  resumeFailedRun(sourceRunId: string, stageId?: string, options?: RuntimeDispatchOptions): ResumeFailedRunResult;
 }
 
 export interface RuntimeDispatchOptions {
@@ -384,7 +384,7 @@ export function createExtensionRuntime(opts: ExtensionRuntimeOpts = {}): Extensi
     return { ok: true, stageId: failedStageId };
   }
 
-  function resumeFailedRun(sourceRunId: string, stageId?: string): ResumeFailedRunResult {
+  function resumeFailedRun(sourceRunId: string, stageId?: string, options?: RuntimeDispatchOptions): ResumeFailedRunResult {
     const source = activeStore.runs().find((run) => run.id === sourceRunId);
     if (source === undefined) {
       return { ok: false, reason: "run_not_found", message: `run not found: ${sourceRunId}` };
@@ -407,7 +407,7 @@ export function createExtensionRuntime(opts: ExtensionRuntimeOpts = {}): Extensi
       return { ok: false, reason: "insufficient_state", message: `insufficient_state: ${err instanceof Error ? err.message : String(err)}` };
     }
     const accepted = runDetached(def, sourceInputs, {
-      ...runOptions({ workflow: def.name, inputs: sourceInputs }),
+      ...runOptions({ workflow: def.name, inputs: sourceInputs }, options?.policy),
       continuation: { source, resumeFromStageId: resolvedStage.stageId },
     });
     return {

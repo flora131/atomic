@@ -1739,9 +1739,11 @@ function selectWorkflowOutputs(
   return selected;
 }
 
-function completedChildStatus(status: RunStatus): WorkflowChildResult["status"] {
-  if (status === "completed" || status === "failed" || status === "killed") return status;
-  return "failed";
+function cloneWorkflowChildValue<T>(value: T): T {
+  if (typeof structuredClone === "function") {
+    return structuredClone(value);
+  }
+  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 function workflowChildReplaySnapshot(
@@ -1753,8 +1755,8 @@ function workflowChildReplaySnapshot(
     workflow: childResult.workflow,
     runId: childResult.runId,
     status: childResult.status,
-    outputs: { ...childResult.outputs },
-    ...(childResult.rawOutput !== undefined ? { rawOutput: { ...childResult.rawOutput } } : {}),
+    outputs: cloneWorkflowChildValue(childResult.outputs),
+    ...(childResult.rawOutput !== undefined ? { rawOutput: cloneWorkflowChildValue(childResult.rawOutput) } : {}),
   };
 }
 
@@ -1791,6 +1793,9 @@ export async function run<TInputs extends Record<string, unknown>>(
   };
   let importResolver: typeof import("../../workflows/import-resolver.js") | undefined;
   const loadImportResolver = async (): Promise<typeof import("../../workflows/import-resolver.js")> => {
+    // Keep this import lazy: a top-level import forms an ESM cycle through
+    // import-resolver -> workflow-module-loader -> workflow-runner -> executor
+    // that leaves GraphFrontierTracker uninitialized in path-import tests.
     importResolver ??= await import("../../workflows/import-resolver.js");
     return importResolver;
   };
@@ -2121,6 +2126,7 @@ export async function run<TInputs extends Record<string, unknown>>(
       status: "completed" | "failed",
       summaryOrError: string,
       workflowChild?: WorkflowChildReplaySnapshot,
+      failureError?: unknown,
     ): void => {
       if (finalized) return;
       finalized = true;
@@ -2129,7 +2135,7 @@ export async function run<TInputs extends Record<string, unknown>>(
         stageSnapshot.result = summaryOrError;
         if (workflowChild !== undefined) stageSnapshot.workflowChild = workflowChild;
       } else {
-        const failure = classifyWorkflowFailure(new Error(summaryOrError));
+        const failure = classifyWorkflowFailure(failureError);
         stageSnapshot.error = failure.userMessage;
         stageSnapshot.failureKind = failure.kind;
         stageSnapshot.failureMessage = failure.message;
@@ -2161,7 +2167,7 @@ export async function run<TInputs extends Record<string, unknown>>(
         finalize("completed", summary, workflowChild);
       },
       fail(error: unknown): void {
-        finalize("failed", error instanceof Error ? error.message : String(error));
+        finalize("failed", error instanceof Error ? error.message : String(error), undefined, error);
       },
     };
   };
@@ -3127,7 +3133,7 @@ export async function run<TInputs extends Record<string, unknown>>(
         const childResult: WorkflowChildResult = {
           workflow: child.normalizedName,
           runId: childRun.runId,
-          status: completedChildStatus(childRun.status),
+          status: "completed",
           outputs,
           rawOutput: childRun.result,
         };

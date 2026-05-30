@@ -316,8 +316,7 @@ function resolveDeclaredImport(
 
 function importDeclarations(definition: WorkflowDefinition): readonly [string, unknown][] {
   const imports = definition.imports;
-  if (imports === undefined) return [];
-  if (!isRecord(imports)) return [["<imports>", imports]];
+  if (imports === undefined || !isRecord(imports)) return [];
   return Object.entries(imports);
 }
 
@@ -384,11 +383,12 @@ export function validateWorkflowImportGraph(
     if (visited.has(identity)) return;
 
     const nextStack = [...stack, { identity, label }];
+    if (definition.imports !== undefined && !isRecord(definition.imports)) {
+      pushDiagnostic(diagnostics, seenDiagnostics, invalidDiagnostic(definition, "imports", "imports must be an object map"));
+      visited.add(identity);
+      return;
+    }
     for (const [alias, rawDeclaration] of importDeclarations(definition)) {
-      if (alias === "<imports>") {
-        pushDiagnostic(diagnostics, seenDiagnostics, invalidDiagnostic(definition, alias, "imports must be an object map"));
-        continue;
-      }
       if (!isRecord(rawDeclaration)) {
         pushDiagnostic(diagnostics, seenDiagnostics, invalidDiagnostic(definition, alias, "declaration must be an object"));
         continue;

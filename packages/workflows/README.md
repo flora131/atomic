@@ -155,7 +155,16 @@ export default defineWorkflow("research-and-synthesize")
   .compile();
 ```
 
-Imports can reference a registered workflow ID (`{ workflow: "shared-research" }`) or a local workflow module (`{ path: "./shared-research.ts" }`, optionally `{ path: "./shared.ts", export: "sharedResearch" }`). Local relative paths resolve from the importing workflow file when discovery knows its file path, otherwise from the workflow invocation cwd. Discovery reports unresolved, circular, or invalid imports before runs start.
+Imports can reference a registered workflow ID (`{ workflow: "shared-research" }`) or a local workflow module (`{ path: "./shared-research.ts" }`, optionally `{ path: "./shared.ts", export: "sharedResearch" }`):
+
+```typescript
+export default defineWorkflow("research-and-synthesize")
+  .import("research", { path: "./shared.ts", export: "sharedResearch" })
+  .run(async (ctx) => ctx.workflow("research", { inputs: { topic: "workflow imports" } }))
+  .compile();
+```
+
+Local relative paths resolve from the importing workflow file when discovery knows its file path, otherwise from the workflow invocation cwd. Discovery reports unresolved, circular, or invalid imports before runs start. Local path imports execute the imported module's top-level TypeScript during validation/discovery (through the same loader used for workflow discovery), so only import trusted workflow files and expect missing or pathological modules to fail before the first dispatch.
 
 ### Reusable Git worktrees
 

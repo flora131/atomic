@@ -1068,7 +1068,7 @@ describe("buildGraphOverlayAdapter — animation tick visibility gating", () => 
     // enough that a single wall-clock sleep observes only one interval turn.
     // Poll across scheduler turns instead of assuming 250ms means two ticks.
     try {
-      await waitForRenderCount(() => renderCalls, 2);
+      await waitForRenderCount(() => renderCalls, 2, 200, 25);
       assert.ok(
         renderCalls >= 2,
         `expected tui.requestRender to fire on the animation tick (got ${renderCalls})`,
@@ -1076,7 +1076,7 @@ describe("buildGraphOverlayAdapter — animation tick visibility gating", () => 
     } finally {
       component!.dispose?.();
     }
-  });
+  }, 15_000);
 
   test("requestRender suppresses tui.requestRender while overlay is hidden", async () => {
     const runId = `tick-hidden-${Date.now()}`;

@@ -288,6 +288,13 @@ export function buildGraphOverlayAdapter(
         // while the agent's turn was streaming (#1120).
         requestFocus: () => {
           if (currentHandle?.isHidden() === true) return;
+          // Idempotent: only grab focus if the overlay does not already own it.
+          // A redundant focus() while already focused re-runs pi-tui's focus
+          // transition mid-stream and stalls the agent's continuation (#1120,
+          // the "ac" freeze). Skipping the no-op case lets callers ask for focus
+          // freely — e.g. when showing a mid-turn ask_user_question — without a
+          // fragile "only when not streaming" guard at every call site.
+          if (currentHandle?.isFocused() === true) return;
           currentHandle?.focus();
         },
         setMouseScrollTracking,

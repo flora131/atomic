@@ -1034,6 +1034,55 @@ describe("StageChatView", () => {
     view.dispose();
   });
 
+  // Regression: a question shown MID-TURN (agent still "streaming" because it is
+  // blocked on this very ask_user_question, e.g. after a readiness-gate "stay"
+  // -> composer submit drives another turn) must STILL grab overlay focus, or it
+  // renders but is input-dead (arrows/Enter ignored) when host focus drifted off
+  // the overlay during the turn. requestFocus is idempotent at the overlay
+  // layer, so asking for focus while streaming is safe.
+  test("requests overlay focus for a custom UI shown mid-turn (agent streaming)", async () => {
+    const store = createStore();
+    setupRun(store, "run-1", "stage-a");
+    const broker = new StageUiBroker(store);
+    const { handle } = makeHandle({
+      promptCalls: [],
+      steerCalls: [],
+      followUpCalls: [],
+      pauseCalls: 0,
+      resumeCalls: [],
+      isStreaming: true,
+    });
+    let focusCalls = 0;
+    const view = new StageChatView({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageId: "stage-a",
+      workflowName: "test-wf",
+      handle,
+      onDetach: () => {},
+      onClose: () => {},
+      requestFocus: () => { focusCalls += 1; },
+      piTui: { requestRender: () => {}, terminal: { rows: 32, columns: 80 } } as unknown as TUI,
+      piTheme: {},
+      piKeybindings: makeFakeKeybindings(),
+      stageUiBroker: broker,
+    });
+
+    const pending = broker.requestCustomUi("run-1", "stage-a", () => ({
+      render: () => ["MID-TURN-QUESTION"],
+      invalidate: () => {},
+    }));
+    await flush();
+
+    assert.ok(
+      focusCalls >= 1,
+      "a question shown mid-turn (while streaming) must still request overlay focus",
+    );
+    void pending.catch(() => {});
+    view.dispose();
+  });
+
   test("header omits workflow duration/status chrome inside the stage chat", () => {
     const originalNow = Date.now;
     try {

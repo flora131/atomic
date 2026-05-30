@@ -245,7 +245,14 @@ export class StageChatView implements Component, Focusable {
     // continuation (which would stall the stream).
     if (opts.requestFocus) {
       this.focusHoldTimer = setInterval(() => {
-        if (!this._isStreaming()) this.requestFocus?.();
+        // Hold focus on the overlay whenever there is something to interact
+        // with: a mounted custom UI (ask_user_question / readiness gate) must
+        // stay answerable even mid-turn, and an idle composer should keep focus.
+        // During a pure streaming continuation (no custom UI mounted) we leave
+        // focus alone so we never reclaim it out from under the agent's live
+        // output. requestFocus is idempotent, so this is a no-op whenever the
+        // overlay already owns focus.
+        if (this.mountedCustomUi !== null || !this._isStreaming()) this.requestFocus?.();
       }, 150);
     }
     this.getViewportRows = opts.getViewportRows;
@@ -427,13 +434,14 @@ export class StageChatView implements Component, Focusable {
       }
       this.mountingRequestId = null;
       this.mountedCustomUi = mounted;
-      // Re-assert overlay focus so the freshly-shown custom UI actually receives
-      // keyboard input even if focus drifted off the overlay (#1120). Skip while
-      // the agent is still streaming — a mid-turn ask_user_question mounts during
-      // an active stream, and focusing the overlay then stalls the agent's
-      // continuation; the overlay is already focused from attach in that case.
-      // The post-turn readiness gate mounts when not streaming and is refocused.
-      if (!this._isStreaming()) this.requestFocus?.();
+      // A freshly-shown custom UI (ask_user_question / readiness gate) must own
+      // keyboard focus to be answerable — including a question mounted mid-turn
+      // while the agent is "streaming" (it is blocked on this very question, and
+      // host focus may have drifted off the overlay during the turn, e.g. after a
+      // stay-loop composer submit). requestFocus is idempotent (a no-op when the
+      // overlay already owns focus), so this never re-runs a redundant focus
+      // transition that would stall the stream (#1120).
+      this.requestFocus?.();
       this.requestRender?.();
     } catch (error) {
       if (this.mountingRequestId === request.id) this.mountingRequestId = null;

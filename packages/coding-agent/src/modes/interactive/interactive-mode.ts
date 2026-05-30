@@ -257,6 +257,10 @@ function isDeadTerminalError(error: unknown): boolean {
 const ANTHROPIC_SUBSCRIPTION_AUTH_WARNING =
   "Anthropic subscription auth is active. Third-party harness usage draws from extra usage and is billed per token, not your Claude plan limits. Manage extra usage at https://claude.ai/settings/usage.";
 
+const BUILTIN_SLASH_COMMAND_NAMES = new Set(
+  BUILTIN_SLASH_COMMANDS.map((command) => command.name),
+);
+
 function isAnthropicSubscriptionAuthKey(apiKey: string | undefined): boolean {
   return typeof apiKey === "string" && apiKey.startsWith("sk-ant-oat");
 }
@@ -546,12 +550,9 @@ export class InteractiveMode {
   private getBuiltInCommandConflictDiagnostics(
     extensionRunner: ExtensionRunner,
   ): ResourceDiagnostic[] {
-    const builtinNames = new Set(
-      BUILTIN_SLASH_COMMANDS.map((command) => command.name),
-    );
     return extensionRunner
       .getRegisteredCommands()
-      .filter((command) => builtinNames.has(command.name))
+      .filter((command) => BUILTIN_SLASH_COMMAND_NAMES.has(command.name))
       .map((command) => ({
         type: "warning" as const,
         message:
@@ -640,12 +641,9 @@ export class InteractiveMode {
     );
 
     // Convert extension commands to SlashCommand format
-    const builtinCommandNames = new Set(
-      BUILTIN_SLASH_COMMANDS.map((command) => command.name),
-    );
     const extensionCommands: SlashCommand[] = this.session.extensionRunner
       .getRegisteredCommands()
-      .filter((cmd) => !builtinCommandNames.has(cmd.name))
+      .filter((cmd) => !BUILTIN_SLASH_COMMAND_NAMES.has(cmd.name))
       .map((cmd) => ({
         name: cmd.invocationName,
         description: this.prefixAutocompleteDescription(

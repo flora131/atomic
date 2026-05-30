@@ -79,22 +79,7 @@ export function installWorkflowHilAnswerNotifications(
     if (state.deliveredAnswerPrompts.has(key)) return;
 
     state.deliveredAnswerPrompts.add(key);
-    const content = formatWorkflowHilAnswerNoticeText(details);
-    try {
-      void Promise.resolve(
-        send(
-          {
-            customType: HIL_ANSWER_NOTICE_CUSTOM_TYPE,
-            content,
-            display: true,
-            details,
-          },
-          { triggerTurn: true, deliverAs: "interrupt" },
-        ),
-      ).catch((error: unknown) => warnHilAnswerSendFailure(error));
-    } catch (error) {
-      warnHilAnswerSendFailure(error);
-    }
+    sendHilAnswerNotice(send, details);
   };
 
   const inspectSimplePromptAnswers = (snapshot: StoreSnapshot): void => {
@@ -103,15 +88,9 @@ export function installWorkflowHilAnswerNotifications(
       if (currentRun === undefined) continue;
 
       for (const previousStage of previousRun.stages) {
-        const prompt = previousStage.pendingPrompt;
-        if (prompt === undefined) continue;
-
-        const currentStage = currentRun.stages.find((stage) => stage.id === previousStage.id);
-        if (currentStage === undefined) continue;
-        if (currentStage.pendingPrompt !== undefined) continue;
-        if (currentStage.promptAnswerState !== "available") continue;
-
-        emitOnce(makeSimplePromptAnswerNotice(currentRun, currentStage, prompt));
+        const answeredPrompt = simplePromptAnswer(previousStage, currentRun);
+        if (answeredPrompt === undefined) continue;
+        emitOnce(makeSimplePromptAnswerNotice(currentRun, answeredPrompt.stage, answeredPrompt.prompt));
       }
     }
     previousSnapshot = snapshot;
@@ -119,13 +98,10 @@ export function installWorkflowHilAnswerNotifications(
 
   const unsubscribeStore = options.store.subscribe(inspectSimplePromptAnswers);
   const unsubscribeBroker = options.stageUiBroker?.onStagePromptResolved((event) => {
-    const snapshot = options.store.snapshot();
-    const run = snapshot.runs.find((candidate) => candidate.id === event.runId);
-    if (run === undefined) return;
-    const stage = run.stages.find((candidate) => candidate.id === event.stageId);
-    if (stage === undefined) return;
+    const answeredStage = findStageSnapshot(options.store.snapshot(), event.runId, event.stageId);
+    if (answeredStage === undefined) return;
 
-    emitOnce(makeBrokerPromptAnswerNotice(run, stage, event.prompt, event.answeredAt));
+    emitOnce(makeBrokerPromptAnswerNotice(answeredStage.run, answeredStage.stage, event.prompt, event.answeredAt));
   });
 
   return () => {
@@ -144,9 +120,9 @@ export function registerHilAnswerNoticeRenderer(
   if (rendererRegisteredHosts.has(host)) return;
 
   const renderer: RawRenderer = (raw) => {
-    const message = raw as { details?: WorkflowHilAnswerNoticeDetails };
-    if (!message.details) return undefined;
-    return makeNoticeComponent(message.details);
+    const details = readHilAnswerNoticeDetails(raw);
+    if (details === undefined) return undefined;
+    return makeNoticeComponent(details);
   };
 
   register(HIL_ANSWER_NOTICE_CUSTOM_TYPE, renderer);
@@ -157,7 +133,63 @@ export function formatWorkflowHilAnswerNoticeText(details: WorkflowHilAnswerNoti
   const workflowName = escapeQuotedText(details.workflowName);
   const stage = details.stageName ?? details.stageId;
   const prompt = details.promptId ? `, prompt ${details.promptId}` : "";
-  return `✅ Workflow "${workflowName}" received the answer for its pending human-in-the-loop prompt (run ${details.runId}, stage ${stage}${prompt}). Do not ask the same question again. Continue the workflow; the stage has already received the user's response.`;
+  const subject = `Workflow "${workflowName}" received the answer for its pending human-in-the-loop prompt`;
+  const location = `(run ${details.runId}, stage ${stage}${prompt})`;
+  const instruction =
+    "Do not ask the same question again. Continue the workflow; the stage has already received the user's response.";
+  return `✅ ${subject} ${location}. ${instruction}`;
+}
+
+function sendHilAnswerNotice(
+  send: NonNullable<ExtensionAPI["sendMessage"]>,
+  details: WorkflowHilAnswerNoticeDetails,
+): void {
+  const content = formatWorkflowHilAnswerNoticeText(details);
+  try {
+    void Promise.resolve(
+      send(
+        {
+          customType: HIL_ANSWER_NOTICE_CUSTOM_TYPE,
+          content,
+          display: true,
+          details,
+        },
+        { triggerTurn: true, deliverAs: "interrupt" },
+      ),
+    ).catch((error: unknown) => warnHilAnswerSendFailure(error));
+  } catch (error) {
+    warnHilAnswerSendFailure(error);
+  }
+}
+
+function simplePromptAnswer(
+  previousStage: StageSnapshot,
+  currentRun: RunSnapshot,
+): { stage: StageSnapshot; prompt: PendingPrompt } | undefined {
+  const prompt = previousStage.pendingPrompt;
+  if (prompt === undefined) return undefined;
+  const currentStage = currentRun.stages.find((stage) => stage.id === previousStage.id);
+  if (currentStage === undefined) return undefined;
+  if (currentStage.pendingPrompt !== undefined) return undefined;
+  if (currentStage.promptAnswerState !== "available") return undefined;
+  return { stage: currentStage, prompt };
+}
+
+function findStageSnapshot(
+  snapshot: StoreSnapshot,
+  runId: string,
+  stageId: string,
+): { run: RunSnapshot; stage: StageSnapshot } | undefined {
+  const run = snapshot.runs.find((candidate) => candidate.id === runId);
+  const stage = run?.stages.find((candidate) => candidate.id === stageId);
+  if (run === undefined || stage === undefined) return undefined;
+  return { run, stage };
+}
+
+function readHilAnswerNoticeDetails(raw: unknown): WorkflowHilAnswerNoticeDetails | undefined {
+  if (typeof raw !== "object" || raw === null || !("details" in raw)) return undefined;
+  const message = raw as { details?: WorkflowHilAnswerNoticeDetails };
+  return message.details;
 }
 
 function makeSimplePromptAnswerNotice(

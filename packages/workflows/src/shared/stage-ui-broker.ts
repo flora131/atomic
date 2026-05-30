@@ -106,7 +106,7 @@ export class StageUiBroker {
     };
   }
 
-  private emitStagePromptResolved(event: StagePromptResolvedEvent): void {
+  private notifyStagePromptAnswered(event: StagePromptResolvedEvent): void {
     for (const listener of this.resolvedListeners) {
       try {
         listener(event);
@@ -216,7 +216,7 @@ export class StageUiBroker {
     this.store.recordStageAwaitingInput(request.runId, request.stageId, false);
     this.hideHost(this.hosts.get(hostKey), request, undefined);
     if (prompt !== undefined) {
-      this.emitStagePromptResolved({
+      this.notifyStagePromptAnswered({
         runId: request.runId,
         stageId: request.stageId,
         prompt,

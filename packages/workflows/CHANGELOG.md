@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed completed human-in-the-loop prompt archives so reattached read-only prompt nodes keep their prompt card scrollable with keyboard and mouse-wheel input ([#1140](https://github.com/flora131/atomic/issues/1140)).
+
 ## [0.8.21] - 2026-05-30
 
 ### Changed

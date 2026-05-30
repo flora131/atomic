@@ -916,6 +916,108 @@ describe("executor.run", () => {
     assert.equal(continued.result?.["after"], "after-ok");
   });
 
+  test("validates workflow imports when caller supplies a registry", async () => {
+    const parent = defineWorkflow("registry-validation-parent")
+      .import("ghost", { workflow: "registry-validation-missing" })
+      .run(async (ctx) => {
+        await ctx.stage("should-not-start").prompt("should not start");
+        return {};
+      })
+      .compile();
+    const registry = createRegistry([parent]);
+    const promptCalls: string[] = [];
+
+    const result = await run(parent, {}, {
+      registry,
+      adapters: {
+        prompt: {
+          prompt: async (text) => {
+            promptCalls.push(text);
+            return "unexpected";
+          },
+        },
+      },
+    });
+
+    assert.equal(result.status, "failed");
+    assert.match(result.error ?? "", /IMPORT_UNRESOLVED/);
+    assert.match(result.error ?? "", /registry-validation-missing/);
+    assert.deepEqual(result.stages, []);
+    assert.deepEqual(promptCalls, []);
+  });
+
+  test("continuation replays repeated concurrent ctx.workflow boundaries for the same alias", async () => {
+    const st = createStore();
+    const child = defineWorkflow("resume-import-repeated-child")
+      .run(async (ctx) => {
+        const value = await ctx.stage("child").prompt("child");
+        return { value };
+      })
+      .compile();
+    const parent = defineWorkflow("resume-import-repeated-parent")
+      .import("child", { workflow: "resume-import-repeated-child" })
+      .run(async (ctx) => {
+        const [first, second] = await Promise.all([
+          ctx.workflow("child"),
+          ctx.workflow("child"),
+        ]);
+        const after = await ctx.stage("after").prompt(`after:${String(first.outputs["value"])}:${String(second.outputs["value"])}`);
+        return { after };
+      })
+      .compile();
+    const registry = createRegistry([parent, child]);
+
+    const firstRunCalls: string[] = [];
+    const firstRun = await run(parent, {}, {
+      store: st,
+      registry,
+      adapters: {
+        prompt: {
+          prompt: async (text) => {
+            firstRunCalls.push(text);
+            if (text.startsWith("after:")) throw new Error("rate limit exceeded");
+            return `child-${firstRunCalls.length}`;
+          },
+        },
+      },
+    });
+
+    assert.equal(firstRun.status, "failed");
+    assert.deepEqual(firstRunCalls, ["child", "child", "after:child-1:child-2"]);
+    const source = st.runs().find((candidate) => candidate.id === firstRun.runId)!;
+    const failedStageId = source.failedStageId!;
+    const sourceBoundaries = source.stages.filter((stage) => stage.name === "import:child");
+    assert.equal(sourceBoundaries.length, 2);
+    assert.equal(new Set(sourceBoundaries.map((stage) => stage.replayKey)).size, 2);
+
+    const continuationCalls: string[] = [];
+    const continued = await run(parent, {}, {
+      store: st,
+      registry,
+      continuation: { source, resumeFromStageId: failedStageId },
+      adapters: {
+        prompt: {
+          prompt: async (text) => {
+            continuationCalls.push(text);
+            return "after-ok";
+          },
+        },
+      },
+    });
+
+    assert.equal(continued.status, "completed");
+    assert.deepEqual(continuationCalls, ["after:child-1:child-2"]);
+    const replayedBoundaries = continued.stages.filter((stage) => stage.name === "import:child");
+    assert.equal(replayedBoundaries.length, 2);
+    assert.equal(new Set(replayedBoundaries.map((stage) => stage.replayKey)).size, 2);
+    assert.deepEqual(replayedBoundaries.map((stage) => stage.replayed), [true, true]);
+    assert.deepEqual(
+      replayedBoundaries.map((stage) => stage.workflowChild?.outputs["value"]),
+      ["child-1", "child-2"],
+    );
+    assert.equal(continued.result?.["after"], "after-ok");
+  });
+
   test("continuation maps legacy ctx.workflow boundary and reruns child when replay metadata is absent", async () => {
     const st = createStore();
     const child = defineWorkflow("resume-import-legacy-child")

@@ -1794,7 +1794,7 @@ export async function run<TInputs extends Record<string, unknown>>(
     return importResolver;
   };
 
-  if (opts.registry === undefined && Object.keys(erasedDef.imports ?? {}).length > 0) {
+  if (Object.keys(erasedDef.imports ?? {}).length > 0) {
     const resolver = await loadImportResolver();
     const importDiagnostics = resolver.validateWorkflowImportGraph({
       ...importResolverOptions,
@@ -2033,6 +2033,7 @@ export async function run<TInputs extends Record<string, unknown>>(
   interface WorkflowBoundaryStage {
     readonly id: string;
     readonly replayedChild?: WorkflowChildResult;
+    finalizeReplay(): void;
     complete(summary: string, workflowChild: WorkflowChildReplaySnapshot): void;
     fail(error: unknown): void;
   }
@@ -2045,10 +2046,16 @@ export async function run<TInputs extends Record<string, unknown>>(
     rawOutput: snapshot.rawOutput !== undefined ? cloneWorkflowChildValue(snapshot.rawOutput) : undefined,
   });
 
-  const startWorkflowBoundaryStage = (name: string): WorkflowBoundaryStage => {
+  const workflowBoundaryReplayCounts = new Map<string, number>();
+  const nextWorkflowBoundaryReplayKey = (name: string): string => {
+    const next = (workflowBoundaryReplayCounts.get(name) ?? 0) + 1;
+    workflowBoundaryReplayCounts.set(name, next);
+    return `workflow:${name}:${next}`;
+  };
+
+  const startWorkflowBoundaryStage = (name: string, replayKey: string): WorkflowBoundaryStage => {
     const stageId = crypto.randomUUID();
     const provisionalParentIds = tracker.onSpawn(stageId, name);
-    const replayKey = `workflow:${name}`;
     const replayDecision = replayIndex.decide({
       displayName: name,
       replayKey,
@@ -2146,17 +2153,19 @@ export async function run<TInputs extends Record<string, unknown>>(
     opts.onStageStart?.(runId, stageSnapshot);
     appendStageStartOnce();
 
-    if (replayedChild !== undefined) {
+    const finalizeReplay = (): void => {
+      if (replayedChild === undefined || finalized) return;
       finalized = true;
       activeStore.recordStageEnd(runId, stageSnapshot);
       opts.onStageEnd?.(runId, stageSnapshot);
       appendStageEndForSnapshot();
       tracker.onSettle(stageId);
-    }
+    };
 
     return {
       id: stageId,
       ...(replayedChild !== undefined ? { replayedChild } : {}),
+      finalizeReplay,
       complete(summary: string, workflowChild: WorkflowChildReplaySnapshot): void {
         finalize("completed", summary, workflowChild);
       },
@@ -3074,6 +3083,8 @@ export async function run<TInputs extends Record<string, unknown>>(
     },
 
     async workflow(alias: string, options: WorkflowRunChildOptions = {}): Promise<WorkflowChildResult> {
+      const boundaryName = options.stageName ?? `import:${alias}`;
+      const boundaryReplayKey = nextWorkflowBoundaryReplayKey(boundaryName);
       const resolver = await loadImportResolver();
       const resolved = resolver.resolveWorkflowImport(erasedDef, alias, importResolverOptions);
       if (!resolved.ok) {
@@ -3081,11 +3092,15 @@ export async function run<TInputs extends Record<string, unknown>>(
       }
 
       const child = resolved.resolved.definition;
-      const boundary = startWorkflowBoundaryStage(options.stageName ?? `import:${alias}`);
+      const boundary = startWorkflowBoundaryStage(boundaryName, boundaryReplayKey);
       if (boundary.replayedChild !== undefined) {
         // Continuation replay returns the persisted child boundary exactly as
         // written; input validation and output remapping are intentionally not
         // re-run against edited workflow code for a completed child boundary.
+        // Defer settling by one microtask so concurrent replayed boundaries
+        // spawned in the same turn see the same frontier as the source run.
+        await Promise.resolve();
+        boundary.finalizeReplay();
         return boundary.replayedChild;
       }
 

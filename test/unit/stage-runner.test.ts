@@ -342,6 +342,7 @@ import type { AgentSession } from "@bastani/atomic";
 function makeMockSession(overrides: Partial<StageSessionRuntime> = {}): {
   session: StageSessionRuntime;
   state: { promptCalls: number; abortCalls: number; resolvers: Array<() => void> };
+  emit: (event: { type: string; [k: string]: unknown }) => void;
 } {
   const state = {
     promptCalls: 0,
@@ -390,7 +391,10 @@ function makeMockSession(overrides: Partial<StageSessionRuntime> = {}): {
     },
     ...overrides,
   };
-  return { session, state };
+  const emit = (event: { type: string; [k: string]: unknown }): void => {
+    for (const listener of listeners) listener(event);
+  };
+  return { session, state, emit };
 }
 
 describe("createStageContext — model fallback", () => {
@@ -567,7 +571,8 @@ describe("createStageContext — lazy attach", () => {
         timestamp: Date.now(),
       },
     ] as AgentSession["messages"];
-    const { session } = makeMockSession({
+    let emit: (event: { type: string; [k: string]: unknown }) => void = () => {};
+    const created = makeMockSession({
       async prompt() {
         messages.push({
           role: "assistant",
@@ -582,17 +587,81 @@ describe("createStageContext — lazy attach", () => {
           isError: false,
           timestamp: Date.now(),
         } as AgentSession["messages"][number]);
+        // The tool actually terminated the turn: emit the runtime signal the
+        // stage runner watches (the tool result message carries no terminate).
+        emit({
+          type: "tool_execution_end",
+          toolCallId: "call-1",
+          toolName: "review_decision",
+          result: { terminate: true },
+          isError: false,
+        });
       },
       messages,
       getLastAssistantText: undefined,
     });
-    const agentSession: AgentSessionAdapter = { async create() { return session; } };
+    emit = created.emit;
+    const agentSession: AgentSessionAdapter = { async create() { return created.session; } };
     const ctx = createStageContext(makeOpts({ adapters: { agentSession } })) as InternalStageContext;
 
     const result = await ctx.prompt("question");
 
     assert.equal(result, '{"stop_review_loop":true}');
     assert.equal(ctx.getLastAssistantText(), '{"stop_review_loop":true}');
+  });
+
+  test("non-terminating trailing tool result falls back to the last assistant message", async () => {
+    // A turn that ends on a tool result whose tool returned `terminate: false`
+    // (e.g. interrupted/aborted right after a non-terminating tool call) must
+    // NOT surface the tool result as the stage output — the last assistant
+    // message wins.
+    const messages = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "question" }],
+        timestamp: Date.now(),
+      },
+    ] as AgentSession["messages"];
+    let emit: (event: { type: string; [k: string]: unknown }) => void = () => {};
+    const created = makeMockSession({
+      async prompt() {
+        messages.push({
+          role: "assistant",
+          content: [
+            { type: "text", text: "LAST ASSISTANT PROSE" },
+            { type: "toolCall", id: "call-9", name: "note_progress", arguments: {} },
+          ],
+          timestamp: Date.now(),
+        } as AgentSession["messages"][number]);
+        messages.push({
+          role: "toolResult",
+          toolCallId: "call-9",
+          toolName: "note_progress",
+          content: [{ type: "text", text: "tool output that must NOT be the stage result" }],
+          isError: false,
+          timestamp: Date.now(),
+        } as AgentSession["messages"][number]);
+        // Non-terminating tool: terminate is false, so the trailing tool result
+        // is not the turn output.
+        emit({
+          type: "tool_execution_end",
+          toolCallId: "call-9",
+          toolName: "note_progress",
+          result: { terminate: false },
+          isError: false,
+        });
+      },
+      messages,
+      getLastAssistantText: () => "LAST ASSISTANT PROSE",
+    });
+    emit = created.emit;
+    const agentSession: AgentSessionAdapter = { async create() { return created.session; } };
+    const ctx = createStageContext(makeOpts({ adapters: { agentSession } })) as InternalStageContext;
+
+    const result = await ctx.prompt("question");
+
+    assert.equal(result, "LAST ASSISTANT PROSE");
+    assert.equal(ctx.getLastAssistantText(), "LAST ASSISTANT PROSE");
   });
 
   test("terminating tool result wins over assistant prose emitted before the tool call", async () => {
@@ -608,7 +677,8 @@ describe("createStageContext — lazy attach", () => {
         timestamp: Date.now(),
       },
     ] as AgentSession["messages"];
-    const { session } = makeMockSession({
+    let emit: (event: { type: string; [k: string]: unknown }) => void = () => {};
+    const created = makeMockSession({
       async prompt() {
         messages.push({
           role: "assistant",
@@ -626,11 +696,19 @@ describe("createStageContext — lazy attach", () => {
           isError: false,
           timestamp: Date.now(),
         } as AgentSession["messages"][number]);
+        emit({
+          type: "tool_execution_end",
+          toolCallId: "call-1",
+          toolName: "review_decision",
+          result: { terminate: true },
+          isError: false,
+        });
       },
       messages,
       getLastAssistantText: () => "All validation passes; the patch looks correct.",
     });
-    const agentSession: AgentSessionAdapter = { async create() { return session; } };
+    emit = created.emit;
+    const agentSession: AgentSessionAdapter = { async create() { return created.session; } };
     const ctx = createStageContext(makeOpts({ adapters: { agentSession } })) as InternalStageContext;
 
     const result = await ctx.prompt("question");

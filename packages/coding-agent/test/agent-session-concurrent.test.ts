@@ -15,9 +15,10 @@ import {
 	type TextContent,
 } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentSession } from "../src/core/agent-session.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
+import { convertToLlm } from "../src/core/messages.ts";
 import { ModelRegistry } from "../src/core/model-registry.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
@@ -56,6 +57,16 @@ function createAssistantMessage(text: string): AssistantMessage {
 		stopReason: "stop",
 		timestamp: Date.now(),
 	};
+}
+
+async function waitFor(condition: () => boolean, timeoutMs = 500): Promise<void> {
+	const deadline = Date.now() + timeoutMs;
+	while (!condition()) {
+		if (Date.now() > deadline) {
+			throw new Error("Timed out waiting for condition");
+		}
+		await new Promise((resolve) => setTimeout(resolve, 5));
+	}
 }
 
 describe("AgentSession concurrent prompt guard", () => {
@@ -289,6 +300,119 @@ describe("AgentSession concurrent prompt guard", () => {
 		await firstPrompt.catch(() => {});
 
 		expect(sawSteeringMessage).toBe(true);
+	});
+
+	it("should interrupt a streaming turn for triggerTurn custom messages", async () => {
+		const model = getModel("anthropic", "claude-sonnet-4-5")!;
+		let abortObserved = false;
+		let interruptTurnStarted = false;
+		let finishInterruptTurn: (() => void) | undefined;
+		const userTurns: string[][] = [];
+
+		const agent = new Agent({
+			convertToLlm,
+			getApiKey: () => "test-key",
+			initialState: {
+				model,
+				systemPrompt: "Test",
+				tools: [],
+			},
+			streamFn: (_model, context, options) => {
+				const stream = new MockAssistantStream();
+				queueMicrotask(() => {
+					const userTexts = context.messages
+						.filter((message) => message.role === "user")
+						.map((message) => {
+							if (typeof message.content === "string") {
+								return message.content;
+							}
+							return message.content
+								.filter((part): part is TextContent | ImageContent => typeof part === "object" && part !== null)
+								.filter((part): part is TextContent => part.type === "text")
+								.map((part) => part.text)
+								.join("\n");
+						});
+					userTurns.push(userTexts);
+
+					const hasInterruptMessage = userTexts.some((text) =>
+						text.includes("The workflow prompt was answered"),
+					);
+					if (hasInterruptMessage) {
+						interruptTurnStarted = true;
+						stream.push({ type: "start", partial: createAssistantMessage("") });
+						finishInterruptTurn = () => {
+							stream.push({ type: "done", reason: "stop", message: createAssistantMessage("Interrupted") });
+						};
+						return;
+					}
+
+					if (userTexts.includes("Queued steer") || userTexts.includes("Queued follow-up")) {
+						stream.push({ type: "start", partial: createAssistantMessage("") });
+						stream.push({ type: "done", reason: "stop", message: createAssistantMessage("Queued") });
+						return;
+					}
+
+					stream.push({ type: "start", partial: createAssistantMessage("") });
+					const checkAbort = () => {
+						if (options?.signal?.aborted) {
+							abortObserved = true;
+							stream.push({ type: "error", reason: "aborted", error: createAssistantMessage("Aborted") });
+						} else {
+							setTimeout(checkAbort, 5);
+						}
+					};
+					checkAbort();
+				});
+				return stream;
+			},
+		});
+
+		const sessionManager = SessionManager.inMemory();
+		const settingsManager = SettingsManager.create(tempDir, tempDir);
+		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
+		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
+		authStorage.setRuntimeApiKey("anthropic", "test-key");
+
+		session = new AgentSession({
+			agent,
+			sessionManager,
+			settingsManager,
+			cwd: tempDir,
+			modelRegistry,
+			resourceLoader: createTestResourceLoader(),
+		});
+
+		const abortSpy = vi.spyOn(session.agent, "abort");
+		const clearQueuesSpy = vi.spyOn(session.agent, "clearAllQueues");
+		const firstPrompt = session.prompt("First message");
+		await waitFor(() => session.isStreaming);
+
+		await session.steer("Queued steer");
+		await session.followUp("Queued follow-up");
+		expect(session.pendingMessageCount).toBe(2);
+
+		const interrupt = session.sendCustomMessage(
+			{
+				customType: "test:interrupt",
+				content: "The workflow prompt was answered. Do not ask again.",
+				display: true,
+			},
+			{ triggerTurn: true, deliverAs: "interrupt" },
+		);
+
+		await waitFor(() => interruptTurnStarted && abortObserved);
+		expect(abortSpy).toHaveBeenCalledTimes(1);
+		expect(clearQueuesSpy).not.toHaveBeenCalled();
+		expect(session.pendingMessageCount).toBe(2);
+
+		finishInterruptTurn?.();
+		await interrupt;
+		await firstPrompt.catch(() => {});
+
+		expect(userTurns.some((turn) => turn.includes("Queued steer"))).toBe(false);
+		expect(session.pendingMessageCount).toBe(2);
+		expect(session.agent.hasQueuedMessages()).toBe(true);
+		session.clearQueue();
 	});
 
 	it("should allow prompt() after previous completes", async () => {

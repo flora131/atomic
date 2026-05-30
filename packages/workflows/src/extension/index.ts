@@ -79,6 +79,12 @@ import {
   withWorkflowLifecycleNotificationsSuppressed,
 } from "./lifecycle-notifications.js";
 import type { WorkflowLifecycleNotificationConfig } from "./lifecycle-notifications.js";
+import {
+  createWorkflowHilAnswerNotificationState,
+  installWorkflowHilAnswerNotifications,
+  registerHilAnswerNoticeRenderer,
+  resetWorkflowHilAnswerNotificationState,
+} from "./hil-answer-notifications.js";
 import type { ConfigLoadResult } from "./config-loader.js";
 import type {
   WorkflowPersistencePort,
@@ -316,7 +322,7 @@ export interface ExtensionAPI {
     },
     options?: {
       triggerTurn?: boolean;
-      deliverAs?: "steer" | "followUp" | "nextTurn";
+      deliverAs?: "steer" | "followUp" | "nextTurn" | "interrupt";
     },
   ) => void | Promise<void>;
   registerFlag?: (name: string, opts: PiFlagNamedOpts) => void;
@@ -2101,16 +2107,29 @@ function factory(pi: ExtensionAPI): void {
   );
   let lifecycleNotificationsUnsubscribe: (() => void) | null = null;
   let lifecycleNotificationsActive = false;
+  let hilAnswerNotificationsUnsubscribe: (() => void) | null = null;
+  let hilAnswerNotificationsActive = false;
   const lifecycleNotificationState = createWorkflowLifecycleNotificationState();
+  const hilAnswerNotificationState = createWorkflowHilAnswerNotificationState();
   const lifecycleNotificationConfigRef: { current: WorkflowLifecycleNotificationConfig } = {
     current: WORKFLOW_CONFIG_DEFAULTS.workflowNotifications,
   };
+  const registerMessageRenderer: ExtensionAPI["registerMessageRenderer"] | undefined =
+    typeof pi.registerMessageRenderer === "function"
+      ? (event, renderer) => pi.registerMessageRenderer!(event, renderer)
+      : undefined;
   registerLifecycleNoticeRenderer({
     rendererHost: pi,
-    registerMessageRenderer: pi.registerMessageRenderer
-      ? (event, renderer) => pi.registerMessageRenderer?.(event, renderer)
-      : undefined,
+    registerMessageRenderer,
   });
+  registerHilAnswerNoticeRenderer({
+    rendererHost: pi,
+    registerMessageRenderer,
+  });
+  const sendWorkflowNotificationMessage: ExtensionAPI["sendMessage"] | undefined =
+    typeof pi.sendMessage === "function"
+      ? (message, options) => pi.sendMessage!(message, options)
+      : undefined;
   const reinstallLifecycleNotifications = (): void => {
     lifecycleNotificationsUnsubscribe?.();
     lifecycleNotificationsUnsubscribe = null;
@@ -2120,9 +2139,18 @@ function factory(pi: ExtensionAPI): void {
       config: lifecycleNotificationConfigRef.current,
       state: lifecycleNotificationState,
       seedExisting: true,
-      sendMessage: pi.sendMessage
-        ? (message, options) => pi.sendMessage?.(message, options)
-        : undefined,
+      sendMessage: sendWorkflowNotificationMessage,
+    });
+  };
+  const reinstallHilAnswerNotifications = (): void => {
+    hilAnswerNotificationsUnsubscribe?.();
+    hilAnswerNotificationsUnsubscribe = null;
+    if (!hilAnswerNotificationsActive) return;
+    hilAnswerNotificationsUnsubscribe = installWorkflowHilAnswerNotifications({
+      store,
+      stageUiBroker,
+      state: hilAnswerNotificationState,
+      sendMessage: sendWorkflowNotificationMessage,
     });
   };
   let intercomParentSession: string | null = null;
@@ -3506,6 +3534,7 @@ function factory(pi: ExtensionAPI): void {
       });
       store.clear();
       resetWorkflowLifecycleNotificationState(lifecycleNotificationState);
+      resetWorkflowHilAnswerNotificationState(hilAnswerNotificationState);
       stageControlRegistry.clear();
 
       // pi-intercom session naming lives here so we don't trip the
@@ -3517,7 +3546,9 @@ function factory(pi: ExtensionAPI): void {
       // tunables must be resolved first.
       await discoveryPromise;
       lifecycleNotificationsActive = true;
+      hilAnswerNotificationsActive = true;
       reinstallLifecycleNotifications();
+      reinstallHilAnswerNotifications();
       if (ctx?.ui) {
         const diagnostics = formatStartupDiagnostics(configLoadRef.current, discoveryRef.current);
         if (diagnostics !== null) {
@@ -3573,8 +3604,11 @@ function factory(pi: ExtensionAPI): void {
       storeWidgetUnsubscribe?.();
       storeWidgetUnsubscribe = null;
       lifecycleNotificationsActive = false;
+      hilAnswerNotificationsActive = false;
       lifecycleNotificationsUnsubscribe?.();
       lifecycleNotificationsUnsubscribe = null;
+      hilAnswerNotificationsUnsubscribe?.();
+      hilAnswerNotificationsUnsubscribe = null;
     });
   }
 

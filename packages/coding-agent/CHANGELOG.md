@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added extension custom-message `deliverAs: "interrupt"` delivery so first-party extensions can abort a stale streaming turn and start an immediate custom-message turn ([#1137](https://github.com/flora131/atomic/issues/1137)).
+
 ## [0.8.21] - 2026-05-30
 
 ### Changed

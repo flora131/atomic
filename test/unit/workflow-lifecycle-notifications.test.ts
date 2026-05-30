@@ -36,7 +36,7 @@ interface RegisteredRenderer {
 
 type SendOptions = {
   readonly triggerTurn?: boolean;
-  readonly deliverAs?: "steer" | "followUp" | "nextTurn";
+  readonly deliverAs?: "steer" | "followUp" | "nextTurn" | "interrupt";
 };
 
 const config = {

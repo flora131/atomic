@@ -22,6 +22,15 @@ export interface StageCustomUiHost {
   hideCustomUi?(request: StageCustomUiRequest, reason: unknown): void;
 }
 
+export interface StagePromptResolvedEvent {
+  readonly runId: string;
+  readonly stageId: string;
+  readonly prompt: StageInputRequest;
+  readonly answeredAt: number;
+}
+
+export type StagePromptResolvedListener = (event: StagePromptResolvedEvent) => void;
+
 function key(runId: string, stageId: string): string {
   return `${runId}\0${stageId}`;
 }
@@ -39,6 +48,7 @@ export class StageUiBroker {
   // custom-UI prompt can be answered programmatically (e.g. via `workflow
   // send`) without a TUI host rendering the interactive component.
   private readonly adapters = new Map<string, StagePromptAdapter>();
+  private readonly resolvedListeners = new Set<StagePromptResolvedListener>();
 
   constructor(store: Store = defaultStore) {
     this.store = store;
@@ -87,6 +97,23 @@ export class StageUiBroker {
     if (!adapter || !request) return false;
     this.resolve(request, adapter.buildResult(answer));
     return true;
+  }
+
+  onStagePromptResolved(listener: StagePromptResolvedListener): () => void {
+    this.resolvedListeners.add(listener);
+    return () => {
+      this.resolvedListeners.delete(listener);
+    };
+  }
+
+  private emitStagePromptResolved(event: StagePromptResolvedEvent): void {
+    for (const listener of this.resolvedListeners) {
+      try {
+        listener(event);
+      } catch {
+        // Listener failures must not prevent the prompt from resolving.
+      }
+    }
   }
 
   private hideHost(host: StageCustomUiHost | undefined, request: StageCustomUiRequest, reason: unknown): void {
@@ -182,11 +209,20 @@ export class StageUiBroker {
   resolve<T>(request: StageCustomUiRequest<T>, value: T): void {
     const hostKey = key(request.runId, request.stageId);
     if (this.pending.get(hostKey)?.id !== request.id) return;
+    const prompt = this.adapters.get(hostKey)?.prompt;
     this.pending.delete(hostKey);
     this.adapters.delete(hostKey);
     this.store.clearStageInputRequest(request.runId, request.stageId);
     this.store.recordStageAwaitingInput(request.runId, request.stageId, false);
     this.hideHost(this.hosts.get(hostKey), request, undefined);
+    if (prompt !== undefined) {
+      this.emitStagePromptResolved({
+        runId: request.runId,
+        stageId: request.stageId,
+        prompt,
+        answeredAt: Date.now(),
+      });
+    }
     request.resolve(value);
   }
 

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Interrupt the main agent immediately when a workflow stage HiL prompt is answered, using a metadata-only `workflows:hil-answer-notice` so the agent stops stale streaming and does not ask the same question again ([#1137](https://github.com/flora131/atomic/issues/1137)).
+
 ## [0.8.21] - 2026-05-30
 
 ### Changed

@@ -1789,8 +1789,7 @@ export async function run<TInputs extends Record<string, unknown>>(
   let importResolver: typeof import("../../workflows/import-resolver.js") | undefined;
   const loadImportResolver = async (): Promise<typeof import("../../workflows/import-resolver.js")> => {
     // Keep this import lazy: a top-level import forms an ESM cycle through
-    // import-resolver -> workflow-module-loader -> workflow-runner -> executor
-    // that leaves GraphFrontierTracker uninitialized in path-import tests.
+    // executor -> workflow-runner -> discovery -> workflow-module-loader -> executor.
     importResolver ??= await import("../../workflows/import-resolver.js");
     return importResolver;
   };
@@ -3084,6 +3083,9 @@ export async function run<TInputs extends Record<string, unknown>>(
       const child = resolved.resolved.definition;
       const boundary = startWorkflowBoundaryStage(options.stageName ?? `import:${alias}`);
       if (boundary.replayedChild !== undefined) {
+        // Continuation replay returns the persisted child boundary exactly as
+        // written; input validation and output remapping are intentionally not
+        // re-run against edited workflow code for a completed child boundary.
         return boundary.replayedChild;
       }
 

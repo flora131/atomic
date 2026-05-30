@@ -559,7 +559,7 @@ describe("StageChatView", () => {
     view.dispose();
   });
 
-  test("rejects mounted stage custom UI when the attached chat is disposed", async () => {
+  test("keeps the pending custom UI request when the attached chat is disposed (detach is not cancel)", async () => {
     const store = createStore();
     setupRun(store, "run-1", "stage-a");
     const broker = new StageUiBroker(store);
@@ -585,8 +585,26 @@ describe("StageChatView", () => {
     }));
     await flush();
 
+    let settled = false;
+    void pending.then(() => { settled = true; }, () => { settled = true; });
+    // Disposing the attached chat (e.g. on detach) must NOT cancel a pending
+    // human-input request: it stays pending so re-attaching re-displays it.
     view.dispose();
-    await assert.rejects(pending, /stage chat view disposed/);
+    await flush();
+    assert.equal(settled, false, "dispose must not settle the pending request");
+    assert.equal(store.runs()[0]?.stages[0]?.status, "awaiting_input");
+
+    // A re-attached host re-displays the same still-pending request; answering
+    // it resolves the original promise.
+    let reshown = false;
+    broker.registerHost("run-1", "stage-a", {
+      showCustomUi(request) {
+        reshown = true;
+        broker.resolve(request, "answered");
+      },
+    });
+    assert.equal(reshown, true);
+    assert.equal(await pending, "answered");
   });
 
   test("unmounts stage custom UI when its request is rejected externally", async () => {
@@ -664,8 +682,10 @@ describe("StageChatView", () => {
     assert.match(stripAnsi(view.render(80).join("\n")), /focused prompt/);
     view.focused = false;
     assert.match(stripAnsi(view.render(80).join("\n")), /blurred prompt/);
+    // The request stays pending after teardown (detach never cancels it);
+    // abandon it without surfacing an unhandled rejection.
+    void pending.catch(() => {});
     view.dispose();
-    await assert.rejects(pending);
   });
 
   // Regression: readiness-gate (#1099) crash. When a stage custom UI request
@@ -835,14 +855,14 @@ describe("StageChatView", () => {
     assert.match(rendered, /HISTORY-LINE/);
     assert.match(rendered, /QUESTION-PANEL/);
 
+    void pending.catch(() => {});
     view.dispose();
-    await assert.rejects(pending);
   });
 
-  test("ctrl+c closes and ctrl+d detaches while a custom UI question is shown", async () => {
+  test("ctrl+c closes and ctrl+d detaches without cancelling the pending custom UI", async () => {
     for (const variant of [
-      { key: "\x03", expect: "close", reason: /closed/ },
-      { key: "\x04", expect: "detach", reason: /detached/ },
+      { key: "\x03", expect: "close" },
+      { key: "\x04", expect: "detach" },
     ] as const) {
       const store = createStore();
       setupRun(store, "run-1", "stage-a");
@@ -868,10 +888,11 @@ describe("StageChatView", () => {
         render: () => ["Q"],
         invalidate: () => {},
       }));
+      let settled = false;
+      void pending.then(() => { settled = true; }, () => { settled = true; });
       await flush();
 
       assert.equal(view.handleInput(variant.key), true);
-      await assert.rejects(pending, variant.reason);
       if (variant.expect === "close") {
         assert.equal(closed, 1);
         assert.equal(detached, 0);
@@ -879,8 +900,13 @@ describe("StageChatView", () => {
         assert.equal(detached, 1);
         assert.equal(closed, 0);
       }
-      // Custom UI is gone, so the transcript renders again.
+      // The local display is released (transcript renders again)...
       assert.doesNotMatch(stripAnsi(view.render(80).join("\n")), /Q/);
+      // ...but the human-input request is NOT cancelled — it stays pending so a
+      // re-attach can re-display it.
+      await flush();
+      assert.equal(settled, false, "detach/close must not settle the request");
+      assert.equal(store.runs()[0]?.stages[0]?.status, "awaiting_input");
       view.dispose();
     }
   });
@@ -939,8 +965,8 @@ describe("StageChatView", () => {
       const rendered = stripAnsi(view.render(80).join("\n"));
       assert.match(rendered, /FUZZ-QUESTION/);
       assert.match(rendered, /FUZZ-HISTORY/);
+      void pending.catch(() => {});
       view.dispose();
-      await assert.rejects(pending);
     }
 
     // Phase B: idle live stage (composer path) — include teardown keys too.
@@ -1004,8 +1030,8 @@ describe("StageChatView", () => {
     await flush();
 
     assert.ok(focusCalls >= 1, "showing a custom UI must re-assert overlay focus");
+    void pending.catch(() => {});
     view.dispose();
-    await assert.rejects(pending);
   });
 
   test("header omits workflow duration/status chrome inside the stage chat", () => {

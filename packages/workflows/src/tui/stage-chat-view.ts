@@ -1100,13 +1100,19 @@ export class StageChatView implements Component, Focusable {
   handleInput(data: string): boolean {
     if (this.mountedCustomUi) {
       if (matchesKey(data, Key.ctrl("d"))) {
-        this._rejectMountedCustomUi("stage custom UI detached");
+        // Detach stops *viewing* the stage; it does not cancel a pending
+        // human-input request. Release the local display only — the request
+        // stays pending (the stage remains awaiting_input) and is re-displayed
+        // when the user re-attaches.
+        this._releaseMountedCustomUi();
         if (this._isPaused()) this.onClose();
         else this.onDetach();
         return true;
       }
       if (matchesKey(data, Key.ctrl("c"))) {
-        this._rejectMountedCustomUi("stage custom UI closed");
+        // Close hides the overlay; the background run — and its pending
+        // human-input request — keep living. Release the local display only.
+        this._releaseMountedCustomUi();
         this.onClose();
         return true;
       }
@@ -1240,8 +1246,7 @@ export class StageChatView implements Component, Focusable {
     this._unsubscribeStore = null;
     this._unsubscribeHandle?.();
     this._unsubscribeHandle = null;
-    this._rejectMountedCustomUi("stage chat view disposed");
-    this.mountingRequestId = null;
+    this._releaseMountedCustomUi();
     this._disposePromptEditor();
     this._unregisterStageUiHost?.();
     this._unregisterStageUiHost = null;
@@ -1266,11 +1271,20 @@ export class StageChatView implements Component, Focusable {
     this.requestRender?.();
   }
 
-  private _rejectMountedCustomUi(message: string): void {
+  /**
+   * Stop displaying the mounted stage custom UI locally, WITHOUT settling its
+   * broker request. Detaching / closing / disposing the attached chat stops
+   * viewing the stage; it never cancels a pending human-input request. The
+   * request stays pending (the stage remains awaiting_input) so re-attaching
+   * re-displays it. The request is settled only by the user answering (broker
+   * resolve) or the run aborting (its AbortSignal -> broker reject) — those are
+   * the single chokepoints for ending a human-input request.
+   */
+  private _releaseMountedCustomUi(): void {
+    this.mountingRequestId = null;
     const mounted = this.mountedCustomUi;
     if (!mounted) return;
     this.mountedCustomUi = null;
-    this.stageUiBroker.reject(mounted.request, new Error(`pi-workflows: ${message}`));
     mounted.component.dispose?.();
   }
 

@@ -110,7 +110,7 @@ describe("StageUiBroker", () => {
     unregister2();
   });
 
-  test("host unregister rejects a pending custom UI request", async () => {
+  test("host unregister keeps the pending request and re-displays it on re-register", async () => {
     const { broker, store } = setupStage();
     let shownRequest: StageCustomUiRequest | undefined;
     const unregister = broker.registerHost("run-1", "stage-1", {
@@ -124,21 +124,25 @@ describe("StageUiBroker", () => {
     }));
 
     assert.ok(shownRequest);
+    // Detaching the host stops *displaying* the request; it must NOT cancel it.
+    // The stage stays awaiting_input and the request is re-displayed when a
+    // host re-registers.
     unregister();
+    assert.equal(store.runs()[0]?.stages[0]?.status, "awaiting_input");
 
-    await assert.rejects(pending, /custom UI host unregistered/);
-    assert.equal(store.runs()[0]?.stages[0]?.status, "running");
-
-    const next = broker.requestCustomUi("run-1", "stage-1", () => ({
-      render: () => [],
-      invalidate: () => {},
-    }));
+    let reshown: StageCustomUiRequest | undefined;
     const unregisterNext = broker.registerHost("run-1", "stage-1", {
       showCustomUi(request) {
-        broker.resolve(request, "next");
+        reshown = request;
       },
     });
-    assert.equal(await next, "next");
+    // The same still-pending request is shown again; answering it resolves the
+    // ORIGINAL pending promise.
+    assert.ok(reshown);
+    assert.equal(reshown!.id, shownRequest!.id);
+    broker.resolve(reshown!, "answered");
+    assert.equal(await pending, "answered");
+    assert.equal(store.runs()[0]?.stages[0]?.status, "running");
     unregisterNext();
   });
 

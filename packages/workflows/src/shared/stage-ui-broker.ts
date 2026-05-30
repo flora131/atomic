@@ -70,13 +70,12 @@ export class StageUiBroker {
     return () => {
       if (this.hosts.get(hostKey) !== host) return;
       this.hosts.delete(hostKey);
-      const pendingRequest = this.pending.get(hostKey);
-      if (pendingRequest) {
-        this.reject(
-          pendingRequest,
-          new Error(`pi-workflows: stage ${stageId} custom UI host unregistered`),
-        );
-      }
+      // Unregistering a host means it stops *displaying* the request — not that
+      // the request is cancelled. A stage-scoped human-input request (e.g.
+      // ask_user_question / readiness gate) outlives any one attached chat:
+      // detaching leaves it pending (the stage stays awaiting_input) and a
+      // future host re-displays it. The request is settled only by the user
+      // answering (resolve) or the run aborting (its AbortSignal -> reject).
     };
   }
 

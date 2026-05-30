@@ -106,6 +106,8 @@ function makeRunPromptSnap(
   };
 }
 
+type PromptResolution = { runId: string; promptId: string; response: unknown };
+
 function makeStore(snap: StoreSnapshot): Store {
   return {
     runs: () => snap.runs as RunSnapshot[],
@@ -178,6 +180,10 @@ async function waitForRenderCount(
   for (let i = 0; i < polls && count() < target; i++) {
     await delay(pollMs);
   }
+}
+
+function typeIntoView(view: GraphView, text: string): void {
+  for (const key of text) view.handleInput(key);
 }
 
 // ---------------------------------------------------------------------------
@@ -1135,7 +1141,7 @@ describe("GraphView keyboard navigation", () => {
       makePendingPrompt({ id: "legacy-prompt" }),
     );
     const store = makeStore(snap);
-    const resolved: Array<{ runId: string; promptId: string; response: unknown }> = [];
+    const resolved: PromptResolution[] = [];
     const view = new GraphView({
       mode: "overlay",
       runId: "run-1",
@@ -1146,7 +1152,7 @@ describe("GraphView keyboard navigation", () => {
       },
     });
 
-    for (const key of "/tmp/file") view.handleInput(key);
+    typeIntoView(view, "/tmp/file");
     view.handleInput("\r");
 
     assert.equal(view._switcherOpen, false);
@@ -1167,7 +1173,7 @@ describe("GraphView keyboard navigation", () => {
       }),
     );
     const store = makeStore(snap);
-    const resolved: Array<{ runId: string; promptId: string; response: unknown }> = [];
+    const resolved: PromptResolution[] = [];
     const view = new GraphView({
       mode: "overlay",
       runId: "run-1",
@@ -1178,7 +1184,7 @@ describe("GraphView keyboard navigation", () => {
       },
     });
 
-    for (const key of "/a/b") view.handleInput(key);
+    typeIntoView(view, "/a/b");
     view.handleInput("\t");
     view.handleInput("\r");
 

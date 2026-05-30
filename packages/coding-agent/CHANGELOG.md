@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.8.21-0] - 2026-05-30
+
 ### Changed
 
 - Upgraded the pi runtime packages (`@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`, `@earendil-works/pi-tui`) to 0.78.0 and aligned skill name validation with upstream pi so frontmatter names no longer need to match parent directory names ([#1124](https://github.com/flora131/atomic/issues/1124)).

@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.8.21-0] - 2026-05-30
+
 ### Added
 
 - Enabled the `/workflow send` action (with `delivery: "answer"`) to answer a stage's brokered structured prompts — an in-stage `ask_user_question` call or the deterministic readiness gate — without the interactive TUI/graph overlay. These prompts resolve through the `StageUiBroker` (`ctx.ui.custom`) rather than the simple `store.pendingPrompt` model, so `send` previously no-op'd ("No pending prompt to answer") and they could only be answered by attaching the graph viewer. The stage UI broker now carries an optional headless-answer adapter (`provideStagePrompt` / `peekStagePrompt` / `answerStagePrompt` / `clearStagePrompt`), keyed by `(runId, stageId)`, that maps a simple answer — a free-text reply, an option label, a 1-based option index, comma-separated labels for multi-select, or a pre-built `response` — into the `QuestionnaireResult` the tool expects. The executor's existing `ask_user_question` watcher captures the tool-call `args` to build the adapter, and the readiness gate registers one statically; both surface a serializable `inputRequest` descriptor on the stage snapshot (shown in `/workflow stage` / `stages` output) so an orchestrating agent can see the questions/options and answer them programmatically.

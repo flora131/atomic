@@ -520,8 +520,9 @@ export class GraphView implements Component {
 
     // 4. Pending HIL prompt — floats over the graph body, centred. The
     //    chat editor remains free regardless: the overlay is the only
-    //    surface that interacts with the prompt.
-    if (this.promptState) {
+    //    surface that interacts with the prompt. When the stage switcher is
+    //    open it owns the body/input, so hide the prompt card until it closes.
+    if (this.promptState && !this.switcherOpen) {
       const cardWidth = Math.min(72, Math.max(40, frameWidth - 6));
       const cardLines = renderPromptCard({
         state: this.promptState,
@@ -1074,19 +1075,29 @@ export class GraphView implements Component {
 
   /** Returns true if consumed. */
   handleInput(data: string): boolean {
-    // Pending HIL prompt owns input — once a prompt is active, every key
-    // routes to it until the user submits or skips. This is what keeps
-    // the chat editor free: the workflow author called ctx.ui.editor()
-    // long ago in a background promise; only the overlay handles the
-    // response. The graph nav resumes after `_resolvePrompt` clears
-    // `promptState` (mirrored from the store via `_syncPromptState`).
-    if (this.promptState) {
-      return this._handlePromptInput(data);
-    }
     if (this.switcherOpen) {
       return this._handleSwitcherInput(data);
     }
+    // Stage-local HIL is represented by graph nodes and remains graph-first;
+    // only the legacy run-level prompt card sets `promptState`. Keep that
+    // fallback answerable, but let a narrow set of graph-shell controls through
+    // first so the workflow overlay can still be detached, switched, or
+    // scrolled instead of feeling modal while a prompt is visible.
+    if (this.promptState) {
+      if (this._isGraphShellInputBeforePrompt(data)) {
+        return this._handleGraphInput(data);
+      }
+      return this._handlePromptInput(data);
+    }
     return this._handleGraphInput(data);
+  }
+
+  private _isGraphShellInputBeforePrompt(data: string): boolean {
+    return (
+      this._mouseWheelDeltaRows(data) !== 0 ||
+      matchesKey(data, "/") ||
+      matchesKey(data, Key.ctrl("d"))
+    );
   }
 
   private _handlePromptInput(data: string): boolean {

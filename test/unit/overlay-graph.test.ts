@@ -4,7 +4,13 @@
 import { describe, it, mock } from "bun:test";
 import assert from "node:assert/strict";
 import { createStore, type Store } from "../../packages/workflows/src/shared/store.js";
-import type { StoreSnapshot, RunSnapshot, StageSnapshot } from "../../packages/workflows/src/shared/store-types.js";
+import type {
+  PendingPrompt,
+  StageInputRequest,
+  StoreSnapshot,
+  RunSnapshot,
+  StageSnapshot,
+} from "../../packages/workflows/src/shared/store-types.js";
 import { computeLayout, NODE_W } from "../../packages/workflows/src/tui/layout.js";
 import { buildConnector, buildMergeConnector } from "../../packages/workflows/src/tui/connectors.js";
 import { statusColor, statusIcon, fmtDuration } from "../../packages/workflows/src/tui/status-helpers.js";
@@ -30,6 +36,32 @@ function makeStage(id: string, parentIds: string[] = []): StageSnapshot {
   };
 }
 
+function makePendingPrompt(overrides: Partial<PendingPrompt> = {}): PendingPrompt {
+  return {
+    id: "prompt-1",
+    kind: "input",
+    message: "Continue?",
+    createdAt: Date.now(),
+    ...overrides,
+  };
+}
+
+function makeInputRequest(overrides: Partial<StageInputRequest> = {}): StageInputRequest {
+  return {
+    id: "input-request-1",
+    kind: "ask_user_question",
+    createdAt: Date.now(),
+    questions: [
+      {
+        question: "Which option should the workflow use?",
+        header: "Choice",
+        options: [{ label: "Use A" }, { label: "Use B" }],
+      },
+    ],
+    ...overrides,
+  };
+}
+
 function makeRun(stages: StageSnapshot[]): RunSnapshot {
   return {
     id: "run-1",
@@ -44,6 +76,17 @@ function makeRun(stages: StageSnapshot[]): RunSnapshot {
 function makeSnap(stages: StageSnapshot[]): StoreSnapshot {
   return {
     runs: [makeRun(stages)],
+    notices: [],
+    version: 1,
+  };
+}
+
+function makeRunPromptSnap(
+  stages: StageSnapshot[],
+  prompt: PendingPrompt,
+): StoreSnapshot {
+  return {
+    runs: [{ ...makeRun(stages), pendingPrompt: prompt }],
     notices: [],
     version: 1,
   };
@@ -938,6 +981,186 @@ describe("GraphView keyboard navigation", () => {
     assert.equal(view._focusedIndex, 1);
     view.handleInput("\r");
     assert.deepEqual(onStageAttach.mock.calls[0], ["run-1", "editor-stage"]);
+    view.dispose();
+  });
+
+  it("keeps graph navigation live while a stage-local pendingPrompt is awaiting input", () => {
+    const stages = [
+      { ...makeStage("done"), status: "completed" as const },
+      {
+        ...makeStage("input", ["done"]),
+        status: "awaiting_input" as const,
+        awaitingInputSince: Date.now(),
+        attachable: true,
+        pendingPrompt: makePendingPrompt(),
+      },
+    ];
+    const view = makeView(stages);
+
+    assert.equal(view._focusedIndex, 1);
+    view.handleInput("\x1b[A");
+    assert.equal(view._focusedIndex, 0);
+    view.dispose();
+  });
+
+  it("keeps graph navigation live while a stage-local inputRequest is awaiting input", () => {
+    const stages = [
+      { ...makeStage("done"), status: "completed" as const },
+      {
+        ...makeStage("question", ["done"]),
+        status: "awaiting_input" as const,
+        awaitingInputSince: Date.now(),
+        attachable: true,
+        inputRequest: makeInputRequest(),
+      },
+    ];
+    const view = makeView(stages);
+
+    assert.equal(view._focusedIndex, 1);
+    view.handleInput("\x1b[A");
+    assert.equal(view._focusedIndex, 0);
+    view.dispose();
+  });
+
+  it("keeps graph shell controls live while a stage-local HIL request is active", () => {
+    const stages = [
+      { ...makeStage("done"), status: "completed" as const },
+      {
+        ...makeStage("question", ["done"]),
+        status: "awaiting_input" as const,
+        awaitingInputSince: Date.now(),
+        attachable: true,
+        inputRequest: makeInputRequest(),
+      },
+    ];
+    const snap = makeSnap(stages);
+    const store = makeStore(snap);
+    const onStageAttach = mock(() => {});
+    let detached = 0;
+    const view = new GraphView({
+      mode: "overlay",
+      runId: "run-1",
+      store,
+      graphTheme: defaultTheme,
+      onStageAttach,
+      onDetach: () => {
+        detached += 1;
+      },
+    });
+
+    view.handleInput("/");
+    assert.equal(view._switcherOpen, true);
+    view.handleInput("\x1b");
+    assert.equal(view._switcherOpen, false);
+
+    view.handleInput("\r");
+    assert.deepEqual(onStageAttach.mock.calls[0], ["run-1", "question"]);
+
+    view.handleInput("\x04");
+    assert.equal(detached, 1);
+    view.dispose();
+  });
+
+  it("keeps mouse wheel graph scrolling live while a stage-local HIL request is active", () => {
+    const stages = [
+      {
+        ...makeStage("stage-0"),
+        status: "awaiting_input" as const,
+        awaitingInputSince: Date.now(),
+        inputRequest: makeInputRequest(),
+      },
+      makeStage("stage-1", ["stage-0"]),
+      makeStage("stage-2", ["stage-1"]),
+      makeStage("stage-3", ["stage-2"]),
+      makeStage("stage-4", ["stage-3"]),
+      makeStage("stage-5", ["stage-4"]),
+    ];
+    const snap = makeSnap(stages);
+    const store = makeStore(snap);
+    const view = new GraphView({
+      mode: "overlay",
+      runId: "run-1",
+      store,
+      graphTheme: defaultTheme,
+      getViewportRows: () => 32,
+    });
+
+    view.render(96);
+    view.handleInput("\x1b[<65;10;10M");
+    view.render(96);
+    assert.ok(view._graphScrollOffset > 0);
+    view.dispose();
+  });
+
+  it("lets legacy run-level prompts keep graph detach, switcher, and scroll controls", () => {
+    const stages = [
+      makeStage("stage-0"),
+      makeStage("stage-1", ["stage-0"]),
+      makeStage("stage-2", ["stage-1"]),
+      makeStage("stage-3", ["stage-2"]),
+      makeStage("stage-4", ["stage-3"]),
+      makeStage("stage-5", ["stage-4"]),
+    ];
+    const snap = makeRunPromptSnap(
+      stages,
+      makePendingPrompt({ id: "legacy-prompt" }),
+    );
+    const store = makeStore(snap);
+    let detached = 0;
+    const view = new GraphView({
+      mode: "overlay",
+      runId: "run-1",
+      store,
+      graphTheme: defaultTheme,
+      getViewportRows: () => 32,
+      onDetach: () => {
+        detached += 1;
+      },
+    });
+
+    view.render(96);
+    view.handleInput("\x1b[<65;10;10M");
+    view.render(96);
+    assert.ok(view._graphScrollOffset > 0);
+
+    view.handleInput("/");
+    assert.equal(view._switcherOpen, true);
+    const switcherText = visibleText(view.render(96));
+    assert.match(switcherText, /STAGES/);
+    assert.doesNotMatch(switcherText, /AWAITING INPUT/);
+    view.handleInput("\x1b");
+    assert.equal(view._switcherOpen, false);
+
+    view.handleInput("\x04");
+    assert.equal(detached, 1);
+    view.dispose();
+  });
+
+  it("keeps legacy run-level prompts answerable for text and Enter", () => {
+    const stages = [makeStage("stage-0")];
+    const snap = makeRunPromptSnap(
+      stages,
+      makePendingPrompt({ id: "legacy-prompt" }),
+    );
+    const store = makeStore(snap);
+    const resolved: Array<{ runId: string; promptId: string; response: unknown }> = [];
+    const view = new GraphView({
+      mode: "overlay",
+      runId: "run-1",
+      store,
+      graphTheme: defaultTheme,
+      onPromptResolve: (runId, promptId, response) => {
+        resolved.push({ runId, promptId, response });
+      },
+    });
+
+    view.handleInput("o");
+    view.handleInput("k");
+    view.handleInput("\r");
+
+    assert.deepEqual(resolved, [
+      { runId: "run-1", promptId: "legacy-prompt", response: "ok" },
+    ]);
     view.dispose();
   });
 

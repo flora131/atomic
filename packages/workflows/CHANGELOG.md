@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Kept the workflow graph overlay navigable while a stage-local human-input prompt is awaiting a response: graph navigation, the stage switcher, Ctrl+D detach, and mouse-wheel scrolling now stay owned by graph mode until the user explicitly attaches to the prompted stage ([#1141](https://github.com/flora131/atomic/issues/1141)).
+
 ## [0.8.21] - 2026-05-30
 
 ### Changed

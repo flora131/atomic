@@ -24,7 +24,10 @@ import {
 import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.js";
 import { createStageControlRegistry } from "../../packages/workflows/src/runs/foreground/stage-control-registry.js";
 import type { StageControlHandle } from "../../packages/workflows/src/runs/foreground/stage-control-registry.js";
-import type { PendingPrompt } from "../../packages/workflows/src/shared/store-types.js";
+import type {
+  PendingPrompt,
+  StageInputRequest,
+} from "../../packages/workflows/src/shared/store-types.js";
 import type { AgentSession } from "@bastani/atomic";
 
 function setupRun(store: ReturnType<typeof createStore>, runId: string, stages: Array<{ id: string; name: string; status?: "pending" | "running" | "paused" | "completed" }>) {
@@ -53,6 +56,22 @@ function makePendingPrompt(overrides: Partial<PendingPrompt> = {}): PendingPromp
     kind: "input",
     message: "What should the workflow use?",
     createdAt: Date.now(),
+    ...overrides,
+  };
+}
+
+function makeInputRequest(overrides: Partial<StageInputRequest> = {}): StageInputRequest {
+  return {
+    id: "input-request-1",
+    kind: "ask_user_question",
+    createdAt: Date.now(),
+    questions: [
+      {
+        question: "Which option should the workflow use?",
+        header: "Choice",
+        options: [{ label: "Use A" }, { label: "Use B" }],
+      },
+    ],
     ...overrides,
   };
 }
@@ -168,6 +187,62 @@ describe("WorkflowAttachPane", () => {
     assert.equal(pane._mode, "stage-chat");
     assert.equal(pane._lastAttachedStageId, "stage-b");
     assert.equal(pane._hasChatView, true);
+    pane.dispose();
+  });
+
+  test("stays in graph mode when a stage becomes awaiting-input until Enter attaches", () => {
+    const store = createStore();
+    setupRun(store, "run-1", [
+      { id: "stage-a", name: "A", status: "completed" },
+      { id: "stage-b", name: "B" },
+    ]);
+    const registry = createStageControlRegistry();
+    registry.register(makeHandle("run-1", "stage-a"));
+    registry.register(makeHandle("run-1", "stage-b"));
+    const pane = new WorkflowAttachPane({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageControlRegistry: registry,
+      onClose: () => {},
+    });
+
+    assert.equal(store.recordStageAwaitingInput("run-1", "stage-b", true), true);
+    assert.equal(store.recordStageInputRequest("run-1", "stage-b", makeInputRequest()), true);
+
+    assert.equal(pane._mode, "graph");
+    assert.equal(pane._hasChatView, false);
+
+    pane.handleInput(Key.enter);
+
+    assert.equal(pane._mode, "stage-chat");
+    assert.equal(pane._lastAttachedStageId, "stage-b");
+    assert.equal(pane._hasChatView, true);
+    pane.dispose();
+  });
+
+  test("Ctrl+D in graph mode hides without resolving a pending stage prompt", () => {
+    const store = createStore();
+    setupRun(store, "run-1", [{ id: "stage-a", name: "A" }]);
+    const prompt = makePendingPrompt();
+    assert.equal(store.recordStagePendingPrompt("run-1", "stage-a", prompt), true);
+    let hidden = 0;
+    const pane = new WorkflowAttachPane({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      onClose: () => {},
+      onHide: () => {
+        hidden += 1;
+      },
+    });
+
+    pane.handleInput(Key.ctrl("d"));
+
+    assert.equal(hidden, 1);
+    assert.equal(pane._mode, "graph");
+    assert.equal(pane._hasChatView, false);
+    assert.equal(store.snapshot().runs[0]!.stages[0]!.pendingPrompt?.id, prompt.id);
     pane.dispose();
   });
 

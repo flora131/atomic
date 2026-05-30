@@ -197,7 +197,6 @@ interface DrainedAgentQueues {
 interface InterruptQueueHold {
 	readonly steering: AgentMessage[];
 	readonly followUp: AgentMessage[];
-	restored: boolean;
 }
 
 function drainAgentMessageQueue(queue: PendingAgentMessageQueue | undefined): AgentMessage[] {
@@ -1483,14 +1482,13 @@ export class AgentSession {
 		this._activeInterruptQueueHold = {
 			steering: [...drained.steering],
 			followUp: [...drained.followUp],
-			restored: false,
 		};
 		return this._activeInterruptQueueHold;
 	}
 
 	private _restoreAndClearActiveInterruptQueueHold(): void {
 		const hold = this._activeInterruptQueueHold;
-		if (hold === undefined || hold.restored) {
+		if (hold === undefined) {
 			return;
 		}
 		const currentCoreQueues = this._drainQueuedAgentMessages();
@@ -1498,7 +1496,6 @@ export class AgentSession {
 			steering: [...hold.steering, ...currentCoreQueues.steering],
 			followUp: [...hold.followUp, ...currentCoreQueues.followUp],
 		});
-		hold.restored = true;
 		this._activeInterruptQueueHold = undefined;
 	}
 

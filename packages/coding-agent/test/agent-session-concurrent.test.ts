@@ -11,7 +11,6 @@ import {
 	type AssistantMessageEvent,
 	EventStream,
 	getModel,
-	type ImageContent,
 	type TextContent,
 } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
@@ -247,16 +246,7 @@ describe("AgentSession concurrent prompt guard", () => {
 				queueMicrotask(() => {
 					const userTexts = context.messages
 						.filter((message) => message.role === "user")
-						.map((message) => {
-							if (typeof message.content === "string") {
-								return message.content;
-							}
-							return message.content
-								.filter((part): part is TextContent | ImageContent => typeof part === "object" && part !== null)
-								.filter((part): part is TextContent => part.type === "text")
-								.map((part) => part.text)
-								.join("\n");
-						});
+						.map(textFromAgentMessage);
 
 					if (userTexts.includes("Steer from extension")) {
 						sawSteeringMessage = true;
@@ -357,16 +347,7 @@ describe("AgentSession concurrent prompt guard", () => {
 				queueMicrotask(() => {
 					const userTexts = context.messages
 						.filter((message) => message.role === "user")
-						.map((message) => {
-							if (typeof message.content === "string") {
-								return message.content;
-							}
-							return message.content
-								.filter((part): part is TextContent | ImageContent => typeof part === "object" && part !== null)
-								.filter((part): part is TextContent => part.type === "text")
-								.map((part) => part.text)
-								.join("\n");
-						});
+						.map(textFromAgentMessage);
 					userTurns.push(userTexts);
 
 					const hasInterruptMessage = userTexts.some((text) =>
@@ -797,16 +778,7 @@ describe("AgentSession concurrent prompt guard", () => {
 				queueMicrotask(() => {
 					const userTexts = context.messages
 						.filter((message) => message.role === "user")
-						.map((message) => {
-							if (typeof message.content === "string") {
-								return message.content;
-							}
-							return message.content
-								.filter((part): part is TextContent | ImageContent => typeof part === "object" && part !== null)
-								.filter((part): part is TextContent => part.type === "text")
-								.map((part) => part.text)
-								.join("\n");
-						});
+						.map(textFromAgentMessage);
 
 					const hasInterruptMessage = userTexts.some((text) =>
 						text.includes("The workflow prompt was answered"),

@@ -415,6 +415,108 @@ describe("AgentSession concurrent prompt guard", () => {
 		session.clearQueue();
 	});
 
+	it("should clear interrupt-held queues while the interrupt custom-message turn is pending", async () => {
+		const model = getModel("anthropic", "claude-sonnet-4-5")!;
+		let abortObserved = false;
+		let interruptTurnStarted = false;
+		let finishInterruptTurn: (() => void) | undefined;
+
+		const agent = new Agent({
+			convertToLlm,
+			getApiKey: () => "test-key",
+			initialState: {
+				model,
+				systemPrompt: "Test",
+				tools: [],
+			},
+			streamFn: (_model, context, options) => {
+				const stream = new MockAssistantStream();
+				queueMicrotask(() => {
+					const userTexts = context.messages
+						.filter((message) => message.role === "user")
+						.map((message) => {
+							if (typeof message.content === "string") {
+								return message.content;
+							}
+							return message.content
+								.filter((part): part is TextContent | ImageContent => typeof part === "object" && part !== null)
+								.filter((part): part is TextContent => part.type === "text")
+								.map((part) => part.text)
+								.join("\n");
+						});
+
+					const hasInterruptMessage = userTexts.some((text) =>
+						text.includes("The workflow prompt was answered"),
+					);
+					if (hasInterruptMessage) {
+						interruptTurnStarted = true;
+						stream.push({ type: "start", partial: createAssistantMessage("") });
+						finishInterruptTurn = () => {
+							stream.push({ type: "done", reason: "stop", message: createAssistantMessage("Interrupted") });
+						};
+						return;
+					}
+
+					stream.push({ type: "start", partial: createAssistantMessage("") });
+					const checkAbort = () => {
+						if (options?.signal?.aborted) {
+							abortObserved = true;
+							stream.push({ type: "error", reason: "aborted", error: createAssistantMessage("Aborted") });
+						} else {
+							setTimeout(checkAbort, 5);
+						}
+					};
+					checkAbort();
+				});
+				return stream;
+			},
+		});
+
+		const sessionManager = SessionManager.inMemory();
+		const settingsManager = SettingsManager.create(tempDir, tempDir);
+		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
+		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
+		authStorage.setRuntimeApiKey("anthropic", "test-key");
+
+		session = new AgentSession({
+			agent,
+			sessionManager,
+			settingsManager,
+			cwd: tempDir,
+			modelRegistry,
+			resourceLoader: createTestResourceLoader(),
+		});
+
+		const firstPrompt = session.prompt("First message");
+		await waitFor(() => session.isStreaming);
+
+		await session.steer("Queued steer");
+		await session.followUp("Queued follow-up");
+		expect(session.pendingMessageCount).toBe(2);
+
+		const interrupt = session.sendCustomMessage(
+			{
+				customType: "test:interrupt",
+				content: "The workflow prompt was answered. Do not ask again.",
+				display: true,
+			},
+			{ triggerTurn: true, deliverAs: "interrupt" },
+		);
+
+		await waitFor(() => interruptTurnStarted && abortObserved);
+
+		const cleared = session.clearQueue();
+		expect(cleared).toEqual({ steering: ["Queued steer"], followUp: ["Queued follow-up"] });
+		expect(session.pendingMessageCount).toBe(0);
+
+		finishInterruptTurn?.();
+		await interrupt;
+		await firstPrompt.catch(() => {});
+
+		expect(session.pendingMessageCount).toBe(0);
+		expect(session.agent.hasQueuedMessages()).toBe(false);
+	});
+
 	it("should allow prompt() after previous completes", async () => {
 		// Create session with a stream that completes immediately
 		const model = getModel("anthropic", "claude-sonnet-4-5")!;

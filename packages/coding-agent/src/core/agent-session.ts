@@ -194,8 +194,11 @@ interface DrainedAgentQueues {
 	readonly followUp: AgentMessage[];
 }
 
-function emptyDrainedAgentQueues(): DrainedAgentQueues {
-	return { steering: [], followUp: [] };
+interface HeldInterruptQueues {
+	readonly id: number;
+	readonly queues: DrainedAgentQueues;
+	cleared: boolean;
+	restored: boolean;
 }
 
 function drainAgentMessageQueue(queue: PendingAgentMessageQueue | undefined): AgentMessage[] {
@@ -326,6 +329,9 @@ export class AgentSession {
 	private _steeringMessages: string[] = [];
 	/** Tracks pending follow-up messages for UI display. Removed when delivered. */
 	private _followUpMessages: string[] = [];
+	/** Queue snapshots temporarily held out of pi-agent-core while an interrupt turn runs. */
+	private readonly _interruptHeldQueues = new Set<HeldInterruptQueues>();
+	private _nextHeldInterruptQueueId = 1;
 	/** Messages queued to be included with the next user prompt as context ("asides"). */
 	private _pendingNextTurnMessages: CustomMessage[] = [];
 
@@ -1435,21 +1441,42 @@ export class AgentSession {
 
 	private async _sendInterruptCustomMessage<T>(message: CustomMessage<T>): Promise<void> {
 		this.abortRetry();
-		const queuedMessages = this.isStreaming ? this._drainQueuedAgentMessages() : emptyDrainedAgentQueues();
-		let queuesRestored = false;
+		const heldQueues = this.isStreaming ? this._holdQueuedAgentMessagesForInterrupt() : undefined;
 		try {
 			if (this.isStreaming) {
 				this.agent.abort();
 				await this.agent.waitForIdle();
 			}
 			await this.agent.prompt(message);
-			this._restoreQueuedAgentMessages(queuedMessages);
-			queuesRestored = true;
 		} finally {
-			if (!queuesRestored) {
-				this._restoreQueuedAgentMessages(queuedMessages);
+			if (heldQueues) {
+				try {
+					this._restoreHeldInterruptQueuesIfStillValid(heldQueues);
+				} finally {
+					this._interruptHeldQueues.delete(heldQueues);
+				}
 			}
 		}
+	}
+
+	private _holdQueuedAgentMessagesForInterrupt(): HeldInterruptQueues {
+		const heldQueues: HeldInterruptQueues = {
+			id: this._nextHeldInterruptQueueId,
+			queues: this._drainQueuedAgentMessages(),
+			cleared: false,
+			restored: false,
+		};
+		this._nextHeldInterruptQueueId += 1;
+		this._interruptHeldQueues.add(heldQueues);
+		return heldQueues;
+	}
+
+	private _restoreHeldInterruptQueuesIfStillValid(heldQueues: HeldInterruptQueues): void {
+		if (heldQueues.cleared || heldQueues.restored) {
+			return;
+		}
+		this._restoreQueuedAgentMessages(heldQueues.queues);
+		heldQueues.restored = true;
 	}
 
 	private _drainQueuedAgentMessages(): DrainedAgentQueues {
@@ -1523,6 +1550,9 @@ export class AgentSession {
 		this._steeringMessages = [];
 		this._followUpMessages = [];
 		this.agent.clearAllQueues();
+		for (const heldQueues of this._interruptHeldQueues) {
+			heldQueues.cleared = true;
+		}
 		this._emitQueueUpdate();
 		return { steering, followUp };
 	}

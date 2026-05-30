@@ -11,6 +11,12 @@ import { renderRunBanner, renderRunSummary } from "./renderers.js";
 import type { RunEndPayload, RunStartPayload } from "./renderers.js";
 import type { StageSnapshot, StageStatus, ToolEvent } from "../shared/store-types.js";
 import { store } from "../shared/store.js";
+import { stageUiBroker } from "../shared/stage-ui-broker.js";
+import {
+  coerceStageInputAnswer,
+  hasStageInputAnswerContent,
+  type StageInputAnswer,
+} from "../shared/stage-prompt.js";
 import { restoreOnSessionStart } from "../shared/persistence-restore.js";
 import type { SessionManager } from "../shared/persistence-restore.js";
 import { installCompactionHook } from "../shared/persistence-compaction-policy.js";
@@ -646,6 +652,10 @@ function renderStagesToolContent(
       lines.push("pendingPrompt:");
       lines.push(JSON.stringify(stage.pendingPrompt, null, 2));
     }
+    if (stage.inputRequest !== undefined) {
+      lines.push("inputRequest:");
+      lines.push(JSON.stringify(stage.inputRequest, null, 2));
+    }
   });
   return lines.join("\n");
 }
@@ -745,6 +755,7 @@ type WorkflowStageSummary = {
   error?: string;
   awaitingInputSince?: number;
   pendingPrompt?: StageSnapshot["pendingPrompt"];
+  inputRequest?: StageSnapshot["inputRequest"];
 };
 
 type WorkflowTranscriptEntry = {
@@ -781,6 +792,9 @@ function summarizeStage(stage: StageSnapshot): WorkflowStageSummary {
     pendingPrompt: stage.pendingPrompt === undefined
       ? undefined
       : structuredClone(stage.pendingPrompt),
+    inputRequest: stage.inputRequest === undefined
+      ? undefined
+      : structuredClone(stage.inputRequest),
   };
 }
 
@@ -858,6 +872,23 @@ function promptPayloadFromArgs(args: WorkflowToolArgs): unknown {
   if (args.response !== undefined) return args.response;
   if (args.text !== undefined) return args.text;
   return args.message;
+}
+
+/**
+ * Shape a `send` payload into a headless answer for a brokered stage prompt
+ * (ask_user_question / readiness gate). A structured `response` (object or
+ * JSON string) is normalized so it matches the question's options instead of
+ * being forwarded verbatim as a result that violates the QuestionnaireResult
+ * contract; otherwise the plain text / message payload is matched against
+ * option labels / indices by the stage prompt adapter.
+ */
+function brokerAnswerFromArgs(args: WorkflowToolArgs): StageInputAnswer {
+  if (args.response !== undefined) {
+    const coerced = coerceStageInputAnswer(args.response);
+    if (hasStageInputAnswerContent(coerced)) return coerced;
+  }
+  const text = textPayloadFromArgs(args);
+  return text !== undefined ? { text } : {};
 }
 
 function textPayloadFromArgs(args: WorkflowToolArgs): string | undefined {
@@ -1289,6 +1320,30 @@ export function makeExecuteWorkflowTool(
         }
         const run = store.runs().find((r) => r.id === target.runId);
         const snapshot = run?.stages.find((s) => s.id === stage.stageId);
+        // Brokered structured prompts (in-stage ask_user_question / readiness
+        // gate) resolve through StageUiBroker rather than store.pendingPrompt.
+        // Answer those first when one is pending and the promptId (if any) lines
+        // up — otherwise fall through to the store-prompt / live-handle paths.
+        const brokerPrompt = stageUiBroker.peekStagePrompt(target.runId, stage.stageId);
+        const targetsBrokerPrompt =
+          brokerPrompt !== undefined &&
+          (args.promptId === undefined || args.promptId === brokerPrompt.id) &&
+          (requestedDelivery === "answer" ||
+            args.promptId !== undefined ||
+            requestedDelivery === "auto");
+        if (targetsBrokerPrompt && brokerPrompt !== undefined) {
+          if (!hasPayloadProperty(args)) {
+            return workflowSendResult(target.runId, stage.stageId, "answer", "noop", "Send requires text, response, or message.");
+          }
+          const ok = stageUiBroker.answerStagePrompt(target.runId, stage.stageId, brokerAnswerFromArgs(args));
+          return workflowSendResult(
+            target.runId,
+            stage.stageId,
+            "answer",
+            ok ? "ok" : "noop",
+            ok ? `Answered input request ${brokerPrompt.id}.` : `No matching pending input request ${brokerPrompt.id}.`,
+          );
+        }
         const targetsPrompt =
           requestedDelivery === "answer" ||
           args.promptId !== undefined ||

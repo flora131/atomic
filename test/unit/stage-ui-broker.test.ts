@@ -1,7 +1,22 @@
 import { test, describe } from "bun:test";
 import assert from "node:assert/strict";
 import { StageUiBroker, type StageCustomUiRequest } from "../../packages/workflows/src/shared/stage-ui-broker.js";
+import { buildStagePromptAdapter } from "../../packages/workflows/src/shared/stage-prompt.js";
 import { createStore } from "../../packages/workflows/src/shared/store.js";
+
+const COLOR_ARGS = {
+  questions: [
+    {
+      question: "What is your favorite color?",
+      options: [{ label: "Red" }, { label: "Green" }, { label: "Blue" }],
+    },
+  ],
+};
+
+type BuiltResult = {
+  answers: Array<{ kind: string; answer: string | null }>;
+  cancelled: boolean;
+};
 
 function setupStage() {
   const store = createStore();
@@ -211,6 +226,90 @@ describe("StageUiBroker", () => {
     await assert.rejects(pending, /register show failed/);
     assert.equal(store.runs()[0]?.stages[0]?.status, "running");
     unregister();
+  });
+
+  describe("headless answering", () => {
+    test("answerStagePrompt resolves the pending request and surfaces the descriptor", async () => {
+      const { broker, store } = setupStage();
+      const adapter = buildStagePromptAdapter("prompt-1", "ask_user_question", COLOR_ARGS, 1)!;
+      // Adapter is provided before the request (mirrors the executor watcher
+      // firing on tool_execution_start ahead of ctx.ui.custom()).
+      broker.provideStagePrompt("run-1", "stage-1", adapter);
+
+      const pending = broker.requestCustomUi("run-1", "stage-1", () => ({
+        render: () => [],
+        invalidate: () => {},
+      }));
+
+      // Snapshot now exposes the structured prompt for `workflow send` / status.
+      assert.deepEqual(broker.peekStagePrompt("run-1", "stage-1")?.id, "prompt-1");
+      assert.equal(store.runs()[0]?.stages[0]?.status, "awaiting_input");
+      assert.equal(store.runs()[0]?.stages[0]?.inputRequest?.id, "prompt-1");
+
+      const ok = broker.answerStagePrompt("run-1", "stage-1", { text: "blue" });
+      assert.equal(ok, true);
+
+      const result = (await pending) as BuiltResult;
+      assert.equal(result.cancelled, false);
+      assert.equal(result.answers[0]!.kind, "option");
+      assert.equal(result.answers[0]!.answer, "Blue");
+
+      // Resolution clears both the broker adapter and the snapshot descriptor.
+      assert.equal(broker.peekStagePrompt("run-1", "stage-1"), undefined);
+      assert.equal(store.runs()[0]?.stages[0]?.status, "running");
+      assert.equal(store.runs()[0]?.stages[0]?.inputRequest, undefined);
+    });
+
+    test("adapter provided after the request still answers and back-fills the descriptor", async () => {
+      const { broker, store } = setupStage();
+      const pending = broker.requestCustomUi("run-1", "stage-1", () => ({
+        render: () => [],
+        invalidate: () => {},
+      }));
+      // No adapter yet → nothing to peek/answer.
+      assert.equal(broker.peekStagePrompt("run-1", "stage-1"), undefined);
+      assert.equal(broker.answerStagePrompt("run-1", "stage-1", { text: "Red" }), false);
+
+      broker.provideStagePrompt("run-1", "stage-1", buildStagePromptAdapter("p", "ask_user_question", COLOR_ARGS, 1)!);
+      assert.equal(store.runs()[0]?.stages[0]?.inputRequest?.id, "p");
+
+      assert.equal(broker.answerStagePrompt("run-1", "stage-1", { text: "Red" }), true);
+      const result = (await pending) as BuiltResult;
+      assert.equal(result.answers[0]!.answer, "Red");
+    });
+
+    test("answerStagePrompt is a no-op without a pending request", () => {
+      const { broker, store } = setupStage();
+      broker.provideStagePrompt("run-1", "stage-1", buildStagePromptAdapter("p", "ask_user_question", COLOR_ARGS, 1)!);
+      // Descriptor recorded, but no ctx.ui.custom() request is pending yet.
+      assert.equal(broker.peekStagePrompt("run-1", "stage-1"), undefined);
+      assert.equal(broker.answerStagePrompt("run-1", "stage-1", { text: "Red" }), false);
+      assert.equal(store.runs()[0]?.stages[0]?.inputRequest?.id, "p");
+    });
+
+    test("clearStagePrompt removes the descriptor and disables answering", async () => {
+      const { broker, store } = setupStage();
+      broker.provideStagePrompt("run-1", "stage-1", buildStagePromptAdapter("p", "ask_user_question", COLOR_ARGS, 1)!);
+      const pending = broker.requestCustomUi("run-1", "stage-1", () => ({
+        render: () => [],
+        invalidate: () => {},
+      }));
+      assert.equal(store.runs()[0]?.stages[0]?.inputRequest?.id, "p");
+
+      broker.clearStagePrompt("run-1", "stage-1");
+      assert.equal(store.runs()[0]?.stages[0]?.inputRequest, undefined);
+      assert.equal(broker.peekStagePrompt("run-1", "stage-1"), undefined);
+      assert.equal(broker.answerStagePrompt("run-1", "stage-1", { text: "Red" }), false);
+
+      // The underlying request is still pending and resolvable the normal way.
+      const unregister = broker.registerHost("run-1", "stage-1", {
+        showCustomUi(request) {
+          broker.resolve(request, "manual");
+        },
+      });
+      assert.equal(await pending, "manual");
+      unregister();
+    });
   });
 
   test("replacing a host hides stale mounted UI and routes pending request to the new host", async () => {

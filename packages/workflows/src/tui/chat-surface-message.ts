@@ -60,7 +60,9 @@ export interface DispatchPayload {
 /**
  * Status list after `/workflow status`. The snapshot is captured (and
  * `--all`-filtered) at emit time — scrollback entries don't live-update
- * (the orchestrator widget owns live state).
+ * (the orchestrator widget owns live state). The wall-clock used for the
+ * `elapsed` / `running` labels is likewise frozen once per chat entry; see
+ * {@link makeComponent}.
  */
 export interface StatusPayload {
   kind: "status";
@@ -186,12 +188,27 @@ function makeComponent(
   payload: ChatSurfacePayload,
   theme: GraphTheme,
 ): CardComponent {
+  // Capture wall-clock ONCE, when the chat entry's component is created. The
+  // render() lambda below re-runs on every TUI frame: pi-tui's Container.render
+  // fans out to every child on each doRender, and the workflow/subagent live
+  // widgets call requestRender() ~12x/sec while runs are active. Without a
+  // frozen `now`, renderStatusList / renderRunDetail fall through to Date.now()
+  // on each frame, ticking the `elapsed` / `running` labels. Once the entry has
+  // scrolled above the viewport fold, that off-screen change pushes pi-tui's
+  // doRender() into the full-redraw branch (CSI 2J + CSI H + CSI 3J), which
+  // reads as a whole-screen flicker on terminals without synchronized-output
+  // support (notably mosh). Freezing here is also semantically right: these are
+  // point-in-time scrollback snapshots — the orchestrator widget owns live
+  // state. requestRender() never invalidates, so makeComponent runs once per
+  // entry; this mirrors the tool-result renderResult slot fix in
+  // src/extension/index.ts (capture `now` once, reuse it across renders).
+  const capturedNow = Date.now();
   return {
     render(width: number): string[] {
       // pi passes the real chat content width; thread it down to every
       // primitive so band fillers and card gaps land exactly on the
       // right-edge cell. No `process.stdout.columns` heuristic needed.
-      return renderPayload(payload, theme, width).split("\n");
+      return renderPayload(payload, theme, width, capturedNow).split("\n");
     },
     invalidate() {
       /* renders are pure of stored state; nothing to drop. */
@@ -203,6 +220,7 @@ function renderPayload(
   payload: ChatSurfacePayload,
   theme: GraphTheme,
   width: number,
+  now: number,
 ): string {
   switch (payload.kind) {
     case "dispatch":
@@ -214,11 +232,11 @@ function renderPayload(
         width,
       });
     case "status":
-      return renderStatusList(payload.runs, { theme, width });
+      return renderStatusList(payload.runs, { theme, width, now });
     case "list":
       return renderWorkflowList(payload.entries, { theme, width });
     case "detail":
-      return renderRunDetail(payload.detail, { theme, width });
+      return renderRunDetail(payload.detail, { theme, width, now });
     case "killed":
       return renderWorkflowKilledNotice({
         width,

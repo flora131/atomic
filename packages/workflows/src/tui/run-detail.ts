@@ -202,7 +202,7 @@ function artifactRowsFor(detail: RunDetail): Array<[string, string]> {
 function stageLinePlain(stage: StageSnapshot, now: number, width: number): string {
   const icon = statusIcon(stage.status);
   const dur = stageDurationString(stage, now);
-  const activity = stageActivityString(stage);
+  const activity = stageActivityString(stage, now);
   const name = truncateToWidth(`${icon} ${stage.name}`, STAGE_NAME_COL + 2, "…");
   const activityText = activity ? truncateToWidth(activity, 16, "…") : undefined;
   const parts = [
@@ -222,7 +222,7 @@ function stageLineThemed(stage: StageSnapshot, now: number, theme: GraphTheme, w
   const dim = hexToAnsi(theme.dim);
   const stateFg = hexToAnsi(statusColor(stage.status, theme));
 
-  const activity = stageActivityString(stage);
+  const activity = stageActivityString(stage, now);
   const dur = stageDurationString(stage, now);
 
   const nameText = truncateToWidth(stage.name, STAGE_NAME_COL, "…");
@@ -268,7 +268,13 @@ function stageDurationString(stage: StageSnapshot, now: number): string | undefi
   return elapsed === undefined ? undefined : fmtDuration(elapsed);
 }
 
-function stageActivityString(stage: StageSnapshot): string | undefined {
+// `now` is the stable, capture-once clock threaded down from renderRunDetail
+// (opts.now). Using it — not a fresh Date.now() — keeps a running stage's active
+// tool-activity label (e.g. `bash · 6s`) byte-stable across host re-renders so a
+// scrollback run-detail card that has scrolled above the viewport fold does not
+// retrigger pi-tui's full-screen redraw (CSI 2J/H/3J) every render tick. The
+// companion below-editor widget owns the live, ticking view.
+function stageActivityString(stage: StageSnapshot, now: number): string | undefined {
   if (stage.status !== "running") return undefined;
   const last = stage.toolEvents.at(-1);
   if (!last) return undefined;
@@ -276,7 +282,7 @@ function stageActivityString(stage: StageSnapshot): string | undefined {
     return `${last.name} · ${fmtDuration(last.endedAt - last.startedAt)}`;
   }
   if (last.startedAt !== undefined) {
-    return `${last.name} · ${fmtDuration(Date.now() - last.startedAt)}`;
+    return `${last.name} · ${fmtDuration(now - last.startedAt)}`;
   }
   return last.name;
 }

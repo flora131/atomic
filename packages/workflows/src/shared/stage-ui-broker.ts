@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import type { Component, Focusable, TUI } from "@earendil-works/pi-tui";
 import type { Store } from "./store.js";
 import { store as defaultStore } from "./store.js";
+import type { StageInputRequest } from "./store-types.js";
+import type { StageInputAnswer, StagePromptAdapter } from "./stage-prompt.js";
 import type { PiCustomOverlayFactory, PiCustomOverlayOptions, PiKeybindings, PiTheme } from "../extension/wiring.js";
 
 export interface StageCustomUiRequest<T = unknown> {
@@ -32,9 +34,59 @@ export class StageUiBroker {
   private readonly store: Store;
   private readonly pending = new Map<string, StageCustomUiRequest>();
   private readonly hosts = new Map<string, StageCustomUiHost>();
+  // Headless-answer adapters keyed by (runId, stageId). Populated by the
+  // executor's ask_user_question watcher and the readiness gate so a brokered
+  // custom-UI prompt can be answered programmatically (e.g. via `workflow
+  // send`) without a TUI host rendering the interactive component.
+  private readonly adapters = new Map<string, StagePromptAdapter>();
 
   constructor(store: Store = defaultStore) {
     this.store = store;
+  }
+
+  /**
+   * Register the structured descriptor + headless result builder for the
+   * prompt a stage is about to raise (or has just raised) via
+   * `requestCustomUi`. Surfaces the descriptor on the stage snapshot so
+   * `workflow send` / status can see and answer it. Safe to call before or
+   * after the matching `requestCustomUi`; the (runId, stageId) key joins them.
+   */
+  provideStagePrompt(runId: string, stageId: string, adapter: StagePromptAdapter): void {
+    this.adapters.set(key(runId, stageId), adapter);
+    this.store.recordStageInputRequest(runId, stageId, adapter.prompt);
+  }
+
+  /** Drop a stage's headless-answer adapter and clear its snapshot descriptor. */
+  clearStagePrompt(runId: string, stageId: string): void {
+    if (this.adapters.delete(key(runId, stageId))) {
+      this.store.clearStageInputRequest(runId, stageId);
+    }
+  }
+
+  /**
+   * Return the structured descriptor for a stage's brokered prompt when BOTH a
+   * headless-answer adapter and a live pending request exist for it — i.e. when
+   * `answerStagePrompt` can actually resolve something right now.
+   */
+  peekStagePrompt(runId: string, stageId: string): StageInputRequest | undefined {
+    const hostKey = key(runId, stageId);
+    const adapter = this.adapters.get(hostKey);
+    if (adapter && this.pending.has(hostKey)) return adapter.prompt;
+    return undefined;
+  }
+
+  /**
+   * Headlessly answer a stage's pending brokered prompt. Resolves the awaiting
+   * `ctx.ui.custom` promise with the adapter-built result. Returns `false` when
+   * there is no adapter+request pair for the stage.
+   */
+  answerStagePrompt(runId: string, stageId: string, answer: StageInputAnswer): boolean {
+    const hostKey = key(runId, stageId);
+    const adapter = this.adapters.get(hostKey);
+    const request = this.pending.get(hostKey);
+    if (!adapter || !request) return false;
+    this.resolve(request, adapter.buildResult(answer));
+    return true;
   }
 
   private hideHost(host: StageCustomUiHost | undefined, request: StageCustomUiRequest, reason: unknown): void {
@@ -131,6 +183,8 @@ export class StageUiBroker {
     const hostKey = key(request.runId, request.stageId);
     if (this.pending.get(hostKey)?.id !== request.id) return;
     this.pending.delete(hostKey);
+    this.adapters.delete(hostKey);
+    this.store.clearStageInputRequest(request.runId, request.stageId);
     this.store.recordStageAwaitingInput(request.runId, request.stageId, false);
     this.hideHost(this.hosts.get(hostKey), request, undefined);
     request.resolve(value);
@@ -140,6 +194,8 @@ export class StageUiBroker {
     const hostKey = key(request.runId, request.stageId);
     if (this.pending.get(hostKey)?.id !== request.id) return;
     this.pending.delete(hostKey);
+    this.adapters.delete(hostKey);
+    this.store.clearStageInputRequest(request.runId, request.stageId);
     this.store.recordStageAwaitingInput(request.runId, request.stageId, false);
     this.hideHost(this.hosts.get(hostKey), request, reason);
     request.reject(reason);

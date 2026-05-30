@@ -60,6 +60,8 @@ function makeStore(snap: StoreSnapshot): Store {
     recordToolEnd: () => {},
     recordStageEnd: () => {},
     recordStageAwaitingInput: () => false,
+    recordStageInputRequest: () => false,
+    clearStageInputRequest: () => false,
     recordRunEnd: () => false,
     removeRun: () => false,
     recordNotice: () => {},

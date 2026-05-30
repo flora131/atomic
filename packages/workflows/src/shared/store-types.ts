@@ -42,6 +42,41 @@ export interface PendingPrompt {
   readonly createdAt: number;
 }
 
+/** Discriminates the brokered structured-prompt source. */
+export type StageInputKind = "ask_user_question" | "readiness_gate";
+
+/** One selectable option in a {@link StageInputQuestion}. */
+export interface StageInputOption {
+  readonly label: string;
+  readonly description?: string;
+}
+
+/** One question in a {@link StageInputRequest}. */
+export interface StageInputQuestion {
+  readonly question: string;
+  readonly header?: string;
+  readonly multiSelect?: boolean;
+  readonly options: readonly StageInputOption[];
+}
+
+/**
+ * Serializable descriptor of an in-stage `ask_user_question` (or readiness
+ * gate) prompt brokered through `StageUiBroker`. Unlike {@link PendingPrompt}
+ * (the simple input/confirm/select/editor HIL model), this mirrors the richer
+ * structured ask_user_question shape so `workflow send` and status inspection
+ * can see the questions/options and answer the prompt without the TUI.
+ *
+ * Resolution lives in `StageUiBroker` (the awaiting `ctx.ui.custom` promise);
+ * only this JSON-cloneable descriptor lives on the snapshot.
+ */
+export interface StageInputRequest {
+  readonly id: string;
+  readonly kind: StageInputKind;
+  readonly questions: readonly StageInputQuestion[];
+  /** Issue timestamp (ms since epoch). */
+  readonly createdAt: number;
+}
+
 export interface ToolEvent {
   name: string;
   input?: Record<string, unknown>;
@@ -95,6 +130,14 @@ export interface StageSnapshot {
   awaitingInputSince?: number;
   /** Pending human-in-the-loop prompt owned by this workflow stage/node. */
   pendingPrompt?: PendingPrompt;
+  /**
+   * Structured descriptor of a brokered ask_user_question / readiness-gate
+   * prompt awaiting an answer. Set while the stage's `ctx.ui.custom` promise is
+   * pending; resolution lives in `StageUiBroker`. Lets `workflow send` answer
+   * the prompt headlessly. Distinct from {@link pendingPrompt}, which models
+   * the simpler input/confirm/select/editor HIL prompts.
+   */
+  inputRequest?: StageInputRequest;
   blockedByStageId?: string;
   notices?: StageNotice[];
   /**

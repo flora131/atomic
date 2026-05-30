@@ -7,6 +7,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { CONFIG_DIR_NAME, createAskUserQuestionToolDefinition } from "@bastani/atomic";
 import { stageUiBroker } from "../../shared/stage-ui-broker.js";
+import { buildStagePromptAdapter } from "../../shared/stage-prompt.js";
 import type {
   WorkflowDefinition,
   WorkflowRunContext,
@@ -301,7 +302,7 @@ function makeUnavailableUIContext(): WorkflowUIContext {
 }
 
 type AskUserQuestionToolEvent =
-  | { phase: "start"; callId?: string }
+  | { phase: "start"; callId?: string; args?: unknown }
   | { phase: "end"; callId?: string; nameMatched: boolean };
 
 function stringField(value: Record<string, unknown>, keys: readonly string[]): string | undefined {
@@ -325,7 +326,7 @@ function askUserQuestionToolEvent(event: unknown): AskUserQuestionToolEvent | un
   const callId = stringField(record, ["toolCallId", "tool_call_id", "toolUseId", "tool_use_id", "id"]);
 
   if (type === "tool_execution_start" && isAskUserQuestionToolName(toolName)) {
-    return { phase: "start", callId };
+    return { phase: "start", callId, args: record["args"] };
   }
   if (type === "tool_execution_end" || type === "tool_execution_error" || type === "tool_result") {
     return { phase: "end", callId, nameMatched: isAskUserQuestionToolName(toolName) };
@@ -346,9 +347,11 @@ function askUserQuestionToolEvent(event: unknown): AskUserQuestionToolEvent | un
 // returns control to the user, who keeps working in the normal stage composer.
 // The same per-turn check re-applies after each subsequent user-driven turn.
 
-const READINESS_GATE_ADVANCE_LABEL = "I'm ready to move on to the next workflow stage.";
+export const READINESS_GATE_ADVANCE_LABEL = "I'm ready to move on to the next workflow stage.";
 
-const READINESS_GATE_QUESTION_PARAMS = {
+const READINESS_GATE_ADVANCE_NORMALIZED = READINESS_GATE_ADVANCE_LABEL.trim().toLowerCase();
+
+export const READINESS_GATE_QUESTION_PARAMS = {
   questions: [
     {
       question: "Any additional points to explore before moving on?",
@@ -367,6 +370,33 @@ const READINESS_GATE_QUESTION_PARAMS = {
   ],
 };
 
+/**
+ * Decide whether a brokered readiness-gate result selected the "advance"
+ * option. Tolerant of case/whitespace and of the advance label arriving via a
+ * multi-select `selected[]` entry, so a structured answer that canonicalized to
+ * the advance option still completes the stage. Anything else (the explore
+ * option, a typed answer, a cancelled/empty result) means "stay".
+ */
+export function readinessResultMeansAdvance(result: unknown): boolean {
+  if (result === null || typeof result !== "object") return false;
+  const details = (result as {
+    details?: {
+      answers?: ReadonlyArray<{ answer?: unknown; selected?: ReadonlyArray<unknown> }>;
+      cancelled?: boolean;
+    };
+  }).details;
+  if (details === undefined || details.cancelled === true) return false;
+  const first = details.answers?.[0];
+  if (first === undefined) return false;
+  const candidates: unknown[] = [first.answer];
+  if (Array.isArray(first.selected)) candidates.push(...first.selected);
+  return candidates.some(
+    (candidate) =>
+      typeof candidate === "string" &&
+      candidate.trim().toLowerCase() === READINESS_GATE_ADVANCE_NORMALIZED,
+  );
+}
+
 let cachedReadinessGateTool: ReturnType<typeof createAskUserQuestionToolDefinition> | undefined;
 function readinessGateTool(): ReturnType<typeof createAskUserQuestionToolDefinition> {
   return (cachedReadinessGateTool ??= createAskUserQuestionToolDefinition());
@@ -381,7 +411,7 @@ function readinessGateTool(): ReturnType<typeof createAskUserQuestionToolDefinit
  * is attached the broker request stays pending (the stage shows awaiting_input)
  * exactly like the tool itself.
  */
-async function askReadinessViaStageBroker(
+export async function askReadinessViaStageBroker(
   runId: string,
   stageId: string,
   signal: AbortSignal,
@@ -401,18 +431,28 @@ async function askReadinessViaStageBroker(
         ),
     },
   };
-  const result = await execute(
+  // Expose a headless-answer adapter for the gate so it can be answered
+  // programmatically (e.g. `workflow send`) without a TUI host. The gate
+  // question params are known statically here.
+  const gateAdapter = buildStagePromptAdapter(
     `readiness-gate-${stageId}`,
-    READINESS_GATE_QUESTION_PARAMS as Parameters<typeof execute>[1],
-    signal,
-    undefined,
-    gateContext as unknown as Parameters<typeof execute>[4],
+    "readiness_gate",
+    READINESS_GATE_QUESTION_PARAMS,
+    Date.now(),
   );
-  const details = (result as {
-    details?: { answers?: ReadonlyArray<{ answer?: unknown }>; cancelled?: boolean };
-  }).details;
-  if (details === undefined || details.cancelled === true) return "stay";
-  return details.answers?.[0]?.answer === READINESS_GATE_ADVANCE_LABEL ? "advance" : "stay";
+  if (gateAdapter) stageUiBroker.provideStagePrompt(runId, stageId, gateAdapter);
+  try {
+    const result = await execute(
+      `readiness-gate-${stageId}`,
+      READINESS_GATE_QUESTION_PARAMS as Parameters<typeof execute>[1],
+      signal,
+      undefined,
+      gateContext as unknown as Parameters<typeof execute>[4],
+    );
+    return readinessResultMeansAdvance(result) ? "advance" : "stay";
+  } finally {
+    stageUiBroker.clearStagePrompt(runId, stageId);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2174,6 +2214,17 @@ export async function run<TInputs extends Record<string, unknown>>(
           if (toolEvent.callId !== undefined) activeAskUserQuestionCalls.add(toolEvent.callId);
           else activeAskUserQuestionAnonymousCalls += 1;
           activeStore.recordStageAwaitingInput(runId, stageId, true);
+          // Expose a headless-answer adapter so the prompt can be answered
+          // programmatically (e.g. `workflow send`) without a TUI host. The
+          // (runId, stageId) key joins this to the broker request the tool's
+          // ctx.ui.custom() call raises.
+          const adapter = buildStagePromptAdapter(
+            toolEvent.callId ?? `ask-user-question-${stageId}`,
+            "ask_user_question",
+            toolEvent.args,
+            Date.now(),
+          );
+          if (adapter) stageUiBroker.provideStagePrompt(runId, stageId, adapter);
           return;
         }
 
@@ -2187,6 +2238,7 @@ export async function run<TInputs extends Record<string, unknown>>(
 
         if (!hasActiveAskUserQuestion()) {
           activeStore.recordStageAwaitingInput(runId, stageId, false);
+          stageUiBroker.clearStagePrompt(runId, stageId);
         }
       });
       const disposeInnerContext = async (): Promise<void> => {
@@ -2194,6 +2246,7 @@ export async function run<TInputs extends Record<string, unknown>>(
         activeAskUserQuestionCalls.clear();
         activeAskUserQuestionAnonymousCalls = 0;
         activeStore.recordStageAwaitingInput(runId, stageId, false);
+        stageUiBroker.clearStagePrompt(runId, stageId);
         await innerCtx.__dispose();
       };
       let unregisterStageHandle = (): void => {};

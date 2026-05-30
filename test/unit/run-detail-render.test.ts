@@ -192,6 +192,53 @@ describe("renderRunDetail — themed", () => {
     }
     assert.match(stripAnsi(out), /…/);
   });
+
+  test("active tool-activity label honours the captured clock so scrollback cards don't tick", () => {
+    // Regression: a running stage's in-flight tool label (e.g. `bash · 6s`) was
+    // computed from a fresh Date.now() inside stageActivityString(), bypassing
+    // the capture-once `opts.now`. A `/workflow status <id>` detail card that had
+    // scrolled above the viewport fold then changed bytes on every host render
+    // tick (driven ~1×/sec by the below-editor companion widget), forcing
+    // pi-tui's full-screen redraw (CSI 2J/H/3J) — whole-page + chat-box flicker.
+    const now = 1_000_000;
+    const detail = detailFromRun(makeRun({
+      id: "ticky-run",
+      name: "scan",
+      status: "running",
+      startedAt: now - 117_000,
+      stages: [
+        makeStage("s1", "worker", "running", {
+          startedAt: now - 72_000,
+          // In-flight tool event (no endedAt): elapsed is live unless `now` wins.
+          toolEvents: [{ name: "bash", startedAt: now - 6_000 }],
+        }),
+      ],
+    }));
+
+    const originalNow = Date.now;
+    try {
+      // Two host re-renders at advancing wall-clock, same captured `now`.
+      Date.now = () => now + 500_000;
+      const first = stripAnsi(renderRunDetail(detail, { theme: deriveGraphTheme({}), now }));
+      Date.now = () => now + 5_000_000;
+      const second = stripAnsi(renderRunDetail(detail, { theme: deriveGraphTheme({}), now }));
+      assert.equal(
+        first,
+        second,
+        "run-detail active tool-activity label must not tick across re-renders (frozen clock avoids above-fold full-redraw flicker)",
+      );
+      // The active tool label reflects the captured clock (6s), not Date.now().
+      assert.match(first, /bash · 6s/);
+
+      // Sanity: a later captured clock renders a larger active-tool elapsed,
+      // proving the label genuinely depends on the captured clock.
+      const later = stripAnsi(renderRunDetail(detail, { theme: deriveGraphTheme({}), now: now + 4_000 }));
+      assert.match(later, /bash · 10s/);
+      assert.notEqual(first, later, "sanity: active tool elapsed must depend on the captured clock");
+    } finally {
+      Date.now = originalNow;
+    }
+  });
 });
 
 describe("renderRunDetail — plain", () => {

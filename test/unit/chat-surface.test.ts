@@ -279,6 +279,70 @@ describe("registerChatSurfaceRenderer", () => {
     assert.match(rendered, /read-only inspection/i);
     assert.doesNotMatch(rendered, /close/);
   });
+
+  test("status/detail cards freeze elapsed at creation so scrollback doesn't tick on re-render", () => {
+    // Regression for the whole-screen flicker class fixed for the tool-result
+    // status cards (capture wall-clock once per chat entry). The chat-surface
+    // renderer's render() lambda runs on every TUI frame; if it recomputed
+    // Date.now() each frame, an above-fold entry would force pi-tui's
+    // full-redraw branch (CSI 2J/H/3J) ~12x/sec while a live widget ticks.
+    class ClassBackedPi {
+      readonly renderers = new Map<string, (payload: unknown) => unknown>();
+      registerMessageRenderer(event: string, renderer: (payload: unknown) => unknown): void {
+        this.renderers.set(event, renderer);
+      }
+    }
+    const pi = new ClassBackedPi();
+    registerChatSurfaceRenderer(pi as never, deriveGraphTheme({}));
+    const renderer = pi.renderers.get(CHAT_SURFACE_CUSTOM_TYPE);
+    assert.notEqual(renderer, undefined);
+
+    const runningSnapshot = {
+      id: "abc12345-0000-0000-0000-000000000000",
+      name: "tick-demo",
+      inputs: {},
+      status: "running",
+      stages: [{ id: "s1", name: "plan", status: "running", parentIds: [], toolEvents: [] }],
+      startedAt: 1_000,
+    };
+
+    for (const payload of [
+      { kind: "status", runs: [runningSnapshot] },
+      { kind: "detail", detail: { runId: runningSnapshot.id, name: runningSnapshot.name, mode: "single", status: "running", startedAt: 1_000, inputs: {}, stages: [] } },
+    ]) {
+      const originalNow = Date.now;
+      try {
+        // Component created at a fixed wall-clock — the clock is captured here.
+        Date.now = () => 60_000;
+        const component = renderer!({ details: payload }) as { render(width: number): string[] };
+
+        // Subsequent host re-renders (e.g. driven by the live-widget ticker)
+        // advance the wall-clock; the card must stay byte-identical.
+        Date.now = () => 600_000;
+        const first = stripAnsi(component.render(72).join("\n"));
+        Date.now = () => 1_200_000;
+        const second = stripAnsi(component.render(72).join("\n"));
+        assert.equal(
+          first,
+          second,
+          `${payload.kind} card must not tick elapsed across re-renders (frozen clock avoids above-fold flicker)`,
+        );
+
+        // Sanity: a card created at a later wall-clock renders a larger
+        // elapsed, proving the output genuinely depends on the frozen clock.
+        Date.now = () => 9_000_000;
+        const later = renderer!({ details: payload }) as { render(width: number): string[] };
+        const laterRendered = stripAnsi(later.render(72).join("\n"));
+        assert.notEqual(
+          first,
+          laterRendered,
+          `sanity: a ${payload.kind} card created at a different wall-clock must render a different elapsed`,
+        );
+      } finally {
+        Date.now = originalNow;
+      }
+    }
+  });
 });
 
 describe("chatWidth", () => {

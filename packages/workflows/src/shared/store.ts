@@ -7,6 +7,7 @@ import type {
   PendingPrompt,
   PromptKind,
   RunSnapshot,
+  StageInputRequest,
   StageSnapshot,
   StageNotice,
   StoreSnapshot,
@@ -177,6 +178,16 @@ export interface Store {
    * or restore it to running after the tool resolves.
    */
   recordStageAwaitingInput(runId: string, stageId: string, awaiting: boolean, ts?: number): boolean;
+  /**
+   * Record the serializable descriptor of a brokered structured prompt
+   * (`ask_user_question` / readiness gate) awaiting an answer on a stage.
+   * Surfaces the questions/options on the snapshot so `workflow send` and
+   * status inspection can answer the prompt headlessly. Resolution itself lives
+   * in `StageUiBroker`. Returns `true` when the descriptor changed.
+   */
+  recordStageInputRequest(runId: string, stageId: string, request: StageInputRequest): boolean;
+  /** Clear a stage's brokered structured-prompt descriptor. Returns `true` when one was present. */
+  clearStageInputRequest(runId: string, stageId: string): boolean;
   /**
    * Mark a stage as `paused` and record `pausedAt`. Returns `true` when
    * the stage transitioned (was not already paused, blocked, or terminal).
@@ -373,6 +384,7 @@ export function createStore(): Store {
       if (stage.replayedFromStageId !== undefined) existing.replayedFromStageId = stage.replayedFromStageId;
       if (stage.replayed !== undefined) existing.replayed = stage.replayed;
       delete existing.awaitingInputSince;
+      delete existing.inputRequest;
       rejectStagePrompt(existing, `pi-workflows: stage ${stage.id} ended before prompt resolved`);
       _version++;
       notify();
@@ -692,6 +704,31 @@ export function createStore(): Store {
         stage.status = "running";
         delete stage.awaitingInputSince;
       }
+      _version++;
+      notify();
+      return true;
+    },
+
+    recordStageInputRequest(runId: string, stageId: string, request: StageInputRequest): boolean {
+      const run = findRun(runId);
+      if (!run) return false;
+      if (TERMINAL_STATUSES.has(run.status)) return false;
+      const stage = findStage(run, stageId);
+      if (!stage) return false;
+      if (isTerminalStageStatus(stage.status)) return false;
+      if (stage.inputRequest?.id === request.id) return false;
+      stage.inputRequest = { ...request };
+      _version++;
+      notify();
+      return true;
+    },
+
+    clearStageInputRequest(runId: string, stageId: string): boolean {
+      const run = findRun(runId);
+      if (!run) return false;
+      const stage = findStage(run, stageId);
+      if (!stage || stage.inputRequest === undefined) return false;
+      delete stage.inputRequest;
       _version++;
       notify();
       return true;

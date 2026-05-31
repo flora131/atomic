@@ -11,6 +11,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Added first-class workflow imports for composition: workflows can declare `.import()` dependencies, child workflows can declare `.output()` contracts, discovery validates unresolved/circular/invalid import graphs, and `ctx.workflow()` runs imported workflows as nested runs with input validation, output selection/mapping, and a visible parent boundary stage ([#1071](https://github.com/flora131/atomic/issues/1071)).
 - Added explicit workflow interaction metadata through `defineWorkflow(...).humanInTheLoop(reason?)` and a runtime execution policy that distinguishes interactive from non-interactive workflow runs ([#1123](https://github.com/flora131/atomic/issues/1123)).
 
+### Changed
+
+- Updated the registered `workflow` tool description so agent-facing metadata covers named and direct runs, discovery, inspection, prompt answering/steering, run control, and reload ([#1151](https://github.com/flora131/atomic/issues/1151)).
+
 ### Fixed
 
 - Fixed completed imported workflow boundary stages rendering as empty graph nodes by showing the child workflow name, child run id prefix, and selected output count in the node card.

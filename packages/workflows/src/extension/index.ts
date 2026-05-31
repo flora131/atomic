@@ -112,6 +112,11 @@ import type { PiMcpExtensionAPI, PiEventBus } from "./mcp.js";
 import type { StageSessionRuntime } from "../runs/foreground/stage-runner.js";
 import { WORKFLOW_STAGE_SUBAGENT_GUARD_ENV, getEnvValue, type CreateAgentSessionOptions } from "@bastani/atomic";
 
+const WORKFLOW_TOOL_DESCRIPTION =
+  "Run named workflows or direct one-off task/tasks/chain workflows; " +
+  "discover with list/get/inputs, inspect status/stages/stage details/transcripts, " +
+  "send prompt answers or steering, pause/resume/interrupt/kill runs, and reload workflow resources.";
+
 // ---------------------------------------------------------------------------
 // Minimal ExtensionAPI structural types
 // No `any`; all optional fields use explicit union with undefined.
@@ -2524,7 +2529,7 @@ function factory(pi: ExtensionAPI): void {
     pi.registerTool<WorkflowToolArgs, WorkflowToolResult>({
       name: "workflow",
       label: "workflow",
-      description: "Run a defined multi-stage workflow by name.",
+      description: WORKFLOW_TOOL_DESCRIPTION,
       parameters: workflowParameters,
       renderShell: "self",
       execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
@@ -3094,7 +3099,7 @@ function factory(pi: ExtensionAPI): void {
     "workflow",
     {
       description:
-        "Run or inspect pi workflows. Usage: /workflow <name> [key=value…] | /workflow [list|status|connect|attach|interrupt|kill|pause|resume|inputs|reload] [args]",
+        "Run or inspect Atomic workflows. Usage: /workflow <name> [key=value…] | /workflow [list|status|connect|attach|interrupt|kill|pause|resume|inputs|reload] [args]",
       handler: async (args: string, ctx: PiCommandContext) => {
         const policy = workflowPolicyFromContext(ctx);
         const reporter = createWorkflowCommandReporter(ctx, policy, pi);

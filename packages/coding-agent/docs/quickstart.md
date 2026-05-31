@@ -109,7 +109,9 @@ Named workflow runs execute in the background. After launch you get a run id; us
 /workflow kill <run-id>           # abort and retain for inspection
 ```
 
-Human-in-the-loop prompts (`ctx.ui.input`, `confirm`, `select`, `editor`) surface in the graph viewer, not as chat modals — connect to the run to answer them. See [Workflows](/workflows) for the full reference and authoring guide.
+Human-in-the-loop prompts (`ctx.ui.input`, `confirm`, `select`, `editor`) surface in the graph viewer, not as chat modals — connect to the run to answer them.
+
+Atomic also posts main-chat lifecycle notices when a run completes, fails, or awaits input. If you answer a workflow prompt in the graph or attached stage chat, the main chat receives an interrupt notice with the answer summary so the model does not ask the same question again. See [Workflows](/workflows) for the full reference and authoring guide.
 
 ### Top skills to invoke directly
 
@@ -142,7 +144,7 @@ Atomic will:
 
 - ask clarifying questions if stage purpose, inputs, models, or handoffs are ambiguous,
 - write a `.atomic/workflows/<name>.ts` definition that uses `defineWorkflow(...).input(...).run(...).compile()`,
-- and reload so you can immediately run it with `/workflow <name>`.
+- and run `/workflow reload` so the generated workflow is rediscovered and can be launched with `/workflow <name>`.
 
 The same plain-chat approach works for editing or hardening an existing workflow — ask Atomic to add a stage, switch a model, save artifacts, or wire in a human approval gate. For the full authoring reference, see [Workflows](/workflows).
 

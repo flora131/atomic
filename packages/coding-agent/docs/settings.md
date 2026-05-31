@@ -36,7 +36,7 @@ Edit directly or use `/settings` for common options. Atomic reads legacy `~/.pi/
 
 ### Codex Fast Mode
 
-Use `/fast` in interactive mode to edit these settings. Atomic applies fast mode only to supported `openai/*` and `openai-codex/*` providers, not `github-copilot/*` or other OpenAI-compatible providers. When fast mode is active for the current supported model, Atomic shows `fast` after the model name in the chat footer and workflow stage model labels.
+Use `/fast` in interactive mode to edit these settings. Atomic applies fast mode only to supported `openai/*` and `openai-codex/*` providers, not `github-copilot/*` or other OpenAI-compatible providers. Chat and workflow-stage scopes are independent. When fast mode is active for the current supported model, Atomic shows `fast` after the model name in the chat footer and workflow stage model labels. Enable the workflow scope deliberately for broad fan-outs because each eligible stage can consume priority-tier requests.
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|

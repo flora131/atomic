@@ -38,7 +38,9 @@ Use a workflow when a task should be repeatable, inspectable, resumable, or spli
 - [Running Workflows](#running-workflows)
 - [Workflow Commands](#workflow-commands)
 - [Monitor and Control Runs](#monitor-and-control-runs)
+- [Lifecycle Notices and Human Input](#lifecycle-notices-and-human-input)
 - [Direct One-Off Runs](#direct-one-off-runs)
+- [Codex Fast Mode for Workflow Stages](#codex-fast-mode-for-workflow-stages)
 - [Writing a Workflow](#writing-a-workflow)
 - [Workflow Primitives](#workflow-primitives)
 - [Task and Stage Options](#task-and-stage-options)
@@ -85,7 +87,7 @@ Atomic will:
 - ask clarifying questions when stage purpose, inputs, models, or handoffs are ambiguous,
 - write a `.atomic/workflows/<name>.ts` file using `defineWorkflow(...).input(...).run(...).compile()`,
 - pick `ctx.task` / `ctx.chain` / `ctx.parallel` / `ctx.ui` per the [primitives](#workflow-primitives) and [task options](#task-and-stage-options) reference, and
-- reload discovery so you can run it immediately.
+- run `/workflow reload` so Atomic rediscovers the workflow resource and you can launch it immediately.
 
 Atomic does not use the long-running `/goal` workflow by default for first-time workflow creation. If you explicitly choose `/goal` for reviewer-gated implementation, keep the objective tightly scoped with concrete done criteria and validation steps, and monitor the run with workflow status/connect controls rather than manual sleep-and-poll loops.
 
@@ -126,7 +128,7 @@ export default defineWorkflow("explain-file")
   .compile();
 ```
 
-Restart Atomic or run `/reload`, then list and run it:
+Run `/workflow reload` or restart Atomic, then list and run it:
 
 ```text
 /workflow list
@@ -413,7 +415,11 @@ Example config:
   "maxDepth": 4,
   "persistRuns": true,
   "statusFile": false,
-  "resumeInFlight": "ask"
+  "resumeInFlight": "ask",
+  "workflowNotifications": {
+    "enabled": true,
+    "notifyOn": ["completed", "failed", "awaiting_input"]
+  }
 }
 ```
 
@@ -426,6 +432,8 @@ Runtime config defaults:
 | `persistRuns` | `true` | Persist run metadata for status/resume/history |
 | `statusFile` | `false` | Write a derived status file; defaults under `.atomic/workflows/status.json` when enabled |
 | `resumeInFlight` | `"ask"` | Behavior when discovering resumable in-flight work |
+| `workflowNotifications.enabled` | `true` | Emit workflow lifecycle notices into the active main chat |
+| `workflowNotifications.notifyOn` | `["completed", "failed", "awaiting_input"]` | Lifecycle states that create notices; the list must be non-empty and can contain `completed`, `failed`, and `awaiting_input` |
 
 Invalid JSON or invalid shapes produce `CONFIG_INVALID` diagnostics. Missing config files are ignored.
 
@@ -524,6 +532,14 @@ workflow({ action: "get", workflow: "deep-research-codebase" })
 workflow({ action: "inputs", workflow: "deep-research-codebase" })
 ```
 
+The workflow tool action surface is:
+
+- discovery: `list`, `get`, `inputs`
+- execution: named `run`, plus direct one-off `task`, `tasks`, and `chain` modes
+- inspection: `status`, `stages`, `stage`, `transcript`
+- messaging and run control: `send`, `pause`, `interrupt`, `kill`, `resume`
+- rediscovery: `reload`
+
 Run a named workflow with inputs:
 
 ```ts
@@ -586,7 +602,8 @@ workflow({ action: "transcript", runId: "<id-or-prefix>", stageId: "review", tai
 workflow({ action: "transcript", runId: "<id-or-prefix>", stageId: "review", includeToolOutput: true })
 
 workflow({ action: "send", runId: "<id-or-prefix>", stageId: "review", text: "please focus on tests" })
-workflow({ action: "send", runId: "<id-or-prefix>", stageId: "approval", response: true, delivery: "answer" })
+workflow({ action: "send", runId: "<id-or-prefix>", stageId: "approval", promptId: "prompt-1", response: true, delivery: "answer" })
+workflow({ action: "send", runId: "<id-or-prefix>", stageId: "review", message: "continue with tests", delivery: "resume" })
 
 workflow({ action: "pause", runId: "<id-or-prefix>" })
 workflow({ action: "pause", runId: "<id-or-prefix>", stageId: "review" })
@@ -609,7 +626,8 @@ Control behavior:
 - `stages` lists stage summaries. Use `statusFilter: "all"` to include completed, failed, skipped, and pending stages.
 - `stage` returns details for one stage by stage id, unique prefix, or stage name.
 - `transcript` reads recent messages for a stage. `tail` overrides `limit`; `includeToolOutput` includes captured snapshot tool output when available.
-- `send` can answer pending prompts, steer streaming stages, queue follow-ups, or resume paused work. `delivery: "auto"` chooses in that order; use `delivery: "answer"` with `promptId` or `response` for explicit prompt answers.
+- `send` delivery modes are `auto`, `answer`, `prompt`, `steer`, `followUp`, and `resume`. Prompt answers can include `promptId` and can carry answer content in `response`, `text`, or `message`; structured UI prompts usually prefer `response`.
+- `delivery: "auto"` first answers a pending prompt, then resumes paused work, then steers a streaming stage, then queues a follow-up.
 - `pause`, `interrupt`, and `kill` can target one run or `all: true`; `stageId` cannot be combined with `all: true`.
 - `interrupt` is resumable: it pauses live work when pausable stages exist and keeps the run in live history/status.
 - `pause` is useful for pausing a live run or a single live stage without treating it as a destructive abort.
@@ -618,6 +636,21 @@ Control behavior:
 - `reload` refreshes discovered workflow resources in-process; the optional `reason` is echoed in the result.
 
 Use slash commands for graph connect and stage attach because those are interactive TUI surfaces. When a run needs user input or attention, surface that to the user instead of polling silently.
+
+## Lifecycle Notices and Human Input
+
+Atomic emits deduplicated main-chat notices when workflow runs complete, fail, or await input. These notices are queued into the active main chat as steering/context messages (`triggerTurn: true`, `deliverAs: "steer"`) so the model can react without the user manually polling status. Configure them in workflow extension config with `workflowNotifications.enabled` (default `true`) and `workflowNotifications.notifyOn` (default `["completed", "failed", "awaiting_input"]`).
+
+When a workflow needs human input, answer in the graph viewer or attached stage chat when possible:
+
+```text
+/workflow connect <run-id>
+/workflow attach <run-id> <stage-id-or-name>
+```
+
+Agents can answer pending prompts programmatically with `workflow({ action: "send", delivery: "answer", ... })`; use `promptId` when it is present in the stage details, and provide answer content with `response`, `text`, or `message`.
+
+If the user answers a human-in-the-loop prompt in the workflow UI or stage UI broker, the stage receives the answer directly and the active main chat receives an interrupt-delivered notice (`triggerTurn: true`, `deliverAs: "interrupt"`) containing a concise answer summary. That notice tells the main model not to ask the same question again. Prompt answers sent by the main-chat `workflow` tool are suppressed from this interrupt notice because the tool result already informs the current turn.
 
 ## Direct One-Off Runs
 
@@ -689,6 +722,14 @@ workflow({
 Direct mode supports top-level/default options and per-task options such as `context`, `forkFromSessionFile`, `model`, `fallbackModels`, `thinkingLevel`, `tools`, `noTools`, `customTools`, `mcp`, `output`, `outputMode`, `reads`, `worktree`, `gitWorktreeDir`, `baseBranch`, `maxOutput`, `artifacts`, `sessionDir`, `cwd`, and `agentDir`. Direct chains also support `chainName`, `chainDir`, and `failFast`.
 
 For large fan-outs, prefer `outputMode: "file-only"` so the parent result contains compact file references instead of full output. Treat intercom payloads from async direct runs as user-visible workflow output.
+
+## Codex Fast Mode for Workflow Stages
+
+Use `/fast` to manage Codex fast mode separately for normal chat and workflow-stage sessions. The settings are `codexFastMode.chat` and `codexFastMode.workflow`; workflow stages use the workflow scope, not the chat scope.
+
+Fast mode is eligible only for supported `openai/*` and `openai-codex/*` providers. It does not apply to `github-copilot/*`, Azure OpenAI, OpenRouter, or custom OpenAI-compatible providers. When applied, workflow stage displays keep the raw model id and expose `fast` as a separate marker/stage metadata indicator.
+
+Enable workflow fast mode deliberately for broad workflows: parallel fan-out and fallback attempts can multiply priority-tier requests and cost.
 
 ## Writing a Workflow
 

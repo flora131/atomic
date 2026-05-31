@@ -13,6 +13,7 @@
 - Refined the `/fast` selector into a conventional toggle UI with on/off states, clearer scope descriptions, and space/enter toggle support ([#1134](https://github.com/flora131/atomic/issues/1134)).
 - Compressed the `/fast` selector copy, row layout, and per-change status message so the summary, toggles, scopes, and keyboard hints stay readable without duplicate off/standard-tier messaging ([#1134](https://github.com/flora131/atomic/issues/1134)).
 - Clarified workflow-creation guidance so Atomic asks clarifying questions and writes first-time workflows directly, reserving `/goal` for explicitly chosen long-running reviewer-gated implementation.
+- Documented the current workflow tool action surface, lifecycle notices, human-in-the-loop answer notifications, workflow notification config, `/workflow` slash-command discovery, and workflow Codex fast-mode behavior ([#1151](https://github.com/flora131/atomic/issues/1151)).
 
 ### Fixed
 

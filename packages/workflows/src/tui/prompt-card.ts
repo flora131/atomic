@@ -16,7 +16,7 @@
  *   │  │ <text input / choice cycler>          │    │
  *   │  ╰───────────────────────────────────────╯    │
  *   │                                               │
- *   │  ↵ submit · esc skip                          │
+ *   │  ↵ submit · ctrl+c skip                       │
  *   ╰───────────────────────────────────────────────╯
  *
  * cross-ref:
@@ -141,14 +141,14 @@ function handleConfirm(
   data: string,
   state: PromptCardState,
 ): PromptCardAction {
-  if (matchesKey(data, Key.left) || matchesKey(data, Key.right) || matchesKey(data, Key.space) || matchesKey(data, Key.tab)) {
+  if (matchesAnyKey(data, [Key.left, Key.right, Key.space, Key.tab])) {
     state.confirmValue = !state.confirmValue;
     return { kind: "noop" };
   }
-  if (matchesKey(data, "y") || matchesKey(data, Key.shift("y"))) {
+  if (matchesAnyKey(data, ["y", Key.shift("y")])) {
     return { kind: "submit", response: true };
   }
-  if (matchesKey(data, "n") || matchesKey(data, Key.shift("n"))) {
+  if (matchesAnyKey(data, ["n", Key.shift("n")])) {
     return { kind: "submit", response: false };
   }
   if (matchesKey(data, Key.enter)) {
@@ -266,47 +266,30 @@ function applyTextEdit(
     return { kind: "noop" };
   }
   if (matchesAction(keybindings, data, "tui.editor.deleteWordBackward")) {
-    const start = wordLeft(state.rawText, caret);
-    const result = deleteRange(state.rawText, start, caret, caret);
-    state.rawText = result.text;
-    state.caret = result.caret;
+    applyDeleteRange(state, wordLeft(state.rawText, caret), caret, caret);
     return { kind: "noop" };
   }
   if (matchesAction(keybindings, data, "tui.editor.deleteWordForward")) {
-    const end = wordRight(state.rawText, caret);
-    const result = deleteRange(state.rawText, caret, end, caret);
-    state.rawText = result.text;
-    state.caret = result.caret;
+    applyDeleteRange(state, caret, wordRight(state.rawText, caret), caret);
     return { kind: "noop" };
   }
   if (matchesAction(keybindings, data, "tui.editor.deleteToLineStart")) {
-    const start = lineStart(state.rawText, caret);
-    const result = deleteRange(state.rawText, start, caret, caret);
-    state.rawText = result.text;
-    state.caret = result.caret;
+    applyDeleteRange(state, lineStart(state.rawText, caret), caret, caret);
     return { kind: "noop" };
   }
   if (matchesAction(keybindings, data, "tui.editor.deleteToLineEnd")) {
-    const end = lineEnd(state.rawText, caret);
-    const result = deleteRange(state.rawText, caret, end, caret);
-    state.rawText = result.text;
-    state.caret = result.caret;
+    applyDeleteRange(state, caret, lineEnd(state.rawText, caret), caret);
     return { kind: "noop" };
   }
   if (matchesTextAction(keybindings, data, "tui.editor.deleteCharBackward", Key.backspace)) {
     if (caret > 0) {
-      const prev = previousGraphemeBoundary(state.rawText, caret);
-      const result = deleteRange(state.rawText, prev, caret, caret);
-      state.rawText = result.text;
-      state.caret = result.caret;
+      applyDeleteRange(state, previousGraphemeBoundary(state.rawText, caret), caret, caret);
     }
     return { kind: "noop" };
   }
   if (matchesAction(keybindings, data, "tui.editor.deleteCharForward")) {
     if (caret < state.rawText.length) {
-      const result = deleteRange(state.rawText, caret, nextGraphemeBoundary(state.rawText, caret), caret);
-      state.rawText = result.text;
-      state.caret = result.caret;
+      applyDeleteRange(state, caret, nextGraphemeBoundary(state.rawText, caret), caret);
     }
     return { kind: "noop" };
   }
@@ -387,6 +370,19 @@ function matchesTextAction(
   fallback?: Parameters<typeof matchesKey>[1],
 ): boolean {
   return matchesAction(keybindings, data, action) || (fallback !== undefined && matchesKey(data, fallback));
+}
+
+function matchesAnyKey(
+  data: string,
+  keys: readonly Parameters<typeof matchesKey>[1][],
+): boolean {
+  return keys.some((key) => matchesKey(data, key));
+}
+
+function applyDeleteRange(state: PromptCardState, start: number, end: number, caret: number): void {
+  const result = deleteRange(state.rawText, start, end, caret);
+  state.rawText = result.text;
+  state.caret = result.caret;
 }
 
 function visualColumnAt(text: string, caret: number): number {

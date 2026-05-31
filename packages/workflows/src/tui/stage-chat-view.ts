@@ -663,13 +663,12 @@ export class StageChatView implements Component, Focusable {
       editorRows: customUiActive ? customUiLines.length : editorLines.length,
       footerRows: footerLines.length,
     });
-    const visiblePendingLines = pendingLines.slice(0, plan.pendingRows);
-    const visibleWorkingLines = workingLines.slice(0, plan.workingRows);
-    const visibleUsageLines = usageLines.slice(0, plan.usageRows);
-    const visibleEditorLines = customUiActive
-      ? customUiLines.slice(0, plan.editorRows)
-      : editorLines.slice(0, plan.editorRows);
-    const visibleFooterLines = footerLines.slice(0, plan.footerRows);
+    const visiblePendingLines = takeRows(pendingLines, plan.pendingRows);
+    const visibleWorkingLines = takeRows(workingLines, plan.workingRows);
+    const visibleUsageLines = takeRows(usageLines, plan.usageRows);
+    const editorSlotLines = customUiActive ? customUiLines : editorLines;
+    const visibleEditorLines = takeRows(editorSlotLines, plan.editorRows);
+    const visibleFooterLines = takeRows(footerLines, plan.footerRows);
     const bodyBudget = plan.bodyRows;
     if (blocked) this.chatHost.scrollToBottom();
 
@@ -1533,6 +1532,10 @@ function editorThemeFromGraphTheme(t: GraphTheme): EditorTheme {
       normal,
     },
   } as EditorTheme;
+}
+
+function takeRows(lines: readonly string[], rows: number): string[] {
+  return lines.slice(0, rows);
 }
 
 interface PaintOpts {

@@ -31,6 +31,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Cleared brokered stage HIL UI during terminal stage cleanup so a completed workflow does not leave an active `ask_user_question`/custom prompt card visible after detach ([#1141](https://github.com/flora131/atomic/issues/1141)).
 - Fixed workflow HIL select/editor prompts so navigation, scroll input, and ambiguous Escape-prefix input cannot advance prompts before an explicit configured confirm/Enter submit or Ctrl+C skip. Graph-mode prompt cards now honor custom select keybindings, and Enter submitted during connect/attach/detach transitions is time-boxed so key repeat cannot attach or answer the next prompt accidentally ([#1148](https://github.com/flora131/atomic/issues/1148)).
 - Preserved synthetic workflow HiL prompt nodes as `awaiting_input` when an unrelated main-chat `ask_user_question` result arrives, so choosing to leave a workflow prompt open no longer makes the orchestrator node look like it resumed while the prompt is still unanswered ([#1137](https://github.com/flora131/atomic/issues/1137)).
+- Fixed headless `/workflow <name>` print-mode automation so successful non-interactive runs wait for terminal snapshots and emit printable run-detail summaries, while terminal failures surface as command-visible errors instead of silent zero-output successes ([#1156](https://github.com/flora131/atomic/issues/1156)).
 
 ## [0.8.21] - 2026-05-30
 

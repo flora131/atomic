@@ -23,6 +23,7 @@
 - Fixed attached workflow-stage chat footers to resolve the `fast` model indicator against workflow fast-mode settings instead of chat settings ([#1134](https://github.com/flora131/atomic/issues/1134)).
 - Scoped print-mode non-zero extension-error exits to command-originated failures so non-fatal lifecycle extension errors do not fail otherwise successful headless output ([#1123](https://github.com/flora131/atomic/issues/1123)).
 - Fixed `ask_user_question` custom UI abort handling so interrupt-delivered workflow HiL answer notices are not stuck behind a blocking question modal ([#1137](https://github.com/flora131/atomic/issues/1137)).
+- Fixed print-mode slash-command output for headless `/workflow` automation by printing final displayable custom messages and treating command-originated extension errors as non-zero while suppressing stale final output ([#1156](https://github.com/flora131/atomic/issues/1156)).
 
 ## [0.8.21] - 2026-05-30
 

@@ -183,7 +183,7 @@ describe("runPrintMode", () => {
 		expect(session.extensionRunner.emit).toHaveBeenCalledWith({ type: "session_shutdown", reason: "quit" });
 	});
 
-	it("prints final displayable custom message content in text mode", async () => {
+	it("issue #1156: prints final displayable workflow custom message content in text mode", async () => {
 		const runtimeHost = createRuntimeHost(createCustomMessage({ content: "workflow completed\nresult: ok" }));
 		const stdoutChunks = captureStdout();
 
@@ -213,7 +213,7 @@ describe("runPrintMode", () => {
 		expect(session.extensionRunner.emit).toHaveBeenCalledWith({ type: "session_shutdown", reason: "quit" });
 	});
 
-	it("returns non-zero on extension command errors and still emits session_shutdown", async () => {
+	it("issue #1156: command-originated extension errors exit non-zero and suppress stale assistant output", async () => {
 		const runtimeHost = createRuntimeHost(createAssistantMessage({ text: "done" }));
 		const { session } = runtimeHost;
 		let bindings: ExtensionBindings | undefined;
@@ -233,7 +233,7 @@ describe("runPrintMode", () => {
 
 		expect(exitCode).toBe(1);
 		expect(errorSpy).toHaveBeenCalledWith(`Extension error (command:workflow): ${MISSING_INPUT_ERROR}`);
-		expect(stdoutChunks.join("")).not.toContain("done");
+		expect(stdoutChunks.join("")).toBe("");
 		expect(session.extensionRunner.emit).toHaveBeenCalledTimes(1);
 		expect(session.extensionRunner.emit).toHaveBeenCalledWith({ type: "session_shutdown", reason: "quit" });
 	});
@@ -293,7 +293,7 @@ describe("runPrintMode", () => {
 		expect(session.extensionRunner.emit).toHaveBeenCalledWith({ type: "session_shutdown", reason: "quit" });
 	});
 
-	it("suppresses final custom output after extension command errors", async () => {
+	it("issue #1156: command-originated extension errors suppress stale custom output", async () => {
 		const runtimeHost = createRuntimeHost(createCustomMessage({ content: "stale workflow result" }));
 		const { session } = runtimeHost;
 		let bindings: ExtensionBindings | undefined;
@@ -313,7 +313,7 @@ describe("runPrintMode", () => {
 
 		expect(exitCode).toBe(1);
 		expect(errorSpy).toHaveBeenCalledWith(`Extension error (command:workflow): ${RUN_MISSING_ERROR}`);
-		expect(stdoutChunks.join("")).not.toContain("stale workflow result");
+		expect(stdoutChunks.join("")).toBe("");
 		expect(session.extensionRunner.emit).toHaveBeenCalledWith({ type: "session_shutdown", reason: "quit" });
 	});
 });

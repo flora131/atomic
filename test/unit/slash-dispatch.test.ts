@@ -2424,9 +2424,11 @@ export default defineWorkflow("tool-headless-lifecycle")
 // ---------------------------------------------------------------------------
 // Non-interactive (-p) mode: /workflow remains available, but UI pickers are
 // skipped and deterministic validation errors are surfaced instead.
+// Issue #1156 specifically guards against `atomic -p '/workflow <name>'`
+// silently exiting 0 with empty stdout/stderr after a terminal success/failure.
 // ---------------------------------------------------------------------------
 
-describe("/workflow command in non-interactive (-p) mode", () => {
+describe("/workflow command in non-interactive (-p) mode (#1156 regressions)", () => {
   async function registerWorkflowCommand(): Promise<{
     handler: NonNullable<PiCommandOptions["handler"]>;
     sent: SentMessage[];
@@ -2838,7 +2840,7 @@ export default defineWorkflow("approval-required")
     }
   });
 
-  test("/workflow rejects failed terminal results in headless mode", async () => {
+  test("issue #1156: headless terminal workflow failure throws a command-visible error", async () => {
     const resource = await registerWorkflowCommandWithResource(
       "terminal-failure.ts",
       `import { defineWorkflow } from "@bastani/workflows";
@@ -2862,7 +2864,7 @@ export default defineWorkflow("terminal-failure")
     }
   });
 
-  test("/workflow emits terminal detail instead of dispatch after headless success", async () => {
+  test("issue #1156: headless /workflow success emits a printable terminal detail summary", async () => {
     const resource = await registerWorkflowCommandWithResource(
       "headless-terminal-success.ts",
       `import { defineWorkflow } from "@bastani/workflows";
@@ -2880,19 +2882,18 @@ export default defineWorkflow("headless-terminal-success")
     try {
       await resource.handler("headless-terminal-success", headlessNoOpCtx());
 
-      const payloads = resource.sent
-        .map(chatSurfacePayload)
-        .filter((payload): payload is ChatSurfacePayload => payload !== undefined);
       assert.equal(
-        payloads.some((payload) => payload.kind === "dispatch"),
+        resource.sent.some((message) => chatSurfacePayload(message)?.kind === "dispatch"),
         false,
         "headless success must not emit an interactive dispatch surface",
       );
-      const detailPayload = payloads.find(
-        (payload): payload is Extract<ChatSurfacePayload, { kind: "detail" }> =>
-          payload.kind === "detail",
+
+      const detailMessage = resource.sent.find(
+        (message) => chatSurfacePayload(message)?.kind === "detail",
       );
-      assert.ok(detailPayload, "expected a terminal run detail chat surface");
+      assert.ok(detailMessage, "expected a terminal run detail chat surface");
+      const detailPayload = chatSurfacePayload(detailMessage);
+      assert.ok(detailPayload?.kind === "detail", "expected terminal run detail payload");
       assert.equal(detailPayload.detail.status, "completed");
       assert.deepEqual(detailPayload.detail.result, { ok: true, value: "terminal" });
       assert.ok(detailPayload.detail.stages.length > 0, "expected completed stage details");
@@ -2905,13 +2906,15 @@ export default defineWorkflow("headless-terminal-success")
         false,
         "headless slash completion should not emit a lifecycle steer notice before terminal detail",
       );
-      const detailMessage = resource.sent.find(
-        (message) => chatSurfacePayload(message)?.kind === "detail",
-      );
-      assert.equal(typeof detailMessage?.content, "string");
-      assert.match(detailMessage?.content ?? "", /headless-terminal-success/);
-      assert.match(detailMessage?.content ?? "", /completed/);
-      assert.match(detailMessage?.content ?? "", /"value":"terminal"/);
+      assert.equal(detailMessage.display, true, "terminal detail must be displayable for print mode");
+      assert.equal(typeof detailMessage.content, "string");
+
+      const printableDetail = detailMessage.content ?? "";
+      assert.match(printableDetail, /headless-terminal-success/);
+      assert.match(printableDetail, /completed/);
+      assert.match(printableDetail, /STAGES/);
+      assert.match(printableDetail, /terminal-stage/);
+      assert.match(printableDetail, /"value":"terminal"/);
     } finally {
       await resource.cleanup();
     }

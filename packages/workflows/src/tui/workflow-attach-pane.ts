@@ -25,7 +25,8 @@ import type { ChatMessageRenderOptions, ReadonlyFooterDataProvider } from "@bast
 import type { Store } from "../shared/store.js";
 import type { GraphTheme } from "./graph-theme.js";
 import { GraphView } from "./graph-view.js";
-import { StageChatView } from "./stage-chat-view.js";
+import { StageChatView, type StageChatDetachReason } from "./stage-chat-view.js";
+import { Key, matchesKey } from "./text-helpers.js";
 import type {
   StageControlHandle,
   StageControlRegistry,
@@ -145,6 +146,8 @@ export class WorkflowAttachPane implements Component {
   private chatView: StageChatView | null = null;
   /** Stage id the user most recently attached to (used to seed focus). */
   private lastAttachedStageId: string | null = null;
+  /** One-shot guard for repeated Enter after a prompt answer auto-detaches. */
+  private suppressNextGraphSubmit = false;
 
   constructor(opts: WorkflowAttachPaneOpts) {
     this.store = opts.store;
@@ -227,6 +230,7 @@ export class WorkflowAttachPane implements Component {
   }
 
   private _attachToStage(runId: string, stageId: string): void {
+    this.suppressNextGraphSubmit = false;
     this.runId = runId;
     this.lastAttachedStageId = stageId;
     const handle: StageControlHandle | undefined = this.registry?.get(runId, stageId);
@@ -238,7 +242,7 @@ export class WorkflowAttachPane implements Component {
       stageId,
       workflowName: this._workflowName(runId),
       handle,
-      onDetach: () => this._detachFromStage(),
+      onDetach: (reason) => this._detachFromStage(reason),
       onClose: this.onClose,
       requestRender: this.hostRequestRender,
       requestFocus: this.hostRequestFocus,
@@ -257,7 +261,7 @@ export class WorkflowAttachPane implements Component {
     this._syncMouseScrollTracking();
   }
 
-  private _detachFromStage(): void {
+  private _detachFromStage(reason: StageChatDetachReason = "user"): void {
     if (this.chatView && this.runId && this.lastAttachedStageId) {
       this.store.recordStageAttached(this.runId, this.lastAttachedStageId, false);
     }
@@ -269,6 +273,7 @@ export class WorkflowAttachPane implements Component {
     this.graphView.dispose();
     this.graphView = this._buildGraphView(this.lastAttachedStageId ?? undefined);
     this.mode = "graph";
+    this.suppressNextGraphSubmit = reason === "prompt-resolved";
     this._setBaseStatus();
     this._syncMouseScrollTracking();
   }
@@ -283,6 +288,7 @@ export class WorkflowAttachPane implements Component {
     this.runId = runId;
     this.lastAttachedStageId = null;
     this.mode = "graph";
+    this.suppressNextGraphSubmit = false;
     this.graphView = this._buildGraphView();
 
     if (stageId !== undefined && runId) {
@@ -337,6 +343,10 @@ export class WorkflowAttachPane implements Component {
   handleInput(data: string): boolean | void {
     if (this.mode === "stage-chat" && this.chatView) {
       return this.chatView.handleInput(data);
+    }
+    if (this.suppressNextGraphSubmit) {
+      this.suppressNextGraphSubmit = false;
+      if (matchesKey(data, Key.enter)) return true;
     }
     return this.graphView.handleInput(data);
   }

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed workflow HIL select/editor prompts so navigation, scroll input, and ambiguous Escape-prefix input cannot advance prompts before an explicit Enter submit or Ctrl+C skip; also consumes the first repeated graph-mode Enter after answering a prompt to avoid attaching the next prompt accidentally ([#1148](https://github.com/flora131/atomic/issues/1148)).
+
 ## [0.8.21] - 2026-05-30
 
 ### Changed

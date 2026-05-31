@@ -110,20 +110,31 @@ export function handlePromptCardInput(
   state: PromptCardState,
   keybindings?: KeybindingsLike,
 ): PromptCardAction {
-  if (matchesKey(data, Key.ctrl("c")) || matchesKey(data, Key.escape)) {
+  if (matchesKey(data, Key.ctrl("c"))) {
     return { kind: "cancel" };
+  }
+  // The Escape key shares its leading byte with arrow/navigation sequences in
+  // terminal raw mode. Treat Escape as a consumed no-op for prompt cards so a
+  // split prefix can never resolve a prompt to its default response; Ctrl+C is
+  // the explicit skip/default key for this surface.
+  if (isPromptEscapeInput(data)) {
+    return { kind: "noop" };
   }
 
   switch (state.prompt.kind) {
     case "confirm":
       return handleConfirm(data, state);
     case "select":
-      return handleSelect(data, state);
+      return handleSelect(data, state, keybindings);
     case "input":
       return handleInput(data, state, keybindings);
     case "editor":
       return handleEditor(data, state, keybindings);
   }
+}
+
+export function isPromptEscapeInput(data: string): boolean {
+  return matchesKey(data, Key.escape);
 }
 
 function handleConfirm(
@@ -146,23 +157,29 @@ function handleConfirm(
   return { kind: "noop" };
 }
 
-function handleSelect(data: string, state: PromptCardState): PromptCardAction {
+function handleSelect(
+  data: string,
+  state: PromptCardState,
+  keybindings: KeybindingsLike | undefined,
+): PromptCardAction {
   const choices = state.prompt.choices ?? [];
   if (choices.length === 0) {
-    if (matchesKey(data, Key.enter)) {
+    if (matchesSelectSubmit(data, keybindings)) {
       return { kind: "submit", response: "" };
     }
     return { kind: "noop" };
   }
 
-  let action: PromptCardAction = { kind: "noop" };
-  const list = createPromptSelectList(state);
-  list.onSelect = (item) => {
-    const idx = Number(item.value);
-    action = { kind: "submit", response: choices[idx] ?? choices[0] };
-  };
-  list.handleInput(normalizeSelectKeyData(data));
-  return action;
+  state.selectedIndex = normalizeSelectIndex(state.selectedIndex, choices.length);
+  const movement = selectMovementDelta(data, keybindings, choices.length);
+  if (movement !== 0) {
+    state.selectedIndex = normalizeSelectIndex(state.selectedIndex + movement, choices.length);
+    return { kind: "noop" };
+  }
+  if (matchesSelectSubmit(data, keybindings)) {
+    return { kind: "submit", response: choices[state.selectedIndex] ?? choices[0] };
+  }
+  return { kind: "noop" };
 }
 
 function handleInput(
@@ -487,13 +504,48 @@ function normalizeSelectIndex(index: number, length: number): number {
   return ((n % length) + length) % length;
 }
 
-function normalizeSelectKeyData(data: string): string {
-  // The historical prompt card accepted left/right as select aliases; feed the
-  // corresponding vertical key into pi-tui's SelectList so it owns the actual
-  // wrap/clamp/selection update behavior.
-  if (matchesKey(data, Key.right)) return "\x1b[B";
-  if (matchesKey(data, Key.left)) return "\x1b[A";
-  return data;
+const SELECT_PAGE_STEP = 5;
+
+function selectMovementDelta(
+  data: string,
+  keybindings: KeybindingsLike | undefined,
+  choiceCount: number,
+): number {
+  if (
+    matchesAction(keybindings, data, TUI_ACTION.selectUp) ||
+    matchesKey(data, Key.up) ||
+    matchesKey(data, Key.left)
+  ) {
+    return -1;
+  }
+  if (
+    matchesAction(keybindings, data, TUI_ACTION.selectDown) ||
+    matchesKey(data, Key.down) ||
+    matchesKey(data, Key.right)
+  ) {
+    return 1;
+  }
+  const pageStep = Math.max(1, Math.min(SELECT_PAGE_STEP, choiceCount));
+  if (
+    matchesAction(keybindings, data, TUI_ACTION.selectPageUp) ||
+    matchesKey(data, "pageUp")
+  ) {
+    return -pageStep;
+  }
+  if (
+    matchesAction(keybindings, data, TUI_ACTION.selectPageDown) ||
+    matchesKey(data, "pageDown")
+  ) {
+    return pageStep;
+  }
+  return 0;
+}
+
+function matchesSelectSubmit(
+  data: string,
+  keybindings: KeybindingsLike | undefined,
+): boolean {
+  return matchesAction(keybindings, data, TUI_ACTION.selectConfirm) || matchesKey(data, Key.enter);
 }
 
 // ---------------------------------------------------------------------------
@@ -833,7 +885,7 @@ function renderHints(kind: PendingPrompt["kind"], theme: GraphTheme): string {
       sep +
       graphKeyHint("tui.input.submit", "Newline/Submit", theme) +
       sep +
-      graphKeyHint("tui.select.cancel", "Skip", theme)
+      graphRawKeyHint("ctrl+c", "Skip", theme)
     );
   }
   if (kind === "confirm") {
@@ -844,7 +896,7 @@ function renderHints(kind: PendingPrompt["kind"], theme: GraphTheme): string {
       sep +
       graphKeyHint("tui.select.confirm", "Submit", theme) +
       sep +
-      graphKeyHint("tui.select.cancel", "Skip", theme)
+      graphRawKeyHint("ctrl+c", "Skip", theme)
     );
   }
   if (kind === "select") {
@@ -853,8 +905,8 @@ function renderHints(kind: PendingPrompt["kind"], theme: GraphTheme): string {
       sep +
       graphKeyHint("tui.select.confirm", "Submit", theme) +
       sep +
-      graphKeyHint("tui.select.cancel", "Skip", theme)
+      graphRawKeyHint("ctrl+c", "Skip", theme)
     );
   }
-  return graphKeyHint("tui.input.submit", "Submit", theme) + sep + graphKeyHint("tui.select.cancel", "Skip", theme);
+  return graphKeyHint("tui.input.submit", "Submit", theme) + sep + graphRawKeyHint("ctrl+c", "Skip", theme);
 }

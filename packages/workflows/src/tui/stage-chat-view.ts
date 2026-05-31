@@ -78,6 +78,7 @@ import {
   createPromptCardState,
   defaultResponseFor,
   handlePromptCardInput,
+  isPromptEscapeInput,
   renderPromptCard,
   type PromptCardState,
 } from "./prompt-card.js";
@@ -104,7 +105,7 @@ export interface StageChatViewOpts {
    */
   handle?: StageControlHandle;
   /** Called when the user presses Ctrl+D outside a paused stage (back to graph). */
-  onDetach: () => void;
+  onDetach: (reason?: StageChatDetachReason) => void;
   /** Called when the user presses Escape (close the whole popup). */
   onClose: () => void;
   /** Request a host TUI repaint after SDK events mutate local chat state. */
@@ -148,6 +149,8 @@ export interface StageChatViewOpts {
  * that read `_transcript` (tests, future serialisers) can recover the
  * canonical user-visible string without knowing about the Pi-box payload.
  */
+export type StageChatDetachReason = "user" | "prompt-resolved";
+
 interface NoticeEntry {
   readonly role: "notice";
   readonly text: string;
@@ -193,7 +196,7 @@ export class StageChatView implements Component, Focusable {
   private stageId: string;
   private workflowName: string;
   private handle: StageControlHandle | undefined;
-  private onDetach: () => void;
+  private onDetach: (reason?: StageChatDetachReason) => void;
   private onClose: () => void;
   private requestRender: (() => void) | undefined;
   private requestFocus: (() => void) | undefined;
@@ -551,7 +554,7 @@ export class StageChatView implements Component, Focusable {
     // the least surprising recovery path.
     this.store.resolveStagePendingPrompt(this.runId, this.stageId, prompt.id, response);
     this.requestRender?.();
-    this.onDetach();
+    this.onDetach("prompt-resolved");
   }
 
   // -------------------------------------------------------------------------
@@ -1076,8 +1079,12 @@ export class StageChatView implements Component, Focusable {
     const state = this.promptState;
     if (!state) return;
     if (this.promptEditor && this.promptEditorPromptId === state.prompt.id) {
-      if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl("c"))) {
+      if (matchesKey(data, Key.ctrl("c"))) {
         this._resolvePromptResponse(state.prompt.id, defaultResponseFor(state.prompt));
+        return;
+      }
+      if (isPromptEscapeInput(data)) {
+        this.requestRender?.();
         return;
       }
       setEditorFocused(this.promptEditor, this.focused);
@@ -1545,9 +1552,9 @@ function paint(text: string, fg: string, opts: PaintOpts = {}): string {
 
 function renderHintsForPrompt(kind: PendingPrompt["kind"], theme: GraphTheme): string {
   if (kind === "input" || kind === "editor") {
-    return `${paint("enter", theme.textMuted, { bold: true })} Submit · ${paint("esc/ctrl+c", theme.textMuted, { bold: true })} Skip`;
+    return `${paint("enter", theme.textMuted, { bold: true })} Submit · ${paint("ctrl+c", theme.textMuted, { bold: true })} Skip`;
   }
-  return `${paint("enter", theme.textMuted, { bold: true })} Select · ${paint("esc/ctrl+c", theme.textMuted, { bold: true })} Skip`;
+  return `${paint("enter", theme.textMuted, { bold: true })} Select · ${paint("ctrl+c", theme.textMuted, { bold: true })} Skip`;
 }
 
 /**

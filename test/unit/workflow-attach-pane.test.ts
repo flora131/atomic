@@ -236,7 +236,7 @@ describe("WorkflowAttachPane", () => {
     pane.dispose();
   });
 
-  test("declining a stage prompt returns to the graph", async () => {
+  test("explicitly declining a stage prompt returns to the graph", async () => {
     const store = createStore();
     setupRun(store, "run-1", [{ id: "stage-a", name: "A" }]);
     const registry = createStageControlRegistry();
@@ -254,12 +254,54 @@ describe("WorkflowAttachPane", () => {
     });
 
     assert.equal(pane._mode, "stage-chat");
-    pane.handleInput(Key.escape);
+    pane.handleInput(Key.ctrl("c"));
 
     assert.equal(await pending, "default");
     assert.equal(pane._mode, "graph");
     assert.equal(pane._hasChatView, false);
     assert.equal(pane._lastAttachedStageId, "stage-a");
+    pane.dispose();
+  });
+
+  test("repeated Enter after a prompt answer does not attach the next prompt", async () => {
+    const store = createStore();
+    setupRun(store, "run-1", [
+      { id: "stage-a", name: "A" },
+      { id: "stage-b", name: "B" },
+    ]);
+    const registry = createStageControlRegistry();
+    registry.register(makeHandle("run-1", "stage-a"));
+    registry.register(makeHandle("run-1", "stage-b"));
+    const firstPrompt = makePendingPrompt({ id: "prompt-a", createdAt: 1 });
+    const secondPrompt = makePendingPrompt({ id: "prompt-b", createdAt: 2 });
+    assert.equal(store.recordStagePendingPrompt("run-1", "stage-a", firstPrompt), true);
+    assert.equal(store.recordStagePendingPrompt("run-1", "stage-b", secondPrompt), true);
+    const pending = store.awaitStagePendingPrompt("run-1", "stage-a", firstPrompt.id);
+    const pane = new WorkflowAttachPane({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageControlRegistry: registry,
+      onClose: () => {},
+      initialAttachStageId: "stage-a",
+    });
+
+    assert.equal(pane._mode, "stage-chat");
+    for (const ch of "answer") pane.handleInput(ch);
+    pane.handleInput(Key.enter);
+
+    assert.equal(await pending, "answer");
+    assert.equal(pane._mode, "graph");
+    assert.equal(pane._hasChatView, false);
+    assert.equal(store.runs()[0]?.stages[1]?.pendingPrompt?.id, secondPrompt.id);
+
+    pane.handleInput(Key.enter);
+    assert.equal(pane._mode, "graph", "first graph-mode Enter after answer is consumed");
+    assert.equal(pane._hasChatView, false);
+
+    pane.handleInput(Key.enter);
+    assert.equal(pane._mode, "stage-chat", "a subsequent Enter still attaches normally");
+    assert.equal(pane._lastAttachedStageId, "stage-b");
     pane.dispose();
   });
 

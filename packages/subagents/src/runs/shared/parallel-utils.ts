@@ -1,3 +1,5 @@
+import type { CodexFastModeResolvedSettings, CodexFastModeScope } from "@bastani/atomic";
+
 export interface RunnerSubagentStep {
 	agent: string;
 	task: string;
@@ -7,6 +9,8 @@ export interface RunnerSubagentStep {
 	fastMode?: boolean;
 	modelFastModes?: Record<string, boolean>;
 	modelCandidates?: string[];
+	codexFastModeSettings?: CodexFastModeResolvedSettings;
+	codexFastModeScope?: CodexFastModeScope;
 	tools?: string[];
 	extensions?: string[];
 	mcpDirectTools?: string[];

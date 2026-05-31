@@ -657,6 +657,8 @@ async function runSingleStep(
 			parentControlInbox: ctx.nestedRoute?.controlInbox,
 			parentRootRunId: ctx.nestedRoute?.rootRunId,
 			parentCapabilityToken: ctx.nestedRoute?.capabilityToken,
+			codexFastModeSettings: step.codexFastModeSettings,
+			codexFastModeScope: step.codexFastModeScope,
 		});
 		const run = await runPiStreaming(
 			args,

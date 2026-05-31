@@ -19,7 +19,11 @@ import { buildSkillInjection, normalizeSkillInput, resolveSkillsWithFallback } f
 import { resolveChildCwd } from "../../shared/utils.ts";
 import { buildModelCandidates, resolveModelCandidate, type AvailableModelInfo } from "../shared/model-fallback.ts";
 import { resolveEffectiveThinking } from "../../shared/model-info.ts";
-import { getSubagentCodexFastModeSettings, resolveSubagentModelFastModeMetadata } from "../../shared/fast-mode.ts";
+import {
+	getSubagentCodexFastModeSettings,
+	resolveSubagentCodexFastModeScope,
+	resolveSubagentModelFastModeMetadata,
+} from "../../shared/fast-mode.ts";
 import { resolveExpectedWorktreeAgentCwd } from "../shared/worktree.ts";
 import {
 	type ArtifactConfig,
@@ -255,6 +259,7 @@ export function executeAsyncChain(
 	const resultMode = params.resultMode ?? "chain";
 	const chainSkills = params.chainSkills ?? [];
 	const availableModels = params.availableModels;
+	const fastModeScope = resolveSubagentCodexFastModeScope(workflowStageSubagentGuard);
 	const runnerCwd = resolveChildCwd(ctx.cwd, cwd);
 	const firstStep = chain[0];
 	const originalTask = params.task ?? (firstStep
@@ -340,8 +345,10 @@ export function executeAsyncChain(
 			cwd: stepCwd,
 			model,
 			thinking: resolveEffectiveThinking(model, a.thinking),
-			...resolveSubagentModelFastModeMetadata({ model, modelCandidates, cwd: stepCwd, settings: fastModeSettings }),
+			...resolveSubagentModelFastModeMetadata({ model, modelCandidates, cwd: stepCwd, settings: fastModeSettings, scope: fastModeScope }),
 			modelCandidates,
+			codexFastModeSettings: fastModeSettings,
+			codexFastModeScope: fastModeScope,
 			tools: a.tools,
 			extensions: a.extensions,
 			mcpDirectTools: a.mcpDirectTools,
@@ -610,6 +617,7 @@ export function executeAsyncSingle(
 		.map((candidate) => applyThinkingSuffix(candidate, agentConfig.thinking))
 		.filter((candidate): candidate is string => typeof candidate === "string");
 	const fastModeSettings = getSubagentCodexFastModeSettings(runnerCwd);
+	const fastModeScope = resolveSubagentCodexFastModeScope(workflowStageSubagentGuard);
 	let spawnResult: { pid?: number; error?: string } = {};
 	try {
 		spawnResult = spawnRunner(
@@ -622,8 +630,10 @@ export function executeAsyncSingle(
 						cwd: runnerCwd,
 						model,
 						thinking: resolveEffectiveThinking(model, agentConfig.thinking),
-						...resolveSubagentModelFastModeMetadata({ model, modelCandidates, cwd: runnerCwd, settings: fastModeSettings }),
+						...resolveSubagentModelFastModeMetadata({ model, modelCandidates, cwd: runnerCwd, settings: fastModeSettings, scope: fastModeScope }),
 						modelCandidates,
+						codexFastModeSettings: fastModeSettings,
+						codexFastModeScope: fastModeScope,
 						tools: agentConfig.tools,
 						extensions: agentConfig.extensions,
 						mcpDirectTools: agentConfig.mcpDirectTools,

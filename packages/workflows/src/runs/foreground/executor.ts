@@ -2189,6 +2189,16 @@ export async function run<TInputs extends Record<string, unknown>>(
       // d. Create inner AgentSession-like StageContext (raw, without lifecycle wrapping).
       //    Must come before the registry registration because the handle
       //    delegates to it for every operation.
+      const applyModelFallbackMeta = (meta: ReturnType<InternalStageContext["__modelFallbackMeta"]>): void => {
+        if (meta.model !== undefined) stageSnapshot.model = meta.model;
+        if (meta.fastMode !== undefined) {
+          if (meta.fastMode) stageSnapshot.fastMode = true;
+          else delete stageSnapshot.fastMode;
+        }
+        if (meta.attemptedModels !== undefined) stageSnapshot.attemptedModels = meta.attemptedModels;
+        if (meta.modelAttempts !== undefined) stageSnapshot.modelAttempts = meta.modelAttempts;
+      };
+
       const innerCtx: InternalStageContext = createStageContext({
         stageId,
         stageName: name,
@@ -2197,6 +2207,12 @@ export async function run<TInputs extends Record<string, unknown>>(
         signal: ownController.signal,
         stageOptions: options,
         models: opts.models,
+        onModelFallbackMetaChange(meta) {
+          applyModelFallbackMeta(meta);
+          if (stageSnapshot.status === "running") {
+            activeStore.recordStageStart(runId, stageSnapshot);
+          }
+        },
       });
       const activeAskUserQuestionCalls = new Set<string>();
       let activeAskUserQuestionAnonymousCalls = 0;
@@ -2353,11 +2369,7 @@ export async function run<TInputs extends Record<string, unknown>>(
         stageSnapshot.endedAt = Date.now();
         stageSnapshot.durationMs = elapsedStageMs(stageSnapshot, stageSnapshot.endedAt);
 
-        const finalModelMeta = innerCtx.__modelFallbackMeta();
-        if (finalModelMeta.model !== undefined) stageSnapshot.model = finalModelMeta.model;
-        if (finalModelMeta.fastMode === true) stageSnapshot.fastMode = finalModelMeta.fastMode;
-        if (finalModelMeta.attemptedModels !== undefined) stageSnapshot.attemptedModels = finalModelMeta.attemptedModels;
-        if (finalModelMeta.modelAttempts !== undefined) stageSnapshot.modelAttempts = finalModelMeta.modelAttempts;
+        applyModelFallbackMeta(innerCtx.__modelFallbackMeta());
 
         activeStore.recordStageEnd(runId, stageSnapshot);
         opts.onStageEnd?.(runId, stageSnapshot);
@@ -2501,7 +2513,8 @@ export async function run<TInputs extends Record<string, unknown>>(
           }
         };
         const hasNoExplicitModelConfig = options?.model === undefined && options?.fallbackModels === undefined;
-        if (eagerSession && (hasNoExplicitModelConfig || await hasExplicitFastModeCandidate())) {
+        const promptAdapterHandlesInitialPrompt = adapters.prompt !== undefined;
+        if (eagerSession && !promptAdapterHandlesInitialPrompt && (hasNoExplicitModelConfig || await hasExplicitFastModeCandidate())) {
           try {
             await innerCtx.__ensureSession();
           } catch (err) {
@@ -2510,11 +2523,7 @@ export async function run<TInputs extends Record<string, unknown>>(
             }
           }
         }
-        const startingModelMeta = innerCtx.__modelFallbackMeta();
-        if (startingModelMeta.model !== undefined) stageSnapshot.model = startingModelMeta.model;
-        if (startingModelMeta.fastMode === true) stageSnapshot.fastMode = startingModelMeta.fastMode;
-        if (startingModelMeta.attemptedModels !== undefined) stageSnapshot.attemptedModels = startingModelMeta.attemptedModels;
-        if (startingModelMeta.modelAttempts !== undefined) stageSnapshot.modelAttempts = startingModelMeta.modelAttempts;
+        applyModelFallbackMeta(innerCtx.__modelFallbackMeta());
         activeStore.recordStageStart(runId, stageSnapshot);
 
         // Persistence: append stage.start entry
@@ -2590,11 +2599,7 @@ export async function run<TInputs extends Record<string, unknown>>(
             if (meta.sessionId !== undefined || meta.sessionFile !== undefined) {
               activeStore.recordStageSession(runId, stageId, meta);
             }
-            const modelMeta = innerCtx.__modelFallbackMeta();
-            if (modelMeta.model !== undefined) stageSnapshot.model = modelMeta.model;
-            if (modelMeta.fastMode === true) stageSnapshot.fastMode = modelMeta.fastMode;
-            if (modelMeta.attemptedModels !== undefined) stageSnapshot.attemptedModels = modelMeta.attemptedModels;
-            if (modelMeta.modelAttempts !== undefined) stageSnapshot.modelAttempts = modelMeta.modelAttempts;
+            applyModelFallbackMeta(innerCtx.__modelFallbackMeta());
           }
           if (stageFailFastScope?.failed === true && stageFailFastScope.activeStages.has(stageId)) {
             markSkippedForParallelFailFast();

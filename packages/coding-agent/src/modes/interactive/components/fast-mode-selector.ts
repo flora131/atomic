@@ -38,7 +38,7 @@ export class FastModeSelectorComponent {
 			lines.push(this.renderRow(row, width));
 		}
 		lines.push("");
-		lines.push(truncateToWidth(theme.fg("dim", "tab row · ←/→ change · esc close"), width));
+		lines.push(truncateToWidth(theme.fg("dim", "tab/↑↓ row · ← enable · → disable · esc close"), width));
 		return lines.map((line) => truncateToWidth(line, width));
 	}
 

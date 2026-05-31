@@ -24,6 +24,7 @@ describe("FastModeSelectorComponent", () => {
 		expect(rendered).toContain("workflow");
 		expect(rendered).toContain("[disabled]");
 		expect(rendered).toContain("[enabled]");
+		expect(rendered).toContain("← enable · → disable");
 	});
 
 	it("moves rows with tab and shift-tab", () => {

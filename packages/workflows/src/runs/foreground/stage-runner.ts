@@ -117,6 +117,8 @@ export interface StageRunnerOpts {
   signal?: AbortSignal;
   /** Optional model catalog used for fallback validation/resolution. */
   models?: WorkflowModelCatalogPort;
+  /** Internal: notifies the executor when an in-flight fallback changes model/fast metadata. */
+  onModelFallbackMetaChange?: (meta: StageModelFallbackMeta) => void;
 }
 
 export interface InternalStageContext extends StageContext {
@@ -564,6 +566,23 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
     return shouldApplyCodexFastModeForScope(model, settingsManager.getCodexFastModeSettings(), "workflow");
   }
 
+  function currentModelFallbackMeta(): StageModelFallbackMeta {
+    const attemptedModels = modelAttempts.map((attempt) => attempt.model);
+    const model = selectedModel ?? workflowModelId(session?.model);
+    const fastMode = isWorkflowFastModeEnabled();
+    return {
+      ...(model !== undefined ? { model } : {}),
+      ...(fastMode !== undefined ? { fastMode } : {}),
+      ...(attemptedModels.length > 0 ? { attemptedModels } : {}),
+      ...(modelAttempts.length > 0 ? { modelAttempts: [...modelAttempts] } : {}),
+      ...(modelWarnings.length > 0 ? { warnings: [...modelWarnings] } : {}),
+    };
+  }
+
+  function notifyModelFallbackMetaChange(): void {
+    opts.onModelFallbackMetaChange?.(currentModelFallbackMeta());
+  }
+
   function normalizeSessionCreateResult(created: StageSessionRuntime | StageSessionCreateResult): StageSessionCreateResult {
     if ("session" in created) return created;
     return { session: created };
@@ -691,6 +710,7 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
         : await createSession(candidate, consumer);
       activeCandidateIndex = index;
       selectedModel = candidate.id;
+      notifyModelFallbackMetaChange();
       try {
         await promptWithPauseResume(activeSession, text, sdkOptions);
         modelAttempts.push({ model: candidate.id, success: true });
@@ -875,16 +895,7 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
     },
 
     __modelFallbackMeta() {
-      const attemptedModels = modelAttempts.map((attempt) => attempt.model);
-      const model = selectedModel ?? workflowModelId(session?.model);
-      const fastMode = isWorkflowFastModeEnabled();
-      return {
-        ...(model !== undefined ? { model } : {}),
-        ...(fastMode === true ? { fastMode } : {}),
-        ...(attemptedModels.length > 0 ? { attemptedModels } : {}),
-        ...(modelAttempts.length > 0 ? { modelAttempts: [...modelAttempts] } : {}),
-        ...(modelWarnings.length > 0 ? { warnings: [...modelWarnings] } : {}),
-      };
+      return currentModelFallbackMeta();
     },
 
     async __requestPause() {

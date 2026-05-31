@@ -934,21 +934,24 @@ class LiveWidgetComponent implements Component {
 	private readonly container = new Container();
 
 	constructor(
-		private readonly jobs: AsyncJobState[],
+		private readonly getJobs: () => AsyncJobState[],
 		private readonly theme: Theme,
 		private readonly getExpanded: () => boolean,
 	) {}
 
 	render(width: number): string[] {
+		const jobs = this.getJobs();
 		const expanded = this.getExpanded();
-		const lines = expanded
-			? buildWidgetLines(this.jobs, this.theme, width, true)
-			: this.jobs.length === 1
-				? compactSingleWidgetLines(this.jobs[0]!, this.theme, width)
-				: buildWidgetLines(this.jobs, this.theme, width, false);
+		const lines = this.buildLines(jobs, width, expanded);
 		this.container.clear();
 		for (const line of fitWidgetLineBudget(lines, this.theme, width, expanded)) this.container.addChild(new Text(line, 1, 0));
 		return this.container.render(width);
+	}
+
+	private buildLines(jobs: AsyncJobState[], width: number, expanded: boolean): string[] {
+		if (expanded) return buildWidgetLines(jobs, this.theme, width, true);
+		if (jobs.length === 1) return compactSingleWidgetLines(jobs[0]!, this.theme, width);
+		return buildWidgetLines(jobs, this.theme, width, false);
 	}
 
 	invalidate(): void {
@@ -956,8 +959,8 @@ class LiveWidgetComponent implements Component {
 	}
 }
 
-function buildWidgetComponent(jobs: AsyncJobState[], getExpanded: () => boolean): (_tui: unknown, theme: Theme) => Component {
-	return (_tui, theme) => new LiveWidgetComponent(jobs, theme, getExpanded);
+function buildWidgetComponent(getJobs: () => AsyncJobState[], getExpanded: () => boolean): (_tui: unknown, theme: Theme) => Component {
+	return (_tui, theme) => new LiveWidgetComponent(getJobs, theme, getExpanded);
 }
 
 interface RenderRequestingContext {
@@ -965,10 +968,30 @@ interface RenderRequestingContext {
 }
 
 // There is only ever one async-agents widget per host process, so the widget
-// ticker keeps its driving context/jobs in module-level singletons.
+// ticker and mounted component read their driving context/jobs from module-level
+// singletons instead of remounting the widget for every visible update.
 let latestWidgetCtx: ExtensionContext | undefined;
 let latestWidgetJobs: AsyncJobState[] = [];
 let widgetTimer: ReturnType<typeof setInterval> | undefined;
+let widgetMounted = false;
+
+function getLatestWidgetJobs(): AsyncJobState[] {
+	return latestWidgetJobs;
+}
+
+function getLatestWidgetExpanded(): boolean {
+	return latestWidgetCtx?.hasUI ? latestWidgetCtx.ui.getToolsExpanded?.() ?? false : false;
+}
+
+function clearLatestWidgetState(): void {
+	latestWidgetCtx = undefined;
+	latestWidgetJobs = [];
+	widgetMounted = false;
+}
+
+function requestWidgetRender(ctx: ExtensionContext): void {
+	(ctx as RenderRequestingContext).ui.requestRender?.();
+}
 
 function hasAnimatedWidgetJobs(jobs: AsyncJobState[]): boolean {
 	// Animate while any job — or any of its nested steps — is still running so the
@@ -979,10 +1002,7 @@ function hasAnimatedWidgetJobs(jobs: AsyncJobState[]): boolean {
 function refreshAnimatedWidget(): void {
 	if (!latestWidgetCtx?.hasUI) return;
 	try {
-		// The cast is required because narrowing on `hasUI` above collapses `ui` to
-		// the base ExtensionUIContext, which does not declare the optional
-		// requestRender that the running interactive host actually provides.
-		(latestWidgetCtx as RenderRequestingContext).ui.requestRender?.();
+		requestWidgetRender(latestWidgetCtx);
 	} catch {
 		// Never let a cosmetic widget tick crash the host; stop on any error.
 		stopWidgetAnimation();
@@ -1009,11 +1029,20 @@ function stopWidgetTicker(): void {
 	}
 }
 
-// Full teardown: stop the ticker and forget the driving context/jobs entirely.
+// Full teardown: stop the ticker, clear the mounted widget if possible, and
+// forget the driving context/jobs entirely.
 export function stopWidgetAnimation(): void {
 	stopWidgetTicker();
-	latestWidgetCtx = undefined;
-	latestWidgetJobs = [];
+	const mountedCtx = latestWidgetCtx;
+	if (mountedCtx?.hasUI && widgetMounted) {
+		try {
+			mountedCtx.ui.setWidget(WIDGET_KEY, undefined);
+		} catch {
+			// Best-effort teardown only; a stale host context should not make cleanup
+			// fail during reload/shutdown or after a cosmetic animation error.
+		}
+	}
+	clearLatestWidgetState();
 }
 
 export function buildWidgetLines(jobs: AsyncJobState[], theme: Theme, width = getTermWidth(), expanded = false): string[] {
@@ -1091,8 +1120,11 @@ export function buildWidgetLines(jobs: AsyncJobState[], theme: Theme, width = ge
  */
 export function renderWidget(ctx: ExtensionContext, jobs: AsyncJobState[]): void {
 	if (jobs.length === 0) {
-		stopWidgetAnimation();
-		if (ctx.hasUI) ctx.ui.setWidget(WIDGET_KEY, undefined);
+		stopWidgetTicker();
+		latestWidgetCtx = undefined;
+		latestWidgetJobs = [];
+		if (ctx.hasUI && widgetMounted) ctx.ui.setWidget(WIDGET_KEY, undefined);
+		widgetMounted = false;
 		return;
 	}
 	if (!ctx.hasUI) {
@@ -1101,15 +1133,22 @@ export function renderWidget(ctx: ExtensionContext, jobs: AsyncJobState[]): void
 	}
 	latestWidgetCtx = ctx;
 	latestWidgetJobs = [...jobs];
-	// belowEditor: the widget animates a running glyph / elapsed labels on a
-	// timer. pi-tui full-clears the screen+scrollback whenever a changed line
-	// sits above the viewport fold, so an aboveEditor widget flickers once the
-	// bottom region grows tall and pushes it above the fold. Rendering below the
-	// editor keeps the live line within the bottom viewport (flicker-free), and
-	// matches the workflow companion widget's placement (#1109).
-	ctx.ui.setWidget(WIDGET_KEY, buildWidgetComponent(jobs, () => ctx.ui.getToolsExpanded?.() ?? false), {
-		placement: "belowEditor",
-	});
+	if (!widgetMounted) {
+		// belowEditor: the widget animates a running glyph / elapsed labels on a
+		// timer. pi-tui full-clears the screen+scrollback whenever a changed line
+		// sits above the viewport fold, so an aboveEditor widget flickers once the
+		// bottom region grows tall and pushes it above the fold. Rendering below the
+		// editor keeps the live line within the bottom viewport (flicker-free), and
+		// matches the workflow companion widget's placement (#1109).
+		ctx.ui.setWidget(WIDGET_KEY, buildWidgetComponent(getLatestWidgetJobs, getLatestWidgetExpanded), {
+			placement: "belowEditor",
+		});
+		widgetMounted = true;
+	} else {
+		// The mounted widget reads latestWidgetJobs via getLatestWidgetJobs(), so a
+		// visible->visible update only needs to ask the host to render in place.
+		requestWidgetRender(ctx);
+	}
 	// Keep the just-rendered ctx/jobs as the last-rendered state; only the ticker
 	// is conditional on whether anything is still animating.
 	if (hasAnimatedWidgetJobs(jobs)) ensureWidgetAnimation();

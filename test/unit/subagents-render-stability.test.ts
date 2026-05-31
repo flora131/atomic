@@ -1,6 +1,7 @@
 import { afterEach, describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
+import type { Component } from "@earendil-works/pi-tui";
 import {
   buildWidgetLines,
   clearLegacyResultAnimationTimer,
@@ -346,18 +347,8 @@ describe("async widget animation ticker lifecycle", () => {
   });
 
   function mockWidgetCtx(): { ctx: ExtensionContext; renders: () => number } {
-    let renderCount = 0;
-    const ctx = {
-      hasUI: true,
-      ui: {
-        setWidget: () => {},
-        getToolsExpanded: () => false,
-        requestRender: () => {
-          renderCount++;
-        },
-      },
-    } as unknown as ExtensionContext;
-    return { ctx, renders: () => renderCount };
+    const { ctx, renders } = mockLifecycleWidgetCtx();
+    return { ctx, renders };
   }
 
   function runningJob(): AsyncJobState {
@@ -373,6 +364,60 @@ describe("async widget animation ticker lifecycle", () => {
       turnCount: 1,
     };
   }
+
+  function mockLifecycleWidgetCtx(): {
+    ctx: ExtensionContext;
+    widgetCalls: Array<{ key: string; content: unknown; options: unknown }>;
+    renders: () => number;
+  } {
+    const widgetCalls: Array<{ key: string; content: unknown; options: unknown }> = [];
+    let renderCount = 0;
+    const ctx = {
+      hasUI: true,
+      ui: {
+        setWidget: (key: string, content: unknown, options?: unknown) => {
+          widgetCalls.push({ key, content, options });
+        },
+        getToolsExpanded: () => false,
+        requestRender: () => {
+          renderCount++;
+        },
+      },
+    } as unknown as ExtensionContext;
+    return { ctx, widgetCalls, renders: () => renderCount };
+  }
+
+  test("visible async widget updates render in place without remounting", () => {
+    type WidgetFactory = (tui: unknown, widgetTheme: RenderTheme) => Component;
+
+    const { ctx, widgetCalls, renders } = mockLifecycleWidgetCtx();
+    renderWidget(ctx, [runningJob()]);
+
+    assert.equal(widgetCalls.length, 1, "first non-empty render should mount the widget once");
+    const factory = widgetCalls[0]?.content;
+    assert.equal(typeof factory, "function", "mounted widget content should be a component factory");
+    const component = (factory as WidgetFactory)(undefined, theme);
+    assert.match(component.render(120).join("\n"), /worker/, "initial mounted component should render the original job");
+
+    renderWidget(ctx, [{ ...runningJob(), status: "complete", agents: ["reviewer"], toolCount: 3, turnCount: 4 }]);
+
+    assert.equal(widgetCalls.length, 1, "visible->visible updates must not call setWidget/remount again");
+    assert.equal(renders(), 1, "visible->visible updates should request an in-place render");
+    const updated = component.render(120).join("\n");
+    assert.match(updated, /reviewer/, "existing mounted component should read the latest job snapshot");
+    assert.doesNotMatch(updated, /worker/, "existing mounted component must not be stuck on constructor-captured jobs");
+  });
+
+  test("empty async widget updates unmount once and ignore repeated hidden updates", () => {
+    const { ctx, widgetCalls } = mockLifecycleWidgetCtx();
+
+    renderWidget(ctx, [runningJob()]);
+    renderWidget(ctx, []);
+    renderWidget(ctx, []);
+
+    assert.equal(widgetCalls.length, 2, "non-empty render should mount once and first empty render should unmount once");
+    assert.equal(widgetCalls[1]?.content, undefined, "empty render should clear the mounted widget");
+  });
 
   test("running jobs drive periodic re-renders; finished jobs stop them", async () => {
     const { ctx, renders } = mockWidgetCtx();

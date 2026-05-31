@@ -1135,6 +1135,23 @@ export class SettingsManager {
 		this.globalSettings.codexFastMode.workflow = settings.workflow;
 		this.markModified("codexFastMode", "chat");
 		this.markModified("codexFastMode", "workflow");
+
+		const projectCodexFastMode = this.projectSettings.codexFastMode;
+		const projectOverridesChat = projectCodexFastMode?.chat !== undefined;
+		const projectOverridesWorkflow = projectCodexFastMode?.workflow !== undefined;
+		if (projectOverridesChat || projectOverridesWorkflow) {
+			this.projectSettings.codexFastMode = { ...(projectCodexFastMode ?? {}) };
+			if (projectOverridesChat) {
+				this.projectSettings.codexFastMode.chat = settings.chat;
+				this.markProjectModified("codexFastMode", "chat");
+			}
+			if (projectOverridesWorkflow) {
+				this.projectSettings.codexFastMode.workflow = settings.workflow;
+				this.markProjectModified("codexFastMode", "workflow");
+			}
+			this.saveProjectSettings(this.projectSettings);
+		}
+
 		this.save();
 	}
 }

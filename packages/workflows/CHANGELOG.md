@@ -9,7 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - Kept workflow stage model metadata as the raw model id while surfacing Codex fast mode as a separate visible `fast` marker on workflow node cards, including stages that use the default Atomic SDK adapter settings manager.
-- Show workflow Codex fast-mode metadata on running workflow nodes as soon as the stage session starts, including custom resource-loader stages whose settings manager is created by the Atomic SDK.
+- Show workflow Codex fast-mode metadata on running workflow nodes as soon as the stage session starts, including explicit-model stages and custom resource-loader stages whose settings manager is created by the Atomic SDK.
 
 ## [0.8.21] - 2026-05-30
 

@@ -71,7 +71,7 @@ import {
   appendStageEnd,
   appendRunEnd,
 } from "../../shared/persistence-session-entries.js";
-import { validateWorkflowModels } from "../shared/model-fallback.js";
+import { validateWorkflowModels, workflowModelId } from "../shared/model-fallback.js";
 import type { WorkflowFailure } from "../../shared/workflow-failures.js";
 import { classifyWorkflowFailure } from "../../shared/workflow-failures.js";
 import { selectPromptCallsiteFrame } from "../shared/prompt-callsite.js";
@@ -2483,7 +2483,13 @@ export async function run<TInputs extends Record<string, unknown>>(
         }
         stageSnapshot.status = "running";
         stageSnapshot.startedAt = Date.now();
-        if (eagerSession && options?.model === undefined && options?.fallbackModels === undefined) {
+        const hasExplicitFastModeCandidate = (candidate: StageOptions["model"]): boolean => {
+          const modelId = workflowModelId(candidate);
+          return modelId !== undefined && (modelId.startsWith("openai/") || modelId.startsWith("openai-codex/"));
+        };
+        const explicitFastModeCandidate = hasExplicitFastModeCandidate(options?.model)
+          || (Array.isArray(options?.fallbackModels) && options.fallbackModels.some(hasExplicitFastModeCandidate));
+        if (eagerSession && (options?.model === undefined && options?.fallbackModels === undefined || explicitFastModeCandidate)) {
           try {
             await innerCtx.__ensureSession();
           } catch (err) {

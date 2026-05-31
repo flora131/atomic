@@ -64,6 +64,23 @@ export class StageUiBroker {
   }
 
   /**
+   * Settle and hide any brokered prompt that belongs to a stage whose workflow
+   * lifecycle has ended. Detaching a host intentionally does not cancel human
+   * input, but terminal stage/run cleanup must not leave stale HIL UI mounted.
+   */
+  cancelStagePrompt(runId: string, stageId: string, reason: unknown): void {
+    const hostKey = key(runId, stageId);
+    const request = this.pending.get(hostKey);
+    if (request) {
+      this.reject(request, reason);
+      return;
+    }
+    if (this.adapters.delete(hostKey)) {
+      this.store.clearStageInputRequest(runId, stageId);
+    }
+  }
+
+  /**
    * Return the structured descriptor for a stage's brokered prompt when BOTH a
    * headless-answer adapter and a live pending request exist for it — i.e. when
    * `answerStagePrompt` can actually resolve something right now.

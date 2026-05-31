@@ -77,3 +77,7 @@ export function withCodexFastModePayload(payload: unknown, enabled = true): unkn
 		service_tier: CODEX_FAST_MODE_SERVICE_TIER,
 	};
 }
+
+export function formatCodexFastModeModelLabel(modelName: string, enabled: boolean): string {
+	return enabled ? `${modelName} fast` : modelName;
+}

@@ -52,11 +52,11 @@ export class FastModeSelectorComponent {
 			return;
 		}
 		if (matchesKey(data, "left")) {
-			this.setCurrentRow(false);
+			this.setCurrentRow(true);
 			return;
 		}
 		if (matchesKey(data, "right")) {
-			this.setCurrentRow(true);
+			this.setCurrentRow(false);
 			return;
 		}
 		if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) {

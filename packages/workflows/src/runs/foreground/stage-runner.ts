@@ -9,7 +9,15 @@
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
-import { SessionManager, type AgentSession, type CreateAgentSessionOptions, type PromptOptions } from "@bastani/atomic";
+import {
+  formatCodexFastModeModelLabel,
+  shouldApplyCodexFastMode,
+  SessionManager,
+  SettingsManager,
+  type AgentSession,
+  type CreateAgentSessionOptions,
+  type PromptOptions,
+} from "@bastani/atomic";
 import type {
   CompleteStageOpts,
   StageContext,
@@ -532,6 +540,24 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
     return { ...(stageOptions ?? {}), model: candidate.value, fallbackModels: undefined };
   }
 
+  function formatStageModelLabel(modelId: string | undefined): string | undefined {
+    if (modelId === undefined) return undefined;
+    const model = session?.model;
+    if (model === undefined) return modelId;
+    const settingsManager = stageOptions?.settingsManager ?? SettingsManager.create(stageOptions?.cwd ?? process.cwd(), stageOptions?.agentDir);
+    const fastModeEnabled = shouldApplyCodexFastMode(model, settingsManager.getCodexFastModeSettings(), {
+      kind: "workflow-stage",
+      workflowRunId: runId,
+      workflowStageId: stageId,
+      workflowStageName: stageName,
+      constraints: {
+        disableWorkflowTool: true,
+        maxSubagentDepth: 0,
+      },
+    });
+    return formatCodexFastModeModelLabel(modelId, fastModeEnabled);
+  }
+
   function attachSession(created: StageSessionRuntime): StageSessionRuntime {
     session = created;
     if (pendingThinkingLevel !== undefined) {
@@ -836,7 +862,7 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
 
     __modelFallbackMeta() {
       const attemptedModels = modelAttempts.map((attempt) => attempt.model);
-      const model = selectedModel ?? workflowModelId(session?.model);
+      const model = formatStageModelLabel(selectedModel ?? workflowModelId(session?.model));
       return {
         ...(model !== undefined ? { model } : {}),
         ...(attemptedModels.length > 0 ? { attemptedModels } : {}),

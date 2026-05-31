@@ -5,6 +5,10 @@ import {
   visibleWidth,
 } from "@earendil-works/pi-tui";
 import type { AgentSession } from "../../../core/agent-session.ts";
+import {
+  formatCodexFastModeModelLabel,
+  shouldApplyCodexFastMode,
+} from "../../../core/codex-fast-mode.ts";
 import type { ReadonlyFooterDataProvider } from "../../../core/footer-data-provider.ts";
 import { theme } from "../theme/theme.ts";
 
@@ -214,11 +218,20 @@ export class FooterComponent implements Component {
     const pwd = replaceHome(this.session.sessionManager.getCwd());
 
     const modelName = state.model?.id || "no-model";
-    let modelLabel = modelName;
+    const fastModeSettings = this.session.settingsManager?.getCodexFastModeSettings?.();
+    const fastModeEnabled = state.model && fastModeSettings
+      ? shouldApplyCodexFastMode(
+          state.model,
+          fastModeSettings,
+          undefined,
+        )
+      : false;
+    const fastModelName = formatCodexFastModeModelLabel(modelName, fastModeEnabled);
+    let modelLabel = fastModelName;
     if (state.model?.reasoning) {
       const thinkingLevel = state.thinkingLevel || "off";
       modelLabel =
-        thinkingLevel === "off" ? modelName : `${modelName} ${thinkingLevel}`;
+        thinkingLevel === "off" ? fastModelName : `${fastModelName} ${thinkingLevel}`;
     }
     if (this.footerData.getAvailableProviderCount() > 1 && state.model) {
       modelLabel = `(${state.model.provider}) ${modelLabel}`;

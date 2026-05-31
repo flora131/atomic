@@ -48,16 +48,16 @@ describe("FastModeSelectorComponent", () => {
 			{ onChange, onCancel: () => {} },
 		);
 
-		selector.handleInput("\x1b[C");
+		selector.handleInput("\x1b[D");
 		expect(selector.getSettings()).toEqual({ chat: true, workflow: false });
 		expect(onChange).toHaveBeenLastCalledWith({ chat: true, workflow: false });
 
 		selector.handleInput("\t");
-		selector.handleInput("\x1b[C");
+		selector.handleInput("\x1b[D");
 		expect(selector.getSettings()).toEqual({ chat: true, workflow: true });
 		expect(onChange).toHaveBeenLastCalledWith({ chat: true, workflow: true });
 
-		selector.handleInput("\x1b[D");
+		selector.handleInput("\x1b[C");
 		expect(selector.getSettings()).toEqual({ chat: true, workflow: false });
 		expect(onChange).toHaveBeenLastCalledWith({ chat: true, workflow: false });
 	});

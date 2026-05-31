@@ -71,6 +71,17 @@ export {
 	serializeConversation,
 	shouldCompact,
 } from "./core/compaction/index.ts";
+export {
+	CODEX_FAST_MODE_SERVICE_TIER,
+	formatCodexFastModeModelLabel,
+	getCodexFastModeScope,
+	hasSupportedCodexFastModeModel,
+	isCodexFastModeSupportedModel,
+	isCodexFastModeSupportedProvider,
+	shouldApplyCodexFastMode,
+	type CodexFastModeResolvedSettings,
+	type CodexFastModeScope,
+} from "./core/codex-fast-mode.ts";
 export { createEventBus, type EventBus, type EventBusController } from "./core/event-bus.ts";
 // Extension system
 export type {

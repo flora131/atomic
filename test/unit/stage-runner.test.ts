@@ -434,6 +434,31 @@ describe("createStageContext — model fallback", () => {
     assert.deepEqual(ctx.__modelFallbackMeta().modelAttempts?.map((attempt) => attempt.success), [false, true]);
   });
 
+  test("workflow fast mode appends a visible fast indicator to model metadata", async () => {
+    const agentSession: AgentSessionAdapter = {
+      async create() {
+        const { session } = makeMockSession({
+          model: { provider: "openai", id: "gpt-5.1-codex" } as AgentSession["model"],
+          async prompt() {},
+        });
+        return session;
+      },
+    };
+
+    const ctx = createStageContext(makeOpts({
+      adapters: { agentSession },
+      stageOptions: {
+        settingsManager: {
+          getCodexFastModeSettings: () => ({ chat: false, workflow: true }),
+        },
+      } as Parameters<typeof createStageContext>[0]["stageOptions"],
+    })) as InternalStageContext;
+
+    await ctx.prompt("go");
+
+    assert.equal(ctx.__modelFallbackMeta().model, "openai/gpt-5.1-codex fast");
+  });
+
   test("current model is appended as an implicit final fallback", async () => {
     const calls: string[] = [];
     const agentSession: AgentSessionAdapter = {

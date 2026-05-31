@@ -226,13 +226,13 @@ export class FooterComponent implements Component {
           this.session.orchestrationContext,
         )
       : false;
-    const fastModelName = formatCodexFastModeModelLabel(modelName, fastModeEnabled);
-    let modelLabel = fastModelName;
+    let modelLabel = modelName;
     if (state.model?.reasoning) {
       const thinkingLevel = state.thinkingLevel || "off";
       modelLabel =
-        thinkingLevel === "off" ? fastModelName : `${fastModelName} ${thinkingLevel}`;
+        thinkingLevel === "off" ? modelLabel : `${modelLabel} ${thinkingLevel}`;
     }
+    modelLabel = formatCodexFastModeModelLabel(modelLabel, fastModeEnabled);
     if (this.footerData.getAvailableProviderCount() > 1 && state.model) {
       modelLabel = `(${state.model.provider}) ${modelLabel}`;
     }

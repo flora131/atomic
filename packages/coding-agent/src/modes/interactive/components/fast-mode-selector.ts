@@ -14,7 +14,18 @@ export interface FastModeSelectorCallbacks {
 export type FastModeRow = keyof FastModeSelectorConfig;
 
 const ROWS: readonly FastModeRow[] = ["chat", "workflow"];
-const DESCRIPTION = "Uses OpenAI priority service tier for supported openai/* and openai-codex/* models.";
+const LABEL_WIDTH = 16;
+const DESCRIPTION = "Priority tier for supported openai/* and openai-codex/* models.";
+const ROW_DETAILS: Record<FastModeRow, { label: string; scope: string }> = {
+	chat: {
+		label: "Chat",
+		scope: "this chat + subagents",
+	},
+	workflow: {
+		label: "Workflow stages",
+		scope: "workflow stages",
+	},
+};
 
 export class FastModeSelectorComponent {
 	private selectedRowIndex = 0;
@@ -29,7 +40,7 @@ export class FastModeSelectorComponent {
 	invalidate(): void {}
 
 	render(width: number): string[] {
-		const lines: string[] = [theme.bold(theme.fg("accent", "Codex fast mode")), ""];
+		const lines: string[] = [truncateToWidth(theme.bold(theme.fg("accent", "Codex fast mode")), width)];
 		for (const line of wrapTextWithAnsi(DESCRIPTION, Math.max(20, width))) {
 			lines.push(theme.fg("muted", line));
 		}
@@ -38,7 +49,7 @@ export class FastModeSelectorComponent {
 			lines.push(this.renderRow(row, width));
 		}
 		lines.push("");
-		lines.push(truncateToWidth(theme.fg("dim", "tab/↑↓ row · ← enable · → disable · esc close"), width));
+		lines.push(truncateToWidth(this.renderHint(), width));
 		return lines.map((line) => truncateToWidth(line, width));
 	}
 
@@ -51,12 +62,16 @@ export class FastModeSelectorComponent {
 			this.moveRow(-1);
 			return;
 		}
+		if (matchesKey(data, "enter") || data === " ") {
+			this.toggleCurrentRow();
+			return;
+		}
 		if (matchesKey(data, "left")) {
-			this.setCurrentRow(true);
+			this.setCurrentRow(false);
 			return;
 		}
 		if (matchesKey(data, "right")) {
-			this.setCurrentRow(false);
+			this.setCurrentRow(true);
 			return;
 		}
 		if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) {
@@ -85,27 +100,33 @@ export class FastModeSelectorComponent {
 		this.callbacks.onChange({ ...this.state }, row);
 	}
 
-	private renderRow(row: FastModeRow, width: number): string {
-		const selected = this.getFocusedRow() === row;
-		const prefix = selected ? theme.fg("accent", "› ") : "  ";
-		const label = row.padEnd(8, " ");
-		const labelText = selected ? theme.bold(theme.fg("accent", label)) : theme.fg("text", label);
-		const enabledText = this.renderValue(row, true);
-		const disabledText = this.renderValue(row, false);
-		return truncateToWidth(`${prefix}${labelText}  ${enabledText} ${disabledText}`, width);
+	private toggleCurrentRow(): void {
+		const row = this.getFocusedRow();
+		this.setCurrentRow(!this.state[row]);
 	}
 
-	private renderValue(row: FastModeRow, enabled: boolean): string {
-		const value = enabled ? "enabled" : "disabled";
+	private renderHint(): string {
+		const sep = theme.fg("dim", " · ");
+		const hint = (key: string, label: string): string => theme.fg("dim", key) + theme.fg("muted", ` ${label}`);
+		return [hint("↑↓/tab", "row"), hint("space/enter", "toggle"), hint("esc", "close")].join(sep);
+	}
+
+	private renderRow(row: FastModeRow, width: number): string {
 		const selected = this.getFocusedRow() === row;
-		const active = this.state[row] === enabled;
-		const text = active ? `[${value}]` : ` ${value} `;
-		if (selected && active) {
-			return theme.bold(theme.fg("accent", text));
+		const detail = ROW_DETAILS[row];
+		const prefix = selected ? theme.fg("accent", "› ") : "  ";
+		const label = detail.label.padEnd(LABEL_WIDTH, " ");
+		const labelText = selected ? theme.bold(theme.fg("accent", label)) : theme.fg("text", label);
+		const scope = selected ? theme.fg("muted", detail.scope) : theme.fg("dim", detail.scope);
+		return truncateToWidth(`${prefix}${labelText} ${this.renderToggle(row)}  ${scope}`, width);
+	}
+
+	private renderToggle(row: FastModeRow): string {
+		const enabled = this.state[row];
+		const text = enabled ? "[● ON ]" : "[○ OFF]";
+		if (enabled) {
+			return theme.bold(theme.fg("success", text));
 		}
-		if (active) {
-			return theme.fg("text", text);
-		}
-		return theme.fg("dim", text);
+		return this.getFocusedRow() === row ? theme.fg("muted", text) : theme.fg("dim", text);
 	}
 }

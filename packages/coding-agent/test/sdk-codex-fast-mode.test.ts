@@ -8,7 +8,8 @@ import {
 	type Model,
 	type SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ENV_CODEX_FAST_MODE } from "../src/config.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { CODEX_FAST_MODE_SERVICE_TIER } from "../src/core/codex-fast-mode.ts";
 import type { OrchestrationContext } from "../src/core/extensions/index.ts";
@@ -35,6 +36,15 @@ function createModel(provider: string, api: Api): Model<Api> {
 		contextWindow: 128000,
 		maxTokens: 4096,
 	};
+}
+
+async function bodyToText(body: BodyInit | null | undefined): Promise<string> {
+	if (body === null || body === undefined) return "";
+	if (typeof body === "string") return body;
+	if (body instanceof URLSearchParams) return body.toString();
+	if (body instanceof Blob) return body.text();
+	if (body instanceof ArrayBuffer) return new TextDecoder().decode(body);
+	return new Response(body).text();
 }
 
 function createDoneStream(model: Model<Api>) {
@@ -87,6 +97,7 @@ describe("createAgentSession codex fast mode", () => {
 	});
 
 	afterEach(() => {
+		vi.unstubAllGlobals();
 		for (const entry of registeredProviders.reverse()) {
 			entry.registry.unregisterProvider(entry.provider);
 		}
@@ -153,6 +164,28 @@ describe("createAgentSession codex fast mode", () => {
 		expect(captured.payload).toMatchObject({ service_tier: CODEX_FAST_MODE_SERVICE_TIER });
 	});
 
+	it("applies inherited chat fast mode environment to child sessions", async () => {
+		const previous = process.env[ENV_CODEX_FAST_MODE];
+		process.env[ENV_CODEX_FAST_MODE] = "chat=1;workflow=0";
+		try {
+			const captured = await captureFastModeRequest({
+				provider: "openai",
+				settings: { chat: false, workflow: false },
+			});
+
+			expect((captured.options as SimpleStreamOptions & { serviceTier?: string })?.serviceTier).toBe(
+				CODEX_FAST_MODE_SERVICE_TIER,
+			);
+			expect(captured.payload).toMatchObject({ service_tier: CODEX_FAST_MODE_SERVICE_TIER });
+		} finally {
+			if (previous === undefined) {
+				delete process.env[ENV_CODEX_FAST_MODE];
+			} else {
+				process.env[ENV_CODEX_FAST_MODE] = previous;
+			}
+		}
+	});
+
 	it("uses the workflow setting for workflow-stage requests", async () => {
 		const disabled = await captureFastModeRequest({
 			provider: "openai-codex",
@@ -181,6 +214,46 @@ describe("createAgentSession codex fast mode", () => {
 
 		expect((captured.options as SimpleStreamOptions & { serviceTier?: string })?.serviceTier).toBeUndefined();
 		expect(captured.payload).not.toMatchObject({ service_tier: CODEX_FAST_MODE_SERVICE_TIER });
+	});
+
+	it("sends priority service tier in native OpenAI Responses request bodies", async () => {
+		const model = createModel("openai", "openai-responses");
+		const authStorage = AuthStorage.create(join(agentDir, "auth.json"));
+		authStorage.setRuntimeApiKey("openai", "test-api-key");
+		const modelRegistry = ModelRegistry.create(authStorage, join(agentDir, "models.json"));
+		const settingsManager = SettingsManager.inMemory({ codexFastMode: { chat: true, workflow: false } });
+		const sessionManager = SessionManager.inMemory(cwd);
+		let capturedPayload: Record<string, unknown> | undefined;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+				capturedPayload = JSON.parse(await bodyToText(init?.body)) as Record<string, unknown>;
+				return new Response("data: [DONE]\n\n", {
+					status: 200,
+					headers: { "content-type": "text/event-stream" },
+				});
+			}),
+		);
+
+		const { session } = await createAgentSession({
+			cwd,
+			agentDir,
+			model,
+			authStorage,
+			modelRegistry,
+			settingsManager,
+			sessionManager,
+		});
+
+		try {
+			const stream = await session.agent.streamFn(model, { messages: [] }, { sessionId: session.sessionId });
+			const result = await stream.result();
+
+			expect(result.stopReason).toBe("stop");
+			expect(capturedPayload).toMatchObject({ service_tier: CODEX_FAST_MODE_SERVICE_TIER });
+		} finally {
+			session.dispose();
+		}
 	});
 
 	it("does not overwrite an existing provider payload service_tier", async () => {

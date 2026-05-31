@@ -54,6 +54,7 @@ import {
   CHANGELOG_URL,
   ENV_OFFLINE,
   getEnvValue,
+  setCodexFastModeEnvironmentSettings,
   getAgentDir,
   getAuthPath,
   getDebugLogPath,
@@ -96,7 +97,9 @@ import {
   resolveModelScope,
 } from "../../core/model-resolver.ts";
 import {
+  formatCodexFastModeModelLabel,
   hasSupportedCodexFastModeModel,
+  shouldApplyCodexFastMode,
 } from "../../core/codex-fast-mode.ts";
 import { configureHttpDispatcher } from "../../core/http-dispatcher.ts";
 import { DefaultPackageManager } from "../../core/package-manager.ts";
@@ -1088,6 +1091,26 @@ export class InteractiveMode {
     return this.formatDisplayPath(absolutePath);
   }
 
+  private getStartupModelLabel(): string {
+    const model = this.session.state.model;
+    let modelLabel = model?.id ?? "no-model";
+
+    if (model?.reasoning) {
+      modelLabel = `${modelLabel} ${this.session.thinkingLevel || "off"}`;
+    }
+
+    if (!model) {
+      return modelLabel;
+    }
+
+    const fastModeEnabled = shouldApplyCodexFastMode(
+      model,
+      this.session.settingsManager.getCodexFastModeSettings(),
+      this.session.orchestrationContext,
+    );
+    return formatCodexFastModeModelLabel(modelLabel, fastModeEnabled);
+  }
+
   private getStartupIdentityText(): string {
     const appLabel = APP_NAME.length > 0
       ? `${APP_NAME[0]!.toUpperCase()}${APP_NAME.slice(1)}`
@@ -1095,8 +1118,7 @@ export class InteractiveMode {
     const title = `${theme.bold(theme.fg("text", appLabel))} ${theme.fg("muted", `v${this.version}`)}`;
     const model = this.session.state.model;
     const provider = model ? theme.fg("dim", `(${model.provider})`) : theme.fg("dim", "(no-provider)");
-    const thinking = model?.reasoning ? ` ${this.session.thinkingLevel || "off"}` : "";
-    const modelLine = `${provider} ${theme.fg("muted", `${model?.id ?? "no-model"}${thinking}`)}`;
+    const modelLine = `${provider} ${theme.fg("muted", this.getStartupModelLabel())}`;
     const cwd = theme.fg("muted", this.formatDisplayPath(this.sessionManager.getCwd()));
     const metaLines = [title, modelLine, cwd];
     const markLines = this.getAtomicAnsiMarkLines();
@@ -4469,18 +4491,26 @@ export class InteractiveMode {
     }
 
     this.showSelector((done) => {
+      let pendingStatusMessage: string | undefined;
       const selector = new FastModeSelectorComponent(
         this.settingsManager.getCodexFastModeSettings(),
         {
           onChange: (settings, changedRow) => {
             this.settingsManager.setCodexFastModeSettings({ [changedRow]: settings[changedRow] });
-            this.showStatus(
-              `Codex fast mode: chat ${settings.chat ? "enabled" : "disabled"}, workflow ${settings.workflow ? "enabled" : "disabled"}`,
-            );
+            const effectiveSettings = this.settingsManager.getCodexFastModeSettings();
+            setCodexFastModeEnvironmentSettings(effectiveSettings);
+            this.footer.invalidate();
+            this.refreshBuiltInHeader();
+            const changedLabel = changedRow === "chat" ? "Chat" : "Workflow";
+            const changedState = effectiveSettings[changedRow] ? "on" : "off";
+            pendingStatusMessage = `${changedLabel} fast mode ${changedState}`;
           },
           onCancel: async () => {
             await this.settingsManager.flush();
             done();
+            if (pendingStatusMessage) {
+              this.showStatus(pendingStatusMessage);
+            }
             this.ui.requestRender();
           },
         },

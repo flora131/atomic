@@ -16,6 +16,7 @@ export {
 	getProjectConfigPaths,
 	getEnvNames,
 	getEnvValue,
+	ENV_CODEX_FAST_MODE,
 	WORKFLOW_STAGE_SUBAGENT_GUARD_ENV,
 	isBunBinary,
 	getUserConfigDirs,

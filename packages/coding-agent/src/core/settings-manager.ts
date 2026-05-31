@@ -6,6 +6,7 @@ import {
 	CONFIG_DIR_NAME,
 	ENV_CLEAR_ON_SHRINK,
 	ENV_HARDWARE_CURSOR,
+	getCodexFastModeEnvironmentSettings,
 	getAgentConfigPaths,
 	getAgentDir,
 	getEnvValue,
@@ -282,6 +283,7 @@ export class SettingsManager {
 	private globalSettings: Settings;
 	private projectSettings: Settings;
 	private settings: Settings;
+	private runtimeSettingsOverrides: Settings;
 	private modifiedFields = new Set<keyof Settings>(); // Track global fields modified during session
 	private modifiedNestedFields = new Map<keyof Settings, Set<string>>(); // Track global nested field modifications
 	private modifiedProjectFields = new Set<keyof Settings>(); // Track project fields modified during session
@@ -305,7 +307,20 @@ export class SettingsManager {
 		this.globalSettingsLoadError = globalLoadError;
 		this.projectSettingsLoadError = projectLoadError;
 		this.errors = [...initialErrors];
-		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.runtimeSettingsOverrides = SettingsManager.getRuntimeSettingsOverrides();
+		this.settings = this.mergeEffectiveSettings();
+	}
+
+	private static getRuntimeSettingsOverrides(): Settings {
+		const codexFastMode = getCodexFastModeEnvironmentSettings();
+		return codexFastMode ? { codexFastMode } : {};
+	}
+
+	private mergeEffectiveSettings(): Settings {
+		return deepMergeSettings(
+			deepMergeSettings(this.globalSettings, this.projectSettings),
+			this.runtimeSettingsOverrides,
+		);
 	}
 
 	/** Create a SettingsManager that loads from files */
@@ -467,7 +482,8 @@ export class SettingsManager {
 			this.recordError("project", projectLoad.error);
 		}
 
-		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.runtimeSettingsOverrides = SettingsManager.getRuntimeSettingsOverrides();
+		this.settings = this.mergeEffectiveSettings();
 	}
 
 	/** Apply additional overrides on top of current settings */
@@ -564,7 +580,7 @@ export class SettingsManager {
 	}
 
 	private save(): void {
-		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.settings = this.mergeEffectiveSettings();
 
 		if (this.globalSettingsLoadError) {
 			return;
@@ -581,7 +597,7 @@ export class SettingsManager {
 
 	private saveProjectSettings(settings: Settings): void {
 		this.projectSettings = structuredClone(settings);
-		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
+		this.settings = this.mergeEffectiveSettings();
 
 		if (this.projectSettingsLoadError) {
 			return;
@@ -1162,6 +1178,14 @@ export class SettingsManager {
 			if (projectModified) {
 				this.saveProjectSettings(this.projectSettings);
 			}
+		}
+
+		if (this.runtimeSettingsOverrides.codexFastMode) {
+			this.runtimeSettingsOverrides.codexFastMode = {
+				...this.runtimeSettingsOverrides.codexFastMode,
+				...(settings.chat !== undefined ? { chat: settings.chat } : {}),
+				...(settings.workflow !== undefined ? { workflow: settings.workflow } : {}),
+			};
 		}
 
 		this.save();

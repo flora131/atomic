@@ -9,7 +9,6 @@ import {
   type Api,
   type Message,
   type Model,
-  streamSimple,
 } from "@earendil-works/pi-ai";
 import { APP_NAME, getAgentDir } from "../config.ts";
 import { resolvePath } from "../utils/paths.ts";
@@ -18,6 +17,7 @@ import { formatNoModelsAvailableMessage } from "./auth-guidance.ts";
 import { AuthStorage } from "./auth-storage.ts";
 import {
   shouldApplyCodexFastMode,
+  streamWithCodexFastMode,
   withCodexFastModePayload,
   withCodexFastModeStreamOptions,
 } from "./codex-fast-mode.ts";
@@ -416,7 +416,7 @@ export async function createAgentSession(
       const providerRetrySettings = settingsManager.getProviderRetrySettings();
       const attributionHeaders = getAttributionHeaders(model, settingsManager, streamOptions?.sessionId);
       const fastModeEnabled = isCodexFastModeEnabled(model);
-      return streamSimple(
+      return streamWithCodexFastMode(
         model,
         context,
         withCodexFastModeStreamOptions(

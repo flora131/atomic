@@ -1,3 +1,4 @@
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { describe, expect, it } from "vitest";
 import type { AgentSession } from "../src/core/agent-session.ts";
 import type { OrchestrationContext } from "../src/core/extensions/types.ts";
@@ -17,11 +18,20 @@ const workflowContext: OrchestrationContext = {
 	constraints: { disableWorkflowTool: true, maxSubagentDepth: 0 },
 };
 
-function sessionWithFastMode(chat: boolean, workflow = false, orchestrationContext?: OrchestrationContext): AgentSession {
+function sessionWithFastMode(
+	chat: boolean,
+	workflow = false,
+	orchestrationContext?: OrchestrationContext,
+	options: { reasoning?: boolean; thinkingLevel?: ThinkingLevel } = {},
+): AgentSession {
 	return {
 		state: {
-			model: { provider: "openai", id: "gpt-5.1-codex" },
-			thinkingLevel: "off",
+			model: {
+				provider: "openai",
+				id: "gpt-5.1-codex",
+				reasoning: options.reasoning ?? false,
+			},
+			thinkingLevel: options.thinkingLevel ?? "off",
 		},
 		settingsManager: {
 			getCodexFastModeSettings: () => ({ chat, workflow }),
@@ -52,6 +62,21 @@ describe("FooterComponent Codex fast mode indicator", () => {
 
 		expect(plain(footer.render(120)[0])).toContain("gpt-5.1-codex •");
 		expect(plain(footer.render(120)[0])).not.toContain("fast");
+	});
+
+	it("shows fast after the reasoning level when both are present", () => {
+		initTheme("dark");
+		const footer = new FooterComponent(
+			sessionWithFastMode(true, false, undefined, {
+				reasoning: true,
+				thinkingLevel: "medium",
+			}),
+			footerData,
+		);
+		const rendered = plain(footer.render(120)[0]);
+
+		expect(rendered).toContain("gpt-5.1-codex medium fast");
+		expect(rendered).not.toContain("gpt-5.1-codex fast medium");
 	});
 
 	it("uses workflow scope for workflow-stage session footers", () => {

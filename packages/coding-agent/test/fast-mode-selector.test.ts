@@ -20,11 +20,17 @@ describe("FastModeSelectorComponent", () => {
 		const rendered = plainRender(selector);
 
 		expect(rendered).toContain("Codex fast mode");
-		expect(rendered).toContain("chat");
-		expect(rendered).toContain("workflow");
-		expect(rendered).toContain("[disabled]");
-		expect(rendered).toContain("[enabled]");
-		expect(rendered).toContain("← enable · → disable");
+		expect(rendered).toContain("Priority tier for supported openai/* and openai-codex/* models.");
+		expect(rendered).toContain("Chat");
+		expect(rendered).toContain("Workflow stages");
+		expect(rendered).toContain("[○ OFF]");
+		expect(rendered).toContain("[● ON ]");
+		expect(rendered).not.toContain("Chat off · Workflow on");
+		expect(rendered).toContain("this chat + subagents");
+		expect(rendered).toContain("space/enter toggle");
+		expect(rendered).not.toContain("← off · → on");
+		expect(rendered).not.toContain("standard tier");
+		expect(rendered.split("\n")).toHaveLength(7);
 	});
 
 	it("moves rows with tab and shift-tab", () => {
@@ -41,7 +47,7 @@ describe("FastModeSelectorComponent", () => {
 		expect(selector.getFocusedRow()).toBe("chat");
 	});
 
-	it("changes the focused row with left and right arrows", () => {
+	it("changes the focused row with arrows and toggle keys", () => {
 		initTheme("dark");
 		const onChange = vi.fn();
 		const selector = new FastModeSelectorComponent(
@@ -49,18 +55,22 @@ describe("FastModeSelectorComponent", () => {
 			{ onChange, onCancel: () => {} },
 		);
 
-		selector.handleInput("\x1b[D");
+		selector.handleInput("\x1b[C");
 		expect(selector.getSettings()).toEqual({ chat: true, workflow: false });
 		expect(onChange).toHaveBeenLastCalledWith({ chat: true, workflow: false }, "chat");
 
-		selector.handleInput("\t");
-		selector.handleInput("\x1b[D");
-		expect(selector.getSettings()).toEqual({ chat: true, workflow: true });
-		expect(onChange).toHaveBeenLastCalledWith({ chat: true, workflow: true }, "workflow");
+		selector.handleInput(" ");
+		expect(selector.getSettings()).toEqual({ chat: false, workflow: false });
+		expect(onChange).toHaveBeenLastCalledWith({ chat: false, workflow: false }, "chat");
 
+		selector.handleInput("\t");
 		selector.handleInput("\x1b[C");
-		expect(selector.getSettings()).toEqual({ chat: true, workflow: false });
-		expect(onChange).toHaveBeenLastCalledWith({ chat: true, workflow: false }, "workflow");
+		expect(selector.getSettings()).toEqual({ chat: false, workflow: true });
+		expect(onChange).toHaveBeenLastCalledWith({ chat: false, workflow: true }, "workflow");
+
+		selector.handleInput("\x1b[D");
+		expect(selector.getSettings()).toEqual({ chat: false, workflow: false });
+		expect(onChange).toHaveBeenLastCalledWith({ chat: false, workflow: false }, "workflow");
 	});
 
 	it("cancels on escape", () => {

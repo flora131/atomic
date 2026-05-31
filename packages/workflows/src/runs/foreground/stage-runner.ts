@@ -63,8 +63,22 @@ export interface StageSessionRuntime {
 
 export type StageSessionCreateOptions = CreateAgentSessionOptions & Pick<StageOptions, "mcp" | "fallbackModels">;
 
+type WorkflowFastModeSettings = {
+  readonly chat: boolean;
+  readonly workflow: boolean;
+};
+
+type WorkflowFastModeSettingsManager = {
+  getCodexFastModeSettings(): WorkflowFastModeSettings;
+};
+
+export interface StageSessionCreateResult {
+  readonly session: StageSessionRuntime;
+  readonly settingsManager?: WorkflowFastModeSettingsManager;
+}
+
 export interface AgentSessionAdapter {
-  create(options: StageSessionCreateOptions, meta?: StageExecutionMeta): Promise<StageSessionRuntime>;
+  create(options: StageSessionCreateOptions, meta?: StageExecutionMeta): Promise<StageSessionRuntime | StageSessionCreateResult>;
 }
 
 export interface StageModelFallbackMeta {
@@ -539,9 +553,11 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
     return { ...(stageOptions ?? {}), model: candidate.value, fallbackModels: undefined };
   }
 
+  let sessionSettingsManager: WorkflowFastModeSettingsManager | undefined;
+
   function isWorkflowFastModeEnabled(): boolean | undefined {
     const model = session?.model;
-    const settingsManager = stageOptions?.settingsManager;
+    const settingsManager = sessionSettingsManager ?? stageOptions?.settingsManager;
     if (model === undefined || settingsManager === undefined) return undefined;
     return shouldApplyCodexFastMode(model, settingsManager.getCodexFastModeSettings(), {
       kind: "workflow-stage",
@@ -555,19 +571,26 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
     });
   }
 
-  function attachSession(created: StageSessionRuntime): StageSessionRuntime {
-    session = created;
+  function normalizeSessionCreateResult(created: StageSessionRuntime | StageSessionCreateResult): StageSessionCreateResult {
+    if ("session" in created) return created;
+    return { session: created };
+  }
+
+  function attachSession(created: StageSessionRuntime | StageSessionCreateResult): StageSessionRuntime {
+    const result = normalizeSessionCreateResult(created);
+    session = result.session;
+    sessionSettingsManager = result.settingsManager;
     if (pendingThinkingLevel !== undefined) {
-      created.setThinkingLevel(pendingThinkingLevel);
+      result.session.setThinkingLevel(pendingThinkingLevel);
     }
     for (const listener of pendingListeners) {
-      listenerUnsubscribes.set(listener, created.subscribe(listener));
+      listenerUnsubscribes.set(listener, result.session.subscribe(listener));
     }
     // Track terminating tool calls for this session so the stage result text is
     // derived deterministically from a tool that actually ended the turn.
     unsubscribeTerminateWatcher?.();
-    unsubscribeTerminateWatcher = created.subscribe((event) => recordTerminatingToolCall(event));
-    return created;
+    unsubscribeTerminateWatcher = result.session.subscribe((event) => recordTerminatingToolCall(event));
+    return result.session;
   }
 
   async function createSession(
@@ -603,6 +626,7 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
     const current = session;
     session = undefined;
     sessionPromise = undefined;
+    sessionSettingsManager = undefined;
     for (const unsubscribe of listenerUnsubscribes.values()) unsubscribe();
     listenerUnsubscribes.clear();
     unsubscribeTerminateWatcher?.();

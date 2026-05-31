@@ -2175,6 +2175,7 @@ export async function run<TInputs extends Record<string, unknown>>(
           __pendingMessageCount: () => 0,
           __modelFallbackMeta: () => ({
             ...(replaySource.model !== undefined ? { model: replaySource.model } : {}),
+            ...(replaySource.fastMode === true ? { fastMode: replaySource.fastMode } : {}),
             ...(replaySource.attemptedModels !== undefined ? { attemptedModels: replaySource.attemptedModels } : {}),
             ...(replaySource.modelAttempts !== undefined ? { modelAttempts: replaySource.modelAttempts } : {}),
           }),
@@ -2354,6 +2355,7 @@ export async function run<TInputs extends Record<string, unknown>>(
 
         const finalModelMeta = innerCtx.__modelFallbackMeta();
         if (finalModelMeta.model !== undefined) stageSnapshot.model = finalModelMeta.model;
+        if (finalModelMeta.fastMode === true) stageSnapshot.fastMode = finalModelMeta.fastMode;
         if (finalModelMeta.attemptedModels !== undefined) stageSnapshot.attemptedModels = finalModelMeta.attemptedModels;
         if (finalModelMeta.modelAttempts !== undefined) stageSnapshot.modelAttempts = finalModelMeta.modelAttempts;
 
@@ -2558,6 +2560,7 @@ export async function run<TInputs extends Record<string, unknown>>(
             }
             const modelMeta = innerCtx.__modelFallbackMeta();
             if (modelMeta.model !== undefined) stageSnapshot.model = modelMeta.model;
+            if (modelMeta.fastMode === true) stageSnapshot.fastMode = modelMeta.fastMode;
             if (modelMeta.attemptedModels !== undefined) stageSnapshot.attemptedModels = modelMeta.attemptedModels;
             if (modelMeta.modelAttempts !== undefined) stageSnapshot.modelAttempts = modelMeta.modelAttempts;
           }
@@ -2706,6 +2709,7 @@ export async function run<TInputs extends Record<string, unknown>>(
           ...(sessionId !== undefined ? { sessionId } : {}),
           ...(stage.sessionFile !== undefined ? { sessionFile: stage.sessionFile } : {}),
           ...(stageMeta.model !== undefined ? { model: stageMeta.model } : {}),
+          ...(stageMeta.fastMode === true ? { fastMode: stageMeta.fastMode } : {}),
           ...(stageMeta.attemptedModels !== undefined ? { attemptedModels: stageMeta.attemptedModels } : {}),
           ...(stageMeta.modelAttempts !== undefined ? { modelAttempts: stageMeta.modelAttempts } : {}),
           ...(stageMeta.warnings !== undefined ? { warnings: stageMeta.warnings } : {}),

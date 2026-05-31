@@ -67,7 +67,7 @@ function isObjectPayload(payload: unknown): payload is Record<string, unknown> {
 	return typeof payload === "object" && payload !== null && !Array.isArray(payload);
 }
 
-export function withCodexFastModePayload(payload: unknown, enabled = true): unknown {
+export function withCodexFastModePayload(payload: unknown, enabled = false): unknown {
 	if (!enabled || !isObjectPayload(payload) || "service_tier" in payload) {
 		return payload;
 	}

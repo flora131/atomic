@@ -60,6 +60,7 @@ describe("codex fast mode helpers", () => {
 	it("adds service_tier to object payloads without overwriting existing values", () => {
 		expect(withCodexFastModePayload("not-object", true)).toBe("not-object");
 		expect(withCodexFastModePayload(["array"], true)).toEqual(["array"]);
+		expect(withCodexFastModePayload({ model: "gpt" })).toEqual({ model: "gpt" });
 		expect(withCodexFastModePayload({ model: "gpt" }, false)).toEqual({ model: "gpt" });
 		expect(withCodexFastModePayload({ model: "gpt" }, true)).toEqual({
 			model: "gpt",

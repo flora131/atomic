@@ -223,7 +223,7 @@ export class FooterComponent implements Component {
       ? shouldApplyCodexFastMode(
           state.model,
           fastModeSettings,
-          undefined,
+          this.session.orchestrationContext,
         )
       : false;
     const fastModelName = formatCodexFastModeModelLabel(modelName, fastModeEnabled);

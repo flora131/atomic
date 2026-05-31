@@ -53,6 +53,8 @@ export interface StageSessionRuntime {
   readonly isStreaming: AgentSession["isStreaming"];
   /** Number of SDK-level queued steering/follow-up messages, when supported. */
   readonly pendingMessageCount?: number;
+  /** Settings manager supplied by the Atomic SDK when the adapter did not pre-create one. */
+  readonly settingsManager?: WorkflowFastModeSettingsManager;
   navigateTree: AgentSession["navigateTree"];
   compact: AgentSession["compact"];
   abortCompaction(): void;
@@ -570,7 +572,7 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
   function attachSession(created: StageSessionRuntime | StageSessionCreateResult): StageSessionRuntime {
     const result = normalizeSessionCreateResult(created);
     session = result.session;
-    sessionSettingsManager = result.settingsManager;
+    sessionSettingsManager = result.settingsManager ?? result.session.settingsManager;
     if (pendingThinkingLevel !== undefined) {
       result.session.setThinkingLevel(pendingThinkingLevel);
     }

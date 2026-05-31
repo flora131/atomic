@@ -2455,7 +2455,7 @@ export async function run<TInputs extends Record<string, unknown>>(
         }
       };
 
-      const runTrackedStageCall = async (call: () => Promise<string>): Promise<string> => {
+      const runTrackedStageCall = async (call: () => Promise<string>, eagerSession = false): Promise<string> => {
         await waitForStageRelease();
         if (stageFinalized) {
           throw parallelFailFastError();
@@ -2483,6 +2483,20 @@ export async function run<TInputs extends Record<string, unknown>>(
         }
         stageSnapshot.status = "running";
         stageSnapshot.startedAt = Date.now();
+        if (eagerSession && options?.model === undefined && options?.fallbackModels === undefined) {
+          try {
+            await innerCtx.__ensureSession();
+          } catch (err) {
+            if (!(err instanceof Error && err.message.includes("prompt adapter not configured"))) {
+              throw err;
+            }
+          }
+        }
+        const startingModelMeta = innerCtx.__modelFallbackMeta();
+        if (startingModelMeta.model !== undefined) stageSnapshot.model = startingModelMeta.model;
+        if (startingModelMeta.fastMode === true) stageSnapshot.fastMode = startingModelMeta.fastMode;
+        if (startingModelMeta.attemptedModels !== undefined) stageSnapshot.attemptedModels = startingModelMeta.attemptedModels;
+        if (startingModelMeta.modelAttempts !== undefined) stageSnapshot.modelAttempts = startingModelMeta.modelAttempts;
         activeStore.recordStageStart(runId, stageSnapshot);
 
         // Persistence: append stage.start entry
@@ -2629,7 +2643,7 @@ export async function run<TInputs extends Record<string, unknown>>(
 
       const stageContext: StageContext & Pick<InternalStageContext, "__modelFallbackMeta"> = {
         name: innerCtx.name,
-        prompt: (text, promptOptions) => runTrackedStageCall(() => innerCtx.prompt(text, promptOptions)),
+        prompt: (text, promptOptions) => runTrackedStageCall(() => innerCtx.prompt(text, promptOptions), true),
         complete: (text, completeOptions) => runTrackedStageCall(() => innerCtx.complete(text, completeOptions)),
         steer: (text) => innerCtx.steer(text),
         followUp: (text) => innerCtx.followUp(text),

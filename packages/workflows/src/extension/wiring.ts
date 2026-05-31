@@ -185,10 +185,12 @@ async function createPiSdkAgentSession(
   // `CreateAgentSessionResult` is `{ session, extensionsResult, modelFallbackMessage? }`;
   // workflow stages only consume `.session` (structurally an `AgentSession`,
   // which is a superset of our `StageSessionRuntime` projection).
+  const resultSettingsManager = result.session.settingsManager;
+  const settingsManager = sessionOptions?.settingsManager ?? resultSettingsManager;
   return {
     session: result.session,
-    ...(sessionOptions?.settingsManager?.getCodexFastModeSettings !== undefined
-      ? { settingsManager: sessionOptions.settingsManager }
+    ...(settingsManager?.getCodexFastModeSettings !== undefined
+      ? { settingsManager }
       : {}),
   };
 }

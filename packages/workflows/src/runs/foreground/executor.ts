@@ -71,7 +71,7 @@ import {
   appendStageEnd,
   appendRunEnd,
 } from "../../shared/persistence-session-entries.js";
-import { validateWorkflowModels, workflowModelId } from "../shared/model-fallback.js";
+import { buildModelCandidatesFromCatalog, validateWorkflowModels, workflowModelId } from "../shared/model-fallback.js";
 import type { WorkflowFailure } from "../../shared/workflow-failures.js";
 import { classifyWorkflowFailure } from "../../shared/workflow-failures.js";
 import { selectPromptCallsiteFrame } from "../shared/prompt-callsite.js";
@@ -2483,13 +2483,25 @@ export async function run<TInputs extends Record<string, unknown>>(
         }
         stageSnapshot.status = "running";
         stageSnapshot.startedAt = Date.now();
-        const hasExplicitFastModeCandidate = (candidate: StageOptions["model"]): boolean => {
-          const modelId = workflowModelId(candidate);
-          return modelId !== undefined && (modelId.startsWith("openai/") || modelId.startsWith("openai-codex/"));
+        const isFastModeCandidateId = (modelId: string | undefined): boolean =>
+          modelId !== undefined && (modelId.startsWith("openai/") || modelId.startsWith("openai-codex/"));
+        const hasExplicitFastModeCandidate = async (): Promise<boolean> => {
+          const rawCandidate = isFastModeCandidateId(workflowModelId(options?.model))
+            || (Array.isArray(options?.fallbackModels) && options.fallbackModels.some((candidate) => isFastModeCandidateId(workflowModelId(candidate))));
+          if (rawCandidate) return true;
+          try {
+            const candidates = await buildModelCandidatesFromCatalog({
+              primaryModel: options?.model,
+              fallbackModels: options?.fallbackModels,
+              catalog: opts.models,
+            });
+            return candidates.some((candidate) => isFastModeCandidateId(candidate.id));
+          } catch {
+            return false;
+          }
         };
-        const explicitFastModeCandidate = hasExplicitFastModeCandidate(options?.model)
-          || (Array.isArray(options?.fallbackModels) && options.fallbackModels.some(hasExplicitFastModeCandidate));
-        if (eagerSession && (options?.model === undefined && options?.fallbackModels === undefined || explicitFastModeCandidate)) {
+        const hasNoExplicitModelConfig = options?.model === undefined && options?.fallbackModels === undefined;
+        if (eagerSession && (hasNoExplicitModelConfig || await hasExplicitFastModeCandidate())) {
           try {
             await innerCtx.__ensureSession();
           } catch (err) {

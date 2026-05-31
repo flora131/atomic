@@ -1614,6 +1614,63 @@ describe("executor.run", () => {
     }
   });
 
+  test("bare explicit model stage publishes running fast-mode metadata after catalog resolution", async () => {
+    const promptGate = deferred<string | void>();
+    const st = createStore();
+    const def = defineWorkflow("bare-explicit-model-running-fast-metadata")
+      .run(async (ctx) => {
+        await ctx.stage("scout", { model: "gpt-5.1-codex" }).prompt("inspect");
+        return { ok: true };
+      })
+      .compile();
+
+    const runPromise = run(def, {}, {
+      models: {
+        listModels: async () => [
+          { provider: "openai", id: "gpt-5.1-codex", fullId: "openai/gpt-5.1-codex" },
+        ],
+      },
+      adapters: {
+        agentSession: {
+          async create(options) {
+            assert.equal((options as { readonly model?: string }).model, "openai/gpt-5.1-codex");
+            return {
+              session: {
+                ...mockSession(),
+                model: { provider: "openai", id: "gpt-5.1-codex" } as AgentSession["model"],
+                async prompt() {
+                  await promptGate.promise;
+                },
+              },
+              settingsManager: {
+                getCodexFastModeSettings: () => ({ chat: false, workflow: true }),
+              },
+            };
+          },
+        },
+      },
+      store: st,
+    });
+
+    try {
+      const deadline = Date.now() + 1000;
+      let runningStage: StageSnapshot | undefined;
+      while (Date.now() < deadline) {
+        runningStage = st.runs()
+          .flatMap((runSnapshot) => runSnapshot.stages)
+          .find((stage) => stage.name === "scout" && stage.status === "running");
+        if (runningStage !== undefined) break;
+        await sleep(5);
+      }
+
+      assert.equal(runningStage?.model, "openai/gpt-5.1-codex");
+      assert.equal(runningStage?.fastMode, true);
+    } finally {
+      promptGate.resolve();
+      await runPromise;
+    }
+  });
+
   test("invalid dynamic stage model fails before SDK session creation", async () => {
     let creates = 0;
     const def = defineWorkflow("invalid-stage-model")

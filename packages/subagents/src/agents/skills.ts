@@ -123,7 +123,12 @@ let cachedGlobalNpmRoot: string | null = null;
 function getGlobalNpmRoot(): string | null {
 	if (cachedGlobalNpmRoot !== null) return cachedGlobalNpmRoot;
 	try {
-		cachedGlobalNpmRoot = execSync("npm root -g", { encoding: "utf-8", timeout: 5000 }).trim();
+		cachedGlobalNpmRoot = execSync("npm root -g", {
+			encoding: "utf-8",
+			stdio: ["ignore", "pipe", "ignore"],
+			timeout: 1000,
+			windowsHide: true,
+		}).trim();
 		return cachedGlobalNpmRoot;
 	} catch {
 		// Global npm root is optional in constrained environments.

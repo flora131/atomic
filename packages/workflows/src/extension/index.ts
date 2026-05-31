@@ -2285,9 +2285,12 @@ function factory(pi: ExtensionAPI): void {
     parentSession: () => intercomParentSession ?? undefined,
   };
 
+  const startupDiscovery = discoverStartupWorkflowsSync();
   const runtimeRef: { current: ExtensionRuntime } = {
     current: createExtensionRuntime({
-      registry: discoverStartupWorkflowsSync().registry,
+      registry: startupDiscovery.registry,
+      workflowSources: startupDiscovery.sources,
+      cwd: process.cwd(),
       adapters,
       cancellation: cancellationRegistry,
       persistence: persistenceRef.current,
@@ -2353,6 +2356,8 @@ function factory(pi: ExtensionAPI): void {
     if (models === undefined) return runtimeProxy;
     return createExtensionRuntime({
       registry: runtimeRef.current.registry,
+      workflowSources: discoveryRef.current?.sources ?? startupDiscovery.sources,
+      cwd: process.cwd(),
       adapters,
       cancellation: cancellationRegistry,
       persistence: persistenceRef.current,
@@ -2439,6 +2444,8 @@ function factory(pi: ExtensionAPI): void {
     );
     runtimeRef.current = createExtensionRuntime({
       registry: result.registry,
+      workflowSources: result.sources,
+      cwd: process.cwd(),
       adapters,
       cancellation: cancellationRegistry,
       persistence: persistenceRef.current,

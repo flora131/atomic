@@ -45,6 +45,7 @@ import { validateWorkflowModels } from "../runs/shared/model-fallback.js";
 import { runDetached } from "../runs/background/runner.js";
 import type { JobTracker } from "../runs/background/job-tracker.js";
 import { classifyWorkflowFailure } from "../shared/workflow-failures.js";
+import type { WorkflowSourceReference } from "../workflows/import-resolver.js";
 
 // ---------------------------------------------------------------------------
 // Options
@@ -83,6 +84,10 @@ export interface ExtensionRuntimeOpts {
   models?: WorkflowModelCatalogPort;
   /** Job tracker forwarded to named detached runs. */
   jobs?: JobTracker;
+  /** Discovery source metadata used to resolve relative local path imports. */
+  workflowSources?: readonly WorkflowSourceReference[];
+  /** Invocation cwd used for local path workflow imports. Defaults to process.cwd(). */
+  cwd?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -145,6 +150,8 @@ export function createExtensionRuntime(opts: ExtensionRuntimeOpts = {}): Extensi
   const intercom = opts.intercom;
   const models = opts.models;
   const jobs = opts.jobs;
+  const workflowSources = opts.workflowSources;
+  const runtimeCwd = opts.cwd ?? process.cwd();
 
   function runOptions(args: WorkflowToolArgs, policy?: WorkflowExecutionPolicy): RunOpts {
     const argConcurrency =
@@ -171,6 +178,9 @@ export function createExtensionRuntime(opts: ExtensionRuntimeOpts = {}): Extensi
       config: effectiveConfig,
       models,
       ...(policy !== undefined ? { executionMode: policy.mode } : {}),
+      registry,
+      ...(workflowSources !== undefined ? { workflowSources } : {}),
+      cwd: runtimeCwd,
     };
   }
 
@@ -484,6 +494,8 @@ export function createExtensionRuntime(opts: ExtensionRuntimeOpts = {}): Extensi
         config,
         models,
         policy: options?.policy,
+        cwd: runtimeCwd,
+        workflowSources,
       });
     },
 

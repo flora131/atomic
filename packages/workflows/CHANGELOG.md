@@ -8,10 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Added first-class workflow imports for composition: workflows can declare `.import()` dependencies, child workflows can declare `.output()` contracts, discovery validates unresolved/circular/invalid import graphs, and `ctx.workflow()` runs imported workflows as nested runs with input validation, output selection/mapping, and a visible parent boundary stage ([#1071](https://github.com/flora131/atomic/issues/1071)).
 - Added explicit workflow interaction metadata through `defineWorkflow(...).humanInTheLoop(reason?)` and a runtime execution policy that distinguishes interactive from non-interactive workflow runs ([#1123](https://github.com/flora131/atomic/issues/1123)).
 
 ### Fixed
 
+- Fixed completed imported workflow boundary stages rendering as empty graph nodes by showing the child workflow name, child run id prefix, and selected output count in the node card.
+- Fixed the bundled deep-research workflow line-count heuristic hanging Windows CI by replacing its POSIX `wc` subprocess with portable in-process line counting.
+- Kept workflow stage model metadata as the raw model id while surfacing Codex fast mode as a separate visible `fast` marker on workflow node cards, including stages that use the default Atomic SDK adapter settings manager.
+- Show workflow Codex fast-mode metadata on running workflow nodes as soon as the stage session starts, including explicit-model stages, catalog-resolved bare model aliases, and custom resource-loader stages whose settings manager is created by the Atomic SDK.
+- Kept workflow Codex fast-mode markers synchronized across fallback attempts: running nodes now update when fallback switches to a fast-eligible model, completed nodes clear stale `fast` markers when fallback finishes on a non-eligible model, and prompt-adapter stages no longer create SDK sessions only to compute fast metadata.
 - Made successful headless `/workflow` informational commands emit displayable command output instead of dropping success messages through the no-op non-interactive UI reporter, made degraded terminal-detail fallback rendering avoid fabricating successful status for unknown run states, and preserved non-interactive execution policy when resuming failed workflow runs ([#1123](https://github.com/flora131/atomic/issues/1123)).
 - Suppressed workflow lifecycle steer notices while awaited non-interactive workflow dispatch is already waiting for terminal completion, and made workflow chat-surface custom-message content printable by default for headless list/status/detail/dispatch/killed output ([#1123](https://github.com/flora131/atomic/issues/1123)).
 - Re-enabled deterministic non-interactive workflow execution: headless sessions keep the `workflow` tool, `/workflow <name> key=value` skips interactive pickers, named workflow dispatch waits for the terminal run snapshot, declared human-in-the-loop workflows are rejected, top-level `ctx.ui.*` is unavailable, and non-interactive stage sessions exclude `ask_user_question` without binding broker-backed extension UI ([#1123](https://github.com/flora131/atomic/issues/1123)).

@@ -43,6 +43,7 @@ function makeStage(opts: Partial<StageSnapshot> = {}): StageSnapshot {
     resumedAt: opts.resumedAt,
     blockedByStageId: opts.blockedByStageId,
     model: opts.model,
+    workflowChild: opts.workflowChild,
   };
 }
 
@@ -297,6 +298,30 @@ describe("renderNodeCard — metadata line", () => {
     const rendered = stripAnsi(lines.join("\n"));
     assert.doesNotMatch(rendered, /gpt-5-mini/);
     assert.match(stripAnsi(lines[3]!), /1 dep/);
+  });
+
+  test("imported workflow boundaries show child workflow and run summary", () => {
+    const lines = renderNodeCard(
+      makeStage({
+        name: "run-child-by-path-select-summary",
+        status: "completed",
+        durationMs: 0,
+        workflowChild: {
+          alias: "childByPath",
+          workflow: "pr1135-import-child",
+          runId: "run_1234567890abcdef",
+          status: "completed",
+          outputs: { summary: "child:workflow-imports:path:3" },
+        },
+      }),
+      { theme },
+    );
+
+    const rendered = stripAnsi(lines.join("\n"));
+    assert.match(rendered, /↳ pr1135-import-child/);
+    assert.match(rendered, /✓ complete/);
+    assert.match(rendered, /run run_1234 · 1 out/);
+    assert.doesNotMatch(stripAnsi(lines[1]!), /0ms|—/);
   });
 });
 

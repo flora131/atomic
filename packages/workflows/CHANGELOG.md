@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Fixed completed imported workflow boundary stages rendering as empty graph nodes by showing the child workflow name, child run id prefix, and selected output count in the node card.
 - Fixed the bundled deep-research workflow line-count heuristic hanging Windows CI by replacing its POSIX `wc` subprocess with portable in-process line counting.
 
 ## [0.8.21] - 2026-05-30

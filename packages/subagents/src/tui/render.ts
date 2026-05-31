@@ -119,11 +119,11 @@ function runningSeed(...values: Array<number | undefined>): number | undefined {
 	return seed;
 }
 
-function runningGlyph(seed?: number): string {
+function runningGlyph(seed?: number, now?: number): string {
 	// Fold the wall-clock frame into the (optional) progress seed so the glyph
-	// advances over time. The frame is always finite, so a running entity always
-	// animates; the seed only offsets its starting phase between concurrent agents.
-	const animatedSeed = runningSeed(seed, currentRunningFrame()) ?? 0;
+	// advances over time. Callers that render into chat scrollback can pass a
+	// captured `now` so host re-renders do not mutate already-emitted lines.
+	const animatedSeed = runningSeed(seed, currentRunningFrame(now)) ?? 0;
 	return RUNNING_FRAMES[Math.abs(animatedSeed) % RUNNING_FRAMES.length]!;
 }
 
@@ -318,8 +318,8 @@ function resultStatusLine(result: Details["results"][number], output: string): s
 	return "Done";
 }
 
-function resultGlyph(result: Details["results"][number], output: string, theme: Theme, running = result.progress?.status === "running", seed = progressRunningSeed(result.progress ?? result.progressSummary)): string {
-	if (running) return theme.fg("accent", runningGlyph(seed));
+function resultGlyph(result: Details["results"][number], output: string, theme: Theme, running = result.progress?.status === "running", seed = progressRunningSeed(result.progress ?? result.progressSummary), now?: number): string {
+	if (running) return theme.fg("accent", runningGlyph(seed, now));
 	if (result.detached) return theme.fg("warning", "■");
 	if (result.interrupted) return theme.fg("warning", "■");
 	if (result.exitCode !== 0) return theme.fg("error", "✗");
@@ -981,7 +981,8 @@ function getLatestWidgetJobs(): AsyncJobState[] {
 }
 
 function getLatestWidgetExpanded(): boolean {
-	return latestWidgetCtx?.hasUI ? latestWidgetCtx.ui.getToolsExpanded?.() ?? false : false;
+	if (!latestWidgetCtx?.hasUI) return false;
+	return latestWidgetCtx.ui.getToolsExpanded?.() ?? false;
 }
 
 function clearLatestWidgetState(): void {
@@ -995,6 +996,17 @@ function requestWidgetRender(ctx: ExtensionContext): void {
 	(ctx as RenderRequestingContext).ui.requestRender?.();
 }
 
+function unmountWidgetBestEffort(ctx: ExtensionContext | undefined): void {
+	if (!ctx?.hasUI) return;
+	try {
+		ctx.ui.setWidget(WIDGET_KEY, undefined);
+	} catch {
+		// Best-effort teardown only: stale host contexts can reject cleanup during
+		// reload/session rebinding, but local state still needs to move on so the
+		// next status update can mount cleanly on the active UI context.
+	}
+}
+
 function hasAnimatedWidgetJobs(jobs: AsyncJobState[]): boolean {
 	// Animate while any job — or any of its nested steps — is still running so the
 	// header/step spinners never freeze before the work actually settles.
@@ -1006,7 +1018,9 @@ function refreshAnimatedWidget(): void {
 	try {
 		requestWidgetRender(latestWidgetCtx);
 	} catch {
-		// Never let a cosmetic widget tick crash the host; stop on any error.
+		// A stale render context means the cosmetic ticker can no longer update the
+		// mounted widget safely; tear it down best-effort and let the next status
+		// update remount on the active host context.
 		stopWidgetAnimation();
 	}
 }
@@ -1035,15 +1049,7 @@ function stopWidgetTicker(): void {
 // forget the driving context/jobs entirely.
 export function stopWidgetAnimation(): void {
 	stopWidgetTicker();
-	const mountedCtx = latestWidgetCtx;
-	if (mountedCtx?.hasUI && widgetMounted) {
-		try {
-			mountedCtx.ui.setWidget(WIDGET_KEY, undefined);
-		} catch {
-			// Best-effort teardown only; a stale host context should not make cleanup
-			// fail during reload/shutdown or after a cosmetic animation error.
-		}
-	}
+	if (widgetMounted) unmountWidgetBestEffort(mountedWidgetCtx);
 	clearLatestWidgetState();
 }
 
@@ -1122,12 +1128,11 @@ export function buildWidgetLines(jobs: AsyncJobState[], theme: Theme, width = ge
  */
 export function renderWidget(ctx: ExtensionContext, jobs: AsyncJobState[]): void {
 	if (jobs.length === 0) {
-		stopWidgetTicker();
-		latestWidgetCtx = undefined;
-		latestWidgetJobs = [];
-		if (ctx.hasUI && widgetMounted) ctx.ui.setWidget(WIDGET_KEY, undefined);
-		mountedWidgetCtx = undefined;
-		widgetMounted = false;
+		if (widgetMounted && mountedWidgetCtx !== ctx) {
+			unmountWidgetBestEffort(ctx);
+			return;
+		}
+		stopWidgetAnimation();
 		return;
 	}
 	if (!ctx.hasUI) {
@@ -1136,7 +1141,14 @@ export function renderWidget(ctx: ExtensionContext, jobs: AsyncJobState[]): void
 	}
 	latestWidgetCtx = ctx;
 	latestWidgetJobs = [...jobs];
-	if (!widgetMounted || mountedWidgetCtx !== ctx) {
+	if (widgetMounted && mountedWidgetCtx !== ctx) {
+		// Context rebinding can leave the previous host UI alive briefly; clear the
+		// old mount before installing the singleton widget on the new context.
+		unmountWidgetBestEffort(mountedWidgetCtx);
+		mountedWidgetCtx = undefined;
+		widgetMounted = false;
+	}
+	if (!widgetMounted) {
 		// belowEditor: the widget animates a running glyph / elapsed labels on a
 		// timer. pi-tui full-clears the screen+scrollback whenever a changed line
 		// sits above the viewport fold, so an aboveEditor widget flickers once the
@@ -1159,7 +1171,7 @@ export function renderWidget(ctx: ExtensionContext, jobs: AsyncJobState[]): void
 	else stopWidgetTicker();
 }
 
-function renderSingleCompact(d: Details, r: Details["results"][number], theme: Theme): Component {
+function renderSingleCompact(d: Details, r: Details["results"][number], theme: Theme, now?: number): Component {
 	const output = r.truncation?.text || getSingleResultOutput(r);
 	const progress = r.progress || r.progressSummary;
 	const isRunning = r.progress?.status === "running";
@@ -1171,7 +1183,7 @@ function renderSingleCompact(d: Details, r: Details["results"][number], theme: T
 	const c = new Container();
 	const width = getTermWidth() - 4;
 	const modelDisplay = modelThinkingBadge(theme, r.model, undefined, r.fastMode);
-	c.addChild(new Text(truncLine(`${resultGlyph(r, output, theme, isRunning)} ${theme.fg("toolTitle", theme.bold(r.agent))}${modelDisplay}${contextBadge}${stats ? ` ${theme.fg("dim", "·")} ${stats}` : ""}`, width), 0, 0));
+	c.addChild(new Text(truncLine(`${resultGlyph(r, output, theme, isRunning, progressRunningSeed(r.progress ?? r.progressSummary), now)} ${theme.fg("toolTitle", theme.bold(r.agent))}${modelDisplay}${contextBadge}${stats ? ` ${theme.fg("dim", "·")} ${stats}` : ""}`, width), 0, 0));
 
 	if (isRunning && r.progress) {
 		const progressSnapshotNow = snapshotNowForProgress(r.progress);
@@ -1195,7 +1207,7 @@ function renderSingleCompact(d: Details, r: Details["results"][number], theme: T
 	return c;
 }
 
-function renderMultiCompact(d: Details, theme: Theme): Component {
+function renderMultiCompact(d: Details, theme: Theme, now?: number): Component {
 	const hasRunning = d.progress?.some((p) => p.status === "running")
 		|| d.results.some((r) => r.progress?.status === "running");
 	const failed = d.results.some((r) => r.exitCode !== 0 && r.progress?.status !== "running");
@@ -1218,7 +1230,7 @@ function renderMultiCompact(d: Details, theme: Theme): Component {
 	const itemTitle = multiLabel.itemTitle;
 	const stats = statJoin(theme, [multiLabel.headerLabel, formatProgressStats(theme, totalSummary)]);
 	const glyph = hasRunning
-		? theme.fg("accent", runningGlyph(runningSeed(progressRunningSeed(totalSummary), d.currentStepIndex)))
+		? theme.fg("accent", runningGlyph(runningSeed(progressRunningSeed(totalSummary), d.currentStepIndex), now))
 		: failed
 			? theme.fg("error", "✗")
 			: paused
@@ -1248,7 +1260,7 @@ function renderMultiCompact(d: Details, theme: Theme): Component {
 		const rPending = rProg && "status" in rProg && rProg.status === "pending";
 		const stepNumber = r.progress?.index !== undefined ? r.progress.index + 1 : progressFromArray?.index !== undefined ? progressFromArray.index + 1 : i + 1;
 		const stepStats = formatProgressStats(theme, rProg);
-		const glyph = rPending ? theme.fg("dim", "◦") : resultGlyph(r, output, theme, rRunning, progressRunningSeed(rProg));
+		const glyph = rPending ? theme.fg("dim", "◦") : resultGlyph(r, output, theme, rRunning, progressRunningSeed(rProg), now);
 		const pendingLabel = rPending ? ` ${theme.fg("dim", "· pending")}` : "";
 		const stepLabel = resultRowLabel(d, multiLabel, i, stepNumber);
 		const line = `${glyph} ${stepLabel}: ${themeBold(theme, agentName)}${stepStats ? ` ${theme.fg("dim", "·")} ${stepStats}` : ""}${pendingLabel}`;
@@ -1273,7 +1285,7 @@ function renderMultiCompact(d: Details, theme: Theme): Component {
  */
 export function renderSubagentResult(
 	result: AgentToolResult<Details>,
-	options: { expanded: boolean },
+	options: { expanded: boolean; now?: number },
 	theme: Theme,
 ): Component {
 	const d = result.details;
@@ -1289,7 +1301,7 @@ export function renderSubagentResult(
 
 	if (d.mode === "single" && d.results.length === 1) {
 		const r = d.results[0];
-		if (!expanded) return renderSingleCompact(d, r, theme);
+		if (!expanded) return renderSingleCompact(d, r, theme, options.now);
 		const isRunning = r.progress?.status === "running";
 		const icon = isRunning
 			? theme.fg("warning", "running")
@@ -1383,7 +1395,7 @@ export function renderSubagentResult(
 		return c;
 	}
 
-	if (!expanded) return renderMultiCompact(d, theme);
+	if (!expanded) return renderMultiCompact(d, theme, options.now);
 
 	const hasRunning = d.progress?.some((p) => p.status === "running")
 		|| d.results.some((r) => r.progress?.status === "running");

@@ -23,7 +23,7 @@ import { discoverAgents } from "../agents/agents.ts";
 import { cleanupAllArtifactDirs, cleanupOldArtifacts, getArtifactsDir } from "../shared/artifacts.ts";
 import { resolveCurrentSessionId } from "../shared/session-identity.ts";
 import { cleanupOldChainDirs } from "../shared/settings.ts";
-import { renderSubagentResult, stopResultAnimations, stopWidgetAnimation, syncResultAnimation } from "../tui/render.ts";
+import { renderSubagentResult, stopResultAnimations, stopWidgetAnimation } from "../tui/render.ts";
 import { SubagentParams } from "./schemas.ts";
 import { createSubagentExecutor, type SubagentParamsLike } from "../runs/foreground/subagent-executor.ts";
 import { createAsyncJobTracker } from "../runs/background/async-job-tracker.ts";
@@ -117,10 +117,14 @@ function isStaleExtensionContextError(error: unknown): boolean {
 	return error instanceof Error && error.message.includes("Extension context no longer active");
 }
 
+interface SubagentToolRenderState {
+	subagentResultSnapshotNow?: number;
+}
+
 function rebuildSlashResultContainer(
 	container: Container,
 	result: AgentToolResult<Details>,
-	options: { expanded: boolean },
+	options: { expanded: boolean; now?: number },
 	theme: ExtensionContext["ui"]["theme"],
 ): void {
 	container.clear();
@@ -135,20 +139,17 @@ function createSlashResultComponent(
 	details: SlashMessageDetails,
 	options: { expanded: boolean },
 	theme: ExtensionContext["ui"]["theme"],
-	requestRender: () => void,
 ): Container {
 	const container = new Container();
-	const animationState: { subagentResultAnimationTimer?: ReturnType<typeof setInterval> } = {};
 	let lastVersion = -1;
+	let lastSnapshotNow = 0;
 	container.render = (width: number): string[] => {
 		const snapshot = getSlashRenderableSnapshot(details);
-		if (snapshot.version !== lastVersion || isSlashResultRunning(snapshot.result)) {
+		if (snapshot.version !== lastVersion) {
 			lastVersion = snapshot.version;
-			rebuildSlashResultContainer(container, snapshot.result, options, theme);
+			lastSnapshotNow = Date.now();
+			rebuildSlashResultContainer(container, snapshot.result, { ...options, now: lastSnapshotNow }, theme);
 		}
-		// Keep the live slash card's spinner animating by scheduling steady
-		// re-renders while it runs (and tearing the timer down once it settles).
-		syncResultAnimation(snapshot.result, { state: animationState, invalidate: requestRender });
 		return Container.prototype.render.call(container, width);
 	};
 	return container;
@@ -296,7 +297,7 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 	pi.registerMessageRenderer<SlashMessageDetails>(SLASH_RESULT_TYPE, (message, options, theme) => {
 		const details = resolveSlashMessageDetails(message.details);
 		if (!details) return undefined;
-		return createSlashResultComponent(details, options, theme, () => state.lastUiContext?.ui.requestRender?.());
+		return createSlashResultComponent(details, options, theme);
 	});
 
 	pi.registerMessageRenderer<SubagentNotifyDetails>("subagent-notify", (message, options, theme) => {
@@ -397,7 +398,7 @@ export default function registerSubagentExtension(pi: ExtensionAPI): void {
 		}, 0);
 	}
 
-	const tool: ToolDefinition<typeof SubagentParams, Details> = {
+	const tool: ToolDefinition<typeof SubagentParams, Details, SubagentToolRenderState> = {
 		name: "subagent",
 		label: "Subagent",
 		description: `Delegate to subagents or manage agent definitions.
@@ -468,10 +469,11 @@ DIAGNOSTICS:
 		},
 
 		renderResult(result, options, theme, context) {
-			// Animate the live subagent spinner by scheduling steady re-renders
-			// while the result is running; the timer stops once it settles.
-			syncResultAnimation(result, context);
-			return renderSubagentResult(result, options, theme);
+			// Tool-result rows live in chat scrollback. Capture a stable clock once
+			// for the row so host re-renders (from widgets, input, or terminal ticks)
+			// do not mutate spinner glyph cells above the viewport and cause flicker.
+			context.state.subagentResultSnapshotNow ??= Date.now();
+			return renderSubagentResult(result, { ...options, now: context.state.subagentResultSnapshotNow }, theme);
 		},
 
 	};

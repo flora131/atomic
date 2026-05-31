@@ -172,6 +172,41 @@ describe("subagent running spinner animation (issue #1084)", () => {
     assert.equal(b, a, "renders inside the same animation frame must be byte-identical");
   });
 
+  test("honours captured now so chatbox result rows do not tick on host re-renders", () => {
+    const result = runningSingleResult();
+    const first = renderSubagentResult(result, { expanded: false, now: 10_000 }, theme).render(120).join("\n");
+    const second = renderSubagentResult(result, { expanded: false, now: 10_000 + RUNNING_ANIMATION_MS }, theme).render(120).join("\n");
+    assert.notEqual(second, first, "sanity: running subagent result glyphs should still be sensitive to opts.now");
+
+    const stableA = withMockedNow(20_000, () => renderSubagentResult(result, { expanded: false, now: 10_000 }, theme).render(120).join("\n"));
+    const stableB = withMockedNow(30_000, () => renderSubagentResult(result, { expanded: false, now: 10_000 }, theme).render(120).join("\n"));
+    assert.equal(stableB, stableA, "a captured opts.now should keep chatbox rows byte-stable across host re-renders");
+  });
+
+  test("honours captured now for multi-agent compact chatbox rows", () => {
+    const base = runningSingleResult().details!.results[0]!;
+    const parallel: AgentToolResult<Details> = {
+      content: [{ type: "text", text: "running parallel" }],
+      details: {
+        mode: "parallel",
+        results: [
+          base,
+          { ...base, agent: "reviewer", task: "review", progress: { ...base.progress!, agent: "reviewer", index: 1 } },
+        ],
+        progress: [base.progress!, { ...base.progress!, agent: "reviewer", index: 1 }],
+        totalSteps: 2,
+      },
+    };
+
+    const first = renderSubagentResult(parallel, { expanded: false, now: 10_000 }, theme).render(120).join("\n");
+    const second = renderSubagentResult(parallel, { expanded: false, now: 10_000 + RUNNING_ANIMATION_MS }, theme).render(120).join("\n");
+    assert.notEqual(second, first, "sanity: multi-agent running glyphs should be sensitive to opts.now");
+
+    const stableA = withMockedNow(20_000, () => renderSubagentResult(parallel, { expanded: false, now: 10_000 }, theme).render(120).join("\n"));
+    const stableB = withMockedNow(30_000, () => renderSubagentResult(parallel, { expanded: false, now: 10_000 }, theme).render(120).join("\n"));
+    assert.equal(stableB, stableA, "captured opts.now should keep multi-agent chatbox rows byte-stable");
+  });
+
   test("consecutive frames differ only in spinner glyph cells (minimal diff = no flicker)", () => {
     const result = runningSingleResult();
 
@@ -415,10 +450,15 @@ describe("async widget animation ticker lifecycle", () => {
     renderWidget(first.ctx, [runningJob()]);
     renderWidget(second.ctx, [runningJob()]);
 
-    assert.equal(first.widgetCalls.length, 1, "initial context should mount the widget once");
-    assert.equal(second.widgetCalls.length, 1, "fresh UI context should also receive a mounted widget");
+    assert.equal(first.widgetCalls.length, 2, "stale context should mount once and then be cleared on context switch");
+    assert.equal(first.widgetCalls[1]?.content, undefined, "context switch should unmount the widget from the stale context");
+    assert.equal(second.widgetCalls.length, 1, "fresh UI context should receive a mounted widget");
     assert.equal(first.renders(), 0, "context switch should not request an in-place render on the stale context");
     assert.equal(second.renders(), 0, "context switch should mount rather than request render before mounting");
+
+    renderWidget(first.ctx, []);
+
+    assert.equal(second.widgetCalls.length, 1, "stale empty updates must not clear the active context's widget");
   });
 
   test("empty async widget updates unmount once and ignore repeated hidden updates", () => {
@@ -430,6 +470,19 @@ describe("async widget animation ticker lifecycle", () => {
 
     assert.equal(widgetCalls.length, 2, "non-empty render should mount once and first empty render should unmount once");
     assert.equal(widgetCalls[1]?.content, undefined, "empty render should clear the mounted widget");
+  });
+
+  test("async widget mounts again after an unmount cycle", () => {
+    const { ctx, widgetCalls } = mockLifecycleWidgetCtx();
+
+    renderWidget(ctx, [runningJob()]);
+    renderWidget(ctx, []);
+    renderWidget(ctx, [{ ...runningJob(), agents: ["reviewer"] }]);
+
+    assert.equal(widgetCalls.length, 3, "mount -> unmount -> remount should call setWidget for each lifecycle edge");
+    assert.equal(widgetCalls[1]?.content, undefined, "unmount step should clear the mounted widget");
+    assert.equal(typeof widgetCalls[2]?.content, "function", "remount should install a fresh widget factory");
+    assert.deepEqual(widgetCalls[2]?.options, { placement: "belowEditor" }, "remount should preserve belowEditor placement");
   });
 
   test("running jobs drive periodic re-renders; finished jobs stop them", async () => {

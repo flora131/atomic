@@ -119,14 +119,18 @@ function extractSkillPathsFromPackageRoot(packageRoot: string, source: SkillSour
 }
 
 let cachedGlobalNpmRoot: string | null = null;
+let execSyncGlobalNpmRoot = execSync;
+const GLOBAL_NPM_ROOT_TIMEOUT_MS = 2500;
 
 function getGlobalNpmRoot(): string | null {
 	if (cachedGlobalNpmRoot !== null) return cachedGlobalNpmRoot;
 	try {
-		cachedGlobalNpmRoot = execSync("npm root -g", {
+		// Keep global package probing bounded during startup while still allowing
+		// slower Windows/corporate npm wrappers enough time to launch.
+		cachedGlobalNpmRoot = execSyncGlobalNpmRoot("npm root -g", {
 			encoding: "utf-8",
 			stdio: ["ignore", "pipe", "ignore"],
-			timeout: 1000,
+			timeout: GLOBAL_NPM_ROOT_TIMEOUT_MS,
 			windowsHide: true,
 		}).trim();
 		return cachedGlobalNpmRoot;
@@ -644,4 +648,10 @@ export function discoverAvailableSkills(cwd: string): Array<{
 export function clearSkillCache(): void {
 	skillCache.clear();
 	loadSkillsCache = null;
+	cachedGlobalNpmRoot = null;
+}
+
+export function __setGlobalNpmRootExecSyncForTest(execSyncImpl?: typeof execSync): void {
+	execSyncGlobalNpmRoot = execSyncImpl ?? execSync;
+	cachedGlobalNpmRoot = null;
 }

@@ -1,10 +1,16 @@
+import type { CodexFastModeResolvedSettings, CodexFastModeScope } from "@bastani/atomic";
+
 export interface RunnerSubagentStep {
 	agent: string;
 	task: string;
 	cwd?: string;
 	model?: string;
 	thinking?: string;
+	fastMode?: boolean;
+	modelFastModes?: Record<string, boolean>;
 	modelCandidates?: string[];
+	codexFastModeSettings?: CodexFastModeResolvedSettings;
+	codexFastModeScope?: CodexFastModeScope;
 	tools?: string[];
 	extensions?: string[];
 	mcpDirectTools?: string[];
@@ -75,6 +81,7 @@ export interface ParallelTaskResult {
 	exitCode: number | null;
 	error?: string;
 	model?: string;
+	fastMode?: boolean;
 	attemptedModels?: string[];
 	outputTargetPath?: string;
 	outputTargetExists?: boolean;

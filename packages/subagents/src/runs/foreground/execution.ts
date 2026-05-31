@@ -5,6 +5,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import type { Message } from "@earendil-works/pi-ai";
+import type { CodexFastModeResolvedSettings, CodexFastModeScope } from "@bastani/atomic";
 import type { AgentConfig } from "../../agents/agents.ts";
 import {
 	ensureArtifactsDir,
@@ -63,6 +64,11 @@ import {
 	shouldEscalateMutatingFailures,
 	summarizeRecentMutatingFailures,
 } from "../shared/long-running-guard.ts";
+import {
+	getSubagentCodexFastModeSettings,
+	resolveSubagentCodexFastModeScope,
+	resolveSubagentModelFastMode,
+} from "../../shared/fast-mode.ts";
 
 const artifactOutputByResult = new WeakMap<SingleResult, string>();
 
@@ -133,9 +139,18 @@ async function runSingleAttempt(
 		artifactPaths?: ArtifactPaths;
 		attemptNotes: string[];
 		outputSnapshot?: SingleOutputSnapshot;
+		fastModeSettings: CodexFastModeResolvedSettings;
+		fastModeScope: CodexFastModeScope;
 	},
 ): Promise<SingleResult> {
 	const modelArg = applyThinkingSuffix(model, agent.thinking);
+	const runCwd = options.cwd ?? runtimeCwd;
+	const fastMode = resolveSubagentModelFastMode({
+		model: modelArg,
+		cwd: runCwd,
+		settings: shared.fastModeSettings,
+		scope: shared.fastModeScope,
+	});
 	const { args, env: sharedEnv, tempDir } = buildPiArgs({
 		baseArgs: ["--mode", "json", "-p"],
 		task,
@@ -151,7 +166,7 @@ async function runSingleAttempt(
 		extensions: agent.extensions,
 		systemPrompt: shared.systemPrompt,
 		mcpDirectTools: agent.mcpDirectTools,
-		cwd: options.cwd ?? runtimeCwd,
+		cwd: runCwd,
 		promptFileStem: agent.name,
 		intercomSessionName: options.intercomSessionName,
 		orchestratorIntercomTarget: options.orchestratorIntercomTarget,
@@ -162,6 +177,8 @@ async function runSingleAttempt(
 		parentControlInbox: options.nestedRoute?.controlInbox,
 		parentRootRunId: options.nestedRoute?.rootRunId,
 		parentCapabilityToken: options.nestedRoute?.capabilityToken,
+		codexFastModeSettings: shared.fastModeSettings,
+		codexFastModeScope: shared.fastModeScope,
 	});
 
 	const result: SingleResult = {
@@ -171,6 +188,7 @@ async function runSingleAttempt(
 		messages: [],
 		usage: emptyUsage(),
 		model: modelArg,
+		...(fastMode ? { fastMode } : {}),
 		artifactPaths: shared.artifactPaths,
 		skills: shared.resolvedSkillNames,
 		skillsWarning: shared.skillsWarning,
@@ -215,7 +233,7 @@ async function runSingleAttempt(
 	const exitCode = await new Promise<number>((resolve) => {
 		const spawnSpec = getPiSpawnCommand(args);
 		const proc = spawn(spawnSpec.command, spawnSpec.args, {
-			cwd: options.cwd ?? runtimeCwd,
+			cwd: runCwd,
 			env: spawnEnv,
 			stdio: ["ignore", "pipe", "pipe"],
 			windowsHide: true,
@@ -797,6 +815,9 @@ export async function runSync(
 		options.preferredModelProvider,
 		options.currentModel,
 	);
+	const fastModeCwd = options.cwd ?? runtimeCwd;
+	const fastModeSettings = getSubagentCodexFastModeSettings(fastModeCwd);
+	const fastModeScope = resolveSubagentCodexFastModeScope(options.workflowStageSubagentGuard);
 	const attemptedModels: string[] = [];
 	const modelAttempts: ModelAttempt[] = [];
 	const aggregateUsage = emptyUsage();
@@ -832,6 +853,8 @@ export async function runSync(
 			artifactPaths: artifactPathsResult,
 			attemptNotes,
 			outputSnapshot,
+			fastModeSettings,
+			fastModeScope,
 		});
 		lastResult = result;
 		sumUsage(aggregateUsage, result.usage);
@@ -892,6 +915,7 @@ export async function runSync(
 				exitCode: result.exitCode,
 				usage: result.usage,
 				model: result.model,
+				fastMode: result.fastMode,
 				attemptedModels: result.attemptedModels,
 				modelAttempts: result.modelAttempts,
 				durationMs: result.progressSummary?.durationMs,

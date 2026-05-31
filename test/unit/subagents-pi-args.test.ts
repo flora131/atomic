@@ -1,5 +1,6 @@
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
+import { ENV_CODEX_FAST_MODE } from "../../packages/coding-agent/src/config.js";
 import {
   buildPiArgs,
   FANOUT_CHILD_EXTENSION_PATH,
@@ -82,5 +83,39 @@ describe("subagent child CLI args", () => {
 
     assert.equal(disabled.env.MCP_DIRECT_TOOLS, "__none__");
     assert.equal(selected.env.MCP_DIRECT_TOOLS, "github/search_code");
+  });
+
+  test("maps scoped fast-mode settings onto child chat env", () => {
+    const chatScoped = buildPiArgs({
+      baseArgs: [],
+      task: "hello",
+      sessionEnabled: false,
+      inheritProjectContext: true,
+      inheritSkills: true,
+      codexFastModeSettings: { chat: true, workflow: false },
+      codexFastModeScope: "chat",
+    });
+    const workflowScoped = buildPiArgs({
+      baseArgs: [],
+      task: "hello",
+      sessionEnabled: false,
+      inheritProjectContext: true,
+      inheritSkills: true,
+      codexFastModeSettings: { chat: false, workflow: true },
+      codexFastModeScope: "workflow",
+    });
+    const workflowDisabled = buildPiArgs({
+      baseArgs: [],
+      task: "hello",
+      sessionEnabled: false,
+      inheritProjectContext: true,
+      inheritSkills: true,
+      codexFastModeSettings: { chat: true, workflow: false },
+      codexFastModeScope: "workflow",
+    });
+
+    assert.equal(chatScoped.env[ENV_CODEX_FAST_MODE], "chat=1;workflow=0");
+    assert.equal(workflowScoped.env[ENV_CODEX_FAST_MODE], "chat=1;workflow=1");
+    assert.equal(workflowDisabled.env[ENV_CODEX_FAST_MODE], "chat=0;workflow=0");
   });
 });

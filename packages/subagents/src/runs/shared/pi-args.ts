@@ -2,7 +2,13 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { APP_NAME, getEnvValue } from "@bastani/atomic";
+import {
+	APP_NAME,
+	ENV_CODEX_FAST_MODE,
+	getEnvValue,
+	type CodexFastModeResolvedSettings,
+	type CodexFastModeScope,
+} from "@bastani/atomic";
 import { encodeNestedPathEnv, parseNestedPathEnv, type NestedPathEntry } from "./nested-path.ts";
 import { resolveMcpDirectToolNames } from "./mcp-direct-tool-allowlist.ts";
 
@@ -60,6 +66,8 @@ interface BuildPiArgsInput {
 	parentDepth?: number;
 	parentPath?: NestedPathEntry[];
 	parentCapabilityToken?: string;
+	codexFastModeSettings?: CodexFastModeResolvedSettings;
+	codexFastModeScope?: CodexFastModeScope;
 }
 
 interface BuildPiArgsResult {
@@ -73,6 +81,20 @@ export function applyThinkingSuffix(model: string | undefined, thinking: string 
 	const colonIdx = model.lastIndexOf(":");
 	if (colonIdx !== -1 && THINKING_LEVELS.includes(model.substring(colonIdx + 1))) return model;
 	return `${model}:${thinking}`;
+}
+
+function serializeChildCodexFastModeSettings(settings: CodexFastModeResolvedSettings): string {
+	return `chat=${settings.chat ? "1" : "0"};workflow=${settings.workflow ? "1" : "0"}`;
+}
+
+function mapChildCodexFastModeSettings(
+	settings: CodexFastModeResolvedSettings,
+	scope: CodexFastModeScope,
+): CodexFastModeResolvedSettings {
+	return {
+		chat: settings[scope],
+		workflow: settings.workflow,
+	};
 }
 
 export function buildPiArgs(input: BuildPiArgsInput): BuildPiArgsResult {
@@ -155,6 +177,11 @@ export function buildPiArgs(input: BuildPiArgsInput): BuildPiArgsResult {
 	const env: Record<string, string | undefined> = {};
 	env[SUBAGENT_CHILD_ENV] = "1";
 	env[SUBAGENT_FANOUT_CHILD_ENV] = fanoutAuthorized ? "1" : "0";
+	if (input.codexFastModeSettings) {
+		env[ENV_CODEX_FAST_MODE] = serializeChildCodexFastModeSettings(
+			mapChildCodexFastModeSettings(input.codexFastModeSettings, input.codexFastModeScope ?? "chat"),
+		);
+	}
 	const parentEventSinkEnv = getEnvValue(SUBAGENT_PARENT_EVENT_SINK_ENV);
 	const parentControlInboxEnv = getEnvValue(SUBAGENT_PARENT_CONTROL_INBOX_ENV);
 	const parentRootRunIdEnv = getEnvValue(SUBAGENT_PARENT_ROOT_RUN_ID_ENV);

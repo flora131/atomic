@@ -19,6 +19,11 @@ import { buildSkillInjection, normalizeSkillInput, resolveSkillsWithFallback } f
 import { resolveChildCwd } from "../../shared/utils.ts";
 import { buildModelCandidates, resolveModelCandidate, type AvailableModelInfo } from "../shared/model-fallback.ts";
 import { resolveEffectiveThinking } from "../../shared/model-info.ts";
+import {
+	getSubagentCodexFastModeSettings,
+	resolveSubagentCodexFastModeScope,
+	resolveSubagentModelFastModeMetadata,
+} from "../../shared/fast-mode.ts";
 import { resolveExpectedWorktreeAgentCwd } from "../shared/worktree.ts";
 import {
 	type ArtifactConfig,
@@ -254,6 +259,7 @@ export function executeAsyncChain(
 	const resultMode = params.resultMode ?? "chain";
 	const chainSkills = params.chainSkills ?? [];
 	const availableModels = params.availableModels;
+	const fastModeScope = resolveSubagentCodexFastModeScope(workflowStageSubagentGuard);
 	const runnerCwd = resolveChildCwd(ctx.cwd, cwd);
 	const firstStep = chain[0];
 	const originalTask = params.task ?? (firstStep
@@ -329,15 +335,20 @@ export function executeAsyncChain(
 
 		const primaryModel = resolveModelCandidate(behavior.model ?? a.model, availableModels, ctx.currentModelProvider);
 		const model = applyThinkingSuffix(primaryModel, a.thinking);
+		const modelCandidates = buildModelCandidates(behavior.model ?? a.model, a.fallbackModels, availableModels, ctx.currentModelProvider, ctx.currentModel)
+			.map((candidate) => applyThinkingSuffix(candidate, a.thinking))
+			.filter((candidate): candidate is string => typeof candidate === "string");
+		const fastModeSettings = getSubagentCodexFastModeSettings(stepCwd);
 		return {
 			agent: s.agent,
 			task,
 			cwd: stepCwd,
 			model,
 			thinking: resolveEffectiveThinking(model, a.thinking),
-			modelCandidates: buildModelCandidates(behavior.model ?? a.model, a.fallbackModels, availableModels, ctx.currentModelProvider, ctx.currentModel)
-				.map((candidate) => applyThinkingSuffix(candidate, a.thinking))
-				.filter((candidate): candidate is string => typeof candidate === "string"),
+			...resolveSubagentModelFastModeMetadata({ model, modelCandidates, cwd: stepCwd, settings: fastModeSettings, scope: fastModeScope }),
+			modelCandidates,
+			codexFastModeSettings: fastModeSettings,
+			codexFastModeScope: fastModeScope,
 			tools: a.tools,
 			extensions: a.extensions,
 			mcpDirectTools: a.mcpDirectTools,
@@ -602,6 +613,11 @@ export function executeAsyncSingle(
 		resolveModelCandidate(params.modelOverride ?? agentConfig.model, availableModels, ctx.currentModelProvider),
 		agentConfig.thinking,
 	);
+	const modelCandidates = buildModelCandidates(params.modelOverride ?? agentConfig.model, agentConfig.fallbackModels, availableModels, ctx.currentModelProvider, ctx.currentModel)
+		.map((candidate) => applyThinkingSuffix(candidate, agentConfig.thinking))
+		.filter((candidate): candidate is string => typeof candidate === "string");
+	const fastModeSettings = getSubagentCodexFastModeSettings(runnerCwd);
+	const fastModeScope = resolveSubagentCodexFastModeScope(workflowStageSubagentGuard);
 	let spawnResult: { pid?: number; error?: string } = {};
 	try {
 		spawnResult = spawnRunner(
@@ -614,9 +630,10 @@ export function executeAsyncSingle(
 						cwd: runnerCwd,
 						model,
 						thinking: resolveEffectiveThinking(model, agentConfig.thinking),
-						modelCandidates: buildModelCandidates(params.modelOverride ?? agentConfig.model, agentConfig.fallbackModels, availableModels, ctx.currentModelProvider, ctx.currentModel)
-							.map((candidate) => applyThinkingSuffix(candidate, agentConfig.thinking))
-							.filter((candidate): candidate is string => typeof candidate === "string"),
+						...resolveSubagentModelFastModeMetadata({ model, modelCandidates, cwd: runnerCwd, settings: fastModeSettings, scope: fastModeScope }),
+						modelCandidates,
+						codexFastModeSettings: fastModeSettings,
+						codexFastModeScope: fastModeScope,
 						tools: agentConfig.tools,
 						extensions: agentConfig.extensions,
 						mcpDirectTools: agentConfig.mcpDirectTools,

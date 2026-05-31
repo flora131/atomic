@@ -10,6 +10,7 @@ export {
 	loadExtensionFromFactory,
 	loadExtensions,
 } from "./loader.ts";
+export type { WorkflowResourceProvider, WorkflowResourceProviderInput } from "./loader.ts";
 export type {
 	ExtensionErrorListener,
 	ForkHandler,

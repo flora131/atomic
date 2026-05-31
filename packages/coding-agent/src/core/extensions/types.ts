@@ -1223,6 +1223,12 @@ export interface ExtensionAPI {
 	/** Return package-provided workflow files discovered for this session. */
 	getWorkflowResources(): ResolvedResource[];
 
+	/**
+	 * Re-read package/settings workflow resources and return the updated snapshot when supported by the host.
+	 * Does not reload extensions, skills, prompts, themes, or context files.
+	 */
+	refreshWorkflowResources?: () => Promise<ResolvedResource[]>;
+
 	// =========================================================================
 	// Message Rendering
 	// =========================================================================

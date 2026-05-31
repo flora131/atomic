@@ -13,7 +13,7 @@
  *   - parseWorkflowArgs correctly parses key=value pairs and JSON objects.
  */
 
-import { afterEach, describe, test } from "bun:test";
+import { afterEach, beforeEach, describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -62,12 +62,30 @@ import {
 import { stageUiBroker } from "../../packages/workflows/src/shared/stage-ui-broker.js";
 import { buildStagePromptAdapter } from "../../packages/workflows/src/shared/stage-prompt.js";
 
+beforeEach(() => {
+  delete process.env[WORKFLOW_STAGE_SUBAGENT_GUARD_ENV];
+});
+
 afterEach(async () => {
+  delete process.env[WORKFLOW_STAGE_SUBAGENT_GUARD_ENV];
   stageControlRegistry.clear();
   killAllRuns({ store, cancellation: cancellationRegistry });
   await Promise.all(jobTracker.runIds().map((runId) => jobTracker.get(runId)?.promise));
   store.clear();
 });
+
+async function writeWorkflowFixture(filePath: string, name: string): Promise<void> {
+  await writeFile(
+    filePath,
+    `import { defineWorkflow } from "@bastani/workflows";
+
+export default defineWorkflow("${name}")
+  .run(async () => ({ ok: true }))
+  .compile();
+`,
+    "utf8",
+  );
+}
 
 // ---------------------------------------------------------------------------
 // parseWorkflowArgs
@@ -1013,6 +1031,74 @@ describe("/workflow interrupt chat command", () => {
     await workflowCmd.options.handler("reload", ctx);
 
     assert.equal(messages.some((message) => message.includes("Reload failed: package loader unavailable")), true);
+  });
+
+  test("top-level /workflow reload refreshes package workflow resources before discovery", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "atomic-workflow-refresh-"));
+    try {
+      const existingWorkflow = join(dir, "existing.ts");
+      const addedWorkflow = join(dir, "added.ts");
+      await writeWorkflowFixture(existingWorkflow, "refresh-existing");
+      await writeWorkflowFixture(addedWorkflow, "refresh-added");
+
+      const { pi, commands } = buildMockPi();
+      addFactoryStubs(pi);
+      let refreshCalls = 0;
+      pi.getWorkflowResources = () => [{ path: existingWorkflow, enabled: true }];
+      pi.refreshWorkflowResources = async () => {
+        refreshCalls += 1;
+        return [
+          { path: existingWorkflow, enabled: true },
+          { path: addedWorkflow, enabled: true },
+        ];
+      };
+
+      const factoryModule = await import("../../packages/workflows/src/extension/index.js");
+      factoryModule.default(pi);
+
+      const workflowCmd = commands.find((c) => c.name === "workflow")!;
+      const { ctx, messages } = buildCtx();
+
+      await workflowCmd.options.handler("reload", ctx);
+
+      assert.equal(refreshCalls, 1);
+      assert.equal(messages.some((message) => message.includes("Reloaded workflow resources.")), true);
+      const completions = workflowCmd.options.getArgumentCompletions?.("refresh-added");
+      assert.equal(completions?.some((completion) => completion.label === "refresh-added"), true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("top-level /workflow reload falls back to getWorkflowResources when refresh is unavailable", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "atomic-workflow-refresh-fallback-"));
+    try {
+      const fallbackWorkflow = join(dir, "fallback.ts");
+      await writeWorkflowFixture(fallbackWorkflow, "refresh-fallback");
+
+      const { pi, commands } = buildMockPi();
+      addFactoryStubs(pi);
+      let getCalls = 0;
+      pi.getWorkflowResources = () => {
+        getCalls += 1;
+        return [{ path: fallbackWorkflow, enabled: true }];
+      };
+
+      const factoryModule = await import("../../packages/workflows/src/extension/index.js");
+      factoryModule.default(pi);
+
+      const workflowCmd = commands.find((c) => c.name === "workflow")!;
+      const { ctx, messages } = buildCtx();
+
+      await workflowCmd.options.handler("reload", ctx);
+
+      assert.equal(getCalls, 1);
+      assert.equal(messages.some((message) => message.includes("Reloaded workflow resources.")), true);
+      const completions = workflowCmd.options.getArgumentCompletions?.("refresh-fallback");
+      assert.equal(completions?.some((completion) => completion.label === "refresh-fallback"), true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -2184,6 +2270,51 @@ export default defineWorkflow("tool-headless-lifecycle")
     assert.match(reload.message, /Reloaded workflow resources/);
     assert.equal(reloads, 1);
     assert.deepEqual(sent, []);
+  });
+
+  test("registered workflow tool reload refreshes package workflow resources before discovery", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "atomic-workflow-tool-refresh-"));
+    try {
+      const addedWorkflow = join(dir, "tool-refresh-added.ts");
+      await writeWorkflowFixture(addedWorkflow, "tool-refresh-added");
+
+      const { pi, commands } = buildMockPi();
+      addFactoryStubs(pi);
+      let refreshCalls = 0;
+      pi.getWorkflowResources = () => [];
+      pi.refreshWorkflowResources = async () => {
+        refreshCalls += 1;
+        return [{ path: addedWorkflow, enabled: true }];
+      };
+      let registered: PiToolOpts<WorkflowToolArgs, WorkflowToolResult> | undefined;
+      pi.registerTool = (opts) => {
+        registered = opts as unknown as PiToolOpts<WorkflowToolArgs, WorkflowToolResult>;
+      };
+
+      const factoryModule = await import("../../packages/workflows/src/extension/index.js");
+      factoryModule.default(pi);
+      assert.ok(registered, "expected workflow tool registration");
+
+      const result = await registered.execute(
+        "tool-reload-refresh-call",
+        { action: "reload", reason: "manifest changed" },
+        undefined,
+        undefined,
+        {} as never,
+      );
+
+      assert.equal(refreshCalls, 1);
+      assert.equal(result.details.action, "reload");
+      const reload = result.details as Extract<WorkflowToolResult, { action: "reload" }>;
+      assert.equal(reload.status, "ok");
+      assert.match(reload.message, /Reloaded workflow resources/);
+      const workflowCmd = commands.find((command) => command.name === "workflow");
+      assert.ok(workflowCmd, "expected workflow command registration");
+      const completions = workflowCmd.options.getArgumentCompletions?.("tool-refresh-added") ?? [];
+      assert.equal(completions.some((completion) => completion.label === "tool-refresh-added"), true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   test("makeExecuteWorkflowTool treats explicit empty reload reason as omitted", async () => {

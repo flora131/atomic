@@ -9,9 +9,14 @@ export type { ResourceCollision, ResourceDiagnostic } from "./diagnostics.ts";
 
 import { canonicalizePath, isLocalPath, resolvePath } from "../utils/paths.ts";
 import { createEventBus, type EventBus } from "./event-bus.ts";
-import { createExtensionRuntime, loadExtensionFromFactory, loadExtensions } from "./extensions/loader.ts";
+import {
+	createExtensionRuntime,
+	loadExtensionFromFactory,
+	loadExtensions,
+	type WorkflowResourceProvider,
+} from "./extensions/loader.ts";
 import type { Extension, ExtensionFactory, ExtensionRuntime, LoadExtensionsResult } from "./extensions/types.ts";
-import { DefaultPackageManager, type PathMetadata, type ResolvedResource } from "./package-manager.ts";
+import { DefaultPackageManager, type PathMetadata, type ResolvedPaths, type ResolvedResource } from "./package-manager.ts";
 import type { PromptTemplate } from "./prompt-templates.ts";
 import { loadPromptTemplates } from "./prompt-templates.ts";
 import { SettingsManager } from "./settings-manager.ts";
@@ -203,6 +208,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 	private agentsFiles: Array<{ path: string; content: string }>;
 	private systemPrompt?: string;
 	private appendSystemPrompt: string[];
+	private workflowResources: ResolvedResource[];
 	private lastSkillPaths: string[];
 	private extensionSkillSourceInfos: Map<string, SourceInfo>;
 	private extensionPromptSourceInfos: Map<string, SourceInfo>;
@@ -250,6 +256,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		this.themeDiagnostics = [];
 		this.agentsFiles = [];
 		this.appendSystemPrompt = [];
+		this.workflowResources = [];
 		this.lastSkillPaths = [];
 		this.extensionSkillSourceInfos = new Map();
 		this.extensionPromptSourceInfos = new Map();
@@ -284,6 +291,21 @@ export class DefaultResourceLoader implements ResourceLoader {
 
 	getAppendSystemPrompt(): string[] {
 		return this.appendSystemPrompt;
+	}
+
+	getWorkflowResources(): ResolvedResource[] {
+		return [...this.workflowResources];
+	}
+
+	async refreshWorkflowResources(): Promise<ResolvedResource[]> {
+		const { resolvedPaths, cliExtensionPaths, builtinPackagePaths } = await this.resolvePackageResourcePaths();
+		const workflowResources = this.collectWorkflowResources(
+			resolvedPaths,
+			cliExtensionPaths,
+			builtinPackagePaths,
+		);
+		this.workflowResources = workflowResources;
+		return [...this.workflowResources];
 	}
 
 	extendResources(paths: ResourceExtensionPaths): void {
@@ -327,15 +349,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 	}
 
 	async reload(): Promise<void> {
-		await this.settingsManager.reload();
-		const resolvedPaths = await this.packageManager.resolve();
-		const cliExtensionPaths = await this.packageManager.resolveExtensionSources(this.additionalExtensionPaths, {
-			temporary: true,
-		});
-		const builtinPackagePaths =
-			this.builtinPackagePaths.length > 0
-				? await this.packageManager.resolveExtensionSources(this.builtinPackagePaths, { temporary: true })
-				: { extensions: [], skills: [], prompts: [], themes: [], workflows: [] };
+		const { resolvedPaths, cliExtensionPaths, builtinPackagePaths } = await this.resolvePackageResourcePaths();
 		const metadataByPath = new Map<string, PathMetadata>();
 
 		this.extensionSkillSourceInfos = new Map();
@@ -361,7 +375,6 @@ export class DefaultResourceLoader implements ResourceLoader {
 		const enabledSkillResources = getEnabledResources(resolvedPaths.skills);
 		const enabledPrompts = getEnabledPaths(resolvedPaths.prompts);
 		const enabledThemes = getEnabledPaths(resolvedPaths.themes);
-		const enabledWorkflowResources = getEnabledResources(resolvedPaths.workflows);
 
 		const builtinEnabledExtensions = this.noExtensions
 			? []
@@ -369,7 +382,6 @@ export class DefaultResourceLoader implements ResourceLoader {
 		const builtinEnabledSkillResources = this.noSkills ? [] : getEnabledResources(builtinPackagePaths.skills);
 		const builtinEnabledPrompts = this.noPromptTemplates ? [] : getEnabledPaths(builtinPackagePaths.prompts);
 		const builtinEnabledThemes = this.noThemes ? [] : getEnabledPaths(builtinPackagePaths.themes);
-		const builtinEnabledWorkflowResources = getEnabledResources(builtinPackagePaths.workflows);
 
 		const mapSkillPath = (resource: { path: string; metadata: PathMetadata }): string => {
 			if (resource.metadata.source !== "auto" && resource.metadata.origin !== "package") {
@@ -412,19 +424,20 @@ export class DefaultResourceLoader implements ResourceLoader {
 		const cliEnabledSkills = getEnabledPaths(cliExtensionPaths.skills);
 		const cliEnabledPrompts = getEnabledPaths(cliExtensionPaths.prompts);
 		const cliEnabledThemes = getEnabledPaths(cliExtensionPaths.themes);
-		const cliEnabledWorkflowResources = getEnabledResources(cliExtensionPaths.workflows);
-		const workflowResources = [
-			...cliEnabledWorkflowResources,
-			...enabledWorkflowResources,
-			...builtinEnabledWorkflowResources,
-		].filter((resource) => resource.metadata.origin === "package");
+		const workflowResources = this.collectWorkflowResources(
+			resolvedPaths,
+			cliExtensionPaths,
+			builtinPackagePaths,
+		);
+		this.workflowResources = workflowResources;
+		const workflowResourceProvider = this.createWorkflowResourceProvider();
 
 		const extensionPaths = this.noExtensions
 			? cliEnabledExtensions
 			: this.mergePaths(cliEnabledExtensions, [...enabledExtensions, ...builtinEnabledExtensions]);
 
-		const extensionsResult = await loadExtensions(extensionPaths, this.cwd, this.eventBus, workflowResources);
-		const inlineExtensions = await this.loadExtensionFactories(extensionsResult.runtime, workflowResources);
+		const extensionsResult = await loadExtensions(extensionPaths, this.cwd, this.eventBus, workflowResourceProvider);
+		const inlineExtensions = await this.loadExtensionFactories(extensionsResult.runtime, workflowResourceProvider);
 		extensionsResult.extensions.push(...inlineExtensions.extensions);
 		extensionsResult.errors.push(...inlineExtensions.errors);
 
@@ -523,6 +536,50 @@ export class DefaultResourceLoader implements ResourceLoader {
 		this.appendSystemPrompt = this.appendSystemPromptOverride
 			? this.appendSystemPromptOverride(baseAppend)
 			: baseAppend;
+	}
+
+	private emptyResolvedPaths(): ResolvedPaths {
+		return { extensions: [], skills: [], prompts: [], themes: [], workflows: [] };
+	}
+
+	private async resolvePackageResourcePaths(): Promise<{
+		resolvedPaths: ResolvedPaths;
+		cliExtensionPaths: ResolvedPaths;
+		builtinPackagePaths: ResolvedPaths;
+	}> {
+		await this.settingsManager.reload();
+		const resolvedPaths = await this.packageManager.resolve();
+		const cliExtensionPaths = await this.packageManager.resolveExtensionSources(this.additionalExtensionPaths, {
+			temporary: true,
+		});
+		const builtinPackagePaths =
+			this.builtinPackagePaths.length > 0
+				? await this.packageManager.resolveExtensionSources(this.builtinPackagePaths, { temporary: true })
+				: this.emptyResolvedPaths();
+		return { resolvedPaths, cliExtensionPaths, builtinPackagePaths };
+	}
+
+	private enabledPackageWorkflowResources(resources: ResolvedResource[]): ResolvedResource[] {
+		return resources.filter((resource) => resource.enabled && resource.metadata.origin === "package");
+	}
+
+	private collectWorkflowResources(
+		resolvedPaths: ResolvedPaths,
+		cliExtensionPaths: ResolvedPaths,
+		builtinPackagePaths: ResolvedPaths,
+	): ResolvedResource[] {
+		return [
+			...this.enabledPackageWorkflowResources(cliExtensionPaths.workflows),
+			...this.enabledPackageWorkflowResources(resolvedPaths.workflows),
+			...this.enabledPackageWorkflowResources(builtinPackagePaths.workflows),
+		];
+	}
+
+	private createWorkflowResourceProvider(): WorkflowResourceProvider {
+		return {
+			get: () => this.workflowResources,
+			refresh: () => this.refreshWorkflowResources(),
+		};
 	}
 
 	private normalizeExtensionPaths(
@@ -816,7 +873,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		}
 	}
 
-	private async loadExtensionFactories(runtime: ExtensionRuntime, workflowResources: ResolvedResource[]): Promise<{
+	private async loadExtensionFactories(runtime: ExtensionRuntime, workflowResourceProvider: WorkflowResourceProvider): Promise<{
 		extensions: Extension[];
 		errors: Array<{ path: string; error: string }>;
 	}> {
@@ -826,7 +883,14 @@ export class DefaultResourceLoader implements ResourceLoader {
 		for (const [index, factory] of this.extensionFactories.entries()) {
 			const extensionPath = `<inline:${index + 1}>`;
 			try {
-				const extension = await loadExtensionFromFactory(factory, this.cwd, this.eventBus, runtime, extensionPath, workflowResources);
+				const extension = await loadExtensionFromFactory(
+					factory,
+					this.cwd,
+					this.eventBus,
+					runtime,
+					extensionPath,
+					workflowResourceProvider,
+				);
 				extensions.push(extension);
 			} catch (error) {
 				const message = error instanceof Error ? error.message : "failed to load extension";

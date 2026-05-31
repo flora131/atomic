@@ -16,6 +16,7 @@
 
 ### Fixed
 
+- Added a host workflow-resource refresh path so workflow reloads can re-read package manifests without a full Atomic reload ([#1155](https://github.com/flora131/atomic/issues/1155)).
 - Preserved custom registered provider streamers when Codex fast mode is enabled for native OpenAI response APIs ([#1134](https://github.com/flora131/atomic/issues/1134)).
 - Fixed `/fast` changes so the banner/footer and current session update immediately, and inherited chat fast-mode state now reaches subagent child sessions without waiting for a restart ([#1134](https://github.com/flora131/atomic/issues/1134)).
 - Fixed `/fast` persistence so existing project-level fast-mode overrides are updated alongside global settings for the changed scope without clobbering untouched global chat or workflow fast-mode preferences ([#1134](https://github.com/flora131/atomic/issues/1134)).

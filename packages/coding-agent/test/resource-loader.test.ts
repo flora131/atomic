@@ -1,11 +1,13 @@
 import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { ExtensionRunner } from "../src/core/extensions/runner.ts";
 import { ModelRegistry } from "../src/core/model-registry.ts";
+import type { ExtensionAPI } from "../src/core/extensions/types.ts";
+import type { ResolvedResource } from "../src/core/package-manager.ts";
 import { DefaultResourceLoader } from "../src/core/resource-loader.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
@@ -37,6 +39,64 @@ describe("DefaultResourceLoader", () => {
 			expect(loader.getSkills().skills).toEqual([]);
 			expect(loader.getPrompts().prompts).toEqual([]);
 			expect(loader.getThemes().themes).toEqual([]);
+		});
+
+		it("should refresh package workflow resources without reloading extensions", async () => {
+			const settingsManager = SettingsManager.inMemory();
+			const pkgDir = join(tempDir, "workflow-package");
+			const workflowDir = join(pkgDir, "workflows");
+			const workflowA = join(workflowDir, "a.ts");
+			const workflowB = join(workflowDir, "b.ts");
+			const manifestPath = join(pkgDir, "package.json");
+			const writeManifest = (workflows: string[]): void => {
+				writeFileSync(
+					manifestPath,
+					JSON.stringify({
+						name: "workflow-package",
+						atomic: { workflows },
+					}),
+				);
+			};
+
+			mkdirSync(workflowDir, { recursive: true });
+			writeFileSync(workflowA, "export default {}");
+			writeFileSync(workflowB, "export default {}");
+			writeManifest(["workflows/a.ts"]);
+			settingsManager.setPackages([pkgDir]);
+
+			let factoryCalls = 0;
+			let apiGetWorkflowResources: (() => ResolvedResource[]) | undefined;
+			let apiRefreshWorkflowResources: (() => Promise<ResolvedResource[]>) | undefined;
+			const loader = new DefaultResourceLoader({
+				cwd,
+				agentDir,
+				settingsManager,
+				extensionFactories: [
+					(pi: ExtensionAPI) => {
+						factoryCalls += 1;
+						apiGetWorkflowResources = () => pi.getWorkflowResources();
+						apiRefreshWorkflowResources = () => pi.refreshWorkflowResources();
+					},
+				],
+			});
+
+			await loader.reload();
+
+			if (!apiGetWorkflowResources || !apiRefreshWorkflowResources) {
+				throw new Error("expected extension factory to capture workflow resource APIs");
+			}
+
+			expect(factoryCalls).toBe(1);
+			expect(apiGetWorkflowResources().map((resource) => resource.path)).toEqual([workflowA]);
+			expect(loader.getWorkflowResources().map((resource) => resource.path)).toEqual([workflowA]);
+
+			writeManifest(["workflows/a.ts", "workflows/b.ts"]);
+			const refreshed = await apiRefreshWorkflowResources();
+
+			expect(refreshed.map((resource) => resource.path)).toEqual([workflowA, workflowB]);
+			expect(apiGetWorkflowResources().map((resource) => resource.path)).toEqual([workflowA, workflowB]);
+			expect(loader.getWorkflowResources().map((resource) => resource.path)).toEqual([workflowA, workflowB]);
+			expect(factoryCalls).toBe(1);
 		});
 
 		it("should discover skills from agentDir", async () => {
@@ -130,9 +190,11 @@ description: project
 Project skill`,
 			);
 
-			const baseTheme = JSON.parse(
-				readFileSync(join(process.cwd(), "src", "modes", "interactive", "theme", "dark.json"), "utf-8"),
-			) as { name: string; vars?: Record<string, string> };
+			const baseThemePath = fileURLToPath(new URL("../src/modes/interactive/theme/dark.json", import.meta.url));
+			const baseTheme = JSON.parse(readFileSync(baseThemePath, "utf-8")) as {
+				name: string;
+				vars?: Record<string, string>;
+			};
 			baseTheme.name = "collision-theme";
 			const userThemePath = join(agentDir, "themes", "collision.json");
 			const projectThemePath = join(cwd, ".pi", "themes", "collision.json");

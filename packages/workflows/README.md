@@ -314,7 +314,7 @@ registry.get("alpha"); // compiled workflow definition | undefined
 | `/workflow interrupt [run-id\|--all]` | Pause active/named/all active runs so they can resume    |
 | `/workflow kill [run-id\|--all]`      | Kill in-flight workflow runs; killed runs are retained for inspection |
 | `/workflow resume <run-id>`           | Resume paused work or re-open a run snapshot             |
-| `/workflow reload`                    | Reload discovered workflow resources in-process          |
+| `/workflow reload`                    | Reload discovered workflow resources and package-manifest entries in-process |
 | `/workflow inputs <name>`             | Print the input schema for a workflow                    |
 
 Input overrides are bare `key=value` tokens (no leading `--`). Values are JSON-parsed when possible, so numbers, booleans, and quoted strings work as expected (e.g. `count=3`, `flag=true`, `prompt="multi word value"`). A whole-object override can be passed as a single JSON token (e.g. `{"prompt":"...","count":3}`).

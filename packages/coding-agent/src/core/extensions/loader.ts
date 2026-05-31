@@ -139,6 +139,25 @@ function getAliases(): Record<string, string> {
 
 type HandlerFn = (...args: unknown[]) => Promise<unknown>;
 
+export interface WorkflowResourceProvider {
+  get(): ResolvedResource[];
+  refresh?(): Promise<ResolvedResource[]>;
+}
+
+export type WorkflowResourceProviderInput = WorkflowResourceProvider | ResolvedResource[];
+
+function createStaticWorkflowResourceProvider(workflowResources: ResolvedResource[]): WorkflowResourceProvider {
+  return {
+    get: () => workflowResources,
+  };
+}
+
+function normalizeWorkflowResourceProvider(input: WorkflowResourceProviderInput): WorkflowResourceProvider {
+  return Array.isArray(input) ? createStaticWorkflowResourceProvider(input) : input;
+}
+
+const emptyWorkflowResourceProvider = createStaticWorkflowResourceProvider([]);
+
 /**
  * Create a runtime with throwing stubs for action methods.
  * Runner.bindCore() replaces these with real implementations.
@@ -209,8 +228,9 @@ function createExtensionAPI(
   runtime: ExtensionRuntime,
   cwd: string,
   eventBus: EventBus,
-  workflowResources: ResolvedResource[] = [],
+  workflowResourceProvider: WorkflowResourceProviderInput = emptyWorkflowResourceProvider,
 ): ExtensionAPI {
+  const workflowResources = normalizeWorkflowResourceProvider(workflowResourceProvider);
   const api = {
     // Registration methods - write to extension
     on(event: string, handler: HandlerFn): void {
@@ -294,7 +314,13 @@ function createExtensionAPI(
 
     getWorkflowResources(): ResolvedResource[] {
       runtime.assertActive();
-      return [...workflowResources];
+      return [...workflowResources.get()];
+    },
+
+    async refreshWorkflowResources(): Promise<ResolvedResource[]> {
+      runtime.assertActive();
+      const refreshed = await workflowResources.refresh?.();
+      return [...(refreshed ?? workflowResources.get())];
     },
 
     // Action methods - delegate to shared runtime
@@ -433,7 +459,7 @@ async function loadExtension(
   cwd: string,
   eventBus: EventBus,
   runtime: ExtensionRuntime,
-  workflowResources: ResolvedResource[] = [],
+  workflowResourceProvider: WorkflowResourceProviderInput = emptyWorkflowResourceProvider,
 ): Promise<{ extension: Extension | null; error: string | null }> {
   const resolvedPath = resolvePath(extensionPath, cwd, { normalizeUnicodeSpaces: true });
 
@@ -452,7 +478,7 @@ async function loadExtension(
       runtime,
       cwd,
       eventBus,
-      workflowResources,
+      workflowResourceProvider,
     );
     await factory(api);
 
@@ -472,7 +498,7 @@ export async function loadExtensionFromFactory(
   eventBus: EventBus,
   runtime: ExtensionRuntime,
   extensionPath = "<inline>",
-  workflowResources: ResolvedResource[] = [],
+  workflowResourceProvider: WorkflowResourceProviderInput = emptyWorkflowResourceProvider,
 ): Promise<Extension> {
   const extension = createExtension(extensionPath, extensionPath);
   const resolvedCwd = resolvePath(cwd);
@@ -481,7 +507,7 @@ export async function loadExtensionFromFactory(
     runtime,
     resolvedCwd,
     eventBus,
-    workflowResources,
+    workflowResourceProvider,
   );
   await factory(api);
   return extension;
@@ -494,7 +520,7 @@ export async function loadExtensions(
   paths: string[],
   cwd: string,
   eventBus?: EventBus,
-  workflowResources: ResolvedResource[] = [],
+  workflowResourceProvider: WorkflowResourceProviderInput = emptyWorkflowResourceProvider,
 ): Promise<LoadExtensionsResult> {
   const extensions: Extension[] = [];
   const errors: Array<{ path: string; error: string }> = [];
@@ -508,7 +534,7 @@ export async function loadExtensions(
       resolvedCwd,
       resolvedEventBus,
       runtime,
-      workflowResources,
+      workflowResourceProvider,
     );
 
     if (error) {

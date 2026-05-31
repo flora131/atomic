@@ -284,6 +284,49 @@ Content`,
 			// Should NOT find helper.ts (not declared in manifest)
 			expect(result.extensions.some((r) => pathEndsWith(r.path, "helper.ts"))).toBe(false);
 		});
+
+		it("should resolve package-declared workflows from atomic and legacy manifests", async () => {
+			const atomicPkg = join(tempDir, "atomic-workflows-pkg");
+			const piPkg = join(tempDir, "pi-workflows-pkg");
+			const singularPkg = join(tempDir, "pi-workflow-singular-pkg");
+
+			mkdirSync(join(atomicPkg, "workflows"), { recursive: true });
+			mkdirSync(join(piPkg, "workflows"), { recursive: true });
+			mkdirSync(join(singularPkg, "workflow"), { recursive: true });
+			writeFileSync(join(atomicPkg, "workflows", "atomic.ts"), "export default {}");
+			writeFileSync(join(piPkg, "workflows", "legacy.ts"), "export default {}");
+			writeFileSync(join(singularPkg, "workflow", "singular.ts"), "export default {}");
+			writeFileSync(
+				join(atomicPkg, "package.json"),
+				JSON.stringify({
+					name: "atomic-workflows-pkg",
+					atomic: { workflows: ["workflows/atomic.ts"] },
+				}),
+			);
+			writeFileSync(
+				join(piPkg, "package.json"),
+				JSON.stringify({
+					name: "pi-workflows-pkg",
+					pi: { workflows: ["workflows/legacy.ts"] },
+				}),
+			);
+			writeFileSync(
+				join(singularPkg, "package.json"),
+				JSON.stringify({
+					name: "pi-workflow-singular-pkg",
+					pi: { workflow: ["workflow/singular.ts"] },
+				}),
+			);
+
+			settingsManager.setPackages([atomicPkg, piPkg, singularPkg]);
+
+			const result = await packageManager.resolve();
+
+			expect(result.workflows.some((r) => isEnabled(r, join("workflows", "atomic.ts")))).toBe(true);
+			expect(result.workflows.some((r) => isEnabled(r, join("workflows", "legacy.ts")))).toBe(true);
+			expect(result.workflows.some((r) => isEnabled(r, join("workflow", "singular.ts")))).toBe(true);
+			expect(result.workflows.every((r) => r.metadata.origin === "package")).toBe(true);
+		});
 	});
 
 	describe("auto-discovered skill metadata", () => {

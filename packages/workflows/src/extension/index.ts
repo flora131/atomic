@@ -334,6 +334,8 @@ export interface ExtensionAPI {
   registerFlag?: (name: string, opts: PiFlagNamedOpts) => void;
   /** Return package-provided workflow files discovered by Atomic's package loader. */
   getWorkflowResources?: () => readonly WorkflowResourceInfo[];
+  /** Refresh package-provided workflow files before rediscovery, when supported by host. */
+  refreshWorkflowResources?: () => Promise<readonly WorkflowResourceInfo[]>;
   /**
    * Register a keyboard shortcut.
    * Present on pi >= 1.x; absent on older runtimes.
@@ -2427,6 +2429,16 @@ function factory(pi: ExtensionAPI): void {
     await reload;
   }
 
+  async function loadPackageWorkflowPaths(): Promise<string[]> {
+    const packageResources =
+      (await pi.refreshWorkflowResources?.()) ??
+      pi.getWorkflowResources?.() ??
+      [];
+    return packageResources
+      .filter((resource) => resource.enabled !== false)
+      .map((resource) => resource.path);
+  }
+
   async function reloadWorkflowResourcesNow(options?: { allowInFlight?: boolean }): Promise<void> {
     const activeRuns = inFlightRunCount();
     if (options?.allowInFlight !== true) {
@@ -2457,9 +2469,7 @@ function factory(pi: ExtensionAPI): void {
           )
         : undefined;
 
-    const packageWorkflowPaths = (pi.getWorkflowResources?.() ?? [])
-      .filter((resource) => resource.enabled !== false)
-      .map((resource) => resource.path);
+    const packageWorkflowPaths = await loadPackageWorkflowPaths();
     const result = await discoverWorkflows({ config: discoveryConfig, packageWorkflowPaths });
     discoveryRef.current = result;
 

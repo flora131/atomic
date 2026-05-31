@@ -9,6 +9,8 @@ import type {
   PromptKind,
   RunSnapshot,
   RunStatus,
+  StageInputKind,
+  StageInputRequest,
   StageSnapshot,
   StageStatus,
   StoreSnapshot,
@@ -40,7 +42,7 @@ export interface WorkflowLifecycleNoticeDetails {
   readonly stageId?: string;
   readonly stageName?: string;
   readonly promptId?: string;
-  readonly promptKind?: PromptKind;
+  readonly promptKind?: PromptKind | StageInputKind;
   readonly promptMessage?: string;
   readonly error?: string;
   readonly failedStageId?: string;
@@ -206,10 +208,8 @@ export function installWorkflowLifecycleNotifications(
     if (state.deliveredInputPrompts.has(key)) return;
 
     state.deliveredInputPrompts.add(key);
-    // Awaiting-input lifecycle notices include actionable `/workflow connect`
-    // hints. They can become stale if the prompt resolves or the run completes
-    // while the main session is streaming, so track them for dedupe/restore but
-    // do not enqueue a visible main-chat card.
+    if (state.suppressionDepth > 0) return;
+    emit(makeStageAwaitingInputNotice(run, stage));
   };
 
   const emitRunAwaitingInputNoticeOnce = (run: RunSnapshot): void => {
@@ -219,10 +219,8 @@ export function installWorkflowLifecycleNotifications(
     if (state.deliveredInputPrompts.has(key)) return;
 
     state.deliveredInputPrompts.add(key);
-    // Awaiting-input lifecycle notices include actionable `/workflow connect`
-    // hints. They can become stale if the prompt resolves or the run completes
-    // while the main session is streaming, so track them for dedupe/restore but
-    // do not enqueue a visible main-chat card.
+    if (state.suppressionDepth > 0) return;
+    emit(makeRunAwaitingInputNotice(run, run.pendingPrompt));
   };
 
   const inspect = (snapshot: StoreSnapshot): void => {
@@ -306,6 +304,7 @@ function makeTerminalNotice(
 
 function makeStageAwaitingInputNotice(run: RunSnapshot, stage: StageSnapshot): WorkflowLifecycleNoticeDetails {
   const prompt = stage.pendingPrompt;
+  const inputRequest = stage.inputRequest;
   return {
     kind: "awaiting_input",
     scope: "stage",
@@ -314,9 +313,9 @@ function makeStageAwaitingInputNotice(run: RunSnapshot, stage: StageSnapshot): W
     status: stage.status,
     stageId: stage.id,
     stageName: stage.name,
-    ...(prompt ? promptFields(prompt) : {}),
+    ...(prompt ? promptFields(prompt) : inputRequest ? inputRequestFields(inputRequest) : {}),
     // Normal store paths stamp awaitingInputSince; Date.now() is defensive for malformed restored snapshots.
-    createdAt: prompt?.createdAt ?? stage.awaitingInputSince ?? Date.now(),
+    createdAt: prompt?.createdAt ?? inputRequest?.createdAt ?? stage.awaitingInputSince ?? Date.now(),
   };
 }
 
@@ -360,8 +359,18 @@ function promptFields(
   };
 }
 
+function inputRequestFields(
+  request: StageInputRequest,
+): Pick<WorkflowLifecycleNoticeDetails, "promptId" | "promptKind" | "promptMessage"> {
+  return {
+    promptId: request.id,
+    promptKind: request.kind,
+    promptMessage: truncateSnippet(request.questions.map((question) => question.question).join(" | ")),
+  };
+}
+
 function awaitingInputKey(runId: string, stage: StageSnapshot): string {
-  const promptId = stage.pendingPrompt?.id;
+  const promptId = stage.pendingPrompt?.id ?? stage.inputRequest?.id;
   if (promptId) return `awaiting_input:${runId}:stage:${stage.id}:${promptId}`;
   return `awaiting_input:${runId}:stage:${stage.id}:${stage.awaitingInputSince ?? "active"}`;
 }

@@ -2837,6 +2837,7 @@ export class InteractiveMode {
       | Promise<Component & { dispose?(): void }>,
     options?: {
       overlay?: boolean;
+      signal?: AbortSignal;
       overlayOptions?: OverlayOptions | (() => OverlayOptions);
       onHandle?: (handle: OverlayHandle) => void;
     },
@@ -2853,16 +2854,11 @@ export class InteractiveMode {
     };
 
     return new Promise((resolve, reject) => {
-      let component: Component & { dispose?(): void };
+      let component: (Component & { dispose?(): void }) | undefined;
       let closed = false;
+      let mounted = false;
 
-      const close = (result: T) => {
-        if (closed) return;
-        closed = true;
-        if (isOverlay) this.ui.hideOverlay();
-        else restoreEditor();
-        // Note: both branches above already call requestRender
-        resolve(result);
+      const disposeComponent = () => {
         try {
           component?.dispose?.();
         } catch {
@@ -2870,9 +2866,54 @@ export class InteractiveMode {
         }
       };
 
+      const cleanupAbortListener = () => {
+        options?.signal?.removeEventListener("abort", abortCustomUi);
+      };
+
+      const closeMountedUi = () => {
+        if (!mounted) return;
+        if (isOverlay) this.ui.hideOverlay();
+        else restoreEditor();
+      };
+
+      const close = (result: T) => {
+        if (closed) return;
+        closed = true;
+        cleanupAbortListener();
+        closeMountedUi();
+        resolve(result);
+        disposeComponent();
+      };
+
+      const rejectAndClose = (reason: unknown) => {
+        if (closed) return;
+        closed = true;
+        cleanupAbortListener();
+        closeMountedUi();
+        disposeComponent();
+        reject(reason);
+      };
+
+      function abortCustomUi(): void {
+        rejectAndClose(options?.signal?.reason ?? new Error("Extension custom UI aborted"));
+      }
+
+      if (options?.signal?.aborted) {
+        abortCustomUi();
+        return;
+      }
+      options?.signal?.addEventListener("abort", abortCustomUi, { once: true });
+
       Promise.resolve(factory(this.ui, theme, this.keybindings, close))
         .then((c) => {
-          if (closed) return;
+          if (closed) {
+            try {
+              c.dispose?.();
+            } catch {
+              /* ignore dispose errors */
+            }
+            return;
+          }
           component = c;
           if (isOverlay) {
             // Resolve overlay options - can be static or dynamic function
@@ -2885,23 +2926,23 @@ export class InteractiveMode {
                 return opts;
               }
               // Fallback: use component's width property if available
-              const w = (component as { width?: number }).width;
+              const w = (component as { width?: number } | undefined)?.width;
               return w ? { width: w } : undefined;
             };
             const handle = this.ui.showOverlay(component, resolveOptions());
+            mounted = true;
             // Expose handle to caller for visibility control
             options?.onHandle?.(handle);
           } else {
             this.editorContainer.clear();
             this.editorContainer.addChild(component);
             this.ui.setFocus(component);
+            mounted = true;
             this.ui.requestRender();
           }
         })
         .catch((err) => {
-          if (closed) return;
-          if (!isOverlay) restoreEditor();
-          reject(err);
+          rejectAndClose(err);
         });
     });
   }
@@ -3374,11 +3415,16 @@ export class InteractiveMode {
           this.streamingMessage = event.message;
           let errorMessage: string | undefined;
           if (this.streamingMessage.stopReason === "aborted") {
+            const existingAbortMessage =
+              this.streamingMessage.errorMessage && this.streamingMessage.errorMessage !== "Request was aborted"
+                ? this.streamingMessage.errorMessage
+                : undefined;
             const retryAttempt = this.session.retryAttempt;
-            errorMessage =
+            errorMessage = existingAbortMessage ?? (
               retryAttempt > 0
                 ? `Aborted after ${retryAttempt} retry attempt${retryAttempt > 1 ? "s" : ""}`
-                : "Operation aborted";
+                : "Operation aborted"
+            );
             this.streamingMessage.errorMessage = errorMessage;
           }
           this.streamingComponent.updateContent(this.streamingMessage);

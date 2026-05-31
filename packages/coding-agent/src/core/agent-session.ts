@@ -61,7 +61,6 @@ import { exportSessionToHtml, type ToolHtmlRenderer } from "./export-html/index.
 import { createToolHtmlRenderer } from "./export-html/tool-renderer.ts";
 import {
 	type ContextUsage,
-	type CustomMessageDelivery,
 	type ExtensionCommandContextActions,
 	type ExtensionErrorListener,
 	ExtensionRunner,
@@ -72,6 +71,7 @@ import {
 	type MessageUpdateEvent,
 	type OrchestrationContext,
 	type ReplacedSessionContext,
+	type SendMessageOptions,
 	type SessionBeforeCompactResult,
 	type SessionBeforeTreeResult,
 	type SessionStartEvent,
@@ -208,6 +208,38 @@ function drainAgentMessageQueue(queue: PendingAgentMessageQueue | undefined): Ag
 	return drained;
 }
 
+function normalizeInterruptAbortMessage(value: string | undefined): string | undefined {
+	const trimmed = value?.trim();
+	return trimmed && trimmed.length > 0 ? trimmed : undefined;
+}
+
+function isGenericAbortText(value: string): boolean {
+	const normalized = value.trim().toLowerCase().replace(/[.!]+$/, "");
+	return (
+		normalized === "operation aborted" ||
+		normalized === "the operation was aborted" ||
+		normalized === "request was aborted" ||
+		normalized === "this operation was aborted" ||
+		normalized === "extension custom ui aborted"
+	);
+}
+
+function isSingleGenericAbortTextContent(content: unknown): boolean {
+	return (
+		Array.isArray(content) &&
+		content.length === 1 &&
+		typeof content[0] === "object" &&
+		content[0] !== null &&
+		(content[0] as { type?: unknown }).type === "text" &&
+		typeof (content[0] as { text?: unknown }).text === "string" &&
+		isGenericAbortText((content[0] as { text: string }).text)
+	);
+}
+
+function replacementAbortContent(text: string): TextContent[] {
+	return [{ type: "text", text }];
+}
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -333,6 +365,8 @@ export class AgentSession {
 	private _pendingInterruptDeliveries = 0;
 	/** Queues held out of pi-agent-core while an interrupt sequence is active. */
 	private _activeInterruptQueueHold: InterruptQueueHold | undefined = undefined;
+	/** Replacement text for generic abort results produced by an interrupt-delivered custom message. */
+	private _activeInterruptAbortMessage: string | undefined = undefined;
 	/** Messages queued to be included with the next user prompt as context ("asides"). */
 	private _pendingNextTurnMessages: CustomMessage[] = [];
 
@@ -605,6 +639,8 @@ export class AgentSession {
 			}
 		}
 
+		this._applyInterruptAbortMessage(event);
+
 		// Emit to extensions first
 		await this._emitExtensionEvent(event);
 
@@ -667,6 +703,30 @@ export class AgentSession {
 
 			this._resolveRetry();
 			await this._checkCompaction(msg);
+		}
+	}
+
+	private _applyInterruptAbortMessage(event: AgentEvent): void {
+		const abortMessage = this._activeInterruptAbortMessage;
+		if (!abortMessage) return;
+
+		if (event.type === "tool_execution_end" && event.isError && isSingleGenericAbortTextContent(event.result.content)) {
+			event.result.content = replacementAbortContent(abortMessage);
+			return;
+		}
+
+		if (event.type !== "message_start" && event.type !== "message_end") return;
+
+		if (event.message.role === "toolResult" && event.message.isError && isSingleGenericAbortTextContent(event.message.content)) {
+			event.message.content = replacementAbortContent(abortMessage);
+			return;
+		}
+
+		if (event.message.role === "assistant") {
+			const assistantMessage = event.message as AssistantMessage;
+			if (assistantMessage.stopReason === "aborted") {
+				assistantMessage.errorMessage = abortMessage;
+			}
 		}
 	}
 
@@ -1416,7 +1476,7 @@ export class AgentSession {
 	 */
 	async sendCustomMessage<T = unknown>(
 		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details">,
-		options?: { triggerTurn?: boolean; deliverAs?: CustomMessageDelivery },
+		options?: SendMessageOptions,
 	): Promise<void> {
 		const appMessage = {
 			role: "custom" as const,
@@ -1429,7 +1489,7 @@ export class AgentSession {
 		if (options?.deliverAs === "nextTurn") {
 			this._pendingNextTurnMessages.push(appMessage);
 		} else if (options?.deliverAs === "interrupt" && options.triggerTurn) {
-			await this._enqueueInterruptCustomMessage(appMessage);
+			await this._enqueueInterruptCustomMessage(appMessage, options);
 		} else if (this.isStreaming) {
 			this._queueAgentMessage(appMessage, options?.deliverAs === "followUp" ? "followUp" : "steer");
 		} else if (options?.triggerTurn) {
@@ -1447,7 +1507,7 @@ export class AgentSession {
 		}
 	}
 
-	private _enqueueInterruptCustomMessage<T>(message: CustomMessage<T>): Promise<void> {
+	private _enqueueInterruptCustomMessage<T>(message: CustomMessage<T>, options?: SendMessageOptions): Promise<void> {
 		this._pendingInterruptDeliveries += 1;
 		// Establish the hold synchronously when the interrupt is enqueued, not when
 		// the serialized delivery callback later starts. Callers commonly fire and
@@ -1457,7 +1517,7 @@ export class AgentSession {
 		this._ensureActiveInterruptQueueHold();
 		const delivery = this._interruptDeliveryQueue.then(async () => {
 			try {
-				await this._sendInterruptCustomMessageNow(message);
+				await this._sendInterruptCustomMessageNow(message, options);
 			} finally {
 				this._pendingInterruptDeliveries -= 1;
 				if (this._pendingInterruptDeliveries === 0) {
@@ -1469,12 +1529,22 @@ export class AgentSession {
 		return delivery;
 	}
 
-	private async _sendInterruptCustomMessageNow<T>(message: CustomMessage<T>): Promise<void> {
+	private async _sendInterruptCustomMessageNow<T>(
+		message: CustomMessage<T>,
+		options?: SendMessageOptions,
+	): Promise<void> {
 		this.abortRetry();
 		this._ensureActiveInterruptQueueHold();
 		if (this.isStreaming) {
-			this.agent.abort();
-			await this.agent.waitForIdle();
+			const previousAbortMessage = this._activeInterruptAbortMessage;
+			this._activeInterruptAbortMessage = normalizeInterruptAbortMessage(options?.interruptAbortMessage);
+			try {
+				this.agent.abort();
+				await this.agent.waitForIdle();
+				await this._agentEventQueue;
+			} finally {
+				this._activeInterruptAbortMessage = previousAbortMessage;
+			}
 		}
 		await this.agent.prompt(message);
 	}

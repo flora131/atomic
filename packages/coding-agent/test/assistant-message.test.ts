@@ -1,4 +1,5 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, test } from "vitest";
 import { AssistantMessageComponent } from "../src/modes/interactive/components/assistant-message.ts";
 import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
@@ -7,7 +8,10 @@ const OSC133_ZONE_START = "\x1b]133;A\x07";
 const OSC133_ZONE_END = "\x1b]133;B\x07";
 const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
 
-function createAssistantMessage(content: AssistantMessage["content"]): AssistantMessage {
+function createAssistantMessage(
+	content: AssistantMessage["content"],
+	overrides: Partial<Pick<AssistantMessage, "stopReason" | "errorMessage">> = {},
+): AssistantMessage {
 	return {
 		role: "assistant",
 		content,
@@ -24,6 +28,7 @@ function createAssistantMessage(content: AssistantMessage["content"]): Assistant
 		},
 		stopReason: "stop",
 		timestamp: Date.now(),
+		...overrides,
 	};
 }
 
@@ -65,5 +70,24 @@ describe("AssistantMessageComponent", () => {
 
 		expect(rendered).toContain(theme.getFgAnsi("muted"));
 		expect(rendered).not.toContain(theme.getFgAnsi("thinkingText"));
+	});
+
+	test("wraps long aborted assistant messages to the render width", () => {
+		initTheme("dark");
+		const width = 48;
+		const component = new AssistantMessageComponent(
+			createAssistantMessage([], {
+				stopReason: "aborted",
+				errorMessage:
+					'The main-chat question was dismissed because the user responded in the workflow chat for workflow "hil-interrupt-verifier" (run f8dd07bd-8073-4b3d-9bdd-ee424df90235, stage select, prompt hil-81ce5653-ac91-4a23-a6e0-b9c5ed74cdda). User responded with: Answered while main chat ask_user_question was open. Do not ask the same question again.',
+			}),
+		);
+
+		const lines = component.render(width);
+
+		expect(lines.length).toBeGreaterThan(2);
+		for (const line of lines) {
+			expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+		}
 	});
 });

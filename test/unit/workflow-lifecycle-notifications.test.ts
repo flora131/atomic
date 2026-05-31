@@ -133,7 +133,7 @@ describe("installWorkflowLifecycleNotifications", () => {
     assert.match(sent[0]?.details?.error ?? "", /…$/);
   });
 
-  test("records but does not emit awaiting-input notice for a stage pending prompt", () => {
+  test("emits a steer awaiting-input notice for a stage pending prompt", () => {
     const { store, sent, options } = install();
     store.recordRunStart({ id: "run-3", name: "review", inputs: {}, status: "running", stages: [], startedAt: 1 });
     store.recordStageStart("run-3", runningStage());
@@ -141,21 +141,35 @@ describe("installWorkflowLifecycleNotifications", () => {
     assert.equal(store.recordStagePendingPrompt("run-3", "stage-1", prompt()), true);
     store.recordNotice({ id: "tick", level: "info", message: "force notify", createdAt: 11 });
 
-    assert.equal(sent.length, 0);
-    assert.deepEqual(options, []);
+    assert.equal(sent.length, 1);
+    assert.deepEqual(options, [{ triggerTurn: true, deliverAs: "steer" }]);
+    assert.equal(sent[0]?.details?.kind, "awaiting_input");
+    assert.equal(sent[0]?.details?.promptMessage, "Proceed with this plan?");
   });
 
-  test("records but does not emit awaiting-input notice for ask_user_question-style stages", () => {
-    const { store, sent } = install();
+  test("emits a steer awaiting-input notice for ask_user_question-style stages", () => {
+    const { store, sent, options } = install();
     store.recordRunStart({ id: "run-4", name: "qa", inputs: {}, status: "running", stages: [], startedAt: 1 });
     store.recordStageStart("run-4", runningStage({ id: "stage-ask", name: "question" }));
+    assert.equal(store.recordStageInputRequest("run-4", "stage-ask", {
+      id: "ask-1",
+      kind: "ask_user_question",
+      createdAt: 122,
+      questions: [{ question: "What color?", options: [{ label: "Red" }, { label: "Blue" }] }],
+    }), true);
 
     assert.equal(store.recordStageAwaitingInput("run-4", "stage-ask", true, 123), true);
 
-    assert.equal(sent.length, 0);
+    assert.equal(sent.length, 1);
+    assert.deepEqual(options, [{ triggerTurn: true, deliverAs: "steer" }]);
+    assert.equal(sent[0]?.details?.kind, "awaiting_input");
+    assert.equal(sent[0]?.details?.stageId, "stage-ask");
+    assert.equal(sent[0]?.details?.promptId, "ask-1");
+    assert.equal(sent[0]?.details?.promptKind, "ask_user_question");
+    assert.equal(sent[0]?.details?.promptMessage, "What color?");
   });
 
-  test("records promptless awaiting-input after resolving a structured stage prompt without emitting", () => {
+  test("emits a fresh promptless awaiting-input notice after resolving a structured stage prompt", () => {
     const { store, sent } = install();
     const runId = "run-stale-footprint";
     const stageId = "stage-mixed";
@@ -174,7 +188,9 @@ describe("installWorkflowLifecycleNotifications", () => {
     assert.equal(store.resolveStagePendingPrompt(runId, stageId, "prompt-1", "accepted"), true);
     assert.equal(store.recordStageAwaitingInput(runId, stageId, true, 123), true);
 
-    assert.equal(sent.length, 0);
+    assert.equal(sent.length, 2);
+    assert.equal(sent[0]?.details?.promptId, "prompt-1");
+    assert.equal(sent[1]?.details?.promptId, undefined);
   });
 
   test("dedupes repeated promptless pauses by awaitingInputSince instead of stale prompt footprint", () => {
@@ -195,7 +211,10 @@ describe("installWorkflowLifecycleNotifications", () => {
     assert.equal(store.recordStageAwaitingInput(runId, stageId, false), true);
     assert.equal(store.recordStageAwaitingInput(runId, stageId, true, 456), true);
 
-    assert.equal(sent.length, 0);
+    assert.equal(sent.length, 3);
+    assert.equal(sent[0]?.details?.promptId, "prompt-1");
+    assert.equal(sent[1]?.details?.createdAt, 123);
+    assert.equal(sent[2]?.details?.createdAt, 456);
   });
 
   test("uses a new prompt id for a second structured stage prompt", () => {
@@ -220,7 +239,9 @@ describe("installWorkflowLifecycleNotifications", () => {
       true,
     );
 
-    assert.equal(sent.length, 0);
+    assert.equal(sent.length, 2);
+    assert.equal(sent[0]?.details?.promptId, "prompt-1");
+    assert.equal(sent[1]?.details?.promptId, "prompt-2");
   });
 
   test("respects disabled and notifyOn filtering", () => {
@@ -245,13 +266,16 @@ describe("installWorkflowLifecycleNotifications", () => {
     assert.equal(sent.length, 1);
   });
 
-  test("records but does not emit awaiting-input notice for a run-level pending prompt", () => {
-    const { store, sent } = install();
+  test("emits a steer awaiting-input notice for a run-level pending prompt", () => {
+    const { store, sent, options } = install();
     startRun(store, "run-prompt", "legacy");
 
     assert.equal(store.recordPendingPrompt("run-prompt", prompt({ id: "run-prompt-1" })), true);
 
-    assert.equal(sent.length, 0);
+    assert.equal(sent.length, 1);
+    assert.deepEqual(options, [{ triggerTurn: true, deliverAs: "steer" }]);
+    assert.equal(sent[0]?.details?.scope, "run");
+    assert.equal(sent[0]?.details?.promptId, "run-prompt-1");
   });
 
   test("suppresses run-level pending prompt when notifyOn excludes awaiting_input", () => {
@@ -439,13 +463,14 @@ describe("installWorkflowLifecycleNotifications", () => {
     });
 
     assert.match(text, /Workflow "release \\"canary\\"" needs input/);
+    assert.match(text, /Respond: \/workflow connect/);
     assert.match(text, /workflow\(\{ action: "send"/);
     assert.ok(text.includes(`runId: ${JSON.stringify(runId)}`));
     assert.ok(text.includes(`stageId: ${JSON.stringify(stageId)}`));
     assert.ok(text.includes(`promptId: ${JSON.stringify(promptId)}`));
   });
 
-  test("awaiting-input notices do not enqueue a visible/actionable chat card", () => {
+  test("awaiting-input notices enqueue a visible steer message", () => {
     const store = createStore();
     const options: SendOptions[] = [];
     installWorkflowLifecycleNotifications({
@@ -456,7 +481,7 @@ describe("installWorkflowLifecycleNotifications", () => {
     store.recordRunStart({ id: "run-awaiting-turn", name: "turn", inputs: {}, status: "running", stages: [], startedAt: 1 });
     store.recordStageStart("run-awaiting-turn", runningStage({ id: "stage-awaiting-turn" }));
     assert.equal(store.recordStageAwaitingInput("run-awaiting-turn", "stage-awaiting-turn", true, 2), true);
-    assert.deepEqual(options, []);
+    assert.deepEqual(options, [{ triggerTurn: true, deliverAs: "steer" }]);
   });
 
   test("always triggers a steer turn for emitted terminal lifecycle notices", () => {

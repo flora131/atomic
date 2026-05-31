@@ -84,6 +84,18 @@ export type { AppKeybinding, KeybindingsManager } from "../keybindings.ts";
 
 export type CustomMessageDelivery = "steer" | "followUp" | "nextTurn" | "interrupt";
 
+export interface SendMessageOptions {
+	triggerTurn?: boolean;
+	deliverAs?: CustomMessageDelivery;
+	/**
+	 * Optional replacement text for generic abort tool/assistant results when
+	 * `deliverAs: "interrupt"` aborts an active turn. Use this when the abort is
+	 * caused by a meaningful external event and the model/user should see that
+	 * event instead of a bare `Operation aborted`.
+	 */
+	interruptAbortMessage?: string;
+}
+
 // ============================================================================
 // UI Context
 // ============================================================================
@@ -208,6 +220,8 @@ export interface ExtensionUIContext {
 		) => (Component & { dispose?(): void }) | Promise<Component & { dispose?(): void }>,
 		options?: {
 			overlay?: boolean;
+			/** AbortSignal to programmatically dismiss the custom UI. */
+			signal?: AbortSignal;
 			/** Overlay positioning/sizing options. Can be static or a function for dynamic updates. */
 			overlayOptions?: OverlayOptions | (() => OverlayOptions);
 			/** Called with the overlay handle after the overlay is shown. Use to control visibility. */
@@ -406,7 +420,7 @@ export interface ExtensionCommandContext extends ExtensionContext {
 export interface ReplacedSessionContext extends ExtensionCommandContext {
 	sendMessage<T = unknown>(
 		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details">,
-		options?: { triggerTurn?: boolean; deliverAs?: CustomMessageDelivery },
+		options?: SendMessageOptions,
 	): Promise<void>;
 
 	sendUserMessage(
@@ -1223,7 +1237,7 @@ export interface ExtensionAPI {
 	/** Send a custom message to the session. */
 	sendMessage<T = unknown>(
 		message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details">,
-		options?: { triggerTurn?: boolean; deliverAs?: CustomMessageDelivery },
+		options?: SendMessageOptions,
 	): void;
 
 	/**
@@ -1452,7 +1466,7 @@ type HandlerFn = (...args: unknown[]) => Promise<unknown>;
 
 export type SendMessageHandler = <T = unknown>(
 	message: Pick<CustomMessage<T>, "customType" | "content" | "display" | "details">,
-	options?: { triggerTurn?: boolean; deliverAs?: CustomMessageDelivery },
+	options?: SendMessageOptions,
 ) => void;
 
 export type SendUserMessageHandler = (

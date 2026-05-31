@@ -372,7 +372,8 @@ export function installToolExecutionHooks(pi: LiveWidgetAPI, storeInstance: Stor
   function recordToolEnd(payload: unknown): void {
     if (!isToolExecutionPayload(payload)) return;
 
-    const ids = findActiveAskCall(payload) ?? resolveIds(payload, true);
+    const activeAskCall = findActiveAskCall(payload);
+    const ids = activeAskCall ?? resolveIds(payload, false);
     if (!ids) return;
 
     storeInstance.recordToolEnd(ids.runId, ids.stageId, {
@@ -382,7 +383,7 @@ export function installToolExecutionHooks(pi: LiveWidgetAPI, storeInstance: Stor
       endedAt: payload.endedAt ?? payload.ended_at ?? Date.now(),
       output: payload.output,
     });
-    recordAskUserQuestionEnd(payload, ids);
+    recordAskUserQuestionEnd(payload, activeAskCall ?? ids);
   }
 
   const safeStart = safelyHandle(recordToolStart);

@@ -328,6 +328,7 @@ export interface ExtensionAPI {
     options?: {
       triggerTurn?: boolean;
       deliverAs?: "steer" | "followUp" | "nextTurn" | "interrupt";
+      interruptAbortMessage?: string;
     },
   ) => void | Promise<void>;
   registerFlag?: (name: string, opts: PiFlagNamedOpts) => void;
@@ -1460,7 +1461,9 @@ export function makeExecuteWorkflowTool(
           if (!hasPayloadProperty(args)) {
             return workflowSendResult(target.runId, stage.stageId, "answer", "noop", "Send requires text, response, or message.");
           }
-          const ok = stageUiBroker.answerStagePrompt(target.runId, stage.stageId, brokerAnswerFromArgs(args));
+          const ok = stageUiBroker.answerStagePrompt(target.runId, stage.stageId, brokerAnswerFromArgs(args), {
+            answerSource: "workflow_tool",
+          });
           return workflowSendResult(
             target.runId,
             stage.stageId,
@@ -1490,7 +1493,9 @@ export function makeExecuteWorkflowTool(
               `Input request ${promptId} was already answered.`,
             );
           }
-          const ok = store.resolveStagePendingPrompt(target.runId, stage.stageId, promptId, promptPayloadFromArgs(args));
+          const ok = store.resolveStagePendingPrompt(target.runId, stage.stageId, promptId, promptPayloadFromArgs(args), {
+            answerSource: "workflow_tool",
+          });
           return workflowSendResult(
             target.runId,
             stage.stageId,

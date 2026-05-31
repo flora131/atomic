@@ -66,7 +66,7 @@ Preview content is rendered as markdown in a monospace box. Multi-line text with
 		promptGuidelines: guidance.promptGuidelines ?? DEFAULT_PROMPT_GUIDELINES,
 		parameters: QuestionParamsSchema,
 
-		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			const typed = params as unknown as QuestionParams;
 			if (!ctx.hasUI) return buildToolResult(ERROR_NO_UI, { answers: [], cancelled: true, error: "no_ui" });
 
@@ -90,7 +90,7 @@ Preview content is rendered as markdown in a monospace box. Multi-line text with
 					done,
 				});
 				return session.component;
-			});
+			}, { signal });
 
 			return buildQuestionnaireResponse(result, typed);
 		},

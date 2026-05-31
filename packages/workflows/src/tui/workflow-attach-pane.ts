@@ -36,6 +36,7 @@ import type {
   StageControlRegistry,
 } from "../runs/foreground/stage-control-registry.js";
 import type { StageUiBroker } from "../shared/stage-ui-broker.js";
+import type { StageSnapshot, StoreSnapshot } from "../shared/store-types.js";
 
 /**
  * Surface used to write Pi's footer/status tag while the attach pane is
@@ -117,11 +118,14 @@ export interface WorkflowAttachPaneOpts {
    * scrolling and drops non-wheel mouse bytes before they reach the editor.
    */
   setMouseScrollTracking?: (enabled: boolean) => void;
+  /** Optional clock injection for deterministic transition-quarantine tests. */
+  now?: () => number;
 }
 
 export type WorkflowAttachPaneMode = "graph" | "stage-chat";
 
 const STATUS_KEY = "pi-workflows";
+const ENTER_TRANSITION_QUARANTINE_MS = 200;
 
 export class WorkflowAttachPane implements Component {
   private store: Store;
@@ -144,14 +148,18 @@ export class WorkflowAttachPane implements Component {
   private piEditorFactory?: (tui: TUI, theme: EditorTheme, keybindings: unknown) => EditorComponent;
   private getChatRenderSettings?: () => Partial<Omit<ChatMessageRenderOptions, "ui" | "cwd">> | undefined;
   private footerData?: ReadonlyFooterDataProvider;
+  private now: () => number;
 
   private mode: WorkflowAttachPaneMode = "graph";
+  private visible = true;
   private graphView: GraphView;
   private chatView: StageChatView | null = null;
   /** Stage id the user most recently attached to (used to seed focus). */
   private lastAttachedStageId: string | null = null;
-  /** One-shot guard for repeated Enter after a prompt answer auto-detaches. */
-  private suppressNextGraphSubmit = false;
+  /** Time-boxed guard for Enter leaking into graph mode during connect/detach transitions. */
+  private graphEnterQuarantineUntil = 0;
+  /** Time-boxed guard for Enter leaking from graph attach into an attached prompt. */
+  private stagePromptEnterQuarantineUntil = 0;
 
   constructor(opts: WorkflowAttachPaneOpts) {
     this.store = opts.store;
@@ -174,12 +182,14 @@ export class WorkflowAttachPane implements Component {
     this.piEditorFactory = opts.piEditorFactory;
     this.getChatRenderSettings = opts.getChatRenderSettings;
     this.footerData = opts.footerData;
+    this.now = opts.now ?? Date.now;
 
     this.graphView = this._buildGraphView();
 
     if (opts.initialAttachStageId !== undefined && this.runId) {
       this._attachToStage(this.runId, opts.initialAttachStageId);
     } else {
+      this._armGraphEnterQuarantineIfRunNeedsInput();
       this._setBaseStatus();
       this._syncMouseScrollTracking();
     }
@@ -195,7 +205,9 @@ export class WorkflowAttachPane implements Component {
       onHide: this.onHide,
       onKill: this.onKill,
       onPromptResolve: this.onPromptResolve,
-      onStageAttach: (runId, stageId) => this._attachToStage(runId, stageId),
+      onStageAttach: (runId, stageId) => this._attachToStage(runId, stageId, {
+        suppressInitialPromptSubmit: true,
+      }),
       onDetach: () => {
         if (this.onHide) this.onHide();
       },
@@ -234,13 +246,22 @@ export class WorkflowAttachPane implements Component {
     return run?.stages.find((s) => s.id === stageId)?.name ?? "stage";
   }
 
-  private _attachToStage(runId: string, stageId: string): void {
-    this.suppressNextGraphSubmit = false;
+  private _attachToStage(
+    runId: string,
+    stageId: string,
+    options: { suppressInitialPromptSubmit?: boolean } = { suppressInitialPromptSubmit: true },
+  ): void {
+    this.graphEnterQuarantineUntil = 0;
+    this.stagePromptEnterQuarantineUntil =
+      options.suppressInitialPromptSubmit === true && this._stageNeedsInput(runId, stageId)
+        ? this.now() + ENTER_TRANSITION_QUARANTINE_MS
+        : 0;
     this.runId = runId;
     this.lastAttachedStageId = stageId;
     const handle: StageControlHandle | undefined = this.registry?.get(runId, stageId);
     this.chatView?.dispose();
-    this.chatView = new StageChatView({
+    let chatView!: StageChatView;
+    chatView = new StageChatView({
       store: this.store,
       graphTheme: this.theme,
       runId,
@@ -259,8 +280,17 @@ export class WorkflowAttachPane implements Component {
       footerData: this.footerData,
       getViewportRows: this.getViewportRows,
       stageUiBroker: this.stageUiBroker,
+      canSubmitPrompt: (candidateRunId, candidateStageId) => (
+        this.visible &&
+        this.mode === "stage-chat" &&
+        this.chatView === chatView &&
+        this.runId === candidateRunId &&
+        this.lastAttachedStageId === candidateStageId &&
+        this._isStageMarkedAttached(candidateRunId, candidateStageId)
+      ),
     });
-    this.store.recordStageAttached(runId, stageId, true);
+    this.chatView = chatView;
+    this.store.recordStageAttached(runId, stageId, this.visible);
     this.mode = "stage-chat";
     this._setAttachedStatus(runId, stageId);
     this._syncMouseScrollTracking();
@@ -281,8 +311,11 @@ export class WorkflowAttachPane implements Component {
     this.graphView.dispose();
     this.graphView = this._buildGraphView(this.lastAttachedStageId ?? undefined);
     this.mode = "graph";
-    this.suppressNextGraphSubmit =
-      reason === "prompt-resolved" && metadata.suppressNextGraphSubmit === true;
+    this.stagePromptEnterQuarantineUntil = 0;
+    this.graphEnterQuarantineUntil =
+      reason === "prompt-resolved" && metadata.suppressNextGraphSubmit === true
+        ? this.now() + ENTER_TRANSITION_QUARANTINE_MS
+        : 0;
     this._setBaseStatus();
     this._syncMouseScrollTracking();
   }
@@ -297,7 +330,8 @@ export class WorkflowAttachPane implements Component {
     this.runId = runId;
     this.lastAttachedStageId = null;
     this.mode = "graph";
-    this.suppressNextGraphSubmit = false;
+    this.graphEnterQuarantineUntil = 0;
+    this.stagePromptEnterQuarantineUntil = 0;
     this.graphView = this._buildGraphView();
 
     if (stageId !== undefined && runId) {
@@ -305,6 +339,7 @@ export class WorkflowAttachPane implements Component {
       return;
     }
 
+    this._armGraphEnterQuarantineIfRunNeedsInput();
     this._setBaseStatus();
     this._syncMouseScrollTracking();
   }
@@ -321,6 +356,7 @@ export class WorkflowAttachPane implements Component {
   }
 
   setVisible(visible: boolean): void {
+    this.visible = visible;
     if (this.mode === "stage-chat" && this.runId && this.lastAttachedStageId) {
       this.store.recordStageAttached(this.runId, this.lastAttachedStageId, visible);
       if (visible) this._setAttachedStatus(this.runId, this.lastAttachedStageId);
@@ -342,6 +378,20 @@ export class WorkflowAttachPane implements Component {
     return this.mode === "graph";
   }
 
+  wantsFocusForAwaitingInput(snapshot: StoreSnapshot): boolean {
+    if (!this.visible) return false;
+    const runId = this._resolveRunId();
+    if (!runId) return false;
+    const run = snapshot.runs.find((candidate) => candidate.id === runId);
+    if (!run) return false;
+    if (this.mode === "graph") {
+      return run.pendingPrompt !== undefined || run.stages.some((stage) => this._stageSnapshotNeedsInput(stage));
+    }
+    if (this.mode !== "stage-chat" || !this.lastAttachedStageId) return false;
+    const stage = run.stages.find((candidate) => candidate.id === this.lastAttachedStageId);
+    return stage?.attached === true && this._stageSnapshotNeedsInput(stage);
+  }
+
   render(width: number): string[] {
     if (this.mode === "stage-chat" && this.chatView) {
       return this.chatView.render(width);
@@ -350,14 +400,89 @@ export class WorkflowAttachPane implements Component {
   }
 
   handleInput(data: string): boolean | void {
+    if (!this.visible) return false;
     if (this.mode === "stage-chat" && this.chatView) {
+      if (this._shouldQuarantineStagePromptEnter(data)) return true;
       return this.chatView.handleInput(data);
     }
-    if (this.suppressNextGraphSubmit) {
-      this.suppressNextGraphSubmit = false;
-      if (matchesKey(data, Key.enter)) return true;
-    }
+    if (this._shouldQuarantineGraphEnter(data)) return true;
     return this.graphView.handleInput(data);
+  }
+
+  private _shouldQuarantineStagePromptEnter(data: string): boolean {
+    if (this.stagePromptEnterQuarantineUntil <= 0) return false;
+    if (!matchesKey(data, Key.enter)) {
+      this.stagePromptEnterQuarantineUntil = 0;
+      return false;
+    }
+    if (!this.runId || !this.lastAttachedStageId) {
+      this.stagePromptEnterQuarantineUntil = 0;
+      return false;
+    }
+    if (!this._stageNeedsInput(this.runId, this.lastAttachedStageId)) {
+      this.stagePromptEnterQuarantineUntil = 0;
+      return false;
+    }
+    const now = this.now();
+    if (now <= this.stagePromptEnterQuarantineUntil) {
+      this.stagePromptEnterQuarantineUntil = now + ENTER_TRANSITION_QUARANTINE_MS;
+      return true;
+    }
+    this.stagePromptEnterQuarantineUntil = 0;
+    return false;
+  }
+
+  private _shouldQuarantineGraphEnter(data: string): boolean {
+    if (this.graphEnterQuarantineUntil <= 0) return false;
+    if (!matchesKey(data, Key.enter)) {
+      this.graphEnterQuarantineUntil = 0;
+      return false;
+    }
+    const now = this.now();
+    if (now <= this.graphEnterQuarantineUntil) {
+      this.graphEnterQuarantineUntil = now + ENTER_TRANSITION_QUARANTINE_MS;
+      return true;
+    }
+    this.graphEnterQuarantineUntil = 0;
+    return false;
+  }
+
+  private _armGraphEnterQuarantineIfRunNeedsInput(): void {
+    const runId = this._resolveRunId();
+    this.graphEnterQuarantineUntil = runId && this._runNeedsInput(runId)
+      ? this.now() + ENTER_TRANSITION_QUARANTINE_MS
+      : 0;
+  }
+
+  private _runNeedsInput(runId: string): boolean {
+    const run = this.store.snapshot().runs.find((candidate) => candidate.id === runId);
+    if (!run) return false;
+    return (
+      run.pendingPrompt !== undefined ||
+      run.stages.some((stage) => this._stageSnapshotNeedsInput(stage))
+    );
+  }
+
+  private _stageNeedsInput(runId: string, stageId: string): boolean {
+    const stage = this._stageSnapshot(runId, stageId);
+    return stage !== undefined && this._stageSnapshotNeedsInput(stage);
+  }
+
+  private _isStageMarkedAttached(runId: string, stageId: string): boolean {
+    return this._stageSnapshot(runId, stageId)?.attached === true;
+  }
+
+  private _stageSnapshot(runId: string, stageId: string): StageSnapshot | undefined {
+    const run = this.store.snapshot().runs.find((candidate) => candidate.id === runId);
+    return run?.stages.find((candidate) => candidate.id === stageId);
+  }
+
+  private _stageSnapshotNeedsInput(stage: Pick<StageSnapshot, "pendingPrompt" | "inputRequest" | "status">): boolean {
+    return (
+      stage.pendingPrompt !== undefined ||
+      stage.inputRequest !== undefined ||
+      stage.status === "awaiting_input"
+    );
   }
 
   invalidate(): void {

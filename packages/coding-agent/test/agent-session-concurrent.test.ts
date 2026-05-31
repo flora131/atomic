@@ -5,7 +5,7 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Agent, type AgentMessage } from "@earendil-works/pi-agent-core";
+import { Agent, type AgentEvent, type AgentMessage } from "@earendil-works/pi-agent-core";
 import {
 	type AssistantMessage,
 	type AssistantMessageEvent,
@@ -431,6 +431,69 @@ describe("AgentSession concurrent prompt guard", () => {
 		session.clearQueue();
 	});
 
+
+	it("should replace generic abort events for interrupt custom messages", () => {
+		const model = getModel("anthropic", "claude-sonnet-4-5")!;
+		const agent = new Agent({
+			getApiKey: () => "test-key",
+			initialState: {
+				model,
+				systemPrompt: "Test",
+				tools: [],
+			},
+		});
+		const sessionManager = SessionManager.inMemory();
+		const settingsManager = SettingsManager.create(tempDir, tempDir);
+		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
+		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
+		authStorage.setRuntimeApiKey("anthropic", "test-key");
+
+		session = new AgentSession({
+			agent,
+			sessionManager,
+			settingsManager,
+			cwd: tempDir,
+			modelRegistry,
+			resourceLoader: createTestResourceLoader(),
+		});
+
+		const abortMessage =
+			"The main-chat question was dismissed because the user responded in the workflow chat. User responded with: Blue.";
+		const internals = session as unknown as {
+			_activeInterruptAbortMessage: string | undefined;
+			_applyInterruptAbortMessage(event: AgentEvent): void;
+		};
+		internals._activeInterruptAbortMessage = abortMessage;
+
+		const toolEndEvent = {
+			type: "tool_execution_end",
+			toolCallId: "ask-1",
+			toolName: "ask_user_question",
+			result: { content: [{ type: "text" as const, text: "Operation aborted" }], details: {} },
+			isError: true,
+		} as AgentEvent;
+		internals._applyInterruptAbortMessage(toolEndEvent);
+		expect((toolEndEvent as { result: { content: TextContent[] } }).result.content[0]?.text).toBe(abortMessage);
+
+		const toolResultEvent = {
+			type: "message_end",
+			message: {
+				role: "toolResult",
+				toolCallId: "ask-1",
+				toolName: "ask_user_question",
+				content: [{ type: "text" as const, text: "The operation was aborted." }],
+				details: {},
+				isError: true,
+				timestamp: Date.now(),
+			},
+		} as AgentEvent;
+		internals._applyInterruptAbortMessage(toolResultEvent);
+		expect(textFromAgentMessage((toolResultEvent as { message: AgentMessage }).message)).toBe(abortMessage);
+
+		const assistantMessage = { ...createAssistantMessage(""), stopReason: "aborted" as const };
+		internals._applyInterruptAbortMessage({ type: "message_start", message: assistantMessage } as AgentEvent);
+		expect(assistantMessage.errorMessage).toBe(abortMessage);
+	});
 
 	it("should deliver concurrent interrupt custom messages serially", async () => {
 		const model = getModel("anthropic", "claude-sonnet-4-5")!;

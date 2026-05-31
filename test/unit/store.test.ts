@@ -51,6 +51,26 @@ describe("store stage blocking", () => {
     assert.equal("awaitingInputSince" in stage, false);
   });
 
+  test("does not clear a pending prompt stage through transient ask_user_question state", () => {
+    const s = createStore();
+    s.recordRunStart(makeRun("r1", [makeStage("hil", { status: "running" })]));
+    assert.equal(s.recordStagePendingPrompt("r1", "hil", {
+      id: "prompt-1",
+      kind: "select",
+      message: "Choose one",
+      choices: ["one", "two"],
+      createdAt: 123,
+    }), true);
+
+    const versionBeforeClear = s.snapshot().version;
+    assert.equal(s.recordStageAwaitingInput("r1", "hil", false), false);
+    const stage = s.snapshot().runs[0]!.stages[0]!;
+    assert.equal(stage.status, "awaiting_input");
+    assert.equal(stage.pendingPrompt?.id, "prompt-1");
+    assert.equal(stage.awaitingInputSince, 123);
+    assert.equal(s.snapshot().version, versionBeforeClear);
+  });
+
   test("awaiting_input does not override paused or terminal stages", () => {
     const s = createStore();
     s.recordRunStart(makeRun("r1", [

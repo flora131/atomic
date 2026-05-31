@@ -142,6 +142,12 @@ export interface StageChatViewOpts {
   getViewportRows?: () => number | undefined;
   /** Broker that routes stage-local custom UI, such as ask_user_question, into this node. */
   stageUiBroker?: StageUiBroker;
+  /**
+   * Ownership guard for prompt submission. The attach shell uses this to ensure
+   * stale/hidden/non-active stage-chat instances cannot settle a prompt unless
+   * the user is currently attached to this exact workflow node.
+   */
+  canSubmitPrompt?: (runId: string, stageId: string, promptId: string) => boolean;
 }
 
 /**
@@ -212,6 +218,7 @@ export class StageChatView implements Component, Focusable {
   private piEditorFactory?: StageChatViewOpts["piEditorFactory"];
   private chatHost: ChatSessionHost<NoticeEntry>;
   private stageUiBroker: StageUiBroker;
+  private canSubmitPrompt?: (runId: string, stageId: string, promptId: string) => boolean;
   private mountedCustomUi: MountedStageCustomUi | null = null;
   private mountingRequestId: string | null = null;
   private promptState: PromptCardState | null = null;
@@ -271,6 +278,7 @@ export class StageChatView implements Component, Focusable {
     this.getChatRenderSettings = opts.getChatRenderSettings;
     this.footerData = opts.footerData;
     this.stageUiBroker = opts.stageUiBroker ?? stageUiBroker;
+    this.canSubmitPrompt = opts.canSubmitPrompt;
     this.chatHost = new ChatSessionHost<NoticeEntry>({
       style: this._chatHostStyle(),
       commands: {
@@ -372,7 +380,11 @@ export class StageChatView implements Component, Focusable {
       // `stage.setModel`, `stage.compact`, …) so they thread through the
       // transcript without a special render path.
       changed = this._absorbStageNotices(stage) || changed;
-      changed = this._syncPromptState(stage?.pendingPrompt) || changed;
+      const promptChanged = this._syncPromptState(stage?.pendingPrompt);
+      changed = promptChanged || changed;
+      if (promptChanged && this.promptState && this._canSubmitPrompt(this.promptState.prompt.id)) {
+        this.requestFocus?.();
+      }
       this.chatHost.syncAnimationTick();
       if (changed) this.requestRender?.();
     });
@@ -433,6 +445,7 @@ export class StageChatView implements Component, Focusable {
           this.chatHost.scrollToBottom();
           this.requestRender?.();
         },
+        () => this._canSubmitPrompt(request.id),
       );
       // Settled or superseded while mounting: drop the freshly-built component
       // instead of showing a gate the broker has already torn down.
@@ -565,15 +578,20 @@ export class StageChatView implements Component, Focusable {
   ): void {
     const prompt = this.promptState?.prompt;
     if (!prompt || prompt.id !== promptId) return;
+    if (!this._canSubmitPrompt(promptId)) {
+      this.requestRender?.();
+      return;
+    }
     this.promptState = null;
     this._disposePromptEditor();
     this._resetPromptScroll();
     // A false return means the prompt was already resolved/removed (for
     // example by run abort). The local UI is already stale, so clearing it is
-    // the least surprising recovery path.
-    this.store.resolveStagePendingPrompt(this.runId, this.stageId, prompt.id, response);
+    // the least surprising recovery path, but it must not trigger graph-mode
+    // transition side effects for a prompt this view did not actually settle.
+    const resolved = this.store.resolveStagePendingPrompt(this.runId, this.stageId, prompt.id, response);
     this.requestRender?.();
-    this.onDetach("prompt-resolved", metadata);
+    if (resolved) this.onDetach("prompt-resolved", metadata);
   }
 
   // -------------------------------------------------------------------------
@@ -696,6 +714,8 @@ export class StageChatView implements Component, Focusable {
       bodyLines = this._renderPromptBody(w, bodyBudget);
     } else if (blocked) {
       bodyLines = this._renderBlockedBody(w, bodyBudget, stage);
+    } else if (!readOnlyArchive && this._isPaused(stage)) {
+      bodyLines = this._renderPausedBody(w, bodyBudget);
     } else if (readOnlyArchive) {
       bodyLines = this._renderReadOnlyArchiveBody(w, bodyBudget, stage);
     } else {
@@ -850,6 +870,7 @@ export class StageChatView implements Component, Focusable {
     bodyLines.push("");
     bodyLines.push(...new Text(paint("your response", t.textMuted, { bold: true }), 2, 0).render(innerWidth));
     bodyLines.push(...new Text(paint(answer, answer.startsWith("(") ? t.dim : t.text), 4, 0).render(innerWidth));
+    bodyLines.push("");
     bodyLines.push(...new Text(
       paint("esc", t.accent, { bold: true }) +
         paint(" close", t.textMuted) +
@@ -886,6 +907,36 @@ export class StageChatView implements Component, Focusable {
       default:
         return "(no response saved)";
     }
+  }
+
+  private _renderPausedBody(width: number, budget: number): string[] {
+    const t = this.theme;
+    const callout: string[] = [];
+    callout.push(this._blank(width));
+    callout.push(
+      ...this._bannerLines(
+        width,
+        "warning",
+        "❚❚",
+        "PAUSED",
+        "enter resumes · ctrl+d close",
+      ),
+    );
+    callout.push(
+      ...new Text(
+        paint("This workflow stage is paused. Type a message below and press Enter to resume.", t.textMuted),
+        2,
+        0,
+      ).render(width),
+    );
+
+    const calloutRows = Math.min(callout.length, Math.max(0, budget - 1));
+    const transcriptBudget = Math.max(1, budget - calloutRows);
+    const lines = this.chatHost.renderBody(width, transcriptBudget);
+    lines.push(...callout.slice(0, calloutRows));
+    while (lines.length < budget) lines.push(this._blank(width));
+    if (lines.length > budget) lines.length = budget;
+    return lines;
   }
 
   private _renderBlockedBody(
@@ -1097,6 +1148,10 @@ export class StageChatView implements Component, Focusable {
     return isKeybindingsLike(this.piKeybindings) ? this.piKeybindings : undefined;
   }
 
+  private _canSubmitPrompt(promptId: string): boolean {
+    return this.canSubmitPrompt?.(this.runId, this.stageId, promptId) ?? true;
+  }
+
   private _handlePromptInput(data: string): void {
     const state = this.promptState;
     if (!state) return;
@@ -1141,6 +1196,10 @@ export class StageChatView implements Component, Focusable {
 
   handleInput(data: string): boolean {
     if (this.mountedCustomUi) {
+      if (!this._canSubmitPrompt(this.mountedCustomUi.request.id)) {
+        this.requestRender?.();
+        return true;
+      }
       if (matchesKey(data, Key.ctrl("d"))) {
         // Detach stops *viewing* the stage; it does not cancel a pending
         // human-input request. Release the local display only — the request

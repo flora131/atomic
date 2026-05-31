@@ -20,6 +20,7 @@ interface SentMessage {
 type SendOptions = {
   readonly triggerTurn?: boolean;
   readonly deliverAs?: "steer" | "followUp" | "nextTurn" | "interrupt";
+  readonly interruptAbortMessage?: string;
 };
 
 const COLOR_ARGS = {
@@ -80,7 +81,11 @@ describe("installWorkflowHilAnswerNotifications", () => {
     store.clearStagePromptAnswer("run-1", "stage-1");
 
     assert.equal(sent.length, 1);
-    assert.deepEqual(options, [{ triggerTurn: true, deliverAs: "interrupt" }]);
+    assert.equal(options[0]?.triggerTurn, true);
+    assert.equal(options[0]?.deliverAs, "interrupt");
+    assert.match(options[0]?.interruptAbortMessage ?? "", /main-chat question was dismissed/);
+    assert.match(options[0]?.interruptAbortMessage ?? "", /User responded with: swordfish/);
+    assert.doesNotMatch(options[0]?.interruptAbortMessage ?? "", /^Operation aborted$/);
     assert.equal(sent[0]?.customType, HIL_ANSWER_NOTICE_CUSTOM_TYPE);
     assert.equal(sent[0]?.display, true);
     assert.equal(sent[0]?.details?.kind, "hil_answered");
@@ -92,12 +97,13 @@ describe("installWorkflowHilAnswerNotifications", () => {
     assert.equal(sent[0]?.details?.promptId, "prompt-1");
     assert.equal(sent[0]?.details?.promptKind, "input");
     assert.equal(sent[0]?.details?.answerAvailable, true);
-    assert.equal(sent[0]?.details?.answerIncluded, false);
+    assert.equal(sent[0]?.details?.answerIncluded, true);
+    assert.equal(sent[0]?.details?.answerSummary, "swordfish");
+    assert.equal(sent[0]?.details?.promptMessage, "Secret passphrase?");
     assert.equal(typeof sent[0]?.details?.answeredAt, "number");
-    assert.match(sent[0]?.content ?? "", /received the answer/);
+    assert.match(sent[0]?.content ?? "", /received the user's response/);
+    assert.match(sent[0]?.content ?? "", /User responded with: swordfish/);
     assert.match(sent[0]?.content ?? "", /Do not ask the same question again/);
-    assert.doesNotMatch(sent[0]?.content ?? "", /swordfish/);
-    assert.doesNotMatch(JSON.stringify(sent[0]?.details), /swordfish/);
     unsubscribe();
   });
 
@@ -109,6 +115,20 @@ describe("installWorkflowHilAnswerNotifications", () => {
       store.resolveStagePendingPrompt("run-1", "stage-1", "prompt-1", "discarded", { recordAnswer: false }),
       true,
     );
+
+    assert.deepEqual(sent, []);
+    unsubscribe();
+  });
+
+  test("does not notify when a simple prompt is answered by the workflow tool", () => {
+    const { store, sent, unsubscribe } = setup();
+
+    assert.equal(store.recordStagePendingPrompt("run-1", "stage-1", pendingPrompt()), true);
+    assert.equal(
+      store.resolveStagePendingPrompt("run-1", "stage-1", "prompt-1", "from tool", { answerSource: "workflow_tool" }),
+      true,
+    );
+    store.recordNotice({ id: "tick", level: "info", message: "force notify", createdAt: 20 });
 
     assert.deepEqual(sent, []);
     unsubscribe();
@@ -128,15 +148,35 @@ describe("installWorkflowHilAnswerNotifications", () => {
     await pending;
 
     assert.equal(sent.length, 1);
-    assert.deepEqual(options, [{ triggerTurn: true, deliverAs: "interrupt" }]);
+    assert.equal(options[0]?.triggerTurn, true);
+    assert.equal(options[0]?.deliverAs, "interrupt");
+    assert.match(options[0]?.interruptAbortMessage ?? "", /User responded with: What color\? → Blue/);
     assert.equal(sent[0]?.customType, HIL_ANSWER_NOTICE_CUSTOM_TYPE);
     assert.equal(sent[0]?.details?.promptId, "ask-1");
     assert.equal(sent[0]?.details?.promptKind, "ask_user_question");
     assert.equal(sent[0]?.details?.answerAvailable, true);
-    assert.equal(sent[0]?.details?.answerIncluded, false);
-    assert.match(sent[0]?.content ?? "", /already received the user's response|stage has already received the user's response/);
-    assert.doesNotMatch(sent[0]?.content ?? "", /Blue/);
-    assert.doesNotMatch(JSON.stringify(sent[0]?.details), /Blue/);
+    assert.equal(sent[0]?.details?.answerIncluded, true);
+    assert.equal(sent[0]?.details?.answerSummary, "What color? → Blue");
+    assert.equal(sent[0]?.details?.promptMessage, "What color?");
+    assert.match(sent[0]?.content ?? "", /User responded with: What color\? → Blue/);
+    assert.match(sent[0]?.content ?? "", /stage has already received the user's response/);
+    unsubscribe();
+  });
+
+  test("does not notify when a brokered structured prompt is answered by the workflow tool", async () => {
+    const { broker, sent, unsubscribe } = setup();
+    const adapter = buildStagePromptAdapter("ask-1", "ask_user_question", COLOR_ARGS, 1)!;
+    broker.provideStagePrompt("run-1", "stage-1", adapter);
+
+    const pending = broker.requestCustomUi("run-1", "stage-1", () => ({
+      render: () => [],
+      invalidate: () => {},
+    }));
+
+    assert.equal(broker.answerStagePrompt("run-1", "stage-1", { text: "Blue" }, { answerSource: "workflow_tool" }), true);
+    await pending;
+
+    assert.deepEqual(sent, []);
     unsubscribe();
   });
 });

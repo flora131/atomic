@@ -45,6 +45,8 @@ export interface RunEndMetadata {
   readonly resumable?: boolean;
 }
 
+export type StagePromptAnswerSource = "workflow_ui" | "workflow_tool";
+
 export interface PromptAnswerRecord {
   readonly runId: string;
   readonly stageId: string;
@@ -52,6 +54,7 @@ export interface PromptAnswerRecord {
   readonly kind: PromptKind;
   readonly value: unknown;
   readonly answeredAt: number;
+  readonly answerSource?: StagePromptAnswerSource;
 }
 
 export interface ResolveStagePendingPromptOptions {
@@ -60,6 +63,8 @@ export interface ResolveStagePendingPromptOptions {
    * continuation replay. Abort/default resolutions should set this to false.
    */
   readonly recordAnswer?: boolean;
+  /** Identifies who answered the prompt so notification code can avoid echoing workflow-tool answers. */
+  readonly answerSource?: StagePromptAnswerSource;
 }
 
 export interface Store {
@@ -565,6 +570,7 @@ export function createStore(): Store {
           kind: pending.kind,
           value: response,
           answeredAt: Date.now(),
+          ...(options.answerSource !== undefined ? { answerSource: options.answerSource } : {}),
         });
         stage.promptAnswerState = "available";
       } else {
@@ -700,6 +706,7 @@ export function createStore(): Store {
         stage.status = "awaiting_input";
         stage.awaitingInputSince = ts ?? Date.now();
       } else {
+        if (stage.pendingPrompt !== undefined) return false;
         if (stage.status !== "awaiting_input") return false;
         stage.status = "running";
         delete stage.awaitingInputSince;

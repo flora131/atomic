@@ -2594,11 +2594,9 @@ export async function run<TInputs extends Record<string, unknown>>(
           askUserQuestionObservedThisTurn = true;
           if (toolEvent.callId !== undefined) activeAskUserQuestionCalls.add(toolEvent.callId);
           else activeAskUserQuestionAnonymousCalls += 1;
-          activeStore.recordStageAwaitingInput(runId, stageId, true);
-          // Expose a headless-answer adapter so the prompt can be answered
-          // programmatically (e.g. `workflow send`) without a TUI host. The
-          // (runId, stageId) key joins this to the broker request the tool's
-          // ctx.ui.custom() call raises.
+          // Expose a headless-answer adapter before marking the stage awaiting
+          // input so the main-chat steering notice can include the actual
+          // structured question instead of a promptless placeholder.
           const adapter = buildStagePromptAdapter(
             toolEvent.callId ?? `ask-user-question-${stageId}`,
             "ask_user_question",
@@ -2606,6 +2604,7 @@ export async function run<TInputs extends Record<string, unknown>>(
             Date.now(),
           );
           if (adapter) stageUiBroker.provideStagePrompt(runId, stageId, adapter);
+          activeStore.recordStageAwaitingInput(runId, stageId, true);
           return;
         }
 

@@ -177,21 +177,11 @@ export function buildGraphOverlayAdapter(
     }
   }
 
-  function snapshotHasAwaitingInput(snapshot: StoreSnapshot): boolean {
-    return snapshot.runs.some(
-      (run) => run.pendingPrompt !== undefined || run.stages.some(
-        (stage) => stage.status === "awaiting_input"
-          || stage.pendingPrompt !== undefined
-          || stage.inputRequest !== undefined,
-      ),
-    );
-  }
-
   function refocusVisibleOverlayForAwaitingInput(snapshot: StoreSnapshot): void {
-    if (!snapshotHasAwaitingInput(snapshot)) return;
     if (currentHandle === null) return;
     if (currentHandle.isHidden()) return;
     if (currentHandle.isFocused()) return;
+    if (currentView?.wantsFocusForAwaitingInput(snapshot) !== true) return;
     currentHandle.focus();
   }
 

@@ -1301,6 +1301,7 @@ pi.sendMessage({
   - `"nextTurn"` - Queued for next user prompt. Does not interrupt or trigger anything.
   - `"interrupt"` - With `triggerTurn: true`, aborts an active streaming turn and immediately starts a new turn with the custom message. When idle, behaves like a triggered custom message.
 - `triggerTurn: true` - If agent is idle, trigger an LLM response immediately. Required for `"interrupt"`; ignored for `"nextTurn"`.
+- `interruptAbortMessage` - Optional text used to replace generic abort results (for example `Operation aborted`) when `deliverAs: "interrupt"` aborts an active turn.
 
 ### pi.sendUserMessage(content, options?)
 
@@ -2367,6 +2368,8 @@ The callback receives:
 - `theme` - Current theme for styling
 - `keybindings` - App keybinding manager (for checking shortcuts)
 - `done(value)` - Call to close component and return value
+
+Pass `{ signal }` to dismiss the custom UI if an operation is aborted; the returned promise rejects with the signal reason.
 
 See [TUI components](/tui) for the full component API.
 

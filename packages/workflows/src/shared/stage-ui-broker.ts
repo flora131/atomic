@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Component, Focusable, TUI } from "@earendil-works/pi-tui";
-import type { Store } from "./store.js";
+import type { StagePromptAnswerSource, Store } from "./store.js";
 import { store as defaultStore } from "./store.js";
 import type { StageInputRequest } from "./store-types.js";
 import type { StageInputAnswer, StagePromptAdapter } from "./stage-prompt.js";
@@ -26,7 +26,14 @@ export interface StagePromptResolvedEvent {
   readonly runId: string;
   readonly stageId: string;
   readonly prompt: StageInputRequest;
+  readonly answer: unknown;
   readonly answeredAt: number;
+  readonly answerSource?: StagePromptAnswerSource;
+}
+
+export interface AnswerStagePromptOptions {
+  /** Identifies who answered the prompt so notification code can avoid echoing workflow-tool answers. */
+  readonly answerSource?: StagePromptAnswerSource;
 }
 
 export type StagePromptResolvedListener = (event: StagePromptResolvedEvent) => void;
@@ -114,12 +121,17 @@ export class StageUiBroker {
    * `ctx.ui.custom` promise with the adapter-built result. Returns `false` when
    * there is no adapter+request pair for the stage.
    */
-  answerStagePrompt(runId: string, stageId: string, answer: StageInputAnswer): boolean {
+  answerStagePrompt(
+    runId: string,
+    stageId: string,
+    answer: StageInputAnswer,
+    options: AnswerStagePromptOptions = {},
+  ): boolean {
     const hostKey = key(runId, stageId);
     const adapter = this.adapters.get(hostKey);
     const request = this.pending.get(hostKey);
     if (!adapter || !request) return false;
-    this.resolve(request, adapter.buildResult(answer));
+    this.resolve(request, adapter.buildResult(answer), options);
     return true;
   }
 
@@ -234,7 +246,7 @@ export class StageUiBroker {
     });
   }
 
-  resolve<T>(request: StageCustomUiRequest<T>, value: T): void {
+  resolve<T>(request: StageCustomUiRequest<T>, value: T, options: AnswerStagePromptOptions = {}): void {
     const hostKey = key(request.runId, request.stageId);
     if (this.pending.get(hostKey)?.id !== request.id) return;
     const prompt = this.adapters.get(hostKey)?.prompt;
@@ -249,7 +261,9 @@ export class StageUiBroker {
         runId: request.runId,
         stageId: request.stageId,
         prompt,
+        answer: value,
         answeredAt: Date.now(),
+        ...(options.answerSource !== undefined ? { answerSource: options.answerSource } : {}),
       });
     }
     request.resolve(value);
@@ -280,12 +294,14 @@ export async function mountStageCustomUi(
   keybindings: PiKeybindings,
   broker: StageUiBroker,
   onDone?: () => void,
+  canResolve?: () => boolean,
 ): Promise<MountedStageCustomUi> {
   const rawComponent = await request.factory(
     tui as unknown as Parameters<StageCustomUiRequest["factory"]>[0],
     theme,
     keybindings,
     (result: unknown) => {
+      if (canResolve?.() === false) return;
       broker.resolve(request, result);
       onDone?.();
     },

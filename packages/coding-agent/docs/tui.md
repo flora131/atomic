@@ -106,6 +106,8 @@ async execute(toolCallId, params, onUpdate, ctx, signal) {
 }
 ```
 
+Pass `{ signal }` to `ctx.ui.custom()` when the UI belongs to an abortable tool or operation. If the signal aborts, Atomic dismisses the custom UI and rejects the returned promise with the signal reason.
+
 ## Overlays
 
 Overlays render components on top of existing content without clearing the screen. Pass `{ overlay: true }` to `ctx.ui.custom()`:

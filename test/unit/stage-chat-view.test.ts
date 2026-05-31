@@ -473,6 +473,11 @@ describe("StageChatView", () => {
     assert.match(visible, /prompt type\s+input/);
     assert.match(visible, /your response/);
     assert.match(visible, /Nebula/);
+    const visibleLines = visible.split("\n");
+    const responseLineIndex = visibleLines.findIndex((line) => line.includes("Nebula"));
+    const footerLineIndex = visibleLines.findIndex((line) => line.includes("esc close"));
+    assert.equal(footerLineIndex, responseLineIndex + 2);
+    assert.equal(visibleLines[responseLineIndex + 1]?.replace(/[│ ]/g, ""), "");
     assert.doesNotMatch(visible, /READ-ONLY SESSION/);
     assert.equal(JSON.stringify(store.snapshot()).includes("Nebula"), false);
     view.dispose();
@@ -1351,9 +1356,12 @@ describe("StageChatView", () => {
         onClose: () => {},
       });
 
-      const rendered = stripAnsi(view.render(96).join("\n"));
+      const lines = view.render(96).map(stripAnsi);
+      const rendered = lines.join("\n");
       assert.match(rendered, /test-wf \/ review-a/);
-      assert.doesNotMatch(rendered, /10s|1m 10s|paused|completed|running/);
+      assert.doesNotMatch(lines[0] ?? "", /10s|1m 10s|paused|completed|running/);
+      assert.match(rendered, /PAUSED/);
+      assert.match(rendered, /press Enter to resume/i);
       view.dispose();
     } finally {
       Date.now = originalNow;

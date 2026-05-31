@@ -608,6 +608,34 @@ describe("installToolExecutionHooks", () => {
     assert.equal(stage.awaitingInputSince, undefined);
   });
 
+  test("unmatched main-chat ask_user_question result does not clear a workflow HIL prompt node", () => {
+    storeInstance = createStore();
+    storeInstance.recordRunStart(makeRun("r1", "my-wf"));
+    storeInstance.recordStageStart("r1", makeStage("hil", "select"));
+    assert.equal(storeInstance.recordStagePendingPrompt("r1", "hil", {
+      id: "prompt-1",
+      kind: "select",
+      message: "workflow prompt",
+      choices: ["one", "two"],
+      createdAt: 123,
+    }), true);
+
+    const { pi, eventHandlers } = makeMockPi();
+    installToolExecutionHooks(pi, storeInstance);
+
+    eventHandlers.get("tool_execution_end")!({
+      toolName: "ask_user_question",
+      toolCallId: "main-chat-ask",
+      endedAt: 456,
+      output: "hold open one",
+    });
+
+    const stage = storeInstance.snapshot().runs[0]!.stages[0]!;
+    assert.equal(stage.status, "awaiting_input");
+    assert.equal(stage.pendingPrompt?.id, "prompt-1");
+    assert.equal(stage.awaitingInputSince, 123);
+  });
+
   test("malformed payloads do not crash", () => {
     const { pi, eventHandlers } = makeMockPi();
     installToolExecutionHooks(pi, storeInstance);

@@ -6,6 +6,7 @@
 
 - Added `/fast` Codex fast mode toggles for chat and workflow-stage sessions, applying OpenAI priority service tier to supported `openai/*` and `openai-codex/*` models only; active supported models now show a visible `fast` indicator after the model name ([#1134](https://github.com/flora131/atomic/issues/1134)).
 - Added extension custom-message `deliverAs: "interrupt"` delivery so first-party extensions can abort a stale streaming turn and start an immediate custom-message turn ([#1137](https://github.com/flora131/atomic/issues/1137)).
+- Added an `interruptAbortMessage` option for interrupt-delivered extension messages so meaningful external events can replace generic `Operation aborted` tool output ([#1137](https://github.com/flora131/atomic/issues/1137)).
 
 ### Changed
 
@@ -21,6 +22,7 @@
 - Made Codex fast-mode request helpers require an explicit enabled flag and treat `service_tier: undefined` as unset when preparing OpenAI payloads ([#1134](https://github.com/flora131/atomic/issues/1134)).
 - Fixed attached workflow-stage chat footers to resolve the `fast` model indicator against workflow fast-mode settings instead of chat settings ([#1134](https://github.com/flora131/atomic/issues/1134)).
 - Scoped print-mode non-zero extension-error exits to command-originated failures so non-fatal lifecycle extension errors do not fail otherwise successful headless output ([#1123](https://github.com/flora131/atomic/issues/1123)).
+- Fixed `ask_user_question` custom UI abort handling so interrupt-delivered workflow HiL answer notices are not stuck behind a blocking question modal ([#1137](https://github.com/flora131/atomic/issues/1137)).
 
 ## [0.8.21] - 2026-05-30
 

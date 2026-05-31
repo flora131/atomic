@@ -15,7 +15,7 @@
 
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { Key, type EditorComponent, type TUI } from "@earendil-works/pi-tui";
+import { Key, type Component, type EditorComponent, type TUI } from "@earendil-works/pi-tui";
 import { createStore } from "../../packages/workflows/src/shared/store.js";
 import {
   WorkflowAttachPane,
@@ -29,6 +29,7 @@ import type {
   StageInputRequest,
 } from "../../packages/workflows/src/shared/store-types.js";
 import type { AgentSession } from "@bastani/atomic";
+import { StageUiBroker } from "../../packages/workflows/src/shared/stage-ui-broker.js";
 import { makeFakeKeybindings } from "../support/fake-keybindings.js";
 
 type TestStageSeed = {
@@ -139,9 +140,23 @@ function makeHandle(runId: string, stageId: string): StageControlHandle {
   };
 }
 
+function makeClock(start = 0): { now: () => number; advance: (ms: number) => void } {
+  let current = start;
+  return {
+    now: () => current,
+    advance: (ms: number) => {
+      current += ms;
+    },
+  };
+}
+
+async function flush(): Promise<void> {
+  await Promise.resolve();
+}
+
 function setupTwoPromptAttachPane(
   firstPrompt: PendingPrompt,
-  opts: { piKeybindings?: unknown } = {},
+  opts: { piKeybindings?: unknown; now?: () => number } = {},
 ) {
   const store = createStore();
   setupRun(store, "run-1", [
@@ -163,6 +178,7 @@ function setupTwoPromptAttachPane(
     onClose: () => {},
     initialAttachStageId: "stage-a",
     piKeybindings: opts.piKeybindings,
+    now: opts.now,
   });
   return { store, pane, pending, secondPrompt };
 }
@@ -249,6 +265,64 @@ describe("WorkflowAttachPane", () => {
     pane.dispose();
   });
 
+  test("initial workflow connect Enter does not submit a run-level prompt", async () => {
+    const clock = makeClock();
+    const store = createStore();
+    setupRun(store, "run-1", [{ id: "stage-a", name: "A" }]);
+    const prompt = makePendingPrompt({
+      id: "run-select-prompt",
+      kind: "select",
+      choices: ["first", "second"],
+    });
+    assert.equal(store.recordPendingPrompt("run-1", prompt), true);
+    const pending = store.awaitPendingPrompt("run-1", prompt.id);
+    const pane = new WorkflowAttachPane({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      onClose: () => {},
+      now: clock.now,
+    });
+
+    pane.handleInput(Key.enter);
+    assert.equal(store.runs()[0]?.pendingPrompt?.id, prompt.id);
+
+    clock.advance(201);
+    pane.handleInput(Key.enter);
+    assert.equal(await pending, "first");
+    pane.dispose();
+  });
+
+  test("retargeted workflow connect Enter does not submit a run-level prompt", async () => {
+    const clock = makeClock();
+    const store = createStore();
+    setupRun(store, "run-1", [{ id: "stage-a", name: "A" }]);
+    setupRun(store, "run-2", [{ id: "stage-b", name: "B" }]);
+    const prompt = makePendingPrompt({
+      id: "retarget-run-select-prompt",
+      kind: "select",
+      choices: ["first", "second"],
+    });
+    assert.equal(store.recordPendingPrompt("run-2", prompt), true);
+    const pending = store.awaitPendingPrompt("run-2", prompt.id);
+    const pane = new WorkflowAttachPane({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      onClose: () => {},
+      now: clock.now,
+    });
+
+    pane.retarget("run-2");
+    pane.handleInput(Key.enter);
+    assert.equal(store.runs().find((run) => run.id === "run-2")?.pendingPrompt?.id, prompt.id);
+
+    clock.advance(201);
+    pane.handleInput(Key.enter);
+    assert.equal(await pending, "first");
+    pane.dispose();
+  });
+
   test("slash switcher selection swaps directly to selected stage chat", () => {
     const store = createStore();
     setupRun(store, "run-1", [
@@ -307,6 +381,316 @@ describe("WorkflowAttachPane", () => {
     pane.dispose();
   });
 
+  test("initial workflow connect Enter does not attach to a stage-local HIL", () => {
+    const clock = makeClock();
+    const store = createStore();
+    setupRun(store, "run-1", [{ id: "stage-a", name: "A" }]);
+    const registry = createStageControlRegistry();
+    registry.register(makeHandle("run-1", "stage-a"));
+    const prompt = makePendingPrompt({
+      id: "stage-connect-prompt",
+      kind: "select",
+      choices: ["alpha", "beta"],
+    });
+    assert.equal(store.recordStagePendingPrompt("run-1", "stage-a", prompt), true);
+    const pane = new WorkflowAttachPane({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageControlRegistry: registry,
+      onClose: () => {},
+      now: clock.now,
+    });
+
+    pane.handleInput(Key.enter);
+    assert.equal(pane._mode, "graph");
+    assert.equal(store.runs()[0]?.stages[0]?.pendingPrompt?.id, prompt.id);
+
+    clock.advance(201);
+    pane.handleInput(Key.enter);
+    assert.equal(pane._mode, "stage-chat");
+    assert.equal(pane._lastAttachedStageId, "stage-a");
+    pane.dispose();
+  });
+
+  test("entering a non-HIL graph node while another stage has HIL does not submit it", () => {
+    const clock = makeClock();
+    const store = createStore();
+    setupRun(store, "run-1", [
+      { id: "stage-a", name: "Inspect", status: "completed" },
+      { id: "stage-b", name: "Needs input" },
+    ]);
+    const registry = createStageControlRegistry();
+    registry.register(makeHandle("run-1", "stage-a"));
+    registry.register(makeHandle("run-1", "stage-b"));
+    const prompt = makePendingPrompt({
+      id: "other-stage-prompt",
+      kind: "select",
+      choices: ["alpha", "beta"],
+    });
+    assert.equal(store.recordStagePendingPrompt("run-1", "stage-b", prompt), true);
+    const pane = new WorkflowAttachPane({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageControlRegistry: registry,
+      onClose: () => {},
+      now: clock.now,
+    });
+
+    pane.handleInput("k");
+    pane.handleInput(Key.enter);
+
+    assert.equal(pane._mode, "stage-chat");
+    assert.equal(pane._lastAttachedStageId, "stage-a");
+    assert.equal(store.runs()[0]?.stages[1]?.pendingPrompt?.id, prompt.id);
+
+    clock.advance(201);
+    pane.handleInput(Key.enter);
+    assert.equal(store.runs()[0]?.stages[1]?.pendingPrompt?.id, prompt.id);
+    pane.dispose();
+  });
+
+  test("multiple stage HIL prompts stay isolated to the attached node", async () => {
+    const clock = makeClock();
+    const store = createStore();
+    setupRun(store, "run-1", [
+      { id: "stage-a", name: "A" },
+      { id: "stage-b", name: "B" },
+    ]);
+    const registry = createStageControlRegistry();
+    registry.register(makeHandle("run-1", "stage-a"));
+    registry.register(makeHandle("run-1", "stage-b"));
+    const firstPrompt = makePendingPrompt({
+      id: "prompt-a",
+      kind: "select",
+      choices: ["a1", "a2"],
+      createdAt: 1,
+    });
+    const secondPrompt = makePendingPrompt({
+      id: "prompt-b",
+      kind: "select",
+      choices: ["b1", "b2"],
+      createdAt: 2,
+    });
+    assert.equal(store.recordStagePendingPrompt("run-1", "stage-a", firstPrompt), true);
+    assert.equal(store.recordStagePendingPrompt("run-1", "stage-b", secondPrompt), true);
+    const firstPending = store.awaitStagePendingPrompt("run-1", "stage-a", firstPrompt.id);
+    const pane = new WorkflowAttachPane({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageControlRegistry: registry,
+      onClose: () => {},
+      now: clock.now,
+    });
+
+    pane.handleInput("k");
+    pane.handleInput(Key.enter);
+    assert.equal(pane._mode, "stage-chat");
+    assert.equal(pane._lastAttachedStageId, "stage-a");
+
+    pane.handleInput(Key.enter);
+    assert.equal(store.runs()[0]?.stages[0]?.pendingPrompt?.id, firstPrompt.id);
+    assert.equal(store.runs()[0]?.stages[1]?.pendingPrompt?.id, secondPrompt.id);
+
+    clock.advance(201);
+    pane.handleInput(Key.enter);
+    assert.equal(await firstPending, "a1");
+    assert.equal(store.runs()[0]?.stages[0]?.pendingPrompt, undefined);
+    assert.equal(store.runs()[0]?.stages[1]?.pendingPrompt?.id, secondPrompt.id);
+    pane.dispose();
+  });
+
+  test("graph Enter attach does not immediately submit a stage select prompt", async () => {
+    const clock = makeClock();
+    const store = createStore();
+    setupRun(store, "run-1", [{ id: "stage-a", name: "A" }]);
+    const registry = createStageControlRegistry();
+    registry.register(makeHandle("run-1", "stage-a"));
+    const prompt = makePendingPrompt({
+      id: "prompt-select",
+      kind: "select",
+      choices: ["alpha", "beta"],
+    });
+    assert.equal(store.recordStagePendingPrompt("run-1", "stage-a", prompt), true);
+    const pending = store.awaitStagePendingPrompt("run-1", "stage-a", prompt.id);
+    const pane = new WorkflowAttachPane({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageControlRegistry: registry,
+      onClose: () => {},
+      now: clock.now,
+    });
+
+    clock.advance(201);
+    pane.handleInput(Key.enter);
+    assert.equal(pane._mode, "stage-chat");
+
+    pane.handleInput(Key.enter);
+    assert.equal(store.runs()[0]?.stages[0]?.pendingPrompt?.id, prompt.id);
+
+    clock.advance(201);
+    pane.handleInput(Key.enter);
+    assert.equal(await pending, "alpha");
+    assert.equal(pane._mode, "graph");
+    pane.dispose();
+  });
+
+  test("held Enter after graph attach must stop repeating before it can submit a prompt", async () => {
+    const clock = makeClock();
+    const store = createStore();
+    setupRun(store, "run-1", [{ id: "stage-a", name: "A" }]);
+    const registry = createStageControlRegistry();
+    registry.register(makeHandle("run-1", "stage-a"));
+    const prompt = makePendingPrompt({
+      id: "repeat-prompt-select",
+      kind: "select",
+      choices: ["alpha", "beta"],
+    });
+    assert.equal(store.recordStagePendingPrompt("run-1", "stage-a", prompt), true);
+    const pending = store.awaitStagePendingPrompt("run-1", "stage-a", prompt.id);
+    const pane = new WorkflowAttachPane({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageControlRegistry: registry,
+      onClose: () => {},
+      now: clock.now,
+    });
+
+    clock.advance(201);
+    pane.handleInput(Key.enter);
+    assert.equal(pane._mode, "stage-chat");
+
+    for (let i = 0; i < 8; i++) {
+      clock.advance(50);
+      pane.handleInput(Key.enter);
+      assert.equal(store.runs()[0]?.stages[0]?.pendingPrompt?.id, prompt.id);
+    }
+
+    clock.advance(201);
+    pane.handleInput(Key.enter);
+    assert.equal(await pending, "alpha");
+    pane.dispose();
+  });
+
+  test("direct stage attach does not immediately submit a stage select prompt", async () => {
+    const clock = makeClock();
+    const store = createStore();
+    setupRun(store, "run-1", [{ id: "stage-a", name: "A" }]);
+    const registry = createStageControlRegistry();
+    registry.register(makeHandle("run-1", "stage-a"));
+    const prompt = makePendingPrompt({
+      id: "direct-prompt-select",
+      kind: "select",
+      choices: ["first", "second"],
+    });
+    assert.equal(store.recordStagePendingPrompt("run-1", "stage-a", prompt), true);
+    const pending = store.awaitStagePendingPrompt("run-1", "stage-a", prompt.id);
+    const pane = new WorkflowAttachPane({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageControlRegistry: registry,
+      onClose: () => {},
+      initialAttachStageId: "stage-a",
+      now: clock.now,
+    });
+
+    assert.equal(pane._mode, "stage-chat");
+    pane.handleInput(Key.enter);
+    assert.equal(store.runs()[0]?.stages[0]?.pendingPrompt?.id, prompt.id);
+
+    clock.advance(201);
+    pane.handleInput(Key.enter);
+    assert.equal(await pending, "first");
+    assert.equal(pane._mode, "graph");
+    pane.dispose();
+  });
+
+  test("retargeted stage attach does not immediately submit a stage select prompt", async () => {
+    const clock = makeClock();
+    const store = createStore();
+    setupRun(store, "run-1", [{ id: "stage-a", name: "A" }]);
+    setupRun(store, "run-2", [{ id: "stage-b", name: "B" }]);
+    const registry = createStageControlRegistry();
+    registry.register(makeHandle("run-2", "stage-b"));
+    const prompt = makePendingPrompt({
+      id: "retarget-stage-prompt-select",
+      kind: "select",
+      choices: ["first", "second"],
+    });
+    assert.equal(store.recordStagePendingPrompt("run-2", "stage-b", prompt), true);
+    const pending = store.awaitStagePendingPrompt("run-2", "stage-b", prompt.id);
+    const pane = new WorkflowAttachPane({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageControlRegistry: registry,
+      onClose: () => {},
+      now: clock.now,
+    });
+
+    pane.retarget("run-2", "stage-b");
+    assert.equal(pane._mode, "stage-chat");
+    pane.handleInput(Key.enter);
+    const run = store.runs().find((candidate) => candidate.id === "run-2");
+    assert.equal(run?.stages[0]?.pendingPrompt?.id, prompt.id);
+
+    clock.advance(201);
+    pane.handleInput(Key.enter);
+    assert.equal(await pending, "first");
+    assert.equal(pane._mode, "graph");
+    pane.dispose();
+  });
+
+  test("direct stage attach does not immediately submit brokered custom UI", async () => {
+    const clock = makeClock();
+    const store = createStore();
+    setupRun(store, "run-1", [{ id: "stage-a", name: "A" }]);
+    const registry = createStageControlRegistry();
+    registry.register(makeHandle("run-1", "stage-a"));
+    const broker = new StageUiBroker(store);
+    let resolved = false;
+    const pending = broker.requestCustomUi("run-1", "stage-a", (_tui, _theme, _kb, done) => {
+      const component: Component = {
+        render: () => ["custom question"],
+        handleInput: () => done("custom answer"),
+        invalidate: () => {},
+      };
+      return component;
+    }).then((value) => {
+      resolved = true;
+      return value;
+    });
+    const pane = new WorkflowAttachPane({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageControlRegistry: registry,
+      stageUiBroker: broker,
+      onClose: () => {},
+      initialAttachStageId: "stage-a",
+      piTui: { requestRender: () => {}, terminal: { rows: 32, columns: 80 } } as unknown as TUI,
+      piTheme: {},
+      piKeybindings: {},
+      now: clock.now,
+    });
+    await flush();
+
+    assert.equal(pane._mode, "stage-chat");
+    pane.handleInput(Key.enter);
+    await flush();
+    assert.equal(resolved, false);
+
+    clock.advance(201);
+    pane.handleInput(Key.enter);
+    assert.equal(await pending, "custom answer");
+    pane.dispose();
+  });
+
   test("Ctrl+D in graph mode hides without resolving a pending stage prompt", () => {
     const store = createStore();
     setupRun(store, "run-1", [{ id: "stage-a", name: "A" }]);
@@ -357,6 +741,37 @@ describe("WorkflowAttachPane", () => {
     assert.equal(pane._mode, "graph");
     assert.equal(pane._hasChatView, false);
     assert.equal(pane._lastAttachedStageId, "stage-a");
+    pane.dispose();
+  });
+
+  test("hidden attached stage pane cannot resolve a prompt if stale input is routed", async () => {
+    const store = createStore();
+    setupRun(store, "run-1", [{ id: "stage-a", name: "A" }]);
+    const registry = createStageControlRegistry();
+    registry.register(makeHandle("run-1", "stage-a"));
+    const prompt = makePendingPrompt();
+    assert.equal(store.recordStagePendingPrompt("run-1", "stage-a", prompt), true);
+    const pending = store.awaitStagePendingPrompt("run-1", "stage-a", prompt.id);
+    const pane = new WorkflowAttachPane({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageControlRegistry: registry,
+      onClose: () => {},
+      initialAttachStageId: "stage-a",
+    });
+
+    assert.equal(pane._mode, "stage-chat");
+    pane.setVisible(false);
+    for (const ch of "stale") pane.handleInput(ch);
+    pane.handleInput(Key.enter);
+    assert.equal(store.runs()[0]?.stages[0]?.pendingPrompt?.id, prompt.id);
+
+    pane.setVisible(true);
+    for (const ch of "answer") pane.handleInput(ch);
+    pane.handleInput(Key.enter);
+
+    assert.equal(await pending, "answer");
     pane.dispose();
   });
 
@@ -425,8 +840,11 @@ describe("WorkflowAttachPane", () => {
   });
 
   test("repeated Enter after a prompt answer does not attach the next prompt", async () => {
+    const clock = makeClock();
     const firstPrompt = makePendingPrompt({ id: "prompt-a", createdAt: 1 });
-    const { store, pane, pending, secondPrompt } = setupTwoPromptAttachPane(firstPrompt);
+    const { store, pane, pending, secondPrompt } = setupTwoPromptAttachPane(firstPrompt, {
+      now: clock.now,
+    });
 
     assert.equal(pane._mode, "stage-chat");
     for (const ch of "answer") pane.handleInput(ch);
@@ -438,11 +856,19 @@ describe("WorkflowAttachPane", () => {
     assert.equal(store.runs()[0]?.stages[1]?.pendingPrompt?.id, secondPrompt.id);
 
     pane.handleInput(Key.enter);
-    assert.equal(pane._mode, "graph", "first graph-mode Enter after answer is consumed");
+    assert.equal(pane._mode, "graph", "immediate graph-mode Enter after answer is consumed");
     assert.equal(pane._hasChatView, false);
 
+    for (let i = 0; i < 8; i++) {
+      clock.advance(50);
+      pane.handleInput(Key.enter);
+      assert.equal(pane._mode, "graph", "held graph-mode Enter repeats are still consumed");
+      assert.equal(pane._hasChatView, false);
+    }
+
+    clock.advance(201);
     pane.handleInput(Key.enter);
-    assert.equal(pane._mode, "stage-chat", "a subsequent Enter still attaches normally");
+    assert.equal(pane._mode, "stage-chat", "Enter after the transition window attaches normally");
     assert.equal(pane._lastAttachedStageId, "stage-b");
     pane.dispose();
   });
@@ -642,6 +1068,42 @@ describe("WorkflowAttachPane", () => {
     });
     assert.equal(pane._mode, "stage-chat");
     assert.equal(pane._lastAttachedStageId, "stage-a");
+    pane.dispose();
+  });
+
+  test("focus requests are limited to the visible attached node that owns input", () => {
+    const store = createStore();
+    setupRun(store, "run-1", [
+      { id: "stage-a", name: "A" },
+      { id: "stage-b", name: "B" },
+    ]);
+    const registry = createStageControlRegistry();
+    registry.register(makeHandle("run-1", "stage-a"));
+    registry.register(makeHandle("run-1", "stage-b"));
+    const pane = new WorkflowAttachPane({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageControlRegistry: registry,
+      onClose: () => {},
+    });
+    const prompt = makePendingPrompt({ id: "focus-prompt" });
+
+    assert.equal(store.recordStagePendingPrompt("run-1", "stage-b", prompt), true);
+    assert.equal(pane.wantsFocusForAwaitingInput(store.snapshot()), true, "visible graph should reclaim focus so the user can attach to the prompt");
+
+    pane.handleInput("k");
+    pane.handleInput(Key.enter);
+    assert.equal(pane._lastAttachedStageId, "stage-a");
+    assert.equal(pane.wantsFocusForAwaitingInput(store.snapshot()), false, "sibling node cannot answer the prompt");
+
+    pane.handleInput(Key.ctrl("d"));
+    pane.handleInput(Key.enter);
+    assert.equal(pane._lastAttachedStageId, "stage-b");
+    assert.equal(pane.wantsFocusForAwaitingInput(store.snapshot()), true, "attached prompted node owns input");
+
+    pane.setVisible(false);
+    assert.equal(pane.wantsFocusForAwaitingInput(store.snapshot()), false, "hidden node cannot own input");
     pane.dispose();
   });
 

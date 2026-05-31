@@ -59,6 +59,8 @@ import {
   stageControlRegistry,
   type StageControlHandle,
 } from "../../packages/workflows/src/runs/foreground/stage-control-registry.js";
+import { stageUiBroker } from "../../packages/workflows/src/shared/stage-ui-broker.js";
+import { buildStagePromptAdapter } from "../../packages/workflows/src/shared/stage-prompt.js";
 
 afterEach(async () => {
   stageControlRegistry.clear();
@@ -1936,6 +1938,47 @@ export default defineWorkflow("tool-headless-lifecycle")
     assert.match(send.message, /Answered prompt/);
     const stage = store.runs().find((run) => run.id === runId)?.stages.find((s) => s.id === "stage-prompt-1");
     assert.equal(stage?.pendingPrompt, undefined);
+    assert.equal(store.getStagePromptAnswer(runId, "stage-prompt-1")?.answerSource, "workflow_tool");
+  });
+
+  test("makeExecuteWorkflowTool tags brokered prompt answers as workflow-tool sourced", async () => {
+    const runId = `stage-tool-send-broker-${Date.now()}`;
+    store.recordRunStart(makeInflightRun(runId));
+    store.recordStageStart(runId, { id: "stage-broker-prompt", name: "ask", status: "awaiting_input", parentIds: [], toolEvents: [] });
+    const adapter = buildStagePromptAdapter("ask-1", "ask_user_question", {
+      questions: [
+        {
+          question: "What color?",
+          options: [{ label: "Red" }, { label: "Blue" }],
+        },
+      ],
+    }, 1)!;
+    stageUiBroker.provideStagePrompt(runId, "stage-broker-prompt", adapter);
+    const events: Array<{ answerSource?: string }> = [];
+    const unsubscribe = stageUiBroker.onStagePromptResolved((event) => {
+      if (event.runId === runId && event.stageId === "stage-broker-prompt") {
+        events.push({ answerSource: event.answerSource });
+      }
+    });
+    const pending = stageUiBroker.requestCustomUi(runId, "stage-broker-prompt", () => ({
+      render: () => [],
+      invalidate: () => {},
+    }));
+    const handler = makeToolHandler();
+
+    try {
+      const result = await handler({ action: "send", runId, stageId: "ask", text: "Blue" }, {} as never);
+      await pending;
+
+      assert.equal(result.action, "send");
+      const send = result as { action: string; delivery: string; status: string; message: string };
+      assert.equal(send.delivery, "answer");
+      assert.equal(send.status, "ok");
+      assert.match(send.message, /Answered input request/);
+      assert.equal(events[0]?.answerSource, "workflow_tool");
+    } finally {
+      unsubscribe();
+    }
   });
 
   test("makeExecuteWorkflowTool leaves pending prompts untouched when payload is omitted", async () => {

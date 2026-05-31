@@ -197,6 +197,7 @@ export class WorkflowAttachPane implements Component {
       },
       initialFocusedStageId,
       getViewportRows: this.getViewportRows,
+      piKeybindings: this.piKeybindings,
       // Gate the host render tick on `graph` mode. While the chat view
       // is attached, the GraphView is hidden behind the chat — firing
       // pi-tui renders for a frame the user can't see is wasted work.

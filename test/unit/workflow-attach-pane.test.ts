@@ -26,6 +26,7 @@ import { createStageControlRegistry } from "../../packages/workflows/src/runs/fo
 import type { StageControlHandle } from "../../packages/workflows/src/runs/foreground/stage-control-registry.js";
 import type { PendingPrompt } from "../../packages/workflows/src/shared/store-types.js";
 import type { AgentSession } from "@bastani/atomic";
+import { makeFakeKeybindings } from "../support/fake-keybindings.js";
 
 function setupRun(store: ReturnType<typeof createStore>, runId: string, stages: Array<{ id: string; name: string; status?: "pending" | "running" | "paused" | "completed" }>) {
   store.recordRunStart({
@@ -121,6 +122,43 @@ describe("WorkflowAttachPane", () => {
     });
     assert.equal(pane._mode, "graph");
     assert.equal(pane._hasChatView, false);
+    pane.dispose();
+  });
+
+  test("passes piKeybindings into graph-mode run prompt cards", () => {
+    const store = createStore();
+    setupRun(store, "run-1", [{ id: "stage-a", name: "A" }]);
+    const prompt = makePendingPrompt({
+      id: "prompt-select-graph",
+      kind: "select",
+      choices: ["alpha", "beta", "gamma"],
+    });
+    assert.equal(store.recordPendingPrompt("run-1", prompt), true);
+    const resolved: Array<{ runId: string; promptId: string; response: unknown }> = [];
+    const pane = new WorkflowAttachPane({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      onClose: () => {},
+      piKeybindings: makeFakeKeybindings({
+        "tui.select.down": ["d"],
+        "tui.select.confirm": ["s"],
+      }),
+      onPromptResolve: (runId, promptId, response) => {
+        resolved.push({ runId, promptId, response });
+        store.resolvePendingPrompt(runId, promptId, response);
+      },
+    });
+
+    assert.equal(pane._mode, "graph");
+    assert.equal(pane.handleInput("d"), true);
+    assert.deepEqual(resolved, []);
+    assert.equal(store.runs()[0]?.pendingPrompt?.id, prompt.id);
+
+    assert.equal(pane.handleInput("s"), true);
+    assert.deepEqual(resolved, [{ runId: "run-1", promptId: prompt.id, response: "beta" }]);
+    assert.equal(store.runs()[0]?.pendingPrompt, undefined);
+    assert.equal(pane._mode, "graph");
     pane.dispose();
   });
 

@@ -434,8 +434,9 @@ export async function askReadinessViaStageBroker(
   // Expose a headless-answer adapter for the gate so it can be answered
   // programmatically (e.g. `workflow send`) without a TUI host. The gate
   // question params are known statically here.
+  const gatePromptId = `readiness-gate-${stageId}-${crypto.randomUUID()}`;
   const gateAdapter = buildStagePromptAdapter(
-    `readiness-gate-${stageId}`,
+    gatePromptId,
     "readiness_gate",
     READINESS_GATE_QUESTION_PARAMS,
     Date.now(),
@@ -443,7 +444,7 @@ export async function askReadinessViaStageBroker(
   if (gateAdapter) stageUiBroker.provideStagePrompt(runId, stageId, gateAdapter);
   try {
     const result = await execute(
-      `readiness-gate-${stageId}`,
+      gatePromptId,
       READINESS_GATE_QUESTION_PARAMS as Parameters<typeof execute>[1],
       signal,
       undefined,

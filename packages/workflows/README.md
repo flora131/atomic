@@ -40,7 +40,7 @@ Workflow lifecycle notices are enabled by default. They send steer prompts into 
 }
 ```
 
-Set `enabled` to `false` to disable all lifecycle notices, or narrow `notifyOn` to a non-empty list of selected events. Lifecycle notices use steer delivery and wake an idle model so the lifecycle update enters the model context when it happens.
+Set `enabled` to `false` to disable all lifecycle notices, or narrow `notifyOn` to a non-empty list of selected events. Completion and failure lifecycle notices use steer delivery and wake an idle model so the lifecycle update enters the model context when it happens. Awaiting-input states are tracked for dedupe/restore, but workflows do not enqueue main-chat `/workflow connect` cards for them; prompt state remains visible through workflow status/connect surfaces, avoiding stale actionable cards if a prompt resolves while the main chat is streaming.
 
 When a stage human-in-the-loop prompt is answered, workflows also emits a separate `workflows:hil-answer-notice` custom message with interrupt delivery. If the main agent is still streaming, Atomic stops the stale turn and immediately tells the agent that the prompt has already been answered and not to ask the same question again. This notice carries workflow/run/stage/prompt metadata only; raw HiL answers stay on the workflow response path.
 

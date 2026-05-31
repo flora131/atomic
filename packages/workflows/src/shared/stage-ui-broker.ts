@@ -65,9 +65,11 @@ export class StageUiBroker {
   provideStagePrompt(runId: string, stageId: string, adapter: StagePromptAdapter): void {
     const hostKey = key(runId, stageId);
     this.adapters.set(hostKey, adapter);
-    if (this.resolvedPromptIds.get(hostKey) !== adapter.prompt.id) {
-      this.resolvedPromptIds.delete(hostKey);
-    }
+    // A newly provided adapter represents a fresh prompt instance, even when
+    // the caller reuses the same prompt id (readiness gates historically did).
+    // Clear the resolved marker unconditionally so a raced answer for this new
+    // request cannot be mistaken for a duplicate answer to the prior instance.
+    this.resolvedPromptIds.delete(hostKey);
     this.store.recordStageInputRequest(runId, stageId, adapter.prompt);
   }
 

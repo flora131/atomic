@@ -292,6 +292,29 @@ describe("StageUiBroker", () => {
       assert.equal(broker.wasStagePromptResolved("run-1", "stage-1", "old"), false);
     });
 
+    test("a repeated prompt id clears the prior resolved marker for a fresh gate", async () => {
+      const { broker } = setupStage();
+      broker.provideStagePrompt("run-1", "stage-1", buildStagePromptAdapter("same", "ask_user_question", COLOR_ARGS, 1)!);
+      const firstPending = broker.requestCustomUi("run-1", "stage-1", () => ({
+        render: () => [],
+        invalidate: () => {},
+      }));
+      assert.equal(broker.answerStagePrompt("run-1", "stage-1", { text: "Red" }), true);
+      await firstPending;
+      assert.equal(broker.wasStagePromptResolved("run-1", "stage-1", "same"), true);
+
+      broker.provideStagePrompt("run-1", "stage-1", buildStagePromptAdapter("same", "ask_user_question", COLOR_ARGS, 1)!);
+      assert.equal(broker.wasStagePromptResolved("run-1", "stage-1", "same"), false);
+
+      const secondPending = broker.requestCustomUi("run-1", "stage-1", () => ({
+        render: () => [],
+        invalidate: () => {},
+      }));
+      assert.equal(broker.answerStagePrompt("run-1", "stage-1", { text: "Blue" }), true);
+      const result = (await secondPending) as BuiltResult;
+      assert.equal(result.answers[0]!.answer, "Blue");
+    });
+
     test("adapter provided after the request still answers and back-fills the descriptor", async () => {
       const { broker, store } = setupStage();
       const pending = broker.requestCustomUi("run-1", "stage-1", () => ({

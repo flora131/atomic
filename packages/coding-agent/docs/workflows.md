@@ -587,6 +587,8 @@ Input overrides are bare `key=value` tokens. Values are JSON-parsed when possibl
 
 In the TUI, `/workflow <name>` opens an input picker when the workflow declares inputs and either no arguments were supplied or required inputs are missing. Supplied values seed the picker. Pass `--no-picker` to skip that interactive flow.
 
+In non-interactive (`-p`, `--print`, or `--mode json`) sessions, named workflow dispatch waits for the terminal run snapshot and skips pickers. Because human input is runtime-only and workflows no longer carry a declaration-time HIL marker, headless dispatch does not reject a workflow just because its source contains `ctx.ui.*`. If you copy a HIL workflow example into a headless session, it can pass dispatch and then fail when execution reaches the prompt with an error such as `atomic-workflows: HIL ctx.ui.confirm is unavailable because Atomic runtime did not provide a UI adapter` (the primitive name varies). Run those workflows interactively, or guard/remove runtime `ctx.ui.*` calls before using headless mode.
+
 <p align="center"><img src="images/workflow-input-picker.png" alt="Workflow Input Picker" width="600" /></p>
 
 ## Workflow Commands

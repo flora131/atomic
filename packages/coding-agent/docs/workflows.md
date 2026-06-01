@@ -432,8 +432,8 @@ Runtime config defaults:
 | `persistRuns` | `true` | Persist run metadata for status/resume/history |
 | `statusFile` | `false` | Write a derived status file; defaults under `.atomic/workflows/status.json` when enabled |
 | `resumeInFlight` | `"ask"` | Behavior when discovering resumable in-flight work |
-| `workflowNotifications.enabled` | `true` | Emit workflow lifecycle notices into the active main chat |
-| `workflowNotifications.notifyOn` | `["completed", "failed", "awaiting_input"]` | Lifecycle states that create notices; the list must be non-empty and can contain `completed`, `failed`, and `awaiting_input` |
+| `workflowNotifications.enabled` | `true` | Emit terminal workflow lifecycle notices into the active main chat |
+| `workflowNotifications.notifyOn` | `["completed", "failed", "awaiting_input"]` | Lifecycle states to track; terminal `completed`/`failed` states create main-chat notices, while `awaiting_input` is tracked for dedupe/restore without waking the main agent |
 
 Invalid JSON or invalid shapes produce `CONFIG_INVALID` diagnostics. Missing config files are ignored.
 
@@ -639,7 +639,7 @@ Use slash commands for graph connect and stage attach because those are interact
 
 ## Lifecycle Notices and Human Input
 
-Atomic emits deduplicated main-chat notices when workflow runs complete, fail, or await input. These notices are queued into the active main chat as steering/context messages (`triggerTurn: true`, `deliverAs: "steer"`) so the model can react without the user manually polling status. Configure them in workflow extension config with `workflowNotifications.enabled` (default `true`) and `workflowNotifications.notifyOn` (default `["completed", "failed", "awaiting_input"]`).
+Atomic emits deduplicated main-chat notices when workflow runs complete or fail. These terminal notices are queued into the active main chat as steering/context messages (`triggerTurn: true`, `deliverAs: "steer"`) so the model can react without the user manually polling status. Awaiting-input workflow states are tracked for dedupe/restore, but they do not enqueue main-chat connect cards or wake the model; prompt state remains visible through workflow status/connect surfaces. Configure lifecycle behavior with `workflowNotifications.enabled` (default `true`) and `workflowNotifications.notifyOn` (default `["completed", "failed", "awaiting_input"]`).
 
 When a workflow needs human input, answer in the graph viewer or attached stage chat when possible:
 

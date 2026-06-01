@@ -351,6 +351,7 @@ describe("WorkflowAttachPane", () => {
   });
 
   test("stays in graph mode when a stage becomes awaiting-input until Enter attaches", () => {
+    const clock = makeClock();
     const store = createStore();
     setupRun(store, "run-1", [
       { id: "stage-a", name: "A", status: "completed" },
@@ -365,6 +366,7 @@ describe("WorkflowAttachPane", () => {
       runId: "run-1",
       stageControlRegistry: registry,
       onClose: () => {},
+      now: clock.now,
     });
 
     assert.equal(store.recordStageAwaitingInput("run-1", "stage-b", true), true);
@@ -374,12 +376,140 @@ describe("WorkflowAttachPane", () => {
     assert.equal(pane._hasChatView, false);
 
     pane.handleInput(Key.enter);
+    assert.equal(pane._mode, "graph");
+
+    clock.advance(201);
+    pane.handleInput(Key.enter);
 
     assert.equal(pane._mode, "stage-chat");
     assert.equal(pane._lastAttachedStageId, "stage-b");
     assert.equal(pane._hasChatView, true);
     pane.dispose();
   });
+
+  for (const kind of ["input", "confirm", "select", "editor"] as const) {
+    test(`late-arriving ${kind} stage HIL does not consume stale graph Enter`, () => {
+      const clock = makeClock();
+      const store = createStore();
+      setupRun(store, "run-1", [
+        { id: "stage-a", name: "A", status: "completed" },
+        { id: "stage-b", name: "B" },
+      ]);
+      const registry = createStageControlRegistry();
+      registry.register(makeHandle("run-1", "stage-a"));
+      registry.register(makeHandle("run-1", "stage-b"));
+      const pane = new WorkflowAttachPane({
+        store,
+        graphTheme: deriveGraphTheme({}),
+        runId: "run-1",
+        stageControlRegistry: registry,
+        onClose: () => {},
+        now: clock.now,
+      });
+
+      const prompt = makePendingPrompt({
+        id: `late-${kind}`,
+        kind,
+        choices: kind === "select" ? ["alpha", "beta"] : undefined,
+        initial: kind === "input" || kind === "editor" ? "seed" : undefined,
+        createdAt: clock.now(),
+      });
+      assert.equal(store.recordStagePendingPrompt("run-1", "stage-b", prompt), true);
+
+      pane.handleInput(Key.enter);
+      assert.equal(pane._mode, "graph");
+      assert.equal(store.runs()[0]?.stages[1]?.pendingPrompt?.id, prompt.id);
+
+      clock.advance(201);
+      pane.handleInput(Key.enter);
+      assert.equal(pane._mode, "stage-chat");
+      assert.equal(pane._lastAttachedStageId, "stage-b");
+      pane.dispose();
+    });
+  }
+
+  test("graph attach does not re-quarantine prompt after unrelated store updates", async () => {
+    const clock = makeClock();
+    const store = createStore();
+    setupRun(store, "run-1", [
+      { id: "stage-a", name: "A", status: "completed" },
+      { id: "stage-b", name: "B" },
+    ]);
+    const registry = createStageControlRegistry();
+    registry.register(makeHandle("run-1", "stage-a"));
+    registry.register(makeHandle("run-1", "stage-b"));
+    const pane = new WorkflowAttachPane({
+      store,
+      graphTheme: deriveGraphTheme({}),
+      runId: "run-1",
+      stageControlRegistry: registry,
+      onClose: () => {},
+      now: clock.now,
+    });
+
+    const prompt = makePendingPrompt({ id: "graph-attach-prompt", initial: "seed", createdAt: clock.now() });
+    assert.equal(store.recordStagePendingPrompt("run-1", "stage-b", prompt), true);
+    const pending = store.awaitStagePendingPrompt("run-1", "stage-b", prompt.id);
+
+    clock.advance(201);
+    pane.handleInput(Key.enter);
+    assert.equal(pane._mode, "stage-chat");
+
+    clock.advance(201);
+    assert.equal(
+      store.recordStageNotice("run-1", "stage-a", {
+        id: "unrelated-notice",
+        ts: clock.now(),
+        kind: "thinking",
+        to: "expanded",
+      }),
+      true,
+    );
+    pane.handleInput(Key.enter);
+
+    assert.equal(await pending, "seed");
+    pane.dispose();
+  });
+
+  for (const kind of ["input", "confirm", "select", "editor"] as const) {
+    test(`late-arriving ${kind} prompt in attached stage does not consume stale Enter`, async () => {
+      const clock = makeClock();
+      const store = createStore();
+      setupRun(store, "run-1", [{ id: "stage-a", name: "A" }]);
+      const registry = createStageControlRegistry();
+      registry.register(makeHandle("run-1", "stage-a"));
+      const pane = new WorkflowAttachPane({
+        store,
+        graphTheme: deriveGraphTheme({}),
+        runId: "run-1",
+        stageControlRegistry: registry,
+        onClose: () => {},
+        initialAttachStageId: "stage-a",
+        now: clock.now,
+      });
+      assert.equal(pane._mode, "stage-chat");
+
+      const prompt = makePendingPrompt({
+        id: `attached-late-${kind}`,
+        kind,
+        choices: kind === "select" ? ["alpha", "beta"] : undefined,
+        initial: kind === "input" || kind === "editor" ? "seed" : undefined,
+        createdAt: clock.now(),
+      });
+      assert.equal(store.recordStagePendingPrompt("run-1", "stage-a", prompt), true);
+      const pending = store.awaitStagePendingPrompt("run-1", "stage-a", prompt.id);
+
+      pane.handleInput(Key.enter);
+      assert.equal(store.runs()[0]?.stages[0]?.pendingPrompt?.id, prompt.id);
+
+      clock.advance(201);
+      if (kind === "confirm") pane.handleInput("y");
+      else if (kind === "editor") pane.handleInput(Key.ctrl("c"));
+      else pane.handleInput(Key.enter);
+      assert.equal(await pending, kind === "confirm" ? true : kind === "select" ? "alpha" : "seed");
+      pane.dispose();
+    });
+  }
 
   test("initial workflow connect Enter does not attach to a stage-local HIL", () => {
     const clock = makeClock();

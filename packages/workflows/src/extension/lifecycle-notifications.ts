@@ -10,7 +10,6 @@ import type {
   RunSnapshot,
   RunStatus,
   StageInputKind,
-  StageInputRequest,
   StageSnapshot,
   StageStatus,
   StoreSnapshot,
@@ -208,8 +207,9 @@ export function installWorkflowLifecycleNotifications(
     if (state.deliveredInputPrompts.has(key)) return;
 
     state.deliveredInputPrompts.add(key);
-    if (state.suppressionDepth > 0) return;
-    emit(makeStageAwaitingInputNotice(run, stage));
+    // Awaiting-input states are tracked for dedupe/restore, but must not enqueue
+    // a main-chat steer turn. Waking the active agent with an actionable prompt
+    // can let the model answer workflow HIL without a deliberate user action.
   };
 
   const emitRunAwaitingInputNoticeOnce = (run: RunSnapshot): void => {
@@ -219,8 +219,8 @@ export function installWorkflowLifecycleNotifications(
     if (state.deliveredInputPrompts.has(key)) return;
 
     state.deliveredInputPrompts.add(key);
-    if (state.suppressionDepth > 0) return;
-    emit(makeRunAwaitingInputNotice(run, run.pendingPrompt));
+    // See stage-level awaiting-input handling above: prompt state remains visible
+    // through workflow status/connect surfaces instead of the main chat context.
   };
 
   const inspect = (snapshot: StoreSnapshot): void => {
@@ -302,35 +302,6 @@ function makeTerminalNotice(
   };
 }
 
-function makeStageAwaitingInputNotice(run: RunSnapshot, stage: StageSnapshot): WorkflowLifecycleNoticeDetails {
-  const prompt = stage.pendingPrompt;
-  const inputRequest = stage.inputRequest;
-  return {
-    kind: "awaiting_input",
-    scope: "stage",
-    runId: run.id,
-    workflowName: run.name,
-    status: stage.status,
-    stageId: stage.id,
-    stageName: stage.name,
-    ...(prompt ? promptFields(prompt) : inputRequest ? inputRequestFields(inputRequest) : {}),
-    // Normal store paths stamp awaitingInputSince; Date.now() is defensive for malformed restored snapshots.
-    createdAt: prompt?.createdAt ?? inputRequest?.createdAt ?? stage.awaitingInputSince ?? Date.now(),
-  };
-}
-
-function makeRunAwaitingInputNotice(run: RunSnapshot, prompt: PendingPrompt): WorkflowLifecycleNoticeDetails {
-  return {
-    kind: "awaiting_input",
-    scope: "run",
-    runId: run.id,
-    workflowName: run.name,
-    status: run.status,
-    ...promptFields(prompt),
-    createdAt: prompt.createdAt,
-  };
-}
-
 function warnLifecycleSendFailure(error: unknown): void {
   if (process.env.ATOMIC_WORKFLOW_DEBUG !== "1") return;
   const message = error instanceof Error ? error.message : String(error);
@@ -347,26 +318,6 @@ function jsonString(value: string): string {
 
 function terminalRunKey(kind: "completed" | "failed", runId: string): string {
   return `${kind}:${runId}`;
-}
-
-function promptFields(
-  prompt: PendingPrompt,
-): Pick<WorkflowLifecycleNoticeDetails, "promptId" | "promptKind" | "promptMessage"> {
-  return {
-    promptId: prompt.id,
-    promptKind: prompt.kind,
-    promptMessage: truncateSnippet(prompt.message),
-  };
-}
-
-function inputRequestFields(
-  request: StageInputRequest,
-): Pick<WorkflowLifecycleNoticeDetails, "promptId" | "promptKind" | "promptMessage"> {
-  return {
-    promptId: request.id,
-    promptKind: request.kind,
-    promptMessage: truncateSnippet(request.questions.map((question) => question.question).join(" | ")),
-  };
 }
 
 function awaitingInputKey(runId: string, stage: StageSnapshot): string {

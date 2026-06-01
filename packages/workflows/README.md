@@ -29,7 +29,7 @@ Adding workflow files under `.atomic/workflows/` (project scope) or `~/.atomic/a
 
 ### Workflow lifecycle notifications
 
-Workflow lifecycle notices are enabled by default. They send steer prompts into the main chat/model context when a run completes, fails, or pauses for input. Configure them in the same extension config file:
+Workflow lifecycle notices are enabled by default. They send steer prompts into the main chat/model context when a run completes or fails. Awaiting-input prompts are tracked for dedupe/restore, but they do not wake the main chat agent. Configure lifecycle tracking in the same extension config file:
 
 ```json
 {

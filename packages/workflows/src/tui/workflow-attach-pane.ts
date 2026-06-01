@@ -154,12 +154,17 @@ export class WorkflowAttachPane implements Component {
   private visible = true;
   private graphView: GraphView;
   private chatView: StageChatView | null = null;
+  private unsubscribeStore: (() => void) | null = null;
   /** Stage id the user most recently attached to (used to seed focus). */
   private lastAttachedStageId: string | null = null;
   /** Time-boxed guard for Enter leaking into graph mode during connect/detach transitions. */
   private graphEnterQuarantineUntil = 0;
   /** Time-boxed guard for Enter leaking from graph attach into an attached prompt. */
   private stagePromptEnterQuarantineUntil = 0;
+  /** Last awaiting-input identity observed for graph-mode transition quarantine. */
+  private lastGraphAwaitingInputKey: string | null = null;
+  /** Last awaiting-input identity observed for attached-stage transition quarantine. */
+  private lastStageAwaitingInputKey: string | null = null;
 
   constructor(opts: WorkflowAttachPaneOpts) {
     this.store = opts.store;
@@ -184,11 +189,13 @@ export class WorkflowAttachPane implements Component {
     this.footerData = opts.footerData;
     this.now = opts.now ?? Date.now;
 
+    this.unsubscribeStore = this.store.subscribe((snapshot) => this._handleStoreUpdate(snapshot));
     this.graphView = this._buildGraphView();
 
     if (opts.initialAttachStageId !== undefined && this.runId) {
       this._attachToStage(this.runId, opts.initialAttachStageId);
     } else {
+      this._syncAwaitingInputKeys(this.store.snapshot());
       this._armGraphEnterQuarantineIfRunNeedsInput();
       this._setBaseStatus();
       this._syncMouseScrollTracking();
@@ -252,8 +259,11 @@ export class WorkflowAttachPane implements Component {
     options: { suppressInitialPromptSubmit?: boolean } = { suppressInitialPromptSubmit: true },
   ): void {
     this.graphEnterQuarantineUntil = 0;
+    const snapshot = this.store.snapshot();
+    this.lastGraphAwaitingInputKey = this._runAwaitingInputKey(snapshot, runId);
+    this.lastStageAwaitingInputKey = this._stageAwaitingInputKey(snapshot, runId, stageId);
     this.stagePromptEnterQuarantineUntil =
-      options.suppressInitialPromptSubmit === true && this._stageNeedsInput(runId, stageId)
+      options.suppressInitialPromptSubmit === true && this.lastStageAwaitingInputKey !== null
         ? this.now() + ENTER_TRANSITION_QUARANTINE_MS
         : 0;
     this.runId = runId;
@@ -290,8 +300,8 @@ export class WorkflowAttachPane implements Component {
       ),
     });
     this.chatView = chatView;
-    this.store.recordStageAttached(runId, stageId, this.visible);
     this.mode = "stage-chat";
+    this.store.recordStageAttached(runId, stageId, this.visible);
     this._setAttachedStatus(runId, stageId);
     this._syncMouseScrollTracking();
   }
@@ -312,6 +322,8 @@ export class WorkflowAttachPane implements Component {
     this.graphView = this._buildGraphView(this.lastAttachedStageId ?? undefined);
     this.mode = "graph";
     this.stagePromptEnterQuarantineUntil = 0;
+    this.lastStageAwaitingInputKey = null;
+    this.lastGraphAwaitingInputKey = this.runId ? this._runAwaitingInputKey(this.store.snapshot(), this.runId) : null;
     this.graphEnterQuarantineUntil =
       reason === "prompt-resolved" && metadata.suppressNextGraphSubmit === true
         ? this.now() + ENTER_TRANSITION_QUARANTINE_MS
@@ -333,6 +345,7 @@ export class WorkflowAttachPane implements Component {
     this.graphEnterQuarantineUntil = 0;
     this.stagePromptEnterQuarantineUntil = 0;
     this.graphView = this._buildGraphView();
+    this._syncAwaitingInputKeys(this.store.snapshot());
 
     if (stageId !== undefined && runId) {
       this._attachToStage(runId, stageId);
@@ -342,6 +355,44 @@ export class WorkflowAttachPane implements Component {
     this._armGraphEnterQuarantineIfRunNeedsInput();
     this._setBaseStatus();
     this._syncMouseScrollTracking();
+  }
+
+  private _handleStoreUpdate(snapshot: StoreSnapshot): void {
+    if (!this.visible) {
+      this._syncAwaitingInputKeys(snapshot);
+      return;
+    }
+    const runId = this._resolveRunId();
+    if (!runId) {
+      this.lastGraphAwaitingInputKey = null;
+      this.lastStageAwaitingInputKey = null;
+      return;
+    }
+    if (this.mode === "graph") {
+      const key = this._runAwaitingInputKey(snapshot, runId);
+      if (key !== null && key !== this.lastGraphAwaitingInputKey) {
+        this.graphEnterQuarantineUntil = this.now() + ENTER_TRANSITION_QUARANTINE_MS;
+      }
+      this.lastGraphAwaitingInputKey = key;
+      this.lastStageAwaitingInputKey = null;
+      return;
+    }
+    if (this.mode === "stage-chat" && this.lastAttachedStageId) {
+      const key = this._stageAwaitingInputKey(snapshot, runId, this.lastAttachedStageId);
+      if (key !== null && key !== this.lastStageAwaitingInputKey) {
+        this.stagePromptEnterQuarantineUntil = this.now() + ENTER_TRANSITION_QUARANTINE_MS;
+      }
+      this.lastStageAwaitingInputKey = key;
+      this.lastGraphAwaitingInputKey = this._runAwaitingInputKey(snapshot, runId);
+    }
+  }
+
+  private _syncAwaitingInputKeys(snapshot: StoreSnapshot): void {
+    const runId = this._resolveRunId();
+    this.lastGraphAwaitingInputKey = runId ? this._runAwaitingInputKey(snapshot, runId) : null;
+    this.lastStageAwaitingInputKey = runId && this.lastAttachedStageId
+      ? this._stageAwaitingInputKey(snapshot, runId, this.lastAttachedStageId)
+      : null;
   }
 
   private _setBaseStatus(): void {
@@ -455,17 +506,49 @@ export class WorkflowAttachPane implements Component {
   }
 
   private _runNeedsInput(runId: string): boolean {
-    const run = this.store.snapshot().runs.find((candidate) => candidate.id === runId);
-    if (!run) return false;
-    return (
-      run.pendingPrompt !== undefined ||
-      run.stages.some((stage) => this._stageSnapshotNeedsInput(stage))
-    );
+    return this._runAwaitingInputKey(this.store.snapshot(), runId) !== null;
+  }
+
+  private _runAwaitingInputKey(snapshot: StoreSnapshot, runId: string): string | null {
+    const run = snapshot.runs.find((candidate) => candidate.id === runId);
+    if (!run) return null;
+    const keys: Array<{ key: string; createdAt: number }> = [];
+    if (run.pendingPrompt) {
+      keys.push({ key: `run-prompt:${run.pendingPrompt.id}`, createdAt: run.pendingPrompt.createdAt });
+    }
+    for (const stage of run.stages) {
+      const key = this._stageAwaitingInputKeyFromSnapshot(stage);
+      if (key) keys.push(key);
+    }
+    if (keys.length === 0) return null;
+    keys.sort((a, b) => b.createdAt - a.createdAt);
+    return keys[0]!.key;
   }
 
   private _stageNeedsInput(runId: string, stageId: string): boolean {
-    const stage = this._stageSnapshot(runId, stageId);
-    return stage !== undefined && this._stageSnapshotNeedsInput(stage);
+    return this._stageAwaitingInputKey(this.store.snapshot(), runId, stageId) !== null;
+  }
+
+  private _stageAwaitingInputKey(snapshot: StoreSnapshot, runId: string, stageId: string): string | null {
+    const run = snapshot.runs.find((candidate) => candidate.id === runId);
+    const stage = run?.stages.find((candidate) => candidate.id === stageId);
+    return stage ? this._stageAwaitingInputKeyFromSnapshot(stage)?.key ?? null : null;
+  }
+
+  private _stageAwaitingInputKeyFromSnapshot(stage: StageSnapshot): { key: string; createdAt: number } | null {
+    if (stage.pendingPrompt) {
+      return { key: `stage-prompt:${stage.id}:${stage.pendingPrompt.id}`, createdAt: stage.pendingPrompt.createdAt };
+    }
+    if (stage.inputRequest) {
+      return { key: `stage-input:${stage.id}:${stage.inputRequest.id}`, createdAt: stage.inputRequest.createdAt };
+    }
+    if (stage.status === "awaiting_input") {
+      return {
+        key: `stage-awaiting:${stage.id}:${stage.awaitingInputSince ?? "active"}`,
+        createdAt: stage.awaitingInputSince ?? stage.startedAt ?? 0,
+      };
+    }
+    return null;
   }
 
   private _isStageMarkedAttached(runId: string, stageId: string): boolean {
@@ -491,6 +574,8 @@ export class WorkflowAttachPane implements Component {
   }
 
   dispose(): void {
+    this.unsubscribeStore?.();
+    this.unsubscribeStore = null;
     if (this.chatView && this.runId && this.lastAttachedStageId) {
       this.store.recordStageAttached(this.runId, this.lastAttachedStageId, false);
     }

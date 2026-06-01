@@ -204,7 +204,7 @@ Why this is good:
 
 \`/workflow resume <run-id>\`
 
-Workflows run as background tasks. Use F2 or \`/workflow connect <run-id>\` for the graph viewer. Human-in-the-loop prompts appear there, not as chat modals. Completion, failure, and awaiting-input notices are steered back into the main chat; answers submitted in the workflow UI interrupt stale main-chat questions so the model does not ask again.
+Workflows run as background tasks. Use F2 or \`/workflow connect <run-id>\` for the graph viewer. Human-in-the-loop prompts appear there, not as chat modals, and awaiting-input states do not wake the main chat agent. Completion and failure notices are steered back into the main chat; answers submitted in the workflow UI interrupt stale main-chat questions so the model does not ask again.
 
 ## Author your own
 

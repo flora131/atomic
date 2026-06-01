@@ -19,7 +19,7 @@ jobs:
         include:
           - os: ubuntu-latest
             binary_platform: linux-x64
-          - os: windows-latest
+          - os: blacksmith-4vcpu-windows-2025
             binary_platform: windows-x64
       fail-fast: false
     runs-on: ${{ matrix.os }}

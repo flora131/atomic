@@ -28,7 +28,7 @@ env:
 jobs:
   linux-binary-smoke:
     name: Smoke test Linux binary
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
 
     steps:
       - uses: actions/checkout@v6
@@ -94,7 +94,7 @@ jobs:
 
   windows-binary-smoke:
     name: Smoke test Windows binary
-    runs-on: windows-latest
+    runs-on: blacksmith-4vcpu-windows-2025
 
     steps:
       - uses: actions/checkout@v6
@@ -164,7 +164,7 @@ jobs:
 
   publish:
     name: Publish @bastani/atomic
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs:
       - linux-binary-smoke
       - windows-binary-smoke

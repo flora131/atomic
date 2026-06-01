@@ -87,20 +87,39 @@ describe("defineWorkflow builder", () => {
     assert.equal(Object.isFrozen(def.interaction), true);
   });
 
-  test("import() records immutable workflow import metadata", () => {
-    const base = defineWorkflow("parent");
-    const withImport = base.import("child", { workflow: "shared-child" }, { description: "Shared child" });
-    const def = withImport.run(async () => ({})).compile();
-    const baseDef = base.run(async () => ({})).compile();
+  test("import() can register a compiled workflow definition by workflow name", () => {
+    const child = defineWorkflow("Shared Child")
+      .run(async (ctx) => {
+        await ctx.task("child", { prompt: "child" });
+        return { ok: true };
+      })
+      .compile();
+    const def = defineWorkflow("parent")
+      .import(child, { description: "Static TS module import" })
+      .run(async () => ({}))
+      .compile();
 
-    assert.equal(baseDef.imports, undefined);
-    assert.deepEqual(def.imports?.["child"], {
-      source: { workflow: "shared-child" },
-      description: "Shared child",
-    });
+    assert.deepEqual(Object.keys(def.imports ?? {}), ["shared-child"]);
+    assert.equal(def.imports!["shared-child"]!.definition, child);
+    assert.equal(def.imports?.["shared-child"]?.description, "Static TS module import");
     assert.equal(Object.isFrozen(def.imports), true);
-    assert.equal(Object.isFrozen(def.imports?.["child"]), true);
-    assert.equal(Object.isFrozen(def.imports?.["child"]?.source), true);
+    assert.equal(Object.isFrozen(def.imports?.["shared-child"]), true);
+  });
+
+  test("import() can alias a compiled workflow definition", () => {
+    const child = defineWorkflow("shared-child")
+      .run(async (ctx) => {
+        await ctx.task("child", { prompt: "child" });
+        return { ok: true };
+      })
+      .compile();
+    const def = defineWorkflow("parent")
+      .import(child, { as: "research" })
+      .run(async () => ({}))
+      .compile();
+
+    assert.equal(def.imports!["research"]!.definition, child);
+    assert.equal(def.imports?.["shared-child"], undefined);
   });
 
   test("output() records immutable workflow output metadata", () => {

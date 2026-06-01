@@ -146,7 +146,7 @@ export interface RunOpts {
   models?: WorkflowModelCatalogPort;
   /** Registry used to resolve declared workflow imports. */
   registry?: WorkflowRegistry;
-  /** Discovery source metadata used to resolve relative local path imports. */
+  /** Discovery source metadata for workflow resources. */
   workflowSources?: readonly WorkflowSourceReference[];
   /**
    * Current nesting depth of this workflow run. Starts at 0 for top-level runs.
@@ -3213,18 +3213,12 @@ export async function run<TInputs extends Record<string, unknown>>(
           deferWorkflowStart: _parentDeferWorkflowStart,
           ...childBaseOpts
         } = opts;
-        const childSources = resolved.resolved.filePath === undefined
-          ? opts.workflowSources
-          : [
-              { id: child.normalizedName, filePath: resolved.resolved.filePath },
-              ...(opts.workflowSources ?? []),
-            ];
         const childRun = await run(child, childInputs, {
           ...childBaseOpts,
           cwd: resolveWorkflowCwd(),
           depth: depth + 1,
           registry: importRegistry,
-          ...(childSources !== undefined ? { workflowSources: childSources } : {}),
+          ...(opts.workflowSources !== undefined ? { workflowSources: opts.workflowSources } : {}),
           signal: ownController.signal,
           deferWorkflowStart: false,
         });

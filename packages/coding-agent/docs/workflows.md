@@ -778,7 +778,7 @@ Builder basics:
 - `.description(text)` sets the listing text.
 - `.input(key, schema)` declares typed user inputs.
 - `.worktreeFromInputs({ gitWorktreeDir, baseBranch })` optionally maps input names to workflow-wide reusable Git worktree defaults.
-- `.import(alias, source, options?)` declares a reusable child workflow by registered workflow id or local module path. The optional `options.description` explains the import in generated metadata.
+- `.import(workflowDefinition, options?)` declares a reusable child workflow from a normal TypeScript module import and registers the child's normalized workflow name as the default `ctx.workflow(...)` alias. Pass `options.as` to use a parent-local alias. Registry-name and path-object import declarations are not supported.
 - `.output(key, schema?)` declares typed outputs that parent workflows can select from imports.
 - `.humanInTheLoop(reason?)` marks workflows that can require `ctx.ui.*` user input so non-interactive runs fail before starting.
 - `.run(async (ctx) => { ... })` defines the workflow body.
@@ -838,13 +838,13 @@ The marker is user-facing metadata and a safety gate: headless/non-interactive s
 
 ### Workflow Imports
 
-Use workflow imports when one workflow should call another reusable workflow and consume its outputs as a tracked boundary stage.
+Use workflow imports when one workflow should call another reusable workflow and consume its outputs as a tracked boundary stage. Prefer normal TypeScript imports: import the compiled child workflow definition, pass it to `.import(...)`, then call `ctx.workflow(childWorkflowName)`.
 
 ```ts
 // .atomic/workflows/shared-research.ts
 import { defineWorkflow } from "@bastani/workflows";
 
-export const sharedResearch = defineWorkflow("shared-research")
+export default defineWorkflow("shared-research")
   .input("topic", { type: "text", required: true })
   .output("summary", { type: "text", required: true, description: "Research summary markdown." })
   .output("sources", { type: "array", description: "Source URLs and file references." })
@@ -855,13 +855,16 @@ export const sharedResearch = defineWorkflow("shared-research")
   .compile();
 
 // .atomic/workflows/research-and-synthesize.ts
+import { defineWorkflow } from "@bastani/workflows";
+import { goal } from "@bastani/workflows/builtin";
+import sharedResearch from "./shared-research.js";
+
 export default defineWorkflow("research-and-synthesize")
   .input("topic", { type: "text", required: true })
-  .import("research", { workflow: "shared-research" }, { description: "Reusable topic research." })
-  // Local module imports are also supported:
-  // .import("research", { path: "./shared-research.ts", export: "sharedResearch" })
+  .import(sharedResearch, { description: "Reusable topic research." })
+  .import(goal, { as: "implementation-goal" })
   .run(async (ctx) => {
-    const child = await ctx.workflow("research", {
+    const child = await ctx.workflow("shared-research", {
       inputs: { topic: ctx.inputs.topic },
       outputs: { summary: "research_summary" },
       stageName: "run shared research",
@@ -875,7 +878,9 @@ export default defineWorkflow("research-and-synthesize")
   .compile();
 ```
 
-`ctx.workflow(alias)` starts a workflow declared with `.import(alias, source)` as a nested run and records a parent boundary stage named `import:<alias>` by default. The returned child result has:
+Direct definition imports register the imported workflow's normalized name as the default alias (`shared-research` above). Use `{ as: "alias" }` for a shorter parent-local alias. Builtin workflows are available from `@bastani/workflows/builtin` and individual module paths such as `@bastani/workflows/builtin/goal`, including `deepResearchCodebase`, `goal`, and `ralph`.
+
+`ctx.workflow(alias)` starts a workflow declared with `.import(...)` as a nested run and records a parent boundary stage named `import:<alias>` by default. The returned child result has:
 
 | Field | Meaning |
 |---|---|
@@ -896,9 +901,9 @@ export default defineWorkflow("research-and-synthesize")
 Output selection rules:
 
 ```ts
-await ctx.workflow("research"); // selects every key returned by the child
-await ctx.workflow("research", { outputs: ["summary", "sources"] });
-await ctx.workflow("research", { outputs: { summary: "research_summary" } });
+await ctx.workflow("shared-research"); // selects every key returned by the child
+await ctx.workflow("shared-research", { outputs: ["summary", "sources"] });
+await ctx.workflow("shared-research", { outputs: { summary: "research_summary" } });
 ```
 
 | `outputs` form | Behavior |
@@ -909,15 +914,7 @@ await ctx.workflow("research", { outputs: { summary: "research_summary" } });
 
 If the child declares outputs and the parent explicitly requests an undeclared key, the import fails. Required declared outputs are added implicitly even when the parent asks for a smaller subset. Missing selected outputs, duplicate parent output names, schema type mismatches, and non-serializable selected values fail the import before the parent continues.
 
-Import sources can reference either a registered workflow or a local module export:
-
-```ts
-.import("child", { workflow: "registered-name" })
-.import("child", { path: "./child.ts" })                // default export
-.import("child", { path: "./shared.ts", export: "x" }) // named export
-```
-
-Relative paths resolve from the importing workflow file when discovery has source metadata, then from the invocation cwd. Atomic validates imports during discovery/dispatch and fails fast for undeclared aliases, missing registered workflows, missing exports, invalid workflow exports, circular imports, and invalid declarations. Nested imports count against `maxDepth` (default `4` total workflow levels). Local path imports execute the imported file's top-level code during validation, so only reference trusted workflow modules.
+Only compiled workflow definitions can be passed to `.import(...)`. Import reusable workflows with TypeScript `import` statements first; if a module is missing or does not export a compiled workflow definition, workflow discovery fails when loading that module. Atomic validates circular or invalid compiled-definition import graphs during discovery/dispatch. Nested imports count against `maxDepth` (default `4` total workflow levels).
 
 The graph node for a completed import boundary shows the child workflow name, child run id prefix, and selected output count, rather than a blank zero-duration stage. Use `stageName` when the parent needs a more specific label, but keep it concise so the child summary remains readable in the graph.
 
@@ -932,7 +929,7 @@ Prefer high-level primitives because they create tracked graph nodes, provide co
 | One LLM/session task with workflow tracking | `ctx.task(name, options)` |
 | Dependent sequential tasks | `ctx.chain(steps, options?)` |
 | Independent concurrent branches | `ctx.parallel(steps, options?)` |
-| Reusable child workflow | Declare `.import(alias, source)` and call `ctx.workflow(alias, options?)` |
+| Reusable child workflow | Declare `.import(workflowDefinition)` and call `ctx.workflow(alias, options?)` |
 | Human input during a workflow run | `ctx.ui.input/confirm/select/editor` |
 | Pure deterministic computation, parsing, or file I/O | Plain TypeScript in `.run()` or helpers |
 | Fine-grained session control | `ctx.stage(name, options?)` |

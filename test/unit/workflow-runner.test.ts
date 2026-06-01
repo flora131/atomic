@@ -250,14 +250,18 @@ describe("programmatic workflow runner", () => {
       writeFileSync(
         join(workflowDir, "parent.ts"),
         [
-          `import { defineWorkflow } from "@bastani/workflows";`,
-          `export default defineWorkflow("runner-import-parent")`,
-          `  .import("missing", { workflow: "runner-missing-child" })`,
-          `  .run(async (ctx) => {`,
+          `export default {`,
+          `  __piWorkflow: true,`,
+          `  name: "runner-import-parent",`,
+          `  normalizedName: "runner-import-parent",`,
+          `  description: "",`,
+          `  inputs: {},`,
+          `  imports: { missing: { definition: { not: "a workflow" } } },`,
+          `  run: async (ctx) => {`,
           `    await ctx.task("should-not-run", { prompt: "no" });`,
           `    return {};`,
-          `  })`,
-          `  .compile();`,
+          `  },`,
+          `};`,
         ].join("\n"),
         "utf8",
       );
@@ -268,7 +272,7 @@ describe("programmatic workflow runner", () => {
           { mode: "workflow", workflow: "runner-import-parent" },
           { cwd: dir, adapterOptions: { createAgentSession: makeSessionFactory(prompts) } },
         ),
-        /Invalid workflow imports[\s\S]*IMPORT_UNRESOLVED[\s\S]*runner-missing-child/,
+        /Invalid workflow imports[\s\S]*IMPORT_INVALID[\s\S]*definition must be a compiled workflow definition/,
       );
       assert.deepEqual(prompts, []);
     } finally {

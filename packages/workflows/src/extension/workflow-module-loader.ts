@@ -11,6 +11,10 @@ import { createRequire } from "node:module";
 import { isBunBinary } from "@bastani/atomic";
 import { createJiti } from "jiti/static";
 import * as workflowsSdkSurface from "../sdk-surface.js";
+import deepResearchCodebase from "../../builtin/deep-research-codebase.js";
+import goal from "../../builtin/goal.js";
+import openClaudeDesign from "../../builtin/open-claude-design.js";
+import ralph from "../../builtin/ralph.js";
 
 type RunWorkflowFunction = typeof import("../runs/shared/workflow-runner.js").runWorkflow;
 
@@ -21,6 +25,7 @@ const runWorkflow: RunWorkflowFunction = async (...args) => {
 
 const require = createRequire(import.meta.url);
 const WORKFLOWS_MODULE_SPECIFIER = "@bastani/workflows";
+const WORKFLOWS_BUILTIN_MODULE_SPECIFIER = `${WORKFLOWS_MODULE_SPECIFIER}/builtin`;
 // Keep this in sync with index.ts through sdk-surface.ts. runWorkflow stays as
 // a lazy wrapper because the public re-export comes from workflow-runner.ts,
 // which imports discovery.ts and would otherwise reintroduce a cycle.
@@ -28,21 +33,32 @@ const WORKFLOWS_SDK_MODULE: Record<string, unknown> = {
   ...workflowsSdkSurface,
   runWorkflow,
 };
+const WORKFLOWS_BUILTIN_MODULE: Record<string, unknown> = {
+  deepResearchCodebase,
+  goal,
+  openClaudeDesign,
+  ralph,
+};
 const WORKFLOWS_VIRTUAL_MODULES: Record<string, unknown> = {
   [WORKFLOWS_MODULE_SPECIFIER]: WORKFLOWS_SDK_MODULE,
+  [WORKFLOWS_BUILTIN_MODULE_SPECIFIER]: WORKFLOWS_BUILTIN_MODULE,
+  [`${WORKFLOWS_BUILTIN_MODULE_SPECIFIER}/deep-research-codebase`]: { default: deepResearchCodebase },
+  [`${WORKFLOWS_BUILTIN_MODULE_SPECIFIER}/goal`]: { default: goal },
+  [`${WORKFLOWS_BUILTIN_MODULE_SPECIFIER}/open-claude-design`]: { default: openClaudeDesign },
+  [`${WORKFLOWS_BUILTIN_MODULE_SPECIFIER}/ralph`]: { default: ralph },
 };
 
-function resolveWorkflowsSdkAlias(): string {
-  // Resolve the package self-reference through package.json exports instead of
-  // pinning loader code to the current src/extension -> src/index.ts layout.
-  const sdkEntry = require.resolve(WORKFLOWS_MODULE_SPECIFIER);
-  if (!existsSync(sdkEntry)) {
+function resolveWorkflowPackageSpecifier(specifier: string): string {
+  // Resolve package self-references through package.json exports instead of
+  // pinning loader code to the current source layout.
+  const entry = require.resolve(specifier);
+  if (!existsSync(entry)) {
     throw new Error(
-      `Unable to resolve ${WORKFLOWS_MODULE_SPECIFIER} SDK entry at ${sdkEntry}. ` +
-        "Check the package exports map for the workflows SDK entry.",
+      `Unable to resolve ${specifier} entry at ${entry}. ` +
+        "Check the package exports map for the workflows package.",
     );
   }
-  return sdkEntry;
+  return entry;
 }
 
 const workflowModuleLoader = createJiti(import.meta.url, {
@@ -52,7 +68,16 @@ const workflowModuleLoader = createJiti(import.meta.url, {
   tryNative: false,
   ...(isBunBinary
     ? { virtualModules: WORKFLOWS_VIRTUAL_MODULES }
-    : { alias: { [WORKFLOWS_MODULE_SPECIFIER]: resolveWorkflowsSdkAlias() } }),
+    : {
+        alias: {
+          [WORKFLOWS_MODULE_SPECIFIER]: resolveWorkflowPackageSpecifier(WORKFLOWS_MODULE_SPECIFIER),
+          [WORKFLOWS_BUILTIN_MODULE_SPECIFIER]: resolveWorkflowPackageSpecifier(WORKFLOWS_BUILTIN_MODULE_SPECIFIER),
+          [`${WORKFLOWS_BUILTIN_MODULE_SPECIFIER}/deep-research-codebase`]: resolveWorkflowPackageSpecifier(`${WORKFLOWS_BUILTIN_MODULE_SPECIFIER}/deep-research-codebase`),
+          [`${WORKFLOWS_BUILTIN_MODULE_SPECIFIER}/goal`]: resolveWorkflowPackageSpecifier(`${WORKFLOWS_BUILTIN_MODULE_SPECIFIER}/goal`),
+          [`${WORKFLOWS_BUILTIN_MODULE_SPECIFIER}/open-claude-design`]: resolveWorkflowPackageSpecifier(`${WORKFLOWS_BUILTIN_MODULE_SPECIFIER}/open-claude-design`),
+          [`${WORKFLOWS_BUILTIN_MODULE_SPECIFIER}/ralph`]: resolveWorkflowPackageSpecifier(`${WORKFLOWS_BUILTIN_MODULE_SPECIFIER}/ralph`),
+        },
+      }),
 });
 
 function materializeModuleObject(mod: object): Record<string, unknown> {

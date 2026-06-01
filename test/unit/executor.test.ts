@@ -226,7 +226,7 @@ describe("executor.run", () => {
       .compile();
     const parent = defineWorkflow("research-parent")
       .input("topic", { type: "text", required: true })
-      .import("research", { workflow: "research-child" })
+      .import(child, { as: "research" })
       .run(async (ctx) => {
         const childResult = await ctx.workflow("research", {
           inputs: { topic: ctx.inputs.topic },
@@ -264,6 +264,42 @@ describe("executor.run", () => {
     assert.equal(st.runs().length, 2);
   });
 
+  test("ctx.workflow executes a statically imported child definition by workflow name", async () => {
+    const seenPrompts: string[] = [];
+    const child = defineWorkflow("static-child")
+      .output("summary", { type: "text", required: true })
+      .run(async (ctx) => {
+        const result = await ctx.task("child", { prompt: "static-child" });
+        return { summary: result.text };
+      })
+      .compile();
+    const parent = defineWorkflow("static-parent")
+      .import(child)
+      .run(async (ctx) => {
+        const childResult = await ctx.workflow("static-child", { outputs: ["summary"] });
+        const final = await ctx.task("final", { prompt: `final:${String(childResult.outputs.summary)}` });
+        return { final: final.text };
+      })
+      .compile();
+
+    const wfResult = await run(parent, {}, {
+      store: createStore(),
+      adapters: {
+        prompt: {
+          prompt: async (text) => {
+            seenPrompts.push(text);
+            return text === "static-child" ? "child-output" : "final-output";
+          },
+        },
+      },
+    });
+
+    assert.equal(wfResult.status, "completed");
+    assert.deepEqual(seenPrompts, ["static-child", "final:child-output"]);
+    assert.equal(wfResult.result?.["final"], "final-output");
+    assert.deepEqual(wfResult.stages.map((stage) => stage.name), ["import:static-child", "final"]);
+  });
+
   test("ctx.workflow completes when unselected child raw output is not cloneable", async () => {
     const child = defineWorkflow("uncloneable-raw-child")
       .output("summary", { type: "text", required: true })
@@ -273,7 +309,7 @@ describe("executor.run", () => {
       })
       .compile();
     const parent = defineWorkflow("uncloneable-raw-parent")
-      .import("child", { workflow: "uncloneable-raw-child" })
+      .import(child, { as: "child" })
       .run(async (ctx) => {
         const childResult = await ctx.workflow("child", { outputs: ["summary"] });
         const final = await ctx.stage("final").prompt(`final:${String(childResult.outputs.summary)}`);
@@ -304,7 +340,7 @@ describe("executor.run", () => {
       })
       .compile();
     const parent = defineWorkflow("uncloneable-selected-parent")
-      .import("child", { workflow: "uncloneable-selected-child" })
+      .import(child, { as: "child" })
       .run(async (ctx) => {
         await ctx.workflow("child", { outputs: ["bad"] });
         await ctx.stage("downstream").prompt("should-not-run");
@@ -343,7 +379,7 @@ describe("executor.run", () => {
       })
       .compile();
     const parent = defineWorkflow("default-input-parent")
-      .import("child", { workflow: "default-input-child" })
+      .import(child, { as: "child" })
       .run(async (ctx) => {
         const childResult = await ctx.workflow("child");
         return { summary: childResult.outputs.summary };
@@ -378,7 +414,7 @@ describe("executor.run", () => {
       })
       .compile();
     const parent = defineWorkflow("implicit-output-parent")
-      .import("child", { workflow: "implicit-output-child" })
+      .import(child, { as: "child" })
       .run(async (ctx) => {
         const childResult = await ctx.workflow("child");
         return { childOutputs: childResult.outputs, rawOutput: childResult.rawOutput };
@@ -406,7 +442,7 @@ describe("executor.run", () => {
       })
       .compile();
     const parent = defineWorkflow("explicit-output-parent")
-      .import("child", { workflow: "explicit-output-child" })
+      .import(child, { as: "child" })
       .run(async (ctx) => {
         await ctx.workflow("child", { outputs: ["extra"] });
         await ctx.task("downstream", { prompt: "should-not-run" });
@@ -444,7 +480,7 @@ describe("executor.run", () => {
       })
       .compile();
     const parent = defineWorkflow("implicit-missing-output-parent")
-      .import("child", { workflow: "implicit-missing-output-child" })
+      .import(child, { as: "child" })
       .run(async (ctx) => {
         await ctx.workflow("child");
         await ctx.task("downstream", { prompt: "should-not-run" });
@@ -483,7 +519,7 @@ describe("executor.run", () => {
       })
       .compile();
     const parent = defineWorkflow("explicit-missing-required-output-parent")
-      .import("child", { workflow: "explicit-missing-required-output-child" })
+      .import(child, { as: "child" })
       .run(async (ctx) => {
         await ctx.workflow("child", { outputs: ["optional"] });
         await ctx.task("downstream", { prompt: "should-not-run" });
@@ -522,7 +558,7 @@ describe("executor.run", () => {
       })
       .compile();
     const parent = defineWorkflow("colliding-required-output-parent")
-      .import("child", { workflow: "colliding-required-output-child" })
+      .import(child, { as: "child" })
       .run(async (ctx) => {
         await ctx.workflow("child", { outputs: { other: "summary" } });
         await ctx.task("downstream", { prompt: "should-not-run" });
@@ -561,7 +597,7 @@ describe("executor.run", () => {
       })
       .compile();
     const parent = defineWorkflow("input-parent")
-      .import("child", { workflow: "input-child" })
+      .import(child, { as: "child" })
       .run(async (ctx) => {
         await ctx.workflow("child", { inputs: { topic: 123 } });
         return {};
@@ -592,7 +628,7 @@ describe("executor.run", () => {
       })
       .compile();
     const parent = defineWorkflow("output-parent")
-      .import("child", { workflow: "output-child" })
+      .import(child, { as: "child" })
       .run(async (ctx) => {
         await ctx.workflow("child", { outputs: ["summary"] });
         await ctx.task("downstream", { prompt: "should-not-run" });
@@ -966,7 +1002,7 @@ describe("executor.run", () => {
       })
       .compile();
     const parent = defineWorkflow("resume-import-parent")
-      .import("child", { workflow: "resume-import-child" })
+      .import(child, { as: "child" })
       .run(async (ctx) => {
         const childResult = await ctx.workflow("child");
         const after = await ctx.stage("after").prompt(`after:${String(childResult.outputs["value"])}`);
@@ -1032,7 +1068,7 @@ describe("executor.run", () => {
       })
       .compile();
     const parent = defineWorkflow("resume-import-clone-parent")
-      .import("child", { workflow: "resume-import-clone-child" })
+      .import(child, { as: "child" })
       .run(async (ctx) => {
         const childResult = await ctx.workflow("child");
         const value = childResult.outputs["value"] as { nested: string };
@@ -1088,7 +1124,7 @@ describe("executor.run", () => {
       })
       .compile();
     const parent = defineWorkflow("resume-uncloneable-raw-parent")
-      .import("child", { workflow: "resume-uncloneable-raw-child" })
+      .import(child, { as: "child" })
       .run(async (ctx) => {
         const childResult = await ctx.workflow("child", { outputs: ["value"] });
         const after = await ctx.stage("after").prompt(`after:${String(childResult.outputs["value"])}`);
@@ -1141,13 +1177,16 @@ describe("executor.run", () => {
   });
 
   test("validates workflow imports when caller supplies a registry", async () => {
-    const parent = defineWorkflow("registry-validation-parent")
-      .import("ghost", { workflow: "registry-validation-missing" })
+    const baseParent = defineWorkflow("registry-validation-parent")
       .run(async (ctx) => {
         await ctx.stage("should-not-start").prompt("should not start");
         return {};
       })
       .compile();
+    const parent = {
+      ...baseParent,
+      imports: { ghost: { definition: { not: "a workflow" } } },
+    } as unknown as WorkflowDefinition;
     const registry = createRegistry([parent]);
     const promptCalls: string[] = [];
 
@@ -1164,8 +1203,8 @@ describe("executor.run", () => {
     });
 
     assert.equal(result.status, "failed");
-    assert.match(result.error ?? "", /IMPORT_UNRESOLVED/);
-    assert.match(result.error ?? "", /registry-validation-missing/);
+    assert.match(result.error ?? "", /IMPORT_INVALID/);
+    assert.match(result.error ?? "", /definition must be a compiled workflow definition/);
     assert.deepEqual(result.stages, []);
     assert.deepEqual(promptCalls, []);
   });
@@ -1179,7 +1218,7 @@ describe("executor.run", () => {
       })
       .compile();
     const parent = defineWorkflow("resume-import-repeated-parent")
-      .import("child", { workflow: "resume-import-repeated-child" })
+      .import(child, { as: "child" })
       .run(async (ctx) => {
         const [first, second] = await Promise.all([
           ctx.workflow("child"),
@@ -1251,7 +1290,7 @@ describe("executor.run", () => {
       })
       .compile();
     const parent = defineWorkflow("resume-import-legacy-parent")
-      .import("child", { workflow: "resume-import-legacy-child" })
+      .import(child, { as: "child" })
       .run(async (ctx) => {
         const childResult = await ctx.workflow("child");
         const after = await ctx.stage("after").prompt(`after:${String(childResult.outputs["value"])}`);

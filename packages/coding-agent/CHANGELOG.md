@@ -16,7 +16,7 @@
 - Compressed the `/fast` selector copy, row layout, and per-change status message so the summary, toggles, scopes, and keyboard hints stay readable without duplicate off/standard-tier messaging ([#1134](https://github.com/bastani-inc/atomic/issues/1134)).
 - Clarified workflow-creation guidance so Atomic asks clarifying questions and writes first-time workflows directly, reserving `/goal` for explicitly chosen long-running reviewer-gated implementation.
 - Tightened workflow tool guidance so Atomic monitors long-running workflow runs periodically without micro-managing stages, steers only when appropriate, and inspects transcript paths surgically instead of reading whole session logs.
-- Expanded the workflow authoring docs for composing user-defined workflows and builtin child workflows such as `deep-research-codebase`, `goal`, and `ralph`, including explicit output contracts and the implicit string `result` output fallback.
+- Expanded the workflow authoring docs for composing user-defined workflows and builtin child workflows such as `deep-research-codebase`, `goal`, and `ralph`, including explicit output contracts and the `.run()` return-object convention for the implicit string `result` output.
 - Documented the current workflow tool action surface, lifecycle notices, human-in-the-loop answer notifications, workflow notification config, `/workflow` slash-command discovery, and workflow Codex fast-mode behavior ([#1151](https://github.com/bastani-inc/atomic/issues/1151)).
 
 ### Fixed

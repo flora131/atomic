@@ -1670,16 +1670,8 @@ const IMPLICIT_WORKFLOW_RESULT_OUTPUT = "result";
 const IMPLICIT_WORKFLOW_RESULT_SCHEMA: WorkflowOutputSchema = Object.freeze({
   type: "string",
   description:
-    "Implicit workflow result. Defaults to the final completed stage output text when the workflow has not declared its own result output.",
+    "Implicit workflow result. Defaults to an empty string unless the workflow .run() return object contains a result string.",
 });
-
-function finalCompletedStageResult(stages: readonly StageSnapshot[]): string {
-  for (let index = stages.length - 1; index >= 0; index -= 1) {
-    const result = stages[index]?.result;
-    if (typeof result === "string") return result;
-  }
-  return "";
-}
 
 function hasOwnWorkflowOutput(record: Record<string, unknown> | Readonly<Record<string, WorkflowOutputSchema>>, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(record, key);
@@ -1693,13 +1685,13 @@ function hasDeclaredWorkflowResult(
 
 function withImplicitWorkflowResult(
   result: Record<string, unknown>,
-  stages: readonly StageSnapshot[],
   declarations: Readonly<Record<string, WorkflowOutputSchema>> | undefined,
 ): Record<string, unknown> {
   if (hasDeclaredWorkflowResult(declarations)) return result;
+  if (hasOwnWorkflowOutput(result, IMPLICIT_WORKFLOW_RESULT_OUTPUT)) return result;
   return {
     ...result,
-    [IMPLICIT_WORKFLOW_RESULT_OUTPUT]: finalCompletedStageResult(stages),
+    [IMPLICIT_WORKFLOW_RESULT_OUTPUT]: "",
   };
 }
 
@@ -1732,10 +1724,9 @@ function selectWorkflowOutputs(
   childName: string,
   child: WorkflowDefinition,
   rawOutput: Record<string, unknown> | undefined,
-  childStages: readonly StageSnapshot[] = [],
 ): Record<string, unknown> {
   const declaredOutputs = child.outputs;
-  const sourceOutput = withImplicitWorkflowResult(rawOutput ?? {}, childStages, declaredOutputs);
+  const sourceOutput = withImplicitWorkflowResult(rawOutput ?? {}, declaredOutputs);
   const declarations = workflowOutputDeclarations(declaredOutputs);
   const selected: Record<string, unknown> = {};
 
@@ -3220,7 +3211,7 @@ export async function run<TInputs extends Record<string, unknown>>(
           );
         }
 
-        const outputs = selectWorkflowOutputs(erasedDef, childName, child, childRun.result, childRun.stages);
+        const outputs = selectWorkflowOutputs(erasedDef, childName, child, childRun.result);
         const childResult: WorkflowChildResult = {
           workflow: child.normalizedName,
           runId: childRun.runId,

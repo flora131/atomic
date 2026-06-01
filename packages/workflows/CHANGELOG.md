@@ -14,7 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - Added TypeScript module-style workflow composition: parent workflows can pass compiled child workflow definitions directly to `ctx.workflow(compiledWorkflow, options)`. The bundled `deep-research-codebase`, `goal`, `ralph`, and `open-claude-design` workflows are reusable from `@bastani/workflows/builtin` or individual builtin module paths.
-- Added an implicit child-workflow `result` output for workflows that do not declare their own `result`, defaulting to the final completed stage's text result.
+- Added an implicit child-workflow `result` output for workflows that do not declare their own `result`, sourced from the workflow `.run()` return object's `result` string and defaulting to `""` when omitted.
 - Added first-class workflow composition: child workflows can declare `.output()` contracts, and `ctx.workflow()` runs compiled child workflow definitions as nested runs with input validation, schema-validated declared outputs, and a visible parent boundary stage ([#1071](https://github.com/bastani-inc/atomic/issues/1071)).
 
 ### Changed

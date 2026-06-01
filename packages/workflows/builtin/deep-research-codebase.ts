@@ -320,7 +320,7 @@ function displayPath(path: string): string {
   return path.replace(/\\/g, "/");
 }
 
-function displayPathFrom(path: string, cwd = process.cwd()): string {
+function displayPathFrom(path: string, cwd: string): string {
   if (!isAbsolute(path)) return displayPath(path);
   const relativePath = relative(cwd, path);
   if (relativePath.length === 0) return ".";

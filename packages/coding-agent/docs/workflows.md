@@ -144,6 +144,8 @@ Atomic bundles four workflows that cover the most common multi-stage jobs. They 
 
 These same builtin workflows are also available to workflow authors as compiled definitions. Import them from `@bastani/workflows/builtin` and pass the definition directly to `ctx.workflow(...)` when one workflow should call `deep-research-codebase`, `goal`, `ralph`, `open-claude-design`, or another builtin as a nested child workflow. See [Workflow Composition](#workflow-composition) for full examples alongside user-defined child workflows.
 
+For the builtin result tables below, `deep-research-codebase`, `goal`, and `ralph` explicitly declare `.output("result", { type: "text", ... })`, so `result` is part of their declared output contract. Both implicit and explicit `result` values come from the workflow `.run()` return object; the explicit declaration overrides the compatibility schema/contract and can make `result` required or give it a custom type.
+
 | Workflow | What it does | When to use |
 |---|---|---|
 | `deep-research-codebase` | Scout + research-history chain → parallel specialist waves → aggregator. Indexes the whole repo and synthesizes findings. | Broad or cross-cutting research before you decide what to change. Prefer `/skill:research-codebase` for one subsystem. |
@@ -305,7 +307,7 @@ Result fields:
 | `spec_path` | Absolute path to the generated `spec.html` file. |
 | `spec_file_url` | `file://` URL for the generated `spec.html` file. |
 
-The child-workflow compatibility `result` output is also available and resolves to the final completed stage's text result unless a future version declares a custom `result` output.
+The child-workflow compatibility `result` output is also available. Because `open-claude-design` does not declare or return a `result` key today, that compatibility output is an empty string; use the declared `artifact` and `handoff` fields for generated content.
 
 Run examples:
 
@@ -827,6 +829,8 @@ All schemas support `description` and `required`. Prefer explicit descriptions b
 
 Workflow outputs are contracts for parent workflows that call this workflow with `ctx.workflow(childWorkflow, ...)`. A workflow still returns a plain object from `.run()`, and `.output(key, schema?)` documents, validates, and exposes keys from that returned object.
 
+**Return convention:** outputs are return-object keys. Atomic never infers child workflow outputs from stage names, stage order, or the final assistant message. If a parent should read `child.outputs.foo`, the child workflow's `.run()` must return `{ foo: value }`. The compatibility `child.outputs.result` follows the same rule: return `{ result: "..." }` from `.run()` to set it, otherwise the implicit undeclared `result` is `""`.
+
 `.output(...)` is a schema contract, not an automatic stage selector. To expose values from any stage, capture the stage/task/child result in normal TypeScript and return it from `.run()` under the desired key:
 
 ```ts
@@ -848,7 +852,7 @@ export default defineWorkflow("review-with-summary")
   .compile();
 ```
 
-Every child workflow also has a compatibility output named `result`. If the child workflow does not declare `.output("result", ...)`, `ctx.workflow(childWorkflow)` exposes `child.outputs.result` as the text result of the final completed stage (the final assistant output). If you need `result` to mean something else, or to have a non-string type, explicitly declare `.output("result", schema)` and return `result` from `.run()`.
+Every child workflow also has a compatibility output named `result`. If the child workflow does not declare `.output("result", ...)`, `ctx.workflow(childWorkflow)` exposes `child.outputs.result` from the `result` key returned by the child's `.run()` object. If `.run()` does not return a `result` key, the implicit `result` output is an empty string. If you need `result` to be required, documented, or typed as something other than a string, explicitly declare `.output("result", schema)` and return `result` from `.run()`.
 
 Supported output schema types are:
 
@@ -866,7 +870,7 @@ Output schemas support `description` and `required`. `required: true` means a pa
 
 Use workflow composition when one workflow should call another reusable workflow and consume its outputs as a tracked boundary stage. The child can be a user-defined workflow from your project/package or a bundled builtin workflow. In both cases, use normal TypeScript imports: import the compiled child workflow definition, then pass that definition directly to `ctx.workflow(workflowDefinition, options)`. Registry names, path objects, and string aliases are not accepted by `ctx.workflow(...)`.
 
-For workflows intended to be called by parent workflows, declare `.output(...)` for every non-default field a parent should rely on. The only output that exists without declaration is the compatibility `result` output, which maps to the final completed stage's text result unless the child declares and returns its own `result`.
+For workflows intended to be called by parent workflows, declare `.output(...)` for every non-default field a parent should rely on. The only output that exists without declaration is the compatibility `result` output, which maps to a string `result` key returned by `.run()` or to an empty string when `.run()` does not return `result`.
 
 #### Compose with a user-defined workflow
 
@@ -1009,10 +1013,10 @@ Output exposure rules:
 ```ts
 const child = await ctx.workflow(sharedResearch);
 child.outputs.summary; // declared by sharedResearch.output("summary", ...)
-child.outputs.result;  // implicit final-stage text unless sharedResearch declares result
+child.outputs.result;  // implicit .run() result string, or "" when omitted
 ```
 
-If a child declares outputs, Atomic exposes only those declared outputs plus the implicit `result` output. Undeclared return keys remain available in `child.rawOutput` when the raw return object is serializable, but parent workflow logic should not rely on them. If a child declares no outputs, Atomic preserves legacy compatibility by exposing every returned key plus the implicit `result` output. Missing required outputs, schema type mismatches, and non-serializable exposed values fail the child workflow call before the parent continues.
+If a child declares outputs, Atomic exposes only those declared outputs plus the implicit `result` output. Undeclared return keys remain available in `child.rawOutput` when the raw return object is serializable, but parent workflow logic should not rely on them. If a child declares no outputs, Atomic preserves legacy compatibility by exposing every returned key plus the implicit `result` output, where `result` is the returned string `result` key or `""` when omitted. Missing required outputs, schema type mismatches, and non-serializable exposed values fail the child workflow call before the parent continues.
 
 Only compiled workflow definitions can be passed to `ctx.workflow(...)`. Import reusable workflows with TypeScript `import` statements first; use `/workflow` names such as `goal` only for launching named runs, not as `ctx.workflow(...)` arguments. If a module is missing or does not export a compiled workflow definition, workflow discovery fails when loading that module. Nested child workflows count against `maxDepth` (default `4` total workflow levels).
 
@@ -1273,7 +1277,7 @@ Good workflows are information-flow systems, not just prompt sequences. Keep sta
 - Do not call `create`, `update`, or `delete` on the workflow tool; definitions are code-authored.
 - Do not use legacy workflow tool fields like `agent`, `stage`, or run-control `name`.
 - Do not pass strings such as `"goal"` or path objects to `ctx.workflow(...)`; import the compiled workflow definition from `@bastani/workflows/builtin` or another TypeScript module first.
-- Do not rely on undeclared child outputs except for the implicit string `result` output; declare `.output(...)` for every other child-workflow field and return those keys from `.run()`.
+- Do not rely on undeclared child outputs except for the implicit string `result` output; if you use `result`, return a string `result` key from `.run()`. Declare `.output(...)` for every other child-workflow field and return those keys from `.run()`.
 - Do not expect to select or rename child outputs at the call site; parent workflows receive the child's declared output contract as `child.outputs`.
 - Do not expect named workflow runs to block the chat turn; they are background tasks.
 - Do not call `kill` when the user asks to interrupt or pause resumably.

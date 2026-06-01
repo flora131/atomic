@@ -417,7 +417,7 @@ describe("executor.run", () => {
         assert.equal(boundary.status, "completed");
         assert.deepEqual(boundary.workflowChild?.outputs, {
             summary: "ok",
-            result: "done",
+            result: "",
         });
         assert.equal(boundary.workflowChild?.rawOutput, undefined);
     });
@@ -515,7 +515,7 @@ describe("executor.run", () => {
         assert.equal(st.runs().length, 2);
     });
 
-    test("ctx.workflow returns declared outputs plus implicit result", async () => {
+    test("ctx.workflow returns declared outputs plus empty implicit result when .run omits result", async () => {
         const child = defineWorkflow("implicit-output-child")
             .output("summary", { type: "text", required: true })
             .run(async (ctx) => {
@@ -549,7 +549,7 @@ describe("executor.run", () => {
         assert.equal(wfResult.status, "completed");
         assert.deepEqual(wfResult.result?.["childOutputs"], {
             summary: "summary-value",
-            result: "summary-value",
+            result: "",
         });
         assert.deepEqual(wfResult.result?.["rawOutput"], {
             summary: "summary-value",
@@ -557,12 +557,12 @@ describe("executor.run", () => {
         });
     });
 
-    test("ctx.workflow implicit result output uses final stage text", async () => {
+    test("ctx.workflow implicit result output uses the child .run() result", async () => {
         const child = defineWorkflow("implicit-result-child")
             .run(async (ctx) => {
                 await ctx.task("first", { prompt: "first" });
                 const final = await ctx.task("final", { prompt: "final" });
-                return { result: { ignored: true }, final: final.text };
+                return { result: "run-returned-result", final: final.text };
             })
             .compile();
         const parent = defineWorkflow("implicit-result-parent")
@@ -588,7 +588,38 @@ describe("executor.run", () => {
         );
 
         assert.equal(wfResult.status, "completed");
-        assert.equal(wfResult.result?.["childResult"], "final-output");
+        assert.equal(wfResult.result?.["childResult"], "run-returned-result");
+    });
+
+    test("ctx.workflow implicit result output is empty when child .run returns nothing", async () => {
+        const child = defineWorkflow("implicit-empty-result-child")
+            .run(async (ctx) => {
+                await ctx.task("final", { prompt: "final" });
+                return undefined as unknown as Record<string, unknown>;
+            })
+            .compile();
+        const parent = defineWorkflow("implicit-empty-result-parent")
+            .run(async (ctx) => {
+                const childResult = await ctx.workflow(child);
+                return { childResult: childResult.outputs.result };
+            })
+            .compile();
+
+        const wfResult = await run(
+            parent,
+            {},
+            {
+                registry: createRegistry([
+                    parent as WorkflowDefinition,
+                    child as WorkflowDefinition,
+                ]),
+                store: createStore(),
+                adapters: { prompt: { prompt: async () => "final text" } },
+            },
+        );
+
+        assert.equal(wfResult.status, "completed");
+        assert.equal(wfResult.result?.["childResult"], "");
     });
 
     test("ctx.workflow declared result output overrides implicit result", async () => {
@@ -1351,7 +1382,7 @@ describe("executor.run", () => {
         )!;
         assert.deepEqual(sourceBoundary.workflowChild?.outputs, {
             value: "child-ok",
-            result: "unexpected",
+            result: "",
         });
         assert.equal(sourceBoundary.workflowChild?.rawOutput, undefined);
 
@@ -1385,7 +1416,7 @@ describe("executor.run", () => {
         assert.equal(boundary.replayed, true);
         assert.deepEqual(boundary.workflowChild?.outputs, {
             value: "child-ok",
-            result: "unexpected",
+            result: "",
         });
         assert.equal(boundary.workflowChild?.rawOutput, undefined);
         assert.equal(continued.result?.["after"], "after-ok");

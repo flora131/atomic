@@ -152,7 +152,9 @@ export default defineWorkflow("research-and-synthesize")
 
 The child runs as its own nested workflow run behind a parent boundary stage named `workflow:<workflow-name>` by default. Inputs are validated against the child workflow before it starts. The parent receives the child's declared outputs plus the implicit `result` output on `child.outputs`.
 
-For workflows intended to be called as children, declare `.output(...)` for every non-default field a parent should rely on. `.output(...)` is only the schema/contract: use normal TypeScript in `.run()` to gather values from any stage/task/child workflow and return those keys. Every child workflow also has a compatibility `result` output of type `string`; if the child does not declare `.output("result", ...)`, `child.outputs.result` returns the text result of the final completed stage. Declare `.output("result", schema)` and return `result` when a workflow needs a custom or non-string `result` value.
+For workflows intended to be called as children, declare `.output(...)` for every non-default field a parent should rely on. `.output(...)` is only the schema/contract: use normal TypeScript in `.run()` to gather values from any stage/task/child workflow and return those keys.
+
+**Return convention:** child outputs are return-object keys. Atomic never infers child workflow outputs from stage names, stage order, or the final assistant message. If a parent should read `child.outputs.summary`, the child workflow's `.run()` must return `{ summary }`. The compatibility `child.outputs.result` follows the same rule: return `{ result: "..." }` from `.run()` to set it, otherwise the implicit undeclared `result` is `""`. Declare `.output("result", schema)` when `result` should be documented, required, or typed differently; the value still comes from the returned `result` key.
 
 A reusable child module can simply default-export a compiled workflow:
 
@@ -179,7 +181,7 @@ import goalWorkflow from "@bastani/workflows/builtin/goal";
 import openClaudeDesignWorkflow from "@bastani/workflows/builtin/open-claude-design";
 ```
 
-Only compiled workflow definitions can be passed to `ctx.workflow(...)`; registry names, strings, and path objects are intentionally not supported for child workflow calls. Missing or invalid module imports fail when the workflow file itself is loaded. A parent receives the child's declared outputs plus the implicit string `result` output.
+Only compiled workflow definitions can be passed to `ctx.workflow(...)`; registry names, strings, and path objects are intentionally not supported for child workflow calls. Missing or invalid module imports fail when the workflow file itself is loaded. A parent receives the child's declared outputs plus the implicit string `result` output from the child `.run()` return object.
 
 ### Reusable Git worktrees
 
@@ -495,7 +497,7 @@ Design-system onboarding → reference import → generation → refinement → 
 | `design_system`   | `text`   | —        | —           | Existing design-system reference / Design.md path.                   |
 | `max_refinements` | `number` | —        | `3`         | Maximum critique/apply refinement iterations.                        |
 
-Child workflow outputs: `output_type`, `design_system`, `artifact`, `handoff`, `approved_for_export`, `refinements_completed`, `import_context`, `run_id`, `artifact_dir`, `preview_path`, `preview_file_url`, `spec_path`, and `spec_file_url`. The compatibility `result` output is also available and resolves to the final completed stage's text result.
+Child workflow outputs: `output_type`, `design_system`, `artifact`, `handoff`, `approved_for_export`, `refinements_completed`, `import_context`, `run_id`, `artifact_dir`, `preview_path`, `preview_file_url`, `spec_path`, and `spec_file_url`. The compatibility `result` output is also available; because `open-claude-design` does not declare or return `result` today, it is `""`.
 
 ---
 

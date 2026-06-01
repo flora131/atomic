@@ -21,8 +21,8 @@
  *
  * The refinement loop has been re-shaped so that the artifact under review is
  * a real HTML page on disk (`preview.html`). The workflow attempts to open it
- * through `playwright-cli` so the user can interactively review and annotate;
- * when playwright-cli is unavailable, the file path is surfaced so the user
+ * through `browser-use` so the user can interactively review and annotate;
+ * when browser-use is unavailable, the file path is surfaced so the user
  * can open it manually. The final exporter produces a rich `spec.html` that
  * embeds the agreed-upon design alongside the implementation handoff.
  */
@@ -164,16 +164,16 @@ const ANTI_SLOP_RULES = [
   "Commit to a specific aesthetic direction; do not hedge with generic SaaS defaults.",
 ].join("\n");
 
-const PLAYWRIGHT_BROWSER_BOOTSTRAP_RULES = [
-  "Probe for playwright-cli availability with `playwright-cli --version` (or `npx --no-install playwright-cli --version` when relying on a project-local install). Do not install playwright-cli itself.",
-  "If playwright-cli is available but opening a page fails because Chrome, Chrome for Testing, Chromium, or another browser executable is not installed, run `playwright-cli install-browser chrome-for-testing` (or the equivalent `npx --no-install playwright-cli install-browser chrome-for-testing`) and retry the browser action once.",
-  "Only install the missing browser runtime; do not install npm packages, change project dependencies, or repeatedly retry failed installs.",
-  "If playwright-cli is unavailable or browser installation still fails, degrade gracefully and surface the manual file path / URL.",
+const BROWSER_USE_BOOTSTRAP_RULES = [
+  "Probe for browser-use availability with `browser-use --version` (or `bunx browser-use --version` when relying on an ephemeral Bun execution). Do not install browser-use itself.",
+  "If browser-use is available but opening a page fails because Chrome, Chrome for Testing, Chromium, or another browser executable is not installed, first run `browser-use doctor`, then run `browser-use setup` if the doctor output recommends setup, and retry the browser action once.",
+  "Only install or configure the missing browser runtime; do not install npm packages, change project dependencies, or repeatedly retry failed setup.",
+  "If browser-use is unavailable or browser setup still fails, degrade gracefully and surface the manual file path / URL.",
 ].join("\n");
 
 export default defineWorkflow("open-claude-design")
   .description(
-    "AI-powered design workflow: design-system onboarding → reference import → HTML generation → impeccable-driven refinement → quality gate → rich HTML handoff. Each stage delegates to a specific impeccable sub-skill; the user can iteratively review and annotate the generated HTML through playwright-cli.",
+    "AI-powered design workflow: design-system onboarding → reference import → HTML generation → impeccable-driven refinement → quality gate → rich HTML handoff. Each stage delegates to a specific impeccable sub-skill; the user can iteratively review and annotate the generated HTML through browser-use.",
   )
   .input("prompt", {
     type: "text",
@@ -456,12 +456,12 @@ export default defineWorkflow("open-claude-design")
             "impeccable_skill",
             "extract — separate one-off styling from repeated, intentional patterns. Only carry forward what is used 3+ times or what is structurally load-bearing.",
           ],
-          ["playwright_browser_bootstrap", PLAYWRIGHT_BROWSER_BOOTSTRAP_RULES],
+          ["browser_use_bootstrap", BROWSER_USE_BOOTSTRAP_RULES],
           [
             "instructions",
             [
-              "1. Use browser/screenshot tooling (e.g. playwright-cli) if available; cite observable evidence rather than guessing.",
-              "2. If playwright-cli is available but opening the reference URL reports a missing browser executable, install Chrome for Testing with the bootstrap command and retry once.",
+              "1. Use browser/screenshot tooling (e.g. browser-use) if available; cite observable evidence rather than guessing.",
+              "2. If browser-use is available but opening the reference URL reports a missing browser executable, follow the bootstrap rules and retry once.",
               "3. Analyze: layout, visual hierarchy, navigation, color, typography, spacing, states, interactions, responsive behavior.",
               "4. Separate reference-specific styling from requirements that should transfer to this project's design system.",
               "5. If the URL is inaccessible or browser bootstrap fails, state that and provide a best-effort fallback based only on available information — never fabricate observations.",
@@ -570,7 +570,7 @@ export default defineWorkflow("open-claude-design")
     let approvedForExport = false;
     let refinementCount = 0;
 
-    // Try to display the freshly generated preview to the user via playwright-cli.
+    // Try to display the freshly generated preview to the user via browser-use.
     await ctx
       .task("preview-display-initial", {
         prompt: taggedPrompt([
@@ -580,19 +580,19 @@ export default defineWorkflow("open-claude-design")
           ],
           [
             "objective",
-            "Open the HTML preview file in a browser using playwright-cli and prompt the user for annotated feedback. Gracefully degrade if playwright-cli is unavailable.",
+            "Open the HTML preview file in a browser using browser-use and prompt the user for annotated feedback. Gracefully degrade if browser-use is unavailable.",
           ],
           ["preview_path", previewPath],
           ["preview_file_url", previewFileUrl],
-          ["playwright_browser_bootstrap", PLAYWRIGHT_BROWSER_BOOTSTRAP_RULES],
+          ["browser_use_bootstrap", BROWSER_USE_BOOTSTRAP_RULES],
           [
             "instructions",
             [
-              "1. Probe for playwright-cli availability using the bootstrap rules above.",
-              `2. If available, run: \`playwright-cli open ${previewFileUrl}\`. If that reports a missing browser executable, install Chrome for Testing with the bootstrap command and retry once.`,
-              "3. Then run `playwright-cli show --annotate` so the user can draw boxes and leave notes directly on the live page.",
+              "1. Probe for browser-use availability using the bootstrap rules above.",
+              `2. If available, run: \`browser-use open ${previewFileUrl}\`. If that reports a missing browser executable, follow the bootstrap rules and retry once.`,
+              "3. Then run `browser-use show --annotate` so the user can draw boxes and leave notes directly on the live page.",
               "4. Once the user finishes annotating, capture the returned annotated snapshot path / notes and surface them in your output.",
-              `5. If playwright-cli is NOT available or browser bootstrap fails, print a clear instruction block telling the user to open the file manually at: ${previewPath} (or via the URL ${previewFileUrl}).`,
+              `5. If browser-use is NOT available or browser bootstrap fails, print a clear instruction block telling the user to open the file manually at: ${previewPath} (or via the URL ${previewFileUrl}).`,
               "6. Never block the workflow on unavailable tooling; always exit with a non-empty status string.",
             ].join("\n"),
           ],
@@ -713,16 +713,16 @@ export default defineWorkflow("open-claude-design")
               ["preview_file_url", previewFileUrl],
               ["current_design_and_feedback", "{previous}"],
               [
-                "playwright_browser_bootstrap",
-                PLAYWRIGHT_BROWSER_BOOTSTRAP_RULES,
+                "browser_use_bootstrap",
+                BROWSER_USE_BOOTSTRAP_RULES,
               ],
               [
                 "instructions",
                 [
-                  `1. Attempt rendering verification via playwright-cli: \`playwright-cli open ${previewFileUrl}\`. If that reports a missing browser executable, install Chrome for Testing with the bootstrap command and retry once.`,
-                  `2. Then run \`playwright-cli resize 360 800\`, \`playwright-cli screenshot --filename=${join(artifactDir, `mobile-${iteration}.png`)}\`, \`playwright-cli resize 1440 900\`, \`playwright-cli screenshot --filename=${join(artifactDir, `desktop-${iteration}.png`)}\`.`,
+                  `1. Attempt rendering verification via browser-use: \`browser-use open ${previewFileUrl}\`. If that reports a missing browser executable, follow the bootstrap rules and retry once.`,
+                  `2. Then run \`browser-use resize 360 800\`, \`browser-use screenshot ${join(artifactDir, `mobile-${iteration}.png`)}\`, \`browser-use resize 1440 900\`, \`browser-use screenshot ${join(artifactDir, `desktop-${iteration}.png`)}\`.`,
                   "3. Check: contrast (WCAG AA), overflow, spacing rhythm, alignment, breakpoint behavior, empty/loading/error states, keyboard/pointer affordances, focus rings, prefers-reduced-motion.",
-                  "4. If playwright-cli is unavailable or browser bootstrap fails, perform a static design review of the HTML source and mark every finding as `needs-rendering-verification`.",
+                  "4. If browser-use is unavailable or browser bootstrap fails, perform a static design review of the HTML source and mark every finding as `needs-rendering-verification`.",
                   "5. Distinguish confirmed visual issues from risks that need rendering verification. Never fabricate rendered evidence.",
                 ].join("\n"),
               ],
@@ -804,15 +804,15 @@ export default defineWorkflow("open-claude-design")
             ["preview_path", previewPath],
             ["preview_file_url", previewFileUrl],
             [
-              "playwright_browser_bootstrap",
-              PLAYWRIGHT_BROWSER_BOOTSTRAP_RULES,
+              "browser_use_bootstrap",
+              BROWSER_USE_BOOTSTRAP_RULES,
             ],
             [
               "instructions",
               [
-                `1. If playwright-cli is available, run \`playwright-cli goto ${previewFileUrl}\` (or \`playwright-cli open ${previewFileUrl}\` if no session is active). If that reports a missing browser executable, install Chrome for Testing with the bootstrap command and retry once.`,
-                "2. Then run `playwright-cli show --annotate` to invite annotated feedback.",
-                `3. If playwright-cli is unavailable or browser bootstrap fails, surface the path clearly: ${previewPath} (URL: ${previewFileUrl}).`,
+                `1. If browser-use is available, run \`browser-use open ${previewFileUrl}\`. If that reports a missing browser executable, follow the bootstrap rules and retry once.`,
+                "2. Then run `browser-use show --annotate` to invite annotated feedback.",
+                `3. If browser-use is unavailable or browser bootstrap fails, surface the path clearly: ${previewPath} (URL: ${previewFileUrl}).`,
                 "4. Return any captured annotations as structured notes the next user-feedback step can read.",
                 "5. Do not block on unavailable tooling.",
               ].join("\n"),
@@ -941,7 +941,7 @@ export default defineWorkflow("open-claude-design")
             "Return markdown with headings (NOT the HTML):",
             "1. Spec written to (absolute path)",
             "2. Sections included",
-            "3. How to open the spec (playwright-cli command + manual fallback path)",
+            "3. How to open the spec (browser-use command + manual fallback path)",
             "4. Recommended files and components",
             "5. Implementation steps",
             "6. Usage example",
@@ -965,19 +965,19 @@ export default defineWorkflow("open-claude-design")
           ],
           [
             "objective",
-            "Open the final spec.html in a browser via playwright-cli so the user can review the agreed design and implementation handoff. Degrade gracefully if playwright-cli is unavailable.",
+            "Open the final spec.html in a browser via browser-use so the user can review the agreed design and implementation handoff. Degrade gracefully if browser-use is unavailable.",
           ],
           ["spec_path", specPath],
           ["spec_file_url", specFileUrl],
           ["preview_path", previewPath],
           ["preview_file_url", previewFileUrl],
-          ["playwright_browser_bootstrap", PLAYWRIGHT_BROWSER_BOOTSTRAP_RULES],
+          ["browser_use_bootstrap", BROWSER_USE_BOOTSTRAP_RULES],
           [
             "instructions",
             [
-              "1. Probe for playwright-cli availability using the bootstrap rules above.",
-              `2. If available, run \`playwright-cli open ${specFileUrl}\`. If that reports a missing browser executable, install Chrome for Testing with the bootstrap command and retry once.`,
-              "3. Then run `playwright-cli show --annotate` so the user can capture any final notes.",
+              "1. Probe for browser-use availability using the bootstrap rules above.",
+              `2. If available, run \`browser-use open ${specFileUrl}\`. If that reports a missing browser executable, follow the bootstrap rules and retry once.`,
+              "3. Then run `browser-use show --annotate` so the user can capture any final notes.",
               `4. Always print, prominently, the absolute paths so the user can open them manually:\n   - Final spec: ${specPath}\n   - Approved preview: ${previewPath}`,
               "5. Do not block the workflow; return a structured summary even if no tooling worked.",
             ].join("\n"),

@@ -790,7 +790,7 @@ function renderReviewerPrompt(args: {
       [
         "Inspect the actual diff/repository state rather than trusting stage summaries.",
         "Identify the smallest relevant validation set from repository evidence: targeted tests, lint, typecheck, build, generated-artifact checks, CI-equivalent scripts, or user-flow proof.",
-        "When practical, include an end-to-end QA check that exercises the app the way a user would: use the tmux skill for terminal app environments and playwright-cli for web app environments.",
+        "When practical, include an end-to-end QA check that exercises the app the way a user would: use the tmux skill for terminal app environments and browser-use for web app environments.",
         "For web app environments, capture a screenshot as a certificate of correct completion when the UI state proves the objective; for terminal app environments, capture the terminal window/output that shows proof of correctness.",
         "Run or delegate focused validation when it is necessary to distinguish a real bug from a hunch.",
         "If tests or typechecks fail because dependencies are missing, install/download the missing dependencies with the repo's documented package manager instead of bypassing the check.",

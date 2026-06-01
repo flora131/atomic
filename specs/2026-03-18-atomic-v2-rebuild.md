@@ -50,7 +50,7 @@ The Atomic TUI is a 576-file, ~82K-line TypeScript/Bun terminal application buil
 └──────────────────────────────────────────────────────────┘
 ```
 
-*Source: [Atomic V2 Rebuild Spec Index](../research/docs/v1/2026-03-15-atomic-v2-rebuild-spec-index.md)*
+_Source: [Atomic V2 Rebuild Spec Index](../research/docs/v1/2026-03-15-atomic-v2-rebuild-spec-index.md)_
 
 **Quantitative profile**:
 
@@ -68,29 +68,29 @@ The Atomic TUI is a 576-file, ~82K-line TypeScript/Bun terminal application buil
 Nine systemic issues make incremental fixes insufficient:
 
 1. **Dual-pipeline streaming fragility**: SDK events traverse two translation steps (`AgentEvent` → adapter → `BusEvent`), with 28 adapter files across 3 providers using different internal abstractions. 12 event types are emitted but never consumed. Subagent premature completion has been investigated across 5+ research documents without resolution.
-   *Ref: [Streaming Pipeline Spec](../research/docs/v1/2026-03-15-spec-01-streaming-pipeline.md)*
+   _Ref: [Streaming Pipeline Spec](../research/docs/v1/2026-03-15-spec-01-streaming-pipeline.md)_
 
 2. **Dual-channel race conditions**: Agent lifecycle events flow through direct `useBusSubscription` hooks while tool content flows through `StreamPipelineConsumer`, creating races where tool events arrive before their `AgentPart` exists (silent drops).
-   *Ref: [From-Scratch Rebuild Spec](../research/docs/v1/2026-03-15-atomic-from-scratch-rebuild-spec.md)*
+   _Ref: [From-Scratch Rebuild Spec](../research/docs/v1/2026-03-15-atomic-from-scratch-rebuild-spec.md)_
 
 3. **Un-unified workflow SDK**: `CodingAgentClient` has 5 optional methods, `Session` has 5 optional methods, `CommandContext` has 34 properties coupling 7+ concerns. The `WorkflowSDK` class exists but is never used in production; Ralph bypasses it entirely.
-   *Ref: [Workflow Engine Spec](../research/docs/v1/2026-03-15-spec-04-workflow-engine.md)*
+   _Ref: [Workflow Engine Spec](../research/docs/v1/2026-03-15-spec-04-workflow-engine.md)_
 
 4. **State layer complexity**: 18,475 lines with 8 boundary-enforced sub-modules, a 3,127-line `shared/` dumping ground, a 4,381-line `stream/` module, and a 6-line `session/` module (lifecycle scattered elsewhere).
-   *Ref: [State Management Spec](../research/docs/v1/2026-03-15-spec-03-state-management.md)*
+   _Ref: [State Management Spec](../research/docs/v1/2026-03-15-spec-03-state-management.md)_
 
 5. **Over-engineered graph engine**: 8,725 lines with 7 node types, subgraphs, checkpointing, Zod schemas per node, 4-action error recovery — all serving a single consumer (Ralph).
-   *Ref: [Workflow Engine Spec](../research/docs/v1/2026-03-15-spec-04-workflow-engine.md)*
+   _Ref: [Workflow Engine Spec](../research/docs/v1/2026-03-15-spec-04-workflow-engine.md)_
 
 6. **9 circular dependency pairs**: Including `commands ↔ services`, `components ↔ state`, `screens ↔ state`. `services/agents/types.ts` is imported 109 times (54 external).
-   *Ref: [Foundation Layer Spec](../research/docs/v1/2026-03-15-spec-00-foundation-layer.md)*
+   _Ref: [Foundation Layer Spec](../research/docs/v1/2026-03-15-spec-00-foundation-layer.md)_
 
 7. **Dead code**: 6 dead modules, 6 unrendered UI components, 12 unconsumed event types.
 
 8. **Config triplication**: Agent definitions (10 agents, 12 skills) mirrored identically across `.claude/`, `.opencode/`, `.github/` (33 files each, 99 total).
 
 9. **`CommandContext` god interface + fragmented contexts**: 34 properties/methods coupling 7+ concerns, plus a separate `WorkflowContext` creating two context patterns. Replace both with a single unified `AppContext` (4 fields) using `publish`/`subscribe` for all event communication.
-   *Ref: [Command System Spec](../research/docs/v1/2026-03-15-spec-07-command-system.md)*
+   _Ref: [Command System Spec](../research/docs/v1/2026-03-15-spec-07-command-system.md)_
 
 ## 3. Goals and Non-Goals
 
@@ -220,7 +220,7 @@ flowchart TB
 
 ### 5.1 Foundation Layer (Spec 00)
 
-*Full research: [Foundation Layer Spec](../research/docs/v1/2026-03-15-spec-00-foundation-layer.md)*
+_Full research: [Foundation Layer Spec](../research/docs/v1/2026-03-15-spec-00-foundation-layer.md)_
 
 #### 5.1.1 Unified StreamEvent Type
 
@@ -229,25 +229,39 @@ The dual event system (25 `AgentEvent` types + 28 `BusEvent` Zod schemas) collap
 ```typescript
 // types/events.ts
 interface StreamEventBase {
-  type: StreamEventType;
-  sessionId: string;
-  runId: number;
-  timestamp: number;
+    type: StreamEventType;
+    sessionId: string;
+    runId: number;
+    timestamp: number;
 }
 
 type StreamEventType =
-  | "text.delta" | "text.complete"
-  | "thinking.delta" | "thinking.complete"
-  | "tool.start" | "tool.complete"
-  | "agent.start" | "agent.update" | "agent.complete"
-  | "session.start" | "session.idle" | "session.error" | "session.retry"
-  | "turn.start" | "turn.end"
-  | "permission.requested" | "permission.responded"
-  | "human_input.required" | "human_input.responded"
-  | "usage" | "session.title_changed" | "session.compaction";
+    | "text.delta"
+    | "text.complete"
+    | "thinking.delta"
+    | "thinking.complete"
+    | "tool.start"
+    | "tool.complete"
+    | "agent.start"
+    | "agent.update"
+    | "agent.complete"
+    | "session.start"
+    | "session.idle"
+    | "session.error"
+    | "session.retry"
+    | "turn.start"
+    | "turn.end"
+    | "permission.requested"
+    | "permission.responded"
+    | "human_input.required"
+    | "human_input.responded"
+    | "usage"
+    | "session.title_changed"
+    | "session.compaction";
 ```
 
 Key normalizations:
+
 - **Tool IDs**: `toolUseId`, `toolUseID`, `toolCallId` → single `toolId`
 - **No callbacks in events**: `respond` functions are handled by a separate `InteractionLayer`
 - **No open index signatures**: Every field is explicitly typed via Zod schemas
@@ -258,18 +272,18 @@ Key normalizations:
 ```typescript
 // types/provider.ts
 interface Session {
-  readonly id: string;
-  stream(message: string, options: StreamOptions): AsyncIterable<StreamEvent>;
-  abort(): Promise<void>;
-  destroy(): Promise<void>;
+    readonly id: string;
+    stream(message: string, options: StreamOptions): AsyncIterable<StreamEvent>;
+    abort(): Promise<void>;
+    destroy(): Promise<void>;
 }
 
 interface CodingAgentProvider {
-  readonly providerType: "claude" | "opencode" | "copilot";
-  createSession(config: SessionConfig): Promise<Session>;
-  start(): Promise<void>;
-  stop(): Promise<void>;
-  getModelInfo(hint?: string): Promise<ModelInfo>;
+    readonly providerType: "claude" | "opencode" | "copilot";
+    createSession(config: SessionConfig): Promise<Session>;
+    start(): Promise<void>;
+    stop(): Promise<void>;
+    getModelInfo(hint?: string): Promise<ModelInfo>;
 }
 ```
 
@@ -281,15 +295,18 @@ The V1 `CommandContext` (34 properties) and the separate `WorkflowContext` are r
 
 ```typescript
 interface AppContext {
-  // Session — the full reactive app state
-  session: AppStore;                                                    // Zustand store: messages, context, UI, agents
+    // Session — the full reactive app state
+    session: AppStore; // Zustand store: messages, context, UI, agents
 
-  // Pub/Sub — unified event communication
-  publish(event: AppEvent): void;                                       // Send any event (UI widget, SDK message, action)
-  subscribe<T extends AppEventType>(type: T, handler: AppEventHandler<T>): Unsubscribe;
+    // Pub/Sub — unified event communication
+    publish(event: AppEvent): void; // Send any event (UI widget, SDK message, action)
+    subscribe<T extends AppEventType>(
+        type: T,
+        handler: AppEventHandler<T>,
+    ): Unsubscribe;
 
-  // Lifecycle
-  abortSignal: AbortSignal;                                             // Cancellation (per-session scope)
+    // Lifecycle
+    abortSignal: AbortSignal; // Cancellation (per-session scope)
 }
 ```
 
@@ -304,17 +321,31 @@ interface AppContext {
 ctx.publish({ type: "render-widget", widget: "task-list", data: tasks });
 
 // Send a message to the active coding agent SDK session
-ctx.publish({ type: "message.send", prompt: "Analyze this code", agent: "planner" });
+ctx.publish({
+    type: "message.send",
+    prompt: "Analyze this code",
+    agent: "planner",
+});
 
 // Trigger a state action (what was dispatch)
 ctx.publish({ type: "clear-messages" });
 
 // Stream events from adapters (what was emit)
-ctx.publish({ type: "text.delta", content: "Hello", sessionId, runId, timestamp });
+ctx.publish({
+    type: "text.delta",
+    content: "Hello",
+    sessionId,
+    runId,
+    timestamp,
+});
 
 // Listen for any event
-ctx.subscribe("text.delta", (event) => { /* render text */ });
-ctx.subscribe("agent.complete", (event) => { /* handle completion */ });
+ctx.subscribe("text.delta", (event) => {
+    /* render text */
+});
+ctx.subscribe("agent.complete", (event) => {
+    /* handle completion */
+});
 ```
 
 **No agent spawning on AppContext.** The TUI talks to **one** active coding agent SDK at a time. There is no feature that activates another SDK backend — the user closes the TUI and opens a different coding agent to switch. Agent interaction goes through the active session via `publish({ type: "message.send" })`, and the stream orchestrator handles routing to the SDK. Workflow helpers for awaiting responses are utility functions in the workflow service layer, not on the context.
@@ -334,15 +365,15 @@ Commands and workflows are the same thing — an executable with a name that tak
 
 ```typescript
 interface ExecutableDefinition {
-  name: string;
-  description: string;
-  execute(args: string, ctx: AppContext): Promise<ExecutionResult>;
+    name: string;
+    description: string;
+    execute(args: string, ctx: AppContext): Promise<ExecutionResult>;
 }
 
 interface ExecutionResult {
-  success: boolean;
-  message?: string;
-  error?: string;
+    success: boolean;
+    message?: string;
+    error?: string;
 }
 ```
 
@@ -377,7 +408,7 @@ lib/
 
 ### 5.2 Streaming Pipeline (Spec 01)
 
-*Full research: [Streaming Pipeline Spec](../research/docs/v1/2026-03-15-spec-01-streaming-pipeline.md)*
+_Full research: [Streaming Pipeline Spec](../research/docs/v1/2026-03-15-spec-01-streaming-pipeline.md)_
 
 #### 5.2.1 Single-Pass Event Flow
 
@@ -392,15 +423,19 @@ Provider adapters return `AsyncIterable<StreamEvent>` instead of imperatively pu
 
 ```typescript
 interface ProviderAdapter {
-  stream(session: Session, message: string, options: StreamOptions): AsyncIterable<StreamEvent>;
-  dispose(): void;
+    stream(
+        session: Session,
+        message: string,
+        options: StreamOptions,
+    ): AsyncIterable<StreamEvent>;
+    dispose(): void;
 }
 
 interface StreamOptions {
-  runId: number;
-  messageId: string;
-  abortSignal?: AbortSignal;
-  agent?: string;
+    runId: number;
+    messageId: string;
+    abortSignal?: AbortSignal;
+    agent?: string;
 }
 ```
 
@@ -410,17 +445,23 @@ A single orchestrator wires adapter to bus to state:
 
 ```typescript
 interface StreamOrchestrator {
-  startRun(session: Session, adapter: ProviderAdapter, message: string, options: RunOptions): StreamRunHandle;
+    startRun(
+        session: Session,
+        adapter: ProviderAdapter,
+        message: string,
+        options: RunOptions,
+    ): StreamRunHandle;
 }
 
 interface StreamRunHandle {
-  readonly runId: number;
-  readonly done: Promise<StreamRunResult>;
-  abort(): void;
+    readonly runId: number;
+    readonly done: Promise<StreamRunResult>;
+    abort(): void;
 }
 ```
 
 The orchestrator is responsible for:
+
 1. Iterating the adapter's async iterable
 2. Batching events in 16ms-aligned frames before emission
 3. Emitting validated batches to the bus
@@ -433,15 +474,19 @@ The `EventBus` is the implementation behind `AppContext.publish()` / `AppContext
 
 ```typescript
 interface EventBus {
-  publish(event: AppEvent): void;
-  publishBatch(events: AppEvent[]): void;
-  subscribe<T extends AppEventType>(type: T, handler: AppEventHandler<T>): Unsubscribe;
-  subscribeAll(handler: (event: AppEvent) => void): Unsubscribe;
-  dispose(): void;
+    publish(event: AppEvent): void;
+    publishBatch(events: AppEvent[]): void;
+    subscribe<T extends AppEventType>(
+        type: T,
+        handler: AppEventHandler<T>,
+    ): Unsubscribe;
+    subscribeAll(handler: (event: AppEvent) => void): Unsubscribe;
+    dispose(): void;
 }
 ```
 
 Key changes from V1:
+
 - Plain object, **not** a React context provider — framework-agnostic
 - Unified `AppEvent` type replaces both `BusEvent` and `CommandAction`
 - `publish`/`subscribe` naming matches `AppContext` API
@@ -454,8 +499,8 @@ Callbacks are removed from event data. A separate `InteractionLayer` handles per
 
 ```typescript
 interface InteractionLayer {
-  requestPermission(request: PermissionRequest): Promise<string>;
-  requestInput(request: InputRequest): Promise<string>;
+    requestPermission(request: PermissionRequest): Promise<string>;
+    requestInput(request: InputRequest): Promise<string>;
 }
 ```
 
@@ -463,7 +508,7 @@ Events become fully serializable. The coupling between event production and UI i
 
 ### 5.3 Provider SDK Unification (Spec 02)
 
-*Full research: [Provider SDK Unification Spec](../research/docs/v1/2026-03-15-spec-02-provider-sdk-unification.md)*
+_Full research: [Provider SDK Unification Spec](../research/docs/v1/2026-03-15-spec-02-provider-sdk-unification.md)_
 
 #### 5.3.1 Unified Adapter Contract
 
@@ -472,21 +517,28 @@ Each adapter is a single async generator function:
 ```typescript
 // Example: Claude adapter
 function createClaudeAdapter(client: ClaudeAgentSDKClient): ProviderAdapter {
-  return {
-    async *stream(session, message, options) {
-      yield makeEvent("session.start", options, {});
-      const sdkStream = session.stream(message, {
-        agent: options.agent,
-        abortSignal: options.abortSignal,
-      });
-      const toolState = new Map<string, { name: string; startTime: number }>();
-      for await (const chunk of sdkStream) {
-        yield* translateChunk(chunk, options, toolState);
-      }
-      yield makeEvent("session.idle", options, { reason: "stream-complete" });
-    },
-    dispose() { /* cleanup */ },
-  };
+    return {
+        async *stream(session, message, options) {
+            yield makeEvent("session.start", options, {});
+            const sdkStream = session.stream(message, {
+                agent: options.agent,
+                abortSignal: options.abortSignal,
+            });
+            const toolState = new Map<
+                string,
+                { name: string; startTime: number }
+            >();
+            for await (const chunk of sdkStream) {
+                yield* translateChunk(chunk, options, toolState);
+            }
+            yield makeEvent("session.idle", options, {
+                reason: "stream-complete",
+            });
+        },
+        dispose() {
+            /* cleanup */
+        },
+    };
 }
 ```
 
@@ -498,11 +550,11 @@ Bridges Copilot's push-based EventEmitter to pull-based `AsyncIterable`:
 
 ```typescript
 function createEventChannel<T>(): {
-  put(event: T): void;
-  close(): void;
-  error(err: Error): void;
-  [Symbol.asyncIterator](): AsyncIterator<T>;
-}
+    put(event: T): void;
+    close(): void;
+    error(err: Error): void;
+    [Symbol.asyncIterator](): AsyncIterator<T>;
+};
 ```
 
 #### 5.3.4 Target Directory Structure
@@ -530,7 +582,7 @@ services/providers/
 
 ### 5.4 State Management (Spec 03)
 
-*Full research: [State Management Spec](../research/docs/v1/2026-03-15-spec-03-state-management.md)*
+_Full research: [State Management Spec](../research/docs/v1/2026-03-15-spec-03-state-management.md)_
 
 #### 5.4.1 Single Zustand Store — 5 Slices
 
@@ -538,21 +590,21 @@ Replace all 8 chat sub-modules with one store:
 
 ```typescript
 interface AppState {
-  session: SessionState;    // sessionId, isActive, contextUsage, title, isCompacting, model, provider
-  messages: MessagesState;  // messageIds[], messages Map, parts Map
-  stream: StreamState;      // currentRun, queue, isStreaming
-  foregroundAgents: Map<string, AgentState>;   // visible agent sessions (main chat, sub-agents)
-  backgroundAgents: Map<string, AgentState>;   // non-visible agent sessions (workflow workers)
-  ui: UIState;              // verboseMode, scrollLocked, modelDisplay, pendingPermission, pendingHumanInput
-  actions: AppActions;      // mutations
+    session: SessionState; // sessionId, isActive, contextUsage, title, isCompacting, model, provider
+    messages: MessagesState; // messageIds[], messages Map, parts Map
+    stream: StreamState; // currentRun, queue, isStreaming
+    foregroundAgents: Map<string, AgentState>; // visible agent sessions (main chat, sub-agents)
+    backgroundAgents: Map<string, AgentState>; // non-visible agent sessions (workflow workers)
+    ui: UIState; // verboseMode, scrollLocked, modelDisplay, pendingPermission, pendingHumanInput
+    actions: AppActions; // mutations
 }
 
 interface AgentState {
-  name: string;                                          // e.g., "planner", "worker", "reviewer"
-  status: "idle" | "streaming" | "completed" | "error";
-  taskId?: string;                                       // Workflow task this agent is executing
-  startedAt: number;
-  error?: string;
+    name: string; // e.g., "planner", "worker", "reviewer"
+    status: "idle" | "streaming" | "completed" | "error";
+    taskId?: string; // Workflow task this agent is executing
+    startedAt: number;
+    error?: string;
 }
 ```
 
@@ -561,7 +613,10 @@ interface AgentState {
 A single function maps every `StreamEvent` to a state mutation:
 
 ```typescript
-function reduceStreamEvent(state: AppState, event: StreamEvent): Partial<AppState> | ((s: AppState) => Partial<AppState>);
+function reduceStreamEvent(
+    state: AppState,
+    event: StreamEvent,
+): Partial<AppState> | ((s: AppState) => Partial<AppState>);
 ```
 
 Handles 17 event types. Each handler is pure: `(state, eventData) → stateUpdate`. Every event-to-state mapping is visible in one place. Trivially testable.
@@ -604,7 +659,7 @@ state/
 
 ### 5.5 Workflow Engine (Spec 04)
 
-*Full research: [Workflow Engine Spec](../research/docs/v1/2026-03-15-spec-04-workflow-engine.md)*
+_Full research: [Workflow Engine Spec](../research/docs/v1/2026-03-15-spec-04-workflow-engine.md)_
 
 #### 5.5.1 Workflows Are Just Async Functions
 
@@ -623,10 +678,17 @@ The stream orchestrator subscribes to `"message.send"` events and routes them to
 
 ```typescript
 // Send a message and await the agent's complete response
-async function sendMessage(ctx: AppContext, prompt: string, opts?: { agent?: string }): Promise<AgentResult>;
+async function sendMessage(
+    ctx: AppContext,
+    prompt: string,
+    opts?: { agent?: string },
+): Promise<AgentResult>;
 
 // Send messages in parallel and await all responses
-async function sendParallel(ctx: AppContext, tasks: { prompt: string; agent?: string }[]): Promise<AgentResult[]>;
+async function sendParallel(
+    ctx: AppContext,
+    tasks: { prompt: string; agent?: string }[],
+): Promise<AgentResult[]>;
 ```
 
 These are service-layer utilities, **not** on `AppContext`. They internally use `ctx.publish()` + `ctx.subscribe()`.
@@ -652,6 +714,7 @@ Workflow-specific state (task lists, progress tracking) is managed via local var
 | Copilot CLI | `$XDG_CONFIG_HOME/.copilot`, `~/.copilot`   | `%HOMEPATH%\.copilot`  |
 
 **Current agent inventory** (mirrored across all 3 providers):
+
 - `planner`, `worker`, `reviewer` — Ralph workflow agents
 - `debugger` — Debugging specialist
 - `codebase-analyzer`, `codebase-locator`, `codebase-pattern-finder` — Code exploration
@@ -659,54 +722,72 @@ Workflow-specific state (task lists, progress tracking) is managed via local var
 - `codebase-research-analyzer`, `codebase-research-locator` — Research document analysis
 
 **Current skill inventory** (~12 skills mirrored across providers):
+
 - `create-spec`, `research-codebase`, `testing-anti-patterns`, `init`, `explain-code`
-- `impeccable`, `prompt-engineer`, `playwright-cli`
+- `impeccable`, `prompt-engineer`, `browser-use`
 - `gh-commit`, `gh-create-pr`, `sl-commit`, `sl-submit-diff`
 
 #### 5.5.2 Ralph as an Async Function
 
 ```typescript
 const ralph: ExecutableDefinition = {
-  name: "ralph",
-  description: "Autonomous task planner and executor",
-  async execute(args, ctx) {
-    // 1. Plan — send to the active SDK session via publish, await via helper
-    const plan = await sendMessage(ctx, PLANNER_PROMPT, { agent: "planner" });
-    const tasks = parseTasks(plan.output);
-    ctx.publish({ type: "update-tasks", tasks: tasks.map(t => ({ id: t.id, status: "pending" })) });
+    name: "ralph",
+    description: "Autonomous task planner and executor",
+    async execute(args, ctx) {
+        // 1. Plan — send to the active SDK session via publish, await via helper
+        const plan = await sendMessage(ctx, PLANNER_PROMPT, {
+            agent: "planner",
+        });
+        const tasks = parseTasks(plan.output);
+        ctx.publish({
+            type: "update-tasks",
+            tasks: tasks.map((t) => ({ id: t.id, status: "pending" })),
+        });
 
-    // 2. Execute loop — workers use the "worker" agent from configs
-    while (getReadyTasks(tasks).length > 0) {
-      if (ctx.abortSignal.aborted) return { success: false, error: "aborted" };
+        // 2. Execute loop — workers use the "worker" agent from configs
+        while (getReadyTasks(tasks).length > 0) {
+            if (ctx.abortSignal.aborted)
+                return { success: false, error: "aborted" };
 
-      const ready = getReadyTasks(tasks);
-      ctx.publish({ type: "update-tasks", tasks: ready.map(t => ({ id: t.id, status: "in_progress" })) });
+            const ready = getReadyTasks(tasks);
+            ctx.publish({
+                type: "update-tasks",
+                tasks: ready.map((t) => ({ id: t.id, status: "in_progress" })),
+            });
 
-      const results = await sendParallel(ctx,
-        ready.map(t => ({ prompt: buildWorkerPrompt(t), taskId: t.id, agent: "worker" }))
-      );
+            const results = await sendParallel(
+                ctx,
+                ready.map((t) => ({
+                    prompt: buildWorkerPrompt(t),
+                    taskId: t.id,
+                    agent: "worker",
+                })),
+            );
 
-      for (const result of results) {
-        const status = result.success ? "completed" : "error";
-        updateTask(tasks, result.taskId, status);
-      }
-      ctx.publish({ type: "update-tasks", tasks });
+            for (const result of results) {
+                const status = result.success ? "completed" : "error";
+                updateTask(tasks, result.taskId, status);
+            }
+            ctx.publish({ type: "update-tasks", tasks });
 
-      // 3. Review — use the "reviewer" agent from configs
-      const review = await sendMessage(ctx, buildReviewPrompt(results), { agent: "reviewer" });
-      if (review.hasFindings) {
-        const fixTasks = parseFixTasks(review.output);
-        tasks.push(...fixTasks);
-        ctx.publish({ type: "update-tasks", tasks });
-      }
-    }
+            // 3. Review — use the "reviewer" agent from configs
+            const review = await sendMessage(ctx, buildReviewPrompt(results), {
+                agent: "reviewer",
+            });
+            if (review.hasFindings) {
+                const fixTasks = parseFixTasks(review.output);
+                tasks.push(...fixTasks);
+                ctx.publish({ type: "update-tasks", tasks });
+            }
+        }
 
-    return { success: true };
-  },
+        return { success: true };
+    },
 };
 ```
 
 Key improvements over V1:
+
 - **Unified `AppContext`** — same `ctx` as commands and UI. A workflow uses `ctx.publish()` / `ctx.subscribe()` for everything — no separate workflow context.
 - **All communication via publish/subscribe** — `sendMessage()` and `sendParallel()` are helpers that wrap `ctx.publish({ type: "message.send" })` + `ctx.subscribe("agent.complete")`. Task updates are published as events.
 - **Sub-agents from provider configs** — `{ agent: "planner" }`, `{ agent: "worker" }`, `{ agent: "reviewer" }` resolve to agent `.md` files defined in the active provider's config directory. Same definitions the interactive chat uses.
@@ -721,22 +802,24 @@ Key improvements over V1:
 import { sendMessage } from "@/services/workflows/helpers";
 
 export default {
-  name: "my-workflow",
-  description: "...",
-  async execute(args, ctx) {
-    // Same ctx as commands and UI — seamless transitions
-    // Send to active SDK session, await response via helper
-    const result = await sendMessage(ctx, "Analyze this codebase", { agent: "researcher" });
+    name: "my-workflow",
+    description: "...",
+    async execute(args, ctx) {
+        // Same ctx as commands and UI — seamless transitions
+        // Send to active SDK session, await response via helper
+        const result = await sendMessage(ctx, "Analyze this codebase", {
+            agent: "researcher",
+        });
 
-    // Read app state directly — same session as everywhere
-    const model = ctx.session.getState().session.model;
+        // Read app state directly — same session as everywhere
+        const model = ctx.session.getState().session.model;
 
-    // Publish UI events — same publish as commands
-    ctx.publish({ type: "show-dialog", dialog: "model" });
+        // Publish UI events — same publish as commands
+        ctx.publish({ type: "show-dialog", dialog: "model" });
 
-    // Send without a named agent (uses default session)
-    const summary = await sendMessage(ctx, "Summarize the findings");
-  },
+        // Send without a named agent (uses default session)
+        const summary = await sendMessage(ctx, "Summarize the findings");
+    },
 };
 ```
 
@@ -764,7 +847,7 @@ Workflows are merged into the unified `services/executables/` directory (see §5
 
 ### 5.6 UI Rendering (Spec 05)
 
-*Full research: [UI Rendering Spec](../research/docs/v1/2026-03-15-spec-05-ui-rendering.md)*
+_Full research: [UI Rendering Spec](../research/docs/v1/2026-03-15-spec-05-ui-rendering.md)_
 
 #### 5.6.1 Atomic ASCII Logo
 
@@ -888,39 +971,44 @@ When the coding agent SDK needs user input — tool permission approval, human-i
 ```typescript
 // State: UIState tracks pending interactions
 interface UIState {
-  verboseMode: boolean;
-  scrollLocked: boolean;
-  modelDisplay: ModelDisplayInfo;
-  pendingPermission: PermissionRequest | null;   // Active permission dialog
-  pendingHumanInput: InputRequest | null;         // Active human input dialog
+    verboseMode: boolean;
+    scrollLocked: boolean;
+    modelDisplay: ModelDisplayInfo;
+    pendingPermission: PermissionRequest | null; // Active permission dialog
+    pendingHumanInput: InputRequest | null; // Active human input dialog
 }
 
 // InteractionLayer wires events to UI state
 function createInteractionLayer(ctx: AppContext): InteractionLayer {
-  return {
-    requestPermission(request) {
-      // Set pending state — UI renders the dialog
-      ctx.session.getState().actions.setPendingPermission(request);
-      // Return a promise that resolves when user responds
-      return new Promise((resolve) => {
-        const unsub = ctx.subscribe("permission.responded", (event) => {
-          unsub();
-          ctx.session.getState().actions.setPendingPermission(null);
-          resolve(event.response);
-        });
-      });
-    },
-    requestInput(request) {
-      ctx.session.getState().actions.setPendingHumanInput(request);
-      return new Promise((resolve) => {
-        const unsub = ctx.subscribe("human_input.responded", (event) => {
-          unsub();
-          ctx.session.getState().actions.setPendingHumanInput(null);
-          resolve(event.response);
-        });
-      });
-    },
-  };
+    return {
+        requestPermission(request) {
+            // Set pending state — UI renders the dialog
+            ctx.session.getState().actions.setPendingPermission(request);
+            // Return a promise that resolves when user responds
+            return new Promise((resolve) => {
+                const unsub = ctx.subscribe("permission.responded", (event) => {
+                    unsub();
+                    ctx.session.getState().actions.setPendingPermission(null);
+                    resolve(event.response);
+                });
+            });
+        },
+        requestInput(request) {
+            ctx.session.getState().actions.setPendingHumanInput(request);
+            return new Promise((resolve) => {
+                const unsub = ctx.subscribe(
+                    "human_input.responded",
+                    (event) => {
+                        unsub();
+                        ctx.session
+                            .getState()
+                            .actions.setPendingHumanInput(null);
+                        resolve(event.response);
+                    },
+                );
+            });
+        },
+    };
 }
 ```
 
@@ -1060,23 +1148,23 @@ Once background agents complete, their results appear inline:
 
 ```typescript
 interface AgentPartProps {
-  agentId: string;
-  name: string;
-  status: AgentState["status"];
-  toolCalls: ToolCallEntry[];     // Full list from state
-  isBackground: boolean;
+    agentId: string;
+    name: string;
+    status: AgentState["status"];
+    toolCalls: ToolCallEntry[]; // Full list from state
+    isBackground: boolean;
 }
 
 // Derive visible tool calls: last 3 + truncation indicator
 function getVisibleToolCalls(toolCalls: ToolCallEntry[]) {
-  const MAX_VISIBLE = 3;
-  if (toolCalls.length <= MAX_VISIBLE) {
-    return { truncated: 0, visible: toolCalls };
-  }
-  return {
-    truncated: toolCalls.length - MAX_VISIBLE,
-    visible: toolCalls.slice(-MAX_VISIBLE),
-  };
+    const MAX_VISIBLE = 3;
+    if (toolCalls.length <= MAX_VISIBLE) {
+        return { truncated: 0, visible: toolCalls };
+    }
+    return {
+        truncated: toolCalls.length - MAX_VISIBLE,
+        visible: toolCalls.slice(-MAX_VISIBLE),
+    };
 }
 ```
 
@@ -1097,7 +1185,7 @@ When implementing any component from §5.6, invoke the `impeccable` skill for de
 
 ### 5.7 Services (Spec 06)
 
-*Full research: [Services Spec](../research/docs/v1/2026-03-15-spec-06-services.md)*
+_Full research: [Services Spec](../research/docs/v1/2026-03-15-spec-06-services.md)_
 
 #### 5.7.1 Streamlined Config Reading
 
@@ -1105,8 +1193,8 @@ When implementing any component from §5.6, invoke the `impeccable` skill for de
 
 ```typescript
 interface ConfigLoader {
-  load(): Promise<ResolvedConfig>;                          // Reads all detected provider configs + settings
-  loadProviderConfig(provider: AgentType): ProviderConfig;  // Per-provider isolated reading
+    load(): Promise<ResolvedConfig>; // Reads all detected provider configs + settings
+    loadProviderConfig(provider: AgentType): ProviderConfig; // Per-provider isolated reading
 }
 ```
 
@@ -1118,29 +1206,29 @@ Merge duplicate discovery code into a single `services/discovery/` module that r
 
 ```typescript
 interface DiscoveredProvider {
-  type: AgentType;
-  binaryPath: string;
-  version?: string;
-  configRoot: string;          // e.g., ".claude/", ".opencode/", ".github/"
+    type: AgentType;
+    binaryPath: string;
+    version?: string;
+    configRoot: string; // e.g., ".claude/", ".opencode/", ".github/"
 }
 
 interface DiscoveredSubAgent {
-  name: string;                // e.g., "planner", "debugger", "codebase-analyzer"
-  provider: AgentType;
-  definitionPath: string;      // e.g., ".claude/agents/planner.md"
+    name: string; // e.g., "planner", "debugger", "codebase-analyzer"
+    provider: AgentType;
+    definitionPath: string; // e.g., ".claude/agents/planner.md"
 }
 
 interface DiscoveredSkill {
-  name: string;                // e.g., "create-spec", "playwright-cli"
-  provider: AgentType;
-  skillPath: string;           // e.g., ".claude/skills/create-spec/SKILL.md"
+    name: string; // e.g., "create-spec", "browser-use"
+    provider: AgentType;
+    skillPath: string; // e.g., ".claude/skills/create-spec/SKILL.md"
 }
 
 interface DiscoveryResult {
-  providers: DiscoveredProvider[];
-  agents: DiscoveredSubAgent[];     // From .claude/agents/, .opencode/agents/, .github/agents/
-  skills: DiscoveredSkill[];        // From .claude/skills/, .opencode/skills/, .github/skills/
-  mcpServers: McpServerConfig[];    // From .mcp.json, .vscode/mcp.json, .opencode/opencode.json
+    providers: DiscoveredProvider[];
+    agents: DiscoveredSubAgent[]; // From .claude/agents/, .opencode/agents/, .github/agents/
+    skills: DiscoveredSkill[]; // From .claude/skills/, .opencode/skills/, .github/skills/
+    mcpServers: McpServerConfig[]; // From .mcp.json, .vscode/mcp.json, .opencode/opencode.json
 }
 
 function discover(cwd: string): Promise<DiscoveryResult>;
@@ -1154,9 +1242,9 @@ Drop OpenTelemetry SDK. Replace with simple in-process event queue:
 
 ```typescript
 interface Telemetry {
-  trackEvent(name: string, properties?: Record<string, string>): void;
-  trackError(error: Error, properties?: Record<string, string>): void;
-  flush(): Promise<void>;  // fire-and-forget, errors swallowed
+    trackEvent(name: string, properties?: Record<string, string>): void;
+    trackError(error: Error, properties?: Record<string, string>): void;
+    flush(): Promise<void>; // fire-and-forget, errors swallowed
 }
 ```
 
@@ -1175,12 +1263,13 @@ Auto-flush at 50 events. Telemetry errors never crash the app.
 7. **Register workflows** → Register Ralph + load custom workflows from `.atomic/workflows`
 
 Returns `AppContext` — the **single composition root**:
+
 ```typescript
 const ctx: AppContext = {
-  session: store,
-  publish: (event) => bus.publish(event),
-  subscribe: (type, handler) => bus.subscribe(type, handler),
-  abortSignal: abortController.signal,
+    session: store,
+    publish: (event) => bus.publish(event),
+    subscribe: (type, handler) => bus.subscribe(type, handler),
+    abortSignal: abortController.signal,
 };
 ```
 
@@ -1188,7 +1277,7 @@ Flows into executables (`executable.execute(args, ctx)`) and UI (`<AppContextPro
 
 ### 5.8 Command System (Spec 07)
 
-*Full research: [Command System Spec](../research/docs/v1/2026-03-15-spec-07-command-system.md)*
+_Full research: [Command System Spec](../research/docs/v1/2026-03-15-spec-07-command-system.md)_
 
 #### 5.8.1 Commands Are Executables
 
@@ -1203,36 +1292,36 @@ All command side effects flow through the unified `publish`/`subscribe`:
 ```typescript
 // /clear — publish the clear event
 const clear: ExecutableDefinition = {
-  name: "clear",
-  description: "Clear chat messages",
-  execute: async (_args, ctx) => {
-    ctx.publish({ type: "clear-messages" });
-    return { success: true };
-  },
+    name: "clear",
+    description: "Clear chat messages",
+    execute: async (_args, ctx) => {
+        ctx.publish({ type: "clear-messages" });
+        return { success: true };
+    },
 };
 
 // /model — reads state via ctx.session, publishes dialog event
 const model: ExecutableDefinition = {
-  name: "model",
-  description: "Show or change model",
-  execute: async (args, ctx) => {
-    if (!args) {
-      const current = ctx.session.getState().session.model;
-      return { success: true, message: `Current model: ${current}` };
-    }
-    ctx.publish({ type: "show-dialog", dialog: "model" });
-    return { success: true };
-  },
+    name: "model",
+    description: "Show or change model",
+    execute: async (args, ctx) => {
+        if (!args) {
+            const current = ctx.session.getState().session.model;
+            return { success: true, message: `Current model: ${current}` };
+        }
+        ctx.publish({ type: "show-dialog", dialog: "model" });
+        return { success: true };
+    },
 };
 
 // /compact — publishes compaction event
 const compact: ExecutableDefinition = {
-  name: "compact",
-  description: "Compact context window",
-  execute: async (_args, ctx) => {
-    ctx.publish({ type: "compact-context" });
-    return { success: true, message: "Compacting context..." };
-  },
+    name: "compact",
+    description: "Compact context window",
+    execute: async (_args, ctx) => {
+        ctx.publish({ type: "compact-context" });
+        return { success: true, message: "Compacting context..." };
+    },
 };
 ```
 
@@ -1244,9 +1333,9 @@ The executor looks up any executable by name — commands and workflows live in 
 
 ```typescript
 async function run(name: string, args: string, ctx: AppContext): Promise<void> {
-  const executable = registry.get(name);
-  const result = await executable.execute(args, ctx);
-  if (result.message) showMessage(result.message);
+    const executable = registry.get(name);
+    const result = await executable.execute(args, ctx);
+    if (result.message) showMessage(result.message);
 }
 ```
 
@@ -1303,6 +1392,7 @@ services/executables/
 The V2 architecture is designed for testability. All tests must follow the `testing-anti-patterns` skill (invoke before writing any tests).
 
 **Core testing principles:**
+
 1. **Test real behavior, not mock behavior.** Never assert on mock existence or mock return values. If you're testing that a mock works, delete the test.
 2. **No test-only methods in production code.** Cleanup, reset, and introspection helpers belong in test utilities, not on production classes.
 3. **Mock minimally and at the right level.** Mock the slow/external operation (SDK network call, file I/O), not the high-level method the test depends on. Understand dependencies before mocking.
@@ -1333,6 +1423,7 @@ The V2 architecture is designed for testability. All tests must follow the `test
 ### 7.4 Boundary Enforcement
 
 One existing lint script retained:
+
 - `check-dependency-direction.ts` — enforce layer rules
 
 The V1 `check-submodule-boundaries.ts` is no longer needed since the 8 sub-modules are collapsed into a single store. Event type coverage is enforced at compile time via exhaustive `switch` with `never` default — no custom lint script needed.
@@ -1344,6 +1435,7 @@ The V1 `check-submodule-boundaries.ts` is no longer needed since the 8 sub-modul
 **Delete all source code and tests first.** The V1 codebase has 9 circular dependency pairs, 82K lines of organic complexity, and patterns that will mislead any incremental rewrite. Attempting to refactor in-place means the implementing agent trips over stale context, dead code, and contradictory patterns.
 
 **What to keep:**
+
 - `.claude/` — Claude Code config: `agents/*.md` (10 agents), `skills/*/SKILL.md` (12 skills), `settings.json`
 - `.opencode/` — OpenCode config: `agents/*.md` (10 agents), `skills/*/SKILL.md` (12 skills), `opencode.json`
 - `.github/` — Copilot config: `agents/*.md` (10 agents), `skills/*/SKILL.md` (12 skills), `workflows/`, `dependabot.yml`
@@ -1357,6 +1449,7 @@ The V1 `check-submodule-boundaries.ts` is no longer needed since the 8 sub-modul
 - `scripts/` — Build/lint scripts (retain `check-dependency-direction.ts`)
 
 **What to delete:**
+
 - `src/` — All application source code (services, state, components, commands, lib, types, hooks, screens, theme)
 - `tests/` or `**/*.test.ts` / `**/*.suite.ts` / `**/*.test-support.ts` — All test files
 

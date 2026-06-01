@@ -1,17 +1,18 @@
 # Devcontainer Features & GHCR Publishing — Technical Design Document
 
-| Document Metadata      | Details                         |
-| ---------------------- | ------------------------------- |
-| Author(s)              | lavaman131                      |
-| Status                 | Draft (WIP)                     |
-| Team / Owner           | Atomic CLI                      |
-| Created / Last Updated | 2026-03-28                      |
+| Document Metadata      | Details     |
+| ---------------------- | ----------- |
+| Author(s)              | lavaman131  |
+| Status                 | Draft (WIP) |
+| Team / Owner           | Atomic CLI  |
+| Created / Last Updated | 2026-03-28  |
 
 ## 1. Executive Summary
 
 This RFC proposes creating three reusable **devcontainer features** (`claude`, `opencode`, `copilot`) published as OCI artifacts to `ghcr.io/flora131/atomic/<feature-id>`, enabling any developer to add Atomic CLI with their preferred coding agent to an existing devcontainer with a single line in `devcontainer.json`. Currently, the project uses a monolithic `.devcontainer/Dockerfile` that installs all three agents together — unsuitable for external consumption. The proposed features leverage the existing stock `install.sh` to install the Atomic CLI and all shared dependencies, then layer only the specific agent CLI on top. A new GitHub Actions workflow (`publish-features.yml`) using `devcontainers/action@v1` automates publishing with semver tagging. This adds a new distribution channel alongside the existing binary releases and npm package, specifically targeting the devcontainer ecosystem (VS Code Dev Containers, GitHub Codespaces, DevPod).
 
 > **Research references:**
+>
 > - [research/docs/2026-03-28-devcontainer-features-publishing-research.md](../research/docs/2026-03-28-devcontainer-features-publishing-research.md) — Deep dive on devcontainer feature spec, OCI artifact format, testing, and publishing patterns
 > - [research/docs/2026-03-28-ghcr-multi-variant-docker-build.md](../research/docs/2026-03-28-ghcr-multi-variant-docker-build.md) — Multi-variant Atomic feature design, current state analysis, and CI workflow proposal
 
@@ -21,13 +22,13 @@ This RFC proposes creating three reusable **devcontainer features** (`claude`, `
 
 The project distributes Atomic CLI through three channels:
 
-| Channel | Mechanism | Target |
-|---------|-----------|--------|
+| Channel         | Mechanism                                                               | Target                                          |
+| --------------- | ----------------------------------------------------------------------- | ----------------------------------------------- |
 | Binary releases | GitHub Releases (`publish.yml`) — 5 platform binaries + config archives | Direct install via `install.sh` / `install.ps1` |
-| npm package | `@bastani/atomic-workflows` on npm | SDK consumers |
-| Dev container | Monolithic `.devcontainer/Dockerfile` in-repo | Contributors to this repo only |
+| npm package     | `@bastani/atomic-workflows` on npm                                      | SDK consumers                                   |
+| Dev container   | Monolithic `.devcontainer/Dockerfile` in-repo                           | Contributors to this repo only                  |
 
-The existing `.devcontainer/Dockerfile` (45 lines) installs **all three** agent CLIs (Claude, OpenCode, Copilot) along with shared tooling (bun, uv, cocoindex-code, playwright-cli, tmux, SSH agent forwarding) into a single image based on `mcr.microsoft.com/devcontainers/base:ubuntu`. This is:
+The existing `.devcontainer/Dockerfile` (45 lines) installs **all three** agent CLIs (Claude, OpenCode, Copilot) along with shared tooling (bun, uv, cocoindex-code, browser-use, tmux, SSH agent forwarding) into a single image based on `mcr.microsoft.com/devcontainers/base:ubuntu`. This is:
 
 - **Not composable** — Users cannot add Atomic to their existing Rust, Python, or Go devcontainers without duplicating the Dockerfile logic
 - **Not publishable** — The Dockerfile is tightly coupled to this repo's development workflow
@@ -116,15 +117,15 @@ flowchart TB
 
 ### 4.3 Key Components
 
-| Component | Responsibility | Technology | Justification |
-|-----------|---------------|------------|---------------|
-| `src/devcontainer/claude/` | Feature: Atomic + Claude Code | `devcontainer-feature.json` + `install.sh` | Agent-specific OCI artifact |
-| `src/devcontainer/opencode/` | Feature: Atomic + OpenCode | `devcontainer-feature.json` + `install.sh` | Agent-specific OCI artifact |
-| `src/devcontainer/copilot/` | Feature: Atomic + Copilot CLI | `devcontainer-feature.json` + `install.sh` | Agent-specific OCI artifact |
-| `publish-features.yml` | CI: Publish features to GHCR | GitHub Actions + `devcontainers/action@v1` | Official tooling for feature publishing |
-| `test-features.yml` | CI: Test features against base images | GitHub Actions + `devcontainer features test` | Validates install scripts pre-publish |
-| `validate-features.yml` | CI: Validate feature JSON schemas | GitHub Actions + `devcontainers/action@v1` | Catches schema errors in PRs |
-| `install.sh` (existing) | Shared dependency installer | Bash | Already handles bun, uv, cocoindex-code, playwright, agent configs |
+| Component                    | Responsibility                        | Technology                                    | Justification                                                      |
+| ---------------------------- | ------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------ |
+| `src/devcontainer/claude/`   | Feature: Atomic + Claude Code         | `devcontainer-feature.json` + `install.sh`    | Agent-specific OCI artifact                                        |
+| `src/devcontainer/opencode/` | Feature: Atomic + OpenCode            | `devcontainer-feature.json` + `install.sh`    | Agent-specific OCI artifact                                        |
+| `src/devcontainer/copilot/`  | Feature: Atomic + Copilot CLI         | `devcontainer-feature.json` + `install.sh`    | Agent-specific OCI artifact                                        |
+| `publish-features.yml`       | CI: Publish features to GHCR          | GitHub Actions + `devcontainers/action@v1`    | Official tooling for feature publishing                            |
+| `test-features.yml`          | CI: Test features against base images | GitHub Actions + `devcontainer features test` | Validates install scripts pre-publish                              |
+| `validate-features.yml`      | CI: Validate feature JSON schemas     | GitHub Actions + `devcontainers/action@v1`    | Catches schema errors in PRs                                       |
+| `install.sh` (existing)      | Shared dependency installer           | Bash                                          | Already handles bun, uv, cocoindex-code, playwright, agent configs |
 
 ## 5. Detailed Design
 
@@ -184,9 +185,7 @@ test/devcontainer/
     "containerEnv": {
         "COCOINDEX_CODE_DB_PATH_MAPPING": "/workspaces=/tmp/cocoindex-db"
     },
-    "installsAfter": [
-        "ghcr.io/devcontainers/features/common-utils"
-    ]
+    "installsAfter": ["ghcr.io/devcontainers/features/common-utils"]
 }
 ```
 
@@ -224,9 +223,7 @@ echo "Atomic + Claude Code installed successfully."
     "containerEnv": {
         "COCOINDEX_CODE_DB_PATH_MAPPING": "/workspaces=/tmp/cocoindex-db"
     },
-    "installsAfter": [
-        "ghcr.io/devcontainers/features/common-utils"
-    ]
+    "installsAfter": ["ghcr.io/devcontainers/features/common-utils"]
 }
 ```
 
@@ -305,6 +302,7 @@ done
 ```
 
 This ensures features are tagged with the same semver as the Atomic CLI release. The `devcontainers/action@v1` then generates OCI tags:
+
 - `0.4.44` (exact)
 - `0.4` (minor)
 - `0` (major)
@@ -322,36 +320,36 @@ This ensures features are tagged with the same semver as the Atomic CLI release.
 name: Publish Devcontainer Features
 
 on:
-  workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'src/devcontainer/**'
+    workflow_dispatch:
+    push:
+        branches: [main]
+        paths:
+            - "src/devcontainer/**"
 
 jobs:
-  publish:
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      packages: write
-    steps:
-      - uses: actions/checkout@v6
+    publish:
+        if: github.ref == 'refs/heads/main'
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+            packages: write
+        steps:
+            - uses: actions/checkout@v6
 
-      - name: Sync feature versions from package.json
-        run: |
-          VERSION=$(jq -r .version package.json)
-          for feature in src/devcontainer/*/devcontainer-feature.json; do
-            jq --arg v "$VERSION" '.version = $v' "$feature" > tmp.json && mv tmp.json "$feature"
-          done
+            - name: Sync feature versions from package.json
+              run: |
+                  VERSION=$(jq -r .version package.json)
+                  for feature in src/devcontainer/*/devcontainer-feature.json; do
+                    jq --arg v "$VERSION" '.version = $v' "$feature" > tmp.json && mv tmp.json "$feature"
+                  done
 
-      - name: Publish Features
-        uses: devcontainers/action@v1
-        with:
-          publish-features: "true"
-          base-path-to-features: "./src/devcontainer"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            - name: Publish Features
+              uses: devcontainers/action@v1
+              with:
+                  publish-features: "true"
+                  base-path-to-features: "./src/devcontainer"
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 **Required permissions:** `packages: write` (push OCI artifacts to GHCR), `contents: write` (create git tags).
@@ -366,41 +364,41 @@ jobs:
 name: Test Devcontainer Features
 
 on:
-  pull_request:
-    paths:
-      - 'src/devcontainer/**'
-      - 'test/devcontainer/**'
-  workflow_dispatch:
+    pull_request:
+        paths:
+            - "src/devcontainer/**"
+            - "test/devcontainer/**"
+    workflow_dispatch:
 
 jobs:
-  test-autogenerated:
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    strategy:
-      matrix:
-        features: [claude, opencode, copilot]
-        baseImage:
-          - mcr.microsoft.com/devcontainers/base:ubuntu
-          - ubuntu:latest
-    steps:
-      - uses: actions/checkout@v6
-      - name: Install devcontainer CLI
-        run: npm install -g @devcontainers/cli
-      - name: "Test '${{ matrix.features }}' on '${{ matrix.baseImage }}'"
-        run: devcontainer features test --skip-scenarios -f ${{ matrix.features }} -i ${{ matrix.baseImage }} --base-path-to-features ./src/devcontainer .
+    test-autogenerated:
+        runs-on: ubuntu-latest
+        continue-on-error: true
+        strategy:
+            matrix:
+                features: [claude, opencode, copilot]
+                baseImage:
+                    - mcr.microsoft.com/devcontainers/base:ubuntu
+                    - ubuntu:latest
+        steps:
+            - uses: actions/checkout@v6
+            - name: Install devcontainer CLI
+              run: npm install -g @devcontainers/cli
+            - name: "Test '${{ matrix.features }}' on '${{ matrix.baseImage }}'"
+              run: devcontainer features test --skip-scenarios -f ${{ matrix.features }} -i ${{ matrix.baseImage }} --base-path-to-features ./src/devcontainer .
 
-  test-scenarios:
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    strategy:
-      matrix:
-        features: [claude, opencode, copilot]
-    steps:
-      - uses: actions/checkout@v6
-      - name: Install devcontainer CLI
-        run: npm install -g @devcontainers/cli
-      - name: "Test '${{ matrix.features }}' scenarios"
-        run: devcontainer features test -f ${{ matrix.features }} --skip-autogenerated --skip-duplicated --base-path-to-features ./src/devcontainer .
+    test-scenarios:
+        runs-on: ubuntu-latest
+        continue-on-error: true
+        strategy:
+            matrix:
+                features: [claude, opencode, copilot]
+        steps:
+            - uses: actions/checkout@v6
+            - name: Install devcontainer CLI
+              run: npm install -g @devcontainers/cli
+            - name: "Test '${{ matrix.features }}' scenarios"
+              run: devcontainer features test -f ${{ matrix.features }} --skip-autogenerated --skip-duplicated --base-path-to-features ./src/devcontainer .
 ```
 
 #### 5.4.3 Validation Workflow
@@ -411,21 +409,21 @@ jobs:
 name: Validate Devcontainer Features
 
 on:
-  pull_request:
-    paths:
-      - 'src/devcontainer/**'
-  workflow_dispatch:
+    pull_request:
+        paths:
+            - "src/devcontainer/**"
+    workflow_dispatch:
 
 jobs:
-  validate:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - name: Validate devcontainer-feature.json schemas
-        uses: devcontainers/action@v1
-        with:
-          validate-only: "true"
-          base-path-to-features: "./src/devcontainer"
+    validate:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v6
+            - name: Validate devcontainer-feature.json schemas
+              uses: devcontainers/action@v1
+              with:
+                  validate-only: "true"
+                  base-path-to-features: "./src/devcontainer"
 ```
 
 > **Research reference:** [research/docs/2026-03-28-devcontainer-features-publishing-research.md §6 "GitHub Actions Workflow for Publishing"](../research/docs/2026-03-28-devcontainer-features-publishing-research.md)
@@ -448,7 +446,7 @@ check "atomic CLI is installed" bash -c "which atomic"
 check "bun is installed" bash -c "which bun"
 check "claude CLI is installed" bash -c "which claude"
 check "cocoindex-code is installed" bash -c "which ccc"
-check "playwright-cli is installed" bash -c "which playwright-cli"
+check "browser-use is installed" bash -c "which browser-use"
 check "claude agents dir exists" bash -c "test -d ~/.claude/agents"
 check "claude skills dir exists" bash -c "test -d ~/.claude/skills"
 
@@ -467,13 +465,13 @@ Users add a **single feature** to their existing `devcontainer.json` to get Atom
 
 ```jsonc
 {
-  "image": "mcr.microsoft.com/devcontainers/rust:latest",
-  "features": {
-    "ghcr.io/flora131/atomic/claude:1": {}
-  },
-  "remoteEnv": {
-    "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}"
-  }
+    "image": "mcr.microsoft.com/devcontainers/rust:latest",
+    "features": {
+        "ghcr.io/flora131/atomic/claude:1": {},
+    },
+    "remoteEnv": {
+        "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}",
+    },
 }
 ```
 
@@ -481,14 +479,14 @@ Users add a **single feature** to their existing `devcontainer.json` to get Atom
 
 ```jsonc
 {
-  "image": "mcr.microsoft.com/devcontainers/python:3.12",
-  "features": {
-    "ghcr.io/devcontainers/features/github-cli:1": {},
-    "ghcr.io/flora131/atomic/copilot:1": {}
-  },
-  "remoteEnv": {
-    "GH_TOKEN": "${localEnv:GH_TOKEN}"
-  }
+    "image": "mcr.microsoft.com/devcontainers/python:3.12",
+    "features": {
+        "ghcr.io/devcontainers/features/github-cli:1": {},
+        "ghcr.io/flora131/atomic/copilot:1": {},
+    },
+    "remoteEnv": {
+        "GH_TOKEN": "${localEnv:GH_TOKEN}",
+    },
 }
 ```
 
@@ -496,10 +494,10 @@ Users add a **single feature** to their existing `devcontainer.json` to get Atom
 
 ```jsonc
 {
-  "image": "mcr.microsoft.com/devcontainers/go:1.22",
-  "features": {
-    "ghcr.io/flora131/atomic/opencode:1": {}
-  }
+    "image": "mcr.microsoft.com/devcontainers/go:1.22",
+    "features": {
+        "ghcr.io/flora131/atomic/opencode:1": {},
+    },
 }
 ```
 
@@ -509,11 +507,11 @@ Users add a **single feature** to their existing `devcontainer.json` to get Atom
 
 Each feature installs the same shared dependencies (via stock `install.sh`) but differs in the agent CLI:
 
-| Feature | Agent CLI Install Command | Auth Env Var | Config Directory | `installsAfter` |
-|---------|--------------------------|--------------|------------------|------------------|
-| `claude` | `curl -fsSL https://claude.ai/install.sh \| bash` | `ANTHROPIC_API_KEY` | `~/.claude/` | `common-utils` |
-| `opencode` | `curl -fsSL https://opencode.ai/install \| bash` | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | `~/.opencode/` | `common-utils` |
-| `copilot` | `curl -fsSL https://gh.io/copilot-install \| bash` | `GH_TOKEN` / `COPILOT_GITHUB_TOKEN` | `~/.copilot/` | `common-utils`, `github-cli` |
+| Feature    | Agent CLI Install Command                          | Auth Env Var                           | Config Directory | `installsAfter`              |
+| ---------- | -------------------------------------------------- | -------------------------------------- | ---------------- | ---------------------------- |
+| `claude`   | `curl -fsSL https://claude.ai/install.sh \| bash`  | `ANTHROPIC_API_KEY`                    | `~/.claude/`     | `common-utils`               |
+| `opencode` | `curl -fsSL https://opencode.ai/install \| bash`   | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | `~/.opencode/`   | `common-utils`               |
+| `copilot`  | `curl -fsSL https://gh.io/copilot-install \| bash` | `GH_TOKEN` / `COPILOT_GITHUB_TOKEN`    | `~/.copilot/`    | `common-utils`, `github-cli` |
 
 All three agents share 10 agent definitions and 15 skill definitions (identical markdown content, different directory locations). After global install, 4 SCM-scoped skills (`gh-commit`, `gh-create-pr`, `sl-commit`, `sl-submit-diff`) are removed from global directories.
 
@@ -548,13 +546,13 @@ Each package is an OCI artifact (not a Docker image) with `application/vnd.devco
 
 ## 6. Alternatives Considered
 
-| Option | Pros | Cons | Reason for Rejection |
-|--------|------|------|---------------------|
-| **A: Standalone Docker images** (`ghcr.io/flora131/atomic:claude`) | Simple `docker pull`; pre-baked everything | Not composable — users must abandon their existing devcontainer; large image size (~1.5 GB per variant) | Devcontainer features are the standard for composable tooling. Docker images were previously rejected in `specs/2026-01-21-binary-distribution-installers.md`. |
-| **B: Single feature with variant option** (`ghcr.io/flora131/atomic:1` + `"variant": "claude"`) | One package instead of three; fewer GHCR visibility settings | Requires downloading all three agent CLIs or complex conditional logic in `install.sh`; URI is less self-documenting | Three separate features are simpler to implement, test, and reason about. Each `install.sh` is ~10 lines. |
-| **C: Base + agent features** (`atomic-base` + `atomic-claude`) | Clean separation of shared deps from agent-specific installs; avoids duplicate installs | Requires two features in `devcontainer.json`; user experience is worse; `installsAfter` ordering adds complexity | The stock `install.sh` is idempotent and handles everything. Adding a base feature adds complexity for no user benefit. |
-| **D: Separate repository** (`flora131/atomic-features`) | Cleaner separation of concerns; standard community pattern | Config files live in the main repo — syncing them requires cross-repo automation; more repos to maintain | Mono-repo is simpler to start. Can extract later if needed. |
-| **E: Three features in mono-repo (Selected)** | Simple `install.sh` per feature (~10 lines); single repo; stock installer handles shared deps; clean URIs | All three agent configs installed even if only one is needed (harmless); duplicate installs if user adds two features | **Selected:** Simplest implementation with best user experience. Stock `install.sh` idempotency mitigates concerns. |
+| Option                                                                                          | Pros                                                                                                      | Cons                                                                                                                  | Reason for Rejection                                                                                                                                           |
+| ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **A: Standalone Docker images** (`ghcr.io/flora131/atomic:claude`)                              | Simple `docker pull`; pre-baked everything                                                                | Not composable — users must abandon their existing devcontainer; large image size (~1.5 GB per variant)               | Devcontainer features are the standard for composable tooling. Docker images were previously rejected in `specs/2026-01-21-binary-distribution-installers.md`. |
+| **B: Single feature with variant option** (`ghcr.io/flora131/atomic:1` + `"variant": "claude"`) | One package instead of three; fewer GHCR visibility settings                                              | Requires downloading all three agent CLIs or complex conditional logic in `install.sh`; URI is less self-documenting  | Three separate features are simpler to implement, test, and reason about. Each `install.sh` is ~10 lines.                                                      |
+| **C: Base + agent features** (`atomic-base` + `atomic-claude`)                                  | Clean separation of shared deps from agent-specific installs; avoids duplicate installs                   | Requires two features in `devcontainer.json`; user experience is worse; `installsAfter` ordering adds complexity      | The stock `install.sh` is idempotent and handles everything. Adding a base feature adds complexity for no user benefit.                                        |
+| **D: Separate repository** (`flora131/atomic-features`)                                         | Cleaner separation of concerns; standard community pattern                                                | Config files live in the main repo — syncing them requires cross-repo automation; more repos to maintain              | Mono-repo is simpler to start. Can extract later if needed.                                                                                                    |
+| **E: Three features in mono-repo (Selected)**                                                   | Simple `install.sh` per feature (~10 lines); single repo; stock installer handles shared deps; clean URIs | All three agent configs installed even if only one is needed (harmless); duplicate installs if user adds two features | **Selected:** Simplest implementation with best user experience. Stock `install.sh` idempotency mitigates concerns.                                            |
 
 > **Research reference:** [research/docs/2026-03-28-ghcr-multi-variant-docker-build.md §8 "Mono-Repo vs Separate Repo"](../research/docs/2026-03-28-ghcr-multi-variant-docker-build.md)
 

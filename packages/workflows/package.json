@@ -68,7 +68,8 @@
     "prompts": []
   },
   "dependencies": {
-    "jiti": "^2.7.0"
+    "jiti": "^2.7.0",
+    "zod": "^3.25.0 || ^4.0.0"
   },
   "peerDependencies": {
     "@bastani/atomic": "*",

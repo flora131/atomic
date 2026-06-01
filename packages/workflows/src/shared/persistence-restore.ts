@@ -8,6 +8,8 @@
 
 import type { Store } from "./store.js";
 import type { RunSnapshot, StageSnapshot, StageStatus, WorkflowChildReplaySnapshot } from "./store-types.js";
+import type { WorkflowInputValues, WorkflowOutputValues } from "./types.js";
+import { workflowSerializableObjectSchema } from "./serializable.js";
 import { isWorkflowFailureKind } from "./workflow-failures.js";
 
 // ---------------------------------------------------------------------------
@@ -40,7 +42,7 @@ export interface SessionManager {
 export interface InFlightRun {
   readonly runId: string;
   readonly name: string;
-  readonly inputs: Readonly<Record<string, unknown>>;
+  readonly inputs: Readonly<WorkflowInputValues>;
   readonly startTs: number;
   /** Stage IDs that were started (in order) but may or may not have ended. */
   readonly stageIds: readonly string[];
@@ -57,7 +59,7 @@ export interface InFlightRun {
  * Pure function — does not mutate anything.
  */
 export function scanInFlightRuns(entries: readonly SessionEntry[]): InFlightRun[] {
-  const started = new Map<string, { name: string; inputs: Record<string, unknown>; startTs: number; stageIds: string[] }>();
+  const started = new Map<string, { name: string; inputs: WorkflowInputValues; startTs: number; stageIds: string[] }>();
   const ended = new Set<string>();
 
   for (const entry of entries) {
@@ -73,9 +75,7 @@ export function scanInFlightRuns(entries: readonly SessionEntry[]): InFlightRun[
       ) {
         started.set(runId, {
           name,
-          inputs: (inputs !== null && typeof inputs === "object" && !Array.isArray(inputs))
-            ? (inputs as Record<string, unknown>)
-            : {},
+          inputs: serializableObjectOrEmpty(inputs),
           startTs: ts,
           stageIds: [],
         });
@@ -180,6 +180,9 @@ export function restoreOnSessionStart(
         status: "running",
         stages,
         startedAt: run.startTs,
+        ...(runMeta.parentRunId !== undefined ? { parentRunId: runMeta.parentRunId } : {}),
+        ...(runMeta.parentStageId !== undefined ? { parentStageId: runMeta.parentStageId } : {}),
+        ...(runMeta.rootRunId !== undefined ? { rootRunId: runMeta.rootRunId } : {}),
         ...(runMeta.resumedFromRunId !== undefined ? { resumedFromRunId: runMeta.resumedFromRunId } : {}),
         ...(runMeta.resumeFromStageId !== undefined ? { resumeFromStageId: runMeta.resumeFromStageId } : {}),
       };
@@ -198,6 +201,9 @@ export function restoreOnSessionStart(
         error: "Run did not complete — process was interrupted.",
         failureKind: "unknown",
         resumable: false,
+        ...(runMeta.parentRunId !== undefined ? { parentRunId: runMeta.parentRunId } : {}),
+        ...(runMeta.parentStageId !== undefined ? { parentStageId: runMeta.parentStageId } : {}),
+        ...(runMeta.rootRunId !== undefined ? { rootRunId: runMeta.rootRunId } : {}),
         ...(runMeta.resumedFromRunId !== undefined ? { resumedFromRunId: runMeta.resumedFromRunId } : {}),
         ...(runMeta.resumeFromStageId !== undefined ? { resumeFromStageId: runMeta.resumeFromStageId } : {}),
       };
@@ -293,6 +299,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function serializableObject(value: unknown): WorkflowOutputValues | undefined {
+  const parsed = workflowSerializableObjectSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
+
+function serializableObjectOrEmpty(value: unknown): WorkflowOutputValues {
+  return serializableObject(value) ?? {};
+}
+
 function isWorkflowChildReplayStatus(status: unknown): status is WorkflowChildReplaySnapshot["status"] {
   return status === "completed";
 }
@@ -317,17 +332,22 @@ function workflowChildMetadata(payload: Record<string, unknown>): Pick<StageSnap
     return {};
   }
 
-  let clonedOutputs: Record<string, unknown>;
+  let clonedOutputs: WorkflowOutputValues;
   try {
-    clonedOutputs = structuredClone(outputs);
+    const serializableOutputs = serializableObject(outputs);
+    if (serializableOutputs === undefined) return {};
+    clonedOutputs = structuredClone(serializableOutputs);
   } catch {
     return {};
   }
 
-  let clonedRawOutput: Record<string, unknown> | undefined;
+  let clonedRawOutput: WorkflowOutputValues | undefined;
   if (rawOutput !== undefined) {
     try {
-      clonedRawOutput = structuredClone(rawOutput);
+      const serializableRawOutput = serializableObject(rawOutput);
+      clonedRawOutput = serializableRawOutput === undefined
+        ? undefined
+        : structuredClone(serializableRawOutput);
     } catch {
       clonedRawOutput = undefined;
     }
@@ -357,7 +377,7 @@ function restoreStageStatus(status: unknown): StageStatus {
 }
 
 function restoreTerminalRuns(entries: readonly SessionEntry[], store: Store): void {
-  const started = new Map<string, { readonly name: string; readonly inputs: Readonly<Record<string, unknown>>; readonly startTs: number }>();
+  const started = new Map<string, { readonly name: string; readonly inputs: Readonly<WorkflowInputValues>; readonly startTs: number }>();
   const ended = new Map<string, Record<string, unknown>>();
 
   for (const entry of entries) {
@@ -369,9 +389,7 @@ function restoreTerminalRuns(entries: readonly SessionEntry[], store: Store): vo
       if (typeof runId === "string" && typeof name === "string" && typeof ts === "number") {
         started.set(runId, {
           name,
-          inputs: (inputs !== null && typeof inputs === "object" && !Array.isArray(inputs))
-            ? (inputs as Record<string, unknown>)
-            : {},
+          inputs: serializableObjectOrEmpty(inputs),
           startTs: ts,
         });
       }
@@ -398,6 +416,9 @@ function restoreTerminalRuns(entries: readonly SessionEntry[], store: Store): vo
       status: "running",
       stages,
       startedAt: start.startTs,
+      ...(runMeta.parentRunId !== undefined ? { parentRunId: runMeta.parentRunId } : {}),
+      ...(runMeta.parentStageId !== undefined ? { parentStageId: runMeta.parentStageId } : {}),
+      ...(runMeta.rootRunId !== undefined ? { rootRunId: runMeta.rootRunId } : {}),
       ...(runMeta.resumedFromRunId !== undefined ? { resumedFromRunId: runMeta.resumedFromRunId } : {}),
       ...(runMeta.resumeFromStageId !== undefined ? { resumeFromStageId: runMeta.resumeFromStageId } : {}),
     });
@@ -436,12 +457,24 @@ function restoreTerminalRunStatus(status: unknown): "completed" | "failed" | "ki
 function findRunStartMetadata(
   entries: readonly SessionEntry[],
   runId: string,
-): { readonly resumedFromRunId?: string; readonly resumeFromStageId?: string } {
+): {
+  readonly parentRunId?: string;
+  readonly parentStageId?: string;
+  readonly rootRunId?: string;
+  readonly resumedFromRunId?: string;
+  readonly resumeFromStageId?: string;
+} {
   for (const entry of entries) {
     if (entry.type !== "workflow.run.start" || entry.payload["runId"] !== runId) continue;
+    const parentRunId = entry.payload["parentRunId"];
+    const parentStageId = entry.payload["parentStageId"];
+    const rootRunId = entry.payload["rootRunId"];
     const resumedFromRunId = entry.payload["resumedFromRunId"];
     const resumeFromStageId = entry.payload["resumeFromStageId"];
     return {
+      ...(typeof parentRunId === "string" ? { parentRunId } : {}),
+      ...(typeof parentStageId === "string" ? { parentStageId } : {}),
+      ...(typeof rootRunId === "string" ? { rootRunId } : {}),
       ...(typeof resumedFromRunId === "string" ? { resumedFromRunId } : {}),
       ...(typeof resumeFromStageId === "string" ? { resumeFromStageId } : {}),
     };

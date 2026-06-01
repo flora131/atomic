@@ -30,6 +30,7 @@ import type {
   PiEditorFactory,
 } from "../extension/wiring.js";
 import type { WorkflowInputEntry } from "../extension/render-result.js";
+import type { WorkflowInputValues } from "../shared/types.js";
 import type { GraphTheme } from "./graph-theme.js";
 import { renderInlineCard } from "./inline-form-card.js";
 import { InlineFormEditor } from "./inline-form-editor.js";
@@ -51,14 +52,14 @@ interface FormMessageDetails {
  * care which surface was used.
  */
 export type InlineFormResult =
-  | { kind: "run"; values: Record<string, unknown> }
+  | { kind: "run"; values: WorkflowInputValues }
   | { kind: "cancel" }
   | { kind: "unsupported" };
 
 export interface OpenInlineFormOpts {
   workflowName: string;
   fields: readonly WorkflowInputEntry[];
-  prefilled?: Record<string, unknown>;
+  prefilled?: WorkflowInputValues;
   theme: GraphTheme;
 }
 

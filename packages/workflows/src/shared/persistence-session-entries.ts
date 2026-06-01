@@ -6,6 +6,8 @@
  * through gracefully when the runtime doesn't support the method.
  */
 
+import type { WorkflowInputValues, WorkflowOutputValues } from "./types.js";
+
 // ---------------------------------------------------------------------------
 // Structural API type (subset of ExtensionAPI needed here)
 // ---------------------------------------------------------------------------
@@ -30,7 +32,10 @@ export interface PersistenceAPI {
 export interface RunStartPayload {
   readonly runId: string;
   readonly name: string;
-  readonly inputs: Readonly<Record<string, unknown>>;
+  readonly inputs: Readonly<WorkflowInputValues>;
+  readonly parentRunId?: string;
+  readonly parentStageId?: string;
+  readonly rootRunId?: string;
   readonly resumedFromRunId?: string;
   readonly resumeFromStageId?: string;
   readonly ts: number;
@@ -60,8 +65,8 @@ export interface WorkflowChildReplayPayload {
   readonly workflow: string;
   readonly runId: string;
   readonly status: "completed";
-  readonly outputs: Record<string, unknown>;
-  readonly rawOutput?: Record<string, unknown>;
+  readonly outputs: WorkflowOutputValues;
+  readonly rawOutput?: WorkflowOutputValues;
 }
 
 export interface StageEndPayload {
@@ -83,7 +88,7 @@ export interface StageEndPayload {
 export interface RunEndPayload {
   readonly runId: string;
   readonly status: string;
-  readonly result?: unknown;
+  readonly result?: WorkflowOutputValues;
   readonly error?: string;
   readonly failureKind?: string;
   readonly failureMessage?: string;
@@ -106,6 +111,9 @@ export function appendRunStart(api: PersistenceAPI, payload: RunStartPayload): v
     runId: payload.runId,
     name: payload.name,
     inputs: payload.inputs,
+    ...(payload.parentRunId !== undefined ? { parentRunId: payload.parentRunId } : {}),
+    ...(payload.parentStageId !== undefined ? { parentStageId: payload.parentStageId } : {}),
+    ...(payload.rootRunId !== undefined ? { rootRunId: payload.rootRunId } : {}),
     ...(payload.resumedFromRunId !== undefined ? { resumedFromRunId: payload.resumedFromRunId } : {}),
     ...(payload.resumeFromStageId !== undefined ? { resumeFromStageId: payload.resumeFromStageId } : {}),
     ts: payload.ts,
@@ -179,7 +187,7 @@ export function appendRunEnd(api: PersistenceAPI, payload: RunEndPayload): void 
   api.appendEntry("workflow.run.end", {
     runId: payload.runId,
     status: payload.status,
-    ...(payload.result !== undefined ? { result: payload.result as Record<string, unknown> } : {}),
+    ...(payload.result !== undefined ? { result: payload.result } : {}),
     ...(payload.error !== undefined ? { error: payload.error } : {}),
     ...(payload.failureKind !== undefined ? { failureKind: payload.failureKind } : {}),
     ...(payload.failureMessage !== undefined ? { failureMessage: payload.failureMessage } : {}),

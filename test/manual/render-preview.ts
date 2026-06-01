@@ -194,6 +194,7 @@ const store: Store = {
   activeRunId: () => run?.id ?? null,
   recordRunStart: () => {},
   recordStageStart: () => {},
+  recordStageWorkflowChildRun: () => false,
   recordToolStart: () => {},
   recordToolEnd: () => {},
   recordStageEnd: () => {},

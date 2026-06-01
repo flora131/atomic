@@ -348,6 +348,7 @@ async function runFactory(pi: ExtensionAPI): Promise<void> {
 describe("slash /workflow <name> dispatch", () => {
     test("/workflow <known-name> dispatches run, not unknown subcommand", async () => {
         const wf = defineWorkflow("test-wf")
+            .input("prompt", { type: "text" })
             .run(async (_ctx) => ({ done: true }))
             .compile() as WorkflowDefinition;
 

@@ -3,6 +3,8 @@
  * cross-ref: spec §5.5
  */
 
+import type { WorkflowInputValues, WorkflowOutputValues } from "./types.js";
+
 export type RunStatus = "pending" | "running" | "paused" | "completed" | "failed" | "killed";
 export type StageStatus =
   | "pending"
@@ -94,13 +96,19 @@ export interface StageNotice {
   readonly meta?: string;
 }
 
+export interface WorkflowChildRunRef {
+  readonly alias: string;
+  readonly workflow: string;
+  readonly runId: string;
+}
+
 export interface WorkflowChildReplaySnapshot {
   readonly alias: string;
   readonly workflow: string;
   readonly runId: string;
   readonly status: "completed";
-  readonly outputs: Record<string, unknown>;
-  readonly rawOutput?: Record<string, unknown>;
+  readonly outputs: WorkflowOutputValues;
+  readonly rawOutput?: WorkflowOutputValues;
 }
 
 export interface StageSnapshot {
@@ -134,6 +142,8 @@ export interface StageSnapshot {
   replayedFromStageId?: string;
   /** True when provider work was skipped by continuation replay. */
   replayed?: boolean;
+  /** Live child workflow run metadata used to expand nested workflow graphs while the child is running. */
+  workflowChildRun?: WorkflowChildRunRef;
   /** Snapshot-safe child workflow result metadata for continuation replay of import boundaries. */
   workflowChild?: WorkflowChildReplaySnapshot;
   readonly toolEvents: ToolEvent[];
@@ -193,7 +203,7 @@ export interface StageSnapshot {
 export interface RunSnapshot {
   readonly id: string;
   readonly name: string;
-  readonly inputs: Readonly<Record<string, unknown>>;
+  readonly inputs: Readonly<WorkflowInputValues>;
   status: RunStatus;
   readonly stages: StageSnapshot[];
   startedAt: number;
@@ -205,7 +215,7 @@ export interface RunSnapshot {
   pausedAt?: number;
   /** Timestamp recorded on the most recent resume from a paused state. */
   resumedAt?: number;
-  result?: Record<string, unknown>;
+  result?: WorkflowOutputValues;
   error?: string;
   /** Structured workflow failure category for failed runs. */
   failureKind?: WorkflowFailureKind;
@@ -213,6 +223,12 @@ export interface RunSnapshot {
   failureMessage?: string;
   failedStageId?: string;
   resumable?: boolean;
+  /** Parent workflow run when this snapshot is an internal child workflow run. Hidden from top-level status lists. */
+  parentRunId?: string;
+  /** Parent workflow boundary stage that launched this internal child workflow run. */
+  parentStageId?: string;
+  /** Top-level workflow run that owns this nested run tree. */
+  rootRunId?: string;
   /** Source failed run when this run is a continuation. */
   resumedFromRunId?: string;
   /** Source stage id where continuation resumes real execution. */

@@ -24,10 +24,9 @@ import {
   type WorkflowChainStep,
   type WorkflowModelCatalogPort,
   type WorkflowExecutionPolicy,
-  type WorkflowSourceReference,
 } from "../shared/types.js";
 import type { StageAdapters } from "../runs/foreground/stage-runner.js";
-import { resolveInputs, runChain, runParallel, runTask, type RunOpts } from "../runs/foreground/executor.js";
+import { resolveAndValidateInputs, runChain, runParallel, runTask, type RunOpts } from "../runs/foreground/executor.js";
 import type { Store } from "../shared/store.js";
 import type { RunSnapshot } from "../shared/store-types.js";
 import type { CancellationRegistry } from "../runs/background/cancellation-registry.js";
@@ -84,8 +83,6 @@ export interface ExtensionRuntimeOpts {
   models?: WorkflowModelCatalogPort;
   /** Job tracker forwarded to named detached runs. */
   jobs?: JobTracker;
-  /** Discovery source metadata for workflow resources. */
-  workflowSources?: readonly WorkflowSourceReference[];
   /** Invocation cwd used for workflow execution. Defaults to process.cwd(). */
   cwd?: string;
 }
@@ -150,7 +147,6 @@ export function createExtensionRuntime(opts: ExtensionRuntimeOpts = {}): Extensi
   const intercom = opts.intercom;
   const models = opts.models;
   const jobs = opts.jobs;
-  const workflowSources = opts.workflowSources;
   const runtimeCwd = opts.cwd ?? process.cwd();
 
   function runOptions(args: WorkflowToolArgs, policy?: WorkflowExecutionPolicy): RunOpts {
@@ -179,7 +175,6 @@ export function createExtensionRuntime(opts: ExtensionRuntimeOpts = {}): Extensi
       models,
       ...(policy !== undefined ? { executionMode: policy.mode } : {}),
       registry,
-      ...(workflowSources !== undefined ? { workflowSources } : {}),
       cwd: runtimeCwd,
     };
   }
@@ -412,7 +407,7 @@ export function createExtensionRuntime(opts: ExtensionRuntimeOpts = {}): Extensi
     }
     const sourceInputs = { ...source.inputs };
     try {
-      resolveInputs(def.inputs, sourceInputs);
+      resolveAndValidateInputs(def.inputs, sourceInputs, `workflow "${def.name}"`);
     } catch (err) {
       return { ok: false, reason: "insufficient_state", message: `insufficient_state: ${err instanceof Error ? err.message : String(err)}` };
     }
@@ -495,7 +490,6 @@ export function createExtensionRuntime(opts: ExtensionRuntimeOpts = {}): Extensi
         models,
         policy: options?.policy,
         cwd: runtimeCwd,
-        workflowSources,
       });
     },
 

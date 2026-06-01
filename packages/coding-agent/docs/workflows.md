@@ -161,7 +161,7 @@ Inputs:
 |---|---|---|---|---|
 | `prompt` | text | yes | — | Research question or investigation focus. |
 | `max_partitions` | number | no | `100` | Maximum codebase partitions explored in parallel. Actual partitions scale by one per 10K LoC, capped by this value. |
-| `max_concurrency` | number | no | `4` | Maximum workflow stages running concurrently during deep research. |
+| `max_concurrency` | number | no | `100` | Maximum workflow stages running concurrently during deep research. |
 
 Run examples:
 
@@ -583,7 +583,7 @@ Slash equivalent:
 
 <p align="center"><img src="images/workflow-command.png" alt="Running a Workflow Command" width="600" /></p>
 
-Input overrides are bare `key=value` tokens. Values are JSON-parsed when possible, so `count=3`, `flag=true`, and `prompt="multi word value"` preserve useful types. A whole input object can also be passed as one JSON token.
+Input overrides are bare `key=value` tokens. Values are JSON-parsed when possible, so `count=3`, `flag=true`, and `prompt="multi word value"` preserve useful types. A whole input object can also be passed as one JSON token. Runtime validation is strict: unknown input keys, missing required values, type mismatches, and invalid `select` choices fail before a named workflow run starts or before a child workflow starts.
 
 In the TUI, `/workflow <name>` opens an input picker when the workflow declares inputs and either no arguments were supplied or required inputs are missing. Supplied values seed the picker. Pass `--no-picker` to skip that interactive flow.
 
@@ -609,11 +609,11 @@ In non-interactive (`-p`, `--print`, or `--mode json`) sessions, named workflow 
 /workflow reload
 ```
 
-Use `connect` for the workflow graph. Use `attach` when you want a chat pane for a specific stage. Use `interrupt`, `pause`, and `resume` for resumable live work; `resume` on a non-paused run reopens the saved snapshot or overlay. Use `kill` only when the run should be terminated; killed runs are retained in live history/status for read-only inspection. Use `/workflow reload` after adding, editing, installing, or removing workflow resources or package manifest workflow entries and you want Atomic to rediscover them in-process. `/workflow status` lists all retained active and terminal runs by default; `/workflow status --all` is retained as a compatibility alias.
+Use `connect` for the workflow graph. Use `attach` when you want a chat pane for a specific stage. Use `interrupt`, `pause`, and `resume` for resumable live work; `resume` on a non-paused run reopens the saved snapshot or overlay. Use `kill` only when the run should be terminated; killed runs are retained in live history/status for read-only inspection. Use `/workflow reload` after adding, editing, installing, or removing workflow resources or package manifest workflow entries and you want Atomic to rediscover them in-process. `/workflow status` lists all retained active and terminal top-level runs by default; implementation-owned nested child runs are flattened into their parent workflow rather than listed separately. `/workflow status --all` is retained as a compatibility alias.
 
 <p align="center"><img src="images/workflow-graph.png" alt="Workflow Graph Viewer" width="600" /></p>
 
-Human-in-the-loop prompts from `ctx.ui.input`, `ctx.ui.confirm`, `ctx.ui.select`, and `ctx.ui.editor` appear as awaiting-input nodes in the workflow UI/graph viewer, not as ordinary chat modals. Workflows do not declare HIL up front; prompt nodes are created when the runtime `ctx.ui.*` call executes.
+Human-in-the-loop prompts from `ctx.ui.input`, `ctx.ui.confirm`, `ctx.ui.select`, and `ctx.ui.editor` appear as awaiting-input nodes in the workflow UI/graph viewer, not as ordinary chat modals. Workflows do not declare HIL up front; prompt nodes are created when the runtime `ctx.ui.*` call executes. If the prompt lives inside an imported child workflow, it still appears in the same expanded parent graph so the user can focus and answer it without switching to a separate child status entry.
 
 ## Monitor and Control Runs
 
@@ -652,13 +652,13 @@ workflow({ action: "reload", reason: "added team workflow" })
 
 Control behavior:
 
-- `runId` accepts full run ids or unique prefixes for lifecycle and inspection actions.
-- `stages` lists stage summaries, including `sessionFile`/`transcriptPath` when a stage has a persisted session. Use `statusFilter: "all"` to include completed, failed, skipped, and pending stages.
-- `stage` returns details for one stage by stage id, unique prefix, or stage name, including the persisted `sessionFile` when available.
+- `runId` accepts full run ids or unique prefixes for lifecycle and inspection actions. Status lists and run pickers show top-level user-launched workflows; nested child runs are implementation details of the expanded parent graph.
+- `stages` lists stage summaries, including flattened stages from nested `ctx.workflow(...)` imports and `sessionFile`/`transcriptPath` when a stage has a persisted session. Use `statusFilter: "all"` to include completed, failed, skipped, and pending stages.
+- `stage` returns details for one stage by stage id, unique prefix, or stage name, including nested child stages shown in the expanded graph and the persisted `sessionFile` when available.
 - `transcript` is reference-first with a small preview by default: it returns metadata, transcript paths, and up to 5 recent entries. For targeted lookup, quote the exact `sessionFile`/`transcriptPath` value without changing platform separators (preserve Windows backslashes), search it with `rg` or `grep`, then read only small surrounding ranges. Text results include JSON-escaped `sessionFileJson`/`transcriptPathJson` lines for copy-safe path literals. Pass explicit `tail` or `limit` to override the 5-entry preview; `tail` overrides `limit`; `includeToolOutput` includes captured snapshot tool output in snapshot transcript results.
 - `send` delivery modes are `auto`, `answer`, `prompt`, `steer`, `followUp`, and `resume`. Prompt answers can include `promptId` and can carry answer content in `response`, `text`, or `message`; structured UI prompts usually prefer `response`.
 - `delivery: "auto"` first answers a pending prompt, then resumes paused work, then steers a streaming stage, then queues a follow-up.
-- `pause`, `interrupt`, and `kill` can target one run or `all: true`; `stageId` cannot be combined with `all: true`.
+- `pause`, `interrupt`, and `kill` can target one top-level run or `all: true`; `stageId` cannot be combined with `all: true`. Stage-scoped controls can target a visible nested child stage from the expanded graph; Atomic routes the operation to the owning nested run internally.
 - `interrupt` is resumable: it pauses live work when pausable stages exist and keeps the run in live history/status.
 - `pause` is useful for pausing a live run or a single live stage without treating it as a destructive abort.
 - `resume` can target a stage with `stageId`; the target may be a stage id, unique prefix, or stage name. `message` is forwarded to paused work.
@@ -669,7 +669,7 @@ Use slash commands for graph connect and stage attach because those are interact
 
 ## Lifecycle Notices and Human Input
 
-Atomic emits deduplicated main-chat notices when workflow runs complete or fail. These terminal notices are queued into the active main chat as steering/context messages (`triggerTurn: true`, `deliverAs: "steer"`) so the model can react without the user manually polling status. Awaiting-input workflow states are tracked for dedupe/restore, but they do not enqueue main-chat connect cards or wake the model; prompt state remains visible through workflow status/connect surfaces. Configure lifecycle behavior with `workflowNotifications.enabled` (default `true`) and `workflowNotifications.notifyOn` (default `["completed", "failed", "awaiting_input"]`).
+Atomic emits deduplicated main-chat notices when top-level workflow runs complete or fail. Nested child workflow completion/failure is reflected inside the expanded parent graph instead of producing separate top-level completion cards. These terminal notices are queued into the active main chat as steering/context messages (`triggerTurn: true`, `deliverAs: "steer"`) so the model can react without the user manually polling status. Awaiting-input workflow states are tracked for dedupe/restore, but they do not enqueue main-chat connect cards or wake the model; prompt state remains visible through workflow status/connect surfaces. Configure lifecycle behavior with `workflowNotifications.enabled` (default `true`) and `workflowNotifications.notifyOn` (default `["completed", "failed", "awaiting_input"]`).
 
 Human input is runtime-only: call `ctx.ui.input`, `ctx.ui.confirm`, `ctx.ui.select`, or `ctx.ui.editor` at the point where the workflow actually needs a decision. No builder-level declaration is required or supported.
 
@@ -827,11 +827,13 @@ Supported input schema types are:
 - `boolean`: optional `default: boolean`
 - `select`: required `choices: string[]`, optional `default: string`
 
-All schemas support `description` and `required`. Prefer explicit descriptions because `/workflow inputs <name>`, `/workflow <name> --help`, and the input picker show them to the user. Runtime validation rejects unknown keys, missing required values, type mismatches, and select values outside `choices`; it does not coerce strings like `"3"` to numbers.
+All schemas support `description` and `required`. Prefer explicit descriptions because `/workflow inputs <name>`, `/workflow <name> --help`, and the input picker show them to the user. Runtime validation is strict for both top-level named runs and `ctx.workflow(...)` child calls: Atomic rejects unknown keys, missing required values, type mismatches, non-JSON-serializable values, and select values outside `choices` before the workflow body starts. It does not coerce strings like `"3"` to numbers; pass `count=3` or JSON numbers when a schema declares `type: "number"`.
+
+In TypeScript workflow files, `.input(...)` also narrows `ctx.inputs` for better intellisense: required/defaulted text inputs are `string`, numbers are `number`, booleans are `boolean`, selects are strings, and optional inputs include `undefined`.
 
 ### Outputs
 
-Workflow outputs are contracts for parent workflows that call this workflow with `ctx.workflow(childWorkflow, ...)`. A workflow still returns a plain object from `.run()`, and `.output(key, schema?)` documents, validates, and exposes keys from that returned object.
+Workflow outputs are runtime contracts for completed workflow runs and for parent workflows that call a child with `ctx.workflow(childWorkflow, ...)`. A workflow returns a JSON-serializable object from `.run()`, and `.output(key, schema?)` documents, validates, and exposes keys from that returned object. Primitives, arrays, `null`, functions, symbols, `undefined` properties, `NaN`, and infinite numbers fail validation.
 
 **Return convention:** outputs are return-object keys. Atomic never infers child workflow outputs from stage names, stage order, or the final assistant message. If a parent should read `child.outputs.foo`, the child workflow's `.run()` must return `{ foo: value }`. The compatibility `child.outputs.result` follows the same rule: return `{ result: "..." }` from `.run()` to set it, otherwise the implicit undeclared `result` is `""`.
 
@@ -856,7 +858,7 @@ export default defineWorkflow("review-with-summary")
   .compile();
 ```
 
-Every child workflow also has a compatibility output named `result`. If the child workflow does not declare `.output("result", ...)`, `ctx.workflow(childWorkflow)` exposes `child.outputs.result` from the `result` key returned by the child's `.run()` object. If `.run()` does not return a `result` key, the implicit `result` output is an empty string. If you need `result` to be required, documented, or typed as something other than a string, explicitly declare `.output("result", schema)` and return `result` from `.run()`.
+Every child workflow also has a compatibility output named `result`. If the child workflow does not declare `.output("result", ...)`, `ctx.workflow(childWorkflow)` exposes `child.outputs.result` from the `result` key returned by the child's `.run()` object. If `.run()` does not return a `result` key, the implicit `result` output is an empty string. The implicit `result` is always validated as a string, so `{ result: 42 }` fails unless the workflow explicitly declares `.output("result", { type: "number" })`. If you need `result` to be required, documented, or typed as something other than a string, explicitly declare `.output("result", schema)` and return `result` from `.run()`.
 
 Supported output schema types are:
 
@@ -866,9 +868,9 @@ Supported output schema types are:
 - `select` (string output)
 - `object`
 - `array`
-- `unknown` or omitted (accept any value)
+- `unknown` or omitted (legacy alias for any JSON-serializable value)
 
-Output schemas support `description` and `required`. `required: true` means a parent workflow must receive that output: the child call fails if the child return object does not contain it. Declared outputs are type-checked against the declared schema, the implicit `result` output is type-checked as a string, and all exposed outputs must be structured-clone serializable so continuation replay can restore completed child workflow boundaries.
+Output schemas support `description` and `required`. `required: true` means the workflow `.run()` return object must contain that output before the run can complete; for child workflow calls, the parent boundary fails before the parent continues. Declared outputs are type-checked against the declared schema on completion, and every returned/exposed value is recursively validated as JSON-serializable. The implicit child `result` output is type-checked as a string. Child output replay still performs a structured-clone safety check after JSON validation so continuation can restore completed child workflow boundaries.
 
 ### Workflow Composition
 
@@ -995,7 +997,7 @@ export default defineWorkflow("research-then-implement")
 
 Passing a compiled definition directly to `ctx.workflow(...)` uses the child workflow's normalized name for replay metadata and default boundary labels (`shared-research` for the user-defined example above, or builtin names such as `deep-research-codebase`, `goal`, and `ralph`).
 
-`ctx.workflow(workflowDefinition)` starts a nested workflow run and records a parent boundary stage named `workflow:<workflow-name>` by default. The returned child result has:
+`ctx.workflow(workflowDefinition)` starts a nested workflow behind a parent boundary stage named `workflow:<workflow-name>` by default. User-facing status and graph views flatten that child into the parent run, so composition behaves like inlining the child workflow code: child stages, HIL prompt nodes, and deeper imported workflows appear in one expanded graph. The nested run id remains available internally for routing attach/pause/interrupt/resume/kill to the correct live stage, but it is not shown as a separate top-level `/workflow status` entry. The returned child result has:
 
 | Field | Meaning |
 |---|---|
@@ -1020,11 +1022,11 @@ child.outputs.summary; // declared by sharedResearch.output("summary", ...)
 child.outputs.result;  // implicit .run() result string, or "" when omitted
 ```
 
-If a child declares outputs, Atomic exposes only those declared outputs plus the implicit `result` output. Undeclared return keys remain available in `child.rawOutput` when the raw return object is serializable, but parent workflow logic should not rely on them. If a child declares no outputs, Atomic preserves legacy compatibility by exposing every returned key plus the implicit `result` output, where `result` is the returned string `result` key or `""` when omitted. Missing required outputs, schema type mismatches, and non-serializable exposed values fail the child workflow call before the parent continues.
+If a child declares outputs, Atomic exposes only those declared outputs plus the implicit `result` output. Undeclared return keys remain available in `child.rawOutput` when the raw return object is serializable, but parent workflow logic should not rely on them. If a child declares no outputs, Atomic preserves legacy compatibility by exposing every returned key plus the implicit `result` output, where `result` is the returned string `result` key or `""` when omitted. A non-string undeclared `result` fails validation. Missing required outputs, schema type mismatches, and non-JSON-serializable returned values fail the child workflow call before the parent continues.
 
 Only compiled workflow definitions can be passed to `ctx.workflow(...)`. Import reusable workflows with TypeScript `import` statements first; use `/workflow` names such as `goal` only for launching named runs, not as `ctx.workflow(...)` arguments. If a module is missing or does not export a compiled workflow definition, workflow discovery fails when loading that module. Nested child workflows count against `maxDepth` (default `4` total workflow levels).
 
-The graph node for a completed child workflow boundary shows the child workflow name, child run id prefix, and exposed output count, rather than a blank zero-duration stage. Use `stageName` when the parent needs a more specific label, but keep it concise so the child summary remains readable in the graph.
+The graph includes both the parent boundary node and the imported child workflow's own stages while the child is loading/running, so the user can observe progress and interrupt sub-workflows before they complete. Completed boundaries still retain the child workflow name, child run id prefix, and exposed output count for replay/debugging. Use `stageName` when the parent needs a more specific label, but keep it concise so the child summary remains readable in the graph.
 
 Continuation replay treats the parent child-workflow boundary as the durable checkpoint: a previously completed child boundary replays with the original exposed outputs and without re-running the child, while a child that failed or was interrupted before completion starts again from the beginning on continuation.
 
@@ -1266,7 +1268,7 @@ Before implementing or shipping a non-trivial workflow, answer these questions:
 - **Inputs:** Which values should be declared as inputs? What is the narrowest schema type? Which defaults are safe?
 - **Stage decomposition:** For each stage, what question does it answer, what context does it need, what output should it return, and what model/tool/MCP requirements does it have?
 - **Information flow:** For every edge between stages, is `previous` enough, or should the handoff use structured returns, files, `reads`, `output`, or `outputMode`?
-- **Output contract:** If another workflow may call this workflow as a child, which non-default outputs should be declared with `.output(...)`, and which stage/task/child results should `.run()` return for those keys?
+- **Output contract:** Which outputs should be declared with `.output(...)`, which stage/task/child results should `.run()` return for those keys, and what runtime type must each value have? If another workflow may call this workflow as a child, which non-default outputs should the parent rely on?
 - **Context size:** Can downstream stages succeed from the handoff alone? Should large transcripts, logs, or research bundles be summarized or saved as artifacts?
 - **Control flow:** Should the workflow use `ctx.chain`, `ctx.parallel`, `ctx.ui`, bounded loops, `failFast`, or `fallbackModels`?
 - **User experience:** Are stage names readable in status and graph views? Is the final output compact? Are important artifacts saved with stable paths?
@@ -1281,7 +1283,7 @@ Good workflows are information-flow systems, not just prompt sequences. Keep sta
 - Do not call `create`, `update`, or `delete` on the workflow tool; definitions are code-authored.
 - Do not use legacy workflow tool fields like `agent`, `stage`, or run-control `name`.
 - Do not pass strings such as `"goal"` or path objects to `ctx.workflow(...)`; import the compiled workflow definition from `@bastani/workflows/builtin` or another TypeScript module first.
-- Do not rely on undeclared child outputs except for the implicit string `result` output; if you use `result`, return a string `result` key from `.run()`. Declare `.output(...)` for every other child-workflow field and return those keys from `.run()`.
+- Do not rely on undeclared child outputs except for the implicit string `result` output; if you use `result`, return a string `result` key from `.run()` or explicitly declare a different `result` type. Declare `.output(...)` for every other child-workflow field and return values matching those schemas from `.run()`.
 - Do not expect to select or rename child outputs at the call site; parent workflows receive the child's declared output contract as `child.outputs`.
 - Do not expect named workflow runs to block the chat turn; they are background tasks.
 - Do not call `kill` when the user asks to interrupt or pause resumably.

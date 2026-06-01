@@ -140,7 +140,7 @@ function prepareArtifactDir(cwd = process.cwd()): {
   }
   // Last-resort: synthesize paths even if mkdir failed; downstream agents will
   // recreate parents using their Write tool.
-  const fallback = join(tmpdir(), "pi-open-claude-design", runId);
+  const fallback = join(tmpdir(), "open-claude-design", runId);
   return {
     runId,
     artifactDir: fallback,

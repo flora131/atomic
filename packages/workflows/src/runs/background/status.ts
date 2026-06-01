@@ -10,12 +10,14 @@
 
 import type { Store } from "../../shared/store.js";
 import type { RunSnapshot, RunStatus, StageSnapshot } from "../../shared/store-types.js";
-import type { WorkflowPersistencePort } from "../../shared/types.js";
+import type { WorkflowInputValues, WorkflowOutputValues, WorkflowPersistencePort } from "../../shared/types.js";
 import type { CancellationRegistry } from "./cancellation-registry.js";
 import type { StageControlRegistry } from "../foreground/stage-control-registry.js";
 import { store as defaultStore } from "../../shared/store.js";
 import { stageControlRegistry as defaultStageControlRegistry } from "../foreground/stage-control-registry.js";
 import { appendRunEnd } from "../../shared/persistence-session-entries.js";
+import { expandWorkflowGraph } from "../../shared/expanded-workflow-graph.js";
+import { topLevelWorkflowRuns } from "../../shared/run-visibility.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -76,9 +78,9 @@ export interface RunDetail {
   readonly pausedDurationMs?: number;
   readonly pausedAt?: number;
   readonly resumedAt?: number;
-  readonly inputs: Readonly<Record<string, unknown>>;
+  readonly inputs: Readonly<WorkflowInputValues>;
   readonly stages: readonly RunSnapshot["stages"][number][];
-  readonly result?: Record<string, unknown>;
+  readonly result?: WorkflowOutputValues;
   readonly error?: string;
 }
 
@@ -99,13 +101,14 @@ export type InspectRunResult =
 export function statusRuns(opts?: { all?: boolean; store?: Store }): RunStatusEntry[] {
   const activeStore = opts?.store ?? defaultStore;
 
-  return activeStore.runs().map((run) => ({
+  const snapshot = activeStore.snapshot();
+  return topLevelWorkflowRuns(snapshot.runs).map((run) => ({
     runId: run.id,
     name: run.name,
     status: run.status,
     startedAt: run.startedAt,
     durationMs: run.durationMs,
-    stageCount: run.stages.length,
+    stageCount: expandWorkflowGraph(snapshot, run.id).stages.length,
   }));
 }
 
@@ -164,7 +167,7 @@ export function killAllRuns(opts?: {
   persistence?: WorkflowPersistencePort;
 }): KillResult[] {
   const activeStore = opts?.store ?? defaultStore;
-  const inFlight = activeStore.runs().filter((r) => r.endedAt === undefined);
+  const inFlight = topLevelWorkflowRuns(activeStore.runs()).filter((r) => r.endedAt === undefined);
   return inFlight.map((r) =>
     killRun(r.id, { store: activeStore, cancellation: opts?.cancellation, persistence: opts?.persistence }),
   );
@@ -211,24 +214,32 @@ export function resumeRun(
   }
 
   const resumed: StageSnapshot[] = [];
-  if (run.status === "paused" || run.stages.some((s) => s.status === "paused")) {
-    const runHandle = registry.run(runId);
+  const controlRunIds = opts?.stageId ? [runId] : expandedControlRunIds(activeStore, runId);
+  const hasPausedState = controlRunIds.some((controlRunId) => {
+    const controlRun = runs.find((candidate) => candidate.id === controlRunId);
+    return controlRun?.status === "paused" || (controlRun?.stages.some((s) => s.status === "paused") ?? false);
+  });
+  if (hasPausedState) {
     const handles = opts?.stageId
       ? [registry.get(runId, opts.stageId)].filter(
           (h): h is NonNullable<typeof h> => h !== undefined,
-        )
-      : runHandle.pausedStages();
+        ).map((handle) => ({ controlRunId: runId, handle }))
+      : controlRunIds.flatMap((controlRunId) =>
+          registry.run(controlRunId).pausedStages().map((handle) => ({ controlRunId, handle })),
+        );
     // Fire-and-forget the resume promise — the executor will mark each
     // stage running once `__resume()` settles. The snapshot returned
     // below reflects the *current* paused state; subscribers see the
     // transition through the usual store notify path.
-    for (const handle of handles) {
+    for (const { controlRunId, handle } of handles) {
       if (handle.status !== "paused") continue;
       void handle.resume(opts?.message);
-      const stageSnap = run.stages.find((s) => s.id === handle.stageId);
+      const controlRun = runs.find((candidate) => candidate.id === controlRunId);
+      const stageSnap = controlRun?.stages.find((s) => s.id === handle.stageId);
       if (stageSnap) resumed.push(stageSnap);
+      activeStore.recordRunResumed(controlRunId);
     }
-    if (run.status === "paused" && (!opts?.stageId || resumed.length > 0)) {
+    if (!opts?.stageId || resumed.length > 0) {
       activeStore.recordRunResumed(runId);
     }
   }
@@ -275,6 +286,13 @@ export function resumeRun(
  * stage-scoped pause when no matching handle exists with
  * `reason: "stage_not_found"`.
  */
+function expandedControlRunIds(activeStore: Store, runId: string): string[] {
+  const graph = expandWorkflowGraph(activeStore.snapshot(), runId);
+  const ids = new Set<string>([runId]);
+  for (const stage of graph.stages) ids.add(stage.workflowGraphTarget.runId);
+  return [...ids];
+}
+
 export function pauseRun(
   runId: string,
   opts?: {
@@ -315,17 +333,22 @@ export function pauseRun(
     return { ok: true, runId, paused };
   }
 
-  const handles = registry.run(runId).stages().filter(
-    (h) => h.status === "running" || h.status === "pending",
+  const controlRunIds = expandedControlRunIds(activeStore, runId);
+  const handles = controlRunIds.flatMap((controlRunId) =>
+    registry.run(controlRunId).stages().filter(
+      (h) => h.status === "running" || h.status === "pending",
+    ).map((handle) => ({ controlRunId, handle })),
   );
   if (handles.length === 0) {
     return { ok: false, runId, reason: "no_active_stages" };
   }
   const pausedSnaps: StageSnapshot[] = [];
-  for (const handle of handles) {
+  for (const { controlRunId, handle } of handles) {
     void handle.pause();
-    const stageSnap = run.stages.find((s) => s.id === handle.stageId);
+    const controlRun = activeStore.runs().find((candidate) => candidate.id === controlRunId);
+    const stageSnap = controlRun?.stages.find((s) => s.id === handle.stageId);
     if (stageSnap) pausedSnaps.push(structuredClone(stageSnap));
+    activeStore.recordRunPaused(controlRunId);
   }
   activeStore.recordRunPaused(runId);
   return { ok: true, runId, paused: pausedSnaps };
@@ -336,7 +359,7 @@ export function pauseAllRuns(opts?: {
   stageControlRegistry?: StageControlRegistry;
 }): PauseResult[] {
   const activeStore = opts?.store ?? defaultStore;
-  const inFlight = activeStore.runs().filter((r) => r.endedAt === undefined);
+  const inFlight = topLevelWorkflowRuns(activeStore.runs()).filter((r) => r.endedAt === undefined);
   return inFlight.map((r) =>
     pauseRun(r.id, { store: activeStore, stageControlRegistry: opts?.stageControlRegistry }),
   );
@@ -368,7 +391,7 @@ export function interruptAllRuns(opts?: {
   stageControlRegistry?: StageControlRegistry;
 }): InterruptRunResult[] {
   const activeStore = opts?.store ?? defaultStore;
-  const inFlight = activeStore.runs().filter((r) => r.endedAt === undefined);
+  const inFlight = topLevelWorkflowRuns(activeStore.runs()).filter((r) => r.endedAt === undefined);
   return inFlight.map((r) =>
     interruptRun(r.id, { store: activeStore, stageControlRegistry: opts?.stageControlRegistry }),
   );
@@ -401,12 +424,13 @@ export function inspectRun(
 
   // Deep copy so callers cannot mutate the store via the snapshot.
   const copy = structuredClone(candidate);
+  const expandedStages = expandWorkflowGraph(activeStore.snapshot(), copy.id).stages;
 
   const detail: RunDetail = {
     runId: copy.id,
     name: copy.name,
     status: copy.status,
-    mode: copy.stages.length > 1 ? "chain" : "single",
+    mode: expandedStages.length > 1 ? "chain" : "single",
     startedAt: copy.startedAt,
     endedAt: copy.endedAt,
     durationMs: copy.durationMs,
@@ -414,7 +438,7 @@ export function inspectRun(
     pausedAt: copy.pausedAt,
     resumedAt: copy.resumedAt,
     inputs: copy.inputs,
-    stages: copy.stages,
+    stages: expandedStages.map((stage) => structuredClone(stage)),
     result: copy.result,
     error: copy.error,
   };

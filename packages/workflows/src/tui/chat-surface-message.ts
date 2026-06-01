@@ -28,6 +28,7 @@
 import type { ExtensionAPI } from "../extension/index.js";
 import type { RunDetail } from "../runs/background/status.js";
 import type { RunSnapshot, RunStatus } from "../shared/store-types.js";
+import type { WorkflowInputValues } from "../shared/types.js";
 import type { GraphTheme } from "./graph-theme.js";
 import type { WorkflowListEntry } from "./workflow-list.js";
 import { renderDispatchConfirm } from "./dispatch-confirm.js";
@@ -54,7 +55,7 @@ export interface DispatchPayload {
   kind: "dispatch";
   workflowName: string;
   runId: string;
-  inputs: Readonly<Record<string, unknown>>;
+  inputs: Readonly<WorkflowInputValues>;
 }
 
 /**
@@ -287,7 +288,7 @@ function renderKilledPlainText(payload: KilledPayload): string {
   ].join("\n");
 }
 
-function formatPlainRecord(record: Readonly<Record<string, unknown>>): string {
+function formatPlainRecord(record: Readonly<WorkflowInputValues>): string {
   const entries = Object.entries(record);
   if (entries.length === 0) return "(none)";
   return entries.map(([key, value]) => `${key}=${formatPlainValue(value)}`).join(", ");

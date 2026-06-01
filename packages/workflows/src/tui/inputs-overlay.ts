@@ -38,6 +38,7 @@ import type {
 } from "../extension/wiring.js";
 import type { WorkflowInputEntry } from "../extension/render-result.js";
 import type { GraphTheme } from "./graph-theme.js";
+import type { WorkflowInputValues } from "../shared/types.js";
 import {
   coerceValues,
   createInputsPickerState,
@@ -50,7 +51,7 @@ export interface InputsUiSurface {
 }
 
 export type InputsPickerResult =
-  | { kind: "run"; values: Record<string, unknown> }
+  | { kind: "run"; values: WorkflowInputValues }
   | { kind: "cancel" };
 
 export interface OpenInputsPickerOpts {
@@ -58,7 +59,7 @@ export interface OpenInputsPickerOpts {
   fields: WorkflowInputEntry[];
   /** Prefilled values (e.g. from `key=value` slash args). The form
    *  seeds these into the form so the user doesn't re-type what they typed. */
-  prefilled?: Record<string, unknown>;
+  prefilled?: WorkflowInputValues;
   theme: GraphTheme;
 }
 

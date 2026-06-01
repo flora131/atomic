@@ -109,12 +109,23 @@ describe("validateInputs", () => {
     assert.equal(errors.length, 3);
   });
 
-  test("NaN rejected as not-a-number", () => {
+  test("NaN rejected as non-serializable number", () => {
     const errors = validateInputs(
       schema({ count: { type: "number" } }),
       { count: Number.NaN },
     );
     assert.equal(errors.length, 1);
     assert.equal(errors[0]!.key, "count");
+    assert.match(errors[0]!.reason, /finite number/);
+  });
+
+  test("Infinity rejected as non-serializable number", () => {
+    const errors = validateInputs(
+      schema({ count: { type: "number" } }),
+      { count: Number.POSITIVE_INFINITY },
+    );
+    assert.equal(errors.length, 1);
+    assert.equal(errors[0]!.key, "count");
+    assert.match(errors[0]!.reason, /finite number/);
   });
 });

@@ -19,6 +19,7 @@
  */
 
 import type { RunSnapshot } from "../shared/store-types.js";
+import { isTopLevelWorkflowRun } from "../shared/run-visibility.js";
 import { elapsedRunMs } from "../shared/timing.js";
 import type { GraphTheme } from "./graph-theme.js";
 import { keyText } from "@bastani/atomic";
@@ -79,6 +80,7 @@ export function selectRunsForPicker(
   const active: PickerRow[] = [];
   const terminal: PickerRow[] = [];
   for (const r of runs) {
+    if (!isTopLevelWorkflowRun(r)) continue;
     if (!matches(r)) continue;
 
     const endedAt = r.endedAt;

@@ -35,6 +35,12 @@ import { elapsedStageMs } from "../shared/timing.js";
 import type { GraphTheme } from "./graph-theme.js";
 import type { SwitcherState } from "./switcher.js";
 import type { LayoutNode } from "./layout.js";
+import {
+  expandWorkflowGraph,
+  expandedStageTarget,
+  type ExpandedWorkflowGraph,
+  type ExpandedWorkflowStage,
+} from "../shared/expanded-workflow-graph.js";
 import { computeLayout, NODE_W, NODE_H } from "./layout.js";
 import { renderHeader, renderOutlinePill } from "./header.js";
 import { renderNodeCard } from "./node-card.js";
@@ -191,6 +197,7 @@ export class GraphView implements Component {
   private toastManager = createToastManager();
   private detailsExpanded = true;
   private cachedLayout: LayoutNode[] = [];
+  private expandedGraph: ExpandedWorkflowGraph = { stages: [], targets: new Map() };
   private currentSnapshot: StoreSnapshot | null = null;
   private graphScrollOffset = 0;
   private graphScrollColOffset = 0;
@@ -247,6 +254,7 @@ export class GraphView implements Component {
     const run = this._getCurrentRun();
     if (!run) {
       this.cachedLayout = [];
+      this.expandedGraph = { stages: [], targets: new Map() };
       this.focusedIndex = 0;
       this.graphScrollOffset = 0;
       this.graphScrollColOffset = 0;
@@ -267,7 +275,9 @@ export class GraphView implements Component {
     // the same node the user just attached to.
     if (this.initialFocusedStageId !== undefined) {
       const idx = this.cachedLayout.findIndex(
-        (n) => n.stage.id === this.initialFocusedStageId,
+        (n) =>
+          n.stage.id === this.initialFocusedStageId ||
+          expandedStageTarget(this.expandedGraph, n.stage.id)?.stageId === this.initialFocusedStageId,
       );
       if (idx >= 0 && idx !== this.focusedIndex) {
         this.focusedIndex = idx;
@@ -321,31 +331,37 @@ export class GraphView implements Component {
   }
 
   private _awaitingInputKey(stage: StageSnapshot): { key: string; createdAt: number } | null {
+    const target = expandedStageTarget(this.expandedGraph, stage.id);
+    const prefix = target ? `${target.runId}:${target.stageId}` : stage.id;
     if (stage.pendingPrompt) {
       return {
-        key: `prompt:${stage.id}:${stage.pendingPrompt.id}`,
+        key: `prompt:${prefix}:${stage.pendingPrompt.id}`,
         createdAt: stage.pendingPrompt.createdAt,
       };
     }
     if (stage.inputRequest) {
       return {
-        key: `input-request:${stage.id}:${stage.inputRequest.id}`,
+        key: `input-request:${prefix}:${stage.inputRequest.id}`,
         createdAt: stage.inputRequest.createdAt,
       };
     }
     if (stage.status === "awaiting_input") {
       return {
-        key: `awaiting:${stage.id}:${stage.awaitingInputSince ?? "active"}`,
+        key: `awaiting:${prefix}:${stage.awaitingInputSince ?? "active"}`,
         createdAt: stage.awaitingInputSince ?? stage.startedAt ?? 0,
       };
     }
     return null;
   }
 
-  private _graphStages(run: RunSnapshot): StageSnapshot[] {
-    const hasStagePrompt = run.stages.some((stage) => stage.pendingPrompt !== undefined);
-    if (!hasStagePrompt) return [...run.stages];
-    return run.stages.filter((stage) => {
+  private _graphStages(run: RunSnapshot): ExpandedWorkflowStage[] {
+    this.expandedGraph = this.currentSnapshot
+      ? expandWorkflowGraph(this.currentSnapshot, run.id)
+      : { stages: [], targets: new Map() };
+    const stages = [...this.expandedGraph.stages];
+    const hasStagePrompt = stages.some((stage) => stage.pendingPrompt !== undefined);
+    if (!hasStagePrompt) return stages;
+    return stages.filter((stage) => {
       // Prompt-node injection can leave unstarted author stages in the store
       // while the prompt node owns focus; hide only these inert placeholders.
       const isUnstartedPlaceholder =
@@ -399,11 +415,12 @@ export class GraphView implements Component {
     if (!run) {
       return [`${hexToAnsi(this.graphTheme.dim)}no active workflow${RESET}`];
     }
-    const headerLines = renderHeader(run, { width, theme: this.graphTheme });
-    const counts = this._counts(run);
+    const displayStages = this._displayStages(run);
+    const headerLines = renderHeader({ ...run, stages: displayStages }, { width, theme: this.graphTheme });
+    const counts = this._counts(displayStages);
     const trailer =
       `${hexToAnsi(this.graphTheme.dim)}` +
-      `${counts.completed}/${run.stages.length} done` +
+      `${counts.completed}/${displayStages.length} done` +
       (counts.running > 0 ? ` · ${counts.running} running` : "") +
       (counts.failed > 0 ? ` · ${counts.failed} failed` : "") +
       (counts.blocked > 0 ? ` · ${counts.blocked} blocked` : "") +
@@ -478,7 +495,7 @@ export class GraphView implements Component {
 
     // 1. Header chrome (3 rows: outline pill + session name + counts).
     lines.push(
-      ...renderHeader(run, { width: frameWidth, theme: this.graphTheme }),
+      ...renderHeader({ ...run, stages: this._displayStages(run) }, { width: frameWidth, theme: this.graphTheme }),
     );
 
     // 2. Graph occupies the full body. No section labels, no focused-
@@ -507,7 +524,7 @@ export class GraphView implements Component {
         lines[row] = this._blankRow(frameWidth);
       }
       const switcherWidth = Math.min(60, Math.max(40, frameWidth - 8));
-      const switcherLines = renderSwitcher(run.stages, this.switcherState, {
+      const switcherLines = renderSwitcher(this._displayStages(run), this.switcherState, {
         width: switcherWidth,
         theme: this.graphTheme,
       });
@@ -683,7 +700,7 @@ export class GraphView implements Component {
         focused,
         pulsePhase,
         theme: this.graphTheme,
-        stages: run.stages,
+        stages: this.cachedLayout.map((layoutNode) => layoutNode.stage),
       });
       for (let li = 0; li < cardLines.length; li++) {
         const rowIdx = node.y + li;
@@ -1050,7 +1067,13 @@ export class GraphView implements Component {
     return elapsed === undefined ? "" : fmtDuration(elapsed);
   }
 
-  private _counts(run: RunSnapshot): {
+  private _displayStages(run: RunSnapshot): StageSnapshot[] {
+    return this.cachedLayout.length > 0
+      ? this.cachedLayout.map((layoutNode) => layoutNode.stage)
+      : [...run.stages];
+  }
+
+  private _counts(stages: readonly StageSnapshot[]): {
     pending: number;
     running: number;
     awaiting_input: number;
@@ -1070,7 +1093,7 @@ export class GraphView implements Component {
       failed: 0,
       skipped: 0,
     };
-    for (const s of run.stages) c[s.status]++;
+    for (const s of stages) c[s.status]++;
     return c;
   }
 
@@ -1202,8 +1225,12 @@ export class GraphView implements Component {
     // the overlay's setHidden() flag (not unmount); Escape/Ctrl+C closes.
     if (matchesKey(data, "q")) {
       const run = this._getCurrentRun();
-      if (run && run.endedAt === undefined && this.onKill) {
-        this.onKill(run.id);
+      const targetRunId = this._focusedStageTarget()?.runId ?? run?.id;
+      const targetRun = targetRunId !== undefined
+        ? this.currentSnapshot?.runs.find((candidate) => candidate.id === targetRunId)
+        : undefined;
+      if (targetRun && targetRun.endedAt === undefined && this.onKill) {
+        this.onKill(targetRun.id);
       }
       this.onClose?.();
       return true;
@@ -1220,8 +1247,7 @@ export class GraphView implements Component {
   }
 
   private _handleSwitcherInput(data: string): boolean {
-    const run = this._getCurrentRun();
-    const stages = run?.stages ?? [];
+    const stages = this.cachedLayout.map((layoutNode) => layoutNode.stage);
 
     if (matchesKey(data, Key.escape)) {
       this.switcherOpen = false;
@@ -1347,8 +1373,19 @@ export class GraphView implements Component {
     const node = this.cachedLayout[this.focusedIndex];
     const run = this._getCurrentRun();
     if (!node || !run) return false;
-    this.onStageAttach(run.id, node.stage.id);
+    const target = expandedStageTarget(this.expandedGraph, node.stage.id) ?? {
+      runId: run.id,
+      stageId: node.stage.id,
+    };
+    this.onStageAttach(target.runId, target.stageId);
     return true;
+  }
+
+  private _focusedStageTarget(): { runId: string; stageId: string } | undefined {
+    const node = this.cachedLayout[this.focusedIndex];
+    if (!node) return undefined;
+    const target = expandedStageTarget(this.expandedGraph, node.stage.id);
+    return target ? { runId: target.runId, stageId: target.stageId } : undefined;
   }
 
   private _setFocusedIndex(index: number): void {

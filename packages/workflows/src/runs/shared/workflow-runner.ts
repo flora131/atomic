@@ -22,6 +22,7 @@ import type {
   WorkflowDirectOptions,
   WorkflowDirectTaskItem,
   WorkflowInputSchema,
+  WorkflowInputValues,
   WorkflowMaxOutput,
   WorkflowOutputMode,
 } from "../../shared/types.js";
@@ -29,7 +30,7 @@ import type {
 export interface WorkflowDefinition extends StageOptions {
   mode?: "workflow" | "named" | "single" | "parallel" | "chain";
   workflow?: string;
-  inputs?: Record<string, unknown>;
+  inputs?: WorkflowInputValues;
   /** Direct single-task mode, or root task text for direct chain/parallel execution. */
   task?: WorkflowDirectTaskItem | string;
   /** Direct top-level parallel mode. */
@@ -229,7 +230,6 @@ async function runNamedWorkflow(
   const result = await run(workflow, inputs, {
     ...runOptions,
     registry: discovery.registry,
-    workflowSources: discovery.sources,
   });
   return {
     action: "run",

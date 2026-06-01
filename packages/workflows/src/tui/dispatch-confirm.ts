@@ -33,6 +33,7 @@
  */
 
 import type { GraphTheme } from "./graph-theme.js";
+import type { WorkflowInputValues } from "../shared/types.js";
 import {
   renderHintRows,
   renderRoundedBox,
@@ -59,7 +60,7 @@ export interface RenderDispatchConfirmOpts {
   /** Real run UUID; the renderer surfaces the first 8 chars in the tag. */
   runId: string;
   /** Inputs merged from CLI tokens + picker output. */
-  inputs: Readonly<Record<string, unknown>>;
+  inputs: Readonly<WorkflowInputValues>;
   /** Provide for themed chrome; omit for plain ASCII. */
   theme?: GraphTheme;
   /** Render width (cells). Defaults to `process.stdout.columns`. */
@@ -195,7 +196,7 @@ interface InputsSegment {
  *    label.
  */
 function renderInputsSegment(
-  inputs: Readonly<Record<string, unknown>>,
+  inputs: Readonly<WorkflowInputValues>,
   budget: number,
   theme?: GraphTheme,
 ): InputsSegment | null {

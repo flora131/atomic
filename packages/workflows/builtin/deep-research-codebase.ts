@@ -14,6 +14,7 @@ import { dirname, extname, isAbsolute, join, relative } from "node:path";
 import { defineWorkflow } from "../src/workflows/define-workflow.js";
 import type {
   WorkflowOutputMode,
+  WorkflowOutputValues,
   WorkflowTaskResult,
   WorkflowTaskStep,
 } from "../src/shared/types.js";
@@ -28,7 +29,7 @@ const GIT_LS_FILES_TIMEOUT_MS = 2_000;
 
 type PromptSection = readonly [tag: string, content: string];
 
-interface DeepResearchCodebaseResult extends Record<string, unknown> {
+interface DeepResearchCodebaseResult extends WorkflowOutputValues {
   readonly result: string;
   readonly findings: string;
   readonly research_doc_path: string;
@@ -320,18 +321,14 @@ function displayPath(path: string): string {
   return path.replace(/\\/g, "/");
 }
 
-function displayPathFrom(path: string, cwd: string): string {
+function displayRelativePath(path: string, fromCwd: string): string {
   if (!isAbsolute(path)) return displayPath(path);
-  const relativePath = relative(cwd, path);
+  const relativePath = relative(fromCwd, path);
   if (relativePath.length === 0) return ".";
   if (!relativePath.startsWith("..") && !isAbsolute(relativePath)) {
     return displayPath(relativePath);
   }
   return displayPath(path);
-}
-
-function displayPaths(paths: readonly string[]): string {
-  return paths.map(displayPath).join(", ");
 }
 
 export default defineWorkflow("deep-research-codebase")
@@ -433,7 +430,8 @@ export default defineWorkflow("deep-research-codebase")
       output,
       outputMode: FILE_ONLY_OUTPUT,
     });
-    const displayWorkflowPath = (path: string): string => displayPathFrom(path, workflowCwd);
+    const displayWorkflowPath = (path: string): string =>
+      displayRelativePath(path, ctx.cwd ?? workflowCwd);
     const displayWorkflowPaths = (paths: readonly string[]): string =>
       paths.map(displayWorkflowPath).join(", ");
 

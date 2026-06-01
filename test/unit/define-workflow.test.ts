@@ -8,7 +8,8 @@ describe("defineWorkflow builder", () => {
       .description("test workflow")
       .input("prompt", { type: "text", required: true, description: "task" })
       .run(async (ctx) => {
-        const result = await ctx.stage("step1").prompt(ctx.inputs.prompt as string);
+        const prompt: string = ctx.inputs.prompt;
+        const result = await ctx.stage("step1").prompt(prompt);
         return { result };
       })
       .compile();
@@ -40,11 +41,15 @@ describe("defineWorkflow builder", () => {
     });
   });
 
-  test("multiple inputs accumulate", () => {
+  test("multiple inputs accumulate with inferred serializable input types", () => {
     const def = defineWorkflow("multi-input")
       .input("a", { type: "text" })
       .input("b", { type: "number", default: 4 })
-      .run(async () => ({}))
+      .run(async (ctx) => {
+        const a: string | undefined = ctx.inputs.a;
+        const b: number = ctx.inputs.b;
+        return { a: a ?? "", b };
+      })
       .compile();
 
     assert.deepEqual(Object.keys(def.inputs), ["a", "b"]);

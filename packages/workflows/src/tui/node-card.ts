@@ -129,18 +129,23 @@ function shortRunId(runId: string): string {
 }
 
 function workflowChildSummaryText(stage: StageSnapshot): string {
-  const child = stage.workflowChild;
+  const child = stage.workflowChild ?? stage.workflowChildRun;
   if (child === undefined) return durationText(stage);
   return `↳ ${child.workflow}`;
 }
 
 function workflowChildMetaText(stage: StageSnapshot): string {
-  const child = stage.workflowChild;
-  if (child === undefined) return metaText(stage);
+  const completed = stage.workflowChild;
+  if (completed !== undefined) {
+    const outputCount = Object.keys(completed.outputs).length;
+    const outputs = outputCount === 1 ? "1 out" : `${outputCount} outs`;
+    return `run ${shortRunId(completed.runId)} · ${outputs}`;
+  }
 
-  const outputCount = Object.keys(child.outputs).length;
-  const outputs = outputCount === 1 ? "1 out" : `${outputCount} outs`;
-  return `run ${shortRunId(child.runId)} · ${outputs}`;
+  const live = stage.workflowChildRun;
+  if (live !== undefined) return `run ${shortRunId(live.runId)} · live`;
+
+  return metaText(stage);
 }
 
 function statusLabel(status: StageStatus): string {

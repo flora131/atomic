@@ -9,7 +9,8 @@
  *  - src/tui/session-picker.ts    selectRunsForPicker — same bucketing
  */
 
-import type { RunSnapshot } from "../shared/store-types.js";
+import type { RunSnapshot, StoreSnapshot } from "../shared/store-types.js";
+import { expandWorkflowGraph } from "../shared/expanded-workflow-graph.js";
 import type { GraphTheme } from "./graph-theme.js";
 import { renderStatusList } from "./status-list.js";
 import { selectRunsForPicker } from "./session-picker.js";
@@ -27,6 +28,10 @@ export function renderSessionList(
 ): string {
   const now = opts.now ?? Date.now();
   const rows = selectRunsForPicker(runs, "", opts.includeAll, now);
-  const filtered = rows.map((row) => row.run);
+  const snapshot: StoreSnapshot = { runs, notices: [], version: 0 };
+  const filtered = rows.map((row) => ({
+    ...row.run,
+    stages: expandWorkflowGraph(snapshot, row.run.id).stages.map((stage) => structuredClone(stage)),
+  }));
   return renderStatusList(filtered, { theme: opts.theme, now });
 }

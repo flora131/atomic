@@ -31,6 +31,7 @@
  */
 
 import type { WorkflowInputEntry } from "../extension/render-result.js";
+import type { WorkflowInputValues, WorkflowSerializableValue } from "../shared/types.js";
 import type { GraphTheme } from "./graph-theme.js";
 import { paint } from "./color-utils.js";
 import {
@@ -95,7 +96,7 @@ export interface InputsPickerState {
 export type InputsPickerAction =
   | { kind: "noop" }
   | { kind: "cancel" }
-  | { kind: "run"; values: Record<string, unknown> };
+  | { kind: "run"; values: WorkflowInputValues };
 
 export interface InputsPickerRenderOpts {
   width: number;
@@ -119,7 +120,7 @@ export interface InputsPickerRenderOpts {
  */
 export function createInputsPickerState(
   fields: readonly WorkflowInputEntry[],
-  prefilled: Record<string, unknown> = {},
+  prefilled: WorkflowInputValues = {},
 ): InputsPickerState {
   const rawText: Record<string, string> = {};
   for (const f of fields) {
@@ -169,8 +170,8 @@ export function createInputsPickerState(
 export function coerceValues(
   fields: readonly WorkflowInputEntry[],
   raw: Record<string, string>,
-): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
+): WorkflowInputValues {
+  const out: Record<string, WorkflowSerializableValue> = {};
   for (const f of fields) {
     const v = raw[f.name] ?? "";
     if (v === "" && !f.required) continue; // skip empty optionals
@@ -198,7 +199,7 @@ export function coerceValues(
           (v.startsWith("[") && v.endsWith("]"))
         ) {
           try {
-            out[f.name] = JSON.parse(v) as unknown;
+            out[f.name] = JSON.parse(v) as WorkflowSerializableValue;
             break;
           } catch {
             // fall through

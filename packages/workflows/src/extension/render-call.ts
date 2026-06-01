@@ -4,11 +4,12 @@
  */
 
 import { truncateToWidth } from "../tui/text-helpers.js";
+import type { WorkflowInputValues } from "../shared/types.js";
 
 /** Renderer-only subset of the canonical WorkflowToolArgs from index.ts. */
 export interface WorkflowToolArgs {
   workflow?: string;
-  inputs?: Record<string, unknown>;
+  inputs?: WorkflowInputValues;
   action?:
     | "run"
     | "list"

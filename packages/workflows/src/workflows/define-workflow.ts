@@ -12,8 +12,10 @@ import type {
   WorkflowDefinition,
   WorkflowInputBindings,
   WorkflowInputSchema,
+  WorkflowInputValues,
   WorkflowOutputSchema,
   WorkflowRunFn,
+  WorkflowSerializableValue,
   WorkflowWorktreeInputBinding,
 } from "../shared/types.js";
 import { normalizeWorkflowName } from "./identity.js";
@@ -22,7 +24,21 @@ import { normalizeWorkflowName } from "./identity.js";
 // Internal builder state (plain data, never mutated after creation)
 // ---------------------------------------------------------------------------
 
-interface BuilderState<TInputs extends Record<string, unknown>> {
+type WorkflowInputValueForSchema<TSchema extends WorkflowInputSchema> =
+  TSchema["type"] extends "number"
+    ? number
+    : TSchema["type"] extends "boolean"
+      ? boolean
+      : TSchema extends { type: "select"; choices: readonly (infer TChoice extends string)[] }
+        ? TChoice
+        : string;
+
+type WorkflowInputPresenceForSchema<TSchema extends WorkflowInputSchema> =
+  TSchema extends { required: true } | { default: WorkflowSerializableValue }
+    ? WorkflowInputValueForSchema<TSchema>
+    : WorkflowInputValueForSchema<TSchema> | undefined;
+
+interface BuilderState<TInputs extends WorkflowInputValues> {
   readonly name: string;
   readonly description: string;
   readonly inputs: Readonly<Record<string, WorkflowInputSchema>>;
@@ -40,20 +56,20 @@ interface BuilderState<TInputs extends Record<string, unknown>> {
  * Allows chaining .description() and .input() in any order; .run() seals
  * the run function and returns a CompletedWorkflowBuilder.
  *
- * TInputs defaults to Record<string, unknown> so that compile() produces a
- * definition compatible with the type-erased registry without casts.
+ * TInputs defaults to serializable input values so compiled definitions stay
+ * compatible with the type-erased registry without casts.
  */
-export interface WorkflowBuilder<TInputs extends Record<string, unknown> = Record<string, unknown>> {
+export interface WorkflowBuilder<TInputs extends WorkflowInputValues = WorkflowInputValues> {
   /** Set (or replace) the human-readable description. Returns a new builder. */
   description(text: string): WorkflowBuilder<TInputs>;
   /**
    * Declare a typed input.  Returns a new builder whose TInputs grows with
    * the new key (typed as the schema's default value type).
    */
-  input<K extends string>(
+  input<K extends string, TSchema extends WorkflowInputSchema>(
     key: K,
-    schema: WorkflowInputSchema,
-  ): WorkflowBuilder<TInputs & Record<K, unknown>>;
+    schema: TSchema,
+  ): WorkflowBuilder<TInputs & Record<K, WorkflowInputPresenceForSchema<TSchema>>>;
   /** Declare an output contract for parent workflows selecting child outputs. */
   output(key: string, schema?: WorkflowOutputSchema): WorkflowBuilder<TInputs>;
   /** Bind workflow inputs to reusable git worktree runtime defaults. */
@@ -66,12 +82,12 @@ export interface WorkflowBuilder<TInputs extends Record<string, unknown> = Recor
  * Builder returned after .run() is called.
  * Still allows chaining .description() and .input(); .compile() is now available.
  */
-export interface CompletedWorkflowBuilder<TInputs extends Record<string, unknown>> {
+export interface CompletedWorkflowBuilder<TInputs extends WorkflowInputValues> {
   description(text: string): CompletedWorkflowBuilder<TInputs>;
-  input<K extends string>(
+  input<K extends string, TSchema extends WorkflowInputSchema>(
     key: K,
-    schema: WorkflowInputSchema,
-  ): CompletedWorkflowBuilder<TInputs & Record<K, unknown>>;
+    schema: TSchema,
+  ): CompletedWorkflowBuilder<TInputs & Record<K, WorkflowInputPresenceForSchema<TSchema>>>;
   output(key: string, schema?: WorkflowOutputSchema): CompletedWorkflowBuilder<TInputs>;
   worktreeFromInputs(binding: WorkflowWorktreeInputBinding): CompletedWorkflowBuilder<TInputs>;
   run(fn: WorkflowRunFn<TInputs>): CompletedWorkflowBuilder<TInputs>;
@@ -97,7 +113,7 @@ function freezeOutputs(
   ));
 }
 
-function makeBuilder<TInputs extends Record<string, unknown>>(
+function makeBuilder<TInputs extends WorkflowInputValues>(
   state: BuilderState<TInputs>,
 ): WorkflowBuilder<TInputs> & CompletedWorkflowBuilder<TInputs> {
   return {
@@ -105,11 +121,11 @@ function makeBuilder<TInputs extends Record<string, unknown>>(
       return makeBuilder<TInputs>({ ...state, description: text });
     },
 
-    input<K extends string>(key: K, schema: WorkflowInputSchema) {
-      return makeBuilder<TInputs & Record<K, unknown>>({
+    input<K extends string, TSchema extends WorkflowInputSchema>(key: K, schema: TSchema) {
+      return makeBuilder<TInputs & Record<K, WorkflowInputPresenceForSchema<TSchema>>>({
         ...state,
         inputs: { ...state.inputs, [key]: schema },
-      } as BuilderState<TInputs & Record<K, unknown>>);
+      } as BuilderState<TInputs & Record<K, WorkflowInputPresenceForSchema<TSchema>>>);
     },
 
     output(key: string, schema: WorkflowOutputSchema = {}) {
@@ -195,7 +211,7 @@ export function defineWorkflow(name: string): WorkflowBuilder {
     throw new TypeError("defineWorkflow: name must be a non-empty string");
   }
 
-  const initialState: BuilderState<Record<string, unknown>> = {
+  const initialState: BuilderState<WorkflowInputValues> = {
     name,
     description: "",
     inputs: {},

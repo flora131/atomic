@@ -101,6 +101,8 @@ import type {
   WorkflowModelInfo,
   StageOptions,
   WorkflowExecutionPolicy,
+  WorkflowInputValues,
+  WorkflowSerializableValue,
 } from "../shared/types.js";
 import { INTERACTIVE_WORKFLOW_POLICY, NON_INTERACTIVE_WORKFLOW_POLICY } from "../shared/types.js";
 import { buildRuntimeAdapters } from "./wiring.js";
@@ -110,6 +112,12 @@ import type { StatusWriter } from "./status-writer.js";
 import { setMcpScope, clearMcpScope } from "./mcp.js";
 import type { PiMcpExtensionAPI, PiEventBus } from "./mcp.js";
 import type { StageSessionRuntime } from "../runs/foreground/stage-runner.js";
+import {
+  expandWorkflowGraph,
+  expandedStageLabel,
+  stageMatchesExpandedIdentifier,
+} from "../shared/expanded-workflow-graph.js";
+import { topLevelWorkflowRuns } from "../shared/run-visibility.js";
 import { WORKFLOW_STAGE_SUBAGENT_GUARD_ENV, getEnvValue, type CreateAgentSessionOptions } from "@bastani/atomic";
 
 export const WORKFLOW_TOOL_DESCRIPTION =
@@ -463,7 +471,7 @@ export interface ExtensionAPI {
 export interface WorkflowToolArgs extends StageOptions {
   /** Canonical named workflow identifier. */
   workflow?: string;
-  inputs?: Record<string, unknown>;
+  inputs?: WorkflowInputValues;
   action?:
     | "run"
     | "list"
@@ -1064,7 +1072,15 @@ function stageFailureMessage(
 }
 
 function inFlightRunCount(): number {
-  return store.runs().filter((run) => run.endedAt === undefined).length;
+  return topLevelWorkflowRuns(store.runs()).filter((run) => run.endedAt === undefined).length;
+}
+
+function topLevelExpandedSnapshots() {
+  const snapshot = store.snapshot();
+  return topLevelWorkflowRuns(snapshot.runs).map((run) => ({
+    ...structuredClone(run),
+    stages: expandWorkflowGraph(snapshot, run.id).stages.map((stage) => structuredClone(stage)),
+  }));
 }
 
 function reloadBlockedMessage(count = inFlightRunCount()): string {
@@ -1126,7 +1142,7 @@ function isRunStatus(value: string): value is RunStatus {
 
 function fallbackRunDetailFromResult(
   workflowName: string,
-  inputs: Readonly<Record<string, unknown>>,
+  inputs: Readonly<WorkflowInputValues>,
   result: Extract<WorkflowToolResult, { action: "run"; runId: string }>,
 ): RunDetail {
   const now = Date.now();
@@ -1153,7 +1169,7 @@ function fallbackRunDetailFromResult(
 function emitTerminalRunDetailSurface(
   pi: ExtensionAPI,
   workflowName: string,
-  inputs: Readonly<Record<string, unknown>>,
+  inputs: Readonly<WorkflowInputValues>,
   result: Extract<WorkflowToolResult, { action: "run"; runId: string }>,
 ): void {
   const inspected = inspectRun(result.runId);
@@ -1321,10 +1337,9 @@ export function makeExecuteWorkflowTool(
         }
         // List mode — emit all retained snapshots; the renderer produces the
         // canonical band + card surface.
-        const snapshots = store.runs();
         return {
           action: "status",
-          snapshots: snapshots.map((snapshot) => structuredClone(snapshot)),
+          snapshots: topLevelExpandedSnapshots(),
         };
       }
 
@@ -1398,14 +1413,15 @@ export function makeExecuteWorkflowTool(
               : stage.message,
           };
         }
-        const run = store.runs().find((r) => r.id === target.runId);
+        const stageRunId = stage.runId ?? target.runId;
+        const run = store.runs().find((r) => r.id === stageRunId);
         const snapshot = run?.stages.find((s) => s.id === stage.stageId);
         return snapshot
-          ? { action: "stage", runId: target.runId, stage: cloneStage(snapshot) }
+          ? { action: "stage", runId: stageRunId, stage: cloneStage(snapshot) }
           : {
               action: "stage",
-              runId: target.runId,
-              error: `Stage not found in run ${target.runId.slice(0, 8)}: ${stage.stageId}`,
+              runId: stageRunId,
+              error: `Stage not found in run ${stageRunId.slice(0, 8)}: ${stage.stageId}`,
             };
       }
 
@@ -1461,9 +1477,10 @@ export function makeExecuteWorkflowTool(
             truncated: false,
           };
         }
-        const run = store.runs().find((r) => r.id === target.runId);
+        const stageRunId = stage.runId ?? target.runId;
+        const run = store.runs().find((r) => r.id === stageRunId);
         const snapshot = run?.stages.find((s) => s.id === stage.stageId);
-        const liveHandle = stageControlRegistry.get(target.runId, stage.stageId);
+        const liveHandle = stageControlRegistry.get(stageRunId, stage.stageId);
         if (liveHandle !== undefined) {
           const sessionFile = liveHandle.sessionFile ?? snapshot?.sessionFile;
           const sessionId = liveHandle.sessionId ?? snapshot?.sessionId;
@@ -1473,7 +1490,7 @@ export function makeExecuteWorkflowTool(
           );
           return {
             action: "transcript",
-            runId: target.runId,
+            runId: stageRunId,
             stageId: stage.stageId,
             source: "live",
             ...limited,
@@ -1486,7 +1503,7 @@ export function makeExecuteWorkflowTool(
         const limited = selectTranscriptEntries(fallback, args);
         return {
           action: "transcript",
-          runId: target.runId,
+          runId: stageRunId,
           stageId: stage.stageId,
           source: "snapshot",
           ...limited,
@@ -1518,13 +1535,14 @@ export function makeExecuteWorkflowTool(
             stage.ok ? "Stage id, prefix, or name is required." : stage.message,
           );
         }
-        const run = store.runs().find((r) => r.id === target.runId);
+        const stageRunId = stage.runId ?? target.runId;
+        const run = store.runs().find((r) => r.id === stageRunId);
         const snapshot = run?.stages.find((s) => s.id === stage.stageId);
         // Brokered structured prompts (in-stage ask_user_question / readiness
         // gate) resolve through StageUiBroker rather than store.pendingPrompt.
         // Answer those first when one is pending and the promptId (if any) lines
         // up — otherwise fall through to the store-prompt / live-handle paths.
-        const brokerPrompt = stageUiBroker.peekStagePrompt(target.runId, stage.stageId);
+        const brokerPrompt = stageUiBroker.peekStagePrompt(stageRunId, stage.stageId);
         const targetsBrokerPrompt =
           brokerPrompt !== undefined &&
           (args.promptId === undefined || args.promptId === brokerPrompt.id) &&
@@ -1533,13 +1551,13 @@ export function makeExecuteWorkflowTool(
             requestedDelivery === "auto");
         if (targetsBrokerPrompt && brokerPrompt !== undefined) {
           if (!hasPayloadProperty(args)) {
-            return workflowSendResult(target.runId, stage.stageId, "answer", "noop", "Send requires text, response, or message.");
+            return workflowSendResult(stageRunId, stage.stageId, "answer", "noop", "Send requires text, response, or message.");
           }
-          const ok = stageUiBroker.answerStagePrompt(target.runId, stage.stageId, brokerAnswerFromArgs(args), {
+          const ok = stageUiBroker.answerStagePrompt(stageRunId, stage.stageId, brokerAnswerFromArgs(args), {
             answerSource: "workflow_tool",
           });
           return workflowSendResult(
-            target.runId,
+            stageRunId,
             stage.stageId,
             "answer",
             ok ? "ok" : "noop",
@@ -1553,25 +1571,25 @@ export function makeExecuteWorkflowTool(
         if (targetsPrompt) {
           const promptId = args.promptId ?? snapshot?.pendingPrompt?.id;
           if (promptId === undefined) {
-            return workflowSendResult(target.runId, stage.stageId, "answer", "noop", "No pending prompt to answer.");
+            return workflowSendResult(stageRunId, stage.stageId, "answer", "noop", "No pending prompt to answer.");
           }
           if (!hasPayloadProperty(args)) {
-            return workflowSendResult(target.runId, stage.stageId, "answer", "noop", "Send requires text, response, or message.");
+            return workflowSendResult(stageRunId, stage.stageId, "answer", "noop", "Send requires text, response, or message.");
           }
-          if (stageUiBroker.wasStagePromptResolved(target.runId, stage.stageId, promptId)) {
+          if (stageUiBroker.wasStagePromptResolved(stageRunId, stage.stageId, promptId)) {
             return workflowSendResult(
-              target.runId,
+              stageRunId,
               stage.stageId,
               "answer",
               "ok",
               `Input request ${promptId} was already answered.`,
             );
           }
-          const ok = store.resolveStagePendingPrompt(target.runId, stage.stageId, promptId, promptPayloadFromArgs(args), {
+          const ok = store.resolveStagePendingPrompt(stageRunId, stage.stageId, promptId, promptPayloadFromArgs(args), {
             answerSource: "workflow_tool",
           });
           return workflowSendResult(
-            target.runId,
+            stageRunId,
             stage.stageId,
             "answer",
             ok ? "ok" : "noop",
@@ -1580,26 +1598,26 @@ export function makeExecuteWorkflowTool(
         }
         const text = textPayloadFromArgs(args);
         if (text === undefined) {
-          return workflowSendResult(target.runId, stage.stageId, requestedDelivery, "noop", "Send requires text, response, or message.");
+          return workflowSendResult(stageRunId, stage.stageId, requestedDelivery, "noop", "Send requires text, response, or message.");
         }
-        const handle = stageControlRegistry.get(target.runId, stage.stageId);
+        const handle = stageControlRegistry.get(stageRunId, stage.stageId);
         if (handle === undefined) {
-          return workflowSendResult(target.runId, stage.stageId, requestedDelivery, "noop", "No live handle for stage.");
+          return workflowSendResult(stageRunId, stage.stageId, requestedDelivery, "noop", "No live handle for stage.");
         }
         if (requestedDelivery === "resume" || (requestedDelivery === "auto" && handle.status === "paused")) {
           await handle.resume(text);
-          return workflowSendResult(target.runId, stage.stageId, "resume", "ok", "Resumed stage with message.");
+          return workflowSendResult(stageRunId, stage.stageId, "resume", "ok", "Resumed stage with message.");
         }
         if (requestedDelivery === "steer" || (requestedDelivery === "auto" && handle.isStreaming)) {
           await handle.steer(text);
-          return workflowSendResult(target.runId, stage.stageId, "steer", "ok", "Steered live stage.");
+          return workflowSendResult(stageRunId, stage.stageId, "steer", "ok", "Steered live stage.");
         }
         if (requestedDelivery === "prompt") {
           await handle.prompt(text);
-          return workflowSendResult(target.runId, stage.stageId, "prompt", "ok", "Prompt sent to stage.");
+          return workflowSendResult(stageRunId, stage.stageId, "prompt", "ok", "Prompt sent to stage.");
         }
         await handle.followUp(text);
-        return workflowSendResult(target.runId, stage.stageId, "followUp", "ok", "Follow-up queued for stage.");
+        return workflowSendResult(stageRunId, stage.stageId, "followUp", "ok", "Follow-up queued for stage.");
       }
 
       case "pause": {
@@ -1628,14 +1646,15 @@ export function makeExecuteWorkflowTool(
         if (target.kind === "not_found") return { action, runId: target.target, status: "noop", message: target.message };
         const stage = resolveToolStageTarget(target.runId, args.stageId);
         if (!stage.ok) return { action, runId: target.runId, status: "noop", message: stage.message };
-        const result = pauseRun(target.runId, { stageId: stage.stageId });
+        const stageRunId = stage.runId ?? target.runId;
+        const result = pauseRun(stageRunId, { stageId: stage.stageId });
         return result.ok
           ? { action, runId: result.runId, status: "paused", message: `Paused ${result.paused.length} stage(s) on run ${result.runId.slice(0, 8)}.` }
           : {
               action,
-              runId: target.runId,
+              runId: stageRunId,
               status: "noop",
-              message: stageFailureMessage(target.runId, result.reason, "pause"),
+              message: stageFailureMessage(stageRunId, result.reason, "pause"),
             };
       }
 
@@ -1757,7 +1776,8 @@ export function makeExecuteWorkflowTool(
         if (!stage.ok) {
           return { action, runId: target.runId, status: "noop", message: stage.message };
         }
-        const result = interruptRun(target.runId, { stageId: stage.stageId });
+        const stageRunId = stage.runId ?? target.runId;
+        const result = interruptRun(stageRunId, { stageId: stage.stageId });
         if (result.ok) {
           return {
             action,
@@ -1770,9 +1790,9 @@ export function makeExecuteWorkflowTool(
         }
         return {
           action,
-          runId: target.runId,
+          runId: stageRunId,
           status: "noop",
-          message: stageFailureMessage(target.runId, result.reason, "interrupt"),
+          message: stageFailureMessage(stageRunId, result.reason, "interrupt"),
         };
       }
 
@@ -1791,20 +1811,21 @@ export function makeExecuteWorkflowTool(
         if (!stage.ok) {
           return { action: "resume", runId: target.runId, status: "noop", message: stage.message };
         }
-        const run = store.runs().find((r) => r.id === target.runId);
+        const stageRunId = stage.runId ?? target.runId;
+        const run = store.runs().find((r) => r.id === stageRunId);
         const isPaused =
           run?.status === "paused" ||
           (run?.stages.some((s) => s.status === "paused") ?? false);
         if (!isPaused && run?.status === "failed" && run.endedAt !== undefined && run.resumable !== false) {
-          const continuation = activeRuntime.resumeFailedRun(target.runId, stage.stageId, { policy });
+          const continuation = activeRuntime.resumeFailedRun(stageRunId, stage.stageId, { policy });
           return {
             action: "resume",
-            runId: continuation.ok ? continuation.runId : target.runId,
+            runId: continuation.ok ? continuation.runId : stageRunId,
             status: continuation.ok ? "running" : "noop",
             message: continuation.message,
           };
         }
-        const result = resumeRun(target.runId, { stageId: stage.stageId, message: args.message });
+        const result = resumeRun(stageRunId, { stageId: stage.stageId, message: args.message });
         if (result.ok) {
           const message = result.message ?? (isPaused
             ? result.resumed.length === 0
@@ -1820,9 +1841,9 @@ export function makeExecuteWorkflowTool(
         }
         return {
           action: "resume",
-          runId: target.runId,
+          runId: stageRunId,
           status: "noop",
-          message: `Run not found: ${target.runId}`,
+          message: `Run not found: ${stageRunId}`,
         };
       }
 
@@ -2036,7 +2057,7 @@ function resolveToolRunTarget(
 }
 
 type ToolStageTarget =
-  | { ok: true; stageId?: string }
+  | { ok: true; runId?: string; stageId?: string }
   | { ok: false; message: string };
 
 function stageMatchesIdentifier(stage: { readonly id: string; readonly name: string }, target: string): boolean {
@@ -2049,20 +2070,40 @@ function stageMatchLabel(stage: { readonly id: string; readonly name: string }):
 
 function resolveStageTarget(runId: string, stageTarget?: string): ToolStageTarget {
   const target = stageTarget?.trim();
-  if (!target) return { ok: true };
+  if (!target) return { ok: true, runId };
 
-  const run = store.runs().find((r) => r.id === runId);
-  const exactId = run?.stages.find((stage) => stage.id === target);
-  if (exactId !== undefined) return { ok: true, stageId: exactId.id };
+  const graph = expandWorkflowGraph(store.snapshot(), runId);
+  const exactId = graph.stages.find(
+    (stage) => stage.id === target || stage.workflowGraphTarget.stageId === target,
+  );
+  if (exactId !== undefined) {
+    return {
+      ok: true,
+      runId: exactId.workflowGraphTarget.runId,
+      stageId: exactId.workflowGraphTarget.stageId,
+    };
+  }
 
-  const exactNames = run?.stages.filter((stage) => stage.name === target) ?? [];
-  if (exactNames.length === 1) return { ok: true, stageId: exactNames[0]!.id };
-  if (exactNames.length > 1) return { ok: false, message: `Ambiguous stage identifier "${target}" matches: ${exactNames.map(stageMatchLabel).join(", ")}` };
+  const exactNames = graph.stages.filter((stage) => stage.name === target);
+  if (exactNames.length === 1) {
+    const stage = exactNames[0]!;
+    return {
+      ok: true,
+      runId: stage.workflowGraphTarget.runId,
+      stageId: stage.workflowGraphTarget.stageId,
+    };
+  }
+  if (exactNames.length > 1) return { ok: false, message: `Ambiguous stage identifier "${target}" matches: ${exactNames.map(expandedStageLabel).join(", ")}` };
 
-  const matches = run?.stages.filter((stage) => stageMatchesIdentifier(stage, target)) ?? [];
+  const matches = graph.stages.filter((stage) => stageMatchesExpandedIdentifier(stage, target));
   if (matches.length === 0) return { ok: false, message: `Stage not found in run ${runId.slice(0, 8)}: ${target}` };
-  if (matches.length > 1) return { ok: false, message: `Ambiguous stage identifier "${target}" matches: ${matches.map(stageMatchLabel).join(", ")}` };
-  return { ok: true, stageId: matches[0]!.id };
+  if (matches.length > 1) return { ok: false, message: `Ambiguous stage identifier "${target}" matches: ${matches.map(expandedStageLabel).join(", ")}` };
+  const stage = matches[0]!;
+  return {
+    ok: true,
+    runId: stage.workflowGraphTarget.runId,
+    stageId: stage.workflowGraphTarget.stageId,
+  };
 }
 
 function resolveToolStageTarget(runId: string, stageTarget?: string): ToolStageTarget {
@@ -2151,8 +2192,8 @@ export function tokenizeWorkflowArgs(args: string): string[] {
  * Tokens that are standalone valid JSON objects/arrays are merged in.
  * All other tokens are ignored (non-kv positional args not supported).
  */
-export function parseWorkflowArgs(tokens: string[]): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
+export function parseWorkflowArgs(tokens: string[]): WorkflowInputValues {
+  const result: Record<string, WorkflowSerializableValue> = {};
   for (const token of tokens) {
     // Try JSON object/array merge
     if (
@@ -2166,7 +2207,7 @@ export function parseWorkflowArgs(tokens: string[]): Record<string, unknown> {
           typeof parsed === "object" &&
           !Array.isArray(parsed)
         ) {
-          Object.assign(result, parsed as Record<string, unknown>);
+          Object.assign(result, parsed as WorkflowInputValues);
         }
         continue;
       } catch {
@@ -2179,9 +2220,9 @@ export function parseWorkflowArgs(tokens: string[]): Record<string, unknown> {
       const key = token.slice(0, eqIdx);
       const raw = token.slice(eqIdx + 1);
       // Try to parse value as JSON for typed values (numbers, booleans, objects)
-      let value: unknown = raw;
+      let value: WorkflowSerializableValue = raw;
       try {
-        value = JSON.parse(raw) as unknown;
+        value = JSON.parse(raw) as WorkflowSerializableValue;
       } catch {
         // keep as string
       }
@@ -2405,7 +2446,6 @@ function factory(pi: ExtensionAPI): void {
   const runtimeRef: { current: ExtensionRuntime } = {
     current: createExtensionRuntime({
       registry: startupDiscovery.registry,
-      workflowSources: startupDiscovery.sources,
       cwd: process.cwd(),
       adapters,
       cancellation: cancellationRegistry,
@@ -2472,7 +2512,6 @@ function factory(pi: ExtensionAPI): void {
     if (models === undefined) return runtimeProxy;
     return createExtensionRuntime({
       registry: runtimeRef.current.registry,
-      workflowSources: discoveryRef.current?.sources ?? startupDiscovery.sources,
       cwd: process.cwd(),
       adapters,
       cancellation: cancellationRegistry,
@@ -2568,7 +2607,6 @@ function factory(pi: ExtensionAPI): void {
     );
     runtimeRef.current = createExtensionRuntime({
       registry: result.registry,
-      workflowSources: result.sources,
       cwd: process.cwd(),
       adapters,
       cancellation: cancellationRegistry,
@@ -2783,7 +2821,7 @@ function factory(pi: ExtensionAPI): void {
         }
       }
       if (wantsAll) {
-        const inFlight = store.runs().filter((r) => r.endedAt === undefined);
+        const inFlight = topLevelWorkflowRuns(store.runs()).filter((r) => r.endedAt === undefined);
         if (inFlight.length === 0) {
           fail("No in-flight runs to interrupt.");
           return true;
@@ -2864,7 +2902,7 @@ function factory(pi: ExtensionAPI): void {
         }
       }
       if (wantsAll) {
-        const inFlight = store.runs().filter((r) => r.endedAt === undefined);
+        const inFlight = topLevelWorkflowRuns(store.runs()).filter((r) => r.endedAt === undefined);
         if (inFlight.length === 0) {
           fail("No in-flight runs to kill.");
           return true;
@@ -3020,7 +3058,7 @@ function factory(pi: ExtensionAPI): void {
       if (!target) {
         const ui = ctx.ui;
         if (!canOpenPicker(ui)) {
-          const active = store.runs().filter((r) => r.endedAt === undefined);
+          const active = topLevelWorkflowRuns(store.runs()).filter((r) => r.endedAt === undefined);
           if (active.length === 0) {
             fail("No active runs to pause.");
             return true;
@@ -3048,29 +3086,25 @@ function factory(pi: ExtensionAPI): void {
         runId = resolved.runId;
       }
       let stageId: string | undefined;
+      let stageRunId = runId;
       if (stageTarget) {
-        const run = store.runs().find((r) => r.id === runId);
-        const stage = run?.stages.find(
-          (s) =>
-            s.id === stageTarget ||
-            s.id.startsWith(stageTarget) ||
-            s.name === stageTarget,
-        );
-        if (!stage) {
-          fail(`Stage not found in run ${runId.slice(0, 8)}: ${stageTarget}`);
+        const resolvedStage = resolveStageTarget(runId, stageTarget);
+        if (!resolvedStage.ok) {
+          fail(resolvedStage.message);
           return true;
         }
-        stageId = stage.id;
+        stageId = resolvedStage.stageId;
+        stageRunId = resolvedStage.runId ?? runId;
       }
-      const result = pauseRun(runId, { stageId });
+      const result = pauseRun(stageRunId, { stageId });
       if (!result.ok) {
         const why =
           result.reason === "not_found"
-            ? `Run not found: ${runId.slice(0, 8)}`
+            ? `Run not found: ${stageRunId.slice(0, 8)}`
             : result.reason === "already_ended"
-              ? `Run ${runId.slice(0, 8)} already ended.`
+              ? `Run ${stageRunId.slice(0, 8)} already ended.`
               : result.reason === "no_active_stages"
-                ? `No pausable stages on run ${runId.slice(0, 8)}.`
+                ? `No pausable stages on run ${stageRunId.slice(0, 8)}.`
                 : `Stage not found: ${stageTarget ?? "(unknown)"}`;
         fail(why);
         return true;
@@ -3085,8 +3119,8 @@ function factory(pi: ExtensionAPI): void {
       }
       print(
         result.paused.length === 0
-          ? `No stages were paused on run ${runId.slice(0, 8)}.`
-          : `Paused ${result.paused.length} stage(s) on run ${runId.slice(0, 8)}: ${result.paused.map((s) => s.name).join(", ")}`,
+          ? `No stages were paused on run ${stageRunId.slice(0, 8)}.`
+          : `Paused ${result.paused.length} stage(s) on run ${stageRunId.slice(0, 8)}: ${result.paused.map((s) => s.name).join(", ")}`,
       );
       return true;
     }
@@ -3120,18 +3154,19 @@ function factory(pi: ExtensionAPI): void {
         runId = resolved.runId;
       }
       let stageId: string | undefined;
-      const run = store.runs().find((r) => r.id === runId);
       const resolvedStage = resolveStageTarget(runId, stageTarget);
       if (!resolvedStage.ok) {
         fail(resolvedStage.message);
         return true;
       }
       stageId = resolvedStage.stageId;
+      const stageRunId = resolvedStage.runId ?? runId;
+      const run = store.runs().find((r) => r.id === stageRunId);
       const isPaused =
         run?.status === "paused" ||
         (run?.stages.some((s) => s.status === "paused") ?? false);
       if (!isPaused && run?.status === "failed" && run.endedAt !== undefined && run.resumable !== false) {
-        const continuation = runtimeForContext(ctx).resumeFailedRun(runId, stageId, { policy });
+        const continuation = runtimeForContext(ctx).resumeFailedRun(stageRunId, stageId, { policy });
         if (continuation.ok) {
           print(continuation.message);
         } else {
@@ -3139,9 +3174,9 @@ function factory(pi: ExtensionAPI): void {
         }
         return true;
       }
-      const result = resumeRun(runId, { stageId, message });
+      const result = resumeRun(stageRunId, { stageId, message });
       if (!result.ok) {
-        fail(`Run not found: ${runId.slice(0, 8)}`);
+        fail(`Run not found: ${stageRunId.slice(0, 8)}`);
         return true;
       }
       if (!isPaused) {
@@ -3161,9 +3196,9 @@ function factory(pi: ExtensionAPI): void {
         overlay.open(runId, overlaySurfaceFromContext(ctx), stageId);
       }
       if (result.resumed.length === 0) {
-        fail(`No paused stages on run ${runId.slice(0, 8)}.`);
+        fail(`No paused stages on run ${stageRunId.slice(0, 8)}.`);
       } else {
-        print(`Resumed ${result.resumed.length} stage(s) on run ${runId.slice(0, 8)}${message ? ` with message: "${message}"` : ""}.`);
+        print(`Resumed ${result.resumed.length} stage(s) on run ${stageRunId.slice(0, 8)}${message ? ` with message: "${message}"` : ""}.`);
       }
       return true;
     }
@@ -3563,7 +3598,7 @@ function factory(pi: ExtensionAPI): void {
           }));
 
         const runIdItems = (): PiArgumentCompletion[] =>
-          store.runs().map((run) => ({
+          topLevelWorkflowRuns(store.runs()).map((run) => ({
             value: `${run.id} `,
             label: run.id.slice(0, 8),
             description: `${run.name} — ${run.status}`,

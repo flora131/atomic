@@ -16,7 +16,7 @@ export type { AgentSessionEvent, CompactionResult, ModelCycleResult, PromptOptio
 
 export type WorkflowModelValue = NonNullable<CreateAgentSessionOptions["model"]> | string;
 
-export interface WorkflowModelUsage {
+export interface WorkflowModelUsage extends WorkflowSerializableObject {
   readonly input?: number;
   readonly output?: number;
   readonly cacheRead?: number;
@@ -25,7 +25,7 @@ export interface WorkflowModelUsage {
   readonly turns?: number;
 }
 
-export interface WorkflowModelAttempt {
+export interface WorkflowModelAttempt extends WorkflowSerializableObject {
   readonly model: string;
   readonly success: boolean;
   readonly error?: string;
@@ -52,6 +52,30 @@ export interface WorkflowModelCatalogPort {
   /** Optional warning sink for degraded catalog validation/fallback behavior. */
   recordWarning?: (warning: string) => void;
 }
+
+// ---------------------------------------------------------------------------
+// Workflow serializable values
+// ---------------------------------------------------------------------------
+
+export type WorkflowSerializablePrimitive = string | number | boolean | null;
+
+export interface WorkflowSerializableObject {
+  /**
+   * Optional properties use `undefined` at the type level for ergonomic
+   * intellisense, but workflow runtime validation rejects actual `undefined`
+   * values in returned/input objects. Omit optional keys instead.
+   */
+  readonly [key: string]: WorkflowSerializableValue | undefined;
+}
+
+export type WorkflowSerializableValue =
+  | WorkflowSerializablePrimitive
+  | readonly WorkflowSerializableValue[]
+  | WorkflowSerializableObject;
+
+export type WorkflowInputValues = WorkflowSerializableObject;
+export type WorkflowOutputValues = WorkflowSerializableObject;
+export type WorkflowRunOutput = WorkflowOutputValues;
 
 // ---------------------------------------------------------------------------
 // Workflow input schema
@@ -125,11 +149,6 @@ export const NON_INTERACTIVE_WORKFLOW_POLICY: WorkflowExecutionPolicy = Object.f
 // Workflow child composition and outputs
 // ---------------------------------------------------------------------------
 
-export interface WorkflowSourceReference {
-  readonly id: string;
-  readonly filePath?: string;
-}
-
 export type WorkflowOutputType = WorkflowInputType | "object" | "array" | "unknown";
 
 export interface WorkflowOutputSchema {
@@ -139,17 +158,17 @@ export interface WorkflowOutputSchema {
 }
 
 export interface WorkflowRunChildOptions {
-  readonly inputs?: Record<string, unknown>;
+  readonly inputs?: WorkflowInputValues;
   /** Parent boundary stage display name. Defaults to workflow:<workflow-name>. */
   readonly stageName?: string;
 }
 
-export interface WorkflowChildResult {
+export interface WorkflowChildResult extends WorkflowSerializableObject {
   readonly workflow: string;
   readonly runId: string;
   readonly status: "completed";
-  readonly outputs: Record<string, unknown>;
-  readonly rawOutput: Record<string, unknown> | undefined;
+  readonly outputs: WorkflowOutputValues;
+  readonly rawOutput: WorkflowOutputValues | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -287,7 +306,7 @@ export interface WorkflowPersistencePort {
  * `{previous}` handoffs as a typed SDK primitive instead of requiring authors
  * to manually concatenate prior output into every prompt.
  */
-export interface WorkflowTaskContext {
+export interface WorkflowTaskContext extends WorkflowSerializableObject {
   /** Optional display label used when rendering the context block. */
   readonly name?: string;
   /** Textual context made available to the next task. */
@@ -392,7 +411,7 @@ export interface StageOutputOptions {
 
 export type StagePromptOptions = PromptOptions & StageOutputOptions;
 
-export interface WorkflowArtifact {
+export interface WorkflowArtifact extends WorkflowSerializableObject {
   readonly kind: "output" | "session" | "diff" | "patch";
   readonly path: string;
   readonly taskName?: string;
@@ -451,7 +470,7 @@ export interface WorkflowDetails {
   readonly status: WorkflowDetailsStatus;
   readonly context?: "fresh" | "fork";
   readonly results?: WorkflowTaskResult[];
-  readonly output?: Record<string, unknown>;
+  readonly output?: WorkflowOutputValues;
   readonly progress?: WorkflowProgressSummary;
   readonly artifacts?: WorkflowArtifact[];
   readonly controlEvents?: WorkflowControlEvent[];
@@ -579,7 +598,7 @@ export interface StageContext {
 // Workflow run context (top-level ctx passed to the run function)
 // ---------------------------------------------------------------------------
 
-export interface WorkflowRunContext<TInputs extends Record<string, unknown> = Record<string, unknown>> {
+export interface WorkflowRunContext<TInputs extends WorkflowInputValues = WorkflowInputValues> {
   /** Typed inputs provided by the caller, validated against the input schema. */
   readonly inputs: TInputs;
   /** Invocation working directory for workflow-owned artifacts. Defaults to the host process cwd when omitted. */
@@ -603,7 +622,7 @@ export interface WorkflowRunContext<TInputs extends Record<string, unknown> = Re
   /** Run tasks in parallel. Missing step tasks use the first available task as a fallback. */
   parallel(steps: readonly WorkflowTaskStep[], options?: WorkflowParallelOptions): Promise<WorkflowTaskResult[]>;
   /** Execute a reusable child workflow by compiled workflow definition. */
-  workflow<TChildInputs extends Record<string, unknown>>(definition: WorkflowDefinition<TChildInputs>, options?: WorkflowRunChildOptions): Promise<WorkflowChildResult>;
+  workflow<TChildInputs extends WorkflowInputValues>(definition: WorkflowDefinition<TChildInputs>, options?: WorkflowRunChildOptions): Promise<WorkflowChildResult>;
   /** HIL primitives for user interaction during a run. */
   readonly ui: WorkflowUIContext;
 }
@@ -644,9 +663,9 @@ export interface WorkflowRuntimeConfig {
 // Workflow run function
 // ---------------------------------------------------------------------------
 
-export type WorkflowRunFn<TInputs extends Record<string, unknown> = Record<string, unknown>> = (
+export type WorkflowRunFn<TInputs extends WorkflowInputValues = WorkflowInputValues> = (
   ctx: WorkflowRunContext<TInputs>,
-) => Promise<Record<string, unknown>>;
+) => Promise<WorkflowRunOutput>;
 
 // ---------------------------------------------------------------------------
 // Compiled workflow definition
@@ -661,7 +680,7 @@ export interface WorkflowInputBindings {
   readonly worktree?: WorkflowWorktreeInputBinding;
 }
 
-export interface WorkflowDefinition<TInputs extends Record<string, unknown> = Record<string, unknown>> {
+export interface WorkflowDefinition<TInputs extends WorkflowInputValues = WorkflowInputValues> {
   /** Sentinel consumed by the registry loader to validate the export. */
   readonly __piWorkflow: true;
   readonly name: string;

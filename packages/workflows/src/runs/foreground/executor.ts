@@ -39,7 +39,9 @@ import type {
   WorkflowChildResult,
   WorkflowOutputSchema,
   WorkflowOutputType,
-  WorkflowSourceReference,
+  WorkflowOutputValues,
+  WorkflowInputValues,
+  WorkflowSerializableValue,
 } from "../../shared/types.js";
 import type { InternalStageContext, StageAdapters } from "./stage-runner.js";
 import type {
@@ -52,6 +54,7 @@ import type {
   PendingPrompt,
   PromptKind,
   WorkflowChildReplaySnapshot,
+  WorkflowChildRunRef,
 } from "../../shared/store-types.js";
 import type { StageControlHandle, StageControlRegistry, AgentSessionEventListener } from "./stage-control-registry.js";
 import type { Store } from "../../shared/store.js";
@@ -84,8 +87,13 @@ import { validateInputs, type ValidationError } from "../shared/validate-inputs.
 import type { WorkflowFailure } from "../../shared/workflow-failures.js";
 import { classifyWorkflowFailure } from "../../shared/workflow-failures.js";
 import { selectPromptCallsiteFrame } from "../shared/prompt-callsite.js";
+import {
+  assertWorkflowSerializableObject,
+  workflowSerializableValidationError,
+  workflowSerializableTypeName,
+} from "../../shared/serializable.js";
 
-export interface ResolvedInputs extends Record<string, unknown> {}
+export interface ResolvedInputs extends WorkflowInputValues {}
 
 export interface RunContinuationOpts {
   readonly source: RunSnapshot;
@@ -145,8 +153,6 @@ export interface RunOpts {
   models?: WorkflowModelCatalogPort;
   /** Registry metadata forwarded to workflow runs launched from discovery/tooling. */
   registry?: WorkflowRegistry;
-  /** Discovery source metadata for workflow resources. */
-  workflowSources?: readonly WorkflowSourceReference[];
   /**
    * Current nesting depth of this workflow run. Starts at 0 for top-level runs.
    * Callers that spawn nested runs must increment this by 1 before passing to
@@ -170,16 +176,22 @@ export interface RunOpts {
   runId?: string;
   /** Replay completed stages from a failed source run, then resume at this stage. */
   continuation?: RunContinuationOpts;
+  /** Internal parent linkage for nested ctx.workflow(...) runs. */
+  parentRun?: {
+    readonly runId: string;
+    readonly stageId: string;
+    readonly rootRunId: string;
+  };
   onRunStart?: (snapshot: RunSnapshot) => void;
   onStageStart?: (runId: string, snapshot: StageSnapshot) => void;
   onStageEnd?: (runId: string, snapshot: StageSnapshot) => void;
-  onRunEnd?: (runId: string, status: RunStatus, result?: Record<string, unknown>, error?: string) => void;
+  onRunEnd?: (runId: string, status: RunStatus, result?: WorkflowOutputValues, error?: string) => void;
 }
 
 export interface RunResult {
   readonly runId: string;
   readonly status: RunStatus;
-  readonly result?: Record<string, unknown>;
+  readonly result?: WorkflowOutputValues;
   readonly error?: string;
   readonly stages: StageSnapshot[];
 }
@@ -190,9 +202,12 @@ export interface RunResult {
 
 export function resolveInputs(
   schema: Readonly<Record<string, WorkflowInputSchema>>,
-  provided: Record<string, unknown>,
+  provided: Readonly<Record<string, unknown>>,
 ): ResolvedInputs {
-  const resolved: Record<string, unknown> = { ...provided };
+  const resolved: Record<string, WorkflowSerializableValue> = {};
+  for (const [key, value] of Object.entries(provided)) {
+    if (value !== undefined) resolved[key] = value as WorkflowSerializableValue;
+  }
 
   for (const [key, schemaDef] of Object.entries(schema)) {
     if (resolved[key] === undefined && "default" in schemaDef && schemaDef.default !== undefined) {
@@ -1353,7 +1368,7 @@ function appendRunEndWhenRecorded(
   payload: {
     readonly runId: string;
     readonly status: RunStatus;
-    readonly result?: Record<string, unknown>;
+    readonly result?: WorkflowOutputValues;
     readonly error?: string;
     readonly failureKind?: WorkflowFailureKind;
     readonly failureMessage?: string;
@@ -1638,6 +1653,21 @@ function formatValidationErrors(errors: readonly ValidationError[]): string {
   return errors.map((error) => `  - ${error.key}: ${error.reason}`).join("\n");
 }
 
+export function resolveAndValidateInputs(
+  schema: Readonly<Record<string, WorkflowInputSchema>>,
+  provided: Readonly<Record<string, unknown>>,
+  scope: string,
+): ResolvedInputs {
+  const resolved = resolveInputs(schema, provided);
+  const errors = validateInputs(schema, resolved);
+  if (errors.length > 0) {
+    throw new TypeError(
+      `atomic-workflows: invalid inputs for ${scope}:\n${formatValidationErrors(errors)}`,
+    );
+  }
+  return resolved;
+}
+
 function workflowOutputTypeMatches(type: WorkflowOutputType | undefined, value: unknown): boolean {
   switch (type) {
     case undefined:
@@ -1647,7 +1677,7 @@ function workflowOutputTypeMatches(type: WorkflowOutputType | undefined, value: 
     case "string":
       return typeof value === "string";
     case "number":
-      return typeof value === "number" && !Number.isNaN(value);
+      return typeof value === "number" && Number.isFinite(value);
     case "boolean":
       return typeof value === "boolean";
     case "select":
@@ -1660,10 +1690,7 @@ function workflowOutputTypeMatches(type: WorkflowOutputType | undefined, value: 
 }
 
 function workflowOutputTypeName(value: unknown): string {
-  if (value === null) return "null";
-  if (Array.isArray(value)) return "array";
-  if (typeof value === "number" && Number.isNaN(value)) return "NaN";
-  return typeof value;
+  return workflowSerializableTypeName(value);
 }
 
 const IMPLICIT_WORKFLOW_RESULT_OUTPUT = "result";
@@ -1673,7 +1700,7 @@ const IMPLICIT_WORKFLOW_RESULT_SCHEMA: WorkflowOutputSchema = Object.freeze({
     "Implicit workflow result. Defaults to an empty string unless the workflow .run() return object contains a result string.",
 });
 
-function hasOwnWorkflowOutput(record: Record<string, unknown> | Readonly<Record<string, WorkflowOutputSchema>>, key: string): boolean {
+function hasOwnWorkflowOutput(record: WorkflowOutputValues | Readonly<Record<string, WorkflowOutputSchema>>, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(record, key);
 }
 
@@ -1684,9 +1711,9 @@ function hasDeclaredWorkflowResult(
 }
 
 function withImplicitWorkflowResult(
-  result: Record<string, unknown>,
+  result: WorkflowOutputValues,
   declarations: Readonly<Record<string, WorkflowOutputSchema>> | undefined,
-): Record<string, unknown> {
+): WorkflowOutputValues {
   if (hasDeclaredWorkflowResult(declarations)) return result;
   if (hasOwnWorkflowOutput(result, IMPLICIT_WORKFLOW_RESULT_OUTPUT)) return result;
   return {
@@ -1709,7 +1736,7 @@ function workflowOutputDeclarations(
 }
 
 function workflowOutputKeys(
-  sourceOutput: Record<string, unknown>,
+  sourceOutput: WorkflowOutputValues,
   declaredOutputs: Readonly<Record<string, WorkflowOutputSchema>> | undefined,
   declarations: Readonly<Record<string, WorkflowOutputSchema>>,
 ): string[] {
@@ -1719,31 +1746,82 @@ function workflowOutputKeys(
     .map(([key]) => key);
 }
 
+function assertWorkflowOutputsMatchDeclarations(
+  scope: string,
+  sourceOutput: WorkflowOutputValues,
+  declarations: Readonly<Record<string, WorkflowOutputSchema>>,
+  keys: readonly string[],
+  missingOutputSuffix = "",
+): void {
+  for (const key of keys) {
+    const schema: WorkflowOutputSchema | undefined = declarations[key];
+    if (!(key in sourceOutput)) {
+      throw new Error(
+        `atomic-workflows: ${scope} missing output "${key}"${missingOutputSuffix}`,
+      );
+    }
+    const value = sourceOutput[key];
+    if (!workflowOutputTypeMatches(schema?.type, value)) {
+      throw new Error(
+        `atomic-workflows: ${scope} output "${key}" expected ${schema?.type ?? "unknown"}, got ${workflowOutputTypeName(value)}`,
+      );
+    }
+    const serializableError = workflowSerializableValidationError(
+      value,
+      `${scope} output "${key}"`,
+    );
+    if (serializableError !== undefined) {
+      throw new Error(`atomic-workflows: ${serializableError}`);
+    }
+  }
+}
+
+function normalizeWorkflowRunOutput(
+  workflowName: string,
+  rawOutput: unknown,
+): WorkflowOutputValues | undefined {
+  if (rawOutput === undefined) return undefined;
+  assertWorkflowSerializableObject(rawOutput, `workflow "${workflowName}" .run() return`);
+  return rawOutput;
+}
+
+function assertWorkflowRunOutputs(
+  workflowName: string,
+  result: WorkflowOutputValues | undefined,
+  declaredOutputs: Readonly<Record<string, WorkflowOutputSchema>> | undefined,
+): void {
+  const sourceOutput = result ?? {};
+  const declarations = workflowOutputDeclarations(declaredOutputs);
+  assertWorkflowOutputsMatchDeclarations(
+    `workflow "${workflowName}"`,
+    sourceOutput,
+    declarations,
+    workflowOutputKeys(sourceOutput, declaredOutputs, declarations),
+  );
+}
+
 function selectWorkflowOutputs(
   parent: WorkflowDefinition,
   childName: string,
   child: WorkflowDefinition,
-  rawOutput: Record<string, unknown> | undefined,
-): Record<string, unknown> {
+  rawOutput: WorkflowOutputValues | undefined,
+): WorkflowOutputValues {
   const declaredOutputs = child.outputs;
   const sourceOutput = withImplicitWorkflowResult(rawOutput ?? {}, declaredOutputs);
   const declarations = workflowOutputDeclarations(declaredOutputs);
-  const selected: Record<string, unknown> = {};
+  const keys = workflowOutputKeys(sourceOutput, declaredOutputs, declarations);
+  assertWorkflowOutputsMatchDeclarations(
+    `workflow "${parent.name}" child "${childName}"`,
+    sourceOutput,
+    declarations,
+    keys,
+    ` from "${child.name}"`,
+  );
 
-  for (const childKey of workflowOutputKeys(sourceOutput, declaredOutputs, declarations)) {
-    const schema: WorkflowOutputSchema | undefined = declarations[childKey];
-    if (!(childKey in sourceOutput)) {
-      throw new Error(
-        `atomic-workflows: workflow "${parent.name}" child "${childName}" missing output "${childKey}" from "${child.name}"`,
-      );
-    }
+  const selected: Record<string, WorkflowSerializableValue> = {};
+  for (const childKey of keys) {
     const value = sourceOutput[childKey];
-    if (!workflowOutputTypeMatches(schema?.type, value)) {
-      throw new Error(
-        `atomic-workflows: workflow "${parent.name}" child "${childName}" output "${childKey}" expected ${schema?.type ?? "unknown"}, got ${workflowOutputTypeName(value)}`,
-      );
-    }
-    selected[childKey] = value;
+    if (value !== undefined) selected[childKey] = value;
   }
 
   return selected;
@@ -1781,8 +1859,9 @@ function workflowChildReplaySnapshot(
   alias: string,
   childResult: WorkflowChildResult,
 ): WorkflowChildReplaySnapshot {
-  const outputs: Record<string, unknown> = {};
+  const outputs: Record<string, WorkflowSerializableValue> = {};
   for (const [key, value] of Object.entries(childResult.outputs)) {
+    if (value === undefined) continue;
     try {
       outputs[key] = cloneWorkflowChildValue(value);
     } catch (err) {
@@ -1793,7 +1872,7 @@ function workflowChildReplaySnapshot(
     }
   }
 
-  let rawOutput: Record<string, unknown> | undefined;
+  let rawOutput: WorkflowOutputValues | undefined;
   if (childResult.rawOutput !== undefined) {
     try {
       rawOutput = cloneWorkflowChildValue(childResult.rawOutput);
@@ -1812,9 +1891,9 @@ function workflowChildReplaySnapshot(
   };
 }
 
-export async function run<TInputs extends Record<string, unknown>>(
+export async function run<TInputs extends WorkflowInputValues>(
   def: WorkflowDefinition<TInputs>,
-  inputs: Record<string, unknown>,
+  inputs: Readonly<Record<string, unknown>>,
   opts: RunOpts = {},
 ): Promise<RunResult> {
   const activeStore = opts.store ?? defaultStore;
@@ -1839,7 +1918,11 @@ export async function run<TInputs extends Record<string, unknown>>(
   const erasedDef = def as WorkflowDefinition;
 
   // 1. Resolve + validate inputs
-  const resolvedInputs = resolveInputs(def.inputs, inputs);
+  const resolvedInputs = resolveAndValidateInputs(
+    def.inputs,
+    inputs,
+    `workflow "${def.name}"`,
+  );
 
   // 2. Generate runId (or use pre-allocated seam from caller)
   const runId = opts.runId ?? crypto.randomUUID();
@@ -1864,6 +1947,11 @@ export async function run<TInputs extends Record<string, unknown>>(
     status: "running",
     stages: [],
     startedAt: Date.now(),
+    ...(opts.parentRun !== undefined ? {
+      parentRunId: opts.parentRun.runId,
+      parentStageId: opts.parentRun.stageId,
+      rootRunId: opts.parentRun.rootRunId,
+    } : {}),
     ...(opts.continuation !== undefined ? {
       resumedFromRunId: opts.continuation.source.id,
       resumeFromStageId: opts.continuation.resumeFromStageId,
@@ -1888,6 +1976,9 @@ export async function run<TInputs extends Record<string, unknown>>(
       runId,
       name: def.name,
       inputs: resolvedInputs,
+      ...(runSnapshot.parentRunId !== undefined ? { parentRunId: runSnapshot.parentRunId } : {}),
+      ...(runSnapshot.parentStageId !== undefined ? { parentStageId: runSnapshot.parentStageId } : {}),
+      ...(runSnapshot.rootRunId !== undefined ? { rootRunId: runSnapshot.rootRunId } : {}),
       ...(runSnapshot.resumedFromRunId !== undefined ? { resumedFromRunId: runSnapshot.resumedFromRunId } : {}),
       ...(runSnapshot.resumeFromStageId !== undefined ? { resumeFromStageId: runSnapshot.resumeFromStageId } : {}),
       ts: runSnapshot.startedAt,
@@ -2062,6 +2153,7 @@ export async function run<TInputs extends Record<string, unknown>>(
     readonly id: string;
     readonly replayedChild?: WorkflowChildResult;
     finalizeReplay(): void;
+    linkChildRun(ref: WorkflowChildRunRef): void;
     complete(summary: string, workflowChild: WorkflowChildReplaySnapshot): void;
     fail(error: unknown): void;
   }
@@ -2190,10 +2282,17 @@ export async function run<TInputs extends Record<string, unknown>>(
       tracker.onSettle(stageId);
     };
 
+    const linkChildRun = (ref: WorkflowChildRunRef): void => {
+      if (finalized) return;
+      stageSnapshot.workflowChildRun = { ...ref };
+      activeStore.recordStageWorkflowChildRun(runId, stageId, ref);
+    };
+
     return {
       id: stageId,
       ...(replayedChild !== undefined ? { replayedChild } : {}),
       finalizeReplay,
+      linkChildRun,
       complete(summary: string, workflowChild: WorkflowChildReplaySnapshot): void {
         finalize("completed", summary, workflowChild);
       },
@@ -3174,27 +3273,52 @@ export async function run<TInputs extends Record<string, unknown>>(
       }
 
       try {
-        const childInputs = resolveInputs(child.inputs, options.inputs ?? {});
-        const inputErrors = validateInputs(child.inputs, childInputs);
-        if (inputErrors.length > 0) {
-          throw new Error(
-            `atomic-workflows: invalid inputs for child workflow "${childName}" (${child.name}):\n${formatValidationErrors(inputErrors)}`,
+        const childInputs = resolveAndValidateInputs(
+          child.inputs,
+          options.inputs ?? {},
+          `child workflow "${childName}" (${child.name})`,
+        );
+
+        const childRunId = crypto.randomUUID();
+        boundary.linkChildRun({
+          alias: childName,
+          workflow: child.normalizedName,
+          runId: childRunId,
+        });
+
+        const childController = new AbortController();
+        if (ownController.signal.aborted) {
+          childController.abort(ownController.signal.reason);
+        } else {
+          ownController.signal.addEventListener(
+            "abort",
+            () => childController.abort(ownController.signal.reason),
+            { once: true },
           );
         }
+        opts.cancellation?.register(childRunId, childController);
 
         const {
           runId: _parentRunId,
           continuation: _parentContinuation,
           deferWorkflowStart: _parentDeferWorkflowStart,
+          parentRun: _parentRun,
+          onRunStart: _parentOnRunStart,
+          onRunEnd: _parentOnRunEnd,
           ...childBaseOpts
         } = opts;
         const childRun = await run(child, childInputs, {
           ...childBaseOpts,
+          runId: childRunId,
           cwd: resolveWorkflowCwd(),
           depth: depth + 1,
           ...(opts.registry !== undefined ? { registry: opts.registry } : {}),
-          ...(opts.workflowSources !== undefined ? { workflowSources: opts.workflowSources } : {}),
-          signal: ownController.signal,
+          parentRun: {
+            runId,
+            stageId: boundary.id,
+            rootRunId: opts.parentRun?.rootRunId ?? runId,
+          },
+          signal: childController.signal,
           deferWorkflowStart: false,
         });
 
@@ -3242,13 +3366,16 @@ export async function run<TInputs extends Record<string, unknown>>(
       }
     }
 
-    const result = await def.run(ctx);
+    const rawResult = await def.run(ctx);
 
     // Post-body abort check: if signal was aborted at any point before we record
     // completion, the run must be finalized as "killed", never "completed".
     if (ownController.signal.aborted) {
       return finalizeKilled(runId, runSnapshot, activeStore, opts.persistence, opts.onRunEnd);
     }
+
+    const result = normalizeWorkflowRunOutput(def.name, rawResult);
+    assertWorkflowRunOutputs(def.name, result, def.outputs);
 
     assertWorkflowCreatedStage(runSnapshot);
 

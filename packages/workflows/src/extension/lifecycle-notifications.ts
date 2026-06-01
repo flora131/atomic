@@ -14,6 +14,7 @@ import type {
   StageStatus,
   StoreSnapshot,
 } from "../shared/store-types.js";
+import { isTopLevelWorkflowRun } from "../shared/run-visibility.js";
 import { deriveGraphThemeFromPiTheme, type GraphTheme } from "../tui/graph-theme.js";
 import { renderWorkflowNoticeCard, type WorkflowNoticeTone } from "../tui/workflow-notice-card.js";
 
@@ -93,6 +94,7 @@ export function seedWorkflowLifecycleNotificationState(
   snapshot: StoreSnapshot,
 ): void {
   for (const run of snapshot.runs) {
+    if (!isTopLevelWorkflowRun(run)) continue;
     if ((run.status === "completed" || run.status === "failed") && run.endedAt !== undefined) {
       state.deliveredTerminalRuns.add(terminalRunKey(run.status, run.id));
     }
@@ -226,6 +228,7 @@ export function installWorkflowLifecycleNotifications(
 
   const inspect = (snapshot: StoreSnapshot): void => {
     for (const run of snapshot.runs) {
+      if (!isTopLevelWorkflowRun(run)) continue;
       emitTerminalNoticeOnce(run, "completed");
       emitTerminalNoticeOnce(run, "failed");
 

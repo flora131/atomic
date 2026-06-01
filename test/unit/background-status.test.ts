@@ -14,11 +14,21 @@ import {
     interruptRun,
 } from "../../packages/workflows/src/runs/background/status.js";
 import { createStore } from "../../packages/workflows/src/shared/store.js";
-import type { RunSnapshot } from "../../packages/workflows/src/shared/store-types.js";
+import type { RunSnapshot, StageSnapshot } from "../../packages/workflows/src/shared/store-types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function makeStage(id: string, parentIds: string[] = []): StageSnapshot {
+    return {
+        id,
+        name: id,
+        status: "running",
+        parentIds,
+        toolEvents: [],
+    };
+}
 
 function makeRun(overrides: Partial<RunSnapshot> = {}): RunSnapshot {
     return {
@@ -78,6 +88,37 @@ describe("statusRuns", () => {
         assert.equal(entry.name, "test-wf");
         assert.equal(typeof entry.startedAt, "number");
         assert.equal(typeof entry.stageCount, "number");
+    });
+
+    test("hides nested child workflow runs and counts expanded stages on the parent", () => {
+        const st = createStore();
+        st.recordRunStart(makeRun({
+            id: "parent-run",
+            name: "parent",
+            stages: [
+                {
+                    ...makeStage("workflow:child"),
+                    workflowChildRun: {
+                        alias: "child",
+                        workflow: "child",
+                        runId: "child-run",
+                    },
+                },
+            ],
+        }));
+        st.recordRunStart(makeRun({
+            id: "child-run",
+            name: "child",
+            parentRunId: "parent-run",
+            parentStageId: "workflow:child",
+            rootRunId: "parent-run",
+            stages: [makeStage("child-a"), makeStage("child-b", ["child-a"])],
+        }));
+
+        const result = statusRuns({ store: st });
+
+        assert.deepEqual(result.map((entry) => entry.runId), ["parent-run"]);
+        assert.equal(result[0]?.stageCount, 3);
     });
 });
 

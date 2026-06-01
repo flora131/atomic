@@ -12,7 +12,7 @@ import type { StageAdapters } from "../runs/foreground/stage-runner.js";
 import { store as defaultStore, type Store } from "../shared/store.js";
 import type { CancellationRegistry } from "../runs/background/cancellation-registry.js";
 import { jobTracker as defaultJobTracker, type JobTracker } from "../runs/background/job-tracker.js";
-import { resolveInputs } from "../runs/foreground/executor.js";
+import { resolveAndValidateInputs } from "../runs/foreground/executor.js";
 import { runDetached } from "../runs/background/runner.js";
 import type { WorkflowToolResult, WorkflowInputEntry } from "./render-result.js";
 import type { WorkflowToolArgs } from "./index.js";
@@ -23,7 +23,6 @@ import {
   type WorkflowMcpPort,
   type WorkflowRuntimeConfig,
   type WorkflowModelCatalogPort,
-  type WorkflowSourceReference,
 } from "../shared/types.js";
 
 type WorkflowRunResult = Extract<WorkflowToolResult, { action: "run" }>;
@@ -69,8 +68,6 @@ export interface DispatcherOpts {
   policy?: WorkflowExecutionPolicy;
   /** Invocation cwd used for workflow execution. */
   cwd?: string;
-  /** Discovery source metadata for workflow resources. */
-  workflowSources?: readonly WorkflowSourceReference[];
 }
 
 // ---------------------------------------------------------------------------
@@ -163,7 +160,7 @@ export async function dispatch(
       // background promise — silently from the caller's perspective. Catch
       // it here so the dispatch result names what's missing.
       try {
-        resolveInputs(def.inputs, inputs);
+        resolveAndValidateInputs(def.inputs, inputs, `workflow "${def.name}"`);
       } catch (err) {
         return failedRunResult(
           def.name,
@@ -174,7 +171,6 @@ export async function dispatch(
 
       const accepted = runDetached(def, inputs, {
         registry: opts.registry,
-        ...(opts.workflowSources !== undefined ? { workflowSources: opts.workflowSources } : {}),
         adapters: opts.adapters,
         store: opts.store,
         cancellation: opts.cancellation,

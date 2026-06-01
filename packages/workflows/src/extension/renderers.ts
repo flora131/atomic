@@ -8,6 +8,8 @@
  * cross-ref: spec §5.6 Persistence renderers (registration only)
  */
 
+import type { WorkflowInputValues, WorkflowOutputValues } from "../shared/types.js";
+
 // ---------------------------------------------------------------------------
 // Entry payload shapes (matches pi.appendEntry call signatures from §5.6)
 // ---------------------------------------------------------------------------
@@ -15,7 +17,7 @@
 export interface RunStartPayload {
   runId: string;
   name: string;
-  inputs?: Record<string, unknown>;
+  inputs?: WorkflowInputValues;
   ts?: number;
 }
 
@@ -46,7 +48,7 @@ export interface StageEndPayload {
 export interface RunEndPayload {
   runId: string;
   status: "ok" | "error" | "killed" | string;
-  result?: Record<string, unknown>;
+  result?: WorkflowOutputValues;
   ts?: number;
 }
 

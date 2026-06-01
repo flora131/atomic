@@ -20,6 +20,7 @@ import { basename, dirname, join } from "node:path";
 import type {
     WorkflowChainOptions,
     WorkflowDefinition,
+    WorkflowInputValues,
     WorkflowParallelOptions,
     WorkflowRunContext,
     WorkflowTaskOptions,
@@ -95,7 +96,7 @@ function assertStringOutput(
 }
 
 /** Mock WorkflowRunContext factory that records high-level SDK calls. */
-function makeMockCtx<TInputs extends Record<string, unknown>>(
+function makeMockCtx<TInputs extends WorkflowInputValues>(
     inputs: TInputs,
     responders: MockResponders = {},
 ): WorkflowRunContext<TInputs> & { calls: MockCalls } {
@@ -181,7 +182,7 @@ function makeMockCtx<TInputs extends Record<string, unknown>>(
                           !omitted.has(result.name),
                   );
         },
-        workflow: async <TChildInputs extends Record<string, unknown>>(
+        workflow: async <TChildInputs extends WorkflowInputValues>(
             target: WorkflowDefinition<TChildInputs>,
         ) => {
             throw new Error(
@@ -595,6 +596,59 @@ describe("deep-research-codebase", () => {
             /Read scout context before researching/,
         );
         assert.doesNotMatch(normalizedOnlinePrompt, /wave1\/locator-1\.md/);
+    });
+
+    test("displays final artifact paths relative to ctx.cwd", async () => {
+        const mod =
+            await import("../../packages/workflows/builtin/deep-research-codebase.js");
+        const ctx = makeMockCtx(
+            {
+                prompt: "Trace auth behavior",
+                max_partitions: 1,
+                max_concurrency: 1,
+            },
+            {
+                task: (name) => {
+                    if (name === "partition") return "auth logic";
+                    if (name === "aggregator")
+                        return "final synthesized findings";
+                    return undefined;
+                },
+            },
+        );
+        const cwd = requireDeepResearchTempCwd();
+
+        const result = await mod.default.run({ ...ctx, cwd });
+
+        const researchDocPath = result["research_doc_path"];
+        if (typeof researchDocPath !== "string") {
+            throw new Error("expected research_doc_path to be a string");
+        }
+        assert.match(
+            normalizePathSeparators(researchDocPath),
+            /^research\/\d{4}-\d{2}-\d{2}-trace-auth-behavior\.md$/,
+        );
+        assert.equal(existsSync(join(cwd, researchDocPath)), true);
+
+        const artifactDir = result["artifact_dir"];
+        if (typeof artifactDir !== "string") {
+            throw new Error("expected artifact_dir to be a string");
+        }
+        assert.match(
+            normalizePathSeparators(artifactDir),
+            /^research\/\.deep-research-/,
+        );
+        assert.equal(existsSync(join(cwd, artifactDir)), true);
+
+        const manifestPath = result["manifest_path"];
+        if (typeof manifestPath !== "string") {
+            throw new Error("expected manifest_path to be a string");
+        }
+        assert.match(
+            normalizePathSeparators(manifestPath),
+            /^research\/\.deep-research-.*\/manifest\.json$/,
+        );
+        assert.equal(existsSync(join(cwd, manifestPath)), true);
     });
 
     test("writes final research doc and historical hidden run artifacts under research", async () => {

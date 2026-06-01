@@ -15,12 +15,13 @@ import { computeLayout, NODE_W } from "../../packages/workflows/src/tui/layout.j
 import { buildConnector, buildMergeConnector } from "../../packages/workflows/src/tui/connectors.js";
 import { statusColor, statusIcon, fmtDuration } from "../../packages/workflows/src/tui/status-helpers.js";
 import { GraphView } from "../../packages/workflows/src/tui/graph-view.js";
+import { expandWorkflowGraph } from "../../packages/workflows/src/shared/expanded-workflow-graph.js";
 import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.js";
 import { renderHeader } from "../../packages/workflows/src/tui/header.js";
 import { renderNodeCard } from "../../packages/workflows/src/tui/node-card.js";
 import { renderSwitcher } from "../../packages/workflows/src/tui/switcher.js";
 import { BOLD, RESET } from "../../packages/workflows/src/tui/color-utils.js";
-import { visibleWidth } from "../../packages/workflows/src/tui/text-helpers.js";
+import { Key, visibleWidth } from "../../packages/workflows/src/tui/text-helpers.js";
 import { makeFakeKeybindings } from "../support/fake-keybindings.js";
 
 // ---------------------------------------------------------------------------
@@ -116,6 +117,7 @@ function makeStore(snap: StoreSnapshot): Store {
     activeRunId: () => snap.runs[0]?.id ?? null,
     recordRunStart: () => {},
     recordStageStart: () => {},
+    recordStageWorkflowChildRun: () => false,
     recordToolStart: () => {},
     recordToolEnd: () => {},
     recordStageEnd: () => {},
@@ -380,6 +382,46 @@ describe("fmtDuration", () => {
 // GraphView keyboard tests
 // ---------------------------------------------------------------------------
 
+describe("expanded workflow graph", () => {
+  it("rewires parent stages after workflow boundaries to child terminal stages", () => {
+    const rootBoundary: StageSnapshot = {
+      ...makeStage("workflow:child"),
+      status: "completed",
+      workflowChild: {
+        alias: "child",
+        workflow: "child-workflow",
+        runId: "child-run",
+        status: "completed",
+        outputs: { result: "ok" },
+      },
+    };
+    const rootAfter = makeStage("parent-after", ["workflow:child"]);
+    const childFirst = makeStage("child-first");
+    const childSecond = makeStage("child-second", ["child-first"]);
+    const snap: StoreSnapshot = {
+      runs: [
+        makeRun([rootBoundary, rootAfter]),
+        {
+          id: "child-run",
+          name: "child-workflow",
+          inputs: {},
+          status: "completed",
+          stages: [childFirst, childSecond],
+          startedAt: Date.now(),
+          endedAt: Date.now(),
+        },
+      ],
+      notices: [],
+      version: 1,
+    };
+
+    const graph = expandWorkflowGraph(snap, "run-1");
+    const after = graph.stages.find((stage) => stage.name === "parent-after");
+
+    assert.deepEqual(after?.parentIds, ["child-run:child-second"]);
+  });
+});
+
 describe("GraphView keyboard navigation", () => {
   function makeView(stages: StageSnapshot[], onClose?: () => void) {
     const snap = makeSnap(stages);
@@ -393,6 +435,132 @@ describe("GraphView keyboard navigation", () => {
     });
     return view;
   }
+
+  it("renders imported child workflow stages inside the parent graph", () => {
+    const rootBoundary: StageSnapshot = {
+      ...makeStage("workflow:child"),
+      status: "running",
+      workflowChildRun: {
+        alias: "child",
+        workflow: "child-workflow",
+        runId: "child-run",
+      },
+    };
+    const rootAfter = makeStage("parent-after", ["workflow:child"]);
+    const childFirst = makeStage("child-first");
+    const childSecond = makeStage("child-second", ["child-first"]);
+    const snap: StoreSnapshot = {
+      runs: [
+        makeRun([rootBoundary, rootAfter]),
+        {
+          id: "child-run",
+          name: "child-workflow",
+          inputs: {},
+          status: "running",
+          stages: [childFirst, childSecond],
+          startedAt: Date.now(),
+        },
+      ],
+      notices: [],
+      version: 1,
+    };
+    const view = new GraphView({
+      mode: "overlay",
+      runId: "run-1",
+      store: makeStore(snap),
+      graphTheme: defaultTheme,
+    });
+
+    const text = visibleText(view.render(120));
+    assert.match(text, /workflow:child/);
+    assert.match(text, /child-first/);
+    assert.match(text, /child-second/);
+    view.dispose();
+  });
+
+  it("kills the focused expanded child workflow run", () => {
+    const rootBoundary: StageSnapshot = {
+      ...makeStage("workflow:child"),
+      status: "running",
+      workflowChildRun: {
+        alias: "child",
+        workflow: "child-workflow",
+        runId: "child-run",
+      },
+    };
+    const childFirst = makeStage("child-first");
+    const snap: StoreSnapshot = {
+      runs: [
+        makeRun([rootBoundary]),
+        {
+          id: "child-run",
+          name: "child-workflow",
+          inputs: {},
+          status: "running",
+          stages: [childFirst],
+          startedAt: Date.now(),
+        },
+      ],
+      notices: [],
+      version: 1,
+    };
+    const killed: string[] = [];
+    const view = new GraphView({
+      mode: "overlay",
+      runId: "run-1",
+      store: makeStore(snap),
+      graphTheme: defaultTheme,
+      initialFocusedStageId: "child-first",
+      onKill: (runId) => killed.push(runId),
+    });
+
+    view.handleInput("q");
+
+    assert.deepEqual(killed, ["child-run"]);
+    view.dispose();
+  });
+
+  it("attaches expanded child workflow stages using the child run id", () => {
+    const rootBoundary: StageSnapshot = {
+      ...makeStage("workflow:child"),
+      status: "running",
+      workflowChildRun: {
+        alias: "child",
+        workflow: "child-workflow",
+        runId: "child-run",
+      },
+    };
+    const childFirst = makeStage("child-first");
+    const snap: StoreSnapshot = {
+      runs: [
+        makeRun([rootBoundary]),
+        {
+          id: "child-run",
+          name: "child-workflow",
+          inputs: {},
+          status: "running",
+          stages: [childFirst],
+          startedAt: Date.now(),
+        },
+      ],
+      notices: [],
+      version: 1,
+    };
+    const attached: Array<{ runId: string; stageId: string }> = [];
+    const view = new GraphView({
+      mode: "overlay",
+      runId: "run-1",
+      store: makeStore(snap),
+      graphTheme: defaultTheme,
+      initialFocusedStageId: "child-first",
+      onStageAttach: (runId, stageId) => attached.push({ runId, stageId }),
+    });
+
+    view.handleInput(Key.enter);
+
+    assert.deepEqual(attached, [{ runId: "child-run", stageId: "child-first" }]);
+    view.dispose();
+  });
 
   it("j moves focus down", () => {
     const stages = [makeStage("A"), makeStage("B", ["A"]), makeStage("C", ["B"])];

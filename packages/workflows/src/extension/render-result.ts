@@ -20,6 +20,7 @@ import { renderRunDetail } from "../tui/run-detail.js";
 import { renderWorkflowList } from "../tui/workflow-list.js";
 import { deriveGraphTheme } from "../tui/graph-theme.js";
 import { renderDispatchConfirm } from "../tui/dispatch-confirm.js";
+import type { WorkflowInputValues, WorkflowOutputValues } from "../shared/types.js";
 import { renderRoundedBox } from "../tui/chat-surface.js";
 import { truncateToWidth } from "../tui/text-helpers.js";
 
@@ -87,7 +88,7 @@ type RunResult = {
   name?: string;
   runId: string;
   status: string;
-  result?: Record<string, unknown>;
+  result?: WorkflowOutputValues;
   details?: WorkflowDetails;
   error?: string;
   stages?: StageSnapshot[];
@@ -162,7 +163,7 @@ export interface RenderResultOpts {
   width?: number;
   /** Original workflow inputs from the tool call, used to render the same
    * dispatch confirmation card as `/workflow <name> ...` for background runs. */
-  runInputs?: Readonly<Record<string, unknown>>;
+  runInputs?: Readonly<WorkflowInputValues>;
   /**
    * Suppress ANSI colour output (CLI flag paths / non-TTY consumers).
    * When false/undefined the canonical Catppuccin chrome is rendered.

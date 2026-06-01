@@ -164,6 +164,108 @@ describe("executor.run", () => {
         assert.equal(wfResult.stages[0]?.status, "completed");
     });
 
+    test("validates input types before run starts", async () => {
+        const st = createStore();
+        let started = false;
+        const def = defineWorkflow("typed-input-wf")
+            .input("count", { type: "number", required: true })
+            .run(async (ctx) => {
+                started = true;
+                await ctx.stage("stage").prompt(String(ctx.inputs.count));
+                return {};
+            })
+            .compile();
+
+        await assert.rejects(
+            run(def, { count: "3" }, { store: st }),
+            (error: unknown) => {
+                assert.ok(error instanceof TypeError);
+                assert.match(
+                    error.message,
+                    /invalid inputs for workflow "typed-input-wf"[\s\S]*count: expected finite number, got string/,
+                );
+                return true;
+            },
+        );
+
+        assert.equal(started, false);
+        assert.deepEqual(st.runs(), []);
+    });
+
+    test("validates declared output types before completing", async () => {
+        const def = defineWorkflow("typed-output-wf")
+            .output("count", { type: "number", required: true })
+            .run(async (ctx) => {
+                await ctx.stage("stage").prompt("stage");
+                return { count: "not-a-number" } as never;
+            })
+            .compile();
+
+        const wfResult = await run(
+            def,
+            {},
+            {
+                adapters: { prompt: { prompt: async () => "ok" } },
+                store: createStore(),
+            },
+        );
+
+        assert.equal(wfResult.status, "failed");
+        assert.match(
+            wfResult.error ?? "",
+            /workflow "typed-output-wf" output "count" expected number, got string/,
+        );
+        assert.equal(wfResult.stages[0]?.status, "completed");
+    });
+
+    test("validates declared output values are JSON-serializable", async () => {
+        const def = defineWorkflow("serializable-output-wf")
+            .output("payload", { type: "object", required: true })
+            .run(async (ctx) => {
+                await ctx.stage("stage").prompt("stage");
+                return {
+                    payload: { ok: true, bad: undefined },
+                } as never;
+            })
+            .compile();
+
+        const wfResult = await run(
+            def,
+            {},
+            {
+                adapters: { prompt: { prompt: async () => "ok" } },
+                store: createStore(),
+            },
+        );
+
+        assert.equal(wfResult.status, "failed");
+        assert.match(wfResult.error ?? "", /JSON-serializable/);
+        assert.match(wfResult.error ?? "", /payload/);
+    });
+
+    test("rejects Date output values before completing", async () => {
+        const def = defineWorkflow("date-output-wf")
+            .output("result", { required: true })
+            .run(async (ctx) => {
+                await ctx.stage("stage").prompt("stage");
+                return { result: new Date() } as never;
+            })
+            .compile();
+
+        const wfResult = await run(
+            def,
+            {},
+            {
+                adapters: { prompt: { prompt: async () => "ok" } },
+                store: createStore(),
+            },
+        );
+
+        assert.equal(wfResult.status, "failed");
+        assert.match(wfResult.error ?? "", /JSON-serializable/);
+        assert.match(wfResult.error ?? "", /result/);
+    });
+
     test("fails completed workflows that create no stages", async () => {
         const def = defineWorkflow("empty-graph-wf")
             .run(async () => ({ ok: true }))
@@ -319,8 +421,115 @@ describe("executor.run", () => {
         const boundary = wfResult.stages[0]!;
         const final = wfResult.stages[1]!;
         assert.equal(boundary.status, "completed");
+        assert.equal(boundary.workflowChildRun?.runId, wfResult.result?.["childRunId"]);
         assert.deepEqual(final.parentIds, [boundary.id]);
         assert.equal(st.runs().length, 2);
+    });
+
+    test("ctx.workflow links the boundary to the live child run before completion", async () => {
+        const st = createStore();
+        const gate = Promise.withResolvers<string>();
+        const child = defineWorkflow("live-link-child")
+            .output("summary", { type: "text", required: true })
+            .run(async (ctx) => {
+                const result = await ctx.stage("child-wait").prompt("child-wait");
+                return { summary: result };
+            })
+            .compile();
+        const parent = defineWorkflow("live-link-parent")
+            .run(async (ctx) => {
+                const childResult = await ctx.workflow(child);
+                return { result: childResult.outputs.summary };
+            })
+            .compile();
+
+        const running = run(parent, {}, {
+            store: st,
+            adapters: {
+                prompt: {
+                    prompt: async () => gate.promise,
+                },
+            },
+        });
+
+        const deadline = Date.now() + 1000;
+        let boundary: StageSnapshot | undefined;
+        let childRunId: string | undefined;
+        while (Date.now() < deadline) {
+            const parentRun = st.runs().find((candidate) => candidate.name === "live-link-parent");
+            boundary = parentRun?.stages.find((stage) => stage.name === "workflow:live-link-child");
+            childRunId = boundary?.workflowChildRun?.runId;
+            const childRun = childRunId !== undefined
+                ? st.runs().find((candidate) => candidate.id === childRunId)
+                : undefined;
+            if (boundary !== undefined && childRun !== undefined && childRun.stages.some((stage) => stage.name === "child-wait")) {
+                break;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+
+        assert.notEqual(boundary, undefined);
+        assert.notEqual(childRunId, undefined);
+        assert.equal(boundary?.workflowChild, undefined);
+        const childRun = st.runs().find((candidate) => candidate.id === childRunId);
+        assert.equal(childRun?.name, "live-link-child");
+        assert.equal(childRun?.status, "running");
+
+        gate.resolve("child-output");
+        const wfResult = await running;
+
+        assert.equal(wfResult.status, "completed");
+        assert.equal(wfResult.result?.["result"], "child-output");
+    });
+
+    test("ctx.workflow child runs can be killed directly through their live child run id", async () => {
+        const st = createStore();
+        const cancellation = createCancellationRegistry();
+        const child = defineWorkflow("killable-child")
+            .output("summary", { type: "text", required: true })
+            .run(async (ctx) => {
+                await ctx.stage("child-marker").prompt("child-marker");
+                await new Promise((resolve) => setTimeout(resolve, 200));
+                return { summary: "should-not-complete" };
+            })
+            .compile();
+        const parent = defineWorkflow("killable-parent")
+            .run(async (ctx) => {
+                const childResult = await ctx.workflow(child);
+                return { result: childResult.outputs.summary };
+            })
+            .compile();
+
+        const running = run(parent, {}, {
+            store: st,
+            cancellation,
+            adapters: {
+                prompt: {
+                    prompt: async () => "child-stage-ok",
+                },
+            },
+        });
+
+        const deadline = Date.now() + 1000;
+        let childRunId: string | undefined;
+        while (Date.now() < deadline) {
+            const boundary = st.runs()
+                .find((candidate) => candidate.name === "killable-parent")
+                ?.stages.find((stage) => stage.name === "workflow:killable-child");
+            childRunId = boundary?.workflowChildRun?.runId;
+            if (childRunId !== undefined) break;
+            await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+
+        assert.notEqual(childRunId, undefined);
+        const killed = killRun(childRunId!, { store: st, cancellation });
+        const wfResult = await running;
+        const childRun = st.runs().find((candidate) => candidate.id === childRunId);
+
+        assert.equal(killed.ok, true);
+        assert.equal(childRun?.status, "killed");
+        assert.equal(wfResult.status, "failed");
+        assert.match(wfResult.error ?? "", /child workflow "killable-child"/);
     });
 
     test("ctx.workflow executes a compiled workflow definition directly", async () => {
@@ -378,12 +587,12 @@ describe("executor.run", () => {
         assert.match(boundary.result ?? "", /Workflow "direct-child" completed/);
     });
 
-    test("ctx.workflow completes when unexposed child raw output is not cloneable", async () => {
+    test("ctx.workflow fails when unexposed child raw output is not serializable", async () => {
         const child = defineWorkflow("uncloneable-raw-child")
             .output("summary", { type: "text", required: true })
             .run(async (ctx) => {
                 await ctx.stage("child").prompt("child");
-                return { summary: "ok", helper: () => "nope" };
+                return { summary: "ok", helper: () => "nope" } as never;
             })
             .compile();
         const parent = defineWorkflow("uncloneable-raw-parent")
@@ -409,17 +618,15 @@ describe("executor.run", () => {
             },
         );
 
-        assert.equal(wfResult.status, "completed");
-        assert.equal(wfResult.result?.["final"], "done");
-        const boundary = wfResult.stages.find(
-            (stage) => stage.name === "workflow:uncloneable-raw-child",
-        )!;
-        assert.equal(boundary.status, "completed");
-        assert.deepEqual(boundary.workflowChild?.outputs, {
-            summary: "ok",
-            result: "",
-        });
-        assert.equal(boundary.workflowChild?.rawOutput, undefined);
+        assert.equal(wfResult.status, "failed");
+        assert.match(wfResult.error ?? "", /child workflow "uncloneable-raw-child"/);
+        assert.match(wfResult.error ?? "", /JSON-serializable/);
+        assert.deepEqual(
+            wfResult.stages.map((stage) => stage.name),
+            ["workflow:uncloneable-raw-child"],
+        );
+        assert.equal(wfResult.stages[0]?.status, "failed");
+        assert.equal(wfResult.stages[0]?.workflowChild, undefined);
     });
 
     test("ctx.workflow reports a serialization error for non-cloneable declared output", async () => {
@@ -428,7 +635,7 @@ describe("executor.run", () => {
             .output("bad", { type: "unknown" })
             .run(async (ctx) => {
                 await ctx.stage("child").prompt("child");
-                return { bad: () => "nope" };
+                return { bad: () => "nope" } as never;
             })
             .compile();
         const parent = defineWorkflow("uncloneable-selected-parent")
@@ -461,7 +668,7 @@ describe("executor.run", () => {
 
         assert.equal(wfResult.status, "failed");
         assert.match(wfResult.error ?? "", /child workflow "uncloneable-selected-child"/);
-        assert.match(wfResult.error ?? "", /exposed output "bad"/);
+        assert.match(wfResult.error ?? "", /output|return/);
         assert.match(wfResult.error ?? "", /serializable/);
         assert.deepEqual(seenPrompts, ["child"]);
     });
@@ -591,11 +798,66 @@ describe("executor.run", () => {
         assert.equal(wfResult.result?.["childResult"], "run-returned-result");
     });
 
+    test("ctx.workflow validates implicit result output type from child .run", async () => {
+        const seenPrompts: string[] = [];
+        const st = createStore();
+        const child = defineWorkflow("implicit-result-type-child")
+            .run(async (ctx) => {
+                await ctx.task("child", { prompt: "child" });
+                return { result: 42 } as never;
+            })
+            .compile();
+        const parent = defineWorkflow("implicit-result-type-parent")
+            .run(async (ctx) => {
+                await ctx.workflow(child);
+                await ctx.task("downstream", { prompt: "should-not-run" });
+                return {};
+            })
+            .compile();
+
+        const wfResult = await run(
+            parent,
+            {},
+            {
+                registry: createRegistry([
+                    parent as WorkflowDefinition,
+                    child as WorkflowDefinition,
+                ]),
+                store: st,
+                adapters: {
+                    prompt: {
+                        prompt: async (text) => {
+                            seenPrompts.push(text);
+                            return "ok";
+                        },
+                    },
+                },
+            },
+        );
+
+        assert.equal(wfResult.status, "failed");
+        assert.match(
+            wfResult.error ?? "",
+            /child workflow "implicit-result-type-child"[\s\S]*output "result" expected string, got number/,
+        );
+        assert.deepEqual(seenPrompts, ["child"]);
+        assert.equal(wfResult.stages[0]?.name, "workflow:implicit-result-type-child");
+        assert.equal(wfResult.stages[0]?.status, "failed");
+        const childRun = st.runs().find(
+            (runSnapshot) => runSnapshot.name === "implicit-result-type-child",
+        );
+        assert.equal(childRun?.status, "failed");
+        assert.match(
+            childRun?.error ?? "",
+            /workflow "implicit-result-type-child" output "result" expected string, got number/,
+        );
+    });
+
     test("ctx.workflow implicit result output is empty when child .run returns nothing", async () => {
         const child = defineWorkflow("implicit-empty-result-child")
             .run(async (ctx) => {
                 await ctx.task("final", { prompt: "final" });
-                return undefined as unknown as Record<string, unknown>;
+                return undefined as never;
             })
             .compile();
         const parent = defineWorkflow("implicit-empty-result-parent")
@@ -1335,13 +1597,13 @@ describe("executor.run", () => {
         assert.equal(sourceValue.nested, "child-ok");
     });
 
-    test("continuation replays workflow boundary when raw output was omitted as non-serializable", async () => {
+    test("continuation replays workflow boundary with serializable raw output", async () => {
         const st = createStore();
         const child = defineWorkflow("resume-uncloneable-raw-child")
             .output("value", { type: "text", required: true })
             .run(async (ctx) => {
                 await ctx.stage("child").prompt("child");
-                return { value: "child-ok", helper: () => "nope" };
+                return { value: "child-ok", helper: "serializable-extra" };
             })
             .compile();
         const parent = defineWorkflow("resume-uncloneable-raw-parent")
@@ -1384,7 +1646,10 @@ describe("executor.run", () => {
             value: "child-ok",
             result: "",
         });
-        assert.equal(sourceBoundary.workflowChild?.rawOutput, undefined);
+        assert.deepEqual(sourceBoundary.workflowChild?.rawOutput, {
+            value: "child-ok",
+            helper: "serializable-extra",
+        });
 
         const continuationCalls: string[] = [];
         const continued = await run(
@@ -1418,7 +1683,10 @@ describe("executor.run", () => {
             value: "child-ok",
             result: "",
         });
-        assert.equal(boundary.workflowChild?.rawOutput, undefined);
+        assert.deepEqual(boundary.workflowChild?.rawOutput, {
+            value: "child-ok",
+            helper: "serializable-extra",
+        });
         assert.equal(continued.result?.["after"], "after-ok");
     });
 
@@ -4379,6 +4647,7 @@ describe("executor.run — lifecycle persistence", () => {
         const { persistence, calls } = makePersistence();
 
         const def = defineWorkflow("payload-wf")
+            .input("x", { type: "number" })
             .run(async (ctx) => {
                 await ctx.task("payload-smoke", { prompt: "go" });
                 return {};

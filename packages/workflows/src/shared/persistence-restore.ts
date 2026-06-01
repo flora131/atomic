@@ -332,6 +332,12 @@ function workflowChildMetadata(payload: Record<string, unknown>): Pick<StageSnap
     return {};
   }
 
+  // `structuredClone` detaches the restored snapshot from the parsed JSONL
+  // payload with a guaranteed deep copy, independent of how the serializable
+  // schema's parse step copies (which can differ across the supported zod
+  // majors). Declared `outputs` are part of the child contract, so a
+  // non-serializable value bails the whole child snapshot; `rawOutput` below
+  // is auxiliary and degrades to absent instead.
   let clonedOutputs: WorkflowOutputValues;
   try {
     const serializableOutputs = serializableObject(outputs);

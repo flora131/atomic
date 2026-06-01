@@ -1867,7 +1867,6 @@ export default defineWorkflow("tool-headless-lifecycle")
             { action: "transcript" }
         >;
         assert.equal(referenceDetails.entries.length, 1);
-        assert.equal(referenceDetails.entriesOmitted, false);
         assert.equal(referenceDetails.entryCount, 1);
         assert.equal(referenceDetails.entryLimit, 5);
         assert.equal(referenceDetails.transcriptPath, sessionFile);
@@ -1907,7 +1906,6 @@ export default defineWorkflow("tool-headless-lifecycle")
             defaultJsonBlock.type === "text" ? defaultJsonBlock.text : "{}",
         );
         assert.equal(defaultParsed.entries.length, 1);
-        assert.equal(defaultParsed.entriesOmitted, false);
         assert.equal(defaultParsed.entryCount, 1);
         assert.equal(defaultParsed.entryLimit, 5);
         assert.equal(defaultParsed.transcriptPath, sessionFile);
@@ -1935,7 +1933,6 @@ export default defineWorkflow("tool-headless-lifecycle")
             jsonBlock.type === "text" ? jsonBlock.text : "{}",
         );
         assert.equal(parsed.entries[0].text, longText);
-        assert.equal(parsed.entriesOmitted, false);
         assert.equal(parsed.entryLimit, 1);
     });
 
@@ -2479,7 +2476,6 @@ export default defineWorkflow("tool-headless-lifecycle")
                 source: string;
                 entries: unknown[];
                 truncated: boolean;
-                entriesOmitted?: boolean;
                 sessionId?: string;
                 sessionFile?: string;
                 transcriptPath?: string;
@@ -2487,7 +2483,6 @@ export default defineWorkflow("tool-headless-lifecycle")
             assert.equal(transcript.source, "live");
             assert.equal(transcript.truncated, false);
             assert.deepEqual(transcript.entries, []);
-            assert.equal(transcript.entriesOmitted, false);
             assert.equal(
                 (transcript as { entryLimit?: number }).entryLimit,
                 5,

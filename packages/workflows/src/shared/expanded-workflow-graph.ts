@@ -63,6 +63,11 @@ export function expandWorkflowGraph(
   if (!root) return { stages: [], targets: new Map() };
 
   const targets = new Map<string, ExpandedWorkflowStageTarget>();
+  // Cycle guard only. This relies on the store invariant that each child run is
+  // referenced by exactly one parent stage (runIds are unique and a child run
+  // has a single boundary stage), so removing a run from `visiting` on exit
+  // cannot double-expand a shared child into duplicate virtual stage ids. If
+  // that invariant is ever relaxed, dedupe expanded stages by virtual id here.
   const visiting = new Set<string>();
 
   const expandRun = (

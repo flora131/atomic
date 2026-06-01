@@ -122,7 +122,6 @@ type TranscriptResult = {
   source: "live" | "snapshot" | "error";
   entries: TranscriptEntry[];
   truncated: boolean;
-  entriesOmitted?: boolean;
   entryCount?: number;
   entryLimit?: number;
   sessionId?: string;
@@ -224,16 +223,6 @@ function transcriptNoticeText(entries: readonly TranscriptEntry[]): string {
     ? ` … (+${entries.length - shown.length} more)`
     : "";
   return fitLine(`${text}${entrySuffix}`, TRANSCRIPT_NOTICE_CHAR_LIMIT);
-}
-
-function transcriptReferenceNoticeText(result: TranscriptResult): string {
-  const path = result.transcriptPath ?? result.sessionFile;
-  const count = result.entryCount === undefined
-    ? "entries omitted"
-    : `${result.entryCount} entr${result.entryCount === 1 ? "y" : "ies"} omitted`;
-  return path === undefined
-    ? `${count}; pass tail or limit to inline recent entries`
-    : `${count}; search exact path=${JSON.stringify(path)}`;
 }
 
 export function renderResult(result: WorkflowToolResult, opts?: RenderResultOpts): string {
@@ -361,9 +350,7 @@ export function renderResult(result: WorkflowToolResult, opts?: RenderResultOpts
 
     case "transcript": {
       const r = result as TranscriptResult;
-      const text = r.entriesOmitted === true
-        ? transcriptReferenceNoticeText(r)
-        : transcriptNoticeText(r.entries);
+      const text = transcriptNoticeText(r.entries);
       const suffix = r.truncated ? " (truncated)" : "";
       return renderNotice("WORKFLOW TRANSCRIPT", `${r.runId}/${r.stageId.slice(0, 12)} ${r.source}: ${text}${suffix}`, opts, themed);
     }

@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Raised the bundled `deep-research-codebase` default `max_concurrency` from 4 to 100 so partitioned research stages fan out in parallel by default; lower it via the `max_concurrency` input on rate-limited or cost-sensitive setups (with `max_partitions` up to 100 and one locator/pattern-finder/analyzer/online-researcher specialist per partition, a single run can otherwise spawn many concurrent stage sessions).
 - Declared explicit output contracts for the bundled `deep-research-codebase`, `goal`, `ralph`, and `open-claude-design` workflows so parent workflows receive schema-validated child outputs.
 - Renamed workflow runtime error prefixes from `pi-workflows:` to `atomic-workflows:`.
 - Render workflow stage notices, lifecycle notices, and HiL answer notices as compact emoji-free TUI cards instead of plain wrapped rows, matching the debugger warning card treatment.

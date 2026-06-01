@@ -645,15 +645,6 @@ function renderTranscriptToolContent(
   if (result.transcriptPath) lines.push(`transcriptPathJson: ${JSON.stringify(result.transcriptPath)}`);
   if (result.entryCount !== undefined) lines.push(`availableEntries: ${result.entryCount}`);
   if (result.entryLimit !== undefined) lines.push(`entryLimit: ${result.entryLimit}`);
-  if (result.entriesOmitted === true) {
-    lines.push("entries: omitted");
-    lines.push(
-      result.transcriptPath
-        ? "lazyRead: quote the exact transcriptPath/sessionFile value (do not rewrite Windows backslashes), search it with rg or grep for targeted terms, then read only small surrounding ranges; pass tail or limit to override the default recent-entry preview."
-        : "lazyRead: no transcript path is available; pass explicit tail or limit to control inline recent entries.",
-    );
-    return lines.join("\n");
-  }
   if (result.entries.length === 0) {
     lines.push("entries: none");
     return lines.join("\n");
@@ -867,7 +858,6 @@ const DEFAULT_TRANSCRIPT_LIMIT = 5;
 type TranscriptEntrySelection = {
   entries: WorkflowTranscriptEntry[];
   truncated: boolean;
-  entriesOmitted: boolean;
   entryCount: number;
   entryLimit?: number;
 };
@@ -889,7 +879,6 @@ function selectTranscriptEntries(
     return {
       entries: [],
       truncated: false,
-      entriesOmitted: false,
       entryCount,
       entryLimit: count,
     };
@@ -898,7 +887,6 @@ function selectTranscriptEntries(
     return {
       entries: [...entries],
       truncated: false,
-      entriesOmitted: false,
       entryCount,
       entryLimit: count,
     };
@@ -906,7 +894,6 @@ function selectTranscriptEntries(
   return {
     entries: entries.slice(entries.length - count),
     truncated: true,
-    entriesOmitted: false,
     entryCount,
     entryLimit: count,
   };

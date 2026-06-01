@@ -431,7 +431,7 @@ export default defineWorkflow("deep-research-codebase")
       outputMode: FILE_ONLY_OUTPUT,
     });
     const displayWorkflowPath = (path: string): string =>
-      displayRelativePath(path, ctx.cwd ?? workflowCwd);
+      displayRelativePath(path, workflowCwd);
     const displayWorkflowPaths = (paths: readonly string[]): string =>
       paths.map(displayWorkflowPath).join(", ");
 

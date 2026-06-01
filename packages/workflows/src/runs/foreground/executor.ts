@@ -1872,6 +1872,10 @@ function workflowChildReplaySnapshot(
     }
   }
 
+  // Declared `outputs` above are the child contract: a clone failure throws so
+  // the replay snapshot never silently loses contracted data. `rawOutput` is
+  // best-effort debugging metadata, so a clone failure intentionally drops it
+  // (degrades to absent) rather than failing continuation replay.
   let rawOutput: WorkflowOutputValues | undefined;
   if (childResult.rawOutput !== undefined) {
     try {

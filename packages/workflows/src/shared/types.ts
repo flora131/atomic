@@ -155,6 +155,8 @@ export interface WorkflowOutputSchema {
   readonly type?: WorkflowOutputType;
   readonly description?: string;
   readonly required?: boolean;
+  /** Allowed string values when `type` is `"select"`; ignored for other types. */
+  readonly choices?: readonly string[];
 }
 
 export interface WorkflowRunChildOptions {

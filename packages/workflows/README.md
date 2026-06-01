@@ -60,6 +60,11 @@ export default defineWorkflow("summarize-pr")
     required: true,
     description: "URL of the pull request to summarize.",
   })
+  .output("summary", {
+    type: "text",
+    required: true,
+    description: "One-task summary of the pull request.",
+  })
   .run(async (ctx) => {
     const summary = await ctx.task("summarize", {
       prompt: `Summarize the pull request at ${String(ctx.inputs.pr_url)} clearly and concisely.`,
@@ -79,6 +84,11 @@ import { defineWorkflow } from "@bastani/workflows";
 export default defineWorkflow("parallel-research")
   .description("Scout → three parallel specialists → aggregator.")
   .input("topic", { type: "text", required: true, description: "Research topic." })
+  .output("summary", {
+    type: "text",
+    required: true,
+    description: "Synthesized summary of the specialist reports.",
+  })
   .run(async (ctx) => {
     const topic = ctx.inputs.topic;
 
@@ -105,6 +115,14 @@ import { defineWorkflow } from "@bastani/workflows";
 export default defineWorkflow("review-and-merge")
   .description("Plan a change, ask for human approval, then execute.")
   .input("task", { type: "text", required: true, description: "What to implement." })
+  .output("status", {
+    type: "text",
+    description: "Set to \"cancelled\" when the human rejects the plan.",
+  })
+  .output("result", {
+    type: "text",
+    description: "Implementation result when the plan is approved.",
+  })
   .run(async (ctx) => {
     const plan = await ctx.task("planner", {
       prompt: `Create a concise implementation plan for: ${String(ctx.inputs.task)}`,
@@ -135,6 +153,11 @@ import sharedResearch from "./shared-research.js";
 
 export default defineWorkflow("research-and-synthesize")
   .input("topic", { type: "text", required: true })
+  .output("final", {
+    type: "text",
+    required: true,
+    description: "Synthesis of the child research and implementation.",
+  })
   .run(async (ctx) => {
     const child = await ctx.workflow(sharedResearch, {
       inputs: { topic: ctx.inputs.topic },
@@ -201,6 +224,11 @@ export default defineWorkflow("safe-implementation")
     gitWorktreeDir: "worktree",
     baseBranch: "base_branch",
   })
+  .output("result", {
+    type: "text",
+    required: true,
+    description: "Implementation result text.",
+  })
   .run(async (ctx) => {
     const result = await ctx.task("implement", {
       task: String(ctx.inputs.task),
@@ -253,6 +281,26 @@ import { defineWorkflow } from "@bastani/workflows";
 export default defineWorkflow("fallback-review")
   .description("Review with a model fallback chain.")
   .input("topic", { type: "text", required: true })
+  .output("review", {
+    type: "text",
+    required: true,
+    description: "Reviewer output text.",
+  })
+  .output("model", {
+    type: "text",
+    required: true,
+    description: "Model that produced the review.",
+  })
+  .output("attemptedModels", {
+    type: "array",
+    required: true,
+    description: "Models tried, in fallback order.",
+  })
+  .output("modelAttempts", {
+    type: "array",
+    required: true,
+    description: "Per-attempt model fallback details.",
+  })
   .run(async (ctx) => {
     const review = await ctx.task("reviewer", {
       prompt: `Review this topic: ${String(ctx.inputs.topic)}`,

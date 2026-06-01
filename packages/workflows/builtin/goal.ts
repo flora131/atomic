@@ -985,6 +985,7 @@ export default defineWorkflow("goal")
   })
   .output("status", {
     type: "select",
+    choices: ["complete", "blocked", "needs_human", "active"],
     description: "Final reducer status: complete, blocked, needs_human, or active if externally interrupted.",
   })
   .output("approved", {

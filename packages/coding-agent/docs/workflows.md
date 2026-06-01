@@ -117,6 +117,11 @@ export default defineWorkflow("explain-file")
     required: true,
     description: "File path to explain.",
   })
+  .output("explanation", {
+    type: "text",
+    required: true,
+    description: "Explanation of the file's purpose, risks, and key symbols.",
+  })
   .run(async (ctx) => {
     const explanation = await ctx.task("explain", {
       prompt: `Read ${String(ctx.inputs.path)} and explain purpose, risks, and key symbols.`,
@@ -777,6 +782,16 @@ export default defineWorkflow("my-workflow")
     required: true,
     description: "Task or question for the workflow.",
   })
+  .output("summary", {
+    type: "text",
+    required: true,
+    description: "Synthesized findings and recommended next steps.",
+  })
+  .output("reviewer_count", {
+    type: "number",
+    required: true,
+    description: "Number of parallel reviewers that ran.",
+  })
   .run(async (ctx) => {
     const prompt = String(ctx.inputs.prompt);
 
@@ -902,6 +917,16 @@ import sharedResearch from "./shared-research.js";
 
 export default defineWorkflow("research-and-synthesize")
   .input("topic", { type: "text", required: true })
+  .output("final", {
+    type: "text",
+    required: true,
+    description: "Synthesis built from the child research summary.",
+  })
+  .output("child_run_id", {
+    type: "text",
+    required: true,
+    description: "Run id of the nested shared-research child.",
+  })
   .run(async (ctx) => {
     const child = await ctx.workflow(sharedResearch, {
       inputs: { topic: ctx.inputs.topic },
@@ -955,6 +980,21 @@ export default defineWorkflow("research-then-implement")
     choices: ["goal", "ralph"],
     default: "goal",
     description: "Use goal for bounded changes or Ralph for broad spec-to-PR work.",
+  })
+  .output("research_doc_path", {
+    type: "text",
+    required: true,
+    description: "Path to the deep-research document used for implementation.",
+  })
+  .output("runner", {
+    type: "text",
+    required: true,
+    description: "Which nested runner executed: \"goal\" or \"ralph\".",
+  })
+  .output("implementation", {
+    type: "object",
+    required: true,
+    description: "Declared outputs from the nested implementation workflow.",
   })
   .run(async (ctx) => {
     const topic = String(ctx.inputs.topic);
@@ -1085,6 +1125,11 @@ export default defineWorkflow("safe-implementation")
   .input("git_worktree_dir", { type: "string", default: "" })
   .input("base_branch", { type: "string", default: "origin/main" })
   .worktreeFromInputs({ gitWorktreeDir: "git_worktree_dir", baseBranch: "base_branch" })
+  .output("result", {
+    type: "text",
+    required: true,
+    description: "Implementation result text.",
+  })
   .run(async (ctx) => {
     const result = await ctx.task("implement", { task: String(ctx.inputs.task) });
     return { result: result.text };
@@ -1133,6 +1178,11 @@ Use `createRegistry()` when code needs to group definitions explicitly:
 import { createRegistry, defineWorkflow } from "@bastani/workflows";
 
 const alpha = defineWorkflow("alpha")
+  .output("text", {
+    type: "text",
+    required: true,
+    description: "Alpha task output text.",
+  })
   .run(async (ctx) => {
     const result = await ctx.task("alpha", { prompt: "Run alpha." });
     return { text: result.text };

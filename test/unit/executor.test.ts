@@ -851,6 +851,56 @@ describe("executor.run", () => {
         );
     });
 
+    test("run rejects a select output whose value is not a declared choice", async () => {
+        const wf = defineWorkflow("select-output-wf")
+            .output("status", { type: "select", choices: ["complete", "blocked"], required: true })
+            .run(async (ctx) => {
+                await ctx.task("only", { prompt: "go" });
+                return { status: "in-progress" } as never;
+            })
+            .compile();
+
+        const wfResult = await run(
+            wf,
+            {},
+            {
+                registry: createRegistry([wf as WorkflowDefinition]),
+                store: createStore(),
+                adapters: { prompt: { prompt: async () => "ok" } },
+            },
+        );
+
+        assert.equal(wfResult.status, "failed");
+        assert.match(
+            wfResult.error ?? "",
+            /output "status" must be one of \[complete, blocked\], got "in-progress"/,
+        );
+    });
+
+    test("run drops top-level undefined outputs instead of failing serialization", async () => {
+        const wf = defineWorkflow("undefined-output-wf")
+            .output("kept", { type: "text", required: true })
+            .output("maybe", { type: "text" })
+            .run(async (ctx) => {
+                await ctx.task("only", { prompt: "go" });
+                return { kept: "value", maybe: undefined } as never;
+            })
+            .compile();
+
+        const wfResult = await run(
+            wf,
+            {},
+            {
+                registry: createRegistry([wf as WorkflowDefinition]),
+                store: createStore(),
+                adapters: { prompt: { prompt: async () => "ok" } },
+            },
+        );
+
+        assert.equal(wfResult.status, "completed");
+        assert.deepEqual(wfResult.result, { kept: "value" });
+    });
+
     test("ctx.workflow exposes no outputs for a child that declares none", async () => {
         const child = defineWorkflow("no-output-child")
             .run(async (ctx) => {

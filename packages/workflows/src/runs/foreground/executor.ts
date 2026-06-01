@@ -1740,6 +1740,14 @@ function assertWorkflowOutputsExplicit(
         `atomic-workflows: ${scope} output "${key}" expected ${schema.type ?? "unknown"}, got ${workflowSerializableTypeName(value)}`,
       );
     }
+    // `workflowOutputTypeMatches` already guaranteed a string for a select; when
+    // the declaration lists choices, enforce membership so a typo in the run
+    // body is caught instead of silently passing as a plain string.
+    if (schema.type === "select" && schema.choices !== undefined && !schema.choices.includes(value as string)) {
+      throw new Error(
+        `atomic-workflows: ${scope} output "${key}" must be one of [${schema.choices.join(", ")}], got ${JSON.stringify(value)}`,
+      );
+    }
     const serializableError = workflowSerializableValidationError(
       value,
       `${scope} output "${key}"`,
@@ -1755,8 +1763,18 @@ function normalizeWorkflowRunOutput(
   rawOutput: unknown,
 ): WorkflowOutputValues | undefined {
   if (rawOutput === undefined) return undefined;
-  assertWorkflowSerializableObject(rawOutput, `workflow "${workflowName}" .run() return`);
-  return rawOutput;
+  // Drop top-level keys explicitly set to `undefined` so conditional outputs
+  // (e.g. `{ note: cond ? value : undefined }`) satisfy the JSON-serializable
+  // contract instead of failing validation; selectWorkflowOutputs strips the
+  // same way at the child boundary, keeping both paths consistent.
+  const normalized =
+    rawOutput !== null && typeof rawOutput === "object" && !Array.isArray(rawOutput)
+      ? Object.fromEntries(
+          Object.entries(rawOutput as Record<string, unknown>).filter(([, v]) => v !== undefined),
+        )
+      : rawOutput;
+  assertWorkflowSerializableObject(normalized, `workflow "${workflowName}" .run() return`);
+  return normalized;
 }
 
 function assertWorkflowRunOutputs(

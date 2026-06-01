@@ -313,8 +313,8 @@ export function buildThemedWidgetLines(
   snap: StoreSnapshot,
   piTheme: PiTheme | undefined,
   width = 120,
+  now = Date.now(),
 ): string[] {
-  const now = Date.now();
   const display = selectDisplayRuns(snap, now);
   if (display.length === 0) return [];
 

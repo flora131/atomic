@@ -27,10 +27,6 @@ interface AsyncJobTrackerOptions {
 	now?: () => number;
 }
 
-interface RenderRequestingContext extends ExtensionContext {
-	ui: ExtensionContext["ui"] & { requestRender?: () => void };
-}
-
 const ACTIVE_HYDRATION_STATES: Array<AsyncRunSummary["state"]> = ["queued", "running"];
 
 function cwdMatches(summaryCwd: string | undefined, currentCwd: string | undefined): boolean {
@@ -102,7 +98,6 @@ export function createAsyncJobTracker(pi: Pick<ExtensionAPI, "events">, state: S
 	const resultsDir = options.resultsDir ?? RESULTS_DIR;
 	const rerenderWidget = (ctx: ExtensionContext, jobs = Array.from(state.asyncJobs.values())) => {
 		renderWidget(ctx, jobs);
-		(ctx as RenderRequestingContext).ui.requestRender?.();
 	};
 	const cancelCleanup = (asyncId: string) => {
 		const existingTimer = state.cleanupTimers.get(asyncId);

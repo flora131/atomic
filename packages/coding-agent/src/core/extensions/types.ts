@@ -159,6 +159,9 @@ export interface ExtensionUIContext {
 	/** Show a notification to the user. */
 	notify(message: string, type?: "info" | "warning" | "error"): void;
 
+	/** Request an interactive repaint after extension-owned state changes. */
+	requestRender(): void;
+
 	/** Listen to raw terminal input (interactive mode only). Returns an unsubscribe function. */
 	onTerminalInput(handler: TerminalInputHandler): () => void;
 

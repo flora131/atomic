@@ -153,6 +153,10 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			} as RpcExtensionUIRequest);
 		},
 
+		requestRender(): void {
+			// RPC mode does not own a local TUI renderer.
+		},
+
 		onTerminalInput(): () => void {
 			// Raw terminal input not supported in RPC mode
 			return () => {};

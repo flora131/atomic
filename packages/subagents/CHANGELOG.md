@@ -5,7 +5,7 @@
 ### Fixed
 - Show Codex fast-mode launch metadata in foreground subagent result badges, async subagent widgets, and async status output when eligible OpenAI/OpenAI Codex child runs start with `/fast` enabled ([#1153](https://github.com/flora131/atomic/issues/1153)).
 - Scope subagent Codex fast-mode launches to the parent chat surface, so main-chat subagents follow `codexFastMode.chat` while workflow-node subagents follow `codexFastMode.workflow` ([#1153](https://github.com/flora131/atomic/issues/1153)).
-- Keep the async subagent widget mounted across visible status updates and freeze chatbox result-row clocks per entry, avoiding TUI flicker from repeated widget remounts and scrollback lines that tick during host re-renders ([#1150](https://github.com/flora131/atomic/issues/1150)).
+- Keep the async subagent widget mounted across visible status updates, capture widget animation clocks outside arbitrary host re-renders, and animate foreground subagent chatbox spinners with spinner-only ticks that leave elapsed/activity text stable between semantic progress updates ([#1150](https://github.com/flora131/atomic/issues/1150)).
 - Harden global npm skill discovery by suppressing noisy probe output while keeping a conservative timeout and caching failures for constrained environments.
 - Hydrate active async subagent runs from durable status files into the below-editor widget so background work visible via `subagent({ action: "status" })` also appears in the TUI after launch/session rebinding ([#1146](https://github.com/flora131/atomic/issues/1146)).
 

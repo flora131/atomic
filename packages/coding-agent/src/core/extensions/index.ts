@@ -174,4 +174,22 @@ export {
 	isToolCallEventType,
 	isWriteToolResult,
 } from "./types.ts";
+export {
+	decideReactiveWidgetAction,
+	installReactiveWidget,
+} from "./reactive-widget.ts";
+export type {
+	InstallReactiveWidgetOptions,
+	ReactiveWidgetAction,
+	ReactiveWidgetComponent,
+	ReactiveWidgetController,
+	ReactiveWidgetFactory,
+	ReactiveWidgetRefreshReason,
+	ReactiveWidgetRenderContext,
+	ReactiveWidgetRenderState,
+	ReactiveWidgetScheduler,
+	ReactiveWidgetTimerApi,
+	ReactiveWidgetTimerHandle,
+	ReactiveWidgetUi,
+} from "./reactive-widget.ts";
 export { wrapRegisteredTool, wrapRegisteredTools } from "./wrapper.ts";

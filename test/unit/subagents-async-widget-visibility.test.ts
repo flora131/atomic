@@ -156,7 +156,33 @@ describe("subagent async widget hydration (issue #1146)", () => {
 		assert.equal(job.sessionId, "session-current");
 		assert.equal(job.currentTool, "read");
 		assert.ok(widgetCalls.some((call) => call.options?.placement === "belowEditor"), "hydrated active run should mount belowEditor");
-		assert.equal(renderCount(), 1);
+		assert.equal(renderCount(), 0, "mounting is handled by setWidget; the tracker must not duplicate requestRender");
+	});
+
+	test("visible active-run hydration updates the mounted widget with one in-place render", () => {
+		const cwd = makeTempRoot("atomic-subagent-widget-cwd-");
+		const asyncRoot = makeTempRoot("atomic-subagent-widget-async-");
+		const resultsDir = makeTempRoot("atomic-subagent-widget-results-");
+		const state = makeState(cwd, "session-current");
+		writeStatus(asyncRoot, "run-visible", makeStatus("run-visible", cwd, {
+			sessionId: "session-current",
+			toolCount: 1,
+		}));
+		const { ctx, widgetCalls, renderCount } = makeUiContext(cwd);
+		const tracker = makeTracker(state, asyncRoot, resultsDir);
+
+		tracker.hydrateActiveJobs(ctx);
+		writeStatus(asyncRoot, "run-visible", makeStatus("run-visible", cwd, {
+			sessionId: "session-current",
+			currentTool: "bash",
+			currentToolStartedAt: 2_000,
+			toolCount: 2,
+			lastUpdate: 3_000,
+		}));
+		tracker.hydrateActiveJobs(ctx);
+
+		assert.equal(widgetCalls.length, 1, "visible hydration updates must not remount the widget");
+		assert.equal(renderCount(), 1, "visible hydration updates should request exactly one in-place render");
 	});
 
 	test("does not hydrate active runs from unrelated sessions or directories", () => {

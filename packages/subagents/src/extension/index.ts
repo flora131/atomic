@@ -23,7 +23,7 @@ import { discoverAgents } from "../agents/agents.ts";
 import { cleanupAllArtifactDirs, cleanupOldArtifacts, getArtifactsDir } from "../shared/artifacts.ts";
 import { resolveCurrentSessionId } from "../shared/session-identity.ts";
 import { cleanupOldChainDirs } from "../shared/settings.ts";
-import { renderSubagentResult, stopResultAnimations, stopWidgetAnimation } from "../tui/render.ts";
+import { renderLiveSubagentResult, renderSubagentResult, stopResultAnimations, stopWidgetAnimation, type SubagentResultRenderState } from "../tui/render.ts";
 import { SubagentParams } from "./schemas.ts";
 import { createSubagentExecutor, type SubagentParamsLike } from "../runs/foreground/subagent-executor.ts";
 import { createAsyncJobTracker } from "../runs/background/async-job-tracker.ts";
@@ -117,9 +117,7 @@ function isStaleExtensionContextError(error: unknown): boolean {
 	return error instanceof Error && error.message.includes("Extension context no longer active");
 }
 
-interface SubagentToolRenderState {
-	subagentResultSnapshotNow?: number;
-}
+type SubagentToolRenderState = SubagentResultRenderState;
 
 function rebuildSlashResultContainer(
 	container: Container,
@@ -469,11 +467,12 @@ DIAGNOSTICS:
 		},
 
 		renderResult(result, options, theme, context) {
-			// Tool-result rows live in chat scrollback. Capture a stable clock once
-			// for the row so host re-renders (from widgets, input, or terminal ticks)
-			// do not mutate spinner glyph cells above the viewport and cause flicker.
-			context.state.subagentResultSnapshotNow ??= Date.now();
-			return renderSubagentResult(result, { ...options, now: context.state.subagentResultSnapshotNow }, theme);
+			// Tool-result rows live in chat scrollback. The host keeps context.state
+			// on the ToolExecutionComponent for this row, so foreground updates/ticks
+			// capture an explicit frame timestamp and arbitrary host re-renders reuse
+			// it. Running foreground rows intentionally advance via their own timer;
+			// completed scrollback remains a stable point-in-time snapshot.
+			return renderLiveSubagentResult(result, options, theme, context);
 		},
 
 	};

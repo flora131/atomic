@@ -2482,6 +2482,7 @@ export class InteractiveMode {
       input: (title, placeholder, opts) =>
         this.showExtensionInput(title, placeholder, opts),
       notify: (message, type) => this.showExtensionNotify(message, type),
+      requestRender: () => this.ui.requestRender(),
       onTerminalInput: (handler) =>
         this.addExtensionTerminalInputListener(handler),
       setStatus: (key, text) => this.setExtensionStatus(key, text),

@@ -651,6 +651,9 @@ export function clearSkillCache(): void {
 	cachedGlobalNpmRoot = null;
 }
 
+/**
+ * @internal Test seam for unit tests that need to mock `npm root -g`.
+ */
 export function __setGlobalNpmRootExecSyncForTest(execSyncImpl?: typeof execSync): void {
 	execSyncGlobalNpmRoot = execSyncImpl ?? execSync;
 	cachedGlobalNpmRoot = null;

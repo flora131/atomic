@@ -40,6 +40,15 @@
  *      live Atomic widgets without reintroducing a high-frequency spinner.
  */
 
+import {
+  decideReactiveWidgetAction,
+  installReactiveWidget,
+  type ReactiveWidgetAction,
+  type ReactiveWidgetFactory,
+  type ReactiveWidgetRenderState,
+  type ReactiveWidgetTimerApi,
+  type ReactiveWidgetTimerHandle,
+} from "@bastani/atomic";
 import type { Store } from "../shared/store.js";
 import type { StoreSnapshot } from "../shared/store-types.js";
 import { buildThemedWidgetLines, nextWidgetRefreshDelayMs } from "./widget.js";
@@ -49,15 +58,9 @@ export interface PiTheme {
   bold(text: string): string;
 }
 
-export type WidgetFactory = (
-  tui: unknown,
-  theme: PiTheme | unknown,
-) => Component & { dispose?(): void };
-
-export interface Component {
-  render(width: number): string[];
-  dispose?(): void;
-}
+export type WidgetFactory = ReactiveWidgetFactory<unknown>;
+export type WidgetAction = ReactiveWidgetAction;
+export type WidgetRenderState = ReactiveWidgetRenderState;
 
 interface UiSlice {
   setWidget?: (
@@ -68,14 +71,8 @@ interface UiSlice {
   requestRender?: () => void;
 }
 
-interface TimerHandle {
-  unref?: () => void;
-}
-
-interface TimerApi {
-  setTimeout(handler: () => void, delayMs: number): TimerHandle;
-  clearTimeout(handle: TimerHandle): void;
-}
+interface TimerApi extends ReactiveWidgetTimerApi {}
+interface TimerHandle extends ReactiveWidgetTimerHandle {}
 
 const defaultTimerApi: TimerApi = {
   setTimeout: (handler, delayMs) => setTimeout(handler, delayMs) as TimerHandle,
@@ -97,59 +94,11 @@ function isStale(err: unknown): boolean {
   return err instanceof Error && err.message.includes(STALE_CONTEXT);
 }
 
-/** The four ways a refresh can reach (or skip) the terminal. */
-export type WidgetAction = "mount" | "unmount" | "update" | "none";
-
-export interface WidgetRenderState {
-  /** Whether the widget is currently mounted (factory installed via setWidget). */
-  readonly mounted: boolean;
-  /** Plain preview lines last rendered while mounted (empty when not mounted). */
-  readonly lines: readonly string[];
-}
-
-function linesEqual(a: readonly string[], b: readonly string[]): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false;
-  }
-  return true;
-}
-
-/**
- * Pure decision: given the previous mount state + previously rendered lines
- * and the next preview lines, decide how a refresh should reach the terminal.
- *  - hidden  → visible             => "mount"   (setWidget(factory))
- *  - visible → hidden              => "unmount" (setWidget(undefined))
- *  - visible → visible, changed    => "update"  (requestRender only — no remount)
- *  - visible → visible, identical  => "none"    (skip the redundant repaint)
- *  - hidden  → hidden              => "none"
- *
- * No UI/terminal dependency, so it is unit-testable without a real terminal.
- */
 export function decideWidgetAction(
   prev: WidgetRenderState,
   nextLines: readonly string[],
 ): WidgetAction {
-  const nextVisible = nextLines.length > 0;
-  if (!prev.mounted) return nextVisible ? "mount" : "none";
-  if (!nextVisible) return "unmount";
-  return linesEqual(prev.lines, nextLines) ? "none" : "update";
-}
-
-/**
- * Build the long-lived widget factory closure. Pi invokes the factory once
- * with `(this.ui, theme)` at mount; the returned component is reused across
- * renders. It closes over a *live* snapshot getter rather than a captured
- * snapshot, so each `requestRender()` recomputes lines from the latest
- * snapshot (and a fresh `Date.now()`) with no dispose/remount.
- */
-function widgetFactory(getSnap: () => StoreSnapshot): WidgetFactory {
-  return (_tui, theme) => {
-    return {
-      render: (width: number) =>
-        buildThemedWidgetLines(getSnap(), theme as PiTheme | undefined, width),
-    };
-  };
+  return decideReactiveWidgetAction(prev, nextLines);
 }
 
 export function installStoreWidget(
@@ -160,96 +109,25 @@ export function installStoreWidget(
   const ui = pi.ui;
   if (!ui?.setWidget) return () => {};
 
-  let disposed = false;
-  let refreshTimer: TimerHandle | undefined;
-  // In-place widget state: whether the long-lived component is mounted, the
-  // latest snapshot it should render, and the last plain preview lines used
-  // to detect no-op refreshes.
-  let mounted = false;
-  let currentSnap: StoreSnapshot;
-  let lastLines: readonly string[] = [];
+  const requestRender = ui.requestRender;
+  const controller = installReactiveWidget<StoreSnapshot, unknown>({
+    ui: {
+      setWidget: (key, factory, opts) => ui.setWidget?.(key, factory, opts),
+      ...(requestRender ? { requestRender: () => requestRender.call(ui) } : {}),
+    },
+    key: WIDGET_KEY,
+    placement: "belowEditor",
+    timers,
+    getSnapshot: () => storeInstance.snapshot(),
+    subscribe: (listener) => storeInstance.subscribe(() => listener()),
+    getPreviewLines: (snap, now) => buildThemedWidgetLines(snap, undefined, 120, now),
+    render: (snap, { theme, width, now }) =>
+      buildThemedWidgetLines(snap, theme as PiTheme | undefined, width, now),
+    getNextRefreshDelayMs: (snap, now) => nextWidgetRefreshDelayMs(snap, now),
+    isStaleError: isStale,
+  });
 
-  const clearRefreshTimer = (): void => {
-    if (refreshTimer === undefined) return;
-    timers.clearTimeout(refreshTimer);
-    refreshTimer = undefined;
-  };
-
-  const scheduleRefresh = (snap: StoreSnapshot): void => {
-    const delayMs = nextWidgetRefreshDelayMs(snap);
-    if (delayMs === undefined) return;
-    refreshTimer = timers.setTimeout(() => {
-      refreshTimer = undefined;
-      rerender();
-    }, delayMs);
-    refreshTimer.unref?.();
-  };
-
-  const rerender = (): void => {
-    if (disposed) return;
-    clearRefreshTimer();
-    try {
-      currentSnap = storeInstance.snapshot();
-      const nextLines = buildThemedWidgetLines(currentSnap, undefined);
-      const action = decideWidgetAction({ mounted, lines: lastLines }, nextLines);
-
-      switch (action) {
-        case "mount":
-          // Mount the single long-lived component. It reads `currentSnap`
-          // through the getter on every subsequent render, so we never need
-          // to re-issue setWidget to refresh content.
-          ui.setWidget?.(WIDGET_KEY, widgetFactory(() => currentSnap), {
-            // belowEditor (not aboveEditor): the widget renders a live elapsed
-            // clock that re-renders every second. pi-tui's differential
-            // renderer does a full screen+scrollback clear whenever a *changed*
-            // line sits ABOVE the viewport fold (tui.js `firstChanged <
-            // prevViewportTop -> fullRender(true)`). An aboveEditor widget is
-            // pushed above the fold when the bottom region (usage meter,
-            // multi-line editor, below-editor widgets, footer) grows tall,
-            // so each clock tick then repainted the whole screen — the resize
-            // flicker in #1109. belowEditor keeps the widget among the last
-            // rendered lines (always within the bottom viewport), so its
-            // per-second tick is a clean in-place differential redraw.
-            placement: "belowEditor",
-          });
-          ui.requestRender?.();
-          mounted = true;
-          break;
-        case "unmount":
-          ui.setWidget?.(WIDGET_KEY, undefined);
-          ui.requestRender?.();
-          mounted = false;
-          break;
-        case "update":
-          // In place — NO setWidget, NO dispose/remount (the #1109 flicker fix).
-          ui.requestRender?.();
-          break;
-        case "none":
-          break;
-      }
-
-      lastLines = nextLines;
-      scheduleRefresh(currentSnap);
-    } catch (err) {
-      if (isStale(err)) return;
-      throw err;
-    }
-  };
-
-  const unsubscribe = storeInstance.subscribe(() => rerender());
-  rerender();
-
-  return () => {
-    disposed = true;
-    clearRefreshTimer();
-    unsubscribe();
-    try {
-      ui.setWidget?.(WIDGET_KEY, undefined);
-      ui.requestRender?.();
-    } catch (err) {
-      if (!isStale(err)) throw err;
-    }
-  };
+  return () => controller.dispose();
 }
 
 interface ToolExecutionStartPayload {

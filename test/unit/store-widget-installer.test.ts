@@ -222,17 +222,18 @@ describe("installStoreWidget", () => {
     assert.deepEqual(narrowLines, [" ▾  1 background · 1 ●"]);
   });
 
-  test("requests a render and mounts exactly once when a run starts", () => {
+  test("requests a render and mounts exactly once when a run starts", async () => {
     const { pi, widgetCalls, renderRequests } = makeMockPi();
     installStoreWidget(pi, storeInstance);
     const beforeRequests = renderRequests.count;
     storeInstance.recordRunStart(makeRun("r1", "my-wf"));
+    await Promise.resolve();
     assert.ok(renderRequests.count > beforeRequests, "expected requestRender on store mutation");
     const factoryCalls = widgetCalls.filter((c) => typeof c.factory === "function");
     assert.equal(factoryCalls.length, 1, "expected exactly one setWidget(factory) mount");
   });
 
-  test("repaints the mounted widget in place when a stage starts awaiting human input", () => {
+  test("repaints the mounted widget in place when a stage starts awaiting human input", async () => {
     const { pi, widgetCalls, renderRequests } = makeMockPi();
     installStoreWidget(pi, storeInstance);
     const run = makeRun("r1", "my-wf");
@@ -245,13 +246,14 @@ describe("installStoreWidget", () => {
     const beforeRequests = renderRequests.count;
 
     storeInstance.recordStageAwaitingInput("r1", "s1", true);
+    await Promise.resolve();
 
     assert.equal(widgetCalls.length, callsAfterMount, "awaiting input must not remount the widget");
     assert.ok(renderRequests.count > beforeRequests, "expected in-place repaint for awaiting input");
     assert.match(component.render(120).join("\n"), /● 1 running\s+↵ 1 needs attention/);
   });
 
-  test("repaints the mounted widget in place when a run fails", () => {
+  test("repaints the mounted widget in place when a run fails", async () => {
     const { pi, widgetCalls, renderRequests } = makeMockPi();
     installStoreWidget(pi, storeInstance);
     const run = makeRun("r1", "my-wf");
@@ -264,6 +266,7 @@ describe("installStoreWidget", () => {
     const beforeRequests = renderRequests.count;
 
     storeInstance.recordRunEnd("r1", "failed", undefined, "boom");
+    await Promise.resolve();
 
     assert.equal(widgetCalls.length, callsAfterMount, "failure must not remount the widget");
     assert.ok(renderRequests.count > beforeRequests, "expected in-place repaint for failed run");
@@ -294,7 +297,7 @@ describe("installStoreWidget", () => {
     assert.ok(lines.some((line) => line.includes("complete")));
   });
 
-  test("updates in place (no remount) when the clock-refresh timer fires for an active run", () => {
+  test("updates in place (no remount) when the clock-refresh timer fires for an active run", async () => {
     // Flicker regression (#1109): a once-per-second elapsed-label refresh must
     // update the long-lived widget in place (requestRender only) and MUST NOT
     // re-issue setWidget (which would dispose+remount the host component).
@@ -320,6 +323,7 @@ describe("installStoreWidget", () => {
 
       now += timer.delayMs;
       timer.handler();
+      await Promise.resolve();
 
       assert.equal(
         widgetCalls.length,
@@ -330,6 +334,51 @@ describe("installStoreWidget", () => {
       const labelAfter = component.render(120).join("\n");
       assert.notEqual(labelAfter, labelBefore, "long-lived component must reflect the advanced elapsed label");
       assert.match(labelAfter, /single · 1s/);
+    } finally {
+      Date.now = originalNow;
+    }
+  });
+
+  test("uses the mounted TUI requestRender fallback when the UI context lacks requestRender", async () => {
+    const originalNow = Date.now;
+    let now = 1_000_000;
+    Date.now = () => now;
+    try {
+      const timers = makeFakeTimers();
+      const widgetCalls: SetWidgetCall[] = [];
+      const host = {
+        renderRequests: 0,
+        requestRender(): void {
+          this.renderRequests++;
+        },
+      };
+      const pi = {
+        ui: {
+          setWidget(
+            key: string,
+            factory: ((tui: unknown, theme: unknown) => { render(width: number): string[] }) | undefined,
+            opts?: { placement?: string },
+          ): void {
+            widgetCalls.push({ key, factory, opts });
+            factory?.(host, undefined);
+          },
+        },
+      };
+
+      installStoreWidget(pi, storeInstance, timers);
+      storeInstance.recordRunStart(makeRun("r1", "my-wf"));
+      await Promise.resolve();
+      const requestsAfterStart = host.renderRequests;
+      assert.ok(requestsAfterStart > 0, "mount should request a render through the TUI fallback");
+
+      const timer = timers.scheduled.findLast((entry) => !entry.cleared);
+      assert.ok(timer, "expected active widget refresh timer");
+      now += timer.delayMs;
+      timer.handler();
+      await Promise.resolve();
+
+      assert.equal(widgetCalls.filter((c) => typeof c.factory === "function").length, 1);
+      assert.ok(host.renderRequests > requestsAfterStart, "clock tick should repaint through the TUI fallback");
     } finally {
       Date.now = originalNow;
     }

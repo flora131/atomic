@@ -1772,7 +1772,7 @@ function assertWorkflowRunOutputs(
 }
 
 function selectWorkflowOutputs(
-  parent: WorkflowDefinition,
+  parentName: string,
   childName: string,
   child: WorkflowDefinition,
   rawOutput: WorkflowOutputValues | undefined,
@@ -1780,7 +1780,7 @@ function selectWorkflowOutputs(
   const declarations = child.outputs ?? {};
   const sourceOutput = rawOutput ?? {};
   assertWorkflowOutputsExplicit(
-    `workflow "${parent.name}" child "${childName}"`,
+    `workflow "${parentName}" child "${childName}"`,
     sourceOutput,
     declarations,
     ` from "${child.name}"`,
@@ -3235,6 +3235,13 @@ export async function run<TInputs extends WorkflowInputValues>(
         return boundary.replayedChild;
       }
 
+      // Tracked so the finally can detach the parent-abort listener and release
+      // the pre-registered child controller on every exit path — including the
+      // maxDepth early return inside run(), which returns before run()'s own
+      // cleanup. Without this, sequential ctx.workflow(...) calls accumulate one
+      // parent-signal listener (and a leaked registry entry) per child.
+      let childRunId: string | undefined;
+      let detachParentAbort: (() => void) | undefined;
       try {
         const childInputs = resolveAndValidateInputs(
           child.inputs,
@@ -3242,7 +3249,7 @@ export async function run<TInputs extends WorkflowInputValues>(
           `child workflow "${childName}" (${child.name})`,
         );
 
-        const childRunId = crypto.randomUUID();
+        childRunId = crypto.randomUUID();
         boundary.linkChildRun({
           alias: childName,
           workflow: child.normalizedName,
@@ -3253,11 +3260,10 @@ export async function run<TInputs extends WorkflowInputValues>(
         if (ownController.signal.aborted) {
           childController.abort(ownController.signal.reason);
         } else {
-          ownController.signal.addEventListener(
-            "abort",
-            () => childController.abort(ownController.signal.reason),
-            { once: true },
-          );
+          const onParentAbort = () => childController.abort(ownController.signal.reason);
+          ownController.signal.addEventListener("abort", onParentAbort, { once: true });
+          detachParentAbort = () =>
+            ownController.signal.removeEventListener("abort", onParentAbort);
         }
         // Pre-register the child controller under its own runId *before* run()
         // so a kill targeting the child runId works even before the nested run
@@ -3304,7 +3310,7 @@ export async function run<TInputs extends WorkflowInputValues>(
           );
         }
 
-        const outputs = selectWorkflowOutputs(erasedDef, childName, child, childRun.result);
+        const outputs = selectWorkflowOutputs(erasedDef.name, childName, child, childRun.result);
         const childResult: WorkflowChildResult = {
           workflow: child.normalizedName,
           runId: childRun.runId,
@@ -3321,6 +3327,11 @@ export async function run<TInputs extends WorkflowInputValues>(
       } catch (err) {
         boundary.fail(err);
         throw err;
+      } finally {
+        detachParentAbort?.();
+        // Idempotent with run()'s own finally on the normal path; required on
+        // the maxDepth early-return path where run() never reaches its cleanup.
+        if (childRunId !== undefined) opts.cancellation?.unregister(childRunId);
       }
     },
   };

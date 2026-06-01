@@ -33,6 +33,15 @@ export function workflowSerializableTypeName(value: unknown): string {
   return typeof value;
 }
 
+function valueAtIssuePath(root: unknown, path: readonly PropertyKey[]): unknown {
+  let current: unknown = root;
+  for (const segment of path) {
+    if (current === null || typeof current !== "object") return current;
+    current = (current as Record<PropertyKey, unknown>)[segment];
+  }
+  return current;
+}
+
 function formatIssuePath(path: readonly PropertyKey[]): string {
   if (path.length === 0) return "";
   return path
@@ -56,7 +65,8 @@ export function workflowSerializableValidationError(
   const firstIssue = parsed.error.issues[0];
   const issuePath = firstIssue === undefined ? "" : formatIssuePath(firstIssue.path);
   const location = issuePath.length > 0 ? ` at ${issuePath}` : "";
-  return `${label}${location} must be ${WORKFLOW_SERIALIZABLE_DESCRIPTION}, got ${workflowSerializableTypeName(value)}`;
+  const offending = firstIssue === undefined ? value : valueAtIssuePath(value, firstIssue.path);
+  return `${label}${location} must be ${WORKFLOW_SERIALIZABLE_DESCRIPTION}, got ${workflowSerializableTypeName(offending)}`;
 }
 
 export function workflowSerializableObjectValidationError(
@@ -68,7 +78,8 @@ export function workflowSerializableObjectValidationError(
   const firstIssue = parsed.error.issues[0];
   const issuePath = firstIssue === undefined ? "" : formatIssuePath(firstIssue.path);
   const location = issuePath.length > 0 ? ` at ${issuePath}` : "";
-  return `${label}${location} must be a ${WORKFLOW_SERIALIZABLE_DESCRIPTION} object, got ${workflowSerializableTypeName(value)}`;
+  const offending = firstIssue === undefined ? value : valueAtIssuePath(value, firstIssue.path);
+  return `${label}${location} must be a ${WORKFLOW_SERIALIZABLE_DESCRIPTION} object, got ${workflowSerializableTypeName(offending)}`;
 }
 
 export function assertWorkflowSerializableValue(

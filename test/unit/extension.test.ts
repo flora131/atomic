@@ -4,6 +4,7 @@ import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import factory, { type ExtensionAPI } from "../../packages/workflows/src/extension/index.js";
+import { stageControlRegistry } from "../../packages/workflows/src/runs/foreground/stage-control-registry.js";
 import { store } from "../../packages/workflows/src/shared/store.js";
 import type { RunSnapshot } from "../../packages/workflows/src/shared/store-types.js";
 
@@ -74,6 +75,7 @@ function getSessionBeforeSwitchHandler(): SessionBeforeSwitchHandler {
 }
 
 beforeEach(() => {
+  stageControlRegistry.clear();
   store.clear();
 });
 
@@ -291,6 +293,42 @@ test("session_start warns when discovered workflows fail validation", async () =
 // Non-interactive (-p) mode: the `workflow` tool remains available so
 // deterministic non-HiL workflows can run through the tool or `/workflow`.
 // ---------------------------------------------------------------------------
+
+test("session_shutdown quit disposes retained completed stage handles", async () => {
+  let disposed = 0;
+  stageControlRegistry.register({
+    runId: "run-1",
+    stageId: "stage-1",
+    stageName: "completed-stage",
+    status: "completed",
+    sessionId: "session-1",
+    sessionFile: undefined,
+    isStreaming: false,
+    messages: [],
+    async ensureAttached() {},
+    async prompt() {},
+    async steer() {},
+    async followUp() {},
+    async pause() {},
+    async resume() {},
+    subscribe() {
+      return () => {};
+    },
+    dispose() {
+      disposed += 1;
+    },
+  });
+  stageControlRegistry.detachControl("run-1", "stage-1");
+
+  const handlers = captureHandlers();
+  const sessionShutdown = handlers.get("session_shutdown");
+  assert.notEqual(sessionShutdown, undefined);
+
+  await sessionShutdown?.({ reason: "quit" });
+
+  assert.equal(disposed, 1);
+  assert.equal(stageControlRegistry.get("run-1", "stage-1"), undefined);
+});
 
 test("session_start removes ask_user_question but keeps workflow in non-interactive sessions", async () => {
   const { handlers, setCalls } = captureHandlersWithActiveTools([

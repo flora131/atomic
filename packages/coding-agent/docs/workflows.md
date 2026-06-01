@@ -627,7 +627,7 @@ workflow({ action: "stages", runId: "<id-or-prefix>", statusFilter: "all" })
 workflow({ action: "stage", runId: "<id-or-prefix>", stageId: "review" })
 // Prefer sessionFile/transcriptPath from stages/stage; quote the exact path, preserve Windows separators, then search/read small ranges.
 workflow({ action: "transcript", runId: "<id-or-prefix>", stageId: "review" })
-// Use explicit tail/limit only for quick recent-context checks.
+// Omit tail/limit for the default 5-entry preview; pass them for quick recent-context checks.
 workflow({ action: "transcript", runId: "<id-or-prefix>", stageId: "review", tail: 40 })
 workflow({ action: "transcript", runId: "<id-or-prefix>", stageId: "review", limit: 20, includeToolOutput: true })
 
@@ -655,7 +655,7 @@ Control behavior:
 - `runId` accepts full run ids or unique prefixes for lifecycle and inspection actions.
 - `stages` lists stage summaries, including `sessionFile`/`transcriptPath` when a stage has a persisted session. Use `statusFilter: "all"` to include completed, failed, skipped, and pending stages.
 - `stage` returns details for one stage by stage id, unique prefix, or stage name, including the persisted `sessionFile` when available.
-- `transcript` is reference-first by default: it returns metadata and a transcript path without inlining entries. For targeted lookup, quote the exact `sessionFile`/`transcriptPath` value without changing platform separators (preserve Windows backslashes), search it with `rg` or `grep`, then read only small surrounding ranges. Text results include JSON-escaped `sessionFileJson`/`transcriptPathJson` lines for copy-safe path literals. Pass explicit `tail` or `limit` to inline recent entries; `tail` overrides `limit`; `includeToolOutput` includes captured snapshot tool output only in explicit tail/limit results.
+- `transcript` is reference-first with a small preview by default: it returns metadata, transcript paths, and up to 5 recent entries. For targeted lookup, quote the exact `sessionFile`/`transcriptPath` value without changing platform separators (preserve Windows backslashes), search it with `rg` or `grep`, then read only small surrounding ranges. Text results include JSON-escaped `sessionFileJson`/`transcriptPathJson` lines for copy-safe path literals. Pass explicit `tail` or `limit` to override the 5-entry preview; `tail` overrides `limit`; `includeToolOutput` includes captured snapshot tool output in snapshot transcript results.
 - `send` delivery modes are `auto`, `answer`, `prompt`, `steer`, `followUp`, and `resume`. Prompt answers can include `promptId` and can carry answer content in `response`, `text`, or `message`; structured UI prompts usually prefer `response`.
 - `delivery: "auto"` first answers a pending prompt, then resumes paused work, then steers a streaming stage, then queues a follow-up.
 - `pause`, `interrupt`, and `kill` can target one run or `all: true`; `stageId` cannot be combined with `all: true`.

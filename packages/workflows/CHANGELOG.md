@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Removed the unshipped `.import(...)` workflow builder API and string-alias child workflow calls. Workflows now compose children by importing compiled workflow definitions with TypeScript imports and passing those definitions directly to `ctx.workflow(workflowDefinition, options)`.
 - Removed parent-side child output selection/renaming from `ctx.workflow(...)`. Parent workflows now receive the child's declared `.output(...)` contract plus the implicit `result` output on `child.outputs`.
+- Changed default transcript inspection from inlining about 50 recent entries to a reference-first 5-entry preview with `sessionFile`/`transcriptPath`; pass explicit `tail` or `limit` to override the preview size.
 - Removed the obsolete `.humanInTheLoop(...)` workflow builder API and its declaration-time interaction metadata; workflows should use runtime `ctx.ui.*` calls directly when they need human input.
 
 ### Added
@@ -20,7 +21,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
-- Made workflow transcript inspection reference-first by default: transcript tool results now surface `sessionFile`/`transcriptPath` guidance without inlining entries unless `tail` or `limit` is explicit, and docs/schema prompt agents to grep transcript paths before reading ranges ([#1175](https://github.com/bastani-inc/atomic/issues/1175)).
 - Declared explicit output contracts for the bundled `deep-research-codebase`, `goal`, `ralph`, and `open-claude-design` workflows so parent workflows receive schema-validated child outputs.
 - Renamed workflow runtime error prefixes from `pi-workflows:` to `atomic-workflows:`.
 - Render workflow stage notices, lifecycle notices, and HiL answer notices as compact emoji-free TUI cards instead of plain wrapped rows, matching the debugger warning card treatment.

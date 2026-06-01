@@ -1818,7 +1818,7 @@ export default defineWorkflow("tool-headless-lifecycle")
         assert.deepEqual(completed?.result, { answer: "from workflow tool" });
     });
 
-    test("registered workflow tool content is reference-first by default and supports explicit transcript entries", async () => {
+    test("registered workflow tool content is reference-first with default preview and supports explicit transcript entries", async () => {
         const runId = `tool-content-transcript-${Date.now()}`;
         const longText = `start-${"x".repeat(180)}-sentinel-end`;
         const sessionFile = "C:\\Users\\atomic runner\\tool-content.jsonl";
@@ -1847,15 +1847,15 @@ export default defineWorkflow("tool-headless-lifecycle")
         const textContent = textBlock.type === "text" ? textBlock.text : "";
         assert.equal(
             textContent.includes(longText),
-            false,
-            "default tool content should not inline large transcript entries",
+            true,
+            "default tool content should inline the small recent-entry preview",
         );
         assert.ok(textContent.includes(`sessionFile: ${sessionFile}`));
         assert.ok(textContent.includes(`sessionFileJson: ${JSON.stringify(sessionFile)}`));
         assert.ok(textContent.includes(`transcriptPath: ${sessionFile}`));
         assert.ok(textContent.includes(`transcriptPathJson: ${JSON.stringify(sessionFile)}`));
-        assert.ok(textContent.includes("entries: omitted"));
-        assert.ok(textContent.includes("do not rewrite Windows backslashes"));
+        assert.ok(textContent.includes("entries:"));
+        assert.equal(textContent.includes("do not rewrite Windows backslashes"), false);
         assert.equal(
             textContent.includes("╭"),
             false,
@@ -1865,9 +1865,10 @@ export default defineWorkflow("tool-headless-lifecycle")
             WorkflowToolResult,
             { action: "transcript" }
         >;
-        assert.equal(referenceDetails.entries.length, 0);
-        assert.equal(referenceDetails.entriesOmitted, true);
+        assert.equal(referenceDetails.entries.length, 1);
+        assert.equal(referenceDetails.entriesOmitted, false);
         assert.equal(referenceDetails.entryCount, 1);
+        assert.equal(referenceDetails.entryLimit, 5);
         assert.equal(referenceDetails.transcriptPath, sessionFile);
 
         const explicitTextResult = await tool.execute(
@@ -1904,13 +1905,14 @@ export default defineWorkflow("tool-headless-lifecycle")
         const defaultParsed = JSON.parse(
             defaultJsonBlock.type === "text" ? defaultJsonBlock.text : "{}",
         );
-        assert.deepEqual(defaultParsed.entries, []);
-        assert.equal(defaultParsed.entriesOmitted, true);
+        assert.equal(defaultParsed.entries.length, 1);
+        assert.equal(defaultParsed.entriesOmitted, false);
         assert.equal(defaultParsed.entryCount, 1);
+        assert.equal(defaultParsed.entryLimit, 5);
         assert.equal(defaultParsed.transcriptPath, sessionFile);
         assert.equal(
             (defaultJsonBlock.type === "text" ? defaultJsonBlock.text : "").includes(longText),
-            false,
+            true,
         );
 
         const jsonResult = await tool.execute(
@@ -2484,7 +2486,11 @@ export default defineWorkflow("tool-headless-lifecycle")
             assert.equal(transcript.source, "live");
             assert.equal(transcript.truncated, false);
             assert.deepEqual(transcript.entries, []);
-            assert.equal(transcript.entriesOmitted, true);
+            assert.equal(transcript.entriesOmitted, false);
+            assert.equal(
+                (transcript as { entryLimit?: number }).entryLimit,
+                5,
+            );
             assert.equal(transcript.sessionId, "snapshot-session");
             assert.equal(transcript.sessionFile, "/tmp/live-empty-snapshot.jsonl");
             assert.equal(transcript.transcriptPath, "/tmp/live-empty-snapshot.jsonl");

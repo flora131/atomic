@@ -118,7 +118,7 @@ export const WORKFLOW_TOOL_DESCRIPTION =
   "send prompt answers or steering, pause/resume/interrupt/kill runs, and reload workflow resources. " +
   "For transcripts, prefer status/stages/stage to get sessionFile/transcriptPath, " +
   "quote the exact path without rewriting separators (Windows backslashes are valid), " +
-  "search it with rg/grep, and read small ranges; use transcript with explicit tail or limit only for recent-context checks.";
+  "search it with rg/grep, and read small ranges; transcript defaults to at most 5 recent entries and explicit tail/limit overrides that preview.";
 
 // ---------------------------------------------------------------------------
 // Minimal ExtensionAPI structural types
@@ -638,11 +638,11 @@ function renderTranscriptToolContent(
   if (result.entryCount !== undefined) lines.push(`availableEntries: ${result.entryCount}`);
   if (result.entryLimit !== undefined) lines.push(`entryLimit: ${result.entryLimit}`);
   if (result.entriesOmitted === true) {
-    lines.push("entries: omitted (reference-first default)");
+    lines.push("entries: omitted");
     lines.push(
       result.transcriptPath
-        ? "lazyRead: quote the exact transcriptPath/sessionFile value (do not rewrite Windows backslashes), search it with rg or grep for targeted terms, then read only small surrounding ranges; pass tail or limit only for quick recent-context checks."
-        : "lazyRead: no transcript path is available; pass explicit tail or limit to inline recent entries.",
+        ? "lazyRead: quote the exact transcriptPath/sessionFile value (do not rewrite Windows backslashes), search it with rg or grep for targeted terms, then read only small surrounding ranges; pass tail or limit to override the default recent-entry preview."
+        : "lazyRead: no transcript path is available; pass explicit tail or limit to control inline recent entries.",
     );
     return lines.join("\n");
   }
@@ -854,7 +854,7 @@ function summarizeStage(stage: StageSnapshot): WorkflowStageSummary {
   };
 }
 
-const DEFAULT_TRANSCRIPT_LIMIT = 0;
+const DEFAULT_TRANSCRIPT_LIMIT = 5;
 
 type TranscriptEntrySelection = {
   entries: WorkflowTranscriptEntry[];
@@ -864,34 +864,19 @@ type TranscriptEntrySelection = {
   entryLimit?: number;
 };
 
-function requestedTranscriptEntryLimit(
-  args: WorkflowToolArgs,
-): { count: number; explicit: boolean } {
+function requestedTranscriptEntryLimit(args: WorkflowToolArgs): number {
   const raw = args.tail ?? args.limit;
-  if (raw === undefined) {
-    return { count: DEFAULT_TRANSCRIPT_LIMIT, explicit: false };
-  }
-  if (!Number.isFinite(raw) || raw <= 0) {
-    return { count: 0, explicit: true };
-  }
-  return { count: Math.floor(raw), explicit: true };
+  if (raw === undefined) return DEFAULT_TRANSCRIPT_LIMIT;
+  if (!Number.isFinite(raw) || raw <= 0) return 0;
+  return Math.floor(raw);
 }
 
 function selectTranscriptEntries(
   entries: readonly WorkflowTranscriptEntry[],
   args: WorkflowToolArgs,
-  transcriptPath: string | undefined,
 ): TranscriptEntrySelection {
-  const { count, explicit } = requestedTranscriptEntryLimit(args);
+  const count = requestedTranscriptEntryLimit(args);
   const entryCount = entries.length;
-  if (!explicit) {
-    return {
-      entries: [],
-      truncated: false,
-      entriesOmitted: entryCount > 0 || transcriptPath !== undefined,
-      entryCount,
-    };
-  }
   if (count === 0) {
     return {
       entries: [],
@@ -1485,7 +1470,6 @@ export function makeExecuteWorkflowTool(
           const limited = selectTranscriptEntries(
             liveHandle.messages.map((m) => transcriptEntryFromMessage(m as MessageLike)),
             args,
-            sessionFile,
           );
           return {
             action: "transcript",
@@ -1499,7 +1483,7 @@ export function makeExecuteWorkflowTool(
           };
         }
         const fallback = snapshotTranscriptEntries(snapshot, args.includeToolOutput === true);
-        const limited = selectTranscriptEntries(fallback, args, snapshot?.sessionFile);
+        const limited = selectTranscriptEntries(fallback, args);
         return {
           action: "transcript",
           runId: target.runId,

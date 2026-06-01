@@ -113,7 +113,7 @@ describe("WorkflowParametersSchema stage options", () => {
     assert.match(actionDescription, /rg\/grep/);
 
     const limitDescription = properties.limit?.description ?? "";
-    assert.match(limitDescription, /metadata\/path only/);
+    assert.match(limitDescription, /default 5-entry preview/);
     assert.match(limitDescription, /sessionFile\/transcriptPath/);
     assert.match(limitDescription, /platform path separators/);
 

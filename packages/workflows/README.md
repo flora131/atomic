@@ -346,7 +346,7 @@ Prompt answer replay is live-memory only. `StageSnapshot.promptAnswerState` repo
 ```json
 {
   "name": "workflow",
-  "description": "Run named workflows or direct one-off task/tasks/chain workflows; discover with list/get/inputs, inspect status/stages/stage details, send prompt answers or steering, pause/resume/interrupt/kill runs, and reload workflow resources. For transcripts, prefer status/stages/stage to get sessionFile/transcriptPath, quote the exact path without rewriting separators (Windows backslashes are valid), search it with rg/grep, and read small ranges; use transcript with explicit tail or limit only for recent-context checks.",
+  "description": "Run named workflows or direct one-off task/tasks/chain workflows; discover with list/get/inputs, inspect status/stages/stage details, send prompt answers or steering, pause/resume/interrupt/kill runs, and reload workflow resources. For transcripts, prefer status/stages/stage to get sessionFile/transcriptPath, quote the exact path without rewriting separators (Windows backslashes are valid), search it with rg/grep, and read small ranges; transcript defaults to at most 5 recent entries and explicit tail/limit overrides that preview.",
   "parameters": {
     "workflow": "string (optional) — workflow ID or normalized name",
     "inputs": "object (optional) — key/value map of workflow inputs",
@@ -355,7 +355,7 @@ Prompt answer replay is live-memory only. `StageSnapshot.promptAnswerState` repo
     "stageId": "optional stage id, prefix, or name for stage-scoped actions; cannot be combined with all:true",
     "statusFilter": "optional stages filter: pending/running/awaiting_input/paused/blocked/completed/failed/skipped/all",
     "format": "optional agent-facing output format: text or json",
-    "limit": "transcript-only explicit maximum number of recent entries; omitted with tail omitted returns metadata/path only",
+    "limit": "transcript-only explicit maximum number of recent entries; omitted with tail omitted uses the default 5-entry preview plus metadata/path",
     "tail": "transcript-only explicit last-N entry count; overrides limit for quick recent-context checks",
     "includeToolOutput": "transcript-only flag for explicit snapshot tool-event output; prefer rg/grep on the exact quoted sessionFile/transcriptPath for large outputs",
     "text": "optional string payload for send/resume; explicit empty text answers pending prompts",
@@ -372,7 +372,7 @@ Prompt answer replay is live-memory only. `StageSnapshot.promptAnswerState` repo
 
 - **`renderCall`** — renders a compact workflow call summary in the chat scroll.
 - **`renderResult`** — renders the result or dispatch banner; live progress continues through the widget and graph viewer. Named workflow runs are background-oriented.
-- **`transcript`** — reference-first by default: use `status`, `stages`, or `stage` to identify the stage and its `sessionFile`/`transcriptPath`, quote the exact path without changing platform separators (for example, preserve Windows backslashes), then search that file with `rg`/`grep` for targeted terms and read only small surrounding ranges. Text results also include JSON-escaped `sessionFileJson`/`transcriptPathJson` lines for copy-safe path literals. Passing explicit `tail` or `limit` inlines recent transcript entries for quick context checks. A registered live stage handle is used when one exists, even before live messages arrive; otherwise the action falls back to stored stage snapshots. Snapshot entries are ordered chronologically before explicit `tail`/`limit` is applied, with terminal result/error entries kept after tool entries when timestamps are missing or tied. `includeToolOutput` applies to explicit snapshot tool-event results; live session transcripts may not expose tool output.
+- **`transcript`** — reference-first with a small preview by default: use `status`, `stages`, or `stage` to identify the stage and its `sessionFile`/`transcriptPath`, quote the exact path without changing platform separators (for example, preserve Windows backslashes), then search that file with `rg`/`grep` for targeted terms and read only small surrounding ranges. Text results include JSON-escaped `sessionFileJson`/`transcriptPathJson` lines for copy-safe path literals plus up to 5 recent entries by default. Passing explicit `tail` or `limit` overrides that preview for quick context checks. A registered live stage handle is used when one exists, even before live messages arrive; otherwise the action falls back to stored stage snapshots. Snapshot entries are ordered chronologically before `tail`/`limit` is applied, with terminal result/error entries kept after tool entries when timestamps are missing or tied. `includeToolOutput` applies to snapshot tool-event results; live session transcripts may not expose tool output.
 - **`send`** — answers pending stage prompts only when `text`, `response`, or `message` is present; an explicit empty string is a valid answer, while an omitted payload is a no-op. `delivery: "auto"` answers pending prompts first, then resumes paused stages, steers streaming stages, or queues a follow-up.
 - **`reload`** — refreshes workflow resources directly in-process instead of queuing a literal `/workflow reload` chat follow-up.
 

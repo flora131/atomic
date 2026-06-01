@@ -291,7 +291,7 @@ test("session_start warns when discovered workflows fail validation", async () =
 
 // ---------------------------------------------------------------------------
 // Non-interactive (-p) mode: the `workflow` tool remains available so
-// deterministic non-HiL workflows can run through the tool or `/workflow`.
+// deterministic workflows can run through the tool or `/workflow`.
 // ---------------------------------------------------------------------------
 
 test("session_shutdown quit disposes retained completed stage handles", async () => {

@@ -192,29 +192,6 @@ describe("dispatch run (always background)", () => {
     }
   });
 
-  test("non-interactive policy rejects declared human-in-the-loop workflows before starting", async () => {
-    const deps = freshDeps();
-    const wf = defineWorkflow("approval-required")
-      .humanInTheLoop("Needs reviewer approval")
-      .run(async () => ({ ok: true }))
-      .compile() as WorkflowDefinition;
-    const registry = createRegistry([wf]);
-
-    const result = await dispatch(
-      { action: "run", workflow: "approval-required", inputs: {} },
-      { registry, ...deps, policy: NON_INTERACTIVE_WORKFLOW_POLICY },
-    );
-
-    assert.equal(result.action, "run");
-    if (result.action === "run") {
-      assert.equal(result.status, "failed");
-      assert.equal(result.runId, "");
-      assert.match(result.error ?? "", /requires human input/i);
-      assert.equal(deps.jobs.runIds().length, 0);
-      assert.equal(deps.store.runs().length, 0);
-    }
-  });
-
   test("missing required inputs fail before non-interactive dispatch starts a job", async () => {
     const deps = freshDeps();
     const wf = defineWorkflow("requires-input")

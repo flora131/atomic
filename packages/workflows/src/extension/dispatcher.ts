@@ -157,14 +157,6 @@ export async function dispatch(
       }
 
       const policy = opts.policy ?? INTERACTIVE_WORKFLOW_POLICY;
-      if (!policy.allowHumanInput && def.interaction?.humanInput === "required") {
-        const reason = def.interaction.reason ? ` Reason: ${def.interaction.reason}` : "";
-        return failedRunResult(
-          def.name,
-          "",
-          `Workflow "${def.name}" requires human input and cannot run in non-interactive mode. Run Atomic interactively or choose a non-HiL workflow.${reason}`,
-        );
-      }
 
       // Pre-validate inputs against the workflow's declared schema. The
       // executor would otherwise throw the same TypeError deep inside the

@@ -90,7 +90,6 @@ async function writeWorkflowFixture(
   __piWorkflow: true,
   name: ${encodedName},
   normalizedName: ${encodedName},
-  interaction: Object.freeze({ humanInput: "none" }),
   async run() {
     return { ok: true };
   },
@@ -1522,32 +1521,6 @@ describe("tool run-control actions", () => {
         );
 
         assertWorkflowToolBlocked(result, wasDispatched);
-    });
-
-    test("makeExecuteWorkflowTool passes non-interactive policy to named workflow dispatch", async () => {
-        const wf = defineWorkflow("tool-hil")
-            .humanInTheLoop("needs approval")
-            .run(async () => ({ ok: true }))
-            .compile() as WorkflowDefinition;
-        const runtime = createExtensionRuntime({
-            registry: createRegistry([wf]),
-        });
-        const handler = makeExecuteWorkflowTool(
-            runtime,
-            () => undefined,
-            () => undefined,
-        );
-
-        const result = await handler(
-            { action: "run", workflow: "tool-hil", inputs: {} },
-            { hasUI: false },
-        );
-
-        assert.equal(result.action, "run");
-        const run = result as Extract<WorkflowToolResult, { action: "run" }>;
-        assert.equal(run.status, "failed");
-        assert.equal(run.runId, "");
-        assert.match(run.error ?? "", /requires human input/i);
     });
 
     test("makeExecuteWorkflowTool blocks workflow tool execution from env workflow-stage guard", async () => {
@@ -4285,29 +4258,6 @@ describe("/workflow command in non-interactive (-p) mode (#1156 regressions)", (
         );
     });
 
-    test("/workflow rejects declared HiL workflows in headless mode with a visible command error", async () => {
-        const resource = await registerWorkflowCommandWithResource(
-            "approval-required.ts",
-            `import { defineWorkflow } from "@bastani/workflows";
-
-export default defineWorkflow("approval-required")
-  .description("Requires an approval prompt")
-  .humanInTheLoop("requires approval")
-  .run(async () => ({ ok: true }))
-  .compile();
-`,
-        );
-
-        try {
-            await assertRejectsHeadlessCommand(
-                () => resource.handler("approval-required", headlessNoOpCtx()),
-                /requires human input/i,
-            );
-        } finally {
-            await resource.cleanup();
-        }
-    }, 15_000);
-
     test("issue #1156: headless terminal workflow failure throws a command-visible error", async () => {
         const resource = await registerWorkflowCommandWithResource(
             "terminal-failure.ts",
@@ -4430,42 +4380,6 @@ export default defineWorkflow("headless-terminal-success")
         );
         assert.match(error.message, /Workflow not found: ghost-workflow/);
     });
-
-    test("/workflow declared HiL workflows still run through the interactive dispatch path", async () => {
-        const resource = await registerWorkflowCommandWithResource(
-            "interactive-approval.ts",
-            `import { defineWorkflow } from "@bastani/workflows";
-
-export default defineWorkflow("interactive-approval")
-  .description("Allowed when UI is available")
-  .humanInTheLoop("interactive approval")
-  .run(async () => ({ ok: true }))
-  .compile();
-`,
-        );
-        const { ctx, notifications } = commandCtx(true);
-
-        try {
-            await assert.doesNotReject(async () => {
-                await resource.handler("interactive-approval", ctx);
-            });
-            assert.equal(
-                notifications.some((entry) => entry.type === "error"),
-                false,
-                "interactive HiL dispatch should not be rejected before execution",
-            );
-            assert.ok(
-                resource.sent.some(
-                    (message) =>
-                        (message.details as { kind?: string } | undefined)
-                            ?.kind === "dispatch",
-                ),
-                "expected interactive HiL dispatch to emit the normal dispatch chat surface",
-            );
-        } finally {
-            await resource.cleanup();
-        }
-    }, 15_000);
 
     test("/workflow still uses picker-capable path when a UI is available", async () => {
         const { handler } = await registerWorkflowCommand();

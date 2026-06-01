@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Removed the unshipped `.import(...)` workflow builder API and string-alias child workflow calls. Workflows now compose children by importing compiled workflow definitions with TypeScript imports and passing those definitions directly to `ctx.workflow(workflowDefinition, options)`.
 - Removed parent-side child output selection/renaming from `ctx.workflow(...)`. Parent workflows now receive the child's declared `.output(...)` contract plus the implicit `result` output on `child.outputs`.
+- Removed the obsolete `.humanInTheLoop(...)` workflow builder API and its declaration-time interaction metadata; workflows should use runtime `ctx.ui.*` calls directly when they need human input.
 
 ### Added
 

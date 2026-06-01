@@ -1113,10 +1113,10 @@ function isWorkflowStageToolContext(ctx: PiExecuteContext): boolean {
 /**
  * Legacy message retained for consumers that imported the old refusal string.
  * Non-interactive sessions now keep the workflow tool and `/workflow` command
- * available; policy gates only interactive pickers and human-input workflows.
+ * available; policy gates interactive pickers and runtime human-input APIs.
  */
 export const WORKFLOW_NON_INTERACTIVE_MESSAGE =
-  "Workflows are policy-gated in non-interactive (-p) mode; deterministic non-HiL workflows can run headlessly.";
+  "Workflows are policy-gated in non-interactive (-p) mode; deterministic workflows can run headlessly while runtime human input remains unavailable.";
 
 export function workflowPolicyFromContext(ctx?: { readonly hasUI?: boolean }): WorkflowExecutionPolicy {
   if (ctx?.hasUI === false) {
@@ -3829,8 +3829,8 @@ function factory(pi: ExtensionAPI): void {
 
     pi.on("session_start", async (_event, ctx) => {
       // Non-interactive (`-p` / `--mode json`) sessions keep the workflow tool
-      // available for deterministic, non-HiL automation. Policy gates later
-      // disable pickers and reject workflows declared human-in-the-loop.
+      // available for deterministic automation. Policy gates disable pickers
+      // and make runtime human-input APIs unavailable.
       // Defense-in-depth for older/nonstandard hosts: remove only the
       // unavailable human-input tool from the active tool set.
       deAdvertiseAskUserQuestionWhenHeadless(pi, ctx?.hasUI);

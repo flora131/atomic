@@ -95,7 +95,7 @@ export type WorkflowInputSchema =
   | SelectInputSchema;
 
 // ---------------------------------------------------------------------------
-// Workflow execution policy + interaction metadata
+// Workflow execution policy
 // ---------------------------------------------------------------------------
 
 export type WorkflowExecutionMode = "interactive" | "non_interactive";
@@ -120,11 +120,6 @@ export const NON_INTERACTIVE_WORKFLOW_POLICY: WorkflowExecutionPolicy = Object.f
   awaitTerminalRun: true,
   allowInputPicker: false,
 });
-
-export interface WorkflowInteractionMetadata {
-  readonly humanInput: "none" | "required";
-  readonly reason?: string;
-}
 
 // ---------------------------------------------------------------------------
 // Workflow child composition and outputs
@@ -678,7 +673,5 @@ export interface WorkflowDefinition<TInputs extends Record<string, unknown> = Re
   readonly outputs?: Readonly<Record<string, WorkflowOutputSchema>>;
   /** Optional input-to-runtime defaults declared by the workflow builder. */
   readonly inputBindings?: WorkflowInputBindings;
-  /** Declares whether this workflow requires human input during execution. */
-  readonly interaction?: WorkflowInteractionMetadata;
   readonly run: WorkflowRunFn<TInputs>;
 }

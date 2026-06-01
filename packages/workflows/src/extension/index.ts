@@ -3840,6 +3840,7 @@ function factory(pi: ExtensionAPI): void {
           cancellation: cancellationRegistry,
           persistence: persistenceRef.current,
         });
+        stageControlRegistry.clear();
       }
       storeWidgetUnsubscribe?.();
       storeWidgetUnsubscribe = null;

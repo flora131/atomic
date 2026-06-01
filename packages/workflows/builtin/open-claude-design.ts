@@ -205,7 +205,7 @@ export default defineWorkflow("open-claude-design")
     description: `Maximum critique/apply refinement iterations (default ${DEFAULT_MAX_REFINEMENTS}).`,
   })
   .output("output_type", {
-    type: "select",
+    type: "string",
     description: "Kind of design artifact produced.",
   })
   .output("design_system", {

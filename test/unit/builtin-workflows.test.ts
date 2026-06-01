@@ -2127,7 +2127,7 @@ describe("open-claude-design", () => {
             design_system: "text",
             handoff: "text",
             import_context: "text",
-            output_type: "select",
+            output_type: "string",
             preview_file_url: "string",
             preview_path: "string",
             refinements_completed: "number",

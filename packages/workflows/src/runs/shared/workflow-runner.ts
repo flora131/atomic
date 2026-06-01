@@ -222,7 +222,13 @@ async function runNamedWorkflow(
     const available = discovery.registry.names();
     throw new Error(`Workflow not found: "${workflowName}". Available: ${available.length > 0 ? available.join(", ") : "(none)"}`);
   }
-  const inputs = definition.inputs ?? {};
+  // Apply schema defaults before validating so an input declared with both
+  // `required: true` and a `default` is not rejected as "missing" when omitted,
+  // mirroring the resolve-then-validate order every other dispatch path uses.
+  // validateInputs (rather than resolveInputs) still surfaces the full set of
+  // input problems through formatWorkflowValidationFailure; run() re-resolves
+  // internally, which is idempotent on already-defaulted inputs.
+  const inputs = withResolvedDefaults(workflow.inputs, definition.inputs ?? {});
   const errors = validateInputs(workflow.inputs, inputs);
   if (errors.length > 0) {
     throw new Error(formatWorkflowValidationFailure(workflow.name, workflow.inputs, errors));
@@ -243,6 +249,22 @@ async function runNamedWorkflow(
       total: result.stages.length,
     },
   };
+}
+
+function withResolvedDefaults(
+  schema: Readonly<Record<string, WorkflowInputSchema>>,
+  provided: WorkflowInputValues,
+): WorkflowInputValues {
+  const resolved: Record<string, WorkflowInputValues[string]> = {};
+  for (const [key, value] of Object.entries(provided)) {
+    if (value !== undefined) resolved[key] = value;
+  }
+  for (const [key, def] of Object.entries(schema)) {
+    if (resolved[key] === undefined && "default" in def && def.default !== undefined) {
+      resolved[key] = def.default;
+    }
+  }
+  return resolved;
 }
 
 function formatWorkflowValidationFailure(

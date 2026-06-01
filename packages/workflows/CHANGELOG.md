@@ -29,6 +29,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Fixed the programmatic named-workflow runner (`runWorkflow`) to resolve declared input defaults before validating, so an input declared with both `required: true` and a `default` is no longer rejected as missing when omitted, matching the resolve-then-validate order used by the other dispatch paths.
 - Fixed slow workflow discovery outside the compiled binary by always resolving the `@bastani/workflows` SDK (and its builtin submodules) to in-memory virtual modules in the jiti loader instead of aliasing to the on-disk package. The alias path re-evaluated the entire SDK module graph once per workflow file (the loader keeps `moduleCache: false` so edits stay observable), so projects with many workflow files saw multi-second discovery and timing-sensitive workflow tests flaked at the default test timeout; workflow files are still evaluated fresh from disk, so `/workflow reload` keeps observing edits.
 - Fixed headless workflow shutdown so completed stage chat handles are disposed on CLI quit, allowing successful non-interactive `/workflow` runs to return to the shell prompt ([#1167](https://github.com/bastani-inc/atomic/issues/1167)).
 - Fixed bundled workflow modules so they import the leaf `defineWorkflow` authoring API instead of the public package entrypoint, avoiding an ESM initialization cycle during builtin workflow discovery.

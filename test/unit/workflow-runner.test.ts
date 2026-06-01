@@ -289,4 +289,45 @@ describe("programmatic workflow runner", () => {
         );
     });
 
+    test("applies schema defaults before validating required-with-default inputs", async () => {
+        const dir = mkdtempSync(join(tmpdir(), "atomic-required-default-"));
+        mkdirSync(join(dir, ".atomic", "workflows"), { recursive: true });
+        writeFileSync(
+            join(dir, ".atomic", "workflows", "required-default-input.ts"),
+            `import { defineWorkflow } from "@bastani/workflows";
+
+export default defineWorkflow("required-default-input")
+  .description("Required input that also declares a default; omitting it must use the default.")
+  .input("label", {
+    type: "text",
+    required: true,
+    default: "fallback-label",
+    description: "Required but defaulted text input.",
+  })
+  .output("result", { type: "text", required: true, description: "Echoes the resolved label." })
+  .run(async (ctx) => {
+    await ctx.stage("marker", { noTools: "all" }).prompt("Reply exactly: OK");
+    return { result: \`label=\${ctx.inputs.label}\` };
+  })
+  .compile();
+`,
+            "utf8",
+        );
+
+        try {
+            // Omit the required-with-default input entirely: the resolve step must
+            // populate the default before validation, so the run completes.
+            const result = await runWorkflow(
+                { mode: "workflow", workflow: "required-default-input" },
+                { cwd: dir, stubAgent: true },
+            );
+
+            assert.equal(result.mode, "named");
+            assert.equal(result.status, "completed");
+            assert.equal(result.output?.["result"], "label=fallback-label");
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
 });

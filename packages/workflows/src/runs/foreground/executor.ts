@@ -1841,7 +1841,12 @@ function isWorkflowDefinition(value: unknown): value is WorkflowDefinition {
   return record.__piWorkflow === true &&
     typeof record.name === "string" && record.name.trim().length > 0 &&
     typeof record.normalizedName === "string" && record.normalizedName.trim().length > 0 &&
-    typeof record.run === "function";
+    typeof record.run === "function" &&
+    // Compiled definitions always set `inputs: {}`; guard it so a handcrafted
+    // object that passes the sentinel still fails here with the clear "requires
+    // a compiled workflow definition" error rather than crashing later inside
+    // resolveAndValidateInputs(child.inputs, ...) on `Object.entries(undefined)`.
+    typeof record.inputs === "object" && record.inputs !== null;
 }
 
 function cloneWorkflowChildReplaySnapshot(snapshot: WorkflowChildReplaySnapshot): WorkflowChildReplaySnapshot {
@@ -3300,6 +3305,12 @@ export async function run<TInputs extends WorkflowInputValues>(
             { once: true },
           );
         }
+        // Pre-register the child controller under its own runId *before* run()
+        // so a kill targeting the child runId works even before the nested run
+        // would register itself. The nested run() sees opts.signal set and skips
+        // its own cancellation.register (avoiding a double-register on the same
+        // key) while still running its finally{} unregister(runId) cleanup, so
+        // both branches must agree on this key.
         opts.cancellation?.register(childRunId, childController);
 
         const {

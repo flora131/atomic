@@ -130,12 +130,14 @@ export interface WorkflowInteractionMetadata {
 // Workflow imports and outputs
 // ---------------------------------------------------------------------------
 
-export type WorkflowImportSource =
-  | { readonly workflow: string }
-  | { readonly path: string; readonly export?: string };
+export interface WorkflowImportOptions {
+  readonly description?: string;
+  /** Optional parent-local ctx.workflow(alias) name for an imported workflow definition. */
+  readonly as?: string;
+}
 
 export interface WorkflowImportDeclaration {
-  readonly source: WorkflowImportSource;
+  readonly definition: WorkflowDefinition;
   readonly description?: string;
 }
 
@@ -613,7 +615,7 @@ export interface WorkflowRunContext<TInputs extends Record<string, unknown> = Re
   chain(steps: readonly WorkflowTaskStep[], options?: WorkflowChainOptions): Promise<WorkflowTaskResult[]>;
   /** Run tasks in parallel. Missing step tasks use the first available task as a fallback. */
   parallel(steps: readonly WorkflowTaskStep[], options?: WorkflowParallelOptions): Promise<WorkflowTaskResult[]>;
-  /** Execute a workflow declared with defineWorkflow(...).import(alias, source). */
+  /** Execute a workflow declared with defineWorkflow(...).import(...). */
   workflow(alias: string, options?: WorkflowRunChildOptions): Promise<WorkflowChildResult>;
   /** HIL primitives for user interaction during a run. */
   readonly ui: WorkflowUIContext;

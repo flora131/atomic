@@ -67,9 +67,9 @@ export interface DispatcherOpts {
   models?: WorkflowModelCatalogPort;
   /** Runtime-derived interaction policy for this dispatch. */
   policy?: WorkflowExecutionPolicy;
-  /** Invocation cwd used for local path workflow imports. */
+  /** Invocation cwd used for workflow execution. */
   cwd?: string;
-  /** Discovery source metadata used to resolve relative local path imports. */
+  /** Discovery source metadata for workflow resources. */
   workflowSources?: readonly WorkflowSourceReference[];
 }
 

@@ -11,6 +11,7 @@
 
 ### Changed
 
+- Documented TypeScript module-style workflow imports and reusable builtin workflow modules in the bundled workflow authoring guide.
 - Refined the `/fast` selector into a conventional toggle UI with on/off states, clearer scope descriptions, and space/enter toggle support ([#1134](https://github.com/flora131/atomic/issues/1134)).
 - Compressed the `/fast` selector copy, row layout, and per-change status message so the summary, toggles, scopes, and keyboard hints stay readable without duplicate off/standard-tier messaging ([#1134](https://github.com/flora131/atomic/issues/1134)).
 - Clarified workflow-creation guidance so Atomic asks clarifying questions and writes first-time workflows directly, reserving `/goal` for explicitly chosen long-running reviewer-gated implementation.

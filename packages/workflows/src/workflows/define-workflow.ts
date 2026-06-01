@@ -11,7 +11,7 @@
 import type {
   WorkflowDefinition,
   WorkflowImportDeclaration,
-  WorkflowImportSource,
+  WorkflowImportOptions,
   WorkflowInputBindings,
   WorkflowInputSchema,
   WorkflowInteractionMetadata,
@@ -60,7 +60,7 @@ export interface WorkflowBuilder<TInputs extends Record<string, unknown> = Recor
     schema: WorkflowInputSchema,
   ): WorkflowBuilder<TInputs & Record<K, unknown>>;
   /** Declare a workflow import that can be executed with ctx.workflow(alias). */
-  import(alias: string, source: WorkflowImportSource, options?: { description?: string }): WorkflowBuilder<TInputs>;
+  import<TChildInputs extends Record<string, unknown>>(definition: WorkflowDefinition<TChildInputs>, options?: WorkflowImportOptions): WorkflowBuilder<TInputs>;
   /** Declare an output contract for parent workflows selecting child outputs. */
   output(key: string, schema?: WorkflowOutputSchema): WorkflowBuilder<TInputs>;
   /** Bind workflow inputs to reusable git worktree runtime defaults. */
@@ -81,7 +81,7 @@ export interface CompletedWorkflowBuilder<TInputs extends Record<string, unknown
     key: K,
     schema: WorkflowInputSchema,
   ): CompletedWorkflowBuilder<TInputs & Record<K, unknown>>;
-  import(alias: string, source: WorkflowImportSource, options?: { description?: string }): CompletedWorkflowBuilder<TInputs>;
+  import<TChildInputs extends Record<string, unknown>>(definition: WorkflowDefinition<TChildInputs>, options?: WorkflowImportOptions): CompletedWorkflowBuilder<TInputs>;
   output(key: string, schema?: WorkflowOutputSchema): CompletedWorkflowBuilder<TInputs>;
   worktreeFromInputs(binding: WorkflowWorktreeInputBinding): CompletedWorkflowBuilder<TInputs>;
   humanInTheLoop(reason?: string): CompletedWorkflowBuilder<TInputs>;
@@ -100,34 +100,54 @@ function requireNonEmptyString(value: string, label: string): void {
   }
 }
 
-function cloneImportSource(source: WorkflowImportSource): WorkflowImportSource {
-  if (source === null || typeof source !== "object") {
-    throw new TypeError("defineWorkflow: import source must be an object");
+function isWorkflowDefinition(value: unknown): value is WorkflowDefinition {
+  if (value === null || typeof value !== "object") return false;
+  const record = value as Partial<WorkflowDefinition>;
+  return record.__piWorkflow === true &&
+    typeof record.name === "string" &&
+    record.name.trim().length > 0 &&
+    typeof record.normalizedName === "string" &&
+    record.normalizedName.trim().length > 0 &&
+    typeof record.run === "function";
+}
+
+function cloneImportOptions(options: WorkflowImportOptions | undefined): WorkflowImportOptions {
+  if (options === undefined) return Object.freeze({});
+  if (options === null || typeof options !== "object") {
+    throw new TypeError("defineWorkflow: import options must be an object when provided");
   }
-  const record = source as Partial<Record<"workflow" | "path" | "export", unknown>>;
-  const hasWorkflow = "workflow" in record;
-  const hasPath = "path" in record;
-  if (hasWorkflow === hasPath) {
-    throw new TypeError("defineWorkflow: import source must be exactly one of { workflow } or { path }");
+  if (options.description !== undefined && typeof options.description !== "string") {
+    throw new TypeError("defineWorkflow: import options.description must be a string when provided");
   }
-  if (hasWorkflow) {
-    if (typeof record.workflow !== "string") {
-      throw new TypeError("defineWorkflow: import source.workflow must be a non-empty string");
+  if (options.as !== undefined) {
+    if (typeof options.as !== "string") {
+      throw new TypeError("defineWorkflow: import options.as must be a non-empty string when provided");
     }
-    requireNonEmptyString(record.workflow, "import source.workflow");
-    return Object.freeze({ workflow: record.workflow });
-  }
-  if (typeof record.path !== "string") {
-    throw new TypeError("defineWorkflow: import source.path must be a non-empty string");
-  }
-  requireNonEmptyString(record.path, "import source.path");
-  if (record.export !== undefined && typeof record.export !== "string") {
-    throw new TypeError("defineWorkflow: import source.export must be a string when provided");
+    requireNonEmptyString(options.as, "import options.as");
   }
   return Object.freeze({
-    path: record.path,
-    ...(record.export !== undefined ? { export: record.export } : {}),
+    ...(options.description !== undefined ? { description: options.description } : {}),
+    ...(options.as !== undefined ? { as: options.as } : {}),
   });
+}
+
+function normalizeImportArgs<TChildInputs extends Record<string, unknown>>(
+  definition: WorkflowDefinition<TChildInputs>,
+  optionsInput?: WorkflowImportOptions,
+): { alias: string; declaration: WorkflowImportDeclaration } {
+  if (!isWorkflowDefinition(definition)) {
+    throw new TypeError("defineWorkflow: import definition must be a compiled workflow definition");
+  }
+  const options = cloneImportOptions(optionsInput);
+  const alias = options.as ?? definition.normalizedName;
+  requireNonEmptyString(alias, "import alias");
+  return {
+    alias,
+    declaration: {
+      definition: definition as WorkflowDefinition,
+      ...(options.description !== undefined ? { description: options.description } : {}),
+    },
+  };
 }
 
 function freezeImports(
@@ -137,7 +157,7 @@ function freezeImports(
     Object.entries(imports).map(([alias, declaration]) => [
       alias,
       Object.freeze({
-        source: cloneImportSource(declaration.source),
+        definition: declaration.definition,
         ...(declaration.description !== undefined ? { description: declaration.description } : {}),
       }),
     ]),
@@ -167,12 +187,8 @@ function makeBuilder<TInputs extends Record<string, unknown>>(
       } as BuilderState<TInputs & Record<K, unknown>>);
     },
 
-    import(alias: string, source: WorkflowImportSource, options?: { description?: string }) {
-      requireNonEmptyString(alias, "import alias");
-      const declaration: WorkflowImportDeclaration = {
-        source: cloneImportSource(source),
-        ...(options?.description !== undefined ? { description: options.description } : {}),
-      };
+    import<TChildInputs extends Record<string, unknown>>(definition: WorkflowDefinition<TChildInputs>, options?: WorkflowImportOptions) {
+      const { alias, declaration } = normalizeImportArgs(definition, options);
       return makeBuilder<TInputs>({
         ...state,
         imports: { ...state.imports, [alias]: declaration },

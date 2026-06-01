@@ -4,8 +4,9 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { discoverWorkflows } from "../../packages/workflows/src/extension/discovery.js";
+import type { WorkflowDefinition } from "../../packages/workflows/src/shared/types.js";
 import { defineWorkflow } from "../../packages/workflows/src/workflows/define-workflow.js";
-import { validateWorkflowImportGraph } from "../../packages/workflows/src/workflows/import-resolver.js";
+import { resolveWorkflowImport, validateWorkflowImportGraph } from "../../packages/workflows/src/workflows/import-resolver.js";
 import { createRegistry } from "../../packages/workflows/src/workflows/registry.js";
 
 let tmpRoot: string;
@@ -26,8 +27,20 @@ function workflowSource(name: string, body: string): string {
   ].join("\n");
 }
 
+function manualWorkflow(name: string, imports?: Record<string, unknown>): WorkflowDefinition {
+  return {
+    __piWorkflow: true,
+    name,
+    normalizedName: name,
+    description: "",
+    inputs: {},
+    ...(imports !== undefined ? { imports: imports as WorkflowDefinition["imports"] } : {}),
+    run: async () => ({}),
+  };
+}
+
 describe("workflow import resolver", () => {
-  test("resolves registered workflow id imports", () => {
+  test("resolves compiled workflow definition imports without registry registration", () => {
     const child = defineWorkflow("shared-child")
       .run(async (ctx) => {
         await ctx.task("child", { prompt: "child" });
@@ -35,120 +48,81 @@ describe("workflow import resolver", () => {
       })
       .compile();
     const parent = defineWorkflow("parent")
-      .import("child", { workflow: "shared-child" })
+      .import(child)
       .run(async () => ({}))
       .compile();
-    const registry = createRegistry([parent, child]);
+    const registry = createRegistry([parent]);
 
     const diagnostics = validateWorkflowImportGraph({ registry, roots: [parent] });
+    const resolved = resolveWorkflowImport(parent, "shared-child", { registry });
 
     assert.deepEqual(diagnostics, []);
+    assert.equal(resolved.ok, true);
+    if (resolved.ok) {
+      assert.equal(resolved.resolved.definition, child);
+      assert.equal(resolved.resolved.alias, "shared-child");
+    }
   });
 
-  test("resolves local path imports relative to the parent source file", async () => {
-    const childPath = join(tmpRoot, "child.ts");
-    const parentPath = join(tmpRoot, "parent.ts");
-    await writeFile(
-      childPath,
-      workflowSource(
-        "path-child",
-        `.output("answer", { type: "text", required: true })\n  .run(async (ctx) => { await ctx.task("child", { prompt: "child" }); return { answer: "ok" }; })\n  .compile();`,
-      ),
-      "utf8",
-    );
-    const parent = defineWorkflow("path-parent")
-      .import("child", { path: "./child.ts" })
+  test("resolves compiled workflow definition imports with local aliases", () => {
+    const child = defineWorkflow("shared-child")
+      .run(async (ctx) => {
+        await ctx.task("child", { prompt: "child" });
+        return { ok: true };
+      })
+      .compile();
+    const parent = defineWorkflow("parent")
+      .import(child, { as: "research" })
       .run(async () => ({}))
       .compile();
     const registry = createRegistry([parent]);
 
-    const diagnostics = validateWorkflowImportGraph({
-      registry,
-      cwd: join(tmpRoot, "elsewhere"),
-      sources: [{ id: parent.normalizedName, filePath: parentPath }],
-      roots: [parent],
-    });
+    const diagnostics = validateWorkflowImportGraph({ registry, roots: [parent] });
+    const resolved = resolveWorkflowImport(parent, "research", { registry });
 
     assert.deepEqual(diagnostics, []);
+    assert.equal(resolved.ok, true);
+    if (resolved.ok) {
+      assert.equal(resolved.resolved.definition, child);
+      assert.equal(resolved.resolved.alias, "research");
+    }
   });
 
-  test("keeps path identity for same-named workflows from different files", async () => {
-    const childPath = join(tmpRoot, "child.ts");
-    const parentPath = join(tmpRoot, "parent.ts");
-    await writeFile(
-      childPath,
-      workflowSource(
-        "same-name",
-        `.run(async (ctx) => { await ctx.task("child", { prompt: "child" }); return {}; })\n  .compile();`,
-      ),
-      "utf8",
-    );
-    const parent = defineWorkflow("same-name")
-      .import("child", { path: "./child.ts" })
-      .run(async () => ({}))
+  test("reports undeclared aliases", () => {
+    const parent = defineWorkflow("parent")
+      .run(async (ctx) => {
+        await ctx.task("parent", { prompt: "parent" });
+        return {};
+      })
       .compile();
-    const registry = createRegistry([parent]);
+    const resolved = resolveWorkflowImport(parent, "ghost", { registry: createRegistry([parent]) });
 
-    const diagnostics = validateWorkflowImportGraph({
-      registry,
-      cwd: join(tmpRoot, "elsewhere"),
-      sources: [{ id: parent.normalizedName, filePath: parentPath }],
-      roots: [parent],
+    assert.equal(resolved.ok, false);
+    if (!resolved.ok) {
+      assert.equal(resolved.diagnostic.code, "IMPORT_UNRESOLVED");
+      assert.match(resolved.diagnostic.message, /alias is not declared/);
+    }
+  });
+
+  test("reports invalid raw import declarations", () => {
+    const parent = manualWorkflow("invalid-parent", {
+      child: { definition: { not: "a workflow" } },
     });
-
-    assert.deepEqual(diagnostics, []);
-  });
-
-  test("uses workflow identity for path imports proven to be the same source file", async () => {
-    const parentPath = join(tmpRoot, "parent.ts");
-    await writeFile(
-      parentPath,
-      workflowSource(
-        "same-source-cycle",
-        `.run(async (ctx) => { await ctx.task("self", { prompt: "self" }); return {}; })\n  .compile();`,
-      ),
-      "utf8",
-    );
-    const parent = defineWorkflow("same-source-cycle")
-      .import("self", { path: "./parent.ts" })
-      .run(async () => ({}))
-      .compile();
-    const registry = createRegistry([parent]);
-
-    const diagnostics = validateWorkflowImportGraph({
-      registry,
-      cwd: join(tmpRoot, "elsewhere"),
-      sources: [{ id: parent.normalizedName, filePath: parentPath }],
-      roots: [parent],
-    });
-
-    assert.equal(diagnostics.length, 1);
-    assert.equal(diagnostics[0]?.code, "IMPORT_CIRCULAR");
-    assert.match(diagnostics[0]?.message ?? "", /same-source-cycle -> same-source-cycle/);
-  });
-
-  test("reports unresolved imports", () => {
-    const parent = defineWorkflow("parent-missing")
-      .import("ghost", { workflow: "ghost-workflow" })
-      .run(async () => ({}))
-      .compile();
     const diagnostics = validateWorkflowImportGraph({ registry: createRegistry([parent]), roots: [parent] });
 
     assert.equal(diagnostics.length, 1);
-    assert.equal(diagnostics[0]?.code, "IMPORT_UNRESOLVED");
-    assert.match(diagnostics[0]?.message ?? "", /ghost-workflow/);
+    assert.equal(diagnostics[0]?.code, "IMPORT_INVALID");
+    assert.match(diagnostics[0]?.message ?? "", /definition must be a compiled workflow definition/);
   });
 
   test("reports circular imports with chain text", () => {
-    const parent = defineWorkflow("cycle-parent")
-      .import("child", { workflow: "cycle-child" })
-      .run(async () => ({}))
-      .compile();
-    const child = defineWorkflow("cycle-child")
-      .import("parent", { workflow: "cycle-parent" })
-      .run(async () => ({}))
-      .compile();
-    const diagnostics = validateWorkflowImportGraph({ registry: createRegistry([parent, child]), roots: [parent] });
+    const parent = manualWorkflow("cycle-parent");
+    const child = manualWorkflow("cycle-child");
+    const parentWithImport = { ...parent, imports: { child: { definition: child } } } as WorkflowDefinition;
+    const childWithImport = { ...child, imports: { parent: { definition: parentWithImport } } } as WorkflowDefinition;
+    const cyclicParent = { ...parentWithImport, imports: { child: { definition: childWithImport } } } as WorkflowDefinition;
+
+    const diagnostics = validateWorkflowImportGraph({ registry: createRegistry([cyclicParent]), roots: [cyclicParent] });
 
     assert.equal(diagnostics.length, 1);
     assert.equal(diagnostics[0]?.code, "IMPORT_CIRCULAR");
@@ -165,11 +139,44 @@ describe("discoverWorkflows import diagnostics", () => {
     return filePath;
   }
 
-  test("emits IMPORT_UNRESOLVED while keeping the parent registered", async () => {
+  test("static TS module imports register local child workflow definitions", async () => {
+    await writeProjectWorkflow(
+      "child.ts",
+      workflowSource(
+        "discover-module-child",
+        `.output("answer", { type: "text", required: true })\n  .run(async (ctx) => { await ctx.task("child", { prompt: "child" }); return { answer: "ok" }; })\n  .compile();`,
+      ),
+    );
+    await writeProjectWorkflow(
+      "parent.ts",
+      [
+        `import { defineWorkflow } from "@bastani/workflows";`,
+        `import child from "./child.js";`,
+        ``,
+        `export default defineWorkflow("discover-module-parent")`,
+        `  .import(child)`,
+        `  .run(async (ctx) => { await ctx.workflow("discover-module-child", { outputs: ["answer"] }); return {}; })`,
+        `  .compile();`,
+      ].join("\n"),
+    );
+
+    const result = await discoverWorkflows({
+      cwd: join(tmpRoot, "cwd"),
+      homeDir: join(tmpRoot, "home"),
+      includeBundled: false,
+    });
+
+    const parent = result.registry.get("discover-module-parent");
+    assert.notEqual(parent, undefined);
+    assert.equal(parent?.imports?.["discover-module-child"] !== undefined, true);
+    assert.equal(result.errors.filter((error) => error.code.startsWith("IMPORT_")).length, 0);
+  });
+
+  test("legacy source syntax fails during module import", async () => {
     await writeProjectWorkflow(
       "parent.ts",
       workflowSource(
-        "discover-missing-parent",
+        "legacy-source-parent",
         `.import("ghost", { workflow: "missing-child" })\n  .run(async (ctx) => { await ctx.task("parent", { prompt: "parent" }); return {}; })\n  .compile();`,
       ),
     );
@@ -180,24 +187,27 @@ describe("discoverWorkflows import diagnostics", () => {
       includeBundled: false,
     });
 
-    assert.equal(result.registry.has("discover-missing-parent"), true);
-    assert.equal(result.errors.some((error) => error.code === "IMPORT_UNRESOLVED"), true);
+    assert.equal(result.registry.has("legacy-source-parent"), false);
+    const failure = result.errors.find((error) => error.code === "IMPORT_FAILED");
+    assert.notEqual(failure, undefined);
+    assert.match(failure?.message ?? "", /import definition must be a compiled workflow definition/);
   });
 
-  test("emits IMPORT_CIRCULAR for discovered workflow cycles", async () => {
+  test("static TS module imports can register builtin workflow definitions", async () => {
     await writeProjectWorkflow(
       "parent.ts",
-      workflowSource(
-        "discover-cycle-parent",
-        `.import("child", { workflow: "discover-cycle-child" })\n  .run(async (ctx) => { await ctx.task("parent", { prompt: "parent" }); return {}; })\n  .compile();`,
-      ),
-    );
-    await writeProjectWorkflow(
-      "child.ts",
-      workflowSource(
-        "discover-cycle-child",
-        `.import("parent", { workflow: "discover-cycle-parent" })\n  .run(async (ctx) => { await ctx.task("child", { prompt: "child" }); return {}; })\n  .compile();`,
-      ),
+      [
+        `import { defineWorkflow } from "@bastani/workflows";`,
+        `import deepResearchCodebase from "@bastani/workflows/builtin/deep-research-codebase";`,
+        `import { goal, ralph } from "@bastani/workflows/builtin";`,
+        ``,
+        `export default defineWorkflow("builtin-module-parent")`,
+        `  .import(deepResearchCodebase)`,
+        `  .import(goal)`,
+        `  .import(ralph, { as: "planner" })`,
+        `  .run(async (ctx) => { await ctx.task("parent", { prompt: "parent" }); return {}; })`,
+        `  .compile();`,
+      ].join("\n"),
     );
 
     const result = await discoverWorkflows({
@@ -206,36 +216,11 @@ describe("discoverWorkflows import diagnostics", () => {
       includeBundled: false,
     });
 
-    const circular = result.errors.find((error) => error.code === "IMPORT_CIRCULAR");
-    assert.notEqual(circular, undefined);
-    assert.match(circular?.message ?? "", /discover-cycle-parent/);
-    assert.match(circular?.message ?? "", /discover-cycle-child/);
-    assert.match(circular?.message ?? "", / -> /);
-  });
-
-  test("path imports use the parent workflow file as their base path", async () => {
-    await writeProjectWorkflow(
-      "child.ts",
-      workflowSource(
-        "discover-path-child",
-        `.output("answer", { type: "text", required: true })\n  .run(async (ctx) => { await ctx.task("child", { prompt: "child" }); return { answer: "ok" }; })\n  .compile();`,
-      ),
-    );
-    await writeProjectWorkflow(
-      "parent.ts",
-      workflowSource(
-        "discover-path-parent",
-        `.import("child", { path: "./child.ts" })\n  .run(async (ctx) => { await ctx.workflow("child", { outputs: ["answer"] }); return {}; })\n  .compile();`,
-      ),
-    );
-
-    const result = await discoverWorkflows({
-      cwd: join(tmpRoot, "cwd"),
-      homeDir: join(tmpRoot, "home"),
-      includeBundled: false,
-    });
-
-    assert.equal(result.registry.has("discover-path-parent"), true);
+    const parent = result.registry.get("builtin-module-parent");
+    assert.notEqual(parent, undefined);
+    assert.equal(parent?.imports?.["deep-research-codebase"] !== undefined, true);
+    assert.equal(parent?.imports?.["goal"] !== undefined, true);
+    assert.equal(parent?.imports?.["planner"] !== undefined, true);
     assert.equal(result.errors.filter((error) => error.code.startsWith("IMPORT_")).length, 0);
   });
 });

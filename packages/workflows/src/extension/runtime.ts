@@ -84,9 +84,9 @@ export interface ExtensionRuntimeOpts {
   models?: WorkflowModelCatalogPort;
   /** Job tracker forwarded to named detached runs. */
   jobs?: JobTracker;
-  /** Discovery source metadata used to resolve relative local path imports. */
+  /** Discovery source metadata for workflow resources. */
   workflowSources?: readonly WorkflowSourceReference[];
-  /** Invocation cwd used for local path workflow imports. Defaults to process.cwd(). */
+  /** Invocation cwd used for workflow execution. Defaults to process.cwd(). */
   cwd?: string;
 }
 

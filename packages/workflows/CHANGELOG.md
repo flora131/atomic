@@ -6,8 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- Removed legacy workflow import declarations by registered workflow name or path object. Workflows must now use normal TypeScript imports and pass compiled workflow definitions to `.import(workflow, { as? })`.
+
 ### Added
 
+- Added TypeScript module-style workflow imports: `.import(compiledWorkflow, { as? })` registers the imported workflow's name for `ctx.workflow(...)`, while the bundled `deep-research-codebase`, `goal`, and `ralph` workflows are reusable from `@bastani/workflows/builtin` or individual builtin module paths.
 - Added first-class workflow imports for composition: workflows can declare `.import()` dependencies, child workflows can declare `.output()` contracts, discovery validates unresolved/circular/invalid import graphs, and `ctx.workflow()` runs imported workflows as nested runs with input validation, output selection/mapping, and a visible parent boundary stage ([#1071](https://github.com/flora131/atomic/issues/1071)).
 - Added explicit workflow interaction metadata through `defineWorkflow(...).humanInTheLoop(reason?)` and a runtime execution policy that distinguishes interactive from non-interactive workflow runs ([#1123](https://github.com/flora131/atomic/issues/1123)).
 

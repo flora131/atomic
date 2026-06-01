@@ -43,7 +43,7 @@ Default to using **Bun**, not Node/npm/yarn/pnpm.
 - Avoid ambiguous types like `any` and `unknown`. Use specific types instead.
 - Source files use `.js` import extensions (TypeScript ESM convention). The repo ships as `.ts` files; Bun resolves `.js` specifiers to the underlying `.ts` source directly — no loader hook required. atomic's loader follows the same convention as pi.
 - Do not add a build step (`dist/`, `tsconfig.build.json`, etc.) to `packages/workflows`; it distributes raw TypeScript and the host loads it directly. `packages/coding-agent` is copied from upstream pi and keeps its existing build setup.
-- When using skills, if you see a frontmatter of `metadata: internal` set to `true` (if missing assume `false`), that means the skill is for internal developers of this package. If this flag is omitted, the skill is meant for consumers/everyday users. 
+- When using skills, if you see a frontmatter of `metadata: internal` set to `true` (if missing assume `false`), that means the skill is for internal developers of this package. If this flag is omitted, the skill is meant for consumers/everyday users.
 
 ## Design Context
 
@@ -89,7 +89,7 @@ You are bound to run into errors when testing. As you test and run into issues/e
 
 ## Docs
 
-Relevant resources (use your `playwright-cli` skill if the information is not available in the local docs):
+Relevant resources (use your `browser-use` skill if the information is not available in the local docs):
 
 1. Bun (runtime + test runner): `oven-sh/bun`
     1. [`bun:test`](https://bun.sh/docs/cli/test)
@@ -107,18 +107,14 @@ Relevant resources (use your `playwright-cli` skill if the information is not av
 ### Coding Agent Configuration Location
 
 atomic:
- - global:
-     - Linux/MacOS: `~/.atomic/agent/`
-     - Windows: `%HOMEPATH%\.atomic\agent\\`
- - extensions: `~/.atomic/agent/extensions/<name>/`
- - local: `.atomic/` in the project directory
 
-**Agent Skill Locations**
-    - local:
-        - `.agents/skills` (`.claude/skills` is a symlink to `.agents/skills`)
-    - global:
-      - `~/.agents/skills` for OpenCode and Copilot CLI
-      - `~/.claude/skills` for Claude Code
+- global:
+    - Linux/MacOS: `~/.atomic/agent/`
+    - Windows: `%HOMEPATH%\.atomic\agent\\`
+- extensions: `~/.atomic/agent/extensions/<name>/`
+- local: `.atomic/` in the project directory
+
+**Agent Skill Locations** - local: - `.agents/skills` (`.claude/skills` is a symlink to `.agents/skills`) - global: - `~/.agents/skills` for OpenCode and Copilot CLI - `~/.claude/skills` for Claude Code
 
 ## Releasing
 
@@ -135,8 +131,8 @@ If a user asks you to publish the package or create a release/prerelease:
 5. Follow the "Bumping Versions" guidance to correctly bump the package version.
 6. Commit all unstaged changes in the current branch.
 7. Create a PR to merge the branch to main.
-8.  Wait to make sure all of the CI checks pass using the `gh` tool.
-9.  Auto-merge when all CI checks pass. If the checks don't pass, ask the user what they want to do using the `ask_user_question` tool.
+8. Wait to make sure all of the CI checks pass using the `gh` tool.
+9. Auto-merge when all CI checks pass. If the checks don't pass, ask the user what they want to do using the `ask_user_question` tool.
 10. If/when the branch is merged to main, switch back to main, and pull the latest changes from `origin/main`.
 11. A branch push or PR merge alone does not publish, so if all the steps above succeed, create the new release by creating a git tag with: `git tag v<version>` and push it with `git push origin v<version>`.
 12. Wait for the release to finish and monitor the status of the publish action. If the publish checks don't pass, ask the user what they want to do using the `ask_user_question` tool. Otherwise, provide a summary to the user.
@@ -190,11 +186,11 @@ Note: Remember that npm publishing with provenance does NOT require a token. Tha
 
 1. The workflows extension is bundled into `@bastani/atomic`. For local development against upstream pi, symlink `packages/workflows` into `~/.pi/agent/extensions/workflows` if you want host-level discovery outside Atomic.
 2. Rely on agent skills to provide information on best practices during implementation. Here is a short list of Agent Skills that are incredibly relevant to this project that you should try to use when applicable:
-   - typescript-advanced-types
-   - typescript-expert
-   - typescript-react-reviewer
-   - tdd
-   - impeccable
+    - typescript-advanced-types
+    - typescript-expert
+    - typescript-react-reviewer
+    - tdd
+    - impeccable
 3. Ask for clarity if you are unsure about a change. The developer is your best friend and oftentimes can clarify intent.
 4. When modifying this extension, follow pi's extension and SDK conventions.
 

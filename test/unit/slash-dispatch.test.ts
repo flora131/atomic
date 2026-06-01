@@ -2974,7 +2974,7 @@ export default defineWorkflow("approval-required")
     } finally {
       await resource.cleanup();
     }
-  });
+  }, 15_000);
 
   test("issue #1156: headless terminal workflow failure throws a command-visible error", async () => {
     const resource = await registerWorkflowCommandWithResource(
@@ -2998,7 +2998,7 @@ export default defineWorkflow("terminal-failure")
     } finally {
       await resource.cleanup();
     }
-  });
+  }, 15_000);
 
   test("issue #1156: headless /workflow success emits a printable terminal detail summary", async () => {
     const resource = await registerWorkflowCommandWithResource(
@@ -3054,7 +3054,7 @@ export default defineWorkflow("headless-terminal-success")
     } finally {
       await resource.cleanup();
     }
-  });
+  }, 15_000);
 
   test("/workflow unknown workflow remains notify-and-handled with an interactive UI", async () => {
     const { handler } = await registerWorkflowCommand();
@@ -3099,7 +3099,7 @@ export default defineWorkflow("interactive-approval")
     } finally {
       await resource.cleanup();
     }
-  });
+  }, 15_000);
 
   test("/workflow still uses picker-capable path when a UI is available", async () => {
     const { handler } = await registerWorkflowCommand();

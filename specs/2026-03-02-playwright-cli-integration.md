@@ -9,7 +9,7 @@
 
 ## 1. Executive Summary
 
-This spec proposes replacing the existing `WebFetch`, `WebSearch`, and `webfetch` tools across all three agent platforms (Claude, Copilot, OpenCode) with a new `playwright-cli` skill backed by the `@playwright/cli` npm package. Playwright CLI is a token-efficient browser automation CLI designed for coding agents that provides a strict superset of current web fetch/search capabilities — including full JavaScript rendering, session persistence, authentication, screenshots, and multi-page navigation. The integration involves: (1) adding `@playwright/cli` as a dependency and installing it during postinstall to `~/.atomic/<agent>/skills/playwright-cli/`, (2) updating 15 files across 3 agent platforms that currently reference web search/fetch tools, (3) creating a new `playwright-cli` skill definition following the established `SKILL.md` pattern, and (4) modifying install scripts to bundle Playwright CLI in binary distributions. This modernizes the web interaction layer while maintaining backward compatibility with the existing skill discovery and global config sync mechanisms.
+This spec proposes replacing the existing `WebFetch`, `WebSearch`, and `webfetch` tools across all three agent platforms (Claude, Copilot, OpenCode) with a new `browser-use` skill backed by the `@playwright/cli` npm package. Playwright CLI is a token-efficient browser automation CLI designed for coding agents that provides a strict superset of current web fetch/search capabilities — including full JavaScript rendering, session persistence, authentication, screenshots, and multi-page navigation. The integration involves: (1) adding `@playwright/cli` as a dependency and installing it during postinstall to `~/.atomic/<agent>/skills/browser-use/`, (2) updating 15 files across 3 agent platforms that currently reference web search/fetch tools, (3) creating a new `browser-use` skill definition following the established `SKILL.md` pattern, and (4) modifying install scripts to bundle Playwright CLI in binary distributions. This modernizes the web interaction layer while maintaining backward compatibility with the existing skill discovery and global config sync mechanisms.
 
 ## 2. Context and Motivation
 
@@ -24,7 +24,7 @@ The Atomic CLI has a multi-agent architecture supporting three coding agent SDKs
     - **GitHub/Copilot**: `"web"` (single abstracted tool name in JSON array)
     - **OpenCode**: `webfetch` (single lowercase tool, boolean flag + `"allow"` permission in `.opencode/opencode.json`)
 
-**15 files** currently reference web search/fetch tools across the codebase ([ref: research/docs/2026-02-25-playwright-cli-integration-research.md](../research/docs/2026-02-25-playwright-cli-integration-research.md)):
+**15 files** currently reference web search/fetch tools across the codebase ([ref: research/docs/2026-02-25-browser-use-integration-research.md](../research/docs/2026-02-25-browser-use-integration-research.md)):
 
 - 7 agent configs (`.claude/agents/`, `.github/agents/`, `.opencode/agents/`)
 - 6 skill configs (`.claude/skills/`, `.github/skills/`, `.opencode/skills/`)
@@ -42,14 +42,14 @@ The Atomic CLI has a multi-agent architecture supporting three coding agent SDKs
 
 ### 3.1 Functional Goals
 
-- [ ] Replace all `WebFetch`, `WebSearch`, and `webfetch` references across 15 files with `playwright-cli` skill references
-- [ ] Create `playwright-cli/SKILL.md` in all three SDK skill directories (`.claude/skills/`, `.opencode/skills/`, `.github/skills/`) with byte-for-byte identical content
+- [ ] Replace all `WebFetch`, `WebSearch`, and `webfetch` references across 15 files with `browser-use` skill references
+- [ ] Create `browser-use/SKILL.md` in all three SDK skill directories (`.claude/skills/`, `.opencode/skills/`, `.github/skills/`) with byte-for-byte identical content
 - [ ] Add `@playwright/cli` as a dependency in `package.json`
-- [ ] Update `src/scripts/postinstall.ts` to install Playwright CLI and deploy SKILL.md to `~/.atomic/<agent>/skills/playwright-cli/`
+- [ ] Update `src/scripts/postinstall.ts` to install Playwright CLI and deploy SKILL.md to `~/.atomic/<agent>/skills/browser-use/`
 - [ ] Update `install.sh` and `install.ps1` to handle Playwright CLI installation for binary distributions
 - [ ] Remove `"WebFetch"` and `"WebSearch"` from the `BUILTIN_ALLOWED_TOOLS` array in `src/sdk/clients/claude.ts`
 - [ ] Remove `"webfetch": "allow"` from `.opencode/opencode.json` permissions
-- [ ] Add `playwright-cli` as a built-in skill in the `BUILTIN_SKILLS` array in `src/ui/commands/skill-commands.ts`
+- [ ] Add `browser-use` as a built-in skill in the `BUILTIN_SKILLS` array in `src/ui/commands/skill-commands.ts`
 
 ### 3.2 Non-Goals (Out of Scope)
 
@@ -81,9 +81,9 @@ flowchart TB
 
     subgraph GlobalStore["◆ ~/.atomic/ (Global Store)"]
         direction TB
-        ClaudeSkill["<b>.claude/skills/playwright-cli/</b><br>SKILL.md"]:::configTarget
-        OpenCodeSkill["<b>.opencode/skills/playwright-cli/</b><br>SKILL.md"]:::configTarget
-        CopilotSkill["<b>.copilot/skills/playwright-cli/</b><br>SKILL.md"]:::configTarget
+        ClaudeSkill["<b>.claude/skills/browser-use/</b><br>SKILL.md"]:::configTarget
+        OpenCodeSkill["<b>.opencode/skills/browser-use/</b><br>SKILL.md"]:::configTarget
+        CopilotSkill["<b>.copilot/skills/browser-use/</b><br>SKILL.md"]:::configTarget
     end
 
     subgraph AgentUsage["◆ Agent Runtime"]
@@ -116,7 +116,7 @@ flowchart TB
 
 ### 4.2 Architectural Pattern
 
-We are adopting a **Skill-as-Tool-Replacement** pattern where the `playwright-cli` skill replaces built-in platform tools (`WebFetch`/`WebSearch`/`webfetch`) with a unified skill definition. This follows the established **Materialize-then-Discover** pattern ([ref: research/docs/2026-02-17-legacy-code-removal-skills-migration.md](../research/docs/2026-02-17-legacy-code-removal-skills-migration.md)):
+We are adopting a **Skill-as-Tool-Replacement** pattern where the `browser-use` skill replaces built-in platform tools (`WebFetch`/`WebSearch`/`webfetch`) with a unified skill definition. This follows the established **Materialize-then-Discover** pattern ([ref: research/docs/2026-02-17-legacy-code-removal-skills-migration.md](../research/docs/2026-02-17-legacy-code-removal-skills-migration.md)):
 
 1. Hardcode in `BUILTIN_SKILLS` array with full prompt
 2. System writes to all SDK directories as `SKILL.md` files
@@ -127,29 +127,29 @@ We are adopting a **Skill-as-Tool-Replacement** pattern where the `playwright-cl
 
 | Component                              | Responsibility                                | Technology                  | Justification                                                                  |
 | -------------------------------------- | --------------------------------------------- | --------------------------- | ------------------------------------------------------------------------------ |
-| `playwright-cli/SKILL.md`              | Skill definition for all agent platforms      | Markdown + YAML frontmatter | Follows Agent Skills standard; byte-for-byte identical across platforms        |
+| `browser-use/SKILL.md`                 | Skill definition for all agent platforms      | Markdown + YAML frontmatter | Follows Agent Skills standard; byte-for-byte identical across platforms        |
 | `@playwright/cli` dependency           | Browser automation runtime                    | npm package (Node.js)       | Token-efficient CLI designed for coding agents; superset of WebFetch/WebSearch |
 | `postinstall.ts` extension             | Deploy SKILL.md during installation           | TypeScript (Bun)            | Extends existing postinstall hook; non-blocking error handling                 |
 | `install.sh` / `install.ps1` extension | Handle binary distribution installation       | Bash / PowerShell           | Extends existing installer pattern for cross-platform support                  |
 | Agent config updates (7 files)         | Replace web tool references                   | Markdown YAML frontmatter   | Platform-specific tool list updates                                            |
-| Skill config updates (6 files)         | Replace web tool instruction text             | Markdown                    | Update prose references to use playwright-cli                                  |
+| Skill config updates (6 files)         | Replace web tool instruction text             | Markdown                    | Update prose references to use browser-use                                     |
 | `claude.ts` allowlist update           | Remove WebFetch/WebSearch from built-in tools | TypeScript                  | Clean up stale tool references                                                 |
 
 ## 5. Detailed Design
 
-### 5.1 New Skill Definition — `playwright-cli/SKILL.md`
+### 5.1 New Skill Definition — `browser-use/SKILL.md`
 
 **Location**: Created in all three directories:
 
-- `.claude/skills/playwright-cli/SKILL.md`
-- `.opencode/skills/playwright-cli/SKILL.md`
-- `.github/skills/playwright-cli/SKILL.md`
+- `.claude/skills/browser-use/SKILL.md`
+- `.opencode/skills/browser-use/SKILL.md`
+- `.github/skills/browser-use/SKILL.md`
 
 **Frontmatter** (following Agent Skills standard from [ref: research/docs/2026-02-08-skill-loading-from-configs-and-ui.md](../research/docs/2026-02-08-skill-loading-from-configs-and-ui.md)):
 
 ```yaml
 ---
-name: playwright-cli
+name: browser-use
 description: Browser automation for web research, data extraction, and testing using Playwright CLI
 aliases: ["pw", "playwright"]
 argument-hint: "[url-or-task]"
@@ -163,7 +163,7 @@ argument-hint: "[url-or-task]"
 3. Best practices for token-efficient browsing (prefer snapshots over full page content)
 4. Common workflows: fetching documentation, searching the web, extracting structured data
 
-**Skill content strategy**: Use the auto-generated SKILL.md from `playwright-cli install --skills`. This leverages official upstream content maintained by the Playwright team, ensuring accuracy and reducing maintenance burden.
+**Skill content strategy**: Use the auto-generated SKILL.md from `browser-use install --skills`. This leverages official upstream content maintained by the Playwright team, ensuring accuracy and reducing maintenance burden.
 
 ### 5.2 Agent Config Changes (7 files)
 
@@ -173,9 +173,9 @@ argument-hint: "[url-or-task]"
 
 - `.claude/agents/codebase-online-researcher.md`
 - `.claude/agents/debugger.md`
-- `.claude/agents/reviewer.md` _(remove WebFetch/WebSearch entirely — no playwright-cli replacement per Q4 decision)_
+- `.claude/agents/reviewer.md` _(remove WebFetch/WebSearch entirely — no browser-use replacement per Q4 decision)_
 
-**Change**: In the `tools:` frontmatter field, remove `WebFetch, WebSearch` and add `playwright-cli` skill reference.
+**Change**: In the `tools:` frontmatter field, remove `WebFetch, WebSearch` and add `browser-use` skill reference.
 
 **Before**:
 
@@ -189,7 +189,7 @@ tools: Glob, Grep, ..., WebFetch, WebSearch
 tools: Glob, Grep, ..., Bash
 ```
 
-> Note: Playwright CLI is invoked via `Bash` tool (running `bunx playwright-cli` commands, per Bun-first project convention). The skill SKILL.md provides the instructions; the Bash tool provides the execution capability. Agents that already have Bash in their tool list need no additional tool.
+> Note: Playwright CLI is invoked via `Bash` tool (running `bunx browser-use` commands, per Bun-first project convention). The skill SKILL.md provides the instructions; the Bash tool provides the execution capability. Agents that already have Bash in their tool list need no additional tool.
 
 #### Copilot Agent Configs (2 files)
 
@@ -233,7 +233,7 @@ webfetch: true
 
 #### `explain-code/SKILL.md` (3 files — Claude, Copilot, OpenCode)
 
-**Change**: Update the "Available Tools" section to replace `WebFetch/WebSearch` with `playwright-cli`.
+**Change**: Update the "Available Tools" section to replace `WebFetch/WebSearch` with `browser-use`.
 
 **Before**:
 
@@ -244,12 +244,12 @@ webfetch: true
 **After**:
 
 ```markdown
-- **Playwright CLI** (`playwright-cli`): Use to retrieve web content, browse documentation, and extract data from web pages if information is not found in DeepWiki. Invoke via the `/playwright-cli` skill or run `bunx playwright-cli` commands directly.
+- **Playwright CLI** (`browser-use`): Use to retrieve web content, browse documentation, and extract data from web pages if information is not found in DeepWiki. Invoke via the `/browser-use` skill or run `bunx browser-use` commands directly.
 ```
 
 #### `research-codebase/SKILL.md` (3 files — Claude, Copilot, OpenCode)
 
-**Change**: Update sub-agent instruction text to reference playwright-cli instead of WebFetch/WebSearch.
+**Change**: Update sub-agent instruction text to reference browser-use instead of WebFetch/WebSearch.
 
 **Before**:
 
@@ -260,7 +260,7 @@ webfetch: true
 **After**:
 
 ```markdown
-- If you perform a web search using the playwright-cli skill, instruct the agent to return LINKS with their findings
+- If you perform a web search using the browser-use skill, instruct the agent to return LINKS with their findings
 ```
 
 ### 5.4 Source Code Changes
@@ -362,11 +362,11 @@ private static readonly BUILTIN_ALLOWED_TOOLS = [
 
 ```typescript
 async function installPlaywrightCli() {
-    // 1. Run `bunx playwright-cli install --skills` to generate SKILL.md
+    // 1. Run `bunx browser-use install --skills` to generate SKILL.md
     // 2. Copy generated SKILL.md to all three agent skill directories
-    //    in ~/.atomic/.claude/skills/playwright-cli/
-    //    in ~/.atomic/.opencode/skills/playwright-cli/
-    //    in ~/.atomic/.copilot/skills/playwright-cli/
+    //    in ~/.atomic/.claude/skills/browser-use/
+    //    in ~/.atomic/.opencode/skills/browser-use/
+    //    in ~/.atomic/.copilot/skills/browser-use/
     // 3. Log success/warning (non-blocking, matching existing pattern)
     // NOTE: Do NOT install Chromium browsers here — defer to first-use
 }
@@ -418,7 +418,7 @@ if (Get-Command bun -ErrorAction SilentlyContinue) {
 
 ```typescript
 {
-  name: "playwright-cli",
+  name: "browser-use",
   aliases: ["pw", "playwright"],
   description: "Browser automation for web research, data extraction, and testing using Playwright CLI",
   argumentHint: "[url-or-task]",
@@ -449,7 +449,7 @@ if (Get-Command bun -ErrorAction SilentlyContinue) {
 
 ### 7.2 Observability Strategy
 
-- **Skill loading**: Reuse existing skill loading indicator pattern (`● Skill(playwright-cli)` → `└ Successfully loaded skill`) from `tool-result.tsx:53-108` ([ref: research/docs/2026-02-08-skill-loading-from-configs-and-ui.md](../research/docs/2026-02-08-skill-loading-from-configs-and-ui.md)).
+- **Skill loading**: Reuse existing skill loading indicator pattern (`● Skill(browser-use)` → `└ Successfully loaded skill`) from `tool-result.tsx:53-108` ([ref: research/docs/2026-02-08-skill-loading-from-configs-and-ui.md](../research/docs/2026-02-08-skill-loading-from-configs-and-ui.md)).
 - **Execution tracking**: Playwright CLI commands are run via Bash tool, which already logs tool calls in the TUI.
 - **Error reporting**: Failed Playwright CLI commands will surface through existing Bash tool error handling.
 
@@ -463,28 +463,28 @@ if (Get-Command bun -ErrorAction SilentlyContinue) {
 
 ### 8.1 Deployment Strategy
 
-- [ ] **Phase 1**: Create `playwright-cli/SKILL.md` in all three SDK directories. Add `@playwright/cli` as dependency. Update `postinstall.ts`. This can be tested independently.
-- [ ] **Phase 2**: Update agent configs (7 files) and skill configs (6 files) to replace web tool references with playwright-cli. Remove `WebFetch`/`WebSearch` from `BUILTIN_ALLOWED_TOOLS` and `webfetch` permission.
-- [ ] **Phase 3**: Update `install.sh` and `install.ps1` for binary distribution. Add `playwright-cli` to `BUILTIN_SKILLS` array in `skill-commands.ts`.
+- [ ] **Phase 1**: Create `browser-use/SKILL.md` in all three SDK directories. Add `@playwright/cli` as dependency. Update `postinstall.ts`. This can be tested independently.
+- [ ] **Phase 2**: Update agent configs (7 files) and skill configs (6 files) to replace web tool references with browser-use. Remove `WebFetch`/`WebSearch` from `BUILTIN_ALLOWED_TOOLS` and `webfetch` permission.
+- [ ] **Phase 3**: Update `install.sh` and `install.ps1` for binary distribution. Add `browser-use` to `BUILTIN_SKILLS` array in `skill-commands.ts`.
 - [ ] **Phase 4**: Verify end-to-end functionality across all three agent platforms. Run E2E tests.
 
 ### 8.2 Data Migration Plan
 
 - **No data migration required**: This is a tool/skill replacement, not a data schema change.
-- **Backward compatibility**: Agents that rely on WebFetch/WebSearch will need to adapt to using playwright-cli commands. The SKILL.md provides equivalent instruction patterns.
+- **Backward compatibility**: Agents that rely on WebFetch/WebSearch will need to adapt to using browser-use commands. The SKILL.md provides equivalent instruction patterns.
 - **Rollback**: If issues arise, re-add `WebFetch`/`WebSearch` to the allowlist and agent configs. The changes are purely additive/removal in config files.
 
 ### 8.3 Test Plan
 
 - **Unit Tests**: Verify SKILL.md frontmatter parsing works with `parseMarkdownFrontmatter()` function.
 - **Integration Tests**:
-    - Verify `postinstall.ts` correctly deploys SKILL.md to `~/.atomic/<agent>/skills/playwright-cli/`.
-    - Verify `syncAtomicGlobalAgentConfigs()` includes playwright-cli skill in sync and does NOT exclude it (it doesn't match `gh-*`/`sl-*` SCM prefixes).
+    - Verify `postinstall.ts` correctly deploys SKILL.md to `~/.atomic/<agent>/skills/browser-use/`.
+    - Verify `syncAtomicGlobalAgentConfigs()` includes browser-use skill in sync and does NOT exclude it (it doesn't match `gh-*`/`sl-*` SCM prefixes).
     - Verify `BUILTIN_ALLOWED_TOOLS` no longer contains `WebFetch`/`WebSearch`.
 - **End-to-End Tests**:
-    - Invoke `/playwright-cli "fetch https://example.com"` in each agent platform and verify browser automation works.
-    - Verify `codebase-online-researcher` agent can perform web research using playwright-cli instead of WebFetch/WebSearch.
-    - Verify agents reference the playwright-cli skill in their system prompts.
+    - Invoke `/browser-use "fetch https://example.com"` in each agent platform and verify browser automation works.
+    - Verify `codebase-online-researcher` agent can perform web research using browser-use instead of WebFetch/WebSearch.
+    - Verify agents reference the browser-use skill in their system prompts.
 - **Cross-platform Tests**: Run `install.sh` on Linux/macOS and `install.ps1` on Windows to verify Playwright CLI installation works in binary distribution mode.
 
 ## 9. Open Questions / Unresolved Issues
@@ -492,7 +492,7 @@ if (Get-Command bun -ErrorAction SilentlyContinue) {
 All questions resolved:
 
 - [x] **Q1: Browser installation strategy** — **Resolved: Defer to first-use / explicit command.** Chromium browsers (~200-400MB) will NOT be auto-installed during `bun install`. Agents can run `bunx playwright install chromium` when needed. This keeps installation fast.
-- [x] **Q2: Bun compatibility** — **Resolved: Use `bunx playwright-cli`.** Aligns with the Bun-first project convention. Compatibility should be verified during implementation.
-- [x] **Q3: SKILL.md content source** — **Resolved: Use auto-generated SKILL.md from `playwright-cli install --skills`.** Official upstream content maintained by the Playwright team ensures accuracy and reduces maintenance burden.
-- [x] **Q4: Reviewer agent web access** — **Resolved: Remove web access from reviewer.** Code reviews should be based on local code context only. The `reviewer.md` agent will have `WebFetch`/`WebSearch` (and their equivalents) removed without playwright-cli replacement.
+- [x] **Q2: Bun compatibility** — **Resolved: Use `bunx browser-use`.** Aligns with the Bun-first project convention. Compatibility should be verified during implementation.
+- [x] **Q3: SKILL.md content source** — **Resolved: Use auto-generated SKILL.md from `browser-use install --skills`.** Official upstream content maintained by the Playwright team ensures accuracy and reduces maintenance burden.
+- [x] **Q4: Reviewer agent web access** — **Resolved: Remove web access from reviewer.** Code reviews should be based on local code context only. The `reviewer.md` agent will have `WebFetch`/`WebSearch` (and their equivalents) removed without browser-use replacement.
 - [x] **Q5: Binary installer Playwright bundling** — **Resolved: Download during installation.** `@playwright/cli` will be downloaded via `bun install -g` or `npm install -g` during `install.sh`/`install.ps1` execution. This keeps release artifacts small but requires bun/npm on the target system.

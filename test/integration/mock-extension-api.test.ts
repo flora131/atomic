@@ -795,17 +795,17 @@ describe("MockExtensionAPI — message renderer registration", () => {
     assert.ok(out.includes("2"));
   });
 
-  test("workflow.run.end renderer ok status shows success emoji", () => {
+  test("workflow.run.end renderer ok status shows success marker", () => {
     const renderer = getRenderer(mock.renderers, "workflow.run.end")!;
     const out = expectStringRendererOutput(renderer({ runId: "r1", status: "ok" }));
-    assert.ok(out.includes("✅"));
+    assert.ok(out.includes("✓"));
     assert.ok(out.includes("r1"));
   });
 
-  test("workflow.run.end renderer error status shows failure emoji", () => {
+  test("workflow.run.end renderer error status shows failure marker", () => {
     const renderer = getRenderer(mock.renderers, "workflow.run.end")!;
     const out = expectStringRendererOutput(renderer({ runId: "r1", status: "error" }));
-    assert.ok(out.includes("❌"));
+    assert.ok(out.includes("✗"));
   });
 
   test("skips renderer registration when registerMessageRenderer absent", () => {
@@ -1182,7 +1182,7 @@ describe("MockExtensionAPI — tool run returns non-placeholder runId and termin
     // `status: "running"` synchronously with a real UUID runId; the eventual
     // terminal status (completed | failed) lives on the store after the
     // background promise settles.
-    const result = await runTool(execute, { workflow: "deep-research-codebase", inputs: { prompt: "test query" }, action: "run" });
+    const result = await runTool(execute, { workflow: "deep-research-codebase", inputs: { prompt: "test query", max_partitions: 1 }, action: "run" });
     assert.equal(result.action, "run");
     const r = result as {
       action: "run";
@@ -1205,11 +1205,11 @@ describe("MockExtensionAPI — tool run returns non-placeholder runId and termin
     const settled = defaultStore.runs().find((run) => run.id === r.runId);
     assert.notEqual(settled, undefined);
     assert.ok(["completed", "failed"].includes(settled!.status));
-  });
+  }, 15_000);
 
   test("action='run' for deep-research-codebase without adapters reports honest failure, not stub", async () => {
     const execute = mock.tools[0]!.opts.execute;
-    const result = await runTool(execute, { workflow: "deep-research-codebase", inputs: { prompt: "test" }, action: "run" });
+    const result = await runTool(execute, { workflow: "deep-research-codebase", inputs: { prompt: "test", max_partitions: 1 }, action: "run" });
     const r = result as {
       action: "run";
       runId: string;

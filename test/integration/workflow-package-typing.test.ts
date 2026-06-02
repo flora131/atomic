@@ -73,6 +73,13 @@ import { goal, openClaudeDesign } from "@bastani/workflows/builtin";
 import goalDefault from "@bastani/workflows/builtin/goal";
 import openClaudeDesignDefault from "@bastani/workflows/builtin/open-claude-design";
 import type {
+  DeepResearchCodebaseWorkflowOutputs,
+  GoalWorkflowOutputs,
+  GoalWorkflowStatus,
+  OpenClaudeDesignWorkflowOutputs,
+  RalphWorkflowOutputs,
+} from "@bastani/workflows/builtin";
+import type {
   AgentSessionAdapter,
   StageAdapters,
   StageOptions,
@@ -243,6 +250,22 @@ run(goal, { objective: "x" });
 run(goalDefault, { objective: "x" });
 run(openClaudeDesign, { prompt: "x", output_type: "prototype" });
 run(openClaudeDesignDefault, { prompt: "x", output_type: "tokens" });
+run(goal, { objective: "x" }).then((runResult) => {
+  const status: GoalWorkflowStatus | undefined = runResult.result?.status;
+  const firstReceiptPath: string | undefined = runResult.result?.receipts?.[0]?.artifact_path;
+  void status;
+  void firstReceiptPath;
+});
+const typedGoalOutputs: GoalWorkflowOutputs = { status: "complete", approved: true, receipts: [{ turn: 1, stage: "worker", artifact_path: "worker.md", summary: "done" }] };
+const typedDesignOutputs: OpenClaudeDesignWorkflowOutputs = { approved_for_export: true, preview_path: "preview.html", refinements_completed: 1 };
+const typedDeepResearchOutputs: DeepResearchCodebaseWorkflowOutputs = { partitions: ["core"], explorer_count: 1, research_doc_path: "research.md" };
+const typedRalphOutputs: RalphWorkflowOutputs = { approved: true, iterations_completed: 1, plan_path: "spec.md" };
+void typedGoalOutputs;
+void typedDesignOutputs;
+void typedDeepResearchOutputs;
+void typedRalphOutputs;
+// @ts-expect-error builtin goal status is a declared literal union.
+const invalidGoalOutputs: GoalWorkflowOutputs = { status: "done" };
 // @ts-expect-error builtin open-claude-design only accepts runtime-declared output_type values.
 run(openClaudeDesign, { prompt: "x", output_type: "flow" });
 // @ts-expect-error builtin goal requires an objective input.

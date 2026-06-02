@@ -5,7 +5,7 @@ export type RalphWorkflowInputs = WorkflowInputValues & {
   readonly max_loops: number;
   readonly base_branch: string;
   readonly git_worktree_dir: string;
-}
+};
 
 export type RalphWorkflowRunInputs = WorkflowInputValues & {
   readonly prompt: string;
@@ -14,5 +14,23 @@ export type RalphWorkflowRunInputs = WorkflowInputValues & {
   readonly git_worktree_dir?: string;
 };
 
-declare const workflow: WorkflowDefinition<RalphWorkflowInputs, WorkflowOutputValues, RalphWorkflowRunInputs>;
+export type RalphWorkflowOutputs = WorkflowOutputValues & {
+  readonly result?: string;
+  readonly plan?: string;
+  readonly plan_path?: string;
+  readonly implementation_notes_path?: string;
+  readonly pr_report?: string;
+  readonly approved?: boolean;
+  readonly iterations_completed?: number;
+  readonly review_report?: string;
+  readonly review_report_path?: string;
+};
+
+export type RalphWorkflowDefinition = WorkflowDefinition<
+  RalphWorkflowInputs,
+  RalphWorkflowOutputs,
+  RalphWorkflowRunInputs
+>;
+
+declare const workflow: RalphWorkflowDefinition;
 export default workflow;

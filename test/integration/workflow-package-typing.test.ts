@@ -59,28 +59,65 @@ describe("standalone workflow package typing", () => {
 
       writeFileSync(
         join(fixtureRoot, "src", "workflow.ts"),
-        `import { defineWorkflow, run, Type } from "@bastani/workflows";
+        `import {
+  GraphFrontierTracker,
+  createCancellationRegistry,
+  createStore,
+  defineWorkflow,
+  run,
+  Type,
+} from "@bastani/workflows";
 
 const workflow = defineWorkflow("Standalone Typing Fixture")
   .description("Verifies package export types without declare module shims")
   .input("message", Type.String())
   .input("count", Type.Number({ default: 1 }))
+  .input("enabled", Type.Boolean({ default: true }))
+  .input("nickname", Type.Optional(Type.String()))
+  .output("summary", Type.String())
+  .output("maybe", Type.Optional(Type.String()))
   .run(async (ctx) => {
     const message: string = ctx.inputs.message;
     const count: number = ctx.inputs.count;
+    const enabled: boolean = ctx.inputs.enabled;
+    const nickname: string | undefined = ctx.inputs.nickname;
+    // @ts-expect-error optional input is not a definite string.
+    const requiredNickname: string = ctx.inputs.nickname;
     await ctx.task("echo", { prompt: message, output: "echo.md" });
     const chained = await ctx.chain([
       { name: "first", prompt: message },
       { name: "second", prompt: String(count) },
+      { name: "third", prompt: String(enabled) },
     ]);
-    return { summary: chained.at(-1)?.text ?? "" };
+    return { summary: chained.at(-1)?.text ?? "", maybe: nickname };
   })
   .compile();
 
-run(workflow, { message: "hello" });
-run(workflow, { message: "hello", count: 2 });
+const optionalOutputWorkflow = defineWorkflow("Optional Output Fixture")
+  .output("maybe", Type.Optional(Type.String()))
+  .run(() => ({}))
+  .compile();
+
+const undeclaredOutputWorkflow = defineWorkflow("Undeclared Output Fixture")
+  // @ts-expect-error run outputs must be declared before returning them.
+  .run(() => ({ summary: "not declared" }))
+  .compile();
+
+run(workflow, { message: "hello" }, { executionMode: "non_interactive" });
+run(workflow, { message: "hello", count: 2, enabled: false }, { executionMode: "interactive" });
+// @ts-expect-error detached is not a runtime executionMode literal.
+run(workflow, { message: "hello" }, { executionMode: "detached" });
 // @ts-expect-error message has no default and remains required.
 run(workflow, {});
+
+run(optionalOutputWorkflow, {});
+const frontier = new GraphFrontierTracker();
+const store = createStore();
+const cancellationRegistry = createCancellationRegistry();
+void undeclaredOutputWorkflow;
+void frontier;
+void store;
+void cancellationRegistry;
 
 export default workflow;
 `,

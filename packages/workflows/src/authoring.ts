@@ -6,13 +6,42 @@
  * their TypeScript program. Runtime loading still uses src/index.ts.
  */
 
-import type { Static, TNumber, TNumberOptions, TOptional, TSchema, TString, TStringOptions, Type as TypeboxType } from "typebox";
+import type {
+  Static,
+  TArray,
+  TArrayOptions,
+  TBoolean,
+  TInteger,
+  TNumber,
+  TNumberOptions,
+  TObject,
+  TObjectOptions,
+  TOptional,
+  TSchema,
+  TSchemaOptions,
+  TString,
+  TStringOptions,
+  TUnion,
+  Type as TypeboxType,
+} from "typebox";
 
-export declare const Type: Omit<typeof TypeboxType, "String" | "Number"> & {
-  String<const O extends TStringOptions>(options: O): TString & O;
-  String(): TString;
-  Number<const O extends TNumberOptions>(options: O): TNumber & O;
+type PreserveOptions<T extends TSchema, O extends TSchemaOptions> = T & O;
+
+export declare const Type: Omit<typeof TypeboxType, "Array" | "Boolean" | "Integer" | "Number" | "Object" | "String" | "Union"> & {
+  Array<Type extends TSchema, const O extends TArrayOptions>(items: Type, options: O): PreserveOptions<TArray<Type>, O>;
+  Array<Type extends TSchema>(items: Type): TArray<Type>;
+  Boolean<const O extends TSchemaOptions>(options: O): PreserveOptions<TBoolean, O>;
+  Boolean(): TBoolean;
+  Integer<const O extends TNumberOptions>(options: O): PreserveOptions<TInteger, O>;
+  Integer(): TInteger;
+  Number<const O extends TNumberOptions>(options: O): PreserveOptions<TNumber, O>;
   Number(): TNumber;
+  Object<Properties extends Record<PropertyKey, TSchema>, const O extends TObjectOptions>(properties: Properties, options: O): PreserveOptions<TObject<Properties>, O>;
+  Object<Properties extends Record<PropertyKey, TSchema>>(properties: Properties): TObject<Properties>;
+  String<const O extends TStringOptions>(options: O): PreserveOptions<TString, O>;
+  String(): TString;
+  Union<Types extends TSchema[], const O extends TSchemaOptions>(anyOf: [...Types], options: O): PreserveOptions<TUnion<Types>, O>;
+  Union<Types extends TSchema[]>(anyOf: [...Types]): TUnion<Types>;
 };
 export type { Static, TSchema } from "typebox";
 
@@ -284,7 +313,9 @@ export interface WorkflowDefinition<
   run(ctx: WorkflowRunContext<TInputs>): Promise<TOutputs> | TOutputs;
 }
 
-type DeclaredResolvedEntry<K extends string, S extends TSchema> = { readonly [P in K]: Static<S> };
+type DeclaredResolvedEntry<K extends string, S extends TSchema> = S extends TOptional<TSchema>
+  ? { readonly [P in K]?: Static<S> }
+  : { readonly [P in K]: Static<S> };
 
 type DeclaredProvidedEntry<K extends string, S extends TSchema> =
   S extends TOptional<TSchema> | { readonly default: WorkflowSerializableValue }
@@ -292,6 +323,8 @@ type DeclaredProvidedEntry<K extends string, S extends TSchema> =
     : { readonly [P in K]: Static<S> };
 
 type Simplify<T> = { [K in keyof T]: T[K] } & {};
+type NoExtraOutputs<TDeclared extends WorkflowOutputValues, TActual extends TDeclared> = TActual &
+  Record<Exclude<keyof TActual, keyof TDeclared>, never>;
 
 export interface WorkflowBuilder<
   TInputs extends WorkflowInputValues = {},
@@ -309,8 +342,8 @@ export interface WorkflowBuilder<
   ): WorkflowBuilder<TInputs, Simplify<TOutputs & DeclaredResolvedEntry<K, S>>, TRunInputs>;
   worktreeFromInputs(binding: WorkflowWorktreeInputBinding): WorkflowBuilder<TInputs, TOutputs, TRunInputs>;
   run<TActualOutputs extends TOutputs>(
-    fn: WorkflowRunFn<TInputs, TActualOutputs>,
-  ): CompletedWorkflowBuilder<TInputs, TActualOutputs, TRunInputs>;
+    fn: (ctx: WorkflowRunContext<TInputs>) => Promise<NoExtraOutputs<TOutputs, TActualOutputs>> | NoExtraOutputs<TOutputs, TActualOutputs>,
+  ): CompletedWorkflowBuilder<TInputs, TOutputs, TRunInputs>;
 }
 
 export interface CompletedWorkflowBuilder<
@@ -324,7 +357,7 @@ export interface CompletedWorkflowBuilder<
 export type AnyWorkflowDefinition = WorkflowDefinition<WorkflowInputValues, WorkflowOutputValues, WorkflowInputValues>;
 
 export type RunStatus = "pending" | "running" | "paused" | "completed" | "failed" | "killed";
-export type WorkflowExecutionMode = "foreground" | "detached";
+export type WorkflowExecutionMode = "interactive" | "non_interactive";
 export type WorkflowDetailsMode = "named" | "single" | "parallel" | "chain" | "inspection" | "control";
 export type WorkflowDetailsStatus = "accepted" | "running" | "completed" | "failed" | "killed" | "noop";
 export type WorkflowAction = "list" | "get" | "inputs" | "run" | "status" | "interrupt" | "resume";
@@ -421,3 +454,27 @@ export declare function createRegistry<TDefinitions extends readonly AnyWorkflow
 ): WorkflowRegistry;
 export declare function normalizeWorkflowName(name: string): string;
 export declare function workflowNamesEqual(a: string, b: string): boolean;
+
+export declare class GraphFrontierTracker {
+  constructor(nodes?: readonly StageNode[]);
+}
+export interface StageNode extends WorkflowSerializableObject {
+  readonly id: string;
+  readonly name: string;
+  readonly deps?: readonly string[];
+}
+export interface StoreSnapshot extends WorkflowSerializableObject {}
+export interface WorkflowNotice extends WorkflowSerializableObject {}
+export type NoticeLevel = "info" | "warning" | "error";
+export interface WorkflowOverlayAdapter extends WorkflowSerializableObject {}
+export type PromptKind = string;
+export interface PendingPrompt extends WorkflowSerializableObject {}
+export interface ToolEvent extends WorkflowSerializableObject {}
+export type StageStatus = RunStatus;
+export interface RunSnapshot extends WorkflowSerializableObject {}
+export declare function createStore(): WorkflowSerializableObject;
+export declare const store: WorkflowSerializableObject;
+export interface CancellationRegistry extends WorkflowSerializableObject {}
+export interface ActiveRunEntry extends WorkflowSerializableObject {}
+export declare function createCancellationRegistry(): CancellationRegistry;
+export declare const cancellationRegistry: CancellationRegistry;

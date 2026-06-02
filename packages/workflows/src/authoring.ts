@@ -6,9 +6,14 @@
  * their TypeScript program. Runtime loading still uses src/index.ts.
  */
 
-import type { Static, TOptional, TSchema } from "typebox";
+import type { Static, TNumber, TNumberOptions, TOptional, TSchema, TString, TStringOptions, Type as TypeboxType } from "typebox";
 
-export { Type } from "typebox";
+export declare const Type: Omit<typeof TypeboxType, "String" | "Number"> & {
+  String<const O extends TStringOptions>(options: O): TString & O;
+  String(): TString;
+  Number<const O extends TNumberOptions>(options: O): TNumber & O;
+  Number(): TNumber;
+};
 export type { Static, TSchema } from "typebox";
 
 export type WorkflowSerializablePrimitive = string | number | boolean | null;
@@ -266,8 +271,10 @@ export interface WorkflowWorktreeInputBinding {
 export interface WorkflowDefinition<
   TInputs extends WorkflowInputValues = WorkflowInputValues,
   TOutputs extends WorkflowOutputValues = WorkflowOutputValues,
+  TRunInputs extends WorkflowInputValues = TInputs,
 > {
   readonly __piWorkflow: true;
+  readonly __runInputs?: TRunInputs;
   readonly name: string;
   readonly normalizedName: string;
   readonly description: string;
@@ -277,8 +284,10 @@ export interface WorkflowDefinition<
   run(ctx: WorkflowRunContext<TInputs>): Promise<TOutputs> | TOutputs;
 }
 
-type DeclaredEntry<K extends string, S extends TSchema> =
-  S extends TOptional<TSchema>
+type DeclaredResolvedEntry<K extends string, S extends TSchema> = { readonly [P in K]: Static<S> };
+
+type DeclaredProvidedEntry<K extends string, S extends TSchema> =
+  S extends TOptional<TSchema> | { readonly default: WorkflowSerializableValue }
     ? { readonly [P in K]?: Static<S> }
     : { readonly [P in K]: Static<S> };
 
@@ -287,30 +296,32 @@ type Simplify<T> = { [K in keyof T]: T[K] } & {};
 export interface WorkflowBuilder<
   TInputs extends WorkflowInputValues = {},
   TOutputs extends WorkflowOutputValues = {},
+  TRunInputs extends WorkflowInputValues = TInputs,
 > {
-  description(text: string): WorkflowBuilder<TInputs, TOutputs>;
+  description(text: string): WorkflowBuilder<TInputs, TOutputs, TRunInputs>;
   input<K extends string, S extends TSchema>(
     key: K,
     schema: S,
-  ): WorkflowBuilder<Simplify<TInputs & DeclaredEntry<K, S>>, TOutputs>;
+  ): WorkflowBuilder<Simplify<TInputs & DeclaredResolvedEntry<K, S>>, TOutputs, Simplify<TRunInputs & DeclaredProvidedEntry<K, S>>>;
   output<K extends string, S extends TSchema>(
     key: K,
     schema: S,
-  ): WorkflowBuilder<TInputs, Simplify<TOutputs & DeclaredEntry<K, S>>>;
-  worktreeFromInputs(binding: WorkflowWorktreeInputBinding): WorkflowBuilder<TInputs, TOutputs>;
+  ): WorkflowBuilder<TInputs, Simplify<TOutputs & DeclaredResolvedEntry<K, S>>, TRunInputs>;
+  worktreeFromInputs(binding: WorkflowWorktreeInputBinding): WorkflowBuilder<TInputs, TOutputs, TRunInputs>;
   run<TActualOutputs extends TOutputs>(
     fn: WorkflowRunFn<TInputs, TActualOutputs>,
-  ): CompletedWorkflowBuilder<TInputs, TActualOutputs>;
+  ): CompletedWorkflowBuilder<TInputs, TActualOutputs, TRunInputs>;
 }
 
 export interface CompletedWorkflowBuilder<
   TInputs extends WorkflowInputValues = {},
   TOutputs extends WorkflowOutputValues = {},
-> extends WorkflowBuilder<TInputs, TOutputs> {
-  compile(): WorkflowDefinition<TInputs, TOutputs>;
+  TRunInputs extends WorkflowInputValues = TInputs,
+> extends WorkflowBuilder<TInputs, TOutputs, TRunInputs> {
+  compile(): WorkflowDefinition<TInputs, TOutputs, TRunInputs>;
 }
 
-export type AnyWorkflowDefinition = WorkflowDefinition<WorkflowInputValues, WorkflowOutputValues>;
+export type AnyWorkflowDefinition = WorkflowDefinition<WorkflowInputValues, WorkflowOutputValues, WorkflowInputValues>;
 
 export type RunStatus = "pending" | "running" | "paused" | "completed" | "failed" | "killed";
 export type WorkflowExecutionMode = "foreground" | "detached";
@@ -377,9 +388,9 @@ export interface WorkflowDetails extends WorkflowSerializableObject {
 
 export declare const INTERACTIVE_WORKFLOW_POLICY: WorkflowSerializableObject;
 export declare const NON_INTERACTIVE_WORKFLOW_POLICY: WorkflowSerializableObject;
-export declare function run<TInputs extends WorkflowInputValues, TOutputs extends WorkflowOutputValues>(
-  definition: WorkflowDefinition<TInputs, TOutputs>,
-  inputs: Readonly<TInputs>,
+export declare function run<TInputs extends WorkflowInputValues, TOutputs extends WorkflowOutputValues, TRunInputs extends WorkflowInputValues = TInputs>(
+  definition: WorkflowDefinition<TInputs, TOutputs, TRunInputs>,
+  inputs: Readonly<TRunInputs>,
   opts?: RunOpts,
 ): Promise<RunResult<TOutputs>>;
 export declare function runTask(task: WorkflowDirectTaskItem, runOptions?: RunOpts): Promise<WorkflowDetails>;
@@ -405,7 +416,7 @@ export interface WorkflowRegistry {
 }
 
 export declare function defineWorkflow(name: string): WorkflowBuilder;
-export declare function createRegistry<TDefinitions extends readonly WorkflowDefinition<WorkflowInputValues, WorkflowOutputValues>[] = readonly WorkflowDefinition<WorkflowInputValues, WorkflowOutputValues>[]>(
+export declare function createRegistry<TDefinitions extends readonly AnyWorkflowDefinition[] = readonly AnyWorkflowDefinition[]>(
   initial?: TDefinitions,
 ): WorkflowRegistry;
 export declare function normalizeWorkflowName(name: string): string;

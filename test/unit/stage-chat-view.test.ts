@@ -150,6 +150,31 @@ async function flush(): Promise<void> {
     return new Promise<void>((resolve) => queueMicrotask(resolve));
 }
 
+function submitStageChatText(view: StageChatView, text: string): void {
+    for (const ch of text) view.handleInput(ch);
+    view.handleInput("\r");
+}
+
+function makeStageChatViewForSlashCommand(callbacks: {
+    onClose?: () => void;
+    onExitApp?: () => void;
+} = {}): StageChatView {
+    const store = createStore();
+    setupRun(store, "run-1", "stage-a");
+    const { handle } = makeHandle();
+    return new StageChatView({
+        store,
+        graphTheme: deriveGraphTheme({}),
+        runId: "run-1",
+        stageId: "stage-a",
+        workflowName: "test-wf",
+        handle,
+        onDetach: () => {},
+        onClose: callbacks.onClose ?? (() => {}),
+        onExitApp: callbacks.onExitApp,
+    });
+}
+
 function fakeFooterAgentSession(isStreaming = false): AgentSession {
     return {
         state: {
@@ -1926,6 +1951,98 @@ describe("StageChatView", () => {
 
         assert.deepEqual(compactCalls, ["keep recent context"]);
         assert.deepEqual(state.promptCalls, []);
+        view.dispose();
+    });
+
+    test("stage chat /exit requests app shutdown when available", async () => {
+        let closeCalls = 0;
+        let exitCalls = 0;
+        const view = makeStageChatViewForSlashCommand({
+            onClose: () => {
+                closeCalls += 1;
+            },
+            onExitApp: () => {
+                exitCalls += 1;
+            },
+        });
+
+        submitStageChatText(view, "/exit");
+        await flush();
+        await flush();
+
+        assert.equal(exitCalls, 1);
+        assert.equal(closeCalls, 0);
+        view.dispose();
+    });
+
+    test("stage chat /exit falls back to close without app shutdown hook", async () => {
+        let closeCalls = 0;
+        const view = makeStageChatViewForSlashCommand({
+            onClose: () => {
+                closeCalls += 1;
+            },
+        });
+
+        submitStageChatText(view, "/exit");
+        await flush();
+        await flush();
+
+        assert.equal(closeCalls, 1);
+        view.dispose();
+    });
+
+    test("stage chat /exit with arguments falls through to normal prompt submission", async () => {
+        for (const input of ["/exit now", "/exit 1"]) {
+            const store = createStore();
+            setupRun(store, "run-1", "stage-a");
+            const { handle, state } = makeHandle();
+            let closeCalls = 0;
+            let exitCalls = 0;
+            const view = new StageChatView({
+                store,
+                graphTheme: deriveGraphTheme({}),
+                runId: "run-1",
+                stageId: "stage-a",
+                workflowName: "test-wf",
+                handle,
+                onDetach: () => {},
+                onClose: () => {
+                    closeCalls += 1;
+                },
+                onExitApp: () => {
+                    exitCalls += 1;
+                },
+            });
+
+            submitStageChatText(view, input);
+            await flush();
+            await flush();
+
+            assert.equal(exitCalls, 0, `${input} should not exit the app`);
+            assert.equal(closeCalls, 0, `${input} should not close the overlay`);
+            assert.deepEqual(state.promptCalls, [input]);
+            view.dispose();
+        }
+    });
+
+    test("stage chat /quit still closes only the overlay", async () => {
+        let closeCalls = 0;
+        let exitCalls = 0;
+        const view = makeStageChatViewForSlashCommand({
+            onClose: () => {
+                closeCalls += 1;
+            },
+            onExitApp: () => {
+                exitCalls += 1;
+            },
+        });
+
+        submitStageChatText(view, "/quit");
+        await flush();
+        await flush();
+
+        assert.equal(closeCalls, 1);
+        assert.equal(exitCalls, 0);
         view.dispose();
     });
 

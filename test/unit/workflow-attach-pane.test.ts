@@ -166,6 +166,19 @@ async function flush(): Promise<void> {
     await Promise.resolve();
 }
 
+type AttachedStageChat = { handleInput(data: string): boolean };
+
+function getAttachedStageChat(pane: WorkflowAttachPane): AttachedStageChat {
+    const chatView = (pane as unknown as { chatView: AttachedStageChat | null }).chatView;
+    assert.ok(chatView, "expected initialAttachStageId to create a stage chat");
+    return chatView;
+}
+
+function submitAttachedStageChatText(chatView: AttachedStageChat, text: string): void {
+    for (const ch of text) chatView.handleInput(ch);
+    chatView.handleInput("\r");
+}
+
 function setupTwoPromptAttachPane(
     firstPrompt: PendingPrompt,
     opts: { piKeybindings?: unknown; now?: () => number } = {},
@@ -227,6 +240,84 @@ describe("WorkflowAttachPane", () => {
         });
         assert.equal(pane._mode, "graph");
         assert.equal(pane._hasChatView, false);
+        pane.dispose();
+    });
+
+    test("threads /exit from attached stage chat to app shutdown hook", async () => {
+        const store = createStore();
+        setupRun(store, "run-1", [{ id: "stage-a", name: "A" }]);
+        const registry = createStageControlRegistry();
+        registry.register(makeHandle("run-1", "stage-a"));
+        let closeCalls = 0;
+        let exitCalls = 0;
+        const clock = makeClock();
+        const pane = new WorkflowAttachPane({
+            store,
+            graphTheme: deriveGraphTheme({}),
+            runId: "run-1",
+            stageControlRegistry: registry,
+            initialAttachStageId: "stage-a",
+            onClose: () => {
+                closeCalls += 1;
+            },
+            onExitApp: () => {
+                exitCalls += 1;
+            },
+            now: clock.now,
+        });
+        clock.advance(250);
+
+        const chatView = getAttachedStageChat(pane);
+        submitAttachedStageChatText(chatView, "/exit");
+        await flush();
+        await flush();
+
+        assert.equal(exitCalls, 1);
+        assert.equal(closeCalls, 0);
+        pane.dispose();
+    });
+
+    test("attached stage chat /exit with arguments does not reach app shutdown hook", async () => {
+        const store = createStore();
+        setupRun(store, "run-1", [{ id: "stage-a", name: "A" }]);
+        const registry = createStageControlRegistry();
+        const promptCalls: Array<string> = [];
+        registry.register({
+            ...makeHandle("run-1", "stage-a"),
+            async prompt(text: string) {
+                promptCalls.push(text);
+            },
+        });
+        let closeCalls = 0;
+        let exitCalls = 0;
+        const clock = makeClock();
+        const pane = new WorkflowAttachPane({
+            store,
+            graphTheme: deriveGraphTheme({}),
+            runId: "run-1",
+            stageControlRegistry: registry,
+            initialAttachStageId: "stage-a",
+            onClose: () => {
+                closeCalls += 1;
+            },
+            onExitApp: () => {
+                exitCalls += 1;
+            },
+            now: clock.now,
+        });
+        clock.advance(250);
+
+        const chatView = getAttachedStageChat(pane);
+        submitAttachedStageChatText(chatView, "/exit now");
+        await flush();
+        await flush();
+        await flush();
+        await flush();
+
+        assert.equal(exitCalls, 0);
+        assert.equal(closeCalls, 0);
+        assert.equal(promptCalls.length, 1);
+        assert.equal(promptCalls[0], "/exit now");
         pane.dispose();
     });
 

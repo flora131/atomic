@@ -109,6 +109,8 @@ export interface StageChatViewOpts {
   onDetach: (reason?: StageChatDetachReason, metadata?: StageChatDetachMetadata) => void;
   /** Called when the user presses Escape (close the whole popup). */
   onClose: () => void;
+  /** Optional host hook for commands that should exit the entire app. */
+  onExitApp?: () => void;
   /** Request a host TUI repaint after SDK events mutate local chat state. */
   requestRender?: () => void;
   /**
@@ -208,6 +210,7 @@ export class StageChatView implements Component, Focusable {
   private handle: StageControlHandle | undefined;
   private onDetach: (reason?: StageChatDetachReason, metadata?: StageChatDetachMetadata) => void;
   private onClose: () => void;
+  private onExitApp: (() => void) | undefined;
   private requestRender: (() => void) | undefined;
   private requestFocus: (() => void) | undefined;
   private focusHoldTimer: ReturnType<typeof setInterval> | undefined;
@@ -246,6 +249,7 @@ export class StageChatView implements Component, Focusable {
     this.handle = opts.handle;
     this.onDetach = opts.onDetach;
     this.onClose = opts.onClose;
+    this.onExitApp = opts.onExitApp;
     this.requestRender = opts.requestRender;
     this.requestFocus = opts.requestFocus;
     // Hold overlay keyboard focus against host focus-steals. pi-tui overlays
@@ -642,8 +646,15 @@ export class StageChatView implements Component, Focusable {
         return true;
       }
       case "/quit":
-      case "/exit":
         this.onClose();
+        return true;
+      case "/exit":
+        if (rest.length > 0) return false;
+        if (this.onExitApp) {
+          this.onExitApp();
+        } else {
+          this.onClose();
+        }
         return true;
       default:
         return false;

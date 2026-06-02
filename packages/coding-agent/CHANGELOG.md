@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `/exit` as a built-in interactive slash command for graceful app shutdown, including attached workflow-stage chats when the host exposes app shutdown.
+
 ## [0.8.23] - 2026-06-02
 
 ### Changed

@@ -163,15 +163,20 @@ export function buildModelCandidates(input: {
   const rawValues: WorkflowModelValue[] = [];
   if (input.primaryModel !== undefined) rawValues.push(input.primaryModel);
   for (const [index, fallback] of (input.fallbackModels ?? []).entries()) {
-    const split = splitReasoningSuffix(fallback.trim());
+    // Trim once up front so the suffix split, the validation error input, and the
+    // compat concatenation all operate on the same value. Concatenating the raw
+    // (untrimmed) fallback would push trailing whitespace into the interior of
+    // `id:level`, which `resolveStringModel` can no longer trim away.
+    const trimmedFallback = fallback.trim();
+    const split = splitReasoningSuffix(trimmedFallback);
     const compatLevel = input.fallbackThinkingLevels?.[index];
     if (split.level === undefined && compatLevel !== undefined) {
       if (!WORKFLOW_THINKING_LEVEL_SET.has(compatLevel)) {
-        throw new WorkflowModelValidationError([{ input: fallback, reason: `invalid fallbackThinkingLevels[${index}] "${compatLevel}"; expected one of ${WORKFLOW_THINKING_LEVELS.join(", ")}` }]);
+        throw new WorkflowModelValidationError([{ input: trimmedFallback, reason: `invalid fallbackThinkingLevels[${index}] "${compatLevel}"; expected one of ${WORKFLOW_THINKING_LEVELS.join(", ")}` }]);
       }
-      rawValues.push(`${fallback}:${compatLevel}`);
+      rawValues.push(`${trimmedFallback}:${compatLevel}`);
     } else {
-      rawValues.push(fallback);
+      rawValues.push(trimmedFallback);
     }
   }
   if (input.currentModel !== undefined) rawValues.push(input.currentModel);

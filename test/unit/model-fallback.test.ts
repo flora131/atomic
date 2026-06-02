@@ -128,6 +128,40 @@ describe("model fallback helpers", () => {
       ],
     );
   });
+
+  test("buildModelCandidates throws WorkflowModelValidationError for an invalid fallbackThinkingLevels entry (#1199)", () => {
+    assert.throws(
+      () =>
+        buildModelCandidates({
+          primaryModel: "openai/gpt-5-mini",
+          fallbackModels: ["anthropic/claude-sonnet-4"],
+          fallbackThinkingLevels: ["bogus"],
+          availableModels: models,
+        }),
+      (err: unknown) => {
+        assert.ok(err instanceof WorkflowModelValidationError);
+        assert.match(err.message, /invalid fallbackThinkingLevels\[0\] "bogus"/);
+        assert.equal(err.failures[0]?.input, "anthropic/claude-sonnet-4");
+        return true;
+      },
+    );
+  });
+
+  test("fallbackThinkingLevels trims surrounding whitespace before applying the compat level (#1199)", () => {
+    assert.deepEqual(
+      buildModelCandidates({
+        primaryModel: "openai/gpt-5-mini",
+        fallbackModels: ["  anthropic/claude-sonnet-4  "],
+        fallbackThinkingLevels: ["low"],
+        availableModels: models,
+      }).map((candidate) => ({ id: candidate.id, reasoningLevel: candidate.reasoningLevel })),
+      [
+        { id: "openai/gpt-5-mini", reasoningLevel: undefined },
+        { id: "anthropic/claude-sonnet-4", reasoningLevel: "low" },
+      ],
+    );
+  });
+
   test("buildModelCandidateIds preserves provider-qualified ids and de-duplicates", () => {
     assert.deepEqual(
       buildModelCandidateIds({

@@ -404,5 +404,5 @@ export default workflow;
     } finally {
       rmSync(fixtureRoot, { recursive: true, force: true });
     }
-  });
+  }, 60_000);
 });

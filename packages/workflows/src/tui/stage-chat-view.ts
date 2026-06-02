@@ -22,7 +22,7 @@
  *  - **Escape** mirrors the main coding-agent chat interrupt path for active
  *    live stages: it requests a controlled pause/abort while keeping the
  *    composer active. While paused, Enter calls `handle.resume(text)`.
- *  - **Ctrl+D** detaches (back to graph), or closes the popup while paused;
+ *  - **Ctrl+D** detaches (back to graph), including while paused;
  *    **Escape** closes the popup when idle.
  *  - **Blocked** stage: keystrokes absorbed; BLOCKED banner names the
  *    upstream awaiter.
@@ -69,7 +69,7 @@ import type { StageControlHandle } from "../runs/foreground/stage-control-regist
 import { isKeybindingsLike, type KeybindingsLike } from "./keybindings-adapter.js";
 import { BOLD, RESET, hexBg, hexToAnsi, lerpColor } from "./color-utils.js";
 import { renderWorkflowNoticeCard, type WorkflowNoticeTone } from "./workflow-notice-card.js";
-import { Key, matchesKey, visibleWidth } from "./text-helpers.js";
+import { Key, matchesKey, truncateToWidth, visibleWidth } from "./text-helpers.js";
 import {
   fitStageChatFrame,
   planStageChatFrame,
@@ -105,7 +105,7 @@ export interface StageChatViewOpts {
    * inspect-only (settled stage with no live handle).
    */
   handle?: StageControlHandle;
-  /** Called when the user presses Ctrl+D outside a paused stage (back to graph). */
+  /** Called when the user presses Ctrl+D (back to graph). */
   onDetach: (reason?: StageChatDetachReason, metadata?: StageChatDetachMetadata) => void;
   /** Called when the user presses Escape (close the whole popup). */
   onClose: () => void;
@@ -678,7 +678,9 @@ export class StageChatView implements Component, Focusable {
     const workingLines = chatChromeHidden ? [] : this.chatHost.renderWorkingStatus(w);
     const usageLines = chatChromeHidden ? [] : this.chatHost.renderUsage(w);
     const editorLines = chatChromeHidden ? [] : this.chatHost.renderEditor(w);
-    const footerLines = chatChromeHidden ? [] : this.chatHost.renderFooter(w);
+    const footerLines = chatChromeHidden
+      ? []
+      : this._renderFooterWithOrchestratorReturnHint(w, this.chatHost.renderFooter(w));
 
     const totalRows = this._viewLineCount();
     const plan = planStageChatFrame({
@@ -776,6 +778,67 @@ export class StageChatView implements Component, Focusable {
 
   private _sepRule(width: number): string {
     return hexToAnsi(this.theme.borderDim) + "─".repeat(width) + RESET;
+  }
+
+  private _renderFooterWithOrchestratorReturnHint(
+    width: number,
+    footerLines: readonly string[],
+  ): string[] {
+    if (footerLines.length === 0) {
+      return [this._mergeOrchestratorReturnHintIntoLine("", width)];
+    }
+    const lines = [...footerLines];
+    const lastIndex = lines.length - 1;
+    lines[lastIndex] = this._mergeOrchestratorReturnHintIntoLine(
+      lines[lastIndex] ?? "",
+      width,
+    );
+    return lines;
+  }
+
+  private _embedOrchestratorReturnHintInWidget(
+    widgetLines: readonly string[],
+    width: number,
+  ): string[] {
+    if (widgetLines.length === 0) {
+      return [this._mergeOrchestratorReturnHintIntoLine("", width)];
+    }
+    const lines = [...widgetLines];
+    const targetIndex = widgetHintTargetLineIndex(lines);
+    lines[targetIndex] = this._mergeOrchestratorReturnHintIntoLine(
+      lines[targetIndex] ?? "",
+      width,
+      { preserveTrailingBorder: true, rightMargin: 2 },
+    );
+    return lines;
+  }
+
+  private _mergeOrchestratorReturnHintIntoLine(
+    line: string,
+    width: number,
+    options: { preserveTrailingBorder?: boolean; rightMargin?: number } = {},
+  ): string {
+    const plain = "ctrl+d returns to orchestrator panel";
+    const styled =
+      paint("ctrl+d", this.theme.text, { bold: true }) +
+      paint(" returns to orchestrator panel", this.theme.textMuted);
+    const trailingBorder = options.preserveTrailingBorder === true
+      ? trailingWidgetBorderChar(line)
+      : "";
+    const suffixWidth = visibleWidth(trailingBorder);
+    const hintWidth = visibleWidth(plain);
+    const requestedRightMargin = Math.max(
+      0,
+      Math.floor(options.rightMargin ?? 0),
+    );
+    const rightMargin = Math.min(
+      requestedRightMargin,
+      Math.max(0, width - suffixWidth - hintWidth),
+    );
+    const hintStart = Math.max(0, width - suffixWidth - rightMargin - hintWidth);
+    const prefix = truncateToWidth(line, hintStart, "", true);
+    const gap = Math.max(0, hintStart - visibleWidth(prefix));
+    return prefix + " ".repeat(gap) + styled + " ".repeat(rightMargin) + trailingBorder;
   }
 
   // -------------------------------------------------------------------------
@@ -913,7 +976,7 @@ export class StageChatView implements Component, Focusable {
         "warning",
         "❚❚",
         "PAUSED",
-        "enter resumes · ctrl+d close",
+        "enter resumes · ctrl+d graph",
       ),
     );
     callout.push(
@@ -981,12 +1044,18 @@ export class StageChatView implements Component, Focusable {
     const component = this.mountedCustomUi?.component;
     if (!component) return [];
     setComponentFocused(component, this.focused);
-    return component.render(width);
+    return this._embedOrchestratorReturnHintInWidget(component.render(width), width);
   }
 
   private _renderPromptBody(width: number, budget: number): string[] {
     const primitiveLines = this._renderPrimitivePromptBody(width);
-    if (primitiveLines) return this._fitPromptBodyLines(primitiveLines, width, budget);
+    if (primitiveLines) {
+      return this._fitPromptBodyLines(
+        this._embedOrchestratorReturnHintInWidget(primitiveLines, width),
+        width,
+        budget,
+      );
+    }
 
     const state = this.promptState;
     const lines = state
@@ -997,7 +1066,11 @@ export class StageChatView implements Component, Focusable {
         cursorOn: this.focused,
       })
       : [];
-    return this._fitPromptBodyLines(lines, width, budget);
+    return this._fitPromptBodyLines(
+      this._embedOrchestratorReturnHintInWidget(lines, width),
+      width,
+      budget,
+    );
   }
 
   private _renderPrimitivePromptBody(width: number): string[] | null {
@@ -1203,8 +1276,7 @@ export class StageChatView implements Component, Focusable {
         // stays pending (the stage remains awaiting_input) and is re-displayed
         // when the user re-attaches.
         this._releaseMountedCustomUi();
-        if (this._isPaused()) this.onClose();
-        else this.onDetach();
+        this.onDetach();
         return true;
       }
       if (matchesKey(data, Key.ctrl("c"))) {
@@ -1233,8 +1305,7 @@ export class StageChatView implements Component, Focusable {
     const readOnlyPromptArchive = readOnlyArchive && stage?.promptFootprint !== undefined;
     if (matchesKey(data, Key.ctrl("d"))) {
       if (!this.promptState && this.chatHost.hasInputText()) return this.chatHost.handleInput(data);
-      if (this._isPaused()) this.onClose();
-      else this.onDetach();
+      this.onDetach();
       return true;
     }
     if (this.promptState) {
@@ -1697,6 +1768,29 @@ function editorThemeFromGraphTheme(t: GraphTheme): EditorTheme {
 
 function takeRows(lines: readonly string[], rows: number): string[] {
   return lines.slice(0, rows);
+}
+
+function widgetHintTargetLineIndex(lines: readonly string[]): number {
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    if (!isWidgetBottomBorderLine(lines[index] ?? "")) return index;
+  }
+  return Math.max(0, lines.length - 1);
+}
+
+function isWidgetBottomBorderLine(line: string): boolean {
+  const plain = stripAnsi(line).trim();
+  const chars = Array.from(plain);
+  if (chars.length < 2) return false;
+  const first = chars[0] ?? "";
+  const last = chars.at(-1) ?? "";
+  if (!"╰└+".includes(first) || !"╯┘+".includes(last)) return false;
+  return chars.slice(1, -1).every((char) => "─═- ".includes(char));
+}
+
+function trailingWidgetBorderChar(line: string): string {
+  const plain = stripAnsi(line).trimEnd();
+  const last = Array.from(plain).at(-1) ?? "";
+  return "╯┘┤┴│|+".includes(last) ? last : "";
 }
 
 interface PaintOpts {

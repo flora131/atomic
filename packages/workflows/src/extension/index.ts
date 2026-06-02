@@ -3009,12 +3009,9 @@ function factory(pi: ExtensionAPI): void {
       if (policy.allowInputPicker) {
         overlay.open(runId, overlaySurfaceFromContext(ctx), stageId);
       }
-      const attachedStage = stageId ? run?.stages.find((s) => s.id === stageId) : undefined;
       print(
         stageId
-          ? attachedStage?.status === "paused"
-            ? `Attached to ${runId.slice(0, 8)} stage ${stageId.slice(0, 8)}. ctrl+d close · esc close.`
-            : `Attached to ${runId.slice(0, 8)} stage ${stageId.slice(0, 8)}. ctrl+d return to graph · esc close.`
+          ? `Attached to ${runId.slice(0, 8)} stage ${stageId.slice(0, 8)}. ctrl+d return to graph · esc close.`
           : `Attached to ${runId.slice(0, 8)}. ↵ chat · ctrl+d detach.`,
       );
       return true;

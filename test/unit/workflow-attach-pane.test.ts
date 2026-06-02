@@ -1318,7 +1318,7 @@ describe("WorkflowAttachPane", () => {
         pane.dispose();
     });
 
-    test("Ctrl+D in paused stage-chat mode closes the pane", () => {
+    test("Ctrl+D in paused stage-chat mode returns to graph", () => {
         const store = createStore();
         setupRun(store, "run-1", [
             { id: "stage-a", name: "A", status: "paused" },
@@ -1345,9 +1345,11 @@ describe("WorkflowAttachPane", () => {
         });
         assert.equal(pane._mode, "stage-chat");
         pane.handleInput(Key.ctrl("d"));
-        assert.equal(closed, 1);
+        assert.equal(closed, 0);
         assert.equal(hidden, 0);
-        assert.equal(pane._mode, "stage-chat");
+        assert.equal(pane._mode, "graph");
+        assert.equal(pane._hasChatView, false);
+        assert.equal(pane._lastAttachedStageId, "stage-a");
         pane.dispose();
     });
 

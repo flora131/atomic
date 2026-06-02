@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Added a workflow node chat Ctrl+D hint that shares the bottom footer line with model/cwd metadata and appears in the bottom-right corner of stage-local ctx.ui widgets.
+
+### Fixed
+
+- Fixed paused workflow stage chats so Ctrl+D returns to the orchestrator graph instead of closing back to the main chat.
+
 ## [0.8.22] - 2026-06-01
 
 ### Breaking Changes

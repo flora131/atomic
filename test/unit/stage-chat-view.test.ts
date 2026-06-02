@@ -214,6 +214,22 @@ const CTRL_D_VARIANTS = [
     "\x1b[27;5;100~",
 ];
 
+const RETURN_HINT_TEXT = "ctrl+d returns to orchestrator panel";
+
+function expectRightAlignedReturnHint(
+    lines: readonly string[],
+    width: number,
+    rightInset = 0,
+): number {
+    const index = lines.findIndex((line) => line.includes(RETURN_HINT_TEXT));
+    assert.ok(index >= 0, "expected Ctrl+D orchestrator hint");
+    assert.equal(
+        lines[index]!.indexOf(RETURN_HINT_TEXT),
+        width - RETURN_HINT_TEXT.length - rightInset,
+    );
+    return index;
+}
+
 function makePendingPrompt(
     overrides: Partial<PendingPrompt> = {},
 ): PendingPrompt {
@@ -1273,7 +1289,15 @@ describe("StageChatView", () => {
             "run-1",
             "stage-a",
             (_tui, _theme, _kb, done) => ({
-                render: () => ["Proceed with the plan?"],
+                render: (width: number) => {
+                    const inner = Math.max(2, width - 2);
+                    const question = "Proceed with the plan?";
+                    return [
+                        `╭${"─".repeat(inner)}╮`,
+                        `│${question}${" ".repeat(Math.max(0, inner - question.length))}│`,
+                        `╰${"─".repeat(inner)}╯`,
+                    ];
+                },
                 handleInput: (data: string) => {
                     questionInputs.push(data);
                     if (data === "y") done("Yes");
@@ -1283,10 +1307,20 @@ describe("StageChatView", () => {
         );
         await flush();
 
-        // Both the prior transcript and the question render together.
-        const rendered = stripAnsi(view.render(80).join("\n"));
+        // Both the prior transcript and the question render together, with the
+        // return-to-orchestrator hint inside the custom UI's bottom-right corner.
+        const renderedLines = view.render(80).map(stripAnsi);
+        const rendered = renderedLines.join("\n");
         assert.match(rendered, /EARLIER-HISTORY-MARKER/);
         assert.match(rendered, /Proceed with the plan\?/);
+        const questionIndex = renderedLines.findIndex((line) =>
+            line.includes("Proceed with the plan?"),
+        );
+        const hintIndex = expectRightAlignedReturnHint(renderedLines, 80, 3);
+        assert.equal(hintIndex, questionIndex);
+        assert.match(renderedLines[hintIndex] ?? "", /^│/);
+        assert.match(renderedLines[hintIndex] ?? "", /  ctrl\+d returns to orchestrator panel  │$/);
+        assert.doesNotMatch(renderedLines[hintIndex] ?? "", /^╰/);
 
         // Scroll input (mouse wheel) is consumed by the transcript, not the
         // question component, so history stays scrollable while the gate is open.
@@ -1385,13 +1419,14 @@ describe("StageChatView", () => {
 
     test("ctrl+c closes and ctrl+d detaches without cancelling the pending custom UI", async () => {
         for (const variant of [
-            { key: "\x03", expect: "close" },
-            { key: "\x04", expect: "detach" },
+            { key: "\x03", expect: "close", status: "running" },
+            { key: "\x04", expect: "detach", status: "running" },
+            { key: "\x04", expect: "detach", status: "paused" },
         ] as const) {
             const store = createStore();
-            setupRun(store, "run-1", "stage-a");
+            setupRun(store, "run-1", "stage-a", variant.status);
             const broker = new StageUiBroker(store);
-            const { handle } = makeHandle();
+            const { handle } = makeHandle(undefined, [], variant.status);
             let closed = 0;
             let detached = 0;
             const view = new StageChatView({
@@ -1441,14 +1476,19 @@ describe("StageChatView", () => {
             // The local display is released (transcript renders again)...
             assert.doesNotMatch(stripAnsi(view.render(80).join("\n")), /Q/);
             // ...but the human-input request is NOT cancelled — it stays pending so a
-            // re-attach can re-display it.
+            // re-attach can re-display it. Paused stages keep their paused
+            // snapshot status because the store intentionally does not convert
+            // paused/blocked stages into awaiting_input.
             await flush();
             assert.equal(
                 settled,
                 false,
                 "detach/close must not settle the request",
             );
-            assert.equal(store.runs()[0]?.stages[0]?.status, "awaiting_input");
+            assert.equal(
+                store.runs()[0]?.stages[0]?.status,
+                variant.status === "paused" ? "paused" : "awaiting_input",
+            );
             view.dispose();
         }
     });
@@ -2288,11 +2328,17 @@ describe("StageChatView", () => {
             onClose: () => {},
         });
         const rendered = view.render(96).join("\n");
+        const visibleLines = rendered.split("\n").map(stripAnsi);
         assert.doesNotMatch(rendered, /Attached to/);
         assert.doesNotMatch(rendered, /This stage is idle/);
         assert.doesNotMatch(rendered, /type a message to start this stage/i);
         assert.match(rendered, /❯/);
         assert.match(rendered, /\x1b\[7m \x1b\[0m/);
+        const hintIndex = expectRightAlignedReturnHint(visibleLines, 96);
+        assert.ok(
+            hintIndex > visibleLines.findIndex((line) => line.includes("❯")),
+            "expected orchestrator hint below the chat box",
+        );
         view.dispose();
     });
 
@@ -2373,7 +2419,7 @@ describe("StageChatView", () => {
         view.dispose();
     });
 
-    test("attached live sessions render the usage ribbon above the chatbox and only the coding-agent footer below it", () => {
+    test("attached live sessions render the usage ribbon, orchestrator hint, and coding-agent footer", () => {
         const store = createStore();
         setupRun(store, "run-1", "stage-a", "running");
         const { handle } = makeHandle({
@@ -2416,6 +2462,7 @@ describe("StageChatView", () => {
         );
         const usageIndex = lines.findIndex((line) => line.includes("$0.123"));
         const promptIndex = lines.findIndex((line) => line.includes("❯"));
+        const hintIndex = expectRightAlignedReturnHint(lines, 120);
         const identityIndex = lines.findIndex((line) =>
             line.includes("esc to interrupt"),
         );
@@ -2431,13 +2478,53 @@ describe("StageChatView", () => {
             promptIndex > usageIndex,
             "expected composer below usage line",
         );
-        assert.equal(identityIndex, promptIndex + 2);
+        assert.ok(
+            hintIndex > promptIndex,
+            "expected orchestrator hint below the chat box",
+        );
+        assert.equal(identityIndex, hintIndex);
+        assert.notEqual(lines[hintIndex]?.trim(), RETURN_HINT_TEXT);
         assert.equal(commandsIndex, -1);
         assert.doesNotMatch(lines[identityIndex] ?? "", /steer|follow-up/);
         assert.doesNotMatch(
             rendered,
-            /pageup\/pagedown|ctrl\+d|follow-up|steer/,
+            /pageup\/pagedown|follow-up|steer/,
         );
+        view.dispose();
+    });
+
+    test("footer keeps model context and Ctrl+D orchestrator hint on one line", () => {
+        const store = createStore();
+        setupRun(store, "run-1", "stage-a", "running");
+        const { handle } = makeHandle();
+        const handleWithSession: StageControlHandle = {
+            ...handle,
+            agentSession: fakeFooterAgentSession(false),
+        };
+        const view = new StageChatView({
+            store,
+            graphTheme: deriveGraphTheme({}),
+            runId: "run-1",
+            stageId: "stage-a",
+            workflowName: "test-wf",
+            handle: handleWithSession,
+            footerData: {
+                getGitBranch: () => "main",
+                getExtensionStatuses: () => new Map(),
+                getAvailableProviderCount: () => 2,
+                onBranchChange: () => () => {},
+            },
+            onDetach: () => {},
+            onClose: () => {},
+        });
+
+        const lines = view.render(120).map(stripAnsi);
+        const hintIndex = expectRightAlignedReturnHint(lines, 120);
+        assert.match(
+            lines[hintIndex] ?? "",
+            /\(openai-codex\) gpt-5\.5 high .*Documents\/projects\/atomic/,
+        );
+        assert.notEqual(lines[hintIndex]?.trim(), RETURN_HINT_TEXT);
         view.dispose();
     });
 
@@ -2647,7 +2734,7 @@ describe("StageChatView", () => {
         }
     });
 
-    test("Ctrl+D variants close a paused structured pending prompt without answering", async () => {
+    test("Ctrl+D variants detach from a paused structured pending prompt without answering", async () => {
         for (const key of CTRL_D_VARIANTS) {
             const store = createStore();
             setupRun(store, "run-1", "stage-a", "paused");
@@ -2684,8 +2771,8 @@ describe("StageChatView", () => {
 
             assert.equal(view.handleInput(key), true);
             await flush();
-            assert.equal(closed, 1, JSON.stringify(key));
-            assert.equal(detached, 0, JSON.stringify(key));
+            assert.equal(detached, 1, JSON.stringify(key));
+            assert.equal(closed, 0, JSON.stringify(key));
             assert.equal(resolved, false, JSON.stringify(key));
             assert.equal(
                 store.runs()[0]?.stages[0]?.pendingPrompt?.id,
@@ -2695,7 +2782,7 @@ describe("StageChatView", () => {
         }
     });
 
-    test("Ctrl+D variants close a paused stage chat", () => {
+    test("Ctrl+D variants detach from a paused stage chat", () => {
         for (const key of CTRL_D_VARIANTS) {
             const store = createStore();
             setupRun(store, "run-1", "stage-a", "paused");
@@ -2717,8 +2804,8 @@ describe("StageChatView", () => {
                 },
             });
             view.handleInput(key);
-            assert.equal(closed, 1, JSON.stringify(key));
-            assert.equal(detached, 0, JSON.stringify(key));
+            assert.equal(detached, 1, JSON.stringify(key));
+            assert.equal(closed, 0, JSON.stringify(key));
             view.dispose();
         }
     });

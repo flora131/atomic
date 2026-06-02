@@ -113,6 +113,7 @@ export type ChatSessionHostEntry<TExtraEntry extends ChatTranscriptEntryLike = n
   | ChatMessageEntry
   | TExtraEntry;
 type AgentSnapshotMessage = AgentSession["messages"][number];
+type CacheKeyPart = string | number | boolean | null;
 
 export class ChatSessionHost<TExtraEntry extends ChatTranscriptEntryLike = never>
   implements Component, Focusable
@@ -152,6 +153,10 @@ export class ChatSessionHost<TExtraEntry extends ChatTranscriptEntryLike = never
   private animationTimer: ReturnType<typeof setInterval> | undefined;
   private renderThrottleTimer: ReturnType<typeof setTimeout> | undefined;
   private bodyViewport = new ScrollableComponentViewport();
+  private transcriptComponent: ChatTranscriptComponent<ChatSessionHostEntry<TExtraEntry>>;
+  private transcriptRenderSettingsKey = "";
+  private renderIdentityIds = new WeakMap<object, number>();
+  private nextRenderIdentityId = 1;
   private liveChat: LiveChatEntriesController;
   private editor: EditorComponent | undefined;
   private optimisticUserSignatureCounts = new Map<string, number>();
@@ -176,6 +181,11 @@ export class ChatSessionHost<TExtraEntry extends ChatTranscriptEntryLike = never
     this.renderExtraEntry = opts.renderExtraEntry;
     this.tui = opts.tui;
     this.liveChat = new LiveChatEntriesController(this.transcript);
+    this.transcriptComponent = new ChatTranscriptComponent(
+      this.transcript,
+      (entry) => this.renderEntry(entry),
+      (entry, index) => this.transcriptCacheKey(entry, index),
+    );
     this.editor = this.createEditor(
       opts.tui,
       opts.keybindings,
@@ -334,16 +344,17 @@ export class ChatSessionHost<TExtraEntry extends ChatTranscriptEntryLike = never
     return this.renderBody(width, 1);
   }
 
-  invalidate(): void {}
+  invalidate(): void {
+    this.transcriptComponent.invalidate();
+    this.bodyViewport.invalidate();
+    this.editor?.invalidate();
+  }
 
   renderBody(width: number, budget: number): string[] {
     const components: Component[] = [];
+    this.transcriptRenderSettingsKey = this.chatRenderSettingsCacheKey();
     if (this.transcript.length > 0) {
-      components.push(
-        new ChatTranscriptComponent(this.transcript, (entry) =>
-          this.renderEntry(entry),
-        ),
-      );
+      components.push(this.transcriptComponent);
     }
     if (this.statusMessage) {
       components.push(new Spacer(1));
@@ -809,6 +820,80 @@ export class ChatSessionHost<TExtraEntry extends ChatTranscriptEntryLike = never
     return { requestRender: () => this.requestRender?.() };
   }
 
+  private chatRenderSettingsCacheKey(): string {
+    const inherited = this.getChatRenderSettings?.();
+    return cacheKey([
+      "settings",
+      inherited?.hideThinkingBlock === true,
+      inherited?.hiddenThinkingLabel ?? "",
+      inherited?.toolOutputExpanded === true,
+      inherited?.showImages !== false,
+      inherited?.imageWidthCells ?? null,
+      this.getCwd?.() ?? this.getAgentSession?.()?.sessionManager.getCwd() ?? process.cwd(),
+      this.bodyViewport.getScrollFromBottom() === 0,
+      this.isStreaming(),
+    ]);
+  }
+
+  private transcriptCacheKey(
+    entry: ChatSessionHostEntry<TExtraEntry>,
+    index: number,
+  ): string {
+    return cacheKey([
+      this.transcriptRenderSettingsKey,
+      index,
+      entry.role,
+      this.renderIdentityKey(entry),
+      this.entryContentCacheKey(entry),
+    ]);
+  }
+
+  private entryContentCacheKey(entry: ChatSessionHostEntry<TExtraEntry>): string {
+    if (!isChatMessageEntry(entry)) return cacheKey(["extra"]);
+    switch (entry.kind) {
+      case "assistant":
+        return cacheKey(["assistant", this.renderIdentityKey(entry.message)]);
+      case "tool":
+        return cacheKey([
+          "tool",
+          entry.toolCallId,
+          entry.toolName,
+          entry.isPartial === true,
+          entry.result === undefined ? null : this.renderIdentityKey(entry.result),
+        ]);
+      case "bashExecution":
+        return cacheKey([
+          "bashExecution",
+          entry.isPartial === true,
+          entry.message.command,
+          entry.message.output,
+          entry.message.exitCode ?? null,
+          entry.message.cancelled,
+          entry.message.truncated,
+          entry.message.fullOutputPath ?? null,
+        ]);
+      case "user":
+        return cacheKey(["user", entry.text]);
+      case "custom":
+        return cacheKey(["custom", this.renderIdentityKey(entry.message)]);
+      case "branchSummary":
+        return cacheKey(["branchSummary", this.renderIdentityKey(entry.message)]);
+      case "compactionSummary":
+        return cacheKey(["compactionSummary", this.renderIdentityKey(entry.message)]);
+      case "system":
+        return cacheKey(["system", entry.text]);
+    }
+  }
+
+  private renderIdentityKey(value: object): string {
+    const existing = this.renderIdentityIds.get(value);
+    if (existing !== undefined) return String(existing);
+    const id = this.nextRenderIdentityId;
+    this.nextRenderIdentityId += 1;
+    this.renderIdentityIds.set(value, id);
+    return String(id);
+  }
+
   private pendingMessageLine(
     width: number,
     label: "Steering" | "Follow-up" | "Queued",
@@ -1083,6 +1168,10 @@ function isSharedLiveChatEvent(type: string): boolean {
     type === "tool_execution_update" ||
     type === "tool_execution_end"
   );
+}
+
+function cacheKey(parts: readonly CacheKeyPart[]): string {
+  return JSON.stringify(parts);
 }
 
 function isChatMessageEntry<TExtraEntry extends ChatTranscriptEntryLike>(

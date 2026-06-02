@@ -186,6 +186,42 @@ test("ChatSessionHost parses ! and !! bash commands without prompting", async ()
   host.dispose();
 });
 
+test("ChatSessionHost reuses transcript render cache with fresh render settings", () => {
+  interface CountEntry {
+    role: "custom";
+    text: string;
+  }
+
+  let renderCount = 0;
+  const host = new ChatSessionHost<CountEntry>({
+    style: plainStyle,
+    editorTheme,
+    getChatRenderSettings: () => ({ showImages: true }),
+    renderExtraEntry: (entry) => ({
+      render: () => {
+        renderCount += 1;
+        return [entry.text];
+      },
+      invalidate: () => {},
+    }),
+  });
+
+  host.appendExtraEntry({ role: "custom", text: "first" });
+  host.appendExtraEntry({ role: "custom", text: "second" });
+  host.appendExtraEntry({ role: "custom", text: "third" });
+
+  assert.deepEqual(host.renderBody(80, 1), ["third"]);
+  assert.equal(renderCount, 3);
+  assert.deepEqual(host.renderBody(80, 1), ["third"]);
+  assert.equal(renderCount, 3);
+
+  host.invalidate();
+
+  assert.deepEqual(host.renderBody(80, 1), ["third"]);
+  assert.equal(renderCount, 6);
+  host.dispose();
+});
+
 test("ChatSessionHost preserves bare bang input as a normal prompt", async () => {
   const prompts: string[] = [];
   const host = makeHost({

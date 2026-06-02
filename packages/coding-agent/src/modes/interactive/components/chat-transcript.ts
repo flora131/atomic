@@ -30,6 +30,38 @@ export type ChatTranscriptRenderer<TEntry extends ChatTranscriptEntryLike> = (
   entry: TEntry,
 ) => Component;
 
+export type ChatTranscriptCacheKey<TEntry extends ChatTranscriptEntryLike> = (
+  entry: TEntry,
+  index: number,
+) => string;
+
+interface CachedChatTranscriptBlock<TEntry extends ChatTranscriptEntryLike> {
+  readonly entry: TEntry;
+  readonly key: string;
+  readonly width: number;
+  readonly lines: readonly string[];
+}
+
+interface RowWindowComponent extends Component {
+  readonly supportsRowWindow: true;
+  rowCount(width: number): number;
+  renderRows(width: number, startRow: number, endRow: number): string[];
+}
+
+interface WindowedComponentRows {
+  readonly kind: "windowed";
+  readonly component: RowWindowComponent;
+  readonly rowCount: number;
+}
+
+interface StaticComponentRows {
+  readonly kind: "static";
+  readonly lines: readonly string[];
+  readonly rowCount: number;
+}
+
+type ComponentRows = WindowedComponentRows | StaticComponentRows;
+
 export function addChatTranscriptEntry(
   container: Container,
   component: Component,
@@ -62,26 +94,109 @@ function needsLeadingSpacer(role: ChatTranscriptRole): boolean {
 export class ChatTranscriptComponent<TEntry extends ChatTranscriptEntryLike>
   implements Component
 {
-  declare private readonly entries: readonly TEntry[];
-  declare private readonly renderEntry: ChatTranscriptRenderer<TEntry>;
+  private readonly entries: readonly TEntry[];
+  private readonly renderEntry: ChatTranscriptRenderer<TEntry>;
+  readonly supportsRowWindow: boolean;
+
+  private readonly cacheKey: ChatTranscriptCacheKey<TEntry> | undefined;
+  private blockCache: Array<CachedChatTranscriptBlock<TEntry> | undefined> = [];
 
   constructor(
     entries: readonly TEntry[],
     renderEntry: ChatTranscriptRenderer<TEntry>,
+    cacheKey?: ChatTranscriptCacheKey<TEntry>,
   ) {
     this.entries = entries;
     this.renderEntry = renderEntry;
-	}
-
-  render(width: number): string[] {
-    const container = new Container();
-    for (const entry of this.entries) {
-      addChatTranscriptEntry(container, this.renderEntry(entry), entry.role);
-    }
-    return container.render(width);
+    this.cacheKey = cacheKey;
+    this.supportsRowWindow = cacheKey !== undefined;
   }
 
-  invalidate(): void {}
+  render(width: number): string[] {
+    if (!this.supportsRowWindow) return this.renderAllRows(width);
+    return this.renderRows(width, 0, this.rowCount(width));
+  }
+
+  rowCount(width: number): number {
+    if (!this.supportsRowWindow) return this.renderAllRows(width).length;
+    this.ensureBlockCache(width);
+    let count = 0;
+    for (const block of this.blockCache) {
+      if (block !== undefined) count += block.lines.length;
+    }
+    return count;
+  }
+
+  renderRows(width: number, startRow: number, endRow: number): string[] {
+    const start = Math.max(0, Math.floor(startRow));
+    const end = Math.max(start, Math.floor(endRow));
+    if (end <= start) return [];
+    if (!this.supportsRowWindow) return this.renderAllRows(width).slice(start, end);
+
+    this.ensureBlockCache(width);
+    const lines: string[] = [];
+    let cursor = 0;
+    for (let index = 0; index < this.entries.length; index += 1) {
+      const block = this.blockCache[index];
+      if (block === undefined) continue;
+      const blockStart = cursor;
+      const blockEnd = blockStart + block.lines.length;
+      if (blockEnd > start && blockStart < end) {
+        const localStart = Math.max(0, start - blockStart);
+        const localEnd = Math.min(block.lines.length, end - blockStart);
+        lines.push(...block.lines.slice(localStart, localEnd));
+      }
+      cursor = blockEnd;
+      if (cursor >= end) break;
+    }
+    return lines;
+  }
+
+  invalidate(): void {
+    this.blockCache = [];
+  }
+
+  private ensureBlockCache(width: number): void {
+    if (this.blockCache.length > this.entries.length) {
+      this.blockCache.length = this.entries.length;
+    }
+    for (let index = 0; index < this.entries.length; index += 1) {
+      const entry = this.entries[index];
+      if (entry === undefined) continue;
+      const key = this.cacheKey?.(entry, index) ?? `${index}:${entry.role}`;
+      const cached = this.blockCache[index];
+      if (
+        cached !== undefined &&
+        cached.entry === entry &&
+        cached.key === key &&
+        cached.width === width
+      ) {
+        continue;
+      }
+      this.blockCache[index] = {
+        entry,
+        key,
+        width,
+        lines: this.renderEntryBlock(entry, index, width),
+      };
+    }
+  }
+
+  private renderAllRows(width: number): string[] {
+    const lines: string[] = [];
+    for (let index = 0; index < this.entries.length; index += 1) {
+      const entry = this.entries[index];
+      if (entry !== undefined) lines.push(...this.renderEntryBlock(entry, index, width));
+    }
+    return lines;
+  }
+
+  private renderEntryBlock(entry: TEntry, index: number, width: number): string[] {
+    const lines: string[] = [];
+    if (index > 0 && needsLeadingSpacer(entry.role)) lines.push("");
+    lines.push(...this.renderEntry(entry).render(width));
+    return lines;
+  }
 }
 
 const DEFAULT_SCROLL_STEP_ROWS = 4;
@@ -161,24 +276,74 @@ export class ScrollableComponentViewport implements Component {
   }
 
   render(width: number): string[] {
-    const allLines = this.components.flatMap((component) => component.render(width));
-    const maxScroll = Math.max(0, allLines.length - this.visibleRows);
-    if (this.scrollFromBottom > 0 && this.lastWidth === width && allLines.length > this.lastLineCount) {
-      this.scrollFromBottom += allLines.length - this.lastLineCount;
+    const componentRows = this.measureComponentRows(width);
+    const lineCount = componentRows.reduce((sum, rows) => sum + rows.rowCount, 0);
+    const maxScroll = Math.max(0, lineCount - this.visibleRows);
+    if (this.scrollFromBottom > 0 && this.lastWidth === width && lineCount > this.lastLineCount) {
+      this.scrollFromBottom += lineCount - this.lastLineCount;
     }
-    this.lastLineCount = allLines.length;
+    this.lastLineCount = lineCount;
     this.lastWidth = width;
     this.maxScroll = maxScroll;
     this.clampScroll();
 
     const start = Math.max(0, maxScroll - this.scrollFromBottom);
-    const visible = allLines.slice(start, start + this.visibleRows);
+    const visible = this.renderVisibleRows(
+      componentRows,
+      width,
+      start,
+      start + this.visibleRows,
+    );
     while (visible.length < this.visibleRows) visible.push(" ".repeat(width));
     return visible;
   }
 
   invalidate(): void {
     for (const component of this.components) component.invalidate();
+  }
+
+  private measureComponentRows(width: number): ComponentRows[] {
+    return this.components.map((component) => {
+      if (isRowWindowComponent(component)) {
+        return {
+          kind: "windowed",
+          component,
+          rowCount: component.rowCount(width),
+        };
+      }
+      const lines = component.render(width);
+      return {
+        kind: "static",
+        lines,
+        rowCount: lines.length,
+      };
+    });
+  }
+
+  private renderVisibleRows(
+    componentRows: readonly ComponentRows[],
+    width: number,
+    startRow: number,
+    endRow: number,
+  ): string[] {
+    const lines: string[] = [];
+    let cursor = 0;
+    for (const rows of componentRows) {
+      const componentStart = cursor;
+      const componentEnd = componentStart + rows.rowCount;
+      if (componentEnd > startRow && componentStart < endRow) {
+        const localStart = Math.max(0, startRow - componentStart);
+        const localEnd = Math.min(rows.rowCount, endRow - componentStart);
+        if (rows.kind === "windowed") {
+          lines.push(...rows.component.renderRows(width, localStart, localEnd));
+        } else {
+          lines.push(...rows.lines.slice(localStart, localEnd));
+        }
+      }
+      cursor = componentEnd;
+      if (cursor >= endRow) break;
+    }
+    return lines;
   }
 
   private pageSize(): number {
@@ -188,6 +353,13 @@ export class ScrollableComponentViewport implements Component {
   private clampScroll(): void {
     this.scrollFromBottom = Math.max(0, Math.min(this.maxScroll, this.scrollFromBottom));
   }
+}
+
+function isRowWindowComponent(component: Component): component is RowWindowComponent {
+  const candidate = component as Partial<RowWindowComponent>;
+  return candidate.supportsRowWindow === true &&
+    typeof candidate.rowCount === "function" &&
+    typeof candidate.renderRows === "function";
 }
 
 export class ScrollableChatTranscriptComponent<TEntry extends ChatTranscriptEntryLike>

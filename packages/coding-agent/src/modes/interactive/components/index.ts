@@ -23,6 +23,7 @@ export {
   ChatTranscriptComponent,
   ScrollableChatTranscriptComponent,
   ScrollableComponentViewport,
+  type ChatTranscriptCacheKey,
   type ChatTranscriptEntryLike,
   type ChatTranscriptRenderer,
   type ChatTranscriptRole,

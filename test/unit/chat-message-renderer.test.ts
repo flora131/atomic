@@ -2,6 +2,7 @@ import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import {
+  ChatTranscriptComponent,
   chatEntriesFromAgentMessages,
   LiveChatEntriesController,
   ScrollableComponentViewport,
@@ -99,5 +100,69 @@ describe("chat message renderer utilities", () => {
     assert.deepEqual(viewport.render(20), ["line-0", "line-1", "line-2"]);
     assert.equal(viewport.handleInput("\x1b[6~"), true);
     assert.deepEqual(viewport.render(20), ["line-2", "line-3", "line-4"]);
+  });
+
+  test("scrollable viewport renders only visible rows for windowed components", () => {
+    const viewport = new ScrollableComponentViewport();
+    const renderedWindows: Array<readonly [number, number]> = [];
+    viewport.setVisibleRows(2);
+    const windowedComponent = {
+      supportsRowWindow: true as const,
+      rowCount: () => 5,
+      renderRows: (_width: number, startRow: number, endRow: number) => {
+        renderedWindows.push([startRow, endRow]);
+        return ["line-0", "line-1", "line-2", "line-3", "line-4"].slice(startRow, endRow);
+      },
+      render: () => {
+        throw new Error("windowed component should not render all rows");
+      },
+      invalidate: () => {},
+    };
+    viewport.setComponents([windowedComponent]);
+
+    assert.deepEqual(viewport.render(20), ["line-3", "line-4"]);
+    assert.deepEqual(renderedWindows, [[3, 5]]);
+  });
+
+  test("chat transcript without cache key reflects in-place entry mutations", () => {
+    const entries: Array<{ role: "user"; text: string }> = [
+      { role: "user", text: "first" },
+    ];
+    const transcript = new ChatTranscriptComponent(entries, (entry) => ({
+      render: () => [entry.text],
+      invalidate: () => {},
+    }));
+
+    assert.deepEqual(transcript.render(20), ["first"]);
+    entries[0]!.text = "updated";
+    assert.deepEqual(transcript.render(20), ["updated"]);
+  });
+
+  test("chat transcript reuses cached entry blocks across small viewport renders", () => {
+    const entries = [
+      { role: "user" as const, text: "first" },
+      { role: "assistant" as const, text: "second" },
+      { role: "user" as const, text: "third" },
+    ];
+    let renderCount = 0;
+    const transcript = new ChatTranscriptComponent(
+      entries,
+      (entry) => {
+        renderCount += 1;
+        return {
+          render: () => [entry.text],
+          invalidate: () => {},
+        };
+      },
+      (entry) => entry.text,
+    );
+    const viewport = new ScrollableComponentViewport();
+    viewport.setVisibleRows(1);
+    viewport.setComponents([transcript]);
+
+    assert.deepEqual(viewport.render(20), ["third"]);
+    assert.equal(renderCount, 3);
+    assert.deepEqual(viewport.render(20), ["third"]);
+    assert.equal(renderCount, 3);
   });
 });

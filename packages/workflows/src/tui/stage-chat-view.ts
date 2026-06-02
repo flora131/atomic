@@ -706,7 +706,9 @@ export class StageChatView implements Component, Focusable {
     if (blocked) this.chatHost.scrollToBottom();
 
     let bodyLines: string[];
-    if (promptActive) {
+    if (bodyBudget <= 0) {
+      bodyLines = [];
+    } else if (promptActive) {
       bodyLines = this._renderPromptBody(w, bodyBudget);
     } else if (blocked) {
       bodyLines = this._renderBlockedBody(w, bodyBudget, stage);
@@ -1408,6 +1410,7 @@ export class StageChatView implements Component, Focusable {
   }
 
   invalidate(): void {
+    this.chatHost.invalidate();
     this._syncPromptState(this._currentStage()?.pendingPrompt);
   }
 

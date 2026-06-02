@@ -4,6 +4,12 @@ All notable changes to the `pi-intercom` extension will be documented in this fi
 
 ## [Unreleased]
 
+## [0.8.23] - 2026-06-02
+
+### Changed
+
+- Promoted the 0.8.23 prerelease package version to a stable release.
+
 ## [0.8.23-0] - 2026-06-02
 
 ### Changed

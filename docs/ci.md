@@ -149,6 +149,7 @@ git push origin v0.8.0
 Publish @bastani/atomic
   · resolve and validate the tag name
   · checkout the tag
+  · run on a GitHub-hosted Ubuntu runner (required for npm provenance)
   · setup Bun and Node (Node 24 for npm provenance publish)
   · bun install --frozen-lockfile
   · bun run typecheck && bun run test:all
@@ -178,6 +179,8 @@ Create GitHub Release with softprops/action-gh-release@v3
 ### Why npm Publish Before GitHub Release?
 
 npm versions are immutable. The workflow publishes to npm first so the GitHub Release is only created after the npm package is available.
+
+npm provenance currently supports GitHub-hosted runners only, so the final publish job runs on `ubuntu-latest` even though the binary smoke-test jobs can use Blacksmith runners.
 
 ### GitHub Release Creation
 
@@ -243,7 +246,7 @@ The meaningful pre-publish checks are:
 | File                 | Trigger                                       | Purpose                                                                                                                                                                                                       |
 | -------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `test.yml`           | Push to `main`, PR to `main`                  | Install, typecheck, validate docs links, build `@bastani/atomic`, unit/integration tests, build native Linux/Windows binaries, and run `atomic --version` archive smoke tests                                 |
-| `publish.yml`        | `v*` tag push, manual dispatch with tag input | Smoke test Linux/Windows binaries in parallel, validate docs links before publish metadata checks, build binaries, publish `@bastani/atomic` to npm with OIDC provenance, create GitHub Release with binaries |
+| `publish.yml`        | `v*` tag push, manual dispatch with tag input | Smoke test Linux/Windows binaries in parallel, validate docs links before publish metadata checks, build binaries on a GitHub-hosted runner for npm provenance, publish `@bastani/atomic`, create GitHub Release with binaries |
 | `code-review.yml`    | PR opened/synchronized                        | Claude-powered code review                                                                                                                                                                                    |
 | `pr-description.yml` | PR opened/synchronized                        | Claude-powered PR description generation, skipped for Dependabot                                                                                                                                              |
 | `claude.yml`         | Issue/PR comments, issues, PR reviews         | Interactive Claude assistant gated on `@claude` mentions                                                                                                                                                      |

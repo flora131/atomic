@@ -164,7 +164,8 @@ jobs:
 
     publish:
         name: Publish @bastani/atomic
-        runs-on: blacksmith-4vcpu-ubuntu-2404
+        # npm provenance only supports GitHub-hosted runners.
+        runs-on: ubuntu-latest
         needs:
             - linux-binary-smoke
             - windows-binary-smoke
@@ -193,7 +194,7 @@ jobs:
                   fi
                   echo "ref=$ref" >> "$GITHUB_OUTPUT"
 
-            - uses: useblacksmith/checkout@v1
+            - uses: actions/checkout@v6.0.2
               with:
                   ref: ${{ steps.checkout_ref.outputs.ref }}
                   fetch-depth: 0

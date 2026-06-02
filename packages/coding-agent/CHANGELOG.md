@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.8.23-0] - 2026-06-02
+
 ### Changed
 
 - Documented workflow artifact-path handoffs and `Read the file at <path>...` downstream prompts as the preferred alternative to injecting large `previous` payloads, review histories, or session tails.

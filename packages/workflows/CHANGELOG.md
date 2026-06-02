@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.8.23-0] - 2026-06-02
+
 ### Added
 
 - Added a workflow node chat Ctrl+D hint that shares the bottom footer line with model/cwd metadata and appears in the bottom-right corner of stage-local ctx.ui widgets.

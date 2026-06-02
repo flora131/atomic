@@ -43,14 +43,12 @@ afterEach(async () => {
 /** Canonical valid workflow JS source (default export). */
 function validDefaultExportSrc(name: string, normalizedName: string): string {
   return `
-const wf = {
-  __piWorkflow: true,
-  name: ${JSON.stringify(name)},
-  normalizedName: ${JSON.stringify(normalizedName)},
-  description: "test workflow",
-  inputs: {},
-  run: async (ctx) => { await ctx.task("validation-smoke", { prompt: "validation smoke" }); return {}; },
-};
+import { defineWorkflow } from "@bastani/workflows";
+const wf = defineWorkflow(${JSON.stringify(normalizedName)})
+  .description(${JSON.stringify(name)} + " test workflow")
+  .run(async (ctx) => { await ctx.task("validation-smoke", { prompt: "validation smoke" }); return {}; })
+  .compile();
+if (wf.normalizedName !== ${JSON.stringify(normalizedName)}) throw new Error("unexpected normalized name");
 export default wf;
 `;
 }
@@ -58,14 +56,12 @@ export default wf;
 /** Valid workflow JS source as named export. */
 function validNamedExportSrc(name: string, normalizedName: string, exportName = "workflow"): string {
   return `
-export const ${exportName} = {
-  __piWorkflow: true,
-  name: ${JSON.stringify(name)},
-  normalizedName: ${JSON.stringify(normalizedName)},
-  description: "test workflow",
-  inputs: {},
-  run: async (ctx) => { await ctx.task("validation-smoke", { prompt: "validation smoke" }); return {}; },
-};
+import { defineWorkflow } from "@bastani/workflows";
+export const ${exportName} = defineWorkflow(${JSON.stringify(normalizedName)})
+  .description(${JSON.stringify(name)} + " test workflow")
+  .run(async (ctx) => { await ctx.task("validation-smoke", { prompt: "validation smoke" }); return {}; })
+  .compile();
+if (${exportName}.normalizedName !== ${JSON.stringify(normalizedName)}) throw new Error("unexpected normalized name");
 `;
 }
 
@@ -77,23 +73,19 @@ function validDefaultAndNamedExportSrc(
   namedNorm: string,
 ): string {
   return `
-export default {
-  __piWorkflow: true,
-  name: ${JSON.stringify(defaultName)},
-  normalizedName: ${JSON.stringify(defaultNorm)},
-  description: "default export workflow",
-  inputs: {},
-  run: async (ctx) => { await ctx.task("validation-smoke", { prompt: "validation smoke" }); return {}; },
-};
+import { defineWorkflow } from "@bastani/workflows";
+const first = defineWorkflow(${JSON.stringify(defaultNorm)})
+  .description(${JSON.stringify(defaultName)} + " default export workflow")
+  .run(async (ctx) => { await ctx.task("validation-smoke", { prompt: "validation smoke" }); return {}; })
+  .compile();
+if (first.normalizedName !== ${JSON.stringify(defaultNorm)}) throw new Error("unexpected normalized name");
+export default first;
 
-export const second = {
-  __piWorkflow: true,
-  name: ${JSON.stringify(namedName)},
-  normalizedName: ${JSON.stringify(namedNorm)},
-  description: "named export workflow",
-  inputs: {},
-  run: async (ctx) => { await ctx.task("validation-smoke", { prompt: "validation smoke" }); return {}; },
-};
+export const second = defineWorkflow(${JSON.stringify(namedNorm)})
+  .description(${JSON.stringify(namedName)} + " named export workflow")
+  .run(async (ctx) => { await ctx.task("validation-smoke", { prompt: "validation smoke" }); return {}; })
+  .compile();
+if (second.normalizedName !== ${JSON.stringify(namedNorm)}) throw new Error("unexpected normalized name");
 `;
 }
 
@@ -156,14 +148,11 @@ describe("scanWorkflowDir — supported file extensions", () => {
     await writeFile(
       cjsPath,
       `
-module.exports = {
-  __piWorkflow: true,
-  name: "Gamma",
-  normalizedName: "gamma",
-  description: "cjs workflow",
-  inputs: {},
-  run: async (ctx) => { await ctx.task("validation-smoke", { prompt: "validation smoke" }); return {}; },
-};
+const { defineWorkflow } = require("@bastani/workflows");
+module.exports = defineWorkflow("Gamma")
+  .description("cjs workflow")
+  .run(async (ctx) => { await ctx.task("validation-smoke", { prompt: "validation smoke" }); return {}; })
+  .compile();
 `,
       "utf8",
     );
@@ -228,14 +217,15 @@ describe("importWorkflowFile — default AND named exports", () => {
     await createProjectWorkflowFile(
       "conflict.js",
       `
-export default {
-  __piWorkflow: true, name: "Alpha Default", normalizedName: "conflict-alpha",
-  description: "default", inputs: {}, run: async (ctx) => { await ctx.task("validation-smoke", { prompt: "validation smoke" }); return {}; },
-};
-export const named = {
-  __piWorkflow: true, name: "Alpha Named", normalizedName: "conflict-alpha",
-  description: "named", inputs: {}, run: async (ctx) => { await ctx.task("validation-smoke", { prompt: "validation smoke" }); return {}; },
-};
+import { defineWorkflow } from "@bastani/workflows";
+export default defineWorkflow("conflict-alpha")
+  .description("conflict-alpha")
+  .run(async (ctx) => { await ctx.task("validation-smoke", { prompt: "validation smoke" }); return {}; })
+  .compile();
+export const named = defineWorkflow("conflict-alpha")
+  .description("Alpha Named")
+  .run(async (ctx) => { await ctx.task("validation-smoke", { prompt: "validation smoke" }); return {}; })
+  .compile();
 `,
     );
     const result = await discoverWorkflows({
@@ -245,7 +235,7 @@ export const named = {
     });
     // Default wins
     assert.equal(result.registry.has("conflict-alpha"), true);
-    assert.equal(result.registry.get("conflict-alpha")?.name, "Alpha Default");
+    assert.equal(result.registry.get("conflict-alpha")?.name, "conflict-alpha");
     // Named emits DUPLICATE_NAME
     const dupes = result.errors.filter((e) => e.code === "DUPLICATE_NAME");
     assert.ok(dupes.length >= 1);
@@ -268,10 +258,10 @@ export const named = {
     await createProjectWorkflowFile(
       "mixed-validity.js",
       `
-export default {
-  __piWorkflow: true, name: "Valid Default", normalizedName: "valid-default",
-  description: "", inputs: {}, run: async (ctx) => { await ctx.task("validation-smoke", { prompt: "validation smoke" }); return {}; },
-};
+import { defineWorkflow } from "@bastani/workflows";
+export default defineWorkflow("Valid Default")
+  .run(async (ctx) => { await ctx.task("validation-smoke", { prompt: "validation smoke" }); return {}; })
+  .compile();
 export const bad = { notAWorkflow: true };
 `,
     );
@@ -323,6 +313,328 @@ describe("IMPORT_FAILED diagnostic", () => {
     assert.equal(result.registry.has("good-workflow"), true);
     const importFailed = result.errors.filter((e) => e.code === "IMPORT_FAILED");
     assert.ok(importFailed.length >= 1);
+  });
+
+  test("removed runWorkflow named import fails during workflow loading", async () => {
+    await createProjectWorkflowFile(
+      "removed-api.js",
+      `
+import { defineWorkflow, runWorkflow } from "@bastani/workflows";
+void runWorkflow;
+export default defineWorkflow("removed-api-import")
+  .run(async () => ({}))
+  .compile();
+`,
+    );
+    const result = await discoverWorkflows({
+      cwd: join(tmpRoot, "cwd"),
+      homeDir: join(tmpRoot, "home"),
+      includeBundled: false,
+    });
+    assert.equal(result.registry.has("removed-api-import"), false);
+    const importFailed = result.errors.filter((e) => e.code === "IMPORT_FAILED");
+    assert.equal(importFailed.length, 1);
+    assert.match(importFailed[0]!.message, /no longer exports runWorkflow/);
+  });
+
+  test("removed runWorkflow namespace import reference fails during workflow loading", async () => {
+    await createProjectWorkflowFile(
+      "removed-namespace.js",
+      `
+import * as workflows from "@bastani/workflows";
+void workflows.runWorkflow;
+export default workflows.defineWorkflow("removed-namespace-import")
+  .run(async () => ({}))
+  .compile();
+`,
+    );
+    const result = await discoverWorkflows({
+      cwd: join(tmpRoot, "cwd"),
+      homeDir: join(tmpRoot, "home"),
+      includeBundled: false,
+    });
+    assert.equal(result.registry.has("removed-namespace-import"), false);
+    const importFailed = result.errors.filter((e) => e.code === "IMPORT_FAILED");
+    assert.equal(importFailed.length, 1);
+    assert.match(importFailed[0]!.message, /no longer exports runWorkflow/);
+  });
+
+  test("removed runWorkflow CJS destructured require fails during workflow loading", async () => {
+    await createProjectWorkflowFile(
+      "removed-require.cjs",
+      `
+const { defineWorkflow, runWorkflow } = require("@bastani/workflows");
+void runWorkflow;
+exports.default = defineWorkflow("removed-require-destructured")
+  .run(async () => ({}))
+  .compile();
+`,
+    );
+    const result = await discoverWorkflows({
+      cwd: join(tmpRoot, "cwd"),
+      homeDir: join(tmpRoot, "home"),
+      includeBundled: false,
+    });
+    assert.equal(result.registry.has("removed-require-destructured"), false);
+    const importFailed = result.errors.filter((e) => e.code === "IMPORT_FAILED");
+    assert.equal(importFailed.length, 1);
+    assert.match(importFailed[0]!.message, /no longer exports runWorkflow/);
+  });
+
+  test("removed runWorkflow CJS namespace require reference fails during workflow loading", async () => {
+    await createProjectWorkflowFile(
+      "removed-require-namespace.cjs",
+      `
+const workflows = require("@bastani/workflows");
+void workflows.runWorkflow;
+exports.default = workflows.defineWorkflow("removed-require-namespace")
+  .run(async () => ({}))
+  .compile();
+`,
+    );
+    const result = await discoverWorkflows({
+      cwd: join(tmpRoot, "cwd"),
+      homeDir: join(tmpRoot, "home"),
+      includeBundled: false,
+    });
+    assert.equal(result.registry.has("removed-require-namespace"), false);
+    const importFailed = result.errors.filter((e) => e.code === "IMPORT_FAILED");
+    assert.equal(importFailed.length, 1);
+    assert.match(importFailed[0]!.message, /no longer exports runWorkflow/);
+  });
+
+  test("removed runWorkflow namespace destructuring fails during workflow loading", async () => {
+    await createProjectWorkflowFile(
+      "removed-namespace-destructure.js",
+      `
+import * as workflows from "@bastani/workflows";
+const { runWorkflow } = workflows;
+void runWorkflow;
+export default workflows.defineWorkflow("removed-namespace-destructure")
+  .run(async () => ({}))
+  .compile();
+`,
+    );
+    const result = await discoverWorkflows({
+      cwd: join(tmpRoot, "cwd"),
+      homeDir: join(tmpRoot, "home"),
+      includeBundled: false,
+    });
+    assert.equal(result.registry.has("removed-namespace-destructure"), false);
+    const importFailed = result.errors.filter((e) => e.code === "IMPORT_FAILED");
+    assert.equal(importFailed.length, 1);
+    assert.match(importFailed[0]!.message, /no longer exports runWorkflow/);
+  });
+
+  test("removed runWorkflow CJS namespace destructuring fails during workflow loading", async () => {
+    await createProjectWorkflowFile(
+      "removed-require-namespace-destructure.cjs",
+      `
+const workflows = require("@bastani/workflows");
+const { runWorkflow } = workflows;
+void runWorkflow;
+exports.default = workflows.defineWorkflow("removed-require-namespace-destructure")
+  .run(async () => ({}))
+  .compile();
+`,
+    );
+    const result = await discoverWorkflows({
+      cwd: join(tmpRoot, "cwd"),
+      homeDir: join(tmpRoot, "home"),
+      includeBundled: false,
+    });
+    assert.equal(result.registry.has("removed-require-namespace-destructure"), false);
+    const importFailed = result.errors.filter((e) => e.code === "IMPORT_FAILED");
+    assert.equal(importFailed.length, 1);
+    assert.match(importFailed[0]!.message, /no longer exports runWorkflow/);
+  });
+
+  test("removed runWorkflow dynamic import destructuring fails during workflow loading", async () => {
+    await createProjectWorkflowFile(
+      "removed-dynamic-destructure.js",
+      `
+import { defineWorkflow } from "@bastani/workflows";
+(async () => {
+  const { runWorkflow } = await import("@bastani/workflows");
+  void runWorkflow;
+})();
+export default defineWorkflow("removed-dynamic-destructure")
+  .run(async () => ({}))
+  .compile();
+`,
+    );
+    const result = await discoverWorkflows({
+      cwd: join(tmpRoot, "cwd"),
+      homeDir: join(tmpRoot, "home"),
+      includeBundled: false,
+    });
+    assert.equal(result.registry.has("removed-dynamic-destructure"), false);
+    const importFailed = result.errors.filter((e) => e.code === "IMPORT_FAILED");
+    assert.equal(importFailed.length, 1);
+    assert.match(importFailed[0]!.message, /no longer exports runWorkflow/);
+  });
+
+  test("removed runWorkflow direct require property reference fails during workflow loading", async () => {
+    await createProjectWorkflowFile(
+      "removed-require-property.cjs",
+      `
+const { defineWorkflow } = require("@bastani/workflows");
+void require("@bastani/workflows").runWorkflow;
+exports.default = defineWorkflow("removed-require-property")
+  .run(async () => ({}))
+  .compile();
+`,
+    );
+    const result = await discoverWorkflows({
+      cwd: join(tmpRoot, "cwd"),
+      homeDir: join(tmpRoot, "home"),
+      includeBundled: false,
+    });
+    assert.equal(result.registry.has("removed-require-property"), false);
+    const importFailed = result.errors.filter((e) => e.code === "IMPORT_FAILED");
+    assert.equal(importFailed.length, 1);
+    assert.match(importFailed[0]!.message, /no longer exports runWorkflow/);
+  });
+
+  test("removed runWorkflow dynamic namespace import reference fails during workflow loading", async () => {
+    await createProjectWorkflowFile(
+      "removed-dynamic-namespace.js",
+      `
+import { defineWorkflow } from "@bastani/workflows";
+(async () => {
+  const workflows = await import("@bastani/workflows");
+  void workflows.runWorkflow;
+})();
+export default defineWorkflow("removed-dynamic-namespace")
+  .run(async () => ({}))
+  .compile();
+`,
+    );
+    const result = await discoverWorkflows({
+      cwd: join(tmpRoot, "cwd"),
+      homeDir: join(tmpRoot, "home"),
+      includeBundled: false,
+    });
+    assert.equal(result.registry.has("removed-dynamic-namespace"), false);
+    const importFailed = result.errors.filter((e) => e.code === "IMPORT_FAILED");
+    assert.equal(importFailed.length, 1);
+    assert.match(importFailed[0]!.message, /no longer exports runWorkflow/);
+  });
+
+  test("removed runWorkflow typed dynamic namespace import reference fails during workflow loading", async () => {
+    await createProjectWorkflowFile(
+      "removed-dynamic-namespace-typed.ts",
+      `
+import { defineWorkflow } from "@bastani/workflows";
+(async () => {
+  const workflows: typeof import("@bastani/workflows") = await import("@bastani/workflows");
+  void workflows.runWorkflow;
+})();
+export default defineWorkflow("removed-dynamic-namespace-typed")
+  .run(async () => ({}))
+  .compile();
+`,
+    );
+    const result = await discoverWorkflows({
+      cwd: join(tmpRoot, "cwd"),
+      homeDir: join(tmpRoot, "home"),
+      includeBundled: false,
+    });
+    assert.equal(result.registry.has("removed-dynamic-namespace-typed"), false);
+    const importFailed = result.errors.filter((e) => e.code === "IMPORT_FAILED");
+    assert.equal(importFailed.length, 1);
+    assert.match(importFailed[0]!.message, /no longer exports runWorkflow/);
+  });
+
+  test("removed runWorkflow re-export fails during workflow loading", async () => {
+    await createProjectWorkflowFile(
+      "removed-re-export.js",
+      `
+import { defineWorkflow } from "@bastani/workflows";
+export { runWorkflow as removedRunWorkflow } from "@bastani/workflows";
+export default defineWorkflow("removed-re-export")
+  .run(async () => ({}))
+  .compile();
+`,
+    );
+    const result = await discoverWorkflows({
+      cwd: join(tmpRoot, "cwd"),
+      homeDir: join(tmpRoot, "home"),
+      includeBundled: false,
+    });
+    assert.equal(result.registry.has("removed-re-export"), false);
+    const importFailed = result.errors.filter((e) => e.code === "IMPORT_FAILED");
+    assert.equal(importFailed.length, 1);
+    assert.match(importFailed[0]!.message, /no longer exports runWorkflow/);
+  });
+
+  test("removed runWorkflow namespace re-export reference fails during workflow loading", async () => {
+    await createProjectWorkflowFile(
+      "removed-namespace-re-export.js",
+      `
+import { defineWorkflow } from "@bastani/workflows";
+export * as workflows from "@bastani/workflows";
+void workflows.runWorkflow;
+export default defineWorkflow("removed-namespace-re-export")
+  .run(async () => ({}))
+  .compile();
+`,
+    );
+    const result = await discoverWorkflows({
+      cwd: join(tmpRoot, "cwd"),
+      homeDir: join(tmpRoot, "home"),
+      includeBundled: false,
+    });
+    assert.equal(result.registry.has("removed-namespace-re-export"), false);
+    const importFailed = result.errors.filter((e) => e.code === "IMPORT_FAILED");
+    assert.equal(importFailed.length, 1);
+    assert.match(importFailed[0]!.message, /no longer exports runWorkflow/);
+  });
+
+  test("comments mentioning removed runWorkflow do not fail workflow loading", async () => {
+    await createProjectWorkflowFile(
+      "removed-comment.js",
+      `
+import { defineWorkflow } from "@bastani/workflows";
+// import { runWorkflow } from "@bastani/workflows"; removed migration note only
+export default defineWorkflow("removed-comment")
+  .run(async () => ({}))
+  .compile();
+`,
+    );
+    const result = await discoverWorkflows({
+      cwd: join(tmpRoot, "cwd"),
+      homeDir: join(tmpRoot, "home"),
+      includeBundled: false,
+    });
+    assert.equal(result.registry.has("removed-comment"), true);
+    const importFailed = result.errors.filter((e) => e.code === "IMPORT_FAILED");
+    assert.equal(importFailed.length, 0);
+  });
+
+  test("strings mentioning removed runWorkflow do not fail workflow loading", async () => {
+    await createProjectWorkflowFile(
+      "removed-string.js",
+      `
+import { defineWorkflow } from "@bastani/workflows";
+const docs = [
+  'import { runWorkflow } from "@bastani/workflows";',
+  "const workflows = await import('@bastani/workflows'); workflows.runWorkflow;",
+].join("\\n");
+void docs;
+export default defineWorkflow("removed-string")
+  .run(async () => ({}))
+  .compile();
+`,
+    );
+    const result = await discoverWorkflows({
+      cwd: join(tmpRoot, "cwd"),
+      homeDir: join(tmpRoot, "home"),
+      includeBundled: false,
+    });
+    assert.equal(result.registry.has("removed-string"), true);
+    const importFailed = result.errors.filter((e) => e.code === "IMPORT_FAILED");
+    assert.equal(importFailed.length, 0);
   });
 });
 
@@ -504,11 +816,11 @@ describe("discoverWorkflows — precedence order", () => {
     // project-local file with normalizedName "conflict"
     await createProjectWorkflowFile(
       "conflict.js",
-      validDefaultExportSrc("From Project Local", "prec-conflict"),
+      validDefaultExportSrc("pl-sg-conflict", "prec-conflict"),
     );
     // settings-project path with same normalizedName
     const spPath = join(tmpRoot, "sp-conflict.js");
-    await writeFile(spPath, validDefaultExportSrc("From Settings Project", "prec-conflict"), "utf8");
+    await writeFile(spPath, validDefaultExportSrc("prec-conflict", "prec-conflict"), "utf8");
 
     const result = await discoverWorkflows({
       cwd: join(tmpRoot, "cwd"),
@@ -518,7 +830,7 @@ describe("discoverWorkflows — precedence order", () => {
     });
     // settings-project registered first (higher precedence)
     assert.equal(result.registry.has("prec-conflict"), true);
-    assert.equal(result.registry.get("prec-conflict")?.name, "From Settings Project");
+    assert.equal(result.registry.get("prec-conflict")?.name, "prec-conflict");
     // project-local emits DUPLICATE_NAME
     const dupes = result.errors.filter((e) => e.code === "DUPLICATE_NAME");
     assert.ok(dupes.length >= 1);
@@ -527,10 +839,10 @@ describe("discoverWorkflows — precedence order", () => {
   test("project-local wins over settings-global (same normalizedName)", async () => {
     await createProjectWorkflowFile(
       "pl-sg.js",
-      validDefaultExportSrc("From Project Local", "pl-sg-conflict"),
+      validDefaultExportSrc("pl-sg-conflict", "pl-sg-conflict"),
     );
     const sgPath = join(tmpRoot, "sg-wf.js");
-    await writeFile(sgPath, validDefaultExportSrc("From Settings Global", "pl-sg-conflict"), "utf8");
+    await writeFile(sgPath, validDefaultExportSrc("sg-ug-conflict", "pl-sg-conflict"), "utf8");
 
     const result = await discoverWorkflows({
       cwd: join(tmpRoot, "cwd"),
@@ -538,7 +850,7 @@ describe("discoverWorkflows — precedence order", () => {
       includeBundled: false,
       config: { globalWorkflows: [sgPath] },
     });
-    assert.equal(result.registry.get("pl-sg-conflict")?.name, "From Project Local");
+    assert.equal(result.registry.get("pl-sg-conflict")?.name, "pl-sg-conflict");
   });
 
   test("settings-global wins over user-global (same normalizedName)", async () => {
@@ -547,7 +859,7 @@ describe("discoverWorkflows — precedence order", () => {
       validDefaultExportSrc("From User Global", "sg-ug-conflict"),
     );
     const sgPath = join(tmpRoot, "sg-ug.js");
-    await writeFile(sgPath, validDefaultExportSrc("From Settings Global", "sg-ug-conflict"), "utf8");
+    await writeFile(sgPath, validDefaultExportSrc("sg-ug-conflict", "sg-ug-conflict"), "utf8");
 
     const result = await discoverWorkflows({
       cwd: join(tmpRoot, "cwd"),
@@ -555,21 +867,21 @@ describe("discoverWorkflows — precedence order", () => {
       includeBundled: false,
       config: { globalWorkflows: [sgPath] },
     });
-    assert.equal(result.registry.get("sg-ug-conflict")?.name, "From Settings Global");
+    assert.equal(result.registry.get("sg-ug-conflict")?.name, "sg-ug-conflict");
   });
 
   test("user-global wins over bundled (same normalizedName)", async () => {
     // Use a name that matches a bundled workflow
     await createUserGlobalWorkflowFile(
       "ralph-override.js",
-      validDefaultExportSrc("Custom Ralph", "ralph"),
+      validDefaultExportSrc("ralph", "ralph"),
     );
     const result = await discoverWorkflows({
       cwd: join(tmpRoot, "cwd"),
       homeDir: join(tmpRoot, "home"),
       includeBundled: true,
     });
-    assert.equal(result.registry.get("ralph")?.name, "Custom Ralph");
+    assert.equal(result.registry.get("ralph")?.name, "ralph");
     const bundledWarning = result.errors.filter(
       (e) => e.code === "DUPLICATE_NAME" && e.source === "ralph",
     );

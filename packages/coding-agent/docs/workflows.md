@@ -1215,29 +1215,23 @@ For lower-level integrations, `@bastani/workflows` also exports `setupGitWorktre
 - `/workflow <name> key=value ...` for interactive named runs
 - `/workflow connect|attach|pause|interrupt|resume|status|inputs|reload` for live control, inspection, and rediscovery
 - the `workflow` tool for agent-initiated orchestration and direct one-off runs
-- `runWorkflow(definition)` for explicit library or script usage
+Workflow definition files must export definitions produced by `defineWorkflow(...).compile()`. The former imperative object-form runner is not part of the public SDK, and authored workflow files cannot import `runWorkflow` from `@bastani/workflows`.
 
-Programmatic runner example:
+Standalone TypeScript workflow packages can import the typed SDK directly, with no hand-authored `.d.ts` or `declare module` shim:
 
 ```ts
-import { runWorkflow, type WorkflowOptions } from "@bastani/workflows";
+import { defineWorkflow, Type } from "@bastani/workflows";
 
-const definition = {
-  mode: "workflow",
-  workflow: "deep-research-codebase",
-  inputs: {
-    prompt: "map workflow sdk",
-    max_partitions: 1,
-    max_concurrency: 4,
-  },
-} as const;
-
-const options: WorkflowOptions = {};
-
-await runWorkflow(definition, options);
+export default defineWorkflow("map-workflow-sdk")
+  .input("prompt", Type.String({ default: "map workflow sdk" }))
+  .run(async (ctx) => {
+    await ctx.task("map", { prompt: ctx.inputs.prompt });
+    return {};
+  })
+  .compile();
 ```
 
-The programmatic definition object mirrors the workflow tool for named runs (`mode: "workflow"` / `"named"`), direct single-task runs (`"single"`), parallel runs (`"parallel"`), and chain runs (`"chain"`). Direct chains support `chainName` for status/artifact grouping and `chainDir` as a shared directory for relative reads, outputs, and worktree diffs.
+The `workflow` tool still supports direct one-off `task`, `tasks`, and `chain` modes. Direct chains support `chainName` for status/artifact grouping and `chainDir` as a shared directory for relative reads, outputs, and worktree diffs.
 
 Use `createRegistry()` when code needs to group definitions explicitly:
 

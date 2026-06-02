@@ -166,7 +166,7 @@ If no app manifest (`atomic`, or legacy `pi`) is present, Atomic auto-discovers 
 - `skills/` recursively finds `SKILL.md` folders and loads top-level `.md` files as skills
 - `prompts/` loads `.md` files
 - `themes/` loads `.json` files
-- `workflows/` loads workflow SDK files (`.ts`, `.js`, `.mjs`, `.cjs`); `workflow/` is also accepted as a singular alias
+- `workflows/` loads workflow SDK files (`.ts`, `.js`, `.mjs`, `.cjs`); `workflow/` is also accepted as a singular alias. Workflow files should `import { defineWorkflow, Type } from "@bastani/workflows"` and export `defineWorkflow(...).compile()` output. TypeScript package authors do not need a local `.d.ts` or `declare module` shim for the SDK import.
 
 ## Dependencies
 

@@ -19,6 +19,31 @@ import type {
 } from "../shared/types.js";
 import { normalizeWorkflowName } from "./identity.js";
 
+const WORKFLOW_DEFINITION_BRAND: unique symbol = Symbol("@bastani/workflows definition");
+const BRANDED_WORKFLOW_DEFINITIONS = new WeakSet<object>();
+
+export function stampWorkflowDefinition<
+  TInputs extends WorkflowInputValues,
+  TOutputs extends WorkflowOutputValues,
+>(
+  definition: WorkflowDefinition<TInputs, TOutputs>,
+): WorkflowDefinition<TInputs, TOutputs> {
+  BRANDED_WORKFLOW_DEFINITIONS.add(definition);
+  Object.defineProperty(definition, WORKFLOW_DEFINITION_BRAND, {
+    value: true,
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  });
+  return definition;
+}
+
+export function isBrandedWorkflowDefinition(value: unknown): value is WorkflowDefinition {
+  return value !== null &&
+    typeof value === "object" &&
+    BRANDED_WORKFLOW_DEFINITIONS.has(value);
+}
+
 // ---------------------------------------------------------------------------
 // Type inference helpers (TypeBox Static<> mapping)
 // ---------------------------------------------------------------------------
@@ -215,6 +240,7 @@ function makeBuilder<
         run: state.runFn as unknown as WorkflowRunFn<Simplify<TInputs>, SimplifyWorkflowOutputs<TOutputs>>,
       };
 
+      stampWorkflowDefinition(definition);
       return Object.freeze(definition) as WorkflowDefinition<Simplify<TInputs>, SimplifyWorkflowOutputs<TOutputs>>;
     },
   };

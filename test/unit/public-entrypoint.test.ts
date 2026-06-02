@@ -1,5 +1,6 @@
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
+import * as workflows from "../../packages/workflows/src/index.js";
 import {
   GraphFrontierTracker,
   createRegistry,
@@ -11,6 +12,12 @@ import {
 } from "../../packages/workflows/src/index.js";
 
 describe("public entrypoint", () => {
+  test("does not export the imperative runWorkflow object-form API", () => {
+    assert.equal("runWorkflow" in workflows, false);
+    assert.equal("WorkflowOptions" in workflows, false);
+    assert.equal("WorkflowRunOptions" in workflows, false);
+  });
+
   test("supports authoring and registry lookup through exported APIs", async () => {
     const workflow = defineWorkflow("Example Task")
       .description("Exercises the package entrypoint")

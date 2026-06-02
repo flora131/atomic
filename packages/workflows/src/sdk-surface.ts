@@ -2,8 +2,7 @@
  * Non-cyclic public SDK surface for @bastani/workflows.
  *
  * Keep public runtime exports here when they are safe to load during workflow
- * discovery. The package root re-exports this module and adds runWorkflow,
- * which is intentionally excluded because workflow-runner imports discovery.ts.
+ * discovery. The package root re-exports this module directly.
  */
 
 export { defineWorkflow } from "./workflows/define-workflow.js";

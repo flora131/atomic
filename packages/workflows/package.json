@@ -13,11 +13,20 @@
     "bun": ">=1.3.14"
   },
   "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "types": "./src/authoring.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./builtin": "./builtin/index.ts",
-    "./builtin/*": "./builtin/*.ts"
+    ".": {
+      "types": "./src/authoring.ts",
+      "default": "./src/index.ts"
+    },
+    "./builtin": {
+      "types": "./builtin/index.ts",
+      "default": "./builtin/index.ts"
+    },
+    "./builtin/*": {
+      "types": "./builtin/*.ts",
+      "default": "./builtin/*.ts"
+    }
   },
   "repository": {
     "type": "git",

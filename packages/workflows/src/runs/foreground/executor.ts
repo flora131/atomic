@@ -1878,8 +1878,6 @@ export async function run<TInputs extends WorkflowInputValues>(
     };
   }
 
-  const erasedDef = def as WorkflowDefinition;
-
   // 1. Resolve + validate inputs
   const resolvedInputs = resolveAndValidateInputs(
     def.inputs,

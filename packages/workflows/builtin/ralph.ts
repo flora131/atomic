@@ -323,7 +323,6 @@ function reviewApproved(text: string): boolean {
 }
 
 function reviewerErrorResult(
-  iteration: number,
   error: string,
 ): WorkflowTaskResult {
   const decision: ReviewDecision = {
@@ -1042,7 +1041,7 @@ async function runRalphWorkflow(
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      reviews = [reviewerErrorResult(iteration, message)];
+      reviews = [reviewerErrorResult(message)];
     }
 
     approved =

@@ -1,7 +1,5 @@
 import { defineWorkflow, Type } from "@bastani/workflows";
 
-const FLAVORS = ["vanilla", "chocolate", "strawberry"] as const;
-
 export default defineWorkflow("contract-valid")
   .description("Manual validation workflow: returns declared JSON-serializable outputs for input/output contract testing.")
   .input("message", Type.String({ description: "Message to echo into serializable outputs." }))

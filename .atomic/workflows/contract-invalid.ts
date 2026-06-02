@@ -1,7 +1,5 @@
 import { defineWorkflow, Type } from "@bastani/workflows";
 
-const INVALID_MODES = ["date", "function", "nan", "infinity", "undefined-property", "undefined-array"] as const;
-
 export default defineWorkflow("contract-invalid")
   .description("Manual negative validation workflow: intentionally returns non-JSON-serializable values and should fail before completion.")
   .input(

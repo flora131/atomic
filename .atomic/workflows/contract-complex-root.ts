@@ -1,8 +1,6 @@
 import { defineWorkflow, Type } from "@bastani/workflows";
 import complexComposed from "./contract-complex-composed.js";
 
-const VARIANTS = ["alpha", "beta", "gamma"] as const;
-
 export default defineWorkflow("contract-complex-root")
   .description("Root workflow for complex nested-import validation. Imports a composed workflow that itself imports and calls another workflow.")
   .input("topic", Type.String({ description: "Topic passed into the imported composed workflow." }))

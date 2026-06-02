@@ -214,6 +214,15 @@ function isRunWorkflowMemberAccessAt(tokens: readonly SourceToken[], index: numb
     const token = tokens[index + 1];
     return token?.kind === "string" && token.value === "runWorkflow";
   }
+  if (
+    tokenValue(tokens, index) === "?" &&
+    tokenValue(tokens, index + 1) === "." &&
+    tokenValue(tokens, index + 2) === "[" &&
+    tokenValue(tokens, index + 4) === "]"
+  ) {
+    const token = tokens[index + 3];
+    return token?.kind === "string" && token.value === "runWorkflow";
+  }
   return false;
 }
 

@@ -41,14 +41,13 @@ import type {
   TUndefined,
   TUnion,
   TUnknown,
-  TUnsafe,
   TVoid,
   Type as TypeboxType,
+  TKeysToIndexer,
 } from "typebox";
 
 type PreserveOptions<T extends TSchema, O extends TSchemaOptions> = T & O;
 type TypeScriptEnumLike = Record<string, string | number>;
-type WorkflowSerializableObjectSchema = TUnsafe<WorkflowSerializableObject>;
 type TypeScriptEnumValues<T extends TypeScriptEnumLike> = Extract<T[keyof T], TEnumValue>[];
 
 export declare const Type: Omit<
@@ -101,21 +100,21 @@ export declare const Type: Omit<
   Null(): TNull;
   Number<const O extends TNumberOptions>(options: O): PreserveOptions<TNumber, O>;
   Number(): TNumber;
-  Omit<Type extends TSchema, Indexer extends readonly PropertyKey[], const O extends TSchemaOptions>(type: Type, indexer: readonly [...Indexer], options: O): PreserveOptions<WorkflowSerializableObjectSchema, O>;
-  Omit<Type extends TSchema, Indexer extends readonly PropertyKey[]>(type: Type, indexer: readonly [...Indexer]): TOmit<Type, TSchema>;
-  Omit<Type extends TSchema, Indexer extends TSchema, const O extends TSchemaOptions>(type: Type, indexer: Indexer, options: O): PreserveOptions<WorkflowSerializableObjectSchema, O>;
+  Omit<Type extends TSchema, Indexer extends PropertyKey[], const O extends TSchemaOptions>(type: Type, indexer: readonly [...Indexer], options: O): PreserveOptions<TOmit<Type, TKeysToIndexer<Indexer>>, O>;
+  Omit<Type extends TSchema, Indexer extends PropertyKey[]>(type: Type, indexer: readonly [...Indexer]): TOmit<Type, TKeysToIndexer<Indexer>>;
+  Omit<Type extends TSchema, Indexer extends TSchema, const O extends TSchemaOptions>(type: Type, indexer: Indexer, options: O): PreserveOptions<TOmit<Type, Indexer>, O>;
   Omit<Type extends TSchema, Indexer extends TSchema>(type: Type, indexer: Indexer): TOmit<Type, Indexer>;
   Partial<Type extends TSchema, const O extends TSchemaOptions>(type: Type, options: O): PreserveOptions<TPartial<Type>, O>;
   Partial<Type extends TSchema>(type: Type): TPartial<Type>;
-  Pick<Type extends TSchema, Indexer extends readonly PropertyKey[], const O extends TSchemaOptions>(type: Type, indexer: readonly [...Indexer], options: O): PreserveOptions<WorkflowSerializableObjectSchema, O>;
-  Pick<Type extends TSchema, Indexer extends readonly PropertyKey[]>(type: Type, indexer: readonly [...Indexer]): TPick<Type, TSchema>;
-  Pick<Type extends TSchema, Indexer extends TSchema, const O extends TSchemaOptions>(type: Type, indexer: Indexer, options: O): PreserveOptions<WorkflowSerializableObjectSchema, O>;
+  Pick<Type extends TSchema, Indexer extends PropertyKey[], const O extends TSchemaOptions>(type: Type, indexer: readonly [...Indexer], options: O): PreserveOptions<TPick<Type, TKeysToIndexer<Indexer>>, O>;
+  Pick<Type extends TSchema, Indexer extends PropertyKey[]>(type: Type, indexer: readonly [...Indexer]): TPick<Type, TKeysToIndexer<Indexer>>;
+  Pick<Type extends TSchema, Indexer extends TSchema, const O extends TSchemaOptions>(type: Type, indexer: Indexer, options: O): PreserveOptions<TPick<Type, Indexer>, O>;
   Pick<Type extends TSchema, Indexer extends TSchema>(type: Type, indexer: Indexer): TPick<Type, Indexer>;
   Object<Properties extends Record<PropertyKey, TSchema>, const O extends TObjectOptions>(properties: Properties, options: O): PreserveOptions<TObject<Properties>, O>;
   Object<Properties extends Record<PropertyKey, TSchema>>(properties: Properties): TObject<Properties>;
   Record<Key extends TSchema, Value extends TSchema, const O extends TObjectOptions>(key: Key, value: Value, options: O): PreserveOptions<TRecord<string, Value>, O>;
   Record<Key extends TSchema, Value extends TSchema>(key: Key, value: Value): TRecord<string, Value>;
-  Required<Type extends TSchema, const O extends TSchemaOptions>(type: Type, options: O): PreserveOptions<WorkflowSerializableObjectSchema, O>;
+  Required<Type extends TSchema, const O extends TSchemaOptions>(type: Type, options: O): PreserveOptions<TRequired<Type>, O>;
   Required<Type extends TSchema>(type: Type): TRequired<Type>;
   String<const O extends TStringOptions>(options: O): PreserveOptions<TString, O>;
   String(): TString;

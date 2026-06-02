@@ -659,6 +659,28 @@ export default defineWorkflow("removed-computed-require-property")
     assert.match(importFailed[0]!.message, /no longer exports runWorkflow/);
   });
 
+  test("removed runWorkflow optional computed namespace property fails during workflow loading", async () => {
+    await createProjectWorkflowFile(
+      "removed-optional-computed-namespace.js",
+      `
+import * as workflows from "@bastani/workflows";
+void workflows?.["runWorkflow"];
+export default workflows.defineWorkflow("removed-optional-computed-namespace")
+  .run(async () => ({}))
+  .compile();
+`,
+    );
+    const result = await discoverWorkflows({
+      cwd: join(tmpRoot, "cwd"),
+      homeDir: join(tmpRoot, "home"),
+      includeBundled: false,
+    });
+    assert.equal(result.registry.has("removed-optional-computed-namespace"), false);
+    const importFailed = result.errors.filter((e) => e.code === "IMPORT_FAILED");
+    assert.equal(importFailed.length, 1);
+    assert.match(importFailed[0]!.message, /no longer exports runWorkflow/);
+  });
+
   test("comments mentioning removed runWorkflow do not fail workflow loading", async () => {
     await createProjectWorkflowFile(
       "removed-comment.js",

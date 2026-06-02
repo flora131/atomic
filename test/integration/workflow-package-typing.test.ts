@@ -110,6 +110,8 @@ const workflow = defineWorkflow("Standalone Typing Fixture")
   .input("pickedConfig", Type.Pick(Type.Object({ enabled: Type.Boolean(), name: Type.String() }), ["enabled"] as const, { default: { enabled: true } }))
   .input("omittedConfig", Type.Omit(Type.Object({ enabled: Type.Boolean(), name: Type.String() }), ["name"] as const, { default: { enabled: true } }))
   .input("requiredConfig", Type.Required(Type.Object({ enabled: Type.Optional(Type.Boolean()) }), { default: { enabled: true } }))
+  .input("pickedNoDefault", Type.Pick(Type.Object({ enabled: Type.Boolean(), name: Type.String() }), ["enabled"] as const))
+  .input("omittedNoDefault", Type.Omit(Type.Object({ enabled: Type.Boolean(), name: Type.String() }), ["name"] as const))
   .input("variant", Type.Union([Type.Literal("a"), Type.Literal("b")], { default: "a" }))
   .input("labels", Type.Record(Type.String(), Type.String(), { default: {} }))
   .input("tuple", Type.Tuple([Type.String(), Type.Number()], { default: ["x", 1] }))
@@ -128,9 +130,19 @@ const workflow = defineWorkflow("Standalone Typing Fixture")
     const tags: string[] = ctx.inputs.tags;
     const settings: { enabled: boolean } = ctx.inputs.settings;
     const partialConfig: { enabled?: boolean } = ctx.inputs.partialConfig;
-    const pickedConfig = ctx.inputs.pickedConfig;
-    const omittedConfig = ctx.inputs.omittedConfig;
-    const requiredConfig = ctx.inputs.requiredConfig;
+    const pickedConfig: { enabled: boolean } = ctx.inputs.pickedConfig;
+    const omittedConfig: { enabled: boolean } = ctx.inputs.omittedConfig;
+    const requiredConfig: { enabled: boolean } = ctx.inputs.requiredConfig;
+    // @ts-expect-error pickedConfig should not expose keys removed by Pick.
+    ctx.inputs.pickedConfig.name;
+    // @ts-expect-error omittedConfig should not expose keys removed by Omit.
+    ctx.inputs.omittedConfig.name;
+    const pickedNoDefault: { enabled: boolean } = ctx.inputs.pickedNoDefault;
+    const omittedNoDefault: { enabled: boolean } = ctx.inputs.omittedNoDefault;
+    // @ts-expect-error pickedNoDefault should not expose keys removed by Pick.
+    ctx.inputs.pickedNoDefault.name;
+    // @ts-expect-error omittedNoDefault should not expose keys removed by Omit.
+    ctx.inputs.omittedNoDefault.name;
     const variant: "a" | "b" = ctx.inputs.variant;
     const labels: Record<string, string> = ctx.inputs.labels;
     const tuple: [string, number] = ctx.inputs.tuple;
@@ -152,6 +164,8 @@ const workflow = defineWorkflow("Standalone Typing Fixture")
       { name: "picked", prompt: JSON.stringify(pickedConfig) },
       { name: "omitted", prompt: JSON.stringify(omittedConfig) },
       { name: "required", prompt: JSON.stringify(requiredConfig) },
+      { name: "pickedNoDefault", prompt: JSON.stringify(pickedNoDefault) },
+      { name: "omittedNoDefault", prompt: JSON.stringify(omittedNoDefault) },
       { name: "tenth", prompt: variant },
       { name: "eleventh", prompt: Object.keys(labels).join(",") },
       { name: "twelfth", prompt: tuple.join(":") },
@@ -178,10 +192,10 @@ const postRunEditedWorkflow = defineWorkflow("Post Run Edited Fixture")
   .input("postRunInput", Type.String({ default: "ok" }))
   .compile();
 
-run(workflow, { message: "hello" }, { executionMode: "non_interactive" });
-run(workflow, { message: "hello", mode: "fast", size: "large", count: 2, integerCount: 3, enabled: false }, { executionMode: "interactive" });
+run(workflow, { message: "hello", pickedNoDefault: { enabled: true }, omittedNoDefault: { enabled: true } }, { executionMode: "non_interactive" });
+run(workflow, { message: "hello", mode: "fast", size: "large", count: 2, integerCount: 3, enabled: false, pickedNoDefault: { enabled: true }, omittedNoDefault: { enabled: true } }, { executionMode: "interactive" });
 // @ts-expect-error detached is not a runtime executionMode literal.
-run(workflow, { message: "hello" }, { executionMode: "detached" });
+run(workflow, { message: "hello", pickedNoDefault: { enabled: true }, omittedNoDefault: { enabled: true } }, { executionMode: "detached" });
 // @ts-expect-error message has no default and remains required.
 run(workflow, {});
 
@@ -228,7 +242,7 @@ void persistence;
 void catalog;
 void taskSession;
 void forgedWorkflow;
-run(workflow, { message: "hello" }, { adapters, ui, signal: new AbortController().signal, config: runtimeConfig, models: catalog, mcp, persistence, cancellation: cancellationRegistry });
+run(workflow, { message: "hello", pickedNoDefault: { enabled: true }, omittedNoDefault: { enabled: true } }, { adapters, ui, signal: new AbortController().signal, config: runtimeConfig, models: catalog, mcp, persistence, cancellation: cancellationRegistry });
 void runWorkflow;
 type RemovedWorkflowOptions = WorkflowOptions;
 type RemovedWorkflowRunOptions = WorkflowRunOptions;

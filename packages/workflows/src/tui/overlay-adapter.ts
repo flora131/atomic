@@ -115,8 +115,6 @@ export interface BuildGraphOverlayAdapterOpts {
    * inspection.
    */
   onKillRun?: (runId: string) => void;
-  /** Optional host hook for commands that should exit the entire app. */
-  onExitApp?: () => void;
   /** Optional clock injection for deterministic attach-pane transition tests. */
   now?: () => number;
 }
@@ -272,7 +270,6 @@ export function buildGraphOverlayAdapter(
         stageUiBroker,
         uiStatus,
         onClose: finish,
-        onExitApp: buildOpts.onExitApp,
         onHide: hideMounted,
         onKill: killRun,
         initialAttachStageId: stageId,

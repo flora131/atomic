@@ -326,8 +326,6 @@ export interface WorkflowResourceInfo {
 }
 
 export interface ExtensionAPI {
-  /** Gracefully shutdown the host app when supported by the runtime. */
-  shutdown?: () => void | Promise<void>;
   registerTool?: <TArgs, TResult>(opts: PiToolOpts<TArgs, TResult>) => void;
   /**
    * `pi.registerCommand(name, options)` — sole slash-command registration
@@ -2300,7 +2298,6 @@ function factory(pi: ExtensionAPI): void {
   // Build graph overlay adapter — wraps GraphView + pi.ui.custom.
   // noopOverlay returned when pi.ui?.custom is absent (degraded runtime).
   const overlay: GraphOverlayPort = buildGraphOverlayAdapter(pi, store, {
-    onExitApp: typeof pi.shutdown === "function" ? () => { void pi.shutdown?.(); } : undefined,
     onKillRun: (runId) => {
       const run = store.runs().find((r) => r.id === runId);
       const result = killRun(runId, {

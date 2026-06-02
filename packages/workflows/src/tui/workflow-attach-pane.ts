@@ -69,8 +69,6 @@ export interface WorkflowAttachPaneOpts {
   uiStatus?: AttachUiStatusSurface;
   /** Called when the user closes (Escape in graph mode). */
   onClose: () => void;
-  /** Optional host hook for commands that should exit the entire app. */
-  onExitApp?: () => void;
   /** Called when the user requests the host to hide the popup. */
   onHide?: () => void;
   /** Called when the user kills the active run (q in graph mode). */
@@ -138,7 +136,6 @@ export class WorkflowAttachPane implements Component {
   private stageUiBroker: StageUiBroker | undefined;
   private uiStatus: AttachUiStatusSurface | undefined;
   private onClose: () => void;
-  private onExitApp?: () => void;
   private onHide?: () => void;
   private onKill?: (runId: string) => void;
   private onPromptResolve?: (runId: string, promptId: string, response: unknown) => void;
@@ -180,7 +177,6 @@ export class WorkflowAttachPane implements Component {
     this.stageUiBroker = opts.stageUiBroker;
     this.uiStatus = opts.uiStatus;
     this.onClose = opts.onClose;
-    this.onExitApp = opts.onExitApp;
     this.onHide = opts.onHide;
     this.onKill = opts.onKill;
     this.onPromptResolve = opts.onPromptResolve;
@@ -289,7 +285,6 @@ export class WorkflowAttachPane implements Component {
       handle,
       onDetach: (reason, metadata) => this._detachFromStage(reason, metadata),
       onClose: this.onClose,
-      onExitApp: this.onExitApp,
       requestRender: this.hostRequestRender,
       requestFocus: this.hostRequestFocus,
       piTui: this.piTui,

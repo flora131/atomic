@@ -9,6 +9,7 @@
 ### Changed
 
 - Migrated packaged subagents to encode their reasoning level directly in model and fallback model entries ([#1199](https://github.com/bastani-inc/atomic/issues/1199)).
+- Documented the `model_name:thinking_effort` suffix syntax and `thinking` migration guidance in the subagents docs, package README, and subagent skill ([#1199](https://github.com/bastani-inc/atomic/issues/1199)).
 
 ### Deprecated
 

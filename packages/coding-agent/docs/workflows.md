@@ -1181,7 +1181,7 @@ Common task/stage options include:
 - `prompt` or `task`
 - `previous` for small handoff context; use artifact paths plus `reads` for large outputs, logs, research bundles, or reviewer payloads
 - `context: "fresh" | "fork"`, `forkFromSessionFile`
-- `model`, `fallbackModels`, `thinkingLevel`, `scopedModels`, `modelRegistry`
+- `model`, `fallbackModels`, `thinkingLevel`, `scopedModels`, `modelRegistry` — `model` and each `fallbackModels` entry accept a `model_name:thinking_effort` reasoning suffix; the standalone `thinkingLevel` is deprecated (see [Reasoning levels](#reasoning-levels))
 - `tools`, `noTools`, `customTools`, `mcp: { allow?: string[], deny?: string[] }`
 - `output`, `outputMode`, `reads`, `worktree`, `gitWorktreeDir`, `baseBranch`, `maxOutput`, `artifacts`, `sessionDir`, `cwd`, `agentDir`
 - advanced host-supplied SDK seams: `authStorage`, `resourceLoader`, `sessionManager`, `settingsManager`, `sessionStartEvent`
@@ -1207,6 +1207,30 @@ export default defineWorkflow("safe-implementation")
 For lower-level integrations, `@bastani/workflows` also exports `setupGitWorktree({ gitWorktreeDir, baseBranch, cwd })`, returning `{ worktreeRoot, cwd, repositoryRoot, created }` with the same validation, symlink-preserving path handling, and cwd-preservation behavior used by workflow stages.
 
 `fallbackModels` retries transient provider/model failures with the primary `model` first, then each fallback, then the current Atomic-selected model when available. It is for rate limits, quota/auth/provider outages, unavailable models, network timeouts, and 5xx errors — not workflow-code errors, tool failures, validation failures, or cancellations.
+
+### Reasoning levels
+
+Each `model` and `fallbackModels` entry accepts a `model_name:thinking_effort` suffix that sets the reasoning effort for that candidate (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`). The effort travels with the model string, so a single fallback chain can mix efforts — for example a high-effort primary that degrades to lower-effort, cheaper fallbacks:
+
+```ts
+await ctx.task("review", {
+  task: "Review the diff",
+  model: "anthropic/claude-sonnet-4:high",
+  fallbackModels: ["openai/gpt-5:medium", "anthropic/claude-haiku-4-5:off"],
+});
+```
+
+The standalone `thinkingLevel` stage option is deprecated. It still applies as a default to any candidate without a suffix, and when both are present the suffix wins, but new workflows should fold the effort into the model strings:
+
+```diff
+-  model: "openai/gpt-5.5",
+-  fallbackModels: ["anthropic/claude-opus-4-8"],
+-  thinkingLevel: "high",
++  model: "openai/gpt-5.5:high",
++  fallbackModels: ["anthropic/claude-opus-4-8:high"],
+```
+
+This applies everywhere a stage accepts a model: direct `ctx.task`/`ctx.chain`/`ctx.parallel` options, `ctx.stage` options, builtin workflow stage definitions, and workflow parameters. `fallbackThinkingLevels` is an optional compatibility helper aligned by index to `fallbackModels`; it applies only to fallback entries that do not already carry a suffix. Each `WorkflowModelAttempt` reports the resolved model and the effective reasoning effort used for that attempt.
 
 ## Programmatic Usage
 

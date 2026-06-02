@@ -614,6 +614,10 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
       : effectiveCandidateReasoning(candidate);
   }
 
+  function candidateLabel(candidate: WorkflowResolvedModelCandidate): string {
+    return candidate.reasoningLevel !== undefined ? `${candidate.id}:${candidate.reasoningLevel}` : candidate.id;
+  }
+
   function attachSession(created: StageSessionRuntime | StageSessionCreateResult): StageSessionRuntime {
     const result = normalizeSessionCreateResult(created);
     session = result.session;
@@ -749,7 +753,7 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
           throw err;
         }
         const nextCandidate = candidates[index + 1]!;
-        modelWarnings.push(`[fallback] ${candidate.id}${candidate.reasoningLevel !== undefined ? `:${candidate.reasoningLevel}` : ""} failed: ${message}. Retrying with ${nextCandidate.id}${nextCandidate.reasoningLevel !== undefined ? `:${nextCandidate.reasoningLevel}` : ""}.`);
+        modelWarnings.push(`[fallback] ${candidateLabel(candidate)} failed: ${message}. Retrying with ${candidateLabel(nextCandidate)}.`);
         await disposeCurrentSession();
         index += 1;
       }

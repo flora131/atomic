@@ -127,3 +127,44 @@ describe("subagent retry metadata reasoning seams", () => {
     ]);
   });
 });
+
+// Mirrors the foreground execution seam (execution.ts ~line 866):
+//   const attemptModel = applyThinkingSuffix(candidate, agent.thinking) ?? result.model ?? agent.model ?? "default";
+//   reasoningLevel: resolveEffectiveThinking(attemptModel, agent.thinking)
+// Asserts the candidate-derived suffix wins even when legacy `thinking` is unset and
+// the SDK echoes a suffix-stripped `result.model`.
+describe("foreground attempt metadata derives reasoning level from candidate suffix (#1199)", () => {
+  test("candidate suffix yields the reasoning level when agent.thinking is undefined", () => {
+    const agentThinking: string | undefined = undefined;
+
+    const lowModel = applyThinkingSuffix("openai/gpt-5:low", agentThinking);
+    assert.equal(lowModel, "openai/gpt-5:low");
+    assert.ok(lowModel?.endsWith(":low"));
+    assert.equal(resolveEffectiveThinking(lowModel, agentThinking), "low");
+
+    const highModel = applyThinkingSuffix("anthropic/claude-sonnet-4:high", agentThinking);
+    assert.equal(highModel, "anthropic/claude-sonnet-4:high");
+    assert.ok(highModel?.endsWith(":high"));
+    assert.equal(resolveEffectiveThinking(highModel, agentThinking), "high");
+  });
+
+  test("candidate-derived suffix is preferred over the suffix-stripped result.model echo", () => {
+    const candidate = "openai/gpt-5:low";
+    const agentThinking: string | undefined = undefined;
+    // The SDK echoes evt.message.model with the per-candidate suffix stripped.
+    const resultModel = "openai/gpt-5";
+
+    const attemptModel = applyThinkingSuffix(candidate, agentThinking) ?? resultModel ?? "default";
+    assert.equal(attemptModel, "openai/gpt-5:low");
+    assert.equal(resolveEffectiveThinking(attemptModel, agentThinking), "low");
+  });
+
+  test("falls back to result.model when there is no candidate (modelsToTry=[undefined])", () => {
+    const candidate: string | undefined = undefined;
+    const agentThinking: string | undefined = undefined;
+    const resultModel = "openai/gpt-5";
+
+    const attemptModel = applyThinkingSuffix(candidate, agentThinking) ?? resultModel ?? "default";
+    assert.equal(attemptModel, "openai/gpt-5");
+  });
+});

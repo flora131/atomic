@@ -14,6 +14,10 @@
 
 - Deprecated separate subagent `thinking` configuration in favor of `model: <model>:<level>` and suffixed `fallbackModels` entries; removal is deferred to a later breaking release ([#1199](https://github.com/bastani-inc/atomic/issues/1199)).
 
+### Fixed
+
+- Fixed foreground subagent attempt metadata to report the per-candidate reasoning level derived from the model suffix even when the legacy `thinking` option is unset, matching the background run path ([#1199](https://github.com/bastani-inc/atomic/issues/1199)).
+
 ## [0.8.23] - 2026-06-02
 
 ### Changed

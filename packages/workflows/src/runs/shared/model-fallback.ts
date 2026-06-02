@@ -12,6 +12,13 @@ export interface WorkflowResolvedModelCandidate {
   readonly reasoningLevel?: WorkflowThinkingLevel;
 }
 
+function makeCandidate(
+  id: string,
+  value: WorkflowModelValue,
+  level: WorkflowThinkingLevel | undefined,
+): WorkflowResolvedModelCandidate {
+  return level !== undefined ? { id, value, reasoningLevel: level } : { id, value };
+}
 
 const WORKFLOW_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const satisfies readonly WorkflowThinkingLevel[];
 const WORKFLOW_THINKING_LEVEL_SET: ReadonlySet<string> = new Set(WORKFLOW_THINKING_LEVELS);
@@ -22,9 +29,6 @@ export function splitReasoningSuffix(model: string): { readonly baseModel: strin
   const suffix = model.slice(index + 1);
   if (WORKFLOW_THINKING_LEVEL_SET.has(suffix)) {
     return { baseModel: model.slice(0, index), level: suffix as WorkflowThinkingLevel };
-  }
-  if (/^[A-Za-z][A-Za-z0-9_-]*$/.test(suffix)) {
-    throw new WorkflowModelValidationError([{ input: model, reason: `invalid reasoning level suffix "${suffix}"; expected one of ${WORKFLOW_THINKING_LEVELS.join(", ")}` }]);
   }
   return { baseModel: model };
 }
@@ -95,23 +99,16 @@ function resolveStringModel(
 ): WorkflowResolvedModelCandidate | ModelResolutionFailure {
   const input = rawInput.trim();
   if (!input) return { input: rawInput, reason: "empty model id" };
-  let split: ReturnType<typeof splitReasoningSuffix>;
-  try {
-    split = splitReasoningSuffix(input);
-  } catch (err) {
-    if (err instanceof WorkflowModelValidationError) return err.failures[0]!;
-    throw err;
-  }
-  const { baseModel, level } = split;
+  const { baseModel, level } = splitReasoningSuffix(input);
 
   if (availableModels === undefined) {
-    return { id: baseModel, value: baseModel, ...(level !== undefined ? { reasoningLevel: level } : {}) };
+    return makeCandidate(baseModel, baseModel, level);
   }
 
   const models = uniqueByFullId(availableModels);
   const explicit = models.find((model) => model.fullId === baseModel);
   if (explicit !== undefined) {
-    return { id: explicit.fullId, value: explicit.model ?? explicit.fullId, ...(level !== undefined ? { reasoningLevel: level } : {}) };
+    return makeCandidate(explicit.fullId, explicit.model ?? explicit.fullId, level);
   }
 
   if (baseModel.includes("/")) {
@@ -124,14 +121,14 @@ function resolveStringModel(
   }
   if (byBareId.length === 1) {
     const only = byBareId[0]!;
-    return { id: only.fullId, value: only.model ?? only.fullId, ...(level !== undefined ? { reasoningLevel: level } : {}) };
+    return makeCandidate(only.fullId, only.model ?? only.fullId, level);
   }
 
   const preferred = preferredProvider === undefined
     ? undefined
     : byBareId.find((model) => model.provider === preferredProvider);
   if (preferred !== undefined) {
-    return { id: preferred.fullId, value: preferred.model ?? preferred.fullId, ...(level !== undefined ? { reasoningLevel: level } : {}) };
+    return makeCandidate(preferred.fullId, preferred.model ?? preferred.fullId, level);
   }
 
   return {

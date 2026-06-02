@@ -863,7 +863,7 @@ export async function runSync(
 		totalToolCount += result.progressSummary?.toolCount ?? 0;
 		totalDurationMs += result.progressSummary?.durationMs ?? 0;
 		const attemptSucceeded = result.exitCode === 0 && !result.error;
-		const attemptModel = result.model ?? applyThinkingSuffix(candidate, agent.thinking) ?? agent.model ?? "default";
+		const attemptModel = applyThinkingSuffix(candidate, agent.thinking) ?? result.model ?? agent.model ?? "default";
 		const attempt: ModelAttempt = {
 			model: attemptModel,
 			reasoningLevel: resolveEffectiveThinking(attemptModel, agent.thinking),

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.8.24-alpha.1] - 2026-06-02
+
 ### Breaking Changes
 
 - Removed the bundled workflows package's imperative `runWorkflow` object-form API; workflow packages must export branded `defineWorkflow(...).compile()` definitions while direct `workflow` tool task/tasks/chain modes remain available.

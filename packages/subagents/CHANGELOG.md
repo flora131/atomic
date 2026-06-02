@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.8.24-alpha.1] - 2026-06-02
+
 ### Added
 
 - Added suffix-first reasoning levels for subagent `model` and `fallbackModels` values plus `fallbackThinkingLevels` compatibility metadata and per-attempt `reasoningLevel` reporting ([#1199](https://github.com/bastani-inc/atomic/issues/1199)).

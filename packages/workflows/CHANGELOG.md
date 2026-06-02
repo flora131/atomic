@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.8.24-alpha.1] - 2026-06-02
+
 ### Breaking Changes
 
 - Removed the imperative `runWorkflow` object-form API from `@bastani/workflows`; workflow authors must export definitions produced by `defineWorkflow(...).compile()`, and forged `__piWorkflow: true` objects are rejected by discovery and composition.

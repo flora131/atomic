@@ -4,6 +4,8 @@
         "module": "ESNext",
         "moduleResolution": "bundler",
         "strict": true,
+        "noUnusedLocals": true,
+        "noUnusedParameters": true,
         "esModuleInterop": true,
         "skipLibCheck": true,
         "types": ["bun"],

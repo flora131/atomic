@@ -1,4 +1,5 @@
 import { defineWorkflow, Type } from "@bastani/workflows";
+import type { WorkflowSerializableObject } from "@bastani/workflows";
 import contractChild from "./contract-child.js";
 
 export default defineWorkflow("contract-parent")
@@ -6,8 +7,31 @@ export default defineWorkflow("contract-parent")
   .input("topic", Type.String({ description: "Topic passed into nested child workflows." }))
   .input("multiplier", Type.Number({ default: 2, description: "Finite number forwarded into the first child workflow." }))
   .output("result", Type.String({ description: "Parent summary string." }))
-  .output("children", Type.Array(Type.Unknown(), { description: "Declared outputs from nested child workflow calls." }))
-  .output("combined", Type.Object({}, { additionalProperties: true, description: "Combined parent object built from child outputs." }))
+  .output(
+    "children",
+    Type.Array(
+      Type.Object({
+        workflow: Type.String(),
+        runId: Type.String(),
+        outputs: Type.Unsafe<WorkflowSerializableObject>(Type.Object({}, { additionalProperties: true })),
+      }),
+      { description: "Declared outputs from nested child workflow calls." },
+    ),
+  )
+  .output(
+    "combined",
+    Type.Object(
+      {
+        topic: Type.String(),
+        multiplier: Type.Number(),
+        firstResult: Type.String(),
+        secondResult: Type.String(),
+        combinedScore: Type.Number(),
+        parentSawOnlyDeclaredOutputs: Type.Array(Type.String()),
+      },
+      { description: "Combined parent object built from child outputs." },
+    ),
+  )
   .run(async (ctx) => {
     const topic = ctx.inputs.topic;
     const multiplier = Math.max(1, Math.min(5, Math.floor(ctx.inputs.multiplier)));

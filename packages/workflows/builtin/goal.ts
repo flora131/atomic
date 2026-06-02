@@ -977,7 +977,20 @@ export default defineWorkflow("goal")
   .output("ledger_path", Type.Optional(Type.String({ description: "OS-temp path to goal-ledger.json with receipts, reviewer decisions, blockers, and lifecycle events." })))
   .output("turns_completed", Type.Optional(Type.Number({ description: "Worker/review turns completed." })))
   .output("iterations_completed", Type.Optional(Type.Number({ description: "Worker/review turns completed, retained for status summaries." })))
-  .output("receipts", Type.Optional(Type.Array(Type.Unknown(), { description: "Ledger receipt summaries and worker artifact paths." })))
+  .output(
+    "receipts",
+    Type.Optional(
+      Type.Array(
+        Type.Object({
+          turn: Type.Number(),
+          stage: Type.String(),
+          artifact_path: Type.String(),
+          summary: Type.String(),
+        }),
+        { description: "Ledger receipt summaries and worker artifact paths." },
+      ),
+    ),
+  )
   .output("remaining_work", Type.Optional(Type.String({ description: "Remaining gaps or blockers when incomplete, or none." })))
   .output("review_report", Type.Optional(Type.String({ description: "Markdown report containing the last structured reviewer decision payloads used by the reducer." })))
   .run(async (ctx) => {

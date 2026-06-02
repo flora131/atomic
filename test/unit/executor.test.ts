@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, test } from "bun:test";
 import { Type } from "typebox";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {

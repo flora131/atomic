@@ -342,7 +342,6 @@ describe("deep-research-codebase", () => {
     test("runs scout/history, specialist waves, and aggregator via task primitives", async () => {
         const mod =
             await import("../../packages/workflows/builtin/deep-research-codebase.js");
-        const d = mod.default as unknown as WorkflowDefinition;
         const ctx = makeMockCtx(
             {
                 prompt: "What does the auth module do?",
@@ -404,7 +403,6 @@ describe("deep-research-codebase", () => {
     test("uses artifact handoffs so aggregation stays bounded", async () => {
         const mod =
             await import("../../packages/workflows/builtin/deep-research-codebase.js");
-        const d = mod.default as unknown as WorkflowDefinition;
         const largeSentinel = "SPECIALIST_INLINE_SENTINEL".repeat(200);
         const ctx = makeMockCtx(
             {
@@ -548,7 +546,6 @@ describe("deep-research-codebase", () => {
     test("does not use a saved-output reference when history artifact is unavailable", async () => {
         const mod =
             await import("../../packages/workflows/builtin/deep-research-codebase.js");
-        const d = mod.default as unknown as WorkflowDefinition;
         const ctx = makeMockCtx(
             {
                 prompt: "Trace auth behavior",
@@ -578,7 +575,6 @@ describe("deep-research-codebase", () => {
     test("falls back to scout context when a wave1 locator result is missing", async () => {
         const mod =
             await import("../../packages/workflows/builtin/deep-research-codebase.js");
-        const d = mod.default as unknown as WorkflowDefinition;
         const ctx = makeMockCtx(
             {
                 prompt: "Trace auth behavior",
@@ -682,7 +678,6 @@ describe("deep-research-codebase", () => {
     test("writes final research doc and historical hidden run artifacts under research", async () => {
         const mod =
             await import("../../packages/workflows/builtin/deep-research-codebase.js");
-        const d = mod.default as unknown as WorkflowDefinition;
         let aggregatorReadPaths: readonly string[] = [];
         const ctx = makeMockCtx(
             {
@@ -845,7 +840,6 @@ describe("deep-research-codebase", () => {
     test("does not overwrite an existing default research document", async () => {
         const mod =
             await import("../../packages/workflows/builtin/deep-research-codebase.js");
-        const d = mod.default as unknown as WorkflowDefinition;
         const date = new Date().toISOString().slice(0, 10);
         const existingPath = join(
             requireDeepResearchTempCwd(),
@@ -892,7 +886,6 @@ describe("deep-research-codebase", () => {
     test("does not create a top-level context-build directory", async () => {
         const mod =
             await import("../../packages/workflows/builtin/deep-research-codebase.js");
-        const d = mod.default as unknown as WorkflowDefinition;
         const ctx = makeMockCtx(
             {
                 prompt: "Trace auth behavior",

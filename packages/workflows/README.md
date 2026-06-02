@@ -312,6 +312,8 @@ registry.get("alpha"); // compiled workflow definition | undefined
 
 Inputs and outputs are declared with [TypeBox](https://github.com/sinclairzx81/typebox) schemas. Import `Type` from `@bastani/workflows` (alongside `defineWorkflow`) and pass a schema to `.input(key, schema)` / `.output(key, schema)`. The builder infers precise static types for `ctx.inputs`, the `.run()` return, and `child.outputs` from those schemas, and the runtime validates against them with TypeBox `Value`.
 
+**Prefer precise schemas.** A precise schema (`Type.Object({ topic: Type.String(), score: Type.Number() })`, `Type.Array(Type.String())`) gives consumers a precise `Static<>` type and makes runtime validation enforce the real shape. Reserve `Type.Unknown()`, `Type.Any()`, `Type.Array(Type.Unknown())`, and `Type.Object({}, { additionalProperties: true })` for genuinely dynamic data whose shape you cannot know ahead of time.
+
 ```typescript
 import { defineWorkflow, Type } from "@bastani/workflows";
 
@@ -343,20 +345,78 @@ A required input is any schema that is neither `Type.Optional(...)` nor carries 
 
 ### Output types
 
-Declare outputs with `.output(key, schema?)` when a workflow result should be part of its runtime contract, especially when another workflow will call it as a child.
+Declare outputs with `.output(key, schema?)` when a workflow result should be part of its runtime contract, especially when another workflow will call it as a child. Lead with the most precise schema you can express — the loose rows at the bottom are last resorts for genuinely dynamic data.
 
-| Schema                                  | Runtime value accepted                |
-| --------------------------------------- | ------------------------------------- |
-| `Type.String()`                         | string                                |
-| `Type.Number()`                         | finite number (rejects `NaN`)         |
-| `Type.Integer()`                        | integer                               |
-| `Type.Boolean()`                        | boolean                               |
-| `Type.Union([Type.Literal(...)])`       | one of the declared literal strings   |
-| `Type.Object({ ... })`                  | object matching the declared shape    |
-| `Type.Array(...)`                       | array of the declared element type    |
-| `Type.Unknown()` / `Type.Any()`         | any JSON-serializable value           |
+| Schema                                              | Runtime value accepted                              |
+| --------------------------------------------------- | --------------------------------------------------- |
+| `Type.String()`                                     | string                                              |
+| `Type.Number()`                                     | finite number (rejects `NaN`)                       |
+| `Type.Integer()`                                    | integer                                             |
+| `Type.Boolean()`                                    | boolean                                             |
+| `Type.Union([Type.Literal(...)])`                   | one of the declared literal strings                 |
+| `Type.Array(Type.String())`                         | array of the declared element type (use the real type) |
+| `Type.Object({ topic: Type.String(), ... })`        | object matching the declared shape                  |
+| `Type.Unsafe<T>(runtimeSchema)`                     | precise static `T`, lenient runtime (escape hatch)  |
+| `Type.Array(Type.Unknown())`                        | any JSON array (last resort, dynamic only)          |
+| `Type.Object({}, { additionalProperties: true })`   | any JSON object (last resort, dynamic only)         |
+| `Type.Unknown()` / `Type.Any()`                     | any JSON-serializable value (last resort)           |
 
 Wrap an output schema in `Type.Optional(...)` to make the key optional; an un-wrapped output schema is required. `.run()` must return a JSON-serializable object. Functions, symbols, `undefined` properties, `NaN`, infinite numbers, and non-plain objects (e.g. `Date`) fail validation. Declared outputs are validated before a workflow is marked completed. A required output that is missing fails with `missing output "<key>"`, and a type mismatch fails with `output "<key>" expected <kind>, got <actual>`. A workflow exposes exactly the outputs it declares with `.output(...)`: there is no automatic `result` output, and returning a key that was not declared fails the run with `atomic-workflows: workflow "<name>" returned undeclared output "<key>"; declare it with .output("<key>", Type....) or remove it from the .run() return`. To expose `result`, declare `.output("result", schema)` and return `{ result }`. Child output replay still performs a structured-clone safety check after JSON validation so completed child boundaries can be replayed.
+
+#### Why precise schemas
+
+A loose schema types the value as `unknown`/`Record<string, unknown>` everywhere it is read and only checks "is this JSON?" at runtime. A precise schema types it exactly and validates the real shape:
+
+```typescript
+// ❌ Loose: child.outputs.report is `unknown`; runtime only checks "is JSON".
+.output("report", Type.Unknown())
+
+// ✅ Precise: child.outputs.report is `{ topic: string; score: number; tags: string[] }`,
+//    and TypeBox rejects a returned value missing `score` or with a non-number `score`.
+.output("report", Type.Object({
+  topic: Type.String(),
+  score: Type.Number(),
+  tags: Type.Array(Type.String()),
+}))
+```
+
+#### `Type.Unsafe<T>()` escape hatch
+
+When you already have a precise TypeScript interface for a deeply-nested serializable value and don't want to hand-write the full TypeBox schema, wrap a permissive runtime schema with `Type.Unsafe<MyInterface>(...)`. The **static** type becomes exactly `MyInterface` (so `ctx.inputs`, the `.run()` return, and `child.outputs` stay precise), while the **runtime** stays as lenient as the wrapped schema:
+
+```typescript
+import { defineWorkflow, Type } from "@bastani/workflows";
+
+interface ResearchPacket {
+  readonly topic: string;
+  readonly score: number;
+  readonly sections: readonly { readonly heading: string; readonly body: string }[];
+}
+
+export default defineWorkflow("research-packet")
+  .input("topic", Type.String())
+  // Static type = ResearchPacket; runtime only checks "is a JSON object".
+  .output("packet", Type.Unsafe<ResearchPacket>(Type.Object({}, { additionalProperties: true })))
+  .run(async (ctx) => {
+    const packet: ResearchPacket = {
+      topic: ctx.inputs.topic,
+      score: 1,
+      sections: [{ heading: "overview", body: "…" }],
+    };
+    return { packet };
+  })
+  .compile();
+```
+
+Tradeoff: `Type.Unsafe<T>()` does not deeply validate at runtime — it trusts the produced value matches `T`. Use it when the producing code already guarantees the shape; when you can express the shape directly, prefer a real `Type.Object(...)`/`Type.Array(...)` so runtime validation also catches drift. Keep bare `Type.Unknown()` and loose `additionalProperties` objects for genuinely dynamic data.
+
+#### How types flow
+
+- `ctx.inputs.x` is `Static<inputSchema>` — required/defaulted inputs are present, `Type.Optional(...)` adds `| undefined`.
+- The `.run()` return is checked against declared outputs at compile time (missing-required and wrong-type are TypeScript errors) and at runtime via TypeBox `Value` (undeclared keys rejected, declared shape enforced recursively).
+- `ctx.workflow(child).outputs` is typed from the child's declared `.output(...)` contract, so a parent reads precisely-typed child outputs without casting.
+
+`Static` and `TSchema` are re-exported from `@bastani/workflows`; use `Static<typeof schema>` when you need a schema's inferred TypeScript type directly.
 
 ---
 

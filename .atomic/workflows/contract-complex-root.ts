@@ -1,4 +1,5 @@
 import { defineWorkflow, Type } from "@bastani/workflows";
+import type { WorkflowSerializableObject } from "@bastani/workflows";
 import complexComposed from "./contract-complex-composed.js";
 
 export default defineWorkflow("contract-complex-root")
@@ -14,8 +15,54 @@ export default defineWorkflow("contract-complex-root")
   )
   .input("passes", Type.Number({ default: 2, description: "Number of leaf calls made by the imported composed workflow." }))
   .output("result", Type.String({ description: "Root summary string." }))
-  .output("finalReport", Type.Object({}, { additionalProperties: true, description: "Complex root-level report assembled from a nested imported composition." }))
-  .output("importChain", Type.Array(Type.Unknown(), { description: "Import/call chain represented as serializable objects." }))
+  .output(
+    "finalReport",
+    Type.Object(
+      {
+        topic: Type.String(),
+        rootInputs: Type.Object({
+          depth: Type.Number(),
+          variant: Type.Union([Type.Literal("alpha"), Type.Literal("beta"), Type.Literal("gamma")]),
+          passes: Type.Number(),
+        }),
+        composedRun: Type.Object({
+          workflow: Type.String(),
+          runId: Type.String(),
+          outputs: Type.Unsafe<WorkflowSerializableObject>(Type.Object({}, { additionalProperties: true })),
+        }),
+        bundle: Type.Unsafe<WorkflowSerializableObject>(Type.Object({}, { additionalProperties: true })),
+        childDigests: Type.Unsafe<readonly WorkflowSerializableObject[]>(Type.Array(Type.Unknown())),
+        checks: Type.Object({
+          composedWorkflowIsImported: Type.Boolean(),
+          composedWorkflowImportedLeafWorkflow: Type.Boolean(),
+          allValuesShouldBeJsonSerializable: Type.Boolean(),
+        }),
+      },
+      { description: "Complex root-level report assembled from a nested imported composition." },
+    ),
+  )
+  .output(
+    "importChain",
+    Type.Array(
+      Type.Union([
+        Type.Object({ level: Type.Number(), workflow: Type.String(), role: Type.String() }),
+        Type.Object({
+          level: Type.Number(),
+          workflow: Type.String(),
+          runId: Type.String(),
+          role: Type.String(),
+          declaredOutputKeys: Type.Array(Type.String()),
+        }),
+        Type.Object({
+          level: Type.Number(),
+          workflow: Type.String(),
+          role: Type.String(),
+          observedLeafCalls: Type.Number(),
+        }),
+      ]),
+      { description: "Import/call chain represented as serializable objects." },
+    ),
+  )
   .output("totalScore", Type.Number({ description: "Finite score propagated from nested child outputs." }))
   .run(async (ctx) => {
     const topic = ctx.inputs.topic;

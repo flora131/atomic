@@ -13,8 +13,31 @@ export default defineWorkflow("contract-valid")
     }),
   )
   .output("result", Type.String({ description: "Human-readable summary." }))
-  .output("echo", Type.Object({}, { additionalProperties: true, description: "Serializable object echoing typed inputs." }))
-  .output("items", Type.Array(Type.Unknown(), { description: "Serializable array generated from the count input." }))
+  .output(
+    "echo",
+    Type.Object(
+      {
+        message: Type.String(),
+        count: Type.Number(),
+        enabled: Type.Boolean(),
+        flavor: Type.String(),
+        nested: Type.Object({ ok: Type.Boolean(), tags: Type.Array(Type.String()) }),
+      },
+      { description: "Serializable object echoing typed inputs." },
+    ),
+  )
+  .output(
+    "items",
+    Type.Array(
+      Type.Object({
+        index: Type.Number(),
+        label: Type.String(),
+        message: Type.String(),
+        enabled: Type.Boolean(),
+      }),
+      { description: "Serializable array generated from the count input." },
+    ),
+  )
   .output("count", Type.Number({ description: "Finite numeric output." }))
   .output("enabled", Type.Boolean({ description: "Boolean output." }))
   .output("flavor", Type.String({ description: "Selected flavor output." }))

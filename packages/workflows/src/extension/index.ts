@@ -172,10 +172,6 @@ export type PiMessageRenderer = (
   theme?: unknown,
 ) => PiMessageRendererResult;
 
-function textRenderComponent(text: string): PiRenderComponent {
-  return dynamicTextRenderComponent(() => text);
-}
-
 function dynamicTextRenderComponent(renderText: (width: number) => string): PiRenderComponent {
   return {
     render(width: number): string[] {
@@ -2040,14 +2036,6 @@ function resolveToolRunTarget(
 type ToolStageTarget =
   | { ok: true; runId?: string; stageId?: string }
   | { ok: false; message: string };
-
-function stageMatchesIdentifier(stage: { readonly id: string; readonly name: string }, target: string): boolean {
-  return stage.id === target || stage.name === target || stage.id.startsWith(target);
-}
-
-function stageMatchLabel(stage: { readonly id: string; readonly name: string }): string {
-  return `${stage.name} (${stage.id.slice(0, 12)})`;
-}
 
 function resolveStageTarget(runId: string, stageTarget?: string): ToolStageTarget {
   const target = stageTarget?.trim();

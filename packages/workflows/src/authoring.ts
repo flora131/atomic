@@ -8,44 +8,105 @@
 
 import type {
   Static,
+  TAny,
   TArray,
   TArrayOptions,
+  TBigInt,
   TBoolean,
+  TEnum,
+  TEnumValue,
   TInteger,
+  TIntersect,
+  TIntersectOptions,
   TLiteral,
   TLiteralValue,
+  TNever,
+  TNull,
   TNumber,
   TNumberOptions,
   TObject,
   TObjectOptions,
   TOptional,
+  TRecord,
   TSchema,
   TSchemaOptions,
   TString,
   TStringOptions,
+  TTuple,
+  TTupleOptions,
+  TUndefined,
   TUnion,
+  TUnknown,
+  TVoid,
   Type as TypeboxType,
 } from "typebox";
 
 type PreserveOptions<T extends TSchema, O extends TSchemaOptions> = T & O;
+type TypeScriptEnumLike = Record<string, string | number>;
+type TypeScriptEnumValues<T extends TypeScriptEnumLike> = Extract<T[keyof T], TEnumValue>[];
 
-export declare const Type: Omit<typeof TypeboxType, "Array" | "Boolean" | "Integer" | "Literal" | "Number" | "Object" | "String" | "Union"> & {
+export declare const Type: Omit<
+  typeof TypeboxType,
+  | "Any"
+  | "Array"
+  | "BigInt"
+  | "Boolean"
+  | "Enum"
+  | "Integer"
+  | "Intersect"
+  | "Literal"
+  | "Never"
+  | "Null"
+  | "Number"
+  | "Object"
+  | "Record"
+  | "String"
+  | "Tuple"
+  | "Undefined"
+  | "Union"
+  | "Unknown"
+  | "Void"
+> & {
+  Any<const O extends TSchemaOptions>(options: O): PreserveOptions<TAny, O>;
+  Any(): TAny;
   Array<Type extends TSchema, const O extends TArrayOptions>(items: Type, options: O): PreserveOptions<TArray<Type>, O>;
   Array<Type extends TSchema>(items: Type): TArray<Type>;
+  BigInt<const O extends TSchemaOptions>(options: O): PreserveOptions<TBigInt, O>;
+  BigInt(): TBigInt;
   Boolean<const O extends TSchemaOptions>(options: O): PreserveOptions<TBoolean, O>;
   Boolean(): TBoolean;
+  Enum<Values extends TEnumValue[], const O extends TSchemaOptions>(values: readonly [...Values], options: O): PreserveOptions<TEnum<Values>, O>;
+  Enum<Values extends TEnumValue[]>(values: readonly [...Values]): TEnum<Values>;
+  Enum<Enum extends TypeScriptEnumLike, const O extends TSchemaOptions>(value: Enum, options: O): PreserveOptions<TEnum<TypeScriptEnumValues<Enum>>, O>;
+  Enum<Enum extends TypeScriptEnumLike>(value: Enum): TEnum<TypeScriptEnumValues<Enum>>;
   Integer<const O extends TNumberOptions>(options: O): PreserveOptions<TInteger, O>;
   Integer(): TInteger;
+  Intersect<Types extends TSchema[], const O extends TIntersectOptions>(types: [...Types], options: O): PreserveOptions<TIntersect<Types>, O>;
+  Intersect<Types extends TSchema[]>(types: [...Types]): TIntersect<Types>;
   Literal<const Value extends TLiteralValue, const O extends TSchemaOptions>(value: Value, options: O): PreserveOptions<TLiteral<Value>, O>;
   Literal<const Value extends TLiteralValue>(value: Value): TLiteral<Value>;
+  Never<const O extends TSchemaOptions>(options: O): PreserveOptions<TNever, O>;
+  Never(): TNever;
+  Null<const O extends TSchemaOptions>(options: O): PreserveOptions<TNull, O>;
+  Null(): TNull;
   Number<const O extends TNumberOptions>(options: O): PreserveOptions<TNumber, O>;
   Number(): TNumber;
   Object<Properties extends Record<PropertyKey, TSchema>, const O extends TObjectOptions>(properties: Properties, options: O): PreserveOptions<TObject<Properties>, O>;
   Object<Properties extends Record<PropertyKey, TSchema>>(properties: Properties): TObject<Properties>;
+  Record<Key extends TSchema, Value extends TSchema, const O extends TObjectOptions>(key: Key, value: Value, options: O): PreserveOptions<TRecord<string, Value>, O>;
+  Record<Key extends TSchema, Value extends TSchema>(key: Key, value: Value): TRecord<string, Value>;
   String<const O extends TStringOptions>(options: O): PreserveOptions<TString, O>;
   String(): TString;
+  Tuple<Types extends TSchema[], const O extends TTupleOptions>(types: [...Types], options: O): PreserveOptions<TTuple<Types>, O>;
+  Tuple<Types extends TSchema[]>(types: [...Types]): TTuple<Types>;
+  Undefined<const O extends TSchemaOptions>(options: O): PreserveOptions<TUndefined, O>;
+  Undefined(): TUndefined;
   Union<Types extends TSchema[], const O extends TSchemaOptions>(anyOf: [...Types], options: O): PreserveOptions<TUnion<Types>, O>;
   Union<Types extends TSchema[]>(anyOf: [...Types]): TUnion<Types>;
+  Unknown<const O extends TSchemaOptions>(options: O): PreserveOptions<TUnknown, O>;
+  Unknown(): TUnknown;
+  Void<const O extends TSchemaOptions>(options: O): PreserveOptions<TVoid, O>;
+  Void(): TVoid;
 };
 export type { Static, TSchema } from "typebox";
 
@@ -57,6 +118,11 @@ export type WorkflowSerializableValue =
 export type WorkflowSerializableObject = { readonly [key: string]: WorkflowSerializableValue | undefined };
 export type WorkflowInputValues = WorkflowSerializableObject;
 export type WorkflowOutputValues = WorkflowSerializableObject;
+export type WorkflowRunOutput = WorkflowOutputValues;
+export type WorkflowInputSchemaMap = Readonly<Record<string, TSchema>>;
+export type WorkflowOutputSchemaMap = Readonly<Record<string, TSchema>>;
+export type WorkflowInputSchema = TSchema;
+export type WorkflowOutputSchema = TSchema;
 
 export type WorkflowOutputMode = "inline" | "file-only";
 export type WorkflowContextMode = "fresh" | "fork";
@@ -66,10 +132,36 @@ export interface WorkflowModelFallbackFields {
   readonly retryModels?: readonly string[];
 }
 
+export type WorkflowModelValue = string;
+
+export interface WorkflowModelUsage extends WorkflowSerializableObject {
+  readonly input?: number;
+  readonly output?: number;
+  readonly cacheRead?: number;
+  readonly cacheWrite?: number;
+  readonly cost?: number;
+  readonly turns?: number;
+}
+
 export interface WorkflowModelAttempt extends WorkflowSerializableObject {
   readonly model: string;
   readonly success: boolean;
   readonly error?: string;
+  readonly usage?: WorkflowModelUsage;
+}
+
+export interface WorkflowModelInfo {
+  readonly provider: string;
+  readonly id: string;
+  readonly fullId: string;
+  readonly model?: WorkflowModelValue;
+}
+
+export interface WorkflowModelCatalogPort {
+  listModels(): Promise<readonly WorkflowModelInfo[]>;
+  readonly currentModel?: WorkflowModelValue;
+  readonly preferredProvider?: string;
+  recordWarning?: (warning: string) => void;
 }
 
 export interface WorkflowMaxOutput {
@@ -120,6 +212,24 @@ export interface PromptOptions extends WorkflowModelFallbackFields {
 }
 
 export type StagePromptOptions = PromptOptions & StageOutputOptions;
+
+export interface WorkflowExecutionPolicy {
+  readonly mode: WorkflowExecutionMode;
+  readonly allowHumanInput: boolean;
+  readonly awaitTerminalRun: boolean;
+  readonly allowInputPicker: boolean;
+}
+
+export interface WorkflowMcpPort {
+  setScope(stageId: string, allow: string[] | null, deny: string[] | null): void;
+  clearScope(stageId: string): void;
+}
+
+export interface WorkflowPersistencePort {
+  appendEntry(type: string, payload: Record<string, unknown>): string | undefined;
+  setLabel?(entryId: string, label: string): void;
+  appendCustomMessageEntry?(content: string, meta?: Record<string, unknown>): string | undefined;
+}
 
 export interface StageSessionRuntime {
   prompt(text: string, options?: PromptOptions): Promise<string | void>;
@@ -299,6 +409,8 @@ export interface WorkflowParallelChainStep {
 
 export type WorkflowChainStep = WorkflowDirectTaskItem | WorkflowParallelChainStep;
 
+export type WorkflowTaskSessionOptions = StageOptions & WorkflowTaskSessionFields;
+
 export interface WorkflowDirectOptions extends StageOptions {
   /** Shared/root task used for `{task}` in direct parallel or chain steps. */
   readonly task?: string;
@@ -337,6 +449,8 @@ export interface WorkflowUIContext {
   editor(initial?: string): Promise<string>;
 }
 
+export type WorkflowUIAdapter = WorkflowUIContext;
+
 export interface WorkflowRunContext<TInputs extends WorkflowInputValues = WorkflowInputValues> {
   readonly inputs: Readonly<TInputs>;
   readonly cwd?: string;
@@ -356,9 +470,22 @@ export type WorkflowRunFn<
   TOutputs extends WorkflowOutputValues = WorkflowOutputValues,
 > = (ctx: WorkflowRunContext<TInputs>) => Promise<TOutputs> | TOutputs;
 
+export interface WorkflowRuntimeConfig {
+  readonly maxDepth: number;
+  readonly defaultConcurrency: number;
+  readonly persistRuns: boolean;
+  readonly statusFile: boolean;
+  readonly statusFilePath?: string;
+  readonly resumeInFlight: "ask" | "auto" | "never";
+}
+
 export interface WorkflowWorktreeInputBinding {
   readonly gitWorktreeDir: string;
   readonly baseBranch?: string;
+}
+
+export interface WorkflowInputBindings {
+  readonly worktree?: WorkflowWorktreeInputBinding;
 }
 
 export interface WorkflowDefinition<
@@ -371,9 +498,9 @@ export interface WorkflowDefinition<
   readonly name: string;
   readonly normalizedName: string;
   readonly description: string;
-  readonly inputs: Readonly<Record<string, TSchema>>;
-  readonly outputs?: Readonly<Record<string, TSchema>>;
-  readonly inputBindings?: { readonly worktree?: WorkflowWorktreeInputBinding };
+  readonly inputs: WorkflowInputSchemaMap;
+  readonly outputs?: WorkflowOutputSchemaMap;
+  readonly inputBindings?: WorkflowInputBindings;
   run(ctx: WorkflowRunContext<TInputs>): Promise<TOutputs> | TOutputs;
 }
 

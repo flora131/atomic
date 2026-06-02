@@ -67,23 +67,61 @@ describe("standalone workflow package typing", () => {
   run,
   Type,
 } from "@bastani/workflows";
-import type { AgentSessionAdapter, StageAdapters } from "@bastani/workflows";
+import type {
+  AgentSessionAdapter,
+  StageAdapters,
+  WorkflowExecutionPolicy,
+  WorkflowInputBindings,
+  WorkflowInputSchemaMap,
+  WorkflowMcpPort,
+  WorkflowModelCatalogPort,
+  WorkflowOutputSchemaMap,
+  WorkflowPersistencePort,
+  WorkflowRunOutput,
+  WorkflowRuntimeConfig,
+  WorkflowTaskSessionOptions,
+  WorkflowUIAdapter,
+} from "@bastani/workflows";
+// @ts-expect-error runWorkflow was removed from the public package surface.
+import { runWorkflow } from "@bastani/workflows";
+// @ts-expect-error WorkflowOptions was removed with the object-form runWorkflow API.
+import type { WorkflowOptions } from "@bastani/workflows";
+// @ts-expect-error WorkflowRunOptions was removed with the object-form runWorkflow API.
+import type { WorkflowRunOptions } from "@bastani/workflows";
 
 const workflow = defineWorkflow("Standalone Typing Fixture")
   .description("Verifies package export types without declare module shims")
   .input("message", Type.String())
   .input("mode", Type.Literal("fast", { default: "fast" }))
+  .input("size", Type.Enum(["small", "large"] as const, { default: "small" }))
   .input("count", Type.Number({ default: 1 }))
+  .input("integerCount", Type.Integer({ default: 2 }))
   .input("enabled", Type.Boolean({ default: true }))
   .input("nickname", Type.Optional(Type.String()))
+  .input("alias", Type.String({ default: "anon" }))
+  .input("tags", Type.Array(Type.String(), { default: [] }))
+  .input("settings", Type.Object({ enabled: Type.Boolean() }, { default: { enabled: true } }))
+  .input("variant", Type.Union([Type.Literal("a"), Type.Literal("b")], { default: "a" }))
+  .input("labels", Type.Record(Type.String(), Type.String(), { default: {} }))
+  .input("tuple", Type.Tuple([Type.String(), Type.Number()], { default: ["x", 1] }))
+  .input("nothing", Type.Null({ default: null }))
   .output("summary", Type.String())
   .output("maybe", Type.Optional(Type.String()))
   .run(async (ctx) => {
     const message: string = ctx.inputs.message;
     const mode: "fast" = ctx.inputs.mode;
+    const size: "small" | "large" = ctx.inputs.size;
     const count: number = ctx.inputs.count;
+    const integerCount: number = ctx.inputs.integerCount;
     const enabled: boolean = ctx.inputs.enabled;
     const nickname: string | undefined = ctx.inputs.nickname;
+    const alias: string = ctx.inputs.alias;
+    const tags: string[] = ctx.inputs.tags;
+    const settings: { enabled: boolean } = ctx.inputs.settings;
+    const variant: "a" | "b" = ctx.inputs.variant;
+    const labels: Record<string, string> = ctx.inputs.labels;
+    const tuple: [string, number] = ctx.inputs.tuple;
+    const nothing: null = ctx.inputs.nothing;
     // @ts-expect-error optional input is not a definite string.
     const requiredNickname: string = ctx.inputs.nickname;
     await ctx.task("echo", { prompt: message, output: "echo.md" });
@@ -92,6 +130,15 @@ const workflow = defineWorkflow("Standalone Typing Fixture")
       { name: "second", prompt: String(count) },
       { name: "third", prompt: mode },
       { name: "fourth", prompt: String(enabled) },
+      { name: "fifth", prompt: size },
+      { name: "sixth", prompt: String(integerCount) },
+      { name: "seventh", prompt: alias },
+      { name: "eighth", prompt: tags.join(",") },
+      { name: "ninth", prompt: String(settings.enabled) },
+      { name: "tenth", prompt: variant },
+      { name: "eleventh", prompt: Object.keys(labels).join(",") },
+      { name: "twelfth", prompt: tuple.join(":") },
+      { name: "thirteenth", prompt: String(nothing) },
     ]);
     return { summary: chained.at(-1)?.text ?? "", maybe: nickname };
   })
@@ -108,7 +155,7 @@ const undeclaredOutputWorkflow = defineWorkflow("Undeclared Output Fixture")
   .compile();
 
 run(workflow, { message: "hello" }, { executionMode: "non_interactive" });
-run(workflow, { message: "hello", mode: "fast", count: 2, enabled: false }, { executionMode: "interactive" });
+run(workflow, { message: "hello", mode: "fast", size: "large", count: 2, integerCount: 3, enabled: false }, { executionMode: "interactive" });
 // @ts-expect-error detached is not a runtime executionMode literal.
 run(workflow, { message: "hello" }, { executionMode: "detached" });
 // @ts-expect-error message has no default and remains required.
@@ -120,11 +167,36 @@ const store = createStore();
 const cancellationRegistry = createCancellationRegistry();
 const adapter: AgentSessionAdapter | undefined = undefined;
 const adapters: StageAdapters = { agentSession: adapter };
+const policy: WorkflowExecutionPolicy = { mode: "interactive", allowHumanInput: true, awaitTerminalRun: false, allowInputPicker: true };
+const inputBindings: WorkflowInputBindings = { worktree: { gitWorktreeDir: ".worktrees", baseBranch: "main" } };
+const inputSchemas: WorkflowInputSchemaMap = { message: Type.String() };
+const outputSchemas: WorkflowOutputSchemaMap = { summary: Type.String() };
+const runOutput: WorkflowRunOutput = { summary: "ok" };
+const runtimeConfig: WorkflowRuntimeConfig = { maxDepth: 4, defaultConcurrency: 4, persistRuns: true, statusFile: false, resumeInFlight: "ask" };
+const ui: WorkflowUIAdapter | undefined = undefined;
+const mcp: WorkflowMcpPort | undefined = undefined;
+const persistence: WorkflowPersistencePort | undefined = undefined;
+const catalog: WorkflowModelCatalogPort | undefined = undefined;
+const taskSession: WorkflowTaskSessionOptions = { prompt: "hello" };
 void undeclaredOutputWorkflow;
 void frontier;
 void store;
 void cancellationRegistry;
 void adapters;
+void policy;
+void inputBindings;
+void inputSchemas;
+void outputSchemas;
+void runOutput;
+void runtimeConfig;
+void ui;
+void mcp;
+void persistence;
+void catalog;
+void taskSession;
+void runWorkflow;
+type RemovedWorkflowOptions = WorkflowOptions;
+type RemovedWorkflowRunOptions = WorkflowRunOptions;
 
 export default workflow;
 `,

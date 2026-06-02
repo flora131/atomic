@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.8.22] - 2026-06-01
+
+### Breaking Changes
+
+- Migrated workflow contracts to TypeBox schemas and fully explicit outputs, removing legacy descriptor schemas, `.import(...)`, string-alias child workflow calls, parent-side output remapping, implicit `result`/`rawOutput`, and declaration-time `.humanInTheLoop(...)` metadata.
+
+### Added
+
+- Added TypeBox re-exports, TypeScript module-style child workflow composition, schema-validated child outputs, reusable builtin workflow modules, and flattened nested child workflow stages.
+
+### Changed
+
+- Raised the bundled deep-research workflow's default parallelism, renamed workflow runtime errors to `atomic-workflows:`, rendered workflow notices as compact TUI cards, flattened imported workflow graph boundaries, and expanded registered workflow-tool metadata.
+
+### Fixed
+
+- Fixed defaulted input validation, slow workflow discovery through the jiti loader, headless workflow shutdown and print-mode automation, builtin workflow initialization cycles, package-manifest workflow reloads, nested workflow widgets/graph cards, portable deep-research line counting, Codex fast-mode workflow markers, human-in-the-loop focus/answer behavior, background widget rendering, and deterministic headless command output.
+
 ## [0.8.22-0] - 2026-06-01
 
 ### Breaking Changes

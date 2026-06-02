@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.8.22] - 2026-06-01
+
+### Fixed
+- Surfaced Codex fast-mode state in foreground result badges, async widgets, and async status output, while scoping child fast-mode launches to the parent chat or workflow surface.
+- Stabilized async subagent widgets and foreground spinner animation so visible status updates no longer remount widgets or churn elapsed/activity text between semantic progress changes.
+- Hydrated durable active async runs into the below-editor widget and hardened global npm skill discovery with quieter probing, conservative timeouts, and cached failures.
+
 ## [0.8.22-0] - 2026-06-01
 
 ### Fixed

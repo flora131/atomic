@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+## [0.8.22] - 2026-06-01
+
+### Breaking Changes
+
+- Migrated bundled workflow authoring to explicit TypeBox input/output schemas and explicit workflow outputs, so composed workflows now validate contracts with `Type`/`Static` and no longer support legacy descriptors, implicit `result`, `rawOutput`, `.import(...)`, or declaration-time `.humanInTheLoop(...)`.
+
+### Added
+
+- Added Codex `/fast` mode toggles for chat and workflow-stage sessions with visible `fast` model markers on eligible OpenAI/OpenAI Codex models.
+- Added reactive extension UI rendering via `ExtensionUIContext.requestRender()` so long-lived widgets can repaint without remount flicker.
+- Added interrupt-delivered extension custom messages with optional abort messages, letting workflow and other first-party extensions surface urgent events immediately.
+
+### Changed
+
+- Expanded bundled workflow authoring docs and agent guidance for direct `ctx.workflow(compiledWorkflow, options)` composition, reusable builtin workflow modules, explicit child outputs, and safer long-running workflow monitoring.
+- Refined the `/fast` selector copy, layout, toggle states, and keyboard support for clearer chat/workflow scoping.
+- Improved workflow graph/status rendering for nested child workflows, compact lifecycle/HIL cards, and reference-first transcript inspection.
+
+### Fixed
+
+- Fixed workflow reloads so package-manifest workflow entries refresh in-process without a full Atomic restart.
+- Fixed Codex fast-mode propagation, persistence, request payloads, workflow footer markers, subagent launch metadata, and fallback marker synchronization across chat, workflow, and subagent surfaces.
+- Fixed headless `/workflow` automation and print-mode output so successful commands emit displayable summaries, terminal failures surface correctly, completed stage handles dispose on exit, and command-originated extension errors are the only non-zero extension-error exits.
+- Hardened workflow human-in-the-loop prompts and answers so brokered prompts remain focusable/scrollable, avoid stale Enter submissions, stay out of model context where appropriate, and resolve duplicate or raced tool answers deterministically.
+- Stabilized long-lived workflow and subagent widgets with coalesced repaint paths, durable async-run hydration, and spinner ticks that avoid remount or scrollback flicker.
+
 ## [0.8.22-0] - 2026-06-01
 
 ### Added

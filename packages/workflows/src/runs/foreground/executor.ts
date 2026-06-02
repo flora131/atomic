@@ -44,6 +44,7 @@ import type {
   WorkflowSerializableValue,
 } from "../../shared/types.js";
 import type { InternalStageContext, StageAdapters } from "./stage-runner.js";
+import type * as AuthoringContract from "../../shared/authoring-contract.js";
 import type {
   RunStatus,
   StageNotice,
@@ -103,9 +104,7 @@ export interface RunContinuationOpts {
   readonly resumeFromStageId: string;
 }
 
-// Mirrored by packages/workflows/src/authoring.ts for standalone package
-// typings; update both surfaces when these runtime options change.
-export interface RunOpts {
+export interface RunOpts extends Omit<AuthoringContract.RunOpts, "adapters" | "store" | "cancellation" | "overlay" | "registry" | "stageControlRegistry" | "continuation" | "onRunStart" | "onStageStart" | "onStageEnd" | "onRunEnd"> {
   adapters?: StageAdapters;
   /** Invocation working directory exposed to workflow definitions as ctx.cwd. */
   cwd?: string;
@@ -1155,7 +1154,7 @@ function defineDirectWorkflow(
   name: string,
   runFn: WorkflowDefinition["run"],
 ): WorkflowDefinition {
-  const definition: WorkflowDefinition = {
+  const definition = {
     __piWorkflow: true,
     name,
     normalizedName: name,
@@ -1163,7 +1162,7 @@ function defineDirectWorkflow(
     inputs: Object.freeze({}),
     outputs: DIRECT_WORKFLOW_OUTPUTS,
     run: runFn,
-  };
+  } as WorkflowDefinition;
   // Stamp before freezing so the WeakSet brand can be attached.
   stampWorkflowDefinition(definition);
   return Object.freeze(definition);

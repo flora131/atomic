@@ -26,10 +26,11 @@ describe("public entrypoint", () => {
     const workflow = defineWorkflow("Example Task")
       .description("Exercises the package entrypoint")
       .input("prompt", Type.String())
+      .output("echoed", Type.String())
       .run(async (ctx) => ({ echoed: ctx.inputs.prompt }))
       .compile();
 
-    const registry = createRegistry().register(workflow as Parameters<ReturnType<typeof createRegistry>["register"]>[0]);
+    const registry = createRegistry().register(workflow as unknown as Parameters<ReturnType<typeof createRegistry>["register"]>[0]);
 
     assert.equal(normalizeWorkflowName(" Example_Task! "), "example-task");
     assert.equal(workflowNamesEqual("Example Task", "example_task"), true);

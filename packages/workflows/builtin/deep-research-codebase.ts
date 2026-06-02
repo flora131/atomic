@@ -15,7 +15,6 @@ import { defineWorkflow } from "../src/workflows/define-workflow.js";
 import { Type } from "typebox";
 import type {
   WorkflowOutputMode,
-  WorkflowOutputValues,
   WorkflowTaskResult,
   WorkflowTaskStep,
 } from "../src/shared/types.js";
@@ -30,7 +29,7 @@ const GIT_LS_FILES_TIMEOUT_MS = 2_000;
 
 type PromptSection = readonly [tag: string, content: string];
 
-interface DeepResearchCodebaseResult extends WorkflowOutputValues {
+interface DeepResearchCodebaseResult {
   readonly result: string;
   readonly findings: string;
   readonly research_doc_path: string;

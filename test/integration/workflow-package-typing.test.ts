@@ -69,11 +69,14 @@ describe("standalone workflow package typing", () => {
   run,
   Type,
 } from "@bastani/workflows";
-import { goal } from "@bastani/workflows/builtin";
+import { goal, openClaudeDesign } from "@bastani/workflows/builtin";
 import goalDefault from "@bastani/workflows/builtin/goal";
+import openClaudeDesignDefault from "@bastani/workflows/builtin/open-claude-design";
 import type {
   AgentSessionAdapter,
   StageAdapters,
+  StageOptions,
+  StageStatus,
   WorkflowExecutionPolicy,
   WorkflowDefinition,
   WorkflowInputBindings,
@@ -113,6 +116,7 @@ const workflow = defineWorkflow("Standalone Typing Fixture")
   .input("omittedNoDefault", Type.Omit(Type.Object({ enabled: Type.Boolean(), name: Type.String() }), ["name"] as const))
   .input("variant", Type.Union([Type.Literal("a"), Type.Literal("b")], { default: "a" }))
   .input("labels", Type.Record(Type.String(), Type.String(), { default: {} }))
+  .input("finiteLabels", Type.Record(Type.Union([Type.Literal("foo"), Type.Literal("bar")]), Type.Number(), { default: { foo: 1, bar: 2 } }))
   .input("tuple", Type.Tuple([Type.String(), Type.Number()], { default: ["x", 1] }))
   .input("nothing", Type.Null({ default: null }))
   .output("summary", Type.String())
@@ -144,10 +148,38 @@ const workflow = defineWorkflow("Standalone Typing Fixture")
     ctx.inputs.omittedNoDefault.name;
     const variant: "a" | "b" = ctx.inputs.variant;
     const labels: Record<string, string> = ctx.inputs.labels;
+    const finiteLabels: { foo: number; bar: number } = ctx.inputs.finiteLabels;
+    // @ts-expect-error finite record keys should not accept extra keys.
+    const finiteLabelsWithExtra: typeof finiteLabels = { foo: 1, bar: 2, baz: 3 };
+    // @ts-expect-error finite record keys should require all literal keys.
+    const finiteLabelsMissingKey: typeof finiteLabels = { foo: 1 };
     const tuple: [string, number] = ctx.inputs.tuple;
     const nothing: null = ctx.inputs.nothing;
     // @ts-expect-error optional input is not a definite string.
     const requiredNickname: string = ctx.inputs.nickname;
+    // @ts-expect-error stage options do not accept prompt/output-only fields.
+    ctx.stage("invalid-stage-output", { output: "stage.md" });
+    const typedStage = ctx.stage("typed-stage", { cwd: ".", fallbackModels: ["fallback-model"], scopedModels: [{ model: "model-a", thinkingLevel: "low" }] });
+    // @ts-expect-error standalone authors cannot supply runtime SessionManager objects without Atomic types.
+    ctx.stage("invalid-session-manager", { sessionManager: {} });
+    // @ts-expect-error standalone authors cannot supply partial runtime SettingsManager objects without Atomic types.
+    ctx.stage("invalid-settings-manager", { settingsManager: { getCodexFastModeSettings() { return { enabled: true }; } } });
+    // @ts-expect-error custom tools must provide the full runtime tool shape.
+    ctx.stage("invalid-custom-tool", { customTools: [{ name: "bad" }] });
+    await typedStage.prompt("typed prompt", {
+      output: "typed.md",
+      outputMode: "file-only",
+      streamingBehavior: "steer",
+      source: "extension",
+      preflightResult(success: boolean) { void success; },
+      images: [{ type: "image", image: "data:image/png;base64,AA==" }],
+    });
+    // @ts-expect-error streamingBehavior is forwarded to the runtime SDK and must be a supported literal.
+    await typedStage.prompt("bad streaming", { streamingBehavior: "invalid" });
+    // @ts-expect-error source is forwarded to the runtime SDK and must be a supported literal.
+    await typedStage.prompt("bad source", { source: "invalid" });
+    // @ts-expect-error preflightResult must be a runtime callback, not an object.
+    await typedStage.prompt("bad preflight", { preflightResult: {} });
     await ctx.task("echo", { prompt: message, output: "echo.md" });
     const chained = await ctx.chain([
       { name: "first", prompt: message },
@@ -167,6 +199,7 @@ const workflow = defineWorkflow("Standalone Typing Fixture")
       { name: "omittedNoDefault", prompt: JSON.stringify(omittedNoDefault) },
       { name: "tenth", prompt: variant },
       { name: "eleventh", prompt: Object.keys(labels).join(",") },
+      { name: "finite", prompt: String(finiteLabels.foo + finiteLabels.bar) },
       { name: "twelfth", prompt: tuple.join(":") },
       { name: "thirteenth", prompt: String(nothing) },
     ]);
@@ -182,6 +215,12 @@ const optionalOutputWorkflow = defineWorkflow("Optional Output Fixture")
 const undeclaredOutputWorkflow = defineWorkflow("Undeclared Output Fixture")
   // @ts-expect-error run outputs must be declared before returning them.
   .run(() => ({ summary: "not declared" }))
+  .compile();
+
+const nonSerializableOutputWorkflow = defineWorkflow("Non Serializable Output Fixture")
+  .output("n", Type.BigInt())
+  // @ts-expect-error workflow outputs must be JSON-serializable at runtime.
+  .run(() => ({ n: 1n }))
   .compile();
 
 const postRunEditedWorkflow = defineWorkflow("Post Run Edited Fixture")
@@ -202,12 +241,64 @@ run(optionalOutputWorkflow, {});
 run(postRunEditedWorkflow, {});
 run(goal, { objective: "x" });
 run(goalDefault, { objective: "x" });
+run(openClaudeDesign, { prompt: "x", output_type: "prototype" });
+run(openClaudeDesignDefault, { prompt: "x", output_type: "tokens" });
+// @ts-expect-error builtin open-claude-design only accepts runtime-declared output_type values.
+run(openClaudeDesign, { prompt: "x", output_type: "flow" });
+// @ts-expect-error builtin goal requires an objective input.
+run(goal, {});
+// @ts-expect-error builtin goal default export requires an objective input.
+run(goalDefault, {});
 // @ts-expect-error WorkflowDefinition is non-structural; only compile() can produce it.
 const forgedWorkflow: WorkflowDefinition = { __piWorkflow: true, name: "forged", normalizedName: "forged", description: "forged", inputs: {}, run: () => ({}) };
+const forgedRunnable = { __piWorkflow: true, name: "forged", normalizedName: "forged", description: "forged", inputs: {}, run: () => ({}) } as const;
+// @ts-expect-error run requires a branded compiled WorkflowDefinition, not a structural object.
+run(forgedRunnable, {});
 const frontier = new GraphFrontierTracker();
 const store = createStore();
+store.runs();
+store.notices();
+store.activeRunId();
 const cancellationRegistry = createCancellationRegistry();
-const adapter: AgentSessionAdapter | undefined = undefined;
+const controller = new AbortController();
+cancellationRegistry.register("run-1", controller);
+cancellationRegistry.registerChild("run-1", new AbortController());
+cancellationRegistry.abort("run-1", "stop");
+cancellationRegistry.abortAll("stop-all");
+cancellationRegistry.isAborted("run-1");
+cancellationRegistry.unregister("run-1");
+const adapter: AgentSessionAdapter = {
+  async create(options: StageOptions) {
+    void options;
+    return {
+      settingsManager: {
+        getCodexFastModeSettings() { return { enabled: true, model: "fixture" }; },
+      },
+      session: {
+      async prompt() {},
+      async steer() {},
+      async followUp() {},
+      subscribe() { return () => {}; },
+      sessionFile: undefined,
+      sessionId: "fixture-session",
+      async setModel() {},
+      setThinkingLevel() {},
+      cycleModel() { return null; },
+      cycleThinkingLevel() { return undefined; },
+      agent: {},
+      model: null,
+      thinkingLevel: undefined,
+      messages: [],
+      isStreaming: false,
+      async navigateTree() { return { cancelled: false }; },
+      async compact() { return {}; },
+      abortCompaction() {},
+      async abort() {},
+      dispose() {},
+      },
+    };
+  },
+};
 const adapters: StageAdapters = { agentSession: adapter };
 const policy: WorkflowExecutionPolicy = { mode: "interactive", allowHumanInput: true, awaitTerminalRun: false, allowInputPicker: true };
 const interactivePolicy: WorkflowExecutionPolicy = INTERACTIVE_WORKFLOW_POLICY;
@@ -221,8 +312,24 @@ const ui: WorkflowUIAdapter | undefined = undefined;
 const mcp: WorkflowMcpPort | undefined = undefined;
 const persistence: WorkflowPersistencePort | undefined = undefined;
 const catalog: WorkflowModelCatalogPort | undefined = undefined;
-const taskSession: WorkflowTaskSessionOptions = { prompt: "hello", tools: ["bash"], noTools: "builtin", customTools: [{ name: "custom", description: "Custom tool" }] };
+const taskSession: WorkflowTaskSessionOptions = { prompt: "hello", tools: ["bash"], noTools: "builtin", customTools: [{
+  name: "custom",
+  label: "Custom",
+  description: "Custom tool",
+  parameters: Type.Object({ value: Type.String() }),
+  async execute(_toolCallId, params) { void params; return { content: [{ type: "text", text: "ok" }] }; },
+}] };
+type StageSnapshotStatus = import("@bastani/workflows").StageSnapshot["status"];
+const skippedStageStatus: StageSnapshotStatus = "skipped";
+const awaitingInputStageStatus: StageSnapshotStatus = "awaiting_input";
+const blockedStageSnapshotStatus: StageSnapshotStatus = "blocked";
+const skippedNamedStageStatus: StageStatus = "skipped";
+const awaitingInputNamedStageStatus: StageStatus = "awaiting_input";
+const blockedNamedStageStatus: StageStatus = "blocked";
+// @ts-expect-error stage snapshots only expose runtime stage statuses.
+const invalidStageStatus: StageSnapshotStatus = "detached";
 void undeclaredOutputWorkflow;
+void nonSerializableOutputWorkflow;
 void frontier;
 void store;
 void cancellationRegistry;
@@ -240,6 +347,13 @@ void mcp;
 void persistence;
 void catalog;
 void taskSession;
+void skippedStageStatus;
+void awaitingInputStageStatus;
+void blockedStageSnapshotStatus;
+void skippedNamedStageStatus;
+void awaitingInputNamedStageStatus;
+void blockedNamedStageStatus;
+void invalidStageStatus;
 void forgedWorkflow;
 run(workflow, { message: "hello", pickedNoDefault: { enabled: true }, omittedNoDefault: { enabled: true } }, { adapters, ui, signal: new AbortController().signal, config: runtimeConfig, models: catalog, mcp, persistence, cancellation: cancellationRegistry });
 // @ts-expect-error runWorkflow is a removed runtime stub and must not be called.

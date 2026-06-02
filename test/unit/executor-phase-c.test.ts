@@ -266,7 +266,7 @@ describe("executor input resolution — Phase C", () => {
       inputs: {},
       outputs: {},
       run: async () => ({}),
-    } as WorkflowDefinition;
+    } as unknown as WorkflowDefinition;
 
     await assert.rejects(
       run(forged, {}, { store: createStore() }),
@@ -283,7 +283,7 @@ describe("executor input resolution — Phase C", () => {
       inputs: {},
       outputs: {},
       run: async () => ({}),
-    } as WorkflowDefinition;
+    } as unknown as WorkflowDefinition;
     const parent = defineWorkflow("phaseC-forged-child")
       .run(async (ctx) => {
         await ctx.workflow(forgedChild);

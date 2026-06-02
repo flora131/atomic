@@ -507,6 +507,7 @@ describe("executor.run", () => {
             })
             .compile();
         const parent = defineWorkflow("killable-parent")
+            .output("result", Type.String())
             .run(async (ctx) => {
                 const childResult = await ctx.workflow(child);
                 return { result: childResult.outputs.summary };
@@ -611,6 +612,7 @@ describe("executor.run", () => {
             })
             .compile();
         const parent = defineWorkflow("uncloneable-raw-parent")
+            .output("final", Type.String())
             .run(async (ctx) => {
                 const childResult = await ctx.workflow(child);
                 const final = await ctx
@@ -3377,6 +3379,7 @@ describe("executor.run", () => {
 
     test("failed fallback attempts are recorded on the stage snapshot", async () => {
         const def = defineWorkflow("failed-fallback-metadata")
+            .output("ok", Type.Boolean())
             .run(async (ctx) => {
                 await ctx.task("scout", {
                     prompt: "inspect",
@@ -3431,6 +3434,7 @@ describe("executor.run", () => {
         const promptGate = deferred<string | void>();
         const st = createStore();
         const def = defineWorkflow("explicit-model-running-fast-metadata")
+            .output("ok", Type.Boolean())
             .run(async (ctx) => {
                 await ctx
                     .stage("scout", { model: "openai/gpt-5.1-codex" })
@@ -3499,6 +3503,7 @@ describe("executor.run", () => {
         const promptGate = deferred<string | void>();
         const st = createStore();
         const def = defineWorkflow("bare-explicit-model-running-fast-metadata")
+            .output("ok", Type.Boolean())
             .run(async (ctx) => {
                 await ctx
                     .stage("scout", { model: "gpt-5.1-codex" })
@@ -3614,6 +3619,7 @@ describe("executor.run", () => {
         const fallbackGate = deferred<string | void>();
         const st = createStore();
         const def = defineWorkflow("fallback-running-fast-metadata")
+            .output("ok", Type.Boolean())
             .run(async (ctx) => {
                 await ctx
                     .stage("scout", {
@@ -3768,6 +3774,7 @@ describe("executor.run", () => {
     test("invalid dynamic stage model fails before SDK session creation", async () => {
         let creates = 0;
         const def = defineWorkflow("invalid-stage-model")
+            .output("ok", Type.Boolean())
             .run(async (ctx) => {
                 await ctx.task("scout", {
                     prompt: "inspect",
@@ -3840,6 +3847,7 @@ describe("executor.run", () => {
     test("ctx.task aggregator adapter failure marks run, stage, and store failed", async () => {
         const testStore = createStore();
         const def = defineWorkflow("fail-aggregator-task-wf")
+            .output("ok", Type.Boolean())
             .run(async (ctx) => {
                 await ctx.task("aggregator", { prompt: "aggregate findings" });
                 return { ok: true };
@@ -5617,6 +5625,7 @@ describe("executor — stage-control registry integration", () => {
         const registry = createStageControlRegistry();
         let observedHandleCount = 0;
         const def = defineWorkflow("handle-wf")
+            .output("ok", Type.Boolean())
             .run(async (ctx) => {
                 const stage = ctx.stage("first");
                 // The handle is registered at ctx.stage() time, before prompt().
@@ -5764,6 +5773,7 @@ describe("executor — stage-control registry integration", () => {
             },
         };
         const def = defineWorkflow("pending-attached-stream-pause-wf")
+            .output("ok", Type.Boolean())
             .run(async (ctx) => {
                 const stage = ctx.stage("pending-live");
                 await releaseWorkflowPrompt.promise;
@@ -5836,6 +5846,7 @@ describe("executor — stage-control registry integration", () => {
         const sawStage = deferred<{ runId: string; stageId: string }>();
         let sawStageResolved = false;
         const def = defineWorkflow("pending-pause-kill-wf")
+            .output("ok", Type.Boolean())
             .run(async (ctx) => {
                 const stage = ctx.stage("pending-before-kill");
                 await releasePrompt.promise;

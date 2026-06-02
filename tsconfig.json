@@ -31,7 +31,12 @@
             "@bastani/intercom/*": ["./packages/intercom/*"]
         }
     },
-    "include": ["packages/workflows/**/*", "test/**/*", "examples/**/*"],
+    "include": [
+        "packages/workflows/**/*",
+        "test/**/*",
+        "examples/**/*",
+        ".atomic/workflows/**/*"
+    ],
     "exclude": [
         "node_modules",
         "packages/coding-agent",

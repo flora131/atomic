@@ -18,6 +18,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type {
+    TSchema,
     WorkflowChainOptions,
     WorkflowDefinition,
     WorkflowInputValues,
@@ -28,6 +29,33 @@ import type {
     WorkflowTaskStep,
     WorkflowUIContext,
 } from "../../packages/workflows/src/shared/types.js";
+import {
+    schemaChoices,
+    schemaDefault,
+    schemaDescription,
+    schemaFieldKind,
+    schemaIsRequired,
+} from "../../packages/workflows/src/shared/schema-introspection.js";
+
+// Derived legacy-descriptor views over a declared TypeBox schema — the same
+// adapter the dispatcher/inputs action uses. Inputs/outputs are declared with
+// TypeBox; these helpers read back the normalized field-kind / required /
+// default / description / choices view, tolerating absent keys.
+function fieldKind(schema: TSchema | undefined): string | undefined {
+    return schema === undefined ? undefined : schemaFieldKind(schema);
+}
+function fieldRequired(schema: TSchema | undefined): boolean | undefined {
+    return schema === undefined ? undefined : schemaIsRequired(schema);
+}
+function fieldDefault(schema: TSchema | undefined): unknown {
+    return schema === undefined ? undefined : schemaDefault(schema);
+}
+function fieldDescription(schema: TSchema | undefined): string {
+    return schema === undefined ? "" : (schemaDescription(schema) ?? "");
+}
+function fieldChoices(schema: TSchema | undefined): readonly string[] {
+    return schema === undefined ? [] : (schemaChoices(schema) ?? []);
+}
 
 interface MockCalls {
     readonly stage: string[];
@@ -218,9 +246,9 @@ function assertOutputTypes(
     assert.notEqual(outputs, undefined);
     assert.deepEqual(Object.keys(outputs ?? {}).sort(), Object.keys(expected).sort());
     for (const [key, type] of Object.entries(expected)) {
-        assert.equal(outputs?.[key]?.type, type, `unexpected output type for ${key}`);
+        assert.equal(fieldKind(outputs?.[key]), type, `unexpected output type for ${key}`);
         assert.ok(
-            (outputs?.[key]?.description ?? "").length > 0,
+            fieldDescription(outputs?.[key]).length > 0,
             `expected output description for ${key}`,
         );
     }
@@ -275,16 +303,16 @@ describe("deep-research-codebase", () => {
         const mod =
             await import("../../packages/workflows/builtin/deep-research-codebase.js");
         const d = mod.default;
-        assert.equal(d.inputs["prompt"]?.required, true);
-        assert.match(d.inputs["prompt"]?.type ?? "", /^(text|string)$/);
-        assert.equal(d.inputs["max_partitions"]?.type, "number");
+        assert.equal(fieldRequired(d.inputs["prompt"]), true);
+        assert.match(fieldKind(d.inputs["prompt"]) ?? "", /^(text|string)$/);
+        assert.equal(fieldKind(d.inputs["max_partitions"]), "number");
         assert.equal(
-            (d.inputs["max_partitions"] as { default?: number }).default,
+            fieldDefault(d.inputs["max_partitions"]),
             100,
         );
-        assert.equal(d.inputs["max_concurrency"]?.type, "number");
+        assert.equal(fieldKind(d.inputs["max_concurrency"]), "number");
         assert.equal(
-            (d.inputs["max_concurrency"] as { default?: number }).default,
+            fieldDefault(d.inputs["max_concurrency"]),
             100,
         );
         assert.deepEqual(Object.keys(d.inputs).sort(), [
@@ -298,15 +326,15 @@ describe("deep-research-codebase", () => {
         const mod =
             await import("../../packages/workflows/builtin/deep-research-codebase.js");
         assertOutputTypes(mod.default.outputs, {
-            artifact_dir: "string",
+            artifact_dir: "text",
             explorer_count: "number",
             findings: "text",
             result: "text",
             history: "text",
-            manifest_path: "string",
+            manifest_path: "text",
             max_concurrency: "number",
             partitions: "array",
-            research_doc_path: "string",
+            research_doc_path: "text",
             specialist_count: "number",
         });
     });
@@ -1004,16 +1032,16 @@ describe("goal", () => {
 
     test("declares objective, max_turns, and base_branch inputs", async () => {
         const mod = await import("../../packages/workflows/builtin/goal.js");
-        assert.equal(mod.default.inputs["objective"]?.type, "text");
-        assert.equal(mod.default.inputs["objective"]?.required, true);
-        assert.equal(mod.default.inputs["max_turns"]?.type, "number");
+        assert.equal(fieldKind(mod.default.inputs["objective"]), "text");
+        assert.equal(fieldRequired(mod.default.inputs["objective"]), true);
+        assert.equal(fieldKind(mod.default.inputs["max_turns"]), "number");
         assert.equal(
-            (mod.default.inputs["max_turns"] as { default?: number }).default,
+            fieldDefault(mod.default.inputs["max_turns"]),
             10,
         );
-        assert.equal(mod.default.inputs["base_branch"]?.type, "string");
+        assert.equal(fieldKind(mod.default.inputs["base_branch"]), "text");
         assert.equal(
-            (mod.default.inputs["base_branch"] as { default?: string }).default,
+            fieldDefault(mod.default.inputs["base_branch"]),
             "origin/main",
         );
         assert.deepEqual(Object.keys(mod.default.inputs).sort(), [
@@ -1027,9 +1055,9 @@ describe("goal", () => {
         const mod = await import("../../packages/workflows/builtin/goal.js");
         assertOutputTypes(mod.default.outputs, {
             approved: "boolean",
-            goal_id: "string",
+            goal_id: "text",
             iterations_completed: "number",
-            ledger_path: "string",
+            ledger_path: "text",
             objective: "text",
             receipts: "array",
             remaining_work: "text",
@@ -1985,26 +2013,25 @@ describe("ralph", () => {
 
     test("declares prompt, max_loops, base_branch, and git_worktree_dir inputs", async () => {
         const mod = await import("../../packages/workflows/builtin/ralph.js");
-        assert.equal(mod.default.inputs["prompt"]?.type, "text");
-        assert.equal(mod.default.inputs["prompt"]?.required, true);
-        assert.equal(mod.default.inputs["max_loops"]?.type, "number");
+        assert.equal(fieldKind(mod.default.inputs["prompt"]), "text");
+        assert.equal(fieldRequired(mod.default.inputs["prompt"]), true);
+        assert.equal(fieldKind(mod.default.inputs["max_loops"]), "number");
         assert.equal(
-            (mod.default.inputs["max_loops"] as { default?: number }).default,
+            fieldDefault(mod.default.inputs["max_loops"]),
             10,
         );
-        assert.equal(mod.default.inputs["base_branch"]?.type, "string");
+        assert.equal(fieldKind(mod.default.inputs["base_branch"]), "text");
         assert.equal(
-            (mod.default.inputs["base_branch"] as { default?: string }).default,
+            fieldDefault(mod.default.inputs["base_branch"]),
             "origin/main",
         );
-        assert.equal(mod.default.inputs["git_worktree_dir"]?.type, "string");
+        assert.equal(fieldKind(mod.default.inputs["git_worktree_dir"]), "text");
         assert.equal(
-            (mod.default.inputs["git_worktree_dir"] as { default?: string })
-                .default,
+            fieldDefault(mod.default.inputs["git_worktree_dir"]),
             "",
         );
         const description =
-            mod.default.inputs["git_worktree_dir"]?.description ?? "";
+            fieldDescription(mod.default.inputs["git_worktree_dir"]);
         assert.match(description, /inside a Git repo/);
         assert.match(description, /absolute paths are used as-is/);
         assert.match(description, /relative paths resolve from the repo root/);
@@ -2024,10 +2051,10 @@ describe("ralph", () => {
         const mod = await import("../../packages/workflows/builtin/ralph.js");
         assertOutputTypes(mod.default.outputs, {
             approved: "boolean",
-            implementation_notes_path: "string",
+            implementation_notes_path: "text",
             iterations_completed: "number",
             plan: "text",
-            plan_path: "string",
+            plan_path: "text",
             pr_report: "text",
             result: "text",
             review_report: "text",
@@ -2149,15 +2176,15 @@ describe("open-claude-design", () => {
         }
         assert.equal(d.inputs["output-type"], undefined);
         assert.equal(d.inputs["design-system"], undefined);
-        assert.equal(d.inputs["prompt"]?.required, true);
+        assert.equal(fieldRequired(d.inputs["prompt"]), true);
     });
 
     test("output_type supports canonical underscore choices", async () => {
         const mod =
             await import("../../packages/workflows/builtin/open-claude-design.js");
         const schema = mod.default.inputs["output_type"];
-        assert.equal(schema.type, "select");
-        const choices = (schema as { choices: readonly string[] }).choices;
+        assert.equal(fieldKind(schema), "select");
+        const choices = fieldChoices(schema);
         for (const choice of [
             "prototype",
             "wireframe",
@@ -2168,7 +2195,7 @@ describe("open-claude-design", () => {
         ]) {
             assert.ok(choices.includes(choice), choice);
         }
-        assert.equal((schema as { default?: string }).default, "prototype");
+        assert.equal(fieldDefault(schema), "prototype");
     });
 
     test("declares child workflow output contract", async () => {
@@ -2177,17 +2204,17 @@ describe("open-claude-design", () => {
         assertOutputTypes(mod.default.outputs, {
             approved_for_export: "boolean",
             artifact: "text",
-            artifact_dir: "string",
+            artifact_dir: "text",
             design_system: "text",
             handoff: "text",
             import_context: "text",
-            output_type: "string",
-            preview_file_url: "string",
-            preview_path: "string",
+            output_type: "text",
+            preview_file_url: "text",
+            preview_path: "text",
             refinements_completed: "number",
-            run_id: "string",
-            spec_file_url: "string",
-            spec_path: "string",
+            run_id: "text",
+            spec_file_url: "text",
+            spec_path: "text",
         });
     });
 

@@ -591,6 +591,74 @@ export default defineWorkflow("removed-namespace-re-export")
     assert.match(importFailed[0]!.message, /no longer exports runWorkflow/);
   });
 
+  test("removed runWorkflow computed CJS destructuring fails during workflow loading", async () => {
+    await createProjectWorkflowFile(
+      "removed-computed-cjs-destructure.js",
+      `
+const { defineWorkflow, ["runWorkflow"]: removed } = require("@bastani/workflows");
+void removed;
+exports.default = defineWorkflow("removed-computed-cjs-destructure")
+  .run(async () => ({}))
+  .compile();
+`,
+    );
+    const result = await discoverWorkflows({
+      cwd: join(tmpRoot, "cwd"),
+      homeDir: join(tmpRoot, "home"),
+      includeBundled: false,
+    });
+    assert.equal(result.registry.has("removed-computed-cjs-destructure"), false);
+    const importFailed = result.errors.filter((e) => e.code === "IMPORT_FAILED");
+    assert.equal(importFailed.length, 1);
+    assert.match(importFailed[0]!.message, /no longer exports runWorkflow/);
+  });
+
+  test("removed runWorkflow computed namespace destructuring fails during workflow loading", async () => {
+    await createProjectWorkflowFile(
+      "removed-computed-namespace-destructure.js",
+      `
+import { defineWorkflow } from "@bastani/workflows";
+import * as workflows from "@bastani/workflows";
+const { ["runWorkflow"]: removed } = workflows;
+void removed;
+export default defineWorkflow("removed-computed-namespace-destructure")
+  .run(async () => ({}))
+  .compile();
+`,
+    );
+    const result = await discoverWorkflows({
+      cwd: join(tmpRoot, "cwd"),
+      homeDir: join(tmpRoot, "home"),
+      includeBundled: false,
+    });
+    assert.equal(result.registry.has("removed-computed-namespace-destructure"), false);
+    const importFailed = result.errors.filter((e) => e.code === "IMPORT_FAILED");
+    assert.equal(importFailed.length, 1);
+    assert.match(importFailed[0]!.message, /no longer exports runWorkflow/);
+  });
+
+  test("removed runWorkflow computed direct require property fails during workflow loading", async () => {
+    await createProjectWorkflowFile(
+      "removed-computed-require-property.js",
+      `
+import { defineWorkflow } from "@bastani/workflows";
+void require("@bastani/workflows")["runWorkflow"];
+export default defineWorkflow("removed-computed-require-property")
+  .run(async () => ({}))
+  .compile();
+`,
+    );
+    const result = await discoverWorkflows({
+      cwd: join(tmpRoot, "cwd"),
+      homeDir: join(tmpRoot, "home"),
+      includeBundled: false,
+    });
+    assert.equal(result.registry.has("removed-computed-require-property"), false);
+    const importFailed = result.errors.filter((e) => e.code === "IMPORT_FAILED");
+    assert.equal(importFailed.length, 1);
+    assert.match(importFailed[0]!.message, /no longer exports runWorkflow/);
+  });
+
   test("comments mentioning removed runWorkflow do not fail workflow loading", async () => {
     await createProjectWorkflowFile(
       "removed-comment.js",

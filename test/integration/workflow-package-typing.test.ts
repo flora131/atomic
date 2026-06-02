@@ -61,12 +61,16 @@ describe("standalone workflow package typing", () => {
         join(fixtureRoot, "src", "workflow.ts"),
         `import {
   GraphFrontierTracker,
+  INTERACTIVE_WORKFLOW_POLICY,
+  NON_INTERACTIVE_WORKFLOW_POLICY,
   createCancellationRegistry,
   createStore,
   defineWorkflow,
   run,
   Type,
 } from "@bastani/workflows";
+import { goal } from "@bastani/workflows/builtin";
+import goalDefault from "@bastani/workflows/builtin/goal";
 import type {
   AgentSessionAdapter,
   StageAdapters,
@@ -103,6 +107,9 @@ const workflow = defineWorkflow("Standalone Typing Fixture")
   .input("tags", Type.Array(Type.String(), { default: [] }))
   .input("settings", Type.Object({ enabled: Type.Boolean() }, { default: { enabled: true } }))
   .input("partialConfig", Type.Partial(Type.Object({ enabled: Type.Boolean() }), { default: {} }))
+  .input("pickedConfig", Type.Pick(Type.Object({ enabled: Type.Boolean(), name: Type.String() }), ["enabled"] as const, { default: { enabled: true } }))
+  .input("omittedConfig", Type.Omit(Type.Object({ enabled: Type.Boolean(), name: Type.String() }), ["name"] as const, { default: { enabled: true } }))
+  .input("requiredConfig", Type.Required(Type.Object({ enabled: Type.Optional(Type.Boolean()) }), { default: { enabled: true } }))
   .input("variant", Type.Union([Type.Literal("a"), Type.Literal("b")], { default: "a" }))
   .input("labels", Type.Record(Type.String(), Type.String(), { default: {} }))
   .input("tuple", Type.Tuple([Type.String(), Type.Number()], { default: ["x", 1] }))
@@ -121,6 +128,9 @@ const workflow = defineWorkflow("Standalone Typing Fixture")
     const tags: string[] = ctx.inputs.tags;
     const settings: { enabled: boolean } = ctx.inputs.settings;
     const partialConfig: { enabled?: boolean } = ctx.inputs.partialConfig;
+    const pickedConfig = ctx.inputs.pickedConfig;
+    const omittedConfig = ctx.inputs.omittedConfig;
+    const requiredConfig = ctx.inputs.requiredConfig;
     const variant: "a" | "b" = ctx.inputs.variant;
     const labels: Record<string, string> = ctx.inputs.labels;
     const tuple: [string, number] = ctx.inputs.tuple;
@@ -139,6 +149,9 @@ const workflow = defineWorkflow("Standalone Typing Fixture")
       { name: "eighth", prompt: tags.join(",") },
       { name: "ninth", prompt: String(settings.enabled) },
       { name: "partial", prompt: String(partialConfig.enabled ?? "unset") },
+      { name: "picked", prompt: JSON.stringify(pickedConfig) },
+      { name: "omitted", prompt: JSON.stringify(omittedConfig) },
+      { name: "required", prompt: JSON.stringify(requiredConfig) },
       { name: "tenth", prompt: variant },
       { name: "eleventh", prompt: Object.keys(labels).join(",") },
       { name: "twelfth", prompt: tuple.join(":") },
@@ -158,6 +171,13 @@ const undeclaredOutputWorkflow = defineWorkflow("Undeclared Output Fixture")
   .run(() => ({ summary: "not declared" }))
   .compile();
 
+const postRunEditedWorkflow = defineWorkflow("Post Run Edited Fixture")
+  .output("summary", Type.String())
+  .run(() => ({ summary: "ok" }))
+  .description("Runtime supports metadata edits after run")
+  .input("postRunInput", Type.String({ default: "ok" }))
+  .compile();
+
 run(workflow, { message: "hello" }, { executionMode: "non_interactive" });
 run(workflow, { message: "hello", mode: "fast", size: "large", count: 2, integerCount: 3, enabled: false }, { executionMode: "interactive" });
 // @ts-expect-error detached is not a runtime executionMode literal.
@@ -166,6 +186,9 @@ run(workflow, { message: "hello" }, { executionMode: "detached" });
 run(workflow, {});
 
 run(optionalOutputWorkflow, {});
+run(postRunEditedWorkflow, {});
+run(goal, { objective: "x" });
+run(goalDefault, { objective: "x" });
 // @ts-expect-error WorkflowDefinition is non-structural; only compile() can produce it.
 const forgedWorkflow: WorkflowDefinition = { __piWorkflow: true, name: "forged", normalizedName: "forged", description: "forged", inputs: {}, run: () => ({}) };
 const frontier = new GraphFrontierTracker();
@@ -174,6 +197,8 @@ const cancellationRegistry = createCancellationRegistry();
 const adapter: AgentSessionAdapter | undefined = undefined;
 const adapters: StageAdapters = { agentSession: adapter };
 const policy: WorkflowExecutionPolicy = { mode: "interactive", allowHumanInput: true, awaitTerminalRun: false, allowInputPicker: true };
+const interactivePolicy: WorkflowExecutionPolicy = INTERACTIVE_WORKFLOW_POLICY;
+const nonInteractivePolicyMode: WorkflowExecutionPolicy["mode"] = NON_INTERACTIVE_WORKFLOW_POLICY.mode;
 const inputBindings: WorkflowInputBindings = { worktree: { gitWorktreeDir: ".worktrees", baseBranch: "main" } };
 const inputSchemas: WorkflowInputSchemaMap = { message: Type.String() };
 const outputSchemas: WorkflowOutputSchemaMap = { summary: Type.String() };
@@ -190,6 +215,8 @@ void store;
 void cancellationRegistry;
 void adapters;
 void policy;
+void interactivePolicy;
+void nonInteractivePolicyMode;
 void inputBindings;
 void inputSchemas;
 void outputSchemas;
@@ -201,6 +228,7 @@ void persistence;
 void catalog;
 void taskSession;
 void forgedWorkflow;
+run(workflow, { message: "hello" }, { adapters, ui, signal: new AbortController().signal, config: runtimeConfig, models: catalog, mcp, persistence, cancellation: cancellationRegistry });
 void runWorkflow;
 type RemovedWorkflowOptions = WorkflowOptions;
 type RemovedWorkflowRunOptions = WorkflowRunOptions;

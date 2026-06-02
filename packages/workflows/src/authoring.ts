@@ -24,11 +24,14 @@ import type {
   TNull,
   TNumber,
   TNumberOptions,
+  TOmit,
   TObject,
   TObjectOptions,
   TOptional,
   TPartial,
+  TPick,
   TRecord,
+  TRequired,
   TSchema,
   TSchemaOptions,
   TString,
@@ -38,12 +41,14 @@ import type {
   TUndefined,
   TUnion,
   TUnknown,
+  TUnsafe,
   TVoid,
   Type as TypeboxType,
 } from "typebox";
 
 type PreserveOptions<T extends TSchema, O extends TSchemaOptions> = T & O;
 type TypeScriptEnumLike = Record<string, string | number>;
+type WorkflowSerializableObjectSchema = TUnsafe<WorkflowSerializableObject>;
 type TypeScriptEnumValues<T extends TypeScriptEnumLike> = Extract<T[keyof T], TEnumValue>[];
 
 export declare const Type: Omit<
@@ -59,9 +64,12 @@ export declare const Type: Omit<
   | "Never"
   | "Null"
   | "Number"
+  | "Omit"
   | "Partial"
+  | "Pick"
   | "Object"
   | "Record"
+  | "Required"
   | "String"
   | "Tuple"
   | "Undefined"
@@ -93,12 +101,22 @@ export declare const Type: Omit<
   Null(): TNull;
   Number<const O extends TNumberOptions>(options: O): PreserveOptions<TNumber, O>;
   Number(): TNumber;
+  Omit<Type extends TSchema, Indexer extends readonly PropertyKey[], const O extends TSchemaOptions>(type: Type, indexer: readonly [...Indexer], options: O): PreserveOptions<WorkflowSerializableObjectSchema, O>;
+  Omit<Type extends TSchema, Indexer extends readonly PropertyKey[]>(type: Type, indexer: readonly [...Indexer]): TOmit<Type, TSchema>;
+  Omit<Type extends TSchema, Indexer extends TSchema, const O extends TSchemaOptions>(type: Type, indexer: Indexer, options: O): PreserveOptions<WorkflowSerializableObjectSchema, O>;
+  Omit<Type extends TSchema, Indexer extends TSchema>(type: Type, indexer: Indexer): TOmit<Type, Indexer>;
   Partial<Type extends TSchema, const O extends TSchemaOptions>(type: Type, options: O): PreserveOptions<TPartial<Type>, O>;
   Partial<Type extends TSchema>(type: Type): TPartial<Type>;
+  Pick<Type extends TSchema, Indexer extends readonly PropertyKey[], const O extends TSchemaOptions>(type: Type, indexer: readonly [...Indexer], options: O): PreserveOptions<WorkflowSerializableObjectSchema, O>;
+  Pick<Type extends TSchema, Indexer extends readonly PropertyKey[]>(type: Type, indexer: readonly [...Indexer]): TPick<Type, TSchema>;
+  Pick<Type extends TSchema, Indexer extends TSchema, const O extends TSchemaOptions>(type: Type, indexer: Indexer, options: O): PreserveOptions<WorkflowSerializableObjectSchema, O>;
+  Pick<Type extends TSchema, Indexer extends TSchema>(type: Type, indexer: Indexer): TPick<Type, Indexer>;
   Object<Properties extends Record<PropertyKey, TSchema>, const O extends TObjectOptions>(properties: Properties, options: O): PreserveOptions<TObject<Properties>, O>;
   Object<Properties extends Record<PropertyKey, TSchema>>(properties: Properties): TObject<Properties>;
   Record<Key extends TSchema, Value extends TSchema, const O extends TObjectOptions>(key: Key, value: Value, options: O): PreserveOptions<TRecord<string, Value>, O>;
   Record<Key extends TSchema, Value extends TSchema>(key: Key, value: Value): TRecord<string, Value>;
+  Required<Type extends TSchema, const O extends TSchemaOptions>(type: Type, options: O): PreserveOptions<WorkflowSerializableObjectSchema, O>;
+  Required<Type extends TSchema>(type: Type): TRequired<Type>;
   String<const O extends TStringOptions>(options: O): PreserveOptions<TString, O>;
   String(): TString;
   Tuple<Types extends TSchema[], const O extends TTupleOptions>(types: [...Types], options: O): PreserveOptions<TTuple<Types>, O>;
@@ -558,6 +576,16 @@ export interface CompletedWorkflowBuilder<
   TOutputs extends WorkflowOutputValues = {},
   TRunInputs extends WorkflowInputValues = TInputs,
 > extends WorkflowBuilder<TInputs, TOutputs, TRunInputs> {
+  description(text: string): CompletedWorkflowBuilder<TInputs, TOutputs, TRunInputs>;
+  input<K extends string, S extends TSchema>(
+    key: K,
+    schema: S,
+  ): CompletedWorkflowBuilder<Simplify<TInputs & DeclaredResolvedEntry<K, S>>, TOutputs, Simplify<TRunInputs & DeclaredProvidedEntry<K, S>>>;
+  output<K extends string, S extends TSchema>(
+    key: K,
+    schema: S,
+  ): CompletedWorkflowBuilder<TInputs, Simplify<TOutputs & DeclaredResolvedEntry<K, S>>, TRunInputs>;
+  worktreeFromInputs(binding: WorkflowWorktreeInputBinding): CompletedWorkflowBuilder<TInputs, TOutputs, TRunInputs>;
   compile(): WorkflowDefinition<TInputs, TOutputs, TRunInputs>;
 }
 
@@ -569,10 +597,48 @@ export type WorkflowDetailsMode = "named" | "single" | "parallel" | "chain" | "i
 export type WorkflowDetailsStatus = "accepted" | "running" | "completed" | "failed" | "killed" | "noop";
 export type WorkflowAction = "list" | "get" | "inputs" | "run" | "status" | "interrupt" | "resume";
 
+export interface RunContinuationOpts {
+  readonly source: RunSnapshot;
+  readonly resumeFromStageId: string;
+}
+
+export interface WorkflowParentRunLink {
+  readonly runId: string;
+  readonly stageId: string;
+  readonly rootRunId: string;
+}
+
 export interface RunOpts {
+  readonly adapters?: StageAdapters;
   readonly cwd?: string;
+  readonly ui?: WorkflowUIAdapter;
   readonly executionMode?: WorkflowExecutionMode;
+  readonly usePromptNodesForUi?: boolean;
+  readonly confirmStageReadiness?: (request: {
+    readonly runId: string;
+    readonly stageId: string;
+    readonly stageName: string;
+    readonly signal: AbortSignal;
+  }) => Promise<boolean>;
+  readonly store?: WorkflowSerializableObject;
+  readonly persistence?: WorkflowPersistencePort;
+  readonly mcp?: WorkflowMcpPort;
+  readonly cancellation?: CancellationRegistry;
+  readonly overlay?: WorkflowOverlayAdapter;
+  readonly signal?: AbortSignal;
+  readonly deferWorkflowStart?: boolean;
+  readonly config?: WorkflowRuntimeConfig;
+  readonly models?: WorkflowModelCatalogPort;
+  readonly registry?: WorkflowRegistry;
+  readonly depth?: number;
+  readonly stageControlRegistry?: WorkflowSerializableObject;
   readonly runId?: string;
+  readonly continuation?: RunContinuationOpts;
+  readonly parentRun?: WorkflowParentRunLink;
+  readonly onRunStart?: (snapshot: RunSnapshot) => void;
+  readonly onStageStart?: (runId: string, snapshot: StageSnapshot) => void;
+  readonly onStageEnd?: (runId: string, snapshot: StageSnapshot) => void;
+  readonly onRunEnd?: (runId: string, status: RunStatus, result?: WorkflowOutputValues, error?: string) => void;
 }
 
 export interface StageSnapshot extends WorkflowSerializableObject {
@@ -626,8 +692,8 @@ export interface WorkflowDetails extends WorkflowSerializableObject {
   readonly error?: string;
 }
 
-export declare const INTERACTIVE_WORKFLOW_POLICY: WorkflowSerializableObject;
-export declare const NON_INTERACTIVE_WORKFLOW_POLICY: WorkflowSerializableObject;
+export declare const INTERACTIVE_WORKFLOW_POLICY: WorkflowExecutionPolicy;
+export declare const NON_INTERACTIVE_WORKFLOW_POLICY: WorkflowExecutionPolicy;
 export declare function run<TInputs extends WorkflowInputValues, TOutputs extends WorkflowOutputValues, TRunInputs extends WorkflowInputValues = TInputs>(
   definition: WorkflowDefinition<TInputs, TOutputs, TRunInputs>,
   inputs: Readonly<TRunInputs>,

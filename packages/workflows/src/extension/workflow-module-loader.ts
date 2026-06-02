@@ -250,7 +250,14 @@ function objectPatternImportsRunWorkflow(tokens: readonly SourceToken[], start: 
 
   for (let cursor = start + 1; cursor < end; cursor += 1) {
     const value = tokenValue(tokens, cursor);
-    if (value === "{" || value === "[") {
+    if (value === "[") {
+      if (depth === 1 && expectingProperty && tokens[cursor + 1]?.kind === "string" && tokens[cursor + 1]?.value === "runWorkflow" && tokenValue(tokens, cursor + 2) === "]") {
+        return true;
+      }
+      depth += 1;
+      continue;
+    }
+    if (value === "{") {
       depth += 1;
       continue;
     }

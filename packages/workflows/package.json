@@ -20,11 +20,11 @@
       "default": "./src/index.ts"
     },
     "./builtin": {
-      "types": "./builtin/index.ts",
+      "types": "./builtin/index.d.ts",
       "default": "./builtin/index.ts"
     },
     "./builtin/*": {
-      "types": "./builtin/*.ts",
+      "types": "./builtin/*.d.ts",
       "default": "./builtin/*.ts"
     }
   },
@@ -48,6 +48,7 @@
   "files": [
     "src/**/*.ts",
     "builtin/**/*.ts",
+    "builtin/**/*.d.ts",
     "skills/**/*",
     "prompts/**/*",
     "themes/*.json",

@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.8.22-0] - 2026-06-01
+
 ### Breaking Changes
 
 - Migrated workflow input/output declarations to a TypeBox-native schema system, replacing the legacy `{ type, required, default, choices }` descriptor. Authors now declare inputs/outputs with TypeBox schemas (`.input("prompt", Type.String({ description }))`, `.input("count", Type.Number({ default: 2 }))`, `.input("flavor", Type.Union([Type.Literal("a"), Type.Literal("b")]))`, `.output("packet", Type.Object({ topic: Type.String(), score: Type.Number() }))`). `ctx.inputs`, the `.run()` return, and `ctx.workflow(child).outputs` are precisely typed via `Static<>`, and the runtime validates inputs and outputs with TypeBox `Value`. `Type` is re-exported from `@bastani/workflows` (with types `Static` and `TSchema`) so workflow authors single-import. An optional field is declared with `Type.Optional(...)`; a `default` keeps the key required at the type level. This is a clean break with no legacy descriptor support.

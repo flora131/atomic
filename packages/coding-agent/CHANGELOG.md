@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.8.22-0] - 2026-06-01
+
 ### Added
 
 - Added `ExtensionUIContext.requestRender()` and a shared reactive widget installer for extensions to mount widgets once, repaint via coalesced render requests, and own timer-based refreshes without remount flicker ([#1150](https://github.com/bastani-inc/atomic/issues/1150)).

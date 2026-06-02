@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.8.22-0] - 2026-06-01
+
 ### Fixed
 - Show Codex fast-mode launch metadata in foreground subagent result badges, async subagent widgets, and async status output when eligible OpenAI/OpenAI Codex child runs start with `/fast` enabled ([#1153](https://github.com/bastani-inc/atomic/issues/1153)).
 - Scope subagent Codex fast-mode launches to the parent chat surface, so main-chat subagents follow `codexFastMode.chat` while workflow-node subagents follow `codexFastMode.workflow` ([#1153](https://github.com/bastani-inc/atomic/issues/1153)).

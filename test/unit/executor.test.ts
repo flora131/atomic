@@ -3773,12 +3773,15 @@ describe("executor.run", () => {
 
     test("invalid dynamic stage model fails before SDK session creation", async () => {
         let creates = 0;
+        // A bare id that cannot be resolved against the catalog is still a hard
+        // configuration error (it is neither provider-qualified nor uniquely
+        // matched), so the run must fail before any SDK session is created.
         const def = defineWorkflow("invalid-stage-model")
             .output("ok", Type.Boolean())
             .run(async (ctx) => {
                 await ctx.task("scout", {
                     prompt: "inspect",
-                    model: "missing/model",
+                    model: "missing-model",
                 });
                 return { ok: true };
             })
@@ -3810,9 +3813,55 @@ describe("executor.run", () => {
         );
 
         assert.equal(result.status, "failed");
-        assert.match(result.error ?? "", /missing\/model \(not available\)/);
+        assert.match(result.error ?? "", /missing-model \(not available\)/);
         assert.equal(creates, 0);
         assert.equal(result.stages[0]?.status, "failed");
+    });
+
+    test("provider-qualified stage model absent from the catalog is trusted and creates a session", async () => {
+        // Regression: a fully-qualified provider/model id that the catalog does
+        // not list must be trusted (passed through), not collapsed to the user's
+        // current model or rejected up front, so the workflow's defined model is
+        // what actually drives the stage session.
+        let createdModel: unknown;
+        let creates = 0;
+        const def = defineWorkflow("trusted-stage-model")
+            .output("ok", Type.Boolean())
+            .run(async (ctx) => {
+                await ctx.task("scout", {
+                    prompt: "inspect",
+                    model: "some-provider/brand-new:high",
+                });
+                return { ok: true };
+            })
+            .compile();
+
+        const result = await run(
+            def,
+            {},
+            {
+                models: {
+                    listModels: async () => [
+                        { provider: "openai", id: "fallback", fullId: "openai/fallback" },
+                    ],
+                },
+                adapters: {
+                    agentSession: {
+                        async create(options: CreateAgentSessionOptions) {
+                            creates += 1;
+                            createdModel = options.model;
+                            return mockSession();
+                        },
+                    },
+                },
+                store: createStore(),
+            },
+        );
+
+        assert.equal(result.status, "completed");
+        assert.equal(creates, 1);
+        assert.equal(createdModel, "some-provider/brand-new");
+        assert.equal(result.stages[0]?.status, "completed");
     });
 
     test("stage snapshot records failed status when stage throws", async () => {
@@ -4195,7 +4244,7 @@ describe("direct SDK helpers", () => {
             {
                 name: "scout",
                 prompt: "inspect repo",
-                model: "missing/model",
+                model: "missing-model",
                 output,
             },
             {},
@@ -4222,7 +4271,7 @@ describe("direct SDK helpers", () => {
         );
 
         assert.equal(details.status, "failed");
-        assert.match(details.error ?? "", /missing\/model \(not available\)/);
+        assert.match(details.error ?? "", /missing-model \(not available\)/);
         assert.equal(creates, 0);
         assert.throws(() => readFileSync(output, "utf8"));
     });

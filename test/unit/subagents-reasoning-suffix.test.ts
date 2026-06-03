@@ -1,9 +1,10 @@
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { buildModelCandidates } from "../../packages/subagents/src/runs/shared/model-fallback.js";
+import { buildModelCandidates, resolveModelCandidate } from "../../packages/subagents/src/runs/shared/model-fallback.js";
 import { applyThinkingSuffix } from "../../packages/subagents/src/runs/shared/pi-args.js";
 import { resolveEffectiveThinking, splitKnownThinkingSuffix } from "../../packages/subagents/src/shared/model-info.js";
 import type { AvailableModelInfo } from "../../packages/subagents/src/runs/shared/model-fallback.js";
+import { parseFrontmatter } from "../../packages/subagents/src/agents/frontmatter.js";
 
 const models: AvailableModelInfo[] = [
   { provider: "anthropic", id: "claude-sonnet-4", fullId: "anthropic/claude-sonnet-4" },
@@ -42,6 +43,43 @@ describe("subagent suffix-first reasoning helpers", () => {
       ),
       ["anthropic/claude-sonnet-4:high", "anthropic/claude-sonnet-4:medium", "openai/gpt-5:low"],
     );
+  });
+
+  test("provider-qualified config models with ':' separators survive frontmatter parsing and resolution", () => {
+    // The user-facing principle: a subagent config `model:`/`fallbackModels:`
+    // entry may carry a reasoning suffix (and the provider/model id may itself
+    // contain a colon). Frontmatter parsing must keep the full value, and the
+    // resolver must split the reasoning level off the LAST colon while trusting
+    // a fully-qualified id even when it is absent from the live catalog.
+    const { frontmatter } = parseFrontmatter(
+      [
+        "---",
+        "name: custom",
+        "description: custom agent",
+        "model: provider:with-colon/model:off",
+        "fallbackModels: openai/gpt-7-preview:high, anthropic/claude-sonnet-4:medium",
+        "---",
+        "body",
+      ].join("\n"),
+    );
+    // The first ':' splits key from value; every later colon stays in the value.
+    assert.equal(frontmatter.model, "provider:with-colon/model:off");
+    assert.equal(frontmatter.fallbackModels, "openai/gpt-7-preview:high, anthropic/claude-sonnet-4:medium");
+
+    const fallbackModels = frontmatter.fallbackModels.split(",").map((entry) => entry.trim());
+    // openai/gpt-7-preview is absent from `models` but is trusted (pass-through),
+    // not dropped/collapsed; the catalog only disambiguates and rewrites matches.
+    assert.deepEqual(
+      buildModelCandidates(frontmatter.model, fallbackModels, models, "anthropic", "anthropic/claude-sonnet-4:medium"),
+      [
+        "provider:with-colon/model:off",
+        "openai/gpt-7-preview:high",
+        "anthropic/claude-sonnet-4:medium",
+      ],
+    );
+    // A fully-qualified id absent from the catalog resolves to itself.
+    assert.equal(resolveModelCandidate("openai/gpt-7-preview:high", models, "anthropic"), "openai/gpt-7-preview:high");
+    assert.deepEqual(splitKnownThinkingSuffix(frontmatter.model), { baseModel: "provider:with-colon/model", thinkingSuffix: ":off" });
   });
 
   test("fallbackThinkingLevels applies positionally only when fallback has no suffix", () => {

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildModelCandidates,
   buildModelCandidateIds,
+  buildModelCandidatesFromCatalog,
   splitReasoningSuffix,
   isRetryableModelFailure,
   validateWorkflowModels,
@@ -187,21 +188,95 @@ describe("model fallback helpers", () => {
     );
   });
 
-  test("validateWorkflowModels reports all unavailable and ambiguous models", async () => {
+  test("buildModelCandidates trusts a provider-qualified id absent from the catalog instead of failing", () => {
+    // Regression: a fully-qualified provider/id that the live catalog does not
+    // list must be trusted (passed through), mirroring the subagent resolver.
+    // Previously it returned a "not available" failure, which made
+    // buildModelCandidates throw and (via buildModelCandidatesFromCatalog)
+    // collapse the whole ordered list to just the user's currentModel.
+    assert.deepEqual(
+      buildModelCandidates({
+        primaryModel: "openai/gpt-5-mini:high",
+        fallbackModels: ["some-provider/brand-new-model:medium"],
+        currentModel: "anthropic/claude-sonnet-4",
+        availableModels: models,
+        preferredProvider: "anthropic",
+      }).map((candidate) => ({ id: candidate.id, reasoningLevel: candidate.reasoningLevel })),
+      [
+        { id: "openai/gpt-5-mini", reasoningLevel: "high" },
+        { id: "some-provider/brand-new-model", reasoningLevel: "medium" },
+        { id: "anthropic/claude-sonnet-4", reasoningLevel: undefined },
+      ],
+    );
+  });
+
+  test("buildModelCandidatesFromCatalog keeps the defined primary when a fallback provider is absent (regression)", async () => {
+    // The builtin workflows list cross-provider fallbacks. On a partial catalog
+    // (the user only has anthropic configured) the defined primary + fallbacks
+    // must survive ordered, not collapse down to the user's selected model.
+    const recorded: string[] = [];
+    const candidates = await buildModelCandidatesFromCatalog({
+      primaryModel: "openai/gpt-5.5:medium",
+      fallbackModels: [
+        "openai-codex/gpt-5.5:medium",
+        "github-copilot/gpt-5.5:medium",
+        "anthropic/claude-sonnet-4:xhigh",
+      ],
+      catalog: {
+        currentModel: "anthropic/claude-opus-4",
+        preferredProvider: "anthropic",
+        recordWarning: (warning: string) => recorded.push(warning),
+        listModels: async () => [
+          { provider: "anthropic", id: "claude-sonnet-4", fullId: "anthropic/claude-sonnet-4" },
+          { provider: "anthropic", id: "claude-opus-4", fullId: "anthropic/claude-opus-4" },
+        ],
+      },
+    });
+
+    assert.equal(candidates[0]?.id, "openai/gpt-5.5");
+    assert.equal(candidates[0]?.reasoningLevel, "medium");
+    assert.deepEqual(
+      candidates.map((candidate) => candidate.id),
+      [
+        "openai/gpt-5.5",
+        "openai-codex/gpt-5.5",
+        "github-copilot/gpt-5.5",
+        "anthropic/claude-sonnet-4",
+        "anthropic/claude-opus-4",
+      ],
+    );
+    // No catalog-unavailable warning: the catalog resolved fine, the absent
+    // provider-qualified fallbacks were simply trusted rather than collapsed.
+    assert.deepEqual(recorded, []);
+  });
+
+  test("validateWorkflowModels reports unavailable bare ids and ambiguous models", async () => {
     await assert.rejects(
       validateWorkflowModels({
         catalog: { listModels: async () => models },
         requests: [
-          { model: "claude-sonnet-4", fallbackModels: ["openai/missing-model"] },
+          { model: "claude-sonnet-4", fallbackModels: ["missing-model"] },
         ],
       }),
       (err: Error) => {
         assert.ok(err instanceof WorkflowModelValidationError);
         assert.match(err.message, /claude-sonnet-4 \(ambiguous:/);
-        assert.match(err.message, /openai\/missing-model \(not available\)/);
+        assert.match(err.message, /missing-model \(not available\)/);
         return true;
       },
     );
+  });
+
+  test("validateWorkflowModels trusts provider-qualified ids that are absent from the catalog", async () => {
+    // A fully-qualified id is no longer an authoring error just because the
+    // current catalog does not list it (provider/auth gating, new models).
+    const warnings = await validateWorkflowModels({
+      catalog: { listModels: async () => models },
+      requests: [
+        { model: "anthropic/claude-sonnet-4", fallbackModels: ["openai/gpt-7-preview:high"] },
+      ],
+    });
+    assert.deepEqual(warnings, []);
   });
 
   test("validateWorkflowModels warns and falls back to current model when catalog is unavailable", async () => {

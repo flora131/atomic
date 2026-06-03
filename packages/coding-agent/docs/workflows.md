@@ -845,7 +845,7 @@ Author workflows to create at least one tracked stage by calling `ctx.task()`, `
 
 ### Inputs
 
-Inputs are declared with TypeBox `Type.*` schemas passed to `.input(key, schema)`. `Type` is re-exported from `@bastani/workflows` (along with the `Static` and `TSchema` type helpers), so you can author and type schemas without adding a separate `typebox` dependency. Common input schemas map to picker kinds and accepted runtime values:
+Inputs are declared with TypeBox `Type.*` schemas passed to `.input(key, schema)`. `Type` is re-exported from `@bastani/workflows` (along with the `Static` and `TSchema` type helpers), so you do not import from `typebox` directly in workflow files. Workflow packages still declare `typebox` as a peer dependency so the SDK's shipped types resolve under `tsc` — see [Programmatic Usage](#programmatic-usage). Common input schemas map to picker kinds and accepted runtime values:
 
 | TypeBox schema | Picker kind | Accepted runtime value |
 |---|---|---|
@@ -1241,7 +1241,7 @@ This applies everywhere a stage accepts a model: direct `ctx.task`/`ctx.chain`/`
 - the `workflow` tool for agent-initiated orchestration and direct one-off runs
 Workflow definition files must export definitions produced by `defineWorkflow(...).compile()`. The former imperative object-form runner is not part of the public SDK, and authored workflow files cannot import `runWorkflow` from `@bastani/workflows`.
 
-Standalone TypeScript workflow packages can import the typed SDK directly, with no hand-authored `.d.ts` or `declare module` shim:
+Standalone TypeScript workflow packages type-check the SDK import with no hand-authored `.d.ts`, no `declare module` shim, and no `tsconfig` `paths` alias. The SDK types ship with `@bastani/atomic`, so a workflow package depends only on `@bastani/atomic` (plus a `typebox` peer):
 
 ```ts
 import { defineWorkflow, Type } from "@bastani/workflows";
@@ -1254,6 +1254,29 @@ export default defineWorkflow("map-workflow-sdk")
   })
   .compile();
 ```
+
+How those types resolve depends on what else the package imports:
+
+- A package that imports `@bastani/atomic` anywhere (for example, an extension shipped in the same package) picks the workflow SDK types up automatically. `@bastani/atomic`'s root declarations reference the ambient bridge, so no extra configuration is needed.
+- A pure workflow-only package — one that imports nothing but `@bastani/workflows` — adds a single opt-in so TypeScript loads the ambient bridge. Set it once for the project in `tsconfig.json`:
+
+  ```jsonc
+  {
+    "compilerOptions": {
+      "module": "NodeNext",
+      "moduleResolution": "NodeNext",
+      "types": ["@bastani/atomic/workflows/ambient"]
+    }
+  }
+  ```
+
+  or add a single reference directive at the top of one workflow file:
+
+  ```ts
+  /// <reference types="@bastani/atomic/workflows/ambient" />
+  ```
+
+Either form makes `import { defineWorkflow, Type } from "@bastani/workflows"` and the `@bastani/workflows/builtin/*` composition imports resolve under `tsc` (`moduleResolution: NodeNext`) with no hand-authored `.d.ts`, no `declare module` shim, and no `paths` alias. `@bastani/workflows` is not a separate npm package — its types ship with `@bastani/atomic` — so list both `@bastani/atomic` and `typebox` (the SDK's emitted types reference TypeBox) in `peerDependencies`. Runtime discovery and loading via `atomic.workflows` are unchanged: Atomic's loader still supplies the SDK when workflow files execute.
 
 The `workflow` tool still supports direct one-off `task`, `tasks`, and `chain` modes. Direct chains support `chainName` for status/artifact grouping and `chainDir` as a shared directory for relative reads, outputs, and worktree diffs.
 

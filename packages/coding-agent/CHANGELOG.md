@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- Shipped externally-resolvable TypeScript types for the `@bastani/workflows` SDK through `@bastani/atomic`. New `./workflows`, `./workflows/builtin`, `./workflows/builtin/*`, and `./workflows/ambient` package exports resolve to declarations emitted from the lean authoring surface during the build, and a generated ambient bridge maps the documented bare `@bastani/workflows` specifier (and its `builtin/*` submodules) onto those exports. Installed packages now type-check `import { defineWorkflow, Type } from "@bastani/workflows"` and `@bastani/workflows/builtin/*` composition imports under `tsc` (`moduleResolution: NodeNext`) with no hand-authored `.d.ts`, no `declare module` shim, and no `paths` alias: packages that import `@bastani/atomic` pick the types up automatically, while pure workflow-only packages add one `compilerOptions.types: ["@bastani/atomic/workflows/ambient"]` (or `/// <reference types="@bastani/atomic/workflows/ambient" />`) opt-in. The runtime workflow loader, jiti virtual modules, and `atomic.workflows` discovery are unchanged ([#1208](https://github.com/bastani-inc/atomic/issues/1208)).
+- Added a `verify:workflow-types` script that packs `@bastani/atomic` and type-checks throwaway external consumer fixtures (workflow-only opt-in, reference directive, auto-include, and a negative control) so the issue #1208 acceptance test is repeatable ([#1208](https://github.com/bastani-inc/atomic/issues/1208)).
+
+### Changed
+
+- Documented the workflow SDK typing model in `docs/packages.md` and `docs/workflows.md`: the single ambient opt-in for pure workflow-only packages, automatic pickup for packages that import `@bastani/atomic`, and the requirement to list `@bastani/atomic` and `typebox` as peer dependencies ([#1208](https://github.com/bastani-inc/atomic/issues/1208)).
+
 ## [0.8.24-alpha.1] - 2026-06-02
 
 ### Breaking Changes

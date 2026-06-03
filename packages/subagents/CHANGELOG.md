@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.8.24-alpha.3] - 2026-06-03
+
 ### Added
 
 - Synced upstream dynamic fanout and acceptance-gate support for subagent chains, including `.chain.json` discovery, named chain outputs, structured subagent output capture, workflow graph status rendering, and explicit acceptance contracts.

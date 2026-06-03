@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.8.24-alpha.3] - 2026-06-03
+
 ### Added
 
 - Added `/exit` as a built-in interactive slash command alias for graceful app shutdown from the main chat.

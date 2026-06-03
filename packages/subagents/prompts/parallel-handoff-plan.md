@@ -20,13 +20,15 @@ Parallel discovery step. Choose the specialists that apply:
 - `codebase-pattern-finder` — add when transferable conventions or analogous implementations would shape the plan.
 - `codebase-research-locator` and `codebase-research-analyzer` — add when prior `research/` or `specs/` docs likely apply. Run them sequentially (locator first, then analyzer) or pair them inside the parallel step with distinct output paths.
 
-Use distinct output paths under the chain directory. Example outputs:
+Use distinct output paths, `label` values, and `as` names under the chain directory. Example outputs:
 
 - `handoff/external-reference.md`
 - `handoff/local-files.md`
 - `handoff/local-flow.md`
 - `handoff/local-patterns.md`
 - `handoff/prior-research.md`
+
+Use phases such as `Research`, `Local context`, and `Synthesis` so async status is readable. Prefer `{outputs.externalReference}`, `{outputs.localContext}`, and `{outputs.implementationStrategy}` in the synthesis task when those specific inputs are available; keep `{previous}` only when the whole parallel fan-in summary is the desired input.
 
 Do not write these artifacts into the repository unless I explicitly ask for persistent files.
 

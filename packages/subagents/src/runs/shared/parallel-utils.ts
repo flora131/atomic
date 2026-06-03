@@ -3,6 +3,10 @@ import type { CodexFastModeResolvedSettings, CodexFastModeScope } from "@bastani
 export interface RunnerSubagentStep {
 	agent: string;
 	task: string;
+	phase?: string;
+	label?: string;
+	outputName?: string;
+	structured?: boolean;
 	cwd?: string;
 	model?: string;
 	thinking?: string;
@@ -25,6 +29,13 @@ export interface RunnerSubagentStep {
 	sessionFile?: string;
 	maxSubagentDepth?: number;
 	workflowStageSubagentGuard?: boolean;
+	structuredOutput?: {
+		schema: import("../../shared/types.ts").JsonSchemaObject;
+		schemaPath: string;
+		outputPath: string;
+	};
+	structuredOutputSchema?: import("../../shared/types.ts").JsonSchemaObject;
+	effectiveAcceptance?: import("../../shared/types.ts").ResolvedAcceptanceConfig;
 }
 
 export interface ParallelStepGroup {
@@ -34,10 +45,25 @@ export interface ParallelStepGroup {
 	worktree?: boolean;
 }
 
-export type RunnerStep = RunnerSubagentStep | ParallelStepGroup;
+export interface DynamicRunnerGroup {
+	expand: import("../../shared/settings.ts").DynamicExpandSpec;
+	parallel: RunnerSubagentStep;
+	collect: import("../../shared/settings.ts").DynamicCollectSpec;
+	concurrency?: number;
+	failFast?: boolean;
+	phase?: string;
+	label?: string;
+	effectiveAcceptance?: import("../../shared/types.ts").ResolvedAcceptanceConfig;
+}
+
+export type RunnerStep = RunnerSubagentStep | ParallelStepGroup | DynamicRunnerGroup;
 
 export function isParallelGroup(step: RunnerStep): step is ParallelStepGroup {
 	return "parallel" in step && Array.isArray(step.parallel);
+}
+
+export function isDynamicRunnerGroup(step: RunnerStep): step is DynamicRunnerGroup {
+	return "expand" in step && "collect" in step && "parallel" in step && !Array.isArray((step as { parallel?: unknown }).parallel);
 }
 
 export function flattenSteps(steps: RunnerStep[]): RunnerSubagentStep[] {
@@ -45,6 +71,8 @@ export function flattenSteps(steps: RunnerStep[]): RunnerSubagentStep[] {
 	for (const step of steps) {
 		if (isParallelGroup(step)) {
 			for (const task of step.parallel) flat.push(task);
+		} else if (isDynamicRunnerGroup(step)) {
+			continue;
 		} else {
 			flat.push(step);
 		}

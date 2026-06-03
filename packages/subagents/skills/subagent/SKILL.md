@@ -35,7 +35,7 @@ Humans often use the slash-command layer instead:
 - `/run` — launch a single agent
 - `/chain` — launch a chain of steps
 - `/parallel` — launch top-level parallel tasks
-- `/run-chain` — launch a saved `.chain.md` workflow
+- `/run-chain` — launch a saved `.chain.md` or `.chain.json` workflow
 - `/subagents-doctor` — diagnose setup, discovery, async paths, and intercom bridge state
 
 Prefer the tool when you are writing agent logic. Prefer the slash commands when you are guiding a human through an interactive flow.
@@ -112,7 +112,40 @@ Use this at the start of non-trivial work. Launch `codebase-locator` and `codeba
 
 ### Parallel cleanup technique
 
-Use this after implementation when the user wants cleanup review or when a final pass would reduce AI-slop. Launch two fresh-context `codebase-analyzer` scouts with `output: false` and `progress: false`: one deslop pass and one verbosity pass. If the `deslop` or `verbosity-cleaner` skills are available, pass the relevant skill to that scout; otherwise inline the criteria. Both scouts are read-only and should flag concrete issues with severity, file/line references, and smallest safe fixes. The parent decides what to apply and asks before making changes unless cleanup was already authorized. When the user opts to autofix, the parent launches one async `code-simplifier` writer with the synthesized fixes as its explicit scope.
+Use this after implementation when the user wants cleanup review or when a final pass would reduce AI-slop. Launch two fresh-context `codebase-analyzer` scouts with `output: false` and `progress: false`: one deslop pass and one verbosity pass. If the `deslop` or `verbosity-cleaner` skills are available, pass the relevant skill to that scout; otherwise inline the criteria. Both scouts are read-only and should flag concrete issues with severity, file/line references, and smallest safe fixes. Phrase the constraint as “Do not modify project/source files; returning findings through the configured output artifact is allowed” when you use `output` or `outputMode: "file-only"`. The parent decides what to apply and asks before making changes unless cleanup was already authorized. When the user opts to autofix, the parent launches one async `code-simplifier` writer with the synthesized fixes as its explicit scope.
+
+### Staged fix orchestration technique
+
+Use this when a broad diff has known reviewer findings across several items and the user wants the parent to coordinate a safe multi-stage fix. Keep the active worktree safe with a three-stage chain:
+
+1. A parallel read-only planning fanout, one specialist per issue cluster. Use `codebase-analyzer`, `debugger` in inspect-only mode, or `codebase-pattern-finder` based on the angle. Each child inspects the real diff and returns exact files, line refs, proposed fixes, and focused validation. They must not edit.
+2. One writer worker (`debugger` for correctness fixes or `code-simplifier` for cleanup fixes). It receives the planner summaries through `{previous}` or named `{outputs.name}` values, the parent’s accepted scope, stop rules, and verification contract. It is the only child allowed to edit the active worktree.
+3. A parallel read-only validation fanout. Validators inspect the worker diff from fresh context with distinct angles, report pass/fail, remaining blockers, and missing verification.
+
+Prefer `async: true`, `context: "fresh"` for planners/validators, `outputMode: "file-only"` for large summaries, and per-stage output names that will not collide. Add `phase` and `label` to make async status readable, and use `as` plus `{outputs.name}` when a later step needs a specific earlier result instead of the whole `{previous}` blob. Use this pattern instead of launching several writer workers into a dirty worktree. Include non-blocking suggestions in the writer prompt only when they are small, safe, and do not expand product scope; otherwise record them as deferred.
+
+When the first step can return a structured target list, prefer dynamic fanout instead of hand-authoring a static parallel group. Use `outputSchema` and `as` on the producer, then an `expand` step with `from: { output, path }`, an explicit `maxItems`, one `parallel` child template, and `collect.as`. Item templates may use `{item}` or a named item such as `{target.path}`. Do not use dynamic fanout for prose outputs, nested fanout, dynamic agent selection, reducers, `when` conditions, or arbitrary expressions; `.chain.md` does not support this syntax, so use direct JSON or a saved `.chain.json`.
+
+Example shape:
+
+```typescript
+subagent({
+  async: true,
+  context: "fresh",
+  chain: [
+    { parallel: [
+      { agent: "codebase-analyzer", phase: "Planning", label: "Deploy docs", as: "deployPlan", task: "Plan fixes for deploy docs/workflow. Inspect the current diff. Do not modify project/source files; returning findings via the configured output artifact is allowed.", output: "plans/deploy.md", outputMode: "file-only" },
+      { agent: "debugger", phase: "Planning", label: "Scheduler contract", as: "schedulerPlan", task: "Inspect-only plan for scheduler contract fixes. Do not edit. Return exact fixes and focused validation.", output: "plans/scheduler.md", outputMode: "file-only" },
+      { agent: "codebase-pattern-finder", phase: "Planning", label: "Sandbox patterns", as: "sandboxPlan", task: "Find existing patterns relevant to sandbox/security fixes. Do not edit.", output: "plans/sandbox.md", outputMode: "file-only" }
+    ], concurrency: 3 },
+    { agent: "debugger", phase: "Implementation", label: "Apply accepted fixes", as: "workerResult", task: "Apply only the accepted fixes from these planning summaries. You are the sole writer for the active worktree. Run focused validation and report changed files, commands, failures, and remaining issues.\n\nDeploy plan:\n{outputs.deployPlan}\n\nScheduler plan:\n{outputs.schedulerPlan}\n\nSandbox plan:\n{outputs.sandboxPlan}", output: "worker/fixes.md", outputMode: "file-only", progress: true },
+    { parallel: [
+      { agent: "codebase-analyzer", phase: "Validation", label: "Deploy/scheduler validation", task: "Validate the post-worker diff for deploy and scheduler fixes. Start from the worker result: {outputs.workerResult}. Do not modify project/source files; returning findings via the configured output artifact is allowed.", output: "validation/deploy-scheduler.md", outputMode: "file-only" },
+      { agent: "debugger", phase: "Validation", label: "Failure-mode validation", task: "Inspect-only failure-mode hunt on the post-worker diff. Start from the worker result: {outputs.workerResult}. Do not edit.", output: "validation/failure-modes.md", outputMode: "file-only" }
+    ], concurrency: 2 }
+  ]
+})
+```
 
 ## Builtin Agents
 
@@ -189,11 +222,10 @@ Agent files can live in:
 - legacy `.agents/**/*.md` and `.pi/agents/**/*.md` — still read for compatibility, but `.atomic/agents/` wins on conflicts
 
 Chains live in:
+- `~/.atomic/agent/chains/**/*.chain.md` and `~/.atomic/agent/chains/**/*.chain.json` — user scope
+- `.atomic/chains/**/*.chain.md` and `.atomic/chains/**/*.chain.json` — project scope
 
-- `~/.atomic/agent/chains/**/*.chain.md` — user scope
-- `.atomic/chains/**/*.chain.md` — project scope
-
-Discovery is recursive. `.chain.md` files do not define agents. Agents and chains can set optional frontmatter `package: code-analysis`; `name: codebase-analyzer` plus `package: code-analysis` registers as runtime name `code-analysis.codebase-analyzer` while serialization keeps `name` and `package` separate.
+Discovery is recursive. `.chain.md` files do not define agents. Use `.chain.md` for simple saved chains and `.chain.json` for dynamic fanout or inline schema objects. Agents and chains can set optional frontmatter/package metadata; `name: codebase-analyzer` plus `package: code-analysis` registers as runtime name `code-analysis.codebase-analyzer` while serialization keeps `name` and `package` separate.
 
 Precedence is by parsed runtime name:
 
@@ -264,7 +296,7 @@ subagent({
 })
 ```
 
-Chain steps can use templated variables such as `{task}`, `{previous}`, and `{chain_dir}`. This is the main way to pass structured summaries between steps without forcing each step to rediscover everything.
+Chain steps can use templated variables such as `{task}`, `{previous}`, `{chain_dir}`, and `{outputs.name}`. Use `as: "name"` on a successful step or parallel task to make that output available to later steps. Prefer named outputs when a later step needs one specific result; keep `{previous}` for simple linear handoffs or full fan-in summaries. Use `phase` and `label` for status readability. Use `outputSchema` when later steps need reliable structured data; the child must call `structured_output` with schema-valid JSON, or the step fails.
 
 ### Async/background
 
@@ -599,7 +631,9 @@ For feature work, use this sequence as scaffolding for parent-agent behavior:
 clarify → validation contract → parallel discovery → async writer (debugger or code-simplifier) → parallel async fresh-context specialist reviewers → async fix writer → follow-up review when warranted → parent review
 ```
 
-The validation contract defines what done means before code is written: expected behavior, acceptance checks, commands or user flows to exercise, and evidence the writer should return. Keep it lightweight for small tasks, but make it explicit enough that reviewers are checking the intended outcome rather than the writer's own assumptions.
+The validation contract defines acceptance before code is written: expected behavior, acceptance checks, commands or user flows to exercise, and evidence the writer should return. Keep it lightweight for small tasks, but make it explicit enough that reviewers and validators are checking the intended outcome rather than the writer’s own assumptions.
+
+Use the structured `acceptance` field when the run should carry an explicit acceptance contract. If omitted, subagents infer an effective acceptance policy from role, mode, and risk. Use `level: "checked"` for ordinary writer evidence gates, `level: "verified"` when the runtime should run explicit validation commands, and `level: "reviewed"` only when an independent reviewer result is expected. Do not call a run reviewed just because the writer says it is done; reviewed means a reviewer gate returned a result. Child-reported command success is evidence, not runtime verification.
 
 The first writer implements the approved change. The parent continues with independent inspection or validation prep while it runs, not parallel edits to the same worktree. When the async writer completes, treat its handoff as the transition into review, not as final completion, unless the user explicitly asked for writer-only work, review-only output, or to stop after implementation. Parallel specialist reviewers inspect the resulting diff from fresh context. The final fix writer applies synthesized review fixes, then the parent looks over the final diff before completing. The parent may launch these steps as an initial async chain when the workflow is already clear, or as follow-up subagent runs after each async completion. Initial chains should pass `async: true` so the main chat is unblocked; avoid `clarify: true` unless the user asked for foreground clarification. Do not stop after parallel review unless the user explicitly asked for review-only output or the review surfaced a decision that needs approval first.
 
@@ -609,8 +643,8 @@ For very large work, split into serial milestones instead of launching a swarm o
 
 Keep orchestration authority in the parent session. Child subagents should not launch more subagents, read this skill, or run their own orchestration loops unless the parent intentionally selected an explicit fanout agent whose resolved builtin `tools` includes `subagent` for that assigned fanout. Spawned non-fanout subagents do not receive the `subagent` skill, parent-only status/control/slash messages, prior parent `subagent` tool-call/tool-result artifacts, or the `subagent` extension tool. Child context filtering also strips old hidden orchestration-instruction messages when they appear in inherited history. Every child also receives a boundary instruction that says the parent owns orchestration, the child must not propose or run subagents unless explicitly authorized for fanout, and writer children must call real edit/write tools instead of printing pseudo tool calls. Pass children concrete role-specific work instead.
 
-1. Clarify first. Gather code context with `codebase-locator`, `codebase-analyzer`, `codebase-pattern-finder`, and prior research specialists; add `codebase-online-researcher` only when external evidence matters; then ask the user clarifying questions with `interview` until scope, acceptance criteria, constraints, and non-goals are clear.
-2. Define the validation contract. State what done means before implementation: expected behavior, checks to run, user flows to exercise, and evidence required in the writer handoff. For UI, CLI, integration, or workflow changes, include at least one validator angle that uses the product the way a user would rather than only reading code.
+1. Clarify first. This is mandatory. Gather code context with `codebase-locator`, `codebase-analyzer`, `codebase-pattern-finder`, and prior research specialists; add `codebase-online-researcher` only when external evidence matters; then ask the user clarifying questions with `interview` until scope, acceptance criteria, constraints, and non-goals are clear.
+2. Define the validation contract. State acceptance before implementation: expected behavior, checks to run, user flows to exercise, and evidence required in the writer handoff. For UI, CLI, integration, or workflow changes, include at least one validator angle that uses the product the way a user would rather than only reading code.
 3. Plan when useful. For complex work, write a plan doc yourself and get approval before implementation. For simple work, confirm shared understanding and explicitly note why planning is skipped.
 4. Implement with one writer. After approval, launch `debugger` (for correctness-shaped work) or `code-simplifier` (for refinement-shaped work) asynchronously with a proper meta prompt that includes clarified requirements, relevant context, plan path or summary, the validation contract, and output expectations. While it runs, prepare validation or inspect adjacent code instead of editing the same worktree.
 5. Require a useful writer handoff. Ask the writer to report changed files, what was implemented, what was left undone, commands run with exit codes, validation evidence, surprises or new risks, decisions made inside approved scope, and decisions needing parent approval.
@@ -625,6 +659,10 @@ Example writer handoff after clarification and optional planning:
 subagent({
   agent: "debugger",
   task: "Implement the approved fix.\n\nClarified requirements:\n- ...\n\nPlan: see ~/Documents/docs/...-plan.md\n\nValidation contract:\n- ...\n\nReturn a handoff with changed files, what was implemented, what was left undone, commands run with exit codes, validation evidence, surprises/new risks, and decisions needing parent approval.",
+  acceptance: {
+    level: "checked",
+    evidence: ["changed-files", "tests-added", "commands-run", "residual-risks", "no-staged-files"]
+  },
   async: true
 })
 ```
@@ -679,7 +717,7 @@ subagent({
 /run-chain review-chain -- review this branch
 ```
 
-Use saved `.chain.md` workflows when the user wants a repeatable multi-agent flow without rewriting the chain each time.
+Use saved `.chain.md` or `.chain.json` workflows when the user wants a repeatable multi-agent flow without rewriting the chain each time. Prefer `.chain.json` for dynamic fanout or inline `outputSchema` objects; `.chain.md` remains the simple sequential/static authoring format.
 
 ## Error Handling
 

@@ -250,7 +250,7 @@ Skip this section until you want exact syntax.
 | `/run <agent> [task]` | Run one agent; omit the task for self-contained agents |
 | `/chain agent1 "task1" -> agent2 "task2"` | Run agents in sequence |
 | `/parallel agent1 "task1" -> agent2 "task2"` | Run agents in parallel |
-| `/run-chain <chainName> -- <task>` | Launch a saved `.chain.md` workflow |
+| `/run-chain <chainName> -- <task>` | Launch a saved `.chain.md` or `.chain.json` workflow |
 | `/subagents-doctor` | Show read-only setup diagnostics |
 
 Commands validate agent names locally, support tab completion, and send results back into the conversation.
@@ -494,14 +494,14 @@ When `extensions` is present, it takes precedence over extension paths implied b
 
 ## Chain files
 
-Chains are reusable `.chain.md` workflows stored separately from agent files.
+Chains are reusable workflows stored separately from agent files. Use `.chain.md` for simple sequential saved chains. Use `.chain.json` when a chain needs dynamic fanout.
 
 | Scope | Path |
 |-------|------|
-| User | `~/.atomic/agent/chains/**/*.chain.md` |
-| Project | `.atomic/chains/**/*.chain.md` |
+| User | `~/.atomic/agent/chains/**/*.chain.md`, `~/.atomic/agent/chains/**/*.chain.json` |
+| Project | `.atomic/chains/**/*.chain.md`, `.atomic/chains/**/*.chain.json` |
 
-Nested subdirectories are discovered recursively. If user and project scopes define the same parsed runtime chain name, the project chain wins. Chains support the same optional `package` frontmatter as agents; `name: review-flow` plus `package: code-analysis` runs as `code-analysis.review-flow`.
+Nested subdirectories are discovered recursively. If both `.chain.md` and `.chain.json` define the same parsed runtime chain name in the same scope, `.chain.json` wins. If user and project scopes define the same parsed runtime chain name, the project chain wins. Chains support the same optional `package` frontmatter as agents; `name: review-flow` plus `package: code-analysis` runs as `code-analysis.review-flow`.
 
 Example:
 
@@ -512,23 +512,67 @@ description: Gather context then plan implementation
 ---
 
 ## scout
+phase: Context
+label: Map auth flow
+as: context
 output: context.md
 
 Analyze the codebase for {task}
 
 ## planner
+phase: Planning
+label: Implementation plan
 reads: context.md
 model: anthropic/claude-sonnet-4-5:high
 progress: true
 
-Create an implementation plan based on {previous}
+Create an implementation plan based on {outputs.context}
 ```
 
-Each `## agent-name` section is a step. Config lines such as `output`, `outputMode`, `reads`, `model`, `skills`, and `progress` go immediately after the header. A blank line separates config from task text.
+Each `.chain.md` `## agent-name` section is a step. Config lines such as `phase`, `label`, `as`, `outputSchema`, `output`, `outputMode`, `reads`, `model`, `skills`, and `progress` go immediately after the header. A blank line separates config from task text. In saved `.chain.md` files, `outputSchema` is a path to a JSON Schema file; direct tool calls and `.chain.json` files can pass the schema object inline.
 
 For `output`, `reads`, `skills`, and `progress`, chain behavior is three-state: omitted inherits from the agent, a value overrides, and `false` disables.
 
-Create chains by writing `.chain.md` files directly or with the `subagent({ action: "create", config: ... })` management action. Run them with natural language or:
+Use `phase` to group related work in status output, `label` for a readable step name, and `as` to store a successful step or parallel task result for later `{outputs.name}` references. Duplicate `as` names, invalid identifiers, and unknown output references fail before child execution.
+
+Dynamic fanout is available only through direct `subagent({ chain: [...] })` JSON or saved `.chain.json` files. It expands an array from a prior structured named output, runs one child template per item, and stores the ordered collection under `collect.as`. The source must be structured output; prose is never parsed. `expand.maxItems` is required, over-limit arrays fail, nested fanout and arbitrary expressions are not supported, and `.chain.md` has no dynamic syntax in this release.
+
+```json
+{
+  "name": "dynamic-review",
+  "description": "Find review targets, fan out reviewers, then synthesize.",
+  "chain": [
+    {
+      "agent": "scout",
+      "task": "Return {\"items\":[{\"path\":\"...\",\"reason\":\"...\"}]} via structured_output.",
+      "as": "targets",
+      "outputSchema": { "type": "object" }
+    },
+    {
+      "expand": {
+        "from": { "output": "targets", "path": "/items" },
+        "item": "target",
+        "key": "/path",
+        "maxItems": 12
+      },
+      "parallel": {
+        "agent": "reviewer",
+        "label": "Review {target.path}",
+        "task": "Review {target.path}. Reason: {target.reason}",
+        "outputSchema": { "type": "object" }
+      },
+      "collect": { "as": "reviews" },
+      "concurrency": 4
+    },
+    {
+      "agent": "worker",
+      "task": "Synthesize fixes from {outputs.reviews}"
+    }
+  ]
+}
+```
+
+Create simple `.chain.md` chains by writing files directly or with the `subagent({ action: "create", config: ... })` management action. Create dynamic `.chain.json` chains by writing the JSON file directly. Run saved chains with natural language or:
 
 ```text
 /run-chain scout-planner -- refactor authentication
@@ -543,6 +587,7 @@ Task templates support:
 | `{task}` | Original task from the first step. |
 | `{previous}` | Output from the prior step, or aggregated output from a parallel step. |
 | `{chain_dir}` | Path to the chain artifact directory. |
+| `{outputs.name}` | Text value from a prior step or completed parallel task with `as: "name"`. |
 
 Parallel outputs are aggregated with clear separators before being passed to the next step:
 
@@ -638,13 +683,48 @@ These are the parameters the LLM passes when it calls the `subagent` tool. Most 
 
 // Chain with fan-out/fan-in
 { chain: [
-  { agent: "scout", task: "Gather context" },
+  { agent: "scout", task: "Gather context", phase: "Context", label: "Map code", as: "context" },
   { parallel: [
-    { agent: "worker", task: "Implement feature A from {previous}" },
-    { agent: "worker", task: "Implement feature B from {previous}" }
+    { agent: "worker", task: "Implement feature A from {outputs.context}", label: "Feature A", as: "featureA" },
+    { agent: "worker", task: "Implement feature B from {outputs.context}", label: "Feature B", as: "featureB" }
   ], concurrency: 2, failFast: true },
-  { agent: "reviewer", task: "Review all changes from {previous}" }
+  { agent: "reviewer", task: "Review {outputs.featureA} and {outputs.featureB}" }
 ]}
+
+// Dynamic fanout from structured output
+{ chain: [
+  {
+    agent: "scout",
+    task: "Return review targets as structured_output: { items: [{ path, reason }] }",
+    as: "targets",
+    outputSchema: { type: "object" }
+  },
+  {
+    expand: { from: { output: "targets", path: "/items" }, item: "target", key: "/path", maxItems: 12 },
+    parallel: { agent: "reviewer", task: "Review {target.path}. Reason: {target.reason}", outputSchema: { type: "object" } },
+    collect: { as: "reviews" },
+    concurrency: 4
+  },
+  { agent: "worker", task: "Synthesize fixes from {outputs.reviews}" }
+] }
+
+// Strict structured output for reliable handoff data
+{ chain: [
+  {
+    agent: "scout",
+    task: "Return the key files and risks for {task}",
+    as: "scan",
+    outputSchema: {
+      type: "object",
+      required: ["files", "risks"],
+      properties: {
+        files: { type: "array", items: { type: "string" } },
+        risks: { type: "array", items: { type: "string" } }
+      }
+    }
+  },
+  { agent: "planner", task: "Plan from this scan: {outputs.scan}" }
+] }
 
 // Worktree isolation
 { tasks: [
@@ -715,10 +795,10 @@ Agent definitions are not loaded into context by default. Management actions let
 | `outputMode` | `"inline" \| "file-only"` | `inline` | Return saved output inline or as a concise saved-file reference. `file-only` requires an `output` path. |
 | `skill` | `string \| string[] \| false` | agent default | Override skills or disable all. |
 | `model` | string | agent default | Override model. |
-| `tasks` | array | - | Top-level parallel tasks. Supports `agent`, `task`, `cwd`, `count`, `output`, `outputMode`, `reads`, `progress`, `skill`, and `model`. |
+| `tasks` | array | - | Top-level parallel tasks. Supports `agent`, `task`, `cwd`, `count`, `output`, `outputMode`, `reads`, `progress`, `skill`, `model`, and `acceptance`. |
 | `concurrency` | number | config or `4` | Top-level parallel concurrency. |
 | `worktree` | boolean | false | Create isolated git worktrees for parallel tasks. |
-| `chain` | array | - | Sequential and parallel chain steps. |
+| `chain` | array | - | Sequential, static parallel, and dynamic fanout chain steps. Steps and chain parallel tasks support `phase`, `label`, `as`, `outputSchema`, and `acceptance` in addition to the usual execution fields. Dynamic fanout uses `expand`, one child `parallel` template, and `collect`. |
 | `context` | `fresh \| fork` | agent default or `fresh` | `fork` creates real branched sessions from the parent leaf. Packaged `planner`, `worker`, and `oracle` default to `fork`. |
 | `chainDir` | string | temp chain dir | Persistent directory for chain artifacts. |
 | `clarify` | boolean | true for chains | Show TUI preview/edit flow. |
@@ -730,12 +810,13 @@ Agent definitions are not loaded into context by default. Management actions let
 | `includeProgress` | boolean | false | Include full progress in result. |
 | `share` | boolean | false | Upload session export to GitHub Gist. |
 | `sessionDir` | string | derived | Override session log directory. |
+| `acceptance` | string/object/false | inferred | Override the run's inferred acceptance gates. Use `"auto"`, `"attested"`, `"checked"`, `"verified"`, `"reviewed"`, or `{ level: "none", reason: "..." }`. |
 
 `context: "fork"` fails fast when the parent session is not persisted, the current leaf is missing, or the branched child session cannot be created. It never silently downgrades to `fresh`. In multi-agent runs, if any requested agent has `defaultContext: fork` and the launch omits `context`, the whole invocation uses forked context; pass `context: "fresh"` when you intentionally want a fresh run.
 
 Use `outputMode: "file-only"` when a saved output may be large and the parent only needs a pointer. The returned text is a compact reference like `Output saved to: /abs/report.md (48.2 KB, 2847 lines). Read this file if needed.` Failed runs and save errors still return normal inline output for debugging. In chains, later `{previous}` steps receive the same compact reference when the prior step used file-only mode.
 
-Sequential and parallel chain tasks accept `agent`, `task`, `cwd`, `output`, `outputMode`, `reads`, `progress`, `skill`, and `model`. Parallel tasks also accept `count`. Parallel step groups accept `parallel`, `concurrency`, `failFast`, and `worktree`.
+Sequential and parallel chain tasks accept `agent`, `task`, `phase`, `label`, `as`, `outputSchema`, `cwd`, `output`, `outputMode`, `reads`, `progress`, `skill`, and `model`. Parallel tasks also accept `count`. Parallel step groups accept `parallel`, `concurrency`, `failFast`, and `worktree`. If `outputSchema` is present, the child must call `structured_output` with schema-valid JSON; prose-only completion or invalid JSON fails the step. Validated structured values are preserved on the step result, and `as` also exposes a compact text representation through `{outputs.name}`.
 
 Status and control actions:
 
@@ -905,13 +986,43 @@ Async runs write:
 
 `status.json` powers the widget and `subagent({ action: "status" })` output. `events.jsonl` contains wrapper events plus child Pi JSON events annotated with run and step metadata. `output-<n>.log` is a live human-readable tail. Fallback information is persisted so background runs are debuggable after completion.
 
+## Acceptance Gates
+
+Every run resolves an effective acceptance policy. Callers may omit `acceptance` for the inferred default, or set it on single runs, top-level parallel task items, chain steps, static parallel tasks, and dynamic fanout templates.
+
+```ts
+{
+  agent: "worker",
+  task: "Implement the fix",
+  acceptance: {
+    level: "verified",
+    criteria: ["Patch the bug without widening scope"],
+    evidence: ["changed-files", "tests-added", "commands-run", "residual-risks", "no-staged-files"],
+    verify: [{ id: "focused", command: "npm test", timeoutMs: 120000 }]
+  }
+}
+```
+
+Accepted levels are `auto`, `none`, `attested`, `checked`, `verified`, and `reviewed`. `acceptance: "auto"` is the default. Read-only reviewer/scout tasks infer lightweight attestation, normal writer tasks infer checked evidence, and async/risky/dynamic writer contexts infer a reviewed gate. To disable gates, prefer `{ level: "none", reason: "..." }`.
+
+Acceptance provenance is stored separately from child prose:
+
+- `claimed`: child finished but did not provide structured evidence.
+- `attested`: child returned a structured acceptance report.
+- `checked`: runtime structural checks passed, such as required evidence and no staged files.
+- `verified`: configured runtime verification commands passed. Child-reported command success does not count.
+- `reviewed`: an independent reviewer result is present.
+- `rejected`: attestation, structural checks, verification, or review failed.
+
+For `attested` or stricter levels, the child prompt includes a standardized acceptance section and asks for a fenced `acceptance-report` JSON block. Explicit failed gates fail the run. Inferred gates are persisted for observability without breaking older calls that omit `acceptance`.
+
 ## Live progress
 
-Foreground runs show compact live progress for single, chain, and parallel modes: current tool, recent output, token counts, duration, activity freshness, and current-tool duration.
+Foreground runs show compact live progress for single, chain, and parallel modes: current tool, recent output, token counts, duration, activity freshness, current-tool duration, and chain graph metadata when available.
 
 Press `CTRL+O` to expand the full streaming view with complete output per step.
 
-Sequential chains show a flow line like `done scout → running planner`. Chains with parallel steps show per-step cards instead.
+Sequential chains show a flow line like `done scout → running planner`. Chains with parallel steps show per-step cards instead. Chain status uses `label` and `phase` metadata when present, while falling back to agent names for older chains.
 
 ## Session sharing
 
@@ -936,12 +1047,12 @@ Configure the limit with:
 3. `maxSubagentDepth` in agent frontmatter, which can only tighten the inherited limit
 
 ```bash
-export PI_SUBAGENT_MAX_DEPTH=3
-export PI_SUBAGENT_MAX_DEPTH=1
-export PI_SUBAGENT_MAX_DEPTH=0
+export ATOMIC_SUBAGENT_MAX_DEPTH=3
+export ATOMIC_SUBAGENT_MAX_DEPTH=1
+export ATOMIC_SUBAGENT_MAX_DEPTH=0
 ```
 
-`PI_SUBAGENT_DEPTH` is internal and propagated automatically. Do not set it manually.
+`ATOMIC_SUBAGENT_DEPTH` is internal and propagated automatically. Do not set it manually. Legacy `PI_SUBAGENT_MAX_DEPTH` and `PI_SUBAGENT_DEPTH` are still read for compatibility.
 
 ## Events
 

@@ -4,14 +4,16 @@ description: Parallel codebase specialists building handoff context for planning
 
 Launch fresh-context codebase specialists in parallel to build grounded handoff context for planning or implementation.
 
-Use the `subagent` tool in chain mode with a single parallel step, not top-level parallel tasks, so relative output files live under the temporary chain directory. Use `context: "fresh"` unless I explicitly ask for forked context. Give every parallel task a distinct `output` path, for example:
+Use the `subagent` tool in chain mode with a single parallel step, not top-level parallel tasks, so relative output files live under the temporary chain directory. Use `context: "fresh"` unless I explicitly ask for forked context. Give every parallel task a distinct `output` path, `label`, and `as` name, for example:
 
 - `context-build/where-it-lives.md`
 - `context-build/how-it-works.md`
 - `context-build/existing-patterns.md`
 - `context-build/prior-research.md`
 
-Do not write these artifacts into the repository unless I explicitly ask for persistent files.
+Use one phase such as `phase: "Context build"` for the parallel tasks so async status is readable. A later synthesis step can reference specific outputs with `{outputs.requestScope}`, `{outputs.codebasePatterns}`, and `{outputs.validationRisks}` instead of relying only on `{previous}`.
+
+Do not write these context artifacts into the repository unless I explicitly ask for persistent files.
 
 Treat the slash command arguments as the primary request, target, or focus:
 

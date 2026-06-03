@@ -26,6 +26,51 @@ export interface MaxOutputConfig {
 
 export type OutputMode = "inline" | "file-only";
 
+export type JsonSchemaObject = Record<string, unknown>;
+
+export interface ChainOutputMapEntry {
+	text: string;
+	structured?: unknown;
+	agent: string;
+	stepIndex: number;
+}
+
+export type ChainOutputMap = Record<string, ChainOutputMapEntry>;
+
+export type WorkflowNodeStatus = "pending" | "running" | "completed" | "failed" | "paused" | "detached";
+
+export interface WorkflowGraphNode {
+	id: string;
+	kind: "step" | "parallel-group" | "dynamic-parallel-group" | "agent";
+	agent?: string;
+	phase?: string;
+	label: string;
+	status: WorkflowNodeStatus;
+	flatIndex?: number;
+	stepIndex?: number;
+	children?: WorkflowGraphNode[];
+	dynamic?: {
+		sourceOutput: string;
+		sourcePath: string;
+		itemName: string;
+		maxItems?: number;
+		collectAs?: string;
+	};
+	itemKey?: string;
+	outputName?: string;
+	structured?: boolean;
+	acceptanceStatus?: AcceptanceLedgerStatus;
+	error?: string;
+}
+
+export interface WorkflowGraphSnapshot {
+	runId: string;
+	mode: "chain" | "parallel" | "single";
+	phases: Array<{ title: string; nodeIds: string[] }>;
+	nodes: WorkflowGraphNode[];
+	currentNodeId?: string;
+}
+
 export interface SavedOutputReference {
 	path: string;
 	bytes: number;
@@ -202,6 +247,151 @@ export interface ModelAttempt {
 	usage?: Usage;
 }
 
+export type AcceptanceLevel = "auto" | "none" | "attested" | "checked" | "verified" | "reviewed";
+
+export type AcceptanceEvidenceKind =
+	| "changed-files"
+	| "tests-added"
+	| "commands-run"
+	| "validation-output"
+	| "residual-risks"
+	| "no-staged-files"
+	| "diff-summary"
+	| "review-findings"
+	| "manual-notes";
+
+export interface AcceptanceGate {
+	id: string;
+	must: string;
+	evidence?: AcceptanceEvidenceKind[];
+	severity?: "required" | "recommended";
+}
+
+export interface AcceptanceVerifyCommand {
+	id: string;
+	command: string;
+	timeoutMs?: number;
+	cwd?: string;
+	env?: Record<string, string>;
+	allowFailure?: boolean;
+}
+
+export interface AcceptanceReviewGate {
+	agent?: string;
+	focus?: string;
+	required?: boolean;
+}
+
+export interface AcceptanceConfig {
+	level?: AcceptanceLevel;
+	criteria?: Array<string | AcceptanceGate>;
+	evidence?: AcceptanceEvidenceKind[];
+	verify?: AcceptanceVerifyCommand[];
+	review?: AcceptanceReviewGate | false;
+	stopRules?: string[];
+	reason?: string;
+}
+
+export type AcceptanceInput = AcceptanceLevel | false | AcceptanceConfig;
+
+export interface ResolvedAcceptanceGate extends AcceptanceGate {
+	id: string;
+	must: string;
+	evidence: AcceptanceEvidenceKind[];
+	severity: "required" | "recommended";
+}
+
+export interface ResolvedAcceptanceConfig {
+	level: Exclude<AcceptanceLevel, "auto">;
+	explicit: boolean;
+	inferredReason: string[];
+	criteria: ResolvedAcceptanceGate[];
+	evidence: AcceptanceEvidenceKind[];
+	verify: AcceptanceVerifyCommand[];
+	review?: AcceptanceReviewGate | false;
+	stopRules: string[];
+	reason?: string;
+}
+
+export interface AcceptanceReport {
+	criteriaSatisfied?: Array<{
+		id?: string;
+		status: "satisfied" | "not-satisfied" | "not-applicable";
+		evidence: string;
+	}>;
+	changedFiles?: string[];
+	testsAddedOrUpdated?: string[];
+	commandsRun?: Array<{
+		command: string;
+		result: "passed" | "failed" | "not-run";
+		summary: string;
+	}>;
+	validationOutput?: string[];
+	residualRisks?: string[];
+	noStagedFiles?: boolean;
+	diffSummary?: string;
+	reviewFindings?: string[];
+	manualNotes?: string;
+	notes?: string;
+}
+
+export type AcceptanceRuntimeCheckStatus = "passed" | "failed" | "not-applicable";
+
+export interface AcceptanceRuntimeCheck {
+	id: string;
+	status: AcceptanceRuntimeCheckStatus;
+	message: string;
+}
+
+export interface AcceptanceVerifyResult {
+	id: string;
+	command: string;
+	cwd?: string;
+	exitCode: number | null;
+	status: "passed" | "failed" | "timed-out" | "allowed-failure";
+	stdout?: string;
+	stderr?: string;
+	durationMs: number;
+}
+
+export interface AcceptanceReviewResult {
+	status: "no-blockers" | "blockers" | "needs-parent-decision";
+	findings: Array<{
+		severity: "blocker" | "non-blocking";
+		file?: string;
+		issue: string;
+		rationale: string;
+	}>;
+}
+
+export type AcceptanceLedgerStatus =
+	| "not-required"
+	| "claimed"
+	| "attested"
+	| "checked"
+	| "verified"
+	| "reviewed"
+	| "accepted"
+	| "rejected";
+
+export interface AcceptanceLedger {
+	status: AcceptanceLedgerStatus;
+	explicit: boolean;
+	effectiveAcceptance: ResolvedAcceptanceConfig;
+	inferredReason: string[];
+	criteria: ResolvedAcceptanceGate[];
+	childReport?: AcceptanceReport;
+	childReportParseError?: string;
+	runtimeChecks: AcceptanceRuntimeCheck[];
+	verifyRuns: AcceptanceVerifyResult[];
+	reviewResult?: AcceptanceReviewResult;
+	parentDecision?: {
+		status: "accepted" | "rejected";
+		at: string;
+		reason?: string;
+	};
+}
+
 export interface SingleResult {
 	agent: string;
 	task: string;
@@ -230,6 +420,10 @@ export interface SingleResult {
 	savedOutputPath?: string;
 	outputReference?: SavedOutputReference;
 	outputSaveError?: string;
+	structuredOutput?: unknown;
+	structuredOutputPath?: string;
+	structuredOutputSchemaPath?: string;
+	acceptance?: AcceptanceLedger;
 }
 
 export interface Details {
@@ -256,6 +450,8 @@ export interface Details {
 	chainAgents?: string[];      // Agent names in order, e.g., ["scout", "planner"]
 	totalSteps?: number;         // Total steps in chain
 	currentStepIndex?: number;   // 0-indexed current step (for running chains)
+	workflowGraph?: WorkflowGraphSnapshot;
+	outputs?: ChainOutputMap;
 }
 
 // Upstream AgentToolResult omits the runtime isError flag that subagent tool results still emit/read.
@@ -372,6 +568,7 @@ export interface AsyncStartedEvent {
 	chain?: string[];
 	chainStepCount?: number;
 	parallelGroups?: AsyncParallelGroupStatus[];
+	workflowGraph?: WorkflowGraphSnapshot;
 	nestedRoute?: NestedRouteInfo;
 }
 
@@ -395,8 +592,13 @@ export interface AsyncStatus {
 	currentStep?: number;
 	chainStepCount?: number;
 	parallelGroups?: AsyncParallelGroupStatus[];
+	workflowGraph?: WorkflowGraphSnapshot;
 	steps?: Array<{
 		agent: string;
+		phase?: string;
+		label?: string;
+		outputName?: string;
+		structured?: boolean;
 		status: "pending" | "running" | "complete" | "completed" | "failed" | "paused";
 		children?: NestedRunSummary[];
 		sessionFile?: string;
@@ -422,11 +624,16 @@ export interface AsyncStatus {
 		attemptedModels?: string[];
 		modelAttempts?: ModelAttempt[];
 		error?: string;
+		structuredOutput?: unknown;
+		structuredOutputPath?: string;
+		structuredOutputSchemaPath?: string;
+		acceptance?: AcceptanceLedger;
 	}>;
 	sessionDir?: string;
 	outputFile?: string;
 	totalTokens?: TokenUsage;
 	sessionFile?: string;
+	outputs?: ChainOutputMap;
 }
 
 export type AsyncJobStep = NonNullable<AsyncStatus["steps"]>[number] & {
@@ -592,6 +799,18 @@ export interface RunSyncOptions {
 	currentModel?: string;
 	/** Skills to inject (overrides agent default if provided) */
 	skills?: string[];
+	structuredOutput?: {
+		schema: JsonSchemaObject;
+		schemaPath: string;
+		outputPath: string;
+	};
+	acceptance?: AcceptanceInput;
+	acceptanceContext?: {
+		mode?: SubagentRunMode;
+		async?: boolean;
+		dynamic?: boolean;
+		dynamicGroup?: boolean;
+	};
 }
 
 export type IntercomBridgeMode = "off" | "fork-only" | "always";
@@ -606,6 +825,12 @@ interface TopLevelParallelConfig {
 	concurrency?: number;
 }
 
+interface ExtensionChainConfig {
+	dynamicFanout?: {
+		maxItems?: number;
+	};
+}
+
 export interface ExtensionConfig {
 	asyncByDefault?: boolean;
 	forceTopLevelAsync?: boolean;
@@ -613,6 +838,7 @@ export interface ExtensionConfig {
 	maxSubagentDepth?: number;
 	control?: ControlConfig;
 	parallel?: TopLevelParallelConfig;
+	chain?: ExtensionChainConfig;
 	worktreeSetupHook?: string;
 	worktreeSetupHookTimeoutMs?: number;
 	intercomBridge?: IntercomBridgeConfig;

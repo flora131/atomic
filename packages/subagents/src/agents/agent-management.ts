@@ -17,7 +17,7 @@ import {
 	parsePackageName,
 } from "./agents.ts";
 import { serializeAgent } from "./agent-serializer.ts";
-import { serializeChain } from "./chain-serializer.ts";
+import { serializeChain, serializeJsonChain } from "./chain-serializer.ts";
 import { discoverAvailableSkills } from "./skills.ts";
 import type { SubagentToolResult } from "../shared/types.ts";
 
@@ -116,10 +116,31 @@ function nameExistsInScope(cwd: string, scope: ManagementScope, name: string, ex
 	return false;
 }
 
+function chainStepAgentNames(step: ChainStepConfig): string[] {
+	const names: string[] = [];
+	if (typeof step.agent === "string") names.push(step.agent);
+	const parallel = step.parallel;
+	if (Array.isArray(parallel)) {
+		for (const item of parallel) {
+			if (item && typeof item === "object") {
+				const agent = (item as { agent?: unknown }).agent;
+				if (typeof agent === "string") names.push(agent);
+			}
+		}
+	} else if (parallel && typeof parallel === "object") {
+		const agent = (parallel as { agent?: unknown }).agent;
+		if (typeof agent === "string") names.push(agent);
+	}
+	return names;
+}
+
 function unknownChainAgents(cwd: string, steps: ChainStepConfig[]): string[] {
 	const d = discoverAgentsAll(cwd);
 	const known = new Set(allAgents(d).map((a) => a.name));
-	return [...new Set(steps.map((s) => s.agent).filter((a) => !known.has(a)))].sort((a, b) => a.localeCompare(b));
+	const unknown = steps
+		.flatMap((step) => chainStepAgentNames(step))
+		.filter((agent) => !known.has(agent));
+	return [...new Set(unknown)].sort((a, b) => a.localeCompare(b));
 }
 
 function chainStepWarnings(ctx: ManagementContext, steps: ChainStepConfig[]): string[] {
@@ -169,6 +190,22 @@ function parseStepList(raw: unknown): { steps?: ChainStepConfig[]; error?: strin
 		const s = item as Record<string, unknown>;
 		if (typeof s.agent !== "string" || !s.agent.trim()) return { error: `config.steps[${i}].agent must be a non-empty string.` };
 		const step: ChainStepConfig = { agent: s.agent.trim(), task: typeof s.task === "string" ? s.task : "" };
+		if (hasKey(s, "phase")) {
+			if (typeof s.phase === "string") step.phase = s.phase;
+			else return { error: `config.steps[${i}].phase must be a string.` };
+		}
+		if (hasKey(s, "label")) {
+			if (typeof s.label === "string") step.label = s.label;
+			else return { error: `config.steps[${i}].label must be a string.` };
+		}
+		if (hasKey(s, "as")) {
+			if (typeof s.as === "string") step.as = s.as;
+			else return { error: `config.steps[${i}].as must be a string.` };
+		}
+		if (hasKey(s, "outputSchema")) {
+			if (typeof s.outputSchema === "string") step.outputSchema = s.outputSchema;
+			else return { error: `config.steps[${i}].outputSchema must be a schema file path string for saved chains.` };
+		}
 		if (hasKey(s, "output")) {
 			if (s.output === false) step.output = false;
 			else if (typeof s.output === "string") step.output = s.output;
@@ -345,7 +382,7 @@ function renamePath(
 	cwd: string,
 ): { filePath?: string; error?: string } {
 	if (nameExistsInScope(cwd, scope, newName, currentPath)) return { error: `Name '${newName}' already exists in ${scope} scope.` };
-	const ext = kind === "agent" ? ".md" : ".chain.md";
+	const ext = kind === "agent" ? ".md" : currentPath.endsWith(".chain.json") ? ".chain.json" : ".chain.md";
 	const filePath = path.join(path.dirname(currentPath), `${newName}${ext}`);
 	if (fs.existsSync(filePath) && filePath !== currentPath) {
 		return { error: `File already exists at ${filePath} but is not a valid ${kind} definition. Remove or rename it first.` };
@@ -381,6 +418,41 @@ function formatAgentDetail(agent: AgentConfig): string {
 	return lines.join("\n");
 }
 
+function formatChainStepDetail(step: ChainStepConfig, index: number): string[] {
+	const lines: string[] = [];
+	if (step.expand || step.collect) {
+		const parallel = step.parallel && !Array.isArray(step.parallel) && typeof step.parallel === "object" ? step.parallel as { agent?: unknown; task?: unknown; label?: unknown; outputSchema?: unknown } : undefined;
+		const expand = step.expand && typeof step.expand === "object" ? step.expand as { from?: { output?: unknown; path?: unknown }; item?: unknown; key?: unknown; maxItems?: unknown; onEmpty?: unknown } : undefined;
+		const collect = step.collect && typeof step.collect === "object" ? step.collect as { as?: unknown; outputSchema?: unknown } : undefined;
+		lines.push(`${index + 1}. Dynamic fanout${typeof collect?.as === "string" ? ` -> ${collect.as}` : ""}`);
+		if (expand?.from) lines.push(`   Expand: ${String(expand.from.output ?? "?")}${String(expand.from.path ?? "")}`);
+		if (typeof expand?.item === "string") lines.push(`   Item variable: ${expand.item}`);
+		if (typeof expand?.key === "string") lines.push(`   Key: ${expand.key}`);
+		if (typeof expand?.maxItems === "number") lines.push(`   Max items: ${expand.maxItems}`);
+		if (typeof expand?.onEmpty === "string") lines.push(`   On empty: ${expand.onEmpty}`);
+		if (parallel?.agent) lines.push(`   Agent: ${String(parallel.agent)}`);
+		if (typeof parallel?.label === "string") lines.push(`   Label: ${parallel.label}`);
+		if (typeof parallel?.task === "string" && parallel.task.trim()) lines.push(`   Task: ${parallel.task}`);
+		if (parallel?.outputSchema) lines.push("   Structured output: true");
+		if (collect?.outputSchema) lines.push("   Collect schema: true");
+		if (step.concurrency !== undefined) lines.push(`   Concurrency: ${step.concurrency}`);
+		if (step.failFast !== undefined) lines.push(`   Fail fast: ${step.failFast ? "true" : "false"}`);
+		return lines;
+	}
+	lines.push(`${index + 1}. ${step.agent}`);
+	if (step.task?.trim()) lines.push(`   Task: ${step.task}`);
+	if (step.output === false) lines.push("   Output: false");
+	else if (step.output) lines.push(`   Output: ${step.output}`);
+	if (step.outputMode) lines.push(`   Output mode: ${step.outputMode}`);
+	if (step.reads === false) lines.push("   Reads: false");
+	else if (Array.isArray(step.reads) && step.reads.length > 0) lines.push(`   Reads: ${step.reads.join(", ")}`);
+	if (step.model) lines.push(`   Model: ${step.model}`);
+	if (step.skills === false) lines.push("   Skills: false");
+	else if (Array.isArray(step.skills) && step.skills.length > 0) lines.push(`   Skills: ${step.skills.join(", ")}`);
+	if (step.progress !== undefined) lines.push(`   Progress: ${step.progress ? "true" : "false"}`);
+	return lines;
+}
+
 function formatChainDetail(chain: ChainConfig): string {
 	const lines: string[] = [`Chain: ${chain.name} (${chain.source})`, `Path: ${chain.filePath}`, `Description: ${chain.description}`];
 	if (chain.packageName) {
@@ -389,18 +461,7 @@ function formatChainDetail(chain: ChainConfig): string {
 	}
 	lines.push("", "Steps:");
 	for (let i = 0; i < chain.steps.length; i++) {
-		const s = chain.steps[i]!;
-		lines.push(`${i + 1}. ${s.agent}`);
-		if (s.task.trim()) lines.push(`   Task: ${s.task}`);
-		if (s.output === false) lines.push("   Output: false");
-		else if (s.output) lines.push(`   Output: ${s.output}`);
-		if (s.outputMode) lines.push(`   Output mode: ${s.outputMode}`);
-		if (s.reads === false) lines.push("   Reads: false");
-		else if (Array.isArray(s.reads) && s.reads.length > 0) lines.push(`   Reads: ${s.reads.join(", ")}`);
-		if (s.model) lines.push(`   Model: ${s.model}`);
-		if (s.skills === false) lines.push("   Skills: false");
-		else if (Array.isArray(s.skills) && s.skills.length > 0) lines.push(`   Skills: ${s.skills.join(", ")}`);
-		if (s.progress !== undefined) lines.push(`   Progress: ${s.progress ? "true" : "false"}`);
+		lines.push(...formatChainStepDetail(chain.steps[i]!, i));
 	}
 	return lines.join("\n");
 }
@@ -411,6 +472,7 @@ export function handleList(params: ManagementParams, ctx: ManagementContext): Su
 	const scopedAgents = allAgents(d).filter((a) => scope === "both" || a.source === "builtin" || a.source === scope).sort((a, b) => a.name.localeCompare(b.name));
 	const agents = scopedAgents.filter((a) => !a.disabled);
 	const chains = d.chains.filter((c) => scope === "both" || c.source === scope).sort((a, b) => a.name.localeCompare(b.name));
+	const diagnostics = d.chainDiagnostics.filter((entry) => scope === "both" || entry.source === scope);
 	const lines = [
 		"Executable agents:",
 		...(agents.length
@@ -419,6 +481,7 @@ export function handleList(params: ManagementParams, ctx: ManagementContext): Su
 		"",
 		"Chains:",
 		...(chains.length ? chains.map((c) => `- ${c.name} (${c.source}): ${c.description}`) : ["- (none)"]),
+		...(diagnostics.length ? ["", "Chain diagnostics:", ...diagnostics.map((entry) => `- ${entry.filePath}: ${entry.error}`)] : []),
 	];
 	return result(lines.join("\n"));
 }
@@ -614,7 +677,7 @@ export function handleUpdate(params: ManagementParams, ctx: ManagementContext): 
 		if (renamed.error) return result(renamed.error, true);
 		updated.filePath = renamed.filePath!;
 	}
-	fs.writeFileSync(updated.filePath, serializeChain(updated), "utf-8");
+	fs.writeFileSync(updated.filePath, updated.filePath.endsWith(".chain.json") ? serializeJsonChain(updated) : serializeChain(updated), "utf-8");
 	const headline = updated.name === oldName
 		? `Updated chain '${updated.name}' at ${updated.filePath}.`
 		: `Updated chain '${oldName}' to '${updated.name}' at ${updated.filePath}.`;

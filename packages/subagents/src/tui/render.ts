@@ -14,6 +14,7 @@ import {
 	type Details,
 	type NestedRunSummary,
 	type NestedStepSummary,
+	type WorkflowNodeStatus,
 	MAX_WIDGET_JOBS,
 	WIDGET_KEY,
 } from "../shared/types.ts";
@@ -305,6 +306,7 @@ function resultStatusLine(result: Details["results"][number], output: string): s
 	if (result.detached) return result.detachedReason ? `Detached: ${result.detachedReason}` : "Detached";
 	if (result.interrupted) return "Paused";
 	if (result.exitCode !== 0) return `Error: ${result.error ?? (firstOutputLine(output) || `exit ${result.exitCode}`)}`;
+	if (result.acceptance?.status && result.acceptance.status !== "not-required") return `Done · acceptance: ${result.acceptance.status}`;
 	if (hasEmptyTextOutputWithoutOutputTarget(result.task, output)) return "Done (no text output)";
 	return "Done";
 }
@@ -507,32 +509,56 @@ function parseParallelGroupAgentCount(label: string | undefined): number | undef
 	return inner.split("+").map((part) => part.trim()).filter(Boolean).length;
 }
 
-function isChainParallelGroupActive(details: Pick<Details, "mode" | "chainAgents" | "currentStepIndex">): boolean {
-	if (details.mode !== "chain") return false;
-	if (details.currentStepIndex === undefined) return false;
-	const currentLabel = details.chainAgents?.[details.currentStepIndex];
-	return parseParallelGroupAgentCount(currentLabel) !== undefined;
-}
-
 interface ChainStepSpan {
 	stepIndex: number;
 	start: number;
 	count: number;
 	isParallel: boolean;
+	status?: WorkflowNodeStatus;
+	label?: string;
+	error?: string;
 }
 
-function buildChainStepSpans(chainAgents: string[] | undefined): ChainStepSpan[] {
-	if (!chainAgents?.length) return [];
+function buildChainStepSpans(details: Pick<Details, "chainAgents" | "workflowGraph">): ChainStepSpan[] {
+	if (details.workflowGraph?.nodes?.length) {
+		const spans: ChainStepSpan[] = [];
+		let flatCursor = 0;
+		for (const node of details.workflowGraph.nodes) {
+			if (node.stepIndex === undefined) continue;
+			if (node.kind === "parallel-group" || node.kind === "dynamic-parallel-group") {
+				const childFlatIndexes = (node.children ?? [])
+					.map((child) => child.flatIndex)
+					.filter((value): value is number => typeof value === "number");
+				const start = childFlatIndexes.length ? Math.min(...childFlatIndexes) : flatCursor;
+				const count = node.children?.length ?? 0;
+				spans.push({ stepIndex: node.stepIndex, start, count, isParallel: true, status: node.status, label: node.label, error: node.error });
+				flatCursor = Math.max(flatCursor, start + count);
+				continue;
+			}
+			const start = node.flatIndex ?? flatCursor;
+			spans.push({ stepIndex: node.stepIndex, start, count: 1, isParallel: false, status: node.status, label: node.label, error: node.error });
+			flatCursor = Math.max(flatCursor, start + 1);
+		}
+		if (spans.length) return spans.sort((left, right) => left.stepIndex - right.stepIndex);
+	}
+
+	if (!details.chainAgents?.length) return [];
 	const spans: ChainStepSpan[] = [];
 	let start = 0;
-	for (let stepIndex = 0; stepIndex < chainAgents.length; stepIndex++) {
-		const label = chainAgents[stepIndex]!;
+	for (let stepIndex = 0; stepIndex < details.chainAgents.length; stepIndex++) {
+		const label = details.chainAgents[stepIndex]!;
 		const parsedCount = parseParallelGroupAgentCount(label);
 		const count = parsedCount ?? 1;
 		spans.push({ stepIndex, start, count, isParallel: parsedCount !== undefined });
 		start += count;
 	}
 	return spans;
+}
+
+function isChainParallelGroupActive(details: Pick<Details, "mode" | "chainAgents" | "currentStepIndex" | "workflowGraph">): boolean {
+	if (details.mode !== "chain") return false;
+	if (details.currentStepIndex === undefined) return false;
+	return buildChainStepSpans(details).some((span) => span.stepIndex === details.currentStepIndex && span.isParallel);
 }
 
 function buildAsyncChainStepSpans(total: number, stepCount: number, parallelGroups: AsyncParallelGroupStatus[] = []): ChainStepSpan[] {
@@ -559,6 +585,55 @@ function isDoneResult(result: Details["results"][number]): boolean {
 	return result.exitCode === 0;
 }
 
+function workflowGraphHasStatus(details: Pick<Details, "workflowGraph">, statuses: WorkflowNodeStatus[]): boolean {
+	return details.workflowGraph?.nodes.some((node) => statuses.includes(node.status)) ?? false;
+}
+
+interface ChainRenderResultEntry {
+	kind: "result";
+	resultIndex: number;
+	rowNumber: number;
+	agentName: string;
+}
+
+interface ChainRenderPlaceholderEntry {
+	kind: "placeholder";
+	rowNumber: number;
+	stepLabel: string;
+	agentName: string;
+	status: WorkflowNodeStatus;
+	error?: string;
+}
+
+type ChainRenderEntry = ChainRenderResultEntry | ChainRenderPlaceholderEntry;
+
+function buildChainRenderEntries(details: Details, label: MultiProgressLabel): ChainRenderEntry[] | undefined {
+	if (details.mode !== "chain" || !label.hasParallelInChain || label.showActiveGroupOnly) return undefined;
+	const entries: ChainRenderEntry[] = [];
+	for (const span of buildChainStepSpans(details)) {
+		if (span.isParallel && span.count === 0) {
+			entries.push({
+				kind: "placeholder",
+				rowNumber: span.stepIndex + 1,
+				stepLabel: `Step ${span.stepIndex + 1}`,
+				agentName: span.label ?? details.chainAgents?.[span.stepIndex] ?? `step-${span.stepIndex + 1}`,
+				status: span.status ?? "pending",
+				error: span.error,
+			});
+			continue;
+		}
+		for (let index = span.start; index < span.start + span.count; index++) {
+			entries.push({
+				kind: "result",
+				resultIndex: index,
+				rowNumber: index + 1,
+				agentName: details.results[index]?.agent ?? details.chainAgents?.[span.stepIndex] ?? `step-${span.stepIndex + 1}`,
+			});
+		}
+	}
+	return entries;
+}
+
 interface MultiProgressLabel {
 	headerLabel: string;
 	itemTitle: "Step" | "Agent";
@@ -570,8 +645,8 @@ interface MultiProgressLabel {
 	showActiveGroupOnly: boolean;
 }
 
-function buildMultiProgressLabel(details: Pick<Details, "mode" | "results" | "progress" | "totalSteps" | "currentStepIndex" | "chainAgents">, hasRunning: boolean): MultiProgressLabel {
-	const stepSpans = buildChainStepSpans(details.chainAgents);
+function buildMultiProgressLabel(details: Pick<Details, "mode" | "results" | "progress" | "totalSteps" | "currentStepIndex" | "chainAgents" | "workflowGraph">, hasRunning: boolean): MultiProgressLabel {
+	const stepSpans = buildChainStepSpans(details);
 	const hasParallelInChain = details.mode === "chain" && stepSpans.some((span) => span.isParallel);
 	const activeParallelGroup = isChainParallelGroupActive(details);
 	const itemTitle: "Step" | "Agent" = details.mode === "parallel" || activeParallelGroup ? "Agent" : "Step";
@@ -635,11 +710,13 @@ function buildMultiProgressLabel(details: Pick<Details, "mode" | "results" | "pr
 	if (details.mode === "chain" && details.chainAgents?.length) {
 		const totalCount = details.totalSteps ?? details.chainAgents.length;
 		const doneLogical = stepSpans.filter((span) => {
+			if (span.status && span.status !== "completed") return false;
+			if (span.count === 0) return span.status === "completed";
 			for (let index = span.start; index < span.start + span.count; index++) {
 				const progressEntry = details.progress?.find((progress) => progress.index === index);
 				const resultEntry = details.results.find((result) => result.progress?.index === index) ?? details.results[index];
-				if (progressEntry?.status === "running" || progressEntry?.status === "pending") return false;
-				if (resultEntry && !isDoneResult(resultEntry)) return false;
+				if (progressEntry?.status === "running" || progressEntry?.status === "pending" || progressEntry?.status === "failed") return false;
+				if (!resultEntry || !isDoneResult(resultEntry)) return false;
 			}
 			return true;
 		}).length;
@@ -655,9 +732,9 @@ function buildMultiProgressLabel(details: Pick<Details, "mode" | "results" | "pr
 	return { headerLabel, itemTitle, totalCount, hasParallelInChain, activeParallelGroup, groupStartIndex: 0, groupEndIndex: details.results.length, showActiveGroupOnly: false };
 }
 
-function resultRowLabel(details: Pick<Details, "mode" | "chainAgents">, label: MultiProgressLabel, resultIndex: number, stepNumber: number): string {
+function resultRowLabel(details: Pick<Details, "mode" | "chainAgents" | "workflowGraph">, label: MultiProgressLabel, resultIndex: number, stepNumber: number): string {
 	if (details.mode === "chain" && label.hasParallelInChain) {
-		const span = buildChainStepSpans(details.chainAgents).find((candidate) => resultIndex >= candidate.start && resultIndex < candidate.start + candidate.count);
+		const span = buildChainStepSpans(details).find((candidate) => resultIndex >= candidate.start && resultIndex < candidate.start + candidate.count);
 		if (span?.isParallel) return `Agent ${resultIndex - span.start + 1}/${span.count}`;
 		if (span) return `Step ${span.stepIndex + 1}`;
 	}
@@ -1216,9 +1293,12 @@ function renderSingleCompact(d: Details, r: Details["results"][number], theme: T
 
 function renderMultiCompact(d: Details, theme: Theme, now?: number, spinnerNow?: number): Component {
 	const hasRunning = d.progress?.some((p) => p.status === "running")
-		|| d.results.some((r) => r.progress?.status === "running");
-	const failed = d.results.some((r) => r.exitCode !== 0 && r.progress?.status !== "running");
-	const paused = d.results.some((r) => (r.interrupted || r.detached) && r.progress?.status !== "running");
+		|| d.results.some((r) => r.progress?.status === "running")
+		|| workflowGraphHasStatus(d, ["running"]);
+	const failed = d.results.some((r) => r.exitCode !== 0 && r.progress?.status !== "running")
+		|| workflowGraphHasStatus(d, ["failed"]);
+	const paused = d.results.some((r) => (r.interrupted || r.detached) && r.progress?.status !== "running")
+		|| workflowGraphHasStatus(d, ["paused", "detached"]);
 	let totalSummary = d.progressSummary;
 	if (!totalSummary) {
 		let sawProgress = false;
@@ -1251,13 +1331,29 @@ function renderMultiCompact(d: Details, theme: Theme, now?: number, spinnerNow?:
 	const useResultsDirectly = multiLabel.hasParallelInChain || !d.chainAgents?.length;
 	const displayStart = multiLabel.showActiveGroupOnly ? multiLabel.groupStartIndex : 0;
 	const displayEnd = multiLabel.showActiveGroupOnly ? multiLabel.groupEndIndex : (useResultsDirectly ? d.results.length : d.chainAgents!.length);
-	for (let i = displayStart; i < displayEnd; i++) {
+	const chainEntries = buildChainRenderEntries(d, multiLabel);
+	const renderEntries = chainEntries ?? Array.from({ length: displayEnd - displayStart }, (_, offset): ChainRenderEntry => {
+		const i = displayStart + offset;
 		const r = d.results[i];
 		const fallbackLabel = itemTitle.toLowerCase();
 		const rowNumber = multiLabel.showActiveGroupOnly ? (i - multiLabel.groupStartIndex + 1) : (i + 1);
-		const agentName = useResultsDirectly ? (r?.agent || `${fallbackLabel}-${rowNumber}`) : (d.chainAgents![i] || r?.agent || `${fallbackLabel}-${rowNumber}`);
+		return { kind: "result", resultIndex: i, rowNumber, agentName: useResultsDirectly ? (r?.agent || `${fallbackLabel}-${rowNumber}`) : (d.chainAgents![i] || r?.agent || `${fallbackLabel}-${rowNumber}`) };
+	});
+	for (const entry of renderEntries) {
+		if (entry.kind === "placeholder") {
+			const glyph = widgetStepGlyph(entry.status as AsyncJobStep["status"], theme);
+			const statusLabel = widgetStepStatus(entry.status as AsyncJobStep["status"], theme);
+			c.addChild(new Text(truncLine(`  ${glyph} ${entry.stepLabel}: ${themeBold(theme, entry.agentName)} ${theme.fg("dim", "·")} ${statusLabel}`, width), 0, 0));
+			if (entry.error) c.addChild(new Text(truncLine(theme.fg("error", `    ⎿  Error: ${entry.error}`), width), 0, 0));
+			continue;
+		}
+		const i = entry.resultIndex;
+		const r = d.results[i];
+		const rowNumber = entry.rowNumber;
+		const agentName = entry.agentName;
 		if (!r) {
-			c.addChild(new Text(truncLine(theme.fg("dim", `  ◦ ${itemTitle} ${rowNumber}: ${agentName} · pending`), width), 0, 0));
+			const pendingLabel = chainEntries ? resultRowLabel(d, multiLabel, i, rowNumber) : `${itemTitle} ${rowNumber}`;
+			c.addChild(new Text(truncLine(theme.fg("dim", `  ◦ ${pendingLabel}: ${agentName} · pending`), width), 0, 0));
 			continue;
 		}
 		const output = getSingleResultOutput(r);
@@ -1489,20 +1585,27 @@ export function renderSubagentResult(
 	if (!expanded) return renderMultiCompact(d, theme, options.now, options.spinnerNow);
 
 	const hasRunning = d.progress?.some((p) => p.status === "running")
-		|| d.results.some((r) => r.progress?.status === "running");
+		|| d.results.some((r) => r.progress?.status === "running")
+		|| workflowGraphHasStatus(d, ["running"]);
 	const ok = d.results.filter((r) => r.progress?.status === "completed" || (r.exitCode === 0 && r.progress?.status !== "running")).length;
 	const hasEmptyWithoutTarget = d.results.some((r) =>
 		r.exitCode === 0
 		&& r.progress?.status !== "running"
 		&& hasEmptyTextOutputWithoutOutputTarget(r.task, getSingleResultOutput(r)),
 	);
+	const hasWorkflowFailure = workflowGraphHasStatus(d, ["failed"]);
+	const hasWorkflowPause = workflowGraphHasStatus(d, ["paused", "detached"]);
 	const icon = hasRunning
 		? theme.fg("warning", "running")
 		: hasEmptyWithoutTarget
 			? theme.fg("warning", "warning")
-			: ok === d.results.length
-				? theme.fg("success", "ok")
-				: theme.fg("error", "failed");
+			: hasWorkflowFailure
+				? theme.fg("error", "failed")
+				: hasWorkflowPause
+					? theme.fg("warning", "paused")
+					: ok === d.results.length
+						? theme.fg("success", "ok")
+						: theme.fg("error", "failed");
 
 	const totalSummary =
 		d.progressSummary ||
@@ -1573,18 +1676,33 @@ export function renderSubagentResult(
 	const useResultsDirectly = multiLabel.hasParallelInChain || !d.chainAgents?.length;
 	const displayStart = multiLabel.showActiveGroupOnly ? multiLabel.groupStartIndex : 0;
 	const displayEnd = multiLabel.showActiveGroupOnly ? multiLabel.groupEndIndex : (useResultsDirectly ? d.results.length : d.chainAgents!.length);
+	const chainEntries = buildChainRenderEntries(d, multiLabel);
+	const renderEntries = chainEntries ?? Array.from({ length: displayEnd - displayStart }, (_, offset): ChainRenderEntry => {
+		const i = displayStart + offset;
+		const r = d.results[i];
+		const rowNumber = multiLabel.showActiveGroupOnly ? (i - multiLabel.groupStartIndex + 1) : (i + 1);
+		return { kind: "result", resultIndex: i, rowNumber, agentName: useResultsDirectly ? (r?.agent || `step-${rowNumber}`) : (d.chainAgents![i] || r?.agent || `step-${rowNumber}`) };
+	});
 
 	c.addChild(new Spacer(1));
 
-	for (let i = displayStart; i < displayEnd; i++) {
+	for (const entry of renderEntries) {
+		if (entry.kind === "placeholder") {
+			const statusLabel = widgetStepStatus(entry.status as AsyncJobStep["status"], theme);
+			c.addChild(new Text(fit(`  ${statusLabel} ${entry.stepLabel}: ${theme.bold(entry.agentName)}`), 0, 0));
+			c.addChild(new Text(theme.fg(entry.status === "failed" ? "error" : "dim", `    status: ${entry.status}`), 0, 0));
+			if (entry.error) c.addChild(new Text(theme.fg("error", `    error: ${entry.error}`), 0, 0));
+			c.addChild(new Spacer(1));
+			continue;
+		}
+		const i = entry.resultIndex;
 		const r = d.results[i];
-		const rowNumber = multiLabel.showActiveGroupOnly ? (i - multiLabel.groupStartIndex + 1) : (i + 1);
-		const agentName = useResultsDirectly
-			? (r?.agent || `step-${rowNumber}`)
-			: (d.chainAgents![i] || r?.agent || `step-${rowNumber}`);
+		const rowNumber = entry.rowNumber;
+		const agentName = entry.agentName;
 
 		if (!r) {
-			c.addChild(new Text(fit(theme.fg("dim", `  ${itemTitle} ${rowNumber}: ${agentName}`)), 0, 0));
+			const pendingLabel = chainEntries ? resultRowLabel(d, multiLabel, i, rowNumber) : `${itemTitle} ${rowNumber}`;
+			c.addChild(new Text(fit(theme.fg("dim", `  ${pendingLabel}: ${agentName}`)), 0, 0));
 			c.addChild(new Text(theme.fg("dim", `    status: pending`), 0, 0));
 			c.addChild(new Spacer(1));
 			continue;

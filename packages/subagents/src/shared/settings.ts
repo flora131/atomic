@@ -6,7 +6,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { AgentConfig } from "../agents/agents.ts";
 import { normalizeSkillInput } from "../agents/skills.ts";
-import { CHAIN_RUNS_DIR, type OutputMode } from "./types.ts";
+import { CHAIN_RUNS_DIR, type AcceptanceInput, type JsonSchemaObject, type OutputMode } from "./types.ts";
 const CHAIN_DIR_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 const INITIAL_PROGRESS_CONTENT = "# Progress\n\n## Status\nIn Progress\n\n## Tasks\n\n## Files Changed\n\n## Notes\n";
 
@@ -44,6 +44,10 @@ function normalizeOutputOverride(output: string | false | undefined): string | f
 export interface SequentialStep {
 	agent: string;
 	task?: string;
+	phase?: string;
+	label?: string;
+	as?: string;
+	outputSchema?: JsonSchemaObject;
 	cwd?: string;
 	output?: string | false;
 	outputMode?: OutputMode;
@@ -51,12 +55,17 @@ export interface SequentialStep {
 	progress?: boolean;
 	skill?: string | string[] | false;
 	model?: string;
+	acceptance?: AcceptanceInput;
 }
 
 /** Parallel task item within a parallel step */
-interface ParallelTaskItem {
+export interface ParallelTaskItem {
 	agent: string;
 	task?: string;
+	phase?: string;
+	label?: string;
+	as?: string;
+	outputSchema?: JsonSchemaObject;
 	cwd?: string;
 	count?: number;
 	output?: string | false;
@@ -65,10 +74,40 @@ interface ParallelTaskItem {
 	progress?: boolean;
 	skill?: string | string[] | false;
 	model?: string;
+	acceptance?: AcceptanceInput;
+}
+
+export interface DynamicExpandSpec {
+	from: {
+		output: string;
+		path: string;
+	};
+	item?: string;
+	key?: string;
+	maxItems?: number;
+	onEmpty?: "skip" | "fail";
+}
+
+export type DynamicParallelTemplate = Omit<ParallelTaskItem, "as" | "count">;
+
+export interface DynamicCollectSpec {
+	as: string;
+	outputSchema?: JsonSchemaObject;
+}
+
+export interface DynamicParallelStep {
+	expand: DynamicExpandSpec;
+	parallel: DynamicParallelTemplate;
+	collect: DynamicCollectSpec;
+	concurrency?: number;
+	failFast?: boolean;
+	phase?: string;
+	label?: string;
+	acceptance?: AcceptanceInput;
 }
 
 /** Parallel step: multiple agents running concurrently */
-interface ParallelStep {
+export interface ParallelStep {
 	parallel: ParallelTaskItem[];
 	cwd?: string;
 	concurrency?: number;
@@ -77,7 +116,7 @@ interface ParallelStep {
 }
 
 /** Union type for chain steps */
-export type ChainStep = SequentialStep | ParallelStep;
+export type ChainStep = SequentialStep | ParallelStep | DynamicParallelStep;
 
 // =============================================================================
 // Type Guards
@@ -87,10 +126,17 @@ export function isParallelStep(step: ChainStep): step is ParallelStep {
 	return "parallel" in step && Array.isArray((step as ParallelStep).parallel);
 }
 
+export function isDynamicParallelStep(step: ChainStep): step is DynamicParallelStep {
+	return "expand" in step && "collect" in step && "parallel" in step && !Array.isArray((step as { parallel?: unknown }).parallel);
+}
+
 /** Get all agent names in a step (single for sequential, multiple for parallel) */
 export function getStepAgents(step: ChainStep): string[] {
 	if (isParallelStep(step)) {
 		return step.parallel.map((t) => t.agent);
+	}
+	if (isDynamicParallelStep(step)) {
+		return [step.parallel.agent];
 	}
 	return [step.agent];
 }
@@ -160,6 +206,9 @@ export function resolveChainTemplates(
 				// Default for parallel tasks is {previous}
 				return "{previous}";
 			});
+		}
+		if (isDynamicParallelStep(step)) {
+			return step.parallel.task ?? "{previous}";
 		}
 		// Sequential step: existing logic
 		const seq = step as SequentialStep;

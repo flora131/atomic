@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- The `@bastani/workflows` authoring SDK types are now externally resolvable in installed packages through `@bastani/atomic`'s new `./workflows` exports and ambient bridge, so workflow files type-check `import { defineWorkflow, Type } from "@bastani/workflows"` (and `@bastani/workflows/builtin/*`) under `tsc` (NodeNext) without a hand-authored `.d.ts`, `declare module` shim, or `paths` alias. Workflow packages declare `@bastani/atomic` and `typebox` as peer dependencies; the package continues to distribute raw TypeScript with no build step, and the runtime virtual-module loader is unchanged ([#1208](https://github.com/bastani-inc/atomic/issues/1208)).
+
 ### Fixed
 
 - Fixed builtin (and any) workflows falling back to the user's currently selected model instead of the stage's defined model. A fully-qualified `provider/model` id that the live model catalog did not list was treated as a hard "not available" failure; because candidate validation throws on any failure and the catalog resolver catches that throw and collapses the whole ordered candidate list down to the user's `currentModel`, a single absent cross-provider fallback discarded the defined primary plus every fallback. Provider-qualified ids are now trusted (passed through with the reasoning suffix split off the last colon), mirroring the subagent resolver, so the defined primary is used and only genuinely failing candidates fall through at runtime. Regressed when bundled workflow model lists were refreshed onto newer multi-provider ids alongside suffix-first reasoning levels ([#1199](https://github.com/bastani-inc/atomic/issues/1199)).

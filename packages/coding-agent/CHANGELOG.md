@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.8.24-alpha.4] - 2026-06-04
+
 ### Fixed
 
 - Fixed TUI flicker and scrollback wipes while scrolling during active streaming in short terminals by adding a strict no-write off-viewport renderer skip and preserving scrollback for content-driven full redraws ([#1222](https://github.com/bastani-inc/atomic/issues/1222)).

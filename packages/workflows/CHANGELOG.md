@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.8.24-alpha.4] - 2026-06-04
+
+### Changed
+
+- Bumped package version for the Atomic 0.8.24-alpha.4 prerelease.
+
 ## [0.8.24-alpha.3] - 2026-06-03
 
 ### Changed

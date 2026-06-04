@@ -273,9 +273,9 @@ export default defineWorkflow("fallback-review")
   .description("Review with a model fallback chain.")
   .input("topic", Type.String())
   .output("review", Type.String({ description: "Reviewer output text." }))
-  .output("model", Type.String({ description: "Model that produced the review." }))
-  .output("attemptedModels", Type.Array(Type.String(), { description: "Models tried, in fallback order." }))
-  .output("modelAttempts", Type.Array(Type.Unknown(), { description: "Per-attempt model fallback details." }))
+  .output("model", Type.Optional(Type.String({ description: "Model that produced the review." })))
+  .output("attemptedModels", Type.Optional(Type.Array(Type.String(), { description: "Models tried, in fallback order." })))
+  .output("modelAttempts", Type.Optional(Type.Array(Type.Unknown(), { description: "Per-attempt model fallback details." })))
   .run(async (ctx) => {
     const review = await ctx.task("reviewer", {
       prompt: `Review this topic: ${String(ctx.inputs.topic)}`,
@@ -286,8 +286,8 @@ export default defineWorkflow("fallback-review")
     return {
       review: review.text,
       model: review.model,
-      attemptedModels: review.attemptedModels,
-      modelAttempts: review.modelAttempts,
+      attemptedModels: review.attemptedModels ? [...review.attemptedModels] : undefined,
+      modelAttempts: review.modelAttempts ? [...review.modelAttempts] : undefined,
     };
   })
   .compile();
@@ -362,7 +362,7 @@ A required input is any schema that is neither `Type.Optional(...)` nor carries 
 
 ### Output types
 
-Declare outputs with `.output(key, schema?)` when a workflow result should be part of its runtime contract, especially when another workflow will call it as a child. Lead with the most precise schema you can express — the loose rows at the bottom are last resorts for genuinely dynamic data.
+Declare outputs with `.output(key, schema)` when a workflow result should be part of its runtime contract, especially when another workflow will call it as a child. Lead with the most precise schema you can express — the loose rows at the bottom are last resorts for genuinely dynamic data.
 
 | Schema                                              | Runtime value accepted                              |
 | --------------------------------------------------- | --------------------------------------------------- |
@@ -399,16 +399,16 @@ A loose schema types the value as `unknown`/`Record<string, unknown>` everywhere
 
 #### `Type.Unsafe<T>()` escape hatch
 
-When you already have a precise TypeScript interface for a deeply-nested serializable value and don't want to hand-write the full TypeBox schema, wrap a permissive runtime schema with `Type.Unsafe<MyInterface>(...)`. The **static** type becomes exactly `MyInterface` (so `ctx.inputs`, the `.run()` return, and `child.outputs` stay precise), while the **runtime** stays as lenient as the wrapped schema:
+When you already have a precise TypeScript type for a deeply-nested serializable value and don't want to hand-write the full TypeBox schema, wrap a permissive runtime schema with `Type.Unsafe<MyType>(...)`. The **static** type becomes exactly `MyType` (so `ctx.inputs`, the `.run()` return, and `child.outputs` stay precise), while the **runtime** stays as lenient as the wrapped schema. Use a `type` alias rather than an `interface` for the wrapped type — an `interface` has no implicit index signature, so it does not satisfy the serializable-output constraint:
 
 ```typescript
 import { defineWorkflow, Type } from "@bastani/workflows";
 
-interface ResearchPacket {
+type ResearchPacket = {
   readonly topic: string;
   readonly score: number;
   readonly sections: readonly { readonly heading: string; readonly body: string }[];
-}
+};
 
 export default defineWorkflow("research-packet")
   .input("topic", Type.String())
@@ -460,7 +460,7 @@ Input overrides are bare `key=value` tokens (no leading `--`). Values are JSON-p
 
 Workflows always run as **background tasks** in interactive sessions — the chat editor stays free while a run executes. Press **F2** (or `/workflow connect <run-id>`) to attach to the live graph viewer; HIL prompts (`ctx.ui.input/confirm/select/editor`) appear as awaiting-input graph nodes. Press Enter on the node to answer locally, never as a modal dialog over the chat. Human input is detected when those runtime `ctx.ui.*` calls execute; workflows no longer have a declaration-time HIL flag.
 
-Nested `ctx.workflow(...)` calls are displayed as an expanded graph within the top-level run. `/workflow status` and run pickers list only top-level user-launched workflows, not implementation-owned child runs. `/workflow stages`, `/workflow stage`, `/workflow transcript`, `send`, `pause`, `interrupt`, and `resume` can still target visible child stage ids, prefixes, or names from the expanded graph; Atomic routes the control action to the owning nested run internally.
+Nested `ctx.workflow(...)` calls are displayed as an expanded graph within the top-level run. `/workflow status` and run pickers list only top-level user-launched workflows, not implementation-owned child runs. The `workflow` tool's `stages`, `stage`, `transcript`, `send`, `pause`, `interrupt`, and `resume` actions can still target visible child stage ids, prefixes, or names from the expanded graph; Atomic routes the control action to the owning nested run internally. (`stages`, `stage`, `transcript`, and `send` are `workflow` tool actions, not `/workflow` slash subcommands; the slash command exposes `connect`, `attach`, `pause`, `list`, `status`, `interrupt`, `kill`, `resume`, `reload`, and `inputs`.)
 
 Prompt answer replay is live-memory only. `StageSnapshot.promptAnswerState` reports whether continuation can replay a prompt answer (`available`), must ask again because the private ledger entry is gone (`unavailable`), or must ask again because multiple matching prompt nodes are ambiguous (`ambiguous`). Raw answers stay in a private `PromptAnswerRecord` ledger, are never serialized to snapshots or persistence, and remain resident in memory until the answer is cleared, the run is removed, or the store is cleared. Replay keys include prompt kind, message text, select choices, input/editor initial value, and hashed author callsite, so changing any of those inputs may intentionally re-ask on continuation. Empty `ctx.ui.select(..., [])` calls throw before creating a prompt node.
 
@@ -490,7 +490,16 @@ Prompt answer replay is live-memory only. `StageSnapshot.promptAnswerState` repo
     "promptId": "optional pending prompt identifier for send/answer",
     "reason": "optional human-readable reload reason",
     "all": "optional boolean for pause/interrupt/kill all; cannot be combined with stageId",
-    "task/tasks/chain": "optional direct workflow-native orchestration modes"
+    "task": "optional direct task object (name + prompt/task) or root task string for direct chain/parallel runs",
+    "tasks": "optional array of direct task objects (parallel direct run)",
+    "chain": "optional array of direct task objects and/or { parallel: [...] } groups (sequential direct run)",
+    "chainName": "optional label for a direct chain run",
+    "concurrency": "optional parallelism limit for direct tasks/chain",
+    "failFast": "optional fail-fast toggle for direct parallel work",
+    "async": "optional boolean to dispatch a run in the background",
+    "intercom": "optional intercom coordination options",
+    "chainDir": "optional directory for direct chain artifacts",
+    "session/task options": "per-stage overrides also accepted at the top level and on direct task items — model, thinkingLevel, fallbackModels, tools, noTools, customTools, mcp, context, cwd, output, outputMode, reads, worktree, gitWorktreeDir, baseBranch, maxOutput, artifacts, and more"
   }
 }
 ```
@@ -574,7 +583,7 @@ Goal Runner workflow: initialize a persisted goal ledger with a per-run goal id 
 
 `goal` defaults to 10 worker/review turns. Reviewer quorum is fixed internally at 2 reviewer `complete` votes. The repeated-blocker threshold defaults to 3 consecutive same-blocker turns and is clamped to `max_turns` when you run fewer than 3 turns.
 
-Child workflow outputs: `result`, `status`, `approved`, `goal_id`, `objective`, `ledger_path`, `turns_completed`, `iterations_completed`, `receipts`, `remaining_work`, and `review_report`.
+Child workflow outputs: `result`, `status`, `approved`, `goal_id`, `objective`, `ledger_path`, `turns_completed`, `iterations_completed`, `receipts`, `remaining_work`, `review_report`, and `review_report_path`.
 
 ### `ralph`
 

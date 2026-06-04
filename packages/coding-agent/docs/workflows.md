@@ -41,7 +41,7 @@ Use a workflow when a task should be repeatable, inspectable, resumable, or spli
 - [Monitor and Control Runs](#monitor-and-control-runs)
 - [Lifecycle Notices and Human Input](#lifecycle-notices-and-human-input)
 - [Direct One-Off Runs](#direct-one-off-runs)
-- [Codex Fast Mode for Workflow Stages](#codex-fast-mode-for-workflow-stages)
+- [Fast Inference for Workflow Stages](#fast-inference-for-workflow-stages)
 - [Writing a Workflow](#writing-a-workflow)
 - [Workflow Primitives](#workflow-primitives)
 - [Task and Stage Options](#task-and-stage-options)
@@ -930,7 +930,11 @@ Direct mode supports top-level/default options and per-task options such as `con
 
 For large fan-outs, prefer `outputMode: "file-only"` so the parent result contains compact file references instead of full output. Treat intercom payloads from async direct runs as user-visible workflow output.
 
-## Codex Fast Mode for Workflow Stages
+## Fast Inference for Workflow Stages
+
+Workflow stages can opt into faster, higher-priority inference on supported providers so multi-stage runs finish sooner. This is currently delivered through Codex fast mode.
+
+### Codex fast mode
 
 Use `/fast` to manage Codex fast mode separately for normal chat and workflow-stage sessions. The settings are `codexFastMode.chat` and `codexFastMode.workflow`; workflow stages use the workflow scope, not the chat scope.
 
@@ -1007,7 +1011,7 @@ Builder basics:
 - `.description(text)` sets the listing text.
 - `.input(key, schema)` declares typed user inputs.
 - `.worktreeFromInputs({ gitWorktreeDir, baseBranch })` optionally maps input names to workflow-wide reusable Git worktree defaults.
-- `.output(key, schema?)` declares typed outputs that parent workflows receive from `ctx.workflow(childWorkflow, ...)`.
+- `.output(key, schema)` declares typed outputs that parent workflows receive from `ctx.workflow(childWorkflow, ...)`.
 - `.run(async (ctx) => { ... })` defines the workflow body.
 - `.compile()` returns the workflow definition for discovery.
 
@@ -1035,7 +1039,7 @@ In TypeScript workflow files, `.input(...)` also narrows `ctx.inputs` for better
 
 ### Outputs
 
-Workflow outputs are runtime contracts for completed workflow runs and for parent workflows that call a child with `ctx.workflow(childWorkflow, ...)`. A workflow returns a JSON-serializable object from `.run()`, and `.output(key, schema?)` documents, validates, and exposes keys from that returned object. Primitives, arrays, `null`, functions, symbols, `undefined` properties, `NaN`, and infinite numbers fail validation.
+Workflow outputs are runtime contracts for completed workflow runs and for parent workflows that call a child with `ctx.workflow(childWorkflow, ...)`. A workflow returns a JSON-serializable object from `.run()`, and `.output(key, schema)` documents, validates, and exposes keys from that returned object. Primitives, arrays, `null`, functions, symbols, `undefined` properties, `NaN`, and infinite numbers fail validation.
 
 **Return convention:** outputs are return-object keys. Atomic never infers child workflow outputs from stage names, stage order, or the final assistant message. If a parent should read `child.outputs.foo`, the child workflow's `.run()` must both declare `.output("foo", schema)` and return `{ foo: value }`. `result` is not special and is never added for you: to expose `result`, declare `.output("result", schema)` and return `{ result }` exactly like any other output. Returning a key that is not declared with `.output(...)` fails the run with `atomic-workflows: workflow "<name>" returned undeclared output "<key>"; declare it with .output("<key>", Type....) or remove it from the .run() return`.
 
@@ -1065,7 +1069,7 @@ export default defineWorkflow("review-with-summary")
   .compile();
 ```
 
-There is no automatic `result` output. A workflow exposes exactly the keys it declares with `.output(...)` and returns from `.run()` — nothing more. To expose `result`, declare `.output("result", schema)` and return `{ result }` like any other output. If `.run()` returns a key that was never declared with `.output(...)`, the run fails with `atomic-workflows: workflow "<name>" returned undeclared output "<key>"; declare it with .output("<key>", Type....) or remove it from the .run() return` (the child-call variant reports `... child "<alias>" returned undeclared output "<key>" from "<childName>"`).
+There is no automatic `result` output. A workflow exposes exactly the keys it declares with `.output(...)` and returns from `.run()` — nothing more. To expose `result`, declare `.output("result", schema)` and return `{ result }` like any other output. If `.run()` returns a key that was never declared with `.output(...)`, the run fails with `atomic-workflows: workflow "<name>" returned undeclared output "<key>"; declare it with .output("<key>", Type....) or remove it from the .run() return` (for a child workflow call, `<name>` is the child's own name, and the parent surfaces the failure through the child-failure wrapper `atomic-workflows: child workflow "<childName>" (<displayName>) failed with status failed: ...`).
 
 Outputs are declared with TypeBox `Type.*` schemas passed to `.output(key, schema)`. **Prefer precise schemas.** A precise schema gives a precise `Static<>` type for the `.run()` return and for any parent reading `child.outputs`, and it makes runtime validation enforce the real shape instead of waving values through. Reach for `Type.Unknown()`, `Type.Any()`, `Type.Array(Type.Unknown())`, or `Type.Object({}, { additionalProperties: true })` only for genuinely dynamic data whose shape you cannot know ahead of time.
 
@@ -1109,16 +1113,16 @@ The same rule applies to inputs: `.input("counts", Type.Array(Type.Number()))` m
 
 #### `Type.Unsafe<T>()` escape hatch for deeply-nested values
 
-When you already have a precise TypeScript interface for a deeply-nested serializable value and don't want to hand-write the equivalent TypeBox schema, wrap a permissive runtime schema with `Type.Unsafe<MyInterface>(...)`. The **static** type becomes exactly `MyInterface` (so `ctx.inputs`, the `.run()` return, and `child.outputs` stay precise), while the **runtime** check stays as lenient as the wrapped schema:
+When you already have a precise TypeScript type for a deeply-nested serializable value and don't want to hand-write the equivalent TypeBox schema, wrap a permissive runtime schema with `Type.Unsafe<MyType>(...)`. The **static** type becomes exactly `MyType` (so `ctx.inputs`, the `.run()` return, and `child.outputs` stay precise), while the **runtime** check stays as lenient as the wrapped schema. Use a `type` alias rather than an `interface` for the wrapped type — an `interface` has no implicit index signature, so it does not satisfy the serializable-output constraint:
 
 ```ts
 import { defineWorkflow, Type } from "@bastani/workflows";
 
-interface ResearchPacket {
+type ResearchPacket = {
   readonly topic: string;
   readonly score: number;
   readonly sections: readonly { readonly heading: string; readonly body: string }[];
-}
+};
 
 export default defineWorkflow("research-packet")
   .input("topic", Type.String())
@@ -1233,7 +1237,7 @@ export default defineWorkflow("research-then-implement")
       description: "Use goal for bounded changes or Ralph for broad spec-to-PR work.",
     }),
   )
-  .output("research_doc_path", Type.String({ description: "Path to the deep-research document used for implementation." }))
+  .output("research_doc_path", Type.Optional(Type.String({ description: "Path to the deep-research document used for implementation." })))
   .output("runner", Type.String({ description: "Which nested runner executed: \"goal\" or \"ralph\"." }))
   // Genuinely dynamic: the nested runner (goal vs ralph) is chosen at runtime and
   // each exposes a different declared output shape, so a loose object is appropriate here.
@@ -1304,7 +1308,7 @@ child.outputs.summary; // declared by sharedResearch.output("summary", ...)
 child.outputs.sources; // declared by sharedResearch.output("sources", ...)
 ```
 
-A child exposes exactly its declared outputs — the keys it declared with `.output(...)` and returned from `.run()`. There are no implicit outputs and no raw return-object passthrough. If `.run()` returns a key that was not declared with `.output(...)`, the child call fails with `atomic-workflows: workflow "<name>" returned undeclared output "<key>"; declare it with .output("<key>", Type....) or remove it from the .run() return` (surfaced through the parent as `... child "<alias>" returned undeclared output "<key>" from "<childName>"`). A child with no declared outputs therefore exposes no outputs. Missing required outputs, schema type mismatches, and non-JSON-serializable returned values fail the child workflow call before the parent continues.
+A child exposes exactly its declared outputs — the keys it declared with `.output(...)` and returned from `.run()`. There are no implicit outputs and no raw return-object passthrough. If `.run()` returns a key that was not declared with `.output(...)`, the child run fails with `atomic-workflows: workflow "<childName>" returned undeclared output "<key>"; declare it with .output("<key>", Type....) or remove it from the .run() return`, and the parent surfaces that failure through the wrapper `atomic-workflows: child workflow "<childName>" (<displayName>) failed with status failed: ...`. A child with no declared outputs therefore exposes no outputs. Missing required outputs, schema type mismatches, and non-JSON-serializable returned values fail the child workflow call before the parent continues.
 
 Only compiled workflow definitions can be passed to `ctx.workflow(...)`. Import reusable workflows with TypeScript `import` statements first; use `/workflow` names such as `goal` only for launching named runs, not as `ctx.workflow(...)` arguments. If a module is missing or does not export a compiled workflow definition, workflow discovery fails when loading that module. Nested child workflows count against `maxDepth` (default `4` total workflow levels).
 

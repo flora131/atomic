@@ -1,0 +1,171 @@
+diff --git a/dist/tui.js b/dist/tui.js
+index b521ceb3..ff14b87 100644
+--- a/dist/tui.js
++++ b/dist/tui.js
+@@ -837,17 +837,33 @@ export class TUI extends Container {
+                 lastChanged = i;
+             }
+         }
+-        const appendedLines = newLines.length > this.previousLines.length;
++        const previousLineCount = this.previousLines.length;
++        const newLineCount = newLines.length;
++        const appendedLines = newLineCount > previousLineCount;
+         if (appendedLines) {
+             if (firstChanged === -1) {
+-                firstChanged = this.previousLines.length;
++                firstChanged = previousLineCount;
+             }
+-            lastChanged = newLines.length - 1;
++            lastChanged = newLineCount - 1;
+         }
++        const rawLastChanged = lastChanged;
+         if (firstChanged !== -1) {
+             lastChanged = this.expandLastChangedForKittyImages(firstChanged, lastChanged);
+         }
+-        const appendStart = appendedLines && firstChanged === this.previousLines.length && firstChanged > 0;
++        let appendStart = appendedLines && firstChanged === previousLineCount && firstChanged > 0;
++        const lineHasImage = (line) => isImageLine(line) || extractKittyImageIds(line).length > 0;
++        const changedRangeHasImage = (start, end) => {
++            const clampedStart = Math.max(0, start);
++            const clampedEnd = Math.max(clampedStart, end);
++            for (let i = clampedStart; i <= clampedEnd; i++) {
++                const oldLine = this.previousLines[i] ?? "";
++                const newLine = newLines[i] ?? "";
++                if (oldLine !== newLine && (lineHasImage(oldLine) || lineHasImage(newLine))) {
++                    return true;
++                }
++            }
++            return false;
++        };
+         // No changes - but still need to update hardware cursor position if it moved
+         if (firstChanged === -1) {
+             this.positionHardwareCursor(cursorPos, newLines.length);
+@@ -904,18 +920,123 @@ export class TUI extends Container {
+             this.previousViewportTop = prevViewportTop;
+             return;
+         }
++        const prevViewportBottom = prevViewportTop + height - 1;
+         // Differential rendering can only touch what was actually visible.
+-        // If the first changed line is above the previous viewport, we need a full redraw.
++        // Same-shape text changes above the previous viewport are safe to record
++        // without writing to the terminal; the offscreen scrollback may stay stale,
++        // but we avoid clearing and replaying all scrollback while users read it.
+         if (firstChanged < prevViewportTop) {
+-            logRedraw(`firstChanged < viewportTop (${firstChanged} < ${prevViewportTop})`);
+-            fullRender(true);
+-            return;
++            const offscreenEnd = Math.min(rawLastChanged, prevViewportTop - 1, previousLineCount - 1);
++            if (changedRangeHasImage(firstChanged, offscreenEnd)) {
++                logRedraw(`image change above viewport (${firstChanged} < ${prevViewportTop})`);
++                fullRender(true);
++                return;
++            }
++            if (newLineCount < previousLineCount) {
++                logRedraw(`structural shrink above viewport (${firstChanged} < ${prevViewportTop})`);
++                fullRender(true);
++                return;
++            }
++            if (newLineCount > previousLineCount) {
++                let visiblePreExistingChanged = false;
++                for (let i = prevViewportTop; i < previousLineCount; i++) {
++                    if ((this.previousLines[i] ?? "") !== (newLines[i] ?? "")) {
++                        visiblePreExistingChanged = true;
++                        break;
++                    }
++                }
++                const growth = newLineCount - previousLineCount;
++                let hasOffscreenPreExistingMismatch = false;
++                let pendingOffscreenMismatch = false;
++                let offscreenAlignmentProvenAfterLastOffscreenMismatch = false;
++                let hasPossibleStructuralShift = false;
++                const minShiftedRunLength = Math.max(3, growth + 1);
++                let shiftedMismatchRunLength = 0;
++                let shiftedMismatchRunStart = -1;
++                let maxShiftedMismatchRunLength = 0;
++                let hasShiftedStructuralInsert = false;
++                for (let i = firstChanged; i < previousLineCount; i++) {
++                    const oldLine = this.previousLines[i] ?? "";
++                    const newSameIndexLine = newLines[i] ?? "";
++                    const newShiftedLine = newLines[i + growth] ?? "";
++                    const sameIndexStable = oldLine === newSameIndexLine;
++                    const shiftedMatch = oldLine === newShiftedLine;
++                    const sameIndexMismatch = !sameIndexStable;
++                    const isOffscreen = i < prevViewportTop;
++                    const isBoundary = i === prevViewportTop;
++                    if (isOffscreen && sameIndexMismatch) {
++                        hasOffscreenPreExistingMismatch = true;
++                        pendingOffscreenMismatch = true;
++                        offscreenAlignmentProvenAfterLastOffscreenMismatch = false;
++                    }
++                    if (isOffscreen && pendingOffscreenMismatch && sameIndexStable && !shiftedMatch) {
++                        offscreenAlignmentProvenAfterLastOffscreenMismatch = true;
++                        pendingOffscreenMismatch = false;
++                    }
++                    if (sameIndexMismatch && shiftedMatch) {
++                        if (shiftedMismatchRunLength === 0) {
++                            shiftedMismatchRunStart = i;
++                        }
++                        shiftedMismatchRunLength++;
++                        maxShiftedMismatchRunLength = Math.max(maxShiftedMismatchRunLength, shiftedMismatchRunLength);
++                        if (!offscreenAlignmentProvenAfterLastOffscreenMismatch &&
++                            hasOffscreenPreExistingMismatch &&
++                            (isOffscreen || isBoundary || shiftedMismatchRunStart <= prevViewportTop)) {
++                            hasPossibleStructuralShift = true;
++                        }
++                        if (shiftedMismatchRunStart <= prevViewportTop && shiftedMismatchRunLength >= minShiftedRunLength) {
++                            hasShiftedStructuralInsert = true;
++                            break;
++                        }
++                    }
++                    else if (!shiftedMatch) {
++                        shiftedMismatchRunLength = 0;
++                        shiftedMismatchRunStart = -1;
++                    }
++                }
++                if (hasShiftedStructuralInsert) {
++                    logRedraw(`shifted structural insert above viewport (${firstChanged} < ${prevViewportTop}, growth=${growth}, shiftedRun=${maxShiftedMismatchRunLength})`);
++                    fullRender(true);
++                    return;
++                }
++                if (hasOffscreenPreExistingMismatch &&
++                    !offscreenAlignmentProvenAfterLastOffscreenMismatch &&
++                    hasPossibleStructuralShift) {
++                    logRedraw(`structural/ambiguous growth above viewport (${firstChanged} < ${prevViewportTop}, growth=${growth}, offscreenProof=${offscreenAlignmentProvenAfterLastOffscreenMismatch}, structuralShift=${hasPossibleStructuralShift}, shiftedRun=${maxShiftedMismatchRunLength})`);
++                    fullRender(true);
++                    return;
++                }
++                if (visiblePreExistingChanged) {
++                    firstChanged = prevViewportTop;
++                    lastChanged = Math.max(lastChanged, newLineCount - 1, firstChanged);
++                    appendStart = false;
++                }
++                else {
++                    firstChanged = previousLineCount;
++                    lastChanged = Math.max(newLineCount - 1, firstChanged);
++                    appendStart = firstChanged > 0;
++                }
++            }
++            else {
++                if (rawLastChanged < prevViewportTop) {
++                    this.positionHardwareCursor(cursorPos, newLines.length);
++                    this.cursorRow = Math.max(0, newLines.length - 1);
++                    this.maxLinesRendered = Math.max(this.maxLinesRendered, newLines.length);
++                    this.previousViewportTop = prevViewportTop;
++                    this.previousLines = newLines;
++                    this.previousKittyImageIds = this.collectKittyImageIds(newLines);
++                    this.previousWidth = width;
++                    this.previousHeight = height;
++                    return;
++                }
++                firstChanged = prevViewportTop;
++                lastChanged = Math.max(lastChanged, firstChanged);
++            }
+         }
+         // Render from first changed line to end
+         // Build buffer with all updates wrapped in synchronized output
+         let buffer = "\x1b[?2026h"; // Begin synchronized output
+         buffer += this.deleteChangedKittyImages(firstChanged, lastChanged);
+-        const prevViewportBottom = prevViewportTop + height - 1;
+         const moveTargetRow = appendStart ? firstChanged - 1 : firstChanged;
+         if (moveTargetRow > prevViewportBottom) {
+             const currentScreenRow = Math.max(0, Math.min(height - 1, hardwareCursorRow - prevViewportTop));

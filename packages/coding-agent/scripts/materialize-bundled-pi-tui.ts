@@ -319,6 +319,9 @@ function cleanBundledDependency(): void {
 	}
 }
 
+// Intentional sharp edge of this TEMPORARY #1222 bundling mechanism: we refuse to clobber any
+// pre-existing package-local copy rather than guessing whether it is safe to overwrite. Remove this
+// helper (and the rest of the bundling) once an upstream pi-tui release ships the renderer fix.
 function assertNoDestinationConflicts(closure: readonly ClosurePackage[]): void {
 	for (const entry of closure) {
 		if (!existsSync(entry.destinationDir)) continue;

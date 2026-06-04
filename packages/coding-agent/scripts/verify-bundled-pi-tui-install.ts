@@ -170,6 +170,11 @@ try {
 		fail(`Missing ${distIndexPath}; run bun run --cwd packages/coding-agent build first or omit SKIP_BUILD=1.`);
 	}
 
+	// `bun pm pack` is what materializes the bundled pi-tui closure: it fires the package's
+	// `prepack` (materialize) and `postpack` (--clean) lifecycle hooks, so we deliberately do not
+	// run the non-clean materialize ourselves here — only the explicit `--clean` below as a belt-and-
+	// suspenders cleanup. A Bun version that changes pack lifecycle behavior would break both this
+	// verifier and `npm publish` (which relies on the same prepack/postpack hooks).
 	console.log("• Packing @bastani/atomic with bun pm pack...");
 	const pack = run("bun", ["pm", "pack", "--destination", workRoot], codingAgentRoot);
 	const explicitCleanup = run("bun", ["run", "scripts/materialize-bundled-pi-tui.ts", "--clean"], codingAgentRoot);

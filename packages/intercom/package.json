@@ -50,6 +50,6 @@
     }
   },
   "dependencies": {
-    "typebox": "^1.1.24"
+    "typebox": "^1.1.39"
   }
 }

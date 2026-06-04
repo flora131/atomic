@@ -51,7 +51,7 @@
     "@modelcontextprotocol/ext-apps": "^1.7.2",
     "@modelcontextprotocol/sdk": "^1.25.1",
     "open": "^10.2.0",
-    "typebox": "^1.1.24",
+    "typebox": "^1.1.39",
     "zod": "^3.25.0 || ^4.0.0"
   }
 }

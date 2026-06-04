@@ -4,7 +4,7 @@ export const bundledPiTuiExpectedRuntimePackages = [
 	"get-east-asian-width",
 	"marked",
 ] as const;
-export const bundledPiTuiPatchedRendererMarker = "Same-shape text changes above the previous viewport";
+export const bundledPiTuiPatchedRendererMarker = "Strict off-viewport same-count changes are state-only";
 
 export function bundledPackageJsonTarPath(packageName: string): string {
 	return `package/node_modules/${packageName}/package.json`;

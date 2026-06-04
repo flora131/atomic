@@ -15,14 +15,17 @@
  *
  * Mount mode
  * ----------
- * Uses `{ overlay: false }`. pi's interactive
- * `ExtensionUiController.custom` REPLACES the editor with the mounted
- * component (`editorContainer.clear(); addChild(component)`), so the
- * picker renders **inline** at the editor's natural position in the
- * chat layout. This avoids the bottom-anchored overlay regression
- * captured in `ui/workflows/Screenshot 2026-05-13 at 1.09.32 AM.png`
- * (host `Working…` / widget rows wedged between command and picker)
- * without any overlay padding tricks — the host owns geometry.
+ * Uses the same bottom-pinned primitive as `ask_user_question`: hide the
+ * host working-loader row for the lifetime of the blocking picker and mount
+ * with `{ overlay: false }`. pi's interactive `ExtensionUiController.custom`
+ * then REPLACES the editor with the mounted component
+ * (`editorContainer.clear(); addChild(component)`), which puts the focused
+ * picker in the bottom editor slot instead of a floating overlay. Suppressing
+ * `Working…` while mounted keeps host chrome from being wedged between the
+ * `/workflow …` command and the picker, avoiding the prior bottom-anchored
+ * overlay regression captured in
+ * `ui/workflows/Screenshot 2026-05-13 at 1.09.32 AM.png` without overlay
+ * anchor/padding tricks — the host owns geometry.
  *
  * cross-ref:
  *   - src/tui/inputs-picker.ts (pure state + render)
@@ -48,6 +51,7 @@ import {
 
 export interface InputsUiSurface {
   custom?: PiCustomOverlayFunction;
+  setWorkingVisible?: (visible: boolean) => void;
 }
 
 export type InputsPickerResult =
@@ -68,7 +72,7 @@ export interface OpenInputsPickerOpts {
  * confirm, or `cancel` on esc / no UI surface.
  *
  * Behaviour matrix:
- *   - `pi.ui.custom` present: mounted as an overlay, settled by `done()`
+ *   - `pi.ui.custom` present: mounted in the editor slot, settled by `done()`
  *   - no `pi.ui.custom` at all: resolves `cancel` immediately so the slash
  *                               command can fall back to the "missing
  *                               required input" text path
@@ -79,11 +83,6 @@ export function openInputsPicker(
 ): Promise<InputsPickerResult> {
   return new Promise<InputsPickerResult>((resolve) => {
     const { workflowName, fields, prefilled, theme } = opts;
-    const custom = ui.custom;
-    if (typeof custom !== "function") {
-      resolve({ kind: "cancel" });
-      return;
-    }
     if (fields.length === 0) {
       // No inputs to collect — treat as immediate run with whatever the
       // caller already prefilled (likely empty).
@@ -91,10 +90,39 @@ export function openInputsPicker(
       return;
     }
 
+    let workingHidden = false;
+    const hideWorking = (): void => {
+      ui.setWorkingVisible?.(false);
+      workingHidden = true;
+    };
+    const restoreWorking = (): void => {
+      if (!workingHidden) return;
+      workingHidden = false;
+      ui.setWorkingVisible?.(true);
+    };
+
+    hideWorking();
+
+    const custom = ui.custom;
+    if (typeof custom !== "function") {
+      restoreWorking();
+      resolve({ kind: "cancel" });
+      return;
+    }
+
     const state = createInputsPickerState(fields, prefilled);
     let settled = false;
     let cursorOn = true;
     let cursorTimer: ReturnType<typeof setInterval> | null = null;
+
+    const settleWithoutDone = (result: InputsPickerResult): void => {
+      if (settled) return;
+      settled = true;
+      if (cursorTimer) clearInterval(cursorTimer);
+      cursorTimer = null;
+      restoreWorking();
+      resolve(result);
+    };
 
     const factory = (
       tui: PiCustomOverlayFactoryTui,
@@ -114,8 +142,12 @@ export function openInputsPicker(
         settled = true;
         if (cursorTimer) clearInterval(cursorTimer);
         cursorTimer = null;
-        done(undefined);
-        resolve(result);
+        try {
+          done(undefined);
+        } finally {
+          restoreWorking();
+          resolve(result);
+        }
       };
 
       return {
@@ -144,12 +176,7 @@ export function openInputsPicker(
         },
         invalidate: () => tui.requestRender?.(),
         dispose: () => {
-          if (cursorTimer) clearInterval(cursorTimer);
-          cursorTimer = null;
-          if (!settled) {
-            settled = true;
-            resolve({ kind: "cancel" });
-          }
+          settleWithoutDone({ kind: "cancel" });
         },
       };
     };
@@ -157,6 +184,12 @@ export function openInputsPicker(
     // overlay: false — picker replaces the editor in-place (see header
     // comment). The host owns geometry/focus; no overlayOptions are
     // forwarded by interactive pi today.
-    void custom(factory, { overlay: false });
+    try {
+      void Promise.resolve(custom(factory, { overlay: false })).catch(() => {
+        settleWithoutDone({ kind: "cancel" });
+      });
+    } catch {
+      settleWithoutDone({ kind: "cancel" });
+    }
   });
 }

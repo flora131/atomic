@@ -19,13 +19,62 @@ import {
   invalidForField,
   renderInputsPicker,
 } from "../../packages/workflows/src/tui/inputs-picker.ts";
+import { openInputsPicker, type InputsPickerResult } from "../../packages/workflows/src/tui/inputs-overlay.ts";
 import { renderInputsSchema } from "../../packages/workflows/src/shared/render-inputs-schema.ts";
 import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.ts";
 import { wrapPlainText } from "../../packages/workflows/src/tui/text-helpers.ts";
 import type { WorkflowInputEntry } from "../../packages/workflows/src/extension/render-result.ts";
+import type {
+  PiCustomComponent,
+  PiCustomOverlayFactory,
+  PiCustomOverlayFunction,
+  PiCustomOverlayOptions,
+} from "../../packages/workflows/src/extension/wiring.ts";
 import { makeFakeKeybindings } from "../support/fake-keybindings.ts";
 
 const KB = makeFakeKeybindings();
+
+const OVERLAY_FIELDS: WorkflowInputEntry[] = [
+  { name: "prompt", type: "string", required: true },
+];
+
+interface MountedInputsPicker {
+  readonly component: PiCustomComponent;
+  readonly promise: Promise<InputsPickerResult>;
+  readonly workingCalls: boolean[];
+  readonly customOptions: PiCustomOverlayOptions[];
+}
+
+function mountInputsPicker(): MountedInputsPicker {
+  let component: PiCustomComponent | undefined;
+  const workingCalls: boolean[] = [];
+  const customOptions: PiCustomOverlayOptions[] = [];
+  const custom: PiCustomOverlayFunction = (
+    factory: PiCustomOverlayFactory,
+    options: PiCustomOverlayOptions,
+  ) => {
+    customOptions.push(options);
+    const mounted = factory({ requestRender: () => undefined }, undefined, KB, () => undefined);
+    if (mounted instanceof Promise) {
+      throw new Error("test seam expects synchronous picker factory");
+    }
+    component = mounted;
+  };
+  const promise = openInputsPicker(
+    {
+      custom,
+      setWorkingVisible: (visible) => workingCalls.push(visible),
+    },
+    {
+      workflowName: "ralph",
+      fields: OVERLAY_FIELDS,
+      prefilled: { prompt: "ready" },
+      theme: deriveGraphTheme({}),
+    },
+  );
+  assert.ok(component, "custom factory should mount synchronously in this test seam");
+  return { component, promise, workingCalls, customOptions };
+}
 
 const FIELDS: WorkflowInputEntry[] = [
   { name: "prompt", type: "text", required: true, description: "task to do" },
@@ -39,6 +88,57 @@ const FIELDS: WorkflowInputEntry[] = [
   },
   { name: "verbose", type: "boolean", required: false },
 ];
+
+// ── Overlay mount adapter ─────────────────────────────────────────────────
+
+test("openInputsPicker hides Working while mounted and restores it on submit", async () => {
+  const mounted = mountInputsPicker();
+  assert.deepEqual(mounted.customOptions, [{ overlay: false }]);
+  assert.deepEqual(mounted.workingCalls, [false]);
+
+  mounted.component.handleInput?.("\t"); // focus Submit
+  mounted.component.handleInput?.("\r");
+
+  assert.deepEqual(await mounted.promise, { kind: "run", values: { prompt: "ready" } });
+  assert.deepEqual(mounted.workingCalls, [false, true]);
+});
+
+test("openInputsPicker restores Working on cancel", async () => {
+  const mounted = mountInputsPicker();
+  assert.deepEqual(mounted.workingCalls, [false]);
+
+  mounted.component.handleInput?.("\x1b");
+
+  assert.deepEqual(await mounted.promise, { kind: "cancel" });
+  assert.deepEqual(mounted.workingCalls, [false, true]);
+});
+
+test("openInputsPicker restores Working on dispose", async () => {
+  const mounted = mountInputsPicker();
+  assert.deepEqual(mounted.workingCalls, [false]);
+
+  mounted.component.dispose?.();
+
+  assert.deepEqual(await mounted.promise, { kind: "cancel" });
+  assert.deepEqual(mounted.workingCalls, [false, true]);
+});
+
+test("openInputsPicker restores Working when custom UI is unavailable", async () => {
+  const workingCalls: boolean[] = [];
+
+  const result = await openInputsPicker(
+    { setWorkingVisible: (visible) => workingCalls.push(visible) },
+    {
+      workflowName: "ralph",
+      fields: OVERLAY_FIELDS,
+      prefilled: { prompt: "ready" },
+      theme: deriveGraphTheme({}),
+    },
+  );
+
+  assert.deepEqual(result, { kind: "cancel" });
+  assert.deepEqual(workingCalls, [false, true]);
+});
 
 // ── State construction ─────────────────────────────────────────────────────
 

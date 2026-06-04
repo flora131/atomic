@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.8.24] - 2026-06-04
+
+### Changed
+
+- Promoted the 0.8.24 prerelease package version to a stable release.
+
 ## [0.8.24-alpha.4] - 2026-06-04
 
 ### Fixed

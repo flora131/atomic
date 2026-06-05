@@ -3547,14 +3547,15 @@ export class InteractiveMode {
         };
         this.statusContainer.clear();
         const cancelHint = `(${keyText("app.interrupt")} Cancel)`;
+        const isOverflowAutoCompaction = event.reason === "overflow";
         const label =
           event.reason === "manual"
             ? `Compacting context... ${cancelHint}`
-            : `${event.reason === "overflow" ? "Context overflow detected, " : ""}Auto-compacting... ${cancelHint}`;
+            : `${isOverflowAutoCompaction ? "Context overflow detected. " : ""}Auto-compacting... ${cancelHint}`;
         this.autoCompactionLoader = new Loader(
           this.ui,
           (spinner) => theme.fg("accent", spinner),
-          (text) => theme.fg("muted", text),
+          (text) => theme.fg(isOverflowAutoCompaction ? "warning" : "muted", text),
           label,
         );
         this.statusContainer.addChild(this.autoCompactionLoader);

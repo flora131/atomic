@@ -2,8 +2,8 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { AgentSession } from "../src/core/agent-session.ts";
 import type { ReadonlyFooterDataProvider } from "../src/core/footer-data-provider.ts";
-import { FooterComponent, formatCwdForFooter } from "../src/modes/interactive/components/footer.ts";
-import { initTheme } from "../src/modes/interactive/theme/theme.ts";
+import { FooterComponent, UsageMeterComponent, formatCwdForFooter } from "../src/modes/interactive/components/footer.ts";
+import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
 
 type AssistantUsage = {
 	input: number;
@@ -20,6 +20,8 @@ function createSession(options: {
 	reasoning?: boolean;
 	thinkingLevel?: string;
 	usage?: AssistantUsage;
+	contextPercent?: number;
+	contextWindow?: number;
 }): AgentSession {
 	const usage = options.usage;
 	const entries =
@@ -40,7 +42,7 @@ function createSession(options: {
 			model: {
 				id: options.modelId ?? "test-model",
 				provider: options.provider ?? "test",
-				contextWindow: 200_000,
+				contextWindow: options.contextWindow ?? 200_000,
 				reasoning: options.reasoning ?? false,
 			},
 			thinkingLevel: options.thinkingLevel ?? "off",
@@ -50,9 +52,15 @@ function createSession(options: {
 			getSessionName: () => options.sessionName,
 			getCwd: () => "/tmp/project",
 		},
-		getContextUsage: () => ({ contextWindow: 200_000, percent: 12.3 }),
+		getContextUsage: () => ({
+			contextWindow: options.contextWindow ?? 200_000,
+			percent: options.contextPercent ?? 12.3,
+		}),
 		modelRegistry: {
 			isUsingOAuth: () => false,
+		},
+		settingsManager: {
+			getCodexFastModeSettings: () => ({ chat: false, workflow: false }),
 		},
 	};
 
@@ -81,6 +89,41 @@ describe("formatCwdForFooter", () => {
 	it("abbreviates the home directory and descendants", () => {
 		expect(formatCwdForFooter("/home/user", "/home/user")).toBe("~");
 		expect(formatCwdForFooter("/home/user/project", "/home/user")).toBe("~/project");
+	});
+});
+
+describe("UsageMeterComponent context color", () => {
+	beforeAll(() => {
+		initTheme(undefined, false);
+	});
+
+	it("renders over-limit auto-compacted context usage as a warning", () => {
+		const session = createSession({
+			sessionName: "",
+			contextPercent: 101.2,
+			contextWindow: 200_000,
+		});
+		const usageMeter = new UsageMeterComponent(session);
+
+		const [line] = usageMeter.render(120);
+
+		expect(line).toContain(theme.fg("warning", "101.2%/200k (auto)"));
+		expect(line).not.toContain(theme.fg("error", "101.2%/200k (auto)"));
+	});
+
+	it("keeps over-limit context usage red when auto-compaction is disabled", () => {
+		const session = createSession({
+			sessionName: "",
+			contextPercent: 101.2,
+			contextWindow: 200_000,
+		});
+		const usageMeter = new UsageMeterComponent(session);
+		usageMeter.setAutoCompactEnabled(false);
+
+		const [line] = usageMeter.render(120);
+
+		expect(line).toContain(theme.fg("error", "101.2%/200k"));
+		expect(line).not.toContain(theme.fg("warning", "101.2%/200k"));
 	});
 });
 

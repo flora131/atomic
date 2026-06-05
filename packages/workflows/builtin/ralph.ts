@@ -158,69 +158,231 @@ const PLANNER_RFC_TEMPLATE = `
 
 | Document Metadata      | Details                                                                        |
 | ---------------------- | ------------------------------------------------------------------------------ |
-| Author(s)              | !\`git config user.name\`                                                        |
+| Author(s)              | Run \`git config user.name\` and insert the result.                              |
 | Status                 | Draft (WIP) / In Review (RFC) / Approved / Implemented / Deprecated / Rejected |
 | Team / Owner           |                                                                                |
 | Created / Last Updated |                                                                                |
 
 ## 1. Executive Summary
 
+_Instruction: A "TL;DR" of the document. Assume the reader is a VP or an engineer from another team who has 2 minutes. Summarize the Context (Problem), the Solution (Proposal), and the Impact (Value). Name the one or two **doors** at the heart of the change. Keep it under 200 words._
+
+> **Example:** This RFC proposes replacing our current nightly batch billing system with an event-driven architecture. Currently, billing delays cause a 5% increase in customer support tickets. The proposed solution introduces two money doors — \`authorize_charge\` (reversible hold) and \`settle_payment\` (irreversible capture) — as the single chokepoint for outbound money, reducing billing latency from 24 hours to <5 minutes while making double-charges structurally impossible.
+
 ## 2. Context and Motivation
+
+_Instruction: Why are we doing this? Why now? Link to the Product Requirement Document (PRD) and cite the relevant \`research/\` documents._
 
 ### 2.1 Current State
 
+_Instruction: Describe the existing architecture. Use a "Context Diagram" if possible. Be honest about the flaws — including which existing doors **leak** (named for tools, dishonest compression, scattered danger)._
+
+- **Architecture:** Currently, Service A communicates with Service B via a shared SQL database.
+- **Limitations:** This creates a tight coupling; when Service A locks the table, Service B times out.
+- **Leaking doors (today):** e.g. \`chargeCard(token, cents)\` is reachable from checkout, the retry job, *and* the admin panel — no one owns "charge exactly once." \`processPayment(...) -> bool\` collapses a declined card, a network failure, and a duplicate submission into the same \`false\`.
+
 ### 2.2 The Problem
+
+_Instruction: What is the specific pain point?_
+
+- **User Impact:** Customers cannot download receipts during the nightly batch window.
+- **Business Impact:** We are losing $X/month in churn due to billing errors.
+- **Technical Debt:** Danger is scattered; the boundary is misplaced, with defensive code deep inside the core instead of at the door.
 
 ## 3. Goals and Non-Goals
 
+_Instruction: This is the contract / Definition of Success. Be precise._
+
 ### 3.1 Functional Goals
+
+- [ ] Users must be able to export data in CSV format.
+- [ ] System must support multi-tenant data isolation.
 
 ### 3.2 Non-Goals (Out of Scope)
 
+_Instruction: Explicitly state what you are NOT doing. Remember: **intent lives in what the door refuses** — the doors you deliberately do not build are as much a statement of purpose as the ones you do. This prevents scope creep._
+
+- [ ] We will NOT support PDF export in this version (CSV only).
+- [ ] We will NOT migrate data older than 3 years.
+- [ ] We will NOT expose a second path to move money; \`settle_payment\` remains the only chokepoint.
+
 ## 4. Proposed Solution (High-Level Design)
+
+_Instruction: The "Big Picture." Diagrams are mandatory here._
 
 ### 4.1 System Architecture Diagram
 
-Include a Mermaid system architecture diagram grounded in the actual components this work touches.
+_Instruction: Insert a C4 System Context or Container diagram. Show the "Black Boxes" and mark where the **airlock** sits (the single edge where untrusted network becomes a trusted request)._
+
+\`\`\`mermaid
+%%{init: {'theme':'base', 'themeVariables': { 'primaryColor':'#f8f9fa','primaryTextColor':'#2c3e50','primaryBorderColor':'#4a5568','lineColor':'#4a90e2','secondaryColor':'#ffffff','tertiaryColor':'#e9ecef','clusterBkg':'#ffffff','clusterBorder':'#cbd5e0'}}}%%
+flowchart TB
+    classDef person fill:#5a67d8,stroke:#4c51bf,stroke-width:3px,color:#fff,font-weight:600
+    classDef core fill:#4a90e2,stroke:#357abd,stroke-width:2.5px,color:#fff,font-weight:600
+    classDef support fill:#667eea,stroke:#5a67d8,stroke-width:2.5px,color:#fff,font-weight:600
+    classDef db fill:#48bb78,stroke:#38a169,stroke-width:2.5px,color:#fff,font-weight:600
+    classDef external fill:#718096,stroke:#4a5568,stroke-width:2.5px,color:#fff,font-weight:600,stroke-dasharray:6 3
+
+    User(("◉<br><b>User</b>")):::person
+    subgraph Boundary["◆ System Boundary — Airlock at the edge"]
+        direction TB
+        Gateway{{"<b>API Gateway</b><br><i>auth · validate · authorize</i><br>the one trust transition"}}:::core
+        API["<b>Core Service</b><br><i>trusts its own invariants</i>"]:::core
+        Worker(["<b>Worker</b><br><i>async</i>"]):::support
+        DB[("●<br><b>Primary DB</b>")]:::db
+    end
+    Ext{{"<b>Payment Provider</b>"}}:::external
+
+    User -->|"1. HTTPS (untrusted)"| Gateway
+    Gateway -->|"2. trusted request"| API
+    API -->|"3. persist (txn)"| DB
+    API -.->|"4. enqueue"| Worker
+    Worker -.->|"5. settle (irreversible)"| Ext
+    style Boundary fill:#fff,stroke:#cbd5e0,stroke-width:2px,stroke-dasharray:8 4
+\`\`\`
 
 ### 4.2 Architectural Pattern
 
+_Instruction: Name the pattern (e.g., "Event Sourcing", "BFF — Backend for Frontend", "Publisher-Subscriber")._
+
+- We are adopting a Publisher-Subscriber pattern where the Order Service publishes \`OrderCreated\` events, and the Billing Service consumes them asynchronously.
+
 ### 4.3 Key Components
 
-| Component | Responsibility | Technology Stack | Justification |
-| --------- | -------------- | ---------------- | ------------- |
+| Component         | Responsibility              | Technology Stack  | Justification                                |
+| ----------------- | --------------------------- | ----------------- | -------------------------------------------- |
+| Ingestion Service | Validates incoming webhooks | Go, Gin Framework | High concurrency performance needed.         |
+| Event Bus         | Decouples services          | Kafka             | Durable log, replay capability.              |
+| Projections DB    | Read-optimized views        | MongoDB           | Flexible schema for diverse receipt formats. |
+
+### 4.4 The Door Set at a Glance (Stranger-Across-Time View)
+
+_Instruction: List the entrypoint **names alone** — no signatures, no bodies. A competent stranger should reconstruct the system's purpose from this list. If they cannot, intent has leaked into the mechanism; return to §5 and rename until they can. Mark every door that guards an irreversible effect with ⚠._
+
+> **Example:** \`register_account\`, \`authenticate\`, \`authorize_charge\`, \`settle_payment\` ⚠, \`grant_access\` ⚠, \`revoke_access\`, \`publish_draft\`. Reading these alone tells you who the system lets in, that money moves in exactly two steps and only those two, who may hand out access, and what it means for work to go live.
 
 ## 5. Detailed Design
 
-### 5.1 API Interfaces
+_Instruction: The "Meat" of the document. Sufficient detail for an engineer to start coding. Lead with the **doors** — they are the load-bearing part of the spec — then describe the mechanism behind them._
 
-### 5.2 Data Model / Schema
+### 5.1 The Doors (Entrypoint Contracts)
 
-### 5.3 Algorithms and State Management
+_Instruction: For each non-trivial entrypoint, give a typed signature (typed pseudocode is fine — read the types, not the syntax), the one-sentence guarantee (no "and"), the named failure set, and the refusals it enforces in the type system. Then record the rubric result. Make illegal states **unrepresentable**, not merely checked. Cite the \`research/\` doc that establishes each joint._
+
+\`\`\`
+// — Money. Two doors, and there is no third way to move a cent. —
+
+authorize_charge(
+  account: AccountId,            // newtype: cannot be confused with any other id
+  amount: Money,                 // currency-typed: USD and JPY will not add
+  idempotency_key: IdempotencyKey,
+): Result<AuthorizedCharge, ChargeError>
+// Guarantee: places a reversible hold and returns proof an authorization exists.
+// ChargeError = InsufficientFunds | CardDeclined | NetworkError | DuplicateKey
+
+settle_payment(
+  authorized: AuthorizedCharge,  // ← can ONLY be produced by authorize_charge
+  idempotency_key: IdempotencyKey,
+): Result<Settlement, SettlementError>
+// Guarantee: captures the held funds. IRREVERSIBLE. The single chokepoint for outbound money.
+// You cannot settle a charge you did not authorize — not because a check forbids it,
+// but because there is no way to CONSTRUCT an AuthorizedCharge except by calling
+// authorize_charge. The illegal state is unrepresentable. The idempotency key makes
+// the retry, the double-click, and the at-least-once queue converge on ONE settlement.
+\`\`\`
+
+**Per-door audit (run the rubric):**
+
+| Door               | (1) Joint       | (2) One sentence, no "and"   | (3) Honest name                 | (5) Every exit                                   | (6) Refusals real                         | (7) Trust transition | (8) One chokepoint             |
+| ------------------ | --------------- | ---------------------------- | ------------------------------- | ------------------------------------------------ | ----------------------------------------- | -------------------- | ------------------------------ |
+| \`authorize_charge\` | ✅ business verb | ✅ "places a reversible hold" | ✅                               | retry → \`DuplicateKey\`; timeout → \`NetworkError\` | currency mismatch unrepresentable         | n/a                  | reversible, not the chokepoint |
+| \`settle_payment\` ⚠ | ✅ business verb | ✅ "captures held funds"      | ✅ irreversibility in doc + type | replay converges via key                         | cannot settle un-authorized charge (type) | n/a                  | ✅ the sole outbound-money door |
+
+### 5.2 API Interfaces — The Same Doors on the Wire
+
+_Instruction: A web service's real boundary is its transport surface. The URL names the joint, the HTTP verb declares its safety class, the status code is the door's honest exit. Never \`200 OK\` wrapping an error. The wire door MUST carry the same name as its in-process twin (§5.1)._
+
+\`\`\`
+# Identity — the one trust transition, at the edge
+POST   /v1/sessions                       201 Created      # = authenticate; 401 on bad credentials
+DELETE /v1/sessions/current               204 No Content   # = log out
+
+# Money — two doors, one chokepoint, idempotent under retry
+POST   /v1/payment_intents                201   Idempotency-Key: <key>   # = authorize_charge (reversible)
+POST   /v1/payment_intents/{id}/capture   200   Idempotency-Key: <key>   # = settle_payment (IRREVERSIBLE)
+#   409 Conflict if the key is replayed with a different body
+#   422 Unprocessable if the intent was never authorized
+
+# Access — authority demanded by the route, destructive door made idempotent
+POST   /v1/accounts/{id}/grants           201   (admin scope required)            # = grant_access
+DELETE /v1/grants/{id}                     204   (204 even if already revoked)     # = revoke_access
+
+# Publishing — the domain's own verb, refusing to clobber a concurrent edit
+POST   /v1/drafts/{id}/publish            200   If-Match: <etag>                   # = publish_draft
+#   412 Precondition Failed if the draft moved under you — the wire's --force-with-lease
+\`\`\`
+
+_If using gRPC, define the same joints in the \`.proto\`; the typed request message is the airlock by construction. Use honest status codes (\`INVALID_ARGUMENT\`, \`PERMISSION_DENIED\`, \`NOT_FOUND\`, \`ALREADY_EXISTS\`, \`FAILED_PRECONDITION\`, retryable \`ABORTED\`/\`UNAVAILABLE\`) — never a lone \`OK\` carrying an error field._
+
+### 5.3 Data Model / Schema
+
+_Instruction: Provide ERDs or JSON schemas. Discuss normalization vs. denormalization. Prefer schemas that make illegal states unrepresentable (sum-type status columns over independent boolean flags)._
+
+**Table:** \`invoices\` (PostgreSQL)
+
+| Column    | Type | Constraints                          | Description                    |
+| --------- | ---- | ------------------------------------ | ------------------------------ |
+| \`id\`      | UUID | PK                                   |                                |
+| \`user_id\` | UUID | FK -> Users                          | Partition Key                  |
+| \`status\`  | ENUM | 'DRAFT','LOCKED','PROCESSING','PAID' | A sum type, not three booleans |
+
+### 5.4 Algorithms and State Management
+
+_Instruction: Describe complex logic, state machines, or consistency models. Tie each state transition to the door that performs it._
+
+- **State Machine:** An invoice moves \`DRAFT\` → \`LOCKED\` → \`PROCESSING\` → \`PAID\`; the \`PROCESSING → PAID\` transition happens only through \`settle_payment\`.
+- **Concurrency:** Optimistic locking on the \`version\` column; on the wire this surfaces as \`If-Match\`/\`412\`.
 
 ## 6. Alternatives Considered
 
-| Option | Pros | Cons | Reason for Rejection |
-| ------ | ---- | ---- | -------------------- |
+_Instruction: Prove you thought about trade-offs — including alternative **door sets** (e.g., one god endpoint vs. distinct joints). Why is your boundary better than the others?_
+
+| Option                                      | Pros                                        | Cons                                                   | Reason for Rejection                                                           |
+| ------------------------------------------- | ------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------ |
+| Option A: Single \`POST /execute {action}\`   | One route, flexible                         | God door; intent hidden in payload; danger un-funneled | Fails "joint, not tool" and "few dangerous doors."                             |
+| Option B: One-step \`chargeCard()\`           | Fewest calls                                | No reversible hold; retries double-charge              | Cannot make double-charge unrepresentable.                                     |
+| Option C: \`authorize\` + \`settle\` (Selected) | Reversible hold; one chokepoint; idempotent | Two calls instead of one                               | **Selected:** the two real joints, with the irreversible effect funneled once. |
 
 ## 7. Cross-Cutting Concerns
 
 ### 7.1 Security and Privacy
 
-### 7.2 Observability Strategy
+_Instruction: This is where "keep the dangerous doors few and honest" and "the airlock at the boundary" become concrete._
 
-### 7.3 Scalability and Capacity Planning
+- **The trust transition is singular:** untrusted callers become trusted only at \`POST /v1/sessions\` / the gateway. No other door promotes an anonymous caller. (Rubric #7.)
+- **Authority carried by type:** destructive/privileged doors demand a capability (\`AdminSession\`) that only \`authenticate\` can mint — the permission check cannot be forgotten at a call site because there is no call site where it is absent. (Rubric #6.)
+- **Irreversible effects pass one chokepoint:** money via \`settle_payment\`, deletion via the single guarded door; the catastrophic version must be asked for explicitly. (Rubric #8.)
+- **Data Protection:** PII (names, emails) encrypted at rest (AES-256); \`Password\` is a newtype that cannot be logged, printed, or compared by accident.
+- **Threat Model:** Primary threat is a compromised API key; remediation is rapid rotation and rate limiting.
 
-## 8. Migration, Rollout, and Testing
+## 8. Test Plan
 
-### 8.1 Deployment Strategy
+_Instruction: Test the doors at their promises and their refusals — not just the happy path. Every exit in rubric #5 deserves a test. The interactive verification is what lets a human or another agent confirm the feature is correct without reading the bodies — the stranger-across-time test, made executable._
 
-### 8.2 Data Migration Plan
-
-### 8.3 Test Plan
+- **Unit Tests:** each door's named failure variants; the *refusals* (e.g., a type/construction test proving \`settle_payment\` cannot accept anything but an \`AuthorizedCharge\`).
+- **End-to-End Tests:** full domain flows named by joint (register → authenticate → authorize → settle), driven through the real wire doors of §5.2.
+- **Integration Tests:** idempotency under replay (same key → one settlement); concurrent-edit \`412\`; trust transition (no door promotes an anonymous caller except \`authenticate\`).
+- **Fuzz / Property Tests:** throw malformed and adversarial input at the doors (the airlock); the boundary must reject everything the types forbid and never crash the core. Assert invariants over random inputs (e.g., \`settle_payment\` converges on one settlement under any interleaving of retries; no input sequence reaches a money move except through the chokepoint).
+- **Interactive Verification:** a runnable checklist or script a human OR another agent can execute to confirm the feature was implemented correctly — each step names a door, supplies an input, and states the expected honest exit (status code / named error / resulting state), so correctness is observable from the boundary alone. Include the exact commands or requests to run and the pass/fail condition for each.
 
 ## 9. Open Questions / Unresolved Issues
-`.trim();
+
+_Instruction: List known unknowns. These must be resolved before the doc is marked "Approved." Include any door whose rubric could not be answered cleanly — especially undefined guarantees (rubric #2, the most dangerous case) and any irreversible effect not yet funneled to a single chokepoint (rubric #8). Resolve these with the user via contrastive clarification._
+
+- [ ] Is \`publish_draft\` the only door that moves a draft to live, or can the admin panel also publish? (If the latter, the effect is not yet funneled — rubric #8.)
+- [ ] What exactly does \`authorize_charge\` promise on a partial provider outage — is the guarantee defined? (rubric #2.)
+- [ ] Will the Legal team approve the 3rd-party library for PDF generation?
+- [ ] Does the current VPC peering allow connection to the legacy mainframe?`.trim();
 
 type PromptSection = readonly [tag: string, content: string];
 
@@ -555,6 +717,13 @@ async function runRalphWorkflow(
             "Surface open questions in Section 9 with owner placeholders such as `[OWNER: infra team]`; do not paper over uncertainty.",
             "Match depth to stakes: a small refactor can be concise, but every template section header must remain present.",
             "If prior review findings are present, explicitly address each finding or explain why it is obsolete.",
+            "Determine the compatibility posture:",
+            "- Before decomposing the spec creation request, identify whether this project must preserve backward compatibility for real downstream users.",
+            "- If the user explicitly allows breaking changes, public API changes, cleanup, or says there are no real users/downstream dependencies, allow breaking changes.",
+            "- If the user mentions production users, published APIs, downstream consumers, migration safety, or compatibility requirements, disallow breaking changes.",
+            "- Carry this posture into the spec creation plan, the final spec frontmatter, and a `## Backwards Compatibility` section in the final spec.",
+            "- When allowing breaking changes, document existing legacy behavior, compatibility shims, optional flags, and public APIs as current state, not as constraints future specs must preserve unless the user explicitly asks for preservation.",
+            "- When not allowing breaking changes, document public APIs, compatibility-sensitive surfaces, downstream callers, migration constraints, and behavior that future work must preserve."
           ].join("\n"),
         ],
         [

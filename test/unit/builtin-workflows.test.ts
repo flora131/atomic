@@ -2129,6 +2129,26 @@ describe("ralph", () => {
         });
     });
 
+    test("planner RFC template uses a valid author placeholder", async () => {
+        const mod = await import("../../packages/workflows/builtin/ralph.js");
+        const ctx = makeMockCtx({
+            prompt: "Add a small feature",
+            max_loops: 1,
+            base_branch: "main",
+            git_worktree_dir: "",
+            create_pr: false,
+        });
+
+        await mod.default.run({ ...ctx, cwd: requireRalphTempCwd() });
+
+        const plannerPrompt = ctx.calls.prompts["planner-1"]?.[0] ?? "";
+        assert.doesNotMatch(plannerPrompt, /!`git config user\.name`/);
+        assert.match(
+            plannerPrompt,
+            /Run `git config user\.name` and insert the result\./,
+        );
+    });
+
     test("leaves stage cwd unset when git_worktree_dir is not provided", async () => {
         const mod = await import("../../packages/workflows/builtin/ralph.js");
         const ctx = makeMockCtx({

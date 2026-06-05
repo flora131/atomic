@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.8.26-alpha.3] - 2026-06-05
+
 ### Changed
 
 - Changed the builtin `ralph` workflow to include the workflow current working directory in every stage prompt so planner, implementation, simplification, review, and PR handoff stages keep repository work anchored to the workflow checkout.

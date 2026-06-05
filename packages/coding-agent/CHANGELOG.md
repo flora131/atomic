@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.8.26-alpha.1] - 2026-06-05
+
 ### Fixed
 
 - Fixed an uncaught `TypeError: child.render is not a function` that crashed the TUI on `/resume` when an extension's custom-message renderer returned a non-`Component` value (such as a string). `CustomMessageComponent` now validates the renderer result exposes a `render()` method and falls back to the default boxed rendering otherwise ([#1236](https://github.com/bastani-inc/atomic/issues/1236)).

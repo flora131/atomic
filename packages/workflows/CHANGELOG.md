@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.8.26-alpha.1] - 2026-06-05
+
 ### Fixed
 
 - Fixed the inline-form "snapshot lost" renderer and the `workflow.run.start`/`workflow.run.end` banner renderers returning bare strings, which crashed the host TUI with `child.render is not a function` when resuming a session containing persisted workflow custom messages. These renderers now return proper render components ([#1236](https://github.com/bastani-inc/atomic/issues/1236)).

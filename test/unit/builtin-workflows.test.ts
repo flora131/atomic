@@ -2164,6 +2164,37 @@ describe("ralph", () => {
         assertEveryRalphStageCwd(ctx, undefined);
     });
 
+    test("adds workflow cwd context to every Ralph stage prompt", async () => {
+        const mod = await import("../../packages/workflows/builtin/ralph.js");
+        const cwd = requireRalphTempCwd();
+        const ctx = makeMockCtx({
+            prompt: "Add a small feature",
+            max_loops: 1,
+            base_branch: "main",
+            git_worktree_dir: "",
+            create_pr: true,
+        });
+
+        await mod.default.run({ ...ctx, cwd });
+
+        const prompts = [
+            ["planner-1", ctx.calls.prompts["planner-1"]?.[0] ?? ""],
+            ["orchestrator-1", ctx.calls.prompts["orchestrator-1"]?.[0] ?? ""],
+            ["code-simplifier-1", ctx.calls.prompts["code-simplifier-1"]?.[0] ?? ""],
+            ["reviewer-a", ctx.calls.prompts["reviewer-a"]?.[0] ?? ""],
+            ["reviewer-b", ctx.calls.prompts["reviewer-b"]?.[0] ?? ""],
+            ["pull-request", ctx.calls.prompts["pull-request"]?.[0] ?? ""],
+        ] as const;
+
+        for (const [label, prompt] of prompts) {
+            assert.match(prompt, /<workflow_cwd_context>/, label);
+            assert.match(prompt, /Current working directory:/i, label);
+            assert.equal(prompt.includes(cwd), true, label);
+            assert.match(prompt, /relative to this directory/i, label);
+            assert.match(prompt, /current working directory for the workflow/i, label);
+        }
+    });
+
     test("skips pull-request stage when create_pr is omitted", async () => {
         const mod = await import("../../packages/workflows/builtin/ralph.js");
         const ctx = makeMockCtx({

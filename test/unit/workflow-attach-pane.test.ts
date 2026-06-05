@@ -1214,7 +1214,7 @@ describe("WorkflowAttachPane", () => {
             prompt.id,
             "detach must not resolve the prompt",
         );
-        assert.equal(store.getStagePromptDraft?.("run-1", "stage-a", prompt.id), "seed-draft");
+        assert.equal(store.getStagePromptDraft("run-1", "stage-a", prompt.id), "seed-draft");
 
         pane.handleInput(Key.enter);
         assert.equal(pane._mode, "stage-chat");
@@ -1224,7 +1224,7 @@ describe("WorkflowAttachPane", () => {
         pane.handleInput(Key.enter);
 
         assert.equal(await pending, "seed-draft!");
-        assert.equal(store.getStagePromptDraft?.("run-1", "stage-a", prompt.id), undefined);
+        assert.equal(store.getStagePromptDraft("run-1", "stage-a", prompt.id), undefined);
         assert.equal(pane._mode, "graph");
         pane.dispose();
     });

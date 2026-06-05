@@ -157,11 +157,11 @@ export interface Store {
   /** Wait for a stage/node-scoped HIL prompt to resolve. */
   awaitStagePendingPrompt(runId: string, stageId: string, promptId: string): Promise<unknown>;
   /** Record the latest live-only draft text for an active input/editor stage prompt. */
-  recordStagePromptDraft?(runId: string, stageId: string, promptId: string, text: string): boolean;
+  recordStagePromptDraft(runId: string, stageId: string, promptId: string, text: string): boolean;
   /** Return the live-only draft text for an active input/editor stage prompt, if present. */
-  getStagePromptDraft?(runId: string, stageId: string, promptId: string): string | undefined;
+  getStagePromptDraft(runId: string, stageId: string, promptId: string): string | undefined;
   /** Clear one live-only stage prompt draft. */
-  clearStagePromptDraft?(runId: string, stageId: string, promptId: string): boolean;
+  clearStagePromptDraft(runId: string, stageId: string, promptId: string): boolean;
   /**
    * Return the live-only prompt answer record for a completed prompt stage, if
    * still available. The returned value may contain secrets and must never be

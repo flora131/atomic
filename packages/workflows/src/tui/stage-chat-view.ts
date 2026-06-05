@@ -1235,12 +1235,12 @@ export class StageChatView implements Component, Focusable {
   }
 
   private _promptDraft(prompt: PendingPrompt): string | undefined {
-    return this.store.getStagePromptDraft?.(this.runId, this.stageId, prompt.id);
+    return this.store.getStagePromptDraft(this.runId, this.stageId, prompt.id);
   }
 
   private _persistPromptDraft(prompt: PendingPrompt, text: string): void {
     if (!this._isDraftablePrompt(prompt)) return;
-    this.store.recordStagePromptDraft?.(this.runId, this.stageId, prompt.id, text);
+    this.store.recordStagePromptDraft(this.runId, this.stageId, prompt.id, text);
   }
 
   private _seedPromptText(prompt: PendingPrompt): string {

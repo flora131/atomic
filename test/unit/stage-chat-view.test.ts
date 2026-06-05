@@ -2884,7 +2884,7 @@ describe("StageChatView", () => {
         await flush();
         assert.equal(detached, 1);
         assert.equal(store.runs()[0]?.stages[0]?.pendingPrompt?.id, prompt.id);
-        assert.equal(store.getStagePromptDraft?.("run-1", "stage-a", prompt.id), "seed-draft");
+        assert.equal(store.getStagePromptDraft("run-1", "stage-a", prompt.id), "seed-draft");
         view.dispose();
 
         const reattached = new StageChatView({
@@ -2901,7 +2901,7 @@ describe("StageChatView", () => {
         reattached.handleInput(Key.enter);
 
         assert.equal(await pending, "seed-draft");
-        assert.equal(store.getStagePromptDraft?.("run-1", "stage-a", prompt.id), undefined);
+        assert.equal(store.getStagePromptDraft("run-1", "stage-a", prompt.id), undefined);
         reattached.dispose();
     });
 

@@ -206,6 +206,15 @@ export function installToolExecutionHooks(pi: LiveWidgetAPI, storeInstance: Stor
     }
   }
 
+  function activeToolCallForPayload(payload: ToolExecutionStartPayload): { key: string; call: ActiveToolCall } | null {
+    const scope = resolveExplicitStageScope(payload);
+    if (!scope) return null;
+
+    const key = activeCallKey(scope.runId, scope.stageId, toolCallId(payload));
+    const call = activeToolCalls.get(key);
+    return call ? { key, call } : null;
+  }
+
   storeInstance.subscribe(pruneActiveToolCalls);
 
   function recordToolStart(payload: unknown): void {
@@ -236,11 +245,7 @@ export function installToolExecutionHooks(pi: LiveWidgetAPI, storeInstance: Stor
 
     pruneActiveToolCalls(storeInstance.snapshot());
 
-    const scope = resolveExplicitStageScope(payload);
-    if (!scope) return;
-
-    const key = activeCallKey(scope.runId, scope.stageId, toolCallId(payload));
-    if (!activeToolCalls.has(key)) return;
+    if (!activeToolCallForPayload(payload)) return;
     // Updates are attach-only until the store has an explicit update API.
   }
 
@@ -249,21 +254,17 @@ export function installToolExecutionHooks(pi: LiveWidgetAPI, storeInstance: Stor
 
     pruneActiveToolCalls(storeInstance.snapshot());
 
-    const scope = resolveExplicitStageScope(payload);
-    if (!scope) return;
+    const active = activeToolCallForPayload(payload);
+    if (!active) return;
 
-    const key = activeCallKey(scope.runId, scope.stageId, toolCallId(payload));
-    const activeCall = activeToolCalls.get(key);
-    if (!activeCall) return;
-
-    storeInstance.recordToolEnd(activeCall.runId, activeCall.stageId, {
-      name: activeCall.name,
+    storeInstance.recordToolEnd(active.call.runId, active.call.stageId, {
+      name: active.call.name,
       input: toolInput(payload),
-      startedAt: activeCall.startedAt,
+      startedAt: active.call.startedAt,
       endedAt: payload.endedAt ?? payload.ended_at ?? Date.now(),
       output: payload.output,
     });
-    activeToolCalls.delete(key);
+    activeToolCalls.delete(active.key);
   }
 
   const safeStart = safelyHandle(recordToolStart);

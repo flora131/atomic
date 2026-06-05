@@ -164,11 +164,17 @@ function getRenderer(
   return renderers.find((r) => r.event === event)?.renderer;
 }
 
-function expectStringRendererOutput(output: PiMessageRendererResult): string {
-  if (typeof output !== "string") {
-    throw new Error("Expected renderer to return a string");
+function rendererOutputText(output: PiMessageRendererResult): string {
+  if (output === undefined) {
+    throw new Error("Expected renderer to return output");
   }
-  return output;
+  // Lifecycle banners are wrapped in a render component (the host adds a
+  // renderer's result directly as a TUI child, so a bare string crashes
+  // `Container.render()`). Normalize to text for content assertions.
+  if (typeof output === "string") {
+    return output;
+  }
+  return output.render(120).join("\n");
 }
 
 function expectRegisteredCommand(
@@ -785,9 +791,9 @@ describe("MockExtensionAPI — message renderer registration", () => {
     });
   }
 
-  test("workflow.run.start renderer returns non-empty string", () => {
+  test("workflow.run.start renderer renders workflow name and runId", () => {
     const renderer = getRenderer(mock.renderers, "workflow.run.start")!;
-    const out = expectStringRendererOutput(renderer({ runId: "r1", name: "my-wf", inputs: { foo: "bar" } }));
+    const out = rendererOutputText(renderer({ runId: "r1", name: "my-wf", inputs: { foo: "bar" } }));
     assert.ok(out.length > 0);
     assert.ok(out.includes("my-wf"));
     assert.ok(out.includes("r1"));
@@ -795,20 +801,20 @@ describe("MockExtensionAPI — message renderer registration", () => {
 
   test("workflow.run.start renderer shows input count", () => {
     const renderer = getRenderer(mock.renderers, "workflow.run.start")!;
-    const out = expectStringRendererOutput(renderer({ runId: "r1", name: "wf", inputs: { a: 1, b: 2 } }));
+    const out = rendererOutputText(renderer({ runId: "r1", name: "wf", inputs: { a: 1, b: 2 } }));
     assert.ok(out.includes("2"));
   });
 
   test("workflow.run.end renderer ok status shows success marker", () => {
     const renderer = getRenderer(mock.renderers, "workflow.run.end")!;
-    const out = expectStringRendererOutput(renderer({ runId: "r1", status: "ok" }));
+    const out = rendererOutputText(renderer({ runId: "r1", status: "ok" }));
     assert.ok(out.includes("✓"));
     assert.ok(out.includes("r1"));
   });
 
   test("workflow.run.end renderer error status shows failure marker", () => {
     const renderer = getRenderer(mock.renderers, "workflow.run.end")!;
-    const out = expectStringRendererOutput(renderer({ runId: "r1", status: "error" }));
+    const out = rendererOutputText(renderer({ runId: "r1", status: "error" }));
     assert.ok(out.includes("✗"));
   });
 

@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Suppressed expected missing-API-key fallback notes when subagents recover by retrying with a GitHub Copilot model, while preserving attempt diagnostics and other fallback notes ([#1221](https://github.com/bastani-inc/atomic/issues/1221)).
+
 ## [0.8.25] - 2026-06-04
 
 ### Changed

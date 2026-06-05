@@ -1380,6 +1380,45 @@ describe("createStageContext — reasoning suffix retry behavior", () => {
         );
     });
 
+    test("suppresses expected missing API key fallback warnings before Copilot", async () => {
+        const calls: string[] = [];
+        const agentSession: AgentSessionAdapter = {
+            async create(options) {
+                const model = typeof options.model === "string" ? String(options.model) : "object-model";
+                calls.push(model);
+                const { session } = makeMockSession({
+                    async prompt() {
+                        if (model === "openai/primary") throw new Error("No API key found for openai.");
+                    },
+                    getLastAssistantText() {
+                        return model === "github-copilot/fallback" ? "copilot answer" : undefined;
+                    },
+                });
+                return session;
+            },
+        };
+        const ctx = createStageContext(
+            makeOpts({
+                adapters: { agentSession },
+                stageOptions: {
+                    model: "openai/primary",
+                    fallbackModels: ["github-copilot/fallback:medium"],
+                },
+            }),
+        ) as InternalStageContext;
+
+        assert.equal(await ctx.prompt("go"), "copilot answer");
+        assert.deepEqual(calls, ["openai/primary", "github-copilot/fallback"]);
+        assert.equal(ctx.__modelFallbackMeta().warnings, undefined);
+        assert.deepEqual(
+            ctx.__modelFallbackMeta().modelAttempts?.map((attempt) => ({ model: attempt.model, success: attempt.success })),
+            [
+                { model: "openai/primary", success: false },
+                { model: "github-copilot/fallback", success: true },
+            ],
+        );
+    });
+
     test("legacy thinkingLevel applies when candidates have no suffix", async () => {
         const thinkingLevels: string[] = [];
         const agentSession: AgentSessionAdapter = {

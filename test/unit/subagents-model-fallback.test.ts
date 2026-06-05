@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildModelCandidates,
   currentModelFullId,
+  shouldSuppressExpectedAuthFallbackWarning,
 } from "../../packages/subagents/src/runs/shared/model-fallback.js";
 import type { AvailableModelInfo } from "../../packages/subagents/src/runs/shared/model-fallback.js";
 
@@ -43,6 +44,57 @@ describe("subagent model fallback helpers", () => {
     assert.equal(
       currentModelFullId({ provider: "openai", id: "gpt-5-mini" }),
       "openai/gpt-5-mini",
+    );
+  });
+
+  test("shouldSuppressExpectedAuthFallbackWarning only suppresses expected missing-auth noise before Copilot", () => {
+    assert.equal(
+      shouldSuppressExpectedAuthFallbackWarning(
+        "No API key found for openai.",
+        "openai/gpt-5.5:high",
+        "github-copilot/gpt-5.5:medium",
+      ),
+      true,
+    );
+    assert.equal(
+      shouldSuppressExpectedAuthFallbackWarning(
+        "missing API key",
+        "anthropic/claude-sonnet-4",
+        "github-copilot/claude-sonnet-4",
+      ),
+      true,
+    );
+    assert.equal(
+      shouldSuppressExpectedAuthFallbackWarning(
+        "No API key found for openai.",
+        "openai/gpt-5.5",
+        "anthropic/claude-sonnet-4",
+      ),
+      false,
+    );
+    assert.equal(
+      shouldSuppressExpectedAuthFallbackWarning(
+        "503 service unavailable",
+        "openai/gpt-5.5",
+        "github-copilot/claude-sonnet-4",
+      ),
+      false,
+    );
+    assert.equal(
+      shouldSuppressExpectedAuthFallbackWarning(
+        "Authentication failed for github-copilot. Credentials may have expired.",
+        "openai/gpt-5.5",
+        "github-copilot/claude-sonnet-4",
+      ),
+      false,
+    );
+    assert.equal(
+      shouldSuppressExpectedAuthFallbackWarning(
+        "No API key found for github-copilot.",
+        "github-copilot/gpt-5.5",
+        "github-copilot/claude-sonnet-4",
+      ),
+      false,
     );
   });
 });

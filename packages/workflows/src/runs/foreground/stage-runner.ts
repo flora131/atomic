@@ -32,6 +32,7 @@ import {
   buildModelCandidatesFromCatalog,
   errorMessage,
   isRetryableModelFailure,
+  shouldSuppressExpectedAuthFallbackWarning,
   workflowModelId,
   type WorkflowResolvedModelCandidate,
 } from "../shared/model-fallback.js";
@@ -804,7 +805,9 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
           throw err;
         }
         const nextCandidate = candidates[index + 1]!;
-        modelWarnings.push(`[fallback] ${candidateLabel(candidate)} failed: ${message}. Retrying with ${candidateLabel(nextCandidate)}.`);
+        if (!shouldSuppressExpectedAuthFallbackWarning(message, candidate.id, nextCandidate.id)) {
+          modelWarnings.push(`[fallback] ${candidateLabel(candidate)} failed: ${message}. Retrying with ${candidateLabel(nextCandidate)}.`);
+        }
         await disposeCurrentSession();
         index += 1;
       }

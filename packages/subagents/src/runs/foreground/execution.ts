@@ -53,6 +53,7 @@ import {
 	buildModelCandidates,
 	formatModelAttemptNote,
 	isRetryableModelFailure,
+	shouldSuppressExpectedAuthFallbackWarning,
 } from "../shared/model-fallback.ts";
 import {
 	createMutatingFailureState,
@@ -931,7 +932,10 @@ export async function runSync(
 		if (!isRetryableModelFailure(result.error) || i === modelsToTry.length - 1) {
 			break;
 		}
-		attemptNotes.push(formatModelAttemptNote(attempt, modelsToTry[i + 1]));
+		const nextModel = modelsToTry[i + 1];
+		if (!shouldSuppressExpectedAuthFallbackWarning(result.error, attempt.model, nextModel)) {
+			attemptNotes.push(formatModelAttemptNote(attempt, nextModel));
+		}
 	}
 
 	const result = lastResult ?? {

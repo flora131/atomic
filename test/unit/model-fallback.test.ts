@@ -6,6 +6,7 @@ import {
   buildModelCandidatesFromCatalog,
   splitReasoningSuffix,
   isRetryableModelFailure,
+  shouldSuppressExpectedAuthFallbackWarning,
   validateWorkflowModels,
   WorkflowModelValidationError,
 } from "../../packages/workflows/src/runs/shared/model-fallback.js";
@@ -207,6 +208,57 @@ describe("model fallback helpers", () => {
         { id: "some-provider/brand-new-model", reasoningLevel: "medium" },
         { id: "anthropic/claude-sonnet-4", reasoningLevel: undefined },
       ],
+    );
+  });
+
+  test("shouldSuppressExpectedAuthFallbackWarning only suppresses expected missing-auth noise before Copilot", () => {
+    assert.equal(
+      shouldSuppressExpectedAuthFallbackWarning(
+        "No API key found for openai.",
+        "openai/gpt-5.5:high",
+        "github-copilot/gpt-5.5:medium",
+      ),
+      true,
+    );
+    assert.equal(
+      shouldSuppressExpectedAuthFallbackWarning(
+        "API key is not configured for anthropic.",
+        "anthropic/claude-sonnet-4",
+        "github-copilot/claude-sonnet-4",
+      ),
+      true,
+    );
+    assert.equal(
+      shouldSuppressExpectedAuthFallbackWarning(
+        "No API key found for openai.",
+        "openai/gpt-5.5",
+        "anthropic/claude-sonnet-4",
+      ),
+      false,
+    );
+    assert.equal(
+      shouldSuppressExpectedAuthFallbackWarning(
+        "429 rate limit exceeded",
+        "openai/gpt-5.5",
+        "github-copilot/claude-sonnet-4",
+      ),
+      false,
+    );
+    assert.equal(
+      shouldSuppressExpectedAuthFallbackWarning(
+        "Authentication failed for github-copilot. Credentials may have expired.",
+        "openai/gpt-5.5",
+        "github-copilot/claude-sonnet-4",
+      ),
+      false,
+    );
+    assert.equal(
+      shouldSuppressExpectedAuthFallbackWarning(
+        "No API key found for github-copilot.",
+        "github-copilot/gpt-5.5",
+        "github-copilot/claude-sonnet-4",
+      ),
+      false,
     );
   });
 

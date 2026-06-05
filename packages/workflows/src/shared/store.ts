@@ -152,6 +152,16 @@ export interface Store {
   /** Wait for a stage/node-scoped HIL prompt to resolve. */
   awaitStagePendingPrompt(runId: string, stageId: string, promptId: string): Promise<unknown>;
   /**
+   * Record a live-only draft for an active stage-local input/editor prompt.
+   * Draft text may contain secrets and must never be copied into snapshots,
+   * status output, logs, notifications, or persisted metadata.
+   */
+  recordStagePromptDraft(runId: string, stageId: string, promptId: string, text: string): boolean;
+  /** Return a live-only draft for an active stage-local input/editor prompt, if present. */
+  getStagePromptDraft(runId: string, stageId: string, promptId: string): string | undefined;
+  /** Clear a live-only draft for a stage-local prompt. */
+  clearStagePromptDraft(runId: string, stageId: string, promptId: string): boolean;
+  /**
    * Return the live-only prompt answer record for a completed prompt stage, if
    * still available. The returned value may contain secrets and must never be
    * logged, serialized, or copied into snapshots/persistence. Answers remain
@@ -239,6 +249,7 @@ export function createStore(): Store {
   const _notices: WorkflowNotice[] = [];
   const _listeners: Set<(snap: StoreSnapshot) => void> = new Set();
   const _stagePromptAnswers = new Map<string, PromptAnswerRecord>();
+  const _stagePromptDrafts = new Map<string, string>();
   let _version = 0;
 
   /**
@@ -285,16 +296,36 @@ export function createStore(): Store {
     return JSON.stringify([runId, stageId]);
   }
 
-  function rejectStagePrompt(stage: StageSnapshot, reason: string): void {
+  function stagePromptDraftKey(runId: string, stageId: string, promptId: string): string {
+    return JSON.stringify([runId, stageId, promptId]);
+  }
+
+  function stageHasActiveTextPrompt(
+    runId: string,
+    stageId: string,
+    promptId: string,
+  ): { prompt: PendingPrompt } | undefined {
+    const run = findRun(runId);
+    if (!run || TERMINAL_STATUSES.has(run.status)) return undefined;
+    const stage = findStage(run, stageId);
+    if (!stage || isTerminalStageStatus(stage.status)) return undefined;
+    const prompt = stage.pendingPrompt;
+    if (!prompt || prompt.id !== promptId) return undefined;
+    if (prompt.kind !== "input" && prompt.kind !== "editor") return undefined;
+    return { prompt };
+  }
+
+  function rejectStagePrompt(runId: string, stage: StageSnapshot, reason: string): void {
     const prompt = stage.pendingPrompt;
     if (!prompt) return;
     stage.pendingPrompt = undefined;
+    _stagePromptDrafts.delete(stagePromptDraftKey(runId, stage.id, prompt.id));
     rejectPrompt(prompt.id, reason);
   }
 
-  function rejectAllStagePrompts(run: RunSnapshot, reason: string): void {
+  function rejectAllStagePrompts(runId: string, run: RunSnapshot, reason: string): void {
     for (const stage of run.stages) {
-      rejectStagePrompt(stage, reason);
+      rejectStagePrompt(runId, stage, reason);
     }
   }
 
@@ -427,7 +458,7 @@ export function createStore(): Store {
       if (stage.workflowChild !== undefined) existing.workflowChild = structuredClone(stage.workflowChild);
       delete existing.awaitingInputSince;
       delete existing.inputRequest;
-      rejectStagePrompt(existing, `atomic-workflows: stage ${stage.id} ended before prompt resolved`);
+      rejectStagePrompt(runId, existing, `atomic-workflows: stage ${stage.id} ended before prompt resolved`);
       _version++;
       notify();
     },
@@ -474,7 +505,7 @@ export function createStore(): Store {
         run.pendingPrompt = undefined;
         rejectPrompt(pending.id, `atomic-workflows: run ${runId} ended before prompt resolved`);
       }
-      rejectAllStagePrompts(run, `atomic-workflows: run ${runId} ended before prompt resolved`);
+      rejectAllStagePrompts(runId, run, `atomic-workflows: run ${runId} ended before prompt resolved`);
       _version++;
       notify();
       return true;
@@ -488,7 +519,7 @@ export function createStore(): Store {
       if (pending) {
         rejectPrompt(pending.id, `atomic-workflows: run ${runId} was removed before prompt resolved`);
       }
-      rejectAllStagePrompts(run, `atomic-workflows: run ${runId} was removed before prompt resolved`);
+      rejectAllStagePrompts(runId, run, `atomic-workflows: run ${runId} was removed before prompt resolved`);
       for (const stage of run.stages) {
         _stagePromptAnswers.delete(stagePromptAnswerKey(runId, stage.id));
       }
@@ -599,6 +630,7 @@ export function createStore(): Store {
       if (!stage) return false;
       const pending = stage.pendingPrompt;
       if (!pending || pending.id !== promptId) return false;
+      _stagePromptDrafts.delete(stagePromptDraftKey(runId, stageId, promptId));
       if (options.recordAnswer !== false) {
         _stagePromptAnswers.set(stagePromptAnswerKey(runId, stageId), {
           runId,
@@ -652,6 +684,21 @@ export function createStore(): Store {
         }
         _resolvers.set(promptId, { promptId, resolve, reject });
       });
+    },
+
+    recordStagePromptDraft(runId: string, stageId: string, promptId: string, text: string): boolean {
+      if (stageHasActiveTextPrompt(runId, stageId, promptId) === undefined) return false;
+      _stagePromptDrafts.set(stagePromptDraftKey(runId, stageId, promptId), text);
+      return true;
+    },
+
+    getStagePromptDraft(runId: string, stageId: string, promptId: string): string | undefined {
+      if (stageHasActiveTextPrompt(runId, stageId, promptId) === undefined) return undefined;
+      return _stagePromptDrafts.get(stagePromptDraftKey(runId, stageId, promptId));
+    },
+
+    clearStagePromptDraft(runId: string, stageId: string, promptId: string): boolean {
+      return _stagePromptDrafts.delete(stagePromptDraftKey(runId, stageId, promptId));
     },
 
     getStagePromptAnswer(runId: string, stageId: string): PromptAnswerRecord | undefined {
@@ -896,7 +943,13 @@ export function createStore(): Store {
     },
 
     clear(): void {
-      if (_runs.length === 0 && _notices.length === 0 && _resolvers.size === 0 && _stagePromptAnswers.size === 0) return;
+      if (
+        _runs.length === 0 &&
+        _notices.length === 0 &&
+        _resolvers.size === 0 &&
+        _stagePromptAnswers.size === 0 &&
+        _stagePromptDrafts.size === 0
+      ) return;
       _runs.length = 0;
       _notices.length = 0;
       // Reject any outstanding HIL waiters so background promises terminate
@@ -907,6 +960,7 @@ export function createStore(): Store {
       }
       _resolvers.clear();
       _stagePromptAnswers.clear();
+      _stagePromptDrafts.clear();
       _version++;
       notify();
     },

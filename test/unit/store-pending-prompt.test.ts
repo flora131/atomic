@@ -264,6 +264,108 @@ describe("store.recordStagePendingPrompt", () => {
   });
 });
 
+describe("store.stagePromptDrafts", () => {
+  test("records drafts for matching active input and editor prompts, including empty strings", () => {
+    const s = createStore();
+    s.recordRunStart(makeRun("r1"));
+    s.recordStageStart("r1", makeStage("input-stage"));
+    s.recordStageStart("r1", makeStage("editor-stage"));
+    assert.equal(s.recordStagePendingPrompt("r1", "input-stage", makePrompt("p-input")), true);
+    assert.equal(s.recordStagePendingPrompt("r1", "editor-stage", makePrompt("p-editor", { kind: "editor" })), true);
+
+    assert.equal(s.recordStagePromptDraft("r1", "input-stage", "p-input", ""), true);
+    assert.equal(s.getStagePromptDraft("r1", "input-stage", "p-input"), "");
+    assert.equal(s.recordStagePromptDraft("r1", "editor-stage", "p-editor", "draft text"), true);
+    assert.equal(s.getStagePromptDraft("r1", "editor-stage", "p-editor"), "draft text");
+  });
+
+  test("keeps draft text out of snapshots", () => {
+    const s = createStore();
+    s.recordRunStart(makeRun("r1"));
+    s.recordStageStart("r1", makeStage("s1"));
+    assert.equal(s.recordStagePendingPrompt("r1", "s1", makePrompt("p1")), true);
+    assert.equal(s.recordStagePromptDraft("r1", "s1", "p1", "super-secret-draft"), true);
+
+    assert.equal(JSON.stringify(s.snapshot()).includes("super-secret-draft"), false);
+  });
+
+  test("rejects writes for unknown prompts and non-text prompt kinds", () => {
+    const s = createStore();
+    s.recordRunStart(makeRun("r1"));
+    s.recordStageStart("r1", makeStage("s1"));
+    s.recordStageStart("r1", makeStage("s2"));
+    assert.equal(s.recordStagePendingPrompt("r1", "s1", makePrompt("p-confirm", { kind: "confirm" })), true);
+    assert.equal(s.recordStagePendingPrompt("r1", "s2", makePrompt("p-select", { kind: "select", choices: ["a"] })), true);
+
+    assert.equal(s.recordStagePromptDraft("missing", "s1", "p1", "x"), false);
+    assert.equal(s.recordStagePromptDraft("r1", "missing", "p1", "x"), false);
+    assert.equal(s.recordStagePromptDraft("r1", "s1", "wrong", "x"), false);
+    assert.equal(s.recordStagePromptDraft("r1", "s1", "p-confirm", "x"), false);
+    assert.equal(s.recordStagePromptDraft("r1", "s2", "p-select", "x"), false);
+    assert.equal(s.getStagePromptDraft("r1", "s1", "p-confirm"), undefined);
+  });
+
+  test("draft ledger keys keep colon-bearing run, stage, and prompt ids distinct", () => {
+    const s = createStore();
+    s.recordRunStart(makeRun("run:a"));
+    s.recordRunStart(makeRun("run"));
+    s.recordStageStart("run:a", makeStage("stage"));
+    s.recordStageStart("run", makeStage("a:stage"));
+    assert.equal(s.recordStagePendingPrompt("run:a", "stage", makePrompt("p:1")), true);
+    assert.equal(s.recordStagePendingPrompt("run", "a:stage", makePrompt("stage:p:1")), true);
+
+    assert.equal(s.recordStagePromptDraft("run:a", "stage", "p:1", "left"), true);
+    assert.equal(s.recordStagePromptDraft("run", "a:stage", "stage:p:1", "right"), true);
+
+    assert.equal(s.getStagePromptDraft("run:a", "stage", "p:1"), "left");
+    assert.equal(s.getStagePromptDraft("run", "a:stage", "stage:p:1"), "right");
+  });
+
+  test("clears drafts on prompt resolve", async () => {
+    const s = createStore();
+    s.recordRunStart(makeRun("r1"));
+    s.recordStageStart("r1", makeStage("s1"));
+    assert.equal(s.recordStagePendingPrompt("r1", "s1", makePrompt("p1")), true);
+    const waiter = s.awaitStagePendingPrompt("r1", "s1", "p1");
+    assert.equal(s.recordStagePromptDraft("r1", "s1", "p1", "draft"), true);
+    assert.equal(s.resolveStagePendingPrompt("r1", "s1", "p1", "answer"), true);
+    assert.equal(await waiter, "answer");
+    assert.equal(s.getStagePromptDraft("r1", "s1", "p1"), undefined);
+  });
+
+  test("clears drafts on stage end, run end, removeRun, and clear", () => {
+    const s = createStore();
+    s.recordRunStart(makeRun("stage-end"));
+    const endingStage = makeStage("s1");
+    s.recordStageStart("stage-end", endingStage);
+    assert.equal(s.recordStagePendingPrompt("stage-end", "s1", makePrompt("p-stage")), true);
+    assert.equal(s.recordStagePromptDraft("stage-end", "s1", "p-stage", "stage draft"), true);
+    s.recordStageEnd("stage-end", { ...endingStage, status: "failed", endedAt: Date.now(), error: "boom" });
+    assert.equal(s.getStagePromptDraft("stage-end", "s1", "p-stage"), undefined);
+
+    s.recordRunStart(makeRun("run-end"));
+    s.recordStageStart("run-end", makeStage("s1"));
+    assert.equal(s.recordStagePendingPrompt("run-end", "s1", makePrompt("p-run")), true);
+    assert.equal(s.recordStagePromptDraft("run-end", "s1", "p-run", "run draft"), true);
+    s.recordRunEnd("run-end", "killed", undefined, "stop");
+    assert.equal(s.getStagePromptDraft("run-end", "s1", "p-run"), undefined);
+
+    s.recordRunStart(makeRun("remove"));
+    s.recordStageStart("remove", makeStage("s1"));
+    assert.equal(s.recordStagePendingPrompt("remove", "s1", makePrompt("p-remove")), true);
+    assert.equal(s.recordStagePromptDraft("remove", "s1", "p-remove", "remove draft"), true);
+    assert.equal(s.removeRun("remove"), true);
+    assert.equal(s.getStagePromptDraft("remove", "s1", "p-remove"), undefined);
+
+    s.recordRunStart(makeRun("clear"));
+    s.recordStageStart("clear", makeStage("s1"));
+    assert.equal(s.recordStagePendingPrompt("clear", "s1", makePrompt("p-clear")), true);
+    assert.equal(s.recordStagePromptDraft("clear", "s1", "p-clear", "clear draft"), true);
+    s.clear();
+    assert.equal(s.getStagePromptDraft("clear", "s1", "p-clear"), undefined);
+  });
+});
+
 describe("store.resolvePendingPrompt", () => {
   test("clears the pending prompt and resolves the waiter", async () => {
     const s = createStore();

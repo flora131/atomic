@@ -455,6 +455,104 @@ describe("StageChatView", () => {
         view.dispose();
     });
 
+    test("restores prompt-card input drafts after Ctrl+D detach and reattach", async () => {
+        const store = createStore();
+        setupRun(store, "run-1", "stage-a");
+        const prompt = makePendingPrompt({ initial: "seed" });
+        assert.equal(
+            store.recordStagePendingPrompt("run-1", "stage-a", prompt),
+            true,
+        );
+        const pending = store.awaitStagePendingPrompt(
+            "run-1",
+            "stage-a",
+            prompt.id,
+        );
+        const { handle } = makeHandle();
+        let detached = 0;
+        const firstView = new StageChatView({
+            store,
+            graphTheme: deriveGraphTheme({}),
+            runId: "run-1",
+            stageId: "stage-a",
+            workflowName: "test-wf",
+            handle,
+            onDetach: () => {
+                detached += 1;
+            },
+            onClose: () => {},
+        });
+
+        for (const ch of "-draft") firstView.handleInput(ch);
+        firstView.handleInput("\x04");
+        assert.equal(detached, 1);
+        assert.equal(store.runs()[0]?.stages[0]?.pendingPrompt?.id, prompt.id);
+        firstView.dispose();
+
+        const reattachedView = new StageChatView({
+            store,
+            graphTheme: deriveGraphTheme({}),
+            runId: "run-1",
+            stageId: "stage-a",
+            workflowName: "test-wf",
+            handle,
+            onDetach: () => {
+                detached += 1;
+            },
+            onClose: () => {},
+        });
+        assert.match(stripAnsi(reattachedView.render(80).join("\n")), /seed-draft/);
+
+        reattachedView.handleInput("\r");
+        assert.equal(await pending, "seed-draft");
+        assert.equal(detached, 2);
+        assert.equal(store.runs()[0]?.stages[0]?.pendingPrompt, undefined);
+        assert.equal(store.getStagePromptDraft("run-1", "stage-a", prompt.id), undefined);
+        reattachedView.dispose();
+    });
+
+    test("Ctrl+D detach leaves a prompt-card input pending and unresolved", async () => {
+        const store = createStore();
+        setupRun(store, "run-1", "stage-a");
+        const prompt = makePendingPrompt();
+        assert.equal(
+            store.recordStagePendingPrompt("run-1", "stage-a", prompt),
+            true,
+        );
+        let settled = false;
+        const pending = store
+            .awaitStagePendingPrompt("run-1", "stage-a", prompt.id)
+            .then((value) => {
+                settled = true;
+                return value;
+            });
+        const { handle } = makeHandle();
+        let detached = 0;
+        const view = new StageChatView({
+            store,
+            graphTheme: deriveGraphTheme({}),
+            runId: "run-1",
+            stageId: "stage-a",
+            workflowName: "test-wf",
+            handle,
+            onDetach: () => {
+                detached += 1;
+            },
+            onClose: () => {},
+        });
+
+        for (const ch of "draft") view.handleInput(ch);
+        view.handleInput("\x04");
+        await flush();
+        assert.equal(detached, 1);
+        assert.equal(settled, false);
+        assert.equal(store.runs()[0]?.stages[0]?.pendingPrompt?.id, prompt.id);
+
+        assert.equal(store.resolveStagePendingPrompt("run-1", "stage-a", prompt.id, "draft"), true);
+        assert.equal(await pending, "draft");
+        view.dispose();
+    });
+
     test("uses host pi-tui editor primitive for structured text prompts", async () => {
         const store = createStore();
         setupRun(store, "run-1", "stage-a");

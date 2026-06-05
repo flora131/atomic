@@ -521,6 +521,7 @@ export class StageChatView implements Component, Focusable {
     }
     if (!this.promptState || this.promptState.prompt.id !== prompt.id) {
       this.promptState = createPromptCardState(prompt);
+      this._seedPromptTextState(prompt);
       this._resetPromptEditor(prompt);
       this._resetPromptScroll();
       return true;
@@ -533,19 +534,49 @@ export class StageChatView implements Component, Focusable {
     this.promptMaxScroll = 0;
   }
 
+  private _promptSeedText(prompt: PendingPrompt): string {
+    const draft = this.store.getStagePromptDraft(this.runId, this.stageId, prompt.id);
+    if (draft !== undefined) return draft;
+    return typeof prompt.initial === "string" ? prompt.initial : "";
+  }
+
+  private _seedPromptTextState(prompt: PendingPrompt): void {
+    if (prompt.kind !== "input" && prompt.kind !== "editor") return;
+    if (!this.promptState || this.promptState.prompt.id !== prompt.id) return;
+    const seed = this._promptSeedText(prompt);
+    this.promptState.rawText = seed;
+    this.promptState.caret = seed.length;
+  }
+
+  private _recordPromptDraft(promptId: string, text: string): void {
+    this.store.recordStagePromptDraft(this.runId, this.stageId, promptId, text);
+  }
+
+  private _recordCurrentPromptDraft(): void {
+    const state = this.promptState;
+    if (!state) return;
+    const prompt = state.prompt;
+    if (prompt.kind !== "input" && prompt.kind !== "editor") return;
+    const text = this.promptEditor && this.promptEditorPromptId === prompt.id
+      ? this.promptEditor.getText()
+      : state.rawText;
+    this._recordPromptDraft(prompt.id, text);
+  }
+
   private _resetPromptEditor(prompt: PendingPrompt): void {
     this._disposePromptEditor();
     if ((prompt.kind !== "input" && prompt.kind !== "editor") || !this.piTui) return;
     const editor = this.piEditorFactory
       ? this.piEditorFactory(this.piTui, editorThemeFromGraphTheme(this.theme), this.piKeybindings)
       : new Editor(this.piTui, editorThemeFromGraphTheme(this.theme), { paddingX: 0 });
-    editor.setText(typeof prompt.initial === "string" ? prompt.initial : "");
+    editor.setText(this.promptState?.prompt.id === prompt.id ? this.promptState.rawText : this._promptSeedText(prompt));
     setEditorPlaceholder(editor, "Type your response…");
     setEditorBorderColor(editor, (text) => hexToAnsi(this.theme.accent) + text + RESET);
     editor.onChange = (text: string) => {
       if (this.promptState?.prompt.id !== prompt.id) return;
       this.promptState.rawText = text;
       this.promptState.caret = text.length;
+      this._recordPromptDraft(prompt.id, text);
       this.requestRender?.();
     };
     editor.onSubmit = (text: string) => {
@@ -1248,11 +1279,14 @@ export class StageChatView implements Component, Focusable {
       return;
     }
     const action = handlePromptCardInput(data, state, this._promptKeybindings());
+    const prompt = state.prompt;
+    if (prompt.kind === "input" || prompt.kind === "editor") {
+      this._recordPromptDraft(prompt.id, state.rawText);
+    }
     if (action.kind === "noop") {
       this.requestRender?.();
       return;
     }
-    const prompt = state.prompt;
     const response = action.kind === "submit"
       ? action.response
       : defaultResponseFor(prompt);
@@ -1306,6 +1340,7 @@ export class StageChatView implements Component, Focusable {
     const readOnlyPromptArchive = readOnlyArchive && stage?.promptFootprint !== undefined;
     if (matchesKey(data, Key.ctrl("d"))) {
       if (!this.promptState && this.chatHost.hasInputText()) return this.chatHost.handleInput(data);
+      this._recordCurrentPromptDraft();
       this.onDetach();
       return true;
     }

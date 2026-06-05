@@ -1164,6 +1164,64 @@ describe("WorkflowAttachPane", () => {
         pane.dispose();
     });
 
+    test("editor prompt drafts survive Ctrl+D detach and reattach", async () => {
+        const store = createStore();
+        setupRun(store, "run-1", [{ id: "stage-a", name: "A" }]);
+        const registry = createStageControlRegistry();
+        registry.register(makeHandle("run-1", "stage-a"));
+        const prompt = makePendingPrompt({ kind: "editor", initial: "seed" });
+        assert.equal(
+            store.recordStagePendingPrompt("run-1", "stage-a", prompt),
+            true,
+        );
+        const pending = store.awaitStagePendingPrompt(
+            "run-1",
+            "stage-a",
+            prompt.id,
+        );
+        const editors: FakePromptEditor[] = [];
+        const pane = new WorkflowAttachPane({
+            store,
+            graphTheme: deriveGraphTheme({}),
+            runId: "run-1",
+            stageControlRegistry: registry,
+            onClose: () => {},
+            initialAttachStageId: "stage-a",
+            piTui: {
+                requestRender: () => {},
+                terminal: { rows: 32, columns: 80 },
+            } as unknown as TUI,
+            piTheme: {},
+            piKeybindings: {},
+            piEditorFactory: () => {
+                const editor = new FakePromptEditor();
+                editors.push(editor);
+                return editor;
+            },
+        });
+
+        assert.equal(pane._mode, "stage-chat");
+        assert.equal(editors.at(-1)?.getText(), "seed");
+        for (const ch of "-draft") pane.handleInput(ch);
+        pane.handleInput(Key.ctrl("d"));
+
+        assert.equal(pane._mode, "graph");
+        assert.equal(store.getStagePromptDraft("run-1", "stage-a", prompt.id), "seed-draft");
+        assert.equal(store.runs()[0]?.stages[0]?.pendingPrompt?.id, prompt.id);
+
+        pane.handleInput(Key.enter);
+        assert.equal(pane._mode, "stage-chat");
+        assert.equal(editors.at(-1)?.getText(), "seed-draft");
+        pane.handleInput("!");
+        pane.handleInput(Key.enter);
+
+        assert.equal(await pending, "seed-draft!");
+        assert.equal(store.getStagePromptDraft("run-1", "stage-a", prompt.id), undefined);
+        assert.equal(store.runs()[0]?.stages[0]?.pendingPrompt, undefined);
+        assert.equal(pane._mode, "graph");
+        pane.dispose();
+    });
+
     test("explicitly declining a stage prompt returns to the graph", async () => {
         const store = createStore();
         setupRun(store, "run-1", [{ id: "stage-a", name: "A" }]);

@@ -951,6 +951,47 @@ test("overlay: registerInlineFormRenderer preserves class-backed pi method bindi
   assert.equal(replacementPi.calls, 1);
   assert.notEqual(replacementPi.renderers.get("workflows:input-form"), undefined);
 });
+
+test("overlay: renderer tombstones a lost snapshot into a renderable component (resume)", () => {
+  // Regression for issue #1236: on /resume the process restarts with an empty
+  // form store, so a rehydrated `workflows:input-form` message has no live
+  // state. The renderer must return a real component (with `render`) — not a
+  // bare string — or the host's Container.render() crashes with
+  // "child.render is not a function".
+  _resetForms();
+  const { pi, renderers } = makeFakePi();
+  registerInlineFormRenderer(pi as never, deriveGraphTheme({}));
+  const render = renderers.get("workflows:input-form");
+  assert.equal(typeof render, "function");
+
+  const message = {
+    role: "custom",
+    customType: "workflows:input-form",
+    content: "stack-workflow-test",
+    display: true,
+    details: { formId: "wf-missing" },
+    timestamp: 0,
+  };
+  const result = render!(message) as { render(width: number): string[] };
+
+  assert.equal(typeof result, "object");
+  assert.notEqual(result, null);
+  assert.equal(typeof result.render, "function");
+  const txt = plain(result.render(80));
+  assert.match(txt, /stack-workflow-test/);
+  assert.match(txt, /snapshot lost/);
+});
+
+test("overlay: renderer returns undefined (not a string) when the formId is absent", () => {
+  // A message with no formId must yield `undefined` so CustomMessageComponent
+  // falls back to its default boxed rendering rather than mounting a string.
+  _resetForms();
+  const { pi, renderers } = makeFakePi();
+  registerInlineFormRenderer(pi as never, deriveGraphTheme({}));
+  const render = renderers.get("workflows:input-form")!;
+  const result = render({ role: "custom", customType: "workflows:input-form", details: {} });
+  assert.equal(result, undefined);
+});
 // ── multi-line text field (rich-text prompt box) ──────────────────────────
 
 import { layoutTextField } from "../../packages/workflows/src/tui/inline-form-card.ts";

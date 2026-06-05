@@ -6,6 +6,21 @@ import type { CustomMessage } from "../../../core/messages.ts";
 import { getMarkdownTheme, theme } from "../theme/theme.ts";
 
 /**
+ * Type guard ensuring a value returned by an extension's custom renderer is a
+ * real TUI Component (exposes a callable `render`). Extension renderer output is
+ * untrusted at runtime: a renderer that returns a string or other non-Component
+ * value would otherwise be added as a child and crash `Container.render()` with
+ * "child.render is not a function".
+ */
+function isRenderableComponent(value: unknown): value is Component {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		typeof (value as { render?: unknown }).render === "function"
+	);
+}
+
+/**
  * Component that renders a custom message entry from extensions.
  * Uses distinct styling to differentiate from user messages.
  */
@@ -59,7 +74,11 @@ export class CustomMessageComponent extends Container {
 		if (this.customRenderer) {
 			try {
 				const component = this.customRenderer(this.message, { expanded: this._expanded }, theme);
-				if (component) {
+				// Only mount the result if it is a real Component. A non-Component
+				// return (e.g. the workflows inline-form "snapshot lost" string on
+				// /resume) is ignored so we fall through to the default rendering
+				// path instead of crashing Container.render().
+				if (isRenderableComponent(component)) {
 					// Custom renderer provides its own styled component
 					this.customComponent = component;
 					this.addChild(component);

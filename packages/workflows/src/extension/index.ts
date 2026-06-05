@@ -3756,11 +3756,14 @@ function factory(pi: ExtensionAPI): void {
   // duplicating it into chat scroll just creates visual noise and pushes
   // older chat content out of view every time a stage transitions.
   if (typeof pi.registerMessageRenderer === "function") {
+    // Wrap the string-producing banners in a render component: the host adds a
+    // renderer's result directly as a TUI child, so a bare string would crash
+    // `Container.render()` with "child.render is not a function".
     pi.registerMessageRenderer("workflow.run.start", (payload) =>
-      renderRunBanner(payload as RunStartPayload),
+      dynamicTextRenderComponent(() => renderRunBanner(payload as RunStartPayload)),
     );
     pi.registerMessageRenderer("workflow.run.end", (payload) =>
-      renderRunSummary(payload as RunEndPayload),
+      dynamicTextRenderComponent(() => renderRunSummary(payload as RunEndPayload)),
     );
     // Inline workflow-input form (Option C in the design conversation):
     // a sticky chat-history card driven by a custom EditorComponent. The

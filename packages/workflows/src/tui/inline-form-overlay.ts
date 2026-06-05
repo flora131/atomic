@@ -79,7 +79,22 @@ interface CardComponent {
   invalidate?(): void;
 }
 
-type RawRenderer = (payload: unknown) => string | CardComponent | undefined;
+/**
+ * Wrap static text in the renderer's component contract. Used by the
+ * "snapshot lost" tombstone path so /resume rehydration never hands the host a
+ * bare string — the host adds the renderer result directly as a TUI child and a
+ * string crashes `Container.render()` with "child.render is not a function".
+ */
+function staticCard(text: string): CardComponent {
+  return {
+    render: () => [text],
+    invalidate: () => {
+      /* immutable fallback; nothing to recompute */
+    },
+  };
+}
+
+type RawRenderer = (payload: unknown) => CardComponent | undefined;
 
 /**
  * Wire the message renderer once per live ExtensionAPI host. pi creates a new
@@ -106,8 +121,9 @@ export function registerInlineFormRenderer(pi: ExtensionAPI, theme: GraphTheme):
     if (!formId) return undefined;
     const state = getForm(formId);
     if (!state) {
-      // Process restart / map evicted — tombstone the entry.
-      return `  ${message.content ?? "workflow form"}  ·  (snapshot lost)`;
+      // Process restart / map evicted — tombstone the entry. Return a real
+      // component (not a bare string) so resume rehydration stays renderable.
+      return staticCard(`  ${message.content ?? "workflow form"}  ·  (snapshot lost)`);
     }
     return {
       // The card is fully reactive: read fresh state on every render call,

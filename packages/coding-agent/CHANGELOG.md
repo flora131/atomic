@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed an uncaught `TypeError: child.render is not a function` that crashed the TUI on `/resume` when an extension's custom-message renderer returned a non-`Component` value (such as a string). `CustomMessageComponent` now validates the renderer result exposes a `render()` method and falls back to the default boxed rendering otherwise ([#1236](https://github.com/bastani-inc/atomic/issues/1236)).
+
 ### Changed
 
 - Improved Windows cold startup by lazily loading heavy bundled web-access/intercom/MCP implementation modules, moving fd/rg readiness checks after the first interactive frame, and adding detailed startup timing spans ([#1223](https://github.com/bastani-inc/atomic/issues/1223)).

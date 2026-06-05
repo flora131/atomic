@@ -650,6 +650,7 @@ async function runSingleStep(
 	const attemptedModels: string[] = [];
 	const modelAttempts: ModelAttempt[] = [];
 	const attemptNotes: string[] = [];
+	const pendingAttemptNotes: string[] = [];
 	const eventsPath = path.join(path.dirname(ctx.outputFile), "events.jsonl");
 	let finalResult: RunPiStreamingResult | undefined;
 	let finalFastMode: boolean | undefined;
@@ -768,9 +769,13 @@ async function runSingleStep(
 		finalFastMode = attemptFastMode;
 		finalOutputSnapshot = outputSnapshot;
 		finalResult = { ...run, exitCode: effectiveExitCode, model: candidate ?? run.model, error, structuredOutput } as RunPiStreamingResult & { structuredOutput?: unknown };
-		if (attempt.success || completionGuardTriggered) break;
-		if (!isRetryableModelFailure(error) || index === candidates.length - 1) break;
-		attemptNotes.push(formatModelAttemptNote(attempt, candidates[index + 1]));
+		if (attempt.success) break;
+		if (!completionGuardTriggered && isRetryableModelFailure(error) && index < candidates.length - 1) {
+			pendingAttemptNotes.push(formatModelAttemptNote(attempt, candidates[index + 1]));
+			continue;
+		}
+		attemptNotes.push(...pendingAttemptNotes);
+		break;
 	}
 
 	const rawOutput = finalResult?.finalOutput ?? "";

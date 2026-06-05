@@ -586,6 +586,7 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
   let selectedModel: string | undefined;
   const modelAttempts: WorkflowModelAttempt[] = [];
   const modelWarnings: string[] = [];
+  const pendingFallbackWarnings: string[] = [];
   const modelCatalog = opts.models === undefined
     ? undefined
     : {
@@ -796,15 +797,19 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
       try {
         await promptWithPauseResume(activeSession, text, sdkOptions);
         modelAttempts.push({ model: candidate.id, success: true, ...modelAttemptReasoning(candidate) });
+        pendingFallbackWarnings.length = 0;
         return;
       } catch (err) {
         const message = errorMessage(err);
         modelAttempts.push({ model: candidate.id, success: false, ...modelAttemptReasoning(candidate), error: message });
         if (signal?.aborted || !isRetryableModelFailure(message) || index === candidates.length - 1) {
+          modelWarnings.push(...pendingFallbackWarnings);
+          pendingFallbackWarnings.length = 0;
+          notifyModelFallbackMetaChange();
           throw err;
         }
         const nextCandidate = candidates[index + 1]!;
-        modelWarnings.push(`[fallback] ${candidateLabel(candidate)} failed: ${message}. Retrying with ${candidateLabel(nextCandidate)}.`);
+        pendingFallbackWarnings.push(`[fallback] ${candidateLabel(candidate)} failed: ${message}. Retrying with ${candidateLabel(nextCandidate)}.`);
         await disposeCurrentSession();
         index += 1;
       }

@@ -17,6 +17,7 @@ import {
 	type AgentProgress,
 	type ArtifactPaths,
 	type ControlEvent,
+	type Details,
 	type ModelAttempt,
 	type RunSyncOptions,
 	type SingleResult,
@@ -137,6 +138,29 @@ function snapshotResult(result: SingleResult, progress: AgentProgress): SingleRe
 		truncation: result.truncation ? { ...result.truncation } : undefined,
 		outputReference: result.outputReference ? { ...result.outputReference } : undefined,
 	};
+}
+
+type RunSyncUpdate = import("@earendil-works/pi-agent-core").AgentToolResult<Details>;
+
+function extractUpdateText(update: RunSyncUpdate): string | undefined {
+	const text = update.content
+		.map((item) => item.type === "text" ? item.text : undefined)
+		.filter((item): item is string => Boolean(item?.trim()))
+		.join("\n");
+	return text || undefined;
+}
+
+export function shouldSuppressIntermediateRetryableFailureUpdate(update: RunSyncUpdate): boolean {
+	const result = update.details?.results?.[0];
+	if (!result) return false;
+	const progress = update.details?.progress?.[0];
+	const status = result.progress?.status ?? progress?.status;
+	if (status !== "failed") return false;
+	const failureText = result.error
+		?? result.progress?.error
+		?? progress?.error
+		?? extractUpdateText(update);
+	return isRetryableModelFailure(failureText);
 }
 
 async function runSingleAttempt(
@@ -875,6 +899,7 @@ export async function runSync(
 	const modelAttempts: ModelAttempt[] = [];
 	const aggregateUsage = emptyUsage();
 	const attemptNotes: string[] = [];
+	const pendingAttemptNotes: string[] = [];
 	let totalToolCount = 0;
 	let totalDurationMs = 0;
 
@@ -897,7 +922,18 @@ export async function runSync(
 		const candidate = modelsToTry[i];
 		if (candidate) attemptedModels.push(candidate);
 		const outputSnapshot = captureSingleOutputSnapshot(options.outputPath);
-		const result = await runSingleAttempt(runtimeCwd, agent, taskWithAcceptance, candidate, options, {
+		let attemptOptions = options;
+		if (i < modelsToTry.length - 1 && options.onUpdate) {
+			const forwardUpdate = options.onUpdate;
+			attemptOptions = {
+				...options,
+				onUpdate: (update) => {
+					if (shouldSuppressIntermediateRetryableFailureUpdate(update)) return;
+					forwardUpdate(update);
+				},
+			};
+		}
+		const result = await runSingleAttempt(runtimeCwd, agent, taskWithAcceptance, candidate, attemptOptions, {
 			sessionEnabled,
 			systemPrompt,
 			resolvedSkillNames: resolvedSkills.length > 0 ? resolvedSkills.map((skill) => skill.name) : undefined,
@@ -928,10 +964,12 @@ export async function runSync(
 		if (attemptSucceeded) {
 			break;
 		}
-		if (!isRetryableModelFailure(result.error) || i === modelsToTry.length - 1) {
-			break;
+		if (isRetryableModelFailure(result.error) && i < modelsToTry.length - 1) {
+			pendingAttemptNotes.push(formatModelAttemptNote(attempt, modelsToTry[i + 1]));
+			continue;
 		}
-		attemptNotes.push(formatModelAttemptNote(attempt, modelsToTry[i + 1]));
+		attemptNotes.push(...pendingAttemptNotes);
+		break;
 	}
 
 	const result = lastResult ?? {

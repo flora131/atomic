@@ -4204,6 +4204,9 @@ describe("direct SDK helpers", () => {
             ),
             [false, true],
         );
+        assert.equal(details.results?.[0]?.modelAttempts?.[0]?.error, "rate limit exceeded");
+        assert.equal(details.results?.[0]?.warnings, undefined);
+        assert.equal(details.warnings, undefined);
     });
 
     test("runTask reports classified auth guidance for direct stage failures", async () => {

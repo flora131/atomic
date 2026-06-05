@@ -597,16 +597,17 @@ describe("createStageContext — model fallback", () => {
         assert.equal(text, "fallback answer");
         assert.deepEqual(calls, ["anthropic/primary", "openai/fallback"]);
         assert.deepEqual(disposed, ["anthropic/primary"]);
-        assert.deepEqual(ctx.__modelFallbackMeta().attemptedModels, [
+        const meta = ctx.__modelFallbackMeta();
+        assert.deepEqual(meta.attemptedModels, [
             "anthropic/primary",
             "openai/fallback",
         ]);
         assert.deepEqual(
-            ctx
-                .__modelFallbackMeta()
-                .modelAttempts?.map((attempt) => attempt.success),
+            meta.modelAttempts?.map((attempt) => attempt.success),
             [false, true],
         );
+        assert.equal(meta.modelAttempts?.[0]?.error, "429 rate limit exceeded");
+        assert.equal(meta.warnings, undefined);
     });
 
     test("workflow fast mode keeps raw model metadata with a structured fast flag", async () => {
@@ -792,6 +793,60 @@ describe("createStageContext — model fallback", () => {
             "current/model",
         ]);
         assert.deepEqual(ctx.__modelFallbackMeta().attemptedModels, calls);
+    });
+
+    test("all-candidate failure keeps fallback warning metadata", async () => {
+        const calls: string[] = [];
+        const agentSession: AgentSessionAdapter = {
+            async create(options) {
+                const model = typeof options.model === "string"
+                    ? options.model
+                    : "object-model";
+                calls.push(model);
+                const { session } = makeMockSession({
+                    async prompt() {
+                        throw new Error(`${model} No API key found`);
+                    },
+                });
+                return session;
+            },
+        };
+        const ctx = createStageContext(
+            makeOpts({
+                adapters: { agentSession },
+                stageOptions: {
+                    model: "anthropic/primary",
+                    fallbackModels: ["openai/fallback"],
+                },
+            }),
+        ) as InternalStageContext;
+
+        await assert.rejects(ctx.prompt("go"), /openai\/fallback No API key found/);
+
+        const meta = ctx.__modelFallbackMeta();
+        assert.deepEqual(calls, ["anthropic/primary", "openai/fallback"]);
+        assert.deepEqual(
+            meta.modelAttempts?.map((attempt) => ({
+                model: attempt.model,
+                success: attempt.success,
+                error: attempt.error,
+            })),
+            [
+                {
+                    model: "anthropic/primary",
+                    success: false,
+                    error: "anthropic/primary No API key found",
+                },
+                {
+                    model: "openai/fallback",
+                    success: false,
+                    error: "openai/fallback No API key found",
+                },
+            ],
+        );
+        assert.deepEqual(meta.warnings, [
+            "[fallback] anthropic/primary failed: anthropic/primary No API key found. Retrying with openai/fallback.",
+        ]);
     });
 
     test("non-retryable failure does not try fallback", async () => {

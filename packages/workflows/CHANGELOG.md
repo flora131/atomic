@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Updated the `research-codebase` skill to capture a `breaking_changes_allowed` compatibility posture before research fanout, carry it through sub-agent prompts, and record it in research documents so downstream specs and workflows do not preserve legacy APIs by default when breaking changes are allowed ([#1225](https://github.com/bastani-inc/atomic/issues/1225)).
+
 ### Fixed
 
 - Fixed stage-local workflow HIL `input` and `editor` prompts losing draft text across Ctrl+D detach/reattach; drafts are kept live-only in memory and cleared when the prompt or run/stage exits ([#1179](https://github.com/bastani-inc/atomic/issues/1179)).

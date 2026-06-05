@@ -24,14 +24,24 @@ The user's research question/request is: **$ARGUMENTS**
     - **CRITICAL**: Read these files yourself in the main context before spawning any sub-tasks
     - This ensures you have full context before decomposing the research
 
-2. **Analyze and decompose the research question:**
+2. **Determine the compatibility posture:**
+    - Before decomposing the research request, identify whether this project must preserve backward compatibility for real downstream users.
+    - If the user explicitly allows breaking changes, public API changes, cleanup, or says there are no real users/downstream dependencies, set `breaking_changes_allowed: true`.
+    - If the user mentions production users, published APIs, downstream consumers, migration safety, or compatibility requirements, set `breaking_changes_allowed: false`.
+    - If the posture is not inferable from the request, ask the user once before continuing, using the available structured question tool when possible.
+    - Carry this posture into the research plan, every sub-agent prompt, the final research document frontmatter, and the `## Compatibility Context` section.
+    - When `breaking_changes_allowed: true`, document existing legacy behavior, compatibility shims, optional flags, and public APIs as current state, not as constraints future specs must preserve unless the user explicitly asks for preservation.
+    - When `breaking_changes_allowed: false`, document public APIs, compatibility-sensitive surfaces, downstream callers, migration constraints, and behavior that future work must preserve.
+
+3. **Analyze and decompose the research question:**
     - Break the research question down into composable research areas
     - Take time to ultrathink about the underlying patterns, connections, and architectural implications the user might be seeking
     - Identify specific components, patterns, or concepts to investigate
     - Create a research plan using TodoWrite to track all subtasks
+    - Include the compatibility posture in the plan so later synthesis and spec creation inherit the same constraint.
     - Consider which directories, files, or architectural patterns are relevant
 
-3. **Spawn parallel sub-agent tasks:**
+4. **Spawn parallel sub-agent tasks:**
     - Create multiple Task agents to research different aspects concurrently
     - We now have specialized agents that know how to do specific research tasks:
 
@@ -67,8 +77,9 @@ The user's research question/request is: **$ARGUMENTS**
     - Each agent knows its job - just tell it what you're looking for
     - Don't write detailed prompts about HOW to search - the agents already know
     - Remind agents they are documenting, not evaluating or improving
+    - Include `breaking_changes_allowed: true` or `breaking_changes_allowed: false` in each sub-agent prompt so compatibility-sensitive findings are documented with the right posture.
 
-4. **Wait for all sub-agents to complete and synthesize:**
+5. **Wait for all sub-agents to complete and synthesize:**
     - IMPORTANT: Wait for ALL sub-agent tasks to complete before proceeding
     - Compile all sub-agent results (both codebase and research findings)
     - Prioritize live codebase findings as primary source of truth
@@ -79,7 +90,7 @@ The user's research question/request is: **$ARGUMENTS**
     - Answer the user's research question with concrete evidence
     - **If findings reveal the original question was misframed** (e.g., the system works differently than assumed, or the components don't exist where expected), flag this to the user before finalizing the document. This is valuable signal — don't bury it.
 
-5. **Generate research document:**
+6. **Generate research document:**
     - Follow the directory structure for research documents:
 
 ```
@@ -117,6 +128,8 @@ research/
     status: complete
     last_updated: !`date '+%Y-%m-%d'`
     last_updated_by: [Researcher name]
+    breaking_changes_allowed: [true or false]
+    compatibility_context: "[Short explanation of downstream-user/API compatibility posture]"
     ---
 
     # Research
@@ -124,6 +137,10 @@ research/
     ## Research Question
 
     [Original user query]
+
+    ## Compatibility Context
+
+    [State whether breaking changes are allowed. If true, note that existing compatibility shims, optional flags, legacy APIs, and public APIs are documented as current state rather than preservation constraints. If false, summarize compatibility-sensitive surfaces, downstream users/callers, migration constraints, and behavior future work must preserve.]
 
     ## Summary
 
@@ -167,19 +184,19 @@ research/
     [Any areas that need further investigation]
     ```
 
-1. **Add GitHub permalinks (if applicable):**
+7. **Add GitHub permalinks (if applicable):**
     - Check if on main branch or if commit is pushed: `git branch --show-current` and `git status`
     - If on main/master or pushed, generate GitHub permalinks:
         - Get repo info: `gh repo view --json owner,name`
         - Create permalinks: `https://github.com/{owner}/{repo}/blob/{commit}/{file}#L{line}`
     - Replace local file references with permalinks in the document
 
-2. **Present findings:**
+8. **Present findings:**
     - Present a concise summary of findings to the user
     - Include key file references for easy navigation
     - Ask if they have follow-up questions or need clarification
 
-3. **Handle follow-up questions:**
+9. **Handle follow-up questions:**
 
 - If the user has follow-up questions, append to the same research document
 - Update the frontmatter fields `last_updated` and `last_updated_by` to reflect the update
@@ -207,10 +224,12 @@ research/
 - **REMEMBER**: Document what IS, not what SHOULD BE
 - **NO RECOMMENDATIONS**: Only describe the current state of the codebase
 - **File reading**: Always read mentioned files FULLY (no limit/offset) before spawning sub-tasks
+- **Compatibility posture**: Always determine `breaking_changes_allowed` before decomposing the question. This is a single project/research posture, not a request to add compatibility flags. Use it to document whether old APIs and shims are constraints for future work.
 - **Critical ordering**: Follow the numbered steps exactly
     - ALWAYS read mentioned files first before spawning sub-tasks (step 1)
-    - ALWAYS wait for all sub-agents to complete before synthesizing (step 4)
-    - ALWAYS gather metadata before writing the document (step 5 before step 6)
+    - ALWAYS determine compatibility posture before decomposing the question (step 2)
+    - ALWAYS wait for all sub-agents to complete before synthesizing (step 5)
+    - ALWAYS gather metadata before writing the document (as part of step 6)
     - NEVER write the research document with placeholder values
 
 - **Frontmatter consistency**:

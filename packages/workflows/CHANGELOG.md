@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.8.26-alpha.4] - 2026-06-05
+
+### Changed
+
+- Upgraded builtin workflow fallback model tiers so degraded runs land on stronger models: bumped `github-copilot/claude-opus-4.8` fallbacks from `:medium` to `:xhigh` in `deep-research-codebase` and `ralph`, replaced `claude-sonnet-4-8`/`4.8` fallbacks with `claude-opus-4-8`/`4.8` in the `goal` and `ralph` runner configs, and raised `claude-sonnet-4-6`/`4.6` fallbacks from `:medium` to `:high` in `open-claude-design` ([#1259](https://github.com/bastani-inc/atomic/issues/1259)).
+
 ## [0.8.26-alpha.3] - 2026-06-05
 
 ### Changed

@@ -7,6 +7,32 @@ import { loadMcpConfig } from "./config.ts";
 import { getConfigPathFromArgv } from "./utils.ts";
 import { renderMcpToolResult } from "./tool-result-renderer.ts";
 
+/**
+ * Marker substring from the host's stale-context error (see ExtensionRunner.invalidate).
+ * A captured `pi`/`ctx` becomes stale when its backing session is disposed (e.g. a
+ * workflow child stage session, or a reload/replace) without emitting `session_shutdown`.
+ */
+const STALE_EXTENSION_CONTEXT_MARKER = "extension ctx is stale";
+
+function isStaleExtensionContextError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes(STALE_EXTENSION_CONTEXT_MARKER);
+}
+
+/**
+ * Probe whether a captured extension context is still active. Every `ctx` getter runs
+ * the host's `assertActive()` guard, so a cheap property read surfaces staleness without
+ * mutating anything. Returns false when the context has been invalidated by a dispose.
+ */
+function isContextActive(ctx: ExtensionContext): boolean {
+  try {
+    void ctx.cwd;
+    return true;
+  } catch (error) {
+    if (isStaleExtensionContextError(error)) return false;
+    throw error;
+  }
+}
+
 export default function mcpAdapter(pi: ExtensionAPI) {
   let state: McpExtensionState | null = null;
   let initPromise: Promise<McpExtensionState> | null = null;
@@ -122,6 +148,7 @@ export default function mcpAdapter(pi: ExtensionAPI) {
         registerProxyTool();
       }
     } catch (error) {
+      if (isStaleExtensionContextError(error)) return;
       console.error("MCP: failed to register cached startup tools; enabling MCP proxy fallback", error);
       registerProxyTool();
     }
@@ -137,17 +164,17 @@ export default function mcpAdapter(pi: ExtensionAPI) {
         console.error("MCP: failed to shut down previous session state", error);
       }
 
-      if (generation !== lifecycleGeneration) {
+      if (generation !== lifecycleGeneration || !isContextActive(ctx)) {
         throw new Error("Stale MCP session initialization cancelled before startup");
       }
 
       const { initializeMcp, updateStatusBar } = await import("./init.ts");
-      if (generation !== lifecycleGeneration) {
+      if (generation !== lifecycleGeneration || !isContextActive(ctx)) {
         throw new Error("Stale MCP session initialization cancelled before startup");
       }
 
       const nextState = await initializeMcp(pi, ctx);
-      if (generation !== lifecycleGeneration || initPromise !== promiseRef.current) {
+      if (generation !== lifecycleGeneration || initPromise !== promiseRef.current || !isContextActive(ctx)) {
         try {
           await shutdownState(nextState, "stale_session_start");
         } catch (error) {
@@ -181,7 +208,10 @@ export default function mcpAdapter(pi: ExtensionAPI) {
         return;
       }
       const message = err instanceof Error ? err.message : String(err);
-      if (!message.startsWith("Stale MCP session initialization cancelled")) {
+      if (
+        !message.startsWith("Stale MCP session initialization cancelled") &&
+        !isStaleExtensionContextError(err)
+      ) {
         console.error("MCP initialization failed:", err);
       }
       if (initPromise === promise) {

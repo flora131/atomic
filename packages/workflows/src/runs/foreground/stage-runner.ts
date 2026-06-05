@@ -285,6 +285,57 @@ function terminatingToolResultText(
   return undefined;
 }
 
+/**
+ * A stage session backed by a real Atomic `AgentSession` exposes its
+ * `extensionRunner`. When workflow wiring binds extensions to a stage session it
+ * replays the `session_start` lifecycle (see wiring.ts `bindExtensions`), so
+ * extensions such as MCP begin per-session initialization. Tearing that session
+ * down with `dispose()` alone invalidates the extension runtime WITHOUT emitting
+ * `session_shutdown`, so those extensions never receive a graceful teardown
+ * signal: MCP, for example, logs a spurious stale-context "initialization
+ * failed" error when its deferred init races with disposal, and leaves any child
+ * MCP servers running.
+ *
+ * The test stub session (createTestAgentSession) has no `extensionRunner`, so the
+ * capability is optional and feature-detected at runtime.
+ */
+type StageSessionExtensionRunner = {
+  hasHandlers(eventType: string): boolean;
+  emit(event: { readonly type: "session_shutdown"; readonly reason: "quit" }): Promise<unknown>;
+};
+
+function stageSessionExtensionRunner(
+  current: StageSessionRuntime,
+): StageSessionExtensionRunner | undefined {
+  const runner = (current as StageSessionRuntime & { extensionRunner?: StageSessionExtensionRunner })
+    .extensionRunner;
+  if (runner && typeof runner.hasHandlers === "function" && typeof runner.emit === "function") {
+    return runner;
+  }
+  return undefined;
+}
+
+/**
+ * Dispose a stage session, mirroring the host `AgentSessionRuntime` teardown:
+ * emit `session_shutdown` before `dispose()` whenever the session exposes a
+ * compatible extension runner, so extensions tear down per-session resources
+ * (and bump their lifecycle generation) instead of being silently invalidated.
+ * A throwing shutdown handler must never strand the session, so disposal always
+ * runs.
+ */
+async function disposeStageSession(current: StageSessionRuntime | undefined): Promise<void> {
+  if (!current) return;
+  const runner = stageSessionExtensionRunner(current);
+  if (runner?.hasHandlers("session_shutdown")) {
+    try {
+      await runner.emit({ type: "session_shutdown", reason: "quit" });
+    } catch (error) {
+      console.error("atomic-workflows: stage session_shutdown handler failed", error);
+    }
+  }
+  await current.dispose();
+}
+
 function asAgentSession(activeSession: StageSessionRuntime | undefined): AgentSession | undefined {
   if (!activeSession) return undefined;
   const candidate = activeSession as StageSessionRuntime & Partial<Pick<AgentSession, "state" | "sessionManager" | "modelRegistry" | "getContextUsage">>;
@@ -675,7 +726,7 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
     unsubscribeTerminateWatcher?.();
     unsubscribeTerminateWatcher = undefined;
     terminatingToolCallIds.clear();
-    await current?.dispose();
+    await disposeStageSession(current);
   }
 
   async function promptWithPauseResume(
@@ -895,7 +946,7 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
       unsubscribeTerminateWatcher?.();
       unsubscribeTerminateWatcher = undefined;
       terminatingToolCallIds.clear();
-      await session?.dispose();
+      await disposeStageSession(session);
     },
 
     __getLastAssistantText() {

@@ -2104,6 +2104,7 @@ describe("ralph", () => {
             fieldDescription(mod.default.inputs["create_pr"]);
         assert.match(createPrDescription, /pull-request creation stage/);
         assert.match(createPrDescription, /Defaults to false/);
+        assert.match(createPrDescription, /provider-appropriate PR\/MR\/review creation/);
         assert.deepEqual(Object.keys(mod.default.inputs).sort(), [
             "base_branch",
             "create_pr",
@@ -2261,6 +2262,10 @@ describe("ralph", () => {
             /If the original task explicitly asked for pull-request creation, treat that as the highest-priority instruction for this final stage\./,
         );
         assert.match(finalPrompt, /Original task: Add a small feature/);
+        assert.match(finalPrompt, /Detect the source-control and code-review provider/);
+        assert.match(finalPrompt, /GitHub `gh pr create`/);
+        assert.match(finalPrompt, /Azure DevOps\/Azure Repos `az repos pr create`/);
+        assert.match(finalPrompt, /Sapling\/Phabricator `sl`\/Phabricator\/Differential tooling/);
     });
 
     test("runs pull-request stage only when create_pr is true", async () => {

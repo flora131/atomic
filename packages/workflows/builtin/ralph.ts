@@ -1012,11 +1012,11 @@ async function runRalphWorkflow(
       prompt: taggedPrompt([
         [
           "role",
-          "You are a careful release engineer preparing a pull request from the current workspace state.",
+          "You are a careful release engineer preparing a provider-appropriate pull request, merge request, or code-review handoff from the current workspace state.",
         ],
         [
           "objective",
-          `Review the changes since the base branch \`${comparisonBaseBranch}\` and create a pull request if possible and credentials are available. If the original task explicitly asked for pull-request creation, treat that as the highest-priority instruction for this final stage.`,
+          `Review the changes since the base branch \`${comparisonBaseBranch}\` and create a provider-appropriate pull request, merge request, or code-review handoff if possible and credentials are available. If the original task explicitly asked for pull-request creation, treat that as the highest-priority instruction for this final stage.`,
         ],
         [
           "workflow_context",
@@ -1038,22 +1038,24 @@ async function runRalphWorkflow(
             "Start by inspecting `git status --short` so unstaged, staged, and untracked changes are all visible.",
             `Review the patch against \`${comparisonBaseBranch}\` with working-tree-aware commands such as \`git diff ${comparisonBaseBranch}\` and \`git diff --cached ${comparisonBaseBranch}\`.`,
             "If untracked files are present, inspect them directly before deciding whether they belong in the PR.",
-            "Read the implementation notes file and use its full contents as the body of a PR comment after the pull request exists.",
-            "Check the local Git identity with `git config user.name` and `git config user.email` so you can prefer the matching GitHub account when multiple accounts are logged in.",
-            "Check whether GitHub credentials are available with non-destructive commands such as `gh auth status` and `gh auth status --show-token-scopes` before attempting PR creation.",
-            "If multiple GitHub accounts or hosts are logged in, use the git config username/email as a heuristic to choose the most likely identity, but try each available credential/account and use the first one that can read the repository and create the PR.",
+            "Read the implementation notes file and use its full contents as the body of a provider-appropriate PR/review comment after the pull request, merge request, or review exists.",
+            "Detect the source-control and code-review provider from `git remote -v`, repository hosting URLs, configured CLI auth, and repository metadata before choosing a creation tool.",
+            "Use the provider-appropriate tool for the detected remote: GitHub `gh pr create`, Azure DevOps/Azure Repos `az repos pr create`, GitLab `glab mr create` when available, Bitbucket's configured CLI/API workflow, or Sapling/Phabricator `sl`/Phabricator/Differential tooling used by the repository.",
+            "Check the local Git identity with `git config user.name` and `git config user.email` so you can prefer the matching account when multiple provider accounts are logged in.",
+            "Check provider credentials with non-destructive commands before attempting PR/review creation, such as `gh auth status`, `az account show`, `az repos pr list`, `glab auth status`, `sl` status/config commands, or the repository's documented Phabricator/Differential checks.",
+            "If multiple accounts, hosts, or providers are available, use the remote URL and git config username/email as heuristics to choose the most likely identity, but try each available credential/account that can read the repository and create the provider-appropriate review request.",
           ].join("\n"),
         ],
         [
           "pr_policy",
           [
-            "Create a PR only if there are meaningful changes, a remote/branch target is available, credentials are available, and the current state is suitable for review.",
-            "If no logged-in account can access the repository or create the PR, do not fake success; report each credential/account tried, what failed, and provide the command the user can run later.",
-            "When you successfully create or update the PR, create a PR comment containing the implementation notes file contents as the last action of this workflow stage.",
-            "Ralph-created worktrees are detached HEAD checkouts. If you are preparing a PR from a detached HEAD, create and push a branch from the current HEAD, for example with `git checkout -b <branch>` or `git push origin HEAD:refs/heads/<branch>`, before opening the PR.",
+            "Create a provider-appropriate PR/MR/review request only if there are meaningful changes, a remote/branch target is available, credentials are available, and the current state is suitable for review.",
+            "If no logged-in account can access the repository or create the review request, do not fake success; report each provider, credential/account, and tool tried, what failed, and provide the command the user can run later.",
+            "When you successfully create or update the review request, create a provider-appropriate comment containing the implementation notes file contents as the last action of this workflow stage.",
+            "Ralph-created worktrees are detached HEAD checkouts. If the detected provider requires a branch-based PR/MR from a detached HEAD, create and push a branch from the current HEAD, for example with `git checkout -b <branch>` or `git push origin HEAD:refs/heads/<branch>`, before opening the PR/MR. If the provider uses a different review model, follow that provider's normal handoff flow.",
             "Ralph does not remove git_worktree_dir automatically. Leave the worktree intact for retries or user recovery.",
-            "If PR creation is not possible, do not create a standalone comment elsewhere; include the implementation notes path and summary in your report instead.",
-            "If the review loop did not approve, prefer reporting the remaining blockers over creating a PR unless the changes are still intentionally ready for human review.",
+            "If PR/MR/review creation is not possible, do not create a standalone comment elsewhere; include the implementation notes path and summary in your report instead.",
+            "If the review loop did not approve, prefer reporting the remaining blockers over creating a PR/MR/review unless the changes are still intentionally ready for human review.",
             "Do not make unrelated code edits in this phase. Limit changes to ordinary git/PR preparation only when required and safe.",
           ].join("\n"),
         ],
@@ -1062,8 +1064,8 @@ async function runRalphWorkflow(
           [
             "Return Markdown with headings:",
             "1. Change review — summary of files and diff scope inspected",
-            "2. PR status — created PR URL, or why no PR was created",
-            "3. Implementation notes comment — whether the PR comment was created as the last action, or why it could not be created",
+            "2. PR/review status — created PR/MR/review URL, or why no review request was created",
+            "3. Implementation notes comment — whether the provider-appropriate comment was created as the last action, or why it could not be created",
             "4. Commands run — include exit status or clear outcome",
             "5. Follow-up for the user — exact next steps if credentials or repository state blocked PR creation",
           ].join("\n"),
@@ -1113,7 +1115,7 @@ export default defineWorkflow("ralph")
   .input("create_pr", Type.Boolean({
     default: false,
     description:
-      "Whether to run the final pull-request creation stage. Defaults to false; prompt text alone does not opt in. Set true to allow only the final stage to attempt GitHub PR creation.",
+      "Whether to run the final pull-request creation stage. Defaults to false; prompt text alone does not opt in. Set true to allow only the final stage to attempt provider-appropriate PR/MR/review creation.",
   }))
   .worktreeFromInputs({
     gitWorktreeDir: "git_worktree_dir",

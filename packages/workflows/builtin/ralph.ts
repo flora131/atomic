@@ -392,6 +392,18 @@ function taggedPrompt(sections: readonly PromptSection[]): string {
     .join("\n\n");
 }
 
+function workflowCwdContextSection(workflowCwd: string): PromptSection {
+  return [
+    "workflow_cwd_context",
+    [
+      `Current working directory: ${workflowCwd}`,
+      "Use this as the starting directory for repository work in this stage.",
+      "Shell commands and relative file paths should be relative to this directory unless you intentionally pass an explicit cwd override.",
+      "When delegating, pass along that this is the current working directory for the workflow.",
+    ].join("\n"),
+  ];
+}
+
 function positiveInteger(value: number | undefined, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0
     ? Math.floor(value)
@@ -598,6 +610,7 @@ async function runRalphWorkflow(
   const workflowSpecPath = resolve(workflowStartCwd, defaultSpecPath(prompt));
   const implementationNotesPath = await createImplementationNotesFile(prompt);
   const artifactDir = await mkdtemp(join(tmpdir(), "atomic-ralph-run-"));
+  const workflowCwdContext = workflowCwdContextSection(workflowStartCwd);
   let approved = false;
   let iterationsCompleted = 0;
 
@@ -667,6 +680,7 @@ async function runRalphWorkflow(
           "task",
           `Plan iteration ${iteration}/${maxLoops} for this user specification:\n${prompt}`,
         ],
+        workflowCwdContext,
         [
           "latest_review_artifact",
           latestReviewReportPath === undefined
@@ -775,6 +789,7 @@ async function runRalphWorkflow(
           "objective",
           `Implement iteration ${iteration}/${maxLoops} for the task: ${prompt}`,
         ],
+        workflowCwdContext,
         [
           "spec_file",
           [
@@ -878,6 +893,7 @@ async function runRalphWorkflow(
           "objective",
           `Refine recently modified code for this task while preserving exact behavior: ${prompt}`,
         ],
+        workflowCwdContext,
         [
           "artifact_handoff",
           [
@@ -981,6 +997,7 @@ async function runRalphWorkflow(
         ].join("\n"),
       ],
       ["objective", `Review the current code delta for the task: ${prompt}`],
+      workflowCwdContext,
       [
         "comparison_baseline",
         [
@@ -1187,6 +1204,7 @@ async function runRalphWorkflow(
           "objective",
           `Review the changes since the base branch \`${comparisonBaseBranch}\` and create a provider-appropriate pull request, merge request, or code-review handoff if possible and credentials are available. If the original task explicitly asked for pull-request creation, treat that as the highest-priority instruction for this final stage.`,
         ],
+        workflowCwdContext,
         [
           "workflow_context",
           [

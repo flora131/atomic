@@ -54,6 +54,7 @@ import {
   openInlineInputsForm,
   registerInlineFormRenderer,
 } from "../tui/inline-form-overlay.js";
+import { clearForms } from "../tui/inline-form-store.js";
 import {
   registerChatSurfaceRenderer,
   emitChatSurface,
@@ -166,7 +167,7 @@ export interface PiMessageRenderOptions {
   expanded: boolean;
 }
 
-export type PiMessageRendererResult = string | PiMessageRenderComponent | undefined;
+export type PiMessageRendererResult = string | PiMessageRenderComponent | null | undefined;
 export type PiMessageRenderer = (
   payload: unknown,
   options?: PiMessageRenderOptions,
@@ -3756,11 +3757,14 @@ function factory(pi: ExtensionAPI): void {
   // duplicating it into chat scroll just creates visual noise and pushes
   // older chat content out of view every time a stage transitions.
   if (typeof pi.registerMessageRenderer === "function") {
+    // Wrap the string-producing banners in a render component: the host adds a
+    // renderer's result directly as a TUI child, so a bare string would crash
+    // `Container.render()` with "child.render is not a function".
     pi.registerMessageRenderer("workflow.run.start", (payload) =>
-      renderRunBanner(payload as RunStartPayload),
+      dynamicTextRenderComponent(() => renderRunBanner(payload as RunStartPayload)),
     );
     pi.registerMessageRenderer("workflow.run.end", (payload) =>
-      renderRunSummary(payload as RunEndPayload),
+      dynamicTextRenderComponent(() => renderRunSummary(payload as RunEndPayload)),
     );
     // Inline workflow-input form (Option C in the design conversation):
     // a sticky chat-history card driven by a custom EditorComponent. The
@@ -3834,6 +3838,12 @@ function factory(pi: ExtensionAPI): void {
         persistence: persistenceRef.current,
       });
       store.clear();
+      // Drop any inline input-form state from a previous session in this pi
+      // process. A resumed/replaced session must not render a stale live form,
+      // and rehydrated `workflows:input-form` cards then resolve to no backing
+      // state so their renderer suppresses output (input widget hidden after
+      // /resume).
+      clearForms();
       resetWorkflowLifecycleNotificationState(lifecycleNotificationState);
       resetWorkflowHilAnswerNotificationState(hilAnswerNotificationState);
       stageControlRegistry.clear();

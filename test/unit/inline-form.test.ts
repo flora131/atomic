@@ -15,6 +15,7 @@ import { test } from "bun:test";
 import assert from "node:assert/strict";
 import {
   _resetForms,
+  clearForms,
   createForm,
   finalizeForm,
   getForm,
@@ -621,10 +622,19 @@ test("editor: handleInput on a finalized form is a no-op", () => {
 // ── overlay (orchestration) ───────────────────────────────────────────────
 
 interface FakePiSurface {
-  sentMessages: Array<{ customType: string; details?: { formId?: string } }>;
+  sentMessages: Array<{
+    customType: string;
+    content?: string;
+    display?: boolean;
+    details?: { formId?: string };
+    options?: { excludeFromContext?: boolean };
+  }>;
   renderers: Map<string, (payload: unknown) => unknown>;
   pi: {
-    sendMessage: (m: { customType: string; content?: string; display?: boolean; details?: { formId?: string } }) => void;
+    sendMessage: (
+      m: { customType: string; content?: string; display?: boolean; details?: { formId?: string } },
+      options?: { excludeFromContext?: boolean },
+    ) => void;
     registerMessageRenderer: (event: string, r: (payload: unknown) => unknown) => void;
   };
 }
@@ -636,7 +646,8 @@ function makeFakePi(): FakePiSurface {
     sentMessages,
     renderers,
     pi: {
-      sendMessage: (m) => { sentMessages.push(m); },
+      // Capture the options arg so tests can assert context exclusion.
+      sendMessage: (m, options) => { sentMessages.push({ ...m, options }); },
       registerMessageRenderer: (event, r) => { renderers.set(event, r); },
     },
   };
@@ -681,6 +692,9 @@ test("overlay: openInlineInputsForm emits a custom message and swaps editor", as
   // The message was emitted synchronously.
   assert.equal(sentMessages.length, 1);
   assert.equal(sentMessages[0]!.customType, "workflows:input-form");
+  // The input form is transient UI and must be kept out of LLM context, so
+  // spawning the picker and exiting never leaks the form into the model.
+  assert.deepEqual(sentMessages[0]!.options, { excludeFromContext: true });
   const formId = sentMessages[0]!.details!.formId!;
   assert.match(formId, /^wf-/);
 
@@ -950,6 +964,61 @@ test("overlay: registerInlineFormRenderer preserves class-backed pi method bindi
   registerInlineFormRenderer(replacementPi as never, deriveGraphTheme({}));
   assert.equal(replacementPi.calls, 1);
   assert.notEqual(replacementPi.renderers.get("workflows:input-form"), undefined);
+});
+
+test("overlay: renderer returns null (render nothing) for a lost snapshot on resume", () => {
+  // On /resume the form store is cleared on session_start, so a rehydrated
+  // `workflows:input-form` message has no live state. The renderer returns
+  // null so CustomMessageComponent renders nothing — the input widget must not
+  // reappear in chat (no stale form, no "snapshot lost" placeholder, no gap).
+  _resetForms();
+  const { pi, renderers } = makeFakePi();
+  registerInlineFormRenderer(pi as never, deriveGraphTheme({}));
+  const render = renderers.get("workflows:input-form");
+  assert.equal(typeof render, "function");
+
+  const message = {
+    role: "custom",
+    customType: "workflows:input-form",
+    content: "stack-workflow-test",
+    display: true,
+    details: { formId: "wf-missing" },
+    timestamp: 0,
+  };
+  const result = render!(message);
+
+  assert.equal(result, null);
+});
+
+test("store: clearForms empties the registry so resumed sessions have no live forms", () => {
+  _resetForms();
+  createForm({
+    formId: "wf-clear",
+    workflowName: "ralph",
+    fields: FIELDS,
+    rawText: { prompt: "hi" },
+    focusedIdx: 0,
+    submitChoiceIdx: 0,
+    caret: 0,
+    status: "editing",
+  });
+  assert.notEqual(getForm("wf-clear"), undefined);
+
+  // session_start calls clearForms(); afterwards a rehydrated card's renderer
+  // finds no state and suppresses output.
+  clearForms();
+  assert.equal(getForm("wf-clear"), undefined);
+});
+
+test("overlay: renderer returns undefined (not a string) when the formId is absent", () => {
+  // A message with no formId must yield `undefined` so CustomMessageComponent
+  // falls back to its default boxed rendering rather than mounting a string.
+  _resetForms();
+  const { pi, renderers } = makeFakePi();
+  registerInlineFormRenderer(pi as never, deriveGraphTheme({}));
+  const render = renderers.get("workflows:input-form")!;
+  const result = render({ role: "custom", customType: "workflows:input-form", details: {} });
+  assert.equal(result, undefined);
 });
 // ── multi-line text field (rich-text prompt box) ──────────────────────────
 

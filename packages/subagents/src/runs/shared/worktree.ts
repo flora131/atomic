@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { APP_NAME } from "@bastani/atomic";
+import { APP_NAME, createGitEnvironment } from "@bastani/atomic";
 
 export interface WorktreeSetup {
 	cwd: string;
@@ -82,7 +82,7 @@ interface RepoState {
 const DEFAULT_WORKTREE_SETUP_HOOK_TIMEOUT_MS = 30000;
 
 function runGit(cwd: string, args: string[]): GitResult {
-	const result = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf-8" });
+	const result = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf-8", env: createGitEnvironment() });
 	return {
 		stdout: result.stdout ?? "",
 		stderr: result.stderr ?? "",

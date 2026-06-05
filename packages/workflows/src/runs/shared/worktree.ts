@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { APP_NAME } from "@bastani/atomic";
+import { APP_NAME, createGitEnvironment } from "@bastani/atomic";
 
 export interface WorktreeSetup {
 	cwd: string;
@@ -110,7 +110,7 @@ function runGit(cwd: string, args: string[]): GitResult {
 	], {
 		cwd,
 		encoding: "utf-8",
-		env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
+		env: createGitEnvironment({ GIT_OPTIONAL_LOCKS: "0" }),
 		timeout: 5000,
 	});
 	return {

@@ -29,6 +29,7 @@ import ignore from "ignore";
 import { minimatch } from "minimatch";
 import { APP_NAME, CONFIG_DIR_NAME, ENV_OFFLINE, getAgentDir, getAgentDirs, getEnvValue, getProjectConfigDirs } from "../config.ts";
 import { spawnProcess, spawnProcessSync } from "../utils/child-process.ts";
+import { createGitEnvironment } from "../utils/git-env.ts";
 import { type GitSource, parseGitUrl } from "../utils/git.ts";
 import { canonicalizePath, isLocalPath, markPathIgnoredByCloudSync, resolvePath } from "../utils/paths.ts";
 import { isStdoutTakenOver } from "./output-guard.ts";
@@ -42,6 +43,17 @@ function isOfflineModeEnabled(): boolean {
 	const value = getEnvValue(ENV_OFFLINE);
 	if (!value) return false;
 	return value === "1" || value.toLowerCase() === "true" || value.toLowerCase() === "yes";
+}
+
+function isGitCommand(command: string): boolean {
+	const commandName = basename(command).toLowerCase();
+	return commandName === "git" || commandName === "git.exe";
+}
+
+function getCommandEnv(command: string, overrides?: Record<string, string>): NodeJS.ProcessEnv {
+	const baseEnv = getEnv();
+	if (isGitCommand(command)) return createGitEnvironment(overrides, baseEnv);
+	return overrides ? { ...baseEnv, ...overrides } : baseEnv;
 }
 
 export interface PathMetadata {
@@ -2560,11 +2572,10 @@ export class DefaultPackageManager implements PackageManager {
 	}
 
 	private spawnCommand(command: string, args: string[], options?: { cwd?: string }): ChildProcess {
-		const env = getEnv();
 		return spawnProcess(command, args, {
 			cwd: options?.cwd,
 			stdio: isStdoutTakenOver() ? ["ignore", 2, 2] : "inherit",
-			env,
+			env: getCommandEnv(command),
 		});
 	}
 
@@ -2573,12 +2584,10 @@ export class DefaultPackageManager implements PackageManager {
 		args: string[],
 		options?: { cwd?: string; env?: Record<string, string> },
 	): ChildProcessByStdio<null, Readable, Readable> {
-		const baseEnv = getEnv();
-		const env = options?.env ? { ...baseEnv, ...options.env } : baseEnv;
 		return spawnProcess(command, args, {
 			cwd: options?.cwd,
 			stdio: ["ignore", "pipe", "pipe"],
-			env,
+			env: getCommandEnv(command, options?.env),
 		});
 	}
 
@@ -2641,11 +2650,10 @@ export class DefaultPackageManager implements PackageManager {
 	}
 
 	private runCommandSync(command: string, args: string[]): string {
-		const env = getEnv();
 		const result = spawnProcessSync(command, args, {
 			stdio: ["ignore", "pipe", "pipe"],
 			encoding: "utf-8",
-			env,
+			env: getCommandEnv(command),
 		});
 		if (result.error || result.status !== 0) {
 			throw new Error(

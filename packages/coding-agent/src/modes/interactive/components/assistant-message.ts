@@ -1,10 +1,12 @@
-import type { AssistantMessage } from "@earendil-works/pi-ai";
+import { isContextOverflow, type AssistantMessage } from "@earendil-works/pi-ai";
 import { Container, Markdown, type MarkdownTheme, Spacer, Text } from "@earendil-works/pi-tui";
 import { getMarkdownTheme, theme } from "../theme/theme.ts";
 
 const OSC133_ZONE_START = "\x1b]133;A\x07";
 const OSC133_ZONE_END = "\x1b]133;B\x07";
 const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
+
+const CONTEXT_OVERFLOW_WARNING = "Warning: Context window exceeded. Atomic is compacting the session to recover.";
 
 /**
  * Component that renders a complete assistant message
@@ -140,7 +142,11 @@ export class AssistantMessageComponent extends Container {
 			} else if (message.stopReason === "error") {
 				const errorMsg = message.errorMessage || "Unknown error";
 				this.contentContainer.addChild(new Spacer(1));
-				this.contentContainer.addChild(new Text(theme.fg("error", `Error: ${errorMsg}`), 1, 0));
+				if (isContextOverflow(message)) {
+					this.contentContainer.addChild(new Text(theme.fg("warning", CONTEXT_OVERFLOW_WARNING), 1, 0));
+				} else {
+					this.contentContainer.addChild(new Text(theme.fg("error", `Error: ${errorMsg}`), 1, 0));
+				}
 			}
 		}
 	}

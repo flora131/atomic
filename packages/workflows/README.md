@@ -587,7 +587,7 @@ Child workflow outputs: `result`, `status`, `approved`, `goal_id`, `objective`, 
 
 ### `ralph`
 
-Plan → orchestrate → simplify → review workflow with optional final-stage PR handoff: write an RFC-style technical design document under `specs/`, delegate implementation through sub-agents, simplify recent changes, run parallel reviewers, and iterate until approval or the loop limit. Ralph skips PR creation by default; prompt text alone does not opt in. Pass `create_pr=true` to authorize only the final `pull-request` stage to inspect GitHub credentials and attempt GitHub PR creation. Earlier stages receive implementation-focused prompt text only; final-stage handoff language is omitted until that last stage. Reviewers inspect repository infrastructure directly as needed; Ralph no longer runs separate `infra-*` discovery stages.
+Plan → orchestrate → simplify → review workflow with optional final-stage PR handoff: write an RFC-style technical design document under `specs/`, delegate implementation through sub-agents, simplify recent changes, run parallel reviewers, and iterate until approval or the loop limit. Ralph skips PR creation by default; prompt text alone does not opt in. Pass `create_pr=true` to authorize only the final `pull-request` stage to inspect GitHub credentials and attempt GitHub PR creation. Ralph's own PR-creation instructions live in that final stage. Reviewers inspect repository infrastructure directly as needed; Ralph no longer runs separate `infra-*` discovery stages.
 
 ```text
 /workflow ralph prompt="Plan and migrate the database layer to Drizzle ORM" max_loops=3 base_branch=develop

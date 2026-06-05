@@ -2190,10 +2190,10 @@ describe("ralph", () => {
         assert.equal(Object.hasOwn(result, "pr_report"), false);
     });
 
-    test("omits final handoff language from earlier stages when create_pr is false", async () => {
+    test("does not add final handoff language to earlier stages when create_pr is false", async () => {
         const mod = await import("../../packages/workflows/builtin/ralph.js");
         const ctx = makeMockCtx({
-            prompt: "Add a small feature, make a PR, and open the pull request",
+            prompt: "Add a small feature",
             max_loops: 1,
             base_branch: "main",
             git_worktree_dir: "",
@@ -2227,10 +2227,10 @@ describe("ralph", () => {
         );
     });
 
-    test("omits final handoff language from earlier stages when create_pr is true", async () => {
+    test("does not add final handoff language to earlier stages when create_pr is true", async () => {
         const mod = await import("../../packages/workflows/builtin/ralph.js");
         const ctx = makeMockCtx({
-            prompt: "Add a small feature, make a PR, and open the pull request",
+            prompt: "Add a small feature",
             max_loops: 1,
             base_branch: "main",
             git_worktree_dir: "",
@@ -2256,11 +2256,11 @@ describe("ralph", () => {
         ]);
 
         const finalPrompt = ctx.calls.prompts["pull-request"]?.[0] ?? "";
-        assert.match(finalPrompt, /make a PR/i);
         assert.match(
             finalPrompt,
-            /Original task: Add a small feature, make a PR, and open the pull request/,
+            /If the original task explicitly asked for pull-request creation, treat that as the highest-priority instruction for this final stage\./,
         );
+        assert.match(finalPrompt, /Original task: Add a small feature/);
     });
 
     test("runs pull-request stage only when create_pr is true", async () => {

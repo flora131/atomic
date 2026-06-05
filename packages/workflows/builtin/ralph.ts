@@ -230,44 +230,6 @@ function taggedPrompt(sections: readonly PromptSection[]): string {
     .join("\n\n");
 }
 
-const FINAL_STEP_REQUEST_VERB =
-  "create|open|prepare|prep|submit|update|make|file|raise|draft|publish|send|put up|comment on|post(?:\\s+comments?\\s+on)?";
-const FINAL_STEP_REQUEST_TARGET = "(?:github\\s+)?(?:pull[- ]requests?|PRs?)";
-
-const FINAL_STEP_REQUEST_PATTERNS: readonly RegExp[] = [
-  new RegExp(
-    `\\b(?:and|then|,|;)\\s*(?:then\\s*)?(?:${FINAL_STEP_REQUEST_VERB})\\s+(?:(?:a|the|this|new)\\s+)?${FINAL_STEP_REQUEST_TARGET}\\b[^.!?;]*`,
-    "gi",
-  ),
-  new RegExp(
-    `\\b(?:${FINAL_STEP_REQUEST_VERB})\\s+(?:(?:a|the|this|new)\\s+)?${FINAL_STEP_REQUEST_TARGET}\\b[^.!?;]*`,
-    "gi",
-  ),
-  new RegExp(
-    `\\b${FINAL_STEP_REQUEST_TARGET}\\s+(?:creation|handoff|preparation|prep|commenting|comments?|updates?|opening)\\b[^.!?;]*`,
-    "gi",
-  ),
-];
-
-function promptBeforeFinalStage(prompt: string): string {
-  let sanitized = prompt;
-  for (const pattern of FINAL_STEP_REQUEST_PATTERNS) {
-    sanitized = sanitized.replace(pattern, "");
-  }
-
-  const normalized = sanitized
-    .replace(/\s+([,.;:!?])/g, "$1")
-    .replace(/(?:,\s*){2,}/g, ", ")
-    .replace(/\s{2,}/g, " ")
-    .replace(/^(?:and|then)\s+/i, "")
-    .replace(/(?:\s+(?:and|then)|[,;])$/i, "")
-    .trim();
-
-  return normalized.length > 0
-    ? normalized
-    : "Complete the requested implementation task.";
-}
-
 function positiveInteger(value: number | undefined, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0
     ? Math.floor(value)
@@ -462,7 +424,6 @@ async function runRalphWorkflow(
     workflowStartCwd,
     createPr,
   } = options;
-  const stagePrompt = promptBeforeFinalStage(prompt);
 
   let latestReviewReportPath: string | undefined;
   let finalPlan = "";
@@ -472,8 +433,8 @@ async function runRalphWorkflow(
   // Keep generated specs under the workflow runtime cwd. When Ralph is invoked
   // with git_worktree_dir, the executor defaults ctx.cwd to the matching
   // worktree cwd so specs and stage writes land in the same checkout.
-  const workflowSpecPath = resolve(workflowStartCwd, defaultSpecPath(stagePrompt));
-  const implementationNotesPath = await createImplementationNotesFile(stagePrompt);
+  const workflowSpecPath = resolve(workflowStartCwd, defaultSpecPath(prompt));
+  const implementationNotesPath = await createImplementationNotesFile(prompt);
   const artifactDir = await mkdtemp(join(tmpdir(), "atomic-ralph-run-"));
   let approved = false;
   let iterationsCompleted = 0;
@@ -542,7 +503,7 @@ async function runRalphWorkflow(
         ],
         [
           "task",
-          `Plan iteration ${iteration}/${maxLoops} for this user specification:\n${stagePrompt}`,
+          `Plan iteration ${iteration}/${maxLoops} for this user specification:\n${prompt}`,
         ],
         [
           "latest_review_artifact",
@@ -643,7 +604,7 @@ async function runRalphWorkflow(
         ],
         [
           "objective",
-          `Implement iteration ${iteration}/${maxLoops} for the task: ${stagePrompt}`,
+          `Implement iteration ${iteration}/${maxLoops} for the task: ${prompt}`,
         ],
         [
           "spec_file",
@@ -746,7 +707,7 @@ async function runRalphWorkflow(
         ],
         [
           "objective",
-          `Refine recently modified code for this task while preserving exact behavior: ${stagePrompt}`,
+          `Refine recently modified code for this task while preserving exact behavior: ${prompt}`,
         ],
         [
           "artifact_handoff",
@@ -850,7 +811,7 @@ async function runRalphWorkflow(
           "Be terse, concrete, and technically fair. Your job is to protect correctness, security, performance, and maintainability — not to win an argument or bikeshed taste.",
         ].join("\n"),
       ],
-      ["objective", `Review the current code delta for the task: ${stagePrompt}`],
+      ["objective", `Review the current code delta for the task: ${prompt}`],
       [
         "comparison_baseline",
         [
@@ -1011,7 +972,7 @@ async function runRalphWorkflow(
           },
         ],
         {
-          task: stagePrompt,
+          task: prompt,
           failFast: false,
         },
       );
@@ -1055,7 +1016,7 @@ async function runRalphWorkflow(
         ],
         [
           "objective",
-          `Review the changes since the base branch \`${comparisonBaseBranch}\` and create a pull request if possible and credentials are available.`,
+          `Review the changes since the base branch \`${comparisonBaseBranch}\` and create a pull request if possible and credentials are available. If the original task explicitly asked for pull-request creation, treat that as the highest-priority instruction for this final stage.`,
         ],
         [
           "workflow_context",

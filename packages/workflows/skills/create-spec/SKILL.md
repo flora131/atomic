@@ -5,6 +5,20 @@ description: "Create a detailed execution plan/spec/PRD for implementing feature
 
 You are tasked with creating a spec for implementing a new feature or system change in the codebase by leveraging existing research in the **$ARGUMENTS** path. If no research path is specified, use the entire `research/` directory. IMPORTANT: Research documents are located in the `research/` directory — do NOT look in the `specs/` directory for research. Follow the template below to produce a comprehensive specification as output in the `specs/` folder using the findings from RELEVANT research documents found in `research/`. The spec file MUST be named using the format `YYYY-MM-DD-topic.md` (e.g., `specs/2026-03-26-my-feature.md`), where the date is the current date and the topic is a kebab-case summary. Tip: It's good practice to use the `codebase-research-locator` and `codebase-research-analyzer` agents to help you find and analyze the research documents in the `research/` directory. It is also HIGHLY recommended to cite relevant research throughout the spec for additional context.
 
+## Ask Clarifying Questions Before You Start
+
+- If the user's request is vague or lacks necessary details, ask clarifying questions to gather more information before starting the spec creation process. This will help ensure that the spec is comprehensive and aligned with the user's needs.
+
+### Determine the compatibility posture
+
+- Before decomposing the spec creation request, identify whether this project must preserve backward compatibility for real downstream users.
+- If the user explicitly allows breaking changes, public API changes, cleanup, or says there are no real users/downstream dependencies, allow breaking changes.
+- If the user mentions production users, published APIs, downstream consumers, migration safety, or compatibility requirements, disallow breaking changes.
+- If the posture is not inferable from the request, ask the user once before continuing, using the available structured question tool when possible.
+- Carry this posture into the spec creation plan, the final spec frontmatter, and a `## Backwards Compatibility` section in the final spec.
+- When allowing breaking changes, document existing legacy behavior, compatibility shims, optional flags, and public APIs as current state, not as constraints future specs must preserve unless the user explicitly asks for preservation.
+- When not allowing breaking changes, document public APIs, compatibility-sensitive surfaces, downstream callers, migration constraints, and behavior that future work must preserve.
+
 ## Design philosophy: a spec is a theory of its doors
 
 The entrypoints of a program, read together, are the program's **theory of its own purpose**. Everything inside the boundary is mechanism — the *how*. Only at the boundary does the code speak in terms of meaning — the *what* and the *why*. So the single most important thing this spec defines is not the mechanism inside the system, but the **set of doors** the system keeps: the functions, routes, and RPC methods through which untrusted input arrives and irreversible effects happen.

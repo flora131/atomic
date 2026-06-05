@@ -2023,13 +2023,53 @@ describe("ralph", () => {
         }
     }
 
+    function preFinalStageTexts(
+        ctx: { readonly calls: MockCalls },
+    ): readonly { readonly label: string; readonly text: string }[] {
+        return [
+            {
+                label: "planner prompt",
+                text: ctx.calls.prompts["planner-1"]?.[0] ?? "",
+            },
+            {
+                label: "orchestrator prompt",
+                text: ctx.calls.prompts["orchestrator-1"]?.[0] ?? "",
+            },
+            {
+                label: "simplifier prompt",
+                text: ctx.calls.prompts["code-simplifier-1"]?.[0] ?? "",
+            },
+            {
+                label: "reviewer-a prompt",
+                text: ctx.calls.prompts["reviewer-a"]?.[0] ?? "",
+            },
+            {
+                label: "reviewer-b prompt",
+                text: ctx.calls.prompts["reviewer-b"]?.[0] ?? "",
+            },
+            {
+                label: "parallel shared task",
+                text: String(ctx.calls.parallelOptions[0]?.task ?? ""),
+            },
+        ];
+    }
+
+    function assertNoFinalHandoffMentions(
+        entries: readonly { readonly label: string; readonly text: string }[],
+    ): void {
+        for (const { label, text } of entries) {
+            assert.doesNotMatch(text, /pull[- ]requests?/i, label);
+            assert.doesNotMatch(text, /\bPRs?\b/, label);
+        }
+    }
+
     test("loads and has Ralph workflow shape", async () => {
         const mod = await import("../../packages/workflows/builtin/ralph.js");
         assertWorkflowDefinition(mod.default);
         assert.equal(mod.default.name, "ralph");
     });
 
-    test("declares prompt, max_loops, base_branch, and git_worktree_dir inputs", async () => {
+    test("declares prompt, max_loops, base_branch, git_worktree_dir, and create_pr inputs", async () => {
         const mod = await import("../../packages/workflows/builtin/ralph.js");
         assert.equal(fieldKind(mod.default.inputs["prompt"]), "text");
         assert.equal(fieldRequired(mod.default.inputs["prompt"]), true);
@@ -2048,6 +2088,9 @@ describe("ralph", () => {
             fieldDefault(mod.default.inputs["git_worktree_dir"]),
             "",
         );
+        assert.equal(fieldKind(mod.default.inputs["create_pr"]), "boolean");
+        assert.equal(fieldDefault(mod.default.inputs["create_pr"]), false);
+        assert.equal(fieldRequired(mod.default.inputs["create_pr"]), false);
         const description =
             fieldDescription(mod.default.inputs["git_worktree_dir"]);
         assert.match(description, /inside a Git repo/);
@@ -2057,8 +2100,14 @@ describe("ralph", () => {
             description,
             /existing Git worktrees from the invoking repository are reused\/shared as-is/,
         );
+        const createPrDescription =
+            fieldDescription(mod.default.inputs["create_pr"]);
+        assert.match(createPrDescription, /pull-request creation stage/);
+        assert.match(createPrDescription, /Defaults to false/);
+        assert.match(createPrDescription, /provider-appropriate PR\/MR\/review creation/);
         assert.deepEqual(Object.keys(mod.default.inputs).sort(), [
             "base_branch",
+            "create_pr",
             "git_worktree_dir",
             "max_loops",
             "prompt",
@@ -2080,7 +2129,42 @@ describe("ralph", () => {
         });
     });
 
+    test("planner RFC template uses a valid author placeholder", async () => {
+        const mod = await import("../../packages/workflows/builtin/ralph.js");
+        const ctx = makeMockCtx({
+            prompt: "Add a small feature",
+            max_loops: 1,
+            base_branch: "main",
+            git_worktree_dir: "",
+            create_pr: false,
+        });
+
+        await mod.default.run({ ...ctx, cwd: requireRalphTempCwd() });
+
+        const plannerPrompt = ctx.calls.prompts["planner-1"]?.[0] ?? "";
+        assert.doesNotMatch(plannerPrompt, /!`git config user\.name`/);
+        assert.match(
+            plannerPrompt,
+            /Run `git config user\.name` and insert the result\./,
+        );
+    });
+
     test("leaves stage cwd unset when git_worktree_dir is not provided", async () => {
+        const mod = await import("../../packages/workflows/builtin/ralph.js");
+        const ctx = makeMockCtx({
+            prompt: "Add a small feature",
+            max_loops: 1,
+            base_branch: "main",
+            git_worktree_dir: "",
+            create_pr: false,
+        });
+
+        await mod.default.run({ ...ctx, cwd: requireRalphTempCwd() });
+
+        assertEveryRalphStageCwd(ctx, undefined);
+    });
+
+    test("skips pull-request stage when create_pr is omitted", async () => {
         const mod = await import("../../packages/workflows/builtin/ralph.js");
         const ctx = makeMockCtx({
             prompt: "Add a small feature",
@@ -2089,9 +2173,139 @@ describe("ralph", () => {
             git_worktree_dir: "",
         });
 
-        await mod.default.run({ ...ctx, cwd: requireRalphTempCwd() });
+        type RalphOmittedCreatePrInputs = WorkflowInputValues & {
+            readonly prompt: string;
+            readonly max_loops: number;
+            readonly base_branch: string;
+            readonly git_worktree_dir: string;
+            readonly create_pr?: boolean;
+        };
+        const runWithOmittedCreatePr = mod.default.run as (
+            runCtx: WorkflowRunContext<RalphOmittedCreatePrInputs>,
+        ) => ReturnType<typeof mod.default.run>;
+        const result = await runWithOmittedCreatePr({
+            ...ctx,
+            cwd: requireRalphTempCwd(),
+        });
 
-        assertEveryRalphStageCwd(ctx, undefined);
+        assert.equal(ctx.calls.task.includes("pull-request"), false);
+        assert.equal(Object.hasOwn(result, "pr_report"), false);
+    });
+
+    test("skips pull-request stage when create_pr is false", async () => {
+        const mod = await import("../../packages/workflows/builtin/ralph.js");
+        const ctx = makeMockCtx({
+            prompt: "Add a small feature",
+            max_loops: 1,
+            base_branch: "main",
+            git_worktree_dir: "",
+            create_pr: false,
+        });
+
+        const result = await mod.default.run({
+            ...ctx,
+            cwd: requireRalphTempCwd(),
+        });
+
+        assert.equal(ctx.calls.task.includes("pull-request"), false);
+        assert.equal(Object.hasOwn(result, "pr_report"), false);
+    });
+
+    test("does not add final handoff language to earlier stages when create_pr is false", async () => {
+        const mod = await import("../../packages/workflows/builtin/ralph.js");
+        const ctx = makeMockCtx({
+            prompt: "Add a small feature",
+            max_loops: 1,
+            base_branch: "main",
+            git_worktree_dir: "",
+            create_pr: false,
+        });
+
+        const result = await mod.default.run({
+            ...ctx,
+            cwd: requireRalphTempCwd(),
+        });
+
+        assert.equal(ctx.calls.task.includes("pull-request"), false);
+        assert.equal(Object.hasOwn(result, "pr_report"), false);
+        assertNoFinalHandoffMentions(preFinalStageTexts(ctx));
+        assertNoFinalHandoffMentions([
+            {
+                label: "implementation notes",
+                text: readFileSync(
+                    String(result["implementation_notes_path"]),
+                    "utf8",
+                ),
+            },
+        ]);
+
+        const orchestratorPrompt =
+            ctx.calls.prompts["orchestrator-1"]?.[0] ?? "";
+        assert.doesNotMatch(orchestratorPrompt, /pull_request_policy/);
+        assert.match(
+            orchestratorPrompt,
+            /Keep delegated work focused on implementation, tests, docs, validation evidence, and implementation notes\./,
+        );
+    });
+
+    test("does not add final handoff language to earlier stages when create_pr is true", async () => {
+        const mod = await import("../../packages/workflows/builtin/ralph.js");
+        const ctx = makeMockCtx({
+            prompt: "Add a small feature",
+            max_loops: 1,
+            base_branch: "main",
+            git_worktree_dir: "",
+            create_pr: true,
+        });
+
+        const result = await mod.default.run({
+            ...ctx,
+            cwd: requireRalphTempCwd(),
+        });
+
+        assert.equal(ctx.calls.task.includes("pull-request"), true);
+        assert.match(String(result["pr_report"]), /\[mock-task:pull-request\]/);
+        assertNoFinalHandoffMentions(preFinalStageTexts(ctx));
+        assertNoFinalHandoffMentions([
+            {
+                label: "implementation notes",
+                text: readFileSync(
+                    String(result["implementation_notes_path"]),
+                    "utf8",
+                ),
+            },
+        ]);
+
+        const finalPrompt = ctx.calls.prompts["pull-request"]?.[0] ?? "";
+        assert.match(
+            finalPrompt,
+            /If the original task explicitly asked for pull-request creation, treat that as the highest-priority instruction for this final stage\./,
+        );
+        assert.match(finalPrompt, /Original task: Add a small feature/);
+        assert.match(finalPrompt, /Detect the source-control and code-review provider/);
+        assert.match(finalPrompt, /GitHub `gh pr create`/);
+        assert.match(finalPrompt, /Azure DevOps\/Azure Repos `az repos pr create`/);
+        assert.match(finalPrompt, /Sapling\/Phabricator `sl`\/Phabricator\/Differential tooling/);
+    });
+
+    test("runs pull-request stage only when create_pr is true", async () => {
+        const mod = await import("../../packages/workflows/builtin/ralph.js");
+        const ctx = makeMockCtx({
+            prompt: "Add a small feature",
+            max_loops: 1,
+            base_branch: "main",
+            git_worktree_dir: "",
+            create_pr: true,
+        });
+
+        const result = await mod.default.run({
+            ...ctx,
+            cwd: requireRalphTempCwd(),
+        });
+
+        assert.equal(ctx.calls.task.includes("pull-request"), true);
+        assert.match(String(result["pr_report"]), /\[mock-task:pull-request\]/);
+        assert.doesNotMatch(String(result["pr_report"]), /creation skipped/);
     });
 
     test("pull-request stage documents detached HEAD branch handoff without cleanup markers", async () => {
@@ -2101,6 +2315,7 @@ describe("ralph", () => {
             max_loops: 1,
             base_branch: "main",
             git_worktree_dir: "",
+            create_pr: true,
         });
 
         await mod.default.run({ ...ctx, cwd: requireRalphTempCwd() });
@@ -2133,6 +2348,7 @@ describe("ralph", () => {
                 max_loops: 2,
                 base_branch: "main",
                 git_worktree_dir: "",
+                create_pr: false,
             },
             {
                 task: (name) => {
@@ -2206,6 +2422,7 @@ describe("ralph", () => {
                 max_loops: 2,
                 base_branch: "main",
                 git_worktree_dir: "",
+                create_pr: false,
             },
             {
                 task: (name) => {

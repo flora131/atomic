@@ -60,6 +60,11 @@ export interface PromptAnswerRecord {
   readonly answerSource?: StagePromptAnswerSource;
 }
 
+interface StagePromptDraftRecord {
+  readonly runId: string;
+  readonly text: string;
+}
+
 export interface ResolveStagePendingPromptOptions {
   /**
    * Whether to retain the response in the live-only prompt answer ledger for
@@ -151,6 +156,12 @@ export interface Store {
   ): boolean;
   /** Wait for a stage/node-scoped HIL prompt to resolve. */
   awaitStagePendingPrompt(runId: string, stageId: string, promptId: string): Promise<unknown>;
+  /** Record the latest live-only draft text for an active input/editor stage prompt. */
+  recordStagePromptDraft?(runId: string, stageId: string, promptId: string, text: string): boolean;
+  /** Return the live-only draft text for an active input/editor stage prompt, if present. */
+  getStagePromptDraft?(runId: string, stageId: string, promptId: string): string | undefined;
+  /** Clear one live-only stage prompt draft. */
+  clearStagePromptDraft?(runId: string, stageId: string, promptId: string): boolean;
   /**
    * Return the live-only prompt answer record for a completed prompt stage, if
    * still available. The returned value may contain secrets and must never be
@@ -239,6 +250,7 @@ export function createStore(): Store {
   const _notices: WorkflowNotice[] = [];
   const _listeners: Set<(snap: StoreSnapshot) => void> = new Set();
   const _stagePromptAnswers = new Map<string, PromptAnswerRecord>();
+  const _stagePromptDrafts = new Map<string, StagePromptDraftRecord>();
   let _version = 0;
 
   /**
@@ -285,16 +297,47 @@ export function createStore(): Store {
     return JSON.stringify([runId, stageId]);
   }
 
-  function rejectStagePrompt(stage: StageSnapshot, reason: string): void {
+  function stagePromptDraftKey(runId: string, stageId: string, promptId: string): string {
+    return JSON.stringify([runId, stageId, promptId]);
+  }
+
+  function isDraftablePromptKind(kind: PromptKind): boolean {
+    return kind === "input" || kind === "editor";
+  }
+
+  function hasMatchingDraftableStagePrompt(
+    runId: string,
+    stageId: string,
+    promptId: string,
+  ): boolean {
+    const run = findRun(runId);
+    if (!run) return false;
+    const stage = findStage(run, stageId);
+    const prompt = stage?.pendingPrompt;
+    return prompt?.id === promptId && isDraftablePromptKind(prompt.kind);
+  }
+
+  function clearStagePromptDraftRecord(runId: string, stageId: string, promptId: string): boolean {
+    return _stagePromptDrafts.delete(stagePromptDraftKey(runId, stageId, promptId));
+  }
+
+  function purgeStagePromptDraftsForRun(runId: string): void {
+    for (const [key, draft] of _stagePromptDrafts) {
+      if (draft.runId === runId) _stagePromptDrafts.delete(key);
+    }
+  }
+
+  function rejectStagePrompt(runId: string, stage: StageSnapshot, reason: string): void {
     const prompt = stage.pendingPrompt;
     if (!prompt) return;
+    clearStagePromptDraftRecord(runId, stage.id, prompt.id);
     stage.pendingPrompt = undefined;
     rejectPrompt(prompt.id, reason);
   }
 
   function rejectAllStagePrompts(run: RunSnapshot, reason: string): void {
     for (const stage of run.stages) {
-      rejectStagePrompt(stage, reason);
+      rejectStagePrompt(run.id, stage, reason);
     }
   }
 
@@ -427,7 +470,7 @@ export function createStore(): Store {
       if (stage.workflowChild !== undefined) existing.workflowChild = structuredClone(stage.workflowChild);
       delete existing.awaitingInputSince;
       delete existing.inputRequest;
-      rejectStagePrompt(existing, `atomic-workflows: stage ${stage.id} ended before prompt resolved`);
+      rejectStagePrompt(runId, existing, `atomic-workflows: stage ${stage.id} ended before prompt resolved`);
       _version++;
       notify();
     },
@@ -475,6 +518,7 @@ export function createStore(): Store {
         rejectPrompt(pending.id, `atomic-workflows: run ${runId} ended before prompt resolved`);
       }
       rejectAllStagePrompts(run, `atomic-workflows: run ${runId} ended before prompt resolved`);
+      purgeStagePromptDraftsForRun(runId);
       _version++;
       notify();
       return true;
@@ -492,6 +536,7 @@ export function createStore(): Store {
       for (const stage of run.stages) {
         _stagePromptAnswers.delete(stagePromptAnswerKey(runId, stage.id));
       }
+      purgeStagePromptDraftsForRun(runId);
       _runs.splice(index, 1);
       for (let i = _notices.length - 1; i >= 0; i--) {
         if (_notices[i]?.runId === runId) _notices.splice(i, 1);
@@ -599,6 +644,7 @@ export function createStore(): Store {
       if (!stage) return false;
       const pending = stage.pendingPrompt;
       if (!pending || pending.id !== promptId) return false;
+      clearStagePromptDraftRecord(runId, stageId, promptId);
       if (options.recordAnswer !== false) {
         _stagePromptAnswers.set(stagePromptAnswerKey(runId, stageId), {
           runId,
@@ -652,6 +698,21 @@ export function createStore(): Store {
         }
         _resolvers.set(promptId, { promptId, resolve, reject });
       });
+    },
+
+    recordStagePromptDraft(runId: string, stageId: string, promptId: string, text: string): boolean {
+      if (!hasMatchingDraftableStagePrompt(runId, stageId, promptId)) return false;
+      _stagePromptDrafts.set(stagePromptDraftKey(runId, stageId, promptId), { runId, text });
+      return true;
+    },
+
+    getStagePromptDraft(runId: string, stageId: string, promptId: string): string | undefined {
+      if (!hasMatchingDraftableStagePrompt(runId, stageId, promptId)) return undefined;
+      return _stagePromptDrafts.get(stagePromptDraftKey(runId, stageId, promptId))?.text;
+    },
+
+    clearStagePromptDraft(runId: string, stageId: string, promptId: string): boolean {
+      return clearStagePromptDraftRecord(runId, stageId, promptId);
     },
 
     getStagePromptAnswer(runId: string, stageId: string): PromptAnswerRecord | undefined {
@@ -896,7 +957,13 @@ export function createStore(): Store {
     },
 
     clear(): void {
-      if (_runs.length === 0 && _notices.length === 0 && _resolvers.size === 0 && _stagePromptAnswers.size === 0) return;
+      if (
+        _runs.length === 0 &&
+        _notices.length === 0 &&
+        _resolvers.size === 0 &&
+        _stagePromptAnswers.size === 0 &&
+        _stagePromptDrafts.size === 0
+      ) return;
       _runs.length = 0;
       _notices.length = 0;
       // Reject any outstanding HIL waiters so background promises terminate
@@ -907,6 +974,7 @@ export function createStore(): Store {
       }
       _resolvers.clear();
       _stagePromptAnswers.clear();
+      _stagePromptDrafts.clear();
       _version++;
       notify();
     },

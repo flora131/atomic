@@ -24,6 +24,7 @@ import { deriveGraphTheme } from "../../packages/workflows/src/tui/graph-theme.j
 import { StageUiBroker } from "../../packages/workflows/src/shared/stage-ui-broker.js";
 import {
     CURSOR_MARKER,
+    Key,
     type Component,
     type EditorComponent,
     type TUI,
@@ -2848,6 +2849,60 @@ describe("StageChatView", () => {
             );
             view.dispose();
         }
+    });
+
+    test("prompt-card fallback snapshots input drafts on detach and hydrates on reattach", async () => {
+        const store = createStore();
+        setupRun(store, "run-1", "stage-a");
+        const prompt = makePendingPrompt({ initial: "seed" });
+        assert.equal(
+            store.recordStagePendingPrompt("run-1", "stage-a", prompt),
+            true,
+        );
+        const pending = store.awaitStagePendingPrompt(
+            "run-1",
+            "stage-a",
+            prompt.id,
+        );
+        const { handle } = makeHandle();
+        let detached = 0;
+        const view = new StageChatView({
+            store,
+            graphTheme: deriveGraphTheme({}),
+            runId: "run-1",
+            stageId: "stage-a",
+            workflowName: "test-wf",
+            handle,
+            onDetach: () => {
+                detached += 1;
+            },
+            onClose: () => {},
+        });
+
+        for (const ch of "-draft") view.handleInput(ch);
+        view.handleInput(Key.ctrl("d"));
+        await flush();
+        assert.equal(detached, 1);
+        assert.equal(store.runs()[0]?.stages[0]?.pendingPrompt?.id, prompt.id);
+        assert.equal(store.getStagePromptDraft?.("run-1", "stage-a", prompt.id), "seed-draft");
+        view.dispose();
+
+        const reattached = new StageChatView({
+            store,
+            graphTheme: deriveGraphTheme({}),
+            runId: "run-1",
+            stageId: "stage-a",
+            workflowName: "test-wf",
+            handle,
+            onDetach: () => {},
+            onClose: () => {},
+        });
+        assert.match(stripAnsi(reattached.render(80).join("\n")), /seed-draft/);
+        reattached.handleInput(Key.enter);
+
+        assert.equal(await pending, "seed-draft");
+        assert.equal(store.getStagePromptDraft?.("run-1", "stage-a", prompt.id), undefined);
+        reattached.dispose();
     });
 
     test("Ctrl+D variants detach from a paused stage chat", () => {

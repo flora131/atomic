@@ -9,7 +9,7 @@ export interface WorkflowFailure {
   readonly kind: WorkflowFailureKind;
   /** Specific additive reason within the existing broad failure kind. */
   readonly code?: WorkflowFailureCode;
-  /** Original error text, preserved for diagnostics. */
+  /** Redacted diagnostic text safe for snapshots and persistence. */
   readonly message: string;
   /** Sanitized workflow-facing text shown on run/stage snapshots. */
   readonly userMessage: string;
@@ -738,11 +738,10 @@ function isClearLocalLoginMessage(message: string): boolean {
   return hasAnyPhrase(tokenize(message), LOCAL_LOGIN_REQUIRED_PHRASES);
 }
 
-function canUseLoginClassificationBeforeWrapperStatus(
+function canUseLoginClassificationBeforeWrapper401(
   classification: WorkflowFailureClassification | undefined,
-  status: number | undefined,
 ): classification is WorkflowFailureClassification {
-  if (status !== 401 || classification === undefined || classification.decision.code !== "login_required") return false;
+  if (classification === undefined || classification.decision.code !== "login_required") return false;
   return classification.evidence === "weak_signal"
     || classification.evidence === "strong_signal"
     || (classification.message !== undefined && isClearLocalLoginMessage(classification.message));
@@ -800,11 +799,41 @@ function aggregateClassification(error: unknown, seen: Set<unknown>): WorkflowFa
   return classificationForDecision(unknownDecision(), "aggregate", errorMessage(error));
 }
 
-function relatedStructuredClassification(error: unknown, seen: Set<unknown>): WorkflowFailureClassification | undefined {
-  for (const diagnosticError of diagnosticErrors(error)) {
-    const diagnosticClassification = structuredClassification(diagnosticError, "diagnostic", seen);
-    if (diagnosticClassification !== undefined) return diagnosticClassification;
+function selectDiagnosticFailureClassification(
+  diagnostics: readonly unknown[],
+  seen: ReadonlySet<unknown>,
+): WorkflowFailureClassification | undefined {
+  const classifications: WorkflowFailureClassification[] = [];
+  for (const diagnosticError of diagnostics) {
+    const diagnosticSeen = new Set(seen);
+    const diagnosticClassification = structuredClassification(diagnosticError, "diagnostic", diagnosticSeen);
+    if (diagnosticClassification !== undefined) classifications.push(diagnosticClassification);
   }
+  if (classifications.length === 0) return undefined;
+
+  const terminalKilled = classifications.find(
+    (classification) => classification.decision.disposition === "terminal_killed",
+  );
+  if (terminalKilled !== undefined) return terminalKilled;
+
+  const terminalFailed = classifications.find(
+    (classification) => classification.decision.disposition === "terminal_failed",
+  );
+  if (terminalFailed !== undefined) return terminalFailed;
+
+  const allRecoverableBlocked = classifications.every(
+    (classification) =>
+      classification.decision.disposition === "active_blocked" &&
+      classification.decision.recoverability === "recoverable",
+  );
+  if (allRecoverableBlocked) return classifications[0]!;
+
+  return classifications[0]!;
+}
+
+function relatedStructuredClassification(error: unknown, seen: Set<unknown>): WorkflowFailureClassification | undefined {
+  const diagnosticClassification = selectDiagnosticFailureClassification(diagnosticErrors(error), seen);
+  if (diagnosticClassification !== undefined) return diagnosticClassification;
 
   const nested = nestedProviderError(error);
   if (nested !== undefined && nested !== error) {
@@ -870,10 +899,10 @@ function structuredClassification(
       return classificationForDecision(messageDecision, source, signalMessage);
     }
     if (effectiveStatus === 401) {
-      if (canUseLoginClassificationBeforeWrapperStatus(relatedClassification, effectiveStatus)) {
+      if (canUseLoginClassificationBeforeWrapper401(relatedClassification)) {
         return relatedClassification;
       }
-      if (canUseLoginClassificationBeforeWrapperStatus(weakClassification, effectiveStatus)) {
+      if (canUseLoginClassificationBeforeWrapper401(weakClassification)) {
         return weakClassification;
       }
       if (signalMessage !== undefined && isClearLocalLoginMessage(signalMessage)) {
@@ -897,7 +926,8 @@ function fallbackDecisionFromMessage(message: string, name: string | undefined):
 }
 
 function failureForDecision(decision: WorkflowFailureDecision, message: string, cause: unknown): WorkflowFailure {
-  return makeWorkflowFailure(decision.kind, message, {
+  const safeMessage = redactSensitiveText(message);
+  return makeWorkflowFailure(decision.kind, safeMessage, {
     code: decision.code,
     retryable: decision.retryable,
     resumable: decision.resumable,

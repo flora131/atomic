@@ -320,6 +320,54 @@ describe("classifyWorkflowFailure", () => {
     assert.equal(failure.userMessage, WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE);
   });
 
+  test("lets invalid credential diagnostics beat rate limits regardless of diagnostic order", () => {
+    const diagnosticSets = [
+      [
+        { error: { status: 429, message: "too many requests" } },
+        { error: { status: 401, code: "invalid_api_key", message: "Incorrect API key provided" } },
+      ],
+      [
+        { error: { status: 401, code: "invalid_api_key", message: "Incorrect API key provided" } },
+        { error: { status: 429, message: "too many requests" } },
+      ],
+    ] as const;
+
+    for (const diagnostics of diagnosticSets) {
+      const failure = classifyWorkflowFailure({
+        role: "assistant",
+        stopReason: "error",
+        errorMessage: "provider request failed",
+        diagnostics,
+      });
+
+      assert.equal(failure.kind, "auth");
+      assert.equal(failure.code, "invalid_api_key");
+      assert.equal(failure.recoverability, "non_recoverable");
+      assert.equal(failure.disposition, "terminal_killed");
+      assert.equal(failure.resumable, false);
+      assert.equal(failure.userMessage, WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE);
+    }
+  });
+
+  test("keeps all-recoverable diagnostics active-blocked", () => {
+    const failure = classifyWorkflowFailure({
+      role: "assistant",
+      stopReason: "error",
+      errorMessage: "provider request failed",
+      diagnostics: [
+        { error: { status: 429, message: "too many requests", retryAfterMs: 2500 } },
+        { error: { status: 503, message: "provider unavailable" } },
+      ],
+    });
+
+    assert.equal(failure.kind, "rate_limit");
+    assert.equal(failure.code, "rate_limited");
+    assert.equal(failure.recoverability, "recoverable");
+    assert.equal(failure.disposition, "active_blocked");
+    assert.equal(failure.resumable, true);
+    assert.equal(failure.retryAfterMs, 2500);
+  });
+
   test("classifies AggregateError inner provider failures before wrapper text", () => {
     const rateLimited = classifyWorkflowFailure(new AggregateError([
       { status: 429, message: "too many requests" },
@@ -421,11 +469,32 @@ describe("classifyWorkflowFailure", () => {
     }
   });
 
-  test("redacts sensitive fallback user messages", () => {
-    const failure = classifyWorkflowFailure(new Error("tool failed with api_key=super-secret-value"));
-    assert.equal(failure.kind, "unknown");
-    assert.equal(failure.message, "tool failed with api_key=super-secret-value");
-    assert.equal(failure.userMessage, "tool failed with api_key=[redacted]");
+  test("redacts string-only invalid provider key fallback messages", () => {
+    const secret = "sk-testsecret1234567890";
+    const failure = classifyWorkflowFailure(new Error(`Incorrect API key provided: ${secret}`));
+
+    assert.equal(failure.kind, "auth");
+    assert.equal(failure.code, "invalid_api_key");
+    assert.equal(failure.userMessage, WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE);
+    assert.equal(failure.message.includes(secret), false);
+    assert.match(failure.message, /\[redacted\]/);
+  });
+
+  test("redacts sensitive fallback unknown messages", () => {
+    for (const secret of [
+      "api_key=super-secret-value",
+      "token=super-secret-value",
+      "credential=super-secret-value",
+      "secret=super-secret-value",
+    ] as const) {
+      const failure = classifyWorkflowFailure(new Error(`tool failed with ${secret}`));
+      assert.equal(failure.kind, "unknown");
+      assert.equal(failure.code, "unknown");
+      assert.equal(failure.message.includes(secret), false);
+      assert.equal(failure.userMessage.includes(secret), false);
+      assert.match(failure.message, /\[redacted\]/);
+      assert.match(failure.userMessage, /\[redacted\]/);
+    }
   });
 
   test("does not treat log information/input errors as auth failures", () => {

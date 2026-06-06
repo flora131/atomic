@@ -1623,8 +1623,6 @@ function runFailureMetadataFromCandidate(
       metadata = runFailureMetadataFromStage(fallbackFailure, candidate.stage);
       break;
     case "aggregate":
-      metadata = runFailureMetadataFromFailure(candidate.failure, undefined);
-      break;
     case "outer":
       metadata = runFailureMetadataFromFailure(candidate.failure, undefined);
       break;

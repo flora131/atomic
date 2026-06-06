@@ -10,7 +10,7 @@ import { deriveInputFields, schemaIsRequired, schemaChoices, schemaFieldKind, sc
 import { WorkflowParametersSchema } from "./workflow-schema.js";
 import { renderRunBanner, renderRunSummary } from "./renderers.js";
 import type { RunEndPayload, RunStartPayload } from "./renderers.js";
-import type { RunStatus, StageSnapshot, StageStatus, ToolEvent } from "../shared/store-types.js";
+import type { RunSnapshot, RunStatus, StageSnapshot, StageStatus, ToolEvent } from "../shared/store-types.js";
 import { store } from "../shared/store.js";
 import { stageUiBroker } from "../shared/stage-ui-broker.js";
 import {
@@ -1050,6 +1050,23 @@ function stageFailureMessage(
   }
 }
 
+function isPausedRun(run: RunSnapshot | undefined): boolean {
+  return (
+    run?.status === "paused" ||
+    (run?.stages.some((stage) => stage.status === "paused") ?? false)
+  );
+}
+
+function isResumableContinuationRun(run: RunSnapshot | undefined, isPaused: boolean): boolean {
+  if (run === undefined || isPaused) return false;
+
+  const isTerminalFailedResumable =
+    run.status === "failed" && run.endedAt !== undefined && run.resumable !== false;
+  const isActiveBlockedResumable =
+    run.endedAt === undefined && run.resumable === true && run.failureRecoverability === "recoverable";
+  return isTerminalFailedResumable || isActiveBlockedResumable;
+}
+
 function inFlightRunCount(): number {
   return topLevelWorkflowRuns(store.runs()).filter((run) => run.endedAt === undefined).length;
 }
@@ -1792,14 +1809,8 @@ export function makeExecuteWorkflowTool(
         }
         const stageRunId = stage.runId ?? target.runId;
         const run = store.runs().find((r) => r.id === stageRunId);
-        const isPaused =
-          run?.status === "paused" ||
-          (run?.stages.some((s) => s.status === "paused") ?? false);
-        const isResumableContinuation = run !== undefined && !isPaused && (
-          (run.status === "failed" && run.endedAt !== undefined && run.resumable !== false) ||
-          (run.endedAt === undefined && run.resumable === true && run.failureRecoverability === "recoverable")
-        );
-        if (isResumableContinuation) {
+        const isPaused = isPausedRun(run);
+        if (isResumableContinuationRun(run, isPaused)) {
           const continuation = activeRuntime.resumeFailedRun(stageRunId, stage.stageId, { policy });
           return {
             action: "resume",
@@ -3134,14 +3145,8 @@ function factory(pi: ExtensionAPI): void {
       stageId = resolvedStage.stageId;
       const stageRunId = resolvedStage.runId ?? runId;
       const run = store.runs().find((r) => r.id === stageRunId);
-      const isPaused =
-        run?.status === "paused" ||
-        (run?.stages.some((s) => s.status === "paused") ?? false);
-      const isResumableContinuation = run !== undefined && !isPaused && (
-        (run.status === "failed" && run.endedAt !== undefined && run.resumable !== false) ||
-        (run.endedAt === undefined && run.resumable === true && run.failureRecoverability === "recoverable")
-      );
-      if (isResumableContinuation) {
+      const isPaused = isPausedRun(run);
+      if (isResumableContinuationRun(run, isPaused)) {
         const continuation = runtimeForContext(ctx).resumeFailedRun(stageRunId, stageId, { policy });
         if (continuation.ok) {
           print(continuation.message);

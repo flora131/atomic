@@ -404,6 +404,12 @@ function errorName(value: unknown): string | undefined {
   return value instanceof Error ? value.name : stringField(value, "name");
 }
 
+function directMessageFrom(value: unknown): string | undefined {
+  return stringField(value, "errorMessage")
+    ?? stringField(value, "message")
+    ?? stringField(value, "statusText");
+}
+
 function integerFrom(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isInteger(value)) return value;
   if (typeof value !== "string" || value.trim().length === 0) return undefined;
@@ -462,20 +468,19 @@ function kindFromStatus(status: number | undefined): ModelFallbackFailureKind | 
       return "model_unavailable";
     case 429:
       return "rate_limit";
-    case 500:
-    case 502:
-    case 503:
-    case 504:
-      return "provider_unavailable";
     default:
+      if (status !== undefined && status >= 500 && status <= 599) return "provider_unavailable";
       return undefined;
   }
 }
 
 function kindFromCode(code: string | number | undefined): ModelFallbackFailureKind | undefined {
-  switch (normalizeCode(code)) {
-    case undefined:
-      return undefined;
+  const normalizedCode = normalizeCode(code);
+  if (normalizedCode === undefined) return undefined;
+  const httpStatusKind = kindFromStatus(integerFrom(code));
+  if (httpStatusKind !== undefined) return httpStatusKind;
+
+  switch (normalizedCode) {
     case "401":
     case "403":
     case "auth":
@@ -601,12 +606,7 @@ function structuredSignal(
   const codeKind = kindFromCode(codeFrom(value));
   const nameKind = kindFromCode(errorName(value));
   if (codeKind === "cancelled" || nameKind === "cancelled") return makeSignal("cancelled", value, source);
-  const directRefusalKind = refusalKindFromMessage(
-    stringField(value, "errorMessage")
-      ?? stringField(value, "message")
-      ?? stringField(value, "statusText")
-      ?? "",
-  );
+  const directRefusalKind = refusalKindFromMessage(directMessageFrom(value) ?? "");
   if (directRefusalKind !== undefined) return makeSignal(directRefusalKind, value, source);
 
   const statusKind = kindFromStatus(statusFrom(value));
@@ -638,9 +638,7 @@ function messageFromUnknown(value: unknown, seen: Set<unknown>): string | undefi
   seen.add(value);
 
   if (value instanceof Error && value.message.trim().length > 0) return value.message;
-  const directMessage = stringField(value, "errorMessage")
-    ?? stringField(value, "message")
-    ?? stringField(value, "statusText");
+  const directMessage = directMessageFrom(value);
   if (directMessage !== undefined) return directMessage;
 
   for (const diagnosticError of diagnosticErrors(value)) {
@@ -673,14 +671,15 @@ export function normalizeModelFailureSignal(error: unknown): ModelFallbackFailur
   if (structured !== undefined) return structured;
 
   const message = errorMessage(error);
+  const name = errorName(error);
   const fallbackKind = message.trim().length > 0
-    ? fallbackKindFromMessage(message, errorName(error))
+    ? fallbackKindFromMessage(message, name)
     : undefined;
   return {
     kind: fallbackKind ?? "unknown",
     message,
     source: "string_fallback",
-    ...(errorName(error) !== undefined ? { name: errorName(error)! } : {}),
+    ...(name !== undefined ? { name } : {}),
   };
 }
 

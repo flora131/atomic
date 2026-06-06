@@ -328,6 +328,32 @@ describe("model fallback helpers", () => {
     assert.equal(isRetryableModelFailure({ statusCode: 401, message: "localized" }), true);
     assert.equal(isRetryableModelFailure({ httpStatus: 403, message: "localized" }), true);
     assert.equal(isRetryableModelFailure({ code: "invalid_api_key", message: "localized" }), true);
+    assert.equal(normalizeModelFailureSignal({ status: 408, message: "localized" }).kind, "network_timeout");
+    assert.equal(normalizeModelFailureSignal({ status: 404, message: "localized" }).kind, "model_unavailable");
+    assert.equal(normalizeModelFailureSignal({ code: "429", message: "localized" }).kind, "rate_limit");
+  });
+
+  test("retry classifier treats every structured HTTP-like 5xx status/code as provider unavailable", () => {
+    const cases: readonly unknown[] = [
+      { status: 529, message: "localized" },
+      { statusCode: 520, message: "localized" },
+      { httpStatus: 599, message: "localized" },
+      { code: 529, message: "localized" },
+      { code: "520", message: "localized" },
+      { diagnostics: [{ error: { code: "529", message: "localized" } }] },
+    ];
+
+    for (const failure of cases) {
+      assert.equal(normalizeModelFailureSignal(failure).kind, "provider_unavailable");
+      assert.equal(isRetryableModelFailure(failure), true);
+    }
+  });
+
+  test("retry classifier preserves refusal precedence over structured 5xx", () => {
+    assert.equal(isRetryableModelFailure({ stopReason: "aborted", status: 599, code: 529 }), false);
+    assert.equal(isRetryableModelFailure({ name: "AbortError", statusCode: 520, message: "request aborted" }), false);
+    assert.equal(isRetryableModelFailure({ httpStatus: 529, message: "shell command failed" }), false);
+    assert.equal(isRetryableModelFailure("completion guard failed after 599"), false);
   });
 
   test("retry classifier follows causes before regex fallback", () => {

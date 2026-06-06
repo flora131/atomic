@@ -218,6 +218,10 @@ function assistantStopReason(message: Message): string | undefined {
 	return typeof stopReason === "string" ? stopReason : undefined;
 }
 
+function isTerminalAssistantFailureStopReason(stopReason: string | undefined): boolean {
+	return stopReason === "error" || stopReason === "aborted";
+}
+
 interface ChildEvent {
 	type?: string;
 	message?: ChildMessage;
@@ -351,7 +355,7 @@ function runPiStreaming(
 					assistantError = event.message.errorMessage;
 					assistantFailureSignal = event.message;
 				}
-				if (stopReason === "error" || stopReason === "aborted") {
+				if (isTerminalAssistantFailureStopReason(stopReason)) {
 					assistantError = modelFailureMessage(event.message);
 					assistantFailureSignal = event.message;
 				}
@@ -364,7 +368,7 @@ function runPiStreaming(
 					}
 					cleanTerminalAssistantStopReceived ||= !event.message.errorMessage;
 					startFinalDrain();
-				} else if ((stopReason === "error" || stopReason === "aborted") && !hasToolCall) {
+				} else if (isTerminalAssistantFailureStopReason(stopReason) && !hasToolCall) {
 					startFinalDrain();
 				}
 			}

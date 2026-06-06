@@ -246,6 +246,10 @@ function messageStopReason(message: AgentSession["messages"][number]): string | 
   return typeof record.stopReason === "string" ? record.stopReason : undefined;
 }
 
+function isTerminalAssistantFailureStopReason(stopReason: string | undefined): boolean {
+  return stopReason === "error" || stopReason === "aborted";
+}
+
 function terminalAssistantFailureSince(
   messages: AgentSession["messages"],
   startIndex: number,
@@ -254,7 +258,7 @@ function terminalAssistantFailureSince(
     const message = messages[index];
     if (!message || message.role !== "assistant") continue;
     const stopReason = messageStopReason(message);
-    if (stopReason === "error" || stopReason === "aborted") return message;
+    if (isTerminalAssistantFailureStopReason(stopReason)) return message;
   }
   return undefined;
 }
@@ -762,7 +766,7 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
     activeSession: StageSessionRuntime,
     initialText: string,
     sdkOptions: PromptOptions | undefined,
-  ): Promise<void> {
+  ): Promise<{ readonly terminalScanStartIndex: number }> {
     // Pause/resume loop: when a controlled pause aborts the SDK call,
     // swallow the resulting abort, suspend on `pauseRequest.deferred`,
     // and either re-issue with the user's resume message or return the
@@ -773,28 +777,32 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
       if (pendingPauseBeforePrompt) {
         const { message } = await pendingPauseBeforePrompt.deferred.promise;
         nextText = message;
-        if (nextText === undefined) return;
+        if (nextText === undefined) return { terminalScanStartIndex: activeSession.messages.length };
         continue;
       }
+      const promptStartIndex = activeSession.messages.length;
       try {
         await activeSession.prompt(nextText, sdkOptions);
         const pendingPauseAfterPrompt = pauseRequest;
         if (pendingPauseAfterPrompt) {
           const { message } = await pendingPauseAfterPrompt.deferred.promise;
           nextText = message;
-          if (nextText === undefined) return;
+          if (nextText === undefined) return { terminalScanStartIndex: activeSession.messages.length };
           continue;
         }
-        nextText = undefined;
+        return { terminalScanStartIndex: promptStartIndex };
       } catch (err) {
-        if (pauseRequest) {
-          const { message } = await pauseRequest.deferred.promise;
+        const pendingPauseAfterThrow = pauseRequest;
+        if (pendingPauseAfterThrow) {
+          const { message } = await pendingPauseAfterThrow.deferred.promise;
           nextText = message;
+          if (nextText === undefined) return { terminalScanStartIndex: activeSession.messages.length };
           continue;
         }
         throw err;
       }
     }
+    return { terminalScanStartIndex: activeSession.messages.length };
   }
 
   async function promptWithFallback(
@@ -823,9 +831,8 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
       selectedModel = candidate.id;
       notifyModelFallbackMetaChange();
       try {
-        const messageStartIndex = activeSession.messages.length;
-        await promptWithPauseResume(activeSession, text, sdkOptions);
-        const terminalFailure = terminalAssistantFailureSince(activeSession.messages, messageStartIndex);
+        const { terminalScanStartIndex } = await promptWithPauseResume(activeSession, text, sdkOptions);
+        const terminalFailure = terminalAssistantFailureSince(activeSession.messages, terminalScanStartIndex);
         if (terminalFailure !== undefined) {
           throw new WorkflowPromptModelFailure(terminalFailure);
         }

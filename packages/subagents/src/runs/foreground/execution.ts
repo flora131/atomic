@@ -84,6 +84,10 @@ function assistantStopReason(message: Message): string | undefined {
 	return typeof stopReason === "string" ? stopReason : undefined;
 }
 
+function isTerminalAssistantFailureStopReason(stopReason: string | undefined): boolean {
+	return stopReason === "error" || stopReason === "aborted";
+}
+
 function emptyUsage(): Usage {
 	return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 0 };
 }
@@ -560,7 +564,7 @@ async function runSingleAttempt(
 						assistantError = evt.message.errorMessage;
 						assistantFailureSignal = evt.message;
 					}
-					if (stopReason === "error" || stopReason === "aborted") {
+					if (isTerminalAssistantFailureStopReason(stopReason)) {
 						assistantError = modelFailureMessage(evt.message);
 						assistantFailureSignal = evt.message;
 					}
@@ -573,7 +577,7 @@ async function runSingleAttempt(
 						}
 						cleanTerminalAssistantStopReceived ||= !evt.message.errorMessage;
 						startFinalDrain();
-					} else if ((stopReason === "error" || stopReason === "aborted") && !hasToolCall) {
+					} else if (isTerminalAssistantFailureStopReason(stopReason) && !hasToolCall) {
 						startFinalDrain();
 					}
 				}

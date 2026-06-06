@@ -720,6 +720,85 @@ describe("createStageContext — model fallback", () => {
         assert.deepEqual(calls, ["anthropic/primary"]);
     });
 
+    test("controlled pause/resume ignores stale aborted assistant messages when fallback is enabled", async () => {
+        const calls: string[] = [];
+        const promptTexts: string[] = [];
+        const messages: AgentSession["messages"] = [];
+        const firstPromptStarted = Promise.withResolvers<void>();
+        let resolveFirstPrompt: (() => void) | undefined;
+        let abortCalls = 0;
+        const agentSession: AgentSessionAdapter = {
+            async create(options) {
+                const modelValue = options.model as unknown;
+                const model = typeof modelValue === "string"
+                    ? modelValue
+                    : "object-model";
+                calls.push(model);
+                const { session } = makeMockSession({
+                    messages,
+                    async prompt(text) {
+                        promptTexts.push(text);
+                        if (promptTexts.length === 1) {
+                            return new Promise<void>((resolve) => {
+                                resolveFirstPrompt = resolve;
+                                firstPromptStarted.resolve();
+                            });
+                        }
+                        messages.push({
+                            role: "assistant",
+                            content: [{ type: "text", text: "resumed answer" }],
+                            stopReason: "stop",
+                        } as unknown as AgentSession["messages"][number]);
+                    },
+                    async abort() {
+                        abortCalls += 1;
+                        messages.push({
+                            role: "assistant",
+                            content: [],
+                            stopReason: "aborted",
+                            status: 503,
+                        } as unknown as AgentSession["messages"][number]);
+                        resolveFirstPrompt?.();
+                    },
+                    getLastAssistantText() {
+                        return promptTexts.length >= 2 ? "resumed answer" : undefined;
+                    },
+                });
+                return session;
+            },
+        };
+
+        const ctx = createStageContext(
+            makeOpts({
+                adapters: { agentSession },
+                stageOptions: {
+                    model: "anthropic/primary",
+                    fallbackModels: ["openai/fallback"],
+                },
+            }),
+        ) as InternalStageContext;
+
+        const promptPromise = ctx.prompt("first");
+        void promptPromise.catch(() => {});
+        await firstPromptStarted.promise;
+
+        await ctx.__requestPause();
+        await flushMicrotasks();
+        assert.equal(abortCalls, 1);
+        assert.equal(ctx.__isPaused(), true);
+
+        await ctx.__resume("continue after pause");
+        const text = await promptPromise;
+
+        assert.equal(text, "resumed answer");
+        assert.deepEqual(promptTexts, ["first", "continue after pause"]);
+        assert.deepEqual(calls, ["anthropic/primary"]);
+        const meta = ctx.__modelFallbackMeta();
+        assert.deepEqual(meta.attemptedModels, ["anthropic/primary"]);
+        assert.deepEqual(meta.modelAttempts?.map((attempt) => attempt.success), [true]);
+        assert.equal(meta.warnings, undefined);
+    });
+
     test("workflow fast mode keeps raw model metadata with a structured fast flag", async () => {
         const agentSession: AgentSessionAdapter = {
             async create() {

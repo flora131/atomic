@@ -16,16 +16,11 @@ pkg update && pkg upgrade
 # Install dependencies
 pkg install nodejs termux-api git
 
-# Install Atomic (choose one package manager available in Termux)
-# npm is installed by `pkg install nodejs`; Bun and pnpm must be installed separately before using those commands.
-# npm
+# Install Atomic with npm (included with Termux's nodejs package)
 npm install -g @bastani/atomic
 
-# Bun
-bun install -g @bastani/atomic
-
-# pnpm
-pnpm add -g @bastani/atomic
+# If you have installed Bun separately in Termux, you can use Bun instead:
+# bun install -g @bastani/atomic
 
 # Create config directory
 mkdir -p ~/.atomic/agent
@@ -129,9 +124,13 @@ Run once to grant storage permissions:
 termux-setup-storage
 ```
 
-### Node.js installation issues
+### Package installation issues
 
-If npm fails, try clearing the cache:
+Termux does not currently provide an official `pkg install bun` package. On a fresh Termux install, use npm from the `nodejs` package; use Bun only if you installed it separately for your device.
+
+If npm fails, try clearing the cache before retrying:
+
 ```bash
 npm cache clean --force
+npm install -g @bastani/atomic
 ```

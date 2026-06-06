@@ -208,7 +208,7 @@ models: [{
   id: "custom-model",
   // ...
   reasoning: true,
-  thinkingLevelMap: {              // map pi levels to provider values; null hides unsupported levels
+  thinkingLevelMap: {              // map Atomic thinking levels to provider values; null hides unsupported levels
     minimal: null,
     low: null,
     medium: null,
@@ -345,12 +345,14 @@ interface OAuthCredentials {
 For providers with non-standard APIs, implement `streamSimple`. Study the existing provider implementations before writing your own:
 
 **Reference implementations:**
-- [anthropic.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/ai/src/providers/anthropic.ts) - Anthropic Messages API
-- [mistral.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/ai/src/providers/mistral.ts) - Mistral Conversations API
-- [openai-completions.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/ai/src/providers/openai-completions.ts) - OpenAI Chat Completions
-- [openai-responses.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/ai/src/providers/openai-responses.ts) - OpenAI Responses API
-- [google.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/ai/src/providers/google.ts) - Google Generative AI
-- [amazon-bedrock.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/ai/src/providers/amazon-bedrock.ts) - AWS Bedrock
+
+Atomic uses provider implementations from its installed `@earendil-works/pi-ai` dependency. Inspect the compiled declarations and JavaScript under `node_modules/@earendil-works/pi-ai/dist/providers/`, including:
+- `anthropic.d.ts` / `anthropic.js` - Anthropic Messages API
+- `mistral.d.ts` / `mistral.js` - Mistral Conversations API
+- `openai-completions.d.ts` / `openai-completions.js` - OpenAI Chat Completions
+- `openai-responses.d.ts` / `openai-responses.js` - OpenAI Responses API
+- `google.d.ts` / `google.js` - Google Generative AI
+- `amazon-bedrock.d.ts` / `amazon-bedrock.js` - AWS Bedrock
 
 ### Stream Pattern
 
@@ -522,7 +524,7 @@ pi.registerProvider("my-provider", {
 
 ## Testing Your Implementation
 
-Test your provider against the same test suites used by built-in providers. Copy and adapt these test files from [packages/ai/test/](https://github.com/earendil-works/pi-mono/tree/main/packages/ai/test):
+Test your provider against focused tests that mirror Atomic's provider contract. If you are working from the source checkout, note that provider internals come from `@earendil-works/pi-ai`; this monorepo does not contain a `packages/ai/test` directory to copy from directly:
 
 | Test | Purpose |
 |------|---------|
@@ -602,7 +604,7 @@ interface ProviderModelConfig {
   /** Whether the model supports extended thinking. */
   reasoning: boolean;
 
-  /** Maps pi thinking levels to provider/model-specific values; null marks a level unsupported. */
+  /** Maps Atomic thinking levels to provider/model-specific values; null marks a level unsupported. */
   thinkingLevelMap?: Partial<Record<"off" | "minimal" | "low" | "medium" | "high" | "xhigh", string | null>>;
 
   /** Supported input types. */

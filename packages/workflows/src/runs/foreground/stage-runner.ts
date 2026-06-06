@@ -241,6 +241,34 @@ function lastAssistantTextFromMessages(messages: AgentSession["messages"]): stri
   return undefined;
 }
 
+function messageStopReason(message: AgentSession["messages"][number]): string | undefined {
+  const record = message as { readonly stopReason?: unknown };
+  return typeof record.stopReason === "string" ? record.stopReason : undefined;
+}
+
+function terminalAssistantFailureSince(
+  messages: AgentSession["messages"],
+  startIndex: number,
+): AgentSession["messages"][number] | undefined {
+  for (let index = messages.length - 1; index >= startIndex; index -= 1) {
+    const message = messages[index];
+    if (!message || message.role !== "assistant") continue;
+    const stopReason = messageStopReason(message);
+    if (stopReason === "error" || stopReason === "aborted") return message;
+  }
+  return undefined;
+}
+
+class WorkflowPromptModelFailure extends Error {
+  override readonly cause: unknown;
+
+  constructor(cause: unknown) {
+    super(errorMessage(cause));
+    this.name = "WorkflowPromptModelFailure";
+    this.cause = cause;
+  }
+}
+
 /**
  * When an agent turn ends on a tool that returned `terminate: true`, control
  * returns with the tool result as the final conversational message and no
@@ -795,14 +823,19 @@ export function createStageContext(opts: StageRunnerOpts): InternalStageContext 
       selectedModel = candidate.id;
       notifyModelFallbackMetaChange();
       try {
+        const messageStartIndex = activeSession.messages.length;
         await promptWithPauseResume(activeSession, text, sdkOptions);
+        const terminalFailure = terminalAssistantFailureSince(activeSession.messages, messageStartIndex);
+        if (terminalFailure !== undefined) {
+          throw new WorkflowPromptModelFailure(terminalFailure);
+        }
         modelAttempts.push({ model: candidate.id, success: true, ...modelAttemptReasoning(candidate) });
         pendingFallbackWarnings.length = 0;
         return;
       } catch (err) {
         const message = errorMessage(err);
         modelAttempts.push({ model: candidate.id, success: false, ...modelAttemptReasoning(candidate), error: message });
-        if (signal?.aborted || !isRetryableModelFailure(message) || index === candidates.length - 1) {
+        if (signal?.aborted || !isRetryableModelFailure(err) || index === candidates.length - 1) {
           modelWarnings.push(...pendingFallbackWarnings);
           pendingFallbackWarnings.length = 0;
           notifyModelFallbackMetaChange();

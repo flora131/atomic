@@ -6,6 +6,7 @@ import {
   buildModelCandidatesFromCatalog,
   splitReasoningSuffix,
   isRetryableModelFailure,
+  normalizeModelFailureSignal,
   validateWorkflowModels,
   WorkflowModelValidationError,
 } from "../../packages/workflows/src/runs/shared/model-fallback.js";
@@ -298,5 +299,52 @@ describe("model fallback helpers", () => {
     assert.equal(isRetryableModelFailure("model not found"), true);
     assert.equal(isRetryableModelFailure("command failed: bun test"), false);
     assert.equal(isRetryableModelFailure("user cancelled"), false);
+  });
+
+  test("retry classifier uses structured diagnostics before localized text", () => {
+    const signal = normalizeModelFailureSignal({
+      role: "assistant",
+      stopReason: "error",
+      errorMessage: "地域化されたプロバイダー エラー",
+      diagnostics: [{ error: { code: 429, message: "quota exhausted" } }],
+    });
+
+    assert.equal(signal.kind, "rate_limit");
+    assert.equal(signal.source, "diagnostic");
+    assert.equal(isRetryableModelFailure({
+      role: "assistant",
+      stopReason: "error",
+      errorMessage: "地域化されたプロバイダー エラー",
+      diagnostics: [{ error: { code: 429, message: "quota exhausted" } }],
+    }), true);
+    assert.equal(isRetryableModelFailure({
+      message: "localized wrapper",
+      diagnostics: [{ error: { message: "service unavailable" } }],
+    }), true);
+  });
+
+  test("retry classifier uses structured status and codes including auth failures", () => {
+    assert.equal(isRetryableModelFailure({ status: 503, message: "localized" }), true);
+    assert.equal(isRetryableModelFailure({ statusCode: 401, message: "localized" }), true);
+    assert.equal(isRetryableModelFailure({ httpStatus: 403, message: "localized" }), true);
+    assert.equal(isRetryableModelFailure({ code: "invalid_api_key", message: "localized" }), true);
+  });
+
+  test("retry classifier follows causes before regex fallback", () => {
+    const err = new Error("outer localized failure", {
+      cause: { diagnostics: [{ error: { code: "service_unavailable", message: "provider down" } }] },
+    });
+
+    assert.equal(isRetryableModelFailure(err), true);
+    assert.equal(normalizeModelFailureSignal(err).kind, "provider_unavailable");
+  });
+
+  test("retry classifier refuses cancellation and task failures despite structured-looking text", () => {
+    assert.equal(isRetryableModelFailure({ name: "AbortError", status: 503, message: "request aborted" }), false);
+    assert.equal(isRetryableModelFailure({ status: 503, message: "request cancelled" }), false);
+    assert.equal(isRetryableModelFailure({ stopReason: "aborted", status: 503, errorMessage: "aborted" }), false);
+    assert.equal(isRetryableModelFailure({ status: 503, message: "shell command failed" }), false);
+    assert.equal(isRetryableModelFailure("completion guard failed after 429"), false);
+    assert.equal(isRetryableModelFailure("shell command failed with 503"), false);
   });
 });

@@ -1623,8 +1623,6 @@ function runFailureMetadataFromCandidate(
       metadata = runFailureMetadataFromStage(fallbackFailure, candidate.stage);
       break;
     case "aggregate":
-      metadata = runFailureMetadataFromFailure(candidate.failure, undefined);
-      break;
     case "outer":
       metadata = runFailureMetadataFromFailure(candidate.failure, undefined);
       break;
@@ -1677,6 +1675,9 @@ function selectRunFailureDisposition(input: {
     ...aggregateFailures.map(aggregateFailureCandidate),
     outerFailureCandidate(input.outerFailure),
   ];
+  // Candidate precedence mirrors lifecycle severity: terminal killed is non-resumable
+  // and wins first, terminal failed wins over recoverable blocks, and active-blocked
+  // is only preserved when every observed failure is recoverable active-blocked.
   const terminalKilledCandidate = candidates.find((candidate) => candidate.disposition === "terminal_killed");
   if (terminalKilledCandidate !== undefined) {
     return selectedMetadata(

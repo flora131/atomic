@@ -192,15 +192,6 @@ function retryAfterHeaderMs(value: unknown): number | undefined {
   return Math.max(0, dateMs - Date.now());
 }
 
-function retryAfterFieldMs(value: unknown): number | undefined {
-  const numeric = numberFrom(value);
-  if (numeric !== undefined && numeric >= 0) return Math.round(numeric);
-  if (typeof value !== "string" || value.trim().length === 0) return undefined;
-  const dateMs = Date.parse(value);
-  if (!Number.isFinite(dateMs)) return undefined;
-  return Math.max(0, dateMs - Date.now());
-}
-
 function retryAfterMsFrom(error: unknown): number | undefined {
   const directMs = numberFrom(field(error, "retryAfterMs"));
   if (directMs !== undefined && directMs >= 0) return Math.round(directMs);
@@ -208,7 +199,10 @@ function retryAfterMsFrom(error: unknown): number | undefined {
   const seconds = numberFrom(field(error, "retryAfterSeconds"));
   if (seconds !== undefined && seconds >= 0) return Math.round(seconds * 1000);
 
-  const retryAfter = retryAfterFieldMs(field(error, "retryAfter"));
+  // Provider SDKs commonly mirror the HTTP Retry-After header as retryAfter,
+  // so the ambiguous bare field follows header semantics (seconds/date). Use
+  // retryAfterMs for explicit millisecond values.
+  const retryAfter = retryAfterHeaderMs(field(error, "retryAfter"));
   if (retryAfter !== undefined) return retryAfter;
 
   const retryAfterHeader = retryAfterHeaderMs(field(error, "retry-after"));
@@ -807,6 +801,11 @@ function fallbackAggregateClassification(innerError: unknown): WorkflowFailureCl
   return classificationForDecision(fallback ?? unknownDecision(), "aggregate", message);
 }
 
+function recoverableBlockedClassification(classifications: readonly WorkflowFailureClassification[]): WorkflowFailureClassification {
+  return classifications.find((classification) => classification.decision.retryAfterMs !== undefined)
+    ?? classifications[0]!;
+}
+
 function aggregateClassification(error: unknown, seen: Set<unknown>): WorkflowFailureClassification | undefined {
   const innerErrors = aggregateErrorItems(error);
   if (innerErrors.length === 0) return undefined;
@@ -822,7 +821,7 @@ function aggregateClassification(error: unknown, seen: Set<unknown>): WorkflowFa
   if (terminalKilled !== undefined) return terminalKilled;
 
   const allRecoverableBlocked = classifications.every(isRecoverableActiveBlocked);
-  if (allRecoverableBlocked) return classifications[0]!;
+  if (allRecoverableBlocked) return recoverableBlockedClassification(classifications);
 
   return classificationForDecision(unknownDecision(), "aggregate", errorMessage(error));
 }
@@ -850,7 +849,7 @@ function selectDiagnosticFailureClassification(
   if (terminalFailed !== undefined) return terminalFailed;
 
   const allRecoverableBlocked = classifications.every(isRecoverableActiveBlocked);
-  if (allRecoverableBlocked) return classifications[0]!;
+  if (allRecoverableBlocked) return recoverableBlockedClassification(classifications);
 
   return classifications[0]!;
 }

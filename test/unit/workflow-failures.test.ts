@@ -133,7 +133,13 @@ describe("classifyWorkflowFailure", () => {
   });
 
   test("uses clear local login wrapper-401 messages before provider credential defaults", () => {
-    for (const message of ["Please log in to continue", "not logged in", "login required", "Run /login to continue"] as const) {
+    for (const message of [
+      "Please log in to continue",
+      "not logged in",
+      "login required",
+      "Run /login to continue",
+      "Authentication failed for \"openai\". Credentials may have expired or network is unavailable. Run '/login openai' to re-authenticate.",
+    ] as const) {
       const failure = classifyWorkflowFailure({ status: 401, message });
       assert.equal(failure.kind, "auth");
       assert.equal(failure.code, "login_required");
@@ -444,6 +450,25 @@ describe("classifyWorkflowFailure", () => {
     assert.equal(failure.retryAfterMs, 2500);
   });
 
+  test("preserves retry hints from later all-recoverable diagnostics", () => {
+    const failure = classifyWorkflowFailure({
+      role: "assistant",
+      stopReason: "error",
+      errorMessage: "provider request failed",
+      diagnostics: [
+        { error: { status: 503, message: "provider unavailable" } },
+        { error: { status: 429, message: "too many requests", retryAfterMs: 2500 } },
+      ],
+    });
+
+    assert.equal(failure.kind, "rate_limit");
+    assert.equal(failure.code, "rate_limited");
+    assert.equal(failure.recoverability, "recoverable");
+    assert.equal(failure.disposition, "active_blocked");
+    assert.equal(failure.resumable, true);
+    assert.equal(failure.retryAfterMs, 2500);
+  });
+
   test("classifies AggregateError inner provider failures before wrapper text", () => {
     const rateLimited = classifyWorkflowFailure(new AggregateError([
       { status: 429, message: "too many requests" },
@@ -488,6 +513,19 @@ describe("classifyWorkflowFailure", () => {
     assert.equal(failure.retryAfterMs, 2500);
   });
 
+  test("preserves retry hints from later all-recoverable aggregate failures", () => {
+    const failure = classifyWorkflowFailure(new AggregateError([
+      { status: 503, message: "provider unavailable" },
+      { status: 429, message: "too many requests", retryAfterMs: 2500 },
+    ], "atomic-workflows: 2 parallel steps failed"));
+
+    assert.equal(failure.kind, "rate_limit");
+    assert.equal(failure.code, "rate_limited");
+    assert.equal(failure.recoverability, "recoverable");
+    assert.equal(failure.disposition, "active_blocked");
+    assert.equal(failure.retryAfterMs, 2500);
+  });
+
   test("lets invalid credentials win over rate limits in aggregate failures", () => {
     const failure = classifyWorkflowFailure(new AggregateError([
       { status: 429, message: "too many requests" },
@@ -512,14 +550,30 @@ describe("classifyWorkflowFailure", () => {
     assert.equal(failure.retryAfterMs, 3000);
   });
 
-  test("treats bare retryAfter as milliseconds while retry-after header remains seconds", () => {
+  test("treats bare retryAfter as seconds while explicit retryAfterMs remains milliseconds", () => {
+    const explicitMs = classifyWorkflowFailure({
+      message: "slow down",
+      status: 429,
+      retryAfterMs: 2500,
+    });
+    assert.equal(explicitMs.kind, "rate_limit");
+    assert.equal(explicitMs.retryAfterMs, 2500);
+
     const direct = classifyWorkflowFailure({
       message: "slow down",
       status: 429,
-      retryAfter: 2500,
+      retryAfter: 3,
     });
     assert.equal(direct.kind, "rate_limit");
-    assert.equal(direct.retryAfterMs, 2500);
+    assert.equal(direct.retryAfterMs, 3000);
+
+    const seconds = classifyWorkflowFailure({
+      message: "slow down",
+      status: 429,
+      retryAfterSeconds: 3,
+    });
+    assert.equal(seconds.kind, "rate_limit");
+    assert.equal(seconds.retryAfterMs, 3000);
 
     const header = classifyWorkflowFailure({
       message: "slow down",

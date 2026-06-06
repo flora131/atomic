@@ -48,6 +48,10 @@ import {
 } from "../../packages/workflows/src/extension/runtime.js";
 import type { ChatSurfacePayload } from "../../packages/workflows/src/tui/chat-surface-message.js";
 import { store } from "../../packages/workflows/src/shared/store.js";
+import {
+    restoreOnSessionStart,
+    type SessionEntry,
+} from "../../packages/workflows/src/shared/persistence-restore.js";
 import { WORKFLOW_STAGE_SUBAGENT_GUARD_ENV } from "@bastani/atomic";
 import { WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE } from "../../packages/workflows/src/shared/workflow-failures.js";
 import { LIFECYCLE_NOTICE_CUSTOM_TYPE } from "../../packages/workflows/src/extension/lifecycle-notifications.js";
@@ -3886,6 +3890,145 @@ export default defineWorkflow("tool-headless-lifecycle")
         assert.equal(sourceRunEnd.payload["resumable"], false);
         assert.equal(sourceRunEnd.payload["failureRecoverability"], "non_recoverable");
         assert.equal(sourceRunEnd.payload["failureDisposition"], "terminal_killed");
+    });
+
+    test("makeExecuteWorkflowTool resume finalizes restored blocked source run", async () => {
+        const sourceRunId = `resume-tool-restored-blocked-${Date.now()}`;
+        const def = defineWorkflow("tool-resume-restored-blocked-wf")
+            .output("first", Type.Optional(Type.Any()))
+            .output("second", Type.Optional(Type.Any()))
+            .run(async (ctx) => {
+                const first = await ctx.stage("first").prompt("first");
+                const second = await ctx
+                    .stage("second")
+                    .prompt(`second:${first}`);
+                return { first, second };
+            })
+            .compile();
+        const entries: SessionEntry[] = [
+            {
+                id: "e1",
+                type: "workflow.run.start",
+                payload: { runId: sourceRunId, name: def.name, inputs: {}, ts: 1 },
+            },
+            {
+                id: "e2",
+                type: "workflow.stage.start",
+                payload: { runId: sourceRunId, stageId: "restored-first", name: "first", parentIds: [], ts: 2 },
+            },
+            {
+                id: "e3",
+                type: "workflow.stage.end",
+                payload: {
+                    runId: sourceRunId,
+                    stageId: "restored-first",
+                    status: "completed",
+                    summary: "first-old",
+                },
+            },
+            {
+                id: "e4",
+                type: "workflow.stage.start",
+                payload: {
+                    runId: sourceRunId,
+                    stageId: "restored-second",
+                    name: "second",
+                    parentIds: ["restored-first"],
+                    ts: 3,
+                },
+            },
+            {
+                id: "e5",
+                type: "workflow.stage.end",
+                payload: {
+                    runId: sourceRunId,
+                    stageId: "restored-second",
+                    status: "failed",
+                    error: "rate limit",
+                    failureKind: "rate_limit",
+                    failureCode: "rate_limited",
+                    failureRecoverability: "recoverable",
+                    failureDisposition: "active_blocked",
+                    failureMessage: "HTTP 429",
+                },
+            },
+            {
+                id: "e6",
+                type: "workflow.run.blocked",
+                payload: {
+                    runId: sourceRunId,
+                    failedStageId: "restored-second",
+                    error: "rate limit",
+                    failureKind: "rate_limit",
+                    failureCode: "rate_limited",
+                    failureMessage: "HTTP 429",
+                    failureRecoverability: "recoverable",
+                    failureDisposition: "active_blocked",
+                    resumable: true,
+                    ts: 4,
+                },
+            },
+        ];
+        restoreOnSessionStart(
+            { getEntries: () => entries },
+            { resumeInFlight: "never", persistRuns: true },
+            store,
+        );
+
+        const calls: string[] = [];
+        let markPromptStarted = (): void => {};
+        const promptStarted = new Promise<void>((resolve) => {
+            markPromptStarted = resolve;
+        });
+        let releasePrompt = (_value: string): void => {};
+        const promptRelease = new Promise<string>((resolve) => {
+            releasePrompt = resolve;
+        });
+        const runtime = createExtensionRuntime({
+            registry: createRegistry([def]),
+            store,
+            adapters: {
+                prompt: {
+                    prompt: async (text) => {
+                        calls.push(text);
+                        markPromptStarted();
+                        return promptRelease;
+                    },
+                },
+            },
+        });
+        const handler = makeExecuteWorkflowTool(
+            runtime,
+            () => undefined,
+            () => undefined,
+        );
+
+        const result = await handler(
+            { action: "resume", runId: sourceRunId },
+            {} as never,
+        );
+        const r = result as { action: string; status: string; runId: string };
+        assert.equal(r.action, "resume");
+        assert.equal(r.status, "running");
+        assert.notEqual(r.runId, sourceRunId);
+
+        await promptStarted;
+        assert.deepEqual(calls, ["second:first-old"]);
+        const source = store.runs().find((run) => run.id === sourceRunId)!;
+        assert.equal(source.status, "killed");
+        assert.equal(source.failureDisposition, "terminal_killed");
+        assert.equal(source.failureRecoverability, "non_recoverable");
+        assert.equal(source.resumable, false);
+        assert.equal(source.blockedAt, undefined);
+        const inFlight = store.runs().filter((run) => run.endedAt === undefined);
+        assert.deepEqual(inFlight.map((run) => run.id), [r.runId]);
+
+        releasePrompt("second-new");
+        await jobTracker.get(r.runId)?.promise;
+        const continued = store.runs().find((run) => run.id === r.runId)!;
+        assert.equal(continued.status, "completed");
+        assert.equal(continued.resumedFromRunId, sourceRunId);
+        assert.equal(continued.resumeFromStageId, "restored-second");
     });
 
     test("makeExecuteWorkflowTool resume surfaces workflow_not_found for failed resumable run without registry definition", async () => {

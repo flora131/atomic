@@ -339,31 +339,69 @@ function _buildStageSnapshots(
     }
   }
 
-  // Mark any stage that didn't get an end entry as crashed, or as blocked when
-  // a persisted workflow.run.blocked entry explains the active non-terminal run.
-  for (const [stageId, snap] of stageMap) {
-    if (endedStages.has(stageId)) continue;
-    if (blockedMeta !== undefined) {
-      if (stageId === blockedMeta.failedStageId) {
-        snap.status = "failed";
-        snap.error = blockedMeta.error;
-        snap.failureKind = blockedMeta.failureKind;
-        snap.failureCode = blockedMeta.failureCode;
-        snap.failureRecoverability = blockedMeta.failureRecoverability;
-        snap.failureDisposition = blockedMeta.failureDisposition;
-        snap.failureMessage = blockedMeta.failureMessage;
-        snap.retryAfterMs = blockedMeta.retryAfterMs;
-      } else {
-        snap.status = "blocked";
-        snap.blockedByStageId = blockedMeta.failedStageId;
-      }
-      continue;
+  if (blockedMeta !== undefined) {
+    restoreBlockedStageState(stageMap, endedStages, blockedMeta);
+  } else {
+    // Mark any stage that didn't get an end entry as crashed.
+    for (const [stageId, snap] of stageMap) {
+      if (endedStages.has(stageId)) continue;
+      snap.status = "failed";
+      snap.error = "Stage did not complete — process was interrupted.";
     }
-    snap.status = "failed";
-    snap.error = "Stage did not complete — process was interrupted.";
   }
 
   return [...stageMap.values()];
+}
+
+function hasRestoredAncestor(
+  stageMap: ReadonlyMap<string, StageSnapshot>,
+  stage: StageSnapshot,
+  ancestorId: string,
+): boolean {
+  const queue = [...stage.parentIds];
+  const seen = new Set<string>();
+
+  while (queue.length > 0) {
+    const next = queue.shift();
+    if (next === undefined || seen.has(next)) continue;
+    if (next === ancestorId) return true;
+    seen.add(next);
+    queue.push(...(stageMap.get(next)?.parentIds ?? []));
+  }
+
+  return false;
+}
+
+function markRestoredBlockedFailureStage(
+  snap: StageSnapshot,
+  blockedMeta: RestoredRunBlockedMetadata,
+): void {
+  snap.status = "failed";
+  snap.error = blockedMeta.error;
+  snap.failureKind = blockedMeta.failureKind;
+  snap.failureCode = blockedMeta.failureCode;
+  snap.failureRecoverability = blockedMeta.failureRecoverability;
+  snap.failureDisposition = blockedMeta.failureDisposition;
+  snap.failureMessage = blockedMeta.failureMessage;
+  snap.retryAfterMs = blockedMeta.retryAfterMs;
+}
+
+function restoreBlockedStageState(
+  stageMap: Map<string, StageSnapshot>,
+  endedStages: ReadonlySet<string>,
+  blockedMeta: RestoredRunBlockedMetadata,
+): void {
+  for (const [stageId, snap] of stageMap) {
+    if (endedStages.has(stageId)) continue;
+    if (stageId === blockedMeta.failedStageId) {
+      markRestoredBlockedFailureStage(snap, blockedMeta);
+      continue;
+    }
+    if (hasRestoredAncestor(stageMap, snap, blockedMeta.failedStageId)) {
+      snap.status = "blocked";
+      snap.blockedByStageId = blockedMeta.failedStageId;
+    }
+  }
 }
 
 function replayMetadata(payload: Record<string, unknown>): Pick<StageSnapshot, "replayKey" | "replayedFromStageId" | "replayed"> {

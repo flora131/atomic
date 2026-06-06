@@ -155,6 +155,43 @@ describe("classifyWorkflowFailure", () => {
     }
   });
 
+  test("classifies string-only provider auth fallback as invalid credentials", () => {
+    for (const error of [
+      new Error("OpenAI API error (401): Unauthorized"),
+      new Error("Unauthorized"),
+      "authentication required",
+    ] as const) {
+      const failure = classifyWorkflowFailure(error);
+      assert.equal(failure.kind, "auth");
+      assert.equal(failure.code, "invalid_api_key");
+      assert.equal(failure.retryable, false);
+      assert.equal(failure.resumable, false);
+      assert.equal(failure.recoverability, "non_recoverable");
+      assert.equal(failure.disposition, "terminal_killed");
+      assert.equal(failure.userMessage, WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE);
+    }
+  });
+
+  test("keeps clear string-only local login fallback recoverable", () => {
+    for (const error of [
+      new Error("Run /login to continue"),
+      new Error("not logged in"),
+      "login required",
+      "please login",
+      "please log in",
+      "log in to continue",
+    ] as const) {
+      const failure = classifyWorkflowFailure(error);
+      assert.equal(failure.kind, "auth");
+      assert.equal(failure.code, "login_required");
+      assert.equal(failure.retryable, true);
+      assert.equal(failure.resumable, true);
+      assert.equal(failure.recoverability, "recoverable");
+      assert.equal(failure.disposition, "active_blocked");
+      assert.equal(failure.userMessage, WORKFLOW_AUTH_FAILURE_MESSAGE);
+    }
+  });
+
   test("provider credential messages and causes override broad auth wrapper codes", () => {
     const failures = [
       classifyWorkflowFailure({

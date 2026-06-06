@@ -422,6 +422,11 @@ const LOCAL_LOGIN_REQUIRED_PHRASES: readonly TokenMatch[] = [
   ["log", "in", "to", "continue"],
 ];
 
+const PROVIDER_AUTH_FALLBACK_PHRASES: readonly TokenMatch[] = [
+  ["unauthorized"],
+  ["authentication", "required"],
+];
+
 const MISSING_API_KEY_PHRASES: readonly TokenMatch[] = [
   ["no", "api", "key"],
   ["api", "key", "not", "found"],
@@ -676,9 +681,8 @@ function decisionFromMessageTokens(tokens: readonly string[], name: string | und
   return undefined;
 }
 
-function decisionFromStatus(signal: StructuredSignal): WorkflowFailureDecision | undefined {
-  const retryAfterMs = signal.retryAfterMs;
-  switch (signal.status) {
+function decisionFromStatus(status: number | undefined, retryAfterMs: number | undefined): WorkflowFailureDecision | undefined {
+  switch (status) {
     case 401:
       return authDecision("invalid_api_key");
     case 403:
@@ -717,12 +721,9 @@ const STATUS_RELATED_MESSAGE_REFINEMENT_CODES: ReadonlySet<WorkflowFailureCode> 
   "cancelled",
 ]);
 
-function canRefineStatusDecisionWithMessage(decision: WorkflowFailureDecision): boolean {
-  return STATUS_MESSAGE_REFINEMENT_CODES.has(decision.code);
-}
-
-function canRefineWeakAuthDecisionWithMessage(decision: WorkflowFailureDecision): boolean {
-  return BROAD_AUTH_MESSAGE_REFINEMENT_CODES.has(decision.code);
+function isRecoverableActiveBlocked(classification: WorkflowFailureClassification): boolean {
+  return classification.decision.disposition === "active_blocked"
+    && classification.decision.recoverability === "recoverable";
 }
 
 function canUseRelatedClassificationBeforeStatus(classification: WorkflowFailureClassification): boolean {
@@ -736,6 +737,18 @@ function canUseRelatedClassificationBeforeStatus(classification: WorkflowFailure
 function isClearLocalLoginMessage(message: string): boolean {
   if (message.toLowerCase().includes("/login")) return true;
   return hasAnyPhrase(tokenize(message), LOCAL_LOGIN_REQUIRED_PHRASES);
+}
+
+function hasFallbackApiError401(tokens: readonly string[]): boolean {
+  return hasPhrase(tokens, ["401"]) && hasPhrase(tokens, ["api", "error"]);
+}
+
+function classifyFallbackProviderAuthMessage(message: string): WorkflowFailureDecision | undefined {
+  if (isClearLocalLoginMessage(message)) return undefined;
+  const tokens = tokenize(message);
+  return hasAnyPhrase(tokens, PROVIDER_AUTH_FALLBACK_PHRASES) || hasFallbackApiError401(tokens)
+    ? authDecision("invalid_api_key")
+    : undefined;
 }
 
 function canUseLoginClassificationBeforeWrapper401(
@@ -789,11 +802,7 @@ function aggregateClassification(error: unknown, seen: Set<unknown>): WorkflowFa
   );
   if (terminalKilled !== undefined) return terminalKilled;
 
-  const allRecoverableBlocked = classifications.every(
-    (classification) =>
-      classification.decision.disposition === "active_blocked" &&
-      classification.decision.recoverability === "recoverable",
-  );
+  const allRecoverableBlocked = classifications.every(isRecoverableActiveBlocked);
   if (allRecoverableBlocked) return classifications[0]!;
 
   return classificationForDecision(unknownDecision(), "aggregate", errorMessage(error));
@@ -821,11 +830,7 @@ function selectDiagnosticFailureClassification(
   );
   if (terminalFailed !== undefined) return terminalFailed;
 
-  const allRecoverableBlocked = classifications.every(
-    (classification) =>
-      classification.decision.disposition === "active_blocked" &&
-      classification.decision.recoverability === "recoverable",
-  );
+  const allRecoverableBlocked = classifications.every(isRecoverableActiveBlocked);
   if (allRecoverableBlocked) return classifications[0]!;
 
   return classifications[0]!;
@@ -878,14 +883,17 @@ function structuredClassification(
   const messageDecision = signalMessage !== undefined
     ? decisionFromMessageTokens(tokenize(signalMessage), signal.name, retryAfterMs)
     : undefined;
-  if (weakClassification !== undefined && messageDecision !== undefined && canRefineWeakAuthDecisionWithMessage(messageDecision)) {
+  if (
+    weakClassification !== undefined &&
+    messageDecision !== undefined &&
+    BROAD_AUTH_MESSAGE_REFINEMENT_CODES.has(messageDecision.code)
+  ) {
     return classificationForDecision(messageDecision, source, signalMessage);
   }
 
   const relatedClassification = relatedStructuredClassification(error, seen);
   const effectiveStatus = signal.status ?? (codeEvidence?.kind === "wrapper_http_status" ? codeEvidence.status : undefined);
-  const statusSignal: StructuredSignal = effectiveStatus !== undefined ? { ...signal, status: effectiveStatus } : signal;
-  const statusDecision = decisionFromStatus(statusSignal);
+  const statusDecision = decisionFromStatus(effectiveStatus, retryAfterMs);
   if (statusDecision !== undefined) {
     if (relatedClassification !== undefined && canUseRelatedClassificationBeforeStatus(relatedClassification)) {
       return relatedClassification;
@@ -894,7 +902,7 @@ function structuredClassification(
       signalMessage !== undefined &&
       (effectiveStatus === 401 || effectiveStatus === 403) &&
       messageDecision !== undefined &&
-      canRefineStatusDecisionWithMessage(messageDecision)
+      STATUS_MESSAGE_REFINEMENT_CODES.has(messageDecision.code)
     ) {
       return classificationForDecision(messageDecision, source, signalMessage);
     }
@@ -922,7 +930,16 @@ function structuredClassification(
 }
 
 function fallbackDecisionFromMessage(message: string, name: string | undefined): WorkflowFailureDecision | undefined {
-  return decisionFromMessageTokens(tokenize(message), name);
+  const tokens = tokenize(message);
+  const decision = decisionFromMessageTokens(tokens, name);
+  const providerAuthDecision = classifyFallbackProviderAuthMessage(message);
+  if (providerAuthDecision !== undefined && (decision === undefined || decision.code === "login_required")) {
+    return providerAuthDecision;
+  }
+  if (decision === undefined && isClearLocalLoginMessage(message)) {
+    return authDecision("login_required");
+  }
+  return decision;
 }
 
 function failureForDecision(decision: WorkflowFailureDecision, message: string, cause: unknown): WorkflowFailure {
@@ -943,9 +960,7 @@ export function classifyWorkflowFailure(error: unknown): WorkflowFailure {
   const message = errorMessage(error);
   const structured = structuredClassification(error);
   if (structured !== undefined) {
-    const structuredMessage = structured.message !== undefined
-      ? redactSensitiveText(structured.message)
-      : redactSensitiveText(message);
+    const structuredMessage = structured.message ?? message;
     return failureForDecision(structured.decision, structuredMessage, error);
   }
 

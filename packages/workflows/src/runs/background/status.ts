@@ -82,6 +82,14 @@ export interface RunDetail {
   readonly stages: readonly RunSnapshot["stages"][number][];
   readonly result?: WorkflowOutputValues;
   readonly error?: string;
+  readonly failureKind?: RunSnapshot["failureKind"];
+  readonly failureCode?: RunSnapshot["failureCode"];
+  readonly failureRecoverability?: RunSnapshot["failureRecoverability"];
+  readonly failureDisposition?: RunSnapshot["failureDisposition"];
+  readonly failedStageId?: string;
+  readonly resumable?: boolean;
+  readonly retryAfterMs?: number;
+  readonly blockedAt?: number;
 }
 
 export type InspectRunResult =
@@ -247,14 +255,29 @@ export function resumeRun(
   // Return a deep copy of the snapshot for safe consumption
   const snapshot = structuredClone(run);
   const resumedCopy = structuredClone(resumed);
-  if (run.status === "failed" && run.endedAt !== undefined && run.resumable === false) {
+  if (run.status === "killed" || run.resumable === false) {
     return {
       ok: true,
       runId,
       snapshot,
       resumed: resumedCopy,
       mode: "not_resumable",
-      message: "This failed workflow is not resumable; inspect the snapshot and rerun the workflow when ready.",
+      message: "This workflow is not resumable; inspect the snapshot and start a new workflow run when ready.",
+    };
+  }
+  if (
+    run.endedAt === undefined &&
+    run.resumable === true &&
+    run.failureRecoverability === "recoverable" &&
+    run.failedStageId !== undefined
+  ) {
+    return {
+      ok: true,
+      runId,
+      snapshot,
+      resumed: resumedCopy,
+      mode: resumedCopy.length > 0 ? "paused" : "snapshot",
+      message: `Workflow is blocked on a recoverable ${run.failureCode ?? run.failureKind ?? "workflow"} failure at stage ${run.failedStageId}; retry/resume after the issue clears.`,
     };
   }
   return {
@@ -441,6 +464,14 @@ export function inspectRun(
     stages: expandedStages.map((stage) => structuredClone(stage)),
     result: copy.result,
     error: copy.error,
+    failureKind: copy.failureKind,
+    failureCode: copy.failureCode,
+    failureRecoverability: copy.failureRecoverability,
+    failureDisposition: copy.failureDisposition,
+    failedStageId: copy.failedStageId,
+    resumable: copy.resumable,
+    retryAfterMs: copy.retryAfterMs,
+    blockedAt: copy.blockedAt,
   };
 
   return { ok: true, runId: copy.id, detail };

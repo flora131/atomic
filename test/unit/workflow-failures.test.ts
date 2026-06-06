@@ -6,66 +6,94 @@ import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import {
   WORKFLOW_AUTH_FAILURE_MESSAGE,
+  WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE,
+  WORKFLOW_MISSING_API_KEY_FAILURE_MESSAGE,
+  WORKFLOW_UNKNOWN_MODEL_MESSAGE,
   classifyWorkflowFailure,
 } from "../../packages/workflows/src/shared/workflow-failures.js";
 
 describe("classifyWorkflowFailure", () => {
-  test("normalizes auth/no-key failures to workflow login guidance", () => {
+  test("normalizes missing provider key failures to recoverable active-blocked auth", () => {
     const failure = classifyWorkflowFailure(new Error("No API key found for provider"));
     assert.equal(failure.kind, "auth");
-    assert.equal(failure.userMessage, WORKFLOW_AUTH_FAILURE_MESSAGE);
+    assert.equal(failure.code, "missing_api_key");
+    assert.equal(failure.userMessage, WORKFLOW_MISSING_API_KEY_FAILURE_MESSAGE);
     assert.equal(failure.message, "No API key found for provider");
     assert.equal(failure.retryable, true);
     assert.equal(failure.resumable, true);
+    assert.equal(failure.recoverability, "recoverable");
+    assert.equal(failure.disposition, "active_blocked");
   });
 
-  test("classifies 429/quota failures as resumable rate limits", () => {
+  test("classifies 429/quota failures as recoverable active-blocked rate limits", () => {
     const failure = classifyWorkflowFailure(new Error("HTTP 429 quota exceeded"));
     assert.equal(failure.kind, "rate_limit");
+    assert.equal(failure.code, "rate_limited");
     assert.equal(failure.userMessage, "HTTP 429 quota exceeded");
     assert.equal(failure.retryable, true);
     assert.equal(failure.resumable, true);
+    assert.equal(failure.recoverability, "recoverable");
+    assert.equal(failure.disposition, "active_blocked");
   });
 
-  test("classifies abort errors as non-resumable cancellation", () => {
+  test("classifies quota-only fallback text as recoverable active-blocked", () => {
+    const failure = classifyWorkflowFailure(new Error("quota exceeded"));
+    assert.equal(failure.kind, "rate_limit");
+    assert.equal(failure.code, "quota_limited");
+    assert.equal(failure.disposition, "active_blocked");
+    assert.equal(failure.resumable, true);
+  });
+
+  test("classifies abort errors as non-resumable terminal cancellation", () => {
     const failure = classifyWorkflowFailure(new DOMException("workflow killed", "AbortError"));
     assert.equal(failure.kind, "cancelled");
+    assert.equal(failure.code, "cancelled");
     assert.equal(failure.retryable, false);
     assert.equal(failure.resumable, false);
+    assert.equal(failure.recoverability, "non_recoverable");
+    assert.equal(failure.disposition, "terminal_killed");
   });
 
   test("classifies provider/model outages separately from auth", () => {
     const failure = classifyWorkflowFailure(new Error("model provider service unavailable"));
     assert.equal(failure.kind, "provider");
+    assert.equal(failure.code, "provider_unavailable");
     assert.equal(failure.retryable, true);
     assert.equal(failure.resumable, true);
+    assert.equal(failure.disposition, "active_blocked");
   });
 
   test("uses structured HTTP statuses before message fallback", () => {
     const auth = classifyWorkflowFailure({ message: "request failed", status: 401 });
     assert.equal(auth.kind, "auth");
-    assert.equal(auth.userMessage, WORKFLOW_AUTH_FAILURE_MESSAGE);
+    assert.equal(auth.code, "invalid_api_key");
+    assert.equal(auth.userMessage, WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE);
 
     const rateLimit = classifyWorkflowFailure({ message: "request failed", statusCode: 429 });
     assert.equal(rateLimit.kind, "rate_limit");
+    assert.equal(rateLimit.code, "rate_limited");
     assert.equal(rateLimit.retryable, true);
 
     const provider = classifyWorkflowFailure({ message: "request failed", status: 503 });
     assert.equal(provider.kind, "provider");
+    assert.equal(provider.code, "provider_unavailable");
     assert.equal(provider.retryable, true);
   });
 
   test("uses structured codes and causes before message fallback", () => {
     const auth = classifyWorkflowFailure({ message: "provider error", code: "AUTH_REQUIRED" });
     assert.equal(auth.kind, "auth");
+    assert.equal(auth.code, "login_required");
 
     const rateLimit = classifyWorkflowFailure(new Error("outer failure", {
       cause: { message: "inner failure", code: "rate_limit_exceeded" },
     }));
     assert.equal(rateLimit.kind, "rate_limit");
+    assert.equal(rateLimit.code, "rate_limited");
 
     const cancelled = classifyWorkflowFailure({ message: "stopped", code: "AbortError" });
     assert.equal(cancelled.kind, "cancelled");
+    assert.equal(cancelled.disposition, "terminal_killed");
   });
 
   test("uses SDK assistant error shapes", () => {
@@ -76,6 +104,7 @@ describe("classifyWorkflowFailure", () => {
       diagnostics: [{ error: { code: 429, message: "quota exceeded" } }],
     });
     assert.equal(failure.kind, "rate_limit");
+    assert.equal(failure.code, "rate_limited");
     assert.equal(failure.message, "provider request failed");
 
     const cancelled = classifyWorkflowFailure({
@@ -84,6 +113,52 @@ describe("classifyWorkflowFailure", () => {
       errorMessage: "stream aborted",
     });
     assert.equal(cancelled.kind, "cancelled");
+    assert.equal(cancelled.disposition, "terminal_killed");
+  });
+
+  test("classifies OpenAI-style invalid API key diagnostics as terminal killed", () => {
+    const failure = classifyWorkflowFailure({
+      role: "assistant",
+      stopReason: "error",
+      errorMessage: "provider request failed",
+      diagnostics: [{
+        error: {
+          status: 401,
+          code: "invalid_api_key",
+          message: "Incorrect API key provided: sk-testsecret123456789",
+        },
+      }],
+    });
+
+    assert.equal(failure.kind, "auth");
+    assert.equal(failure.code, "invalid_api_key");
+    assert.equal(failure.recoverability, "non_recoverable");
+    assert.equal(failure.disposition, "terminal_killed");
+    assert.equal(failure.retryable, false);
+    assert.equal(failure.resumable, false);
+    assert.equal(failure.userMessage, WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE);
+    assert.doesNotMatch(failure.userMessage, /sk-testsecret/);
+  });
+
+  test("extracts retry-after metadata from structured rate limits", () => {
+    const failure = classifyWorkflowFailure({
+      message: "slow down",
+      status: 429,
+      headers: { "retry-after": "3" },
+    });
+    assert.equal(failure.kind, "rate_limit");
+    assert.equal(failure.disposition, "active_blocked");
+    assert.equal(failure.retryAfterMs, 3000);
+  });
+
+  test("structured 429 wins over misleading auth text", () => {
+    const failure = classifyWorkflowFailure({
+      message: "Incorrect API key mentioned in provider retry body",
+      status: 429,
+    });
+    assert.equal(failure.kind, "rate_limit");
+    assert.equal(failure.code, "rate_limited");
+    assert.equal(failure.disposition, "active_blocked");
   });
 
   test("does not treat log information/input errors as auth failures", () => {
@@ -95,13 +170,16 @@ describe("classifyWorkflowFailure", () => {
       assert.equal(failure.kind, "unknown");
       assert.equal(failure.userMessage, message);
       assert.equal(failure.retryable, false);
+      assert.equal(failure.disposition, "terminal_failed");
     }
   });
 
   test("still treats bounded log in guidance as auth failure", () => {
     const failure = classifyWorkflowFailure(new Error("Please log in to continue"));
     assert.equal(failure.kind, "auth");
+    assert.equal(failure.code, "login_required");
     assert.equal(failure.userMessage, WORKFLOW_AUTH_FAILURE_MESSAGE);
+    assert.equal(failure.disposition, "active_blocked");
   });
 
   test("does not treat generic domain/tool model errors as provider outages", () => {
@@ -115,12 +193,19 @@ describe("classifyWorkflowFailure", () => {
     }
   });
 
-  test("still treats unavailable or missing model errors as provider outages", () => {
-    for (const message of ["model unavailable", "model not found"]) {
-      const failure = classifyWorkflowFailure(new Error(message));
-      assert.equal(failure.kind, "provider");
-      assert.equal(failure.retryable, true);
-    }
+  test("distinguishes unavailable providers from unknown models", () => {
+    const unavailable = classifyWorkflowFailure(new Error("model unavailable"));
+    assert.equal(unavailable.kind, "provider");
+    assert.equal(unavailable.code, "provider_unavailable");
+    assert.equal(unavailable.retryable, true);
+
+    const missing = classifyWorkflowFailure(new Error("model not found"));
+    assert.equal(missing.kind, "provider");
+    assert.equal(missing.code, "unknown_model");
+    assert.equal(missing.userMessage, WORKFLOW_UNKNOWN_MODEL_MESSAGE);
+    assert.equal(missing.retryable, false);
+    assert.equal(missing.resumable, false);
+    assert.equal(missing.disposition, "terminal_killed");
   });
 
   test("does not treat generic OAuth metadata errors as auth failures", () => {
@@ -132,6 +217,7 @@ describe("classifyWorkflowFailure", () => {
   test("still treats OAuth token errors as auth failures", () => {
     const failure = classifyWorkflowFailure(new Error("OAuth token expired"));
     assert.equal(failure.kind, "auth");
+    assert.equal(failure.code, "login_required");
     assert.equal(failure.userMessage, WORKFLOW_AUTH_FAILURE_MESSAGE);
   });
 });

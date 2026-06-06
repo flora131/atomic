@@ -11,6 +11,7 @@ import {
   appendStageProgress,
   appendStageEnd,
   appendRunEnd,
+  appendRunBlocked,
 } from "../../packages/workflows/src/shared/persistence-session-entries.js";
 import type { PersistenceAPI } from "../../packages/workflows/src/shared/persistence-session-entries.js";
 
@@ -244,13 +245,21 @@ describe("appendStageEnd", () => {
       status: "failed",
       error: "login required",
       failureKind: "auth",
+      failureCode: "missing_api_key",
+      failureRecoverability: "recoverable",
+      failureDisposition: "active_blocked",
       failureMessage: "No API key found",
+      retryAfterMs: 5000,
       skippedReason: "fail-fast",
     });
     const p = api._entries[0]!.payload;
     assert.equal(p["error"], "login required");
     assert.equal(p["failureKind"], "auth");
+    assert.equal(p["failureCode"], "missing_api_key");
+    assert.equal(p["failureRecoverability"], "recoverable");
+    assert.equal(p["failureDisposition"], "active_blocked");
     assert.equal(p["failureMessage"], "No API key found");
+    assert.equal(p["retryAfterMs"], 5000);
     assert.equal(p["skippedReason"], "fail-fast");
   });
 
@@ -352,21 +361,79 @@ describe("appendRunEnd", () => {
       status: "failed",
       error: "login required",
       failureKind: "auth",
+      failureCode: "invalid_api_key",
+      failureRecoverability: "non_recoverable",
+      failureDisposition: "terminal_killed",
       failureMessage: "No API key found",
       failedStageId: "s1",
-      resumable: true,
+      resumable: false,
+      retryAfterMs: 7000,
       ts: 1,
     });
     const p = api._entries[0]!.payload;
     assert.equal(p["error"], "login required");
     assert.equal(p["failureKind"], "auth");
+    assert.equal(p["failureCode"], "invalid_api_key");
+    assert.equal(p["failureRecoverability"], "non_recoverable");
+    assert.equal(p["failureDisposition"], "terminal_killed");
     assert.equal(p["failureMessage"], "No API key found");
     assert.equal(p["failedStageId"], "s1");
-    assert.equal(p["resumable"], true);
+    assert.equal(p["resumable"], false);
+    assert.equal(p["retryAfterMs"], 7000);
   });
 
   test("no-op when appendEntry absent", () => {
     const api: PersistenceAPI = {};
     appendRunEnd(api, { runId: "r1", status: "completed", ts: 1 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// appendRunBlocked
+// ---------------------------------------------------------------------------
+
+describe("appendRunBlocked", () => {
+  test("calls appendEntry with workflow.run.blocked type and metadata", () => {
+    const api = makeMockApi();
+    appendRunBlocked(api, {
+      runId: "r1",
+      failedStageId: "s1",
+      error: "rate limit",
+      failureKind: "rate_limit",
+      failureCode: "rate_limited",
+      failureMessage: "HTTP 429",
+      failureRecoverability: "recoverable",
+      failureDisposition: "active_blocked",
+      retryAfterMs: 2500,
+      resumable: true,
+      ts: 123,
+    });
+
+    assert.equal(api._entries[0]!.type, "workflow.run.blocked");
+    const p = api._entries[0]!.payload;
+    assert.equal(p["runId"], "r1");
+    assert.equal(p["failedStageId"], "s1");
+    assert.equal(p["error"], "rate limit");
+    assert.equal(p["failureKind"], "rate_limit");
+    assert.equal(p["failureCode"], "rate_limited");
+    assert.equal(p["failureMessage"], "HTTP 429");
+    assert.equal(p["failureRecoverability"], "recoverable");
+    assert.equal(p["failureDisposition"], "active_blocked");
+    assert.equal(p["retryAfterMs"], 2500);
+    assert.equal(p["resumable"], true);
+    assert.equal(p["ts"], 123);
+  });
+
+  test("no-op when appendEntry absent", () => {
+    const api: PersistenceAPI = {};
+    appendRunBlocked(api, {
+      runId: "r1",
+      failedStageId: "s1",
+      error: "rate limit",
+      failureKind: "rate_limit",
+      failureRecoverability: "recoverable",
+      resumable: true,
+      ts: 1,
+    });
   });
 });

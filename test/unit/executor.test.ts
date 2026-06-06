@@ -12,7 +12,11 @@ import {
     resolveInputs,
 } from "../../packages/workflows/src/runs/foreground/executor.js";
 import { createStore } from "../../packages/workflows/src/shared/store.js";
-import { WORKFLOW_AUTH_FAILURE_MESSAGE } from "../../packages/workflows/src/shared/workflow-failures.js";
+import {
+    WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE,
+    WORKFLOW_MISSING_API_KEY_FAILURE_MESSAGE,
+    WORKFLOW_UNKNOWN_MODEL_MESSAGE,
+} from "../../packages/workflows/src/shared/workflow-failures.js";
 import { defineWorkflow } from "../../packages/workflows/src/workflows/define-workflow.js";
 import { createRegistry } from "../../packages/workflows/src/workflows/registry.js";
 import type { AgentSession, CreateAgentSessionOptions } from "@bastani/atomic";
@@ -1982,7 +1986,7 @@ describe("executor.run", () => {
         assert.deepEqual(after.parentIds, [boundary.id]);
     });
 
-    test("auth stage failures surface workflow login guidance and preserve details", async () => {
+    test("missing API key stage failures leave the run active-blocked and resumable", async () => {
         const st = createStore();
         const def = defineWorkflow("auth-fail-wf")
             .run(async (ctx) => {
@@ -2006,23 +2010,72 @@ describe("executor.run", () => {
             },
         );
 
-        assert.equal(wfResult.status, "failed");
-        assert.equal(
-            wfResult.error,
-            "You must be logged in to run workflows. Run /login and try again.",
-        );
+        assert.equal(wfResult.status, "running");
+        assert.equal(wfResult.error, WORKFLOW_MISSING_API_KEY_FAILURE_MESSAGE);
         const storedRun = st.runs()[0]!;
         const stage = storedRun.stages[0]!;
-        assert.equal(
-            stage.error,
-            "You must be logged in to run workflows. Run /login and try again.",
-        );
+        assert.equal(storedRun.status, "running");
+        assert.equal(storedRun.endedAt, undefined);
+        assert.equal(stage.status, "failed");
+        assert.equal(stage.error, WORKFLOW_MISSING_API_KEY_FAILURE_MESSAGE);
         assert.equal(stage.failureKind, "auth");
+        assert.equal(stage.failureCode, "missing_api_key");
+        assert.equal(stage.failureRecoverability, "recoverable");
+        assert.equal(stage.failureDisposition, "active_blocked");
         assert.equal(stage.failureMessage, "No API key found for provider");
         assert.equal(storedRun.failureKind, "auth");
+        assert.equal(storedRun.failureCode, "missing_api_key");
+        assert.equal(storedRun.failureRecoverability, "recoverable");
+        assert.equal(storedRun.failureDisposition, "active_blocked");
         assert.equal(storedRun.failureMessage, "No API key found for provider");
         assert.equal(storedRun.failedStageId, stage.id);
         assert.equal(storedRun.resumable, true);
+        assert.equal(typeof storedRun.blockedAt, "number");
+    });
+
+    test("invalid provider credential stage failures kill the run and refuse resume", async () => {
+        const st = createStore();
+        const def = defineWorkflow("invalid-key-fail-wf")
+            .run(async (ctx) => {
+                await ctx.stage("bad-key").prompt("x");
+                return {};
+            })
+            .compile();
+
+        const wfResult = await run(
+            def,
+            {},
+            {
+                adapters: {
+                    prompt: {
+                        prompt: async () => {
+                            throw {
+                                status: 401,
+                                code: "invalid_api_key",
+                                message: "Incorrect API key provided",
+                            };
+                        },
+                    },
+                },
+                store: st,
+            },
+        );
+
+        assert.equal(wfResult.status, "killed");
+        assert.equal(wfResult.error, WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE);
+        const storedRun = st.runs()[0]!;
+        const stage = storedRun.stages[0]!;
+        assert.equal(storedRun.status, "killed");
+        assert.notEqual(storedRun.endedAt, undefined);
+        assert.equal(storedRun.resumable, false);
+        assert.equal(storedRun.failureKind, "auth");
+        assert.equal(storedRun.failureCode, "invalid_api_key");
+        assert.equal(storedRun.failureRecoverability, "non_recoverable");
+        assert.equal(storedRun.failureDisposition, "terminal_killed");
+        assert.equal(storedRun.failedStageId, stage.id);
+        assert.equal(stage.status, "failed");
+        assert.equal(stage.error, WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE);
+        assert.equal(stage.failureCode, "invalid_api_key");
     });
 
     test("parallel fail-fast marks slow sibling skipped instead of completed", async () => {
@@ -3812,10 +3865,12 @@ describe("executor.run", () => {
             },
         );
 
-        assert.equal(result.status, "failed");
-        assert.match(result.error ?? "", /missing-model \(not available\)/);
+        assert.equal(result.status, "killed");
+        assert.equal(result.error, WORKFLOW_UNKNOWN_MODEL_MESSAGE);
         assert.equal(creates, 0);
         assert.equal(result.stages[0]?.status, "failed");
+        assert.equal(result.stages[0]?.failureCode, "unknown_model");
+        assert.match(result.stages[0]?.failureMessage ?? "", /missing-model \(not available\)/);
     });
 
     test("provider-qualified stage model absent from the catalog is trusted and creates a session", async () => {
@@ -4209,7 +4264,7 @@ describe("direct SDK helpers", () => {
         assert.equal(details.warnings, undefined);
     });
 
-    test("runTask reports classified auth guidance for direct stage failures", async () => {
+    test("runTask reports classified invalid credential guidance for direct stage failures", async () => {
         const details = await runTask(
             { name: "scout", prompt: "inspect repo" },
             {},
@@ -4233,8 +4288,8 @@ describe("direct SDK helpers", () => {
             },
         );
 
-        assert.equal(details.status, "failed");
-        assert.equal(details.error, WORKFLOW_AUTH_FAILURE_MESSAGE);
+        assert.equal(details.status, "killed");
+        assert.equal(details.error, WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE);
     });
 
     test("runTask invalid fallback model fails before session and output side effects", async () => {
@@ -4274,7 +4329,7 @@ describe("direct SDK helpers", () => {
         );
 
         assert.equal(details.status, "failed");
-        assert.match(details.error ?? "", /missing-model \(not available\)/);
+        assert.equal(details.error, WORKFLOW_UNKNOWN_MODEL_MESSAGE);
         assert.equal(creates, 0);
         assert.throws(() => readFileSync(output, "utf8"));
     });
@@ -4978,6 +5033,68 @@ describe("executor.run — lifecycle persistence", () => {
             stageEnd.payload["stageId"],
         );
         assert.equal(runEnd.payload["resumable"], true);
+    });
+
+    test("recoverable rate limit persists run.blocked without run.end", async () => {
+        const { persistence, calls } = makePersistence();
+        const st = createStore();
+
+        const def = defineWorkflow("blocked-persist-wf")
+            .run(async (ctx) => {
+                await ctx.stage("limited").prompt("x");
+                return {};
+            })
+            .compile();
+
+        const wfResult = await run(
+            def,
+            {},
+            {
+                adapters: {
+                    prompt: {
+                        prompt: async () => {
+                            throw {
+                                status: 429,
+                                code: "rate_limit_exceeded",
+                                message: "rate limit",
+                                retryAfterMs: 1234,
+                            };
+                        },
+                    },
+                },
+                store: st,
+                persistence,
+            },
+        );
+
+        assert.equal(wfResult.status, "running");
+        assert.deepEqual(
+            calls.map((c) => c.type),
+            [
+                "workflow.run.start",
+                "workflow.stage.start",
+                "workflow.stage.end",
+                "workflow.run.blocked",
+            ],
+        );
+        const stageEnd = calls.find((c) => c.type === "workflow.stage.end")!;
+        assert.equal(stageEnd.payload["status"], "failed");
+        assert.equal(stageEnd.payload["failureKind"], "rate_limit");
+        assert.equal(stageEnd.payload["failureCode"], "rate_limited");
+        assert.equal(stageEnd.payload["failureRecoverability"], "recoverable");
+        assert.equal(stageEnd.payload["failureDisposition"], "active_blocked");
+        assert.equal(stageEnd.payload["retryAfterMs"], 1234);
+
+        const runBlocked = calls.find((c) => c.type === "workflow.run.blocked")!;
+        assert.equal(runBlocked.payload["runId"], wfResult.runId);
+        assert.equal(runBlocked.payload["failureKind"], "rate_limit");
+        assert.equal(runBlocked.payload["failureCode"], "rate_limited");
+        assert.equal(runBlocked.payload["failureRecoverability"], "recoverable");
+        assert.equal(runBlocked.payload["failureDisposition"], "active_blocked");
+        assert.equal(runBlocked.payload["resumable"], true);
+        assert.equal(runBlocked.payload["retryAfterMs"], 1234);
+        assert.equal(typeof runBlocked.payload["failedStageId"], "string");
+        assert.equal(calls.some((c) => c.type === "workflow.run.end"), false);
     });
 
     test("fail-fast skipped queued parallel stages persist start before end", async () => {

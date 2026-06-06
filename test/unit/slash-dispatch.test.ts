@@ -46,7 +46,7 @@ import {
 import type { ChatSurfacePayload } from "../../packages/workflows/src/tui/chat-surface-message.js";
 import { store } from "../../packages/workflows/src/shared/store.js";
 import { WORKFLOW_STAGE_SUBAGENT_GUARD_ENV } from "@bastani/atomic";
-import { WORKFLOW_AUTH_FAILURE_MESSAGE } from "../../packages/workflows/src/shared/workflow-failures.js";
+import { WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE } from "../../packages/workflows/src/shared/workflow-failures.js";
 import { LIFECYCLE_NOTICE_CUSTOM_TYPE } from "../../packages/workflows/src/extension/lifecycle-notifications.js";
 import type {
     PiCustomComponent,
@@ -3583,7 +3583,7 @@ export default defineWorkflow("tool-headless-lifecycle")
         });
 
         assert.equal(result.status, "failed");
-        assert.equal(result.error, WORKFLOW_AUTH_FAILURE_MESSAGE);
+        assert.equal(result.error, WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE);
     });
 
     test("makeExecuteWorkflowTool resume rejects ambiguous stage prefixes", async () => {
@@ -3734,6 +3734,125 @@ export default defineWorkflow("tool-headless-lifecycle")
         assert.equal(
             store.runs().find((run) => run.id === sourceRunId)!.status,
             "failed",
+        );
+    });
+
+    test("makeExecuteWorkflowTool resume starts linked continuation for active blocked recoverable workflow", async () => {
+        const sourceRunId = `resume-tool-blocked-${Date.now()}`;
+        const def = defineWorkflow("tool-resume-blocked-wf")
+            .output("first", Type.Optional(Type.Any()))
+            .output("second", Type.Optional(Type.Any()))
+            .run(async (ctx) => {
+                const first = await ctx.stage("first").prompt("first");
+                const second = await ctx
+                    .stage("second")
+                    .prompt(`second:${first}`);
+                return { first, second };
+            })
+            .compile();
+
+        store.recordRunStart({
+            id: sourceRunId,
+            name: def.name,
+            inputs: {},
+            status: "running",
+            startedAt: Date.now(),
+            stages: [],
+        });
+        store.recordStageStart(sourceRunId, {
+            id: "blocked-first",
+            name: "first",
+            status: "completed",
+            parentIds: [],
+            toolEvents: [],
+            result: "first-old",
+        });
+        store.recordStageEnd(sourceRunId, {
+            id: "blocked-first",
+            name: "first",
+            status: "completed",
+            parentIds: [],
+            toolEvents: [],
+            result: "first-old",
+        });
+        store.recordStageStart(sourceRunId, {
+            id: "blocked-second",
+            name: "second",
+            status: "failed",
+            parentIds: ["blocked-first"],
+            toolEvents: [],
+            error: "rate limit",
+            failureKind: "rate_limit",
+            failureCode: "rate_limited",
+            failureRecoverability: "recoverable",
+            failureDisposition: "active_blocked",
+        });
+        store.recordStageEnd(sourceRunId, {
+            id: "blocked-second",
+            name: "second",
+            status: "failed",
+            parentIds: ["blocked-first"],
+            toolEvents: [],
+            error: "rate limit",
+            failureKind: "rate_limit",
+            failureCode: "rate_limited",
+            failureRecoverability: "recoverable",
+            failureDisposition: "active_blocked",
+            failureMessage: "HTTP 429",
+        });
+        store.recordRunBlocked(sourceRunId, "rate limit", {
+            resumable: true,
+            failedStageId: "blocked-second",
+            failureKind: "rate_limit",
+            failureCode: "rate_limited",
+            failureRecoverability: "recoverable",
+            failureDisposition: "active_blocked",
+            failureMessage: "HTTP 429",
+        });
+
+        const calls: string[] = [];
+        const runtime = createExtensionRuntime({
+            registry: createRegistry([def]),
+            store,
+            adapters: {
+                prompt: {
+                    prompt: async (text) => {
+                        calls.push(text);
+                        return "second-new";
+                    },
+                },
+            },
+        });
+        const handler = makeExecuteWorkflowTool(
+            runtime,
+            () => undefined,
+            () => undefined,
+        );
+
+        const result = await handler(
+            { action: "resume", runId: sourceRunId },
+            {} as never,
+        );
+
+        assert.equal(result.action, "resume");
+        const r = result as {
+            action: string;
+            status: string;
+            runId: string;
+            message: string;
+        };
+        assert.equal(r.status, "running");
+        assert.notEqual(r.runId, sourceRunId);
+        assert.match(r.message, /Resuming blocked workflow/);
+        await jobTracker.get(r.runId)?.promise;
+        assert.deepEqual(calls, ["second:first-old"]);
+        const continued = store.runs().find((run) => run.id === r.runId)!;
+        assert.equal(continued.status, "completed");
+        assert.equal(continued.resumedFromRunId, sourceRunId);
+        assert.equal(continued.stages[0]!.replayed, true);
+        assert.equal(
+            store.runs().find((run) => run.id === sourceRunId)!.status,
+            "running",
         );
     });
 

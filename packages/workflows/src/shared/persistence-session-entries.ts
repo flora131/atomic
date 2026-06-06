@@ -7,6 +7,11 @@
  */
 
 import type { WorkflowInputValues, WorkflowOutputValues } from "./types.js";
+import type {
+  WorkflowFailureCode,
+  WorkflowFailureDisposition,
+  WorkflowFailureKind,
+} from "./store-types.js";
 
 // ---------------------------------------------------------------------------
 // Structural API type (subset of ExtensionAPI needed here)
@@ -76,7 +81,11 @@ export interface StageEndPayload {
   readonly summary?: string;
   readonly error?: string;
   readonly failureKind?: string;
+  readonly failureCode?: string;
+  readonly failureRecoverability?: string;
+  readonly failureDisposition?: string;
   readonly failureMessage?: string;
+  readonly retryAfterMs?: number;
   readonly skippedReason?: string;
   readonly replayKey?: string;
   readonly replayedFromStageId?: string;
@@ -90,9 +99,27 @@ export interface RunEndPayload {
   readonly result?: WorkflowOutputValues;
   readonly error?: string;
   readonly failureKind?: string;
+  readonly failureCode?: string;
+  readonly failureRecoverability?: string;
+  readonly failureDisposition?: string;
   readonly failureMessage?: string;
   readonly failedStageId?: string;
   readonly resumable?: boolean;
+  readonly retryAfterMs?: number;
+  readonly ts: number;
+}
+
+export interface RunBlockedPayload {
+  readonly runId: string;
+  readonly failedStageId: string;
+  readonly error: string;
+  readonly failureKind: WorkflowFailureKind;
+  readonly failureCode?: WorkflowFailureCode;
+  readonly failureMessage?: string;
+  readonly failureRecoverability: "recoverable";
+  readonly failureDisposition?: WorkflowFailureDisposition;
+  readonly retryAfterMs?: number;
+  readonly resumable: true;
   readonly ts: number;
 }
 
@@ -165,7 +192,11 @@ export function appendStageEnd(
     ...(payload.summary !== undefined ? { summary: payload.summary } : {}),
     ...(payload.error !== undefined ? { error: payload.error } : {}),
     ...(payload.failureKind !== undefined ? { failureKind: payload.failureKind } : {}),
+    ...(payload.failureCode !== undefined ? { failureCode: payload.failureCode } : {}),
+    ...(payload.failureRecoverability !== undefined ? { failureRecoverability: payload.failureRecoverability } : {}),
+    ...(payload.failureDisposition !== undefined ? { failureDisposition: payload.failureDisposition } : {}),
     ...(payload.failureMessage !== undefined ? { failureMessage: payload.failureMessage } : {}),
+    ...(payload.retryAfterMs !== undefined ? { retryAfterMs: payload.retryAfterMs } : {}),
     ...(payload.skippedReason !== undefined ? { skippedReason: payload.skippedReason } : {}),
     ...(payload.replayKey !== undefined ? { replayKey: payload.replayKey } : {}),
     ...(payload.replayedFromStageId !== undefined ? { replayedFromStageId: payload.replayedFromStageId } : {}),
@@ -189,9 +220,31 @@ export function appendRunEnd(api: PersistenceAPI, payload: RunEndPayload): void 
     ...(payload.result !== undefined ? { result: payload.result } : {}),
     ...(payload.error !== undefined ? { error: payload.error } : {}),
     ...(payload.failureKind !== undefined ? { failureKind: payload.failureKind } : {}),
+    ...(payload.failureCode !== undefined ? { failureCode: payload.failureCode } : {}),
+    ...(payload.failureRecoverability !== undefined ? { failureRecoverability: payload.failureRecoverability } : {}),
+    ...(payload.failureDisposition !== undefined ? { failureDisposition: payload.failureDisposition } : {}),
     ...(payload.failureMessage !== undefined ? { failureMessage: payload.failureMessage } : {}),
     ...(payload.failedStageId !== undefined ? { failedStageId: payload.failedStageId } : {}),
     ...(payload.resumable !== undefined ? { resumable: payload.resumable } : {}),
+    ...(payload.retryAfterMs !== undefined ? { retryAfterMs: payload.retryAfterMs } : {}),
+    ts: payload.ts,
+  });
+}
+
+/** Appends a `workflow.run.blocked` entry for active recoverable failures. */
+export function appendRunBlocked(api: PersistenceAPI, payload: RunBlockedPayload): void {
+  if (typeof api.appendEntry !== "function") return;
+  api.appendEntry("workflow.run.blocked", {
+    runId: payload.runId,
+    failedStageId: payload.failedStageId,
+    error: payload.error,
+    failureKind: payload.failureKind,
+    ...(payload.failureCode !== undefined ? { failureCode: payload.failureCode } : {}),
+    ...(payload.failureMessage !== undefined ? { failureMessage: payload.failureMessage } : {}),
+    failureRecoverability: payload.failureRecoverability,
+    ...(payload.failureDisposition !== undefined ? { failureDisposition: payload.failureDisposition } : {}),
+    ...(payload.retryAfterMs !== undefined ? { retryAfterMs: payload.retryAfterMs } : {}),
+    resumable: payload.resumable,
     ts: payload.ts,
   });
 }

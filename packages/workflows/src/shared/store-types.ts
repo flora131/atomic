@@ -17,6 +17,19 @@ export type StageStatus =
   | "skipped";
 
 export type WorkflowFailureKind = "auth" | "rate_limit" | "provider" | "cancelled" | "unknown";
+export type WorkflowFailureRecoverability = "recoverable" | "non_recoverable" | "unknown";
+export type WorkflowFailureDisposition = "active_blocked" | "terminal_killed" | "terminal_failed";
+export type WorkflowFailureCode =
+  | "login_required"
+  | "missing_api_key"
+  | "invalid_api_key"
+  | "forbidden_config"
+  | "unknown_model"
+  | "rate_limited"
+  | "quota_limited"
+  | "provider_unavailable"
+  | "cancelled"
+  | "unknown";
 
 /**
  * Human-in-the-loop prompt kind. Mirrors the four `WorkflowUIContext` methods.
@@ -127,6 +140,14 @@ export interface StageSnapshot {
   error?: string;
   /** Structured workflow failure category for failed stages. */
   failureKind?: WorkflowFailureKind;
+  /** Specific additive workflow failure code within `failureKind`. */
+  failureCode?: WorkflowFailureCode;
+  /** Whether retry/resume can recover this failed stage without a workflow rerun. */
+  failureRecoverability?: WorkflowFailureRecoverability;
+  /** Executor lifecycle disposition chosen for the failed stage. */
+  failureDisposition?: WorkflowFailureDisposition;
+  /** Optional provider retry hint in milliseconds. */
+  retryAfterMs?: number;
   /** Original unsanitized error text when different from `error`. */
   failureMessage?: string;
   /** Reason for stages skipped by fail-fast/cascade handling. */
@@ -218,6 +239,16 @@ export interface RunSnapshot {
   error?: string;
   /** Structured workflow failure category for failed runs. */
   failureKind?: WorkflowFailureKind;
+  /** Specific additive workflow failure code within `failureKind`. */
+  failureCode?: WorkflowFailureCode;
+  /** Whether retry/resume can recover this run without a workflow rerun. */
+  failureRecoverability?: WorkflowFailureRecoverability;
+  /** Executor lifecycle disposition chosen for this failure. */
+  failureDisposition?: WorkflowFailureDisposition;
+  /** Optional provider retry hint in milliseconds. */
+  retryAfterMs?: number;
+  /** Timestamp when an active run was blocked by a recoverable workflow failure. */
+  blockedAt?: number;
   /** Original unsanitized error text when different from `error`. */
   failureMessage?: string;
   failedStageId?: string;

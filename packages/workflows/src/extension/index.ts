@@ -1795,7 +1795,11 @@ export function makeExecuteWorkflowTool(
         const isPaused =
           run?.status === "paused" ||
           (run?.stages.some((s) => s.status === "paused") ?? false);
-        if (!isPaused && run?.status === "failed" && run.endedAt !== undefined && run.resumable !== false) {
+        const isResumableContinuation = run !== undefined && !isPaused && (
+          (run.status === "failed" && run.endedAt !== undefined && run.resumable !== false) ||
+          (run.endedAt === undefined && run.resumable === true && run.failureRecoverability === "recoverable")
+        );
+        if (isResumableContinuation) {
           const continuation = activeRuntime.resumeFailedRun(stageRunId, stage.stageId, { policy });
           return {
             action: "resume",
@@ -3133,7 +3137,11 @@ function factory(pi: ExtensionAPI): void {
       const isPaused =
         run?.status === "paused" ||
         (run?.stages.some((s) => s.status === "paused") ?? false);
-      if (!isPaused && run?.status === "failed" && run.endedAt !== undefined && run.resumable !== false) {
+      const isResumableContinuation = run !== undefined && !isPaused && (
+        (run.status === "failed" && run.endedAt !== undefined && run.resumable !== false) ||
+        (run.endedAt === undefined && run.resumable === true && run.failureRecoverability === "recoverable")
+      );
+      if (isResumableContinuation) {
         const continuation = runtimeForContext(ctx).resumeFailedRun(stageRunId, stageId, { policy });
         if (continuation.ok) {
           print(continuation.message);

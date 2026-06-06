@@ -202,6 +202,7 @@ const store: Store = {
   recordStageInputRequest: () => false,
   clearStageInputRequest: () => false,
   recordRunEnd: () => false,
+  recordRunBlocked: () => false,
   removeRun: () => false,
   recordNotice: () => {},
   ackNotice: () => false,

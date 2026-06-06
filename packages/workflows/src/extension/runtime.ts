@@ -394,8 +394,10 @@ export function createExtensionRuntime(opts: ExtensionRuntimeOpts = {}): Extensi
     if (source === undefined) {
       return { ok: false, reason: "run_not_found", message: `run not found: ${sourceRunId}` };
     }
-    if (source.status !== "failed" || source.endedAt === undefined || source.resumable === false) {
-      return { ok: false, reason: "not_resumable", message: `run ${sourceRunId} is not a failed resumable workflow run` };
+    const isTerminalFailedResumable = source.status === "failed" && source.endedAt !== undefined && source.resumable !== false;
+    const isActiveBlockedResumable = source.endedAt === undefined && source.resumable === true && source.failureRecoverability === "recoverable";
+    if (!isTerminalFailedResumable && !isActiveBlockedResumable) {
+      return { ok: false, reason: "not_resumable", message: `run ${sourceRunId} is not a resumable workflow run` };
     }
     const def = registry.get(source.name);
     if (def === undefined) {
@@ -420,7 +422,9 @@ export function createExtensionRuntime(opts: ExtensionRuntimeOpts = {}): Extensi
       runId: accepted.runId,
       sourceRunId: source.id,
       resumeFromStageId: resolvedStage.stageId,
-      message: `Resuming failed workflow "${def.name}" from run ${source.id.slice(0, 8)} at stage ${resolvedStage.stageId.slice(0, 8)} (new run ${accepted.runId}).`,
+      message: isActiveBlockedResumable
+        ? `Resuming blocked workflow "${def.name}" from run ${source.id.slice(0, 8)} at stage ${resolvedStage.stageId.slice(0, 8)} (new run ${accepted.runId}).`
+        : `Resuming failed workflow "${def.name}" from run ${source.id.slice(0, 8)} at stage ${resolvedStage.stageId.slice(0, 8)} (new run ${accepted.runId}).`,
     };
   }
 

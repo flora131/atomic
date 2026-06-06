@@ -559,7 +559,6 @@ function authDecision(code: WorkflowFailureCode): WorkflowFailureDecision {
 function rateLimitDecision(
   code: "rate_limited" | "quota_limited",
   retryAfterMs?: number,
-  disposition: WorkflowFailureDisposition = "active_blocked",
 ): WorkflowFailureDecision {
   return {
     kind: "rate_limit",
@@ -567,7 +566,7 @@ function rateLimitDecision(
     retryable: true,
     resumable: true,
     recoverability: "recoverable",
-    disposition,
+    disposition: "active_blocked",
     ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
   };
 }
@@ -748,33 +747,34 @@ function aggregateErrorItems(error: unknown): readonly unknown[] {
   return Array.isArray(errors) ? errors : [];
 }
 
-function classificationPriority(classification: WorkflowFailureClassification): number {
-  if (classification.decision.disposition === "terminal_killed") return 3;
-  if (
-    classification.decision.disposition === "active_blocked" &&
-    classification.decision.recoverability === "recoverable"
-  ) return 2;
-  if (classification.decision.disposition === "active_blocked") return 1;
-  return 0;
-}
-
-function preferClassification(
-  current: WorkflowFailureClassification | undefined,
-  candidate: WorkflowFailureClassification,
-): WorkflowFailureClassification {
-  if (current === undefined) return candidate;
-  return classificationPriority(candidate) > classificationPriority(current) ? candidate : current;
+function fallbackAggregateClassification(innerError: unknown): WorkflowFailureClassification {
+  const message = errorMessage(innerError);
+  const fallback = fallbackDecisionFromMessage(message, errorName(innerError));
+  return classificationForDecision(fallback ?? unknownDecision(), "aggregate", message);
 }
 
 function aggregateClassification(error: unknown, seen: Set<unknown>): WorkflowFailureClassification | undefined {
-  let selected: WorkflowFailureClassification | undefined;
-  for (const innerError of aggregateErrorItems(error)) {
-    const innerClassification = structuredClassification(innerError, "aggregate", seen);
-    if (innerClassification !== undefined) {
-      selected = preferClassification(selected, innerClassification);
-    }
-  }
-  return selected;
+  const innerErrors = aggregateErrorItems(error);
+  if (innerErrors.length === 0) return undefined;
+
+  const classifications = innerErrors.map((innerError) => {
+    const branchSeen = new Set(seen);
+    return structuredClassification(innerError, "aggregate", branchSeen) ?? fallbackAggregateClassification(innerError);
+  });
+
+  const terminalKilled = classifications.find(
+    (classification) => classification.decision.disposition === "terminal_killed",
+  );
+  if (terminalKilled !== undefined) return terminalKilled;
+
+  const allRecoverableBlocked = classifications.every(
+    (classification) =>
+      classification.decision.disposition === "active_blocked" &&
+      classification.decision.recoverability === "recoverable",
+  );
+  if (allRecoverableBlocked) return classifications[0]!;
+
+  return classificationForDecision(unknownDecision(), "aggregate", errorMessage(error));
 }
 
 function relatedStructuredClassification(error: unknown, seen: Set<unknown>): WorkflowFailureClassification | undefined {

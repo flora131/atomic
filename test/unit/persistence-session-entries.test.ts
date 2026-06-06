@@ -382,6 +382,55 @@ describe("appendRunEnd", () => {
     assert.equal(p["retryAfterMs"], 7000);
   });
 
+  test("strips active-blocked disposition from terminal failed run.end payloads", () => {
+    const api = makeMockApi();
+    appendRunEnd(api, {
+      runId: "r1",
+      status: "failed",
+      error: "too many requests",
+      failureKind: "rate_limit",
+      failureCode: "rate_limited",
+      failureRecoverability: "recoverable",
+      failureDisposition: "active_blocked",
+      failureMessage: "too many requests",
+      failedStageId: "s1",
+      resumable: true,
+      retryAfterMs: 1000,
+      ts: 1,
+    });
+
+    const p = api._entries[0]!.payload;
+    assert.equal(p["status"], "failed");
+    assert.equal(p["failureKind"], "rate_limit");
+    assert.equal(p["failureCode"], "rate_limited");
+    assert.equal(p["failureRecoverability"], "recoverable");
+    assert.equal("failureDisposition" in p, false);
+    assert.equal(p["resumable"], true);
+    assert.equal(p["retryAfterMs"], 1000);
+  });
+
+  test("normalizes killed run.end payloads to terminal-killed and non-resumable", () => {
+    const api = makeMockApi();
+    appendRunEnd(api, {
+      runId: "r1",
+      status: "killed",
+      error: "workflow killed",
+      failureKind: "cancelled",
+      failureCode: "cancelled",
+      failureRecoverability: "recoverable",
+      failureDisposition: "active_blocked",
+      failureMessage: "workflow killed",
+      resumable: true,
+      ts: 1,
+    });
+
+    const p = api._entries[0]!.payload;
+    assert.equal(p["status"], "killed");
+    assert.equal(p["failureRecoverability"], "non_recoverable");
+    assert.equal(p["failureDisposition"], "terminal_killed");
+    assert.equal(p["resumable"], false);
+  });
+
   test("no-op when appendEntry absent", () => {
     const api: PersistenceAPI = {};
     appendRunEnd(api, { runId: "r1", status: "completed", ts: 1 });

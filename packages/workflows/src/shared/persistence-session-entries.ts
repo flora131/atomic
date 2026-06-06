@@ -211,23 +211,40 @@ export function appendStageEnd(
   }
 }
 
+function sanitizeTerminalRunEndPayload(payload: RunEndPayload): RunEndPayload {
+  if (payload.status === "killed") {
+    return {
+      ...payload,
+      failureRecoverability: "non_recoverable",
+      failureDisposition: "terminal_killed",
+      resumable: false,
+    };
+  }
+
+  if (payload.failureDisposition !== "active_blocked") return payload;
+  const sanitized = { ...payload };
+  delete (sanitized as { failureDisposition?: string }).failureDisposition;
+  return sanitized;
+}
+
 /** Appends a `workflow.run.end` entry. */
 export function appendRunEnd(api: PersistenceAPI, payload: RunEndPayload): void {
   if (typeof api.appendEntry !== "function") return;
+  const terminalPayload = sanitizeTerminalRunEndPayload(payload);
   api.appendEntry("workflow.run.end", {
-    runId: payload.runId,
-    status: payload.status,
-    ...(payload.result !== undefined ? { result: payload.result } : {}),
-    ...(payload.error !== undefined ? { error: payload.error } : {}),
-    ...(payload.failureKind !== undefined ? { failureKind: payload.failureKind } : {}),
-    ...(payload.failureCode !== undefined ? { failureCode: payload.failureCode } : {}),
-    ...(payload.failureRecoverability !== undefined ? { failureRecoverability: payload.failureRecoverability } : {}),
-    ...(payload.failureDisposition !== undefined ? { failureDisposition: payload.failureDisposition } : {}),
-    ...(payload.failureMessage !== undefined ? { failureMessage: payload.failureMessage } : {}),
-    ...(payload.failedStageId !== undefined ? { failedStageId: payload.failedStageId } : {}),
-    ...(payload.resumable !== undefined ? { resumable: payload.resumable } : {}),
-    ...(payload.retryAfterMs !== undefined ? { retryAfterMs: payload.retryAfterMs } : {}),
-    ts: payload.ts,
+    runId: terminalPayload.runId,
+    status: terminalPayload.status,
+    ...(terminalPayload.result !== undefined ? { result: terminalPayload.result } : {}),
+    ...(terminalPayload.error !== undefined ? { error: terminalPayload.error } : {}),
+    ...(terminalPayload.failureKind !== undefined ? { failureKind: terminalPayload.failureKind } : {}),
+    ...(terminalPayload.failureCode !== undefined ? { failureCode: terminalPayload.failureCode } : {}),
+    ...(terminalPayload.failureRecoverability !== undefined ? { failureRecoverability: terminalPayload.failureRecoverability } : {}),
+    ...(terminalPayload.failureDisposition !== undefined ? { failureDisposition: terminalPayload.failureDisposition } : {}),
+    ...(terminalPayload.failureMessage !== undefined ? { failureMessage: terminalPayload.failureMessage } : {}),
+    ...(terminalPayload.failedStageId !== undefined ? { failedStageId: terminalPayload.failedStageId } : {}),
+    ...(terminalPayload.resumable !== undefined ? { resumable: terminalPayload.resumable } : {}),
+    ...(terminalPayload.retryAfterMs !== undefined ? { retryAfterMs: terminalPayload.retryAfterMs } : {}),
+    ts: terminalPayload.ts,
   });
 }
 

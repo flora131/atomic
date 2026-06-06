@@ -2112,9 +2112,11 @@ describe("executor.run", () => {
         );
 
         assert.equal(wfResult.status, "killed");
+        assert.equal(wfResult.error, WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE);
         const storedRun = st.runs()[0]!;
         const badKeyStage = storedRun.stages.find((stage) => stage.name === "bad-key")!;
         assert.equal(storedRun.status, "killed");
+        assert.equal(storedRun.error, WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE);
         assert.equal(storedRun.failureCode, "invalid_api_key");
         assert.equal(storedRun.failureDisposition, "terminal_killed");
         assert.equal(storedRun.failedStageId, badKeyStage.id);
@@ -2204,7 +2206,9 @@ describe("executor.run", () => {
         const domainStage = storedRun.stages.find((stage) => stage.name === "domain")!;
         const limitedStage = storedRun.stages.find((stage) => stage.name === "limited")!;
         assert.equal(wfResult.status, "failed");
+        assert.match(wfResult.error ?? "", /atomic-workflows: 2 parallel steps failed/);
         assert.equal(storedRun.status, "failed");
+        assert.match(storedRun.error ?? "", /atomic-workflows: 2 parallel steps failed/);
         assert.notEqual(storedRun.endedAt, undefined);
         assert.equal(storedRun.blockedAt, undefined);
         assert.equal(storedRun.failureKind, "unknown");

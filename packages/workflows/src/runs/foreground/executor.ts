@@ -1547,6 +1547,10 @@ function executorAggregateErrorItems(error: unknown): readonly unknown[] {
   return Array.isArray(errors) ? errors : [];
 }
 
+function isAggregateWrapper(error: unknown): boolean {
+  return executorAggregateErrorItems(error).length > 0;
+}
+
 function aggregateInnerFailures(
   error: unknown,
   classifyFailure: (error: unknown) => WorkflowFailure,
@@ -1596,9 +1600,17 @@ function runFailureMetadataFromCandidate(
   fallbackFailure: WorkflowFailure,
   candidate: FailureCandidate,
   firstFailedStage: StageSnapshot | undefined,
+  thrownError: unknown,
 ): RunFailureMetadata {
-  if (candidate.source === "stage") return runFailureMetadataFromStage(fallbackFailure, candidate.stage);
-  return runFailureMetadataFromFailure(candidate.failure, firstFailedStage);
+  const metadata = candidate.source === "stage"
+    ? runFailureMetadataFromStage(fallbackFailure, candidate.stage)
+    : runFailureMetadataFromFailure(candidate.failure, firstFailedStage);
+
+  if (candidate.disposition === "terminal_failed" && isAggregateWrapper(thrownError)) {
+    return { ...metadata, errorMessage: fallbackFailure.userMessage };
+  }
+
+  return metadata;
 }
 
 function failedStageIdsForCandidate(
@@ -1639,7 +1651,7 @@ function selectRunFailureDisposition(input: {
   const terminalKilledCandidate = candidates.find((candidate) => candidate.disposition === "terminal_killed");
   if (terminalKilledCandidate !== undefined) {
     return selectedMetadata(
-      runFailureMetadataFromCandidate(input.outerFailure, terminalKilledCandidate, firstFailedStage),
+      runFailureMetadataFromCandidate(input.outerFailure, terminalKilledCandidate, firstFailedStage, input.thrownError),
       failedStageIdsForCandidate(terminalKilledCandidate, failedStages),
     );
   }
@@ -1647,7 +1659,7 @@ function selectRunFailureDisposition(input: {
   const terminalFailedCandidate = candidates.find((candidate) => candidate.disposition === "terminal_failed");
   if (terminalFailedCandidate !== undefined) {
     return selectedMetadata(
-      runFailureMetadataFromCandidate(input.outerFailure, terminalFailedCandidate, firstFailedStage),
+      runFailureMetadataFromCandidate(input.outerFailure, terminalFailedCandidate, firstFailedStage, input.thrownError),
       failedStageIdsForCandidate(terminalFailedCandidate, failedStages),
     );
   }
@@ -1655,11 +1667,10 @@ function selectRunFailureDisposition(input: {
   const recoverableBlockedCandidate = candidates.find(isRecoverableActiveBlockedCandidate);
   if (
     recoverableBlockedCandidate !== undefined &&
-    candidates.length > 0 &&
     candidates.every(isRecoverableActiveBlockedCandidate)
   ) {
     return selectedMetadata(
-      runFailureMetadataFromCandidate(input.outerFailure, recoverableBlockedCandidate, firstFailedStage),
+      runFailureMetadataFromCandidate(input.outerFailure, recoverableBlockedCandidate, firstFailedStage, input.thrownError),
       failedStageIds,
     );
   }

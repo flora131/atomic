@@ -272,6 +272,47 @@ describe("classifyWorkflowFailure", () => {
     assert.equal(invalidKey.disposition, "terminal_killed");
   });
 
+  test("classifies mixed ordinary and rate-limit aggregate failures as terminal failed", () => {
+    const failure = classifyWorkflowFailure(new Error("wrapper", {
+      cause: new AggregateError([
+        new Error("domain validation failed"),
+        { status: 429, message: "too many requests" },
+      ], "atomic-workflows: 2 parallel steps failed"),
+    }));
+
+    assert.equal(failure.kind, "unknown");
+    assert.equal(failure.code, "unknown");
+    assert.equal(failure.recoverability, "unknown");
+    assert.equal(failure.disposition, "terminal_failed");
+    assert.equal(failure.resumable, true);
+  });
+
+  test("preserves all-recoverable aggregate failures as active-blocked", () => {
+    const failure = classifyWorkflowFailure(new AggregateError([
+      { status: 429, message: "too many requests", retryAfterMs: 2500 },
+      { status: 503, message: "provider unavailable" },
+    ], "atomic-workflows: 2 parallel steps failed"));
+
+    assert.equal(failure.kind, "rate_limit");
+    assert.equal(failure.code, "rate_limited");
+    assert.equal(failure.recoverability, "recoverable");
+    assert.equal(failure.disposition, "active_blocked");
+    assert.equal(failure.retryAfterMs, 2500);
+  });
+
+  test("lets invalid credentials win over rate limits in aggregate failures", () => {
+    const failure = classifyWorkflowFailure(new AggregateError([
+      { status: 429, message: "too many requests" },
+      { status: 401, message: "Unauthorized" },
+    ], "atomic-workflows: 2 parallel steps failed"));
+
+    assert.equal(failure.kind, "auth");
+    assert.equal(failure.code, "invalid_api_key");
+    assert.equal(failure.recoverability, "non_recoverable");
+    assert.equal(failure.disposition, "terminal_killed");
+    assert.equal(failure.resumable, false);
+  });
+
   test("extracts retry-after metadata from structured rate limits", () => {
     const failure = classifyWorkflowFailure({
       message: "slow down",

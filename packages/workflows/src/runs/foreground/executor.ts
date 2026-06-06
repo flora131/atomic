@@ -1572,7 +1572,14 @@ type AggregateFailureCandidate = {
   readonly recoverability: WorkflowFailureRecoverability;
 };
 
-type FailureCandidate = StageFailureCandidate | AggregateFailureCandidate;
+type OuterFailureCandidate = {
+  readonly source: "outer";
+  readonly failure: WorkflowFailure;
+  readonly disposition: WorkflowFailureDisposition;
+  readonly recoverability: WorkflowFailureRecoverability;
+};
+
+type FailureCandidate = StageFailureCandidate | AggregateFailureCandidate | OuterFailureCandidate;
 
 function stageFailureCandidate(stage: StageSnapshot): StageFailureCandidate {
   return {
@@ -1592,6 +1599,15 @@ function aggregateFailureCandidate(failure: WorkflowFailure): AggregateFailureCa
   };
 }
 
+function outerFailureCandidate(failure: WorkflowFailure): OuterFailureCandidate {
+  return {
+    source: "outer",
+    failure,
+    disposition: failure.disposition,
+    recoverability: failure.recoverability,
+  };
+}
+
 function isRecoverableActiveBlockedCandidate(candidate: FailureCandidate): boolean {
   return candidate.disposition === "active_blocked" && candidate.recoverability === "recoverable";
 }
@@ -1604,7 +1620,9 @@ function runFailureMetadataFromCandidate(
 ): RunFailureMetadata {
   const metadata = candidate.source === "stage"
     ? runFailureMetadataFromStage(fallbackFailure, candidate.stage)
-    : runFailureMetadataFromFailure(candidate.failure, firstFailedStage);
+    : candidate.source === "aggregate"
+      ? runFailureMetadataFromFailure(candidate.failure, firstFailedStage)
+      : runFailureMetadataFromFailure(candidate.failure, undefined);
 
   if (candidate.disposition === "terminal_failed" && isAggregateWrapper(thrownError)) {
     return { ...metadata, errorMessage: fallbackFailure.userMessage };
@@ -1618,6 +1636,7 @@ function failedStageIdsForCandidate(
   failedStages: readonly StageSnapshot[],
 ): readonly string[] {
   if (candidate.source === "aggregate") return failedStages.map((stage) => stage.id);
+  if (candidate.source === "outer") return [];
   return failedStages
     .filter((stage) => (stage.failureDisposition ?? "terminal_failed") === candidate.disposition)
     .map((stage) => stage.id);
@@ -1645,6 +1664,7 @@ function selectRunFailureDisposition(input: {
   const candidates: readonly FailureCandidate[] = [
     ...failedStages.map(stageFailureCandidate),
     ...aggregateFailures.map(aggregateFailureCandidate),
+    outerFailureCandidate(input.outerFailure),
   ];
   const firstFailedStage = failedStages[0];
 

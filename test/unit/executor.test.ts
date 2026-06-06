@@ -2078,6 +2078,148 @@ describe("executor.run", () => {
         assert.equal(stage.failureCode, "invalid_api_key");
     });
 
+    test("outer invalid credentials after a caught rate-limited stage kill the run", async () => {
+        const st = createStore();
+        const def = defineWorkflow("caught-rate-limit-outer-401-wf")
+            .run(async (ctx) => {
+                try {
+                    await ctx.stage("limited").prompt("limited");
+                } catch {
+                    // The stage failure is intentionally caught; the outer error
+                    // must still participate in run-level disposition selection.
+                }
+                throw { status: 401, message: "Unauthorized" };
+            })
+            .compile();
+
+        const wfResult = await run(
+            def,
+            {},
+            {
+                adapters: {
+                    prompt: {
+                        prompt: async () => {
+                            throw { status: 429, message: "stage rate limited" };
+                        },
+                    },
+                },
+                store: st,
+            },
+        );
+
+        assert.equal(wfResult.status, "killed");
+        assert.equal(wfResult.error, WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE);
+        const storedRun = st.runs()[0]!;
+        const stage = storedRun.stages[0]!;
+        assert.equal(storedRun.status, "killed");
+        assert.notEqual(storedRun.endedAt, undefined);
+        assert.equal(storedRun.blockedAt, undefined);
+        assert.equal(storedRun.resumable, false);
+        assert.equal(storedRun.failureKind, "auth");
+        assert.equal(storedRun.failureCode, "invalid_api_key");
+        assert.equal(storedRun.failureRecoverability, "non_recoverable");
+        assert.equal(storedRun.failureDisposition, "terminal_killed");
+        assert.equal(storedRun.failedStageId, undefined);
+        assert.equal(stage.status, "failed");
+        assert.equal(stage.failureCode, "rate_limited");
+        assert.equal(stage.failureRecoverability, "recoverable");
+        assert.equal(stage.failureDisposition, "active_blocked");
+    });
+
+    test("outer ordinary errors after a caught rate-limited stage fail with outer error text", async () => {
+        const st = createStore();
+        const def = defineWorkflow("caught-rate-limit-outer-error-wf")
+            .run(async (ctx) => {
+                try {
+                    await ctx.stage("limited").prompt("limited");
+                } catch {
+                    // Continue to the workflow-level validation failure.
+                }
+                throw new Error("outer domain validation failed");
+            })
+            .compile();
+
+        const wfResult = await run(
+            def,
+            {},
+            {
+                adapters: {
+                    prompt: {
+                        prompt: async () => {
+                            throw { status: 429, message: "stage rate limited" };
+                        },
+                    },
+                },
+                store: st,
+            },
+        );
+
+        assert.equal(wfResult.status, "failed");
+        assert.equal(wfResult.error, "outer domain validation failed");
+        const storedRun = st.runs()[0]!;
+        const stage = storedRun.stages[0]!;
+        assert.equal(storedRun.status, "failed");
+        assert.equal(storedRun.error, "outer domain validation failed");
+        assert.notEqual(storedRun.endedAt, undefined);
+        assert.equal(storedRun.blockedAt, undefined);
+        assert.equal(storedRun.failureKind, "unknown");
+        assert.equal(storedRun.failureCode, "unknown");
+        assert.equal(storedRun.failureDisposition, "terminal_failed");
+        assert.notEqual(storedRun.failureDisposition, "active_blocked");
+        assert.equal(storedRun.failureMessage, "outer domain validation failed");
+        assert.equal(storedRun.failedStageId, undefined);
+        assert.equal(stage.status, "failed");
+        assert.equal(stage.failureCode, "rate_limited");
+        assert.equal(stage.failureRecoverability, "recoverable");
+        assert.equal(stage.failureDisposition, "active_blocked");
+    });
+
+    test("outer rate limits after a caught rate-limited stage keep the run active-blocked", async () => {
+        const st = createStore();
+        const def = defineWorkflow("caught-rate-limit-outer-429-wf")
+            .run(async (ctx) => {
+                try {
+                    await ctx.stage("limited").prompt("limited");
+                } catch {
+                    // Both observed failures are recoverable rate limits.
+                }
+                throw { status: 429, message: "outer rate limited" };
+            })
+            .compile();
+
+        const wfResult = await run(
+            def,
+            {},
+            {
+                adapters: {
+                    prompt: {
+                        prompt: async () => {
+                            throw { status: 429, message: "stage rate limited" };
+                        },
+                    },
+                },
+                store: st,
+            },
+        );
+
+        assert.equal(wfResult.status, "running");
+        const storedRun = st.runs()[0]!;
+        const stage = storedRun.stages[0]!;
+        assert.equal(storedRun.status, "running");
+        assert.equal(storedRun.endedAt, undefined);
+        assert.equal(typeof storedRun.blockedAt, "number");
+        assert.equal(storedRun.resumable, true);
+        assert.equal(storedRun.failureKind, "rate_limit");
+        assert.equal(storedRun.failureCode, "rate_limited");
+        assert.equal(storedRun.failureRecoverability, "recoverable");
+        assert.equal(storedRun.failureDisposition, "active_blocked");
+        assert.equal(storedRun.failedStageId, stage.id);
+        assert.equal(stage.status, "failed");
+        assert.equal(stage.failureCode, "rate_limited");
+        assert.equal(stage.failureRecoverability, "recoverable");
+        assert.equal(stage.failureDisposition, "active_blocked");
+    });
+
     test("non-fail-fast parallel invalid provider credentials kill the run", async () => {
         const st = createStore();
         const def = defineWorkflow("parallel-invalid-key-wf")

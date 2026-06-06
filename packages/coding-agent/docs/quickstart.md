@@ -4,23 +4,16 @@ This page gets you from install to a useful first Atomic session.
 
 ## Prerequisites
 
-- **Node.js 24 LTS or newer** — Atomic requires the latest Node LTS runtime. Check with `node --version`.
-- **A package manager** — use npm (included with Node), pnpm, Yarn, or Bun. Use Bun 1.3.14+ for Bun installs or workflow-authoring examples.
+- **Node.js 20.6 or newer** — required when running Atomic from the published npm package. Check with `node --version`.
+- **Bun 1.3.14 or newer** — use Bun for installation, Atomic repository development, validation commands, and workflow-authoring examples.
 - **Model-provider access** — Use `/login` after startup. Supports provider subscriptions and APIs.
 
 ## Install
 
-Atomic is distributed through npm-compatible package managers. Choose one:
+Install the published package with Bun:
 
 ```bash
-# npm
-npm install -g @bastani/atomic
-
-# Bun
 bun install -g @bastani/atomic
-
-# pnpm
-pnpm add -g @bastani/atomic
 ```
 
 Atomic does not require package install scripts. If you want to disable dependency lifecycle scripts during the Atomic install, you can add `--ignore-scripts` to the install command.
@@ -174,7 +167,7 @@ Atomic loads context files at startup. Add an `AGENTS.md` file to tell it how to
 ```markdown
 # Project Instructions
 
-- Run `npm run check` after code changes.
+- Run `bun run typecheck` after code changes.
 - Do not run production migrations locally.
 - Keep responses concise.
 ```
@@ -204,7 +197,7 @@ Images can be pasted with CTRL+V (ALT+V on Windows) or dragged into supported te
 In interactive mode:
 
 ```text
-!npm run lint
+!bun run lint
 ```
 
 The command output is sent to the model. Use `!!command` to run a command without adding its output to the model context.

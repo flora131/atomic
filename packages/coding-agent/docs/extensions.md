@@ -144,17 +144,10 @@ To share extensions via npm or git as Atomic packages, see [Atomic packages](/pa
 | `@earendil-works/pi-ai` | AI utilities (`StringEnum` for Google-compatible enums) |
 | `@earendil-works/pi-tui` | TUI components for custom rendering |
 
-npm dependencies work too. Add a `package.json` next to your extension (or in a parent directory), then install dependencies with npm, Bun, or pnpm:
+Registry dependencies work too. Add a `package.json` next to your extension (or in a parent directory), then install dependencies with Bun:
 
 ```bash
-# npm
-npm install
-
-# Bun
 bun install
-
-# pnpm
-pnpm install
 ```
 
 Imports from `node_modules/` are resolved automatically.
@@ -175,7 +168,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("event_name", async (event, ctx) => {
     // ctx.ui for user interaction
     const ok = await ctx.ui.confirm("Title", "Are you sure?");
-    ctx.ui.notify("Done!", "success");
+    ctx.ui.notify("Done!", "info");
     ctx.ui.setStatus("my-ext", "Processing...");  // Footer status
     ctx.ui.setWidget("my-ext", ["Line 1", "Line 2"]);  // Widget above editor (default)
   });
@@ -254,7 +247,7 @@ This pattern makes the fetched models available during normal startup and to `at
 ~/.atomic/agent/extensions/
 └── my-extension/
     ├── package.json    # Declares dependencies and entry points
-    ├── package-lock.json
+    ├── bun.lock
     ├── node_modules/   # After dependency install
     └── src/
         └── index.ts
@@ -274,7 +267,7 @@ This pattern makes the fetched models available during normal startup and to `at
 }
 ```
 
-The manifest key is the configured Atomic app name (`atomic` here, from the running Atomic package/config), not the extension package's own `"name"` field. The legacy `pi` key is still accepted as a compatibility shim. Run `npm install`, `bun install`, or `pnpm install` in the extension directory, then imports from `node_modules/` work automatically.
+The manifest key is the configured Atomic app name (`atomic` here, from the running Atomic package/config), not the extension package's own `"name"` field. The legacy `pi` key is still accepted as a compatibility shim. Run `bun install` in the extension directory, then imports from `node_modules/` work automatically.
 
 ## Events
 
@@ -398,7 +391,7 @@ pi.on("session_before_switch", async (event, ctx) => {
 });
 ```
 
-After a successful switch or new-session action, pi emits `session_shutdown` for the old extension instance, reloads and rebinds extensions for the new session, then emits `session_start` with `reason: "new" | "resume"` and `previousSessionFile`.
+After a successful switch or new-session action, Atomic emits `session_shutdown` for the old extension instance, reloads and rebinds extensions for the new session, then emits `session_start` with `reason: "new" | "resume"` and `previousSessionFile`.
 Do cleanup work in `session_shutdown`, then reestablish any in-memory state in `session_start`.
 
 #### session_before_fork
@@ -415,7 +408,7 @@ pi.on("session_before_fork", async (event, ctx) => {
 });
 ```
 
-After a successful fork or clone, pi emits `session_shutdown` for the old extension instance, reloads and rebinds extensions for the new session, then emits `session_start` with `reason: "fork"` and `previousSessionFile`.
+After a successful fork or clone, Atomic emits `session_shutdown` for the old extension instance, reloads and rebinds extensions for the new session, then emits `session_start` with `reason: "fork"` and `previousSessionFile`.
 Do cleanup work in `session_shutdown`, then reestablish any in-memory state in `session_start`.
 
 #### session_before_compact / session_compact
@@ -509,7 +502,7 @@ pi.on("before_agent_start", async (event, ctx) => {
 });
 ```
 
-The `systemPromptOptions` field gives extensions access to the same structured data Pi uses to build the system prompt. This lets you inspect what Pi has loaded — custom prompts, guidelines, tool snippets, context files, skills — without re-discovering resources or re-parsing flags. Use it when your extension needs to make deep, informed changes to the system prompt while respecting user-provided configuration.
+The `systemPromptOptions` field gives extensions access to the same structured data Atomic uses to build the system prompt. This lets you inspect what Atomic has loaded — custom prompts, guidelines, tool snippets, context files, skills — without re-discovering resources or re-parsing flags. Use it when your extension needs to make deep, informed changes to the system prompt while respecting user-provided configuration.
 
 Inside `before_agent_start`, `event.systemPrompt` and `ctx.getSystemPrompt()` both reflect the chained system prompt as of the current handler. Later `before_agent_start` handlers can still modify it again.
 
@@ -904,7 +897,7 @@ Use this for abort-aware nested work started by extension handlers, for example:
 - file or process helpers that accept `AbortSignal`
 
 `ctx.signal` is typically defined during active turn events such as `tool_call`, `tool_result`, `message_update`, and `turn_end`.
-It is usually `undefined` in idle or non-turn contexts such as session events, extension commands, and shortcuts fired while pi is idle.
+It is usually `undefined` in idle or non-turn contexts such as session events, extension commands, and shortcuts fired while Atomic is idle.
 
 ```typescript
 pi.on("tool_result", async (event, ctx) => {
@@ -925,7 +918,7 @@ Control flow helpers.
 
 ### ctx.shutdown()
 
-Request a graceful shutdown of pi.
+Request a graceful shutdown of Atomic.
 
 - **Interactive mode:** Deferred until the agent becomes idle (after processing all queued steering and follow-up messages).
 - **RPC mode:** Deferred until the next idle state (after completing the current command response, when waiting for the next command).
@@ -1389,7 +1382,7 @@ Labels persist in the session and survive restarts. Use them to mark important p
 
 Register a command.
 
-If multiple extensions register the same command name, pi keeps them all and assigns numeric invocation suffixes in load order, for example `/review:1` and `/review:2`.
+If multiple extensions register the same command name, Atomic keeps them all and assigns numeric invocation suffixes in load order, for example `/review:1` and `/review:2`.
 
 ```typescript
 pi.registerCommand("stats", {
@@ -1790,7 +1783,7 @@ async execute(toolCallId, params) {
 
 **Important:** Use `StringEnum` from `@earendil-works/pi-ai` for string enums. `Type.Union`/`Type.Literal` doesn't work with Google's API.
 
-**Argument preparation:** `prepareArguments(args)` is optional. If defined, it runs before schema validation and before `execute()`. Use it to mimic an older accepted input shape when pi resumes an older session whose stored tool call arguments no longer match the current schema. Return the object you want validated against `parameters`. Keep the public schema strict. Do not add deprecated compatibility fields to `parameters` just to keep old resumed sessions working.
+**Argument preparation:** `prepareArguments(args)` is optional. If defined, it runs before schema validation and before `execute()`. Use it to mimic an older accepted input shape when Atomic resumes an older session whose stored tool call arguments no longer match the current schema. Return the object you want validated against `parameters`. Keep the public schema strict. Do not add deprecated compatibility fields to `parameters` just to keep old resumed sessions working.
 
 Example: an older session may contain an `edit` tool call with top-level `oldText` and `newText`, while the current schema only accepts `edits: [{ oldText, newText }]`.
 
@@ -1861,13 +1854,13 @@ See [examples/extensions/tool-override.ts](https://github.com/bastani-inc/atomic
 **Your implementation must match the exact result shape**, including the `details` type. The UI and session logic depend on these shapes for rendering and state tracking.
 
 Built-in tool implementations:
-- [read.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/tools/read.ts) - `ReadToolDetails`
-- [bash.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/tools/bash.ts) - `BashToolDetails`
-- [edit.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/tools/edit.ts)
-- [write.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/tools/write.ts)
-- [grep.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/tools/grep.ts) - `GrepToolDetails`
-- [find.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/tools/find.ts) - `FindToolDetails`
-- [ls.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/tools/ls.ts) - `LsToolDetails`
+- [read.ts](https://github.com/bastani-inc/atomic/blob/main/packages/coding-agent/src/core/tools/read.ts) - `ReadToolDetails`
+- [bash.ts](https://github.com/bastani-inc/atomic/blob/main/packages/coding-agent/src/core/tools/bash.ts) - `BashToolDetails`
+- [edit.ts](https://github.com/bastani-inc/atomic/blob/main/packages/coding-agent/src/core/tools/edit.ts)
+- [write.ts](https://github.com/bastani-inc/atomic/blob/main/packages/coding-agent/src/core/tools/write.ts)
+- [grep.ts](https://github.com/bastani-inc/atomic/blob/main/packages/coding-agent/src/core/tools/grep.ts) - `GrepToolDetails`
+- [find.ts](https://github.com/bastani-inc/atomic/blob/main/packages/coding-agent/src/core/tools/find.ts) - `FindToolDetails`
+- [ls.ts](https://github.com/bastani-inc/atomic/blob/main/packages/coding-agent/src/core/tools/ls.ts) - `LsToolDetails`
 
 ### Remote Execution
 
@@ -1990,7 +1983,7 @@ export default function (pi: ExtensionAPI) {
 
 ### Custom Rendering
 
-Tools can provide `renderCall` and `renderResult` for custom TUI display. See [TUI components](/tui) for the full component API and [tool-execution.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/modes/interactive/components/tool-execution.ts) for how tool rows are composed.
+Tools can provide `renderCall` and `renderResult` for custom TUI display. See [TUI components](/tui) for the full component API and [tool-execution.ts](https://github.com/bastani-inc/atomic/blob/main/packages/coding-agent/src/modes/interactive/components/tool-execution.ts) for how tool rows are composed.
 
 By default, tool output is wrapped in a `Box` that handles padding and background. A defined `renderCall` or `renderResult` must return a `Component`. If a slot renderer is not defined, `tool-execution.ts` uses fallback rendering for that slot.
 
@@ -2345,18 +2338,25 @@ See [github-issue-autocomplete.ts](https://github.com/bastani-inc/atomic/blob/ma
 For complex UI, use `ctx.ui.custom()`. This temporarily replaces the editor with your component until `done()` is called:
 
 ```typescript
-import { Text, Component } from "@earendil-works/pi-tui";
+import { Text, type Component } from "@earendil-works/pi-tui";
 
-const result = await ctx.ui.custom<boolean>((tui, theme, keybindings, done) => {
-  const text = new Text("Enter Confirm · Escape Cancel", 1, 1);
+class ConfirmPrompt implements Component {
+  render(width: number): string[] {
+    return new Text("Enter Confirm · Escape Cancel", 1, 1).render(width);
+  }
 
-  text.onKey = (key) => {
-    if (key === "return") done(true);
-    if (key === "escape") done(false);
-    return true;
-  };
+  invalidate(): void {}
 
-  return text;
+  handleInput(data: string): void {
+    if (data === "\r") this.done(true);
+    if (data === "\x1b") this.done(false);
+  }
+
+  constructor(private readonly done: (value: boolean) => void) {}
+}
+
+const result = await ctx.ui.custom<boolean>((_tui, _theme, _keybindings, done) => {
+  return new ConfirmPrompt(done);
 });
 
 if (result) {

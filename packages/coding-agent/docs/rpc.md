@@ -455,7 +455,7 @@ If output was truncated, includes `fullOutputPath`:
     "exitCode": 0,
     "cancelled": false,
     "truncated": true,
-    "fullOutputPath": "/tmp/pi-bash-abc123.log"
+    "fullOutputPath": "/tmp/atomic-bash-abc123.log"
   }
 }
 ```
@@ -1199,9 +1199,9 @@ Parse errors:
 
 ## Types
 
-Source files:
-- [`packages/ai/src/types.ts`](https://github.com/earendil-works/pi-mono/blob/main/packages/ai/src/types.ts) - `Model`, `UserMessage`, `AssistantMessage`, `ToolResultMessage`
-- [`packages/agent/src/types.ts`](https://github.com/earendil-works/pi-mono/blob/main/packages/agent/src/types.ts) - `AgentMessage`, `AgentEvent`
+Source files and installed definitions:
+- `node_modules/@earendil-works/pi-ai/dist/types.d.ts` - `Model`, `UserMessage`, `AssistantMessage`, `ToolResultMessage`
+- `node_modules/@earendil-works/pi-agent-core/dist/types.d.ts` - `AgentMessage`, `AgentEvent`
 - [`src/core/messages.ts`](https://github.com/bastani-inc/atomic/blob/main/packages/coding-agent/src/core/messages.ts) - `BashExecutionMessage`
 - [`src/modes/rpc/rpc-types.ts`](https://github.com/bastani-inc/atomic/blob/main/packages/coding-agent/src/modes/rpc/rpc-types.ts) - RPC command/response types, extension UI request/response types
 
@@ -1233,8 +1233,7 @@ Source files:
 {
   "role": "user",
   "content": "Hello!",
-  "timestamp": 1733234567890,
-  "attachments": []
+  "timestamp": 1733234567890
 }
 ```
 

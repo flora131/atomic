@@ -4,7 +4,7 @@
 
 Extensions and custom tools can render custom TUI components for interactive user interfaces. This page covers the component system and available building blocks.
 
-**Source:** [`@earendil-works/pi-tui`](https://github.com/earendil-works/pi-mono/tree/main/packages/tui)
+**Source:** TUI components are provided by Atomic's installed `@earendil-works/pi-tui` runtime dependency (`node_modules/@earendil-works/pi-tui/dist/`).
 
 ## Component Interface
 
@@ -86,27 +86,18 @@ Without this propagation, typing with an IME (Chinese, Japanese, Korean, etc.) w
 
 ## Using Components
 
-**In extensions** via `ctx.ui.custom()`:
+Use `ctx.ui.custom()` with a component factory. The factory receives `done(result)`, and `ctx.ui.custom()` resolves with that result when the component finishes:
 
 ```typescript
 pi.on("session_start", async (_event, ctx) => {
-  const handle = ctx.ui.custom(myComponent);
-  // handle.requestRender() - trigger re-render
-  // handle.close() - restore normal UI
+  const result = await ctx.ui.custom((tui, theme, keybindings, done) => {
+    return new MyComponent(done);
+  });
+  ctx.ui.notify(`Selected: ${result}`, "info");
 });
 ```
 
-**In custom tools** via `pi.ui.custom()`:
-
-```typescript
-async execute(toolCallId, params, onUpdate, ctx, signal) {
-  const handle = pi.ui.custom(myComponent);
-  // ...
-  handle.close();
-}
-```
-
-Pass `{ signal }` to `ctx.ui.custom()` when the UI belongs to an abortable tool or operation. If the signal aborts, Atomic dismisses the custom UI and rejects the returned promise with the signal reason.
+Pass `{ signal }` to `ctx.ui.custom()` when the UI belongs to an abortable operation. If the signal aborts, Atomic dismisses the custom UI and rejects the returned promise with the signal reason. For overlays, use `options.onHandle` to receive an overlay handle for programmatic visibility control.
 
 ## Overlays
 
@@ -371,20 +362,15 @@ pi.registerCommand("pick", {
     const items = ["Option A", "Option B", "Option C"];
     const selector = new MySelector(items);
     
-    let handle: { close: () => void; requestRender: () => void };
-    
-    await new Promise<void>((resolve) => {
-      selector.onSelect = (item) => {
-        ctx.ui.notify(`Selected: ${item}`, "info");
-        handle.close();
-        resolve();
-      };
-      selector.onCancel = () => {
-        handle.close();
-        resolve();
-      };
-      handle = ctx.ui.custom(selector);
+    const selected = await ctx.ui.custom<string | undefined>((_tui, _theme, _keybindings, done) => {
+      selector.onSelect = (item) => done(item);
+      selector.onCancel = () => done(undefined);
+      return selector;
     });
+
+    if (selected) {
+      ctx.ui.notify(`Selected: ${selected}`, "info");
+    }
   }
 });
 ```
@@ -450,9 +436,10 @@ interface MyTheme {
 Set `PI_TUI_WRITE_LOG` to capture the raw ANSI stream written to stdout.
 
 ```bash
-# Upstream pi-tui debug env example
-PI_TUI_WRITE_LOG=/tmp/tui-ansi.log bunx tsx packages/tui/test/chat-simple.ts
+PI_TUI_WRITE_LOG=/tmp/tui-ansi.log atomic
 ```
+
+Atomic vendors TUI components through the installed `@earendil-works/pi-tui` dependency; this monorepo does not include the upstream TUI test source tree.
 
 ## Performance
 
@@ -480,7 +467,7 @@ class CachedComponent {
 }
 ```
 
-Call `invalidate()` when state changes, then `handle.requestRender()` to trigger re-render.
+Call `invalidate()` when state changes, then `ctx.ui.requestRender()` from the extension context or `tui.requestRender()` from a `ctx.ui.custom()` factory to trigger re-render.
 
 ## Invalidation and Theme Changes
 

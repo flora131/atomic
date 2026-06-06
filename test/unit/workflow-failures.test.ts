@@ -80,6 +80,17 @@ describe("classifyWorkflowFailure", () => {
     assert.equal(provider.retryable, true);
   });
 
+  test("keeps provider 401 auth text classified as invalid provider credentials", () => {
+    for (const message of ["Unauthorized", "authentication required"]) {
+      const failure = classifyWorkflowFailure({ status: 401, message });
+      assert.equal(failure.kind, "auth");
+      assert.equal(failure.code, "invalid_api_key");
+      assert.equal(failure.recoverability, "non_recoverable");
+      assert.equal(failure.disposition, "terminal_killed");
+      assert.equal(failure.userMessage, WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE);
+    }
+  });
+
   test("uses structured codes and causes before message fallback", () => {
     const auth = classifyWorkflowFailure({ message: "provider error", code: "AUTH_REQUIRED" });
     assert.equal(auth.kind, "auth");
@@ -96,6 +107,18 @@ describe("classifyWorkflowFailure", () => {
     assert.equal(cancelled.disposition, "terminal_killed");
   });
 
+  test("treats broad auth wrapper codes as weak when the message names provider credentials", () => {
+    const failure = classifyWorkflowFailure({
+      code: "auth",
+      message: "Incorrect API key provided",
+    });
+    assert.equal(failure.kind, "auth");
+    assert.equal(failure.code, "invalid_api_key");
+    assert.equal(failure.recoverability, "non_recoverable");
+    assert.equal(failure.disposition, "terminal_killed");
+    assert.equal(failure.userMessage, WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE);
+  });
+
   test("uses SDK assistant error shapes", () => {
     const failure = classifyWorkflowFailure({
       role: "assistant",
@@ -105,7 +128,7 @@ describe("classifyWorkflowFailure", () => {
     });
     assert.equal(failure.kind, "rate_limit");
     assert.equal(failure.code, "rate_limited");
-    assert.equal(failure.message, "provider request failed");
+    assert.equal(failure.message, "quota exceeded");
 
     const cancelled = classifyWorkflowFailure({
       role: "assistant",
@@ -137,7 +160,42 @@ describe("classifyWorkflowFailure", () => {
     assert.equal(failure.retryable, false);
     assert.equal(failure.resumable, false);
     assert.equal(failure.userMessage, WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE);
+    assert.doesNotMatch(failure.message, /sk-testsecret123456789/);
     assert.doesNotMatch(failure.userMessage, /sk-testsecret/);
+  });
+
+  test("uses diagnostic-only invalid key messages as the decisive failure message", () => {
+    const failure = classifyWorkflowFailure({
+      role: "assistant",
+      stopReason: "error",
+      errorMessage: "provider request failed",
+      diagnostics: [{
+        error: {
+          message: "Incorrect API key provided",
+        },
+      }],
+    });
+
+    assert.equal(failure.kind, "auth");
+    assert.equal(failure.code, "invalid_api_key");
+    assert.equal(failure.message, "Incorrect API key provided");
+    assert.equal(failure.userMessage, WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE);
+  });
+
+  test("classifies AggregateError inner provider failures before wrapper text", () => {
+    const rateLimited = classifyWorkflowFailure(new AggregateError([
+      { status: 429, message: "too many requests" },
+    ], "atomic-workflows: 1 parallel step failed"));
+    assert.equal(rateLimited.kind, "rate_limit");
+    assert.equal(rateLimited.code, "rate_limited");
+    assert.equal(rateLimited.disposition, "active_blocked");
+
+    const invalidKey = classifyWorkflowFailure(new AggregateError([
+      { status: 401, message: "Unauthorized" },
+    ], "atomic-workflows: 1 parallel step failed"));
+    assert.equal(invalidKey.kind, "auth");
+    assert.equal(invalidKey.code, "invalid_api_key");
+    assert.equal(invalidKey.disposition, "terminal_killed");
   });
 
   test("extracts retry-after metadata from structured rate limits", () => {
@@ -159,6 +217,13 @@ describe("classifyWorkflowFailure", () => {
     assert.equal(failure.kind, "rate_limit");
     assert.equal(failure.code, "rate_limited");
     assert.equal(failure.disposition, "active_blocked");
+  });
+
+  test("redacts sensitive fallback user messages", () => {
+    const failure = classifyWorkflowFailure(new Error("tool failed with api_key=super-secret-value"));
+    assert.equal(failure.kind, "unknown");
+    assert.equal(failure.message, "tool failed with api_key=super-secret-value");
+    assert.equal(failure.userMessage, "tool failed with api_key=[redacted]");
   });
 
   test("does not treat log information/input errors as auth failures", () => {

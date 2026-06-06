@@ -1486,6 +1486,144 @@ function runFailureMetadata(
   };
 }
 
+interface SelectedRunFailureMetadata extends RunFailureMetadata {
+  readonly failedStageIds: readonly string[];
+}
+
+function stageDispositionResumable(
+  disposition: WorkflowFailureDisposition | undefined,
+  fallback: boolean,
+): boolean {
+  if (disposition === "terminal_killed") return false;
+  if (disposition === "active_blocked") return true;
+  return fallback;
+}
+
+function runFailureMetadataFromStage(
+  fallbackFailure: WorkflowFailure,
+  stage: StageSnapshot,
+): RunFailureMetadata {
+  const failureKind = stage.failureKind ?? fallbackFailure.kind;
+  const failureCode = stage.failureCode ?? fallbackFailure.code;
+  const failureRecoverability = stage.failureRecoverability ?? fallbackFailure.recoverability;
+  const failureDisposition = stage.failureDisposition ?? fallbackFailure.disposition;
+  const retryAfterMs = stage.retryAfterMs ?? fallbackFailure.retryAfterMs;
+
+  return {
+    errorMessage: stage.error ?? fallbackFailure.userMessage,
+    failureKind,
+    ...(failureCode !== undefined ? { failureCode } : {}),
+    failureRecoverability,
+    failureDisposition,
+    failureMessage: stage.failureMessage ?? fallbackFailure.message,
+    failedStageId: stage.id,
+    resumable: stageDispositionResumable(failureDisposition, fallbackFailure.resumable),
+    ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+  };
+}
+
+function runFailureMetadataFromFailure(
+  failure: WorkflowFailure,
+  failedStage: StageSnapshot | undefined,
+): RunFailureMetadata {
+  return {
+    errorMessage: failedStage?.error ?? failure.userMessage,
+    failureKind: failure.kind,
+    ...(failure.code !== undefined ? { failureCode: failure.code } : {}),
+    failureRecoverability: failure.recoverability,
+    failureDisposition: failure.disposition,
+    failureMessage: failedStage?.failureMessage ?? failure.message,
+    ...(failedStage !== undefined ? { failedStageId: failedStage.id } : {}),
+    resumable: failure.resumable,
+    ...(failure.retryAfterMs !== undefined ? { retryAfterMs: failure.retryAfterMs } : {}),
+  };
+}
+
+function executorAggregateErrorItems(error: unknown): readonly unknown[] {
+  const nativeErrors = error instanceof AggregateError ? error.errors as unknown : undefined;
+  const errors = nativeErrors ?? (error !== null && typeof error === "object"
+    ? (error as Record<string, unknown>)["errors"]
+    : undefined);
+  return Array.isArray(errors) ? errors : [];
+}
+
+function aggregateInnerFailures(
+  error: unknown,
+  classifyFailure: (error: unknown) => WorkflowFailure,
+): readonly WorkflowFailure[] {
+  return executorAggregateErrorItems(error).map((innerError) => classifyFailure(innerError));
+}
+
+function selectedMetadata(
+  metadata: RunFailureMetadata,
+  failedStageIds: readonly string[],
+): SelectedRunFailureMetadata {
+  return {
+    ...metadata,
+    failedStageIds,
+  };
+}
+
+function selectRunFailureDisposition(input: {
+  readonly outerFailure: WorkflowFailure;
+  readonly thrownError: unknown;
+  readonly stages: readonly StageSnapshot[];
+  readonly classifyFailure: (error: unknown) => WorkflowFailure;
+}): SelectedRunFailureMetadata {
+  const failedStages = input.stages.filter((stage) => stage.status === "failed");
+  const failedStageIds = failedStages.map((stage) => stage.id);
+  const terminalStage = failedStages.find((stage) => stage.failureDisposition === "terminal_killed");
+  if (terminalStage !== undefined) {
+    const terminalStageIds = failedStages
+      .filter((stage) => stage.failureDisposition === "terminal_killed")
+      .map((stage) => stage.id);
+    return selectedMetadata(
+      runFailureMetadataFromStage(input.outerFailure, terminalStage),
+      terminalStageIds,
+    );
+  }
+
+  const recoverableBlockedStage = failedStages.find((stage) => (
+    stage.failureDisposition === "active_blocked" &&
+    stage.failureRecoverability === "recoverable"
+  ));
+  if (recoverableBlockedStage !== undefined) {
+    const recoverableBlockedStageIds = failedStages
+      .filter((stage) => (
+        stage.failureDisposition === "active_blocked" &&
+        stage.failureRecoverability === "recoverable"
+      ))
+      .map((stage) => stage.id);
+    return selectedMetadata(
+      runFailureMetadataFromStage(input.outerFailure, recoverableBlockedStage),
+      recoverableBlockedStageIds,
+    );
+  }
+
+  const aggregateFailures = aggregateInnerFailures(input.thrownError, input.classifyFailure);
+  const firstFailedStage = failedStages[0];
+  const terminalAggregateFailure = aggregateFailures.find((failure) => failure.disposition === "terminal_killed");
+  if (terminalAggregateFailure !== undefined) {
+    return selectedMetadata(
+      runFailureMetadataFromFailure(terminalAggregateFailure, firstFailedStage),
+      failedStageIds,
+    );
+  }
+
+  const recoverableAggregateFailure = aggregateFailures.find((failure) => (
+    failure.disposition === "active_blocked" &&
+    failure.recoverability === "recoverable"
+  ));
+  if (recoverableAggregateFailure !== undefined) {
+    return selectedMetadata(
+      runFailureMetadataFromFailure(recoverableAggregateFailure, firstFailedStage),
+      failedStageIds,
+    );
+  }
+
+  return selectedMetadata(runFailureMetadata(input.outerFailure, input.stages), failedStageIds);
+}
+
 function stageReplayFields(stage: StageSnapshot): Partial<Pick<StageSnapshot, "replayKey" | "replayedFromStageId" | "replayed">> {
   return {
     ...(stage.replayKey !== undefined ? { replayKey: stage.replayKey } : {}),
@@ -3564,10 +3702,17 @@ export async function run<TInputs extends WorkflowInputValues>(
     }
 
     const failure = classifyExecutorFailure(err);
-    const metadata = runFailureMetadata(failure, runSnapshot.stages);
+    const metadata = selectRunFailureDisposition({
+      outerFailure: failure,
+      thrownError: err,
+      stages: runSnapshot.stages,
+      classifyFailure: classifyExecutorFailure,
+    });
 
-    if (failure.disposition === "terminal_killed") {
-      if (metadata.failedStageId !== undefined) blockKnownNonTerminalDescendants(metadata.failedStageId);
+    if (metadata.failureDisposition === "terminal_killed") {
+      for (const failedStageId of metadata.failedStageIds) {
+        blockKnownNonTerminalDescendants(failedStageId);
+      }
       return finalizeKilledByFailure(runId, runSnapshot, activeStore, opts.persistence, opts.onRunEnd, {
         ...metadata,
         resumable: false,
@@ -3575,11 +3720,13 @@ export async function run<TInputs extends WorkflowInputValues>(
     }
 
     if (
-      failure.disposition === "active_blocked" &&
+      metadata.failureDisposition === "active_blocked" &&
       metadata.failedStageId !== undefined &&
       metadata.failureRecoverability === "recoverable"
     ) {
-      blockKnownNonTerminalDescendants(metadata.failedStageId);
+      for (const failedStageId of metadata.failedStageIds) {
+        blockKnownNonTerminalDescendants(failedStageId);
+      }
       return recordActiveBlockedFailure(runId, runSnapshot, activeStore, opts.persistence, {
         ...metadata,
         failureRecoverability: "recoverable",

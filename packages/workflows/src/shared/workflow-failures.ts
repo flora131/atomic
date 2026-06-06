@@ -153,6 +153,19 @@ type WorkflowFailureDecision = {
   readonly retryAfterMs?: number;
 };
 
+type WorkflowFailureClassificationSource =
+  | "top_level"
+  | "diagnostic"
+  | "nested"
+  | "cause"
+  | "aggregate";
+
+type WorkflowFailureClassification = {
+  readonly decision: WorkflowFailureDecision;
+  readonly source: WorkflowFailureClassificationSource;
+  readonly message?: string;
+};
+
 function integerFrom(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isInteger(value)) return value;
   if (typeof value !== "string" || value.trim().length === 0) return undefined;
@@ -287,6 +300,7 @@ function tokenNearAny(tokens: readonly string[], anchor: string, candidates: Rea
 }
 
 const INVALID_API_KEY_CODES = new Set([
+  "401",
   "invalid_api_key",
   "incorrect_api_key",
   "invalid_api_key_error",
@@ -576,18 +590,35 @@ function unknownDecision(): WorkflowFailureDecision {
   };
 }
 
-function decisionFromNormalizedCode(normalized: string | undefined, retryAfterMs?: number): WorkflowFailureDecision | undefined {
+function strongDecisionFromNormalizedCode(normalized: string | undefined, retryAfterMs?: number): WorkflowFailureDecision | undefined {
   if (normalized === undefined) return undefined;
   if (CANCELLED_CODES.has(normalized)) return cancelledDecision();
   if (INVALID_API_KEY_CODES.has(normalized)) return authDecision("invalid_api_key");
   if (MISSING_API_KEY_CODES.has(normalized)) return authDecision("missing_api_key");
-  if (LOGIN_REQUIRED_CODES.has(normalized)) return authDecision("login_required");
   if (RATE_LIMIT_CODES.has(normalized)) return rateLimitDecision("rate_limited", retryAfterMs);
   if (QUOTA_LIMIT_CODES.has(normalized)) return rateLimitDecision("quota_limited", retryAfterMs);
   if (UNKNOWN_MODEL_CODES.has(normalized)) return terminalProviderConfigDecision("unknown_model");
   if (FORBIDDEN_CONFIG_CODES.has(normalized)) return terminalProviderConfigDecision("forbidden_config");
   if (PROVIDER_UNAVAILABLE_CODES.has(normalized)) return providerUnavailableDecision(retryAfterMs);
   return undefined;
+}
+
+function weakLoginDecisionFromNormalizedCode(normalized: string | undefined): WorkflowFailureDecision | undefined {
+  return normalized !== undefined && LOGIN_REQUIRED_CODES.has(normalized)
+    ? authDecision("login_required")
+    : undefined;
+}
+
+function classificationForDecision(
+  decision: WorkflowFailureDecision,
+  source: WorkflowFailureClassificationSource,
+  message: string | undefined,
+): WorkflowFailureClassification {
+  return {
+    decision,
+    source,
+    ...(message !== undefined ? { message } : {}),
+  };
 }
 
 function decisionFromMessageTokens(tokens: readonly string[], name: string | undefined, retryAfterMs?: number): WorkflowFailureDecision | undefined {
@@ -627,58 +658,143 @@ function decisionFromStatus(signal: StructuredSignal): WorkflowFailureDecision |
   }
 }
 
-function hasStructuredDecisionSignal(signal: StructuredSignal): boolean {
-  return signal.status !== undefined
-    || signal.code !== undefined
-    || signal.name !== undefined
-    || signal.stopReason !== undefined;
+const STATUS_MESSAGE_REFINEMENT_CODES: ReadonlySet<WorkflowFailureCode> = new Set([
+  "invalid_api_key",
+  "missing_api_key",
+  "unknown_model",
+  "forbidden_config",
+]);
+
+const BROAD_AUTH_MESSAGE_REFINEMENT_CODES: ReadonlySet<WorkflowFailureCode> = new Set([
+  "invalid_api_key",
+  "missing_api_key",
+]);
+
+function canRefineStatusDecisionWithMessage(decision: WorkflowFailureDecision): boolean {
+  return STATUS_MESSAGE_REFINEMENT_CODES.has(decision.code);
 }
 
-function structuredDecision(error: unknown, seen = new Set<unknown>()): WorkflowFailureDecision | undefined {
+function canRefineWeakAuthDecisionWithMessage(decision: WorkflowFailureDecision): boolean {
+  return BROAD_AUTH_MESSAGE_REFINEMENT_CODES.has(decision.code);
+}
+
+function classificationFromNormalizedCode(
+  normalized: string | undefined,
+  retryAfterMs: number | undefined,
+  source: WorkflowFailureClassificationSource,
+  message: string | undefined,
+): { readonly strong?: WorkflowFailureClassification; readonly weak?: WorkflowFailureClassification } {
+  const strong = strongDecisionFromNormalizedCode(normalized, retryAfterMs);
+  if (strong !== undefined) {
+    return { strong: classificationForDecision(strong, source, message) };
+  }
+  const weak = weakLoginDecisionFromNormalizedCode(normalized);
+  return weak !== undefined
+    ? { weak: classificationForDecision(weak, source, message) }
+    : {};
+}
+
+function aggregateErrorItems(error: unknown): readonly unknown[] {
+  const nativeErrors = error instanceof AggregateError ? error.errors as unknown : undefined;
+  const errors = nativeErrors ?? field(error, "errors");
+  return Array.isArray(errors) ? errors : [];
+}
+
+function classificationPriority(classification: WorkflowFailureClassification): number {
+  if (classification.decision.disposition === "terminal_killed") return 3;
+  if (
+    classification.decision.disposition === "active_blocked" &&
+    classification.decision.recoverability === "recoverable"
+  ) return 2;
+  if (classification.decision.disposition === "active_blocked") return 1;
+  return 0;
+}
+
+function preferClassification(
+  current: WorkflowFailureClassification | undefined,
+  candidate: WorkflowFailureClassification,
+): WorkflowFailureClassification {
+  if (current === undefined) return candidate;
+  return classificationPriority(candidate) > classificationPriority(current) ? candidate : current;
+}
+
+function aggregateClassification(error: unknown, seen: Set<unknown>): WorkflowFailureClassification | undefined {
+  let selected: WorkflowFailureClassification | undefined;
+  for (const innerError of aggregateErrorItems(error)) {
+    const innerClassification = structuredClassification(innerError, "aggregate", seen);
+    if (innerClassification !== undefined) {
+      selected = preferClassification(selected, innerClassification);
+    }
+  }
+  return selected;
+}
+
+function structuredClassification(
+  error: unknown,
+  source: WorkflowFailureClassificationSource = "top_level",
+  seen = new Set<unknown>(),
+): WorkflowFailureClassification | undefined {
   if (error === undefined || error === null || seen.has(error)) return undefined;
   if (typeof error === "object") seen.add(error);
 
   const signal = structuredSignal(error);
-  if (signal.stopReason?.toLowerCase() === "aborted") return cancelledDecision();
+  const signalMessage = signal.message ?? (typeof error === "string" ? error : undefined);
+  if (signal.stopReason?.toLowerCase() === "aborted") {
+    return classificationForDecision(cancelledDecision(), source, signalMessage);
+  }
 
   const retryAfterMs = signal.retryAfterMs;
-  const codeDecision = decisionFromNormalizedCode(normalizeCode(signal.code), retryAfterMs)
-    ?? decisionFromNormalizedCode(normalizeCode(signal.name), retryAfterMs);
-  if (codeDecision !== undefined) return codeDecision;
+  let weakClassification: WorkflowFailureClassification | undefined;
+
+  const codeClassification = classificationFromNormalizedCode(normalizeCode(signal.code), retryAfterMs, source, signalMessage);
+  if (codeClassification.strong !== undefined) return codeClassification.strong;
+  weakClassification = codeClassification.weak ?? weakClassification;
+
+  const nameClassification = classificationFromNormalizedCode(normalizeCode(signal.name), retryAfterMs, source, signalMessage);
+  if (nameClassification.strong !== undefined) return nameClassification.strong;
+  weakClassification = nameClassification.weak ?? weakClassification;
+
+  const messageDecision = signalMessage !== undefined
+    ? decisionFromMessageTokens(tokenize(signalMessage), signal.name, retryAfterMs)
+    : undefined;
+  if (weakClassification !== undefined && messageDecision !== undefined && canRefineWeakAuthDecisionWithMessage(messageDecision)) {
+    return classificationForDecision(messageDecision, source, signalMessage);
+  }
 
   const statusDecision = decisionFromStatus(signal);
   if (statusDecision !== undefined) {
-    if (signal.message !== undefined && (signal.status === 401 || signal.status === 403)) {
-      const messageDecision = decisionFromMessageTokens(tokenize(signal.message), signal.name, retryAfterMs);
-      if (
-        messageDecision?.code === "invalid_api_key" ||
-        messageDecision?.code === "missing_api_key" ||
-        messageDecision?.code === "login_required" ||
-        messageDecision?.code === "unknown_model" ||
-        messageDecision?.code === "forbidden_config"
-      ) {
-        return messageDecision;
+    if (signalMessage !== undefined && (signal.status === 401 || signal.status === 403)) {
+      const statusMessageDecision = messageDecision
+        ?? decisionFromMessageTokens(tokenize(signalMessage), signal.name, retryAfterMs);
+      if (statusMessageDecision !== undefined && canRefineStatusDecisionWithMessage(statusMessageDecision)) {
+        return classificationForDecision(statusMessageDecision, source, signalMessage);
       }
     }
-    return statusDecision;
+    return classificationForDecision(statusDecision, source, signalMessage);
+  }
+
+  if (source !== "top_level" && messageDecision !== undefined) {
+    return classificationForDecision(messageDecision, source, signalMessage);
   }
 
   for (const diagnosticError of diagnosticErrors(error)) {
-    const diagnosticDecision = structuredDecision(diagnosticError, seen);
-    if (diagnosticDecision !== undefined) return diagnosticDecision;
+    const diagnosticClassification = structuredClassification(diagnosticError, "diagnostic", seen);
+    if (diagnosticClassification !== undefined) return diagnosticClassification;
   }
 
   const nested = nestedProviderError(error);
   if (nested !== undefined && nested !== error) {
-    const nestedDecision = structuredDecision(nested, seen);
-    if (nestedDecision !== undefined) return nestedDecision;
+    const nestedClassification = structuredClassification(nested, "nested", seen);
+    if (nestedClassification !== undefined) return nestedClassification;
   }
 
-  const causeDecision = structuredDecision(causeOf(error), seen);
-  if (causeDecision !== undefined) return causeDecision;
+  const causeClassification = structuredClassification(causeOf(error), "cause", seen);
+  if (causeClassification !== undefined) return causeClassification;
 
-  if (hasStructuredDecisionSignal(signal)) return undefined;
-  return undefined;
+  const aggregateInnerClassification = aggregateClassification(error, seen);
+  if (aggregateInnerClassification !== undefined) return aggregateInnerClassification;
+
+  return weakClassification;
 }
 
 function fallbackDecisionFromMessage(message: string, name: string | undefined): WorkflowFailureDecision | undefined {
@@ -700,8 +816,13 @@ function failureForDecision(decision: WorkflowFailureDecision, message: string, 
 
 export function classifyWorkflowFailure(error: unknown): WorkflowFailure {
   const message = errorMessage(error);
-  const structured = structuredDecision(error);
-  if (structured !== undefined) return failureForDecision(structured, message, error);
+  const structured = structuredClassification(error);
+  if (structured !== undefined) {
+    const structuredMessage = structured.message !== undefined
+      ? (structured.source === "top_level" ? structured.message : redactSensitiveText(structured.message))
+      : message;
+    return failureForDecision(structured.decision, structuredMessage, error);
+  }
 
   const fallback = fallbackDecisionFromMessage(message, errorName(error));
   if (fallback !== undefined) return failureForDecision(fallback, message, error);

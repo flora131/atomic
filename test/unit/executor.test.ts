@@ -2078,6 +2078,95 @@ describe("executor.run", () => {
         assert.equal(stage.failureCode, "invalid_api_key");
     });
 
+    test("non-fail-fast parallel invalid provider credentials kill the run", async () => {
+        const st = createStore();
+        const def = defineWorkflow("parallel-invalid-key-wf")
+            .run(async (ctx) => {
+                await ctx.parallel(
+                    [
+                        { name: "ok", prompt: "ok" },
+                        { name: "bad-key", prompt: "bad-key" },
+                    ],
+                    { concurrency: 2, failFast: false },
+                );
+                return {};
+            })
+            .compile();
+
+        const wfResult = await run(
+            def,
+            {},
+            {
+                adapters: {
+                    prompt: {
+                        prompt: async (text) => {
+                            if (text === "bad-key") {
+                                throw { status: 401, message: "Unauthorized" };
+                            }
+                            return "ok";
+                        },
+                    },
+                },
+                store: st,
+            },
+        );
+
+        assert.equal(wfResult.status, "killed");
+        const storedRun = st.runs()[0]!;
+        const badKeyStage = storedRun.stages.find((stage) => stage.name === "bad-key")!;
+        assert.equal(storedRun.status, "killed");
+        assert.equal(storedRun.failureCode, "invalid_api_key");
+        assert.equal(storedRun.failureDisposition, "terminal_killed");
+        assert.equal(storedRun.failedStageId, badKeyStage.id);
+        assert.equal(badKeyStage.status, "failed");
+        assert.equal(badKeyStage.failureCode, "invalid_api_key");
+        assert.equal(badKeyStage.error, WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE);
+    });
+
+    test("non-fail-fast parallel terminal failures beat recoverable blocked failures", async () => {
+        const st = createStore();
+        const def = defineWorkflow("parallel-mixed-provider-failures-wf")
+            .run(async (ctx) => {
+                await ctx.parallel(
+                    [
+                        { name: "limited", prompt: "limited" },
+                        { name: "bad-key", prompt: "bad-key" },
+                    ],
+                    { concurrency: 2, failFast: false },
+                );
+                return {};
+            })
+            .compile();
+
+        const wfResult = await run(
+            def,
+            {},
+            {
+                adapters: {
+                    prompt: {
+                        prompt: async (text) => {
+                            if (text === "limited") {
+                                throw { status: 429, message: "too many requests" };
+                            }
+                            throw { status: 401, message: "Unauthorized" };
+                        },
+                    },
+                },
+                store: st,
+            },
+        );
+
+        const storedRun = st.runs()[0]!;
+        const badKeyStage = storedRun.stages.find((stage) => stage.name === "bad-key")!;
+        const limitedStage = storedRun.stages.find((stage) => stage.name === "limited")!;
+        assert.equal(wfResult.status, "killed");
+        assert.equal(storedRun.failureCode, "invalid_api_key");
+        assert.equal(storedRun.failureDisposition, "terminal_killed");
+        assert.equal(storedRun.failedStageId, badKeyStage.id);
+        assert.equal(badKeyStage.failureDisposition, "terminal_killed");
+        assert.equal(limitedStage.failureDisposition, "active_blocked");
+    });
+
     test("parallel fail-fast marks slow sibling skipped instead of completed", async () => {
         const st = createStore();
         const def = defineWorkflow("parallel-fail-fast-skip-wf")
@@ -5095,6 +5184,61 @@ describe("executor.run — lifecycle persistence", () => {
         assert.equal(runBlocked.payload["retryAfterMs"], 1234);
         assert.equal(typeof runBlocked.payload["failedStageId"], "string");
         assert.equal(calls.some((c) => c.type === "workflow.run.end"), false);
+    });
+
+    test("non-fail-fast parallel rate limits persist run.blocked without ending the run", async () => {
+        const { persistence, calls } = makePersistence();
+        const st = createStore();
+
+        const def = defineWorkflow("parallel-blocked-persist-wf")
+            .run(async (ctx) => {
+                await ctx.parallel(
+                    [
+                        { name: "limited", prompt: "limited" },
+                        { name: "ok", prompt: "ok" },
+                    ],
+                    { concurrency: 2, failFast: false },
+                );
+                return {};
+            })
+            .compile();
+
+        const wfResult = await run(
+            def,
+            {},
+            {
+                adapters: {
+                    prompt: {
+                        prompt: async (text) => {
+                            if (text === "limited") {
+                                throw {
+                                    status: 429,
+                                    code: "rate_limit_exceeded",
+                                    message: "rate limit",
+                                    retryAfterMs: 2500,
+                                };
+                            }
+                            return "ok";
+                        },
+                    },
+                },
+                store: st,
+                persistence,
+            },
+        );
+
+        const storedRun = st.runs()[0]!;
+        assert.equal(wfResult.status, "running");
+        assert.equal(storedRun.status, "running");
+        assert.equal(storedRun.endedAt, undefined);
+        assert.equal(storedRun.failureCode, "rate_limited");
+        assert.equal(storedRun.failureDisposition, "active_blocked");
+        assert.equal(calls.some((c) => c.type === "workflow.run.end"), false);
+        const runBlocked = calls.find((c) => c.type === "workflow.run.blocked")!;
+        assert.equal(runBlocked.payload["failureKind"], "rate_limit");
+        assert.equal(runBlocked.payload["failureCode"], "rate_limited");
+        assert.equal(runBlocked.payload["failureDisposition"], "active_blocked");
+        assert.equal(runBlocked.payload["retryAfterMs"], 2500);
     });
 
     test("fail-fast skipped queued parallel stages persist start before end", async () => {

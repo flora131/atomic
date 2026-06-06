@@ -22,6 +22,7 @@ import { defineWorkflow } from "../../packages/workflows/src/workflows/define-wo
 import { Type } from "typebox";
 import { createStore } from "../../packages/workflows/src/shared/store.js";
 import { renderResult } from "../../packages/workflows/src/extension/render-result.js";
+import { WORKFLOW_UNKNOWN_MODEL_MESSAGE } from "../../packages/workflows/src/shared/workflow-failures.js";
 import { NON_INTERACTIVE_WORKFLOW_POLICY } from "../../packages/workflows/src/shared/types.js";
 import type {
     WorkflowDefinition,
@@ -274,7 +275,7 @@ describe("runtime.runDirect — workflow intercom", () => {
         });
 
         assert.equal(result.status, "failed");
-        assert.match(result.error ?? "", /missing-model \(not available\)/);
+        assert.equal(result.error, WORKFLOW_UNKNOWN_MODEL_MESSAGE);
         assert.equal(activeStore.runs().length, 0);
     });
 

@@ -285,6 +285,9 @@ describe("resumeRun", () => {
         st.recordRunStart(makeRun({ id: "r1" }));
         st.recordRunEnd("r1", "failed", undefined, "boom", {
             failureKind: "cancelled",
+            failureCode: "cancelled",
+            failureRecoverability: "non_recoverable",
+            failureDisposition: "terminal_killed",
             failedStageId: "s1",
             resumable: false,
         });
@@ -294,6 +297,65 @@ describe("resumeRun", () => {
             assert.equal(result.mode, "not_resumable");
             assert.equal(result.snapshot.status, "failed");
             assert.match(result.message ?? "", /not resumable/);
+        }
+    });
+
+    test("killed run returns not_resumable even without explicit resumable metadata", () => {
+        const st = createStore();
+        st.recordRunStart(makeRun({ id: "r1" }));
+        st.recordRunEnd("r1", "killed", undefined, "bad key", {
+            failureKind: "auth",
+            failureCode: "invalid_api_key",
+            failureRecoverability: "non_recoverable",
+            failureDisposition: "terminal_killed",
+            failedStageId: "s1",
+            resumable: false,
+        });
+        const result = resumeRun("r1", { store: st });
+        assert.equal(result.ok, true);
+        if (result.ok) {
+            assert.equal(result.mode, "not_resumable");
+            assert.equal(result.snapshot.status, "killed");
+            assert.match(result.message ?? "", /not resumable/);
+        }
+    });
+
+    test("active blocked recoverable run returns a resumable snapshot message", () => {
+        const st = createStore();
+        st.recordRunStart(makeRun({ id: "r1" }));
+        st.recordStageStart("r1", {
+            id: "s1",
+            name: "limited",
+            status: "failed",
+            parentIds: [],
+            error: "rate limit",
+            failureKind: "rate_limit",
+            failureCode: "rate_limited",
+            failureRecoverability: "recoverable",
+            failureDisposition: "active_blocked",
+            toolEvents: [],
+        });
+        st.recordRunBlocked("r1", "rate limit", {
+            failureKind: "rate_limit",
+            failureCode: "rate_limited",
+            failureRecoverability: "recoverable",
+            failureDisposition: "active_blocked",
+            failureMessage: "HTTP 429",
+            failedStageId: "s1",
+            resumable: true,
+            retryAfterMs: 1000,
+            blockedAt: 1234,
+        });
+
+        const result = resumeRun("r1", { store: st });
+        assert.equal(result.ok, true);
+        if (result.ok) {
+            assert.equal(result.mode, "snapshot");
+            assert.equal(result.snapshot.status, "running");
+            assert.equal(result.snapshot.endedAt, undefined);
+            assert.equal(result.snapshot.failureCode, "rate_limited");
+            assert.equal(result.snapshot.failureRecoverability, "recoverable");
+            assert.match(result.message ?? "", /blocked on a recoverable rate_limited failure/);
         }
     });
 });

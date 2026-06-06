@@ -299,9 +299,13 @@ describe("restoreOnSessionStart", () => {
           status: "failed",
           error: "rate limit",
           failureKind: "rate_limit",
+          failureCode: "rate_limited",
+          failureRecoverability: "recoverable",
+          failureDisposition: "terminal_failed",
           failureMessage: "429 too many requests",
           failedStageId: "s1",
           resumable: true,
+          retryAfterMs: 2000,
           ts: 3,
         },
       },
@@ -312,9 +316,13 @@ describe("restoreOnSessionStart", () => {
     assert.equal(run.status, "failed");
     assert.equal(run.error, "rate limit");
     assert.equal(run.failureKind, "rate_limit");
+    assert.equal(run.failureCode, "rate_limited");
+    assert.equal(run.failureRecoverability, "recoverable");
+    assert.equal(run.failureDisposition, "terminal_failed");
     assert.equal(run.failureMessage, "429 too many requests");
     assert.equal(run.failedStageId, "s1");
     assert.equal(run.resumable, true);
+    assert.equal(run.retryAfterMs, 2000);
   });
 
   test("restores completed terminal runs from run.end entries", () => {
@@ -374,7 +382,11 @@ describe("restoreOnSessionStart", () => {
           status: "failed",
           error: "You must be logged in to run workflows. Run /login and try again.",
           failureKind: "auth",
+          failureCode: "missing_api_key",
+          failureRecoverability: "recoverable",
+          failureDisposition: "active_blocked",
           failureMessage: "No API key found",
+          retryAfterMs: 1000,
           durationMs: 100,
         },
       },
@@ -384,6 +396,131 @@ describe("restoreOnSessionStart", () => {
     assert.equal(stage.status, "failed");
     assert.equal(stage.error, "You must be logged in to run workflows. Run /login and try again.");
     assert.equal(stage.failureKind, "auth");
+    assert.equal(stage.failureCode, "missing_api_key");
+    assert.equal(stage.failureRecoverability, "recoverable");
+    assert.equal(stage.failureDisposition, "active_blocked");
     assert.equal(stage.failureMessage, "No API key found");
+    assert.equal(stage.retryAfterMs, 1000);
+  });
+
+  test("restores workflow.run.blocked as active recoverable state for any resumeInFlight policy", () => {
+    const st = createStore();
+    const entries: SessionEntry[] = [
+      { id: "e1", type: "workflow.run.start", payload: { runId: "r1", name: "wf", inputs: {}, ts: 1 } },
+      { id: "e2", type: "workflow.stage.start", payload: { runId: "r1", stageId: "s1", name: "fetch", parentIds: [], ts: 2 } },
+      {
+        id: "e3",
+        type: "workflow.stage.end",
+        payload: {
+          runId: "r1",
+          stageId: "s1",
+          status: "failed",
+          error: "rate limit",
+          failureKind: "rate_limit",
+          failureCode: "rate_limited",
+          failureRecoverability: "recoverable",
+          failureDisposition: "active_blocked",
+          failureMessage: "HTTP 429",
+          retryAfterMs: 5000,
+        },
+      },
+      { id: "e4", type: "workflow.stage.start", payload: { runId: "r1", stageId: "s2", name: "after", parentIds: ["s1"], ts: 3 } },
+      {
+        id: "e5",
+        type: "workflow.run.blocked",
+        payload: {
+          runId: "r1",
+          failedStageId: "s1",
+          error: "rate limit",
+          failureKind: "rate_limit",
+          failureCode: "rate_limited",
+          failureMessage: "HTTP 429",
+          failureRecoverability: "recoverable",
+          failureDisposition: "active_blocked",
+          retryAfterMs: 5000,
+          resumable: true,
+          ts: 4,
+        },
+      },
+    ];
+
+    restoreOnSessionStart(makeSessionManager(entries), { resumeInFlight: "never", persistRuns: true }, st);
+
+    const run = st.runs()[0]!;
+    assert.equal(run.status, "running");
+    assert.equal(run.endedAt, undefined);
+    assert.equal(run.error, "rate limit");
+    assert.equal(run.failureKind, "rate_limit");
+    assert.equal(run.failureCode, "rate_limited");
+    assert.equal(run.failureRecoverability, "recoverable");
+    assert.equal(run.failureDisposition, "active_blocked");
+    assert.equal(run.failureMessage, "HTTP 429");
+    assert.equal(run.failedStageId, "s1");
+    assert.equal(run.resumable, true);
+    assert.equal(run.retryAfterMs, 5000);
+    assert.equal(run.blockedAt, 4);
+    assert.equal(run.stages[0]!.status, "failed");
+    assert.equal(run.stages[1]!.status, "blocked");
+    assert.equal(run.stages[1]!.blockedByStageId, "s1");
+  });
+
+  test("restores workflow.run.blocked only onto descendants of the failed stage", () => {
+    const st = createStore();
+    const entries: SessionEntry[] = [
+      { id: "e1", type: "workflow.run.start", payload: { runId: "r1", name: "wf", inputs: {}, ts: 1 } },
+      { id: "e2", type: "workflow.stage.start", payload: { runId: "r1", stageId: "s1", name: "failed", parentIds: [], ts: 2 } },
+      {
+        id: "e3",
+        type: "workflow.stage.end",
+        payload: {
+          runId: "r1",
+          stageId: "s1",
+          status: "failed",
+          error: "rate limit",
+          failureKind: "rate_limit",
+          failureCode: "rate_limited",
+          failureRecoverability: "recoverable",
+          failureDisposition: "active_blocked",
+          failureMessage: "HTTP 429",
+        },
+      },
+      { id: "e4", type: "workflow.stage.start", payload: { runId: "r1", stageId: "s2", name: "unrelated", parentIds: [], ts: 3 } },
+      { id: "e5", type: "workflow.stage.start", payload: { runId: "r1", stageId: "s3", name: "direct", parentIds: ["s1"], ts: 4 } },
+      { id: "e6", type: "workflow.stage.start", payload: { runId: "r1", stageId: "s4", name: "transitive", parentIds: ["s3"], ts: 5 } },
+      {
+        id: "e7",
+        type: "workflow.run.blocked",
+        payload: {
+          runId: "r1",
+          failedStageId: "s1",
+          error: "rate limit",
+          failureKind: "rate_limit",
+          failureCode: "rate_limited",
+          failureMessage: "HTTP 429",
+          failureRecoverability: "recoverable",
+          failureDisposition: "active_blocked",
+          resumable: true,
+          ts: 6,
+        },
+      },
+    ];
+
+    restoreOnSessionStart(makeSessionManager(entries), { resumeInFlight: "never", persistRuns: true }, st);
+
+    const run = st.runs()[0]!;
+    const byId = new Map(run.stages.map((stage) => [stage.id, stage]));
+    const s1 = byId.get("s1")!;
+    const s2 = byId.get("s2")!;
+    const s3 = byId.get("s3")!;
+    const s4 = byId.get("s4")!;
+
+    assert.equal(run.status, "running");
+    assert.equal(s1.status, "failed");
+    assert.equal(s2.status, "running");
+    assert.equal(s2.blockedByStageId, undefined);
+    assert.equal(s3.status, "blocked");
+    assert.equal(s3.blockedByStageId, "s1");
+    assert.equal(s4.status, "blocked");
+    assert.equal(s4.blockedByStageId, "s1");
   });
 });

@@ -12,7 +12,12 @@ import {
     resolveInputs,
 } from "../../packages/workflows/src/runs/foreground/executor.js";
 import { createStore } from "../../packages/workflows/src/shared/store.js";
-import { WORKFLOW_AUTH_FAILURE_MESSAGE } from "../../packages/workflows/src/shared/workflow-failures.js";
+import {
+    WORKFLOW_AUTH_FAILURE_MESSAGE,
+    WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE,
+    WORKFLOW_MISSING_API_KEY_FAILURE_MESSAGE,
+    WORKFLOW_UNKNOWN_MODEL_MESSAGE,
+} from "../../packages/workflows/src/shared/workflow-failures.js";
 import { defineWorkflow } from "../../packages/workflows/src/workflows/define-workflow.js";
 import { createRegistry } from "../../packages/workflows/src/workflows/registry.js";
 import type { AgentSession, CreateAgentSessionOptions } from "@bastani/atomic";
@@ -1442,7 +1447,7 @@ describe("executor.run", () => {
                         prompt: async (text) => {
                             firstRunCalls.push(text);
                             if (text.startsWith("second:"))
-                                throw new Error("rate limit exceeded");
+                                throw new Error("continuation test failure");
                             return "first-result";
                         },
                     },
@@ -1532,7 +1537,7 @@ describe("executor.run", () => {
                         prompt: async (text) => {
                             firstRunCalls.push(text);
                             if (text.startsWith("after:"))
-                                throw new Error("rate limit exceeded");
+                                throw new Error("continuation test failure");
                             return "child-ok";
                         },
                     },
@@ -1620,7 +1625,7 @@ describe("executor.run", () => {
                     prompt: {
                         prompt: async (text) => {
                             if (text.startsWith("after:"))
-                                throw new Error("rate limit exceeded");
+                                throw new Error("continuation test failure");
                             return "child-ok";
                         },
                     },
@@ -1703,7 +1708,7 @@ describe("executor.run", () => {
                     prompt: {
                         prompt: async (text) => {
                             if (text.startsWith("after:"))
-                                throw new Error("rate limit exceeded");
+                                throw new Error("continuation test failure");
                             return "unexpected";
                         },
                     },
@@ -1830,7 +1835,7 @@ describe("executor.run", () => {
                         prompt: async (text) => {
                             firstRunCalls.push(text);
                             if (text.startsWith("after:"))
-                                throw new Error("rate limit exceeded");
+                                throw new Error("continuation test failure");
                             return `child-${firstRunCalls.length}`;
                         },
                     },
@@ -1930,7 +1935,7 @@ describe("executor.run", () => {
                     prompt: {
                         prompt: async (text) => {
                             if (text.startsWith("after:"))
-                                throw new Error("rate limit exceeded");
+                                throw new Error("continuation test failure");
                             return "child-first";
                         },
                     },
@@ -1982,7 +1987,7 @@ describe("executor.run", () => {
         assert.deepEqual(after.parentIds, [boundary.id]);
     });
 
-    test("auth stage failures surface workflow login guidance and preserve details", async () => {
+    test("missing API key stage failures leave the run active-blocked and resumable", async () => {
         const st = createStore();
         const def = defineWorkflow("auth-fail-wf")
             .run(async (ctx) => {
@@ -2006,23 +2011,515 @@ describe("executor.run", () => {
             },
         );
 
-        assert.equal(wfResult.status, "failed");
-        assert.equal(
-            wfResult.error,
-            "You must be logged in to run workflows. Run /login and try again.",
-        );
+        assert.equal(wfResult.status, "running");
+        assert.equal(wfResult.error, WORKFLOW_MISSING_API_KEY_FAILURE_MESSAGE);
         const storedRun = st.runs()[0]!;
         const stage = storedRun.stages[0]!;
-        assert.equal(
-            stage.error,
-            "You must be logged in to run workflows. Run /login and try again.",
-        );
+        assert.equal(storedRun.status, "running");
+        assert.equal(storedRun.endedAt, undefined);
+        assert.equal(stage.status, "failed");
+        assert.equal(stage.error, WORKFLOW_MISSING_API_KEY_FAILURE_MESSAGE);
         assert.equal(stage.failureKind, "auth");
+        assert.equal(stage.failureCode, "missing_api_key");
+        assert.equal(stage.failureRecoverability, "recoverable");
+        assert.equal(stage.failureDisposition, "active_blocked");
         assert.equal(stage.failureMessage, "No API key found for provider");
         assert.equal(storedRun.failureKind, "auth");
+        assert.equal(storedRun.failureCode, "missing_api_key");
+        assert.equal(storedRun.failureRecoverability, "recoverable");
+        assert.equal(storedRun.failureDisposition, "active_blocked");
         assert.equal(storedRun.failureMessage, "No API key found for provider");
         assert.equal(storedRun.failedStageId, stage.id);
         assert.equal(storedRun.resumable, true);
+        assert.equal(typeof storedRun.blockedAt, "number");
+    });
+
+    test("local login wrapper 401 stage failures leave the run active-blocked and resumable", async () => {
+        const st = createStore();
+        const def = defineWorkflow("local-login-401-wf")
+            .run(async (ctx) => {
+                await ctx.stage("needs-login").prompt("x");
+                return {};
+            })
+            .compile();
+
+        const wfResult = await run(
+            def,
+            {},
+            {
+                adapters: {
+                    prompt: {
+                        prompt: async () => {
+                            throw { status: 401, message: "Please log in to continue" };
+                        },
+                    },
+                },
+                store: st,
+            },
+        );
+
+        assert.equal(wfResult.status, "running");
+        assert.equal(wfResult.error, WORKFLOW_AUTH_FAILURE_MESSAGE);
+        const storedRun = st.runs()[0]!;
+        const stage = storedRun.stages[0]!;
+        assert.equal(storedRun.status, "running");
+        assert.equal(storedRun.endedAt, undefined);
+        assert.equal(storedRun.resumable, true);
+        assert.equal(storedRun.failureKind, "auth");
+        assert.equal(storedRun.failureCode, "login_required");
+        assert.equal(storedRun.failureRecoverability, "recoverable");
+        assert.equal(storedRun.failureDisposition, "active_blocked");
+        assert.equal(storedRun.failureMessage, "Please log in to continue");
+        assert.equal(storedRun.failedStageId, stage.id);
+        assert.equal(typeof storedRun.blockedAt, "number");
+        assert.equal(stage.status, "failed");
+        assert.equal(stage.error, WORKFLOW_AUTH_FAILURE_MESSAGE);
+        assert.equal(stage.failureCode, "login_required");
+        assert.equal(stage.failureDisposition, "active_blocked");
+    });
+
+    test("invalid provider credential stage failures kill the run and refuse resume", async () => {
+        const st = createStore();
+        const def = defineWorkflow("invalid-key-fail-wf")
+            .run(async (ctx) => {
+                await ctx.stage("bad-key").prompt("x");
+                return {};
+            })
+            .compile();
+
+        const wfResult = await run(
+            def,
+            {},
+            {
+                adapters: {
+                    prompt: {
+                        prompt: async () => {
+                            throw {
+                                status: 401,
+                                code: "invalid_api_key",
+                                message: "Incorrect API key provided",
+                            };
+                        },
+                    },
+                },
+                store: st,
+            },
+        );
+
+        assert.equal(wfResult.status, "killed");
+        assert.equal(wfResult.error, WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE);
+        const storedRun = st.runs()[0]!;
+        const stage = storedRun.stages[0]!;
+        assert.equal(storedRun.status, "killed");
+        assert.notEqual(storedRun.endedAt, undefined);
+        assert.equal(storedRun.resumable, false);
+        assert.equal(storedRun.failureKind, "auth");
+        assert.equal(storedRun.failureCode, "invalid_api_key");
+        assert.equal(storedRun.failureRecoverability, "non_recoverable");
+        assert.equal(storedRun.failureDisposition, "terminal_killed");
+        assert.equal(storedRun.failedStageId, stage.id);
+        assert.equal(stage.status, "failed");
+        assert.equal(stage.error, WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE);
+        assert.equal(stage.failureCode, "invalid_api_key");
+    });
+
+    test("outer invalid credentials after a caught rate-limited stage kill the run", async () => {
+        const st = createStore();
+        const def = defineWorkflow("caught-rate-limit-outer-401-wf")
+            .run(async (ctx) => {
+                try {
+                    await ctx.stage("limited").prompt("limited");
+                } catch {
+                    // The stage failure is intentionally caught; the outer error
+                    // must still participate in run-level disposition selection.
+                }
+                throw { status: 401, message: "Unauthorized" };
+            })
+            .compile();
+
+        const wfResult = await run(
+            def,
+            {},
+            {
+                adapters: {
+                    prompt: {
+                        prompt: async () => {
+                            throw { status: 429, message: "stage rate limited" };
+                        },
+                    },
+                },
+                store: st,
+            },
+        );
+
+        assert.equal(wfResult.status, "killed");
+        assert.equal(wfResult.error, WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE);
+        const storedRun = st.runs()[0]!;
+        const stage = storedRun.stages[0]!;
+        assert.equal(storedRun.status, "killed");
+        assert.notEqual(storedRun.endedAt, undefined);
+        assert.equal(storedRun.blockedAt, undefined);
+        assert.equal(storedRun.resumable, false);
+        assert.equal(storedRun.failureKind, "auth");
+        assert.equal(storedRun.failureCode, "invalid_api_key");
+        assert.equal(storedRun.failureRecoverability, "non_recoverable");
+        assert.equal(storedRun.failureDisposition, "terminal_killed");
+        assert.equal(storedRun.failedStageId, undefined);
+        assert.equal(stage.status, "failed");
+        assert.equal(stage.failureCode, "rate_limited");
+        assert.equal(stage.failureRecoverability, "recoverable");
+        assert.equal(stage.failureDisposition, "active_blocked");
+    });
+
+    test("aggregate invalid credentials after a caught rate-limited stage use aggregate metadata", async () => {
+        const st = createStore();
+        const calls: Array<{ type: string; payload: Record<string, unknown> }> = [];
+        const persistence = {
+            appendEntry(type: string, payload: Record<string, unknown>): string {
+                calls.push({ type, payload });
+                return `entry-${calls.length}`;
+            },
+            setLabel(_entryId: string, _label: string): void {},
+        };
+        const rawSecret = "sk-testsecret1234567890";
+        const def = defineWorkflow("caught-rate-limit-aggregate-invalid-key-wf")
+            .run(async (ctx) => {
+                try {
+                    await ctx.stage("limited").prompt("limited");
+                } catch {
+                    // Continue to the aggregate provider credential failure.
+                }
+                throw new AggregateError([
+                    { status: 401, message: `Incorrect API key provided: ${rawSecret}` },
+                ], "atomic-workflows: 1 parallel step failed");
+            })
+            .compile();
+
+        const wfResult = await run(
+            def,
+            {},
+            {
+                adapters: {
+                    prompt: {
+                        prompt: async () => {
+                            throw { status: 429, message: "stage rate limited" };
+                        },
+                    },
+                },
+                store: st,
+                persistence,
+            },
+        );
+
+        assert.equal(wfResult.status, "killed");
+        assert.equal(wfResult.error, WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE);
+        const storedRun = st.runs()[0]!;
+        const stage = storedRun.stages[0]!;
+        assert.equal(storedRun.status, "killed");
+        assert.equal(storedRun.failureKind, "auth");
+        assert.equal(storedRun.failureCode, "invalid_api_key");
+        assert.equal(storedRun.failureRecoverability, "non_recoverable");
+        assert.equal(storedRun.failureDisposition, "terminal_killed");
+        assert.equal(storedRun.failedStageId, undefined);
+        assert.match(storedRun.failureMessage ?? "", /Incorrect API key/);
+        assert.equal(storedRun.failureMessage?.includes(rawSecret), false);
+        assert.notEqual(storedRun.failureMessage, stage.failureMessage);
+        assert.equal(stage.status, "failed");
+        assert.equal(stage.failureCode, "rate_limited");
+        assert.equal(stage.failureDisposition, "active_blocked");
+
+        const runEnd = calls.find((call) => call.type === "workflow.run.end")!;
+        assert.equal(runEnd.payload["failedStageId"], undefined);
+        assert.equal(runEnd.payload["failureCode"], "invalid_api_key");
+        assert.equal(String(runEnd.payload["failureMessage"] ?? "").includes(rawSecret), false);
+        assert.equal(JSON.stringify({ wfResult, runs: st.runs(), calls }).includes(rawSecret), false);
+    });
+
+    test("aggregate ordinary errors after a caught rate-limited stage do not inherit stale rate-limit metadata", async () => {
+        const st = createStore();
+        const def = defineWorkflow("caught-rate-limit-aggregate-error-wf")
+            .run(async (ctx) => {
+                try {
+                    await ctx.stage("limited").prompt("limited");
+                } catch {
+                    // Continue to an aggregate domain failure.
+                }
+                throw new AggregateError([
+                    new Error("aggregate domain terminal"),
+                ], "atomic-workflows: 1 parallel step failed");
+            })
+            .compile();
+
+        const wfResult = await run(
+            def,
+            {},
+            {
+                adapters: {
+                    prompt: {
+                        prompt: async () => {
+                            throw { status: 429, message: "stage rate limited" };
+                        },
+                    },
+                },
+                store: st,
+            },
+        );
+
+        assert.equal(wfResult.status, "failed");
+        assert.match(wfResult.error ?? "", /atomic-workflows: 1 parallel step failed/);
+        const storedRun = st.runs()[0]!;
+        const stage = storedRun.stages[0]!;
+        assert.equal(storedRun.status, "failed");
+        assert.equal(storedRun.blockedAt, undefined);
+        assert.equal(storedRun.failureKind, "unknown");
+        assert.equal(storedRun.failureCode, "unknown");
+        assert.equal(storedRun.failureDisposition, "terminal_failed");
+        assert.notEqual(storedRun.failureDisposition, "active_blocked");
+        assert.equal(storedRun.failureMessage, "aggregate domain terminal");
+        assert.notEqual(storedRun.failureMessage, "stage rate limited");
+        assert.equal(storedRun.failedStageId, undefined);
+        assert.equal(stage.status, "failed");
+        assert.equal(stage.failureCode, "rate_limited");
+        assert.equal(stage.failureRecoverability, "recoverable");
+        assert.equal(stage.failureDisposition, "active_blocked");
+    });
+
+    test("outer ordinary errors after a caught rate-limited stage fail with outer error text", async () => {
+        const st = createStore();
+        const def = defineWorkflow("caught-rate-limit-outer-error-wf")
+            .run(async (ctx) => {
+                try {
+                    await ctx.stage("limited").prompt("limited");
+                } catch {
+                    // Continue to the workflow-level validation failure.
+                }
+                throw new Error("outer domain validation failed");
+            })
+            .compile();
+
+        const wfResult = await run(
+            def,
+            {},
+            {
+                adapters: {
+                    prompt: {
+                        prompt: async () => {
+                            throw { status: 429, message: "stage rate limited" };
+                        },
+                    },
+                },
+                store: st,
+            },
+        );
+
+        assert.equal(wfResult.status, "failed");
+        assert.equal(wfResult.error, "outer domain validation failed");
+        const storedRun = st.runs()[0]!;
+        const stage = storedRun.stages[0]!;
+        assert.equal(storedRun.status, "failed");
+        assert.equal(storedRun.error, "outer domain validation failed");
+        assert.notEqual(storedRun.endedAt, undefined);
+        assert.equal(storedRun.blockedAt, undefined);
+        assert.equal(storedRun.failureKind, "unknown");
+        assert.equal(storedRun.failureCode, "unknown");
+        assert.equal(storedRun.failureDisposition, "terminal_failed");
+        assert.notEqual(storedRun.failureDisposition, "active_blocked");
+        assert.equal(storedRun.failureMessage, "outer domain validation failed");
+        assert.equal(storedRun.failedStageId, undefined);
+        assert.equal(stage.status, "failed");
+        assert.equal(stage.failureCode, "rate_limited");
+        assert.equal(stage.failureRecoverability, "recoverable");
+        assert.equal(stage.failureDisposition, "active_blocked");
+    });
+
+    test("outer rate limits after a caught rate-limited stage keep the run active-blocked", async () => {
+        const st = createStore();
+        const def = defineWorkflow("caught-rate-limit-outer-429-wf")
+            .run(async (ctx) => {
+                try {
+                    await ctx.stage("limited").prompt("limited");
+                } catch {
+                    // Both observed failures are recoverable rate limits.
+                }
+                throw { status: 429, message: "outer rate limited" };
+            })
+            .compile();
+
+        const wfResult = await run(
+            def,
+            {},
+            {
+                adapters: {
+                    prompt: {
+                        prompt: async () => {
+                            throw { status: 429, message: "stage rate limited" };
+                        },
+                    },
+                },
+                store: st,
+            },
+        );
+
+        assert.equal(wfResult.status, "running");
+        const storedRun = st.runs()[0]!;
+        const stage = storedRun.stages[0]!;
+        assert.equal(storedRun.status, "running");
+        assert.equal(storedRun.endedAt, undefined);
+        assert.equal(typeof storedRun.blockedAt, "number");
+        assert.equal(storedRun.resumable, true);
+        assert.equal(storedRun.failureKind, "rate_limit");
+        assert.equal(storedRun.failureCode, "rate_limited");
+        assert.equal(storedRun.failureRecoverability, "recoverable");
+        assert.equal(storedRun.failureDisposition, "active_blocked");
+        assert.equal(storedRun.failedStageId, stage.id);
+        assert.equal(stage.status, "failed");
+        assert.equal(stage.failureCode, "rate_limited");
+        assert.equal(stage.failureRecoverability, "recoverable");
+        assert.equal(stage.failureDisposition, "active_blocked");
+    });
+
+    test("non-fail-fast parallel invalid provider credentials kill the run", async () => {
+        const st = createStore();
+        const def = defineWorkflow("parallel-invalid-key-wf")
+            .run(async (ctx) => {
+                await ctx.parallel(
+                    [
+                        { name: "ok", prompt: "ok" },
+                        { name: "bad-key", prompt: "bad-key" },
+                    ],
+                    { concurrency: 2, failFast: false },
+                );
+                return {};
+            })
+            .compile();
+
+        const wfResult = await run(
+            def,
+            {},
+            {
+                adapters: {
+                    prompt: {
+                        prompt: async (text) => {
+                            if (text === "bad-key") {
+                                throw { status: 401, message: "Unauthorized" };
+                            }
+                            return "ok";
+                        },
+                    },
+                },
+                store: st,
+            },
+        );
+
+        assert.equal(wfResult.status, "killed");
+        assert.equal(wfResult.error, WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE);
+        const storedRun = st.runs()[0]!;
+        const badKeyStage = storedRun.stages.find((stage) => stage.name === "bad-key")!;
+        assert.equal(storedRun.status, "killed");
+        assert.equal(storedRun.error, WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE);
+        assert.equal(storedRun.failureCode, "invalid_api_key");
+        assert.equal(storedRun.failureDisposition, "terminal_killed");
+        assert.equal(storedRun.failedStageId, badKeyStage.id);
+        assert.equal(badKeyStage.status, "failed");
+        assert.equal(badKeyStage.failureCode, "invalid_api_key");
+        assert.equal(badKeyStage.error, WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE);
+    });
+
+    test("non-fail-fast parallel terminal failures beat recoverable blocked failures", async () => {
+        const st = createStore();
+        const def = defineWorkflow("parallel-mixed-provider-failures-wf")
+            .run(async (ctx) => {
+                await ctx.parallel(
+                    [
+                        { name: "limited", prompt: "limited" },
+                        { name: "bad-key", prompt: "bad-key" },
+                    ],
+                    { concurrency: 2, failFast: false },
+                );
+                return {};
+            })
+            .compile();
+
+        const wfResult = await run(
+            def,
+            {},
+            {
+                adapters: {
+                    prompt: {
+                        prompt: async (text) => {
+                            if (text === "limited") {
+                                throw { status: 429, message: "too many requests" };
+                            }
+                            throw { status: 401, message: "Unauthorized" };
+                        },
+                    },
+                },
+                store: st,
+            },
+        );
+
+        const storedRun = st.runs()[0]!;
+        const badKeyStage = storedRun.stages.find((stage) => stage.name === "bad-key")!;
+        const limitedStage = storedRun.stages.find((stage) => stage.name === "limited")!;
+        assert.equal(wfResult.status, "killed");
+        assert.equal(storedRun.failureCode, "invalid_api_key");
+        assert.equal(storedRun.failureDisposition, "terminal_killed");
+        assert.equal(storedRun.failedStageId, badKeyStage.id);
+        assert.equal(badKeyStage.failureDisposition, "terminal_killed");
+        assert.equal(limitedStage.failureDisposition, "active_blocked");
+    });
+
+    test("non-fail-fast parallel ordinary failures beat recoverable blocked failures", async () => {
+        const st = createStore();
+        const def = defineWorkflow("parallel-mixed-ordinary-failures-wf")
+            .run(async (ctx) => {
+                await ctx.parallel(
+                    [
+                        { name: "limited", prompt: "limited" },
+                        { name: "domain", prompt: "domain" },
+                    ],
+                    { concurrency: 2, failFast: false },
+                );
+                return {};
+            })
+            .compile();
+
+        const wfResult = await run(
+            def,
+            {},
+            {
+                adapters: {
+                    prompt: {
+                        prompt: async (text) => {
+                            if (text === "limited") {
+                                throw { status: 429, message: "too many requests" };
+                            }
+                            throw new Error("domain model validation failed");
+                        },
+                    },
+                },
+                store: st,
+            },
+        );
+
+        const storedRun = st.runs()[0]!;
+        const domainStage = storedRun.stages.find((stage) => stage.name === "domain")!;
+        const limitedStage = storedRun.stages.find((stage) => stage.name === "limited")!;
+        assert.equal(wfResult.status, "failed");
+        assert.match(wfResult.error ?? "", /atomic-workflows: 2 parallel steps failed/);
+        assert.equal(storedRun.status, "failed");
+        assert.match(storedRun.error ?? "", /atomic-workflows: 2 parallel steps failed/);
+        assert.notEqual(storedRun.endedAt, undefined);
+        assert.equal(storedRun.blockedAt, undefined);
+        assert.equal(storedRun.failureKind, "unknown");
+        assert.equal(storedRun.failureCode, "unknown");
+        assert.equal(storedRun.failureDisposition, "terminal_failed");
+        assert.equal(storedRun.failedStageId, domainStage.id);
+        assert.equal(storedRun.resumable, true);
+        assert.equal(domainStage.failureDisposition, "terminal_failed");
+        assert.equal(domainStage.failureMessage, "domain model validation failed");
+        assert.equal(limitedStage.failureCode, "rate_limited");
+        assert.equal(limitedStage.failureDisposition, "active_blocked");
     });
 
     test("parallel fail-fast marks slow sibling skipped instead of completed", async () => {
@@ -2381,7 +2878,7 @@ describe("executor.run", () => {
                     prompt: {
                         prompt: async (text) => {
                             if (text.startsWith("after"))
-                                throw new Error("rate limit exceeded");
+                                throw new Error("continuation test failure");
                             return "before-result";
                         },
                     },
@@ -2472,7 +2969,7 @@ describe("executor.run", () => {
                     prompt: {
                         prompt: async (text) => {
                             if (text.startsWith("after"))
-                                throw new Error("rate limit exceeded");
+                                throw new Error("continuation test failure");
                             return "before-result";
                         },
                     },
@@ -2609,7 +3106,7 @@ describe("executor.run", () => {
                 adapters: {
                     prompt: {
                         prompt: async () => {
-                            throw new Error("rate limit exceeded");
+                            throw new Error("continuation test failure");
                         },
                     },
                 },
@@ -2696,7 +3193,7 @@ describe("executor.run", () => {
                 adapters: {
                     prompt: {
                         prompt: async () => {
-                            throw new Error("rate limit exceeded");
+                            throw new Error("continuation test failure");
                         },
                     },
                 },
@@ -2788,7 +3285,7 @@ describe("executor.run", () => {
                 adapters: {
                     prompt: {
                         prompt: async () => {
-                            throw new Error("rate limit exceeded");
+                            throw new Error("continuation test failure");
                         },
                     },
                 },
@@ -2896,7 +3393,7 @@ describe("executor.run", () => {
                     prompt: {
                         prompt: async (text) => {
                             if (text.startsWith("second:"))
-                                throw new Error("rate limit exceeded");
+                                throw new Error("continuation test failure");
                             return "first-result";
                         },
                     },
@@ -2962,7 +3459,7 @@ describe("executor.run", () => {
                     prompt: {
                         prompt: async (text) => {
                             if (text.startsWith("after:"))
-                                throw new Error("rate limit exceeded");
+                                throw new Error("continuation test failure");
                             return text.toLowerCase();
                         },
                     },
@@ -3041,7 +3538,7 @@ describe("executor.run", () => {
                             if (text === "after")
                                 throw new Error("unexpected exact prompt");
                             if (text.includes(","))
-                                throw new Error("rate limit exceeded");
+                                throw new Error("continuation test failure");
                             return `${text}:done`;
                         },
                     },
@@ -3118,7 +3615,7 @@ describe("executor.run", () => {
                         prompt: async (text) => {
                             if (text === "alpha" || text === "beta")
                                 return `${text}:done`;
-                            throw new Error("rate limit exceeded");
+                            throw new Error("continuation test failure");
                         },
                     },
                 },
@@ -3185,7 +3682,7 @@ describe("executor.run", () => {
                     prompt: {
                         prompt: async (text) => {
                             if (text === "fail")
-                                throw new Error("rate limit exceeded");
+                                throw new Error("continuation test failure");
                             return `${text}:done`;
                         },
                     },
@@ -3247,7 +3744,7 @@ describe("executor.run", () => {
                     prompt: {
                         prompt: async (text) => {
                             if (text.startsWith("second:"))
-                                throw new Error("rate limit exceeded");
+                                throw new Error("continuation test failure");
                             return "first-result";
                         },
                     },
@@ -3323,7 +3820,7 @@ describe("executor.run", () => {
                             firstRunCalls.push(text);
                             if (text === "fail-once" && failOnce) {
                                 failOnce = false;
-                                throw new Error("rate limit exceeded");
+                                throw new Error("continuation test failure");
                             }
                             return `${text}:ok`;
                         },
@@ -3377,7 +3874,7 @@ describe("executor.run", () => {
         assert.equal(replayed.replayedFromStageId, completed.id);
     });
 
-    test("failed fallback attempts are recorded on the stage snapshot", async () => {
+    test("rate-limited fallback attempts are recorded on the active-blocked stage snapshot", async () => {
         const def = defineWorkflow("failed-fallback-metadata")
             .output("ok", Type.Boolean())
             .run(async (ctx) => {
@@ -3419,7 +3916,10 @@ describe("executor.run", () => {
             },
         );
 
-        assert.equal(result.status, "failed");
+        assert.equal(result.status, "running");
+        assert.equal(result.stages[0]?.status, "failed");
+        assert.equal(result.stages[0]?.failureDisposition, "active_blocked");
+        assert.equal(result.stages[0]?.failureRecoverability, "recoverable");
         assert.deepEqual(result.stages[0]?.attemptedModels, [
             "anthropic/primary",
             "openai/fallback",
@@ -3812,10 +4312,12 @@ describe("executor.run", () => {
             },
         );
 
-        assert.equal(result.status, "failed");
-        assert.match(result.error ?? "", /missing-model \(not available\)/);
+        assert.equal(result.status, "killed");
+        assert.equal(result.error, WORKFLOW_UNKNOWN_MODEL_MESSAGE);
         assert.equal(creates, 0);
         assert.equal(result.stages[0]?.status, "failed");
+        assert.equal(result.stages[0]?.failureCode, "unknown_model");
+        assert.match(result.stages[0]?.failureMessage ?? "", /missing-model \(not available\)/);
     });
 
     test("provider-qualified stage model absent from the catalog is trusted and creates a session", async () => {
@@ -4209,7 +4711,7 @@ describe("direct SDK helpers", () => {
         assert.equal(details.warnings, undefined);
     });
 
-    test("runTask reports classified auth guidance for direct stage failures", async () => {
+    test("runTask reports classified invalid credential guidance for direct stage failures", async () => {
         const details = await runTask(
             { name: "scout", prompt: "inspect repo" },
             {},
@@ -4233,8 +4735,8 @@ describe("direct SDK helpers", () => {
             },
         );
 
-        assert.equal(details.status, "failed");
-        assert.equal(details.error, WORKFLOW_AUTH_FAILURE_MESSAGE);
+        assert.equal(details.status, "killed");
+        assert.equal(details.error, WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE);
     });
 
     test("runTask invalid fallback model fails before session and output side effects", async () => {
@@ -4274,7 +4776,7 @@ describe("direct SDK helpers", () => {
         );
 
         assert.equal(details.status, "failed");
-        assert.match(details.error ?? "", /missing-model \(not available\)/);
+        assert.equal(details.error, WORKFLOW_UNKNOWN_MODEL_MESSAGE);
         assert.equal(creates, 0);
         assert.throws(() => readFileSync(output, "utf8"));
     });
@@ -4978,6 +5480,123 @@ describe("executor.run — lifecycle persistence", () => {
             stageEnd.payload["stageId"],
         );
         assert.equal(runEnd.payload["resumable"], true);
+    });
+
+    test("recoverable rate limit persists run.blocked without run.end", async () => {
+        const { persistence, calls } = makePersistence();
+        const st = createStore();
+
+        const def = defineWorkflow("blocked-persist-wf")
+            .run(async (ctx) => {
+                await ctx.stage("limited").prompt("x");
+                return {};
+            })
+            .compile();
+
+        const wfResult = await run(
+            def,
+            {},
+            {
+                adapters: {
+                    prompt: {
+                        prompt: async () => {
+                            throw {
+                                status: 429,
+                                code: "rate_limit_exceeded",
+                                message: "rate limit",
+                                retryAfterMs: 1234,
+                            };
+                        },
+                    },
+                },
+                store: st,
+                persistence,
+            },
+        );
+
+        assert.equal(wfResult.status, "running");
+        assert.deepEqual(
+            calls.map((c) => c.type),
+            [
+                "workflow.run.start",
+                "workflow.stage.start",
+                "workflow.stage.end",
+                "workflow.run.blocked",
+            ],
+        );
+        const stageEnd = calls.find((c) => c.type === "workflow.stage.end")!;
+        assert.equal(stageEnd.payload["status"], "failed");
+        assert.equal(stageEnd.payload["failureKind"], "rate_limit");
+        assert.equal(stageEnd.payload["failureCode"], "rate_limited");
+        assert.equal(stageEnd.payload["failureRecoverability"], "recoverable");
+        assert.equal(stageEnd.payload["failureDisposition"], "active_blocked");
+        assert.equal(stageEnd.payload["retryAfterMs"], 1234);
+
+        const runBlocked = calls.find((c) => c.type === "workflow.run.blocked")!;
+        assert.equal(runBlocked.payload["runId"], wfResult.runId);
+        assert.equal(runBlocked.payload["failureKind"], "rate_limit");
+        assert.equal(runBlocked.payload["failureCode"], "rate_limited");
+        assert.equal(runBlocked.payload["failureRecoverability"], "recoverable");
+        assert.equal(runBlocked.payload["failureDisposition"], "active_blocked");
+        assert.equal(runBlocked.payload["resumable"], true);
+        assert.equal(runBlocked.payload["retryAfterMs"], 1234);
+        assert.equal(typeof runBlocked.payload["failedStageId"], "string");
+        assert.equal(calls.some((c) => c.type === "workflow.run.end"), false);
+    });
+
+    test("non-fail-fast parallel rate limits persist run.blocked without ending the run", async () => {
+        const { persistence, calls } = makePersistence();
+        const st = createStore();
+
+        const def = defineWorkflow("parallel-blocked-persist-wf")
+            .run(async (ctx) => {
+                await ctx.parallel(
+                    [
+                        { name: "limited", prompt: "limited" },
+                        { name: "ok", prompt: "ok" },
+                    ],
+                    { concurrency: 2, failFast: false },
+                );
+                return {};
+            })
+            .compile();
+
+        const wfResult = await run(
+            def,
+            {},
+            {
+                adapters: {
+                    prompt: {
+                        prompt: async (text) => {
+                            if (text === "limited") {
+                                throw {
+                                    status: 429,
+                                    code: "rate_limit_exceeded",
+                                    message: "rate limit",
+                                    retryAfterMs: 2500,
+                                };
+                            }
+                            return "ok";
+                        },
+                    },
+                },
+                store: st,
+                persistence,
+            },
+        );
+
+        const storedRun = st.runs()[0]!;
+        assert.equal(wfResult.status, "running");
+        assert.equal(storedRun.status, "running");
+        assert.equal(storedRun.endedAt, undefined);
+        assert.equal(storedRun.failureCode, "rate_limited");
+        assert.equal(storedRun.failureDisposition, "active_blocked");
+        assert.equal(calls.some((c) => c.type === "workflow.run.end"), false);
+        const runBlocked = calls.find((c) => c.type === "workflow.run.blocked")!;
+        assert.equal(runBlocked.payload["failureKind"], "rate_limit");
+        assert.equal(runBlocked.payload["failureCode"], "rate_limited");
+        assert.equal(runBlocked.payload["failureDisposition"], "active_blocked");
+        assert.equal(runBlocked.payload["retryAfterMs"], 2500);
     });
 
     test("fail-fast skipped queued parallel stages persist start before end", async () => {

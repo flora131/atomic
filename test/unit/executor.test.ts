@@ -1446,7 +1446,7 @@ describe("executor.run", () => {
                         prompt: async (text) => {
                             firstRunCalls.push(text);
                             if (text.startsWith("second:"))
-                                throw new Error("rate limit exceeded");
+                                throw new Error("continuation test failure");
                             return "first-result";
                         },
                     },
@@ -1536,7 +1536,7 @@ describe("executor.run", () => {
                         prompt: async (text) => {
                             firstRunCalls.push(text);
                             if (text.startsWith("after:"))
-                                throw new Error("rate limit exceeded");
+                                throw new Error("continuation test failure");
                             return "child-ok";
                         },
                     },
@@ -1624,7 +1624,7 @@ describe("executor.run", () => {
                     prompt: {
                         prompt: async (text) => {
                             if (text.startsWith("after:"))
-                                throw new Error("rate limit exceeded");
+                                throw new Error("continuation test failure");
                             return "child-ok";
                         },
                     },
@@ -1707,7 +1707,7 @@ describe("executor.run", () => {
                     prompt: {
                         prompt: async (text) => {
                             if (text.startsWith("after:"))
-                                throw new Error("rate limit exceeded");
+                                throw new Error("continuation test failure");
                             return "unexpected";
                         },
                     },
@@ -1834,7 +1834,7 @@ describe("executor.run", () => {
                         prompt: async (text) => {
                             firstRunCalls.push(text);
                             if (text.startsWith("after:"))
-                                throw new Error("rate limit exceeded");
+                                throw new Error("continuation test failure");
                             return `child-${firstRunCalls.length}`;
                         },
                     },
@@ -1934,7 +1934,7 @@ describe("executor.run", () => {
                     prompt: {
                         prompt: async (text) => {
                             if (text.startsWith("after:"))
-                                throw new Error("rate limit exceeded");
+                                throw new Error("continuation test failure");
                             return "child-first";
                         },
                     },
@@ -2574,7 +2574,7 @@ describe("executor.run", () => {
                     prompt: {
                         prompt: async (text) => {
                             if (text.startsWith("after"))
-                                throw new Error("rate limit exceeded");
+                                throw new Error("continuation test failure");
                             return "before-result";
                         },
                     },
@@ -2665,7 +2665,7 @@ describe("executor.run", () => {
                     prompt: {
                         prompt: async (text) => {
                             if (text.startsWith("after"))
-                                throw new Error("rate limit exceeded");
+                                throw new Error("continuation test failure");
                             return "before-result";
                         },
                     },
@@ -2802,7 +2802,7 @@ describe("executor.run", () => {
                 adapters: {
                     prompt: {
                         prompt: async () => {
-                            throw new Error("rate limit exceeded");
+                            throw new Error("continuation test failure");
                         },
                     },
                 },
@@ -2889,7 +2889,7 @@ describe("executor.run", () => {
                 adapters: {
                     prompt: {
                         prompt: async () => {
-                            throw new Error("rate limit exceeded");
+                            throw new Error("continuation test failure");
                         },
                     },
                 },
@@ -2981,7 +2981,7 @@ describe("executor.run", () => {
                 adapters: {
                     prompt: {
                         prompt: async () => {
-                            throw new Error("rate limit exceeded");
+                            throw new Error("continuation test failure");
                         },
                     },
                 },
@@ -3089,7 +3089,7 @@ describe("executor.run", () => {
                     prompt: {
                         prompt: async (text) => {
                             if (text.startsWith("second:"))
-                                throw new Error("rate limit exceeded");
+                                throw new Error("continuation test failure");
                             return "first-result";
                         },
                     },
@@ -3155,7 +3155,7 @@ describe("executor.run", () => {
                     prompt: {
                         prompt: async (text) => {
                             if (text.startsWith("after:"))
-                                throw new Error("rate limit exceeded");
+                                throw new Error("continuation test failure");
                             return text.toLowerCase();
                         },
                     },
@@ -3234,7 +3234,7 @@ describe("executor.run", () => {
                             if (text === "after")
                                 throw new Error("unexpected exact prompt");
                             if (text.includes(","))
-                                throw new Error("rate limit exceeded");
+                                throw new Error("continuation test failure");
                             return `${text}:done`;
                         },
                     },
@@ -3311,7 +3311,7 @@ describe("executor.run", () => {
                         prompt: async (text) => {
                             if (text === "alpha" || text === "beta")
                                 return `${text}:done`;
-                            throw new Error("rate limit exceeded");
+                            throw new Error("continuation test failure");
                         },
                     },
                 },
@@ -3378,7 +3378,7 @@ describe("executor.run", () => {
                     prompt: {
                         prompt: async (text) => {
                             if (text === "fail")
-                                throw new Error("rate limit exceeded");
+                                throw new Error("continuation test failure");
                             return `${text}:done`;
                         },
                     },
@@ -3440,7 +3440,7 @@ describe("executor.run", () => {
                     prompt: {
                         prompt: async (text) => {
                             if (text.startsWith("second:"))
-                                throw new Error("rate limit exceeded");
+                                throw new Error("continuation test failure");
                             return "first-result";
                         },
                     },
@@ -3516,7 +3516,7 @@ describe("executor.run", () => {
                             firstRunCalls.push(text);
                             if (text === "fail-once" && failOnce) {
                                 failOnce = false;
-                                throw new Error("rate limit exceeded");
+                                throw new Error("continuation test failure");
                             }
                             return `${text}:ok`;
                         },
@@ -3570,7 +3570,7 @@ describe("executor.run", () => {
         assert.equal(replayed.replayedFromStageId, completed.id);
     });
 
-    test("failed fallback attempts are recorded on the stage snapshot", async () => {
+    test("rate-limited fallback attempts are recorded on the active-blocked stage snapshot", async () => {
         const def = defineWorkflow("failed-fallback-metadata")
             .output("ok", Type.Boolean())
             .run(async (ctx) => {
@@ -3612,7 +3612,10 @@ describe("executor.run", () => {
             },
         );
 
-        assert.equal(result.status, "failed");
+        assert.equal(result.status, "running");
+        assert.equal(result.stages[0]?.status, "failed");
+        assert.equal(result.stages[0]?.failureDisposition, "active_blocked");
+        assert.equal(result.stages[0]?.failureRecoverability, "recoverable");
         assert.deepEqual(result.stages[0]?.attemptedModels, [
             "anthropic/primary",
             "openai/fallback",

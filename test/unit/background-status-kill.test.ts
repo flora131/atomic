@@ -6,7 +6,7 @@
 
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
-import { killRun, killAllRuns, resumeRun } from "../../packages/workflows/src/runs/background/status.js";
+import { killRun, killAllRuns, resumeRun, inspectRun } from "../../packages/workflows/src/runs/background/status.js";
 import { createStore } from "../../packages/workflows/src/shared/store.js";
 import { createCancellationRegistry } from "../../packages/workflows/src/runs/background/cancellation-registry.js";
 import type { WorkflowPersistencePort } from "../../packages/workflows/src/shared/types.js";
@@ -117,6 +117,78 @@ describe("killRun — with persistence", () => {
     assert.equal(result.ok, true);
     assert.equal(result.runId, run.id);
     assert.equal(result.previousStatus, "running");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// killRun — active-blocked metadata cleanup
+// ---------------------------------------------------------------------------
+
+describe("killRun — active-blocked metadata cleanup", () => {
+  test("terminalizes a blocked run as non-resumable killed and persists terminal metadata", () => {
+    const s = createStore();
+    const { port, calls } = makePersistence();
+    const run = makeRun({ id: "blocked-run" });
+    s.recordRunStart(run);
+    s.recordRunBlocked(run.id, "rate limit exceeded", {
+      failureKind: "rate_limit",
+      failureCode: "rate_limited",
+      failureRecoverability: "recoverable",
+      failureDisposition: "active_blocked",
+      failureMessage: "rate limit exceeded",
+      failedStageId: "limited-stage",
+      resumable: true,
+      retryAfterMs: 1000,
+      blockedAt: 1234,
+    });
+
+    const result = killRun(run.id, { store: s, persistence: port });
+
+    assert.deepEqual(result, { ok: true, runId: run.id, previousStatus: "running" });
+    const stored = s.runs().find((r) => r.id === run.id);
+    assert.equal(stored?.status, "killed");
+    assert.equal(typeof stored?.endedAt, "number");
+    assert.equal(stored?.blockedAt, undefined);
+    assert.equal(stored?.resumable, false);
+    assert.equal(stored?.failureKind, "cancelled");
+    assert.equal(stored?.failureCode, "cancelled");
+    assert.equal(stored?.failureRecoverability, "non_recoverable");
+    assert.equal(stored?.failureDisposition, "terminal_killed");
+    assert.equal(stored?.failureMessage, "workflow killed");
+    assert.equal(stored?.failedStageId, undefined);
+    assert.equal(stored?.retryAfterMs, undefined);
+
+    const inspected = inspectRun(run.id, { store: s });
+    assert.equal(inspected.ok, true);
+    if (!inspected.ok) throw new Error("narrowing");
+    assert.equal(inspected.detail.status, "killed");
+    assert.equal(inspected.detail.blockedAt, undefined);
+    assert.equal(inspected.detail.resumable, false);
+    assert.equal(inspected.detail.failureRecoverability, "non_recoverable");
+    assert.equal(inspected.detail.failureDisposition, "terminal_killed");
+
+    const resumed = resumeRun(run.id, { store: s });
+    assert.equal(resumed.ok, true);
+    if (!resumed.ok) throw new Error("narrowing");
+    assert.equal(resumed.mode, "not_resumable");
+    assert.equal(resumed.snapshot.blockedAt, undefined);
+    assert.equal(resumed.snapshot.resumable, false);
+    assert.equal(resumed.snapshot.failureDisposition, "terminal_killed");
+
+    assert.equal(calls.length, 1);
+    const payload = calls[0]?.payload;
+    assert.ok(payload);
+    assert.equal(payload.status, "killed");
+    assert.equal(payload.runId, run.id);
+    assert.equal(payload.error, "workflow killed");
+    assert.equal(payload.failureKind, "cancelled");
+    assert.equal(payload.failureCode, "cancelled");
+    assert.equal(payload.failureRecoverability, "non_recoverable");
+    assert.equal(payload.failureDisposition, "terminal_killed");
+    assert.equal(payload.failureMessage, "workflow killed");
+    assert.equal(payload.resumable, false);
+    assert.equal(payload.failedStageId, undefined);
+    assert.equal(payload.retryAfterMs, undefined);
   });
 });
 

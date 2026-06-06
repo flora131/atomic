@@ -44,6 +44,30 @@ describe("classifyWorkflowFailure", () => {
     assert.equal(failure.resumable, true);
   });
 
+  test("classifies string-only rate limit fallback text as recoverable active-blocked", () => {
+    const failure = classifyWorkflowFailure(new Error("rate limit exceeded"));
+    assert.equal(failure.kind, "rate_limit");
+    assert.equal(failure.code, "rate_limited");
+    assert.equal(failure.retryable, true);
+    assert.equal(failure.resumable, true);
+    assert.equal(failure.recoverability, "recoverable");
+    assert.equal(failure.disposition, "active_blocked");
+  });
+
+  test("classifies assistant errorMessage rate limit fallback as recoverable active-blocked", () => {
+    const failure = classifyWorkflowFailure({
+      role: "assistant",
+      stopReason: "error",
+      errorMessage: "rate limit exceeded",
+    });
+    assert.equal(failure.kind, "rate_limit");
+    assert.equal(failure.code, "rate_limited");
+    assert.equal(failure.retryable, true);
+    assert.equal(failure.resumable, true);
+    assert.equal(failure.recoverability, "recoverable");
+    assert.equal(failure.disposition, "active_blocked");
+  });
+
   test("classifies abort errors as non-resumable terminal cancellation", () => {
     const failure = classifyWorkflowFailure(new DOMException("workflow killed", "AbortError"));
     assert.equal(failure.kind, "cancelled");

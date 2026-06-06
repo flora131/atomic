@@ -655,7 +655,7 @@ function decisionFromMessageTokens(tokens: readonly string[], name: string | und
   if (name?.toLowerCase() === "aborterror" || hasAnyPhrase(tokens, CANCELLED_PHRASES)) return cancelledDecision();
   if (hasAnyPhrase(tokens, HTTP_RATE_LIMIT_PHRASES)) return rateLimitDecision("rate_limited", retryAfterMs);
   if (hasAnyPhrase(tokens, QUOTA_LIMIT_PHRASES)) return rateLimitDecision("quota_limited", retryAfterMs);
-  if (hasAnyPhrase(tokens, RATE_LIMIT_PHRASES)) return rateLimitDecision("rate_limited", retryAfterMs, "terminal_failed");
+  if (hasAnyPhrase(tokens, RATE_LIMIT_PHRASES)) return rateLimitDecision("rate_limited", retryAfterMs);
   if (hasAnyPhrase(tokens, INVALID_API_KEY_PHRASES)) return authDecision("invalid_api_key");
   if (hasAnyPhrase(tokens, MISSING_API_KEY_PHRASES)) return authDecision("missing_api_key");
   if (hasAnyPhrase(tokens, LOGIN_REQUIRED_PHRASES) || tokenNearAny(tokens, "oauth", AUTH_CONTEXT, 8)) return authDecision("login_required");

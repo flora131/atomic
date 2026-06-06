@@ -154,11 +154,26 @@ export function killRun(
   const previousStatus = run.status;
 
   // Abort active executor (no-op if not registered)
-  opts?.cancellation?.abort(runId, "workflow killed");
+  const errorMessage = "workflow killed";
+  opts?.cancellation?.abort(runId, errorMessage);
 
-  const recorded = activeStore.recordRunEnd(runId, "killed", undefined, "workflow killed");
+  const metadata = {
+    failureKind: "cancelled",
+    failureCode: "cancelled",
+    failureRecoverability: "non_recoverable",
+    failureDisposition: "terminal_killed",
+    failureMessage: errorMessage,
+    resumable: false,
+  } as const;
+  const recorded = activeStore.recordRunEnd(runId, "killed", undefined, errorMessage, metadata);
   if (recorded && opts?.persistence) {
-    appendRunEnd(opts.persistence, { runId, status: "killed", ts: Date.now() });
+    appendRunEnd(opts.persistence, {
+      runId,
+      status: "killed",
+      error: errorMessage,
+      ...metadata,
+      ts: Date.now(),
+    });
   }
 
   return { ok: true, runId, previousStatus };

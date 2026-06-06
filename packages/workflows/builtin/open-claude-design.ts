@@ -21,8 +21,8 @@
  *
  * The refinement loop has been re-shaped so that the artifact under review is
  * a real HTML page on disk (`preview.html`). The workflow attempts to open it
- * through `browser-use` so the user can interactively review and annotate;
- * when browser-use is unavailable, the file path is surfaced so the user
+ * through the `browser` skill so the user can interactively review;
+ * when browser automation is unavailable, the file path is surfaced so the user
  * can open it manually. The final exporter produces a rich `spec.html` that
  * embeds the agreed-upon design alongside the implementation handoff.
  */
@@ -276,15 +276,14 @@ const ANTI_SLOP_RULES = [
 ].join("\n");
 
 const BROWSER_USE_BOOTSTRAP_RULES = [
-  "Probe for browser-use availability with `browser-use --version` (or `bunx browser-use --version` when relying on an ephemeral Bun execution). Do not install browser-use itself.",
-  "If browser-use is available but opening a page fails because Chrome, Chrome for Testing, Chromium, or another browser executable is not installed, first run `browser-use doctor`, then run `browser-use setup` if the doctor output recommends setup, and retry the browser action once.",
-  "Only install or configure the missing browser runtime; do not install npm packages, change project dependencies, or repeatedly retry failed setup.",
-  "If browser-use is unavailable or browser setup still fails, degrade gracefully and surface the manual file path / URL.",
+  "Probe for the browser skill's `browse` CLI with `which browse`; if it is unavailable, install the CLI with `npm install -g browse` as documented by the skill, then retry once. Do not add project dependencies.",
+  "Use `browse open <url> --local --headed` when a generated local preview should be visible to the user, and use `browse snapshot` plus `browse screenshot --path <file>` for review evidence.",
+  "If `browse` is unavailable after three attempts or the browser runtime still fails, degrade gracefully and surface the manual file path / URL.",
 ].join("\n");
 
 export default defineWorkflow("open-claude-design")
   .description(
-    "AI-powered design workflow: design-system onboarding → reference import → HTML generation → impeccable-driven refinement → quality gate → rich HTML handoff. Each stage delegates to a specific impeccable sub-skill; the user can iteratively review and annotate the generated HTML through browser-use.",
+    "AI-powered design workflow: design-system onboarding → reference import → HTML generation → impeccable-driven refinement → quality gate → rich HTML handoff. Each stage delegates to a specific impeccable sub-skill; the user can iteratively review the generated HTML through the browser skill.",
   )
   .input("prompt", Type.String({
     description: "What to design (for example, a dashboard, page, component, or prototype).",
@@ -556,8 +555,8 @@ export default defineWorkflow("open-claude-design")
           [
             "instructions",
             [
-              "1. Use browser/screenshot tooling (e.g. browser-use) if available; cite observable evidence rather than guessing.",
-              "2. If browser-use is available but opening the reference URL reports a missing browser executable, follow the bootstrap rules and retry once.",
+              "1. Use browser/screenshot tooling (for example the browser skill's `browse` CLI) if available; cite observable evidence rather than guessing.",
+              "2. If `browse` is available but opening the reference URL reports a missing browser executable, follow the bootstrap rules and retry once.",
               "3. Analyze: layout, visual hierarchy, navigation, color, typography, spacing, states, interactions, responsive behavior.",
               "4. Separate reference-specific styling from requirements that should transfer to this project's design system.",
               "5. If the URL is inaccessible or browser bootstrap fails, state that and provide a best-effort fallback based only on available information — never fabricate observations.",
@@ -658,7 +657,7 @@ export default defineWorkflow("open-claude-design")
     let approvedForExport = false;
     let refinementCount = 0;
 
-    // Try to display the freshly generated preview to the user via browser-use.
+    // Try to display the freshly generated preview to the user via browser.
     await ctx
       .task("preview-display-initial", {
         prompt: taggedPrompt([
@@ -668,7 +667,7 @@ export default defineWorkflow("open-claude-design")
           ],
           [
             "objective",
-            "Your job is to make the just-generated HTML artifact visible to the user so they can give feedback. Open the HTML preview file in a browser using browser-use and prompt the user for annotated feedback. Gracefully degrade if browser-use is unavailable.",
+            "Your job is to make the just-generated HTML artifact visible to the user so they can give feedback. Open the HTML preview file using the browser skill's `browse` CLI when available, then prompt the user for feedback. Gracefully degrade if browser automation is unavailable.",
           ],
           ["preview_path", previewPath],
           ["preview_file_url", previewFileUrl],
@@ -676,11 +675,11 @@ export default defineWorkflow("open-claude-design")
           [
             "instructions",
             [
-              "1. Probe for browser-use availability using the bootstrap rules above.",
-              `2. If available, run: \`browser-use open ${previewFileUrl}\`. If that reports a missing browser executable, follow the bootstrap rules and retry once.`,
-              "3. Then run `browser-use show --annotate` so the user can draw boxes and leave notes directly on the live page.",
-              "4. Once the user finishes annotating, capture the returned annotated snapshot path / notes and surface them in your output.",
-              `5. If browser-use is NOT available or browser bootstrap fails, print a clear instruction block telling the user to open the file manually at: ${previewPath} (or via the URL ${previewFileUrl}).`,
+              "1. Probe for `browse` availability using the bootstrap rules above.",
+              `2. If available, run: \`browse open ${previewFileUrl} --local --headed\`. If that reports a missing browser executable, follow the bootstrap rules and retry once.`,
+              "3. Then run `browse snapshot` and use any available annotation/review flow from the active browser environment; if none exists, ask the user to review the visible page or manual file path and provide notes inline.",
+              "4. Capture any annotation artifact path, screenshot path, or user notes and surface them in your output.",
+              `5. If \`browse\` is NOT available or browser bootstrap fails, print a clear instruction block telling the user to open the file manually at: ${previewPath} (or via the URL ${previewFileUrl}).`,
               "6. Never block the workflow on unavailable tooling; always exit with a non-empty status string.",
             ].join("\n"),
           ],
@@ -800,10 +799,10 @@ export default defineWorkflow("open-claude-design")
               [
                 "instructions",
                 [
-                  `1. Attempt rendering verification via browser-use: \`browser-use open ${previewFileUrl}\`. If that reports a missing browser executable, follow the bootstrap rules and retry once.`,
-                  `2. Then run \`browser-use resize 360 800\`, \`browser-use screenshot ${join(artifactDir, `mobile-${iteration}.png`)}\`, \`browser-use resize 1440 900\`, \`browser-use screenshot ${join(artifactDir, `desktop-${iteration}.png`)}\`.`,
+                  `1. Attempt rendering verification via the browser skill: \`browse open ${previewFileUrl} --local\`. If that reports a missing browser executable, follow the bootstrap rules and retry once.`,
+                  `2. Then run \`browse viewport 360 800\`, \`browse screenshot --path ${join(artifactDir, `mobile-${iteration}.png`)}\`, \`browse viewport 1440 900\`, \`browse screenshot --path ${join(artifactDir, `desktop-${iteration}.png`)}\`.`,
                   "3. Check: contrast (WCAG AA), overflow, spacing rhythm, alignment, breakpoint behavior, empty/loading/error states, keyboard/pointer affordances, focus rings, prefers-reduced-motion.",
-                  "4. If browser-use is unavailable or browser bootstrap fails, perform a static design review of the HTML source and mark every finding as `needs-rendering-verification`.",
+                  "4. If `browse` is unavailable or browser bootstrap fails, perform a static design review of the HTML source and mark every finding as `needs-rendering-verification`.",
                   "5. Distinguish confirmed visual issues from risks that need rendering verification. Never fabricate rendered evidence.",
                 ].join("\n"),
               ],
@@ -887,9 +886,9 @@ export default defineWorkflow("open-claude-design")
             [
               "instructions",
               [
-                `1. If browser-use is available, run \`browser-use open ${previewFileUrl}\`. If that reports a missing browser executable, follow the bootstrap rules and retry once.`,
-                "2. Then run `browser-use show --annotate` to invite annotated feedback.",
-                `3. If browser-use is unavailable or browser bootstrap fails, surface the path clearly: ${previewPath} (URL: ${previewFileUrl}).`,
+                `1. If \`browse\` is available, run \`browse open ${previewFileUrl} --local --headed\`. If that reports a missing browser executable, follow the bootstrap rules and retry once.`,
+                "2. Then run `browse snapshot` and use any available annotation/review flow from the active browser environment; otherwise ask the user to provide feedback inline.",
+                `3. If \`browse\` is unavailable or browser bootstrap fails, surface the path clearly: ${previewPath} (URL: ${previewFileUrl}).`,
                 "4. Return any captured annotations as structured notes the next user-feedback step can read.",
                 "5. Do not block on unavailable tooling.",
               ].join("\n"),
@@ -1015,7 +1014,7 @@ export default defineWorkflow("open-claude-design")
             "Return markdown with headings (NOT the HTML):",
             "1. Spec written to (absolute path)",
             "2. Sections included",
-            "3. How to open the spec (browser-use command + manual fallback path)",
+            "3. How to open the spec (browse command + manual fallback path)",
             "4. Recommended files and components",
             "5. Implementation steps",
             "6. Usage example",
@@ -1039,7 +1038,7 @@ export default defineWorkflow("open-claude-design")
           ],
           [
             "objective",
-            "Make the rich HTML spec visible to the user. Open the final spec.html in a browser via browser-use so the user can review the agreed design and implementation handoff. Degrade gracefully if browser-use is unavailable.",
+            "Make the rich HTML spec visible to the user. Open the final spec.html with the browser skill's `browse` CLI so the user can review the agreed design and implementation handoff. Degrade gracefully if browser automation is unavailable.",
           ],
           ["spec_path", specPath],
           ["spec_file_url", specFileUrl],
@@ -1049,9 +1048,9 @@ export default defineWorkflow("open-claude-design")
           [
             "instructions",
             [
-              "1. Probe for browser-use availability using the bootstrap rules above.",
-              `2. If available, run \`browser-use open ${specFileUrl}\`. If that reports a missing browser executable, follow the bootstrap rules and retry once.`,
-              "3. Then run `browser-use show --annotate` so the user can capture any final notes.",
+              "1. Probe for `browse` availability using the bootstrap rules above.",
+              `2. If available, run \`browse open ${specFileUrl} --local --headed\`. If that reports a missing browser executable, follow the bootstrap rules and retry once.`,
+              "3. Then run `browse snapshot` and use any available annotation/review flow from the active browser environment so the user can capture any final notes.",
               `4. Always print, prominently, the absolute paths so the user can open them manually:\n   - Final spec: ${specPath}\n   - Approved preview: ${previewPath}`,
               "5. Do not block the workflow; return a structured summary even if no tooling worked.",
             ].join("\n"),

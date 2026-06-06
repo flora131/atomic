@@ -38,7 +38,7 @@ External researcher (`codebase-online-researcher`):
 
 - Study linked projects, docs, issues, examples, source code, or prompt guidance.
 - Identify the behavior, API, implementation files, constraints, and transferable ideas.
-- Use `fetch_content` first, then `/llms.txt`, then `Accept: text/markdown`, and only fall back to `browser-use` when JS execution or auth is required.
+- Use `fetch_content` first, then `/llms.txt`, then `Accept: text/markdown`, and only fall back to `browser` when JS execution or auth is required.
 - Persist any high-value fetch to `research/web/<YYYY-MM-DD>-<topic>.md`.
 - Return source links, repo paths, key evidence, risks, and what matters for this implementation.
 

@@ -24,7 +24,7 @@ The Atomic CLI already ships two built-in workflows:
 - **`deep-research-codebase`** — scout → per-partition specialist fan-out → aggregator ([research ref](../research/docs/2026-04-17-open-claude-design.md#part-2))
 - **`ralph`** — bounded iterative plan → orchestrate → review → debug loop ([research ref](../research/docs/2026-04-17-open-claude-design.md#part-2))
 
-The design skill ecosystem (`.agents/skills/`) includes 17+ design-related skills (`impeccable`, `critique`, `shape`, `polish`, `audit`, `layout`, `colorize`, `typeset`, `animate`, `delight`, `adapt`, `clarify`, `harden`, `distill`, `bolder`, `quieter`, `normalize`), plus browser automation (`browser-use`), document parsing (`liteparse`), and export capabilities (`pdf`, `pptx`, `docx`). These skills are currently invoked individually via slash commands — there is no workflow that orchestrates them into a cohesive design pipeline.
+The design skill ecosystem (`.agents/skills/`) includes 17+ design-related skills (`impeccable`, `critique`, `shape`, `polish`, `audit`, `layout`, `colorize`, `typeset`, `animate`, `delight`, `adapt`, `clarify`, `harden`, `distill`, `bolder`, `quieter`, `normalize`), plus browser automation (`browser`), document parsing (`liteparse`), and export capabilities (`pdf`, `pptx`, `docx`). These skills are currently invoked individually via slash commands — there is no workflow that orchestrates them into a cohesive design pipeline.
 
 **Architecture:** The workflow SDK (`defineWorkflow().for<"claude">().run().compile()`) with `ctx.stage()` sub-agent orchestration, `Promise.all()` parallelism, and `extractAssistantText()` for headless stage results provides the full runtime needed.
 
@@ -684,7 +684,7 @@ for (let iteration = 1; iteration <= MAX_REFINEMENTS; iteration++) {
 
 - `buildRefineFeedbackPrompt`: Instructs the agent to present the current design state, then use `AskUserQuestion` with options like: "How would you like to proceed?" → ["Approve and export", "Request specific changes", "Run full critique", "Start over"]
 - `buildCritiquePrompt`: Instructs the agent to invoke the `/critique` skill workflow — Assessment A (LLM design review + AI slop detection) and Assessment B (`npx impeccable --json` scanner), producing structured findings with P0-P3 severity
-- `buildScreenshotValidationPrompt`: Uses `browser-use` to render the generated HTML, starts `npx impeccable live` to inject the anti-pattern overlay, then takes a screenshot with overlay annotations visible. The screenshot is fed to the multimodal model (Opus/Sonnet) for visual analysis — combining deterministic scanner findings with model-based visual judgment
+- `buildScreenshotValidationPrompt`: Uses `browser` to render the generated HTML, starts `npx impeccable live` to inject the anti-pattern overlay, then takes a screenshot with overlay annotations visible. The screenshot is fed to the multimodal model (Opus/Sonnet) for visual analysis — combining deterministic scanner findings with model-based visual judgment
 - `buildApplyChangesPrompt`: Merges user feedback + critique findings into a prioritized change list, invokes `/impeccable` to apply fixes while respecting anti-pattern bans
 
 ### 5.7 Phase 5: Export and Handoff
@@ -756,12 +756,12 @@ await writeHandoffBundle(finalDesignDir, {
 | `buildDesignAnalyzerPrompt()`       | 1     | Extract colors, fonts, spacing from located files | deep-research `buildAnalyzerPrompt()`      |
 | `buildDesignPatternPrompt()`        | 1     | Find existing component patterns                  | deep-research `buildPatternFinderPrompt()` |
 | `buildDesignSystemBuilderPrompt()`  | 1     | Present findings + HIL approval → Design.md       | Custom (uses AskUserQuestion)              |
-| `buildWebCapturePrompt()`           | 2     | Navigate URL, screenshot, extract DOM/CSS         | Uses browser-use skill                     |
+| `buildWebCapturePrompt()`           | 2     | Navigate URL, screenshot, extract DOM/CSS         | Uses browser skill                         |
 | `buildFileParserPrompt()`           | 2     | Parse DOCX/PPTX/XLSX/image references             | Uses liteparse skill                       |
 | `buildGeneratorPrompt()`            | 3     | Generate first version with design system context | Custom (invokes impeccable + shape)        |
 | `buildRefineFeedbackPrompt()`       | 4     | Present design + collect user feedback via HIL    | Custom (uses AskUserQuestion)              |
 | `buildCritiquePrompt()`             | 4     | Automated design critique with structured output  | Ralph `buildReviewPrompt()`                |
-| `buildScreenshotValidationPrompt()` | 4     | Visual validation via playwright screenshot       | Custom (uses browser-use)                  |
+| `buildScreenshotValidationPrompt()` | 4     | Visual validation via playwright screenshot       | Custom (uses browser)                      |
 | `buildApplyChangesPrompt()`         | 4     | Apply feedback + critique findings to design      | Ralph `buildDebuggerReportPrompt()`        |
 | `buildExportPrompt()`               | 5     | Export + handoff bundle preparation               | Custom                                     |
 

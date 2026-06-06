@@ -724,7 +724,7 @@ Workflow-specific state (task lists, progress tracking) is managed via local var
 **Current skill inventory** (~12 skills mirrored across providers):
 
 - `create-spec`, `research-codebase`, `testing-anti-patterns`, `init`, `explain-code`
-- `impeccable`, `prompt-engineer`, `browser-use`
+- `impeccable`, `prompt-engineer`, `browser`
 - `gh-commit`, `gh-create-pr`, `sl-commit`, `sl-submit-diff`
 
 #### 5.5.2 Ralph as an Async Function
@@ -1219,7 +1219,7 @@ interface DiscoveredSubAgent {
 }
 
 interface DiscoveredSkill {
-    name: string; // e.g., "create-spec", "browser-use"
+    name: string; // e.g., "create-spec", "browser"
     provider: AgentType;
     skillPath: string; // e.g., ".claude/skills/create-spec/SKILL.md"
 }

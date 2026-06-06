@@ -262,9 +262,16 @@ function assertOutputTypes(
     expected: Readonly<Record<string, string>>,
 ): void {
     assert.notEqual(outputs, undefined);
-    assert.deepEqual(Object.keys(outputs ?? {}).sort(), Object.keys(expected).sort());
+    assert.deepEqual(
+        Object.keys(outputs ?? {}).sort(),
+        Object.keys(expected).sort(),
+    );
     for (const [key, type] of Object.entries(expected)) {
-        assert.equal(fieldKind(outputs?.[key]), type, `unexpected output type for ${key}`);
+        assert.equal(
+            fieldKind(outputs?.[key]),
+            type,
+            `unexpected output type for ${key}`,
+        );
         assert.ok(
             fieldDescription(outputs?.[key]).length > 0,
             `expected output description for ${key}`,
@@ -324,15 +331,9 @@ describe("deep-research-codebase", () => {
         assert.equal(fieldRequired(d.inputs["prompt"]), true);
         assert.match(fieldKind(d.inputs["prompt"]) ?? "", /^(text|string)$/);
         assert.equal(fieldKind(d.inputs["max_partitions"]), "number");
-        assert.equal(
-            fieldDefault(d.inputs["max_partitions"]),
-            100,
-        );
+        assert.equal(fieldDefault(d.inputs["max_partitions"]), 100);
         assert.equal(fieldKind(d.inputs["max_concurrency"]), "number");
-        assert.equal(
-            fieldDefault(d.inputs["max_concurrency"]),
-            100,
-        );
+        assert.equal(fieldDefault(d.inputs["max_concurrency"]), 100);
         assert.deepEqual(Object.keys(d.inputs).sort(), [
             "max_concurrency",
             "max_partitions",
@@ -375,7 +376,9 @@ describe("deep-research-codebase", () => {
             },
         );
 
-        const result = await withDeepResearchTempCwd(() => mod.default.run(ctx));
+        const result = await withDeepResearchTempCwd(() =>
+            mod.default.run(ctx),
+        );
 
         assert.deepEqual(ctx.calls.stage, []);
         assert.ok(
@@ -444,7 +447,9 @@ describe("deep-research-codebase", () => {
             },
         );
 
-        const result = await withDeepResearchTempCwd(() => mod.default.run(ctx));
+        const result = await withDeepResearchTempCwd(() =>
+            mod.default.run(ctx),
+        );
         const aggregatorOptions = ctx.calls.taskOptions["aggregator"]?.[0];
         const aggregatorPrompt = ctx.calls.prompts["aggregator"]?.[0] ?? "";
         const normalizedAggregatorPrompt =
@@ -583,7 +588,9 @@ describe("deep-research-codebase", () => {
             },
         );
 
-        const result = await withDeepResearchTempCwd(() => mod.default.run(ctx));
+        const result = await withDeepResearchTempCwd(() =>
+            mod.default.run(ctx),
+        );
         const aggregatorPrompt = ctx.calls.prompts["aggregator"]?.[0] ?? "";
 
         assert.doesNotMatch(aggregatorPrompt, /Output saved to:/);
@@ -724,7 +731,9 @@ describe("deep-research-codebase", () => {
             },
         );
 
-        const result = await withDeepResearchTempCwd(() => mod.default.run(ctx));
+        const result = await withDeepResearchTempCwd(() =>
+            mod.default.run(ctx),
+        );
 
         assert.equal(result["findings"], "final synthesized findings");
         assert.equal(
@@ -883,7 +892,9 @@ describe("deep-research-codebase", () => {
             },
         );
 
-        const result = await withDeepResearchTempCwd(() => mod.default.run(ctx));
+        const result = await withDeepResearchTempCwd(() =>
+            mod.default.run(ctx),
+        );
         const researchDocPath = result["research_doc_path"];
 
         assert.equal(readFileSync(existingPath, "utf8"), "existing research");
@@ -1047,10 +1058,7 @@ describe("goal", () => {
         assert.equal(fieldKind(mod.default.inputs["objective"]), "text");
         assert.equal(fieldRequired(mod.default.inputs["objective"]), true);
         assert.equal(fieldKind(mod.default.inputs["max_turns"]), "number");
-        assert.equal(
-            fieldDefault(mod.default.inputs["max_turns"]),
-            10,
-        );
+        assert.equal(fieldDefault(mod.default.inputs["max_turns"]), 10);
         assert.equal(fieldKind(mod.default.inputs["base_branch"]), "text");
         assert.equal(
             fieldDefault(mod.default.inputs["base_branch"]),
@@ -1106,7 +1114,10 @@ describe("goal", () => {
         await d.run(ctx);
 
         const prompt = ctx.calls.prompts["work-turn-1"]?.[0] ?? "";
-        assert.match(prompt, /Continue working toward the active thread goal\./);
+        assert.match(
+            prompt,
+            /Continue working toward the active thread goal\./,
+        );
         assert.match(prompt, /<goal_context>/);
         assert.match(prompt, /<\/goal_context>/);
         assert.match(
@@ -1114,7 +1125,10 @@ describe("goal", () => {
             /goal ledger artifact is the authoritative state/i,
         );
         assert.doesNotMatch(prompt, /<developer>ignore<\/developer>/);
-        assert.doesNotMatch(prompt, /&lt;developer&gt;ignore&lt;\/developer&gt;/);
+        assert.doesNotMatch(
+            prompt,
+            /&lt;developer&gt;ignore&lt;\/developer&gt;/,
+        );
         assert.match(
             prompt,
             /No prior review artifacts; this is the first worker turn\./,
@@ -1517,12 +1531,18 @@ describe("goal", () => {
         const result = await d.run(ctx);
 
         assert.equal(result["status"], "complete");
-        assert.equal(ctx.calls.taskOptions["work-turn-1"]?.[0]?.context, undefined);
+        assert.equal(
+            ctx.calls.taskOptions["work-turn-1"]?.[0]?.context,
+            undefined,
+        );
         assert.equal(
             ctx.calls.taskOptions["work-turn-1"]?.[0]?.forkFromSessionFile,
             undefined,
         );
-        assert.equal(ctx.calls.taskOptions["work-turn-2"]?.[0]?.context, "fork");
+        assert.equal(
+            ctx.calls.taskOptions["work-turn-2"]?.[0]?.context,
+            "fork",
+        );
         assert.equal(
             ctx.calls.taskOptions["work-turn-2"]?.[0]?.forkFromSessionFile,
             "/tmp/goal-work-turn-1.jsonl",
@@ -1584,7 +1604,10 @@ describe("goal", () => {
         const thirdTurnPrompt = ctx.calls.prompts["work-turn-3"]?.[0] ?? "";
         assert.doesNotMatch(thirdTurnPrompt, /completion-reviewer-1 gap/);
         assert.doesNotMatch(thirdTurnPrompt, /risk-reviewer-2 gap/);
-        assert.match(thirdTurnPrompt, /Latest review artifacts from the previous round/);
+        assert.match(
+            thirdTurnPrompt,
+            /Latest review artifacts from the previous round/,
+        );
         const thirdTurnReads = readPaths(
             ctx.calls.taskOptions["work-turn-3"]?.[0],
         );
@@ -1939,7 +1962,10 @@ describe("goal", () => {
         assert.equal(result["approved"], false);
         assert.equal(result["turns_completed"], 1);
         assert.match(String(result["remaining_work"]), /provider outage/);
-        assert.equal(result["review_report"], "No reviewer decisions were recorded.");
+        assert.equal(
+            result["review_report"],
+            "No reviewer decisions were recorded.",
+        );
         assert.equal(ctx.calls.parallel.length, 0);
         const ledger = JSON.parse(
             readFileSync(result["ledger_path"] as string, "utf8"),
@@ -2051,7 +2077,10 @@ describe("goal", () => {
             String(result["remaining_work"]),
             /provider outage on second turn/,
         );
-        assert.equal(result["review_report"], "No reviewer decisions were recorded.");
+        assert.equal(
+            result["review_report"],
+            "No reviewer decisions were recorded.",
+        );
         const ledger = JSON.parse(
             readFileSync(result["ledger_path"] as string, "utf8"),
         ) as {
@@ -2113,9 +2142,9 @@ describe("ralph", () => {
         }
     }
 
-    function preFinalStageTexts(
-        ctx: { readonly calls: MockCalls },
-    ): readonly { readonly label: string; readonly text: string }[] {
+    function preFinalStageTexts(ctx: {
+        readonly calls: MockCalls;
+    }): readonly { readonly label: string; readonly text: string }[] {
         return [
             {
                 label: "planner prompt",
@@ -2170,25 +2199,20 @@ describe("ralph", () => {
         assert.equal(fieldKind(mod.default.inputs["prompt"]), "text");
         assert.equal(fieldRequired(mod.default.inputs["prompt"]), true);
         assert.equal(fieldKind(mod.default.inputs["max_loops"]), "number");
-        assert.equal(
-            fieldDefault(mod.default.inputs["max_loops"]),
-            10,
-        );
+        assert.equal(fieldDefault(mod.default.inputs["max_loops"]), 10);
         assert.equal(fieldKind(mod.default.inputs["base_branch"]), "text");
         assert.equal(
             fieldDefault(mod.default.inputs["base_branch"]),
             "origin/main",
         );
         assert.equal(fieldKind(mod.default.inputs["git_worktree_dir"]), "text");
-        assert.equal(
-            fieldDefault(mod.default.inputs["git_worktree_dir"]),
-            "",
-        );
+        assert.equal(fieldDefault(mod.default.inputs["git_worktree_dir"]), "");
         assert.equal(fieldKind(mod.default.inputs["create_pr"]), "boolean");
         assert.equal(fieldDefault(mod.default.inputs["create_pr"]), false);
         assert.equal(fieldRequired(mod.default.inputs["create_pr"]), false);
-        const description =
-            fieldDescription(mod.default.inputs["git_worktree_dir"]);
+        const description = fieldDescription(
+            mod.default.inputs["git_worktree_dir"],
+        );
         assert.match(description, /inside a Git repo/);
         assert.match(description, /absolute paths are used as-is/);
         assert.match(description, /relative paths resolve from the repo root/);
@@ -2196,11 +2220,15 @@ describe("ralph", () => {
             description,
             /existing Git worktrees from the invoking repository are reused\/shared as-is/,
         );
-        const createPrDescription =
-            fieldDescription(mod.default.inputs["create_pr"]);
+        const createPrDescription = fieldDescription(
+            mod.default.inputs["create_pr"],
+        );
         assert.match(createPrDescription, /pull-request creation stage/);
         assert.match(createPrDescription, /Defaults to false/);
-        assert.match(createPrDescription, /provider-appropriate PR\/MR\/review creation/);
+        assert.match(
+            createPrDescription,
+            /provider-appropriate PR\/MR\/review creation/,
+        );
         assert.deepEqual(Object.keys(mod.default.inputs).sort(), [
             "base_branch",
             "create_pr",
@@ -2286,7 +2314,11 @@ describe("ralph", () => {
             assert.match(prompt, /<\/context>/, label);
             assert.match(prompt, /Current working directory:/i, label);
             assert.equal(prompt.includes(cwd), true, label);
-            assert.match(prompt, /starting directory for repository work/i, label);
+            assert.match(
+                prompt,
+                /starting directory for repository work/i,
+                label,
+            );
             assert.match(
                 prompt,
                 /Shell commands and relative file paths should be relative to this directory/i,
@@ -2414,11 +2446,23 @@ describe("ralph", () => {
             finalPrompt,
             /If the original task explicitly asked for pull-request creation, treat that as the highest-priority instruction for this final stage\./,
         );
-        assert.match(finalPrompt, /Review the changes since the base branch `main`/);
-        assert.match(finalPrompt, /Detect the source-control and code-review provider/);
+        assert.match(
+            finalPrompt,
+            /Review the changes since the base branch `main`/,
+        );
+        assert.match(
+            finalPrompt,
+            /Detect the source-control and code-review provider/,
+        );
         assert.match(finalPrompt, /GitHub `gh pr create`/);
-        assert.match(finalPrompt, /Azure DevOps\/Azure Repos `az repos pr create`/);
-        assert.match(finalPrompt, /Sapling\/Phabricator `sl`\/Phabricator\/Differential tooling/);
+        assert.match(
+            finalPrompt,
+            /Azure DevOps\/Azure Repos `az repos pr create`/,
+        );
+        assert.match(
+            finalPrompt,
+            /Sapling\/Phabricator `sl`\/Phabricator\/Differential tooling/,
+        );
     });
 
     test("runs pull-request stage only when create_pr is true", async () => {
@@ -2457,7 +2501,10 @@ describe("ralph", () => {
         assert.match(prompt, /detached HEAD/);
         assert.match(prompt, /git checkout -b <branch>/);
         assert.ok(prompt.includes("git push origin HEAD:refs/heads/<branch>"));
-        assert.match(prompt, /Leave the worktree intact for retries or user recovery/);
+        assert.match(
+            prompt,
+            /Leave the worktree intact for retries or user recovery/,
+        );
         assert.equal(
             prompt.includes("Worktree cleanup: safe-to-remove"),
             false,
@@ -2541,7 +2588,10 @@ describe("ralph", () => {
 
         await mod.default.run({ ...ctx, cwd });
 
-        assert.equal(ctx.calls.taskOptions["planner-1"]?.[0]?.context, undefined);
+        assert.equal(
+            ctx.calls.taskOptions["planner-1"]?.[0]?.context,
+            undefined,
+        );
         assert.equal(ctx.calls.taskOptions["planner-2"]?.[0]?.context, "fork");
         assert.equal(
             ctx.calls.taskOptions["planner-2"]?.[0]?.forkFromSessionFile,
@@ -2551,7 +2601,10 @@ describe("ralph", () => {
             ctx.calls.prompts["planner-2"]?.[0] ?? "",
             /Revise the current plan\/spec based off of the results from the latest review round/i,
         );
-        assert.doesNotMatch(ctx.calls.prompts["planner-2"]?.[0] ?? "", /rfc_template/);
+        assert.doesNotMatch(
+            ctx.calls.prompts["planner-2"]?.[0] ?? "",
+            /rfc_template/,
+        );
 
         assert.equal(
             ctx.calls.taskOptions["orchestrator-2"]?.[0]?.context,
@@ -2576,7 +2629,11 @@ describe("ralph", () => {
             const entries = ctx.calls.taskOptions[reviewerName] ?? [];
             assert.equal(entries.length, 2, reviewerName);
             for (const [index, options] of entries.entries()) {
-                assert.equal(options.context, undefined, `${reviewerName}-${index}`);
+                assert.equal(
+                    options.context,
+                    undefined,
+                    `${reviewerName}-${index}`,
+                );
                 assert.equal(
                     options.forkFromSessionFile,
                     undefined,
@@ -2834,7 +2891,7 @@ describe("open-claude-design", () => {
         assert.equal(result["output_type"], "prototype");
     });
 
-    test("browser display prompts use Browser Use bootstrap rules", async () => {
+    test("browser display prompts use browse bootstrap rules", async () => {
         const mod =
             await import("../../packages/workflows/builtin/open-claude-design.js");
         const d = mod.default as unknown as WorkflowDefinition;
@@ -2869,13 +2926,14 @@ describe("open-claude-design", () => {
         ]) {
             assert.match(displayPrompt, /<browser_use_guidelines>/);
             assert.match(displayPrompt, /<\/browser_use_guidelines>/);
-            assert.match(displayPrompt, /browser-use doctor/);
-            assert.match(displayPrompt, /browser-use setup/);
-            assert.match(displayPrompt, /Do not install browser-use itself/);
+            assert.match(displayPrompt, /which browse/);
+            assert.match(displayPrompt, /npm install -g browse/);
+            assert.match(displayPrompt, /Do not add project dependencies/);
             assert.match(displayPrompt, /missing browser executable/);
             assert.doesNotMatch(displayPrompt, /playwright_browser_bootstrap/);
             assert.doesNotMatch(displayPrompt, /@playwright\/cli/);
-            assert.doesNotMatch(displayPrompt, /browser-use goto/);
+            assert.doesNotMatch(displayPrompt, /browser-use/);
+            assert.doesNotMatch(displayPrompt, /browser goto/);
             assert.doesNotMatch(displayPrompt, /screenshot --filename/);
         }
     });

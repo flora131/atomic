@@ -28,7 +28,7 @@ The project distributes Atomic CLI through three channels:
 | npm package     | `@bastani/atomic-workflows` on npm                                      | SDK consumers                                   |
 | Dev container   | Monolithic `.devcontainer/Dockerfile` in-repo                           | Contributors to this repo only                  |
 
-The existing `.devcontainer/Dockerfile` (45 lines) installs **all three** agent CLIs (Claude, OpenCode, Copilot) along with shared tooling (bun, uv, cocoindex-code, browser-use, tmux, SSH agent forwarding) into a single image based on `mcr.microsoft.com/devcontainers/base:ubuntu`. This is:
+The existing `.devcontainer/Dockerfile` (45 lines) installs **all three** agent CLIs (Claude, OpenCode, Copilot) along with shared tooling (bun, uv, cocoindex-code, browser, tmux, SSH agent forwarding) into a single image based on `mcr.microsoft.com/devcontainers/base:ubuntu`. This is:
 
 - **Not composable** — Users cannot add Atomic to their existing Rust, Python, or Go devcontainers without duplicating the Dockerfile logic
 - **Not publishable** — The Dockerfile is tightly coupled to this repo's development workflow
@@ -446,7 +446,7 @@ check "atomic CLI is installed" bash -c "which atomic"
 check "bun is installed" bash -c "which bun"
 check "claude CLI is installed" bash -c "which claude"
 check "cocoindex-code is installed" bash -c "which ccc"
-check "browser-use is installed" bash -c "which browser-use"
+check "browser is installed" bash -c "which browser"
 check "claude agents dir exists" bash -c "test -d ~/.claude/agents"
 check "claude skills dir exists" bash -c "test -d ~/.claude/skills"
 

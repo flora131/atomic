@@ -49,6 +49,11 @@ import { createStructuredOutputRuntime, readStructuredOutput } from "../shared/s
 import { collectDynamicResults, DynamicFanoutError, materializeDynamicParallelStep, validateDynamicCollection } from "../shared/dynamic-fanout.ts";
 import { nestedSummaryFromAsyncStatus, writeNestedEvent } from "../shared/nested-events.ts";
 import { formatModelAttemptNote, isRetryableModelFailure, modelFailureMessage } from "../shared/model-fallback.ts";
+import {
+	assistantStopReason,
+	isAssistantFailureStopReason,
+	shouldStartSubagentFinalDrain,
+} from "../shared/final-drain.ts";
 import { attachPostExitStdioGuard, trySignalChild } from "../../shared/post-exit-stdio-guard.ts";
 import { detectSubagentError, extractTextFromContent, extractToolArgsPreview, getFinalOutput } from "../../shared/utils.ts";
 import { evaluateCompletionMutationGuard } from "../shared/completion-guard.ts";
@@ -213,15 +218,6 @@ type ChildMessage = Message & {
 	usage?: ChildUsage;
 };
 
-function assistantStopReason(message: Message): string | undefined {
-	const stopReason = (message as { readonly stopReason?: unknown }).stopReason;
-	return typeof stopReason === "string" ? stopReason : undefined;
-}
-
-function isTerminalAssistantFailureStopReason(stopReason: string | undefined): boolean {
-	return stopReason === "error" || stopReason === "aborted";
-}
-
 interface ChildEvent {
 	type?: string;
 	message?: ChildMessage;
@@ -355,20 +351,16 @@ function runPiStreaming(
 					assistantError = event.message.errorMessage;
 					assistantFailureSignal = event.message;
 				}
-				if (isTerminalAssistantFailureStopReason(stopReason)) {
+				if (isAssistantFailureStopReason(stopReason)) {
 					assistantError = modelFailureMessage(event.message);
 					assistantFailureSignal = event.message;
 				}
-				const hasToolCall = Array.isArray(event.message.content)
-					&& event.message.content.some((part) => (part as { type?: string }).type === "toolCall");
-				if (stopReason === "stop" && !hasToolCall) {
-					if (!event.message.errorMessage && extractTextFromContent(event.message.content).trim()) {
+				if (shouldStartSubagentFinalDrain(event.message)) {
+					if (extractTextFromContent(event.message.content).trim()) {
 						assistantError = undefined;
 						assistantFailureSignal = undefined;
 					}
-					cleanTerminalAssistantStopReceived ||= !event.message.errorMessage;
-					startFinalDrain();
-				} else if (isTerminalAssistantFailureStopReason(stopReason) && !hasToolCall) {
+					cleanTerminalAssistantStopReceived = true;
 					startFinalDrain();
 				}
 			}

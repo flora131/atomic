@@ -99,6 +99,64 @@ describe("subagent model fallback helpers", () => {
     assert.equal(isRetryableModelFailure("completion guard failed after 599"), false);
   });
 
+  test("retry classifier lets nested refusals outrank wrapper structured provider signals", () => {
+    const refusalCases: ReadonlyArray<{
+      label: string;
+      failure: unknown;
+      expectedKind: "cancelled" | "task_failure";
+      expectedSource?: "diagnostic";
+    }> = [
+      {
+        label: "5xx wrapper with abort cause",
+        failure: { status: 503, cause: { name: "AbortError", message: "aborted by user" } },
+        expectedKind: "cancelled",
+      },
+      {
+        label: "429 wrapper with abort cause",
+        failure: { code: "429", cause: { name: "AbortError", message: "rate-limit wrapper hid abort" } },
+        expectedKind: "cancelled",
+      },
+      {
+        label: "auth wrapper with diagnostic task failure",
+        failure: {
+          statusCode: 401,
+          diagnostics: [{ error: { message: "completion guard failed after provider wrapper" } }],
+        },
+        expectedKind: "task_failure",
+        expectedSource: "diagnostic",
+      },
+      {
+        label: "timeout wrapper with diagnostic task failure",
+        failure: {
+          status: 408,
+          diagnostics: [{ error: { message: "shell command failed after timeout wrapper" } }],
+        },
+        expectedKind: "task_failure",
+        expectedSource: "diagnostic",
+      },
+      {
+        label: "model unavailable wrapper with task failure cause",
+        failure: { status: 404, cause: { message: "command failed: bun test" } },
+        expectedKind: "task_failure",
+      },
+      {
+        label: "nested abort below diagnostic 5xx",
+        failure: {
+          code: 529,
+          diagnostics: [{ error: { status: 503, cause: { name: "AbortError", message: "nested abort" } } }],
+        },
+        expectedKind: "cancelled",
+      },
+    ];
+
+    for (const { label, failure, expectedKind, expectedSource } of refusalCases) {
+      const signal = normalizeModelFailureSignal(failure);
+      assert.equal(signal.kind, expectedKind, label);
+      if (expectedSource !== undefined) assert.equal(signal.source, expectedSource, label);
+      assert.equal(isRetryableModelFailure(failure), false, label);
+    }
+  });
+
   test("assistant stopReason error without an errorMessage is fallbackable", () => {
     const failure = { role: "assistant", stopReason: "error", diagnostics: [] };
 

@@ -57,6 +57,11 @@ import {
 	modelFailureMessage,
 } from "../shared/model-fallback.ts";
 import {
+	assistantStopReason,
+	isAssistantFailureStopReason,
+	shouldStartSubagentFinalDrain,
+} from "../shared/final-drain.ts";
+import {
 	createMutatingFailureState,
 	didMutatingToolFail,
 	isMutatingTool,
@@ -78,15 +83,6 @@ import { acceptanceFailureMessage, evaluateAcceptance, formatAcceptancePrompt, r
 const artifactOutputByResult = new WeakMap<SingleResult, string>();
 const acceptanceOutputByResult = new WeakMap<SingleResult, string>();
 const modelFailureSignalByResult = new WeakMap<SingleResult, unknown>();
-
-function assistantStopReason(message: Message): string | undefined {
-	const stopReason = (message as { readonly stopReason?: unknown }).stopReason;
-	return typeof stopReason === "string" ? stopReason : undefined;
-}
-
-function isTerminalAssistantFailureStopReason(stopReason: string | undefined): boolean {
-	return stopReason === "error" || stopReason === "aborted";
-}
 
 function emptyUsage(): Usage {
 	return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 0 };
@@ -558,26 +554,23 @@ async function runSingleAttempt(
 					if (!result.model && evt.message.model) result.model = evt.message.model;
 					const assistantText = extractTextFromContent(evt.message.content);
 					appendRecentOutput(progress, assistantText.split("\n").slice(-10));
-					// Final assistant message: start the exit drain window.
+					// Clean final assistant stops start the exit drain window; provider error/aborted
+					// stop reasons remain failure evidence so pi-ai can auto-retry before exit.
 					const stopReason = assistantStopReason(evt.message);
 					if (evt.message.errorMessage) {
 						assistantError = evt.message.errorMessage;
 						assistantFailureSignal = evt.message;
 					}
-					if (isTerminalAssistantFailureStopReason(stopReason)) {
+					if (isAssistantFailureStopReason(stopReason)) {
 						assistantError = modelFailureMessage(evt.message);
 						assistantFailureSignal = evt.message;
 					}
-					const hasToolCall = Array.isArray(evt.message.content)
-						&& evt.message.content.some((part) => (part as { type?: string }).type === "toolCall");
-					if (stopReason === "stop" && !hasToolCall) {
-						if (!evt.message.errorMessage && assistantText.trim()) {
+					if (shouldStartSubagentFinalDrain(evt.message)) {
+						if (assistantText.trim()) {
 							assistantError = undefined;
 							assistantFailureSignal = undefined;
 						}
-						cleanTerminalAssistantStopReceived ||= !evt.message.errorMessage;
-						startFinalDrain();
-					} else if (isTerminalAssistantFailureStopReason(stopReason) && !hasToolCall) {
+						cleanTerminalAssistantStopReceived = true;
 						startFinalDrain();
 					}
 				}

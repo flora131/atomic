@@ -241,8 +241,6 @@ function kindFromCode(code: string | number | undefined): ModelFallbackFailureKi
 	if (httpStatusKind !== undefined) return httpStatusKind;
 
 	switch (normalizedCode) {
-		case "401":
-		case "403":
 		case "auth":
 		case "auth_required":
 		case "authentication_required":
@@ -252,7 +250,6 @@ function kindFromCode(code: string | number | undefined): ModelFallbackFailureKi
 		case "missing_api_key":
 		case "invalid_key":
 			return "auth_on_candidate_provider";
-		case "408":
 		case "etimedout":
 		case "econnreset":
 		case "econnrefused":
@@ -264,7 +261,6 @@ function kindFromCode(code: string | number | undefined): ModelFallbackFailureKi
 		case "timeout_error":
 		case "und_err_connect_timeout":
 			return "network_timeout";
-		case "429":
 		case "rate_limit":
 		case "rate_limit_exceeded":
 		case "too_many_requests":
@@ -275,16 +271,11 @@ function kindFromCode(code: string | number | undefined): ModelFallbackFailureKi
 		case "cancelled":
 		case "canceled":
 			return "cancelled";
-		case "404":
 		case "model_not_found":
 		case "model_unavailable":
 		case "model_disabled":
 		case "unknown_model":
 			return "model_unavailable";
-		case "500":
-		case "502":
-		case "503":
-		case "504":
 		case "provider_error":
 		case "api_error":
 		case "service_unavailable":
@@ -352,6 +343,10 @@ function fallbackSignalFromMessage(
 	return kind === undefined ? undefined : makeSignal(kind, value, source);
 }
 
+function isRefusalSignal(signal: ModelFallbackFailureSignal): boolean {
+	return signal.kind === "cancelled" || signal.kind === "task_failure";
+}
+
 function structuredSignal(
 	value: unknown,
 	seen: Set<unknown>,
@@ -369,21 +364,31 @@ function structuredSignal(
 	const directRefusalKind = refusalKindFromMessage(directMessageFrom(value) ?? "");
 	if (directRefusalKind !== undefined) return makeSignal(directRefusalKind, value, source);
 
+	const nestedSignals: ModelFallbackFailureSignal[] = [];
+	const nestedSeen = new Set(seen);
+	for (const diagnosticError of diagnosticErrors(value)) {
+		const diagnosticSignal = structuredSignal(diagnosticError, nestedSeen, "diagnostic")
+			?? fallbackSignalFromMessage(diagnosticError, "diagnostic");
+		if (diagnosticSignal === undefined) continue;
+		if (isRefusalSignal(diagnosticSignal)) return diagnosticSignal;
+		nestedSignals.push(diagnosticSignal);
+	}
+
+	const cause = causeOf(value);
+	const causeSignal = structuredSignal(cause, nestedSeen, source)
+		?? fallbackSignalFromMessage(cause, source);
+	if (causeSignal !== undefined) {
+		if (isRefusalSignal(causeSignal)) return causeSignal;
+		nestedSignals.push(causeSignal);
+	}
+
 	const statusKind = kindFromStatus(statusFrom(value));
 	if (statusKind !== undefined) return makeSignal(statusKind, value, source);
 	if (codeKind !== undefined) return makeSignal(codeKind, value, source);
 	if (nameKind !== undefined) return makeSignal(nameKind, value, source);
 
-	for (const diagnosticError of diagnosticErrors(value)) {
-		const diagnosticSignal = structuredSignal(diagnosticError, seen, "diagnostic")
-			?? fallbackSignalFromMessage(diagnosticError, "diagnostic");
-		if (diagnosticSignal !== undefined) return diagnosticSignal;
-	}
-
-	const cause = causeOf(value);
-	const causeSignal = structuredSignal(cause, seen, source)
-		?? fallbackSignalFromMessage(cause, source);
-	if (causeSignal !== undefined) return causeSignal;
+	const nestedSignal = nestedSignals[0];
+	if (nestedSignal !== undefined) return nestedSignal;
 
 	if (stopReason === "error") return makeSignal("provider_unavailable", value, source);
 

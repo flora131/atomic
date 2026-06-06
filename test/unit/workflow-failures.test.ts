@@ -172,6 +172,22 @@ describe("classifyWorkflowFailure", () => {
     }
   });
 
+  test("classifies non-contiguous invalid API key fallback messages as invalid credentials", () => {
+    for (const message of [
+      "The API key provided is invalid",
+      "The API key you supplied is incorrect",
+    ] as const) {
+      const failure = classifyWorkflowFailure(new Error(message));
+      assert.equal(failure.kind, "auth");
+      assert.equal(failure.code, "invalid_api_key");
+      assert.equal(failure.retryable, false);
+      assert.equal(failure.resumable, false);
+      assert.equal(failure.recoverability, "non_recoverable");
+      assert.equal(failure.disposition, "terminal_killed");
+      assert.equal(failure.userMessage, WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE);
+    }
+  });
+
   test("keeps clear string-only local login fallback recoverable", () => {
     for (const error of [
       new Error("Run /login to continue"),
@@ -355,6 +371,29 @@ describe("classifyWorkflowFailure", () => {
     assert.equal(failure.code, "invalid_api_key");
     assert.equal(failure.message, "Incorrect API key provided");
     assert.equal(failure.userMessage, WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE);
+  });
+
+  test("classifies diagnostic-only provider 401 unauthorized messages as terminal invalid credentials", () => {
+    for (const diagnostic of [
+      { error: { message: "401 Unauthorized" } },
+      { message: "401 Unauthorized" },
+      { error: { message: "OpenAI API error (401): Unauthorized" } },
+    ] as const) {
+      const failure = classifyWorkflowFailure({
+        role: "assistant",
+        stopReason: "error",
+        errorMessage: "provider request failed",
+        diagnostics: [diagnostic],
+      });
+
+      assert.equal(failure.kind, "auth");
+      assert.equal(failure.code, "invalid_api_key");
+      assert.equal(failure.recoverability, "non_recoverable");
+      assert.equal(failure.disposition, "terminal_killed");
+      assert.equal(failure.retryable, false);
+      assert.equal(failure.resumable, false);
+      assert.equal(failure.userMessage, WORKFLOW_INVALID_PROVIDER_CREDENTIALS_MESSAGE);
+    }
   });
 
   test("lets invalid credential diagnostics beat rate limits regardless of diagnostic order", () => {

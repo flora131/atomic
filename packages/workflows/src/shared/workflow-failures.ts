@@ -445,6 +445,8 @@ const INVALID_API_KEY_PHRASES: readonly TokenMatch[] = [
   ["invalid", "credential"],
 ];
 
+const INVALID_API_KEY_CONTEXT = new Set(["invalid", "incorrect"]);
+
 const HTTP_RATE_LIMIT_PHRASES: readonly TokenMatch[] = [
   ["429"],
   ["too", "many", "requests"],
@@ -663,12 +665,17 @@ function classificationForDecision(
   };
 }
 
+function hasInvalidApiKeyMessage(tokens: readonly string[]): boolean {
+  return hasAnyPhrase(tokens, INVALID_API_KEY_PHRASES)
+    || (hasPhrase(tokens, ["api", "key"]) && tokenNearAny(tokens, "key", INVALID_API_KEY_CONTEXT, 6));
+}
+
 function decisionFromMessageTokens(tokens: readonly string[], name: string | undefined, retryAfterMs?: number): WorkflowFailureDecision | undefined {
   if (name?.toLowerCase() === "aborterror" || hasAnyPhrase(tokens, CANCELLED_PHRASES)) return cancelledDecision();
   if (hasAnyPhrase(tokens, HTTP_RATE_LIMIT_PHRASES)) return rateLimitDecision("rate_limited", retryAfterMs);
   if (hasAnyPhrase(tokens, QUOTA_LIMIT_PHRASES)) return rateLimitDecision("quota_limited", retryAfterMs);
   if (hasAnyPhrase(tokens, RATE_LIMIT_PHRASES)) return rateLimitDecision("rate_limited", retryAfterMs);
-  if (hasAnyPhrase(tokens, INVALID_API_KEY_PHRASES)) return authDecision("invalid_api_key");
+  if (hasInvalidApiKeyMessage(tokens)) return authDecision("invalid_api_key");
   if (hasAnyPhrase(tokens, MISSING_API_KEY_PHRASES)) return authDecision("missing_api_key");
   if (hasAnyPhrase(tokens, LOGIN_REQUIRED_PHRASES) || tokenNearAny(tokens, "oauth", AUTH_CONTEXT, 8)) return authDecision("login_required");
   if (hasAnyPhrase(tokens, UNKNOWN_MODEL_PHRASES)) return terminalProviderConfigDecision("unknown_model");
@@ -734,18 +741,17 @@ function canUseRelatedClassificationBeforeStatus(classification: WorkflowFailure
   return classification.decision.code !== "login_required";
 }
 
-function isClearLocalLoginMessage(message: string): boolean {
+function isClearLocalLoginMessage(message: string, tokens: readonly string[] = tokenize(message)): boolean {
   if (message.toLowerCase().includes("/login")) return true;
-  return hasAnyPhrase(tokenize(message), LOCAL_LOGIN_REQUIRED_PHRASES);
+  return hasAnyPhrase(tokens, LOCAL_LOGIN_REQUIRED_PHRASES);
 }
 
 function hasFallbackApiError401(tokens: readonly string[]): boolean {
   return hasPhrase(tokens, ["401"]) && hasPhrase(tokens, ["api", "error"]);
 }
 
-function classifyFallbackProviderAuthMessage(message: string): WorkflowFailureDecision | undefined {
-  if (isClearLocalLoginMessage(message)) return undefined;
-  const tokens = tokenize(message);
+function classifyFallbackProviderAuthMessage(message: string, tokens: readonly string[]): WorkflowFailureDecision | undefined {
+  if (isClearLocalLoginMessage(message, tokens)) return undefined;
   return hasAnyPhrase(tokens, PROVIDER_AUTH_FALLBACK_PHRASES) || hasFallbackApiError401(tokens)
     ? authDecision("invalid_api_key")
     : undefined;
@@ -880,8 +886,12 @@ function structuredClassification(
   if (nameClassification.strong !== undefined) return nameClassification.strong;
   weakClassification = nameClassification.weak ?? weakClassification;
 
-  const messageDecision = signalMessage !== undefined
-    ? decisionFromMessageTokens(tokenize(signalMessage), signal.name, retryAfterMs)
+  const messageTokens = signalMessage !== undefined ? tokenize(signalMessage) : undefined;
+  const messageDecision = messageTokens !== undefined
+    ? decisionFromMessageTokens(messageTokens, signal.name, retryAfterMs)
+    : undefined;
+  const providerAuthMessageDecision = signalMessage !== undefined && messageTokens !== undefined
+    ? classifyFallbackProviderAuthMessage(signalMessage, messageTokens)
     : undefined;
   if (
     weakClassification !== undefined &&
@@ -920,8 +930,16 @@ function structuredClassification(
     return classificationForDecision(statusDecision, source, signalMessage, "status");
   }
 
-  if (source !== "top_level" && messageDecision !== undefined) {
-    return classificationForDecision(messageDecision, source, signalMessage);
+  if (source !== "top_level") {
+    if (
+      providerAuthMessageDecision !== undefined &&
+      (messageDecision === undefined || messageDecision.code === "login_required")
+    ) {
+      return classificationForDecision(providerAuthMessageDecision, source, signalMessage);
+    }
+    if (messageDecision !== undefined) {
+      return classificationForDecision(messageDecision, source, signalMessage);
+    }
   }
 
   if (relatedClassification !== undefined) return relatedClassification;
@@ -932,11 +950,11 @@ function structuredClassification(
 function fallbackDecisionFromMessage(message: string, name: string | undefined): WorkflowFailureDecision | undefined {
   const tokens = tokenize(message);
   const decision = decisionFromMessageTokens(tokens, name);
-  const providerAuthDecision = classifyFallbackProviderAuthMessage(message);
+  const providerAuthDecision = classifyFallbackProviderAuthMessage(message, tokens);
   if (providerAuthDecision !== undefined && (decision === undefined || decision.code === "login_required")) {
     return providerAuthDecision;
   }
-  if (decision === undefined && isClearLocalLoginMessage(message)) {
+  if (decision === undefined && isClearLocalLoginMessage(message, tokens)) {
     return authDecision("login_required");
   }
   return decision;

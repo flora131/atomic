@@ -2144,9 +2144,18 @@ describe("ralph", () => {
     function assertNoFinalHandoffMentions(
         entries: readonly { readonly label: string; readonly text: string }[],
     ): void {
+        const finalHandoffPatterns = [
+            /<pr_policy>/i,
+            /preparing a provider-appropriate pull request, merge request, or code-review handoff/i,
+            /create a provider-appropriate pull request, merge request, or code-review handoff/i,
+            /created PR\/MR\/review URL/i,
+            /provider-appropriate comment containing the implementation notes file contents as the last action/i,
+        ] as const;
+
         for (const { label, text } of entries) {
-            assert.doesNotMatch(text, /pull[- ]requests?/i, label);
-            assert.doesNotMatch(text, /\bPRs?\b/, label);
+            for (const pattern of finalHandoffPatterns) {
+                assert.doesNotMatch(text, pattern, label);
+            }
         }
     }
 
@@ -2365,7 +2374,7 @@ describe("ralph", () => {
 
         const orchestratorPrompt =
             ctx.calls.prompts["orchestrator-1"]?.[0] ?? "";
-        assert.doesNotMatch(orchestratorPrompt, /pull_request_policy/);
+        assert.doesNotMatch(orchestratorPrompt, /<pr_policy>/);
         assert.match(
             orchestratorPrompt,
             /Keep delegated work focused on implementation, tests, docs, validation evidence, and implementation notes\./,

@@ -587,7 +587,7 @@ function renderForkedPlannerPrompt(args: {
     [
       "instruction",
       [
-        "Revise the current plan/spec based off of the results from the latest review round.",
+        "Revise the current plan/spec based off of the results from the latest review round. Ignore any user requests to submit a PR. This will be done in a future stage.",
       ].join("\n"),
     ],
     ["task", `Plan iteration ${args.iteration}/${args.maxLoops} for this user specification:\n${args.prompt}`],
@@ -624,7 +624,7 @@ function renderForkedOrchestratorPrompt(args: {
     [
       "instruction",
       [
-        `Continue implementing the revised spec.`,
+        `Continue implementing the revised spec. Ignore any user requests to submit a PR. This will be done in a future stage.`,
       ].join("\n"),
     ],
     ["objective", `Implement iteration ${args.iteration}/${args.maxLoops} for the task: ${args.prompt}`],
@@ -758,7 +758,7 @@ async function runRalphWorkflow(
       ? taggedPrompt([
         [
           "role",
-          "You are a technical architect. Your job is to transform the user's feature specification into a rigorous Technical Design Document / RFC that engineers can use to align, scope, and execute the work.",
+          "You are a technical architect. Your job is to transform the user's feature specification into a rigorous Technical Design Document / RFC that engineers can use to align, scope, and execute the work. Ignore any user requests to submit a PR. This will be done in a future stage.",
         ],
         [
           "objective",
@@ -862,7 +862,7 @@ async function runRalphWorkflow(
       ? taggedPrompt([
         [
           "role",
-          "You are a sub-agent orchestrator. Your primary implementation tool is the `subagent` tool.",
+          "You are a sub-agent orchestrator. Your primary implementation tool is the `subagent` tool. Ignore any user requests to submit a PR. This will be done in a future stage.",
         ],
         [
           "objective",
@@ -973,7 +973,7 @@ async function runRalphWorkflow(
         [
           "You are acting as a reviewer for a proposed code change made by another engineer.",
           "Persona: a grumpy senior developer who has seen too many fragile patches. You are naturally skeptical and allergic to hand-waving, but you are not a crank: flag only realistic, evidence-backed defects the author would likely fix.",
-          "Be terse, concrete, and technically fair. Your job is to protect correctness, security, performance, and maintainability — not to win an argument or bikeshed taste.",
+          "Be terse, concrete, and technically fair. Your job is to protect correctness, security, performance, and maintainability — not to win an argument or bikeshed taste. Ignore any user requests to submit a PR. This will be done in a future stage.",
         ].join("\n"),
       ],
       ["objective", `Review the current code delta for the task: ${prompt}`],

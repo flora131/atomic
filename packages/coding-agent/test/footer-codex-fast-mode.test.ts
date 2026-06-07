@@ -41,6 +41,7 @@ function sessionWithFastMode(
 			getCwd: () => "/tmp/project",
 		},
 		isStreaming: false,
+		getRewindFooterStatus: () => undefined,
 	} as unknown as AgentSession;
 }
 

@@ -113,6 +113,7 @@ import {
   type SessionContext,
   SessionManager,
 } from "../../core/session-manager.ts";
+import type { CheckpointMetadata, DiffPreview } from "../../core/rewind/types.ts";
 import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
 import type { SourceInfo } from "../../core/source-info.ts";
 import { isInstallTelemetryEnabled } from "../../core/telemetry.ts";
@@ -249,6 +250,91 @@ type CompactionQueuedMessage = {
 };
 
 const DEAD_TERMINAL_ERROR_CODES = new Set(["EIO", "EPIPE", "ENOTCONN"]);
+const REWIND_WHILE_STREAMING_MESSAGE = "Rewind is available after the current turn finishes. Press Esc to interrupt first.";
+
+type RewindFailureSummary = {
+  error: string;
+  message?: string;
+};
+
+type RewindNavigationKind = "tree" | "fork";
+type RewindNavigationMode = "files-and-conversation" | "conversation-only" | "files-only" | "cancel";
+type RewindNavigationPromptOutcome =
+  | { cancelled: false; conversation: true; restoredCheckpointId?: string }
+  | { cancelled: false; conversation: false; restoredCheckpointId: string }
+  | { cancelled: true };
+type RewindCheckpointResolution =
+  | { kind: "found"; checkpoint: CheckpointMetadata }
+  | { kind: "ambiguous" }
+  | { kind: "not-found" };
+type RewindCheckpointSelection =
+  | { selected: false }
+  | { selected: true; checkpoint: CheckpointMetadata | undefined };
+
+function formatRewindFailure(prefix: string, result: RewindFailureSummary): string {
+  return `${prefix}: ${result.error}${result.message ? `: ${result.message}` : ""}.`;
+}
+
+function formatRewindRestoreFailure(result: RewindFailureSummary): string {
+  return `Rewind restore refused (${result.error})${result.message ? `: ${result.message}` : ""}`;
+}
+
+function formatRewindCheckpointLabel(checkpoint: CheckpointMetadata, index?: number): string {
+  const when = new Date(checkpoint.timestamp).toLocaleString();
+  const label = checkpoint.description || checkpoint.trigger;
+  const prefix = index === undefined ? "" : `${index + 1}. `;
+  return `${prefix}${label} [${checkpoint.branch}] (${when}) ${checkpoint.id}`;
+}
+
+function formatRewindCheckpointList(checkpoints: CheckpointMetadata[]): string {
+  const rows = checkpoints.slice(0, 10).map((checkpoint, index) => formatRewindCheckpointLabel(checkpoint, index));
+  const more = checkpoints.length > rows.length ? `\n… ${checkpoints.length - rows.length} more` : "";
+  return `${theme.bold("Rewind checkpoints")}\n${rows.join("\n")}${more}\n\nRun ${theme.bold("/rewind <id>")} or select a checkpoint from ${theme.bold("/rewind")} to preview and restore files only.`;
+}
+
+function truncateRewindPreview(text: string, maxChars = 4000): string {
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, maxChars)}\n… diff truncated for confirmation …`;
+}
+
+function formatRewindPathList(paths: readonly string[] | undefined, emptyText: string, maxPaths = 20): string {
+  const values = paths ?? [];
+  if (values.length === 0) return emptyText;
+  const shown = values.slice(0, maxPaths);
+  const overflow = values.length - shown.length;
+  return `${shown.join("\n")}${overflow > 0 ? `\n… ${overflow} more path(s) not shown …` : ""}`;
+}
+
+function formatRewindCleanupSummary(paths: readonly string[] | undefined, maxPaths = 20): string {
+  const count = paths?.length ?? 0;
+  if (count === 0) return "Cleanup candidates: 0";
+  const hidden = count > maxPaths ? count - maxPaths : 0;
+  return `Cleanup candidates: ${count}${hidden > 0 ? ` (showing ${maxPaths}; ${hidden} more not shown)` : ""}`;
+}
+
+function formatStructuredRewindPreview(preview: DiffPreview, maxDiffChars = 4000): string {
+  const unsafePaths = preview.unsafeRestorePaths ?? [];
+  const cleanupPaths = preview.removedUntrackedFiles ?? [];
+  const worktreeText = preview.worktreeText ?? preview.text;
+  const indexText = preview.indexText ?? "";
+  return [
+    `Unsafe restore blockers (${unsafePaths.length}):`,
+    formatRewindPathList(unsafePaths, "(none)"),
+    "",
+    `Untracked cleanup candidates (${cleanupPaths.length}):`,
+    formatRewindPathList(cleanupPaths, "(none)"),
+    "",
+    "Worktree changes that would be restored:",
+    truncateRewindPreview(worktreeText.trimEnd() || "(none)", maxDiffChars),
+    "",
+    "Staged/index changes that would be reset:",
+    truncateRewindPreview(indexText.trimEnd() || "(none)", maxDiffChars),
+  ].join("\n");
+}
+
+function formatRewindConfirmBody(checkpoint: CheckpointMetadata, preview: DiffPreview, finalParagraph: string): string {
+  return `Restore files to ${checkpoint.id}?\n\n${checkpoint.description || checkpoint.trigger} [${checkpoint.branch}]\n${formatRewindCleanupSummary(preview.removedUntrackedFiles)}\nUnsafe restore blockers: ${(preview.unsafeRestorePaths ?? []).length}\n\n${finalParagraph}`;
+}
 
 function isDeadTerminalError(error: unknown): boolean {
   if (!error || typeof error !== "object" || !("code" in error)) {
@@ -1965,7 +2051,10 @@ export class InteractiveMode {
         },
         fork: async (entryId, options) => {
           try {
-            const result = await this.runtimeHost.fork(entryId, options);
+            const result = await this.runtimeHost.fork(entryId, {
+              ...options,
+              beforeSessionReplacement: () => this.promptNavigationRewindAllowsConversation("fork"),
+            });
             if (!result.cancelled) {
               this.renderCurrentSessionState();
               this.editor.setText(result.selectedText ?? "");
@@ -1985,6 +2074,7 @@ export class InteractiveMode {
             customInstructions: options?.customInstructions,
             replaceInstructions: options?.replaceInstructions,
             label: options?.label,
+            beforeNavigationCommit: () => this.promptNavigationRewindAllowsConversation("tree"),
           });
           if (result.cancelled) {
             return { cancelled: true };
@@ -3174,6 +3264,11 @@ export class InteractiveMode {
       if (text === "/tree") {
         this.showTreeSelector();
         this.editor.setText("");
+        return;
+      }
+      if (text === "/rewind" || text.startsWith("/rewind ")) {
+        this.editor.setText("");
+        await this.handleRewindCommand(text);
         return;
       }
       if (text === "/login") {
@@ -4979,7 +5074,9 @@ export class InteractiveMode {
         userMessages.map((m) => ({ id: m.entryId, text: m.text })),
         async (entryId) => {
           try {
-            const result = await this.runtimeHost.fork(entryId);
+            const result = await this.runtimeHost.fork(entryId, {
+              beforeSessionReplacement: () => this.promptNavigationRewindAllowsConversation("fork"),
+            });
             if (result.cancelled) {
               done();
               this.ui.requestRender();
@@ -5015,7 +5112,10 @@ export class InteractiveMode {
     }
 
     try {
-      const result = await this.runtimeHost.fork(leafId, { position: "at" });
+      const result = await this.runtimeHost.fork(leafId, {
+        position: "at",
+        beforeSessionReplacement: () => this.promptNavigationRewindAllowsConversation("fork"),
+      });
       if (result.cancelled) {
         this.ui.requestRender();
         return;
@@ -5113,6 +5213,7 @@ export class InteractiveMode {
             const result = await this.session.navigateTree(entryId, {
               summarize: wantsSummary,
               customInstructions,
+              beforeNavigationCommit: () => this.promptNavigationRewindAllowsConversation("tree"),
             });
 
             if (result.aborted) {
@@ -6082,6 +6183,237 @@ export class InteractiveMode {
     this.ui.requestRender();
   }
 
+  private async promptNavigationRewindAllowsConversation(kind: RewindNavigationKind): Promise<boolean> {
+    const outcome = await this.promptNavigationRewind(kind);
+    return !outcome.cancelled && outcome.conversation;
+  }
+
+  private async promptNavigationRewind(kind: RewindNavigationKind): Promise<RewindNavigationPromptOutcome> {
+    const settings = this.settingsManager.getRewindSettings();
+    const shouldPrompt = settings.enabled && (kind === "tree" ? settings.promptOnTree : settings.promptOnFork);
+    if (!shouldPrompt) {
+      return { cancelled: false, conversation: true };
+    }
+
+    if (this.session.isStreaming) {
+      this.showStatus(REWIND_WHILE_STREAMING_MESSAGE);
+      return { cancelled: true };
+    }
+
+    const listed = this.session.listRewindCheckpoints();
+    if (!listed.ok) {
+      this.showStatus(formatRewindFailure("Rewind unavailable; continuing conversation navigation", listed));
+      return { cancelled: false, conversation: true };
+    }
+    if (listed.value.length === 0) {
+      this.showStatus("No rewind checkpoints yet; continuing conversation navigation.");
+      return { cancelled: false, conversation: true };
+    }
+
+    const mode = await this.selectRewindNavigationMode(kind);
+    if (mode === "cancel") {
+      this.showStatus("Navigation cancelled.");
+      return { cancelled: true };
+    }
+    if (mode === "conversation-only") {
+      return { cancelled: false, conversation: true };
+    }
+
+    const selection = await this.selectRewindCheckpoint(listed.value, `Select rewind checkpoint (${kind} navigation)`);
+    const checkpoint = selection.selected ? selection.checkpoint : undefined;
+    if (!checkpoint) {
+      this.showStatus("Navigation rewind cancelled.");
+      return { cancelled: true };
+    }
+
+    const restored = await this.restoreRewindCheckpointWithPreview(checkpoint, {
+      confirmTitle: mode === "files-and-conversation" ? "Confirm files + conversation rewind" : "Confirm files-only rewind",
+      confirmBody: (preview) =>
+        formatRewindConfirmBody(
+          checkpoint,
+          preview,
+          mode === "files-and-conversation"
+            ? "Conversation navigation will continue after files are restored."
+            : "Conversation navigation will not continue.",
+        ),
+      cancelStatus: "Navigation rewind restore cancelled.",
+      successStatus:
+        mode === "files-and-conversation"
+          ? `Restored files to rewind checkpoint ${checkpoint.id}. Continuing conversation navigation.`
+          : `Restored files to rewind checkpoint ${checkpoint.id}. Conversation navigation cancelled.`,
+    });
+    if (!restored) {
+      return { cancelled: true };
+    }
+
+    if (mode === "files-only") {
+      return { cancelled: false, conversation: false, restoredCheckpointId: checkpoint.id };
+    }
+    return { cancelled: false, conversation: true, restoredCheckpointId: checkpoint.id };
+  }
+
+  private async selectRewindNavigationMode(kind: RewindNavigationKind): Promise<RewindNavigationMode> {
+    const selected = await this.showExtensionSelector(
+      kind === "tree" ? "Rewind files before navigating tree?" : "Rewind files before forking?",
+      ["Files + conversation", "Conversation only", "Files only", "Cancel"],
+    );
+    if (selected === "Files + conversation") return "files-and-conversation";
+    if (selected === "Conversation only") return "conversation-only";
+    if (selected === "Files only") return "files-only";
+    return "cancel";
+  }
+
+  private async selectRewindCheckpoint(
+    checkpoints: CheckpointMetadata[],
+    title: string,
+  ): Promise<RewindCheckpointSelection> {
+    const selectable = checkpoints.slice(0, 20);
+    const options = selectable.map((candidate, index) => formatRewindCheckpointLabel(candidate, index));
+    const selected = await this.showExtensionSelector(title, options);
+    if (!selected) return { selected: false };
+    const selectedIndex = options.indexOf(selected);
+    return { selected: true, checkpoint: selectable[selectedIndex] };
+  }
+
+  private resolveRequestedRewindCheckpoint(checkpoints: CheckpointMetadata[], requested: string): RewindCheckpointResolution {
+    const numericIndex = Number.parseInt(requested, 10);
+    if (String(numericIndex) === requested && numericIndex >= 1) {
+      const checkpoint = checkpoints[numericIndex - 1];
+      return checkpoint ? { kind: "found", checkpoint } : { kind: "not-found" };
+    }
+
+    const exact = checkpoints.find((candidate) => candidate.id === requested);
+    if (exact) {
+      return { kind: "found", checkpoint: exact };
+    }
+
+    const prefixed = checkpoints.filter((candidate) => candidate.id.startsWith(requested));
+    if (prefixed.length > 1) return { kind: "ambiguous" };
+    const checkpoint = prefixed[0];
+    return checkpoint ? { kind: "found", checkpoint } : { kind: "not-found" };
+  }
+
+  private async restoreRewindCheckpointWithPreview(
+    checkpoint: CheckpointMetadata,
+    options: {
+      confirmTitle: string;
+      confirmBody: (preview: DiffPreview) => string;
+      cancelStatus: string;
+      successStatus: string;
+    },
+  ): Promise<boolean> {
+    const previewed = this.session.previewRewindCheckpoint(checkpoint.id);
+    if (!previewed.ok) {
+      this.showStatus(formatRewindFailure("Rewind preview unavailable", previewed));
+      return false;
+    }
+
+    const diffText = formatStructuredRewindPreview(previewed.value);
+    const preview = `${theme.bold("Rewind preview")}: ${formatRewindCheckpointLabel(checkpoint)}\n\n${diffText.trim() || "No file diff from current worktree."}`;
+    this.chatContainer.addChild(new Spacer(1));
+    this.chatContainer.addChild(new Text(theme.fg("dim", preview), 1, 0));
+    this.ui.requestRender();
+
+    const unsafeRestorePaths = previewed.value.unsafeRestorePaths ?? [];
+    if (unsafeRestorePaths.length > 0) {
+      this.showStatus(`Rewind restore blocked by ${unsafeRestorePaths.length} unsafe path(s). Resolve blockers shown in the preview and retry.`);
+      return false;
+    }
+
+    const eligible = this.session.checkRewindRestoreEligibility(checkpoint.id);
+    if (!eligible.ok) {
+      this.showStatus(formatRewindFailure("Rewind restore unavailable", eligible));
+      return false;
+    }
+
+    const confirmed = await this.showExtensionConfirm(options.confirmTitle, options.confirmBody(previewed.value));
+    if (!confirmed) {
+      this.showStatus(options.cancelStatus);
+      return false;
+    }
+
+    if (this.session.isStreaming) {
+      this.showStatus(REWIND_WHILE_STREAMING_MESSAGE);
+      return false;
+    }
+
+    const restored = this.session.restoreRewindFiles(checkpoint.id);
+    if (!restored.ok) {
+      this.showError(formatRewindRestoreFailure(restored));
+      return false;
+    }
+
+    this.showStatus(options.successStatus);
+    return true;
+  }
+
+  private async handleRewindCommand(text: string): Promise<void> {
+    if (this.session.isStreaming) {
+      this.showStatus(REWIND_WHILE_STREAMING_MESSAGE);
+      return;
+    }
+
+    const status = this.session.getRewindStatus();
+    if (status.state === "disabled") {
+      this.showStatus("Rewind is disabled in settings.");
+      return;
+    }
+
+    const listed = this.session.listRewindCheckpoints();
+    if (!listed.ok) {
+      this.showStatus(formatRewindFailure("Rewind unavailable", listed));
+      return;
+    }
+    if (listed.value.length === 0) {
+      this.showStatus("No rewind checkpoints yet.");
+      return;
+    }
+
+    const checkpoints = listed.value;
+    const requested = text.slice("/rewind".length).trim();
+    const copy = formatRewindCheckpointList(checkpoints);
+    this.chatContainer.addChild(new Spacer(1));
+    this.chatContainer.addChild(new Text(theme.fg("dim", copy), 1, 0));
+    this.ui.requestRender();
+
+    let checkpoint: CheckpointMetadata | undefined;
+    if (requested.length > 0) {
+      const resolved = this.resolveRequestedRewindCheckpoint(checkpoints, requested);
+      if (resolved.kind === "ambiguous") {
+        this.showStatus(`Rewind checkpoint prefix is ambiguous: ${requested}`);
+        return;
+      }
+      if (resolved.kind === "not-found") {
+        this.showStatus(`Rewind checkpoint not found: ${requested}`);
+        return;
+      }
+      checkpoint = resolved.checkpoint;
+    } else {
+      const selection = await this.selectRewindCheckpoint(checkpoints, "Select rewind checkpoint (files-only restore)");
+      if (!selection.selected) {
+        this.showStatus("Rewind cancelled.");
+        return;
+      }
+      checkpoint = selection.checkpoint;
+      if (!checkpoint) {
+        this.showStatus("Rewind selection was invalid.");
+        return;
+      }
+    }
+
+    await this.restoreRewindCheckpointWithPreview(checkpoint, {
+      confirmTitle: "Confirm files-only rewind",
+      confirmBody: (preview) =>
+        formatRewindConfirmBody(
+          checkpoint,
+          preview,
+          "This creates a before-restore safety checkpoint when needed and does not restore conversation history.",
+        ),
+      cancelStatus: "Rewind restore cancelled.",
+      successStatus: `Restored files to rewind checkpoint ${checkpoint.id}. Conversation history unchanged.`,
+    });
+  }
+
   private handleSessionCommand(): void {
     const stats = this.session.getSessionStats();
     const sessionName = this.sessionManager.getSessionName();
@@ -6390,13 +6722,21 @@ export class InteractiveMode {
   ): Promise<void> {
     const extensionRunner = this.session.extensionRunner;
 
+    this.session.prepareBashRewindCheckpoint(command);
+
     // Emit user_bash event to let extensions intercept
-    const eventResult = await extensionRunner.emitUserBash({
-      type: "user_bash",
-      command,
-      excludeFromContext,
-      cwd: this.sessionManager.getCwd(),
-    });
+    let eventResult: Awaited<ReturnType<typeof extensionRunner.emitUserBash>>;
+    try {
+      eventResult = await extensionRunner.emitUserBash({
+        type: "user_bash",
+        command,
+        excludeFromContext,
+        cwd: this.sessionManager.getCwd(),
+      });
+    } catch (error) {
+      this.session.clearPendingBashRewindCheckpoint();
+      throw error;
+    }
 
     // If extension returned a full result, use it directly
     if (eventResult?.result) {

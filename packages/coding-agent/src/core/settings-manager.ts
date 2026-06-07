@@ -14,6 +14,7 @@ import {
 } from "../config.ts";
 import { normalizePath, resolvePath } from "../utils/paths.ts";
 import { DEFAULT_HTTP_IDLE_TIMEOUT_MS, parseHttpIdleTimeoutMs } from "./http-dispatcher.ts";
+import type { RewindSettings } from "./rewind/types.ts";
 
 export interface CompactionSettings {
 	enabled?: boolean; // default: true
@@ -71,6 +72,20 @@ export interface CodexFastModeSettings {
 	workflow?: boolean; // default: false
 }
 
+export type RewindSettingsConfig = Partial<RewindSettings>;
+
+const DEFAULT_REWIND_SETTINGS: RewindSettings = {
+	enabled: true,
+	maxCheckpoints: 50,
+	checkpointOnSessionStart: true,
+	checkpointOnMutatingTurn: true,
+	promptOnTree: true,
+	promptOnFork: true,
+	maxUntrackedFileBytes: 10 * 1024 * 1024,
+	maxUntrackedDirFiles: 200,
+	ignoredDirNames: ["node_modules", ".venv", "venv", "dist", "build", ".cache", "target"],
+};
+
 export type TransportSetting = Transport;
 
 /**
@@ -127,6 +142,7 @@ export interface Settings {
 	markdown?: MarkdownSettings;
 	warnings?: WarningSettings;
 	codexFastMode?: CodexFastModeSettings; // OpenAI priority service tier toggles for chat/workflow
+	rewind?: RewindSettingsConfig; // Native checkpoint/rewind settings
 	sessionDir?: string; // Custom session storage directory (same format as --session-dir CLI flag)
 	httpIdleTimeoutMs?: number; // HTTP header/body idle timeout in milliseconds; 0 disables it
 }
@@ -160,6 +176,48 @@ function deepMergeSettings(base: Settings, overrides: Settings): Settings {
 	}
 
 	return result;
+}
+
+function clampInteger(value: number | undefined, fallback: number, min: number, max: number): number {
+	if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+	return Math.max(min, Math.min(max, Math.floor(value)));
+}
+
+function booleanSetting(value: boolean | undefined, fallback: boolean): boolean {
+	return typeof value === "boolean" ? value : fallback;
+}
+
+function mergeRewindSettings(settings: RewindSettingsConfig | undefined): RewindSettings {
+	const ignoredDirNames = settings?.ignoredDirNames;
+	return {
+		enabled: booleanSetting(settings?.enabled, DEFAULT_REWIND_SETTINGS.enabled),
+		maxCheckpoints: clampInteger(settings?.maxCheckpoints, DEFAULT_REWIND_SETTINGS.maxCheckpoints, 1, 500),
+		checkpointOnSessionStart: booleanSetting(
+			settings?.checkpointOnSessionStart,
+			DEFAULT_REWIND_SETTINGS.checkpointOnSessionStart,
+		),
+		checkpointOnMutatingTurn: booleanSetting(
+			settings?.checkpointOnMutatingTurn,
+			DEFAULT_REWIND_SETTINGS.checkpointOnMutatingTurn,
+		),
+		promptOnTree: booleanSetting(settings?.promptOnTree, DEFAULT_REWIND_SETTINGS.promptOnTree),
+		promptOnFork: booleanSetting(settings?.promptOnFork, DEFAULT_REWIND_SETTINGS.promptOnFork),
+		maxUntrackedFileBytes: clampInteger(
+			settings?.maxUntrackedFileBytes,
+			DEFAULT_REWIND_SETTINGS.maxUntrackedFileBytes,
+			0,
+			1024 * 1024 * 1024,
+		),
+		maxUntrackedDirFiles: clampInteger(
+			settings?.maxUntrackedDirFiles,
+			DEFAULT_REWIND_SETTINGS.maxUntrackedDirFiles,
+			1,
+			100_000,
+		),
+		ignoredDirNames: Array.isArray(ignoredDirNames)
+			? ignoredDirNames.filter((name): name is string => typeof name === "string" && name.length > 0)
+			: [...DEFAULT_REWIND_SETTINGS.ignoredDirNames],
+	};
 }
 
 export type SettingsScope = "global" | "project";
@@ -1089,6 +1147,19 @@ export class SettingsManager {
 	setTreeFilterMode(mode: "default" | "no-tools" | "user-only" | "labeled-only" | "all"): void {
 		this.globalSettings.treeFilterMode = mode;
 		this.markModified("treeFilterMode");
+		this.save();
+	}
+
+	getRewindSettings(): RewindSettings {
+		return mergeRewindSettings(this.settings.rewind);
+	}
+
+	setRewindSettings(settings: RewindSettingsConfig): void {
+		this.globalSettings.rewind = {
+			...(this.globalSettings.rewind ?? {}),
+			...settings,
+		};
+		this.markModified("rewind");
 		this.save();
 	}
 

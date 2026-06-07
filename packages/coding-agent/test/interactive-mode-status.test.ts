@@ -80,6 +80,414 @@ describe("InteractiveMode.showStatus", () => {
 	});
 });
 
+describe("InteractiveMode.handleRewindCommand preview", () => {
+	test("keeps cleanup candidates visible and truncates long diff sections separately before confirmation", async () => {
+		initTheme("dark");
+		const checkpoint = {
+			version: 1,
+			id: "checkpoint-1",
+			sessionId: "session-1",
+			leafEntryId: null,
+			trigger: "turn",
+			turnIndex: 1,
+			description: "rewind target",
+			toolNames: [],
+			branch: "main",
+			headSha: "0".repeat(40),
+			indexTreeSha: "1".repeat(40),
+			worktreeTreeSha: "2".repeat(40),
+			timestamp: 0,
+			preexistingUntrackedFiles: [],
+			skippedLargeFiles: [],
+			skippedLargeDirs: [],
+			skippedIgnoredDirs: [],
+		};
+		const cleanup = Array.from({ length: 25 }, (_, index) => `cleanup-${String(index).padStart(2, "0")}.txt`);
+		let confirmMessage = "";
+		const fakeThis: any = {
+			session: {
+				isStreaming: false,
+				getRewindStatus: () => ({ state: "ready" }),
+				listRewindCheckpoints: () => ({ ok: true, value: [checkpoint] }),
+				previewRewindCheckpoint: () => ({
+					ok: true,
+					value: {
+						text: `${"diff line\n".repeat(500)}\nUntracked files that would be removed:\n${cleanup.join("\n")}`,
+						worktreeText: "worktree diff line\n".repeat(500),
+						indexText: "index diff line\n".repeat(500),
+						removedUntrackedFiles: cleanup,
+						unsafeRestorePaths: [],
+					},
+				}),
+				checkRewindRestoreEligibility: vi.fn(() => ({ ok: true, value: checkpoint })),
+			},
+			chatContainer: new Container(),
+			ui: { requestRender: vi.fn() },
+			showExtensionConfirm: vi.fn(async (_title: string, message: string) => {
+				confirmMessage = message;
+				return false;
+			}),
+			showStatus: vi.fn(),
+		};
+
+		Object.setPrototypeOf(fakeThis, (InteractiveMode as any).prototype);
+		await (InteractiveMode as any).prototype.handleRewindCommand.call(fakeThis, "/rewind checkpoint-1");
+
+		const rendered = normalizeRenderedOutput(fakeThis.chatContainer, 10_000);
+		expect(rendered).toContain("Untracked cleanup candidates (25):");
+		expect(rendered).toContain("cleanup-00.txt");
+		expect(rendered).toContain("… 5 more path(s) not shown …");
+		expect(rendered).toContain("Worktree changes that would be restored:");
+		expect(rendered).toContain("Staged/index changes that would be reset:");
+		expect(rendered).toContain("… diff truncated for confirmation …");
+		expect(confirmMessage).toContain("Cleanup candidates: 25 (showing 20; 5 more not shown)");
+		expect(fakeThis.showExtensionConfirm).toHaveBeenCalledTimes(1);
+	});
+
+	test("does not ask confirmation when restore eligibility fails after rewind preview", async () => {
+		initTheme("dark");
+		const checkpoint = {
+			version: 1,
+			id: "checkpoint-cross-branch",
+			sessionId: "session-1",
+			leafEntryId: null,
+			trigger: "turn",
+			turnIndex: 1,
+			description: "cross branch target",
+			toolNames: [],
+			branch: "main",
+			headSha: "0".repeat(40),
+			indexTreeSha: "1".repeat(40),
+			worktreeTreeSha: "2".repeat(40),
+			timestamp: 0,
+			preexistingUntrackedFiles: [],
+			skippedLargeFiles: [],
+			skippedLargeDirs: [],
+			skippedIgnoredDirs: [],
+		};
+		const fakeThis: any = {
+			session: {
+				isStreaming: false,
+				getRewindStatus: () => ({ state: "ready" }),
+				listRewindCheckpoints: () => ({ ok: true, value: [checkpoint] }),
+				previewRewindCheckpoint: vi.fn(() => ({
+					ok: true,
+					value: {
+						text: "diff",
+						worktreeText: "diff",
+						indexText: "",
+						removedUntrackedFiles: [],
+						unsafeRestorePaths: [],
+					},
+				})),
+				checkRewindRestoreEligibility: vi.fn(() => ({ ok: false, error: "BranchMismatch" })),
+				restoreRewindFiles: vi.fn(),
+			},
+			chatContainer: new Container(),
+			ui: { requestRender: vi.fn() },
+			showExtensionConfirm: vi.fn(async () => true),
+			showStatus: vi.fn(),
+		};
+
+		Object.setPrototypeOf(fakeThis, (InteractiveMode as any).prototype);
+		await (InteractiveMode as any).prototype.handleRewindCommand.call(fakeThis, "/rewind checkpoint-cross-branch");
+
+		expect(fakeThis.session.previewRewindCheckpoint).toHaveBeenCalledWith("checkpoint-cross-branch");
+		expect(fakeThis.session.checkRewindRestoreEligibility).toHaveBeenCalledWith("checkpoint-cross-branch");
+		expect(fakeThis.showExtensionConfirm).not.toHaveBeenCalled();
+		expect(fakeThis.session.restoreRewindFiles).not.toHaveBeenCalled();
+		expect(fakeThis.showStatus).toHaveBeenCalledWith(expect.stringContaining("BranchMismatch"));
+	});
+
+	test("does not ask confirmation when rewind preview has unsafe blockers", async () => {
+		initTheme("dark");
+		const checkpoint = {
+			version: 1,
+			id: "checkpoint-blocked",
+			sessionId: "session-1",
+			leafEntryId: null,
+			trigger: "turn",
+			turnIndex: 1,
+			description: "blocked target",
+			toolNames: [],
+			branch: "main",
+			headSha: "0".repeat(40),
+			indexTreeSha: "1".repeat(40),
+			worktreeTreeSha: "2".repeat(40),
+			timestamp: 0,
+			preexistingUntrackedFiles: [],
+			skippedLargeFiles: [],
+			skippedLargeDirs: [],
+			skippedIgnoredDirs: [],
+		};
+		const fakeThis: any = {
+			session: {
+				isStreaming: false,
+				getRewindStatus: () => ({ state: "ready" }),
+				listRewindCheckpoints: () => ({ ok: true, value: [checkpoint] }),
+				previewRewindCheckpoint: () => ({
+					ok: true,
+					value: {
+						text: "Unsafe restore paths that must be resolved before restore:\nlarge.bin",
+						worktreeText: "",
+						indexText: "",
+						removedUntrackedFiles: [],
+						unsafeRestorePaths: ["large.bin"],
+					},
+				}),
+				restoreRewindFiles: vi.fn(),
+			},
+			chatContainer: new Container(),
+			ui: { requestRender: vi.fn() },
+			showExtensionConfirm: vi.fn(async () => true),
+			showStatus: vi.fn(),
+		};
+
+		Object.setPrototypeOf(fakeThis, (InteractiveMode as any).prototype);
+		await (InteractiveMode as any).prototype.handleRewindCommand.call(fakeThis, "/rewind checkpoint-blocked");
+
+		expect(fakeThis.showExtensionConfirm).not.toHaveBeenCalled();
+		expect(fakeThis.session.restoreRewindFiles).not.toHaveBeenCalled();
+		expect(fakeThis.showStatus).toHaveBeenCalledWith(expect.stringContaining("unsafe path"));
+	});
+});
+
+describe("InteractiveMode navigation rewind prompt", () => {
+	function makeCheckpoint() {
+		return {
+			version: 1,
+			id: "checkpoint-1",
+			sessionId: "session-1",
+			leafEntryId: null,
+			trigger: "turn",
+			turnIndex: 1,
+			description: "rewind target",
+			toolNames: [],
+			branch: "main",
+			headSha: "0".repeat(40),
+			indexTreeSha: "1".repeat(40),
+			worktreeTreeSha: "2".repeat(40),
+			timestamp: 0,
+			preexistingUntrackedFiles: [],
+			skippedLargeFiles: [],
+			skippedLargeDirs: [],
+			skippedIgnoredDirs: [],
+		};
+	}
+
+	function makeFakeThis(selectorResults: string[], overrides: Record<string, unknown> = {}) {
+		const checkpoint = makeCheckpoint();
+		const results = [...selectorResults];
+		const fakeThis = {
+			session: {
+				isStreaming: false,
+				listRewindCheckpoints: vi.fn(() => ({ ok: true, value: [checkpoint] })),
+				previewRewindCheckpoint: vi.fn(() => ({
+					ok: true,
+					value: {
+						text: "diff",
+						worktreeText: "diff",
+						indexText: "",
+						removedUntrackedFiles: [],
+						unsafeRestorePaths: [],
+					},
+				})),
+				checkRewindRestoreEligibility: vi.fn(() => ({ ok: true, value: checkpoint })),
+				restoreRewindFiles: vi.fn(() => ({ ok: true, value: undefined })),
+			},
+			settingsManager: {
+				getRewindSettings: vi.fn(() => ({
+					enabled: true,
+					promptOnTree: true,
+					promptOnFork: true,
+				})),
+			},
+			chatContainer: new Container(),
+			ui: { requestRender: vi.fn() },
+			showExtensionSelector: vi.fn(async (_title: string, options: string[]) => results.shift() ?? options[0]),
+			showExtensionConfirm: vi.fn(async () => true),
+			showStatus: vi.fn(),
+			showError: vi.fn(),
+			...overrides,
+		};
+		Object.setPrototypeOf(fakeThis, (InteractiveMode as any).prototype);
+		return fakeThis;
+	}
+
+	test("tree prompt conversation-only continues navigation without file restore", async () => {
+		initTheme("dark");
+		const fakeThis = makeFakeThis(["Conversation only"]);
+
+		const shouldContinue = await (InteractiveMode as any).prototype.promptNavigationRewindAllowsConversation.call(fakeThis, "tree");
+
+		expect(shouldContinue).toBe(true);
+		expect(fakeThis.session.previewRewindCheckpoint).not.toHaveBeenCalled();
+		expect(fakeThis.session.restoreRewindFiles).not.toHaveBeenCalled();
+	});
+
+	test("tree prompt files plus conversation previews and restores before continuing", async () => {
+		initTheme("dark");
+		const fakeThis = makeFakeThis(["Files + conversation"]);
+
+		const shouldContinue = await (InteractiveMode as any).prototype.promptNavigationRewindAllowsConversation.call(fakeThis, "tree");
+
+		expect(shouldContinue).toBe(true);
+		expect(fakeThis.session.previewRewindCheckpoint).toHaveBeenCalledWith("checkpoint-1");
+		expect(fakeThis.session.restoreRewindFiles).toHaveBeenCalledWith("checkpoint-1");
+		expect(fakeThis.showExtensionConfirm).toHaveBeenCalledTimes(1);
+	});
+
+	test("fork prompt files-only restores and suppresses conversation movement", async () => {
+		initTheme("dark");
+		const fakeThis = makeFakeThis(["Files only"]);
+
+		const shouldContinue = await (InteractiveMode as any).prototype.promptNavigationRewindAllowsConversation.call(fakeThis, "fork");
+
+		expect(shouldContinue).toBe(false);
+		expect(fakeThis.session.restoreRewindFiles).toHaveBeenCalledWith("checkpoint-1");
+		expect(fakeThis.showStatus).toHaveBeenCalledWith(expect.stringContaining("Conversation navigation cancelled"));
+	});
+
+	test.each(["tree", "fork"] as const)("%s prompt blocks before confirmation when restore eligibility fails", async (kind) => {
+		initTheme("dark");
+		const checkpoint = makeCheckpoint();
+		const fakeThis = makeFakeThis(["Files + conversation"], {
+			session: {
+				isStreaming: false,
+				listRewindCheckpoints: vi.fn(() => ({ ok: true, value: [checkpoint] })),
+				previewRewindCheckpoint: vi.fn(() => ({
+					ok: true,
+					value: {
+						text: "diff",
+						worktreeText: "diff",
+						indexText: "",
+						removedUntrackedFiles: [],
+						unsafeRestorePaths: [],
+					},
+				})),
+				checkRewindRestoreEligibility: vi.fn(() => ({ ok: false, error: "BranchMismatch" })),
+				restoreRewindFiles: vi.fn(),
+			},
+		});
+
+		const shouldContinue = await (InteractiveMode as any).prototype.promptNavigationRewindAllowsConversation.call(fakeThis, kind);
+
+		expect(shouldContinue).toBe(false);
+		expect(fakeThis.session.previewRewindCheckpoint).toHaveBeenCalledWith("checkpoint-1");
+		expect(fakeThis.session.checkRewindRestoreEligibility).toHaveBeenCalledWith("checkpoint-1");
+		expect(fakeThis.showExtensionConfirm).not.toHaveBeenCalled();
+		expect(fakeThis.session.restoreRewindFiles).not.toHaveBeenCalled();
+		expect(fakeThis.showStatus).toHaveBeenCalledWith(expect.stringContaining("BranchMismatch"));
+	});
+
+	test("tree prompt unsafe preview blocks navigation", async () => {
+		initTheme("dark");
+		const checkpoint = makeCheckpoint();
+		const fakeThis = makeFakeThis(["Files + conversation"], {
+			session: {
+				isStreaming: false,
+				listRewindCheckpoints: vi.fn(() => ({ ok: true, value: [checkpoint] })),
+				previewRewindCheckpoint: vi.fn(() => ({
+					ok: true,
+					value: {
+						text: "Unsafe restore paths that must be resolved before restore:\nlarge.bin",
+						worktreeText: "",
+						indexText: "",
+						removedUntrackedFiles: [],
+						unsafeRestorePaths: ["large.bin"],
+					},
+				})),
+				restoreRewindFiles: vi.fn(),
+			},
+		});
+
+		const shouldContinue = await (InteractiveMode as any).prototype.promptNavigationRewindAllowsConversation.call(fakeThis, "tree");
+
+		expect(shouldContinue).toBe(false);
+		expect(fakeThis.showExtensionConfirm).not.toHaveBeenCalled();
+		expect(fakeThis.session.restoreRewindFiles).not.toHaveBeenCalled();
+		expect(fakeThis.showStatus).toHaveBeenCalledWith(expect.stringContaining("unsafe path"));
+	});
+
+	test("disabled tree prompt bypasses rewind and continues navigation", async () => {
+		initTheme("dark");
+		const fakeThis = makeFakeThis([], {
+			settingsManager: {
+				getRewindSettings: vi.fn(() => ({
+					enabled: true,
+					promptOnTree: false,
+					promptOnFork: true,
+				})),
+			},
+		});
+
+		const shouldContinue = await (InteractiveMode as any).prototype.promptNavigationRewindAllowsConversation.call(fakeThis, "tree");
+
+		expect(shouldContinue).toBe(true);
+		expect(fakeThis.showExtensionSelector).not.toHaveBeenCalled();
+		expect(fakeThis.session.listRewindCheckpoints).not.toHaveBeenCalled();
+	});
+
+	test("disabled fork prompt bypasses rewind and continues navigation", async () => {
+		initTheme("dark");
+		const fakeThis = makeFakeThis([], {
+			settingsManager: {
+				getRewindSettings: vi.fn(() => ({
+					enabled: true,
+					promptOnTree: true,
+					promptOnFork: false,
+				})),
+			},
+		});
+
+		const shouldContinue = await (InteractiveMode as any).prototype.promptNavigationRewindAllowsConversation.call(fakeThis, "fork");
+
+		expect(shouldContinue).toBe(true);
+		expect(fakeThis.showExtensionSelector).not.toHaveBeenCalled();
+		expect(fakeThis.session.listRewindCheckpoints).not.toHaveBeenCalled();
+	});
+
+	test("tree prompt continues navigation when rewind is unavailable", async () => {
+		initTheme("dark");
+		const fakeThis = makeFakeThis([], {
+			session: {
+				isStreaming: false,
+				listRewindCheckpoints: vi.fn(() => ({ ok: false, error: "RewindUnavailable", message: "not a git worktree" })),
+				previewRewindCheckpoint: vi.fn(),
+				restoreRewindFiles: vi.fn(),
+			},
+		});
+
+		const shouldContinue = await (InteractiveMode as any).prototype.promptNavigationRewindAllowsConversation.call(fakeThis, "tree");
+
+		expect(shouldContinue).toBe(true);
+		expect(fakeThis.showExtensionSelector).not.toHaveBeenCalled();
+		expect(fakeThis.session.previewRewindCheckpoint).not.toHaveBeenCalled();
+		expect(fakeThis.session.restoreRewindFiles).not.toHaveBeenCalled();
+		expect(fakeThis.showStatus).toHaveBeenCalledWith(expect.stringContaining("continuing conversation navigation"));
+	});
+
+	test("fork prompt continues navigation when no checkpoints exist", async () => {
+		initTheme("dark");
+		const fakeThis = makeFakeThis([], {
+			session: {
+				isStreaming: false,
+				listRewindCheckpoints: vi.fn(() => ({ ok: true, value: [] })),
+				previewRewindCheckpoint: vi.fn(),
+				restoreRewindFiles: vi.fn(),
+			},
+		});
+
+		const shouldContinue = await (InteractiveMode as any).prototype.promptNavigationRewindAllowsConversation.call(fakeThis, "fork");
+
+		expect(shouldContinue).toBe(true);
+		expect(fakeThis.showExtensionSelector).not.toHaveBeenCalled();
+		expect(fakeThis.session.previewRewindCheckpoint).not.toHaveBeenCalled();
+		expect(fakeThis.session.restoreRewindFiles).not.toHaveBeenCalled();
+		expect(fakeThis.showStatus).toHaveBeenCalledWith(expect.stringContaining("No rewind checkpoints yet"));
+	});
+});
+
 describe("InteractiveMode.setToolsExpanded", () => {
 	test("applies expansion state to the active header and chat entries", () => {
 		const header = { setExpanded: vi.fn() };

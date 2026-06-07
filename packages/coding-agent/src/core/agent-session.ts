@@ -90,6 +90,8 @@ import { emitSessionShutdownEvent } from "./extensions/runner.ts";
 import type { BashExecutionMessage, CustomMessage } from "./messages.ts";
 import type { ModelRegistry } from "./model-registry.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
+import { RewindCoordinator, type RewindCoordinatorStatus } from "./rewind/rewind-coordinator.ts";
+import type { CheckpointMetadata, DiffPreview, RestoredFiles, Result } from "./rewind/types.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
 import type { BranchSummaryEntry, CompactionEntry, SessionManager } from "./session-manager.ts";
 import { CURRENT_SESSION_VERSION, getLatestCompactionEntry, type SessionHeader } from "./session-manager.ts";
@@ -395,6 +397,7 @@ export class AgentSession {
 	// Extension system
 	private _extensionRunner!: ExtensionRunner;
 	private _turnIndex = 0;
+	private _rewindCoordinator: RewindCoordinator;
 
 	private _resourceLoader: ResourceLoader;
 	private _customTools: ToolDefinition[];
@@ -442,6 +445,11 @@ export class AgentSession {
 		this._baseToolsOverride = config.baseToolsOverride;
 		this._sessionStartEvent = config.sessionStartEvent ?? { type: "session_start", reason: "startup" };
 		this._orchestrationContext = config.orchestrationContext;
+		this._rewindCoordinator = new RewindCoordinator({
+			cwd: config.cwd,
+			sessionId: config.sessionManager.getSessionId(),
+			settings: config.settingsManager.getRewindSettings(),
+		});
 
 		// Always subscribe to agent events for internal handling
 		// (session persistence, extensions, auto-compaction, retry logic)
@@ -462,6 +470,63 @@ export class AgentSession {
 	/** Model registry for API key resolution and model discovery */
 	get modelRegistry(): ModelRegistry {
 		return this._modelRegistry;
+	}
+
+	getRewindStatus(): RewindCoordinatorStatus {
+		return this._rewindCoordinator.getStatus();
+	}
+
+	getRewindFooterStatus(): string | undefined {
+		return this._rewindCoordinator.getFooterStatusText();
+	}
+
+	listRewindCheckpoints(): Result<CheckpointMetadata[]> {
+		return this._rewindCoordinator.listCheckpoints();
+	}
+
+	prepareBashRewindCheckpoint(command: string): void {
+		this._ignoreRewindErrors(() => {
+			this._rewindCoordinator.prepareInteractiveBashCheckpoint({
+				command,
+				turnIndex: this._turnIndex,
+				leafEntryId: this.sessionManager.getLeafId(),
+			});
+		});
+	}
+
+	clearPendingBashRewindCheckpoint(): void {
+		this._ignoreRewindErrors(() => {
+			this._rewindCoordinator.clearPendingInteractiveBashCheckpoint();
+		});
+	}
+
+	previewRewindCheckpoint(id: string): Result<DiffPreview> {
+		return this._rewindCoordinator.previewCheckpoint(id);
+	}
+
+	checkRewindRestoreEligibility(id: string): Result<CheckpointMetadata> {
+		return this._rewindCoordinator.checkRestoreEligibility(id);
+	}
+
+	restoreRewindFiles(id: string): Result<RestoredFiles> {
+		if (this.isStreaming) {
+			return {
+				ok: false,
+				error: "RestoreWhileStreaming",
+				message: "Rewind is available after the current turn finishes. Press Esc to interrupt first.",
+			};
+		}
+		if (this.isBashRunning) {
+			return {
+				ok: false,
+				error: "RestoreWhileStreaming",
+				message: "Rewind is available after the current bash command finishes. Press Ctrl+C to interrupt first.",
+			};
+		}
+		return this._rewindCoordinator.restoreFilesToCheckpoint(id, {
+			turnIndex: this._turnIndex,
+			leafEntryId: this.sessionManager.getLeafId(),
+		});
 	}
 
 	private async _getRequiredRequestAuth(model: Model<Api>): Promise<{
@@ -651,6 +716,8 @@ export class AgentSession {
 		// Notify all listeners
 		this._emit(event);
 
+		this._recordRewindEvent(event);
+
 		// Handle session persistence
 		if (event.type === "message_end") {
 			// Check if this is a custom message from extensions
@@ -784,7 +851,6 @@ export class AgentSession {
 	/** Emit extension events based on agent events */
 	private async _emitExtensionEvent(event: AgentEvent): Promise<void> {
 		if (event.type === "agent_start") {
-			this._turnIndex = 0;
 			await this._extensionRunner.emit({ type: "agent_start" });
 		} else if (event.type === "agent_end") {
 			await this._extensionRunner.emit({ type: "agent_end", messages: event.messages });
@@ -803,7 +869,6 @@ export class AgentSession {
 				toolResults: event.toolResults,
 			};
 			await this._extensionRunner.emit(extensionEvent);
-			this._turnIndex++;
 		} else if (event.type === "message_start") {
 			const extensionEvent: MessageStartEvent = {
 				type: "message_start",
@@ -852,6 +917,26 @@ export class AgentSession {
 				isError: event.isError,
 			};
 			await this._extensionRunner.emit(extensionEvent);
+		}
+	}
+
+	private _recordRewindEvent(event: AgentEvent): void {
+		switch (event.type) {
+			case "agent_start":
+				this._turnIndex = 0;
+				this._rewindCoordinator.updateSettings(this.settingsManager.getRewindSettings());
+				this._rewindCoordinator.initialize({ turnIndex: this._turnIndex, leafEntryId: this.sessionManager.getLeafId() });
+				break;
+			case "turn_start":
+				this._rewindCoordinator.startTurn();
+				break;
+			case "tool_execution_end":
+				this._rewindCoordinator.observeToolExecutionEnd({ toolName: event.toolName });
+				break;
+			case "turn_end":
+				this._rewindCoordinator.finalizeTurnCheckpoint({ turnIndex: this._turnIndex, leafEntryId: this.sessionManager.getLeafId() });
+				this._turnIndex++;
+				break;
 		}
 	}
 
@@ -2738,6 +2823,8 @@ export class AgentSession {
 		const previousFlagValues = this._extensionRunner.getFlagValues();
 		await emitSessionShutdownEvent(this._extensionRunner, { type: "session_shutdown", reason: "reload" });
 		await this.settingsManager.reload();
+		this._rewindCoordinator.updateSettings(this.settingsManager.getRewindSettings());
+		this._rewindCoordinator.initialize({ turnIndex: this._turnIndex, leafEntryId: this.sessionManager.getLeafId() });
 		resetApiProviders();
 		await this._resourceLoader.reload();
 		this._buildRuntime({
@@ -2922,6 +3009,8 @@ export class AgentSession {
 		const shellPath = this.settingsManager.getShellPath();
 		const resolvedCommand = prefix ? `${prefix}\n${command}` : command;
 
+		let recorded = false;
+		this.prepareBashRewindCheckpoint(command);
 		try {
 			const result = await executeBashWithOperations(
 				resolvedCommand,
@@ -2934,8 +3023,10 @@ export class AgentSession {
 			);
 
 			this.recordBashResult(command, result, options);
+			recorded = true;
 			return result;
 		} finally {
+			if (!recorded) this.clearPendingBashRewindCheckpoint();
 			this._bashAbortController = undefined;
 		}
 	}
@@ -2967,6 +3058,23 @@ export class AgentSession {
 
 			// Save to session
 			this.sessionManager.appendMessage(bashMessage);
+		}
+
+		this._ignoreRewindErrors(() => {
+			this._rewindCoordinator.checkpointInteractiveBashResult({
+				command,
+				result,
+				turnIndex: this._turnIndex,
+				leafEntryId: this.sessionManager.getLeafId(),
+			});
+		});
+	}
+
+	private _ignoreRewindErrors(action: () => void): void {
+		try {
+			action();
+		} catch {
+			// Rewind failures must not throw through interactive bash handling or persistence.
 		}
 	}
 
@@ -3034,7 +3142,13 @@ export class AgentSession {
 	 */
 	async navigateTree(
 		targetId: string,
-		options: { summarize?: boolean; customInstructions?: string; replaceInstructions?: boolean; label?: string } = {},
+		options: {
+			summarize?: boolean;
+			customInstructions?: string;
+			replaceInstructions?: boolean;
+			label?: string;
+			beforeNavigationCommit?: () => Promise<boolean>;
+		} = {},
 	): Promise<{ editorText?: string; cancelled: boolean; aborted?: boolean; summaryEntry?: BranchSummaryEntry }> {
 		const oldLeafId = this.sessionManager.getLeafId();
 
@@ -3165,6 +3279,13 @@ export class AgentSession {
 			} else {
 				// Non-user message: leaf = selected node
 				newLeafId = targetId;
+			}
+
+			if (options.beforeNavigationCommit) {
+				const shouldContinue = await options.beforeNavigationCommit();
+				if (!shouldContinue) {
+					return { cancelled: true };
+				}
 			}
 
 			// Switch leaf (with or without summary)

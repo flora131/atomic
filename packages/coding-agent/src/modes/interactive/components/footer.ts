@@ -12,6 +12,19 @@ import {
 import type { ReadonlyFooterDataProvider } from "../../../core/footer-data-provider.ts";
 import { theme } from "../theme/theme.ts";
 
+export type FooterSession = Pick<
+  AgentSession,
+  | "state"
+  | "sessionManager"
+  | "settingsManager"
+  | "modelRegistry"
+  | "getContextUsage"
+  | "isStreaming"
+  | "orchestrationContext"
+> & {
+  getRewindFooterStatus?: () => string | undefined;
+};
+
 /**
  * Format token counts (similar to web-ui)
  */
@@ -36,7 +49,7 @@ function rightAlign(line: string, width: number): string {
 }
 
 function getUsageLine(
-  session: AgentSession,
+  session: FooterSession,
   autoCompactEnabled: boolean,
   width: number,
 ): string {
@@ -101,9 +114,7 @@ function getUsageLine(
     contextPercent === "?"
       ? `?/${formatTokens(contextWindow)}${autoIndicator}`
       : `${contextPercent}%/${formatTokens(contextWindow)}${autoIndicator}`;
-  if (autoCompactEnabled && contextPercentValue > 70) {
-    usageParts.push(theme.fg("warning", contextPercentDisplay));
-  } else if (contextPercentValue > 90) {
+  if (!autoCompactEnabled && contextPercentValue > 90) {
     usageParts.push(theme.fg("error", contextPercentDisplay));
   } else if (contextPercentValue > 70) {
     usageParts.push(theme.fg("warning", contextPercentDisplay));
@@ -140,13 +151,13 @@ export function formatCwdForFooter(cwd: string, home: string | undefined): strin
 export class UsageMeterComponent implements Component {
   private autoCompactEnabled = true;
 
-  declare private session: AgentSession;
+  declare private session: FooterSession;
 
-  constructor(session: AgentSession) {
+  constructor(session: FooterSession) {
     this.session = session;
 	}
 
-  setSession(session: AgentSession): void {
+  setSession(session: FooterSession): void {
     this.session = session;
   }
 
@@ -168,18 +179,18 @@ export class UsageMeterComponent implements Component {
  * when idle, or one semantic dot with short recovery copy while work is live.
  */
 export class FooterComponent implements Component {
-  declare private session: AgentSession;
+  declare private session: FooterSession;
   declare private footerData: ReadonlyFooterDataProvider;
 
   constructor(
-    session: AgentSession,
+    session: FooterSession,
     footerData: ReadonlyFooterDataProvider,
   ) {
     this.session = session;
     this.footerData = footerData;
 	}
 
-  setSession(session: AgentSession): void {
+  setSession(session: FooterSession): void {
     this.session = session;
   }
 
@@ -230,9 +241,13 @@ export class FooterComponent implements Component {
     const liveState = this.session.isStreaming
       ? theme.fg("muted", "esc to interrupt")
       : undefined;
-    const statusText =
-      liveState ??
-      `${theme.fg("dim", modelLabel)} ${theme.fg("dim", "•")} ${theme.fg("muted", pwd)}`;
+    const statusParts = [theme.fg("dim", modelLabel), theme.fg("muted", pwd)];
+    const rewindStatus = this.session.getRewindFooterStatus?.();
+    if (rewindStatus) {
+      statusParts.push(theme.fg("muted", rewindStatus));
+    }
+    const idleStatus = statusParts.join(` ${theme.fg("dim", "•")} `);
+    const statusText = liveState ?? idleStatus;
     return [truncateToWidth(statusText, width, theme.fg("dim", "..."))];
   }
 }

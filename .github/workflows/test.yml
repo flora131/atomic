@@ -36,6 +36,7 @@ jobs:
               working-directory: packages/coding-agent
               run: bun run docs:check
             - name: Mintlify docs validation
+              if: github.event_name == 'pull_request'
               working-directory: packages/coding-agent/docs
               run: |
                   bunx --bun mintlify@latest validate

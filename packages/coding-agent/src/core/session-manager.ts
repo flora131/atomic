@@ -75,6 +75,28 @@ export interface CompactionEntry<T = unknown> extends SessionEntryBase {
 	fromHook?: boolean;
 }
 
+export type ContextDeletionTarget =
+	| { kind: "entry"; entryId: string }
+	| { kind: "content_block"; entryId: string; blockIndex: number };
+
+export interface ContextCompactionStats {
+	objectsBefore: number;
+	objectsAfter: number;
+	objectsDeleted: number;
+	tokensBefore: number;
+	tokensAfter: number;
+	percentReduction: number;
+}
+
+export interface ContextCompactionEntry extends SessionEntryBase {
+	type: "context_compaction";
+	promptVersion: 1;
+	deletedTargets: ContextDeletionTarget[];
+	protectedEntryIds: string[];
+	stats: ContextCompactionStats;
+	backupPath?: string;
+}
+
 export interface BranchSummaryEntry<T = unknown> extends SessionEntryBase {
 	type: "branch_summary";
 	fromId: string;
@@ -141,6 +163,7 @@ export type SessionEntry =
 	| ThinkingLevelChangeEntry
 	| ModelChangeEntry
 	| CompactionEntry
+	| ContextCompactionEntry
 	| BranchSummaryEntry
 	| CustomEntry
 	| CustomMessageEntry
@@ -325,6 +348,120 @@ export function getLatestCompactionEntry(entries: SessionEntry[]): CompactionEnt
 	return null;
 }
 
+export function getLatestCompactionBoundaryEntry(entries: SessionEntry[]): CompactionEntry | ContextCompactionEntry | null {
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const entry = entries[i];
+		if (entry.type === "compaction" || entry.type === "context_compaction") {
+			return entry;
+		}
+	}
+	return null;
+}
+
+export interface ContextDeletionFilters {
+	deletedEntryIds: Set<string>;
+	deletedContentBlocks: Map<string, Set<number>>;
+}
+
+export function buildContextDeletionFilters(path: SessionEntry[]): ContextDeletionFilters {
+	const deletedEntryIds = new Set<string>();
+	const deletedContentBlocks = new Map<string, Set<number>>();
+
+	for (const entry of path) {
+		if (entry.type !== "context_compaction") continue;
+		for (const target of entry.deletedTargets) {
+			if (target.kind === "entry") {
+				deletedEntryIds.add(target.entryId);
+				continue;
+			}
+			const existing = deletedContentBlocks.get(target.entryId) ?? new Set<number>();
+			existing.add(target.blockIndex);
+			deletedContentBlocks.set(target.entryId, existing);
+		}
+	}
+
+	return { deletedEntryIds, deletedContentBlocks };
+}
+
+function filterContentArray<T>(content: T[], deletedBlocks: ReadonlySet<number>): T[] {
+	return content.filter((_, index) => !deletedBlocks.has(index));
+}
+
+function filterMessageContentBlocks(
+	message: AgentMessage,
+	deletedBlocks: ReadonlySet<number> | undefined,
+): AgentMessage | undefined {
+	if (!deletedBlocks || deletedBlocks.size === 0) return message;
+
+	switch (message.role) {
+		case "user": {
+			if (!Array.isArray(message.content)) return message;
+			const content = filterContentArray(message.content, deletedBlocks);
+			if (content.length === 0) return undefined;
+			return { ...message, content };
+		}
+		case "assistant": {
+			const content = filterContentArray(message.content, deletedBlocks);
+			if (content.length === 0) return undefined;
+			return { ...message, content };
+		}
+		case "toolResult": {
+			if (!Array.isArray(message.content)) return message;
+			const content = filterContentArray(message.content, deletedBlocks);
+			if (content.length === 0) return undefined;
+			return { ...message, content };
+		}
+		case "custom": {
+			if (!Array.isArray(message.content)) return message;
+			const content = filterContentArray(message.content, deletedBlocks);
+			if (content.length === 0) return undefined;
+			return { ...message, content };
+		}
+		case "bashExecution":
+		case "branchSummary":
+		case "compactionSummary":
+			return message;
+	}
+}
+
+/**
+ * Return the active branch path after applying logical context-deletion entries.
+ * Whole-entry deletions remove the entry from the path. Content-block deletions
+ * clone only affected message/custom-message entries so retained blocks stay verbatim.
+ */
+export function buildContextDeletionFilteredPath(
+	path: SessionEntry[],
+	filters: ContextDeletionFilters = buildContextDeletionFilters(path),
+): SessionEntry[] {
+	const filteredPath: SessionEntry[] = [];
+
+	for (const entry of path) {
+		if (filters.deletedEntryIds.has(entry.id)) continue;
+
+		const deletedBlocks = filters.deletedContentBlocks.get(entry.id);
+		if (!deletedBlocks || deletedBlocks.size === 0) {
+			filteredPath.push(entry);
+			continue;
+		}
+
+		if (entry.type === "message") {
+			const message = filterMessageContentBlocks(entry.message, deletedBlocks);
+			if (message) filteredPath.push({ ...entry, message });
+			continue;
+		}
+
+		if (entry.type === "custom_message" && Array.isArray(entry.content)) {
+			const content = filterContentArray(entry.content, deletedBlocks);
+			if (content.length > 0) filteredPath.push({ ...entry, content });
+			continue;
+		}
+
+		filteredPath.push(entry);
+	}
+
+	return filteredPath;
+}
+
 /**
  * Build the session context from entries using tree traversal.
  * If leafId is provided, walks from that entry to root.
@@ -386,6 +523,12 @@ export function buildSessionContext(
 		}
 	}
 
+	const latestCompactionIndex = compaction
+		? path.findIndex((e) => e.type === "compaction" && e.id === compaction.id)
+		: -1;
+	const filteredPath = buildContextDeletionFilteredPath(path);
+	const filteredEntryById = new Map(filteredPath.map((entry) => [entry.id, entry]));
+
 	// Build messages and collect corresponding entries
 	// When there's a compaction, we need to:
 	// 1. Emit summary first (entry = compaction)
@@ -393,31 +536,35 @@ export function buildSessionContext(
 	// 3. Emit messages after compaction
 	const messages: AgentMessage[] = [];
 
-	const appendMessage = (entry: SessionEntry) => {
+	const appendMessage = (rawEntry: SessionEntry) => {
+		const entry = filteredEntryById.get(rawEntry.id);
+		if (!entry) return;
+
+		let message: AgentMessage | undefined;
 		if (entry.type === "message") {
-			messages.push(entry.message);
+			message = entry.message;
 		} else if (entry.type === "custom_message") {
-			messages.push(
-				createCustomMessage(
-					entry.customType,
-					entry.content,
-					entry.display,
-					entry.details,
-					entry.timestamp,
-					entry.excludeFromContext,
-				),
+			message = createCustomMessage(
+				entry.customType,
+				entry.content,
+				entry.display,
+				entry.details,
+				entry.timestamp,
+				entry.excludeFromContext,
 			);
 		} else if (entry.type === "branch_summary" && entry.summary) {
-			messages.push(createBranchSummaryMessage(entry.summary, entry.fromId, entry.timestamp));
+			message = createBranchSummaryMessage(entry.summary, entry.fromId, entry.timestamp);
 		}
+
+		if (message) messages.push(message);
 	};
 
 	if (compaction) {
-		// Emit summary first
+		// Emit summary first. Summary compaction entries are not deletion targets for
+		// logical context compaction, so existing /compact rebuild behavior is preserved.
 		messages.push(createCompactionSummaryMessage(compaction.summary, compaction.tokensBefore, compaction.timestamp));
 
-		// Find compaction index in path
-		const compactionIdx = path.findIndex((e) => e.type === "compaction" && e.id === compaction.id);
+		const compactionIdx = latestCompactionIndex;
 
 		// Emit kept messages (before compaction, starting from firstKeptEntryId)
 		let foundFirstKept = false;
@@ -920,6 +1067,39 @@ export class SessionManager {
 		};
 		this._appendEntry(entry);
 		return entry.id;
+	}
+
+	/** Append logical deletion metadata for deletion-only context compaction. */
+	appendContextCompaction(
+		deletedTargets: ContextDeletionTarget[],
+		protectedEntryIds: string[],
+		stats: ContextCompactionStats,
+		backupPath?: string,
+	): string {
+		const entry: ContextCompactionEntry = {
+			type: "context_compaction",
+			id: generateId(this.byId),
+			parentId: this.leafId,
+			timestamp: new Date().toISOString(),
+			promptVersion: 1,
+			deletedTargets,
+			protectedEntryIds,
+			stats,
+			backupPath,
+		};
+		this._appendEntry(entry);
+		return entry.id;
+	}
+
+	/** Write a recoverable snapshot of the current session entries without mutating the active JSONL. */
+	writeBackupSnapshot(label = "context-compact"): string | undefined {
+		if (!this.persist || !this.sessionFile) return undefined;
+		const safeLabel = label.replace(/[^a-z0-9_-]/gi, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") || "backup";
+		const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+		const backupPath = `${this.sessionFile}.${timestamp}.${safeLabel}.bak`;
+		const content = `${this.fileEntries.map((e) => JSON.stringify(e)).join("\n")}\n`;
+		writeFileSync(backupPath, content);
+		return backupPath;
 	}
 
 	/** Append a custom entry (for extensions) as child of current leaf, then advance leaf. Returns entry id. */

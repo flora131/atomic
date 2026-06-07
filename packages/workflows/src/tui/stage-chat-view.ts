@@ -672,6 +672,15 @@ export class StageChatView implements Component, Focusable {
         await handle.agentSession.compact(rest.join(" ") || undefined);
         return true;
       }
+      case "/context-compact": {
+        if (rest.length > 0) return true;
+        const handle = this._liveHandle();
+        if (!handle) return false;
+        await handle.ensureAttached();
+        if (!handle.agentSession) return false;
+        await handle.agentSession.contextCompact();
+        return true;
+      }
       case "/quit":
         this.onClose();
         return true;

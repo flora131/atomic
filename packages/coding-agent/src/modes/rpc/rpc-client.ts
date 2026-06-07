@@ -5,13 +5,14 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
-import type { AgentEvent, AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { SessionStats } from "../../core/agent-session.ts";
 import type { BashResult } from "../../core/bash-executor.ts";
-import type { CompactionResult } from "../../core/compaction/index.ts";
+import type { CompactionResult, ContextCompactionResult } from "../../core/compaction/index.ts";
 import { attachJsonlLineReader, serializeJsonLine } from "./jsonl.ts";
-import type { RpcCommand, RpcResponse, RpcSessionState, RpcSlashCommand } from "./rpc-types.ts";
+import type { RpcCommand, RpcEvent, RpcResponse, RpcSessionState, RpcSlashCommand } from "./rpc-types.ts";
+export type { RpcEvent } from "./rpc-types.ts";
 
 // ============================================================================
 // Types
@@ -45,7 +46,7 @@ export interface ModelInfo {
 	reasoning: boolean;
 }
 
-export type RpcEventListener = (event: AgentEvent) => void;
+export type RpcEventListener = (event: RpcEvent) => void;
 
 // ============================================================================
 // RPC Client
@@ -269,10 +270,18 @@ export class RpcClient {
 	}
 
 	/**
-	 * Compact session context.
+	 * Compact session context with a summary.
 	 */
 	async compact(customInstructions?: string): Promise<CompactionResult> {
 		const response = await this.send({ type: "compact", customInstructions });
+		return this.getData(response);
+	}
+
+	/**
+	 * Apply deletion-only context compaction.
+	 */
+	async contextCompact(): Promise<ContextCompactionResult> {
+		const response = await this.send({ type: "context_compact" });
 		return this.getData(response);
 	}
 
@@ -422,9 +431,9 @@ export class RpcClient {
 	/**
 	 * Collect events until agent becomes idle.
 	 */
-	collectEvents(timeout = 60000): Promise<AgentEvent[]> {
+	collectEvents(timeout = 60000): Promise<RpcEvent[]> {
 		return new Promise((resolve, reject) => {
-			const events: AgentEvent[] = [];
+			const events: RpcEvent[] = [];
 			const timer = setTimeout(() => {
 				unsubscribe();
 				reject(new Error(`Timeout collecting events. Stderr: ${this.stderr}`));
@@ -444,7 +453,7 @@ export class RpcClient {
 	/**
 	 * Send prompt and wait for completion, returning all events.
 	 */
-	async promptAndWait(message: string, images?: ImageContent[], timeout = 60000): Promise<AgentEvent[]> {
+	async promptAndWait(message: string, images?: ImageContent[], timeout = 60000): Promise<RpcEvent[]> {
 		const eventsPromise = this.collectEvents(timeout);
 		await this.prompt(message, images);
 		return eventsPromise;
@@ -468,7 +477,7 @@ export class RpcClient {
 
 			// Otherwise it's an event
 			for (const listener of this.eventListeners) {
-				listener(data as AgentEvent);
+				listener(data as RpcEvent);
 			}
 		} catch {
 			// Ignore non-JSON lines

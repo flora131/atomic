@@ -10,4 +10,12 @@ describe("built-in slash commands", () => {
     assert.ok(command, "expected /exit to be listed as a built-in command");
     assert.equal(command.description, `Exit ${APP_NAME}`);
   });
+
+  test("lists /context-compact as a no-argument built-in command", () => {
+    const command = BUILTIN_SLASH_COMMANDS.find((item) => item.name === "context-compact");
+
+    assert.ok(command, "expected /context-compact to be listed as a built-in command");
+    assert.match(command.description, /no arguments/i);
+    assert.equal(command.getArgumentCompletions, undefined);
+  });
 });

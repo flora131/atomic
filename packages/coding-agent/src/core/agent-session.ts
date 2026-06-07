@@ -48,12 +48,15 @@ import { formatNoApiKeyFoundMessage, formatNoModelSelectedMessage } from "./auth
 import { type BashResult, executeBashWithOperations } from "./bash-executor.ts";
 import {
 	type CompactionResult,
+	type ContextCompactionResult,
 	calculateContextTokens,
 	collectEntriesForBranchSummary,
 	compact,
+	contextCompact as runContextCompact,
 	estimateContextTokens,
 	generateBranchSummary,
 	prepareCompaction,
+	prepareContextCompaction,
 	shouldCompact,
 } from "./compaction/index.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
@@ -92,7 +95,7 @@ import type { ModelRegistry } from "./model-registry.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
 import type { BranchSummaryEntry, CompactionEntry, SessionManager } from "./session-manager.ts";
-import { CURRENT_SESSION_VERSION, getLatestCompactionEntry, type SessionHeader } from "./session-manager.ts";
+import { CURRENT_SESSION_VERSION, getLatestCompactionBoundaryEntry, type SessionHeader } from "./session-manager.ts";
 import type { SettingsManager } from "./settings-manager.ts";
 import type { SlashCommandInfo } from "./slash-commands.ts";
 import { createSyntheticSourceInfo, type SourceInfo } from "./source-info.ts";
@@ -157,6 +160,7 @@ export type AgentSessionEvent =
 			followUp: readonly string[];
 	  }
 	| { type: "compaction_start"; reason: "manual" | "threshold" | "overflow" }
+	| { type: "context_compaction_start"; reason: "manual" }
 	| { type: "session_info_changed"; name: string | undefined }
 	| {
 			type: "model_changed";
@@ -171,6 +175,14 @@ export type AgentSessionEvent =
 			result: CompactionResult | undefined;
 			aborted: boolean;
 			willRetry: boolean;
+			errorMessage?: string;
+	  }
+	| {
+			type: "context_compaction_end";
+			reason: "manual";
+			result: ContextCompactionResult | undefined;
+			aborted: boolean;
+			willRetry: false;
 			errorMessage?: string;
 	  }
 	| { type: "auto_retry_start"; attempt: number; maxAttempts: number; delayMs: number; errorMessage: string }
@@ -2081,6 +2093,83 @@ export class AgentSession {
 	}
 
 	/**
+	 * Manually compact the session context by applying validated logical deletions.
+	 * Retained transcript entries/content blocks stay verbatim; no user prompt text is accepted.
+	 */
+	async contextCompact(): Promise<ContextCompactionResult> {
+		this._disconnectFromAgent();
+		await this.abort();
+		this._compactionAbortController = new AbortController();
+		this._emit({ type: "context_compaction_start", reason: "manual" });
+
+		try {
+			if (!this.model) {
+				throw new Error(formatNoModelSelectedMessage());
+			}
+
+			const { apiKey, headers } = await this._getRequiredRequestAuth(this.model);
+			const pathEntries = this.sessionManager.getBranch();
+			const settings = this.settingsManager.getCompactionSettings();
+			const preparation = prepareContextCompaction(pathEntries, settings);
+			if (!preparation) {
+				throw new Error("Nothing to context-compact (session too small)");
+			}
+
+			const validated = await runContextCompact(
+				preparation,
+				this.model,
+				apiKey,
+				headers,
+				this._compactionAbortController.signal,
+				this.thinkingLevel,
+			);
+
+			if (this._compactionAbortController.signal.aborted) {
+				throw new Error("Compaction cancelled");
+			}
+
+			const backupPath = this.sessionManager.writeBackupSnapshot("context-compact");
+			this.sessionManager.appendContextCompaction(
+				validated.deletedTargets,
+				validated.protectedEntryIds,
+				validated.stats,
+				backupPath,
+			);
+			const sessionContext = this.sessionManager.buildSessionContext();
+			this.agent.state.messages = sessionContext.messages;
+
+			const result: ContextCompactionResult = {
+				...validated,
+				promptVersion: 1,
+				backupPath,
+			};
+			this._emit({
+				type: "context_compaction_end",
+				reason: "manual",
+				result,
+				aborted: false,
+				willRetry: false,
+			});
+			return result;
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			const aborted = message === "Compaction cancelled" || (error instanceof Error && error.name === "AbortError");
+			this._emit({
+				type: "context_compaction_end",
+				reason: "manual",
+				result: undefined,
+				aborted,
+				willRetry: false,
+				errorMessage: aborted ? undefined : `Context compaction failed: ${message}`,
+			});
+			throw error;
+		} finally {
+			this._compactionAbortController = undefined;
+			this._reconnectToAgent();
+		}
+	}
+
+	/**
 	 * Cancel in-progress compaction (manual or auto).
 	 */
 	abortCompaction(): void {
@@ -2125,10 +2214,11 @@ export class AgentSession {
 		// Skip compaction checks if this assistant message is older than the latest
 		// compaction boundary. This prevents a stale pre-compaction usage/error
 		// from retriggering compaction on the first prompt after compaction.
-		const compactionEntry = getLatestCompactionEntry(this.sessionManager.getBranch());
-		const assistantIsFromBeforeCompaction =
-			compactionEntry !== null && assistantMessage.timestamp <= new Date(compactionEntry.timestamp).getTime();
-		if (assistantIsFromBeforeCompaction) {
+		const compactionBoundaryEntry = getLatestCompactionBoundaryEntry(this.sessionManager.getBranch());
+		const assistantIsFromBeforeCompactionBoundary =
+			compactionBoundaryEntry !== null &&
+			assistantMessage.timestamp <= new Date(compactionBoundaryEntry.timestamp).getTime();
+		if (assistantIsFromBeforeCompactionBoundary) {
 			return;
 		}
 
@@ -2171,9 +2261,9 @@ export class AgentSession {
 			// trigger compaction right after one just finished.
 			const usageMsg = messages[estimate.lastUsageIndex];
 			if (
-				compactionEntry &&
+				compactionBoundaryEntry &&
 				usageMsg.role === "assistant" &&
-				(usageMsg as AssistantMessage).timestamp <= new Date(compactionEntry.timestamp).getTime()
+				(usageMsg as AssistantMessage).timestamp <= new Date(compactionBoundaryEntry.timestamp).getTime()
 			) {
 				return;
 			}
@@ -3338,11 +3428,11 @@ export class AgentSession {
 		// We can only trust usage from an assistant that responded after the latest compaction.
 		// If no such assistant exists, context token count is unknown until the next LLM response.
 		const branchEntries = this.sessionManager.getBranch();
-		const latestCompaction = getLatestCompactionEntry(branchEntries);
+		const latestCompactionBoundary = getLatestCompactionBoundaryEntry(branchEntries);
 
-		if (latestCompaction) {
+		if (latestCompactionBoundary) {
 			// Check if there's a valid assistant usage after the compaction boundary
-			const compactionIndex = branchEntries.lastIndexOf(latestCompaction);
+			const compactionIndex = branchEntries.lastIndexOf(latestCompactionBoundary);
 			let hasPostCompactionUsage = false;
 			for (let i = branchEntries.length - 1; i > compactionIndex; i--) {
 				const entry = branchEntries[i];

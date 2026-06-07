@@ -538,6 +538,11 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 				return success(id, "compact", result);
 			}
 
+			case "context_compact": {
+				const result = await session.contextCompact();
+				return success(id, "context_compact", result);
+			}
+
 			case "set_auto_compaction": {
 				session.setAutoCompactionEnabled(command.enabled);
 				return success(id, "set_auto_compaction");

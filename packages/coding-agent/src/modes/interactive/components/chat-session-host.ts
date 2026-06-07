@@ -307,8 +307,25 @@ export class ChatSessionHost<TExtraEntry extends ChatTranscriptEntryLike = never
         this.statusMessage = "compacting context…";
         changed = true;
         break;
+      case "context_compaction_start":
+        this.compacting = true;
+        this.sdkBusy = true;
+        this.statusMessage = "context-compacting…";
+        changed = true;
+        break;
       case "compaction_end": {
         const compaction = event as Extract<AgentSessionEvent, { type: "compaction_end" }>;
+        this.compacting = false;
+        this.sdkBusy = false;
+        this.statusMessage = compaction.errorMessage ?? "";
+        if (!compaction.aborted && !compaction.errorMessage && this.compactionQueuedMessages.length > 0) {
+          void this.flushCompactionQueue();
+        }
+        changed = true;
+        break;
+      }
+      case "context_compaction_end": {
+        const compaction = event as Extract<AgentSessionEvent, { type: "context_compaction_end" }>;
         this.compacting = false;
         this.sdkBusy = false;
         this.statusMessage = compaction.errorMessage ?? "";

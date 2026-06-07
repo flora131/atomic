@@ -3191,6 +3191,15 @@ export class InteractiveMode {
         await this.handleClearCommand();
         return;
       }
+      if (/^\/context-compact(?:\s|$)/.test(text)) {
+        this.editor.setText("");
+        if (text !== "/context-compact") {
+          this.showWarning("Usage: /context-compact");
+          return;
+        }
+        await this.handleContextCompactCommand();
+        return;
+      }
       if (text === "/compact" || text.startsWith("/compact ")) {
         const customInstructions = text.startsWith("/compact ")
           ? text.slice(9).trim()
@@ -3602,6 +3611,59 @@ export class InteractiveMode {
               new Text(theme.fg("error", event.errorMessage), 1, 0),
             );
           }
+        }
+        void this.flushCompactionQueue({ willRetry: event.willRetry });
+        this.ui.requestRender();
+        break;
+      }
+
+      case "context_compaction_start": {
+        if (this.settingsManager.getShowTerminalProgress()) {
+          this.ui.terminal.setProgress(true);
+        }
+        this.autoCompactionEscapeHandler = this.defaultEditor.onEscape;
+        this.defaultEditor.onEscape = () => {
+          this.session.abortCompaction();
+        };
+        this.statusContainer.clear();
+        const cancelHint = `(${keyText("app.interrupt")} Cancel)`;
+        this.autoCompactionLoader = new Loader(
+          this.ui,
+          (spinner) => theme.fg("accent", spinner),
+          (text) => theme.fg("muted", text),
+          `Context-compacting... ${cancelHint}`,
+        );
+        this.statusContainer.addChild(this.autoCompactionLoader);
+        this.ui.requestRender();
+        break;
+      }
+
+      case "context_compaction_end": {
+        if (this.settingsManager.getShowTerminalProgress()) {
+          this.ui.terminal.setProgress(false);
+        }
+        if (this.autoCompactionEscapeHandler) {
+          this.defaultEditor.onEscape = this.autoCompactionEscapeHandler;
+          this.autoCompactionEscapeHandler = undefined;
+        }
+        if (this.autoCompactionLoader) {
+          this.autoCompactionLoader.stop();
+          this.autoCompactionLoader = undefined;
+          this.statusContainer.clear();
+        }
+        if (event.aborted) {
+          this.showError("Context compaction cancelled");
+        } else if (event.result) {
+          this.chatContainer.clear();
+          this.rebuildChatFromMessages();
+          const stats = event.result.stats;
+          const backup = event.result.backupPath ? ` Backup: ${event.result.backupPath}` : "";
+          this.showStatus(
+            `Context-compacted ${stats.objectsDeleted} object${stats.objectsDeleted === 1 ? "" : "s"} (${stats.tokensBefore} → ${stats.tokensAfter} tokens, ${stats.percentReduction}% reduction).${backup}`,
+          );
+          this.footer.invalidate();
+        } else if (event.errorMessage) {
+          this.showError(event.errorMessage);
         }
         void this.flushCompactionQueue({ willRetry: event.willRetry });
         this.ui.requestRender();
@@ -6507,6 +6569,28 @@ export class InteractiveMode {
 
     try {
       await this.session.compact(customInstructions);
+    } catch {
+      // Ignore, will be emitted as an event
+    }
+  }
+
+  private async handleContextCompactCommand(): Promise<void> {
+    const entries = this.sessionManager.getEntries();
+    const messageCount = entries.filter((e) => e.type === "message").length;
+
+    if (messageCount < 2) {
+      this.showWarning("Nothing to context-compact (no messages yet)");
+      return;
+    }
+
+    if (this.loadingAnimation) {
+      this.loadingAnimation.stop();
+      this.loadingAnimation = undefined;
+    }
+    this.statusContainer.clear();
+
+    try {
+      await this.session.contextCompact();
     } catch {
       // Ignore, will be emitted as an event
     }

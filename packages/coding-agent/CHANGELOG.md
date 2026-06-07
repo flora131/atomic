@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.8.26-alpha.9] - 2026-06-07
+
+### Changed
+
+- Documented npm/pnpm installation options in Atomic docs and limited Mintlify validation to pull requests ([#1294](https://github.com/bastani-inc/atomic/pull/1294)).
+- Fixed Mintlify MDX autolinks in package docs so documentation validation passes ([#1293](https://github.com/bastani-inc/atomic/pull/1293)).
+
 ## [0.8.26-alpha.8] - 2026-06-07
 
 ### Changed

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.8.26-alpha.8] - 2026-06-07
+
 ### Changed
 
 - Changed manual `/compact` and auto-compaction to use deletion-only context compaction by default, preserving retained transcript content verbatim.

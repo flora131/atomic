@@ -950,7 +950,7 @@ if (usage && usage.tokens > 100_000) {
 
 ### ctx.compact()
 
-Trigger Atomic's default Verbatim Compaction without awaiting completion. This is deletion-only Context Compaction: retained transcript content stays unchanged, and older low-signal objects are omitted by validated logical deletion. The approach is informed by Morph's Context Compaction write-up: <https://www.morphllm.com/context-compaction>. Use `onComplete` and `onError` for follow-up actions.
+Trigger Atomic's default Verbatim Compaction without awaiting completion. This is deletion-only Context Compaction: retained transcript content stays unchanged, and older low-signal objects are omitted by validated logical deletion. The approach is informed by Morph's Context Compaction write-up: [Morph's Context Compaction](https://www.morphllm.com/context-compaction). Use `onComplete` and `onError` for follow-up actions.
 
 ```typescript
 ctx.compact({

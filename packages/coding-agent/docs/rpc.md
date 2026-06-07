@@ -352,7 +352,7 @@ Response:
 
 #### compact
 
-Run Atomic's default Verbatim Compaction to reduce token usage. This command has no prompt/config fields; send no custom instructions. Atomic asks the selected model for deletion targets using a fixed internal prompt, validates them, appends a `context_compaction` entry, and rebuilds active context with surviving entries/content blocks reused verbatim. This deletion-only Context Compaction approach is informed by Morph's article: <https://www.morphllm.com/context-compaction>.
+Run Atomic's default Verbatim Compaction to reduce token usage. This command has no prompt/config fields; send no custom instructions. Atomic asks the selected model for deletion targets using a fixed internal prompt, validates them, appends a `context_compaction` entry, and rebuilds active context with surviving entries/content blocks reused verbatim. This deletion-only Context Compaction approach is informed by Morph's article: [Morph's Context Compaction](https://www.morphllm.com/context-compaction).
 
 ```json
 {"type": "compact"}

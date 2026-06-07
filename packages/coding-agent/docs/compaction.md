@@ -2,7 +2,7 @@
 
 LLMs have limited context windows. When conversations grow too long, Atomic uses a deletion-only form of Context Compaction called **Verbatim Compaction**: it deletes safe older transcript objects while preserving every retained object byte-for-byte. This page covers auto-compaction, manual compaction, and branch summarization.
 
-Atomic's default compaction design and terminology are informed by Morph's Context Compaction work: <https://www.morphllm.com/context-compaction>. In particular, Atomic follows the same core idea that coding agents benefit from deleting low-signal context instead of rewriting high-signal details like file paths, line numbers, and error strings into a lossy summary.
+Atomic's default compaction design and terminology are informed by Morph's Context Compaction work: [Morph's Context Compaction](https://www.morphllm.com/context-compaction). In particular, Atomic follows the same core idea that coding agents benefit from deleting low-signal context instead of rewriting high-signal details like file paths, line numbers, and error strings into a lossy summary.
 
 **Source files** ([atomic](https://github.com/bastani-inc/atomic)):
 - [`packages/coding-agent/src/core/compaction/compaction.ts`](https://github.com/bastani-inc/atomic/blob/main/packages/coding-agent/src/core/compaction/compaction.ts) - Summary compaction logic

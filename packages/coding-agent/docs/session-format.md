@@ -235,7 +235,7 @@ Optional fields:
 
 ### ContextCompactionEntry
 
-Created by `/compact` and auto-compaction. Stores Atomic's default **Verbatim Compaction** data: validated logical deletion targets, not replacement text. During `buildSessionContext()`, matching entries/content blocks are filtered from active LLM context while retained content remains verbatim. This deletion-only Context Compaction approach is informed by Morph's write-up at <https://www.morphllm.com/context-compaction>.
+Created by `/compact` and auto-compaction. Stores Atomic's default **Verbatim Compaction** data: validated logical deletion targets, not replacement text. During `buildSessionContext()`, matching entries/content blocks are filtered from active LLM context while retained content remains verbatim. This deletion-only Context Compaction approach is informed by Morph's write-up at [Morph's Context Compaction](https://www.morphllm.com/context-compaction).
 
 ```json
 {"type":"context_compaction","id":"ctx12345","parentId":"f6g7h8i9","timestamp":"2024-12-03T14:12:00.000Z","promptVersion":1,"deletedTargets":[{"kind":"entry","entryId":"b2c3d4e5"}],"protectedEntryIds":["a1b2c3d4"],"stats":{"objectsBefore":20,"objectsAfter":19,"objectsDeleted":1,"tokensBefore":50000,"tokensAfter":43000,"percentReduction":14},"backupPath":"/path/session.jsonl.2024-12-03T14-12-00-000Z.compact.bak"}

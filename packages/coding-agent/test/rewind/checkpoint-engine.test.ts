@@ -98,6 +98,21 @@ describe("CheckpointEngine", () => {
 		expect(readFileSync(join(repo, "new.txt"), "utf8")).toBe("new\n");
 	});
 
+	it("sanitizes hyphen-padded session ids for checkpoint refs", () => {
+		const repo = tempRepo();
+		cleanup.push(repo);
+		writeFileSync(join(repo, "file.txt"), "session id sanitized\n");
+		const padding = "-".repeat(2048);
+		const engine = new CheckpointEngine({ cwd: repo, sessionId: `${padding}session-1${padding}` });
+
+		const created = engine.createCheckpoint({ trigger: "turn" });
+
+		expect(created.ok).toBe(true);
+		if (!created.ok) throw new Error(created.error);
+		const refs = git(repo, ["for-each-ref", "refs/atomic-checkpoints/session-1", "--format=%(refname)"]);
+		expect(refs).toContain(created.value.id);
+	});
+
 	it("roots the worktree tree at the checkpoint ref and the index tree at the parent commit", () => {
 		const repo = tempRepo();
 		cleanup.push(repo);

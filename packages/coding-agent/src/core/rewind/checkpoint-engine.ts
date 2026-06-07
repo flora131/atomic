@@ -80,9 +80,38 @@ function skippedRestorePaths(universe: RestoreTargetUniverse): string[] {
 }
 
 function sanitizeRefSegment(value: string): string | null {
-	const segment = value.replace(/[^A-Za-z0-9._-]/g, "-").replace(/^-+|-+$/g, "");
+	const segment = trimEdgeHyphens(replaceUnsafeRefSegmentChars(value));
 	if (!segment || segment.includes("..") || segment.startsWith(".") || segment.endsWith(".")) return null;
 	return segment;
+}
+
+function replaceUnsafeRefSegmentChars(value: string): string {
+	const chars: string[] = [];
+	for (const char of value) {
+		chars.push(isSafeRefSegmentChar(char) ? char : "-");
+	}
+	return chars.join("");
+}
+
+function isSafeRefSegmentChar(char: string): boolean {
+	if (char.length !== 1) return false;
+	const code = char.charCodeAt(0);
+	return (
+		(code >= 48 && code <= 57) ||
+		(code >= 65 && code <= 90) ||
+		(code >= 97 && code <= 122) ||
+		char === "." ||
+		char === "_" ||
+		char === "-"
+	);
+}
+
+function trimEdgeHyphens(value: string): string {
+	let start = 0;
+	let end = value.length;
+	while (start < end && value.charCodeAt(start) === 45) start++;
+	while (end > start && value.charCodeAt(end - 1) === 45) end--;
+	return value.slice(start, end);
 }
 
 export class CheckpointEngine {

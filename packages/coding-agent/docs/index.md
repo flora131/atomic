@@ -9,10 +9,24 @@ Atomic is a minimal terminal coding harness. It is designed to stay small at the
 
 ## Quick start
 
-Install Atomic with Bun:
+Install Atomic globally with npm, pnpm, or Bun:
+
+With npm:
 
 ```bash
-bun install -g @bastani/atomic
+npm install -g @bastani/atomic
+```
+
+With pnpm:
+
+```bash
+pnpm add -g @bastani/atomic
+```
+
+With Bun:
+
+```bash
+bun add -g @bastani/atomic
 ```
 
 Atomic does not require package install scripts. If you want to disable dependency lifecycle scripts during the Atomic install, you can add `--ignore-scripts` to the install command.

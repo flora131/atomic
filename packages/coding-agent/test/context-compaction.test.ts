@@ -7,6 +7,7 @@ import {
 	estimateContextTokens,
 	estimateTokens,
 	parseContextDeletionPlan,
+	parseContextDeletionPlanResponse,
 	prepareContextCompaction,
 	validateContextDeletionPlan,
 } from "../src/core/compaction/index.ts";
@@ -207,6 +208,25 @@ describe("context compaction", () => {
 	it("parses fenced deletion-plan JSON", () => {
 		const parsed = parseContextDeletionPlan('```json\n{ "deletions": [{ "kind": "entry", "entryId": "abc" }] }\n```');
 		expect(parsed.deletions).toEqual([{ kind: "entry", entryId: "abc" }]);
+	});
+
+	it("reads deletion plans from structured planner tool calls", () => {
+		const response: AssistantMessage = {
+			...assistantText(""),
+			content: [
+				{
+					type: "toolCall",
+					id: "toolu_plan",
+					name: "context_deletion_plan",
+					arguments: { deletions: [{ kind: "content_block", entryId: "abc", blockIndex: 1 }] },
+				},
+			],
+			stopReason: "toolUse",
+		};
+
+		const parsed = parseContextDeletionPlanResponse(response);
+
+		expect(parsed.deletions).toEqual([{ kind: "content_block", entryId: "abc", blockIndex: 1 }]);
 	});
 
 	it("excludes excludeFromContext entries from planner transcript, prompt, recency, and stats", () => {

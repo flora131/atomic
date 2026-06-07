@@ -1,6 +1,7 @@
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { Api, AssistantMessage, Model } from "@earendil-works/pi-ai";
-import { completeSimple } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessage, Model, ToolCall } from "@earendil-works/pi-ai";
+import { completeSimple, StringEnum } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import {
 	createBranchSummaryMessage,
 	createCompactionSummaryMessage,
@@ -73,8 +74,40 @@ export interface ContextCompactionResult extends ValidatedContextDeletionPlan {
 	backupPath?: string;
 }
 
+const CONTEXT_DELETION_PLAN_TOOL_NAME = "context_deletion_plan";
+
+const ContextDeletionPlanToolParameters = Type.Object(
+	{
+		deletions: Type.Array(
+			Type.Object(
+				{
+					kind: StringEnum(["entry", "content_block"] as const, {
+						description: "Delete an entire transcript entry or a single content block within one entry.",
+					}),
+					entryId: Type.String({ minLength: 1, description: "Stable transcript entry id to delete from." }),
+					blockIndex: Type.Optional(
+						Type.Integer({
+							minimum: 0,
+							description: "Required when kind is content_block; omit when kind is entry.",
+						}),
+					),
+				},
+				{ additionalProperties: false },
+			),
+			{ description: "Deletion targets only. Protected entries and recent active context must not be included." },
+		),
+	},
+	{ additionalProperties: false },
+);
+
+const CONTEXT_DELETION_PLAN_TOOL = {
+	name: CONTEXT_DELETION_PLAN_TOOL_NAME,
+	description: "Emit the final context compaction deletion plan as structured data.",
+	parameters: ContextDeletionPlanToolParameters,
+} as const;
+
 const CONTEXT_COMPACTION_SYSTEM_PROMPT =
-	"You are a context compaction planner for an AI coding assistant transcript. Return deletion targets only.";
+	"You are a context compaction planner for an AI coding assistant transcript. Call the context_deletion_plan tool with deletion targets only.";
 
 const CONTEXT_COMPACTION_FIXED_PROMPT = `You are a context compaction planner for an AI coding assistant transcript.
 
@@ -100,13 +133,13 @@ What Survives:
 - User instructions: The original task and any clarifications.
 
 <output_format>
-Return JSON only in this exact shape:
+Call the context_deletion_plan tool exactly once with deletion targets in this shape:
 { "deletions": [{ "kind": "entry", "entryId": "..." }] }
 
 For content-block deletions, use:
 { "kind": "content_block", "entryId": "...", "blockIndex": 0 }
 
-Do not include prose outside the JSON object.
+Do not write JSON or prose in a text response. The tool call is the final answer.
 </output_format>`;
 
 function getMessageFromEntry(entry: SessionEntry): AgentMessage | undefined {
@@ -606,8 +639,22 @@ export function validateContextDeletionPlan(
 
 function stripJsonFence(text: string): string {
 	const trimmed = text.trim();
-	const fenceMatch = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-	return fenceMatch?.[1]?.trim() ?? trimmed;
+	if (!trimmed.startsWith("```") || !trimmed.endsWith("```")) return trimmed;
+
+	const firstLineEnd = trimmed.indexOf("\n");
+	if (firstLineEnd < 0) return trimmed;
+
+	const fenceInfo = trimmed.slice(3, firstLineEnd).trim().toLowerCase();
+	if (fenceInfo !== "" && fenceInfo !== "json") return trimmed;
+
+	return trimmed.slice(firstLineEnd + 1, -3).trim();
+}
+
+function rawContextDeletionPlanFromObject(value: unknown, source: string): RawContextDeletionPlan {
+	if (!value || typeof value !== "object" || !Array.isArray((value as { deletions?: unknown }).deletions)) {
+		throw new Error(`${source} must contain a deletions array`);
+	}
+	return value as RawContextDeletionPlan;
 }
 
 export function parseContextDeletionPlan(text: string): RawContextDeletionPlan {
@@ -618,10 +665,35 @@ export function parseContextDeletionPlan(text: string): RawContextDeletionPlan {
 	} catch (error) {
 		throw new Error(`Failed to parse context deletion plan JSON: ${error instanceof Error ? error.message : String(error)}`);
 	}
-	if (!parsed || typeof parsed !== "object" || !Array.isArray((parsed as { deletions?: unknown }).deletions)) {
-		throw new Error("Context deletion plan JSON must contain a deletions array");
+	return rawContextDeletionPlanFromObject(parsed, "Context deletion plan JSON");
+}
+
+function isContextDeletionPlanToolCall(content: AssistantMessage["content"][number]): content is ToolCall {
+	return content.type === "toolCall" && content.name === CONTEXT_DELETION_PLAN_TOOL_NAME;
+}
+
+function textContentFromResponse(response: AssistantMessage): string {
+	return response.content
+		.filter((content): content is { type: "text"; text: string } => content.type === "text")
+		.map((content) => content.text)
+		.join("\n");
+}
+
+export function parseContextDeletionPlanResponse(response: AssistantMessage): RawContextDeletionPlan {
+	const toolCalls = response.content.filter(isContextDeletionPlanToolCall);
+	if (toolCalls.length > 1) {
+		throw new Error(`Context compaction planner called ${CONTEXT_DELETION_PLAN_TOOL_NAME} more than once`);
 	}
-	return parsed as RawContextDeletionPlan;
+	const toolCall = toolCalls[0];
+	if (toolCall) {
+		return rawContextDeletionPlanFromObject(toolCall.arguments, `${CONTEXT_DELETION_PLAN_TOOL_NAME} arguments`);
+	}
+
+	const textContent = textContentFromResponse(response);
+	if (textContent.trim().length === 0) {
+		throw new Error(`Context compaction planner did not call ${CONTEXT_DELETION_PLAN_TOOL_NAME}`);
+	}
+	return parseContextDeletionPlan(textContent);
 }
 
 function truncateForPrompt(text: string, maxChars: number): string {
@@ -674,15 +746,15 @@ export async function planContextDeletions(
 		model.reasoning && thinkingLevel && thinkingLevel !== "off"
 			? { maxTokens, signal, apiKey, headers, reasoning: thinkingLevel }
 			: { maxTokens, signal, apiKey, headers };
-	const response = await completeSimple(model, { systemPrompt: CONTEXT_COMPACTION_SYSTEM_PROMPT, messages }, options);
+	const response = await completeSimple(
+		model,
+		{ systemPrompt: CONTEXT_COMPACTION_SYSTEM_PROMPT, messages, tools: [CONTEXT_DELETION_PLAN_TOOL] },
+		options,
+	);
 	if (response.stopReason === "error") {
 		throw new Error(`Context compaction planning failed: ${response.errorMessage || "Unknown error"}`);
 	}
-	const textContent = response.content
-		.filter((content): content is { type: "text"; text: string } => content.type === "text")
-		.map((content) => content.text)
-		.join("\n");
-	return parseContextDeletionPlan(textContent);
+	return parseContextDeletionPlanResponse(response);
 }
 
 export async function contextCompact(

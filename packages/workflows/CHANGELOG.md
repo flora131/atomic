@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Updated workflow-stage chat so `/compact` is the no-argument compaction command and `/context-compact` is no longer handled locally.
+
 ## [0.8.26-alpha.7] - 2026-06-07
 
 ### Changed

@@ -109,8 +109,8 @@ interface AgentSession {
   // In-place tree navigation within the current session file
   navigateTree(targetId: string, options?: { summarize?: boolean; customInstructions?: string; replaceInstructions?: boolean; label?: string }): Promise<{ editorText?: string; cancelled: boolean }>;
 
-  // Compaction
-  compact(customInstructions?: string): Promise<CompactionResult>;
+  // Verbatim Compaction (deletion-only Context Compaction)
+  compact(): Promise<ContextCompactionResult>;
   abortCompaction(): void;
 
   // Abort current operation

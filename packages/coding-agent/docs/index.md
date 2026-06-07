@@ -37,7 +37,7 @@ For the full first-run flow, see [Quickstart](/quickstart).
 - [Settings](/settings) - global and project settings.
 - [Keybindings](/keybindings) - default shortcuts and custom keybindings.
 - [Sessions](/sessions) - session management, branching, and tree navigation.
-- [Compaction](/compaction) - context compaction and branch summarization.
+- [Compaction](/compaction) - Verbatim Compaction, context management, and branch summarization.
 
 ## Customization
 

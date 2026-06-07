@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Changed manual `/compact` and auto-compaction to use deletion-only context compaction by default, preserving retained transcript content verbatim.
+- Restyled completed context compaction results with the same expandable summary-card treatment as summary compaction.
+
+### Removed
+
+- Removed the `/context-compact` interactive and workflow-stage slash command; use `/compact` instead.
+
 ## [0.8.26-alpha.7] - 2026-06-07
 
 ### Added

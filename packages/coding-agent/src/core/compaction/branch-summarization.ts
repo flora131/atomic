@@ -14,7 +14,12 @@ import {
 	createCompactionSummaryMessage,
 	createCustomMessage,
 } from "../messages.ts";
-import type { ReadonlySessionManager, SessionEntry } from "../session-manager.ts";
+import {
+	buildContextDeletionFilteredPath,
+	buildContextDeletionFilters,
+	type ReadonlySessionManager,
+	type SessionEntry,
+} from "../session-manager.ts";
 import { estimateTokens } from "./compaction.ts";
 import {
 	computeFileLists,
@@ -172,6 +177,7 @@ function getMessageFromEntry(entry: SessionEntry): AgentMessage | undefined {
 		case "custom":
 		case "label":
 		case "session_info":
+		case "context_compaction":
 			return undefined;
 	}
 }
@@ -192,12 +198,13 @@ function getMessageFromEntry(entry: SessionEntry): AgentMessage | undefined {
 export function prepareBranchEntries(entries: SessionEntry[], tokenBudget: number = 0): BranchPreparation {
 	const messages: AgentMessage[] = [];
 	const fileOps = createFileOps();
+	const filteredEntries = buildContextDeletionFilteredPath(entries, buildContextDeletionFilters(entries));
 	let totalTokens = 0;
 
 	// First pass: collect file ops from ALL entries (even if they don't fit in token budget)
 	// This ensures we capture cumulative file tracking from nested branch summaries
 	// Only extract from pi-generated summaries (fromHook !== true), not extension-generated ones
-	for (const entry of entries) {
+	for (const entry of filteredEntries) {
 		if (entry.type === "branch_summary" && !entry.fromHook && entry.details) {
 			const details = entry.details as BranchSummaryDetails;
 			if (Array.isArray(details.readFiles)) {
@@ -213,8 +220,8 @@ export function prepareBranchEntries(entries: SessionEntry[], tokenBudget: numbe
 	}
 
 	// Second pass: walk from newest to oldest, adding messages until token budget
-	for (let i = entries.length - 1; i >= 0; i--) {
-		const entry = entries[i];
+	for (let i = filteredEntries.length - 1; i >= 0; i--) {
+		const entry = filteredEntries[i];
 		const message = getMessageFromEntry(entry);
 		if (!message) continue;
 

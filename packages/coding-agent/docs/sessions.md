@@ -30,6 +30,7 @@ For the JSONL file format and SessionManager API, see [Session Format](/session-
 | `/fork` | Create a new session from a previous user message |
 | `/clone` | Duplicate the current active branch into a new session |
 | `/compact [prompt]` | Summarize older context; see [Compaction](/compaction) |
+| `/context-compact` | Apply validated deletion-only logical compaction; no arguments |
 | `/export [file]` | Export session to HTML |
 | `/share` | Upload as private GitHub gist with shareable HTML link |
 
@@ -132,6 +133,6 @@ See [Compaction](/compaction) for branch summarization internals and extension h
 
 ## Session Format
 
-Session files are JSONL and contain message entries, model changes, thinking-level changes, labels, compactions, branch summaries, and extension entries.
+Session files are JSONL and contain message entries, model changes, thinking-level changes, labels, summary compactions, context compactions, branch summaries, and extension entries.
 
 For parsers, extensions, SDK usage, and the full SessionManager API, see [Session Format](/session-format).

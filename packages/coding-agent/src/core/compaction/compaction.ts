@@ -14,7 +14,12 @@ import {
 	createCompactionSummaryMessage,
 	createCustomMessage,
 } from "../messages.ts";
-import { buildSessionContext, type CompactionEntry, type SessionEntry } from "../session-manager.ts";
+import {
+	buildContextDeletionFilteredPath,
+	buildSessionContext,
+	type CompactionEntry,
+	type SessionEntry,
+} from "../session-manager.ts";
 import {
 	computeFileLists,
 	createFileOps,
@@ -327,6 +332,7 @@ function findValidCutPoints(entries: SessionEntry[], startIndex: number, endInde
 			case "thinking_level_change":
 			case "model_change":
 			case "compaction":
+			case "context_compaction":
 			case "branch_summary":
 			case "custom":
 			case "custom_message":
@@ -431,7 +437,7 @@ export function findCutPoint(
 	while (cutIndex > startIndex) {
 		const prevEntry = entries[cutIndex - 1];
 		// Stop at session header or compaction boundaries
-		if (prevEntry.type === "compaction") {
+		if (prevEntry.type === "compaction" || prevEntry.type === "context_compaction") {
 			break;
 		}
 		if (prevEntry.type === "message") {
@@ -645,14 +651,27 @@ export function prepareCompaction(
 		const firstKeptEntryIndex = pathEntries.findIndex((entry) => entry.id === prevCompaction.firstKeptEntryId);
 		boundaryStart = firstKeptEntryIndex >= 0 ? firstKeptEntryIndex : prevCompactionIndex + 1;
 	}
-	const boundaryEnd = pathEntries.length;
+
+	const filteredPathEntries = buildContextDeletionFilteredPath(pathEntries);
+	const filteredIndexById = new Map(filteredPathEntries.map((entry, index) => [entry.id, index]));
+	const findFilteredIndexAtOrAfter = (rawIndex: number): number => {
+		for (let i = rawIndex; i < pathEntries.length; i++) {
+			const filteredIndex = filteredIndexById.get(pathEntries[i].id);
+			if (filteredIndex !== undefined) return filteredIndex;
+		}
+		return filteredPathEntries.length;
+	};
+	const filteredBoundaryStart = findFilteredIndexAtOrAfter(boundaryStart);
+	const filteredPrevCompactionIndex =
+		prevCompactionIndex >= 0 ? (filteredIndexById.get(pathEntries[prevCompactionIndex].id) ?? -1) : -1;
+	const boundaryEnd = filteredPathEntries.length;
 
 	const tokensBefore = estimateContextTokens(buildSessionContext(pathEntries).messages).tokens;
 
-	const cutPoint = findCutPoint(pathEntries, boundaryStart, boundaryEnd, settings.keepRecentTokens);
+	const cutPoint = findCutPoint(filteredPathEntries, filteredBoundaryStart, boundaryEnd, settings.keepRecentTokens);
 
 	// Get UUID of first kept entry
-	const firstKeptEntry = pathEntries[cutPoint.firstKeptEntryIndex];
+	const firstKeptEntry = filteredPathEntries[cutPoint.firstKeptEntryIndex];
 	if (!firstKeptEntry?.id) {
 		return undefined; // Session needs migration
 	}
@@ -662,8 +681,8 @@ export function prepareCompaction(
 
 	// Messages to summarize (will be discarded after summary)
 	const messagesToSummarize: AgentMessage[] = [];
-	for (let i = boundaryStart; i < historyEnd; i++) {
-		const msg = getMessageFromEntryForCompaction(pathEntries[i]);
+	for (let i = filteredBoundaryStart; i < historyEnd; i++) {
+		const msg = getMessageFromEntryForCompaction(filteredPathEntries[i]);
 		if (msg) messagesToSummarize.push(msg);
 	}
 
@@ -671,13 +690,13 @@ export function prepareCompaction(
 	const turnPrefixMessages: AgentMessage[] = [];
 	if (cutPoint.isSplitTurn) {
 		for (let i = cutPoint.turnStartIndex; i < cutPoint.firstKeptEntryIndex; i++) {
-			const msg = getMessageFromEntryForCompaction(pathEntries[i]);
+			const msg = getMessageFromEntryForCompaction(filteredPathEntries[i]);
 			if (msg) turnPrefixMessages.push(msg);
 		}
 	}
 
-	// Extract file operations from messages and previous compaction
-	const fileOps = extractFileOperations(messagesToSummarize, pathEntries, prevCompactionIndex);
+	// Extract file operations from filtered messages and previous compaction
+	const fileOps = extractFileOperations(messagesToSummarize, filteredPathEntries, filteredPrevCompactionIndex);
 
 	// Also extract file ops from turn prefix if splitting
 	if (cutPoint.isSplitTurn) {

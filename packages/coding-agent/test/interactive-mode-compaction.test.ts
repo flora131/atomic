@@ -3,6 +3,72 @@ import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
 
 describe("InteractiveMode compaction events", () => {
+	test("routes exact /context-compact to contextCompact and rejects trailing text", async () => {
+		const submitHost = {
+			defaultEditor: {} as { onSubmit?: (text: string) => Promise<void> },
+			editor: { setText: vi.fn() },
+			sessionManager: {
+				getEntries: () => [
+					{ type: "message", message: { role: "user", content: "task" } },
+					{ type: "message", message: { role: "assistant", content: [] } },
+				],
+			},
+			session: {
+				contextCompact: vi.fn().mockResolvedValue({}),
+				compact: vi.fn().mockResolvedValue({}),
+				prompt: vi.fn(),
+				isCompacting: false,
+				isStreaming: false,
+				isBashRunning: false,
+			},
+			statusContainer: { clear: vi.fn() },
+			isBashMode: false,
+			onInputCallback: undefined,
+			flushPendingBashComponents: vi.fn(),
+			updateEditorBorderColor: vi.fn(),
+			showWarning: vi.fn(),
+			handleContextCompactCommand: Reflect.get(InteractiveMode.prototype, "handleContextCompactCommand"),
+			handleCompactCommand: vi.fn(),
+		};
+		const setupEditorSubmitHandler = Reflect.get(InteractiveMode.prototype, "setupEditorSubmitHandler") as (
+			this: typeof submitHost,
+		) => void;
+		setupEditorSubmitHandler.call(submitHost);
+
+		await submitHost.defaultEditor.onSubmit?.("/context-compact keep this");
+		expect(submitHost.session.contextCompact).not.toHaveBeenCalled();
+		expect(submitHost.showWarning).toHaveBeenCalledWith("Usage: /context-compact");
+
+		await submitHost.defaultEditor.onSubmit?.("/context-compact\tkeep this");
+		expect(submitHost.session.contextCompact).not.toHaveBeenCalled();
+		expect(submitHost.showWarning).toHaveBeenCalledWith("Usage: /context-compact");
+
+		await submitHost.defaultEditor.onSubmit?.("/context-compact");
+		expect(submitHost.session.contextCompact).toHaveBeenCalledTimes(1);
+		expect(submitHost.session.compact).not.toHaveBeenCalled();
+	});
+
+	test("keeps /compact custom instructions routing unchanged", async () => {
+		const submitHost = {
+			defaultEditor: {} as { onSubmit?: (text: string) => Promise<void> },
+			editor: { setText: vi.fn() },
+			session: { isCompacting: false, isStreaming: false, isBashRunning: false, prompt: vi.fn() },
+			isBashMode: false,
+			onInputCallback: undefined,
+			flushPendingBashComponents: vi.fn(),
+			updateEditorBorderColor: vi.fn(),
+			handleCompactCommand: vi.fn().mockResolvedValue(undefined),
+		};
+		const setupEditorSubmitHandler = Reflect.get(InteractiveMode.prototype, "setupEditorSubmitHandler") as (
+			this: typeof submitHost,
+		) => void;
+		setupEditorSubmitHandler.call(submitHost);
+
+		await submitHost.defaultEditor.onSubmit?.("/compact preserve exact stack traces");
+
+		expect(submitHost.handleCompactCommand).toHaveBeenCalledWith("preserve exact stack traces");
+	});
+
 	test("shows overflow auto-compaction as a yellow warning", async () => {
 		initTheme(undefined, false);
 		const addedChildren: Array<{ render(width: number): string[]; stop(): void }> = [];

@@ -2050,6 +2050,49 @@ describe("StageChatView", () => {
         view.dispose();
     });
 
+    test("stage chat handles no-args /context-compact and consumes extra args", async () => {
+        let contextCompactCalls = 0;
+        const agentSession = {
+            contextCompact: async () => {
+                contextCompactCalls += 1;
+                return {};
+            },
+        } as unknown as AgentSession;
+        const store = createStore();
+        setupRun(store, "run-1", "stage-a");
+        const { handle, state } = makeHandle(
+            undefined,
+            [],
+            "running",
+            agentSession,
+        );
+        const view = new StageChatView({
+            store,
+            graphTheme: deriveGraphTheme({}),
+            runId: "run-1",
+            stageId: "stage-a",
+            workflowName: "test-wf",
+            handle,
+            onDetach: () => {},
+            onClose: () => {},
+        });
+
+        for (const ch of "/context-compact extra") view.handleInput(ch);
+        view.handleInput("\r");
+        await flush();
+        await flush();
+        assert.equal(contextCompactCalls, 0);
+        assert.deepEqual(state.promptCalls, []);
+
+        for (const ch of "/context-compact") view.handleInput(ch);
+        view.handleInput("\r");
+        await flush();
+        await flush();
+        assert.equal(contextCompactCalls, 1);
+        assert.deepEqual(state.promptCalls, []);
+        view.dispose();
+    });
+
     test("stage chat /exit is not a local workflow slash command", async () => {
         for (const input of ["/exit", "/exit now", "/exit 1"]) {
             const store = createStore();

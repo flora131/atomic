@@ -49,6 +49,7 @@ Type `/` in the editor to open command completion. Extensions can register custo
 | `/fork` | Create a new session from a previous user message |
 | `/clone` | Duplicate the current active branch into a new session |
 | `/compact [prompt]` | Manually compact context, optionally with custom instructions |
+| `/context-compact` | Delete safe older transcript objects verbatim; no arguments |
 | `/copy` | Copy last assistant message to clipboard |
 | `/export [file]` | Export session to HTML |
 | `/share` | Upload as private GitHub gist with shareable HTML link |
@@ -90,6 +91,7 @@ Useful session commands:
 - `/fork` creates a new session from an earlier user message.
 - `/clone` duplicates the current active branch into a new session file.
 - `/compact` summarizes older messages to free context.
+- `/context-compact` uses a fixed no-argument deletion-only planner and applies only validated logical deletions; trailing text is not used as a prompt.
 
 See [Sessions](/sessions) and [Compaction](/compaction) for details.
 

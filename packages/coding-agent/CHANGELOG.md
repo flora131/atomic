@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `/context-compact`, a fixed no-argument deletion-only compaction command that validates model-proposed logical deletion targets, preserves retained transcript content verbatim, and records `context_compaction` session entries.
+
 ### Fixed
 
 - Fixed auto-compaction so queued in-progress work resumes without requiring a manual follow-up prompt ([#1280](https://github.com/bastani-inc/atomic/issues/1280)).

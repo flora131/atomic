@@ -18,6 +18,7 @@ import {
 import {
 	buildSessionContext,
 	type CompactionEntry,
+	type ContextCompactionEntry,
 	type ModelChangeEntry,
 	migrateSessionEntries,
 	parseSessionEntries,
@@ -102,6 +103,29 @@ function createCompactionEntry(summary: string, firstKeptEntryId: string): Compa
 		summary,
 		firstKeptEntryId,
 		tokensBefore: 10000,
+	};
+	lastId = id;
+	return entry;
+}
+
+function createContextCompactionEntry(targets: ContextCompactionEntry["deletedTargets"]): ContextCompactionEntry {
+	const id = `test-id-${entryCounter++}`;
+	const entry: ContextCompactionEntry = {
+		type: "context_compaction",
+		id,
+		parentId: lastId,
+		timestamp: new Date().toISOString(),
+		promptVersion: 1,
+		deletedTargets: targets,
+		protectedEntryIds: [],
+		stats: {
+			objectsBefore: 0,
+			objectsAfter: 0,
+			objectsDeleted: targets.length,
+			tokensBefore: 0,
+			tokensAfter: 0,
+			percentReduction: 0,
+		},
 	};
 	lastId = id;
 	return entry;
@@ -456,6 +480,73 @@ describe("prepareCompaction with previous compaction", () => {
 		expect(summarizedText).toContain("user msg 3 - kept by compaction1");
 		expect(summarizedText).not.toContain("First summary");
 		expect(preparation!.previousSummary).toBe("First summary");
+	});
+
+	it("should filter context deletions from summary preparation inputs", () => {
+		const oldUser = createMessageEntry(createUserMessage("old user task to summarize"));
+		const wholeDeleted = createMessageEntry(createAssistantMessage("WHOLE_ENTRY_DELETED_FROM_SUMMARY"));
+		const partialDeleted = createMessageEntry({
+			...createAssistantMessage(""),
+			content: [
+				{ type: "text", text: "DELETED_SUMMARY_BLOCK" },
+				{ type: "text", text: "RETAINED_SUMMARY_BLOCK" },
+			],
+		});
+		const fileOps = createMessageEntry({
+			...createAssistantMessage(""),
+			content: [
+				{ type: "toolCall", id: "deleted-read", name: "read", arguments: { path: "deleted-old.ts" } },
+				{ type: "toolCall", id: "retained-read", name: "read", arguments: { path: "retained-old.ts" } },
+			],
+			stopReason: "toolUse",
+		});
+		const currentUser = createMessageEntry(createUserMessage("current turn user request"));
+		const prefix = createMessageEntry({
+			...createAssistantMessage(""),
+			content: [
+				{ type: "text", text: "DELETED_PREFIX_BLOCK" },
+				{ type: "text", text: "RETAINED_PREFIX_BLOCK" },
+			],
+		});
+		const logicalDeletion = createContextCompactionEntry([
+			{ kind: "entry", entryId: wholeDeleted.id },
+			{ kind: "content_block", entryId: partialDeleted.id, blockIndex: 0 },
+			{ kind: "content_block", entryId: fileOps.id, blockIndex: 0 },
+			{ kind: "content_block", entryId: prefix.id, blockIndex: 0 },
+		]);
+		const suffix = createMessageEntry(createAssistantMessage("current suffix kept"));
+		const entries: SessionEntry[] = [
+			oldUser,
+			wholeDeleted,
+			partialDeleted,
+			fileOps,
+			currentUser,
+			prefix,
+			logicalDeletion,
+			suffix,
+		];
+		const settings: CompactionSettings = { ...DEFAULT_COMPACTION_SETTINGS, keepRecentTokens: 1 };
+
+		const preparation = prepareCompaction(entries, settings);
+
+		expect(preparation).toBeDefined();
+		expect(preparation!.isSplitTurn).toBe(true);
+		const summarizedText = extractText(preparation!.messagesToSummarize);
+		const turnPrefixText = extractText(preparation!.turnPrefixMessages);
+		expect(summarizedText).toContain("old user task to summarize");
+		expect(summarizedText).not.toContain("WHOLE_ENTRY_DELETED_FROM_SUMMARY");
+		expect(summarizedText).not.toContain("DELETED_SUMMARY_BLOCK");
+		expect(summarizedText).toContain("RETAINED_SUMMARY_BLOCK");
+		expect(turnPrefixText).not.toContain("DELETED_PREFIX_BLOCK");
+		expect(turnPrefixText).toContain("RETAINED_PREFIX_BLOCK");
+		expect(preparation!.fileOps.read.has("deleted-old.ts")).toBe(false);
+		expect(preparation!.fileOps.read.has("retained-old.ts")).toBe(true);
+
+		const laterSummary = createCompactionEntry("summary generated from filtered inputs", preparation!.firstKeptEntryId);
+		const rebuiltText = extractText(buildSessionContext([...entries, laterSummary]).messages);
+		expect(rebuiltText).not.toContain("WHOLE_ENTRY_DELETED_FROM_SUMMARY");
+		expect(rebuiltText).not.toContain("DELETED_SUMMARY_BLOCK");
+		expect(rebuiltText).not.toContain("DELETED_PREFIX_BLOCK");
 	});
 });
 

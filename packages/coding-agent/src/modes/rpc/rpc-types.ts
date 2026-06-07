@@ -7,9 +7,9 @@
 
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, ImageContent, Model } from "@earendil-works/pi-ai";
-import type { SessionStats } from "../../core/agent-session.ts";
+import type { AgentSessionEvent, SessionStats } from "../../core/agent-session.ts";
 import type { BashResult } from "../../core/bash-executor.ts";
-import type { CompactionResult } from "../../core/compaction/index.ts";
+import type { CompactionResult, ContextCompactionResult } from "../../core/compaction/index.ts";
 import type { SourceInfo } from "../../core/source-info.ts";
 
 // ============================================================================
@@ -42,6 +42,7 @@ export type RpcCommand =
 
 	// Compaction
 	| { id?: string; type: "compact"; customInstructions?: string }
+	| { id?: string; type: "context_compact" }
 	| { id?: string; type: "set_auto_compaction"; enabled: boolean }
 
 	// Retry
@@ -158,6 +159,7 @@ export type RpcResponse =
 
 	// Compaction
 	| { id?: string; type: "response"; command: "compact"; success: true; data: CompactionResult }
+	| { id?: string; type: "response"; command: "context_compact"; success: true; data: ContextCompactionResult }
 	| { id?: string; type: "response"; command: "set_auto_compaction"; success: true }
 
 	// Retry
@@ -204,6 +206,13 @@ export type RpcResponse =
 
 	// Error response (any command can fail)
 	| { id?: string; type: "response"; command: string; success: false; error: string };
+
+// ============================================================================
+// RPC Events (stdout)
+// ============================================================================
+
+/** Events streamed by RPC mode as session activity occurs. */
+export type RpcEvent = AgentSessionEvent;
 
 // ============================================================================
 // Extension UI Events (stdout)

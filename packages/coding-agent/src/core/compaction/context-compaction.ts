@@ -1,6 +1,7 @@
 import { Agent, type AgentMessage, type AgentTool, type AgentToolResult, type ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, AssistantMessage, Model, ToolCall } from "@earendil-works/pi-ai";
 import { createAssistantMessageEventStream, streamSimple, StringEnum } from "@earendil-works/pi-ai";
+import { createRequire } from "node:module";
 import { Type } from "typebox";
 import {
 	createBranchSummaryMessage,
@@ -974,18 +975,7 @@ function createGrepMatcher(pattern: string, regex: boolean, caseSensitive: boole
 	}
 }
 
-function getGrepScanTextLength(transcript: CompactableTranscript, target: "entry" | "content_block"): number {
-	if (target === "entry") {
-		return transcript.entries.reduce((total, entry) => total + entry.text.length, 0);
-	}
-	return transcript.entries.reduce(
-		(total, entry) => total + entry.contentBlocks.reduce((entryTotal, block) => entryTotal + block.text.length, 0),
-		0,
-	);
-}
-
-function assertSafeRegexScan(transcript: CompactableTranscript, target: "entry" | "content_block"): void {
-	const scanChars = getGrepScanTextLength(transcript, target);
+function assertSafeRegexScan(scanChars: number): void {
 	if (scanChars <= CONTEXT_GREP_DELETE_MAX_REGEX_SCAN_CHARS) return;
 	throw new Error(
 		`Regex grep would scan ${scanChars} characters; maximum is ${CONTEXT_GREP_DELETE_MAX_REGEX_SCAN_CHARS}. Use a literal pattern or exact deletion targets instead.`,
@@ -1013,47 +1003,319 @@ function addGrepCandidate(
 	matches.push(match);
 }
 
+type SqliteValue = string | number | bigint | null;
+type SqliteRow = Record<string, SqliteValue>;
+
+interface SqliteStatementLike {
+	all(...params: SqliteValue[]): SqliteRow[];
+	get(...params: SqliteValue[]): SqliteRow | undefined;
+	run(...params: SqliteValue[]): unknown;
+}
+
+interface SqliteDatabaseLike {
+	exec(sql: string): void;
+	prepare(sql: string): SqliteStatementLike;
+	close(): unknown;
+}
+
+interface SqliteConstructorLike {
+	new (filename: string): SqliteDatabaseLike;
+}
+
+interface BunSqliteModule {
+	Database: SqliteConstructorLike;
+}
+
+const moduleRequire = createRequire(import.meta.url);
+
+function createTransientSqliteDatabase(): SqliteDatabaseLike {
+	// better-sqlite3 is the portable/package dependency for Node-based Atomic installs.
+	// Bun cannot dlopen better-sqlite3 yet, so Bun runtime/tests use the API-compatible builtin.
+	if (process.versions.bun) {
+		const sqlite = moduleRequire("bun:sqlite") as BunSqliteModule;
+		return new sqlite.Database(":memory:");
+	}
+
+	const BetterSqliteDatabase = moduleRequire("better-sqlite3") as SqliteConstructorLike;
+	return new BetterSqliteDatabase(":memory:");
+}
+
+class SqliteAdapter {
+	private readonly db: SqliteDatabaseLike;
+
+	constructor(db: SqliteDatabaseLike) {
+		this.db = db;
+	}
+
+	static createTransient(): SqliteAdapter {
+		return new SqliteAdapter(createTransientSqliteDatabase());
+	}
+
+	exec(sql: string): void {
+		this.db.exec(sql);
+	}
+
+	run(sql: string, ...params: SqliteValue[]): void {
+		this.db.prepare(sql).run(...params);
+	}
+
+	all<TRow extends SqliteRow>(sql: string, ...params: SqliteValue[]): TRow[] {
+		return this.db.prepare(sql).all(...params) as TRow[];
+	}
+
+	get<TRow extends SqliteRow>(sql: string, ...params: SqliteValue[]): TRow | undefined {
+		return this.db.prepare(sql).get(...params) as TRow | undefined;
+	}
+
+	transaction<T>(operation: () => T): T {
+		this.exec("BEGIN IMMEDIATE");
+		try {
+			const result = operation();
+			this.exec("COMMIT");
+			return result;
+		} catch (error) {
+			try {
+				this.exec("ROLLBACK");
+			} catch {}
+			throw error;
+		}
+	}
+
+	close(): void {
+		this.db.close();
+	}
+}
+
+interface DeletionTargetRow extends SqliteRow {
+	kind: "entry" | "content_block";
+	entry_id: string;
+	block_index: number | null;
+}
+
+interface EntryTextRow extends SqliteRow {
+	entry_id: string;
+	text: string;
+	is_protected: number;
+}
+
+interface ContentBlockTextRow extends SqliteRow {
+	entry_id: string;
+	block_index: number;
+	text: string;
+	entry_protected: number;
+	block_protected: number;
+	block_count: number;
+}
+
+class ContextDeletionSqliteStore {
+	private readonly sqlite: SqliteAdapter;
+
+	constructor(sqlite: SqliteAdapter) {
+		this.sqlite = sqlite;
+	}
+
+	initialize(transcript: CompactableTranscript): void {
+		this.sqlite.transaction(() => {
+			this.sqlite.exec(`
+				PRAGMA foreign_keys = ON;
+				CREATE TABLE transcript_entries (
+					position INTEGER PRIMARY KEY,
+					entry_id TEXT NOT NULL UNIQUE,
+					role TEXT NOT NULL,
+					is_protected INTEGER NOT NULL,
+					token_estimate INTEGER NOT NULL,
+					text TEXT NOT NULL,
+					tool_result_for TEXT
+				);
+				CREATE TABLE transcript_content_blocks (
+					entry_id TEXT NOT NULL,
+					block_index INTEGER NOT NULL,
+					type TEXT NOT NULL,
+					is_protected INTEGER NOT NULL,
+					token_estimate INTEGER NOT NULL,
+					text TEXT NOT NULL,
+					tool_call_id TEXT,
+					PRIMARY KEY (entry_id, block_index),
+					FOREIGN KEY (entry_id) REFERENCES transcript_entries(entry_id) ON DELETE CASCADE
+				);
+				CREATE TABLE deletion_targets (
+					position INTEGER PRIMARY KEY AUTOINCREMENT,
+					target_key TEXT NOT NULL UNIQUE,
+					kind TEXT NOT NULL CHECK (kind IN ('entry', 'content_block')),
+					entry_id TEXT NOT NULL,
+					block_index INTEGER
+				);
+				CREATE TABLE planner_state (
+					key TEXT PRIMARY KEY,
+					value TEXT NOT NULL
+				);
+				INSERT INTO planner_state (key, value) VALUES ('call_count', '0');
+			`);
+
+			for (const [position, entry] of transcript.entries.entries()) {
+				this.sqlite.run(
+					"INSERT INTO transcript_entries (position, entry_id, role, is_protected, token_estimate, text, tool_result_for) VALUES (?, ?, ?, ?, ?, ?, ?)",
+					position,
+					entry.entryId,
+					entry.role,
+					entry.protected ? 1 : 0,
+					entry.tokenEstimate,
+					entry.text,
+					entry.toolResultFor ?? null,
+				);
+				for (const block of entry.contentBlocks) {
+					this.sqlite.run(
+						"INSERT INTO transcript_content_blocks (entry_id, block_index, type, is_protected, token_estimate, text, tool_call_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+						block.entryId,
+						block.blockIndex,
+						block.type,
+						block.protected ? 1 : 0,
+						block.tokenEstimate,
+						block.text,
+						block.toolCallId ?? null,
+					);
+				}
+			}
+		});
+	}
+
+	transaction<T>(operation: () => T): T {
+		return this.sqlite.transaction(operation);
+	}
+
+	readTargets(): ContextDeletionTarget[] {
+		return this.sqlite
+			.all<DeletionTargetRow>("SELECT kind, entry_id, block_index FROM deletion_targets ORDER BY position")
+			.map((row) =>
+				row.kind === "entry"
+					? { kind: "entry", entryId: row.entry_id }
+					: { kind: "content_block", entryId: row.entry_id, blockIndex: row.block_index as number },
+			);
+	}
+
+	replaceTargets(targets: readonly ContextDeletionTarget[]): void {
+		this.sqlite.run("DELETE FROM deletion_targets");
+		for (const target of targets) {
+			this.sqlite.run(
+				"INSERT INTO deletion_targets (target_key, kind, entry_id, block_index) VALUES (?, ?, ?, ?)",
+				targetKey(target),
+				target.kind,
+				target.entryId,
+				target.kind === "content_block" ? target.blockIndex : null,
+			);
+		}
+	}
+
+	listEntriesForGrep(): EntryTextRow[] {
+		return this.sqlite.all<EntryTextRow>(
+			"SELECT entry_id, text, is_protected FROM transcript_entries ORDER BY position",
+		);
+	}
+
+	listContentBlocksForGrep(): ContentBlockTextRow[] {
+		return this.sqlite.all<ContentBlockTextRow>(`
+			SELECT
+				blocks.entry_id,
+				blocks.block_index,
+				blocks.text,
+				entries.is_protected AS entry_protected,
+				blocks.is_protected AS block_protected,
+				(
+					SELECT COUNT(*)
+					FROM transcript_content_blocks sibling
+					WHERE sibling.entry_id = blocks.entry_id
+				) AS block_count
+			FROM transcript_content_blocks blocks
+			JOIN transcript_entries entries ON entries.entry_id = blocks.entry_id
+			ORDER BY entries.position, blocks.block_index
+		`);
+	}
+
+	getGrepScanTextLength(target: "entry" | "content_block"): number {
+		const table = target === "entry" ? "transcript_entries" : "transcript_content_blocks";
+		const row = this.sqlite.get<{ scan_chars: number | null }>(`SELECT SUM(LENGTH(text)) AS scan_chars FROM ${table}`);
+		return row?.scan_chars ?? 0;
+	}
+
+	incrementCallCount(): number {
+		const next = this.getCallCount() + 1;
+		this.setState("call_count", String(next));
+		return next;
+	}
+
+	getCallCount(): number {
+		return Number(this.getState("call_count") ?? "0");
+	}
+
+	setLastError(message: string): void {
+		this.setState("last_error", message);
+	}
+
+	clearLastError(): void {
+		this.sqlite.run("DELETE FROM planner_state WHERE key = ?", "last_error");
+	}
+
+	getLastError(): string | undefined {
+		return this.getState("last_error");
+	}
+
+	private getState(key: string): string | undefined {
+		return this.sqlite.get<{ value: string }>("SELECT value FROM planner_state WHERE key = ?", key)?.value;
+	}
+
+	private setState(key: string, value: string): void {
+		this.sqlite.run(
+			"INSERT INTO planner_state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+			key,
+			value,
+		);
+	}
+
+	close(): void {
+		this.sqlite.close();
+	}
+}
+
+function createContextDeletionSqliteStore(transcript: CompactableTranscript): ContextDeletionSqliteStore {
+	const store = new ContextDeletionSqliteStore(SqliteAdapter.createTransient());
+	store.initialize(transcript);
+	return store;
+}
+
 export function createContextDeletionPlannerTool(
 	transcript: CompactableTranscript,
 ): ContextDeletionPlannerToolController {
-	let deletedTargets: ContextDeletionTarget[] = [];
+	const store = createContextDeletionSqliteStore(transcript);
 	let validatedPlan: ValidatedContextDeletionPlan | undefined;
-	let lastToolError: string | undefined;
-	let callCount = 0;
-	let stateMutationQueue = Promise.resolve();
 
-	function runWithPlannerState<T>(operation: () => T | Promise<T>): Promise<T> {
-		const run = stateMutationQueue.then(operation, operation);
-		stateMutationQueue = run.then(
-			() => undefined,
-			() => undefined,
-		);
-		return run;
+	function readTargets(): ContextDeletionTarget[] {
+		return store.readTargets();
 	}
 
 	function applyValidatedTargets(additionalTargets: readonly ContextDeletionTarget[]): ValidatedContextDeletionPlan {
-		const mergedTargets = mergeContextDeletionTargets(deletedTargets, additionalTargets);
+		const mergedTargets = mergeContextDeletionTargets(readTargets(), additionalTargets);
 		validatedPlan = validateContextDeletionPlan(planFromTargets(mergedTargets), transcript);
-		deletedTargets = validatedPlan.deletedTargets;
+		store.replaceTargets(validatedPlan.deletedTargets);
 		return validatedPlan;
 	}
 
 	function currentStats(): ContextCompactionStats {
-		return validatedPlan?.stats ?? computeContextCompactionStats(transcript, deletedTargets);
+		return validatedPlan?.stats ?? computeContextCompactionStats(transcript, readTargets());
 	}
 
 	const tool: AgentTool<typeof ContextDeletionPlanToolParameters, ContextDeletionPlannerToolDetails> = {
 		...CONTEXT_DELETION_PLAN_TOOL,
 		label: "context deletion plan",
 		executionMode: "parallel",
-		execute(_toolCallId, params) {
-			return runWithPlannerState(() => {
-				callCount += 1;
+		async execute(_toolCallId, params) {
+			return store.transaction(() => {
+				const callCount = store.incrementCallCount();
 				try {
 					const incomingPlan = rawContextDeletionPlanFromObject(params, `${CONTEXT_DELETION_PLAN_TOOL_NAME} arguments`);
 					const incomingValidated = validateContextDeletionPlan(incomingPlan, transcript);
 					const applied = applyValidatedTargets(incomingValidated.deletedTargets);
-					lastToolError = undefined;
+					store.clearLastError();
+					const deletedTargets = readTargets();
 
 					const details: ContextDeletionPlannerToolDetails = {
 						deletions: planFromTargets(deletedTargets).deletions,
@@ -1065,7 +1327,8 @@ export function createContextDeletionPlannerTool(
 					return createPlannerToolResult(text, details);
 				} catch (error) {
 					const message = formatErrorMessage(error);
-					lastToolError = message;
+					store.setLastError(message);
+					const deletedTargets = readTargets();
 					const details: ContextDeletionPlannerToolDetails = {
 						deletions: planFromTargets(deletedTargets).deletions,
 						deletedTargets,
@@ -1086,9 +1349,9 @@ export function createContextDeletionPlannerTool(
 		...CONTEXT_GREP_DELETE_TOOL,
 		label: "context grep delete",
 		executionMode: "parallel",
-		execute(_toolCallId, params) {
-			return runWithPlannerState(() => {
-				callCount += 1;
+		async execute(_toolCallId, params) {
+			return store.transaction(() => {
+				const callCount = store.incrementCallCount();
 				const pattern = params.pattern;
 				const regex = params.regex === true;
 				const caseSensitive = params.caseSensitive === true;
@@ -1101,59 +1364,59 @@ export function createContextDeletionPlannerTool(
 
 				try {
 					if (regex) {
-						assertSafeRegexScan(transcript, target);
+						assertSafeRegexScan(store.getGrepScanTextLength(target));
 					}
 					const matcher = createGrepMatcher(pattern, regex, caseSensitive);
+					const currentTargets = readTargets();
 
-					for (const entry of transcript.entries) {
-						if (target === "entry") {
+					if (target === "entry") {
+						for (const entry of store.listEntriesForGrep()) {
 							if (!matcher.test(entry.text)) continue;
-							if (entry.protected) {
-								skipped.push({ entryId: entry.entryId, target, reason: "protected_entry", text: entry.text });
+							if (entry.is_protected === 1) {
+								skipped.push({ entryId: entry.entry_id, target, reason: "protected_entry", text: entry.text });
 								continue;
 							}
-							const candidate: ContextDeletionTarget = { kind: "entry", entryId: entry.entryId };
-							if (currentTargetDeleted(deletedTargets, candidate)) {
-								skipped.push({ entryId: entry.entryId, target, reason: "already_deleted", text: entry.text });
+							const candidate: ContextDeletionTarget = { kind: "entry", entryId: entry.entry_id };
+							if (currentTargetDeleted(currentTargets, candidate)) {
+								skipped.push({ entryId: entry.entry_id, target, reason: "already_deleted", text: entry.text });
 								continue;
 							}
 							addGrepCandidate(candidates, matches, seenTargets, candidate, {
-								entryId: entry.entryId,
+								entryId: entry.entry_id,
 								target,
 								text: entry.text,
 							});
-							continue;
 						}
-
-						for (const block of entry.contentBlocks) {
+					} else {
+						for (const block of store.listContentBlocksForGrep()) {
 							if (!matcher.test(block.text)) continue;
-							if (entry.protected) {
+							if (block.entry_protected === 1) {
 								skipped.push({
-									entryId: entry.entryId,
+									entryId: block.entry_id,
 									target,
-									blockIndex: block.blockIndex,
+									blockIndex: block.block_index,
 									reason: "protected_entry",
 									text: block.text,
 								});
 								continue;
 							}
-							if (block.protected) {
+							if (block.block_protected === 1) {
 								skipped.push({
-									entryId: entry.entryId,
+									entryId: block.entry_id,
 									target,
-									blockIndex: block.blockIndex,
+									blockIndex: block.block_index,
 									reason: "protected_block",
 									text: block.text,
 								});
 								continue;
 							}
 							const candidate: ContextDeletionTarget =
-								entry.contentBlocks.length <= 1
-									? { kind: "entry", entryId: entry.entryId }
-									: { kind: "content_block", entryId: entry.entryId, blockIndex: block.blockIndex };
-							if (currentTargetDeleted(deletedTargets, candidate)) {
+								block.block_count <= 1
+									? { kind: "entry", entryId: block.entry_id }
+									: { kind: "content_block", entryId: block.entry_id, blockIndex: block.block_index };
+							if (currentTargetDeleted(currentTargets, candidate)) {
 								skipped.push({
-									entryId: entry.entryId,
+									entryId: block.entry_id,
 									target: candidate.kind,
 									...(candidate.kind === "content_block" ? { blockIndex: candidate.blockIndex } : {}),
 									reason: "already_deleted",
@@ -1162,7 +1425,7 @@ export function createContextDeletionPlannerTool(
 								continue;
 							}
 							addGrepCandidate(candidates, matches, seenTargets, candidate, {
-								entryId: entry.entryId,
+								entryId: block.entry_id,
 								target: candidate.kind,
 								...(candidate.kind === "content_block" ? { blockIndex: candidate.blockIndex } : {}),
 								text: block.text,
@@ -1178,6 +1441,8 @@ export function createContextDeletionPlannerTool(
 					} else if (candidates.length > 0) {
 						applied = applyValidatedTargets(candidates);
 					}
+					store.clearLastError();
+					const deletedTargets = readTargets();
 
 					const details: ContextGrepDeletionToolDetails = {
 						pattern,
@@ -1190,12 +1455,12 @@ export function createContextDeletionPlannerTool(
 						stats: applied?.stats ?? currentStats(),
 						callCount,
 					};
-					lastToolError = undefined;
 					const text = `Matched ${matches.length} unprotected target(s), skipped ${skipped.length}, and ${applied ? "applied" : "did not apply"} grep deletion for pattern ${JSON.stringify(pattern)}. Total validated deletion target(s): ${deletedTargets.length}.`;
 					return createPlannerToolResult(text, details);
 				} catch (error) {
 					const message = formatErrorMessage(error);
-					lastToolError = message;
+					store.setLastError(message);
+					const deletedTargets = readTargets();
 					const details: ContextGrepDeletionToolDetails = {
 						pattern,
 						regex,
@@ -1221,10 +1486,10 @@ export function createContextDeletionPlannerTool(
 		tool,
 		grepTool,
 		tools: [tool, grepTool],
-		getPlan: () => planFromTargets(deletedTargets),
+		getPlan: () => planFromTargets(readTargets()),
 		getValidatedPlan: () => validatedPlan,
-		getLastError: () => lastToolError,
-		getCallCount: () => callCount,
+		getLastError: () => store.getLastError(),
+		getCallCount: () => store.getCallCount(),
 	};
 }
 

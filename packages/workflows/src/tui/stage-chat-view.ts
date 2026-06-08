@@ -424,6 +424,14 @@ export class StageChatView implements Component, Focusable {
       );
       return;
     }
+    if (request.options?.overlay === true) {
+      this.mountingRequestId = null;
+      this.stageUiBroker.reject(
+        request,
+        new Error("atomic-workflows: ctx.ui.custom overlay mode is unavailable in the workflow graph viewer"),
+      );
+      return;
+    }
     try {
       const mounted = await mountStageCustomUi(
         request,
@@ -1848,6 +1856,9 @@ function paint(text: string, fg: string, opts: PaintOpts = {}): string {
 function renderHintsForPrompt(kind: PendingPrompt["kind"], theme: GraphTheme): string {
   if (kind === "input" || kind === "editor") {
     return `${paint("enter", theme.textMuted, { bold: true })} Submit · ${paint("ctrl+c", theme.textMuted, { bold: true })} Skip`;
+  }
+  if (kind === "custom") {
+    return `${paint("ctrl+d", theme.textMuted, { bold: true })} Graph · ${paint("ctrl+c", theme.textMuted, { bold: true })} Close`;
   }
   return `${paint("enter", theme.textMuted, { bold: true })} Select · ${paint("ctrl+c", theme.textMuted, { bold: true })} Skip`;
 }

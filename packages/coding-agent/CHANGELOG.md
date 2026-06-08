@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.8.26-alpha.10] - 2026-06-08
+
+### Changed
+
+- Updated compaction documentation to explain transcript-bound Verbatim Compaction, validated logical deletion targets, critical overflow behavior, and legacy summary-compaction settings.
+
 ## [0.8.26-alpha.9] - 2026-06-07
 
 ### Changed

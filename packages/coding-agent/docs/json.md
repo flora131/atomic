@@ -23,7 +23,7 @@ type AgentSessionEvent =
   | { type: "auto_retry_end"; success: boolean; attempt: number; finalError?: string };
 ```
 
-`queue_update` emits the full pending steering and follow-up queues whenever they change. `session_info_changed`, `model_changed`, and `thinking_level_changed` report interactive session metadata changes. `compaction_start` and `compaction_end` cover both manual and automatic Verbatim Compaction, Atomic's deletion-only Context Compaction approach inspired by [Morph's Context Compaction](https://www.morphllm.com/context-compaction).
+`queue_update` emits the full pending steering and follow-up queues whenever they change. `session_info_changed`, `model_changed`, and `thinking_level_changed` report interactive session metadata changes. `compaction_start` and `compaction_end` cover both manual and automatic Verbatim Compaction, Atomic's transcript-bound, deletion-only Context Compaction approach inspired by [Morph's Context Compaction](https://www.morphllm.com/context-compaction).
 
 Base events come from `AgentEvent` in `@earendil-works/pi-agent-core` (installed as an Atomic dependency):
 

@@ -135,6 +135,8 @@ interface AgentSession {
 }
 ```
 
+`compact()` accepts no custom summary instructions. It runs the same transcript-bound Verbatim Compaction planner as `/compact`: inspect transcript slices, record exact deletion targets, validate them locally, append a `context_compaction` entry, and rebuild active context with retained content unchanged.
+
 Session replacement APIs such as new-session, resume, fork, and import live on `AgentSessionRuntime`, not on `AgentSession`.
 
 ### createAgentSessionRuntime() and AgentSessionRuntime

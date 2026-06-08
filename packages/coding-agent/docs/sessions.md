@@ -29,7 +29,7 @@ For the JSONL file format and SessionManager API, see [Session Format](/session-
 | `/tree` | Navigate the current session tree |
 | `/fork` | Create a new session from a previous user message |
 | `/clone` | Duplicate the current active branch into a new session |
-| `/compact` | Apply Verbatim Compaction with validated logical deletions; see [Compaction](/compaction) |
+| `/compact` | Apply Verbatim Compaction with transcript-bound, validated logical deletions; see [Compaction](/compaction) |
 | `/export [file]` | Export session to HTML |
 | `/share` | Upload as private GitHub gist with shareable HTML link |
 

@@ -48,7 +48,7 @@ Type `/` in the editor to open command completion. Extensions can register custo
 | `/tree` | Jump to any point in the session and continue from there |
 | `/fork` | Create a new session from a previous user message |
 | `/clone` | Duplicate the current active branch into a new session |
-| `/compact` | Run Verbatim Compaction by deleting safe older transcript objects |
+| `/compact` | Run Verbatim Compaction with transcript-bound deletion tools |
 | `/copy` | Copy last assistant message to clipboard |
 | `/export [file]` | Export session to HTML |
 | `/share` | Upload as private GitHub gist with shareable HTML link |
@@ -89,7 +89,7 @@ Useful session commands:
 - `/tree` navigates the in-file session tree and can summarize abandoned branches.
 - `/fork` creates a new session from an earlier user message.
 - `/clone` duplicates the current active branch into a new session file.
-- `/compact` uses Verbatim Compaction: a fixed no-argument deletion-only planner applies only validated logical deletions; retained transcript content stays verbatim. Atomic's approach is informed by Morph's Context Compaction article: [Morph's Context Compaction](https://www.morphllm.com/context-compaction).
+- `/compact` uses Verbatim Compaction: a fixed no-argument deletion-only planner searches/reads transcript slices, records exact deletion targets, and applies only locally validated logical deletions. Retained transcript content stays verbatim. Atomic's approach is informed by Morph's Context Compaction article: [Morph's Context Compaction](https://www.morphllm.com/context-compaction).
 
 See [Sessions](/sessions) and [Compaction](/compaction) for details.
 

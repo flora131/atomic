@@ -8,7 +8,7 @@ Extensions are TypeScript modules that extend Atomic's behavior. They can subscr
 
 **Key capabilities:**
 - **Custom tools** - Register tools the LLM can call via `pi.registerTool()`
-- **Event interception** - Block or modify tool calls, inject context, customize compaction
+- **Event interception** - Block or modify tool calls, inject context, customize legacy summary compaction and branch summaries
 - **User interaction** - Prompt users via `ctx.ui` (select, confirm, input, notify)
 - **Custom UI components** - Full TUI components with keyboard input via `ctx.ui.custom()` for complex interactions
 - **Custom commands** - Register commands like `/mycommand` via `pi.registerCommand()`
@@ -19,7 +19,7 @@ Extensions are TypeScript modules that extend Atomic's behavior. They can subscr
 - Permission gates (confirm before `rm -rf`, `sudo`, etc.)
 - Git checkpointing (stash at each turn, restore on branch)
 - Path protection (block writes to `.env`, `node_modules/`)
-- Custom compaction (summarize conversation your way)
+- Legacy custom summary compaction (summarize older context your way)
 - Conversation summaries (see `summarize.ts` example)
 - Interactive tools (questions, wizards, custom dialogs)
 - Stateful tools (todo lists, connection pools)
@@ -950,7 +950,7 @@ if (usage && usage.tokens > 100_000) {
 
 ### ctx.compact()
 
-Trigger Atomic's default Verbatim Compaction without awaiting completion. This is deletion-only Context Compaction: retained transcript content stays unchanged, and older low-signal objects are omitted by validated logical deletion. The approach is informed by Morph's Context Compaction write-up: [Morph's Context Compaction](https://www.morphllm.com/context-compaction). Use `onComplete` and `onError` for follow-up actions.
+Trigger Atomic's default Verbatim Compaction without awaiting completion. This is deletion-only Context Compaction: the internal planner searches/reads transcript slices, records exact entry/content-block deletion targets with transcript-bound tools, and Atomic applies only locally validated logical deletions. Retained transcript content stays unchanged. The approach is informed by Morph's Context Compaction write-up: [Morph's Context Compaction](https://www.morphllm.com/context-compaction). Use `onComplete` and `onError` for follow-up actions.
 
 ```typescript
 ctx.compact({
@@ -963,7 +963,7 @@ ctx.compact({
 });
 ```
 
-`customInstructions` is deprecated and ignored for default compaction because Verbatim Compaction never asks the model to write a custom summary.
+`customInstructions` is deprecated. Passing a non-empty value to default compaction fails because Verbatim Compaction does not accept custom summary instructions.
 
 ### ctx.getSystemPrompt()
 

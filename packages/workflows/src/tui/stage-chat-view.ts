@@ -1595,7 +1595,6 @@ function transcriptDebugText(entry: TranscriptEntry): string {
       case "custom":
         return extractMessageText(entry.message.content);
       case "branchSummary":
-      case "compactionSummary":
         return entry.message.summary;
     }
   }

@@ -10,11 +10,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Type } from "typebox";
-import {
-	createBranchSummaryMessage,
-	createCompactionSummaryMessage,
-	createCustomMessage,
-} from "../messages.ts";
+import { createBranchSummaryMessage, createCustomMessage } from "../messages.ts";
 import {
 	buildContextDeletionFilteredPath,
 	buildContextDeletionFilters,
@@ -443,20 +439,6 @@ function contentBlocksForEntry(
 	protectedEntry: boolean,
 	existingDeletedBlocks: ReadonlySet<number> | undefined,
 ): CompactableContentBlock[] {
-	if (message.role === "compactionSummary") {
-		const text = message.summary;
-		return [
-			{
-				entryId,
-				blockIndex: 0,
-				type: "summary",
-				text,
-				tokenEstimate: estimateTextTokens(text),
-				protected: protectedEntry,
-			},
-		];
-	}
-
 	const content = (message as { content?: unknown }).content;
 	if (!Array.isArray(content)) return [];
 
@@ -485,7 +467,6 @@ function messageText(message: AgentMessage): string {
 		case "bashExecution":
 			return `Ran ${message.command}\n${message.output}`;
 		case "branchSummary":
-		case "compactionSummary":
 			return message.summary;
 		case "custom":
 		case "toolResult":
@@ -494,6 +475,7 @@ function messageText(message: AgentMessage): string {
 		case "assistant":
 			return textFromUnknownContent(message.content);
 	}
+	return "";
 }
 
 function hasAssistantError(message: AgentMessage): boolean {
@@ -508,36 +490,6 @@ function hasFailedBashExecution(message: AgentMessage): boolean {
 	return message.role === "bashExecution" && typeof message.exitCode === "number" && message.exitCode !== 0;
 }
 
-function collectLatestSummaryCompactionIndex(pathEntries: SessionEntry[]): number {
-	for (let i = pathEntries.length - 1; i >= 0; i--) {
-		if (pathEntries[i].type === "compaction") return i;
-	}
-	return -1;
-}
-
-function collectActiveEntryIndices(pathEntries: SessionEntry[], latestCompactionIndex: number): number[] {
-	if (latestCompactionIndex < 0) {
-		return pathEntries.map((_, index) => index);
-	}
-
-	const latestCompaction = pathEntries[latestCompactionIndex];
-	if (latestCompaction.type !== "compaction") return pathEntries.map((_, index) => index);
-
-	const indices: number[] = [];
-	let foundFirstKept = false;
-	for (let i = 0; i < latestCompactionIndex; i++) {
-		const entry = pathEntries[i];
-		if (entry.id === latestCompaction.firstKeptEntryId) {
-			foundFirstKept = true;
-		}
-		if (foundFirstKept) indices.push(i);
-	}
-	for (let i = latestCompactionIndex + 1; i < pathEntries.length; i++) {
-		indices.push(i);
-	}
-	return indices;
-}
-
 function isProtectedEntry(
 	entry: SessionEntry,
 	message: AgentMessage,
@@ -546,7 +498,7 @@ function isProtectedEntry(
 	if (recentEntryIds.has(entry.id)) return true;
 	if (message.role === "user") return true;
 	if (message.role === "custom") return true;
-	if (message.role === "branchSummary" || message.role === "compactionSummary") return true;
+	if (message.role === "branchSummary") return true;
 	if (hasAssistantError(message) || hasToolResultError(message)) return true;
 	if (hasFailedBashExecution(message)) return true;
 	if (entry.type === "branch_summary") return true;
@@ -560,50 +512,21 @@ export function prepareContextCompaction(
 ): ContextCompactionPreparation | undefined {
 	if (pathEntries.length === 0) return undefined;
 
-	const latestCompactionIndex = collectLatestSummaryCompactionIndex(pathEntries);
 	const deletionFilters = buildContextDeletionFilters(pathEntries);
 	const filteredPathEntries = buildContextDeletionFilteredPath(pathEntries, deletionFilters);
-	const filteredEntryById = new Map(filteredPathEntries.map((entry) => [entry.id, entry]));
-	const activeEntryIndices = collectActiveEntryIndices(pathEntries, latestCompactionIndex);
-	const messageEntryIds = activeEntryIndices
-		.map((index) => filteredEntryById.get(pathEntries[index].id))
-		.filter((entry): entry is SessionEntry => entry !== undefined && getContextEligibleMessageFromEntry(entry) !== undefined)
+	const rawEntryById = new Map(pathEntries.map((entry) => [entry.id, entry]));
+	const messageEntryIds = filteredPathEntries
+		.filter((entry) => entry.type !== "context_compaction" && getContextEligibleMessageFromEntry(entry) !== undefined)
 		.map((entry) => entry.id);
 	const recentEntryIds = new Set(messageEntryIds.slice(-CONTEXT_CRITICAL_OVERFLOW_RECENT_ENTRY_COUNT));
 	const protectedEntryIds = new Set<string>();
 	const entries: CompactableTranscriptEntry[] = [];
 
-	if (latestCompactionIndex >= 0) {
-		const latestCompaction = pathEntries[latestCompactionIndex];
-		if (latestCompaction.type === "compaction") {
-			const message = createCompactionSummaryMessage(
-				latestCompaction.summary,
-				latestCompaction.tokensBefore,
-				latestCompaction.timestamp,
-			);
-			const contentBlocks = contentBlocksForEntry(latestCompaction.id, message, true, undefined);
-			protectedEntryIds.add(latestCompaction.id);
-			entries.push({
-				entryId: latestCompaction.id,
-				entryType: latestCompaction.type,
-				role: message.role,
-				text: messageText(message),
-				tokenEstimate: estimateTokens(message),
-				protected: true,
-				contentBlocks,
-				message,
-				toolCallIds: [],
-				toolResultFor: undefined,
-			});
-		}
-	}
-
-	for (const index of activeEntryIndices) {
-		const rawEntry = pathEntries[index];
-		const entry = filteredEntryById.get(rawEntry.id);
-		if (!entry || entry.type === "context_compaction") continue;
+	for (const entry of filteredPathEntries) {
+		if (entry.type === "context_compaction") continue;
 		const message = getContextEligibleMessageFromEntry(entry);
 		if (!message) continue;
+		const rawEntry = rawEntryById.get(entry.id) ?? entry;
 		const protectedEntry = isProtectedEntry(entry, message, recentEntryIds);
 		if (protectedEntry) protectedEntryIds.add(entry.id);
 		const rawMessage = getContextEligibleMessageFromEntry(rawEntry) ?? message;
@@ -956,7 +879,6 @@ function isCriticalOverflowProtectedEntryDeletable(
 		entry.role === "user" ||
 		entry.role === "custom" ||
 		entry.role === "branchSummary" ||
-		entry.role === "compactionSummary" ||
 		entry.entryType === "branch_summary"
 	);
 }
@@ -1055,7 +977,11 @@ export function validateContextDeletionRequest(
 		throw new Error("Deletion request would remove all context entries");
 	}
 	const hasTaskBearingContext = remainingEntries.some(
-		(entry) => entry.role === "user" || (entry.role === "compactionSummary" && entry.protected),
+		(entry) =>
+			entry.role === "user" ||
+			entry.role === "custom" ||
+			entry.role === "branchSummary" ||
+			entry.entryType === "branch_summary",
 	);
 	if (!hasTaskBearingContext) {
 		throw new Error("Deletion request would leave no user task in context");

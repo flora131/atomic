@@ -111,14 +111,22 @@ describe("WorkflowParametersSchema stage options", () => {
     assert.match(actionDescription, /sessionFile\/transcriptPath/);
     assert.match(actionDescription, /Windows backslashes/);
     assert.match(actionDescription, /rg\/grep/);
+    assert.match(actionDescription, /path-only by default/);
+    assert.match(actionDescription, /explicit tail\/limit returns bounded previews/);
+    assert.match(actionDescription, /missing transcript paths fall back/);
 
     const limitDescription = properties.limit?.description ?? "";
-    assert.match(limitDescription, /default 5-entry preview/);
+    assert.match(limitDescription, /explicitly inline/);
+    assert.match(limitDescription, /path-only default/);
     assert.match(limitDescription, /sessionFile\/transcriptPath/);
     assert.match(limitDescription, /platform path separators/);
 
     const tailDescription = properties.tail?.description ?? "";
     assert.match(tailDescription, /quick recent-context checks/);
+
+    const includeToolOutputDescription = properties.includeToolOutput?.description ?? "";
+    assert.match(includeToolOutputDescription, /inlined snapshot previews/);
+    assert.match(includeToolOutputDescription, /does not bypass the path-only default/);
   });
 
   test("rejects invalid stage-control enum values and transcript counts", () => {

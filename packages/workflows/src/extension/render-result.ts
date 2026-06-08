@@ -115,6 +115,7 @@ type StageListResult = { action: "stages"; runId: string; filter: string; stages
 type StageDetailItem = StageSnapshot & { transcriptPath?: string };
 type StageDetailResult = { action: "stage"; runId: string; stage?: StageDetailItem; error?: string };
 type TranscriptEntry = { role: string; text?: string; toolName?: string; output?: string; timestamp?: number };
+type TranscriptInlineMode = "path_only" | "preview" | "fallback_preview";
 type TranscriptResult = {
   action: "transcript";
   runId: string;
@@ -127,6 +128,9 @@ type TranscriptResult = {
   sessionId?: string;
   sessionFile?: string;
   transcriptPath?: string;
+  lazyReadPrompt?: string;
+  fallbackNote?: string;
+  inlineMode?: TranscriptInlineMode;
 };
 type SendResult = { action: "send"; runId: string; stageId: string; delivery: string; status: "ok" | "noop"; message: string };
 type PauseResult = { action: "pause"; runId: string; status: string; message: string };
@@ -213,7 +217,7 @@ function renderNotice(
 const TRANSCRIPT_NOTICE_ENTRY_LIMIT = 5;
 const TRANSCRIPT_NOTICE_CHAR_LIMIT = 240;
 
-function transcriptNoticeText(entries: readonly TranscriptEntry[]): string {
+function transcriptEntriesNoticeText(entries: readonly TranscriptEntry[]): string {
   if (entries.length === 0) return "no transcript entries";
   const shown = entries.slice(0, TRANSCRIPT_NOTICE_ENTRY_LIMIT);
   const text = shown
@@ -223,6 +227,21 @@ function transcriptNoticeText(entries: readonly TranscriptEntry[]): string {
     ? ` … (+${entries.length - shown.length} more)`
     : "";
   return fitLine(`${text}${entrySuffix}`, TRANSCRIPT_NOTICE_CHAR_LIMIT);
+}
+
+function transcriptNoticeText(result: TranscriptResult): string {
+  if ((result.inlineMode === "path_only" || result.lazyReadPrompt !== undefined) && result.entries.length === 0) {
+    const path = result.transcriptPath ?? result.sessionFile ?? "transcript file";
+    const count = result.entryCount === undefined
+      ? ""
+      : ` (${result.entryCount} ${result.entryCount === 1 ? "entry" : "entries"})`;
+    return fitLine(`not inlined; read ${path}${count}`, TRANSCRIPT_NOTICE_CHAR_LIMIT);
+  }
+  const entriesText = transcriptEntriesNoticeText(result.entries);
+  if (result.inlineMode === "fallback_preview" || result.fallbackNote !== undefined) {
+    return fitLine(`no session file; preview: ${entriesText}`, TRANSCRIPT_NOTICE_CHAR_LIMIT);
+  }
+  return entriesText;
 }
 
 export function renderResult(result: WorkflowToolResult, opts?: RenderResultOpts): string {
@@ -350,7 +369,7 @@ export function renderResult(result: WorkflowToolResult, opts?: RenderResultOpts
 
     case "transcript": {
       const r = result as TranscriptResult;
-      const text = transcriptNoticeText(r.entries);
+      const text = transcriptNoticeText(r);
       const suffix = r.truncated ? " (truncated)" : "";
       return renderNotice("WORKFLOW TRANSCRIPT", `${r.runId}/${r.stageId.slice(0, 12)} ${r.source}: ${text}${suffix}`, opts, themed);
     }

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Changed workflow transcript introspection to return `sessionFile`/`transcriptPath` metadata with a lazy-read prompt by default when a transcript path exists, while keeping bounded inline previews behind explicit `tail`/`limit` requests and falling back to a small preview when no path is available ([#1314](https://github.com/bastani-inc/atomic/issues/1314)).
+
 ## [0.8.27] - 2026-06-08
 
 ### Changed

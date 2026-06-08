@@ -1,9 +1,10 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { Context } from "@earendil-works/pi-ai";
+import type { Context, StreamOptions } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	CONTEXT_COMPACTION_PLANNER_MAX_TURNS,
+	contextCompact,
 	createContextDeletionPlannerTool,
 	DEFAULT_COMPACTION_SETTINGS,
 	type CompactableTranscript,
@@ -205,8 +206,8 @@ describe("context compaction planner structured tool", () => {
 		expect(capturedContext).toMatchObject({
 			systemPrompt: expect.stringContaining("context_deletion_plan"),
 			tools: expect.arrayContaining([
-				expect.objectContaining({ name: "context_deletion_plan" }),
-				expect.objectContaining({ name: "context_grep_delete" }),
+				expect.objectContaining({ name: "context_deletion_plan", executionMode: "parallel" }),
+				expect.objectContaining({ name: "context_grep_delete", executionMode: "parallel" }),
 			]),
 		});
 		expect(continuationContext?.messages).toEqual(
@@ -227,6 +228,30 @@ describe("context compaction planner structured tool", () => {
 		expect(result.terminate).toBe(false);
 		expect(controller.getPlan().deletions).toEqual([{ kind: "entry", entryId: "entry-old-1" }]);
 		expect(controller.getCallCount()).toBe(1);
+	});
+
+	it("allows parallel tool execution while serializing shared planner state", async () => {
+		const controller = createContextDeletionPlannerTool(createTranscript());
+
+		expect(controller.tool.executionMode).toBe("parallel");
+		expect(controller.grepTool.executionMode).toBe("parallel");
+
+		const [first, second] = await Promise.all([
+			controller.tool.execute("toolu_plan_1", {
+				deletions: [{ kind: "entry", entryId: "entry-old-1" }],
+			}),
+			controller.tool.execute("toolu_plan_2", {
+				deletions: [{ kind: "entry", entryId: "entry-old-2" }],
+			}),
+		]);
+
+		expect(first.terminate).toBe(false);
+		expect(second.terminate).toBe(false);
+		expect(controller.getPlan().deletions).toEqual([
+			{ kind: "entry", entryId: "entry-old-1" },
+			{ kind: "entry", entryId: "entry-old-2" },
+		]);
+		expect(controller.getCallCount()).toBe(2);
 	});
 
 	it("bulk deletes grep-matched entries with embedded guardrails", async () => {
@@ -294,6 +319,40 @@ describe("context compaction planner structured tool", () => {
 			{ kind: "entry", entryId: "entry-old-1" },
 			{ kind: "entry", entryId: "entry-old-2" },
 		]);
+	});
+
+	it("guards regex pattern length, backtracking shapes, and scan size", async () => {
+		const controller = createContextDeletionPlannerTool(createTranscript());
+
+		const longPattern = await controller.grepTool.execute("toolu_long_regex", {
+			pattern: "a".repeat(513),
+			regex: true,
+			target: "entry",
+		});
+		const unsafePattern = await controller.grepTool.execute("toolu_unsafe_regex", {
+			pattern: "(a+)+$",
+			regex: true,
+			target: "entry",
+		});
+
+		expect(longPattern.terminate).toBe(false);
+		expect(longPattern.details.error).toMatch(/Regex pattern is too long/);
+		expect(unsafePattern.terminate).toBe(false);
+		expect(unsafePattern.details.error).toMatch(/excessive backtracking/);
+
+		const largeTranscript = createTranscript();
+		largeTranscript.entries[1] = {
+			...largeTranscript.entries[1],
+			text: `${"a".repeat(250_001)} old regex scan sentinel`,
+		};
+		const scanResult = await createContextDeletionPlannerTool(largeTranscript).grepTool.execute("toolu_scan_regex", {
+			pattern: "sentinel",
+			regex: true,
+			target: "entry",
+		});
+
+		expect(scanResult.terminate).toBe(false);
+		expect(scanResult.details.error).toMatch(/Regex grep would scan/);
 	});
 
 	it("supports content-block grep deletion", async () => {
@@ -409,6 +468,51 @@ describe("context compaction planner structured tool", () => {
 		await expect(planContextDeletions(createTranscript(), faux.getModel(), "test-key")).rejects.toThrow(
 			/planner exceeded 8 turns/,
 		);
+	});
+
+	it("passes thinking level through the planner agent stream options", async () => {
+		let capturedReasoning: string | undefined;
+		const faux = registerFauxProvider({ models: [{ id: "faux-reasoning", reasoning: true }] });
+		cleanups.push(() => faux.unregister());
+		faux.setResponses([
+			(_context, options) => {
+				capturedReasoning = (options as (StreamOptions & { reasoning?: string }) | undefined)?.reasoning;
+				return fauxAssistantMessage(
+					fauxToolCall(
+						"context_deletion_plan",
+						{ deletions: [{ kind: "entry", entryId: "entry-old-1" }] },
+						{ id: "toolu_plan" },
+					),
+					{ stopReason: "toolUse" },
+				);
+			},
+			() => fauxAssistantMessage("Done recording deletion targets."),
+		]);
+
+		await planContextDeletions(createTranscript(), faux.getModel(), "test-key", undefined, undefined, "high");
+
+		expect(capturedReasoning).toBe("high");
+	});
+
+	it("surfaces the last planner tool error when context compaction has no safe deletions", async () => {
+		const faux = registerFauxProvider();
+		cleanups.push(() => faux.unregister());
+		faux.setResponses([
+			() =>
+				fauxAssistantMessage(
+					fauxToolCall(
+						"context_deletion_plan",
+						{ deletions: [{ kind: "entry", entryId: "entry-user" }] },
+						{ id: "toolu_bad_plan" },
+					),
+					{ stopReason: "toolUse" },
+				),
+			() => fauxAssistantMessage("Unable to find safe deletions."),
+		]);
+
+		await expect(
+			contextCompact({ transcript: createTranscript(), branchEntries: [] }, faux.getModel(), "test-key"),
+		).rejects.toThrow(/last planner tool error: Deletion target entry-user is protected/);
 	});
 
 	it("records grep bulk deletions through the planner agent", async () => {

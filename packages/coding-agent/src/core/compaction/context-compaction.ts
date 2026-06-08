@@ -119,7 +119,8 @@ const ContextGrepDeleteToolParameters = Type.Object(
 			Type.Integer({
 				minimum: 1,
 				maximum: 200,
-				description: "Safety cap. If more matches are found, no deletions are applied. Defaults to 50.",
+				description:
+					"Safety cap. If more unprotected, not-yet-deleted candidate targets are found, no deletions are applied. Defaults to 50.",
 			}),
 		),
 		expectedMatchCount: Type.Optional(
@@ -191,6 +192,7 @@ export interface ContextDeletionPlannerToolController {
 	tools: AgentTool[];
 	getPlan(): RawContextDeletionPlan;
 	getValidatedPlan(): ValidatedContextDeletionPlan | undefined;
+	getLastError(): string | undefined;
 	getCallCount(): number;
 }
 
@@ -626,6 +628,8 @@ function canonicalizeEntryTargets(targets: ContextDeletionTarget[], entry: Compa
 	if (entry.protected || getDeletedEntryIds(targets).has(entry.entryId)) return false;
 	const deletedBlocks = getDeletedContentBlocks(targets).get(entry.entryId);
 	if (!deletedBlocks || !entry.contentBlocks.every((block) => deletedBlocks.has(block.blockIndex))) return false;
+	// Only repair/promote when dependency reconciliation reaches this entry. Non-tool entries that
+	// request every block individually stay invalid so the planner must choose explicit entry deletion.
 	return deleteEntryTarget(targets, entry.entryId);
 }
 
@@ -657,6 +661,8 @@ function addToolCallDeletion(targets: ContextDeletionTarget[], entry: Compactabl
 	return canonicalizeEntryTargets(targets, entry) || changed;
 }
 
+let warnedReconciliationNonConvergence = false;
+
 function reconcileToolDependencies(
 	transcript: CompactableTranscript,
 	initialTargets: readonly ContextDeletionTarget[],
@@ -678,52 +684,59 @@ function reconcileToolDependencies(
 		}
 	}
 
+	// Bounded fixpoint repair: each pass can add/remove paired call/result targets. In practice this
+	// converges within one or two passes; the cap protects against accidental oscillation.
 	let changed = true;
 	let remainingPasses = Math.max(1, transcript.entries.length * 2);
 	while (changed && remainingPasses > 0) {
 		changed = false;
 		remainingPasses -= 1;
+		let deletedEntryIds = getDeletedEntryIds(targets);
+		let deletedContentBlocks = getDeletedContentBlocks(targets);
+		const recordChange = (nextChanged: boolean): void => {
+			if (!nextChanged) return;
+			changed = true;
+			deletedEntryIds = getDeletedEntryIds(targets);
+			deletedContentBlocks = getDeletedContentBlocks(targets);
+		};
 
 		for (const [callId, callEntry] of callEntries) {
-			let deletedEntryIds = getDeletedEntryIds(targets);
-			let deletedContentBlocks = getDeletedContentBlocks(targets);
 			const callDeleted = isToolCallBlockDeleted(callEntry, callId, deletedEntryIds, deletedContentBlocks);
 			const results = resultEntries.get(callId) ?? [];
 
 			if (callDeleted) {
 				const retainedProtectedResult = results.find((entry) => entry.protected && !deletedEntryIds.has(entry.entryId));
 				if (retainedProtectedResult) {
-					changed = removeToolCallDeletion(targets, callEntry, callId) || changed;
+					recordChange(removeToolCallDeletion(targets, callEntry, callId));
 				} else {
 					for (const result of results) {
-						changed = deleteEntryTarget(targets, result.entryId) || changed;
+						recordChange(deleteEntryTarget(targets, result.entryId));
 					}
 				}
 			}
 
-			deletedEntryIds = getDeletedEntryIds(targets);
-			deletedContentBlocks = getDeletedContentBlocks(targets);
 			if (isToolCallBlockDeleted(callEntry, callId, deletedEntryIds, deletedContentBlocks)) continue;
 
 			for (const result of results) {
 				if (!deletedEntryIds.has(result.entryId)) continue;
-				changed = deleteEntryTarget(targets, result.entryId) || changed;
+				recordChange(deleteEntryTarget(targets, result.entryId));
 				if (callEntry.protected) {
-					changed = removeEntryDeletion(targets, result.entryId) || changed;
+					recordChange(removeEntryDeletion(targets, result.entryId));
 					continue;
 				}
-				changed = addToolCallDeletion(targets, callEntry, callId) || changed;
+				recordChange(addToolCallDeletion(targets, callEntry, callId));
 			}
 		}
 
 		for (const entry of entriesWithToolCalls) {
-			changed = canonicalizeEntryTargets(targets, entry) || changed;
+			recordChange(canonicalizeEntryTargets(targets, entry));
 		}
 	}
 
-	if (changed) {
+	if (changed && !warnedReconciliationNonConvergence) {
+		warnedReconciliationNonConvergence = true;
 		console.warn(
-			"Context compaction tool dependency reconciliation did not converge within the bounded pass limit; validation will continue with the last reconciled target set.",
+			`Context compaction tool dependency reconciliation did not converge within the bounded pass limit; validation will continue with the last reconciled target set. entries=${transcript.entries.length} callEntries=${callEntries.size} targets=${targets.length}`,
 		);
 	}
 
@@ -929,11 +942,29 @@ function createPlannerToolResult<TDetails>(text: string, details: TDetails): Age
 	return { content: [{ type: "text", text }], details, terminate: false };
 }
 
-function createGrepMatcher(pattern: string, regex: boolean, caseSensitive: boolean): RegExp {
-	if (regex && pattern.length > CONTEXT_GREP_DELETE_MAX_REGEX_PATTERN_CHARS) {
+function assertSafeRegexPattern(pattern: string): void {
+	if (pattern.length > CONTEXT_GREP_DELETE_MAX_REGEX_PATTERN_CHARS) {
 		throw new Error(
 			`Regex pattern is too long (${pattern.length} characters); maximum is ${CONTEXT_GREP_DELETE_MAX_REGEX_PATTERN_CHARS}`,
 		);
+	}
+
+	// Heuristic ReDoS guard for common catastrophic-backtracking shapes. JavaScript's RegExp engine
+	// does not expose a timeout, so reject nested quantified groups and backreferences instead of
+	// relying only on transcript scan-size caps.
+	const hasNestedQuantifiedGroup = /\((?:[^()\\]|\\.)*[+*](?:[^()\\]|\\.)*\)\s*(?:[+*]|\{\d)/u.test(pattern);
+	const hasQuantifiedAlternation = /\((?:[^()\\]|\\.)*\|(?:[^()\\]|\\.)*\)\s*(?:[+*]|\{\d)/u.test(pattern);
+	const hasBackreference = /\\[1-9]/u.test(pattern);
+	if (hasNestedQuantifiedGroup || hasQuantifiedAlternation || hasBackreference) {
+		throw new Error(
+			"Regex pattern is not allowed because it may cause excessive backtracking; use a literal pattern or exact deletion targets instead.",
+		);
+	}
+}
+
+function createGrepMatcher(pattern: string, regex: boolean, caseSensitive: boolean): RegExp {
+	if (regex) {
+		assertSafeRegexPattern(pattern);
 	}
 
 	try {
@@ -987,7 +1018,18 @@ export function createContextDeletionPlannerTool(
 ): ContextDeletionPlannerToolController {
 	let deletedTargets: ContextDeletionTarget[] = [];
 	let validatedPlan: ValidatedContextDeletionPlan | undefined;
+	let lastToolError: string | undefined;
 	let callCount = 0;
+	let stateMutationQueue = Promise.resolve();
+
+	function runWithPlannerState<T>(operation: () => T | Promise<T>): Promise<T> {
+		const run = stateMutationQueue.then(operation, operation);
+		stateMutationQueue = run.then(
+			() => undefined,
+			() => undefined,
+		);
+		return run;
+	}
 
 	function applyValidatedTargets(additionalTargets: readonly ContextDeletionTarget[]): ValidatedContextDeletionPlan {
 		const mergedTargets = mergeContextDeletionTargets(deletedTargets, additionalTargets);
@@ -1003,167 +1045,175 @@ export function createContextDeletionPlannerTool(
 	const tool: AgentTool<typeof ContextDeletionPlanToolParameters, ContextDeletionPlannerToolDetails> = {
 		...CONTEXT_DELETION_PLAN_TOOL,
 		label: "context deletion plan",
-		executionMode: "sequential",
-		async execute(_toolCallId, params) {
-			callCount += 1;
-			try {
-				const incomingPlan = rawContextDeletionPlanFromObject(params, `${CONTEXT_DELETION_PLAN_TOOL_NAME} arguments`);
-				const incomingValidated = validateContextDeletionPlan(incomingPlan, transcript);
-				const applied = applyValidatedTargets(incomingValidated.deletedTargets);
+		executionMode: "parallel",
+		execute(_toolCallId, params) {
+			return runWithPlannerState(() => {
+				callCount += 1;
+				try {
+					const incomingPlan = rawContextDeletionPlanFromObject(params, `${CONTEXT_DELETION_PLAN_TOOL_NAME} arguments`);
+					const incomingValidated = validateContextDeletionPlan(incomingPlan, transcript);
+					const applied = applyValidatedTargets(incomingValidated.deletedTargets);
+					lastToolError = undefined;
 
-				const details: ContextDeletionPlannerToolDetails = {
-					deletions: planFromTargets(deletedTargets).deletions,
-					deletedTargets,
-					stats: applied.stats,
-					callCount,
-				};
-				const text = `Recorded ${incomingValidated.deletedTargets.length} deletion target(s); ${deletedTargets.length} total validated deletion target(s) are selected. Continue calling ${CONTEXT_DELETION_PLAN_TOOL_NAME} or ${CONTEXT_GREP_DELETE_TOOL_NAME} for additional deletions, or respond done when finished.`;
-				return createPlannerToolResult(text, details);
-			} catch (error) {
-				const message = formatErrorMessage(error);
-				const details: ContextDeletionPlannerToolDetails = {
-					deletions: planFromTargets(deletedTargets).deletions,
-					deletedTargets,
-					stats: currentStats(),
-					callCount,
-					error: message,
-				};
-				return createPlannerToolResult(
-					`Error recording context deletion targets: ${message}. No new deletion targets were applied; continue with a corrected tool call.`,
-					details,
-				);
-			}
+					const details: ContextDeletionPlannerToolDetails = {
+						deletions: planFromTargets(deletedTargets).deletions,
+						deletedTargets,
+						stats: applied.stats,
+						callCount,
+					};
+					const text = `Recorded ${incomingValidated.deletedTargets.length} deletion target(s); ${deletedTargets.length} total validated deletion target(s) are selected. Continue calling ${CONTEXT_DELETION_PLAN_TOOL_NAME} or ${CONTEXT_GREP_DELETE_TOOL_NAME} for additional deletions, or respond done when finished.`;
+					return createPlannerToolResult(text, details);
+				} catch (error) {
+					const message = formatErrorMessage(error);
+					lastToolError = message;
+					const details: ContextDeletionPlannerToolDetails = {
+						deletions: planFromTargets(deletedTargets).deletions,
+						deletedTargets,
+						stats: currentStats(),
+						callCount,
+						error: message,
+					};
+					return createPlannerToolResult(
+						`Error recording context deletion targets: ${message}. No new deletion targets were applied; continue with a corrected tool call.`,
+						details,
+					);
+				}
+			});
 		},
 	};
 
 	const grepTool: AgentTool<typeof ContextGrepDeleteToolParameters, ContextGrepDeletionToolDetails> = {
 		...CONTEXT_GREP_DELETE_TOOL,
 		label: "context grep delete",
-		executionMode: "sequential",
-		async execute(_toolCallId, params) {
-			callCount += 1;
-			const pattern = params.pattern;
-			const regex = params.regex === true;
-			const caseSensitive = params.caseSensitive === true;
-			const target = params.target ?? "entry";
-			const maxMatches = params.maxMatches ?? CONTEXT_GREP_DELETE_DEFAULT_MAX_MATCHES;
-			const candidates: ContextDeletionTarget[] = [];
-			const matches: ContextGrepDeletionMatch[] = [];
-			const skipped: ContextGrepDeletionSkipped[] = [];
-			const seenTargets = new Set<string>();
+		executionMode: "parallel",
+		execute(_toolCallId, params) {
+			return runWithPlannerState(() => {
+				callCount += 1;
+				const pattern = params.pattern;
+				const regex = params.regex === true;
+				const caseSensitive = params.caseSensitive === true;
+				const target = params.target ?? "entry";
+				const maxMatches = params.maxMatches ?? CONTEXT_GREP_DELETE_DEFAULT_MAX_MATCHES;
+				const candidates: ContextDeletionTarget[] = [];
+				const matches: ContextGrepDeletionMatch[] = [];
+				const skipped: ContextGrepDeletionSkipped[] = [];
+				const seenTargets = new Set<string>();
 
-			try {
-				if (regex) {
-					assertSafeRegexScan(transcript, target);
-				}
-				const matcher = createGrepMatcher(pattern, regex, caseSensitive);
-
-				for (const entry of transcript.entries) {
-					if (target === "entry") {
-						if (!matcher.test(entry.text)) continue;
-						if (entry.protected) {
-							skipped.push({ entryId: entry.entryId, target, reason: "protected_entry", text: entry.text });
-							continue;
-						}
-						const candidate: ContextDeletionTarget = { kind: "entry", entryId: entry.entryId };
-						if (currentTargetDeleted(deletedTargets, candidate)) {
-							skipped.push({ entryId: entry.entryId, target, reason: "already_deleted", text: entry.text });
-							continue;
-						}
-						addGrepCandidate(candidates, matches, seenTargets, candidate, {
-							entryId: entry.entryId,
-							target,
-							text: entry.text,
-						});
-						continue;
+				try {
+					if (regex) {
+						assertSafeRegexScan(transcript, target);
 					}
+					const matcher = createGrepMatcher(pattern, regex, caseSensitive);
 
-					for (const block of entry.contentBlocks) {
-						if (!matcher.test(block.text)) continue;
-						if (entry.protected) {
-							skipped.push({
+					for (const entry of transcript.entries) {
+						if (target === "entry") {
+							if (!matcher.test(entry.text)) continue;
+							if (entry.protected) {
+								skipped.push({ entryId: entry.entryId, target, reason: "protected_entry", text: entry.text });
+								continue;
+							}
+							const candidate: ContextDeletionTarget = { kind: "entry", entryId: entry.entryId };
+							if (currentTargetDeleted(deletedTargets, candidate)) {
+								skipped.push({ entryId: entry.entryId, target, reason: "already_deleted", text: entry.text });
+								continue;
+							}
+							addGrepCandidate(candidates, matches, seenTargets, candidate, {
 								entryId: entry.entryId,
 								target,
-								blockIndex: block.blockIndex,
-								reason: "protected_entry",
-								text: block.text,
+								text: entry.text,
 							});
 							continue;
 						}
-						if (block.protected) {
-							skipped.push({
-								entryId: entry.entryId,
-								target,
-								blockIndex: block.blockIndex,
-								reason: "protected_block",
-								text: block.text,
-							});
-							continue;
-						}
-						const candidate: ContextDeletionTarget =
-							entry.contentBlocks.length <= 1
-								? { kind: "entry", entryId: entry.entryId }
-								: { kind: "content_block", entryId: entry.entryId, blockIndex: block.blockIndex };
-						if (currentTargetDeleted(deletedTargets, candidate)) {
-							skipped.push({
+
+						for (const block of entry.contentBlocks) {
+							if (!matcher.test(block.text)) continue;
+							if (entry.protected) {
+								skipped.push({
+									entryId: entry.entryId,
+									target,
+									blockIndex: block.blockIndex,
+									reason: "protected_entry",
+									text: block.text,
+								});
+								continue;
+							}
+							if (block.protected) {
+								skipped.push({
+									entryId: entry.entryId,
+									target,
+									blockIndex: block.blockIndex,
+									reason: "protected_block",
+									text: block.text,
+								});
+								continue;
+							}
+							const candidate: ContextDeletionTarget =
+								entry.contentBlocks.length <= 1
+									? { kind: "entry", entryId: entry.entryId }
+									: { kind: "content_block", entryId: entry.entryId, blockIndex: block.blockIndex };
+							if (currentTargetDeleted(deletedTargets, candidate)) {
+								skipped.push({
+									entryId: entry.entryId,
+									target: candidate.kind,
+									...(candidate.kind === "content_block" ? { blockIndex: candidate.blockIndex } : {}),
+									reason: "already_deleted",
+									text: block.text,
+								});
+								continue;
+							}
+							addGrepCandidate(candidates, matches, seenTargets, candidate, {
 								entryId: entry.entryId,
 								target: candidate.kind,
 								...(candidate.kind === "content_block" ? { blockIndex: candidate.blockIndex } : {}),
-								reason: "already_deleted",
 								text: block.text,
 							});
-							continue;
 						}
-						addGrepCandidate(candidates, matches, seenTargets, candidate, {
-							entryId: entry.entryId,
-							target: candidate.kind,
-							...(candidate.kind === "content_block" ? { blockIndex: candidate.blockIndex } : {}),
-							text: block.text,
-						});
 					}
-				}
 
-				let applied: ValidatedContextDeletionPlan | undefined;
-				if (params.expectedMatchCount !== undefined && candidates.length !== params.expectedMatchCount) {
-					skipped.push({ reason: "expected_match_count_mismatch" });
-				} else if (candidates.length > maxMatches) {
-					skipped.push({ reason: "max_matches_exceeded" });
-				} else if (candidates.length > 0) {
-					applied = applyValidatedTargets(candidates);
-				}
+					let applied: ValidatedContextDeletionPlan | undefined;
+					if (params.expectedMatchCount !== undefined && candidates.length !== params.expectedMatchCount) {
+						skipped.push({ reason: "expected_match_count_mismatch" });
+					} else if (candidates.length > maxMatches) {
+						skipped.push({ reason: "max_matches_exceeded" });
+					} else if (candidates.length > 0) {
+						applied = applyValidatedTargets(candidates);
+					}
 
-				const details: ContextGrepDeletionToolDetails = {
-					pattern,
-					regex,
-					caseSensitive,
-					target,
-					matches,
-					skipped,
-					deletedTargets,
-					stats: applied?.stats ?? currentStats(),
-					callCount,
-				};
-				const text = `Matched ${matches.length} unprotected target(s), skipped ${skipped.length}, and ${applied ? "applied" : "did not apply"} grep deletion for pattern ${JSON.stringify(pattern)}. Total validated deletion target(s): ${deletedTargets.length}.`;
-				return createPlannerToolResult(text, details);
-			} catch (error) {
-				const message = formatErrorMessage(error);
-				const details: ContextGrepDeletionToolDetails = {
-					pattern,
-					regex,
-					caseSensitive,
-					target,
-					matches,
-					skipped,
-					deletedTargets,
-					stats: currentStats(),
-					callCount,
-					error: message,
-				};
-				return createPlannerToolResult(
-					`Error applying grep deletion for pattern ${JSON.stringify(pattern)}: ${message}. No new deletion targets were applied; continue with a corrected tool call.`,
-					details,
-				);
-			}
+					const details: ContextGrepDeletionToolDetails = {
+						pattern,
+						regex,
+						caseSensitive,
+						target,
+						matches,
+						skipped,
+						deletedTargets,
+						stats: applied?.stats ?? currentStats(),
+						callCount,
+					};
+					lastToolError = undefined;
+					const text = `Matched ${matches.length} unprotected target(s), skipped ${skipped.length}, and ${applied ? "applied" : "did not apply"} grep deletion for pattern ${JSON.stringify(pattern)}. Total validated deletion target(s): ${deletedTargets.length}.`;
+					return createPlannerToolResult(text, details);
+				} catch (error) {
+					const message = formatErrorMessage(error);
+					lastToolError = message;
+					const details: ContextGrepDeletionToolDetails = {
+						pattern,
+						regex,
+						caseSensitive,
+						target,
+						matches,
+						skipped,
+						deletedTargets,
+						stats: currentStats(),
+						callCount,
+						error: message,
+					};
+					return createPlannerToolResult(
+						`Error applying grep deletion for pattern ${JSON.stringify(pattern)}: ${message}. No new deletion targets were applied; continue with a corrected tool call.`,
+						details,
+					);
+				}
+			});
 		},
 	};
 
@@ -1173,6 +1223,7 @@ export function createContextDeletionPlannerTool(
 		tools: [tool, grepTool],
 		getPlan: () => planFromTargets(deletedTargets),
 		getValidatedPlan: () => validatedPlan,
+		getLastError: () => lastToolError,
 		getCallCount: () => callCount,
 	};
 }
@@ -1276,6 +1327,7 @@ function createContextCompactionPlannerErrorStream(model: Model<Api>, errorMessa
 interface ContextDeletionPlanningRun {
 	plan: RawContextDeletionPlan;
 	validatedPlan: ValidatedContextDeletionPlan | undefined;
+	lastToolError: string | undefined;
 }
 
 async function runContextDeletionPlanner(
@@ -1302,7 +1354,7 @@ async function runContextDeletionPlanner(
 			thinkingLevel: effectiveThinkingLevel,
 			tools: plannerTool.tools,
 		},
-		toolExecution: "sequential",
+		toolExecution: "parallel",
 		streamFn: async (requestModel, context, streamOptions) => {
 			plannerTurnCount += 1;
 			if (plannerTurnCount > CONTEXT_COMPACTION_PLANNER_MAX_TURNS) {
@@ -1340,9 +1392,17 @@ async function runContextDeletionPlanner(
 	if (plannerTool.getCallCount() === 0) {
 		throw new Error(`Context compaction planner did not call ${CONTEXT_DELETION_PLAN_TOOL_NAME} or ${CONTEXT_GREP_DELETE_TOOL_NAME}`);
 	}
-	return { plan: plannerTool.getPlan(), validatedPlan: plannerTool.getValidatedPlan() };
+	return {
+		plan: plannerTool.getPlan(),
+		validatedPlan: plannerTool.getValidatedPlan(),
+		lastToolError: plannerTool.getLastError(),
+	};
 }
 
+/**
+ * Runs the transcript-bound planner and returns only raw deletion targets. Callers that need the
+ * validated plan should call contextCompact() instead; calling both independently re-runs planning.
+ */
 export async function planContextDeletions(
 	transcript: CompactableTranscript,
 	model: Model<Api>,
@@ -1362,7 +1422,7 @@ export async function contextCompact(
 	signal?: AbortSignal,
 	thinkingLevel?: ThinkingLevel,
 ): Promise<ValidatedContextDeletionPlan> {
-	const { validatedPlan } = await runContextDeletionPlanner(
+	const { validatedPlan, lastToolError } = await runContextDeletionPlanner(
 		preparation.transcript,
 		model,
 		apiKey,
@@ -1371,7 +1431,9 @@ export async function contextCompact(
 		thinkingLevel,
 	);
 	if (!validatedPlan || validatedPlan.deletedTargets.length === 0) {
-		throw new Error("No safe context deletions proposed");
+		throw new Error(
+			lastToolError ? `No safe context deletions proposed; last planner tool error: ${lastToolError}` : "No safe context deletions proposed",
+		);
 	}
 	return validatedPlan;
 }

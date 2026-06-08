@@ -470,24 +470,40 @@ describe("context compaction", () => {
 		).toThrow(/protected/);
 	});
 
-	it("rejects deletion plans that orphan tool calls or results", () => {
+	it("repairs deletion plans that would orphan tool calls or results", () => {
 		resetIds();
+		const combinedToolCallId = "call_7SZEC0NytS60tNYbfx3iV93P|fc_0f290ffb56102ac9016a262e88c10c819aa3fe84e1e79aa20f";
 		const entries: SessionEntry[] = [
 			entry(user("Task")),
-			entry(assistantToolCall("tool-1")),
-			entry(toolResult("tool-1", "tool output")),
+			entry(assistantToolCall(combinedToolCallId)),
+			entry(toolResult(combinedToolCallId, "tool output")),
 			entry(assistantText("old filler 1")),
 			entry(assistantText("old filler 2")),
 			entry(assistantText("old filler 3")),
 			entry(assistantText("old filler 4")),
 			entry(assistantText("old filler 5")),
 		];
+		const callEntry = entries[1] as SessionMessageEntry;
 		const resultEntry = entries[2] as SessionMessageEntry;
 		const preparation = prepareContextCompaction(entries, DEFAULT_COMPACTION_SETTINGS)!;
 
-		expect(() =>
-			validateContextDeletionPlan({ deletions: [{ kind: "entry", entryId: resultEntry.id }] }, preparation.transcript),
-		).toThrow(/dangling/);
+		const callValidated = validateContextDeletionPlan(
+			{ deletions: [{ kind: "entry", entryId: callEntry.id }] },
+			preparation.transcript,
+		);
+		expect(callValidated.deletedTargets).toEqual([
+			{ kind: "entry", entryId: callEntry.id },
+			{ kind: "entry", entryId: resultEntry.id },
+		]);
+
+		const resultValidated = validateContextDeletionPlan(
+			{ deletions: [{ kind: "entry", entryId: resultEntry.id }] },
+			preparation.transcript,
+		);
+		expect(resultValidated.deletedTargets).toEqual([
+			{ kind: "entry", entryId: resultEntry.id },
+			{ kind: "entry", entryId: callEntry.id },
+		]);
 	});
 
 	it("rejects content-block plans that would remove every block from an entry", () => {
@@ -522,6 +538,213 @@ describe("context compaction", () => {
 				preparation.transcript,
 			),
 		).toThrow(/every content block/);
+	});
+
+	it("repairs deleted tool-call content blocks with combined call ids", () => {
+		resetIds();
+		const combinedToolCallId = "call_7SZEC0NytS60tNYbfx3iV93P|fc_0f290ffb56102ac9016a262e88c10c819aa3fe84e1e79aa20f";
+		const task = entry(user("Task"));
+		const assistantWithCall = entry({
+			...assistantText(""),
+			content: [
+				{ type: "text", text: "retain assistant note" },
+				{ type: "toolCall", id: combinedToolCallId, name: "read", arguments: { path: "old.ts" } },
+			],
+			stopReason: "toolUse",
+		});
+		const result = entry(toolResult(combinedToolCallId, "redundant old file contents"));
+		const entries: SessionEntry[] = [
+			task,
+			assistantWithCall,
+			result,
+			entry(assistantText("old filler 1")),
+			entry(assistantText("old filler 2")),
+			entry(assistantText("old filler 3")),
+			entry(assistantText("old filler 4")),
+			entry(assistantText("old filler 5")),
+		];
+		const preparation = prepareContextCompaction(entries, DEFAULT_COMPACTION_SETTINGS)!;
+
+		const validated = validateContextDeletionPlan(
+			{ deletions: [{ kind: "content_block", entryId: assistantWithCall.id, blockIndex: 1 }] },
+			preparation.transcript,
+		);
+
+		expect(validated.deletedTargets).toEqual([
+			{ kind: "content_block", entryId: assistantWithCall.id, blockIndex: 1 },
+			{ kind: "entry", entryId: result.id },
+		]);
+		const rebuilt = buildSessionContext([...entries, contextEntry(validated.deletedTargets)]);
+		expect(rebuilt.messages).not.toContain(result.message);
+		const retainedAssistant = rebuilt.messages.find(
+			(message) => message.role === "assistant" && message !== assistantWithCall.message,
+		) as AssistantMessage | undefined;
+		expect(retainedAssistant?.content).toEqual([{ type: "text", text: "retain assistant note" }]);
+	});
+
+	it("drops stale result block targets when promoting paired result deletion", () => {
+		resetIds();
+		const combinedToolCallId = "call_7SZEC0NytS60tNYbfx3iV93P|fc_0f290ffb56102ac9016a262e88c10c819aa3fe84e1e79aa20f";
+		const task = entry(user("Task"));
+		const call = entry(assistantToolCall(combinedToolCallId));
+		const result = entry(toolResultWithImage(combinedToolCallId, "redundant text"));
+		const entries: SessionEntry[] = [
+			task,
+			call,
+			result,
+			entry(assistantText("old filler 1")),
+			entry(assistantText("old filler 2")),
+			entry(assistantText("old filler 3")),
+			entry(assistantText("old filler 4")),
+			entry(assistantText("old filler 5")),
+		];
+		const preparation = prepareContextCompaction(entries, DEFAULT_COMPACTION_SETTINGS)!;
+
+		const validated = validateContextDeletionPlan(
+			{
+				deletions: [
+					{ kind: "entry", entryId: call.id },
+					{ kind: "content_block", entryId: result.id, blockIndex: 0 },
+				],
+			},
+			preparation.transcript,
+		);
+
+		expect(validated.deletedTargets).toEqual([
+			{ kind: "entry", entryId: call.id },
+			{ kind: "entry", entryId: result.id },
+		]);
+	});
+
+	it("promotes assistant deletion when paired repair combines with sibling block deletion", () => {
+		resetIds();
+		const combinedToolCallId = "call_7SZEC0NytS60tNYbfx3iV93P|fc_0f290ffb56102ac9016a262e88c10c819aa3fe84e1e79aa20f";
+		const task = entry(user("Task"));
+		const assistantWithCall = entry({
+			...assistantText(""),
+			content: [
+				{ type: "text", text: "obsolete sibling block" },
+				{ type: "toolCall", id: combinedToolCallId, name: "read", arguments: { path: "old.ts" } },
+			],
+			stopReason: "toolUse",
+		});
+		const result = entry(toolResult(combinedToolCallId, "redundant old file contents"));
+		const entries: SessionEntry[] = [
+			task,
+			assistantWithCall,
+			result,
+			entry(assistantText("old filler 1")),
+			entry(assistantText("old filler 2")),
+			entry(assistantText("old filler 3")),
+			entry(assistantText("old filler 4")),
+			entry(assistantText("old filler 5")),
+		];
+		const preparation = prepareContextCompaction(entries, DEFAULT_COMPACTION_SETTINGS)!;
+
+		const validated = validateContextDeletionPlan(
+			{
+				deletions: [
+					{ kind: "content_block", entryId: assistantWithCall.id, blockIndex: 0 },
+					{ kind: "entry", entryId: result.id },
+				],
+			},
+			preparation.transcript,
+		);
+
+		expect(validated.deletedTargets).toEqual([
+			{ kind: "entry", entryId: result.id },
+			{ kind: "entry", entryId: assistantWithCall.id },
+		]);
+	});
+
+	it("promotes assistant deletion when accumulated block deletions cover a tool-call entry", () => {
+		resetIds();
+		const combinedToolCallId = "call_7SZEC0NytS60tNYbfx3iV93P|fc_0f290ffb56102ac9016a262e88c10c819aa3fe84e1e79aa20f";
+		const task = entry(user("Task"));
+		const assistantWithCall = entry({
+			...assistantText(""),
+			content: [
+				{ type: "text", text: "obsolete sibling block" },
+				{ type: "toolCall", id: combinedToolCallId, name: "read", arguments: { path: "old.ts" } },
+			],
+			stopReason: "toolUse",
+		});
+		const result = entry(toolResult(combinedToolCallId, "redundant old file contents"));
+		const entries: SessionEntry[] = [
+			task,
+			assistantWithCall,
+			result,
+			entry(assistantText("old filler 1")),
+			entry(assistantText("old filler 2")),
+			entry(assistantText("old filler 3")),
+			entry(assistantText("old filler 4")),
+			entry(assistantText("old filler 5")),
+		];
+		const preparation = prepareContextCompaction(entries, DEFAULT_COMPACTION_SETTINGS)!;
+
+		const firstValidated = validateContextDeletionPlan(
+			{ deletions: [{ kind: "content_block", entryId: assistantWithCall.id, blockIndex: 1 }] },
+			preparation.transcript,
+		);
+		const accumulatedValidated = validateContextDeletionPlan(
+			{
+				deletions: [
+					...firstValidated.deletedTargets,
+					{ kind: "content_block", entryId: assistantWithCall.id, blockIndex: 0 },
+				],
+			},
+			preparation.transcript,
+		);
+
+		expect(accumulatedValidated.deletedTargets).toEqual([
+			{ kind: "entry", entryId: result.id },
+			{ kind: "entry", entryId: assistantWithCall.id },
+		]);
+	});
+
+	it("promotes fully deleted multi-tool assistant entries", () => {
+		resetIds();
+		const firstToolCallId = "call_A|fc_a";
+		const secondToolCallId = "call_B|fc_b";
+		const task = entry(user("Task"));
+		const assistantWithCalls = entry({
+			...assistantText(""),
+			content: [
+				{ type: "toolCall", id: firstToolCallId, name: "read", arguments: { path: "a.ts" } },
+				{ type: "toolCall", id: secondToolCallId, name: "read", arguments: { path: "b.ts" } },
+			],
+			stopReason: "toolUse",
+		});
+		const firstResult = entry(toolResult(firstToolCallId, "old a"));
+		const secondResult = entry(toolResult(secondToolCallId, "old b"));
+		const entries: SessionEntry[] = [
+			task,
+			assistantWithCalls,
+			firstResult,
+			secondResult,
+			entry(assistantText("old filler 1")),
+			entry(assistantText("old filler 2")),
+			entry(assistantText("old filler 3")),
+			entry(assistantText("old filler 4")),
+			entry(assistantText("old filler 5")),
+		];
+		const preparation = prepareContextCompaction(entries, DEFAULT_COMPACTION_SETTINGS)!;
+
+		const validated = validateContextDeletionPlan(
+			{
+				deletions: [
+					{ kind: "entry", entryId: firstResult.id },
+					{ kind: "entry", entryId: secondResult.id },
+				],
+			},
+			preparation.transcript,
+		);
+
+		expect(validated.deletedTargets).toEqual([
+			{ kind: "entry", entryId: firstResult.id },
+			{ kind: "entry", entryId: secondResult.id },
+			{ kind: "entry", entryId: assistantWithCalls.id },
+		]);
 	});
 
 	it("supports content-block logical deletion while retaining other blocks verbatim", () => {

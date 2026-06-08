@@ -1981,7 +1981,7 @@ async function runContextDeletionAssistant(
 	thinkingLevel: ThinkingLevel = "off",
 	mode: ContextCompactionMode = "standard",
 ): Promise<ContextDeletionRun> {
-	const maxTokens = Math.min(4096, model.maxTokens > 0 ? model.maxTokens : Number.POSITIVE_INFINITY);
+	const maxTokens = model.maxTokens > 0 ? model.maxTokens : Number.POSITIVE_INFINITY;
 	if (signal?.aborted) {
 		throw new Error("Context compaction failed: Request was aborted");
 	}

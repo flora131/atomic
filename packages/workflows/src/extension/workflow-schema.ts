@@ -114,7 +114,7 @@ export const WorkflowParametersSchema = Type.Object({
     Type.Literal("resume"),
     Type.Literal("reload"),
   ], {
-    description: "Workflow action: run/list/get/inputs/status, inspect stage metadata, send messages or prompt answers, pause/resume/interrupt/kill runs, or reload workflow resources. For transcript inspection, prefer status/stages/stage first to get sessionFile/transcriptPath, quote the exact path without rewriting separators (Windows backslashes are valid), then search it with rg/grep and read small ranges; transcript defaults to at most 5 recent entries and explicit tail/limit overrides that preview.",
+    description: "Workflow action: run/list/get/inputs/status, inspect stage metadata, send messages or prompt answers, pause/resume/interrupt/kill runs, or reload workflow resources. For transcript inspection, prefer status/stages/stage first to get sessionFile/transcriptPath, quote the exact path without rewriting separators (Windows backslashes are valid), then search it with rg/grep and read small ranges; transcript is path-only by default when sessionFile/transcriptPath exists, explicit tail/limit returns bounded previews, and missing transcript paths fall back to a small preview.",
   })),
   runId: Type.Optional(Type.String({
     description: "Run identifier or unique prefix for status/stages/stage/transcript/send/pause/resume/interrupt/kill. Use '--all' or all:true for supported bulk run-control actions.",
@@ -146,14 +146,14 @@ export const WorkflowParametersSchema = Type.Object({
   })),
   limit: Type.Optional(Type.Integer({
     minimum: 0,
-    description: "Transcript-only: explicitly inline at most this many recent entries. Omit both limit and tail to use the default 5-entry preview plus metadata/path; prefer rg/grep on the exact quoted sessionFile/transcriptPath for targeted lookup without rewriting platform path separators.",
+    description: "Transcript-only: explicitly inline at most this many recent entries. Omit both limit and tail to use the path-only default when sessionFile/transcriptPath exists; prefer rg/grep on the exact quoted sessionFile/transcriptPath for targeted lookup without rewriting platform path separators.",
   })),
   tail: Type.Optional(Type.Integer({
     minimum: 0,
     description: "Transcript-only: explicitly inline the last N entries; overrides limit. Use for quick recent-context checks after status/stages/stage expose the transcript path.",
   })),
   includeToolOutput: Type.Optional(Type.Boolean({
-    description: "Transcript-only: include captured tool output entries when building transcript results from stage snapshots; prefer rg/grep on the exact quoted sessionFile/transcriptPath for large outputs. Live session transcripts may not expose tool output.",
+    description: "Transcript-only: include captured tool output entries when building inlined snapshot previews; this does not bypass the path-only default. Prefer rg/grep on the exact quoted sessionFile/transcriptPath for large outputs. Live session transcripts may not expose tool output.",
   })),
   text: Type.Optional(Type.String({
     description: "Text to send to a stage for prompt answers, steering, follow-ups, or resume messages.",

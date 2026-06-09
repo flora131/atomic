@@ -2016,11 +2016,6 @@ export class AgentSession {
 			return undefined;
 		}
 
-		// Deep-clone preparation before exposing it to extension hooks. Extensions receive an
-		// isolated snapshot so they cannot mutate protection metadata (protectedEntryIds, entry
-		// .protected flags, etc.) on the internal preparation used for validation.
-		const extensionPreparation: ContextCompactionPreparation = deepFreeze(structuredClone(preparation));
-
 		// Planner fallback used when no extension supplies a deletionRequest. Auth is resolved
 		// lazily here so extension-provided deletion requests keep working offline. Returns
 		// undefined when auth is unavailable (auto-mode resolvers), signaling a no-op compaction.
@@ -2042,9 +2037,27 @@ export class AgentSession {
 		// This happens BEFORE any auth resolution so local extension deletion requests work
 		// without configured API credentials.
 		let fromExtension = false;
-		let validated: ValidatedContextDeletionResult;
+		let validated: ValidatedContextDeletionResult | undefined;
 
 		if (this._extensionRunner.hasHandlers("session_before_compact")) {
+			// Deep-clone the preparation only when a before-compact handler actually exists. Extensions
+			// receive an isolated, frozen snapshot so they cannot mutate protection metadata
+			// (protectedEntryIds, entry .protected flags, etc.) on the internal preparation used for
+			// validation. Building it lazily avoids deep-cloning the transcript — largest exactly when
+			// compaction fires — on the common no-extension path.
+			let extensionPreparation: ContextCompactionPreparation;
+			try {
+				extensionPreparation = deepFreeze(structuredClone(preparation));
+			} catch (error) {
+				// structuredClone only throws if an entry carries a non-cloneable value (a function or a
+				// class instance). Transcript entries are plain data today, so this guards a latent
+				// invariant: surface a clear error instead of letting a raw DataCloneError abort an
+				// otherwise-viable compaction.
+				throw new Error(
+					`Failed to snapshot transcript for compaction extensions: ${error instanceof Error ? error.message : String(error)}`,
+				);
+			}
+
 			const hookResult = (await this._extensionRunner.emit({
 				type: "session_before_compact",
 				reason: options.reason,
@@ -2076,20 +2089,15 @@ export class AgentSession {
 					throw new Error("No safe context deletions proposed by extension");
 				}
 				fromExtension = true;
-			} else {
-				// No deletion request from extension — fall back to the internal planner.
-				const plannerResult = await runPlanner();
-				if (!plannerResult) {
-					// Auth unavailable (auto-mode resolvers return undefined): no-op compaction.
-					return undefined;
-				}
-				validated = plannerResult;
 			}
-		} else {
-			// No extension handlers — fall back to the internal planner directly.
+		}
+
+		// Planner fallback shared by both paths: no before-compact handler at all, or a handler that
+		// observed without supplying a deletionRequest. Resolves auth lazily; undefined means auth is
+		// unavailable (auto-mode resolvers), so compaction is a no-op.
+		if (!validated) {
 			const plannerResult = await runPlanner();
 			if (!plannerResult) {
-				// Auth unavailable (auto-mode resolvers return undefined): no-op compaction.
 				return undefined;
 			}
 			validated = plannerResult;

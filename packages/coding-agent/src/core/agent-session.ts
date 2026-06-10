@@ -110,6 +110,7 @@ import { createSyntheticSourceInfo, type SourceInfo } from "./source-info.ts";
 import { type BuildSystemPromptOptions, buildSystemPrompt } from "./system-prompt.ts";
 import { type BashOperations, createLocalBashOperations } from "./tools/bash.ts";
 import { createAllToolDefinitions, defaultToolNames } from "./tools/index.ts";
+import { redirectOversizedToolResult } from "./tools/oversized-tool-result.js";
 import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapper.ts";
 
 function deepFreeze<T>(value: T): T {
@@ -554,29 +555,46 @@ export class AgentSession {
 
 		this.agent.afterToolCall = async ({ toolCall, args, result, isError }) => {
 			const runner = this._extensionRunner;
-			if (!runner.hasHandlers("tool_result")) {
-				return undefined;
-			}
+			const hookResult = runner.hasHandlers("tool_result")
+				? await runner.emitToolResult({
+						type: "tool_result",
+						toolName: toolCall.name,
+						toolCallId: toolCall.id,
+						input: args as Record<string, unknown>,
+						content: result.content,
+						details: result.details,
+						isError,
+					})
+				: undefined;
 
-			const hookResult = await runner.emitToolResult({
-				type: "tool_result",
+			const extensionReplacement = hookResult
+				? {
+						content: hookResult.content,
+						details: hookResult.details,
+						isError: hookResult.isError ?? isError,
+					}
+				: undefined;
+			const finalResult = hookResult
+				? {
+						content: hookResult.content ?? result.content,
+						// Use original details as fallback when extension hook omits details.
+						// This ensures the redirect check sees the same effective details
+						// that agent-core will finalize, preventing oversized original details
+						// from bypassing the redirect check when an extension only rewrites content.
+						details: hookResult.details ?? result.details,
+					}
+				: result;
+			const finalIsError = hookResult?.isError ?? isError;
+			const redirectReplacement = await redirectOversizedToolResult({
 				toolName: toolCall.name,
 				toolCallId: toolCall.id,
-				input: args as Record<string, unknown>,
-				content: result.content,
-				details: result.details,
-				isError,
+				result: finalResult,
+				isError: finalIsError,
+				sessionId: this.sessionManager.getSessionId(),
+				sessionDir: this.sessionManager.getSessionDir() || undefined,
 			});
 
-			if (!hookResult) {
-				return undefined;
-			}
-
-			return {
-				content: hookResult.content,
-				details: hookResult.details,
-				isError: hookResult.isError ?? isError,
-			};
+			return redirectReplacement ?? extensionReplacement;
 		};
 	}
 

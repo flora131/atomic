@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -48,8 +49,8 @@ export interface OversizedToolResultReplacement {
 }
 
 /**
- * Human-readable byte size, e.g. `1536` → "1.5KB". Ported from the reference
- * `formatFileSize` so persisted-output messages match the upstream wording.
+ * Human-readable byte size, e.g. `1536` → "1.5KB". Intentionally mirrors
+ * upstream Claude Code `formatFileSize` wording instead of using tools/truncate.ts.
  */
 export function formatFileSize(sizeInBytes: number): string {
 	const kb = sizeInBytes / 1024;
@@ -100,13 +101,13 @@ export function generatePreview(content: string, maxBytes: number): { preview: s
  * the oversized content. Ported from the reference `buildLargeToolResultMessage`.
  */
 function buildPersistedOutputMessage(input: {
-	originalSize: number;
+	originalSizeBytes: number;
 	filepath: string;
 	preview: string;
 	hasMore: boolean;
 }): string {
 	let message = `${PERSISTED_OUTPUT_TAG}\n`;
-	message += `Output too large (${formatFileSize(input.originalSize)}). Full output saved to: ${input.filepath}\n\n`;
+	message += `Output too large (${formatFileSize(input.originalSizeBytes)}). Full output saved to: ${input.filepath}\n\n`;
 	message += `Preview (first ${formatFileSize(PREVIEW_SIZE_BYTES)}):\n`;
 	message += input.preview;
 	message += input.hasMore ? "\n...\n" : "\n";
@@ -225,7 +226,12 @@ export async function redirectOversizedToolResult<TDetails = unknown>(
 	}
 
 	const { preview, hasMore } = generatePreview(text, PREVIEW_SIZE_BYTES);
-	const message = buildPersistedOutputMessage({ originalSize: text.length, filepath, preview, hasMore });
+	const message = buildPersistedOutputMessage({
+		originalSizeBytes: Buffer.byteLength(text, "utf8"),
+		filepath,
+		preview,
+		hasMore,
+	});
 
 	return {
 		content: [{ type: "text", text: message }],

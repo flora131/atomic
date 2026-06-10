@@ -507,6 +507,8 @@ export interface ToolDefinition<TParams extends TSchema = TSchema, TDetails = un
 	promptGuidelines?: string[];
 	/** Parameter schema (TypeBox) */
 	parameters: TParams;
+	/** Optional per-tool character cap for model-visible result persistence. Use Infinity to opt out for self-bounded tools. */
+	maxResultSizeChars?: number;
 	/** Controls whether ToolExecutionComponent renders the standard colored shell or the tool renders its own framing. */
 	renderShell?: "default" | "self";
 

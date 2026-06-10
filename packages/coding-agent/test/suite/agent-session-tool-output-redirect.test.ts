@@ -7,6 +7,7 @@ import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	generatePreview,
+	getPersistenceThreshold,
 	redirectOversizedToolResult,
 } from "../../src/core/tools/oversized-tool-result.js";
 import {
@@ -17,12 +18,18 @@ import {
 } from "../../src/core/tools/tool-limits.js";
 import { createHarness, getMessageText, type Harness } from "./harness.ts";
 
-function textTool(name: string, text: string, details?: Record<string, unknown>): AgentTool {
+function textTool(
+	name: string,
+	text: string,
+	details?: Record<string, unknown>,
+	maxResultSizeChars?: number,
+): AgentTool & { maxResultSizeChars?: number } {
 	return {
 		name,
 		label: name,
 		description: `${name} test tool`,
 		parameters: Type.Object({}),
+		maxResultSizeChars,
 		execute: async () => ({
 			content: [{ type: "text", text }],
 			details,
@@ -135,6 +142,52 @@ describe("AgentSession oversized tool output persistence", () => {
 		expect(readFileSync(filePath, "utf8")).toBe(originalOutput);
 	});
 
+	it("honors a tool-level Infinity opt-out so self-bounded tools keep oversized output inline", async () => {
+		const originalOutput = `SELF-BOUNDED-SENTINEL\n${"s".repeat(DEFAULT_MAX_RESULT_SIZE_CHARS + 10)}`;
+		const harness = await createHarness({ tools: [textTool("self_bounded", originalOutput, undefined, Infinity)] });
+		harnesses.push(harness);
+		let followUpToolResultText = "";
+
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall("self_bounded", {}, { id: "tool-self-bounded" }), {
+				stopReason: "toolUse",
+			}),
+			(context) => {
+				const toolResult = context.messages.find((message) => message.role === "toolResult");
+				followUpToolResultText = toolResult ? getMessageText(toolResult) : "";
+				return fauxAssistantMessage("done");
+			},
+		]);
+
+		await harness.session.prompt("run self-bounded tool");
+
+		const toolResult = getFirstToolResultMessage(harness);
+		expect(getMessageText(toolResult)).toBe(originalOutput);
+		expect(followUpToolResultText).toBe(originalOutput);
+		expect(getMessageText(toolResult)).not.toContain(PERSISTED_OUTPUT_TAG);
+	});
+
+	it("honors a lower per-tool character cap", async () => {
+		const originalOutput = "PER-TOOL-CAP";
+		const harness = await createHarness({ tools: [textTool("tiny_cap", originalOutput, undefined, 5)] });
+		harnesses.push(harness);
+
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall("tiny_cap", {}, { id: "tool-tiny-cap" }), {
+				stopReason: "toolUse",
+			}),
+			fauxAssistantMessage("done"),
+		]);
+
+		await harness.session.prompt("run tiny-cap tool");
+
+		const compactText = getMessageText(getFirstToolResultMessage(harness));
+		expect(compactText).toContain(PERSISTED_OUTPUT_TAG);
+		const filePath = persistedFilePath(compactText);
+		cleanupPaths.push(dirname(filePath));
+		expect(readFileSync(filePath, "utf8")).toBe(originalOutput);
+	});
+
 	describe("threshold boundary (50,000 chars)", () => {
 		it("does NOT persist content at exactly the threshold", async () => {
 			const tempRoot = mkdtempSync(join(tmpdir(), "atomic-oversized-at-"));
@@ -167,6 +220,40 @@ describe("AgentSession oversized tool output persistence", () => {
 			expect(replacement).toBeDefined();
 			expect(replacement?.content[0]?.text).toContain(PERSISTED_OUTPUT_TAG);
 		});
+
+		it("does NOT persist content over the default threshold when the tool opts out with Infinity", async () => {
+			const tempRoot = mkdtempSync(join(tmpdir(), "atomic-oversized-opt-out-"));
+			cleanupPaths.push(tempRoot);
+			expect(getPersistenceThreshold(Infinity)).toBe(Infinity);
+			const replacement = await redirectOversizedToolResult({
+				toolName: "t",
+				toolCallId: "call-opt-out",
+				result: {
+					content: [{ type: "text", text: "i".repeat(DEFAULT_MAX_RESULT_SIZE_CHARS + 1) }],
+					details: undefined,
+				},
+				isError: false,
+				sessionId: "session-1",
+				sessionDir: tempRoot,
+				maxResultSizeChars: Infinity,
+			});
+			expect(replacement).toBeUndefined();
+		});
+	});
+
+	it("reports persisted output size in UTF-8 bytes while keeping the threshold character-based", async () => {
+		const tempRoot = mkdtempSync(join(tmpdir(), "atomic-oversized-utf8-"));
+		cleanupPaths.push(tempRoot);
+		const text = "é".repeat(DEFAULT_MAX_RESULT_SIZE_CHARS + 1);
+		const replacement = await redirectOversizedToolResult({
+			toolName: "utf8",
+			toolCallId: "call-utf8",
+			result: { content: [{ type: "text", text }], details: undefined },
+			isError: false,
+			sessionId: "session-1",
+			sessionDir: tempRoot,
+		});
+		expect(replacement?.content[0]?.text).toContain("Output too large (97.7KB)");
 	});
 
 	it("preserves isError=true and passes details through for an oversized error result", async () => {

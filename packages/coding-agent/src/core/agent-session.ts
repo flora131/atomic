@@ -577,10 +577,8 @@ export class AgentSession {
 			const finalResult = hookResult
 				? {
 						content: hookResult.content ?? result.content,
-						// Use original details as fallback when extension hook omits details.
-						// This ensures the redirect check sees the same effective details
-						// that agent-core will finalize, preventing oversized original details
-						// from bypassing the redirect check when an extension only rewrites content.
+						// Preserve original details when an extension hook rewrites only content;
+						// the redirect check only replaces model-visible content blocks.
 						details: hookResult.details ?? result.details,
 					}
 				: result;
@@ -592,6 +590,7 @@ export class AgentSession {
 				isError: finalIsError,
 				sessionId: this.sessionManager.getSessionId(),
 				sessionDir: this.sessionManager.getSessionDir() || undefined,
+				maxResultSizeChars: this.getToolDefinition(toolCall.name)?.maxResultSizeChars,
 			});
 
 			return redirectReplacement ?? extensionReplacement;

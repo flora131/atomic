@@ -17,22 +17,6 @@
  */
 export const DEFAULT_MAX_RESULT_SIZE_CHARS = 50_000;
 
-/**
- * Maximum size for tool results in tokens. Based on analysis of tool result
- * sizes, this is a reasonable upper bound to prevent excessively large tool
- * results from consuming too much context (~400KB of text at ~4 bytes/token).
- */
-export const MAX_TOOL_RESULT_TOKENS = 100_000;
-
-/**
- * Bytes-per-token estimate for converting between byte size and token count.
- * Conservative estimate — actual token count may vary.
- */
-export const BYTES_PER_TOKEN = 4;
-
-/** Maximum size for tool results in bytes (derived from the token limit). */
-export const MAX_TOOL_RESULT_BYTES = MAX_TOOL_RESULT_TOKENS * BYTES_PER_TOKEN;
-
 /** Subdirectory (within the session directory) for persisted tool results. */
 export const TOOL_RESULTS_SUBDIR = "tool-results";
 

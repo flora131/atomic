@@ -25,13 +25,16 @@ const readSchema = Type.Object({
 
 export type ReadToolInput = Static<typeof readSchema>;
 
-const READ_TOOL_MAX_RESULT_TOKENS = 20_000;
+// Matches mehmoodosman/claude-code DEFAULT_MAX_RESULT_SIZE_CHARS.
+// Reads are blocked (not persisted) because the source is already a file on disk;
+// re-persisting it would be circular.
+const READ_TOOL_MAX_RESULT_CHARS = 50_000;
 
 export interface OversizedReadDetails {
 	blocked: true;
 	path: string;
-	estimatedTokens: number;
-	maxTokens: number;
+	chars: number;
+	maxChars: number;
 	startLine: number;
 	requestedLimit?: number;
 	totalFileLines: number;
@@ -111,19 +114,15 @@ function toPosixPath(filePath: string): string {
 	return filePath.split(sep).join("/");
 }
 
-function estimateReadTextTokens(text: string): number {
-	return Math.ceil(text.length / 4);
-}
-
-function formatTokenCount(tokens: number): string {
-	return tokens.toLocaleString("en-US");
+function formatCount(count: number): string {
+	return count.toLocaleString("en-US");
 }
 
 function buildOversizedReadMessage(details: OversizedReadDetails): string {
 	const pathForExample = JSON.stringify(details.path);
 	const targetedSnippetOffset = Math.max(details.startLine, 120);
 	return [
-		`File read blocked: requested selected range is too large (estimated ${formatTokenCount(details.estimatedTokens)} tokens; threshold: ${formatTokenCount(details.maxTokens)}).`,
+		`File read blocked: requested selected range is too large (${formatCount(details.chars)} chars; threshold: ${formatCount(details.maxChars)} chars).`,
 		`Path: ${details.path}`,
 		"",
 		"Read only the needed context incrementally. Examples:",
@@ -335,13 +334,12 @@ export function createReadToolDefinition(
 								} else {
 									selectedContent = allLines.slice(startLine).join("\n");
 								}
-								const estimatedTokens = estimateReadTextTokens(selectedContent);
-								if (estimatedTokens > READ_TOOL_MAX_RESULT_TOKENS) {
+								if (selectedContent.length > READ_TOOL_MAX_RESULT_CHARS) {
 									const oversizedRead: OversizedReadDetails = {
 										blocked: true,
 										path: absolutePath,
-										estimatedTokens,
-										maxTokens: READ_TOOL_MAX_RESULT_TOKENS,
+										chars: selectedContent.length,
+										maxChars: READ_TOOL_MAX_RESULT_CHARS,
 										startLine: startLineDisplay,
 										...(limit !== undefined ? { requestedLimit: limit } : {}),
 										totalFileLines,

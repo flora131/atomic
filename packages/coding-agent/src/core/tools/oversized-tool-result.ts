@@ -114,11 +114,24 @@ function buildPersistedOutputMessage(input: {
 	return message;
 }
 
+/** Strip leading/trailing underscores with a linear scan (no backtracking regex). */
+function trimUnderscores(value: string): string {
+	let start = 0;
+	let end = value.length;
+	while (start < end && value[start] === "_") {
+		start++;
+	}
+	while (end > start && value[end - 1] === "_") {
+		end--;
+	}
+	return value.slice(start, end);
+}
+
 function sanitizePathComponent(value: string, fallback: string): string {
-	const sanitized = value
-		.replace(/[^a-zA-Z0-9._-]+/g, "_")
-		.replace(/^_+|_+$/g, "")
-		.slice(0, 64);
+	// Collapse disallowed characters to "_", then strip leading/trailing "_". The trim uses
+	// a manual linear scan instead of a /^_+|_+$/ regex to avoid a polynomial-time ReDoS on
+	// tool-call ids containing long runs of underscores (CodeQL js/polynomial-redos).
+	const sanitized = trimUnderscores(value.replace(/[^a-zA-Z0-9._-]+/g, "_")).slice(0, 64);
 	return sanitized.length > 0 ? sanitized : fallback;
 }
 

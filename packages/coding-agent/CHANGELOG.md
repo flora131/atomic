@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Security
+
+- Bumped the transitive `shell-quote` dependency from `1.8.3` to `1.8.4` in the `examples/extensions/sandbox` lockfile, resolving the critical advisory [GHSA-w7jw-789q-3m8p](https://github.com/advisories/GHSA-w7jw-789q-3m8p) (`shell-quote` `quote()` does not escape newlines in object `.op` values). The bump stays within `@anthropic-ai/sandbox-runtime`'s existing `^1.8.3` range.
+
 ### Added
 
 - Added upstream pi 0.76.0-0.79.1 coding-agent compatibility exports for package asset path helpers (`getPackageDir`, bundled asset/documentation/example paths), CLI argument parsing (`Args`, `parseArgs`), `SettingsManagerCreateOptions`, image conversion (`convertToPng`), and RPC extension UI request/response types so extensions can reference the same public APIs as upstream while retaining Atomic package identity.

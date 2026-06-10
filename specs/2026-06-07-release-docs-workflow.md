@@ -3,37 +3,38 @@
 | Document Metadata | Details |
 | --- | --- |
 | Author(s) | Norin Lavaee |
-| Status | Approved for implementation |
+| Status | Updated after simplification |
 | Team / Owner | Atomic developers |
 | Created / Last Updated | 2026-06-07 |
 
 ## 1. Executive Summary
 
-Create a project workflow at `.atomic/workflows/release-docs.ts` named `release-docs` that automates release documentation refreshes for Atomic developers. The workflow accepts a required `target_ref`, infers the release version from that ref, creates/switches to `docs/release-docs-<release-version>`, finds the latest non-prerelease release tag as the baseline, researches code changes between baseline and target, identifies stale docs under `packages/coding-agent/docs`, updates stale docs via parallel artifact-backed stages, validates docs with the repository's Mintlify/docs checks, then commits, pushes, and opens a PR only after validation passes.
+Create a project workflow at `.atomic/workflows/release-docs.ts` named `release-docs` that automates release documentation refreshes for Atomic developers. The simplified workflow has **no inputs**. It assumes the developer launches it from the branch that already contains the code changes that need documentation. It researches the current codebase, compares current behavior against docs under `packages/coding-agent/docs`, identifies stale or missing docs, updates grouped docs tasks in parallel, validates the Mintlify/docs checks, then commits, pushes, and opens a PR only after validation passes.
 
 ## 2. Context and Motivation
 
-Release prep currently requires developers to manually connect code changes, changelog/release tags, and hosted docs. The repo already has documented release docs checks in `docs/ci.md`: `cd packages/coding-agent && bun run docs:check`, `cd packages/coding-agent/docs && bunx --bun mintlify@latest validate`, and `cd packages/coding-agent/docs && bunx --bun mintlify@latest broken-links`. The workflow should package this repeatable process into a headless, inspectable Atomic workflow.
+Release prep currently requires developers to manually connect code changes and hosted docs. The workflow should not require a target release ref or a baseline release tag because the current branch is the source of truth for the code that needs documentation. The repo already has documented release docs checks in `docs/ci.md`: `cd packages/coding-agent && bun run docs:check`, `cd packages/coding-agent/docs && bunx --bun mintlify@latest validate`, and `cd packages/coding-agent/docs && bunx --bun mintlify@latest broken-links`.
 
 ## 3. Goals and Non-Goals
 
 ### Goals
 
 - Create a reusable workflow named `release-docs` under `.atomic/workflows`.
-- Require `target_ref` and infer the release version from it.
-- Use the latest stable semver tag (`MAJOR.MINOR.PATCH`, no prereleases) as the baseline.
-- Create/switch to `docs/release-docs-<release-version>` before edits.
-- Use research-codebase style codebase research to document the baseline-to-target changes.
-- Detect stale docs only under `packages/coding-agent/docs`.
+- Declare no workflow inputs; the current branch/check-out is the target.
+- Do not create or switch branches.
+- Research current Atomic code behavior and compare it to docs under `packages/coding-agent/docs`.
+- Detect stale or missing docs only under `packages/coding-agent/docs`.
 - Fan out independent docs update tasks in parallel.
 - Run and repair docs validation issues before PR creation.
-- Commit, push, and create a GitHub PR targeting `main` only when validation passes and docs changed.
+- Commit, push, and create/update a GitHub PR targeting `main` only when validation passes and docs changed.
 
 ### Non-Goals
 
 - Do not publish releases or push release tags.
 - Do not update changelogs or package versions.
 - Do not prompt for human input during the workflow run.
+- Do not accept `target_ref` or model a baseline-vs-target release range.
+- Do not create or switch to a dedicated docs branch.
 - Do not open an empty/no-op PR when no docs changes are needed.
 - Do not edit docs outside `packages/coding-agent/docs` unless validation fixes require generated references in the same docs tree.
 
@@ -45,14 +46,14 @@ Use **fan-out-and-synthesize** for stale-doc updates, followed by **adversarial 
 
 ```mermaid
 flowchart TD
-  A[Input target_ref] --> B[Prepare branch and release range]
+  A[Launch from current branch] --> B[Prepare current-branch metadata]
   B --> C[Deep codebase research]
   C --> D[Detect stale docs and emit JSON work items]
   D --> E{Any stale entries?}
   E -- no --> Z[Return no-op summary]
   E -- yes --> F[Parallel docs update workers]
   F --> G[Validation and repair gate]
-  G -- pass --> H[Commit, push, create PR]
+  G -- pass --> H[Commit, push, create/update PR]
   G -- fail --> Y[Stop with investigation summary]
 ```
 
@@ -60,8 +61,8 @@ flowchart TD
 
 | Component | Responsibility |
 | --- | --- |
-| Deterministic helpers | Fetch tags, find latest stable baseline tag, infer release version, create/switch branch, parse stale-doc JSON. |
-| `deep-research-codebase` child workflow | Research the code delta and write a reusable research artifact. |
+| Deterministic helpers | Ensure the worktree is clean, capture the current branch, create artifact directories, parse stale-doc JSON, and replay validation commands. |
+| `deep-research-codebase` child workflow | Research current code behavior and write a reusable research artifact. |
 | Stale-doc detector stage | Inspect docs and research, then produce grouped JSON update tasks with non-overlapping owning docs files. |
 | Parallel update stages | Apply doc edits for independent stale-doc groups. |
 | Validation/repair stage | Discover/run repo docs checks and fix failures until all pass or investigation is required. |
@@ -69,8 +70,8 @@ flowchart TD
 
 ### 4.3 Door Set at a Glance
 
-- `prepare_release_docs_branch` ⚠
-- `research_release_changes`
+- `prepare_release_docs_current_branch` ⚠
+- `research_current_code_docs_gaps`
 - `identify_stale_docs`
 - `update_stale_docs_in_parallel` ⚠
 - `validate_release_docs`
@@ -81,36 +82,43 @@ flowchart TD
 ### 5.1 Entrypoint Contracts
 
 ```ts
-release_docs(target_ref: string): ReleaseDocsResult
+release_docs(): ReleaseDocsResult
 ```
 
-Guarantee: refreshes Atomic release docs for a target ref and opens a PR only after docs validation passes.
+Guarantee: refreshes Atomic hosted docs for the current branch and opens/updates a PR only after docs validation passes.
 
 Failures/refusals:
-- Refuses to run when `target_ref` does not contain an inferable semver.
-- Refuses to run when no stable baseline tag exists.
-- Refuses to edit on a dirty working tree before branch preparation.
+- Refuses to run when the working tree is dirty before docs edits begin.
 - Refuses PR creation when validation cannot be made green.
 - Refuses concurrent docs file conflicts by grouping stale entries by owning docs files before fan-out.
 
-### 5.2 Branch and Version Rules
+### 5.2 Branch Rules
 
-- `target_ref` is required.
-- Infer the first semver from `target_ref`; strip prerelease/build metadata for the release branch version.
-  - Example: `0.8.26-alpha.1` → release version `0.8.26`.
-- Branch name: `docs/release-docs-<release-version>`.
-- Baseline tag: latest tag matching `^[0-9]+\.[0-9]+\.[0-9]+$`, excluding prerelease tags.
+- The workflow runs on the current branch.
+- The workflow does not create, switch, or track branches.
+- The current branch should already contain the code changes whose docs need refreshing.
+- The final PR stage pushes the current branch and creates/updates a PR targeting `main`.
 
 ### 5.3 Artifacts
 
-Use `.atomic/workflows/runs/release-docs/<release-version>/` for durable handoffs:
+Use `.atomic/workflows/runs/release-docs/<current-branch-slug>/` for durable handoffs:
 
 - `release-metadata.json`
 - `stale-doc-tasks.json`
-- `stale-doc-tasks.md`
 - `updates/*.md`
 - `validation.md`
 - `pr.md`
+
+The metadata artifact records:
+
+```json
+{
+  "current_branch": "feature/example",
+  "docs_root": "packages/coding-agent/docs",
+  "pr_base": "main",
+  "mode": "current-branch-docs-refresh"
+}
+```
 
 ### 5.4 Validation Gate
 
@@ -122,37 +130,36 @@ cd packages/coding-agent/docs && bunx --bun mintlify@latest validate
 cd packages/coding-agent/docs && bunx --bun mintlify@latest broken-links
 ```
 
-It must fix docs validation failures and rerun checks. If repeated failures remain, the workflow stops before commit/push/PR and returns an investigation summary.
+It must fix docs validation failures and rerun checks. After the model stage, the workflow deterministically replays the same commands and appends the command output to `validation.md`. If failures remain, the workflow stops before commit/push/PR and returns an investigation summary.
 
 ## 6. Alternatives Considered
 
 | Option | Pros | Cons | Decision |
 | --- | --- | --- | --- |
-| Zero-input workflow using `HEAD` | Fully headless by default | Cannot target a prerelease/ref explicitly | Rejected by user; use required `target_ref`. |
-| Always compare to `origin/main` | Simple | Wrong for prerelease/tag-specific release prep | Rejected. |
-| Create branch after research | Avoids branch churn | Research/edit stages can leak onto the caller branch | Rejected; branch first. |
+| Require `target_ref` and compare to latest stable tag | Precise release-range analysis | Too much ceremony; branch already carries the target changes | Rejected after simplification. |
+| Create a dedicated docs branch | Isolates docs commits | Adds branch churn and does not match current-branch workflow | Rejected. |
+| Use current branch with no inputs | Fully headless and matches how developers run release prep | Requires developers to launch from the correct branch | Accepted. |
 | Single docs update worker | Avoids conflicts | Slower and less isolated | Rejected; use grouped parallel workers. |
 
 ## 7. Test Plan
 
 - Reload workflows with `workflow({ action: "reload" })`.
-- Inspect inputs for `release-docs` and confirm `target_ref` is required.
-- Run repository typecheck if workflow file is included by local tooling; otherwise rely on workflow discovery/reload diagnostics.
-- Do not execute the full workflow during implementation because it intentionally creates branches, edits docs, pushes, and opens a PR.
+- Inspect inputs for `release-docs` and confirm there are no required inputs.
+- Run repository typecheck with `bun run typecheck`.
+- Do not execute the full workflow during implementation because it intentionally edits docs, commits, pushes, and opens PRs.
 
 ## 8. Backwards Compatibility
 
-This is a new project-only developer workflow. It does not change Atomic runtime APIs, package exports, or existing workflow definitions.
+This is a project-only developer workflow. Removing `target_ref`, baseline outputs, and release-version outputs changes the workflow contract, but the workflow is new and not a published runtime API.
 
 ## 9. Open Questions / Resolved Decisions
 
 - Workflow name: `release-docs`.
-- Branch timing: create branch first.
-- Diff baseline: latest non-prerelease release tag.
-- Diff target: required `target_ref` input.
-- Release version: infer from `target_ref`.
-- Branch name: `docs/release-docs-<release-version>`.
-- Mintlify command: discover from repo scripts/docs, defaulting to CI-documented commands.
+- Inputs: none.
+- Branch behavior: use current branch; do not create/switch branch.
+- Code/docs comparison: current codebase behavior vs current docs under `packages/coding-agent/docs`.
+- Artifact path: `.atomic/workflows/runs/release-docs/<current-branch-slug>/`.
+- Mintlify/docs checks: discover/repair in stage and deterministically replay CI-documented docs checks.
 - Validation failure policy: repair failures before commit/PR; stop with investigation summary if still failing.
 - PR base: `main`.
 - No-op policy: skip commit/push/PR and return a no-op summary when there are no docs changes.

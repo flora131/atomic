@@ -56,14 +56,12 @@ const runResult = (command: string, args: string[], cwd = repoRoot()): CommandRe
 
 const runGit = (args: string[]): string => run("git", args);
 
-const gitOk = (args: string[]): boolean => runResult("git", args).ok;
-
 const ensureCleanWorkingTree = (): void => {
   const status = runGit(["status", "--porcelain=v1"]);
   if (status.length > 0) {
     throw new Error(
       [
-        "release-docs refuses to start on a dirty working tree because it creates a release docs branch before editing.",
+        "release-docs refuses to start on a dirty working tree because it edits docs, commits, and pushes on the current branch.",
         "Commit, stash, or discard existing changes first.",
         "Current status:",
         status,
@@ -72,27 +70,14 @@ const ensureCleanWorkingTree = (): void => {
   }
 };
 
-const latestStableTag = (): string => {
-  const tags = runGit(["tag", "--list", "--sort=-v:refname"])
-    .split("\n")
-    .map((tag) => tag.trim())
-    .filter((tag) => /^v?\d+\.\d+\.\d+$/.test(tag));
-  const tag = tags[0];
-  if (!tag) {
-    throw new Error("release-docs could not find a stable semver release tag like 0.8.25.");
+const currentBranchName = (): string => {
+  const branch = runGit(["branch", "--show-current"]);
+  if (branch.length > 0) {
+    return branch;
   }
-  return tag;
-};
 
-const inferReleaseVersion = (targetRef: string): string => {
-  const match = /v?(\d+\.\d+\.\d+)(?:[-+][0-9A-Za-z.-]+)?/.exec(targetRef);
-  const version = match?.[1];
-  if (!version) {
-    throw new Error(
-      `release-docs could not infer a MAJOR.MINOR.PATCH release version from target_ref "${targetRef}".`,
-    );
-  }
-  return version;
+  const shortSha = runGit(["rev-parse", "--short", "HEAD"]);
+  return `detached-${shortSha}`;
 };
 
 const sanitizeSegment = (value: string): string =>
@@ -100,37 +85,6 @@ const sanitizeSegment = (value: string): string =>
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, "-")
     .replace(/^-+|-+$/g, "") || "item";
-
-const switchToDocsBranch = (branchName: string): void => {
-  const remoteBranch = `origin/${branchName}`;
-  if (gitOk(["show-ref", "--verify", "--quiet", `refs/heads/${branchName}`])) {
-    runGit(["switch", branchName]);
-    return;
-  }
-
-  if (gitOk(["rev-parse", "--verify", `${remoteBranch}^{commit}`])) {
-    runGit(["switch", "--track", "-c", branchName, remoteBranch]);
-    return;
-  }
-
-  runGit(["switch", "-c", branchName]);
-};
-
-const prepareBranch = (targetRef: string): { baselineTag: string; branchName: string; releaseVersion: string } => {
-  ensureCleanWorkingTree();
-  runGit(["fetch", "--tags", "--prune", "origin"]);
-
-  if (!gitOk(["rev-parse", "--verify", `${targetRef}^{commit}`])) {
-    throw new Error(`release-docs could not resolve target_ref "${targetRef}" to a commit after fetching origin tags.`);
-  }
-
-  const releaseVersion = inferReleaseVersion(targetRef);
-  const baselineTag = latestStableTag();
-  const branchName = `docs/release-docs-${releaseVersion}`;
-  switchToDocsBranch(branchName);
-
-  return { baselineTag, branchName, releaseVersion };
-};
 
 const extractJsonArray = (text: string): StaleDocTask[] => {
   const trimmed = text.trim();
@@ -199,8 +153,7 @@ const writeJson = (path: string, value: object): void => {
 };
 
 export default defineWorkflow("release-docs")
-  .description("Prepare Atomic release docs updates, validate Mintlify docs, and open a PR.")
-  .input("target_ref", Type.String({ description: "Target release ref/tag/branch/commit to compare against the latest stable release tag." }))
+  .description("Prepare Atomic release docs updates from the current branch, validate Mintlify docs, and open a PR.")
   .output("result", Type.String({ description: "Human-readable release docs workflow summary." }))
   .output(
     "status",
@@ -208,19 +161,18 @@ export default defineWorkflow("release-docs")
       description: "Final workflow status.",
     }),
   )
-  .output("target_ref", Type.String({ description: "Target ref supplied by the caller." }))
-  .output("baseline_tag", Type.String({ description: "Latest stable release tag used as the comparison baseline." }))
-  .output("release_version", Type.String({ description: "Release version inferred from target_ref." }))
-  .output("branch_name", Type.String({ description: "Docs branch created or reused by the workflow." }))
+  .output("current_branch", Type.String({ description: "Current git branch the workflow ran on." }))
+  .output("artifact_root", Type.String({ description: "Workflow artifact directory for this run." }))
   .output("research_doc_path", Type.String({ description: "Research artifact path from the codebase research child workflow." }))
   .output("stale_doc_task_count", Type.Number({ description: "Number of grouped stale-doc update tasks found." }))
   .output("stale_doc_tasks", Type.Array(staleDocTaskSchema, { description: "Grouped stale-doc update tasks." }))
   .output("validation_report_path", Type.String({ description: "Validation report artifact path." }))
   .output("pr_summary", Type.Optional(Type.String({ description: "PR creation summary or no-op explanation." })))
   .run(async (ctx) => {
-    const targetRef = ctx.inputs.target_ref.trim();
-    const { baselineTag, branchName, releaseVersion } = prepareBranch(targetRef);
-    const artifactRoot = join(".atomic", "workflows", "runs", "release-docs", releaseVersion);
+    ensureCleanWorkingTree();
+    const currentBranch = currentBranchName();
+    const artifactKey = sanitizeSegment(currentBranch);
+    const artifactRoot = join(".atomic", "workflows", "runs", "release-docs", artifactKey);
     const updatesRoot = join(artifactRoot, "updates");
     mkdirSync(updatesRoot, { recursive: true });
 
@@ -230,36 +182,31 @@ export default defineWorkflow("release-docs")
     const prPath = join(artifactRoot, "pr.md");
 
     writeJson(metadataPath, {
-      target_ref: targetRef,
-      baseline_tag: baselineTag,
-      comparison_range: `${baselineTag}..${targetRef}`,
-      release_version: releaseVersion,
-      branch_name: branchName,
+      current_branch: currentBranch,
       docs_root: "packages/coding-agent/docs",
       pr_base: "main",
+      mode: "current-branch-docs-refresh",
     });
 
-    await ctx.stage("prepare-release-docs-branch", { noTools: "all" }).prompt(
+    await ctx.stage("prepare-release-docs-current-branch", { noTools: "all" }).prompt(
       [
-        "Release docs branch preparation is complete.",
-        `Baseline tag: ${baselineTag}`,
-        `Target ref: ${targetRef}`,
-        `Release version: ${releaseVersion}`,
-        `Branch: ${branchName}`,
+        "Release docs current-branch preparation is complete.",
+        `Current branch: ${currentBranch}`,
         `Metadata artifact: ${metadataPath}`,
-        "Reply exactly: RELEASE_DOCS_BRANCH_READY",
+        "The workflow will compare the current codebase behavior against the current docs tree.",
+        "Reply exactly: RELEASE_DOCS_CURRENT_BRANCH_READY",
         "Do not ask questions. Do not call tools.",
       ].join("\n"),
     );
 
     const research = await ctx.workflow(deepResearchCodebase, {
-      stageName: "research-release-code-changes",
+      stageName: "research-current-code-docs-gaps",
       inputs: {
         prompt: [
-          "Research Atomic code changes for release documentation updates.",
-          `Compare the latest stable baseline tag ${baselineTag} to target ref ${targetRef}.`,
-          "Use git diff/name-status/log evidence for that range and inspect the changed code paths.",
-          "Focus on developer-facing and user-facing behavior that should be reflected in docs under packages/coding-agent/docs.",
+          "Research Atomic documentation gaps for the current branch.",
+          "Compare the current codebase behavior against docs under packages/coding-agent/docs.",
+          "Do not use release target refs, baseline tags, or git comparison ranges for this analysis.",
+          "Focus on developer-facing and user-facing behavior that should be reflected in the hosted docs.",
           "Document concrete file paths, symbols, CLI/workflow/settings behavior, and docs implications.",
           "Do not edit files; this stage is research only.",
         ].join("\n"),
@@ -272,12 +219,12 @@ export default defineWorkflow("release-docs")
 
     await ctx.task("identify-stale-docs", {
       prompt: [
-        "Identify stale Atomic docs entries for release prep.",
-        `Release metadata artifact: ${metadataPath}`,
+        "Identify stale Atomic docs entries for the current branch.",
+        `Release docs metadata artifact: ${metadataPath}`,
         `Research artifact: ${researchDocPath}`,
         "Read the metadata and research artifacts before inspecting docs.",
         "Docs scope is strictly packages/coding-agent/docs.",
-        "Inspect docs against the baseline-to-target changes and emit grouped, non-overlapping update tasks.",
+        "Inspect the current docs against the current codebase research and emit grouped, non-overlapping update tasks.",
         "Group stale entries by owning docs files so parallel update workers do not edit the same file concurrently.",
         "If multiple stale entries touch the same docs file, put them in the same task.",
         "If no stale docs are found, write exactly [].",
@@ -304,7 +251,7 @@ export default defineWorkflow("release-docs")
 
     if (staleTasks.length === 0) {
       const result = [
-        `No stale docs entries were found for ${baselineTag}..${targetRef}.`,
+        `No stale docs entries were found for current branch ${currentBranch}.`,
         "No docs changes were made, so no PR was opened.",
         `Research artifact: ${researchDocPath}`,
         `Stale-doc task artifact: ${staleTasksPath}`,
@@ -313,10 +260,8 @@ export default defineWorkflow("release-docs")
       return {
         result,
         status: "no_changes" as const,
-        target_ref: targetRef,
-        baseline_tag: baselineTag,
-        release_version: releaseVersion,
-        branch_name: branchName,
+        current_branch: currentBranch,
+        artifact_root: artifactRoot,
         research_doc_path: researchDocPath,
         stale_doc_task_count: 0,
         stale_doc_tasks: staleTasks,
@@ -331,7 +276,7 @@ export default defineWorkflow("release-docs")
         name: `update-docs-${sanitizeSegment(task.id)}`,
         prompt: [
           "Update Atomic release docs for one grouped stale-doc task.",
-          `Release metadata artifact: ${metadataPath}`,
+          `Release docs metadata artifact: ${metadataPath}`,
           `Research artifact: ${researchDocPath}`,
           `Full stale-doc task list: ${staleTasksPath}`,
           "Assigned stale-doc task JSON:",
@@ -352,7 +297,7 @@ export default defineWorkflow("release-docs")
     await ctx.task("validate-and-repair-release-docs", {
       prompt: [
         "Validate the release docs updates and repair docs-only validation failures.",
-        `Release metadata artifact: ${metadataPath}`,
+        `Release docs metadata artifact: ${metadataPath}`,
         `Research artifact: ${researchDocPath}`,
         `Stale-doc task artifact: ${staleTasksPath}`,
         "First discover the docs validation commands from package scripts and docs/ci.md.",
@@ -379,17 +324,15 @@ export default defineWorkflow("release-docs")
 
     if (!validation.ok) {
       const result = [
-        `Docs validation still fails for ${baselineTag}..${targetRef}.`,
+        `Docs validation still fails for current branch ${currentBranch}.`,
         "The workflow stopped before commit, push, and PR creation. Investigation is required.",
         `Validation report: ${validationPath}`,
       ].join("\n");
       return {
         result,
         status: "needs_investigation" as const,
-        target_ref: targetRef,
-        baseline_tag: baselineTag,
-        release_version: releaseVersion,
-        branch_name: branchName,
+        current_branch: currentBranch,
+        artifact_root: artifactRoot,
         research_doc_path: researchDocPath,
         stale_doc_task_count: staleTasks.length,
         stale_doc_tasks: staleTasks,
@@ -401,20 +344,18 @@ export default defineWorkflow("release-docs")
     const pr = await ctx.task("commit-push-open-release-docs-pr", {
       prompt: [
         "Create the release docs PR now that deterministic validation passed.",
-        `Branch: ${branchName}`,
+        `Current branch: ${currentBranch}`,
         "PR base: main",
-        `Release version: ${releaseVersion}`,
-        `Comparison range: ${baselineTag}..${targetRef}`,
         `Research artifact: ${researchDocPath}`,
         `Validation report: ${validationPath}`,
         "Start by inspecting git status --short.",
         "If there are no changes, do not commit, push, or create a PR; summarize the no-op result.",
         "If there are changes, stage only docs/workflow-run artifacts that are appropriate for the PR, commit with message:",
-        `docs: update release docs for ${releaseVersion}`,
-        "Push the branch to origin and create or update a GitHub PR targeting main using gh.",
-        "Use a PR title like:",
-        `docs: update release docs for ${releaseVersion}`,
-        "Include baseline, target, research artifact, stale-doc task count, and validation commands in the PR body.",
+        "docs: update release docs",
+        "Push the current branch to origin and create or update a GitHub PR targeting main using gh.",
+        "Use this PR title:",
+        "docs: update release docs",
+        "Include current branch, research artifact, stale-doc task count, and validation commands in the PR body.",
         "Do not tag or publish a release.",
       ].join("\n"),
       reads: [metadataPath, researchDocPath, staleTasksPath, validationPath, ...updateArtifacts],
@@ -428,11 +369,9 @@ export default defineWorkflow("release-docs")
     const finalStatus = status.length > 0 ? "needs_investigation" : "pr_created";
     const result = [
       finalStatus === "pr_created"
-        ? `Release docs PR stage completed for ${releaseVersion}.`
-        : `Release docs PR stage left uncommitted docs changes for ${releaseVersion}; investigation is required.`,
-      `Baseline: ${baselineTag}`,
-      `Target: ${targetRef}`,
-      `Branch: ${branchName}`,
+        ? `Release docs PR stage completed for current branch ${currentBranch}.`
+        : `Release docs PR stage left uncommitted docs changes on current branch ${currentBranch}; investigation is required.`,
+      `Current branch: ${currentBranch}`,
       `Research artifact: ${researchDocPath}`,
       `Validation report: ${validationPath}`,
       `PR summary artifact: ${prPath}`,
@@ -441,10 +380,8 @@ export default defineWorkflow("release-docs")
     return {
       result,
       status: finalStatus,
-      target_ref: targetRef,
-      baseline_tag: baselineTag,
-      release_version: releaseVersion,
-      branch_name: branchName,
+      current_branch: currentBranch,
+      artifact_root: artifactRoot,
       research_doc_path: researchDocPath,
       stale_doc_task_count: staleTasks.length,
       stale_doc_tasks: staleTasks,

@@ -21,6 +21,8 @@
 
 ### Fixed
 
+- Hardened the prompt-template argument substitution against polynomial-time regex backtracking (ReDoS) by length-bounding the `${N:-default}` default-value capture when scanning template content read from disk (an Atomic divergence from upstream; the bound far exceeds any realistic default value).
+- Fixed the containerization guide to link the Gondolin example extension via an absolute repository URL instead of a relative `../examples/...` path so docs link validation passes.
 - Fixed custom OpenAI Responses model validation to accept the upstream `supportsDeveloperRole` compatibility flag in `models.json`.
 - Fixed provider auth-status reporting for explicit `$ENV_VAR` config values so missing environment variables are reported as unconfigured instead of as literal `models.json` API keys.
 - Rebranded provider attribution headers for OpenRouter and NVIDIA NIM so Atomic sends Atomic identity rather than upstream Pi identity when install telemetry is enabled, matched OpenRouter-compatible custom endpoints by exact hostname rather than substring, and rebranded the Gondolin VM session label.

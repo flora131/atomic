@@ -11,7 +11,7 @@ There are two general options. You can either
 | Pattern | What is isolated | Best for | Notes |
 | --- | --- | --- | --- |
 | OpenShell | Whole `atomic` process in a policy-controlled sandbox | Local or remote managed sandbox | Requires an OpenShell gateway |
-| Gondolin extension | Built-in tools and `!` commands | Local micro-VM isolation while keeping auth on host | See [`examples/extensions/gondolin/`](../examples/extensions/gondolin/). |
+| Gondolin extension | Built-in tools and `!` commands | Local micro-VM isolation while keeping auth on host | See [`examples/extensions/gondolin/`](https://github.com/bastani-inc/atomic/tree/main/packages/coding-agent/examples/extensions/gondolin). |
 | Plain Docker | Whole `atomic` process in a local container | Simple local isolation | Provider API keys enter the container. |
 
 Extensions run wherever the `atomic` process runs. If you run host `atomic` with a tool-routing extension, other custom extension tools still run on the host unless they also delegate their operations.
@@ -53,7 +53,7 @@ Configure Atomic to use the corresponding OpenAI-compatible or Anthropic-compati
 ## Gondolin
 
 [Gondolin](https://github.com/earendil-works/gondolin) is a local Linux micro-VM.
-Use the [example extension](../examples/extensions/gondolin) when you want `atomic` on the host but all built-in tools routed into the VM.
+Use the [example extension](https://github.com/bastani-inc/atomic/tree/main/packages/coding-agent/examples/extensions/gondolin) when you want `atomic` on the host but all built-in tools routed into the VM.
 
 Setup:
 

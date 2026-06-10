@@ -69,8 +69,12 @@ export function parseCommandArgs(argsString: string): string[] {
 export function substituteArgs(content: string, args: string[]): string {
 	const allArgs = args.join(" ");
 
+	// The default-value group is length-bounded to avoid polynomial-time regex
+	// backtracking (ReDoS) when scanning template content, which is read from
+	// disk. This is an Atomic hardening divergence from upstream; 1024 characters
+	// far exceeds any realistic slash-command default value.
 	return content.replace(
-		/\$\{(\d+):-([^}]*)\}|\$\{@:(\d+)(?::(\d+))?\}|\$(ARGUMENTS|@|\d+)/g,
+		/\$\{(\d+):-([^}]{0,1024})\}|\$\{@:(\d+)(?::(\d+))?\}|\$(ARGUMENTS|@|\d+)/g,
 		(_match, defaultNum, defaultValue, sliceStart, sliceLength, simple) => {
 			if (defaultNum) {
 				const index = parseInt(defaultNum, 10) - 1;

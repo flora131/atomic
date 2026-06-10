@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { defineWorkflow, Type } from "@bastani/workflows";
 import deepResearchCodebase from "../../packages/workflows/builtin/deep-research-codebase.js";
+import { mergeStaleDocTasksByOwnerDocs, sanitizeSegment, type StaleDocTask } from "../workflow-utils/release-docs.js";
 
 const staleDocTaskSchema = Type.Object({
   id: Type.String(),
@@ -13,16 +14,6 @@ const staleDocTaskSchema = Type.Object({
   update_instructions: Type.String(),
   acceptance_criteria: Type.Array(Type.String()),
 });
-
-type StaleDocTask = {
-  id: string;
-  title: string;
-  owner_docs: string[];
-  reason: string;
-  source_refs: string[];
-  update_instructions: string;
-  acceptance_criteria: string[];
-};
 
 type CommandResult = {
   command: string;
@@ -79,12 +70,6 @@ const currentBranchName = (): string => {
   const shortSha = runGit(["rev-parse", "--short", "HEAD"]);
   return `detached-${shortSha}`;
 };
-
-const sanitizeSegment = (value: string): string =>
-  value
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, "-")
-    .replace(/^-+|-+$/g, "") || "item";
 
 const extractJsonArray = (text: string): StaleDocTask[] => {
   const trimmed = text.trim();
@@ -246,7 +231,8 @@ export default defineWorkflow("release-docs")
       context: "fresh",
     });
 
-    const staleTasks = extractJsonArray(readFileSync(staleTasksPath, "utf8"));
+    const modelStaleTasks = extractJsonArray(readFileSync(staleTasksPath, "utf8"));
+    const staleTasks = mergeStaleDocTasksByOwnerDocs(modelStaleTasks);
     writeJson(staleTasksPath, staleTasks);
 
     if (staleTasks.length === 0) {
@@ -350,8 +336,9 @@ export default defineWorkflow("release-docs")
         `Validation report: ${validationPath}`,
         "Start by inspecting git status --short.",
         "If there are no changes, do not commit, push, or create a PR; summarize the no-op result.",
-        "If there are changes, stage only docs/workflow-run artifacts that are appropriate for the PR, commit with message:",
+        "If there are changes, stage only intentional documentation changes under packages/coding-agent/docs, commit with message:",
         "docs: update release docs",
+        "Do not stage .atomic/, .atomic/workflows/runs/, workflow artifacts, release metadata, stale-doc task files, validation reports, PR summaries, update artifacts, research artifacts, or files outside packages/coding-agent/docs.",
         "Push the current branch to origin and create or update a GitHub PR targeting main using gh.",
         "Use this PR title:",
         "docs: update release docs",

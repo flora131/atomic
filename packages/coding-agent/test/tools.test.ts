@@ -14,6 +14,7 @@ import {
 	createReadTool,
 	createWriteTool,
 } from "../src/index.ts";
+import { createReadToolDefinition } from "../src/core/tools/read.ts";
 import * as shellModule from "../src/utils/shell.ts";
 
 const readTool = createReadTool(process.cwd());
@@ -161,6 +162,60 @@ describe("Coding Agent Tools", () => {
 			expect(output).toContain("Line 102:");
 			expect(output).not.toContain("Line 103:");
 			expect(output).toContain("[898 more lines in file. Use offset=103 to continue.]");
+		});
+
+		it("should show byte-slice guidance for oversized single-line reads", async () => {
+			const testFile = join(testDir, "single-line-large.txt");
+			const content = "x".repeat(50_001);
+			writeFileSync(testFile, content);
+
+			const result = await readTool.execute("test-call-single-line-blocked", { path: testFile, limit: 1 });
+			const output = getTextOutput(result);
+
+			expect(output).toContain("File read blocked");
+			expect(output).toContain("Requested line limit: 1");
+			expect(output).toContain("line pagination is not useful");
+			expect(output).toContain(`sed -n '1p' ${JSON.stringify(testFile)} | head -c 51200`);
+			expect(output).toContain("tail -c +51201");
+			expect(output).not.toContain('"offset": 120');
+			expect(output).not.toContain("Read a targeted snippet");
+			expect(result.details?.oversizedRead?.byteGuidance).toBe(true);
+			expect(result.details?.oversizedRead?.requestedLimit).toBe(1);
+		});
+
+		it("should render oversized read blocks as tool output instead of source-highlighted code", async () => {
+			const testFile = join(testDir, "oversized.ts");
+			writeFileSync(testFile, `const value = "${"x".repeat(50_001)}";`);
+			const toolDefinition = createReadToolDefinition(testDir);
+			const result = await toolDefinition.execute("test-call-render-oversized", { path: testFile }, undefined, undefined, {} as any);
+			const markerTheme = {
+				fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
+				bold: (text: string) => text,
+			} as any;
+
+			const component = toolDefinition.renderResult?.(
+				result,
+				{ expanded: false, isPartial: false },
+				markerTheme,
+				{
+					args: { path: testFile },
+					toolCallId: "test-call-render-oversized",
+					invalidate: () => {},
+					lastComponent: undefined,
+					state: undefined,
+					cwd: testDir,
+					executionStarted: true,
+					argsComplete: true,
+					isPartial: false,
+					expanded: false,
+					showImages: false,
+					isError: false,
+				} as any,
+			);
+			const rendered = component?.render(200).join("\n") ?? "";
+
+			expect(rendered).toContain("<toolOutput>File read blocked");
+			expect(rendered).toContain("</toolOutput>");
 		});
 
 		it("should handle offset parameter", async () => {

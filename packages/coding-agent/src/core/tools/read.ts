@@ -38,6 +38,8 @@ export interface OversizedReadDetails {
 	startLine: number;
 	requestedLimit?: number;
 	totalFileLines: number;
+	firstLineBytes: number;
+	byteGuidance: boolean;
 }
 
 export interface ReadToolDetails {
@@ -120,10 +122,25 @@ function formatCount(count: number): string {
 
 function buildOversizedReadMessage(details: OversizedReadDetails): string {
 	const pathForExample = JSON.stringify(details.path);
+	const requestedLimitLine =
+		details.requestedLimit !== undefined ? [`Requested line limit: ${formatCount(details.requestedLimit)}`] : [];
+	if (details.byteGuidance) {
+		return [
+			`File read blocked: requested selected range is too large (${formatCount(details.chars)} chars; threshold: ${formatCount(details.maxChars)} chars).`,
+			`Path: ${details.path}`,
+			...requestedLimitLine,
+			"",
+			"The selected content starts with a single oversized line, so line pagination is not useful. Read byte slices instead. Examples:",
+			`- Inspect the start of line ${details.startLine}: sed -n '${details.startLine}p' ${pathForExample} | head -c ${DEFAULT_MAX_BYTES}`,
+			`- Inspect a later byte window: sed -n '${details.startLine}p' ${pathForExample} | tail -c +${DEFAULT_MAX_BYTES + 1} | head -c ${DEFAULT_MAX_BYTES}`,
+			`- Search for relevant text first: grep({ "pattern": "functionName", "path": ${pathForExample}, "limit": 20 })`,
+		].join("\n");
+	}
 	const targetedSnippetOffset = Math.max(details.startLine, 120);
 	return [
 		`File read blocked: requested selected range is too large (${formatCount(details.chars)} chars; threshold: ${formatCount(details.maxChars)} chars).`,
 		`Path: ${details.path}`,
+		...requestedLimitLine,
 		"",
 		"Read only the needed context incrementally. Examples:",
 		`- Search for relevant symbols first: grep({ "pattern": "functionName", "path": ${pathForExample}, "limit": 20 })`,
@@ -215,7 +232,7 @@ function formatReadResult(
 
 	const rawPath = str(args?.file_path ?? args?.path);
 	const output = oversizedRead ? buildOversizedReadMessage(oversizedRead) : getTextOutput(result, showImages);
-	const lang = rawPath ? getLanguageFromPath(rawPath) : undefined;
+	const lang = rawPath && !oversizedReadBlocked ? getLanguageFromPath(rawPath) : undefined;
 	const renderedLines = lang ? highlightCode(replaceTabs(output), lang) : output.split("\n");
 	const lines = trimTrailingEmptyLines(renderedLines);
 	const maxLines = options.expanded ? lines.length : 10;
@@ -335,6 +352,10 @@ export function createReadToolDefinition(
 									selectedContent = allLines.slice(startLine).join("\n");
 								}
 								if (selectedContent.length > READ_TOOL_MAX_RESULT_CHARS) {
+									const firstSelectedLine = allLines[startLine] ?? "";
+									const firstLineBytes = Buffer.byteLength(firstSelectedLine, "utf-8");
+									const selectedLineCount = limit !== undefined ? (userLimitedLines ?? 0) : allLines.length - startLine;
+									const byteGuidance = selectedLineCount <= 1 || firstLineBytes > DEFAULT_MAX_BYTES;
 									const oversizedRead: OversizedReadDetails = {
 										blocked: true,
 										path: absolutePath,
@@ -343,6 +364,8 @@ export function createReadToolDefinition(
 										startLine: startLineDisplay,
 										...(limit !== undefined ? { requestedLimit: limit } : {}),
 										totalFileLines,
+										firstLineBytes,
+										byteGuidance,
 									};
 									details = { oversizedRead };
 									content = [{ type: "text", text: buildOversizedReadMessage(oversizedRead) }];

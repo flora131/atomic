@@ -1495,10 +1495,12 @@ describe("ctx.exit", () => {
     };
 
     const assertNarrowing = (child: WorkflowChildResult<ChildOutputs>): void => {
-      if (false) {
-        // @ts-expect-error unguarded child outputs may be partial when child.exited is true.
-        expectString(child.outputs.requiredNote);
-      }
+      // Type-only negative assertion (reachable, no failing runtime effect): on the union
+      // `child.outputs` is Partial when exited is true, so `requiredNote` is `string | undefined`
+      // and is not assignable to `string` without the `exited === false` guard below.
+      // @ts-expect-error unguarded child outputs may be partial when child.exited is true.
+      const _requiredMayBeUndefined: string = child.outputs.requiredNote;
+      void _requiredMayBeUndefined;
       if (child.exited === true) {
         const maybeRequired: string | undefined = child.outputs.requiredNote;
         assert.equal(maybeRequired === undefined || typeof maybeRequired === "string", true);

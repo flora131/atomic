@@ -25,7 +25,15 @@ import type {
 import { accumulatePausedDurationMs, elapsedRunMs } from "./timing.js";
 import { isTopLevelWorkflowRun } from "./run-visibility.js";
 
-/** Statuses that represent a terminal run state — cannot be overwritten. */
+/**
+ * Statuses that represent a terminal run state — cannot be overwritten.
+ *
+ * Note on `"blocked"`: here it is an author-selected `ctx.exit({ status: "blocked" })`
+ * outcome — terminal and non-resumable. This is deliberately distinct from retry-blocking,
+ * which does NOT use this run status: `recordRunBlocked()` keeps `run.status = "running"`
+ * and records the block via `blockedAt` / `failureDisposition: "active_blocked"` (resumable).
+ * The two never collide despite the shared word.
+ */
 const TERMINAL_STATUSES: ReadonlySet<RunStatus> = new Set(["completed", "failed", "killed", "skipped", "cancelled", "blocked"]);
 
 function isTerminalStageStatus(status: StageStatus): boolean {

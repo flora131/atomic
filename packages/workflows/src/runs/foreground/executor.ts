@@ -418,16 +418,16 @@ function captureWorkflowExitOutputSnapshot(rawOutputs: unknown): WorkflowExitOut
 }
 
 function formatWorkflowExitSnapshotPath(parent: string, key: string): string {
+  // `segment` already encodes the structure: bracketed for numeric/non-identifier keys,
+  // dotted for identifiers with a parent, and the bare key for an identifier at the root
+  // (where `parent === ""` so `segment === key`). Every case therefore reduces to the
+  // concatenation below.
   const segment = /^\d+$/.test(key)
     ? `[${key}]`
     : /^[A-Za-z_$][\w$]*$/.test(key)
       ? (parent.length > 0 ? `.${key}` : key)
       : `[${JSON.stringify(key)}]`;
-  return /^\d+$/.test(key) || !/^[A-Za-z_$][\w$]*$/.test(key)
-    ? `${parent}${segment}`
-    : parent.length > 0
-      ? `${parent}${segment}`
-      : segment;
+  return `${parent}${segment}`;
 }
 
 function findWorkflowExitSnapshotInvalidValue(

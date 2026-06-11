@@ -4,8 +4,18 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
-import { mergeStaleDocTasksByOwnerDocs, type StaleDocTask } from "../../.atomic/workflow-utils/release-docs.js";
-import { currentBranchName, extractJsonArray, requireResearchDocPath } from "../../.atomic/workflows/release-docs.js";
+import {
+    currentBranchName,
+    extractJsonArray,
+    findMissingOrEmptyUpdateArtifacts,
+    mergeStaleDocTasksByOwnerDocs,
+    nextDocsValidationPhase,
+    requireNonBaseBranch,
+    requireResearchDocPath,
+    verifyReleaseDocsPr,
+    type StaleDocTask,
+    type UpdateArtifactStatus,
+} from "../../.atomic/workflow-utils/release-docs.js";
 
 const task = (id: string, ownerDocs: string[]): StaleDocTask => ({
     id,
@@ -33,7 +43,10 @@ describe("release-docs workflow guards", () => {
                 "user.name=Atomic Test",
                 "-c",
                 "user.email=atomic-test@example.com",
+                "-c",
+                "core.hooksPath=/dev/null",
                 "commit",
+                "--no-gpg-sign",
                 "--message",
                 "initial",
                 "--quiet",
@@ -47,6 +60,23 @@ describe("release-docs workflow guards", () => {
         } finally {
             rmSync(repo, { recursive: true, force: true });
         }
+    });
+
+    test("allows release-docs from a non-base branch", () => {
+        assert.equal(requireNonBaseBranch("feature/docs", "main"), "feature/docs");
+    });
+
+    test("refuses to run release-docs on the base branch", () => {
+        assert.throws(
+            () => requireNonBaseBranch("main", "main"),
+            /refuses to run directly on the PR base branch 'main'/,
+        );
+    });
+
+    test("trims and validates branch names for the base branch guard", () => {
+        assert.equal(requireNonBaseBranch(" feature/docs ", " main "), "feature/docs");
+        assert.throws(() => requireNonBaseBranch("   ", "main"), /non-empty current branch/);
+        assert.throws(() => requireNonBaseBranch("feature/docs", "   "), /non-empty PR base branch/);
     });
 
     test("requires deep research to return a concrete research artifact path", () => {
@@ -66,6 +96,92 @@ describe("release-docs workflow guards", () => {
             () => extractJsonArray("not valid json"),
             /stale-doc detector returned invalid JSON/,
         );
+    });
+});
+
+describe("release-docs update artifact validation", () => {
+    test("detects missing update artifacts", () => {
+        const artifacts: UpdateArtifactStatus[] = [
+            { path: "a.md", exists: true, empty: false },
+            { path: "b.md", exists: false, empty: true },
+        ];
+
+        assert.deepEqual(findMissingOrEmptyUpdateArtifacts(artifacts), [
+            { path: "b.md", exists: false, empty: true },
+        ]);
+    });
+
+    test("detects empty update artifacts", () => {
+        const artifacts: UpdateArtifactStatus[] = [
+            { path: "a.md", exists: true, empty: true },
+            { path: "b.md", exists: true, empty: false },
+        ];
+
+        assert.deepEqual(findMissingOrEmptyUpdateArtifacts(artifacts), [
+            { path: "a.md", exists: true, empty: true },
+        ]);
+    });
+
+    test("accepts present non-empty update artifacts", () => {
+        assert.deepEqual(
+            findMissingOrEmptyUpdateArtifacts([{ path: "a.md", exists: true, empty: false }]),
+            [],
+        );
+    });
+});
+
+describe("release-docs PR verification", () => {
+    test("verifies a matching open PR returned by gh", () => {
+        const result = verifyReleaseDocsPr("feature/docs", "main", "/repo", () => ({
+            command: "gh pr list --head feature/docs --base main",
+            ok: true,
+            output: JSON.stringify({
+                url: "https://github.com/acme/repo/pull/1",
+                headRefName: "feature/docs",
+                baseRefName: "main",
+                state: "OPEN",
+            }),
+        }));
+
+        assert.equal(result.ok, true);
+        assert.equal(result.url, "https://github.com/acme/repo/pull/1");
+    });
+
+    test("rejects a gh PR result with the wrong base branch", () => {
+        const result = verifyReleaseDocsPr("feature/docs", "main", "/repo", () => ({
+            command: "gh pr list --head feature/docs --base main",
+            ok: true,
+            output: JSON.stringify({
+                url: "https://github.com/acme/repo/pull/1",
+                headRefName: "feature/docs",
+                baseRefName: "develop",
+                state: "OPEN",
+            }),
+        }));
+
+        assert.equal(result.ok, false);
+        assert.match(result.summary, /did not return an open PR matching/);
+    });
+
+    test("reports gh command failure during PR verification", () => {
+        const result = verifyReleaseDocsPr("feature/docs", "main", "/repo", () => ({
+            command: "gh pr list --head feature/docs --base main",
+            ok: false,
+            output: "not found",
+        }));
+
+        assert.equal(result.ok, false);
+        assert.match(result.summary, /Unable to verify release docs PR with gh/);
+    });
+});
+
+describe("release-docs validation flow", () => {
+    test("skips model repair when initial deterministic validation passes", () => {
+        assert.equal(nextDocsValidationPhase(true), "skip_repair");
+    });
+
+    test("repairs and revalidates when initial deterministic validation fails", () => {
+        assert.equal(nextDocsValidationPhase(false), "repair_then_revalidate");
     });
 });
 

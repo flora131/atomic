@@ -25,8 +25,8 @@ Release prep currently requires developers to manually connect code changes and 
 - Research current Atomic code behavior and compare it to docs under `packages/coding-agent/docs`.
 - Detect stale or missing docs only under `packages/coding-agent/docs`.
 - Fan out independent docs update tasks in parallel.
-- Run and repair docs validation issues before PR creation.
-- Commit, push, and create/update a GitHub PR targeting `main` only when validation passes and docs changed.
+- Run deterministic docs validation before PR creation, invoking repair only when validation fails.
+- Commit, push, and create/update a GitHub PR targeting `main` only when validation passes, docs changed, and the PR can be verified deterministically.
 
 ### Non-Goals
 
@@ -52,21 +52,25 @@ flowchart TD
   D --> E{Any stale entries?}
   E -- no --> Z[Return no-op summary]
   E -- yes --> F[Parallel docs update workers]
-  F --> G[Validation and repair gate]
+  F --> G[Deterministic validation]
   G -- pass --> H[Commit, push, create/update PR]
-  G -- fail --> Y[Stop with investigation summary]
+  G -- fail --> R[Docs-only repair]
+  R --> G2[Post-repair deterministic validation]
+  G2 -- pass --> H
+  G2 -- fail --> Y[Stop with investigation summary]
+  H --> I[Deterministically verify PR exists]
 ```
 
 ### 4.2 Key Components
 
 | Component | Responsibility |
 | --- | --- |
-| Deterministic helpers | Ensure the worktree is clean, capture the current branch, create artifact directories, parse stale-doc JSON, and replay validation commands. |
+| Deterministic helpers | Ensure the worktree is clean, reject base-branch runs, capture the current branch, create artifact directories, parse stale-doc JSON, verify update artifacts, run validation commands, and verify PR existence. |
 | `deep-research-codebase` child workflow | Research current code behavior and write a reusable research artifact. |
 | Stale-doc detector stage | Inspect docs and research, then produce grouped JSON update tasks with non-overlapping owning docs files. |
-| Parallel update stages | Apply doc edits for independent stale-doc groups. |
-| Validation/repair stage | Discover/run repo docs checks and fix failures until all pass or investigation is required. |
-| PR stage | Commit, push, and create/update the PR against `main` after validation passes and docs changed. |
+| Parallel update stages | Apply doc edits only to each task's owning docs files for independent stale-doc groups. |
+| Validation/repair stage | Run repo docs checks deterministically, invoke docs-only repair only on failure, then rerun deterministic checks. |
+| PR stage | Commit, push, create/update the PR against `main`, then verify the open PR exists for the current branch and base. |
 
 ### 4.3 Door Set at a Glance
 
@@ -89,15 +93,18 @@ Guarantee: refreshes Atomic hosted docs for the current branch and opens/updates
 
 Failures/refusals:
 - Refuses to run when the working tree is dirty before docs edits begin.
+- Refuses to run directly on the PR base branch (`main`).
 - Refuses PR creation when validation cannot be made green.
-- Refuses concurrent docs file conflicts by grouping stale entries by owning docs files before fan-out.
+- Refuses concurrent docs file conflicts by grouping stale entries by owning docs files before fan-out and requiring workers to edit only those owning docs files.
+- Refuses to report `pr_created` unless an open PR for the current branch and `main` can be verified deterministically.
 
 ### 5.2 Branch Rules
 
 - The workflow runs on the current branch.
+- The workflow refuses to run when the current branch is `main`, because the PR stage pushes the current branch and targets `main`.
 - The workflow does not create, switch, or track branches.
 - The current branch should already contain the code changes whose docs need refreshing.
-- The final PR stage pushes the current branch and creates/updates a PR targeting `main`.
+- The final PR stage pushes the current branch and creates/updates a PR targeting `main`, then the workflow verifies an open PR exists for the current branch and base.
 
 ### 5.3 Artifacts
 
@@ -107,6 +114,7 @@ Use `.atomic/workflows/runs/release-docs/<current-branch-slug>/` for durable han
 - `stale-doc-tasks.json`
 - `updates/*.md`
 - `validation.md`
+- `validation-repair.md` when repair is needed
 - `pr.md`
 
 The metadata artifact records:
@@ -130,7 +138,7 @@ cd packages/coding-agent/docs && bunx --bun mintlify@latest validate
 cd packages/coding-agent/docs && bunx --bun mintlify@latest broken-links
 ```
 
-It must fix docs validation failures and rerun checks. After the model stage, the workflow deterministically replays the same commands and appends the command output to `validation.md`. If failures remain, the workflow stops before commit/push/PR and returns an investigation summary.
+Before validation, the workflow verifies every parallel update worker produced its expected non-empty `updates/*.md` artifact; missing or empty artifacts stop the run before validation and PR creation. The workflow then runs these checks deterministically before invoking any repair model. If the initial deterministic validation passes, the repair stage is skipped and the workflow proceeds to PR creation. If validation fails, the workflow writes the command output to `validation.md`, invokes a docs-only repair stage using that report, then deterministically reruns the same checks. If failures remain after repair, the workflow stops before commit/push/PR and returns an investigation summary.
 
 ## 6. Alternatives Considered
 
@@ -159,7 +167,7 @@ This is a project-only developer workflow. Removing `target_ref`, baseline outpu
 - Branch behavior: use current branch; do not create/switch branch.
 - Code/docs comparison: current codebase behavior vs current docs under `packages/coding-agent/docs`.
 - Artifact path: `.atomic/workflows/runs/release-docs/<current-branch-slug>/`.
-- Mintlify/docs checks: discover/repair in stage and deterministically replay CI-documented docs checks.
-- Validation failure policy: repair failures before commit/PR; stop with investigation summary if still failing.
+- Mintlify/docs checks: run deterministically first, repair only on failure, then rerun deterministically.
+- Validation failure policy: repair failures before commit/PR only when deterministic validation fails; stop with investigation summary if still failing.
 - PR base: `main`.
 - No-op policy: skip commit/push/PR and return a no-op summary when there are no docs changes.

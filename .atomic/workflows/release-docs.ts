@@ -1,9 +1,21 @@
-import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { defineWorkflow, Type } from "@bastani/workflows";
 import deepResearchCodebase from "../../packages/workflows/builtin/deep-research-codebase.js";
-import { mergeStaleDocTasksByOwnerDocs, sanitizeSegment, type StaleDocTask } from "../workflow-utils/release-docs.js";
+import {
+  currentBranchName,
+  DEFAULT_RELEASE_DOCS_BASE_BRANCH,
+  extractJsonArray,
+  findMissingOrEmptyUpdateArtifacts,
+  mergeStaleDocTasksByOwnerDocs,
+  nextDocsValidationPhase,
+  requireNonBaseBranch,
+  requireResearchDocPath,
+  runDocsChecks,
+  runGit,
+  sanitizeSegment,
+  verifyReleaseDocsPr,
+} from "../workflow-utils/release-docs.js";
 
 const staleDocTaskSchema = Type.Object({
   id: Type.String(),
@@ -14,38 +26,6 @@ const staleDocTaskSchema = Type.Object({
   update_instructions: Type.String(),
   acceptance_criteria: Type.Array(Type.String()),
 });
-
-type CommandResult = {
-  command: string;
-  ok: boolean;
-  output: string;
-};
-
-const repoRoot = () => process.cwd();
-
-const run = (command: string, args: string[], cwd = repoRoot()): string =>
-  execFileSync(command, args, {
-    cwd,
-    encoding: "utf8",
-    maxBuffer: 1024 * 1024 * 20,
-    stdio: ["ignore", "pipe", "pipe"],
-  }).trim();
-
-const runResult = (command: string, args: string[], cwd = repoRoot()): CommandResult => {
-  const rendered = [command, ...args].join(" ");
-  try {
-    const output = run(command, args, cwd);
-    return { command: rendered, ok: true, output };
-  } catch (error) {
-    const failure = error as { stdout?: Buffer | string; stderr?: Buffer | string; message?: string };
-    const stdout = String(failure.stdout ?? "");
-    const stderr = String(failure.stderr ?? "");
-    const message = String(failure.message ?? "");
-    return { command: rendered, ok: false, output: [stdout, stderr, message].filter(Boolean).join("\n") };
-  }
-};
-
-const runGit = (args: string[], cwd = repoRoot()): string => run("git", args, cwd);
 
 const ensureCleanWorkingTree = (): void => {
   const status = runGit(["status", "--porcelain=v1"]);
@@ -59,108 +39,6 @@ const ensureCleanWorkingTree = (): void => {
       ].join("\n"),
     );
   }
-};
-
-export const currentBranchName = (cwd = repoRoot()): string => {
-  const branch = runGit(["branch", "--show-current"], cwd);
-  if (branch.length > 0) {
-    return branch;
-  }
-
-  const shortSha = runGit(["rev-parse", "--short", "HEAD"], cwd);
-  throw new Error(
-    [
-      "release-docs must run from a local branch, but HEAD is detached.",
-      `Current detached commit: ${shortSha}`,
-      "Check out or create a branch before running this workflow.",
-    ].join("\n"),
-  );
-};
-
-export const requireResearchDocPath = (path: string | undefined): string => {
-  const trimmed = path?.trim() ?? "";
-  if (trimmed.length === 0) {
-    throw new Error(
-      "deep-research-codebase did not return research_doc_path; release-docs cannot continue without a research artifact path.",
-    );
-  }
-  return trimmed;
-};
-
-export const extractJsonArray = (text: string): StaleDocTask[] => {
-  const trimmed = text.trim();
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(trimmed);
-  const jsonText = fenced?.[1]?.trim() ?? trimmed;
-  let parsed: StaleDocTask[];
-  try {
-    parsed = JSON.parse(jsonText) as StaleDocTask[];
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    const excerpt = jsonText.length > 1_000 ? `${jsonText.slice(0, 1_000)}…` : jsonText;
-    throw new Error(
-      [
-        "stale-doc detector returned invalid JSON. Expected a JSON array.",
-        `Parse error: ${detail}`,
-        "Output excerpt:",
-        excerpt || "(empty output)",
-      ].join("\n"),
-    );
-  }
-  if (!Array.isArray(parsed)) {
-    throw new Error("stale-doc detector did not return a JSON array.");
-  }
-  return parsed.map((task, index) => ({
-    id: sanitizeSegment(String(task.id || `doc-task-${index + 1}`)),
-    title: String(task.title || `Documentation task ${index + 1}`),
-    owner_docs: Array.isArray(task.owner_docs) ? task.owner_docs.map(String) : [],
-    reason: String(task.reason || ""),
-    source_refs: Array.isArray(task.source_refs) ? task.source_refs.map(String) : [],
-    update_instructions: String(task.update_instructions || ""),
-    acceptance_criteria: Array.isArray(task.acceptance_criteria) ? task.acceptance_criteria.map(String) : [],
-  }));
-};
-
-const runDocsChecks = (): { ok: boolean; markdown: string } => {
-  const checks = [
-    {
-      label: "Hosted docs route/internal-link validation",
-      command: "bun",
-      args: ["run", "docs:check"],
-      cwd: join(repoRoot(), "packages/coding-agent"),
-    },
-    {
-      label: "Mintlify syntax validation",
-      command: "bunx",
-      args: ["--bun", "mintlify@latest", "validate"],
-      cwd: join(repoRoot(), "packages/coding-agent/docs"),
-    },
-    {
-      label: "Mintlify broken-link validation",
-      command: "bunx",
-      args: ["--bun", "mintlify@latest", "broken-links"],
-      cwd: join(repoRoot(), "packages/coding-agent/docs"),
-    },
-  ];
-
-  const results = checks.map((check) => ({ ...check, result: runResult(check.command, check.args, check.cwd) }));
-  const ok = results.every((check) => check.result.ok);
-  const markdown = results
-    .map((check) =>
-      [
-        `## ${check.label}`,
-        "",
-        `Command: \`${check.result.command}\``,
-        `Cwd: \`${check.cwd}\``,
-        `Status: ${check.result.ok ? "pass" : "fail"}`,
-        "",
-        "```text",
-        check.result.output || "(no output)",
-        "```",
-      ].join("\n"),
-    )
-    .join("\n\n");
-
-  return { ok, markdown };
 };
 
 const writeJson = (path: string, value: object): void => {
@@ -185,7 +63,8 @@ export default defineWorkflow("release-docs")
   .output("pr_summary", Type.Optional(Type.String({ description: "PR creation summary or no-op explanation." })))
   .run(async (ctx) => {
     ensureCleanWorkingTree();
-    const currentBranch = currentBranchName();
+    const prBase = DEFAULT_RELEASE_DOCS_BASE_BRANCH;
+    const currentBranch = requireNonBaseBranch(currentBranchName(), prBase);
     const artifactKey = sanitizeSegment(currentBranch);
     const artifactRoot = join(".atomic", "workflows", "runs", "release-docs", artifactKey);
     const updatesRoot = join(artifactRoot, "updates");
@@ -194,12 +73,13 @@ export default defineWorkflow("release-docs")
     const metadataPath = join(artifactRoot, "release-metadata.json");
     const staleTasksPath = join(artifactRoot, "stale-doc-tasks.json");
     const validationPath = join(artifactRoot, "validation.md");
+    const repairPath = join(artifactRoot, "validation-repair.md");
     const prPath = join(artifactRoot, "pr.md");
 
     writeJson(metadataPath, {
       current_branch: currentBranch,
       docs_root: "packages/coding-agent/docs",
-      pr_base: "main",
+      pr_base: prBase,
       mode: "current-branch-docs-refresh",
     });
 
@@ -297,7 +177,8 @@ export default defineWorkflow("release-docs")
           `Full stale-doc task list: ${staleTasksPath}`,
           "Assigned stale-doc task JSON:",
           JSON.stringify(task, null, 2),
-          "Read the listed artifacts and then edit only the owner_docs files unless a directly adjacent docs link/index must be fixed.",
+          "Read the listed artifacts and then edit only the owner_docs files.",
+          "Leave shared nav, index, and cross-link repairs to the serial validation/repair stage if needed.",
           "Do not edit code, changelogs, package manifests, or docs outside packages/coding-agent/docs.",
           "Do not commit, push, or create a PR.",
           "When finished, summarize changed files, evidence used, and residual risks.",
@@ -310,33 +191,74 @@ export default defineWorkflow("release-docs")
       { concurrency: Math.min(4, staleTasks.length), failFast: false },
     );
 
-    await ctx.task("validate-and-repair-release-docs", {
-      prompt: [
-        "Validate the release docs updates and repair docs-only validation failures.",
-        `Release docs metadata artifact: ${metadataPath}`,
-        `Research artifact: ${researchDocPath}`,
-        `Stale-doc task artifact: ${staleTasksPath}`,
-        "First discover the docs validation commands from package scripts and docs/ci.md.",
-        "The expected validation contract is:",
-        "1. cd packages/coding-agent && bun run docs:check",
-        "2. cd packages/coding-agent/docs && bunx --bun mintlify@latest validate",
-        "3. cd packages/coding-agent/docs && bunx --bun mintlify@latest broken-links",
-        "Run the checks with Bun/Bunx. If they fail, fix docs issues under packages/coding-agent/docs and rerun all checks.",
-        "Do not commit, push, or create a PR.",
-        "If failures remain after reasonable docs-only repairs, write INVESTIGATION REQUIRED with the exact failing command and output.",
-        "If all checks pass, write VALIDATION PASSED and summarize commands run.",
-      ].join("\n"),
-      reads: [metadataPath, researchDocPath, staleTasksPath, ...updateArtifacts],
-      output: validationPath,
-      outputMode: "file-only",
-      context: "fork",
+    const updateArtifactStatuses = updateArtifacts.map((path) => {
+      const exists = existsSync(path);
+      return {
+        path,
+        exists,
+        empty: !exists || readFileSync(path, "utf8").trim().length === 0,
+      };
     });
+    const missingOrEmptyUpdateArtifacts = findMissingOrEmptyUpdateArtifacts(updateArtifactStatuses);
+    if (missingOrEmptyUpdateArtifacts.length > 0) {
+      const result = [
+        `Docs update workers did not produce all required update artifacts for current branch ${currentBranch}.`,
+        "The workflow stopped before validation, commit, push, and PR creation. Investigation is required.",
+        "Missing or empty update artifacts:",
+        ...missingOrEmptyUpdateArtifacts.map((artifact) =>
+          `- ${artifact.path}: ${artifact.exists ? "empty" : "missing"}`,
+        ),
+      ].join("\n");
+      writeFileSync(validationPath, `${result}\n`);
+      return {
+        result,
+        status: "needs_investigation" as const,
+        current_branch: currentBranch,
+        artifact_root: artifactRoot,
+        research_doc_path: researchDocPath,
+        stale_doc_task_count: staleTasks.length,
+        stale_doc_tasks: staleTasks,
+        validation_report_path: validationPath,
+        pr_summary: "Update worker artifacts missing or empty; PR skipped.",
+      };
+    }
 
-    const validation = runDocsChecks();
-    writeFileSync(
-      validationPath,
-      [readFileSync(validationPath, "utf8"), "\n\n# Deterministic validation replay\n\n", validation.markdown].join(""),
-    );
+    let validation = runDocsChecks();
+    writeFileSync(validationPath, ["# Initial deterministic validation", "", validation.markdown].join("\n"));
+
+    if (nextDocsValidationPhase(validation.ok) === "repair_then_revalidate") {
+      await ctx.task("validate-and-repair-release-docs", {
+        prompt: [
+          "Repair docs-only validation failures found by deterministic release docs validation.",
+          `Release docs metadata artifact: ${metadataPath}`,
+          `Research artifact: ${researchDocPath}`,
+          `Stale-doc task artifact: ${staleTasksPath}`,
+          `Initial validation report: ${validationPath}`,
+          "Initial deterministic validation failed. Read the validation report before repairing.",
+          "Use the validation report to fix docs issues under packages/coding-agent/docs.",
+          "You may rerun focused docs checks while repairing, but the workflow will perform the final validation gate deterministically.",
+          "Do not commit, push, or create a PR.",
+          "If failures appear unrelated to docs-only repairs, write INVESTIGATION REQUIRED with the exact failing command and output.",
+          "When finished, summarize changed files, evidence used, commands you ran, and residual risks.",
+        ].join("\n"),
+        reads: [metadataPath, researchDocPath, staleTasksPath, validationPath, ...updateArtifacts],
+        output: repairPath,
+        outputMode: "file-only",
+        context: "fork",
+      });
+
+      validation = runDocsChecks();
+      writeFileSync(
+        validationPath,
+        [
+          readFileSync(validationPath, "utf8"),
+          "\n\n# Model repair summary\n\n",
+          readFileSync(repairPath, "utf8"),
+          "\n\n# Post-repair deterministic validation\n\n",
+          validation.markdown,
+        ].join(""),
+      );
+    }
 
     if (!validation.ok) {
       const result = [
@@ -361,7 +283,7 @@ export default defineWorkflow("release-docs")
       prompt: [
         "Create the release docs PR now that deterministic validation passed.",
         `Current branch: ${currentBranch}`,
-        "PR base: main",
+        `PR base: ${prBase}`,
         `Research artifact: ${researchDocPath}`,
         `Validation report: ${validationPath}`,
         "Start by inspecting git status --short.",
@@ -369,7 +291,7 @@ export default defineWorkflow("release-docs")
         "If there are changes, stage only intentional documentation changes under packages/coding-agent/docs, commit with message:",
         "docs: update release docs",
         "Do not stage .atomic/, .atomic/workflows/runs/, workflow artifacts, release metadata, stale-doc task files, validation reports, PR summaries, update artifacts, research artifacts, or files outside packages/coding-agent/docs.",
-        "Push the current branch to origin and create or update a GitHub PR targeting main using gh.",
+        `Push the current branch to origin and create or update a GitHub PR targeting ${prBase} using gh.`,
         "Use this PR title:",
         "docs: update release docs",
         "Include current branch, research artifact, stale-doc task count, and validation commands in the PR body.",
@@ -382,16 +304,26 @@ export default defineWorkflow("release-docs")
     });
 
     const prSummary = readFileSync(prPath, "utf8").trim() || pr.text;
+    const prVerification = verifyReleaseDocsPr(currentBranch, prBase);
     const status = runGit(["status", "--porcelain=v1", "packages/coding-agent/docs"]);
-    const finalStatus = status.length > 0 ? "needs_investigation" : "pr_created";
+    const finalStatus = status.length > 0 || !prVerification.ok ? "needs_investigation" : "pr_created";
+    const combinedPrSummary = [
+      prSummary,
+      "",
+      "# Deterministic PR verification",
+      "",
+      prVerification.summary,
+    ].join("\n");
     const result = [
       finalStatus === "pr_created"
-        ? `Release docs PR stage completed for current branch ${currentBranch}.`
-        : `Release docs PR stage left uncommitted docs changes on current branch ${currentBranch}; investigation is required.`,
+        ? `Release docs PR verified for current branch ${currentBranch}.`
+        : `Release docs PR stage could not be fully verified for current branch ${currentBranch}; investigation is required.`,
       `Current branch: ${currentBranch}`,
+      `PR base: ${prBase}`,
       `Research artifact: ${researchDocPath}`,
       `Validation report: ${validationPath}`,
       `PR summary artifact: ${prPath}`,
+      `PR verification: ${prVerification.summary}`,
     ].join("\n");
 
     return {
@@ -403,7 +335,7 @@ export default defineWorkflow("release-docs")
       stale_doc_task_count: staleTasks.length,
       stale_doc_tasks: staleTasks,
       validation_report_path: validationPath,
-      pr_summary: prSummary,
+      pr_summary: combinedPrSummary,
     };
   })
   .compile();

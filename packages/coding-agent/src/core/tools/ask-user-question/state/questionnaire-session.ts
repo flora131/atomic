@@ -4,10 +4,11 @@ import type { QuestionData, QuestionnaireResult, QuestionParams } from "../tool/
 import type { WrappingSelectItem } from "../view/components/wrapping-select.ts";
 import type { QuestionnairePropsAdapter } from "../view/props-adapter.ts";
 import { buildQuestionnaire } from "./build-questionnaire.ts";
+import { readInlineCaret, readInlineDraft, withInlineDraft } from "./inline-input.ts";
 import { ROW_INTENT_META } from "./row-intent.ts";
 import { type QuestionnaireAction, routeKey } from "./key-router.ts";
 import { computeFocusedOptionHasPreview } from "./selectors/derivations.ts";
-import type { InlineInputOwner, QuestionnaireRuntime, QuestionnaireState } from "./state.ts";
+import type { QuestionnaireRuntime, QuestionnaireState } from "./state.ts";
 import { type ApplyContext, type Effect, reduce } from "./state-reducer.ts";
 
 function readInputCursor(input: Input): number {
@@ -21,34 +22,6 @@ function readInputCursor(input: Input): number {
 function writeInputCursor(input: Input, cursor: number): void {
 	const value = input.getValue();
 	Reflect.set(input, "cursor", Math.max(0, Math.min(cursor, value.length)));
-}
-
-function inlineDraftAt(state: QuestionnaireState, owner: InlineInputOwner): string | undefined {
-	return owner === "chat" ? state.chatDraftByTab.get(state.currentTab) : state.customDraftByTab.get(state.currentTab);
-}
-
-function inlineCaretAt(state: QuestionnaireState, owner: InlineInputOwner): number | undefined {
-	return owner === "chat" ? state.chatCaretByTab.get(state.currentTab) : state.customCaretByTab.get(state.currentTab);
-}
-
-function withInlineDraft(
-	state: QuestionnaireState,
-	owner: InlineInputOwner,
-	value: string,
-	caret: number,
-): QuestionnaireState {
-	if (owner === "chat") {
-		const chatDraftByTab = new Map(state.chatDraftByTab);
-		const chatCaretByTab = new Map(state.chatCaretByTab);
-		chatDraftByTab.set(state.currentTab, value);
-		chatCaretByTab.set(state.currentTab, caret);
-		return { ...state, chatDraftByTab, chatCaretByTab };
-	}
-	const customDraftByTab = new Map(state.customDraftByTab);
-	const customCaretByTab = new Map(state.customCaretByTab);
-	customDraftByTab.set(state.currentTab, value);
-	customCaretByTab.set(state.currentTab, caret);
-	return { ...state, customDraftByTab, customCaretByTab };
 }
 
 export interface QuestionnaireSessionConfig {
@@ -168,7 +141,7 @@ export class QuestionnaireSession {
 		const owner = s.inlineInputOwner;
 		const value = this.inlineInput.getValue();
 		const caret = readInputCursor(this.inlineInput);
-		if (inlineDraftAt(s, owner) === value && inlineCaretAt(s, owner) === caret) {
+		if (readInlineDraft(s, owner) === value && readInlineCaret(s, owner) === caret) {
 			return s;
 		}
 		return withInlineDraft(s, owner, value, caret);

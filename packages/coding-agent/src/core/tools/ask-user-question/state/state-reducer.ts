@@ -1,6 +1,7 @@
 import type { QuestionAnswer, QuestionData, QuestionnaireResult } from "../tool/types.ts";
 import type { WrappingSelectItem } from "../view/components/wrapping-select.ts";
 import type { QuestionnaireAction } from "./key-router.ts";
+import { readInlineCaret, resolveInlineDraftValue, withInlineDraft } from "./inline-input.ts";
 import { ROW_INTENT_META } from "./row-intent.ts";
 import { computeFocusedOptionHasPreview } from "./selectors/derivations.ts";
 import type { InlineInputOwner, QuestionnaireState } from "./state.ts";
@@ -104,45 +105,9 @@ function inlineOwnerForItem(item: WrappingSelectItem | undefined): InlineInputOw
 	}
 }
 
-function inlineDraftValue(state: QuestionnaireState, owner: InlineInputOwner): string {
-	const draft = owner === "chat" ? state.chatDraftByTab.get(state.currentTab) : state.customDraftByTab.get(state.currentTab);
-	if (draft !== undefined) return draft;
-	const prior = state.answers.get(state.currentTab);
-	if (owner === "other") {
-		return prior?.kind === "custom" && typeof prior.answer === "string" ? prior.answer : "";
-	}
-	return prior?.kind === "chat" && typeof prior.answer === "string" && prior.answer !== ROW_INTENT_META.chat.label
-		? prior.answer
-		: "";
-}
-
-function inlineCaretValue(state: QuestionnaireState, owner: InlineInputOwner): number | undefined {
-	return owner === "chat" ? state.chatCaretByTab.get(state.currentTab) : state.customCaretByTab.get(state.currentTab);
-}
-
-function withInlineDraft(
-	state: QuestionnaireState,
-	owner: InlineInputOwner,
-	value: string,
-	caret: number,
-): QuestionnaireState {
-	if (owner === "chat") {
-		const chatDraftByTab = new Map(state.chatDraftByTab);
-		const chatCaretByTab = new Map(state.chatCaretByTab);
-		chatDraftByTab.set(state.currentTab, value);
-		chatCaretByTab.set(state.currentTab, caret);
-		return { ...state, chatDraftByTab, chatCaretByTab };
-	}
-	const customDraftByTab = new Map(state.customDraftByTab);
-	const customCaretByTab = new Map(state.customCaretByTab);
-	customDraftByTab.set(state.currentTab, value);
-	customCaretByTab.set(state.currentTab, caret);
-	return { ...state, customDraftByTab, customCaretByTab };
-}
-
 function hydrateInlineInputResult(state: QuestionnaireState, owner: InlineInputOwner): ApplyResult {
-	const value = inlineDraftValue(state, owner);
-	const caret = clampCaret(value, inlineCaretValue(state, owner));
+	const value = resolveInlineDraftValue(state, owner);
+	const caret = clampCaret(value, readInlineCaret(state, owner));
 	return {
 		state: withInlineDraft({ ...state, inputMode: true, inlineInputOwner: owner }, owner, value, caret),
 		effects: [{ kind: "set_input_buffer", value, caret }],

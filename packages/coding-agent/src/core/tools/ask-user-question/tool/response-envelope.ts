@@ -42,6 +42,12 @@ export function buildQuestionnaireResponse(result: QuestionnaireResult | null | 
 	}
 	if (containsChatAnswer) {
 		const answerSegments = segments.length > 0 ? ` ${segments.join(" ")}` : "";
+		// Mixed-dialog precedence: signal-only chat WINS. In a multi-question dialog where one
+		// question carried typed chat and another is signal-only, the whole envelope takes the
+		// `terminate: true` stop/wait path — a bare "chat about this" is an explicit request to
+		// pause the structured flow, so it dominates. The typed message is not lost: it still
+		// rides along in `answerSegments` for context. This precedence is a deliberate product
+		// decision; mixing typed + signal-only chat across questions is a rare edge.
 		const hasSignalOnlyChat = result.answers.some((a) => a.kind === "chat" && chatAnswerIntent(a) === undefined);
 		if (!hasSignalOnlyChat) {
 			return buildToolResult(`${TYPED_CHAT_DIRECTIVE}${answerSegments}`, result);

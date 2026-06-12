@@ -1,6 +1,10 @@
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import type { OAuthCredentials, OAuthLoginCallbacks } from "@earendil-works/pi-ai";
+import type { CursorAuthService } from "../../packages/cursor/src/auth.js";
+import type { CursorModelCatalog } from "../../packages/cursor/src/model-mapper.js";
+import type { CursorModelDiscoveryService } from "../../packages/cursor/src/models.js";
 import { registerCursorProvider } from "../../packages/cursor/src/provider.js";
 import { CursorMockTransport } from "../../packages/cursor/src/transport.js";
 
@@ -30,6 +34,65 @@ describe("Cursor provider registration", () => {
 		assert.equal(typeof config?.streamSimple, "function");
 		assert.ok(config?.models.some((model) => model.id === "composer-2" && /estimated/u.test(model.name)));
 		assert.equal(shutdownHandlers.length, 1);
+		await runtime.dispose();
+	});
+
+	test("login and refresh use the production UUID generator and re-register the live catalog", async () => {
+		const registrations: { readonly name: string; readonly config: CursorConfig }[] = [];
+		const host: CursorHost = {
+			registerProvider(name, config) {
+				registrations.push({ name, config });
+			},
+			on() {},
+		};
+		const fakeAuth = {
+			async login(_callbacks: OAuthLoginCallbacks): Promise<OAuthCredentials> {
+				return { access: "access-live", refresh: "refresh-live", expires: 123 };
+			},
+			async refreshToken(credentials: OAuthCredentials): Promise<OAuthCredentials> {
+				return { access: "access-refreshed", refresh: credentials.refresh, expires: 456 };
+			},
+		} as unknown as CursorAuthService;
+		const discoveryRequests: { readonly accessToken: string; readonly requestId: string; readonly signal?: AbortSignal }[] = [];
+		const fakeDiscovery = {
+			async discover(accessToken: string, requestId: string, signal?: AbortSignal): Promise<CursorModelCatalog> {
+				discoveryRequests.push({ accessToken, requestId, signal });
+				return {
+					source: "live",
+					fetchedAt: 42,
+					models: [{ id: "composer-2", displayName: "Live Composer", supportsReasoning: true, contextWindow: 111, maxTokens: 222 }],
+				};
+			},
+		} as unknown as CursorModelDiscoveryService;
+		const signal = new AbortController().signal;
+
+		const runtime = registerCursorProvider(host, {
+			transport: new CursorMockTransport(),
+			authService: fakeAuth,
+			discoveryService: fakeDiscovery,
+		});
+		const loginCredentials = await registrations.at(-1)?.config.oauth.login({
+			onAuth() {},
+			onDeviceCode() {},
+			onPrompt: async () => "",
+			onSelect: async () => undefined,
+			signal,
+		});
+		const refreshCredentials = await registrations.at(-1)?.config.oauth.refreshToken(loginCredentials ?? { access: "", refresh: "", expires: 0 });
+
+		assert.deepEqual(loginCredentials, { access: "access-live", refresh: "refresh-live", expires: 123 });
+		assert.deepEqual(refreshCredentials, { access: "access-refreshed", refresh: "refresh-live", expires: 456 });
+		assert.equal(registrations.length, 3);
+		assert.deepEqual(discoveryRequests.map((request) => request.accessToken), ["access-live", "access-refreshed"]);
+		assert.equal(discoveryRequests[0]?.signal, signal);
+		for (const request of discoveryRequests) {
+			assert.match(request.requestId, /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu);
+		}
+		for (const registration of registrations.slice(1)) {
+			const liveComposer = registration.config.models.find((model) => model.id === "composer-2");
+			assert.equal(liveComposer?.name, "Live Composer");
+			assert.equal(liveComposer?.contextWindow, 111);
+		}
 		await runtime.dispose();
 	});
 

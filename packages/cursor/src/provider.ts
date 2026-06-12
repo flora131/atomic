@@ -1,3 +1,4 @@
+import { randomUUID as nodeRandomUUID } from "node:crypto";
 import type {
 	Api,
 	AssistantMessageEventStream,
@@ -58,16 +59,20 @@ export interface CursorProviderRuntime {
 	dispose(): Promise<void>;
 }
 
+function defaultCursorUuid(): string {
+	return nodeRandomUUID();
+}
+
 export function registerCursorProvider(pi: CursorProviderHost, options: CursorProviderRegistrationOptions = {}): CursorProviderRuntime {
 	const transport = options.transport ?? new Http2CursorAgentTransport();
-	const authService = options.authService ?? new CursorAuthService({ uuid: options.uuid });
+	const uuid = options.uuid ?? defaultCursorUuid;
+	const authService = options.authService ?? new CursorAuthService({ uuid });
 	const discoveryService = options.discoveryService ?? new CursorModelDiscoveryService({ transport });
 	const streamAdapter = options.streamAdapter ?? new CursorStreamAdapter({
 		transport,
 		conversationState: new CursorConversationStateStore(),
-		uuid: options.uuid,
+		uuid,
 	});
-	const uuid = options.uuid ?? crypto.randomUUID;
 
 	const registerCatalog = (catalogModels: readonly CursorProviderModelDefinition[]): void => {
 		pi.registerProvider(CURSOR_PROVIDER_ID, {
@@ -105,7 +110,10 @@ export function registerCursorProvider(pi: CursorProviderHost, options: CursorPr
 			const liveCatalog = ensureDefaultCursorModel(await discoveryService.discover(accessToken, requestId, signal));
 			registerCatalog(mapCursorCatalogToProviderModels(liveCatalog));
 		} catch (error) {
-			if (throwOnEmptyCatalog && error instanceof CursorModelDiscoveryError && error.code === "NoUsableModels") {
+			if (!(error instanceof CursorModelDiscoveryError)) {
+				throw error;
+			}
+			if (throwOnEmptyCatalog && error.code === "NoUsableModels") {
 				throw error;
 			}
 			registerCatalog(mapCursorCatalogToProviderModels(createEstimatedCursorCatalog()));

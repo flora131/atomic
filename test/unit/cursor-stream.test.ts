@@ -54,7 +54,57 @@ async function collectEvents(stream: AsyncIterable<AssistantMessageEvent>, onEve
 	return events;
 }
 
+async function collectEventsWithTimeout(stream: AsyncIterable<AssistantMessageEvent>, timeoutMs = 250): Promise<AssistantMessageEvent[]> {
+	let timeout: ReturnType<typeof setTimeout> | undefined;
+	try {
+		return await Promise.race([
+			collectEvents(stream),
+			new Promise<never>((_resolve, reject) => {
+				timeout = setTimeout(() => reject(new Error("timed out waiting for cursor stream to end")), timeoutMs);
+			}),
+		]);
+	} finally {
+		if (timeout) clearTimeout(timeout);
+	}
+}
+
 describe("CursorStreamAdapter", () => {
+	test("uses the production UUID generator when no test UUID is injected", async () => {
+		const transport = new CursorMockTransport({ messages: [{ type: "textDelta", text: "ok" }, { type: "done", reason: "stop" }] });
+		const adapter = new CursorStreamAdapter({ transport });
+
+		const events = await collectEventsWithTimeout(adapter.streamSimple(model(), context(), { apiKey: "access-secret" }));
+
+		assert.equal(events.at(-1)?.type, "done");
+		assert.match(transport.runs[0]?.request.requestId ?? "", /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu);
+		assert.deepEqual(transport.getLifecycleSnapshot(), { openStreams: 0, cancelledStreams: 0, closedStreams: 1 });
+	});
+
+	test("turns UUID generator failures into a terminal error event and closes the stream", async () => {
+		const transport = new CursorMockTransport({ messages: [{ type: "done", reason: "stop" }] });
+		const adapter = new CursorStreamAdapter({
+			transport,
+			uuid: () => {
+				throw new Error("uuid exploded access-secret");
+			},
+		});
+		const stream = adapter.streamSimple(model(), context(), { apiKey: "access-secret" });
+
+		const [events, result] = await Promise.all([collectEventsWithTimeout(stream), stream.result()]);
+
+		assert.deepEqual(events.map((event) => event.type), ["start", "error"]);
+		const terminal = events.at(-1);
+		assert.equal(terminal?.type, "error");
+		if (terminal?.type === "error") {
+			assert.equal(terminal.reason, "error");
+			assert.equal(terminal.error.stopReason, "error");
+			assert.match(terminal.error.errorMessage ?? "", /uuid exploded/u);
+			assert.doesNotMatch(terminal.error.errorMessage ?? "", /access-secret/u);
+		}
+		assert.equal(result.stopReason, "error");
+		assert.equal(transport.runs.length, 0);
+	});
+
 	test("maps fake Cursor text, thinking, tool-call, usage, and done messages to streamSimple events", async () => {
 		const transport = new CursorMockTransport({
 			messages: [

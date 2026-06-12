@@ -1,3 +1,4 @@
+import { randomUUID as nodeRandomUUID } from "node:crypto";
 import {
 	type Api,
 	type AssistantMessage,
@@ -29,6 +30,10 @@ type IteratorReadResult =
 	| { readonly kind: "message"; readonly result: IteratorResult<CursorServerMessage> }
 	| { readonly kind: "aborted" };
 
+function defaultCursorUuid(): string {
+	return nodeRandomUUID();
+}
+
 export class CursorStreamAdapter {
 	readonly #runtime: CursorStreamRuntime;
 
@@ -36,7 +41,7 @@ export class CursorStreamAdapter {
 		this.#runtime = {
 			transport: options.transport,
 			conversationState: options.conversationState ?? new CursorConversationStateStore(),
-			uuid: options.uuid ?? crypto.randomUUID,
+			uuid: options.uuid ?? defaultCursorUuid,
 		};
 	}
 
@@ -65,8 +70,7 @@ export class CursorStreamAdapter {
 		stream.push({ type: "start", partial: output });
 
 		let runStream: CursorRunStream | undefined;
-		const requestId = this.#runtime.uuid();
-		const conversationId = options?.sessionId ?? requestId;
+		let conversationId: string | undefined;
 		let textIndex: number | undefined;
 		let thinkingIndex: number | undefined;
 		let terminalEventSent = false;
@@ -82,6 +86,8 @@ export class CursorStreamAdapter {
 				throw new CursorStreamAbortError();
 			}
 
+			const requestId = this.#runtime.uuid();
+			conversationId = options.sessionId ?? requestId;
 			const resolvedModelId = resolveCursorModelVariant(model.id, model.thinkingLevelMap, options.reasoning);
 			runStream = await this.#runtime.transport.run({
 				accessToken: options.apiKey,
@@ -128,7 +134,7 @@ export class CursorStreamAdapter {
 			}
 		} catch (error) {
 			const aborted = error instanceof CursorStreamAbortError || options?.signal?.aborted;
-			if (aborted && runStream) {
+			if (aborted && runStream && conversationId) {
 				await this.#runtime.conversationState.cancelTurn(conversationId);
 			}
 			output.stopReason = aborted ? "aborted" : "error";
@@ -141,7 +147,7 @@ export class CursorStreamAdapter {
 			try {
 				if (runStream && !options?.signal?.aborted) {
 					await runStream.close();
-					this.#runtime.conversationState.completeTurn(conversationId);
+					if (conversationId) this.#runtime.conversationState.completeTurn(conversationId);
 				}
 			} finally {
 				stream.end(output);

@@ -19,7 +19,7 @@ Field provenance (from `ndraiman/pi-cursor-provider` vendored `proto/agent_pb.ts
 - `AgentClientMessage.run_request = 1`
 - `AgentClientMessage.exec_client_message = 2`
 - `AgentClientMessage.conversation_action = 4`
-- `AgentRunRequest.conversation_state = 1`, `action = 2`, `model_details = 3`, `mcp_tools = 4`, `conversation_id = 5`, `custom_system_prompt = 8`; `conversation_id` is the stable Atomic session/conversation id when available, while request ids remain per-call tracing/message-id seeds.
+- `AgentRunRequest.conversation_state = 1`, `action = 2`, `model_details = 3`, `mcp_tools = 4`, `conversation_id = 5`; `conversation_id` is the stable Atomic session/conversation id when available, while request ids remain per-call tracing/message-id seeds. Cursor also has `custom_system_prompt = 8`, but Atomic intentionally does not emit it because Cursor maps it to an allowlisted/unsupported `--system-prompt` option; system prompts are carried through `ConversationStateStructure.root_prompt_messages_json = 1` instead.
 - `AgentRunRequest.mcp_tools = 4` contains a `McpTools` wrapper, not direct tool definitions; `McpTools.mcp_tools = 1` repeats `McpToolDefinition` messages.
 - `McpToolDefinition.name = 1`, `description = 2`, `input_schema = 3` (JSON schema encoded as `google.protobuf.Value` bytes), `provider_identifier = 4`, `tool_name = 5`
 - `ConversationStateStructure.root_prompt_messages_json = 1`, `turns = 8`

@@ -38,12 +38,11 @@ export class CursorProtobufProtocolCodec implements CursorProtocolCodec {
 	encodeRunRequest(request: CursorRunRequest): Uint8Array {
 		const modelDetails = encodeMessageField(3, encodeModelDetails(request.resolvedModelId, request.model.name ?? request.resolvedModelId));
 		const conversationId = encodeStringField(5, request.conversationId ?? request.requestId);
-		const customSystemPrompt = request.context.systemPrompt ? encodeStringField(8, request.context.systemPrompt) : new Uint8Array();
 		const conversationState = encodeConversationState(request);
 		const tools = encodeMcpTools(request);
 		const userText = extractCurrentActionText(request);
 		const action = userText ? encodeMessageField(2, encodeUserMessageAction(userText, request.requestId)) : new Uint8Array();
-		const runRequest = concatBytes(conversationState, action, modelDetails, tools, conversationId, customSystemPrompt);
+		const runRequest = concatBytes(conversationState, action, modelDetails, tools, conversationId);
 		return encodeMessageField(1, runRequest);
 	}
 

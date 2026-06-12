@@ -198,8 +198,13 @@ describe("Cursor HTTP2 transport boundary", () => {
 		assert.equal(decodedRunText.includes("toolResult:tool-1"), false);
 		const runRequest = cursorProtoTest.readFields(encodedRun)[0]?.value;
 		assert.ok(runRequest instanceof Uint8Array);
-		const conversationState = cursorProtoTest.readFields(runRequest).find((field) => field.fieldNumber === 1)?.value;
+		const runFields = cursorProtoTest.readFields(runRequest);
+		assert.equal(runFields.some((field) => field.fieldNumber === 8), false);
+		const conversationState = runFields.find((field) => field.fieldNumber === 1)?.value;
 		assert.ok(conversationState instanceof Uint8Array);
+		const rootPrompt = cursorProtoTest.readFields(conversationState).find((field) => field.fieldNumber === 1)?.value;
+		assert.ok(rootPrompt instanceof Uint8Array);
+		assert.match(cursorProtoTest.decodeString(rootPrompt), /system prompt/u);
 		const turnWrapper = cursorProtoTest.readFields(conversationState).find((field) => field.fieldNumber === 8)?.value;
 		assert.ok(turnWrapper instanceof Uint8Array);
 		const agentTurn = cursorProtoTest.readFields(turnWrapper).find((field) => field.fieldNumber === 1)?.value;
